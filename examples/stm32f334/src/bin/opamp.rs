@@ -40,21 +40,18 @@ async fn main(_spawner: Spawner) -> ! {
 
     info!("create adc...");
 
-    let mut adc = Adc::new(p.ADC2, Irqs);
+    let mut adc = Adc::new(p.ADC2, Irqs, adc::Config::default());
     let mut opamp = OpAmp::new(p.OPAMP2);
 
     info!("enable vrefint...");
 
-    let mut vrefint = adc.enable_vref();
-    let mut temperature = adc.enable_temperature();
+    // Only ADC1 has the temperature sensor and VBAT channels on the F3; ADC2 only has VREFINT.
+    let mut vrefint = adc.enable_vrefint();
     let mut buffer = opamp.buffer_ext(p.PA7.reborrow(), p.PA6.reborrow());
 
     loop {
         let vref = adc.read(&mut vrefint, SampleTime::Cycles6015).await;
         info!("read vref: {} (should be {})", vref, vrefint.calibrated_value());
-
-        let temp = adc.read(&mut temperature, SampleTime::Cycles6015).await;
-        info!("read temperature: {}", temp);
 
         let buffer = adc.read(&mut buffer, SampleTime::Cycles6015).await;
         info!("read buffer: {}", buffer);

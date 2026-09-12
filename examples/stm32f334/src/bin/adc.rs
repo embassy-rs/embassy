@@ -39,11 +39,11 @@ async fn main(_spawner: Spawner) -> ! {
 
     info!("create adc...");
 
-    let mut adc = Adc::new(p.ADC1, Irqs);
+    let mut adc = Adc::new(p.ADC1, Irqs, adc::Config::default());
 
     info!("enable vrefint...");
 
-    let mut vrefint = adc.enable_vref();
+    let mut vrefint = adc.enable_vrefint();
     let mut temperature = adc.enable_temperature();
 
     loop {

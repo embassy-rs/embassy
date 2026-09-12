@@ -4,7 +4,7 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel, AdcConfig, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel, Config as AdcConfig, SampleTime};
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use panic_probe as _;
 
@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner) {
 
     info!("ADC DMA example");
 
-    let mut adc1 = Adc::new_with_config(p.ADC1, AdcConfig::default());
+    let mut adc1 = Adc::new_blocking(p.ADC1, AdcConfig::default());
 
     let mut adc1_channel = p.PA0.degrade_adc();
     let mut readings = [0u16; 1];

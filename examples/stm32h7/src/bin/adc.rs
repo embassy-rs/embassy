@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC3);
+    let mut adc = Adc::new_blocking(p.ADC3, Default::default());
 
     let mut vrefint_channel = adc.enable_vrefint();
 

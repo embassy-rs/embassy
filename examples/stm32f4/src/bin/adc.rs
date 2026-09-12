@@ -1,15 +1,13 @@
 #![no_std]
 #![no_main]
 
-use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::vals::Exten;
-use embassy_stm32::adc::{Adc, AdcChannel, RegularAdcTrigger, SampleTime, Temperature, VrefInt};
+use embassy_stm32::adc::{Adc, AdcChannel, Config, Exten, RegularAdcTrigger, SampleTime};
 use embassy_stm32::triggers::TIM1_CH1;
 use embassy_stm32::{bind_interrupts, dma, peripherals};
-use embassy_time::{Delay, Timer};
+use embassy_time::Timer;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -25,24 +23,24 @@ async fn main(_spawner: Spawner) {
     let mut adc_dma_buf: [u16; 2] = [0; 2];
 
     // TODO: impl. triggers for this
-    let mut adc_ring_buffered = Adc::new(p.ADC2).into_ring_buffered(
+    let mut adc_ring_buffered = Adc::new_blocking(p.ADC2, Config::default()).into_ring_buffered(
         p.DMA2_CH2,
         &mut adc_dma_buf,
         Irqs,
         [(p.PA0.reborrow_adc(), SampleTime::Cycles112)].into_iter(),
-        RegularAdcTrigger::from(TIM1_CH1, Exten::RisingEdge),
+        Some(RegularAdcTrigger::from(TIM1_CH1, Exten::RisingEdge)),
     );
     adc_ring_buffered.start();
 
-    let mut delay = Delay;
-    let mut adc = Adc::new_with_config(p.ADC1, Default::default());
+    let mut adc = Adc::new_blocking(p.ADC1, Config::default());
     let mut pin = p.PC1;
 
     let mut vrefint = adc.enable_vrefint();
     let mut temp = adc.enable_temperature();
 
-    // Startup delay can be combined to the maximum of either
-    delay.delay_us(Temperature::start_time_us().max(VrefInt::start_time_us()));
+    // The temperature sensor and VREFINT need t_START (10 us on the F4, see the datasheet)
+    // after being switched on before their first conversion.
+    Timer::after_micros(10).await;
 
     {
         let mut configured_sequence = adc.configure_sequence(

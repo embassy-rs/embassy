@@ -104,6 +104,7 @@ macro_rules! define_peris {
 define_peris!(
     UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PA0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
@@ -113,11 +114,18 @@ define_peris!(
         DMA1_CH4_7_DMA2_CH3_5 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH4>,
         embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH5>;
     },
+    @irq ADC = {
+        DMA1_CH1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1_COMP => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
-#[cfg(any(feature = "stm32f100rd", feature = "stm32f103c8", feature = "stm32f107vc"))]
+#[cfg(feature = "stm32f100rd")]
 define_peris!(
     UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PA0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
@@ -126,12 +134,39 @@ define_peris!(
         DMA1_CHANNEL4 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH4>;
         DMA1_CHANNEL5 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH5>;
     },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
+);
+#[cfg(any(feature = "stm32f103c8", feature = "stm32f107vc"))]
+define_peris!(
+    UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PA0, ADC_DMA = DMA1_CH1,
+    @irq UART = {
+        USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
+            embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
+        DMA1_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
+        DMA1_CHANNEL3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH3>;
+        DMA1_CHANNEL4 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH4>;
+        DMA1_CHANNEL5 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH5>;
+    },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1_2 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32g491re")]
 define_peris!(
     UART = USART1, UART_TX = PC4, UART_RX = PC5, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
-    ADC = ADC2, DAC = DAC1, DAC_PIN = PA4,
+    DAC = DAC1, DAC_PIN = PA4, DAC_ADC = ADC1,
+    ADC = ADC1, ADC_PIN = PA0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
@@ -141,12 +176,19 @@ define_peris!(
         DMA1_CHANNEL5 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH5>;
         RNG => embassy_stm32::rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
     },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1_2 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32g071rb")]
 define_peris!(
     UART = USART1, UART_TX = PC4, UART_RX = PC5, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
-    ADC = ADC1, DAC = DAC1, DAC_PIN = PA4,
+    DAC = DAC1, DAC_PIN = PA4, DAC_ADC = ADC1,
+    ADC = ADC1, ADC_PIN = PA4, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
@@ -155,13 +197,20 @@ define_peris!(
         embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH3>;
         DMA1_CH4_7_DMAMUX1_OVR => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH4>;
     },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1_COMP => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32f429zi")]
 define_peris!(
     UART = USART6, UART_TX = PG14, UART_RX = PG9, UART_TX_DMA = DMA2_CH6, UART_RX_DMA = DMA2_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
-    ADC = ADC1, DAC = DAC1, DAC_PIN = PA4,
+    DAC = DAC1, DAC_PIN = PA4, DAC_ADC = ADC1,
     CAN = CAN1, CAN_RX = PD0, CAN_TX = PD1,
+    ADC = ADC1, ADC_PIN = PA4, ADC_DMA = DMA2_CH0,
     @irq UART = {
         USART6 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART6>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART6>;
@@ -170,13 +219,20 @@ define_peris!(
         DMA2_STREAM2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH2>;
         DMA2_STREAM3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH3>;
     },
+    @irq ADC = {
+        DMA2_STREAM0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32f446re")]
 define_peris!(
     UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA2_CH7, UART_RX_DMA = DMA2_CH5,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
-    ADC = ADC1, DAC = DAC1, DAC_PIN = PA4,
+    DAC = DAC1, DAC_PIN = PA4, DAC_ADC = ADC1,
     CAN = CAN1, CAN_RX = PA11, CAN_TX = PA12,
+    ADC = ADC1, ADC_PIN = PA4, ADC_DMA = DMA2_CH0,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
@@ -185,16 +241,29 @@ define_peris!(
         DMA2_STREAM2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH2>;
         DMA2_STREAM3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH3>;
     },
+    @irq ADC = {
+        DMA2_STREAM0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32wb55rg")]
 define_peris!(
     UART = LPUART1, UART_TX = PA2, UART_RX = PA3, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::LPUART1>;
         DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
         DMA1_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
+    },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
     },
 );
 #[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi"))]
@@ -202,7 +271,9 @@ define_peris!(
     CRYP_IN_DMA = DMA1_CH0, CRYP_OUT_DMA = DMA1_CH1,
     UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH0, UART_RX_DMA = DMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PB5, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH0, SPI_RX_DMA = DMA1_CH1,
-    ADC = ADC1, DAC = DAC1, DAC_PIN = PA4,
+    DAC = DAC1, DAC_PIN = PA4, DAC_ADC = ADC1,
+    // The internal channels are on ADC3.
+    ADC = ADC3, ADC_PIN = PC0, ADC_DMA = DMA1_CH0,
     @irq UART = {
         CRYP => embassy_stm32::cryp::InterruptHandler<embassy_stm32::peripherals::CRYP>;
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
@@ -210,22 +281,37 @@ define_peris!(
         DMA1_STREAM0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH0>;
         DMA1_STREAM1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
     },
+    @irq ADC = {
+        DMA1_STREAM0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC3 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC3>;
+    },
 );
 #[cfg(feature = "stm32h7a3zi")]
 define_peris!(
     UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH0, UART_RX_DMA = DMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH0, SPI_RX_DMA = DMA1_CH1,
+    // The internal channels are on ADC2.
+    ADC = ADC2, ADC_PIN = PC0, ADC_DMA = DMA1_CH0,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
         DMA1_STREAM0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH0>;
         DMA1_STREAM1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
     },
+    @irq ADC = {
+        DMA1_STREAM0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC2>;
+    },
 );
 #[cfg(feature = "stm32u585ai")]
 define_peris!(
     UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PE13, SPI_MOSI = PE15, SPI_MISO = PE14, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = GPDMA1_CH0, ADC4_PIN = PC1,
     @irq UART = {
         RNG => embassy_stm32::rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
         USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>,
@@ -233,11 +319,19 @@ define_peris!(
         GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
         GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
     },
+    @irq ADC = {
+        GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC1 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+        ADC4 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC4>;
+    },
 );
 #[cfg(feature = "stm32u5a5zj")]
 define_peris!(
     UART = LPUART1, UART_TX = PG7, UART_RX = PG8, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    ADC = ADC1, ADC_PIN = PA3, ADC_DMA = GPDMA1_CH0, ADC4_PIN = PC0,
     @irq UART = {
         RNG => embassy_stm32::rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
         LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>,
@@ -245,11 +339,19 @@ define_peris!(
         GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
         GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
     },
+    @irq ADC = {
+        GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC1_2 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+        ADC4 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC4>;
+    },
 );
 #[cfg(feature = "stm32h563zi")]
 define_peris!(
     UART = LPUART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI4, SPI_SCK = PE12, SPI_MOSI = PE14, SPI_MISO = PE13, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = GPDMA1_CH0,
     @irq UART = {
         RNG => embassy_stm32::rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
         LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>,
@@ -259,111 +361,181 @@ define_peris!(
         GPDMA1_CHANNEL5 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH5>;
         GPDMA1_CHANNEL4 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH4>;
     },
+    @irq ADC = {
+        GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC1 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32h503rb")]
 define_peris!(
     UART = USART1, UART_TX = PB14, UART_RX = PB15, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    ADC = ADC1, ADC_PIN = PA4, ADC_DMA = GPDMA1_CH0,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
         GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
         GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
+    },
+    @irq ADC = {
+        GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC1 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
     },
 );
 #[cfg(feature = "stm32c031c6")]
 define_peris!(
     UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PA0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
         DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
         DMA1_CHANNEL2_3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
+    },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
     },
 );
 #[cfg(feature = "stm32c071rb")]
 define_peris!(
     UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PA0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
         DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
         DMA1_CHANNEL2_3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
     },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32l496zg")]
 define_peris!(
     UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = DMA1_CH2, UART_RX_DMA = DMA1_CH3,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART3>;
         DMA1_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
         DMA1_CHANNEL3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH3>;
+    },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1_2 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
     },
 );
 #[cfg(feature = "stm32l4a6zg")]
 define_peris!(
     UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = DMA1_CH2, UART_RX_DMA = DMA1_CH3,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART3>;
         DMA1_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
         DMA1_CHANNEL3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH3>;
+    },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1_2 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
     },
 );
 #[cfg(feature = "stm32l4r5zi")]
 define_peris!(
     UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART3>;
         DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
         DMA1_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
+    },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
     },
 );
 #[cfg(feature = "stm32l073rz")]
 define_peris!(
     UART = USART4, UART_TX = PA0, UART_RX = PA1, UART_TX_DMA = DMA1_CH3, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PA4, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART4_5 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART4>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART4>;
         DMA1_CHANNEL2_3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>,
         embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH3>;
     },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1_COMP => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32l152re")]
 define_peris!(
     UART = USART3, UART_TX = PB10, UART_RX = PB11, UART_TX_DMA = DMA1_CH2, UART_RX_DMA = DMA1_CH3,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
-    ADC = ADC1, DAC = DAC1, DAC_PIN = PA4,
+    DAC = DAC1, DAC_PIN = PA4, DAC_ADC = ADC1,
+    ADC = ADC1, ADC_PIN = PA4, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART3>;
         DMA1_CHANNEL3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH3>;
         DMA1_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
+    },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
     },
 );
 #[cfg(feature = "stm32l552ze")]
 define_peris!(
     UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART3>;
         DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
         DMA1_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
     },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1_2 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32f767zi")]
 define_peris!(
     UART = USART6, UART_TX = PG14, UART_RX = PG9, UART_TX_DMA = DMA2_CH6, UART_RX_DMA = DMA2_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
+    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = DMA2_CH0,
     @irq UART = {
         USART6 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART6>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART6>;
@@ -371,12 +543,19 @@ define_peris!(
         DMA2_STREAM2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH2>;
         DMA2_STREAM1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH1>;
         DMA2_STREAM6 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH6>;
+    },
+    @irq ADC = {
+        DMA2_STREAM0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
     },
 );
 #[cfg(feature = "stm32f207zg")]
 define_peris!(
     UART = USART6, UART_TX = PG14, UART_RX = PG9, UART_TX_DMA = DMA2_CH6, UART_RX_DMA = DMA2_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
+    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = DMA2_CH0,
     @irq UART = {
         USART6 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART6>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART6>;
@@ -385,11 +564,18 @@ define_peris!(
         DMA2_STREAM3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH3>;
         DMA2_STREAM6 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH6>;
     },
+    @irq ADC = {
+        DMA2_STREAM0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32f303ze")]
 define_peris!(
     UART = USART1, UART_TX = PC4, UART_RX = PC5, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
@@ -397,12 +583,20 @@ define_peris!(
         DMA1_CHANNEL5 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH5>;
         DMA1_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
         DMA1_CHANNEL3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH3>;
+    },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC1_2 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
     },
 );
 #[cfg(feature = "stm32wl55jc")]
 define_peris!(
     UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    // The GPIO cannot put a clean level on an ADC pin, so the DAC drives it.
+    ADC = ADC1, ADC_PIN = PA10, ADC_DMA = DMA1_CH1, ADC_DAC = DAC1,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
@@ -411,29 +605,49 @@ define_peris!(
         DMA1_CHANNEL2 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
         DMA1_CHANNEL3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH3>;
     },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32wba52cg")]
 define_peris!(
     UART = LPUART1, UART_TX = PB5, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PB4, SPI_MOSI = PA15, SPI_MISO = PB3, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
-    ADC = ADC4, DAC_PIN = PA0,
+    DAC_PIN = PA0,
+    ADC = ADC4, ADC_PIN = PA0, ADC_DMA = GPDMA1_CH0,
     @irq UART = {
         LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::LPUART1>;
         GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
         GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
     },
+    @irq ADC = {
+        GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC4 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC4>;
+    },
 );
 #[cfg(feature = "stm32wba65ri")]
 define_peris!(
     UART = LPUART1, UART_TX = PB11, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI2, SPI_SCK = PB10, SPI_MOSI = PC3, SPI_MISO = PA9, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
-    ADC = ADC4, DAC_PIN = PA0,
+    DAC_PIN = PA0,
+    ADC = ADC4, ADC_PIN = PA0, ADC_DMA = GPDMA1_CH0,
     @irq UART = {
         LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::LPUART1>;
         GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
         GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
+    },
+    @irq ADC = {
+        GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC4 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC4>;
     },
 );
 #[cfg(feature = "stm32h7s3l8")]
@@ -441,6 +655,7 @@ define_peris!(
     CRYP_IN_DMA = GPDMA1_CH0, CRYP_OUT_DMA = GPDMA1_CH1,
     UART = USART1, UART_TX = PB14, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PB5, SPI_MISO = PA6, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = GPDMA1_CH0,
     @irq UART = {
         CRYP => embassy_stm32::cryp::InterruptHandler<embassy_stm32::peripherals::CRYP>;
         RNG => embassy_stm32::rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
@@ -449,16 +664,29 @@ define_peris!(
         GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
         GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
     },
+    @irq ADC = {
+        GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC1_2 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
 );
 #[cfg(feature = "stm32u083rc")]
 define_peris!(
     UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC1, ADC_PIN = PA0, ADC_DMA = DMA1_CH1,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
         DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
         DMA1_CHANNEL2_3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>;
+    },
+    @irq ADC = {
+        DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_IRQ = {
+        ADC_COMP1_2 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
     },
 );
 
@@ -503,6 +731,7 @@ pub fn config() -> Config {
     #[cfg(feature = "stm32wb55rg")]
     {
         config.rcc = embassy_stm32::rcc::Config::new_wpan();
+        config.rcc.mux.adcsel = mux::Adcsel::Sys;
     }
 
     #[cfg(feature = "stm32f091rc")]
@@ -786,6 +1015,7 @@ pub fn config() -> Config {
             divq: Some(PllQDiv::Div6), // 48Mhz (16 / 1 * 18 / 6)
             divr: Some(PllRDiv::Div4), // sysclk 72Mhz clock (16 / 1 * 18 / 4)
         });
+        config.rcc.mux.adcsel = mux::Adcsel::Sys;
     }
 
     #[cfg(feature = "stm32wl55jc")]
@@ -804,6 +1034,7 @@ pub fn config() -> Config {
             divq: Some(PllQDiv::Div2), // PLL1_Q clock (32 / 2 * 6 / 2), used for RNG
             divr: Some(PllRDiv::Div2), // sysclk 48Mhz clock (32 / 2 * 6 / 2)
         });
+        config.rcc.mux.adcsel = mux::Adcsel::Sys;
     }
 
     #[cfg(any(feature = "stm32l552ze"))]
@@ -819,6 +1050,7 @@ pub fn config() -> Config {
             divq: None,
             divr: Some(PllRDiv::Div2),
         });
+        config.rcc.mux.adcsel = mux::Adcsel::Sys;
     }
 
     #[cfg(any(feature = "stm32u585ai", feature = "stm32u5a5zj"))]
@@ -897,6 +1129,7 @@ pub fn config() -> Config {
         config.rcc.apb5_pre = APBPrescaler::Div2; // 150 Mhz
         config.rcc.voltage_scale = VoltageScale::High;
         config.rcc.mux.spi1sel = mux::Spi123sel::Pll1Q;
+        config.rcc.mux.adcsel = mux::Adcsel::Per;
     }
     #[cfg(any(feature = "stm32u083rc"))]
     {

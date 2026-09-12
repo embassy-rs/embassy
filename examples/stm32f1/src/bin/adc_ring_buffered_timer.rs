@@ -10,7 +10,7 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{ADC_MAX, Adc, AdcChannel as _, Exten, RegularAdcTrigger, SampleTime, VREF_INT};
+use embassy_stm32::adc::{Adc, AdcChannel as _, Config, Exten, RegularAdcTrigger, SampleTime};
 use embassy_stm32::peripherals::DMA1_CH1;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer as LowLevelTimer};
@@ -26,6 +26,8 @@ bind_interrupts!(struct Irqs {
 const SEQUENCE_LEN: usize = 3;
 /// Scans per half-buffer. `read` returns once the DMA has filled a half.
 const SCANS_PER_HALF: usize = 4;
+/// Nominal VREFINT voltage on the F1 (datasheet: 1.20 V typical).
+const VREFINT_MV: u32 = 1200;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -42,8 +44,9 @@ async fn main(_spawner: Spawner) {
     timer.set_frequency(Hertz::hz(4), RoundTo::Slower);
     timer.set_master_mode(MasterMode::Update);
 
-    let mut adc = Adc::new(p.ADC1);
-    let mut vrefint = adc.enable_vref();
+    let mut adc = Adc::new_blocking(p.ADC1, Config::default());
+    let adc_max = adc.resolution().max_count();
+    let mut vrefint = adc.enable_vrefint();
     let mut temperature = adc.enable_temperature();
 
     // The temperature sensor and VrefInt need a long sample time (>17.1 us on F1).
@@ -62,7 +65,7 @@ async fn main(_spawner: Spawner) {
         &mut dma_buf,
         Irqs,
         sequence,
-        RegularAdcTrigger::from(TIM3_TRGO, Exten),
+        Some(RegularAdcTrigger::from(TIM3_TRGO, Exten::RisingEdge)),
     );
 
     // Arm the DMA before the first trigger, so the scan lands at buffer index 0
@@ -83,8 +86,8 @@ async fn main(_spawner: Spawner) {
 
                     // VrefInt is a known 1.20 V, so it calibrates VDDA and lets the
                     // other channels be converted without assuming a 3.3 V rail.
-                    let vdda_mv = VREF_INT * ADC_MAX / vrefint_sample.max(1) as u32;
-                    let pa0_mv = pa0 as u32 * vdda_mv / ADC_MAX;
+                    let vdda_mv = VREFINT_MV * adc_max / vrefint_sample.max(1) as u32;
+                    let pa0_mv = pa0 as u32 * vdda_mv / adc_max;
 
                     info!(
                         "scan {}: vrefint={} temp={} pa0={} ({} mV, VDDA {} mV)",

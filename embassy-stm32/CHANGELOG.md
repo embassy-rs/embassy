@@ -16,6 +16,14 @@ Align to API guidelines:
 - change: stm32/usart: `Uart::split_ref` returns owned `(UartTx<'_, M>, UartRx<'_, M>)` halves instead of `&mut` references.
 - change: stm32/usart: removed the `nb`-based `embedded_hal_02::serial::Read` and `embedded_hal_nb::serial::{Read, Write}` implementations.
 - change: stm32/adc: the interrupt-driven `irq_read` is now `read`; the DMA method previously named `read` is now `read_sequence`.
+- change: stm32/adc: one `Adc<'d, T, M: Mode>` driver for every chip, with the same API everywhere. Methods and configuration options only exist on chips whose ADC supports them.
+- change: stm32/adc: constructors are `Adc::new(adc, irqs, config)` and `Adc::new_blocking(adc, config)`. `Config` sets resolution, averaging/oversampling, clock and dual mode. Removed `new_with_config`, `new_with_clock`, `set_averaging`, `set_oversampling`, `AdcConfig`, `Presc`, `Ckmode`.
+- change: stm32/adc: `enable_vref` is now `enable_vrefint`; `enable_temperature`, `enable_vbat`, `enable_vddcore`, `enable_dac` exist only on instances with that channel.
+- change: stm32/adc: `SampleTime` and `Exten` are the PAC enums. `resolution_to_max_count` is replaced by `Resolution::max_count()`.
+- change: stm32/adc: analog watchdogs are `Adc::enable_watchdog(...)` returning `AnalogWatchdog` with `is_triggered`, `wait`, `monitor`.
+- change: stm32/adc: `setup_injected_conversions` and `into_ring_buffered_and_injected` take the interrupt binding first and a mode (`Async`/`Blocking`).
+- feat: stm32/adc: DMA sequences, ring buffers, triggers, injected conversions, watchdogs, oversampling, differential inputs and `clock()` on every chip that has the hardware.
+- fix: stm32/adc: G0/C0 DMA sequences kept the wrong sample time; F0/L0 multi-channel DMA sequences hung; H7 internal channels are on `ADC3` (`ADC2` on H7A3/B3); H5/L5/U5 ran the ADC above its maximum clock; U5 `ADC12_COMMON` was at the wrong address.
 - change: stm32/spi: `set_config` returns `Result<(), spi::ConfigError>` instead of `Result<(), ()>`.
 - feat: stm32/i2c: implement `embedded_hal_02::blocking::i2c::Transactional` for `I2c`.
 - change: stm32: the interrupt binding argument now comes after all peripheral arguments in `eth`, `usb`, `sdmmc`, `ltdc`, `ucpd`, `dac`, `dcmi`, `adf`, `mdf`, `spdifrx`, `i2s`, `sai`, `spi` and `tsc` constructors.

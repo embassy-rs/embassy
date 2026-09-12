@@ -8,7 +8,7 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcConfig, Clock, Ovsr, Ovss, Presc, SampleTime};
+use embassy_stm32::adc::{Adc, Clock, Config, Oversampling, OversamplingRatio, Prescaler, SampleTime};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -17,13 +17,12 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Adc oversample test");
 
-    let mut config = AdcConfig::default();
-    config.clock = Some(Clock::Async { div: Presc::Div1 });
-    config.oversampling_ratio = Some(Ovsr::Mul16);
-    config.oversampling_shift = Some(Ovss::NoShift);
-    config.oversampling_enable = Some(true);
+    let mut config = Config::default();
+    config.clock = Clock::Async(Prescaler::Div1);
+    // Accumulate 16 samples without shifting the sum: 12-bit samples become 16-bit results.
+    config.oversampling = Some(Oversampling::new(OversamplingRatio::X16, 0));
 
-    let mut adc = Adc::new_with_config(p.ADC1, config);
+    let mut adc = Adc::new_blocking(p.ADC1, config);
     let mut pin = p.PA1;
 
     loop {

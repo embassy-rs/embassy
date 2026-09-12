@@ -4,7 +4,7 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel, Resolution, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel, Config, Resolution, SampleTime};
 use embassy_stm32::peripherals::DMA1_CH1;
 use embassy_stm32::{bind_interrupts, dma};
 use embassy_time::Timer;
@@ -22,7 +22,9 @@ async fn main(_spawner: Spawner) {
     info!("ADC STM32C0 example.");
 
     // We need to set certain sample time to be able to read temp sensor.
-    let mut adc = Adc::new(p.ADC1, Resolution::Bits12);
+    let mut adc_config = Config::default();
+    adc_config.resolution = Some(Resolution::Bits12);
+    let mut adc = Adc::new_blocking(p.ADC1, adc_config);
     let mut temperature = adc.enable_temperature();
     let mut vrefint = adc.enable_vrefint();
 
@@ -52,7 +54,7 @@ async fn main(_spawner: Spawner) {
             &mut read_buffer,
         )
         .await;
-        // Values are ordered according to hardware ADC channel number!
+        // Values are ordered according to the sequence.
         info!(
             "DMA ADC read in set: vref = {}, temp = {}, pin0 = {}.",
             read_buffer[0], read_buffer[1], read_buffer[2]

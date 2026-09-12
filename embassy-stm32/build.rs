@@ -252,6 +252,16 @@ fn main() {
     }
 
     cfgs.declare_all(&[
+        "adc_v2_u5",
+        "adc_oversampler",
+        "adc_oversampler_1024",
+        "adc_sync_clock",
+        "adc_sync_div1",
+        "adc_presc_f4",
+        "adc_presc_l1",
+        "adc_presc_full",
+        "adc_res14",
+        "adc_res16",
         "peri_adc1",
         "peri_adc2",
         "peri_adc3",
@@ -2241,9 +2251,7 @@ fn main() {
     }
 
     for (p, regs) in &peripheral_list {
-        if (regs.kind == "adc" && (regs.version == "f3v3" || regs.version == "wb1"))
-            || ((regs.kind == "dac" || regs.kind == "hash") && chip_name.starts_with("stm32c5"))
-        {
+        if (regs.kind == "dac" || regs.kind == "hash") && chip_name.starts_with("stm32c5") {
             continue;
         }
 
@@ -2582,12 +2590,90 @@ fn main() {
             for p2 in METADATA.peripherals {
                 if let Some(common_nums) = p2.name.strip_prefix("ADC").and_then(|s| s.strip_suffix("_COMMON"))
                     && common_nums.contains(adc_num)
+                    // Common peripherals without registers (their bits live in the ADC block).
+                    && p2.registers.is_some()
                 {
                     adc_common = Some(p2);
                 }
             }
             let adc_common = adc_common.map(|p| p.name).unwrap_or("none");
-            let row = vec![p.name.to_string(), adc_common.to_string(), "adc".to_string()];
+            // Which driver implementation handles this instance: the first component of the
+            // register version (`v1_f4` -> legacy `v1`, ...). The U5 has both ADC generations
+            // in one register version; its `ADC4` block is a `v2` ADC.
+            let family = match (regs.version, regs.block) {
+                ("v3_u5", "ADC4") => {
+                    cfgs.enable("adc_v2");
+                    cfgs.enable("adc_v2_u5");
+                    "v2"
+                }
+                (version, _) => version.split('_').next().unwrap(),
+            };
+            // Which configuration options the hardware has, so the `Config` enums only offer
+            // what this chip can do.
+            for (cfg, enable) in [
+                (
+                    "adc_oversampler",
+                    matches!(
+                        regs.version,
+                        "v2_l0"
+                            | "v2_g0"
+                            | "v2_wba"
+                            | "v3_l4"
+                            | "v3_g4"
+                            | "v3_h7"
+                            | "v3_u5"
+                            | "v3_u3"
+                            | "v3_n6"
+                            | "v3_c5"
+                    ),
+                ),
+                (
+                    "adc_oversampler_1024",
+                    matches!(
+                        (regs.version, regs.block),
+                        ("v3_h7" | "v3_u3" | "v3_n6" | "v3_c5", _) | ("v3_u5", "ADC")
+                    ),
+                ),
+                (
+                    "adc_sync_clock",
+                    matches!(
+                        regs.version,
+                        "v2_f0" | "v2_l0" | "v2_wb1" | "v2_g0" | "v3_f3" | "v3_l4" | "v3_g4" | "v3_h7"
+                    ),
+                ),
+                (
+                    "adc_sync_div1",
+                    matches!(
+                        regs.version,
+                        "v2_l0" | "v2_wb1" | "v2_g0" | "v3_f3" | "v3_l4" | "v3_g4" | "v3_h7"
+                    ),
+                ),
+                ("adc_presc_f4", regs.version == "v1_f4"),
+                ("adc_presc_l1", regs.version == "v1_l1"),
+                (
+                    "adc_presc_full",
+                    matches!(
+                        regs.version,
+                        "v2_l0" | "v2_wb1" | "v2_g0" | "v2_wba" | "v3_u5" | "v3_l4" | "v3_g4" | "v3_h7" | "v3_u3"
+                    ),
+                ),
+                (
+                    "adc_res14",
+                    matches!((regs.version, regs.block), ("v3_h7", _) | ("v3_u5", "ADC")),
+                ),
+                ("adc_res16", regs.version == "v3_h7"),
+            ] {
+                if enable {
+                    cfgs.enable(cfg);
+                }
+            }
+            // The Rust type name of the register block (`ADC` -> `Adc`, `ADC4` -> `Adc4`).
+            let block = {
+                let mut b = regs.block.to_ascii_lowercase();
+                b[..1].make_ascii_uppercase();
+                b
+            };
+            let row = vec![p.name.to_string(), adc_common.to_string(), block, family.to_string()];
             adc_table.push(row);
         }
 

@@ -5,7 +5,7 @@ use defmt::*;
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, SampleTime};
+use embassy_stm32::adc::{Adc, Config, SampleTime};
 use embassy_time::Timer;
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -45,7 +45,7 @@ async fn async_main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC1);
+    let mut adc = Adc::new_blocking(p.ADC1, Config::default());
     let mut pin = p.PA10;
 
     let mut vrefint = adc.enable_vrefint();

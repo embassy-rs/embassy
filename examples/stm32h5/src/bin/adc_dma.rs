@@ -4,7 +4,7 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{self, Adc, AdcChannel, RxDma, SampleTime};
+use embassy_stm32::adc::{self, Adc, AdcChannel, BasicAdcRegs, RxDma, SampleTime};
 use embassy_stm32::peripherals::{ADC1, ADC2, GPDMA1_CH0, GPDMA1_CH1, PA0, PA1, PA2, PA3};
 use embassy_stm32::{Config, Peri, bind_interrupts, dma, interrupt};
 use embassy_time::{Duration, Instant, Ticker};
@@ -79,11 +79,12 @@ async fn adc_task<'a, T, D, I>(
     mut pin1: impl AdcChannel<'_, T>,
     mut pin2: impl AdcChannel<'_, T>,
 ) where
-    T: adc::DefaultInstance,
+    T: adc::Instance,
+    T::Regs: BasicAdcRegs<SampleTime = SampleTime>,
     D: RxDma<T>,
     I: interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + Copy,
 {
-    let mut adc = Adc::new(adc);
+    let mut adc = Adc::new_blocking(adc, adc::Config::default());
 
     info!("adc init");
 

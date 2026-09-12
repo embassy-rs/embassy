@@ -21,8 +21,9 @@
 
 use defmt::*;
 use defmt_rtt as _;
-use embassy_stm32::adc::adc4::Calibration;
-use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, adc4};
+use embassy_stm32::adc::{
+    Adc, AdcChannel, Calibration, Config as AdcConfig, OversamplingRatio, Resolution, RingBufferedAdc, SampleTime,
+};
 use embassy_stm32::peripherals::GPDMA1_CH1;
 use embassy_stm32::{Config, bind_interrupts, dma};
 use panic_probe as _;
@@ -53,16 +54,17 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Initialize ADC4 with appropriate settings
     // Maximum averaging (Samples256) with longest sample time for best accuracy
-    let mut adc = Adc::new_adc4(p.ADC4);
-    adc.set_resolution_adc4(adc4::Resolution::Bits12);
-    adc.set_averaging_adc4(adc4::Averaging::Samples256);
+    let mut adc_config = AdcConfig::default();
+    adc_config.resolution = Some(Resolution::Bits12);
+    adc_config.averaging = Some(OversamplingRatio::X256);
+    let mut adc = Adc::new_blocking(p.ADC4, adc_config);
 
-    let max_count = adc4::resolution_to_max_count(adc4::Resolution::Bits12);
+    let max_count = adc.resolution().max_count();
 
     // Enable internal channels
-    let mut vrefint = adc.enable_vrefint_adc4();
-    let mut temperature = adc.enable_temperature_adc4();
-    let mut vcore = adc.enable_vcore_adc4();
+    let mut vrefint = adc.enable_vrefint();
+    let mut temperature = adc.enable_temperature();
+    let mut vcore = adc.enable_vddcore();
 
     // Degrade to AnyAdcChannel for use with DMA
     // IMPORTANT: Order matters for ADC4 - must be ascending channel numbers
@@ -80,9 +82,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
         unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) },
         Irqs,
         [
-            (vrefint.reborrow_adc(), adc4::SampleTime::Cycles795), // Channel 0 - VREFINT
-            (vcore.reborrow_adc(), adc4::SampleTime::Cycles795),   // Channel 12 - VCORE
-            (temperature.reborrow_adc(), adc4::SampleTime::Cycles795), // Channel 13 - Temperature
+            (vrefint.reborrow_adc(), SampleTime::Cycles795), // Channel 0 - VREFINT
+            (vcore.reborrow_adc(), SampleTime::Cycles795),   // Channel 12 - VCORE
+            (temperature.reborrow_adc(), SampleTime::Cycles795), // Channel 13 - Temperature
         ]
         .into_iter(),
         None,
