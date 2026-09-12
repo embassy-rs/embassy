@@ -678,10 +678,10 @@ impl PinSource for OwnPins {
 impl PinSource for NeighborPins {
     const FROM_NEIGHBOR: bool = true;
 }
-/// Per‑instance "successor" channel.
+/// Per-instance "successor" channel.
 ///
-/// `C` is the instance's transceiver‑capability (`<T as Instance>::Transceivers`),
-/// so the modulo‑N wrap depends on the instance shape, not on the marker itself.
+/// `C` is the instance's transceiver-capability (`<T as Instance>::Transceivers`),
+/// so the modulo-N wrap depends on the instance shape, not on the marker itself.
 pub trait NextChannel<C: capability::TransceiverCount>: TransceiverMarker {
     /// Marker of the next channel, modulo the capability's max count.
     type Next: TransceiverMarker;
@@ -950,15 +950,15 @@ pub mod config_types {
         /// DFSDM_CHyDATINR register one sample must be read by the DFSDM filter from channel y
         Standard = 0,
         /// Interleaved: input data in DFSDM_CHyDATINR register are stored as two samples:
-        /// –first sample in INDAT0[15:0] (assigned to channel y)
-        /// –second sample INDAT1[15:0] (assigned to channel y)
+        /// -first sample in INDAT0[15:0] (assigned to channel y)
+        /// -second sample INDAT1[15:0] (assigned to channel y)
         /// To empty DFSDM_CHyDATINR register, two samples must be read by the digital filter from
         /// channel y (INDAT0[15:0] part is read as first sample and then INDAT1[15:0] part is read as next
         /// sample).
         Interleaved = 1,
         /// Dual: input data in DFSDM_CHyDATINR register are stored as two samples:
-        /// –first sample INDAT0[15:0] (assigned to channel y)
-        /// –second sample INDAT1[15:0] (assigned to channel y+1)
+        /// -first sample INDAT0[15:0] (assigned to channel y)
+        /// -second sample INDAT1[15:0] (assigned to channel y+1)
         /// To empty DFSDM_CHyDATINR register first sample must be read by the digital filter from channel
         /// y and second sample must be read by another digital filter from channel y+1. Dual mode is
         /// available only on even channel numbers (y = 0, 2, 4, 6), for odd channel numbers (y = 1, 3, 5, 7)
@@ -1399,4 +1399,21 @@ pub mod config_types {
         /// Detect both rising and falling edges
         Any = 0b11,
     }
+}
+
+/// Snapshot of the DFSDM version/ID register cluster @0x7F0 (RM0475 29.9 / RM0436/RM0441/RM0442).
+/// Present only on instances whose silicon carries the HWID cluster; see `capability::HasHwid`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Hwid {
+    /// Number of filters, self-described by silicon (`HWCFGR.NBF`).
+    pub filter_count: u8,
+    /// Number of transceivers, self-described by silicon (`HWCFGR.NBT`).
+    pub transceiver_count: u8,
+    /// Major.minor IP revision (`VERR`).
+    pub version: (u8, u8),
+    /// IP identifier (`IPIDR`).
+    pub ip_id: u32,
+    /// Fixed silicon ID + size code (`SIDR`).
+    pub silicon_id: u32,
 }

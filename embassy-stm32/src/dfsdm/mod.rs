@@ -187,6 +187,30 @@ where
     }
 }
 
+impl<'d, T, C> Dfsdm<'d, T, C>
+where
+    T: Instance + capability::HasHwid,
+    C: ClockOutputMode,
+{
+    /// Reads the version/ID register cluster.
+    ///
+    /// `filter_count`/`transceiver_count` self-describe the silicon; embassy's
+    /// compile-time capability tags remain the primary shape mechanism.
+    /// This is informational, not a runtime capability probe.
+    pub fn hwid() -> Hwid {
+        let hwcfgr = T::regs().hwid().hwcfgr().read();
+        let verr = T::regs().hwid().verr().read();
+
+        Hwid {
+            filter_count: hwcfgr.nbf(),
+            transceiver_count: hwcfgr.nbt(),
+            version: (verr.majrev(), verr.minrev()),
+            ip_id: T::regs().hwid().ipidr().read().0,
+            silicon_id: T::regs().hwid().sidr().read().0,
+        }
+    }
+}
+
 // =============================================================================
 // DfsdmCommon
 // =============================================================================
@@ -1499,12 +1523,12 @@ where
     ) -> Detectors<'a, 'd, T> {
         <T as FilterInterrupt<Flt0>>::Interrupt::unpend();
         // SAFETY: Enabling the interrupt is safe here because:
-        // 1. The `_irqs: impl Binding<…>` argument proves (at compile time) that
+        // 1. The `_irqs: impl Binding<...>` argument proves (at compile time) that
         //    `InterruptHandler<T, Flt0>::on_interrupt` is wired to this IRQ line.
         // 2. The waker is initialized in `State::new()` (const, in a static) before
         //    any interrupt can fire.
         // 3. The NVIC unmask here is independent of the peripheral IE bits:
-        //    no filter-level IE (REOCIE/JEOCIE/AWDIE/…) is set at this call site
+        //    no filter-level IE (REOCIE/JEOCIE/AWDIE/...) is set at this call site
         //    (they are armed lazily by read_*/wait_for_event); if instance-level
         //    detector IEs (SCDIE/CKABIE) are already armed by waiting tasks, any
         //    pending event is handled safely by the same handler (flag clear +
@@ -1550,12 +1574,12 @@ where
     ) -> FilterDisabled<'a, 'd, T, M> {
         <T as FilterInterrupt<M>>::Interrupt::unpend();
         // SAFETY: Enabling the interrupt is safe here because:
-        // 1. The `_irqs: impl Binding<…>` argument proves (at compile time) that
+        // 1. The `_irqs: impl Binding<...>` argument proves (at compile time) that
         //    `InterruptHandler<T, M>::on_interrupt` is wired to this IRQ line.
         // 2. The waker is initialized in `State::new()` (const, in a static) before
         //    any interrupt can fire.
         // 3. The NVIC unmask here is independent of the peripheral IE bits:
-        //    no filter-level IE (REOCIE/JEOCIE/AWDIE/…) is set at this call site
+        //    no filter-level IE (REOCIE/JEOCIE/AWDIE/...) is set at this call site
         //    (they are armed lazily by read_*/wait_for_event); if instance-level
         //    detector IEs (SCDIE/CKABIE) are already armed by waiting tasks, any
         //    pending event is handled safely by the same handler (flag clear +

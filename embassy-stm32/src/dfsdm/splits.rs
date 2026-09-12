@@ -3,7 +3,7 @@
 //! split bundles (returned by it).
 //!
 //! Both are *generated* from two tables at the bottom of this file: the
-//! [`dfsdm_split_shapes!`] split table (one entry per (channel-arity ×
+//! [`dfsdm_split_shapes!`] split table (one entry per (channel-arity x
 //! filter-count) shape; per-arity wiring - pin-set pairing including the last
 //! channel's wrap-around to `S0` - lives in the [`dfsdm_split_shape!`]
 //! dispatch arms) and the [`dfsdm_selectors!`] selector table (one block per
@@ -259,7 +259,7 @@ macro_rules! dfsdm_split_shape {
     };
 }
 
-/// The split table - one entry per (channel-arity × filter-count) DFSDM shape
+/// The split table - one entry per (channel-arity x filter-count) DFSDM shape
 /// that exists in hardware. Each line expands to the split struct plus its
 /// `Tcv*SplitBuild` impl.
 macro_rules! dfsdm_split_shapes {

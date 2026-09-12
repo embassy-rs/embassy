@@ -134,19 +134,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   - Driver side: **zero usage today** — `bkdf` appears in no embassy `.rs`
     file; the examples' "enable breakinput" comments (dfsdm_pwm*.rs) are
     exactly the use-case FT5 unlocks.
-- [ ] **FT6 — HWID accessor**, gated on `capability::HasHwid`. Read-only
-  version-register cluster @0x7F0 (`DfsdmSuperset::hwid()`), documented in
-  RM0475 §29.9 (MP13) and RM0436/RM0441/RM0442 (MP15x) — exactly the chips
-  whose blocks carry the HWID cluster (section title "DFSDM version
-  registers"; found via register names, not a "HWID" string search):
-  - `DFSDM_HWCFGR` @0x7F0 (reset 0x0000_0204): `NBF[15:8]` filters,
-    `NBT[7:0]` transceivers — self-describing silicon (MP13: 2 filters /
-    4 transceivers, matches the block shape). A runtime capability probe is
-    possible, but embassy's compile-time capability tags stay the primary
-    mechanism — doc note only.
-  - `DFSDM_VERR` @0x7F4 (reset 0x21 = MAJREV 2 / MINREV 1)
-  - `DFSDM_IPIDR` @0x7F8 (reset 0x0011_0031)
-  - `DFSDM_SIDR` @0x7FC (reset 0xA3C5DD02 = fixed code 0xA3C5DD + 2 KB)
 - [ ] **FT21 — AWD-filter naming (the code half of the old D14).** Per-channel
   *fast filter* (AWFORD/AWFOSR + WDATR) feeding the per-filter *comparator*
   (AWDCH/AWHT/AWLT/…AWHTF/AWLTF/BKAWH/BKAWL), mode-selected by AWFSEL
@@ -776,3 +763,16 @@ Summary (each blocks DFSDM availability for whole chip groups):
   - Doc: write starts skipping immediately; updating mid-skip is allowed;
     ≤63 pulses per write, skip more by repeated writes; cumulative skipped
     count is the app's job. (Doc clauses ride T-doc.)
+- [X] **FT6 — HWID accessor**, gated on `capability::HasHwid`. Read-only
+  version-register cluster @0x7F0 (`DfsdmSuperset::hwid()`), documented in
+  RM0475 §29.9 (MP13) and RM0436/RM0441/RM0442 (MP15x) — exactly the chips
+  whose blocks carry the HWID cluster (section title "DFSDM version
+  registers"; found via register names, not a "HWID" string search):
+  - `DFSDM_HWCFGR` @0x7F0 (reset 0x0000_0204): `NBF[15:8]` filters,
+    `NBT[7:0]` transceivers — self-describing silicon (MP13: 2 filters /
+    4 transceivers, matches the block shape). A runtime capability probe is
+    possible, but embassy's compile-time capability tags stay the primary
+    mechanism — doc note only.
+  - `DFSDM_VERR` @0x7F4 (reset 0x21 = MAJREV 2 / MINREV 1)
+  - `DFSDM_IPIDR` @0x7F8 (reset 0x0011_0031)
+  - `DFSDM_SIDR` @0x7FC (reset 0xA3C5DD02 = fixed code 0xA3C5DD + 2 KB)
