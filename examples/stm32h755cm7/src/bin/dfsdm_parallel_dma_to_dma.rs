@@ -91,7 +91,7 @@ async fn main(_spawner: Spawner) {
 
     let mut buffer_regular = [0u32; 32];
 
-    let mut ring_buffered_filter_regular = flt0.reg.ring_buffered(p.DMA1_CH0, Irqs, &mut buffer_regular);
+    let mut ring_buffered_filter_regular = flt0.regular.ring_buffered(p.DMA1_CH0, Irqs, &mut buffer_regular);
 
     ring_buffered_filter_regular.start();
     ring_buffered_filter_regular.start_conversion();

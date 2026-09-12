@@ -119,7 +119,7 @@ async fn main(_spawner: Spawner) {
 
     short_circuit.assign_transceivers([ShortCircuitAssignment::new(&channel_mic, 12)]);
     loop {
-        _flt0.reg.start_regular_conversion();
+        _flt0.regular.start_conversion();
         let event = short_circuit.wait_for_event().await;
         println!("Short Circuit! Channels: {:#08b}", event);
     }

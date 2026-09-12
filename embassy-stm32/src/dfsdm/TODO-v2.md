@@ -95,24 +95,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     headers read `T: Instance + FilterInterrupt<M>, M: FilterFlow<T>`.
   - Either is cosmetic; default to leaving the cluster as-is if neither earns
     its churn. Verify empirically (playground + chip matrix) before committing.
-- [ ] **FT3 — `wait_for_sync()` / `synchronized()` on Transceiver** (replaces
-  time-based "blanking"; RM0455 §33.4.4 Clock absence sequence): after
-  `CHEN=1`, repeatedly write `CLRCKABF[y]` until `CKABF[y]` reads 0 — the flag
-  is held set (and un-clearable) until the transceiver is synchronized; only
-  then enable CKABEN=1 (+CKABIE). Non-blocking-sleep poll, no embassy-time dep.
-  Silicon-observed (E3): without this wait, the unsynced latch surfaces as a
-  one-shot event at the first `wait_for_event`.
-  Doc: CKAB is valid only with CKOUTSRC=0 (system clock).
-  Masking rule (E2): only read/clear `CKABF[y]` for channels with
-  CKABEN=1 && CHEN=1 — disabled channels hold their flags set; the sync wait
-  must never inspect the raw 8-bit mask (FT12).
-- [ ] **FT4 — Detector `clear_flags()`** on `ShortCircuitDetector` /
-  `ClockAbsenceDetector` (FLT0 ICR). Explicit "arm" primitive so an app can
-  clear startup residue after its own settle delay; complements FT3 (SCD is
-  not expected spurious at startup, but symmetric API is cheap). Motivating
-  case observed on silicon (E3): the CKABF startup latch wakes the first
-  `wait_for_event` exactly once — `clear_flags` after assign is the interim
-  remedy until FT3 lands.
 - [ ] **FT5 — TIM break enables,
   `#[cfg(all(dfsdm, any(timer_v1, timer_v3)))]`.** Fields exist only in
   metapac `timer_v1`/`timer_v3`; every DFSDM chip uses one of those (F4/F7/L4/L5
@@ -199,11 +181,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   (repr `Dfsdm2ch1fltTrg5`, `Tcv2`, `Flt1`, delay/hwid/adc_input = false) plus
   `DFSDM_2CH_1FLT_TRG5` in the single-IRQ `impl_dfsdm_filter_irqs!`
   (FLT0 => Flt0) list in associations.rs.
-- [ ] **FT11 — ISR accessor completeness** (extends FT4). Generic
-  `get_flags()` / `clear_flags(mask)` over ROVRF/JOVRF/REOCF/JEOCF/AWDF/
-  SCDF/CKABF (+ per-channel clears via AWCFR/CLRCKABF/CLRSCDF). CKABF bits
-  masked by the armed set (E2/FT12) and documented as meaningless for disabled
-  channels. ADC-parity "read all status" layer.
 
 ---
 
@@ -776,3 +753,26 @@ Summary (each blocks DFSDM availability for whole chip groups):
 - [x] **FT1 — Overrun, propagated everywhere** (RM0455 §33.5, Table 254:
   "data not read and overwritten by a new conversion"; JOVRF/ROVRF cleared via
   ICR write-1, enabled by JOVRIE/ROVRIE). DONE (2026-01).
+- [X] **FT3 — `wait_for_sync()` / `synchronized()` on Transceiver** (replaces
+  time-based "blanking"; RM0455 §33.4.4 Clock absence sequence): after
+  `CHEN=1`, repeatedly write `CLRCKABF[y]` until `CKABF[y]` reads 0 — the flag
+  is held set (and un-clearable) until the transceiver is synchronized; only
+  then enable CKABEN=1 (+CKABIE). Non-blocking-sleep poll, no embassy-time dep.
+  Silicon-observed (E3): without this wait, the unsynced latch surfaces as a
+  one-shot event at the first `wait_for_event`.
+  Doc: CKAB is valid only with CKOUTSRC=0 (system clock).
+  Masking rule (E2): only read/clear `CKABF[y]` for channels with
+  CKABEN=1 && CHEN=1 — disabled channels hold their flags set; the sync wait
+  must never inspect the raw 8-bit mask (FT12).
+- [X] **FT4 — Detector `clear_flags()`** on `ShortCircuitDetector` /
+  `ClockAbsenceDetector` (FLT0 ICR). Explicit "arm" primitive so an app can
+  clear startup residue after its own settle delay; complements FT3 (SCD is
+  not expected spurious at startup, but symmetric API is cheap). Motivating
+  case observed on silicon (E3): the CKABF startup latch wakes the first
+  `wait_for_event` exactly once — `clear_flags` after assign is the interim
+  remedy until FT3 lands.
+- [X] **FT11 — ISR accessor completeness** (extends FT4). Generic
+  `get_flags()` / `clear_flags(mask)` over ROVRF/JOVRF/REOCF/JEOCF/AWDF/
+  SCDF/CKABF (+ per-channel clears via AWCFR/CLRCKABF/CLRSCDF). CKABF bits
+  masked by the armed set (E2/FT12) and documented as meaningless for disabled
+  channels. ADC-parity "read all status" layer.

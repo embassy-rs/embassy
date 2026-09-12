@@ -196,7 +196,7 @@ async fn main(_spawner: Spawner) {
     const STATS_INTERVAL_US: u64 = 1_000_000; // report every 1s
 
     loop {
-        let (data, _channel) = flt0.inj.read_injected().await.expect("Error");
+        let (data, _channel) = flt0.injected.read().await.expect("Error");
 
         let result_ready_at = Instant::now();
         let wait_dur = result_ready_at - wait_start;
@@ -251,7 +251,7 @@ async fn main(_spawner: Spawner) {
         let duty = scaled.min(max_duty);
         pwm_ld2.set_duty_cycle(duty);
 
-        flt0.reg.start_regular_conversion();
+        flt0.regular.start_conversion();
 
         let processing_done_at = Instant::now();
         let busy_dur = processing_done_at - result_ready_at;

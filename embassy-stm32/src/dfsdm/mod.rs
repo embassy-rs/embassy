@@ -19,6 +19,7 @@ use core::ptr;
 use core::sync::atomic::{AtomicU8, Ordering};
 use core::task::Poll;
 
+use bit_field::BitField;
 pub use dma::*;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -428,8 +429,8 @@ where
     D: DmaMode,
 {
     common: &'a DfsdmCommon<'d, T, Enabled>,
-    pub reg: FilterRegular<'a, 'd, 'tr, T, M, D>,
-    pub inj: FilterInjected<'a, 'd, 'ti, T, M, D>,
+    pub regular: FilterRegular<'a, 'd, 'tr, T, M, D>,
+    pub injected: FilterInjected<'a, 'd, 'ti, T, M, D>,
     pub awd: AnalogWatchdog<'a, 'd, T, M>,
     pub extremes: ExtremesDetector<'a, 'd, T, M>,
 }
@@ -517,8 +518,8 @@ where
     {
         let filter = Filter {
             common: self.common,
-            reg: FilterRegular::new(self.common, regular),
-            inj: FilterInjected::new(self.common, injected),
+            regular: FilterRegular::new(self.common, regular),
+            injected: FilterInjected::new(self.common, injected),
             awd: AnalogWatchdog::new(self.common),
             extremes: ExtremesDetector::new(self.common),
         };
@@ -661,7 +662,7 @@ where
         self,
         transceiver: &'new_reg dyn TransceiverTrait<T, Enabled>,
     ) -> Filter<'new_reg, 'ti, 'a, 'd, T, M, D> {
-        FilterRegular::<'a, 'd, 'ti, T, M, D>::set_regular_transceiver(transceiver.index());
+        FilterRegular::<'a, 'd, 'ti, T, M, D>::set_transceiver(transceiver.index());
 
         let this = ManuallyDrop::new(self);
         // SAFETY: `this` is wrapped in `ManuallyDrop` to prevent the destructor from
@@ -671,17 +672,17 @@ where
         // invariants. Skipping the original `Filter`'s Drop is intentional: it would
         // clear DFEN, but the returned `Filter` re-acquires that teardown obligation.
         let common = unsafe { ptr::read(&this.common) };
-        let inj = unsafe { ptr::read(&this.inj) };
+        let injected = unsafe { ptr::read(&this.injected) };
         let awd = unsafe { ptr::read(&this.awd) };
         let extremes = unsafe { ptr::read(&this.extremes) };
 
         Filter {
             common,
-            reg: FilterRegular {
+            regular: FilterRegular {
                 _common: PhantomData,
                 regular: transceiver,
             },
-            inj,
+            injected,
             awd,
             extremes,
         }
@@ -700,8 +701,8 @@ where
     where
         [(); N]: NonEmpty,
     {
-        let (slots, filterword) = FilterInjected::<'a, 'd, 'ti, T, M, D>::build_injected_slots(transceivers);
-        FilterInjected::<'a, 'd, 'ti, T, M, D>::set_injected_channels(filterword);
+        let (slots, filterword) = FilterInjected::<'a, 'd, 'ti, T, M, D>::build_slots(transceivers);
+        FilterInjected::<'a, 'd, 'ti, T, M, D>::set_channels(filterword);
 
         let this = ManuallyDrop::new(self);
         // SAFETY: `this` is wrapped in `ManuallyDrop` to prevent the destructor from
@@ -711,14 +712,14 @@ where
         // invariants. Skipping the original `Filter`'s Drop is intentional: it would
         // clear DFEN, but the returned `Filter` re-acquires that teardown obligation.
         let common = unsafe { ptr::read(&this.common) };
-        let reg = unsafe { ptr::read(&this.reg) };
+        let regular = unsafe { ptr::read(&this.regular) };
         let awd = unsafe { ptr::read(&this.awd) };
         let extremes = unsafe { ptr::read(&this.extremes) };
 
         Filter {
             common,
-            reg,
-            inj: FilterInjected {
+            regular,
+            injected: FilterInjected {
                 injected: slots,
                 _common: PhantomData,
             },
@@ -738,7 +739,7 @@ where
         _common: &'a DfsdmCommon<'d, T, Enabled>,
         transceiver: &'t dyn TransceiverTrait<T, Enabled>,
     ) -> Self {
-        Self::set_regular_transceiver(transceiver.index());
+        Self::set_transceiver(transceiver.index());
         Self {
             _common: PhantomData,
             regular: transceiver,
@@ -753,28 +754,28 @@ where
     /// transceiver with a shorter/different lifetime and get the old one back
     /// for further mutation.
     pub fn assign_transceiver(&mut self, transceiver: &'t dyn TransceiverTrait<T, Enabled>) {
-        Self::set_regular_transceiver(transceiver.index());
+        Self::set_transceiver(transceiver.index());
         self.regular = transceiver;
     }
 
-    fn set_regular_transceiver(ch: usize) {
+    fn set_transceiver(ch: usize) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rch(ch as u8));
     }
 
     /// Trigger a regular conversion
-    pub fn start_regular_conversion(&mut self) {
+    pub fn start_conversion(&mut self) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rswstart(true));
     }
 
     /// Trigger a regular conversion and read it asynchronously using interrupts
-    pub async fn read_regular(&mut self) -> Result<(i32, u8, bool), Error> {
-        self.start_regular_conversion();
+    pub async fn read(&mut self) -> Result<(i32, u8, bool), Error> {
+        self.start_conversion();
 
         poll_fn(|cx| {
             FilterRegs::<T, M>::set_regular_end_of_conversion_interrupt(false);
             FilterRegs::<T, M>::set_regular_overrun_interrupt(false);
             T::state().regular_waker.register(cx.waker());
-            match self.try_get_regular_result() {
+            match self.try_get_result() {
                 Ok(result) => Poll::Ready(Ok(result)),
                 Err(Error::Overrun) => Poll::Ready(Err(Error::Overrun)),
                 Err(Error::NotReady) => {
@@ -800,11 +801,11 @@ where
     /// conversion.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_get_regular_result(&mut self) -> Result<(i32, u8, bool), Error> {
-        if self.get_and_clear_regular_overrun() {
+    pub fn try_get_result(&mut self) -> Result<(i32, u8, bool), Error> {
+        if self.get_and_clear_overrun() {
             return Err(Error::Overrun);
-        } else if self.end_of_regular_conversion() {
-            return Ok(self.get_regular_result_unchecked());
+        } else if self.end_of_conversion() {
+            return Ok(self.get_result_unchecked());
         }
         Err(Error::NotReady)
     }
@@ -820,7 +821,7 @@ where
     /// The returned data is only valid if `REOCF` was set before reading.
     ///
     /// Returns `(data, channel, rpend)`.
-    pub fn get_regular_result_unchecked(&mut self) -> (i32, u8, bool) {
+    pub fn get_result_unchecked(&mut self) -> (i32, u8, bool) {
         let result = T::regs().flt(M::CHANNEL.index()).rdatar().read();
         let data = sign_extend_24(result.rdata());
         let channel = result.rdatach();
@@ -828,12 +829,20 @@ where
     }
 
     /// Returns whether a regular conversion result is available.
-    pub fn end_of_regular_conversion(&self) -> bool {
+    pub fn end_of_conversion(&self) -> bool {
         FilterRegs::<T, M>::end_of_regular_conversion()
     }
 
+    pub fn overrun(&self) -> bool {
+        FilterRegs::<T, M>::regular_overrun()
+    }
+
+    pub fn clear_overrun(&self) {
+        FilterRegs::<T, M>::clear_regular_overrun();
+    }
+
     /// Returns whether a regular conversion is currently in progress or pending.
-    pub fn regular_conversion_in_progress(&self) -> bool {
+    pub fn conversion_in_progress(&self) -> bool {
         FilterRegs::<T, M>::regular_conversion_in_progress()
     }
 
@@ -846,7 +855,7 @@ where
         FilterDisabled::<T, M>::set_continuous(enabled);
     }
 
-    fn get_and_clear_regular_overrun(&mut self) -> bool {
+    fn get_and_clear_overrun(&mut self) -> bool {
         let overrun = FilterRegs::<T, M>::regular_overrun();
         FilterRegs::<T, M>::clear_regular_overrun();
         overrun
@@ -866,8 +875,8 @@ where
     where
         [(); N]: NonEmpty,
     {
-        let (slots, filterword) = Self::build_injected_slots(transceivers);
-        Self::set_injected_channels(filterword);
+        let (slots, filterword) = Self::build_slots(transceivers);
+        Self::set_channels(filterword);
 
         Self {
             _common: PhantomData,
@@ -886,20 +895,20 @@ where
     where
         [(); N]: NonEmpty,
     {
-        let (slots, filterword) = Self::build_injected_slots(transceivers);
-        Self::set_injected_channels(filterword);
+        let (slots, filterword) = Self::build_slots(transceivers);
+        Self::set_channels(filterword);
         self.injected = slots;
     }
 
     /// Builds the fixed-size injected-slot array plus the register bitmask
     /// from a caller-provided transceiver array of any lifetime.
-    fn build_injected_slots<'tcv, const N: usize>(
+    fn build_slots<'tcv, const N: usize>(
         transceivers: [&'tcv dyn TransceiverTrait<T, Enabled>; N],
     ) -> ([Option<&'tcv dyn TransceiverTrait<T, Enabled>>; 8], u8)
     where
         [(); N]: NonEmpty,
     {
-        let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
+        let filterword = filterword_of(&transceivers);
 
         let mut slots: [Option<&'tcv dyn TransceiverTrait<T, Enabled>>; 8] = [None; 8];
         for (i, tcv) in transceivers.iter().enumerate() {
@@ -909,7 +918,7 @@ where
         (slots, filterword)
     }
 
-    fn set_injected_channels(channels: u8) {
+    fn set_channels(channels: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .jchgr()
@@ -917,20 +926,20 @@ where
     }
 
     /// Trigger a injected conversion
-    pub fn start_injected_conversion(&mut self) {
+    pub fn start_conversion(&mut self) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jswstart(true));
     }
 
     /// Trigger a injected conversion and read it asynchronously using interrupts
-    pub async fn read_injected(&mut self) -> Result<(i32, u8), Error> {
-        self.start_injected_conversion();
+    pub async fn read(&mut self) -> Result<(i32, u8), Error> {
+        self.start_conversion();
 
         poll_fn(|cx| {
             FilterRegs::<T, M>::set_injected_end_of_conversion_interrupt(false);
             FilterRegs::<T, M>::set_injected_overrun_interrupt(false);
 
             T::state().injected_waker.register(cx.waker());
-            match self.try_get_injected_result() {
+            match self.try_get_result() {
                 Ok(result) => Poll::Ready(Ok(result)),
                 Err(Error::Overrun) => Poll::Ready(Err(Error::Overrun)),
                 Err(Error::NotReady) => {
@@ -952,11 +961,11 @@ where
     /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_get_injected_result(&mut self) -> Result<(i32, u8), Error> {
-        if self.get_and_clear_injected_overrun() {
+    pub fn try_get_result(&mut self) -> Result<(i32, u8), Error> {
+        if self.get_and_clear_overrun() {
             return Err(Error::Overrun);
-        } else if self.end_of_injected_conversion() {
-            return Ok(self.get_injected_result_unchecked());
+        } else if self.end_of_conversion() {
+            return Ok(self.get_result_unchecked());
         }
         Err(Error::NotReady)
     }
@@ -969,7 +978,7 @@ where
     /// The returned data is only valid if `JEOCF` was set before reading.
     ///
     /// Returns `(data, channel)`.
-    pub fn get_injected_result_unchecked(&mut self) -> (i32, u8) {
+    pub fn get_result_unchecked(&mut self) -> (i32, u8) {
         let result = T::regs().flt(M::CHANNEL.index()).jdatar().read();
         let data = sign_extend_24(result.jdata());
         let channel = result.jdatach();
@@ -977,16 +986,24 @@ where
     }
 
     /// Returns whether an injected conversion result is available.
-    pub fn end_of_injected_conversion(&self) -> bool {
+    pub fn end_of_conversion(&self) -> bool {
         FilterRegs::<T, M>::end_of_injected_conversion()
     }
 
+    pub fn overrun(&self) -> bool {
+        FilterRegs::<T, M>::injected_overrun()
+    }
+
+    pub fn clear_overun(&self) {
+        FilterRegs::<T, M>::clear_injected_overun()
+    }
+
     /// Returns whether an injected conversion is currently in progress or pending.
-    pub fn injected_conversion_in_progress(&self) -> bool {
+    pub fn conversion_in_progress(&self) -> bool {
         FilterRegs::<T, M>::injected_conversion_in_progress()
     }
 
-    fn get_and_clear_injected_overrun(&mut self) -> bool {
+    fn get_and_clear_overrun(&mut self) -> bool {
         let overrun = FilterRegs::<T, M>::injected_overrun();
         FilterRegs::<T, M>::clear_injected_overun();
         overrun
@@ -1003,11 +1020,11 @@ where
     }
 
     fn start_conversion(&mut self) {
-        self.start_regular_conversion();
+        self.start_conversion();
     }
 
     fn get_and_clear_overrun(&mut self) -> bool {
-        self.get_and_clear_regular_overrun()
+        self.get_and_clear_overrun()
     }
 }
 
@@ -1021,11 +1038,11 @@ where
     }
 
     fn start_conversion(&mut self) {
-        self.start_injected_conversion();
+        self.start_conversion();
     }
 
     fn get_and_clear_overrun(&mut self) -> bool {
-        self.get_and_clear_injected_overrun()
+        self.get_and_clear_overrun()
     }
 }
 
@@ -1201,6 +1218,23 @@ where
             _powerstate_marker: PhantomData,
         }
     }
+
+    pub async fn wait_for_sync(&mut self) {
+        loop {
+            if ClockAbsenceDetector::<T>::try_clear_channel_flag(M::CHANNEL) {
+                break;
+            }
+            #[cfg(feature = "time")]
+            embassy_time::Timer::after_millis(1).await;
+
+            #[cfg(not(feature = "time"))]
+            {
+                let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
+                let cycles = freq * 1 / 1_000; // 1ms
+                cortex_m::asm::delay(cycles as u32);
+            }
+        }
+    }
 }
 
 /// Only when disabled
@@ -1349,12 +1383,12 @@ where
     T: Instance + FilterInterrupt<Flt0>,
 {
     unsafe fn handle_instance_events() {
-        if ShortCircuitDetector::<T>::short_circuit_detector_channel_flags_masked() != 0u8 {
-            ShortCircuitDetector::<T>::set_short_circuit_detector_interrupt(false);
+        if ShortCircuitDetector::<T>::channel_flags_masked() != 0u8 {
+            ShortCircuitDetector::<T>::set_interrupt_enable(false);
             T::instance_state().short_circuit_waker.wake();
         }
-        if ClockAbsenceDetector::<T>::clock_absence_detector_channel_flags_masked() != 0u8 {
-            ClockAbsenceDetector::<T>::set_clock_absence_interrupt(false);
+        if ClockAbsenceDetector::<T>::channel_flags_masked() != 0u8 {
+            ClockAbsenceDetector::<T>::set_interrupt_enable(false);
             T::instance_state().clock_absence_waker.wake();
         }
     }
@@ -1380,8 +1414,8 @@ where
             FilterRegs::<T, F>::set_regular_overrun_interrupt(false);
             <T as FilterInterrupt<F>>::state().regular_waker.wake();
         }
-        if AnalogWatchdog::<T, F>::analog_watchdog_triggered() {
-            AnalogWatchdog::<T, F>::set_analog_watchdog_interrupt(false);
+        if AnalogWatchdog::<T, F>::triggered() {
+            AnalogWatchdog::<T, F>::set_interrupt_enable(false);
             <T as FilterInterrupt<F>>::state().watchdog_waker.wake();
         }
 
@@ -1882,22 +1916,22 @@ where
     /// Wait for a analog watchdog event
     pub async fn wait_for_event(&mut self) -> AnalogWatchdogEvent {
         poll_fn(|cx| {
-            Self::set_analog_watchdog_interrupt(false);
+            Self::set_interrupt_enable(false);
             T::state().watchdog_waker.register(cx.waker());
 
-            let high = Self::analog_watchdog_high_channels();
-            let low = Self::analog_watchdog_low_channels();
+            let high = Self::high_channels();
+            let low = Self::low_channels();
 
             if high != 0 {
-                Self::clear_analog_watchdog_high(high);
+                Self::clear_high(high);
                 return Poll::Ready(AnalogWatchdogEvent::HighThreshold { transceivers: high });
             }
             if low != 0 {
-                Self::clear_analog_watchdog_low(low);
+                Self::clear_low(low);
                 return Poll::Ready(AnalogWatchdogEvent::LowThreshold { transceivers: low });
             }
 
-            Self::set_analog_watchdog_interrupt(true);
+            Self::set_interrupt_enable(true);
             Poll::Pending
         })
         .await
@@ -1955,7 +1989,7 @@ where
     ) where
         [(); N]: NonEmpty,
     {
-        let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
+        let filterword = filterword_of(&transceivers);
 
         // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW - same cs discipline.
         critical_section::with(|_cs| {
@@ -1966,8 +2000,40 @@ where
         });
     }
 
+    pub fn channel_flag_low(&self, channel: TransceiverChannel) -> bool {
+        self.flags_low().get_bit(channel.index() as usize)
+    }
+
+    pub fn channel_flag_high(&self, channel: TransceiverChannel) -> bool {
+        self.flags_high().get_bit(channel.index() as usize)
+    }
+
+    pub fn flags_low(&self) -> u8 {
+        Self::low_channels()
+    }
+
+    pub fn flags_high(&self) -> u8 {
+        Self::high_channels()
+    }
+
+    pub fn clear_channel_flags_low(&mut self, channel: TransceiverChannel) {
+        Self::clear_low(1 << channel.index());
+    }
+
+    pub fn clear_channel_flags_high(&mut self, channel: TransceiverChannel) {
+        Self::clear_high(1 << channel.index());
+    }
+
+    pub fn clear_flags_low(&mut self) {
+        Self::clear_low(0xFF);
+    }
+
+    pub fn clear_flags_high(&mut self) {
+        Self::clear_high(0xFF);
+    }
+
     /// Enables or disables analog watchdog interrupts.
-    pub(crate) fn set_analog_watchdog_interrupt(enabled: bool) {
+    pub(crate) fn set_interrupt_enable(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs().flt(M::CHANNEL.index()).cr2().modify(|w| w.set_awdie(enabled));
@@ -1975,22 +2041,22 @@ where
     }
 
     /// Returns whether the analog watchdog has been triggerd
-    pub(crate) fn analog_watchdog_triggered() -> bool {
+    pub(crate) fn triggered() -> bool {
         T::regs().flt(M::CHANNEL.index()).isr().read().awdf()
     }
 
     /// Returns bitmap of channels who triggered the high threshold
-    pub(crate) fn analog_watchdog_high_channels() -> u8 {
+    pub(crate) fn high_channels() -> u8 {
         T::regs().flt(M::CHANNEL.index()).awsr().read().awhtf()
     }
 
     /// Returns bitmap of channels who triggered the low threshold
-    pub(crate) fn analog_watchdog_low_channels() -> u8 {
+    pub(crate) fn low_channels() -> u8 {
         T::regs().flt(M::CHANNEL.index()).awsr().read().awltf()
     }
 
     /// Clears the provided channels' analog watchdog flags
-    pub(crate) fn clear_analog_watchdog_high(channels: u8) {
+    pub(crate) fn clear_high(channels: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .awsr()
@@ -1998,7 +2064,7 @@ where
     }
 
     /// Clears the provided channels' analog watchdog flags
-    pub(crate) fn clear_analog_watchdog_low(channels: u8) {
+    pub(crate) fn clear_low(channels: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .awsr()
@@ -2031,7 +2097,7 @@ where
     ) where
         [(); N]: NonEmpty,
     {
-        let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
+        let filterword = filterword_of(&transceivers);
 
         // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW - same cs discipline.
         critical_section::with(|_cs| {
@@ -2123,16 +2189,16 @@ where
     /// Wait for a short-circuit-detector event
     pub async fn wait_for_event(&mut self) -> u8 {
         poll_fn(|cx| {
-            Self::set_short_circuit_detector_interrupt(false);
+            Self::set_interrupt_enable(false);
             T::instance_state().short_circuit_waker.register(cx.waker());
 
-            let channels = Self::short_circuit_detector_channel_flags_masked();
+            let channels = Self::channel_flags_masked();
             if channels != 0 {
-                Self::clear_short_circuit_detector_channel(channels);
+                Self::clear_channels(channels);
                 return Poll::Ready(channels);
             }
 
-            Self::set_short_circuit_detector_interrupt(true);
+            Self::set_interrupt_enable(true);
             Poll::Pending
         })
         .await
@@ -2153,7 +2219,7 @@ where
         }
         let tcv: [&dyn TransceiverTrait<T, Enabled>; N] = assignments.map(|a| a.transceiver);
 
-        Self::set_short_circuit_channels(detector_common::filterword_of(&tcv));
+        Self::set_channels(filterword_of(&tcv));
     }
 
     /// Unassigns the transceivers from the short-circuit-detector
@@ -2161,9 +2227,7 @@ where
     where
         [(); N]: NonEmpty,
     {
-        Self::set_short_circuit_channels(
-            Self::short_circuit_channel_word() & !detector_common::filterword_of(&transceivers),
-        );
+        Self::set_channels(Self::channel_word() & !filterword_of(&transceivers));
     }
 
     /// Assign break-signals for short-circuit-event of transceiver
@@ -2186,32 +2250,54 @@ where
             .modify(|w| w.set_scdt(threshold));
     }
 
+    pub fn channel_flag(&self, channel: TransceiverChannel) -> bool {
+        self.flags().get_bit(channel.index() as usize)
+    }
+
+    pub fn clear_channel_flags(&mut self, channel: TransceiverChannel) {
+        Self::clear_channels(1 << channel.index());
+    }
+
+    pub fn flags(&self) -> u8 {
+        Self::channel_flags_masked()
+    }
+
+    /// Clear all pending detector flags for currently armed channels.
+    ///
+    /// Use this after assigning transceivers to clear any startup residue
+    /// before waiting for events.
+    pub fn clear_flags(&mut self) {
+        let armed = T::instance_state().short_circuit_armed.load(Ordering::Relaxed);
+        Self::clear_channels(armed);
+    }
+
     pub(crate) fn drop_transceiver(channel: TransceiverChannel) {
         let ch = channel.index();
-        Self::set_short_circuit_channels(Self::short_circuit_channel_word() & !(1 << ch));
+        Self::set_channels(*Self::channel_word().set_bit(ch, false));
     }
 
     /// Aggregate CFGR1 bit-word for one detector kind, over the channels this
     /// instance actually has.
-    fn short_circuit_channel_word() -> u8 {
+    fn channel_word() -> u8 {
         let count = <T::Transceivers as capability::TransceiverCount>::COUNT;
-        (0..count).fold(0u8, |acc, y| {
-            acc | ((T::regs().ch(y as usize).cfgr1().read().scden() as u8) << y)
+        (0..count).fold(0u8, |mut acc, y| {
+            acc.set_bit(y as usize, T::regs().ch(y as usize).cfgr1().read().scden());
+            acc
         })
     }
 
     /// Authority: make the registers match `mask` exactly, then refresh the armed cache.
-    fn set_short_circuit_channels(mask: u8) {
-        let mask = mask & detector_common::channel_count_mask::<T>();
+    fn set_channels(mask: u8) {
+        let mask = mask & channel_count_mask::<T>();
         for y in 0..<T::Transceivers as capability::TransceiverCount>::COUNT {
-            let want = (mask >> y) & 1 == 1;
+            let want = mask.get_bit(y as usize);
             T::regs().ch(y as usize).cfgr1().modify(|w| w.set_scden(want));
         }
         T::instance_state().short_circuit_armed.store(mask, Ordering::Relaxed);
     }
 
     /// Enables or disables short-circuit detector interrupts.
-    pub(crate) fn set_short_circuit_detector_interrupt(enabled: bool) {
+    pub(crate) fn set_interrupt_enable(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
@@ -2219,17 +2305,17 @@ where
     }
 
     /// Returns bitmap of channels who triggered the short-circuit-detector
-    pub(crate) fn short_circuit_detector_channel_flags() -> u8 {
+    pub(crate) fn channel_flags() -> u8 {
         T::regs().flt(0).isr().read().scdf()
     }
 
     /// Returns bitmap of channels who triggered the short-circuit-detector and are armed
-    pub(crate) fn short_circuit_detector_channel_flags_masked() -> u8 {
-        Self::short_circuit_detector_channel_flags() & T::instance_state().short_circuit_armed.load(Ordering::Relaxed)
+    pub(crate) fn channel_flags_masked() -> u8 {
+        Self::channel_flags() & T::instance_state().short_circuit_armed.load(Ordering::Relaxed)
     }
 
     /// Clears the provided channel flags in the short-circuit-detector
-    pub(crate) fn clear_short_circuit_detector_channel(channels: u8) {
+    pub(crate) fn clear_channels(channels: u8) {
         T::regs().flt(0).icr().modify(|w| w.set_clrscdf(channels));
     }
 }
@@ -2252,17 +2338,17 @@ where
     /// Wait for a clock-absence-detector event
     pub async fn wait_for_event(&mut self) -> u8 {
         poll_fn(|cx| {
-            Self::set_clock_absence_interrupt(false);
+            Self::set_interrupt_enable(false);
             T::instance_state().clock_absence_waker.register(cx.waker());
 
-            let channels = Self::clock_absence_detector_channel_flags_masked();
+            let channels = Self::channel_flags_masked();
 
             if channels != 0 {
-                Self::clear_clock_absence_detector_channel(channels);
+                Self::clear_channels(channels);
                 return Poll::Ready(channels);
             }
 
-            Self::set_clock_absence_interrupt(true);
+            Self::set_interrupt_enable(true);
             Poll::Pending
         })
         .await
@@ -2278,7 +2364,7 @@ where
     where
         [(); N]: NonEmpty,
     {
-        Self::set_clock_absence_channels(detector_common::filterword_of(&transceivers));
+        Self::set_channels(filterword_of(&transceivers));
     }
 
     /// Unassigns the transceivers from the clock-absence-detector
@@ -2286,37 +2372,58 @@ where
     where
         [(); N]: NonEmpty,
     {
-        Self::set_clock_absence_channels(
-            Self::clock_absence_channel_word() & !detector_common::filterword_of(&transceivers),
-        );
+        Self::set_channels(Self::channel_word() & !filterword_of(&transceivers));
+    }
+
+    pub fn channel_flag(&self, channel: TransceiverChannel) -> bool {
+        self.flags().get_bit(channel.index() as usize)
+    }
+
+    pub fn clear_channel_flags(&mut self, channel: TransceiverChannel) {
+        Self::clear_channels(1 << channel.index());
+    }
+
+    pub fn flags(&self) -> u8 {
+        Self::channel_flags_masked()
+    }
+
+    /// Clear all pending detector flags for currently armed channels.
+    ///
+    /// Use this after assigning transceivers to clear any startup residue
+    /// before waiting for events.
+    pub fn clear_flags(&mut self) {
+        let armed = T::instance_state().clock_absence_armed.load(Ordering::Relaxed);
+        Self::clear_channels(armed);
     }
 
     pub(crate) fn drop_transceiver(channel: TransceiverChannel) {
         let ch = channel.index();
-        Self::set_clock_absence_channels(Self::clock_absence_channel_word() & !(1 << ch));
+        Self::set_channels(*Self::channel_word().set_bit(ch, false));
     }
 
     /// Aggregate CFGR1 bit-word for one detector kind, over the channels this
     /// instance actually has.
-    fn clock_absence_channel_word() -> u8 {
+    fn channel_word() -> u8 {
         let count = <T::Transceivers as capability::TransceiverCount>::COUNT;
-        (0..count).fold(0u8, |acc, y| {
-            acc | ((T::regs().ch(y as usize).cfgr1().read().ckaben() as u8) << y)
+
+        (0..count).fold(0u8, |mut acc, y| {
+            acc.set_bit(y as usize, T::regs().ch(y as usize).cfgr1().read().ckaben());
+            acc
         })
     }
 
     /// Authority: make the registers match `mask` exactly, then refresh the armed cache.
-    fn set_clock_absence_channels(mask: u8) {
-        let mask = mask & detector_common::channel_count_mask::<T>();
+    fn set_channels(mask: u8) {
+        let mask = mask & channel_count_mask::<T>();
         for y in 0..<T::Transceivers as capability::TransceiverCount>::COUNT {
-            let want = (mask >> y) & 1 == 1;
+            let want = mask.get_bit(y as usize);
             T::regs().ch(y as usize).cfgr1().modify(|w| w.set_ckaben(want));
         }
         T::instance_state().clock_absence_armed.store(mask, Ordering::Relaxed);
     }
 
     /// Enables or disables clock absence interrupts.
-    pub(crate) fn set_clock_absence_interrupt(enabled: bool) {
+    pub(crate) fn set_interrupt_enable(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
@@ -2324,34 +2431,39 @@ where
     }
 
     /// Returns bitmap of channels who triggered the clock-absence-detector
-    pub(crate) fn clock_absence_detector_channel_flags() -> u8 {
+    pub(crate) fn channel_flags() -> u8 {
         T::regs().flt(0).isr().read().ckabf()
     }
 
     /// Returns bitmap of channels who triggered the clock-absence-detector and are armed
-    pub(crate) fn clock_absence_detector_channel_flags_masked() -> u8 {
-        Self::clock_absence_detector_channel_flags() & T::instance_state().clock_absence_armed.load(Ordering::Relaxed)
+    pub(crate) fn channel_flags_masked() -> u8 {
+        Self::channel_flags() & T::instance_state().clock_absence_armed.load(Ordering::Relaxed)
+    }
+
+    /// Try to clear the repective channels flag
+    pub(crate) fn try_clear_channel_flag(channel: TransceiverChannel) -> bool {
+        Self::clear_channels(1 << channel.index());
+        !Self::channel_flags().get_bit(channel.index())
     }
 
     /// Clears the provided channel flags in the clock-absence-detector
-    pub(crate) fn clear_clock_absence_detector_channel(channels: u8) {
+    pub(crate) fn clear_channels(channels: u8) {
         T::regs().flt(0).icr().modify(|w| w.set_clrckabf(channels));
     }
 }
 
-mod detector_common {
-    use super::*;
+/// filterword fold over a transceiver slice
+pub(crate) fn filterword_of<T: Instance>(transceivers: &[&dyn TransceiverTrait<T, Enabled>]) -> u8 {
+    transceivers.iter().fold(0u8, |mut acc, tcv| {
+        acc.set_bit(tcv.index(), true);
+        acc
+    })
+}
 
-    /// filterword fold over a transceiver slice
-    pub(crate) fn filterword_of<T: Instance>(transceivers: &[&dyn TransceiverTrait<T, Enabled>]) -> u8 {
-        transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()))
-    }
-
-    /// Valid-bits mask for this shape; every mask user passes gets intersected with it.
-    pub(crate) const fn channel_count_mask<T: Instance>() -> u8 {
-        let count = <T::Transceivers as capability::TransceiverCount>::COUNT as u8;
-        ((1u16 << count) - 1) as u8
-    }
+/// Valid-bits mask for this shape; every mask user passes gets intersected with it.
+pub(crate) const fn channel_count_mask<T: Instance>() -> u8 {
+    let count = <T::Transceivers as capability::TransceiverCount>::COUNT as u8;
+    ((1u16 << count) - 1) as u8
 }
 
 // ============================================================

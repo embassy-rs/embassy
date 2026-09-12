@@ -124,12 +124,24 @@ where
     }
 
     pub async fn read(&mut self, buf: &mut [u32]) -> Result<usize, Error> {
+        assert_eq!(
+            self.ring_buf.capacity() / 2,
+            buf.len(),
+            "Buffer size must be half the size of the ring buffer"
+        );
+
         self.autostart()?;
 
         self.ring_buf.read_exact(buf).await.map_err(remap_dma_error)
     }
 
     pub fn blocking_read(&mut self, buf: &mut [u32]) -> Result<usize, Error> {
+        assert_eq!(
+            self.ring_buf.capacity() / 2,
+            buf.len(),
+            "Buffer size must be half the size of the ring buffer"
+        );
+
         self.autostart()?;
 
         loop {

@@ -134,7 +134,7 @@ async fn main(_spawner: Spawner) {
 
     println!("Go?");
     loop {
-        let result = flt0.reg.read_regular().await;
+        let result = flt0.regular.read().await;
         println!("There we go! {}", result);
     }
 }
