@@ -399,7 +399,7 @@ where
 // =============================================================================
 
 /// Configuration for Filter
-pub struct FilterConfig<T: Instance> {
+pub struct FilterConfig<T: Instance, M: FilterMarker> {
     pub filter_params: FilterParameters,
     pub enable_continuous_regular: bool,
     pub enable_fast_regular: bool,
@@ -411,19 +411,19 @@ pub struct FilterConfig<T: Instance> {
     ///
     /// `Some` enables the trigger with the specified trigger source and edge.
     /// `None` disables the trigger.
-    pub trigger: Option<InjectedDfsdmTrigger<T>>,
+    pub trigger: AnyTrigger<T, M>,
 }
 
-impl<T: Instance> Default for FilterConfig<T> {
+impl<T: Instance, M: FilterMarker> Default for FilterConfig<T, M> {
     fn default() -> Self {
-        Self {
+        FilterConfig {
             filter_params: FilterParameters::new(config_types::FilterOrder::Disabled, 1),
             enable_continuous_regular: false,
             enable_fast_regular: false,
             enable_injected_sync: false,
             enable_regular_sync: false,
             enable_injected_scanning: false,
-            trigger: None,
+            trigger: AnyTrigger::None,
         }
     }
 }
@@ -496,7 +496,7 @@ where
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
-        config: &FilterConfig<T>,
+        config: &FilterConfig<T, M>,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, NoDma>
     where
         [(); N]: NonEmpty,
@@ -509,7 +509,7 @@ where
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
-        config: &FilterConfig<T>,
+        config: &FilterConfig<T, M>,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, RegDma>
     where
         [(); N]: NonEmpty,
@@ -522,7 +522,7 @@ where
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
-        config: &FilterConfig<T>,
+        config: &FilterConfig<T, M>,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, InjDma>
     where
         [(); N]: NonEmpty,
@@ -534,7 +534,7 @@ where
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
-        config: &FilterConfig<T>,
+        config: &FilterConfig<T, M>,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, D>
     where
         D: DmaMode,
@@ -561,14 +561,14 @@ where
         filter
     }
 
-    fn configure(config: &FilterConfig<T>) {
+    fn configure(config: &FilterConfig<T, M>) {
         Self::set_filter_parameters(config.filter_params);
         Self::set_continuous(config.enable_continuous_regular);
         Self::set_fastmode(config.enable_fast_regular);
         Self::set_regular_synchronization(config.enable_regular_sync);
         Self::set_injected_synchronization(config.enable_injected_sync);
         Self::set_injected_scanning(config.enable_injected_scanning);
-        Self::configure_injected_trigger(config.trigger);
+        Self::configure_injected_trigger(&config.trigger);
     }
 
     /// Writes the filterparameters
@@ -604,10 +604,10 @@ where
     ///
     /// `Some` enables the trigger with the specified trigger source and edge.
     /// `None` disables the trigger.
-    fn configure_injected_trigger(trigger: Option<InjectedDfsdmTrigger<T>>) {
+    fn configure_injected_trigger(trigger: &AnyTrigger<T, M>) {
         let (jextsel, jexten) = match trigger {
-            Some(InjectedDfsdmTrigger { trigger, edge, .. }) => (trigger, edge as u8),
-            None => (0, 0), // Disable
+            AnyTrigger::None => (0, 0), // disable
+            AnyTrigger::Injected { jextsel, edge, _m } => (*jextsel, *edge as u8),
         };
 
         T::regs()

@@ -176,12 +176,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 Full detail lives in the stm32-data repo: `in_progress/DFSDMx/TODO.md`.
 Summary (each blocks DFSDM availability for whole chip groups):
 
-- [ ] **SD10 (PRIORITY 1) — `trigger.rs` 3-bit-JEXTSEL suffix renumbering.**
-  F412/F413/L4-classic compact encodings (0x00-0x07 →
-  jtrg{0,1,2,3,5,7,9,10}); the suffix written verbatim as JEXTSEL is wrong for
-  3-bit chips. Renumber to compact 0-7; verify each chip's encoding from the
-  PDF (esp. F413 DFSDM2's garbled 4-column table). Pure data rename; no
-  embassy driver change.
 - [ ] **SD1 — `header.rs` ALT_PERI_DEFINES:** `DFSDM1 → DFSDM1_BASE /
   DFSDM1_BASE_NS` (unlocks L552/562; L5 headers define only the `_NS` alias —
   TrustZone `DFSDM1SEC`).
@@ -775,7 +769,13 @@ Summary (each blocks DFSDM availability for whole chip groups):
   - Driver side: **zero usage today** — `bkdf` appears in no embassy `.rs`
     file; the examples' "enable breakinput" comments (dfsdm_pwm*.rs) are
     exactly the use-case FT5 unlocks.
-
+- [X] **SD10 (PRIORITY 1) — `trigger.rs` 3-bit-JEXTSEL suffix renumbering.**
+  F412/F413/L4-classic compact encodings (0x00-0x07 →
+  jtrg{0,1,2,3,5,7,9,10}); the suffix written verbatim as JEXTSEL is wrong for
+  3-bit chips. Renumber to compact 0-7; verify each chip's encoding from the
+  PDF (esp. F413 DFSDM2's garbled 4-column table). Pure data rename; no
+  embassy driver change.
+  Actually fixed by `ValidTrigger<T, M>` system!!!!
 
 NOTE
 Following have no bken enable for dfsdm bits in timers. Do research

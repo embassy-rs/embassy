@@ -76,6 +76,8 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     type Transceivers: capability::TransceiverCount;
     /// Amount of filters in this instance
     type Filters: capability::FilterCount;
+    /// Amount of triggerbits
+    type Bits: capability::TriggerBits;
 
     fn instance_state() -> &'static InstanceState;
     // type Split<C: ClockOutputMode>;
@@ -144,6 +146,12 @@ pub(crate) mod capability {
     impl FilterCount for Flt8 {
         const COUNT: u8 = 8;
     }
+
+    pub trait TriggerBits {}
+
+    pub struct TriggerBits5 {}
+
+    pub struct TriggerBits3 {}
 }
 
 /// Marker trait for configuration shape
@@ -168,6 +176,12 @@ impl_sealed_and! {
     ClockOutputMode =>
     OutputEnabled,
     OutputDisabled,
+}
+
+impl_sealed_and! {
+    capability::TriggerBits =>
+    capability::TriggerBits3,
+    capability::TriggerBits5
 }
 
 /// Generalized pin traits
@@ -555,25 +569,176 @@ define_indexed_channels!(
 trigger_trait!(InjectedTrigger, Instance);
 
 #[derive(Copy, Clone)]
-pub struct InjectedDfsdmTrigger<T: Instance> {
-    pub(crate) trigger: u8,
-    pub(crate) edge: config_types::TriggerEdge,
-    _marker: PhantomData<T>,
+pub struct InjectedDfsdmTrigger<T: Instance, TR: InjectedTrigger<T>> {
+    trigger: u8,
+    edge: config_types::TriggerEdge,
+    _marker: PhantomData<(T, TR)>,
 }
 
-impl<T: Instance> InjectedDfsdmTrigger<T> {
-    pub fn new(trigger: impl InjectedTrigger<T>, edge: config_types::TriggerEdge) -> Self {
+impl<T: Instance, TR: InjectedTrigger<T>> InjectedDfsdmTrigger<T, TR> {
+    pub fn new(trigger: TR, edge: config_types::TriggerEdge) -> Self {
         Self {
             trigger: trigger.signal(),
             edge,
             _marker: PhantomData,
         }
     }
+}
 
-    pub fn id(&self) -> u8 {
-        self.trigger
+pub struct NoInjectedTrigger<T: Instance>(PhantomData<T>);
+
+impl<T: Instance, M: FilterMarker> ValidTrigger<T, M> for NoInjectedTrigger<T> {
+    fn jextsel(&self) -> u8 {
+        0 // Sentinel value, won't be used since trigger is disabled
     }
 }
+
+#[diagnostic::on_unimplemented(
+    message = "trigger `{Self}` is not valid for DFSDM instance `{T}` filter `{M}`",
+    label = "invalid trigger selection",
+    note = "check the TRM for valid trigger signals for this variant/filter combination"
+)]
+pub trait ValidTrigger<T: Instance, M: FilterMarker> {
+    fn jextsel(&self) -> u8;
+}
+
+pub enum AnyTrigger<T: Instance, M: FilterMarker> {
+    None,
+    Injected {
+        jextsel: u8,
+        edge: config_types::TriggerEdge,
+        _m: PhantomData<fn() -> (T, M)>,
+    },
+}
+
+impl<T: Instance, M: FilterMarker> AnyTrigger<T, M> {
+    pub const fn none() -> Self {
+        Self::None
+    }
+}
+
+impl<T: Instance, M: FilterMarker, TR> From<InjectedDfsdmTrigger<T, TR>> for AnyTrigger<T, M>
+where
+    TR: InjectedTrigger<T>,
+    InjectedDfsdmTrigger<T, TR>: ValidTrigger<T, M>,
+{
+    fn from(t: InjectedDfsdmTrigger<T, TR>) -> Self {
+        Self::Injected {
+            jextsel: <InjectedDfsdmTrigger<T, TR> as ValidTrigger<T, M>>::jextsel(&t),
+            edge: t.edge,
+            _m: PhantomData,
+        }
+    }
+}
+
+// Identity Macro (TriggerBits5)
+macro_rules! dfsdm_trigger_identity {
+    ($($variant:ident),* $(,)?) => {
+        $(
+            foreach_interrupt! {
+                ($inst:ident, dfsdm, $variant, FLT0, $irq:ident) => {
+                    impl<M: FilterMarker, TR: InjectedTrigger<crate::peripherals::$inst>>
+                        ValidTrigger<crate::peripherals::$inst, M>
+                        for InjectedDfsdmTrigger<crate::peripherals::$inst, TR>
+                    {
+                        fn jextsel(&self) -> u8 {
+                            self.trigger
+                        }
+                    }
+                };
+            }
+        )*
+    };
+}
+// Custom Macro (TriggerBits3)
+macro_rules! dfsdm_trigger_custom {
+    (
+        $variant:ident,
+        { $( ($filter:ident, $trigger:ident, $jextsel:expr) ),* $(,)? }
+    ) => {
+        foreach_interrupt! {
+            ($inst:ident, dfsdm, $variant, FLT0, $irq:ident) => {
+                $(
+                    impl ValidTrigger<crate::peripherals::$inst, capability::$filter>
+                        for InjectedDfsdmTrigger<crate::peripherals::$inst, crate::triggers::$trigger>
+                    {
+                        fn jextsel(&self) -> u8 {
+                            $jextsel
+                        }
+                    }
+                )*
+            };
+        }
+    };
+}
+
+macro_rules! dfsdm_trigger_custom_multi {
+    (
+        [$($variant:ident),* $(,)?],
+        $mappings:tt
+    ) => {
+        $(
+            dfsdm_trigger_custom!($variant, $mappings);
+        )*
+    };
+}
+
+// Identity mapping for all TriggerBits5 variants
+dfsdm_trigger_identity!(
+    DFSDM_2CH_1FLT_DLY_TRG5_ADC,
+    DFSDM_4CH_2FLT_DLY_TRG5_ADC,
+    DFSDM_4CH_2FLT_DLY_TRG5_ADC_HWID,
+    DFSDM_4CH_4FLT_DLY_TRG5_ADC,
+    DFSDM_8CH_4FLT_TRG5,
+    DFSDM_8CH_4FLT_TRG5_ADC,
+    DFSDM_8CH_4FLT_DLY_TRG5_ADC,
+    DFSDM_8CH_6FLT_DLY_TRG5_ADC_HWID,
+    DFSDM_8CH_8FLT_DLY_TRG5_ADC,
+);
+
+dfsdm_trigger_custom_multi!(
+    [
+        DFSDM_2CH_1FLT_TRG3_ADC,
+        DFSDM_4CH_2FLT_TRG3,
+        DFSDM_4CH_2FLT_TRG3_ADC,
+        DFSDM_8CH_4FLT_TRG3,
+        DFSDM_8CH_4FLT_TRG3_ADC
+    ],
+    {
+        (Flt0, Trigger0, 0),
+        (Flt0, Trigger1, 1),
+        (Flt0, Trigger2, 2),
+        (Flt0, Trigger3, 3),
+        (Flt0, Trigger5, 4),
+        (Flt0, Trigger7, 5),
+        (Flt0, Trigger9, 6),
+        (Flt0, Trigger10, 7),
+        (Flt1, Trigger0, 0),
+        (Flt1, Trigger1, 1),
+        (Flt1, Trigger2, 2),
+        (Flt1, Trigger3, 3),
+        (Flt1, Trigger5, 4),
+        (Flt1, Trigger7, 5),
+        (Flt1, Trigger9, 6),
+        (Flt1, Trigger10, 7),
+        (Flt2, Trigger0, 0),
+        (Flt2, Trigger1, 1),
+        (Flt2, Trigger2, 2),
+        (Flt2, Trigger3, 3),
+        (Flt2, Trigger5, 4),
+        (Flt2, Trigger8, 5),
+        (Flt2, Trigger9, 6),
+        (Flt2, Trigger10, 7),
+        (Flt3, Trigger0, 0),
+        (Flt3, Trigger1, 1),
+        (Flt3, Trigger2, 2),
+        (Flt3, Trigger4, 3),
+        (Flt3, Trigger6, 4),
+        (Flt3, Trigger8, 5),
+        (Flt3, Trigger9, 6),
+        (Flt3, Trigger10, 7),
+    }
+);
 
 // =============================================================================
 // General-purpose markertraits
