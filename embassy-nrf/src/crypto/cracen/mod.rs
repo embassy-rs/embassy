@@ -4,7 +4,7 @@
 //! countermeasures, whoever owns the `CRYPTO_RNG` peripheral. So the generator runs from its
 //! first use until CRACEN powers down.
 
-use core::sync::atomic::{AtomicU16, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 
 use crate::pac;
 
@@ -23,7 +23,37 @@ const RNG_REPEATTHRESHOLD_VAL: u8 = 21;
 #[cfg(feature = "_nrf54lm20")]
 const RNG_PROPTESTCUTOFF_VAL: u16 = 311;
 
+/// Number of 128-bit blocks the AES conditioning function draws per output block. Zero is
+/// not a legal value, and the register is cleared by the soft reset, so it is programmed on
+/// every start. This is the reset value, and what NCS programs.
+const RNG_NB128BITBLOCKS: u8 = 4;
+
+/// TRNG timing, from NCS `nrfx_cracen.c`. The reset values are `0xffff` for both timers,
+/// which keeps the ring oscillators spinning long after the FIFO is full.
+#[cfg(not(feature = "_nrf54lm20"))]
+const RNG_OFF_TIMER_VAL: u16 = 0;
+#[cfg(not(feature = "_nrf54lm20"))]
+const RNG_CLK_DIV: u8 = 0;
+#[cfg(not(feature = "_nrf54lm20"))]
+const RNG_INIT_WAIT_VAL: u16 = 512;
+
+/// Size of the AES conditioning key, in words.
+#[cfg(not(feature = "_nrf54lm20"))]
+const RNG_KEY_WORDS: usize = 4;
+
+/// How many times a start is retried before giving up on the generator.
+///
+/// A health test trips every few thousand starts on an nRF54L15, so one retry is normally
+/// enough. Failing this many times in a row means the noise source is broken.
+const RNG_MAX_STARTS: u32 = 16;
+
 static ACTIVE_USERS: AtomicU16 = AtomicU16::new(0);
+
+/// Whether the generator is started, configured, and past its start-up tests.
+///
+/// Cleared when CRACEN powers down, which stops the generator and resets its configuration,
+/// and when a health test trips, so that the next use restarts it.
+static RNG_READY: AtomicBool = AtomicBool::new(false);
 
 /// Powers CRACEN up if it is not already, and keeps it powered until the returned handle is
 /// dropped.
@@ -46,6 +76,7 @@ fn release() {
     critical_section::with(|_| {
         if ACTIVE_USERS.fetch_sub(1, Ordering::Relaxed) == 1 {
             // Powering down also stops the generator and resets its configuration.
+            RNG_READY.store(false, Ordering::Relaxed);
             pac::CRACEN.enable().write(|w| {
                 w.set_cryptomaster(false);
                 w.set_rng(false);
@@ -70,7 +101,9 @@ fn core() -> pac::cracencore::Cracencore {
     pac::CRACENCORE
 }
 
-/// Programs the health-test cut-offs. Needed after every power-up.
+/// Programs the health-test cut-offs. Needed after every start.
+///
+/// On CRACEN Lite these registers reset to values a working noise source fails.
 #[cfg(feature = "_nrf54lm20")]
 fn configure_health_tests() {
     let r = core().rngcontrol();
@@ -80,50 +113,118 @@ fn configure_health_tests() {
         .write(|w| w.set_proptestcutoff(RNG_PROPTESTCUTOFF_VAL));
 }
 
+/// Configures the generator and starts it, following NCS `nrfx_cracen.c`.
+///
+/// The soft reset clears the continuous tests, the conditioning function and the FIFO. It is
+/// what brings back a generator that a health-test failure has parked in `Error`, so this
+/// runs on a restart as well as on the first start after a power-up.
+fn start_rng() {
+    let r = core().rngcontrol();
+
+    #[cfg(not(feature = "_nrf54lm20"))]
+    r.control()
+        .write(|w| w.set_softrst(pac::cracencore::vals::ControlSoftrst::Ctest));
+    #[cfg(feature = "_nrf54lm20")]
+    r.control().write(|w| w.set_softrst(true));
+
+    #[cfg(feature = "_nrf54lm20")]
+    {
+        configure_health_tests();
+        r.cooldownperiod().write(|w| w.set_cooldownperiod(0));
+    }
+    #[cfg(not(feature = "_nrf54lm20"))]
+    {
+        r.swofftmrval().write(|w| w.set_swofftmrval(RNG_OFF_TIMER_VAL));
+        r.clkdiv().write(|w| w.set_clkdiv(RNG_CLK_DIV));
+        r.initwaitval().write(|w| w.set_initwaitval(RNG_INIT_WAIT_VAL));
+    }
+
+    // Clears the soft reset and starts the generator.
+    r.control().write(|w| {
+        w.set_enable(true);
+        w.set_nb128bitblocks(RNG_NB128BITBLOCKS);
+    });
+}
+
+/// Starts the generator and waits for it to produce entropy.
+///
+/// Returns `false` if a health test tripped on the way, which leaves the generator in
+/// `Error` for the caller to restart.
+fn start_rng_and_wait() -> bool {
+    let r = core().rngcontrol();
+    start_rng();
+
+    loop {
+        match r.status().read().state() {
+            // The start-up tests failed, or an AIS31 noise alarm fired.
+            pac::cracencore::vals::State::Error => return false,
+            // Still starting up.
+            pac::cracencore::vals::State::Reset | pac::cracencore::vals::State::Startup => continue,
+            _ => {}
+        }
+
+        // The conditioning function runs with a key drawn from the generator's own first
+        // output. NCS does the same; its entropy is only NIST 800-90B and AIS31 compliant
+        // this way. CRACEN Lite has no key register.
+        #[cfg(not(feature = "_nrf54lm20"))]
+        {
+            if (r.fifolevel().read() as usize) < RNG_KEY_WORDS {
+                continue;
+            }
+            for i in 0..RNG_KEY_WORDS {
+                let word = r.fifo(0).read();
+                r.key(i).write_value(word);
+            }
+        }
+
+        return true;
+    }
+}
+
 /// Starts the TRNG if it is not running, and waits for its start-up phase to end.
 ///
-/// CRACEN must be powered. Callable from any context: the check-and-start is done in a short
-/// critical section, since the RNG driver and the engine countermeasures share the generator.
+/// CRACEN must be powered. Callable from any context: the whole start happens in one
+/// critical section, since the RNG driver and the engine countermeasures share the
+/// generator.
 pub(crate) fn ensure_rng_running() {
-    let r = core();
+    if RNG_READY.load(Ordering::Relaxed) {
+        return;
+    }
+
     critical_section::with(|_| {
-        if !r.rngcontrol().control().read().enable() {
-            // Before the RNG is started, and after the power-up that cleared them.
-            #[cfg(feature = "_nrf54lm20")]
-            configure_health_tests();
-
-            #[cfg(feature = "_nrf54lm20")]
-            r.rngcontrol().cooldownperiod().write(|w| {
-                w.set_cooldownperiod(0);
-            });
-
-            // Modify, not write: NB128BITBLOCKS defaults to 4 and zero is not a legal
-            // value, so the other fields have to survive the start.
-            r.rngcontrol().control().modify(|w| {
-                w.set_enable(true);
-            });
+        // Another context may have started it while this one waited for the lock.
+        if RNG_READY.load(Ordering::Relaxed) {
+            return;
         }
-    });
 
-    while r.rngcontrol().status().read().state() == pac::cracencore::vals::State::Startup {}
+        for _ in 0..RNG_MAX_STARTS {
+            if start_rng_and_wait() {
+                RNG_READY.store(true, Ordering::Relaxed);
+                return;
+            }
+        }
+
+        panic!("CRACEN RNG failed its health tests {} times in a row", RNG_MAX_STARTS);
+    });
 }
 
 /// Reads one word from the running TRNG.
 pub(crate) fn read_rng_word() -> u32 {
-    let r = core();
-    // A failed health test parks the FSM in `Error`, where the FIFO never fills
-    // again — so without this check the poll never returns, and being a blocking
-    // loop in a sync fn it takes the whole executor with it. There is nothing to
-    // do but fail loudly: measured on an nRF54LM20A, neither a SoftRst nor
-    // reprogramming the cut-offs revives a TRNG that has already reached `Error`,
-    // only a reset of the part does, and an infallible API cannot report. The
-    // cut-offs programmed in `ensure_rng_running` are what keeps this unreached.
+    let r = core().rngcontrol();
     loop {
         // Another context may pop the FIFO between the level check and the read, so the
         // two happen together. A few instructions.
         let word = critical_section::with(|_| {
-            if r.rngcontrol().fifolevel().read() != 0 {
-                Some(r.rngcontrol().fifo(0).read())
+            // A failed health test parks the FSM in `Error`, where the FIFO never fills
+            // again — so without this check the poll below never returns, and being a
+            // blocking loop in a sync fn it would take the whole executor with it. The
+            // entropy still in the FIFO is discarded along with the restart.
+            if r.status().read().state() == pac::cracencore::vals::State::Error {
+                RNG_READY.store(false, Ordering::Relaxed);
+                return None;
+            }
+            if r.fifolevel().read() != 0 {
+                Some(r.fifo(0).read())
             } else {
                 None
             }
@@ -131,15 +232,7 @@ pub(crate) fn read_rng_word() -> u32 {
         if let Some(word) = word {
             break word;
         }
-        let status = r.rngcontrol().status().read();
-        if status.state() == pac::cracencore::vals::State::Error {
-            panic!(
-                "CRACEN RNG health test failed (rep={} prop={} startup={}); it needs a reset to produce entropy again",
-                status.repfail(),
-                status.propfail(),
-                status.startupfail()
-            );
-        }
+        ensure_rng_running();
     }
 }
 
