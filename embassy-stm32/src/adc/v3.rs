@@ -414,13 +414,32 @@ impl AdcRegs for Regs {
             // H5: INP0 and INN1 sit behind a GPIO switch controlled by OP0 in ADC1's option
             // register, shared by ADC1 and ADC2 (RM0481 26.6.23). ADC2's OP0 enables VDDCORE
             // instead, so always write ADC1's. It is never cleared: the other ADC may still use it.
-            //
-            // TODO: For ADC3: (only available on STM32H543/553 devices)
-            //    - 0: INP0 GPIO switch control disabled
-            //    - 1: INP0 GPIO switch control enabled
+            // For ADC1:
+            //   0: INP0/INN1 GPIO switch control disabled (for both ADC1 and ADC2)
+            //   1: INP0/INN1 GPIO switch control enabled (for both ADC1 and ADC2)
+            //   Note: This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected.
+            // For ADC2:
+            //   0: VDDCORE channel disabled (for both ADC2 and ADC3)
+            //   1: VDDCORE channel enabled (for both ADC2 and ADC3)
+            // For ADC3: (only available on STM32H543/553 devices)
+            //   0: INP0 GPIO switch control disabled
+            //   1: INP0 GPIO switch control enabled
             #[cfg(stm32h5)]
             if channel == 0 || (channel == 1 && differential) {
-                crate::pac::ADC1.or().modify(|w| w.set_op0(true));
+                #[cfg(peri_adc2)]
+                let is_adc2 = self.as_ptr() == crate::pac::ADC2.as_ptr();
+
+                #[cfg(not(peri_adc2))]
+                let is_adc2 = false;
+
+                if is_adc2 {
+                    // when ADC2_INP0 should be enabled, set OP0 to 1 for ADC1
+                    crate::pac::ADC1.or().modify(|reg| reg.set_op0(true));
+                } else {
+                    // when ADC1_INP0 should be enabled, set OP0 to 1 for ADC1
+                    // when ADC3_INP0 should be enabled, set OP0 to 1 for ADC3
+                    self.or().modify(|reg| reg.set_op0(true));
+                }
             }
 
             if injected {
