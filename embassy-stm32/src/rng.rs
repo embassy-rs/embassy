@@ -691,6 +691,7 @@ pub(crate) mod driver {
     }
 
     /// Starts the RNG if it is not running yet.
+    #[allow(dead_code)]
     pub(crate) fn ensure_running() {
         with_rng(|_| ());
     }
@@ -717,7 +718,10 @@ pub(crate) mod driver {
                     };
                     chunk.copy_from_slice(&word.to_ne_bytes()[..chunk.len()]);
                 }
+
+                Ok(())
             })
+            .unwrap()
         }
     }
 
