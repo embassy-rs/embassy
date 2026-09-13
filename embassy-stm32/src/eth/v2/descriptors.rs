@@ -239,6 +239,11 @@ impl<'a> TDesRing<'a> {
         // the descriptor is reclaimed.
         self.buffers[self.index] = Some(buf);
 
+        // The frame contents and the rest of the descriptor must be visible to the
+        // DMA before it is handed ownership, or it transmits whatever the buffer
+        // held before.
+        fence(Ordering::Release);
+
         // FD: Contains first buffer of packet
         // LD: Contains last buffer of packet
         // Give the DMA engine ownership
@@ -342,6 +347,10 @@ impl RDes {
 
     fn set_ready(&mut self, buf: *mut u8) {
         self.rdes0.set(buf as u32);
+        // The buffer address must be visible to the DMA before it is handed
+        // ownership, or it writes the next frame into the previous buffer, which
+        // by now belongs to the stack.
+        fence(Ordering::Release);
         self.rdes3.set(EMAC_RDES3_BUF1V | EMAC_RDES3_IOC | EMAC_DES3_OWN);
     }
 

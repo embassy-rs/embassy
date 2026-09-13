@@ -35,6 +35,9 @@ Crypto:
 CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
 
+Ethernet:
+- fix: stm32/eth v2: place a memory barrier before handing a descriptor to the DMA, so the buffer address and the frame contents are visible to it first.
+
 USB:
 - fix: OTG_FS on STM32F1 uses 4 endpoints and 320 FIFO words.
 - fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
