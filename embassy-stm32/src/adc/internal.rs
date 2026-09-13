@@ -135,10 +135,16 @@ macro_rules! internal {
 
 // F0
 #[cfg(adc_v2_f0)]
-internal!(ADC1: Temperature = 16, VrefInt = 17, Vbat = 18);
+internal!(ADC1: Temperature = 16, VrefInt = 17);
+// RM0360 (F030/F070) has no VBAT channel.
+#[cfg(all(adc_v2_f0, not(stm32f0x0)))]
+internal!(ADC1: Vbat = 18);
 // L0
 #[cfg(adc_v2_l0)]
-internal!(ADC1: VrefInt = 17, Temperature = 18);
+internal!(ADC1: VrefInt = 17);
+// RM0451 (L0x0) has no temperature sensor.
+#[cfg(all(adc_v2_l0, not(stm32l0x0)))]
+internal!(ADC1: Temperature = 18);
 // WB10/WB15
 #[cfg(adc_v2_wb1)]
 internal!(ADC1: Temperature = 12, VrefInt = 13, Vbat = 14);
@@ -213,12 +219,12 @@ internal!(ADC3: Vbat = 17, Temperature = 18, VrefInt = 19);
 internal!(ADC2: Vbat = 14, Temperature = 18, VrefInt = 19);
 // U3
 #[cfg(adc_v3_u3)]
-internal!(ADC1, ADC2: VrefInt = 0, Vbat = 16, Temperature = 17);
+internal!(ADC1, ADC2: VrefInt = 0, Vbat = 16, Temperature = 17, VddCore = 18);
 // N6: the temperature sensor is a separate peripheral (DTS).
 #[cfg(adc_v3_n6)]
 internal!(ADC1, ADC2: VrefInt = 17);
 #[cfg(adc_v3_n6)]
-internal!(ADC2: Vbat = 16);
+internal!(ADC2: Vbat = 16, VddCore = 17);
 // C5
 #[cfg(adc_v3_c5)]
 internal!(ADC1: Temperature = 12, VrefInt = 13);
@@ -261,6 +267,8 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 #[cfg(any(
+    stm32l0,
+    stm32l1,
     stm32l4,
     stm32l4_plus,
     stm32l5,
@@ -276,6 +284,8 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 pub const VREF_CALIB_MV: u32 = 3000;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 #[cfg(not(any(
+    stm32l0,
+    stm32l1,
     stm32l4,
     stm32l4_plus,
     stm32l5,
@@ -292,7 +302,14 @@ pub const VREF_CALIB_MV: u32 = 3300;
 
 /// Temperature at which TS_CAL1 was measured (30°C).
 pub const TS_CAL1_TEMP_C: i32 = 30;
+/// Temperature at which TS_CAL2 was measured.
+///
+/// 110 °C on the families whose factory calibration was taken there (F0: RM0091 §A.7.16, L1:
+/// RM0038 §12.12, H7), 130 °C everywhere else.
+#[cfg(any(stm32f0, stm32l1, stm32h7))]
+pub const TS_CAL2_TEMP_C: i32 = 110;
 /// Temperature at which TS_CAL2 was measured (130°C).
+#[cfg(not(any(stm32f0, stm32l1, stm32h7)))]
 pub const TS_CAL2_TEMP_C: i32 = 130;
 
 /// Factory calibration values read from the DESIG peripheral.
