@@ -351,7 +351,8 @@ define_peris!(
 define_peris!(
     UART = LPUART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI4, SPI_SCK = PE12, SPI_MOSI = PE14, SPI_MISO = PE13, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
-    ADC = ADC1, ADC_PIN = PC0, ADC_DMA = GPDMA1_CH0,
+    // PA0 is INP0, which needs OP0 in the ADC1 option register.
+    ADC = ADC1, ADC_PIN = PA0, ADC_DMA = GPDMA1_CH0,
     @irq UART = {
         RNG => embassy_stm32::rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
         LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>,
@@ -372,7 +373,8 @@ define_peris!(
 define_peris!(
     UART = USART1, UART_TX = PB14, UART_RX = PB15, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
-    ADC = ADC1, ADC_PIN = PA4, ADC_DMA = GPDMA1_CH0,
+    // PA0 is INP0, which needs OP0 in the ADC1 option register.
+    ADC = ADC1, ADC_PIN = PA0, ADC_DMA = GPDMA1_CH0,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;

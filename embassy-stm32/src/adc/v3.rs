@@ -411,6 +411,18 @@ impl AdcRegs for Regs {
             #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5))]
             self.pcsel().modify(|w| w.set_pcsel(channel, true));
 
+            // H5: INP0 and INN1 sit behind a GPIO switch controlled by OP0 in ADC1's option
+            // register, shared by ADC1 and ADC2 (RM0481 26.6.23). ADC2's OP0 enables VDDCORE
+            // instead, so always write ADC1's. It is never cleared: the other ADC may still use it.
+            //
+            // TODO: For ADC3: (only available on STM32H543/553 devices)
+            //    - 0: INP0 GPIO switch control disabled
+            //    - 1: INP0 GPIO switch control enabled
+            #[cfg(stm32h5)]
+            if channel == 0 || (channel == 1 && differential) {
+                crate::pac::ADC1.or().modify(|w| w.set_op0(true));
+            }
+
             if injected {
                 jsqr.set_jsq(i, channel as u8);
             } else {
