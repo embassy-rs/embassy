@@ -10,12 +10,14 @@
 use defmt::{error, info};
 use defmt_rtt as _;
 use embassy_stm32::adc::{
-    Adc, AdcChannel as _, Config as AdcConfig, OversamplingRatio, Resolution, RingBufferedAdc, SampleTime,
+    Adc, AdcChannel as _, Config as AdcConfig, Exten, OversamplingRatio, RegularAdcTrigger, Resolution,
+    RingBufferedAdc, SampleTime,
 };
 use embassy_stm32::peripherals::GPDMA1_CH1;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
+use embassy_stm32::triggers::TIM1_TRGO2;
 use embassy_stm32::{Config, bind_interrupts, dma};
 use panic_probe as _;
 
@@ -70,10 +72,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         &mut dma_buf,
         Irqs,
         sequence,
-        // TODO(adc-port): use `RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge)` once stm32-data
-        // has the ADC4 regular-trigger mapping for WBA6 (`TIM1_TRGO2` does not implement
-        // `RegularTrigger<ADC4>` yet). Until then the ADC runs in continuous mode.
-        None,
+        Some(RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge)),
     );
 
     let mut out = [0u16; (3 * 32) / 2];
