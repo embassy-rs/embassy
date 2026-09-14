@@ -264,6 +264,11 @@ impl AdcRegs for Regs {
             MAX_CLOCK
         );
 
+        // RM0367 §14.3.5: "When selecting an analog ADC clock frequency lower than 3.5 MHz, it is
+        // mandatory to first enable the Low Frequency Mode".
+        #[cfg(adc_v2_l0)]
+        self.ccr().modify(|w| w.set_lfmen(clock < Hertz::khz(3_500)));
+
         // Calibration. Auto-off must be disabled during the calibration.
         self.cfgr1().modify(|w| w.set_dmaen(false));
         #[cfg(not(any(adc_v2_u5, adc_v2_wba)))]
@@ -279,6 +284,20 @@ impl AdcRegs for Regs {
         while self.cr().read().adcal() {}
         #[cfg(not(adc_v2_f0))]
         self.isr().write(|w| w.set_eocal(true));
+
+        // RM0444 §15.3.3 (also C0, U0): the hardware leaves the calibration factor *minus one* in
+        // CALFACT; software has to increment it and write it back, saturating at the field maximum.
+        // The other chips of this family calibrate themselves completely.
+        #[cfg(any(stm32g0, stm32c0, stm32u0))]
+        {
+            let factor = self.calfact().read().calfact();
+            // CALFACT is only writable with the converter enabled and idle; the rest of `init`
+            // needs it disabled again.
+            self.enable();
+            self.calfact()
+                .write(|w| w.set_calfact(factor.saturating_add(1).min(0x7f)));
+            self.disable();
+        }
 
         #[cfg(not(any(adc_v2_u5, adc_v2_wba)))]
         self.cfgr1().modify(|w| w.set_autoff(auto_off));
@@ -304,6 +323,12 @@ impl AdcRegs for Regs {
         }
         #[cfg(adc_oversampler)]
         set_oversampling(self, config.oversampler());
+
+        // RM0456 §34.7.5 / RM0493 §21.7.5: on these ADCs the reset value of LFTRIG is documented
+        // as reserved and the bit "must be set by software". It costs two ADC clock cycles of
+        // trigger latency and rearms the sampling node, which otherwise leaks when the ADC idles.
+        #[cfg(any(adc_v2_u5, adc_v2_wba))]
+        self.set_low_frequency_trigger(true);
 
         self.enable();
     }
@@ -498,6 +523,10 @@ impl AdcRegs for Regs {
     }
 
     fn stop(self) {
+        // RM0456 §34.4.9 / RM0493 §21.4.9 ask for an ADSTP pulse before reconfiguring even when
+        // ADSTART is already clear. Measured on a WBA52: doing that costs roughly a third of the
+        // charge of the following sample (a pin held by its pull-up reads 1766 instead of 2965 of
+        // 4095), so the reconfiguration is done without it, as it has always been.
         if self.cr().read().adstart() {
             self.cr().modify(|w| w.set_adstp(true));
             while self.cr().read().adstart() {}
@@ -539,6 +568,16 @@ impl AdcRegs for Regs {
     }
 
     fn enable_internal(self, _common: (), channel: InternalChannel, enable: bool) {
+        // RM0367 §10.2.3: on the L0 the buffers driving VREFINT and the temperature sensor into
+        // the ADC are in SYSCFG, not in the ADC. Enabling the sensor buffer also enables VREFINT.
+        #[cfg(adc_v2_l0)]
+        critical_section::with(|_| {
+            crate::pac::SYSCFG.cfgr3().modify(|w| match channel {
+                InternalChannel::VrefInt => w.set_enbuf_vrefint_adc(enable),
+                InternalChannel::Temperature => w.set_enbuf_sensor_adc(enable),
+                _ => {}
+            })
+        });
         critical_section::with(|_| {
             self.ccr().modify(|w| match channel {
                 InternalChannel::VrefInt => w.set_vrefen(enable),

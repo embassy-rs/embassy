@@ -13,11 +13,11 @@ use super::{
     AdcRegs, Clock, Config, ConversionMode, Exten, InternalChannel, Resolution, SampleTimes, State, WatchdogChannels,
 };
 use crate::pac::adc::Adc as Regs;
-#[cfg(adc_v1_l1)]
-use crate::pac::adc::vals::Adcpre;
 #[cfg(not(adc_v1_f1))]
 use crate::pac::adc::vals::Res;
 use crate::pac::adc::vals::SampleTime;
+#[cfg(adc_v1_l1)]
+use crate::pac::adc::vals::{Adcpre, Dels};
 #[cfg(adc_v1_f4)]
 use crate::pac::adccommon::AdcCommon;
 #[cfg(adc_v1_f4)]
@@ -35,6 +35,18 @@ const MAX_CLOCK: Hertz = Hertz::mhz(36);
 #[cfg(adc_v1_l1)]
 const MAX_CLOCK: Hertz = Hertz::mhz(16);
 
+/// The maximum ADC clock of this chip in its current state.
+///
+/// L1: RM0038 §5.1.2, "When Product voltage range 3 is selected (VCore = 1.2 V) the ADC is low
+/// speed (ADCCLK = 4 MHz, 250 Ksps)".
+fn max_clock() -> Hertz {
+    #[cfg(adc_v1_l1)]
+    if crate::pac::PWR.cr().read().vos() == crate::pac::pwr::vals::Vos::Range3 {
+        return Hertz::mhz(4);
+    }
+    MAX_CLOCK
+}
+
 /// Sample times as half ADC clock cycles, indexed by the `SMP` field value.
 #[cfg(adc_v1_f1)]
 const SAMPLE_TIME_HALF_CYCLES: [u32; 8] = [3, 15, 27, 57, 83, 111, 143, 479];
@@ -48,8 +60,12 @@ const SAMPLE_TIME_HALF_CYCLES: [u32; 8] = [8, 18, 32, 48, 96, 192, 384, 768];
 const CHANNELS: usize = 18;
 #[cfg(adc_v1_f4)]
 const CHANNELS: usize = 19;
+/// The L1 has two banks of 32 channels, selected by `CR2.ADC_CFG`; `build.rs` numbers bank B
+/// 32..=63 (RM0038 §12.3.3).
 #[cfg(adc_v1_l1)]
-const CHANNELS: usize = 32;
+const CHANNELS: usize = 64;
+#[cfg(adc_v1_l1)]
+const BANK_CHANNELS: usize = 32;
 
 /// `EXTSEL` value for a software start on the F1.
 #[cfg(adc_v1_f1)]
@@ -142,6 +158,15 @@ impl AdcRegs for Regs {
     const INJECTED_RANKS: usize = 4;
 
     fn init(self, common: Common, kernel_clock: Hertz, config: &Config) {
+        // The L1 ADC is clocked from the HSI, whatever the system clock is (RM0038 §12.3.2).
+        #[cfg(adc_v1_l1)]
+        assert!(
+            crate::pac::RCC.cr().read().hsirdy(),
+            "the ADC is clocked from the HSI, enable it with `config.rcc.hsi = true`"
+        );
+
+        let max_clock = max_clock();
+
         // Clock. The F1 has no prescaler of its own: the RCC (`config.rcc.adc_pre`) sets it.
         match config.clock {
             Clock::Auto => {
@@ -151,7 +176,7 @@ impl AdcRegs for Regs {
                     let presc = PRESCALERS
                         .iter()
                         .copied()
-                        .find(|p| kernel_clock / p.divisor() <= MAX_CLOCK)
+                        .find(|p| kernel_clock / p.divisor() <= max_clock)
                         .expect("ADC kernel clock too fast, use a slower APB2 clock");
                     set_presc(self, common, to_presc(presc));
                 }
@@ -161,12 +186,29 @@ impl AdcRegs for Regs {
         }
         let clock = self.clock(common, kernel_clock);
         assert!(
-            clock <= MAX_CLOCK,
+            clock <= max_clock,
             "ADC clock {} exceeds the maximum of {}",
             clock,
-            MAX_CLOCK
+            max_clock
         );
 
+        // L1: the ADC runs off the HSI, so it can be faster than the bus it reports results on.
+        // The hardware then has to wait between conversions, or results are overwritten before
+        // software (or the DMA) can read them (RM0038 §12.15.3).
+        #[cfg(adc_v1_l1)]
+        self.cr2().modify(|w| {
+            w.set_dels(if kernel_clock < clock / 2u32 {
+                Dels::Delay15
+            } else if kernel_clock < clock {
+                Dels::Delay7
+            } else {
+                Dels::NoDelay
+            })
+        });
+
+        // L1: CR1 (RES, DISCEN, ...), CR2 (DELS) and the sample times may only be written with
+        // the converter off; it is switched on before every conversion.
+        #[cfg(not(adc_v1_l1))]
         self.enable();
 
         // F1: self-calibration, run once after power-up.
@@ -238,6 +280,9 @@ impl AdcRegs for Regs {
 
     #[cfg(not(adc_v1_f1))]
     fn set_resolution(self, res: Resolution) {
+        // L1: RES may only be written with the converter off (RM0038 §12.15.2).
+        #[cfg(adc_v1_l1)]
+        self.power_down();
         self.cr1().modify(|w| w.set_res(to_res(res)));
     }
 
@@ -249,6 +294,11 @@ impl AdcRegs for Regs {
     }
 
     fn configure_sequence(self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, injected: bool) {
+        // L1: the sample times, and the bank selection below, may only be written with the
+        // converter off (RM0038 §12.15.18). Callers enable it again before converting.
+        #[cfg(adc_v1_l1)]
+        self.power_down();
+
         let len = sequence.len();
         assert!(len != 0, "sequence cannot be empty");
         if injected {
@@ -257,6 +307,10 @@ impl AdcRegs for Regs {
             assert!(len <= Self::MAX_SEQUENCE_LEN, "sequence too long");
         }
 
+        // One `SMPR` register per ten channels, of the selected bank on the L1.
+        #[cfg(adc_v1_l1)]
+        const SMPR_COUNT: usize = BANK_CHANNELS.div_ceil(10);
+        #[cfg(not(adc_v1_l1))]
         const SMPR_COUNT: usize = CHANNELS.div_ceil(10);
         let mut smpr = [crate::pac::adc::regs::Smpr::default(); SMPR_COUNT];
         for (i, s) in smpr.iter_mut().enumerate() {
@@ -277,10 +331,25 @@ impl AdcRegs for Regs {
             sqr1.set_l(len as u8 - 1);
         }
 
+        #[cfg(adc_v1_l1)]
+        let mut bank_b = None;
+
         for (i, ((channel, differential), sample_time)) in sequence.enumerate() {
             let channel = channel as usize;
             assert!(channel < CHANNELS, "channel {} does not exist", channel);
             assert!(!differential, "this ADC has no differential inputs");
+
+            // One bank at a time: ADC_CFG is fixed for the whole scan (RM0038 §12.3.8).
+            #[cfg(adc_v1_l1)]
+            let channel = {
+                let b = channel >= BANK_CHANNELS;
+                assert!(
+                    *bank_b.get_or_insert(b) == b,
+                    "a sequence cannot mix channels of bank A and bank B"
+                );
+                channel % BANK_CHANNELS
+            };
+
             smpr[channel / 10].set_smp(channel % 10, sample_time);
 
             if injected {
@@ -303,6 +372,17 @@ impl AdcRegs for Regs {
                     _ => sqr1.set_sq(i - 24, channel as u8),
                 }
             }
+        }
+
+        #[cfg(adc_v1_l1)]
+        if let Some(bank_b) = bank_b {
+            self.cr2().modify(|w| {
+                w.set_adc_cfg(if bank_b {
+                    crate::pac::adc::vals::AdcCfg::BankB
+                } else {
+                    crate::pac::adc::vals::AdcCfg::BankA
+                })
+            });
         }
 
         for (i, s) in smpr.iter().enumerate() {
@@ -445,14 +525,31 @@ impl AdcRegs for Regs {
                 #[cfg(adc_v1_f4)]
                 {
                     let _ = self;
-                    critical_section::with(|_| common.ccr().modify(|w| w.set_tsvrefe(enable)));
+                    critical_section::with(|_| {
+                        common.ccr().modify(|w| {
+                            w.set_tsvrefe(enable);
+                            // On these chips the temperature sensor shares channel 18 with VBAT,
+                            // and VBAT wins when both are on: "VBATE must be disabled when TSVREFE
+                            // is set. If both bits are set, only the VBAT conversion is performed"
+                            // (RM0090 §13.13.16).
+                            #[cfg(not(any(stm32f2, stm32f40x, stm32f41x)))]
+                            if enable && channel == InternalChannel::Temperature {
+                                w.set_vbaten(false);
+                            }
+                        })
+                    });
                 }
                 #[cfg(adc_v1_l1)]
                 self.ccr().modify(|w| w.set_tsvrefe(enable));
             }
             #[cfg(adc_v1_f4)]
             InternalChannel::Vbat => critical_section::with(|_| common.ccr().modify(|w| w.set_vbaten(enable))),
-            #[cfg(not(adc_v1_f4))]
+            // F37x: the VBAT divider is switched on in SYSCFG, not in the ADC (RM0313 §12.10).
+            #[cfg(all(adc_v1_f1, stm32f3))]
+            InternalChannel::Vbat => {
+                critical_section::with(|_| crate::pac::SYSCFG.cfgr1().modify(|w| w.set_vbat_mon(enable)))
+            }
+            #[cfg(not(any(adc_v1_f4, all(adc_v1_f1, stm32f3))))]
             InternalChannel::Vbat => panic!("this ADC has no VBAT channel"),
             InternalChannel::VddCore => panic!("this ADC has no VDDCORE channel"),
             InternalChannel::Dac(_) => panic!("this ADC has no DAC channel"),
@@ -470,6 +567,9 @@ impl AdcRegs for Regs {
                 WatchdogChannels::All => w.set_awdsgl(false),
                 WatchdogChannels::Single(ch) => {
                     w.set_awdsgl(true);
+                    // `AWDCH` numbers channels within the selected bank.
+                    #[cfg(adc_v1_l1)]
+                    let ch = ch % BANK_CHANNELS as u8;
                     w.set_awdch(ch);
                 }
                 WatchdogChannels::Channels(_) => panic!("this watchdog monitors a single channel or all channels"),

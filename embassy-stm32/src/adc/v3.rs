@@ -411,16 +411,42 @@ impl AdcRegs for Regs {
             #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5))]
             self.pcsel().modify(|w| w.set_pcsel(channel, true));
 
+            // A differential channel samples its negative input on the channel below it, which
+            // needs its own preselection bit (RM0486 §32.4.12, RM0433 §25.4.12).
+            #[cfg(any(adc_v3_h7, adc_v3_n6))]
+            if differential && channel > 0 {
+                self.pcsel().modify(|w| w.set_pcsel(channel - 1, true));
+            }
+
             // H5: INP0 and INN1 sit behind a GPIO switch controlled by OP0 in ADC1's option
             // register, shared by ADC1 and ADC2 (RM0481 26.6.23). ADC2's OP0 enables VDDCORE
             // instead, so always write ADC1's. It is never cleared: the other ADC may still use it.
-            //
-            // TODO: For ADC3: (only available on STM32H543/553 devices)
-            //    - 0: INP0 GPIO switch control disabled
-            //    - 1: INP0 GPIO switch control enabled
+            // For ADC1:
+            //   0: INP0/INN1 GPIO switch control disabled (for both ADC1 and ADC2)
+            //   1: INP0/INN1 GPIO switch control enabled (for both ADC1 and ADC2)
+            //   Note: This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected.
+            // For ADC2:
+            //   0: VDDCORE channel disabled (for both ADC2 and ADC3)
+            //   1: VDDCORE channel enabled (for both ADC2 and ADC3)
+            // For ADC3: (only available on STM32H543/553 devices)
+            //   0: INP0 GPIO switch control disabled
+            //   1: INP0 GPIO switch control enabled
             #[cfg(stm32h5)]
             if channel == 0 || (channel == 1 && differential) {
-                crate::pac::ADC1.or().modify(|w| w.set_op0(true));
+                #[cfg(peri_adc2)]
+                let is_adc2 = self.as_ptr() == crate::pac::ADC2.as_ptr();
+
+                #[cfg(not(peri_adc2))]
+                let is_adc2 = false;
+
+                if is_adc2 {
+                    // when ADC2_INP0 should be enabled, set OP0 to 1 for ADC1
+                    crate::pac::ADC1.or().modify(|reg| reg.set_op0(true));
+                } else {
+                    // when ADC1_INP0 should be enabled, set OP0 to 1 for ADC1
+                    // when ADC3_INP0 should be enabled, set OP0 to 1 for ADC3
+                    self.or().modify(|reg| reg.set_op0(true));
+                }
             }
 
             if injected {
@@ -499,6 +525,13 @@ impl AdcRegs for Regs {
     }
 
     fn start(self) {
+        // H5/H7RS: ADC_DR is the output of a three-stage FIFO (RM0481 §26.4.26). A conversion
+        // whose result was never read (an aborted `read` future, say) would otherwise be returned
+        // as the result of this one, so pop whatever is still queued.
+        #[cfg(any(stm32h5, stm32h7rs))]
+        while self.isr().read().eoc() {
+            let _ = self.dr().read();
+        }
         self.isr().write(|w| {
             w.set_eoc(true);
             w.set_eos(true);
@@ -509,6 +542,9 @@ impl AdcRegs for Regs {
     }
 
     fn stop(self) {
+        // RM0486 §32.4.10 / RM0487 §23.4.9 ask for an ADSTP pulse before reconfiguring even when
+        // ADSTART is already clear. That measurably degrades the next sample on the ADC4 of the
+        // WBA (see `v2::stop`), so it is not done here either.
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|w| w.set_adstp(true));
             while self.cr().read().adstart() {}
@@ -555,6 +591,14 @@ impl AdcRegs for Regs {
     }
 
     fn enable_internal(self, common: AdcCommon, channel: InternalChannel, enable: bool) {
+        // RM0456 §33.7.2, RM0486 §32.7.2, RM0487 §23.8.2: these bits may only be written with the
+        // converter disabled. Conversions re-enable it (`AdcRegs::enable`).
+        #[cfg(any(adc_v3_u5, adc_v3_u3, adc_v3_n6))]
+        if self.cr().read().aden() {
+            self.stop();
+            self.cr().modify(|w| w.set_addis(true));
+            while self.cr().read().aden() {}
+        }
         critical_section::with(|_| {
             common.ccr().modify(|w| match channel {
                 InternalChannel::VrefInt => w.set_vrefen(enable),
@@ -567,8 +611,12 @@ impl AdcRegs for Regs {
         match channel {
             #[cfg(any(stm32h5, stm32h7rs))]
             InternalChannel::VddCore => self.or().modify(|w| w.set_op0(enable)),
-            #[cfg(any(adc_v3_u3, adc_v3_n6))]
+            #[cfg(adc_v3_n6)]
             InternalChannel::VddCore => self.or().modify(|w| w.set_vddcoreen(enable)),
+            // The U3 reaches VDDCORE by selecting the channel, with nothing to switch on: its
+            // option register is entirely reserved (RM0487 §23.4.36, §23.7.28).
+            #[cfg(adc_v3_u3)]
+            InternalChannel::VddCore => {}
             #[cfg(not(any(stm32h5, stm32h7rs, adc_v3_u3, adc_v3_n6)))]
             InternalChannel::VddCore => panic!("this ADC has no VDDCORE channel"),
             InternalChannel::Dac(_) => panic!("this ADC has no DAC channel"),
