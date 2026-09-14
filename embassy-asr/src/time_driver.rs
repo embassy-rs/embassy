@@ -29,6 +29,14 @@ const RTC_CYC_STATUS: u32 = 1 << 4;
 // AFEC analog register 0x02 bits 13/14 power-gate XO32K. Clearing them matches
 // `rcc_enable_oscillator(RCC_OSC_XO32K)`.
 const ANALOG_XO32K_POWER_DOWN: u32 = (1 << 13) | (1 << 14);
+// AFEC analog register 0x02 bit 15 power-gates RCO32K (internal RC 32 kHz).
+const ANALOG_RCO32K_POWER_DOWN: u32 = 1 << 15;
+
+// Cyclic-counter verification: a ~7.8 ms match at 32.768 kHz, polled for up
+// to 64 x ~1 ms (at 300 MHz) rounds so the budget stays generous even at low
+// CPU frequencies.
+const VERIFY_CYC_TICKS: u32 = 256;
+const VERIFY_CYC_ROUNDS: u32 = 64;
 
 struct AsrTimeDriver {
     initialized: AtomicBool,
@@ -52,6 +60,44 @@ fn sync_ready() -> bool {
 
 fn wait_sync() {
     while !sync_ready() {}
+}
+
+/// Verify that the RTC cyclic counter is actually counting.
+///
+/// Arms a short cyclic match (interrupt left disabled) and waits for the
+/// match status flag. Returns whether the match happened. Leaves the counter
+/// disabled and all status bits cleared.
+fn cyc_counts() -> bool {
+    wait_sync();
+    unsafe {
+        rtc().sr().write_with_zero(|w| w.bits(RTC_CYC_STATUS));
+        rtc().cyc_max().write_with_zero(|w| w.bits(VERIFY_CYC_TICKS));
+    }
+    wait_sync();
+    rtc()
+        .ctrl()
+        .modify(|r, w| unsafe { w.bits(r.bits() | RTC_CYC_WAKE_ENABLE | RTC_CYC_ENABLE) });
+
+    let mut matched = false;
+    for _ in 0..VERIFY_CYC_ROUNDS {
+        if rtc().sr().read().bits() & RTC_CYC_STATUS != 0 {
+            matched = true;
+            break;
+        }
+        // ~1 ms at 300 MHz; the ~7.8 ms match has ample margin even at much
+        // lower CPU frequencies.
+        cortex_m::asm::delay(300_000);
+    }
+
+    rtc()
+        .ctrl()
+        .modify(|r, w| unsafe { w.bits(r.bits() & !(RTC_CYC_WAKE_ENABLE | RTC_CYC_ENABLE)) });
+    wait_sync();
+    unsafe {
+        rtc().sr().write_with_zero(|w| w.bits(RTC_CYC_STATUS));
+    }
+    wait_sync();
+    matched
 }
 
 fn read_stable(register: impl Fn(&pac::Rtc) -> u32) -> u32 {
@@ -110,8 +156,10 @@ impl AsrTimeDriver {
     fn init(&'static self) {
         assert!(TICK_HZ == TIMER_TICK_HZ, "embassy-asr: time tick rate must be 32768 Hz");
 
-        // Shared AFEC analog helper also gates the AFEC clock.
-        afec::analog::REG_02.clear_bits(ANALOG_XO32K_POWER_DOWN);
+        // Shared AFEC analog helper also gates the AFEC clock. Power up both
+        // 32 kHz sources; the RTC is verified on XO32K first and falls back
+        // to RCO32K if the external crystal is not oscillating.
+        afec::analog::REG_02.clear_bits(ANALOG_XO32K_POWER_DOWN | ANALOG_RCO32K_POWER_DOWN);
 
         // Reinitialize RTC and select XO32K while its functional clock is off.
         // Clock/reset helpers match `rcc_enable_peripheral_clk` / reset sequencing,
@@ -124,8 +172,30 @@ impl AsrTimeDriver {
             .modify(|_, w| w.rtc_clk_sel().xo32k());
 
         rcc::enable_peripheral(RccPeripheral::Rtc).expect("embassy-asr: failed to enable RTC clock");
-
         wait_sync();
+
+        // Verify the selected source actually drives the cyclic counter; a
+        // missing or dead 32 kHz crystal would stall it and hang every timer
+        // wakeup. Fall back to the internal RC oscillator when it is not
+        // counting.
+        if !cyc_counts() {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("embassy-asr: XO32K not counting; falling back to RCO32K");
+
+            rcc::disable_peripheral(RccPeripheral::Rtc).expect("embassy-asr: failed to disable RTC clock");
+            rcc::reset_peripheral(RccPeripheral::Rtc).expect("embassy-asr: failed to reset RTC");
+            unsafe { pac::Rcc::steal() }
+                .cr1()
+                .modify(|_, w| w.rtc_clk_sel().rco32k());
+            rcc::enable_peripheral(RccPeripheral::Rtc).expect("embassy-asr: failed to enable RTC clock");
+            wait_sync();
+
+            if !cyc_counts() {
+                #[cfg(feature = "defmt")]
+                defmt::warn!("embassy-asr: RTC 32 kHz source dead; timers will not fire");
+            }
+        }
+
         unsafe {
             rtc().ctrl().write_with_zero(|w| w.bits(0));
             rtc().cr1().write_with_zero(|w| w.bits(0));

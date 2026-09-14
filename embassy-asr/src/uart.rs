@@ -15,9 +15,10 @@
 //!   owned [`Peri`] token is the exclusivity proof; do not also use
 //!   `pac::Uart*::steal()` from application code while the driver is alive.
 
+use core::cell::UnsafeCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicU8, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicU16, AtomicU32, AtomicU8, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::interrupt::Priority;
@@ -56,6 +57,31 @@ const RCO4M_HZ: u32 = 3_600_000;
 const XO32K_HZ: u32 = 32_768;
 const XO24M_HZ: u32 = 24_000_000;
 
+/// Capacity of the per-UART software RX ring buffer.
+///
+/// The hardware RX FIFO is only 16 bytes deep, so in interrupt-driven (async)
+/// mode the ISR drains the FIFO into this much larger ring buffer. This
+/// decouples capture (which happens at line rate in the ISR) from the reader
+/// (which may be briefly busy), preventing FIFO overruns and byte loss.
+const RX_BUF_CAP: usize = 512;
+
+/// Diagnostic counters for RX byte loss. `RX_HW_OVERRUN` counts hardware FIFO
+/// overrun errors (DR.OE), i.e. bytes dropped because the ISR did not drain the
+/// 16-byte FIFO in time. `RX_RING_DROP` counts the software ring buffer dropping
+/// its oldest byte because the reader was more than [`RX_BUF_CAP`] bytes behind.
+static RX_HW_OVERRUN: AtomicU32 = AtomicU32::new(0);
+static RX_RING_DROP: AtomicU32 = AtomicU32::new(0);
+
+/// Number of hardware FIFO overrun errors seen since boot (all UARTs).
+pub fn rx_hw_overrun_count() -> u32 {
+    RX_HW_OVERRUN.load(Ordering::Relaxed)
+}
+
+/// Number of software ring-buffer drop-oldest events since boot (all UARTs).
+pub fn rx_ring_drop_count() -> u32 {
+    RX_RING_DROP.load(Ordering::Relaxed)
+}
+
 static STATE: [State; 4] = [const { State::new() }; 4];
 
 struct State {
@@ -63,6 +89,12 @@ struct State {
     rx_waker: AtomicWaker,
     /// Number of live [`UartTx`]/ [`UartRx`] halves.
     refcount: AtomicU8,
+    /// RX ring buffer write index (advanced by the ISR).
+    rx_head: AtomicU16,
+    /// RX ring buffer read index (advanced by the reader).
+    rx_tail: AtomicU16,
+    /// RX ring buffer storage.
+    rx_buf: UnsafeCell<[u8; RX_BUF_CAP]>,
 }
 
 impl State {
@@ -71,9 +103,26 @@ impl State {
             tx_waker: AtomicWaker::new(),
             rx_waker: AtomicWaker::new(),
             refcount: AtomicU8::new(0),
+            rx_head: AtomicU16::new(0),
+            rx_tail: AtomicU16::new(0),
+            rx_buf: UnsafeCell::new([0; RX_BUF_CAP]),
         }
     }
+
+    /// Reset the RX ring buffer to empty.
+    fn reset_rx(&self) {
+        self.rx_head.store(0, Ordering::Release);
+        self.rx_tail.store(0, Ordering::Release);
+    }
 }
+
+// Safety: `STATE` is a shared static read from both thread and interrupt
+// context. The atomics (`tx_waker`, `rx_waker`, `refcount`, `rx_head`,
+// `rx_tail`) are `Sync`. The `rx_buf` `UnsafeCell` is only ever accessed
+// through the atomic `rx_head`/`rx_tail` indices with Acquire/Release
+// ordering: the ISR writes only at `rx_head`, the reader only at `rx_tail`,
+// and the two never touch the same slot concurrently.
+unsafe impl Sync for State {}
 
 struct Info {
     index: usize,
@@ -117,9 +166,45 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
         }
 
         if mis & INT_RX_ALL != 0 {
-            let imsc = regs.imsc().read().bits() & !INT_RX_ALL;
-            unsafe {
-                regs.imsc().write_with_zero(|w| w.bits(imsc));
+            // Drain the hardware RX FIFO into the software ring buffer.
+            //
+            // The RX interrupt is deliberately *not* masked: it stays armed so
+            // capture continues at line rate. Once the FIFO is drained below the
+            // trigger level the interrupt stops, so there is no storm. This
+            // prevents the 16-byte hardware FIFO from overflowing (and dropping
+            // bytes) while the reader is momentarily busy.
+            loop {
+                if flag(regs, FLAG_RXFE) {
+                    break;
+                }
+                let value = regs.dr().read().bits();
+                if value & DR_ERROR_MASK != 0 {
+                    if value & DR_OE != 0 {
+                        RX_HW_OVERRUN.fetch_add(1, Ordering::Relaxed);
+                    }
+                    // Writing RSC_ECR clears sticky receive-status bits.
+                    unsafe {
+                        regs.rsc_ecr().write_with_zero(|w| w.bits(0));
+                    }
+                }
+                let b = (value & 0xff) as u8;
+
+                let head = info.state.rx_head.load(Ordering::Acquire) as usize;
+                let next = (head + 1) % RX_BUF_CAP;
+                let tail = info.state.rx_tail.load(Ordering::Acquire) as usize;
+                if next == tail {
+                    // Ring buffer full (reader is far behind): drop the oldest
+                    // byte to keep capturing the newest data.
+                    RX_RING_DROP.fetch_add(1, Ordering::Relaxed);
+                    info.state
+                        .rx_tail
+                        .store(((tail + 1) % RX_BUF_CAP) as u16, Ordering::Release);
+                }
+                unsafe {
+                    let buf = info.state.rx_buf.get();
+                    *(&raw mut (*buf)[head]) = b;
+                }
+                info.state.rx_head.store(next as u16, Ordering::Release);
             }
             info.state.rx_waker.wake();
         }
@@ -359,6 +444,9 @@ fn apply_config(info: &'static Info, config: Config, has_rx: bool, has_tx: bool)
         regs.ibrd().write_with_zero(|w| w.bits(ibrd));
         regs.fbrd().write_with_zero(|w| w.bits(fbrd));
     }
+
+    // Reset the software RX ring buffer to empty.
+    info.state.reset_rx();
 
     let wlen = match config.data_bits {
         DataBits::DataBits5 => pac::uart0::lcr_h::Wlen::Value5,
@@ -634,8 +722,19 @@ impl<'d, M: Mode> Uart<'d, M> {
         info.state.refcount.store(2, Ordering::Release);
 
         if enable_irq {
+            // Arm the RX interrupt so the ISR starts draining the hardware FIFO
+            // into the ring buffer immediately. The RX path keeps this armed;
+            // see [`InterruptHandler::on_interrupt`].
+            if has_rx {
+                set_imsc_bits(info.regs(), INT_RX_ALL, true);
+            }
             T::Interrupt::unpend();
-            T::Interrupt::set_priority(Priority::P3);
+            // Run above the RTC time-driver (P2) and DMA (P2) interrupts. The
+            // RTC fires at 32.768 kHz and its handler can spin in `wait_sync()`
+            // across the async clock domain; at P3 the UART RX ISR is starved
+            // during those windows and the 16-byte hardware RX FIFO overruns,
+            // dropping bytes. At P1 capture is never delayed by the time driver.
+            T::Interrupt::set_priority(Priority::P1);
             unsafe {
                 T::Interrupt::enable();
             }
@@ -856,30 +955,47 @@ impl<'d, M: Mode> UartRx<'d, M> {
 }
 
 impl<'d> UartRx<'d, Async> {
+    /// Wait until at least one byte is available in the software RX ring
+    /// buffer (which the ISR keeps filled from the hardware FIFO).
     async fn wait_rx_ready(&mut self) {
         let info = self.info;
-        let regs = info.regs();
         poll_fn(|cx| {
-            if !flag(regs, FLAG_RXFE) {
+            if info.state.rx_head.load(Ordering::Acquire) != info.state.rx_tail.load(Ordering::Acquire)
+            {
                 return Poll::Ready(());
             }
             info.state.rx_waker.register(cx.waker());
-            set_imsc_bits(regs, INT_RX_ALL, true);
-            if !flag(regs, FLAG_RXFE) {
-                set_imsc_bits(regs, INT_RX_ALL, false);
+            // Make sure the RX interrupt is armed so the ISR keeps capturing.
+            set_imsc_bits(info.regs(), INT_RX_ALL, true);
+            if info.state.rx_head.load(Ordering::Acquire) != info.state.rx_tail.load(Ordering::Acquire)
+            {
                 return Poll::Ready(());
             }
             Poll::Pending
         })
         .await;
-        set_imsc_bits(regs, INT_RX_ALL, false);
+        // Leave the RX interrupt armed; the ISR keeps draining the FIFO into the
+        // ring buffer so no bytes are lost between reads.
+    }
+
+    /// Read the next byte from the software RX ring buffer, if any.
+    fn nb_read_byte_ring(&mut self) -> Result<Option<u8>, Error> {
+        let info = self.info;
+        let tail = info.state.rx_tail.load(Ordering::Acquire) as usize;
+        if tail == info.state.rx_head.load(Ordering::Acquire) as usize {
+            return Ok(None);
+        }
+        let b = unsafe { *(&raw const (*info.state.rx_buf.get())[tail]) };
+        info.state.rx_tail.store(((tail + 1) % RX_BUF_CAP) as u16, Ordering::Release);
+        Ok(Some(b))
     }
 
     /// Interrupt-driven read that fills the entire buffer.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         for slot in buffer.iter_mut() {
             self.wait_rx_ready().await;
-            *slot = read_dr(self.regs())?;
+            // `wait_rx_ready` guarantees a byte is present.
+            *slot = self.nb_read_byte_ring()?.unwrap();
         }
         Ok(())
     }
@@ -1013,7 +1129,7 @@ impl<'d> embedded_io_async::Read for UartRx<'d, Async> {
         self.wait_rx_ready().await;
         let mut n = 0;
         while n < buf.len() {
-            match self.nb_read_byte()? {
+            match self.nb_read_byte_ring()? {
                 Some(b) => {
                     buf[n] = b;
                     n += 1;

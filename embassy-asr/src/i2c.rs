@@ -210,6 +210,11 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
         let regs = info.regs();
 
         // Mask level/event enables; the waiter re-enables as needed.
+        //
+        // This read-modify-write must never interleave with the driver's CR
+        // writes (they run in critical sections with IRQs disabled), otherwise
+        // a stale write here could cancel a START/ABORT the driver just
+        // issued and wedge the unit.
         let cr = regs.cr().read().bits() & !CR_INTR_MASK;
         regs.cr().write_with_zero(|w| unsafe { w.bits(cr) });
 
@@ -225,8 +230,13 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 /// I2C master driver.
 pub struct I2c<'d, M: Mode> {
     info: &'static Info,
-    _scl: Flex<'d>,
-    _sda: Flex<'d>,
+    scl: Flex<'d>,
+    sda: Flex<'d>,
+    scl_af: AlternateFunction,
+    sda_af: AlternateFunction,
+    scl_pull: Pull,
+    sda_pull: Pull,
+    frequency: Frequency,
     _mode: PhantomData<&'d mut M>,
 }
 
@@ -327,42 +337,64 @@ fn nack_seen(regs: &RegisterBlock) -> bool {
     regs.sr().read().ack_status().bit_is_set()
 }
 
+/// Run a CR control sequence atomically with respect to the ISR, whose own
+/// CR write would otherwise interleave with (and clobber) these read-modify-
+/// writes, e.g. cancelling a START that was just issued.
+fn critical<R>(f: impl FnOnce() -> R) -> R {
+    critical_section::with(|_| f())
+}
+
+/// Busy-wait used by [`I2c::bus_recover`]. The recovery clock period is not
+/// critical; 50k system cycles is comfortably above the ~10 µs half-period
+/// of 100 kHz I2C at any plausible CPU frequency.
+fn recover_delay() {
+    cortex_m::asm::delay(50_000);
+}
+
 fn master_abort(regs: &RegisterBlock) {
-    regs.cr().modify(|_, w| {
-        w.start().clear_bit();
-        w.master_abort().set_bit()
+    critical(|| {
+        regs.cr().modify(|_, w| {
+            w.start().clear_bit();
+            w.master_abort().set_bit()
+        });
     });
 }
 
 fn master_send_start(regs: &RegisterBlock, addr7: u8, read: bool) {
     let data = (addr7 << 1) | u8::from(read);
-    regs.cr().modify(|_, w| w.master_abort().clear_bit());
-    unsafe {
-        regs.dbr().write_with_zero(|w| w.bits(u32::from(data)));
-    }
-    regs.cr().modify(|_, w| {
-        w.stop().clear_bit();
-        w.start().set_bit();
-        w.trans_byte().set_bit()
+    critical(|| {
+        regs.cr().modify(|_, w| w.master_abort().clear_bit());
+        unsafe {
+            regs.dbr().write_with_zero(|w| w.bits(u32::from(data)));
+        }
+        regs.cr().modify(|_, w| {
+            w.stop().clear_bit();
+            w.start().set_bit();
+            w.trans_byte().set_bit()
+        });
     });
 }
 
 fn master_send_byte(regs: &RegisterBlock, data: u8) {
-    unsafe {
-        regs.dbr().write_with_zero(|w| w.bits(u32::from(data)));
-    }
-    regs.cr().modify(|_, w| {
-        w.start().clear_bit();
-        w.trans_byte().set_bit()
+    critical(|| {
+        unsafe {
+            regs.dbr().write_with_zero(|w| w.bits(u32::from(data)));
+        }
+        regs.cr().modify(|_, w| {
+            w.start().clear_bit();
+            w.trans_byte().set_bit()
+        });
     });
 }
 
 fn set_receive_mode(regs: &RegisterBlock, ack: bool) {
     // CR.ACKNAK = 1 requests NAK.
-    regs.cr().modify(|_, w| {
-        w.acknak().bit(!ack);
-        w.start().clear_bit();
-        w.trans_byte().set_bit()
+    critical(|| {
+        regs.cr().modify(|_, w| {
+            w.acknak().bit(!ack);
+            w.start().clear_bit();
+            w.trans_byte().set_bit()
+        });
     });
 }
 
@@ -411,9 +443,11 @@ fn shutdown(info: &'static Info) {
 }
 
 fn set_irq_enables(regs: &RegisterBlock, mask: u32, enable: bool) {
-    regs.cr().modify(|r, w| {
-        let bits = if enable { r.bits() | mask } else { r.bits() & !mask };
-        unsafe { w.bits(bits) }
+    critical(|| {
+        regs.cr().modify(|r, w| {
+            let bits = if enable { r.bits() | mask } else { r.bits() & !mask };
+            unsafe { w.bits(bits) }
+        });
     });
 }
 
@@ -497,8 +531,13 @@ impl<'d, M: Mode> I2c<'d, M> {
 
         Ok(Self {
             info,
-            _scl: scl,
-            _sda: sda,
+            scl,
+            sda,
+            scl_af,
+            sda_af,
+            scl_pull: config.scl_pull,
+            sda_pull: config.sda_pull,
+            frequency: config.frequency,
             _mode: PhantomData,
         })
     }
@@ -644,9 +683,12 @@ impl<'d> I2c<'d, Async> {
 
         poll_fn(|cx| {
             state.waker.register(cx.waker());
-            match ready(regs) {
+            let outcome = match ready(regs) {
                 Poll::Ready(result) => {
-                    set_irq_enables(regs, irq_mask, false);
+                    // Disarm everything that could have been armed by a
+                    // previous wait (including the error enables), so no
+                    // latched flag can re-trigger the ISR later.
+                    set_irq_enables(regs, irq_mask | SR_ERROR_MASK, false);
                     Poll::Ready(result)
                 }
                 Poll::Pending => {
@@ -660,7 +702,8 @@ impl<'d> I2c<'d, Async> {
                         Poll::Pending => Poll::Pending,
                     }
                 }
-            }
+            };
+            outcome
         })
         .await
     }
@@ -705,6 +748,101 @@ impl<'d> I2c<'d, Async> {
         )
         .await
         .map_err(|e| self.finish_error(e))
+    }
+
+    /// Attempt to recover a jammed bus.
+    ///
+    /// A slave stuck mid-byte holds SDA Low, so the TWSI unit can never
+    /// generate a START and every transfer hangs. If SDA is observed Low the
+    /// SCL/SDA pads are temporarily remuxed to GPIO, up to nine SCL clocks
+    /// are bit-banged so the stuck slave can finish its byte, and a STOP
+    /// condition is generated. The TWSI unit is aborted, reset, and its pin
+    /// driving released before the remux (a plain CR write does not stop an
+    /// in-flight transfer; the unit keeps driving the pads and the GPIO
+    /// remux has no effect on the bus). The alternate muxing is restored in
+    /// all cases.
+    ///
+    /// Returns `true` if the bus was idle or SDA was released.
+    pub async fn bus_recover(&mut self) -> bool {
+        let regs = self.regs();
+
+        // Abort any in-flight transfer first (vendor `i2c_master_send_stop`).
+        // Best effort: a wedged unit may ignore it, which is why a hard reset
+        // follows below.
+        master_abort(regs);
+
+        // A stuck unit (SR.UNIT_BUSY latched High, a byte never shifting out of
+        // the IDBR) will not respond to the soft CR UNIT_RESET: `unit_reset`
+        // waits for UNIT_BUSY to clear first and so skips the reset pulse
+        // entirely. Gate the peripheral clock and apply a hard RCC reset
+        // instead — that returns the unit to its default state (UNIT_BUSY
+        // cleared, SCL_EN and TWSI_UNIT_EN off, SDA/SCL pads released) no matter
+        // what state it is wedged in. Clock-gating alone does not release the
+        // pads, so the reset is what makes the GPIO bit-bang below reach the bus.
+        let _ = rcc::disable_peripheral(self.info.peripheral);
+        let _ = rcc::reset_peripheral(self.info.peripheral);
+
+        // Remux the pads to GPIO (AF0) so the GPIO block — not the I2C TWSI
+        // peripheral — owns the pads. On this chip the pad mux follows the
+        // alternate-function (IOMUX) register, so merely switching the pin to
+        // input/output mode leaves it routed to I2C and the bit-bang below
+        // never reaches the bus. Then configure as pull-up inputs and inspect
+        // SDA.
+        self.scl.set_alternate_function(AlternateFunction::Function0);
+        self.sda.set_alternate_function(AlternateFunction::Function0);
+        self.scl.set_as_input();
+        self.scl.set_pull(Pull::Up);
+        self.sda.set_as_input();
+        self.sda.set_pull(Pull::Up);
+        recover_delay();
+
+        let mut released = self.sda.is_high();
+
+        if !released {
+            // Bit-bang up to nine SCL clocks; a stuck slave finishes its
+            // byte (and releases SDA) within eight clocks.
+            self.scl.set_as_output();
+            self.scl.set_high();
+            recover_delay();
+            for _ in 0..9u8 {
+                self.scl.set_low();
+                recover_delay();
+                self.scl.set_high();
+                recover_delay();
+                if self.sda.is_high() {
+                    released = true;
+                    break;
+                }
+            }
+            if released {
+                // STOP condition: SDA Low -> High while SCL is High.
+                self.sda.set_as_output();
+                self.sda.set_low();
+                recover_delay();
+                self.sda.set_high();
+                recover_delay();
+            }
+        }
+
+        // Restore the I2C alternate muxing.
+        self.sda.set_as_input();
+        self.sda.set_pull(self.sda_pull);
+        self.scl.set_as_input();
+        self.scl.set_pull(self.scl_pull);
+        self.scl.set_alternate_function(self.scl_af);
+        self.sda.set_alternate_function(self.sda_af);
+
+        // Re-power the I2C block, then re-initialize the TWSI unit (reset,
+        // timing, enable).
+        let _ = rcc::enable_peripheral(self.info.peripheral);
+        let config = Config {
+            frequency: self.frequency,
+            scl_pull: Pull::None,
+            sda_pull: Pull::None,
+        };
+        let _ = init_master(self.info, config);
+
+        released
     }
 
     async fn write_ops(&mut self, addr: u8, bytes: &[u8], send_stop: bool) -> Result<(), Error> {
@@ -991,7 +1129,7 @@ impl<'d> I2cSlave<'d, Async> {
             state.waker.register(cx.waker());
             match ready(regs) {
                 Poll::Ready(result) => {
-                    set_irq_enables(regs, irq_mask, false);
+                    set_irq_enables(regs, irq_mask | SR_ERROR_MASK, false);
                     Poll::Ready(result)
                 }
                 Poll::Pending => {
