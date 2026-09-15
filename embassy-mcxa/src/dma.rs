@@ -2345,6 +2345,49 @@ impl<W: Word> Drop for RingBuffer<'_, '_, W> {
 }
 
 impl<'a> DmaChannel<'a> {
+    /// Configure a circular DMA read from a peripheral without taking ownership of
+    /// the channel or destination buffer.
+    ///
+    /// The destination address wraps after the major loop while the request remains
+    /// enabled. Half and major-loop interrupts may therefore be used as ping-pong
+    /// publication points without stopping the channel between buffer halves.
+    ///
+    /// # Safety
+    ///
+    /// - `peri_addr` must remain valid for peripheral reads while the transfer is active.
+    /// - `buf` must remain valid and inaccessible through normal Rust references while
+    ///   DMA is active.
+    /// - The caller must stop the channel before releasing or reusing `buf`.
+    pub(crate) unsafe fn setup_circular_read_from_peripheral<W: Word>(
+        &mut self,
+        peri_addr: *const W,
+        buf: &mut [W],
+        software: bool,
+        options: TransferOptions,
+    ) -> Result<(), InvalidParameters> {
+        if buf.is_empty() || buf.len() > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
+        }
+
+        unsafe {
+            self.setup_transfers(DmaTransferParameters {
+                src_ptr: peri_addr,
+                dst_ptr: buf.as_mut_ptr(),
+                dst_count: buf.len(),
+                src_incr: false,
+                dst_incr: true,
+                circular: true,
+                software,
+                options,
+            });
+        }
+
+        // Half/major completion notifications are delivered through the channel IRQ.
+        self.enable_interrupt();
+
+        Ok(())
+    }
+
     /// Set up a circular DMA transfer for continuous peripheral-to-memory reception.
     ///
     /// This configures the DMA channel for circular operation with both half-transfer
@@ -2369,29 +2412,18 @@ impl<'a> DmaChannel<'a> {
         peri_addr: *const W,
         buf: &'buf mut [W],
     ) -> Result<RingBuffer<'_, 'buf, W>, InvalidParameters> {
-        if buf.is_empty() || buf.len() > DMA_MAX_TRANSFER_SIZE {
-            return Err(InvalidParameters);
-        }
-
         unsafe {
-            self.setup_transfers(DmaTransferParameters {
-                src_ptr: peri_addr,
-                dst_ptr: buf.as_mut_ptr(),
-                dst_count: buf.len(),
-                src_incr: false,
-                dst_incr: true,
-                circular: true,
-                software: true,
-                options: TransferOptions {
+            self.setup_circular_read_from_peripheral(
+                peri_addr,
+                buf,
+                true,
+                TransferOptions {
                     half_transfer_interrupt: true,
                     complete_transfer_interrupt: true,
                     priority: Priority::default(),
                 },
-            });
+            )?;
         }
-
-        // Enable NVIC interrupt for this channel so async wakeups work
-        self.enable_interrupt();
 
         Ok(unsafe { RingBuffer::new(self.reborrow(), buf) })
     }
