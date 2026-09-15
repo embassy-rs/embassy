@@ -93,6 +93,10 @@ name = "ble_direction_finding_tag"
 required-features = ["ble"]
 
 [[bin]]
+name = "ble_api_extras"
+required-features = ["ble"]
+
+[[bin]]
 name = "usb_host_serial"
 
 [[bin]]

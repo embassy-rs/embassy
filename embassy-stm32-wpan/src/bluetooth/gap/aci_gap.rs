@@ -4,9 +4,9 @@
 //! instead of raw HCI commands. These provide more integrated functionality.
 
 use stm32_bindings::ble::{
-    aci_gap_set_discoverable, aci_gap_set_non_discoverable, aci_gap_set_undirected_connectable,
-    aci_gap_start_general_discovery_proc, aci_gap_start_limited_discovery_proc, aci_gap_start_observation_proc,
-    aci_gap_terminate_gap_proc, aci_gap_update_adv_data,
+    aci_gap_set_direct_connectable, aci_gap_set_discoverable, aci_gap_set_non_discoverable,
+    aci_gap_set_undirected_connectable, aci_gap_start_general_discovery_proc, aci_gap_start_limited_discovery_proc,
+    aci_gap_start_observation_proc, aci_gap_terminate_gap_proc, aci_gap_update_adv_data,
 };
 
 use crate::bluetooth::error::BleError;
@@ -113,6 +113,47 @@ pub fn set_discoverable(
         } else {
             #[cfg(feature = "defmt")]
             defmt::error!("aci_gap_set_discoverable failed: 0x{:02X}", status);
+            Err(BleError::CommandFailed(Status::from_u8(status)))
+        }
+    }
+}
+
+/// Start directed connectable advertising.
+///
+/// Unlike [`set_discoverable`], which only supports undirected advertising
+/// types, this is the ST command for high/low duty cycle connectable directed
+/// advertising (Core Spec Vol 3, Part C, 9.3.3).
+///
+/// * `directed_type`: `ADV_DIRECT_IND` (0x01, high duty) or
+///   `ADV_DIRECT_IND_LOW_DUTY` (0x04).
+/// * `peer_addr_type`: 0x00 public / 0x01 random.
+/// * High duty cycle directed advertising stops automatically after 1.28 s if
+///   no connection is established.
+pub fn set_direct_connectable(
+    own_addr_type: u8,
+    directed_type: u8,
+    peer_addr_type: u8,
+    peer_addr: &[u8; 6],
+    interval_min: u16,
+    interval_max: u16,
+) -> Result<(), BleError> {
+    unsafe {
+        let status = aci_gap_set_direct_connectable(
+            own_addr_type,
+            directed_type,
+            peer_addr_type,
+            peer_addr.as_ptr(),
+            interval_min,
+            interval_max,
+        );
+
+        if status == BLE_STATUS_SUCCESS {
+            #[cfg(feature = "defmt")]
+            defmt::info!("aci_gap_set_direct_connectable succeeded");
+            Ok(())
+        } else {
+            #[cfg(feature = "defmt")]
+            defmt::error!("aci_gap_set_direct_connectable failed: 0x{:02X}", status);
             Err(BleError::CommandFailed(Status::from_u8(status)))
         }
     }

@@ -5,9 +5,9 @@
 //! the implementation compared to packet-based HCI.
 
 use stm32_bindings::ble::{
-    aci_hal_le_tx_test_packet_number, hci_disconnect, hci_le_connection_cte_request_enable,
-    hci_le_connection_cte_response_enable, hci_le_connection_update, hci_le_create_connection,
-    hci_le_create_connection_cancel, hci_le_read_advertising_physical_channel_tx_power,
+    aci_hal_le_tx_test_packet_number, aci_hal_read_rssi, aci_hal_set_radio_activity_mask, hci_disconnect,
+    hci_le_connection_cte_request_enable, hci_le_connection_cte_response_enable, hci_le_connection_update,
+    hci_le_create_connection, hci_le_create_connection_cancel, hci_le_read_advertising_physical_channel_tx_power,
     hci_le_read_antenna_information, hci_le_read_buffer_size_v2, hci_le_read_local_supported_features_page_0,
     hci_le_read_phy, hci_le_receiver_test, hci_le_receiver_test_v2, hci_le_set_advertising_data,
     hci_le_set_advertising_enable, hci_le_set_advertising_parameters, hci_le_set_connection_cte_receive_parameters,
@@ -575,6 +575,34 @@ impl CommandSender {
             );
             Self::check_status(status)?;
             Ok((switching_rates, num_antennae, max_pattern_len, max_cte_len))
+        }
+    }
+
+    // ===== HAL / link-control Commands =====
+
+    /// Read the RSSI (dBm) of the most recently received packet.
+    ///
+    /// Returns `Ok(None)` when the controller reports RSSI as not available
+    /// (raw value 127).
+    pub fn read_rssi(&self) -> Result<Option<i8>, BleError> {
+        unsafe {
+            let mut rssi: u8 = 0;
+            let status = aci_hal_read_rssi(&mut rssi);
+            Self::check_status(status)?;
+            let dbm = rssi as i8;
+            Ok(if dbm == 127 { None } else { Some(dbm) })
+        }
+    }
+
+    /// Configure which radio activities are reported through
+    /// `ACI_HAL_END_OF_RADIO_ACTIVITY_EVENT`.
+    ///
+    /// Only the activities selected in `mask` raise the event; this is the
+    /// supported way to keep the MCU asleep outside of radio activity.
+    pub fn set_radio_activity_mask(&self, mask: types::RadioActivityMask) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_hal_set_radio_activity_mask(mask.0);
+            Self::check_status(status)
         }
     }
 }
