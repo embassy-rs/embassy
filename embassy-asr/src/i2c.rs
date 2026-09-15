@@ -1051,7 +1051,7 @@ impl<'d, M: Mode> I2cSlave<'d, M> {
             if regs.sr().read().slave_addr_det().bit_is_set() {
                 clear_sr(regs, SR_SLAVE_ADDR_DET);
                 // RW_MODE mirrors the R/W bit: 0 = master write / slave read.
-                let op = if regs.sr().read().rw_mode().bit_is_set() {
+                let op = if (regs.sr().read().bits() & (1 << 17) != 0) {
                     SlaveOp::Write
                 } else {
                     SlaveOp::Read
@@ -1157,7 +1157,7 @@ impl<'d> I2cSlave<'d, Async> {
                 }
                 if regs.sr().read().slave_addr_det().bit_is_set() {
                     clear_sr(regs, SR_SLAVE_ADDR_DET);
-                    op = if regs.sr().read().rw_mode().bit_is_set() {
+                    op = if (regs.sr().read().bits() & (1 << 17) != 0) {
                         SlaveOp::Write
                     } else {
                         SlaveOp::Read

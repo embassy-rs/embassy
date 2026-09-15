@@ -616,12 +616,16 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Configure the documented output drive capability.
     pub fn set_drive(&mut self, drive: Drive) {
         let mask = self.mask();
-        regs(self.port()).dsr().modify(|r, w| unsafe {
-            w.bits(match drive {
-                Drive::_4mA => r.bits() & !mask,
-                Drive::_8mA => r.bits() | mask,
-            })
-        });
+        // DSR is write-only in official tremo.svd: write full mask for 8mA,
+        // zero for 4mA (loses per-pin state, matches SVD write-only semantics).
+        unsafe {
+            regs(self.port()).dsr().write_with_zero(|w| {
+                w.ds().bits(match drive {
+                    Drive::_4mA => 0,
+                    Drive::_8mA => mask as u16,
+                })
+            });
+        }
     }
 
     /// Select the GPIO slew rate.
@@ -658,7 +662,9 @@ impl<'d, M: Mode> Flex<'d, M> {
 
         if emulated {
             unsafe {
-                regs(self.port()).brr().write_with_zero(|w| w.bits(mask));
+                regs(self.port())
+                    .brr()
+                    .write_with_zero(|w| w.br().bits(mask as u16));
             }
         }
     }
@@ -781,7 +787,9 @@ impl<'d, M: Mode> Flex<'d, M> {
                 .modify(|r, w| unsafe { w.bits(r.bits() | mask) });
         } else {
             unsafe {
-                regs(self.port()).bsr().write_with_zero(|w| w.bits(mask));
+                regs(self.port())
+                    .bsrr()
+                    .write_with_zero(|w| w.bsr().bits(mask as u16));
             }
         }
     }
@@ -792,12 +800,14 @@ impl<'d, M: Mode> Flex<'d, M> {
         if self.emulated_open_drain() {
             let gpio = regs(self.port());
             unsafe {
-                gpio.brr().write_with_zero(|w| w.bits(mask));
+                gpio.brr().write_with_zero(|w| w.br().bits(mask as u16));
             }
             gpio.oer().modify(|r, w| unsafe { w.bits(r.bits() & !mask) });
         } else {
             unsafe {
-                regs(self.port()).brr().write_with_zero(|w| w.bits(mask));
+                regs(self.port())
+                    .brr()
+                    .write_with_zero(|w| w.br().bits(mask as u16));
             }
         }
     }

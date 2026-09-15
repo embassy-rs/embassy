@@ -38,7 +38,8 @@ critical-section = "1.1"
 
 [dependencies.asr6601-pac]
 version = "0.1.0"
-git = "https://github.com/Kezii/ASR6601-PAC.git"
+git = "https://github.com/Rimpampa/ASR6601-PAC.git"
+branch = "svd"
 optional = true
 features = ["critical-section", "rt"]
 

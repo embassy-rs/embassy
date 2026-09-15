@@ -184,7 +184,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
                     }
                     // Writing RSC_ECR clears sticky receive-status bits.
                     unsafe {
-                        regs.rsc_ecr().write_with_zero(|w| w.bits(0));
+                        regs.rsr_ecr().write_with_zero(|w| w.bits(0));
                     }
                 }
                 let b = (value & 0xff) as u8;
@@ -479,22 +479,24 @@ fn apply_config(info: &'static Info, config: Config, has_rx: bool, has_tx: bool)
         w
     });
 
-    let mode = match (has_rx, has_tx) {
-        (true, true) => pac::uart0::cr::UartMode::Txrx,
-        (true, false) => pac::uart0::cr::UartMode::Rx,
-        (false, true) => pac::uart0::cr::UartMode::Tx,
+    let (txe, rxe) = match (has_rx, has_tx) {
+        (true, true) => (true, true),
+        (true, false) => (false, true),
+        (false, true) => (true, false),
         (false, false) => return Err(ConfigError::NoRxOrTx),
     };
-    let flow = match config.flow_control {
-        FlowControl::None => pac::uart0::cr::FlowCtrl::None,
-        FlowControl::Rts => pac::uart0::cr::FlowCtrl::Rts,
-        FlowControl::Cts => pac::uart0::cr::FlowCtrl::Cts,
-        FlowControl::RtsCts => pac::uart0::cr::FlowCtrl::CtsRts,
+    let (rtsen, ctsen) = match config.flow_control {
+        FlowControl::None => (false, false),
+        FlowControl::Rts => (true, false),
+        FlowControl::Cts => (false, true),
+        FlowControl::RtsCts => (true, true),
     };
 
     regs.cr().modify(|_, w| {
-        w.uart_mode().variant(mode);
-        w.flow_ctrl().variant(flow);
+        w.txe().bit(txe);
+        w.rxe().bit(rxe);
+        w.rtsen().bit(rtsen);
+        w.ctsen().bit(ctsen);
         w
     });
 
@@ -534,7 +536,7 @@ fn read_dr(regs: &RegisterBlock) -> Result<u8, Error> {
     // Writing RSC_ECR clears sticky receive-status bits (PL011 / SDK).
     if value & DR_ERROR_MASK != 0 {
         unsafe {
-            regs.rsc_ecr().write_with_zero(|w| w.bits(0));
+            regs.rsr_ecr().write_with_zero(|w| w.bits(0));
         }
     }
     decode_dr_error(value)

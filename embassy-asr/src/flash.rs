@@ -71,14 +71,14 @@ impl<'d> Flash<'d> {
         let addr = FLASH_BASE + offset;
         flash_access::clear_error();
         let efc = Self::regs();
-        let ecc_disable = efc.cr().read().ecc_disable().bit_is_set();
+        let ecc_disable = efc.cr().read().ecc_dis().bit_is_set();
         unlock(&efc);
         unsafe {
             efc.cr().write_with_zero(|w| {
                 w.page_erase_en().set_bit();
                 w.prefetch_en().set_bit();
                 if ecc_disable {
-                    w.ecc_disable().set_bit();
+                    w.ecc_dis().set_bit();
                 }
                 w
             });
@@ -121,14 +121,14 @@ impl<'d> Flash<'d> {
 
         flash_access::clear_error();
         let efc = Self::regs();
-        let ecc_disable = efc.cr().read().ecc_disable().bit_is_set();
+        let ecc_disable = efc.cr().read().ecc_dis().bit_is_set();
         unlock(&efc);
         unsafe {
             efc.cr().write_with_zero(|w| {
                 w.prog_en().set_bit();
                 w.prefetch_en().set_bit();
                 if ecc_disable {
-                    w.ecc_disable().set_bit();
+                    w.ecc_dis().set_bit();
                 }
                 w
             });

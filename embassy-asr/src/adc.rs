@@ -114,9 +114,9 @@ impl Handler<interrupt::typelevel::ADC> for InterruptHandler {
         if isr.eoc().bit_is_set() || isr.eos().bit_is_set() {
             // Mask further IRQs; the waiter re-enables as needed.
             regs.ier().modify(|_, w| {
-                w.eoc().clear_bit();
-                w.eos().clear_bit();
-                w.overrun().clear_bit()
+                w.eoc_int_en().clear_bit();
+                w.eos_int_en().clear_bit();
+                w.overrun_int_en().clear_bit()
             });
             WAKER.wake();
         }
@@ -732,23 +732,23 @@ impl<'d> Adc<'d, Async> {
             WAKER.register(cx.waker());
             // Enable EOC (+ overrun) after registering to avoid lost wakes.
             regs.ier().modify(|_, w| {
-                w.eoc().set_bit();
-                w.overrun().set_bit()
+                w.eoc_int_en().set_bit();
+                w.overrun_int_en().set_bit()
             });
 
             if self.take_overrun() {
                 regs.ier().modify(|_, w| {
-                    w.eoc().clear_bit();
-                    w.eos().clear_bit();
-                    w.overrun().clear_bit()
+                    w.eoc_int_en().clear_bit();
+                    w.eos_int_en().clear_bit();
+                    w.overrun_int_en().clear_bit()
                 });
                 return Poll::Ready(Err(Error::Overrun));
             }
             if regs.isr().read().eoc().bit_is_set() {
                 regs.ier().modify(|_, w| {
-                    w.eoc().clear_bit();
-                    w.eos().clear_bit();
-                    w.overrun().clear_bit()
+                    w.eoc_int_en().clear_bit();
+                    w.eos_int_en().clear_bit();
+                    w.overrun_int_en().clear_bit()
                 });
                 return Poll::Ready(Ok(()));
             }
