@@ -13,6 +13,7 @@ use crate::pac::RCC;
     rcc_h5,
     rcc_h7ab,
     rcc_h7rm0433,
+    rcc_h7rm0468,
     rcc_h7,
     rcc_h7rs,
     rcc_n6
@@ -27,6 +28,7 @@ pub use crate::pac::rcc::vals::Mco1sel as Mco1Source;
     rcc_h5,
     rcc_h7ab,
     rcc_h7rm0433,
+    rcc_h7rm0468,
     rcc_h7,
     rcc_h7rs,
     rcc_n6,
@@ -44,6 +46,7 @@ pub use crate::pac::rcc::vals::Mcopre as McoPrescaler;
     rcc_h5,
     rcc_h7ab,
     rcc_h7rm0433,
+    rcc_h7rm0468,
     rcc_h7,
     rcc_h7rs,
     rcc_n6

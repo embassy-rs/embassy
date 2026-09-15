@@ -492,9 +492,17 @@ impl AdcRegs for Regs {
         });
         self.cfgr().modify(|w| {
             w.set_discen(false);
+            #[cfg(dfsdm_adc)]
+            let dfsdm_cont = matches!(mode, ConversionMode::Dfsdm(None));
+            #[cfg(not(dfsdm_adc))]
+            let dfsdm_cont = false;
             #[cfg(not(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5)))]
             {
-                w.set_dmaen(!matches!(mode, ConversionMode::NoDma));
+                #[cfg(dfsdm_adc)]
+                let dfsdm = matches!(mode, ConversionMode::Dfsdm(_));
+                #[cfg(not(dfsdm_adc))]
+                let dfsdm = false;
+                w.set_dmaen(!matches!(mode, ConversionMode::NoDma) && !dfsdm);
                 #[cfg(not(adc_v3_f3))]
                 w.set_dmacfg(match mode {
                     ConversionMode::Repeated(_) => Dmacfg::Circular,
@@ -505,17 +513,26 @@ impl AdcRegs for Regs {
                     ConversionMode::Repeated(_) => Dmacfg::Circular,
                     _ => Dmacfg::OneShot,
                 });
+                #[cfg(all(dfsdm_adc, adc_v3_l4))]
+                w.set_dfsdmcfg(dfsdm);
             }
             #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5))]
             w.set_dmngt(match mode {
                 ConversionMode::NoDma => Dmngt::Dr,
                 ConversionMode::Singular => Dmngt::DmaOneShot,
+                #[cfg(all(dfsdm_adc, adc_v3_h7))]
+                ConversionMode::Dfsdm(_) => Dmngt::Dfsdm,
                 ConversionMode::Repeated(_) => Dmngt::DmaCircular,
             });
-            w.set_cont(matches!(mode, ConversionMode::Repeated(None)));
+            w.set_cont(matches!(mode, ConversionMode::Repeated(None)) || dfsdm_cont);
             w.set_ovrmod(matches!(mode, ConversionMode::Repeated(_)));
             match mode {
                 ConversionMode::Repeated(Some((trigger, edge))) => {
+                    w.set_extsel(trigger);
+                    w.set_exten(edge);
+                }
+                #[cfg(dfsdm_adc)]
+                ConversionMode::Dfsdm(Some((trigger, edge))) => {
                     w.set_extsel(trigger);
                     w.set_exten(edge);
                 }

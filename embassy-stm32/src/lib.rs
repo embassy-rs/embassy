@@ -138,6 +138,8 @@ pub mod dac;
 pub mod dcmi;
 #[cfg(dcmipp)]
 pub mod dcmipp;
+#[cfg(dfsdm)]
+pub mod dfsdm;
 #[cfg(dlybsd)]
 pub mod dlyb;
 #[cfg(dma2d)]
