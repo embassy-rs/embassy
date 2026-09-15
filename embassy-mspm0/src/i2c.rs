@@ -144,6 +144,10 @@ pub enum ConfigError {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 /// Config
 pub struct Config {
+    /// User selection of clock source
+    /// If None, clock source selected by define_clock_source()
+    pub clock_source_sel: Option<ClockSel>,
+
     /// I2C clock source.
     pub(crate) clock_source: ClockSel,
 
@@ -169,6 +173,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            clock_source_sel: None,
             clock_source: ClockSel::MfClk,
             clock_div: ClockDiv::DivBy1,
             invert_sda: false,
@@ -235,19 +240,26 @@ impl Config {
     }
 
     fn define_clock_source(&mut self) -> bool {
-        // decide which clock source to choose based on i2c clock.
-        // If i2c speed <= 200kHz, use MfClk, otherwise use BusClk
-        if self.bus_speed.hertz() / self.clock_div.divider() > 200_000 {
-            // TODO: check if BUSCLK enabled
-            self.clock_source = ClockSel::BusClk;
-        } else {
-            // is MFCLK enabled
-            if !pac::SYSCTL.mclkcfg().read().usemftick() {
-                return false;
+        // decide which clock source to choose based on i2c clock if source selection is None (auto).
+        // If i2c speed <= 200kHz and MfClk enabled, use MfClk, otherwise use BusClk
+        if let Some(clk) = self.clock_source_sel {
+            if let ClockSel::MfClk = clk {
+                if !pac::SYSCTL.mclkcfg().read().usemftick() {
+                    return false;
+                }
             }
-            self.clock_source = ClockSel::MfClk;
+            self.clock_source = clk;
+        } else {
+            if (self.bus_speed.hertz() / self.clock_div.divider() > 200_000)
+                || !pac::SYSCTL.mclkcfg().read().usemftick()
+            {
+                // TODO: check if BUSCLK enabled
+                self.clock_source = ClockSel::BusClk;
+            } else {
+                self.clock_source = ClockSel::MfClk;
+            }
         }
-        return true;
+        true
     }
 
     /// Check the config.
@@ -256,7 +268,7 @@ impl Config {
     pub fn check_config(&mut self) -> Result<(), ConfigError> {
         if !self.define_clock_source() {
             return Err(ConfigError::ClockSourceNotEnabled);
-        }
+        };
 
         if !self.check_clock_i2c() {
             return Err(ConfigError::InvalidClockRate);
