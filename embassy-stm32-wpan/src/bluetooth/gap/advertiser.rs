@@ -4,6 +4,8 @@
 //! `Ble::stop_advertising()`, and related methods in `ble.rs`.
 //! State management (is_advertising flag, LL enable/disable) lives in `ble.rs`.
 
+use stm32wb_hci::BdAddrType;
+
 use super::aci_gap::{ADV_DIRECT_IND, ADV_DIRECT_IND_LOW_DUTY, ADV_IND, ADV_NONCONN_IND, ADV_SCAN_IND};
 use super::types::{AdvData, AdvParams, AdvType};
 use crate::bluetooth::error::BleError;
@@ -11,10 +13,20 @@ use crate::bluetooth::hci::CommandSender;
 
 /// Configure advertising parameters and data in the host stack.
 ///
-/// Validates the advertising data, extracts the device name and service UUIDs,
-/// and calls aci_gap_set_discoverable. Does not enable LL advertising —
-/// that is the caller's responsibility via le_set_advertise_enable.
+/// Validates the advertising data, configures legacy undirected advertising
+/// (or directed advertising via `aci_gap_set_direct_connectable`), and then
+/// pushes the **exact** AD payload built by the caller.
+///
+/// `aci_gap_set_discoverable` only understands the local name and 16-bit
+/// service UUIDs, and auto-adds its own Flags / TX Power AD structures.
+/// Without the `update_adv_data` call below, manufacturer-specific data,
+/// 128-bit UUIDs, service data and explicit flags / TX power are silently
+/// dropped from connectable advertising.
+///
+/// Does not enable LL advertising — that is the caller's responsibility via
+/// `le_set_advertise_enable`.
 pub(crate) fn configure(
+    cmd: &CommandSender,
     params: &AdvParams,
     adv_data: &AdvData,
     scan_rsp_data: Option<&AdvData>,
@@ -29,33 +41,57 @@ pub(crate) fn configure(
         }
     }
 
-    // Extract device name from advertising data if present
+    let directed = matches!(
+        params.adv_type,
+        AdvType::ConnectableDirectedHighDuty | AdvType::ConnectableDirectedLowDuty
+    );
+
+    if directed {
+        // Legacy directed advertising carries no AD payload, so `adv_data`
+        // (and scan responses) do not apply.
+        let peer = params.peer_addr.as_ref().ok_or(BleError::InvalidParameter)?;
+        let (peer_type, peer_addr) = split_addr(peer);
+        let directed_type = match params.adv_type {
+            AdvType::ConnectableDirectedHighDuty => ADV_DIRECT_IND,
+            _ => ADV_DIRECT_IND_LOW_DUTY,
+        };
+        super::aci_gap::set_direct_connectable(
+            params.own_addr_type as u8,
+            directed_type,
+            peer_type,
+            &peer_addr,
+            params.interval_min,
+            params.interval_max,
+        )?;
+        return Ok(());
+    }
+
     let adv_bytes = adv_data.build();
-    let local_name = extract_local_name(adv_bytes);
-
-    // Extract service UUID bytes from advertising data if present
-    let service_uuid_bytes = extract_service_uuids_16(adv_bytes);
-
-    // Convert AdvType to ACI advertising type value
-    let aci_adv_type = match params.adv_type {
-        AdvType::ConnectableUndirected => ADV_IND,
-        AdvType::ConnectableDirectedHighDuty => ADV_DIRECT_IND,
-        AdvType::ScannableUndirected => ADV_SCAN_IND,
-        AdvType::NonConnectableUndirected => ADV_NONCONN_IND,
-        AdvType::ConnectableDirectedLowDuty => ADV_DIRECT_IND_LOW_DUTY,
-    };
 
     if params.privacy_undirected {
-        // ST BLE_Privacy_Peripheral: undirected connectable + explicit AD bytes.
+        // ST BLE_Privacy_Peripheral: undirected connectable + explicit AD bytes
+        // via the GAP layer (this path already carries the full payload).
         super::aci_gap::set_undirected_connectable(
             params.interval_min,
             params.interval_max,
             params.own_addr_type as u8,
             params.filter_policy as u8,
         )?;
-        super::aci_gap::update_adv_data(adv_bytes)
+        super::aci_gap::update_adv_data(adv_bytes)?;
     } else {
-        // Use aci_gap_set_discoverable - the high-level ACI command
+        // Use aci_gap_set_discoverable - the high-level ACI command. It only
+        // understands the local name and 16-bit service UUID fields; the full
+        // payload is applied below.
+        let local_name = extract_local_name(adv_bytes);
+        let service_uuid_bytes = extract_service_uuids_16(adv_bytes);
+        let aci_adv_type = match params.adv_type {
+            AdvType::ConnectableUndirected => ADV_IND,
+            AdvType::ScannableUndirected => ADV_SCAN_IND,
+            AdvType::NonConnectableUndirected => ADV_NONCONN_IND,
+            AdvType::ConnectableDirectedHighDuty | AdvType::ConnectableDirectedLowDuty => {
+                unreachable!("directed advertising is handled above")
+            }
+        };
         super::aci_gap::set_discoverable(
             aci_adv_type,
             params.interval_min,
@@ -64,7 +100,26 @@ pub(crate) fn configure(
             params.filter_policy as u8,
             local_name,
             service_uuid_bytes,
-        )
+        )?;
+
+        // Overwrite the auto-generated payload with the caller's exact AD
+        // bytes (manufacturer data, 128-bit UUIDs, service data, flags, ...).
+        update_adv_data(cmd, adv_data)?;
+    }
+
+    if let Some(scan_rsp) = scan_rsp_data {
+        update_scan_rsp_data(cmd, scan_rsp)?;
+    }
+
+    Ok(())
+}
+
+/// Split a peer address into `(address_type, address_bytes)` where the address
+/// type is 0x00 for public and 0x01 for random.
+fn split_addr(addr: &BdAddrType) -> (u8, [u8; 6]) {
+    match addr {
+        BdAddrType::Public(a) => (0x00, a.0),
+        BdAddrType::Random(a) => (0x01, a.0),
     }
 }
 

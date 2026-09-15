@@ -32,7 +32,7 @@ use crate::bluetooth::gatt::{
 };
 use crate::bluetooth::hci::command::CommandSender;
 use crate::bluetooth::hci::types::DtmPacketPayload;
-use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy};
+use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy, RadioActivityMask};
 use crate::bluetooth::security::{SecurityEvent, SecurityManager, from_vendor_event as security_from_vendor_event};
 use crate::controller::{Controller, ControllerAdapter};
 use crate::{BasicRuntime, FullRuntime, HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
@@ -278,11 +278,9 @@ impl<'d> HCI<'d, Normal> {
             self.stop_advertising().await?;
         }
 
-        // Configure host-stack advertising parameters and data
-        gap::advertiser::configure(&params, &adv_data, scan_rsp_data.as_ref())?;
-        if let Some(scan_rsp) = scan_rsp_data.as_ref() {
-            gap::advertiser::update_scan_rsp_data(&self.cmd_sender, scan_rsp)?;
-        }
+        // Configure host-stack advertising parameters/data. `configure` also
+        // applies the full AD payload and the scan response.
+        gap::advertiser::configure(&self.cmd_sender, &params, &adv_data, scan_rsp_data.as_ref())?;
 
         // Enable LL advertising
         self.cmd_sender.le_set_advertise_enable(true)?;
@@ -521,6 +519,22 @@ impl<'d> HCI<'d, Normal> {
     pub fn read_phy(&self, handle: ConnectionHandle) -> Result<(LePhy, LePhy), BleError> {
         let (tx, rx) = self.cmd_sender.le_read_phy(handle.0)?;
         Ok((LePhy::from_u8(tx), LePhy::from_u8(rx)))
+    }
+
+    /// Read the RSSI (dBm) of the most recently received packet.
+    ///
+    /// Returns `Ok(None)` when the controller reports that RSSI is not
+    /// available (raw value 127).
+    pub fn read_rssi(&self) -> Result<Option<i8>, BleError> {
+        self.cmd_sender.read_rssi()
+    }
+
+    /// Select which radio activities are reported through
+    /// `ACI_HAL_END_OF_RADIO_ACTIVITY_EVENT`.
+    ///
+    /// See [`RadioActivityMask`] for the available bits.
+    pub fn set_radio_activity_mask(&self, mask: RadioActivityMask) -> Result<(), BleError> {
+        self.cmd_sender.set_radio_activity_mask(mask)
     }
 
     // ===== Direction Finding / CTE Commands =====
