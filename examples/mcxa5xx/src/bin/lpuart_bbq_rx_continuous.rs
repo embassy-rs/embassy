@@ -11,6 +11,7 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mcxa as hal;
 use embassy_mcxa::clocks::PoweredClock;
@@ -21,8 +22,8 @@ use embassy_mcxa::lpuart::{BbqConfig, BbqParts, BbqRxMode, LpuartBbq};
 use embassy_mcxa::{bind_interrupts, lpuart};
 use embassy_time::Timer;
 use embedded_io_async::{Read, Write};
+use panic_probe as _;
 use static_cell::ConstStaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 const TX_BUFLEN: usize = 4096;
 const RX_BUFLEN: usize = 16384;
