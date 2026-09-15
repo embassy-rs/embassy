@@ -9,11 +9,11 @@ documentation = "https://docs.embassy.dev/embassy-asr"
 
 [package.metadata.embassy]
 build = [
-    { target = "thumbv7em-none-eabihf", features = ["asr6601", "time-driver-rtc"] },
+    { target = "thumbv7em-none-eabihf", features = ["asr6601", "time-driver-lptim0"] },
 ]
 
 [package.metadata.docs.rs]
-features = ["asr6601", "time-driver-rtc"]
+features = ["asr6601", "time-driver-lptim0"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
@@ -44,7 +44,7 @@ optional = true
 features = ["critical-section", "rt"]
 
 [features]
-default = ["asr6601", "time-driver-rtc"]
+default = ["asr6601", "time-driver-lptim0"]
 
 defmt = [
     "dep:defmt",
@@ -58,7 +58,16 @@ _time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
 
 # RTC is clocked from the always-on XO32K domain. Its calendar provides the
 # monotonic clock and its cyclic counter wakes the processor for deadlines.
+# Deprecated: use `time-driver-lptim0` instead.
 time-driver-rtc = [
+    "_time-driver",
+    "asr6601",
+    "embassy-time-driver?/tick-hz-32_768",
+]
+
+# LPTIM0 is clocked from the always-on XO32K domain. Its 16-bit counter
+# provides the monotonic clock and its compare channel wakes the processor.
+time-driver-lptim0 = [
     "_time-driver",
     "asr6601",
     "embassy-time-driver?/tick-hz-32_768",

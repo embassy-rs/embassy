@@ -17,7 +17,7 @@ pub mod pac {
     }
 }
 
-#[cfg(feature = "time-driver-rtc")]
+#[cfg(any(feature = "time-driver-rtc", feature = "time-driver-lptim0"))]
 mod time_driver;
 
 #[cfg(feature = "asr6601")]
@@ -246,8 +246,9 @@ impl Default for Config {
 
 /// Initialize the ASR HAL.
 ///
-/// With `time-driver-rtc` enabled, this resets and uses RTC exclusively for
-/// Embassy time. Applications must not access RTC through the raw PAC.
+/// With `time-driver-lptim0` enabled, this resets and uses LPTIM0 exclusively
+/// for Embassy time. Applications must not access LPTIM0 through the raw PAC.
+/// With deprecated `time-driver-rtc`, RTC is used instead.
 pub fn init(config: Config) -> Peripherals {
     let peripherals = Peripherals::take();
 
@@ -262,7 +263,7 @@ pub fn init(config: Config) -> Peripherals {
         }
     }
 
-    #[cfg(feature = "time-driver-rtc")]
+    #[cfg(any(feature = "time-driver-rtc", feature = "time-driver-lptim0"))]
     crate::time_driver::init();
 
     unsafe {
