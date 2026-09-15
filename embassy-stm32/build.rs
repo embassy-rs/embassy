@@ -17,6 +17,9 @@ use stm32_metapac::metadata::{
 #[path = "./build_common.rs"]
 mod common;
 
+#[path = "./src/dfsdm/codegen.rs"]
+mod dfsdm_codegen;
+
 /// Helper function to handle peripheral versions with underscores.
 /// For a version like "v1_foo_bar", this generates all prefix combinations:
 /// - "kind_v1"
@@ -1814,6 +1817,23 @@ fn main() {
         (("mdf", "SDI3"), quote!(crate::mdf::SdiPin)),
         (("mdf", "SDI4"), quote!(crate::mdf::SdiPin)),
         (("mdf", "SDI5"), quote!(crate::mdf::SdiPin)),
+        (("dfsdm", "CKOUT"), quote!(crate::dfsdm::CkoutPin)),
+        (("dfsdm", "DATIN0"), quote!(crate::dfsdm::Datin0Pin)),
+        (("dfsdm", "CKIN0"), quote!(crate::dfsdm::Ckin0Pin)),
+        (("dfsdm", "DATIN1"), quote!(crate::dfsdm::Datin1Pin)),
+        (("dfsdm", "CKIN1"), quote!(crate::dfsdm::Ckin1Pin)),
+        (("dfsdm", "DATIN2"), quote!(crate::dfsdm::Datin2Pin)),
+        (("dfsdm", "CKIN2"), quote!(crate::dfsdm::Ckin2Pin)),
+        (("dfsdm", "DATIN3"), quote!(crate::dfsdm::Datin3Pin)),
+        (("dfsdm", "CKIN3"), quote!(crate::dfsdm::Ckin3Pin)),
+        (("dfsdm", "DATIN4"), quote!(crate::dfsdm::Datin4Pin)),
+        (("dfsdm", "CKIN4"), quote!(crate::dfsdm::Ckin4Pin)),
+        (("dfsdm", "DATIN5"), quote!(crate::dfsdm::Datin5Pin)),
+        (("dfsdm", "CKIN5"), quote!(crate::dfsdm::Ckin5Pin)),
+        (("dfsdm", "DATIN6"), quote!(crate::dfsdm::Datin6Pin)),
+        (("dfsdm", "CKIN6"), quote!(crate::dfsdm::Ckin6Pin)),
+        (("dfsdm", "DATIN7"), quote!(crate::dfsdm::Datin7Pin)),
+        (("dfsdm", "CKIN7"), quote!(crate::dfsdm::Ckin7Pin)),
     ] {
         signals.entry(key).or_default().push(value);
     }
@@ -2213,6 +2233,14 @@ fn main() {
         (("mdf", "FLT5"), quote!(crate::mdf::RxDma<Flt5>)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
+        (("dfsdm", "FLT0"), quote!(crate::dfsdm::Dma<Flt0>)),
+        (("dfsdm", "FLT1"), quote!(crate::dfsdm::Dma<Flt1>)),
+        (("dfsdm", "FLT2"), quote!(crate::dfsdm::Dma<Flt2>)),
+        (("dfsdm", "FLT3"), quote!(crate::dfsdm::Dma<Flt3>)),
+        (("dfsdm", "FLT4"), quote!(crate::dfsdm::Dma<Flt4>)),
+        (("dfsdm", "FLT5"), quote!(crate::dfsdm::Dma<Flt5>)),
+        (("dfsdm", "FLT6"), quote!(crate::dfsdm::Dma<Flt6>)),
+        (("dfsdm", "FLT7"), quote!(crate::dfsdm::Dma<Flt7>)),
     ]
     .into();
 
@@ -2250,9 +2278,17 @@ fn main() {
         }
     }
 
+    let mut has_dfsdm_adc = false;
     for (p, regs) in &peripheral_list {
         if (regs.kind == "dac" || regs.kind == "hash") && chip_name.starts_with("stm32c5") {
             continue;
+        }
+
+        if regs.kind == "dfsdm" {
+            g.extend(dfsdm_codegen::gen_instance(p.name, regs.block));
+            if dfsdm_codegen::parse(regs.block).map_or(false, |s| s.adc) {
+                has_dfsdm_adc = true;
+            }
         }
 
         for trigger in p.triggers {
@@ -2262,13 +2298,19 @@ fn main() {
 
             trigger_list.insert(trigger.source);
 
+            let source = format_ident!("{}", trigger.source);
+            let idx_q = quote!(#idx);
+
+            if regs.kind == "dfsdm" {
+                g.extend(dfsdm_codegen::gen_trigger_source(p.name, regs.block, &source, idx));
+                continue;
+            }
+
             if let Some(tr) = triggers.get(&(regs.kind, signal)) {
                 let peri = format_ident!("{}", p.name);
-                let source = format_ident!("{}", trigger.source);
-                let idx = quote!(#idx);
 
                 g.extend(quote! {
-                    trigger_trait_impl!(#tr, #peri, #source, #idx);
+                    trigger_trait_impl!(#tr, #peri, #source, #idx_q);
                 });
             }
         }
@@ -2363,6 +2405,8 @@ fn main() {
             }
         }
     }
+
+    cfgs.set("dfsdm_adc", has_dfsdm_adc);
 
     // ========
     // Generate Triggers mod
@@ -2700,6 +2744,8 @@ fn main() {
         let row = vec![regs.kind.to_string(), p.name.to_string()];
         peripherals_table.push(row);
     }
+
+    g.extend(dfsdm_codegen::gen_shapes());
 
     let mut dmas = TokenStream::new();
     let has_dmamux = METADATA
@@ -3158,6 +3204,7 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/dfsdm/codegen.rs");
 
     if cfg!(feature = "memory-x") {
         gen_memory_x(memory, out_dir);
