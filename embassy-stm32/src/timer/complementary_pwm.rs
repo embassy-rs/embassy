@@ -416,6 +416,20 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.get_break_input_pin_enable()
     }
 
+    /// Enable/disable routing DFSDM1_BREAK0 to this timer's break input.
+    ///
+    /// See `Timer::set_break_dfsdm_enable` for the part-availability caveat.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn set_break_dfsdm_enable(&mut self, enable: bool) {
+        self.inner.set_break_dfsdm_enable(enable);
+    }
+
+    /// Get DFSDM1_BREAK0 break input enable state.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn get_break_dfsdm_enable(&self) -> bool {
+        self.inner.get_break_dfsdm_enable()
+    }
+
     /// Enable/disable comparator output as break input 2 source.
     pub fn set_break2_comparator_enable(&mut self, comp_index: usize, enable: bool) {
         self.inner.set_break2_comparator_enable(comp_index, enable);
@@ -444,6 +458,20 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get external BK2IN pin enable state.
     pub fn get_break2_input_pin_enable(&self) -> bool {
         self.inner.get_break2_input_pin_enable()
+    }
+
+    /// Enable/disable routing DFSDM1_BREAK1 to this timer's break input 2.
+    ///
+    /// See `Timer::set_break2_dfsdm_enable` for the part-availability caveat.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn set_break2_dfsdm_enable(&mut self, enable: bool) {
+        self.inner.set_break2_dfsdm_enable(enable);
+    }
+
+    /// Get DFSDM1_BREAK1 break input 2 enable state.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn get_break2_dfsdm_enable(&self) -> bool {
+        self.inner.get_break2_dfsdm_enable()
     }
 
     /// Set Master Slave Mode
