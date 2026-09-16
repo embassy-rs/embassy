@@ -14,6 +14,10 @@ use core::mem::MaybeUninit;
 use core::task::{Context, Waker};
 
 use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(feature = "ptp")]
+use heapless::Deque;
+#[cfg(feature = "ptp")]
+use xarxa_driver::TxTimestamp;
 use xarxa_driver::{Capabilities, Driver, HardwareAddress, LinkState, Medium, NotSupported, PacketBuf};
 
 pub use crate::eth::_version::{InterruptHandler, *};
@@ -45,14 +49,21 @@ const MTU: usize = 1514;
 /// for RX), at the cost of pinning more packet buffers. Make sure the packet
 /// pool (the `packet-buf-count-N` feature of `xarxa`) is bigger than
 /// `TX + RX`, with room to spare for the stack and sockets.
-pub struct PacketQueue<const TX: usize, const RX: usize> {
+///
+/// With the `ptp` feature, `TS` is the number of transmit timestamps,
+/// defaulting to 4. Increase it to tolerate longer delays between
+/// timestamp polling. When full, reports are dropped.
+/// `TS` must be nonzero with `ptp`; otherwise it has no effect.
+pub struct PacketQueue<const TX: usize, const RX: usize, const TS: usize = 4> {
     tx_desc: [TDes; TX],
     rx_desc: [RDes; RX],
     tx_buf: [Option<PacketBuf>; TX],
     rx_buf: [Option<PacketBuf>; RX],
+    #[cfg(feature = "ptp")]
+    timestamps: Deque<TxTimestamp, TS>,
 }
 
-impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
+impl<const TX: usize, const RX: usize, const TS: usize> PacketQueue<TX, RX, TS> {
     /// Create a new packet queue.
     pub const fn new() -> Self {
         Self::new_inner()
@@ -64,6 +75,8 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
             rx_desc: [const { RDes::new() }; RX],
             tx_buf: [const { None }; TX],
             rx_buf: [const { None }; RX],
+            #[cfg(feature = "ptp")]
+            timestamps: Deque::new(),
         }
     }
 
@@ -80,8 +93,8 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     ///
     /// After calling this function, calling `assume_init` on the MaybeUninit is guaranteed safe.
     pub fn init(this: &mut MaybeUninit<Self>) {
-        // Descriptors are valid when zeroed. Construct buffers without relying
-        // on their private representation.
+        // Descriptors are valid when zeroed. Construct buffers and the deque
+        // without relying on their private representations.
         unsafe {
             let ptr = this.as_mut_ptr();
             (&raw mut (*ptr).tx_desc).write_bytes(0, 1);
@@ -92,6 +105,8 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
             for i in 0..RX {
                 (&raw mut (*ptr).rx_buf[i]).write(None);
             }
+            #[cfg(feature = "ptp")]
+            (&raw mut (*ptr).timestamps).write(Deque::new());
         }
     }
 }

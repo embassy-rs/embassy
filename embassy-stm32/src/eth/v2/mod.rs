@@ -112,8 +112,8 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     /// See [`Ethernet::new_with_phy`] for creating an RMII ethernet
     /// river with a non-standard PHY.
     #[allow(clippy::too_many_arguments)]
-    pub fn new<const TX: usize, const RX: usize>(
-        queue: &'d mut PacketQueue<TX, RX>,
+    pub fn new<const TX: usize, const RX: usize, const TS: usize>(
+        queue: &'d mut PacketQueue<TX, RX, TS>,
         peri: Peri<'d, T>,
         ref_clk: Peri<'d, impl RefClkPin<T>>,
         crs: Peri<'d, impl CRSPin<T>>,
@@ -144,8 +144,8 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     /// See [`Ethernet::new_mii_with_phy`] for creating an RMII ethernet
     /// river with a non-standard PHY.
     #[cfg(any(eth_v2, eth_v2b))]
-    pub fn new_mii<const TX: usize, const RX: usize>(
-        queue: &'d mut PacketQueue<TX, RX>,
+    pub fn new_mii<const TX: usize, const RX: usize, const TS: usize>(
+        queue: &'d mut PacketQueue<TX, RX, TS>,
         peri: Peri<'d, T>,
         rx_clk: Peri<'d, impl RXClkPin<T>>,
         tx_clk: Peri<'d, impl TXClkPin<T>>,
@@ -188,8 +188,8 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     /// See [`Ethernet::new_rgmii_with_phy`] for creating an RGMII ethernet
     /// driver with a non-standard PHY.
     #[allow(clippy::too_many_arguments)]
-    pub fn new_rgmii<const TX: usize, const RX: usize>(
-        queue: &'d mut PacketQueue<TX, RX>,
+    pub fn new_rgmii<const TX: usize, const RX: usize, const TS: usize>(
+        queue: &'d mut PacketQueue<TX, RX, TS>,
         peri: Peri<'d, T>,
         gtx_clk: Peri<'d, impl RGMIIGTXClkPin<T>>,
         tx_ctl: Peri<'d, impl RGMIITXCtlPin<T>>,
@@ -222,8 +222,8 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     /// Create a new RMII ethernet driver using 7 pins.
-    pub fn new_with_phy<const TX: usize, const RX: usize>(
-        queue: &'d mut PacketQueue<TX, RX>,
+    pub fn new_with_phy<const TX: usize, const RX: usize, const TS: usize>(
+        queue: &'d mut PacketQueue<TX, RX, TS>,
         peri: Peri<'d, T>,
         ref_clk: Peri<'d, impl RefClkPin<T>>,
         crs: Peri<'d, impl CRSPin<T>>,
@@ -262,8 +262,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
     /// Create a new MII ethernet driver using 12 pins.
     #[cfg(any(eth_v2, eth_v2b))]
-    pub fn new_mii_with_phy<const TX: usize, const RX: usize>(
-        queue: &'d mut PacketQueue<TX, RX>,
+    pub fn new_mii_with_phy<const TX: usize, const RX: usize, const TS: usize>(
+        queue: &'d mut PacketQueue<TX, RX, TS>,
         peri: Peri<'d, T>,
         rx_clk: Peri<'d, impl RXClkPin<T>>,
         tx_clk: Peri<'d, impl TXClkPin<T>>,
@@ -306,8 +306,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     /// Create a new RGMII ethernet driver using 13 pins.
     #[cfg(eth_v2a)]
     #[allow(clippy::too_many_arguments)]
-    pub fn new_rgmii_with_phy<const TX: usize, const RX: usize>(
-        queue: &'d mut PacketQueue<TX, RX>,
+    pub fn new_rgmii_with_phy<const TX: usize, const RX: usize, const TS: usize>(
+        queue: &'d mut PacketQueue<TX, RX, TS>,
         peri: Peri<'d, T>,
         gtx_clk: Peri<'d, impl RGMIIGTXClkPin<T>>,
         tx_ctl: Peri<'d, impl RGMIITXCtlPin<T>>,
@@ -352,8 +352,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
     }
 
-    fn new_inner<const TX: usize, const RX: usize>(
-        queue: &'d mut PacketQueue<TX, RX>,
+    fn new_inner<const TX: usize, const RX: usize, const TS: usize>(
+        queue: &'d mut PacketQueue<TX, RX, TS>,
         peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         pins: Pins<'d>,
@@ -526,7 +526,12 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         let mut this = Self {
             _peri: peri,
             wake_guard: T::RCC_INFO.wake_guard().into(),
-            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
+            tx: TDesRing::new(
+                &mut queue.tx_desc,
+                &mut queue.tx_buf,
+                #[cfg(feature = "ptp")]
+                queue.timestamps.as_mut_view(),
+            ),
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
             _pins: pins,
             phy,

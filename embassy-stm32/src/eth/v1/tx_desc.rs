@@ -1,5 +1,7 @@
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 
+#[cfg(feature = "ptp")]
+use heapless::deque::DequeView;
 use vcell::VolatileCell;
 use xarxa_driver::PacketBuf;
 #[cfg(feature = "ptp")]
@@ -192,12 +194,18 @@ pub(crate) struct TDesRing<'a> {
     in_flight: usize,
     /// Retained timestamps
     #[cfg(feature = "ptp")]
-    timestamps: heapless::Deque<TxTimestamp, 4>,
+    timestamps: &'a mut DequeView<TxTimestamp>,
 }
 
 impl<'a> TDesRing<'a> {
     /// Initialise this TDesRing. Assume TDesRing is corrupt
-    pub(crate) fn new(descriptors: &'a mut [TDes], buffers: &'a mut [Option<PacketBuf>]) -> Self {
+    pub(crate) fn new(
+        descriptors: &'a mut [TDes],
+        buffers: &'a mut [Option<PacketBuf>],
+        #[cfg(feature = "ptp")] timestamps: &'a mut DequeView<TxTimestamp>,
+    ) -> Self {
+        #[cfg(feature = "ptp")]
+        timestamps.clear();
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
 
@@ -219,7 +227,7 @@ impl<'a> TDesRing<'a> {
             index: 0,
             in_flight: 0,
             #[cfg(feature = "ptp")]
-            timestamps: heapless::Deque::new(),
+            timestamps,
         }
     }
 

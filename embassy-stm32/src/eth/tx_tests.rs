@@ -41,7 +41,7 @@ fn reclaims_without_a_timestamp_consumer_even_when_reports_are_full() {
         buffers: &mut queue.tx_buf,
         index: 0,
         in_flight: 0,
-        timestamps: heapless::Deque::new(),
+        timestamps: queue.timestamps.as_mut_view(),
     };
     for id in 1..=8 {
         submit(&mut ring, id, true);
@@ -73,14 +73,13 @@ fn reclaims_without_a_timestamp_consumer_even_when_reports_are_full() {
 
 #[test]
 fn drains_reports_without_overflow_or_reclaiming_dma_owned_packets() {
-    let mut descriptors = [const { TDes::new() }; 7];
-    let mut buffers = [const { None }; 7];
+    let mut queue = PacketQueue::<7, 1, 4>::new();
     let mut ring = TDesRing {
-        descriptors: &mut descriptors,
-        buffers: &mut buffers,
+        descriptors: &mut queue.tx_desc,
+        buffers: &mut queue.tx_buf,
         index: 0,
         in_flight: 0,
-        timestamps: heapless::Deque::new(),
+        timestamps: queue.timestamps.as_mut_view(),
     };
     for id in 1..=4 {
         submit(&mut ring, id, true);
