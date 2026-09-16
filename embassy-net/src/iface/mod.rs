@@ -129,6 +129,37 @@ impl<'d> Iface<'d> {
         self.with(|i| i.poll_tx_timestamp())
     }
 
+    /// Wait for a transmit timestamp on this interface.
+    ///
+    /// Keep the network runner running: drivers may deliver timestamp
+    /// notifications during network polling.
+    /// Only one task may consume timestamps per interface. Reports may be lost;
+    /// callers must handle missing timestamps with a timeout.
+    ///
+    /// This operation is cancel-safe: dropping the future does not consume a
+    /// report, but the driver may still wake the cancelled waiter. Cancel waits
+    /// before removing their interface from the stack.
+    ///
+    /// # Panics
+    /// Panics if the driver does not support transmit timestamp notification.
+    /// Such drivers can still be used via [`poll_tx_timestamp`](Self::poll_tx_timestamp).
+    #[cfg(feature = "packetmeta-timestamp")]
+    pub async fn tx_timestamp(&self) -> xarxa::driver::TxTimestamp {
+        core::future::poll_fn(|cx| {
+            self.with(|iface| {
+                let driver = iface.driver_mut();
+                unwrap!(
+                    driver.register_tx_timestamp_waker(cx.waker()),
+                    "the driver does not support transmit timestamp notification"
+                );
+                driver
+                    .poll_tx_timestamp()
+                    .map_or(core::task::Poll::Pending, core::task::Poll::Ready)
+            })
+        })
+        .await
+    }
+
     /// The hardware address of the interface.
     ///
     /// Initially the address the device reported when the interface was added.
@@ -385,5 +416,140 @@ impl<'d> Iface<'d> {
     #[cfg(feature = "ipv6")]
     pub async fn wait_config_v6_down(&self) {
         wait_iface(self.stack, self.handle, |i| !crate::is_config_v6_up(i)).await
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "packetmeta-timestamp",
+    feature = "medium-ethernet",
+    not(feature = "alloc")
+))]
+mod tests {
+    extern crate std;
+
+    use core::future::Future;
+    use core::task::{Context, Poll, Waker};
+    use std::cell::Cell;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::task::Wake;
+
+    use embassy_sync::waitqueue::AtomicWaker;
+    use xarxa::driver::{NotSupported, PacketBuf, Timestamp, TxTimestamp};
+
+    use super::*;
+    use crate::StackStorage;
+
+    #[derive(Default)]
+    struct Device {
+        report: Cell<Option<TxTimestamp>>,
+        network_waker: AtomicWaker,
+        timestamp_waker: AtomicWaker,
+        complete_on_register: Cell<bool>,
+    }
+
+    const REPORT: TxTimestamp = TxTimestamp {
+        id: 7,
+        timestamp: Timestamp {
+            seconds: 1,
+            quarter_nanos: 4,
+        },
+    };
+
+    impl Device {
+        fn complete(&self) {
+            self.report.set(Some(REPORT));
+            self.network_waker.wake();
+            self.timestamp_waker.wake();
+        }
+    }
+
+    impl Driver for &Device {
+        fn capabilities(&self) -> Capabilities {
+            Capabilities::default()
+        }
+        fn hardware_address(&self) -> xarxa::driver::HardwareAddress {
+            xarxa::driver::HardwareAddress::Ethernet([2, 0, 0, 0, 0, 1])
+        }
+        fn receive(&mut self) -> Option<PacketBuf> {
+            None
+        }
+        fn can_transmit(&mut self) -> bool {
+            true
+        }
+        fn transmit(&mut self, _: PacketBuf) -> Result<(), PacketBuf> {
+            Ok(())
+        }
+        fn register_waker(&mut self, waker: &Waker) -> Result<(), NotSupported> {
+            self.network_waker.register(waker);
+            Ok(())
+        }
+        fn register_tx_timestamp_waker(&mut self, waker: &Waker) -> Result<(), NotSupported> {
+            self.timestamp_waker.register(waker);
+            if self.complete_on_register.take() {
+                self.complete();
+            }
+            Ok(())
+        }
+        fn poll_tx_timestamp(&mut self) -> Option<TxTimestamp> {
+            self.report.take()
+        }
+    }
+
+    #[derive(Default)]
+    struct Counter(AtomicUsize);
+
+    impl Wake for Counter {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn independent_notification_survives_cancellation() {
+        let device = Device::default();
+        let mut driver = &device;
+        let mut forwarded = &mut driver; // Exercise xarxa-driver's blanket implementation too.
+        let mut storage = StackStorage::new();
+        let (stack, _) = Stack::new(&mut storage, 1);
+        let iface = stack.add_iface(&mut forwarded).unwrap();
+        let network = Arc::new(Counter::default());
+        let consumer = Arc::new(Counter::default());
+        let network_waker = Waker::from(network.clone());
+        let consumer_waker = Waker::from(consumer.clone());
+        iface.with_driver(|driver| driver.register_waker(&network_waker).unwrap());
+        stack.with(|i| i.waker.register(&network_waker));
+        let mut cx = Context::from_waker(&consumer_waker);
+        {
+            let mut wait = core::pin::pin!(iface.tx_timestamp());
+            assert!(wait.as_mut().poll(&mut cx).is_pending());
+        }
+        assert_eq!(network.0.load(Ordering::Relaxed), 0);
+        device.complete();
+        assert_eq!(network.0.load(Ordering::Relaxed), 1);
+        assert_eq!(consumer.0.load(Ordering::Relaxed), 1);
+        // Cancelling the old wait did not consume the report.
+        assert_eq!(
+            core::pin::pin!(iface.tx_timestamp()).as_mut().poll(&mut cx),
+            Poll::Ready(REPORT)
+        );
+        assert_eq!(iface.poll_tx_timestamp(), None);
+    }
+
+    #[test]
+    fn completion_during_registration_is_observed() {
+        let device = Device::default();
+        let mut driver = &device;
+        let mut storage = StackStorage::new();
+        let (stack, _) = Stack::new(&mut storage, 1);
+        let iface = stack.add_iface(&mut driver).unwrap();
+        device.complete_on_register.set(true);
+        assert_eq!(
+            core::pin::pin!(iface.tx_timestamp())
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop())),
+            Poll::Ready(REPORT),
+        );
     }
 }

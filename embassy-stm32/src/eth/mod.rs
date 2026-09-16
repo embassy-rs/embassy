@@ -189,6 +189,12 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
     }
 
     #[cfg(feature = "ptp")]
+    fn register_tx_timestamp_waker(&mut self, waker: &Waker) -> Result<(), NotSupported> {
+        self.tx.timestamp_waker.register(waker);
+        Ok(())
+    }
+
+    #[cfg(feature = "ptp")]
     fn poll_tx_timestamp(&mut self) -> Option<xarxa_driver::TxTimestamp> {
         self.tx.poll_timestamp()
     }

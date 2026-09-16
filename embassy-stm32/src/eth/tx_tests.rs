@@ -1,9 +1,24 @@
+extern crate std;
+
 use core::mem::MaybeUninit;
+use core::sync::atomic::{AtomicUsize, Ordering};
+use core::task::Waker;
+use std::sync::Arc;
+use std::task::Wake;
 
 use xarxa_driver::{PacketBuf, TxTimestamp};
 
 use super::*;
 use crate::eth::PacketQueue;
+
+#[derive(Default)]
+struct WakeCount(AtomicUsize);
+
+impl Wake for WakeCount {
+    fn wake(self: Arc<Self>) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
 
 // Model DMA write-back without touching peripheral registers.
 fn complete(descriptor: &TDes, id: u32) {
@@ -42,12 +57,17 @@ fn reclaims_without_a_timestamp_consumer_even_when_reports_are_full() {
         index: 0,
         in_flight: 0,
         timestamps: queue.timestamps.as_mut_view(),
+        timestamp_waker: WakerRegistration::new(),
     };
+    let wakes = Arc::new(WakeCount::default());
+    let waker = Waker::from(wakes.clone());
     for id in 1..=8 {
+        ring.timestamp_waker.register(&waker);
         submit(&mut ring, id, true);
         assert!(ring.can_transmit());
         assert_eq!(ring.in_flight, 0);
         assert!(ring.buffers.iter().all(Option::is_none));
+        assert_eq!(wakes.0.swap(0, Ordering::Relaxed), 1);
     }
     for id in 1..=4 {
         assert_eq!(
@@ -61,12 +81,14 @@ fn reclaims_without_a_timestamp_consumer_even_when_reports_are_full() {
     assert_eq!(ring.poll_timestamp(), None);
 
     // Ring reuse must not produce old reports; ordinary traffic needs no consumer.
+    ring.timestamp_waker.register(&waker);
     for id in 9..=12 {
         submit(&mut ring, id, false);
         ring.reclaim();
         assert!(ring.buffers.iter().all(Option::is_none));
         assert_eq!(ring.poll_timestamp(), None);
     }
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
     submit(&mut ring, 13, true);
     assert_eq!(ring.poll_timestamp().unwrap().id, 13);
 }
@@ -80,6 +102,7 @@ fn drains_reports_without_overflow_or_reclaiming_dma_owned_packets() {
         index: 0,
         in_flight: 0,
         timestamps: queue.timestamps.as_mut_view(),
+        timestamp_waker: WakerRegistration::new(),
     };
     for id in 1..=4 {
         submit(&mut ring, id, true);

@@ -1,6 +1,8 @@
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 
 #[cfg(feature = "ptp")]
+use embassy_sync::waitqueue::WakerRegistration;
+#[cfg(feature = "ptp")]
 use heapless::deque::DequeView;
 use vcell::VolatileCell;
 use xarxa_driver::PacketBuf;
@@ -195,6 +197,8 @@ pub(crate) struct TDesRing<'a> {
     /// Retained timestamps
     #[cfg(feature = "ptp")]
     timestamps: &'a mut DequeView<TxTimestamp>,
+    #[cfg(feature = "ptp")]
+    pub(crate) timestamp_waker: WakerRegistration,
 }
 
 impl<'a> TDesRing<'a> {
@@ -228,6 +232,8 @@ impl<'a> TDesRing<'a> {
             in_flight: 0,
             #[cfg(feature = "ptp")]
             timestamps,
+            #[cfg(feature = "ptp")]
+            timestamp_waker: WakerRegistration::new(),
         }
     }
 
@@ -289,6 +295,7 @@ impl<'a> TDesRing<'a> {
             if let Some(timestamp) = _completion {
                 // Full report storage must never stall the DMA ring or pin packet buffers.
                 let _ = self.timestamps.push_back(timestamp);
+                self.timestamp_waker.wake();
             }
         }
     }
