@@ -1037,8 +1037,7 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
                             w.set_tdie(true);
                             w.set_teie(true);
                         });
-                        self.info.regs().fsr().read().txcount() < LPSPI_FIFO_SIZE
-                            || self.info.regs().sr().read().tef()
+                        self.info.regs().fsr().read().txcount() < LPSPI_FIFO_SIZE || self.info.regs().sr().read().tef()
                     })
                     .await
                     .map_err(|_| IoError::Other)?;
@@ -1072,8 +1071,7 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
                             w.set_tdie(true);
                             w.set_teie(true);
                         });
-                        self.info.regs().fsr().read().txcount() < LPSPI_FIFO_SIZE
-                            || self.info.regs().sr().read().tef()
+                        self.info.regs().fsr().read().txcount() < LPSPI_FIFO_SIZE || self.info.regs().sr().read().tef()
                     })
                     .await
                     .map_err(|_| IoError::Other)?;
