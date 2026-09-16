@@ -139,8 +139,57 @@ pub mod ble_config {
     pub const CFG_BLE_EATT_BEARER_PER_LINK: u8 = 0;
     /// NVM maximum size (in 64-bit words)
     pub const CFG_BLE_NVM_SIZE_MAX: u16 = 256;
-    /// BLE options
-    pub const CFG_BLE_OPTIONS: u16 = 0x0D; // DEV_NAME_READ_ONLY | REDUCED_DB_IN_NVM | CS_ALGO_2
+    /// Host event FIFO size in bytes.
+    ///
+    /// The host stack queues its events here, and it is not optional: every ST
+    /// application sets it (512 bytes at the low end, and 1536 in
+    /// `BLE_p2pServer_Ext`, which this mirrors). Passing a null buffer leaves the
+    /// host with nowhere to queue events, and the full stack then rejects
+    /// `aci_gap_set_discoverable` with 0x0C (HCI_COMMAND_DISALLOWED).
+    pub const CFG_BLE_HOST_EVENT_BUF_SIZE: usize = 1536;
+
+    /// Host event FIFO length in `u16` units, which is how the stack counts it.
+    pub const fn host_event_fifo_len() -> usize {
+        divc(CFG_BLE_HOST_EVENT_BUF_SIZE, 2)
+    }
+    /// ST's `BLE_OPTIONS_*` flags for [`BleStack_init_t::options`] (ble_defs.h).
+    #[allow(dead_code)]
+    pub mod ble_options {
+        /// Link Layer only: brings up no host stack, so GAP and GATT commands are
+        /// all rejected with 0x0C. Never set this for a GAP application.
+        pub const LL_ONLY: u16 = 0x0001;
+        pub const NO_SVC_CHANGE_DESC: u16 = 0x0002;
+        pub const DEV_NAME_READ_ONLY: u16 = 0x0004;
+        /// Switches the stack to extended advertising, which *disables* the legacy
+        /// advertising commands. Do not set this: this crate only wraps the legacy
+        /// ones (`aci_gap_set_discoverable` and
+        /// `aci_gap_set_undirected_connectable`), and both are rejected with 0x0C
+        /// while it is on. Enabling it would require wrapping
+        /// `aci_gap_adv_set_configuration` / `aci_gap_adv_set_enable` instead.
+        pub const EXTENDED_ADV: u16 = 0x0008;
+        pub const CS_ALGO_2: u16 = 0x0010;
+        pub const REDUCED_DB_IN_NVM: u16 = 0x0020;
+        pub const GATT_CACHING: u16 = 0x0040;
+        pub const POWER_CLASS_1: u16 = 0x0080;
+        pub const APPEARANCE_WRITABLE: u16 = 0x0100;
+        pub const ENHANCED_ATT: u16 = 0x0200;
+    }
+
+    /// BLE options.
+    ///
+    /// This was previously the literal `0x0D`, commented as
+    /// "DEV_NAME_READ_ONLY | REDUCED_DB_IN_NVM | CS_ALGO_2" — but those three
+    /// flags are `0x34`. `0x0D` actually decodes to `LL_ONLY | DEV_NAME_READ_ONLY
+    /// | EXTENDED_ADV`, and both of those extra bits are wrong here: `LL_ONLY`
+    /// asks for a build with no host stack, and `EXTENDED_ADV` disables the legacy
+    /// advertising commands this crate is built on. Either one leaves every
+    /// advertising attempt rejected with 0x0C (HCI_COMMAND_DISALLOWED).
+    ///
+    /// The basic stack library ignores both bits, which is why `0x0D` appeared to
+    /// work; the full stack honours them. ST's own `BLE_Privacy_Peripheral`, which
+    /// is the reference for the legacy + controller-privacy flow, ships
+    /// `CFG_BLE_OPTIONS = 0`.
+    pub const CFG_BLE_OPTIONS: u16 = ble_options::DEV_NAME_READ_ONLY;
 
     // Memory block size (from ble_bufsize.h)
     const BLE_MEM_BLOCK_SIZE: usize = 32;
@@ -232,9 +281,14 @@ mod ble_buffers {
     #[repr(align(8))]
     pub struct NvmCacheBuffer(pub [u64; ble_config::CFG_BLE_NVM_SIZE_MAX as usize]);
 
+    /// Host event FIFO, in u16 units (see [`ble_config::host_event_fifo_len`]).
+    #[repr(align(4))]
+    pub struct HostEventBuffer(pub [u16; ble_config::host_event_fifo_len()]);
+
     pub static mut DYN_ALLOC_BUFFER: DynAllocBuffer = DynAllocBuffer([0u8; ble_config::dyn_alloc_buffer_size()]);
     pub static mut GATT_BUFFER: GattBuffer = GattBuffer([0u8; ble_config::gatt_buffer_size()]);
     pub static mut NVM_CACHE_BUFFER: NvmCacheBuffer = NvmCacheBuffer([0u64; ble_config::CFG_BLE_NVM_SIZE_MAX as usize]);
+    pub static mut HOST_EVENT_BUFFER: HostEventBuffer = HostEventBuffer([0u16; ble_config::host_event_fifo_len()]);
 }
 
 #[cfg(feature = "wba-ble")]
@@ -297,8 +351,8 @@ pub fn init_ble_stack() -> Result<(), u8> {
             gatt_long_write_buffer: core::ptr::null_mut(),
             extra_data_buffer: core::ptr::null_mut(),
             extra_data_buffer_size: 0,
-            host_event_fifo_buffer: core::ptr::null_mut(),
-            host_event_fifo_buffer_size: 0,
+            host_event_fifo_buffer: ble_buffers::HOST_EVENT_BUFFER.0.as_mut_ptr(),
+            host_event_fifo_buffer_size: ble_config::host_event_fifo_len() as u16,
             numAttrRecord: CFG_BLE_NUM_GATT_ATTRIBUTES,
             numAttrServ: CFG_BLE_NUM_GATT_SERVICES,
             attrValueArrSize: CFG_BLE_ATT_VALUE_ARRAY_SIZE,
