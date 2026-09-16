@@ -429,26 +429,29 @@ impl<'d> BufferedUartTx<'d> {
                 data[..n].copy_from_slice(&buf[..n]);
                 n
             });
+            // The TX interrupt only fires on a transition through the FIFO
+            // trigger level, so an empty FIFO never raises it again. Kick the
+            // drain by hand; a full ring needs it just as much as a short write.
+            info.interrupt.pend();
+
             if n == 0 {
                 return Poll::Pending;
             }
 
-            // The TX interrupt only triggers when the there was data in the
-            // FIFO and the number of bytes drops below a threshold. When the
-            // FIFO was empty we have to manually pend the interrupt to shovel
-            // TX data from the buffer into the FIFO.
-            info.interrupt.pend();
             Poll::Ready(Ok(n))
         })
     }
 
-    fn flush(state: &'static State) -> impl Future<Output = Result<(), Error>> {
+    fn flush(info: &'static Info, state: &'static State) -> impl Future<Output = Result<(), Error>> {
         poll_fn(move |cx| {
             // Register before checking, for the same lost-wakeup window as in
             // `write` above.
             state.tx_waker.register(cx.waker());
 
             if !state.tx_buf.is_empty() {
+                // Same one-shot TX interrupt hazard as in `write`: bytes are
+                // still queued, so make sure something will shovel them out.
+                info.interrupt.pend();
                 return Poll::Pending;
             }
 
@@ -516,7 +519,7 @@ impl<'d> BufferedUartTx<'d> {
         let div_clk = clk_peri_freq() as u64 * 64;
         let wait_usecs = (1_000_000 * bits as u64 * divx64 * 16 + div_clk - 1) / div_clk;
 
-        Self::flush(self.state).await.unwrap();
+        Self::flush(self.info, self.state).await.unwrap();
         while self.busy() {}
         regs.uartlcr_h().write_set(|w| w.set_brk(true));
         Timer::after_micros(wait_usecs).await;
@@ -764,7 +767,7 @@ impl<'d> embedded_io_async::Write for BufferedUart<'d> {
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        BufferedUartTx::flush(self.tx.state).await
+        BufferedUartTx::flush(self.tx.info, self.tx.state).await
     }
 }
 
@@ -774,7 +777,7 @@ impl<'d> embedded_io_async::Write for BufferedUartTx<'d> {
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        Self::flush(self.state).await
+        Self::flush(self.info, self.state).await
     }
 }
 
