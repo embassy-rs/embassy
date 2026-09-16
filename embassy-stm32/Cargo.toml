@@ -425,6 +425,7 @@ dual-bank = []
 single-bank = []
 
 # Set all GPIO pins (except SWD) to analog in init()
+# Recommended by AN4899 chapter 7.1 for power optimization
 gpio-init-analog = []
 
 ## internal use only
