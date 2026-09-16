@@ -120,6 +120,7 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
     }
 
     fn receive(&mut self) -> Option<PacketBuf> {
+        self.tx.reclaim();
         match self.rx.receive() {
             Some(buf) => {
                 self.wake_guard.disable();

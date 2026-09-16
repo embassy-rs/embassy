@@ -3,7 +3,7 @@ use core::sync::atomic::{Ordering, compiler_fence, fence};
 use vcell::VolatileCell;
 use xarxa_driver::PacketBuf;
 #[cfg(feature = "ptp")]
-use xarxa_driver::Timestamp;
+use xarxa_driver::{Timestamp, TxTimestamp};
 
 use crate::pac::ETH;
 
@@ -178,7 +178,7 @@ impl TDes {
 /// What reclaiming a completed transmit descriptor yields: its timestamp with PTP,
 /// nothing without.
 #[cfg(feature = "ptp")]
-type Completion = Option<Timestamp>;
+type Completion = Option<TxTimestamp>;
 #[cfg(not(feature = "ptp"))]
 type Completion = ();
 
@@ -190,6 +190,9 @@ pub(crate) struct TDesRing<'a> {
     index: usize,
     /// Submitted descriptors not yet reclaimed.
     in_flight: usize,
+    /// Retained timestamps
+    #[cfg(feature = "ptp")]
+    timestamps: heapless::Deque<TxTimestamp, 4>,
 }
 
 impl<'a> TDesRing<'a> {
@@ -215,6 +218,8 @@ impl<'a> TDesRing<'a> {
             buffers,
             index: 0,
             in_flight: 0,
+            #[cfg(feature = "ptp")]
+            timestamps: heapless::Deque::new(),
         }
     }
 
@@ -247,7 +252,16 @@ impl<'a> TDesRing<'a> {
         // Observe DMA write-back before reading the timestamp or releasing the buffer.
         fence(Ordering::Acquire);
         #[cfg(feature = "ptp")]
-        let timestamp = descriptor.timestamp();
+        let timestamp = if let Some(buf) = self.buffers[completion_index].as_ref()
+            && buf.meta().request_timestamp
+            && let Some(timestamp) = descriptor.timestamp()
+        {
+            let id = buf.meta().id;
+            trace!("eth ptp tx complete idx={} packet_id={}", completion_index, id);
+            Some(TxTimestamp { id, timestamp })
+        } else {
+            None
+        };
         #[cfg(not(feature = "ptp"))]
         let timestamp = ();
 
@@ -257,12 +271,23 @@ impl<'a> TDesRing<'a> {
         Some(timestamp)
     }
 
+    /// Release completed packets even when timestamp reports are not consumed.
+    pub(crate) fn reclaim(&mut self) {
+        if self.in_flight == 0 {
+            return;
+        }
+        while let Some(_completion) = self.reclaim_one() {
+            #[cfg(feature = "ptp")]
+            if let Some(timestamp) = _completion {
+                // Full report storage must never stall the DMA ring or pin packet buffers.
+                let _ = self.timestamps.push_back(timestamp);
+            }
+        }
+    }
+
     /// Whether the next `transmit` will be accepted.
     pub(crate) fn can_transmit(&mut self) -> bool {
-        // Without PTP nothing else reclaims completed descriptors, so do it here.
-        // With PTP, `poll_timestamp` reclaims them so their timestamps are reported.
-        #[cfg(not(feature = "ptp"))]
-        while self.reclaim_one().is_some() {}
+        self.reclaim();
 
         // If every descriptor is already submitted but not yet reclaimed,
         // the slot at `index` must not be reused.
@@ -275,16 +300,12 @@ impl<'a> TDesRing<'a> {
 
     #[cfg(feature = "ptp")]
     pub(crate) fn poll_timestamp(&mut self) -> Option<xarxa_driver::TxTimestamp> {
+        if let Some(timestamp) = self.timestamps.pop_front() {
+            return Some(timestamp);
+        }
         loop {
-            let completion_index = self.completion_index();
-            let packet_id = self.buffers[completion_index].as_ref().map(|b| b.meta().id);
-            let timestamp = self.reclaim_one()?;
-
-            if let Some(timestamp) = timestamp
-                && let Some(id) = packet_id
-            {
-                trace!("eth ptp tx complete idx={} packet_id={}", completion_index, id);
-                break Some(xarxa_driver::TxTimestamp { id, timestamp });
+            if let Some(timestamp) = self.reclaim_one()? {
+                break Some(timestamp);
             }
         }
     }
@@ -332,3 +353,7 @@ impl<'a> TDesRing<'a> {
         self.index = if next == self.descriptors.len() { 0 } else { next };
     }
 }
+
+#[cfg(all(test, feature = "ptp"))]
+#[path = "../tx_tests.rs"]
+mod tests;
