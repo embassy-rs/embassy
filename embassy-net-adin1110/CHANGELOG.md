@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- Added OPEN Alliance TC6 SPI protocol support (ADIN2111 in OPEN Alliance SPI mode)
+- Added OPEN Alliance TC6 SPI protocol support (ADIN1110 and ADIN2111 in OPEN Alliance SPI mode)
+- Added the `packetmeta-id` feature: `PacketMeta::id` carries the ingress and egress port in OPEN Alliance SPI mode
+- Added `Runner::port_links` for the port count and per-port link state in OPEN Alliance SPI mode
 
 ## 0.4.0 - 2026-03-10
 
