@@ -228,13 +228,19 @@ pub struct Runner<'a, I, OUT> {
     bt: bluetooth::BtRunner<'a>,
 }
 
+/// Heartbeat from ESP32 have stopped
+#[allow(unused)]
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct HeartbeatStopped;
+
 impl<'a, I, OUT> Runner<'a, I, OUT>
 where
     I: Interface,
     OUT: OutputPin,
 {
     /// Run the packet processing.
-    pub async fn run(mut self) -> ! {
+    pub async fn run(&mut self) -> Result<(), HeartbeatStopped> {
         let mut buffer = Aligned([0u8; MAX_BUFFER_SIZE]);
 
         self.shared.reboot();
@@ -323,8 +329,7 @@ where
                         continue;
                     }
                     error!("Heartbeat from ESP32 stopped");
-                    self.shared.reboot();
-                    continue;
+                    return Err(HeartbeatStopped);
                 }
 
                 // Bluetooth HCI packet queued by the host stack.

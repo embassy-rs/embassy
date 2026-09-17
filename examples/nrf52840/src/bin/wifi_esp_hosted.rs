@@ -28,13 +28,13 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::task]
 async fn wifi_task(
-    runner: hosted::Runner<
+    mut runner: hosted::Runner<
         'static,
         SpiInterface<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Input<'static>>,
         Output<'static>,
     >,
-) -> ! {
-    runner.run().await
+) {
+    runner.run().await.expect("heartbeat stopped");
 }
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
