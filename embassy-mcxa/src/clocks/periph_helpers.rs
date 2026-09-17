@@ -1442,8 +1442,8 @@ impl SPConfHelper for CanConfig {
 
         #[cfg(feature = "mcxa5xx")]
         let fmax = match power {
-            VddLevel::MidDriveMode => 45_000_000,
-            VddLevel::NormalMode | VddLevel::OverDriveMode => 90_000_000,
+            VddLevel::MidDriveMode => 50_000_000,
+            VddLevel::NormalMode | VddLevel::OverDriveMode => 100_000_000,
         };
 
         if expected > fmax {
