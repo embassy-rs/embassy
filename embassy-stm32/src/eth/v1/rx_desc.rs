@@ -361,7 +361,8 @@ impl<'a> RDesRing<'a> {
         self.descriptors[self.index].set_ready(fresh.storage_mut().as_mut_ptr());
         self.buffers[self.index] = Some(fresh);
         self.demand_poll();
-        self.index = (self.index + 1) % self.descriptors.len();
+        let next = self.index + 1;
+        self.index = if next == self.descriptors.len() { 0 } else { next };
 
         Some(buf)
     }
@@ -377,6 +378,7 @@ impl<'a> RDesRing<'a> {
         self.demand_poll();
 
         // Increment index.
-        self.index = (self.index + 1) % self.descriptors.len();
+        let next = self.index + 1;
+        self.index = if next == self.descriptors.len() { 0 } else { next };
     }
 }
