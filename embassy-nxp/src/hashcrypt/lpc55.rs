@@ -35,6 +35,27 @@ impl<'d> GenericDriver<'d> {
     }
 }
 
+pub trait Digest {
+    type Output;
+    #[doc = "Accepts an arbitrary-length slice of bytes at the time, to be buffered until a full block is built, then drained in to the FIFO"]
+    fn update(&mut self, data: &[u8]);
+
+    #[doc = "Returns the digest of the message streamed via `update`"]
+    fn finalise(self) -> Self::Output;
+}
+
+pub trait Aes {
+    #[doc = "Accepts a 16 byte block of plain text to be encrypted via one of the supported AES modes, and returns 16 byte ciphertext"]
+    fn encrypt_block(&mut self, block: &[u8; 16]) -> [u8; 16];
+    #[doc = "Accepts the final 16 byte block of plain text to be encrypted via one of the supported AES modes, and returns 16 byte ciphertext. Use this function if this is final or only block to be encrypted"]
+    fn encrypt_final(self, block: &[u8; 16]) -> [u8; 16];
+
+    #[doc = "Accepts a 16 byte block of cipher text to be decrypted via one of the supported AES modes, and returns 16 byte plaintext"]
+    fn decrypt_block(&mut self, block: &[u8; 16]) -> [u8; 16];
+    #[doc = "Accepts the final 16 byte block of cipher text to be decrypted via one of the supported AES modes, and returns 16 byte plain text. Use this function if this is final or only block to be decrypted"]
+    fn decrypt_final(self, block: &[u8; 16]) -> [u8; 16];
+}
+
 // Specific driver types
 // todo!("Add buffer, buffer len and message length for sha1");
 struct Sha1<'a, 'd> {
