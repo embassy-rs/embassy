@@ -236,9 +236,9 @@ impl<'d, M: IoMode> Spi<'d, M> {
 }
 
 impl<'d, M: IoMode> Spi<'d, M> {
-    fn transfer_lengths(read_len: usize, write_len: usize) -> (usize, usize, usize) {
-        let common = read_len.min(write_len);
-        (common, read_len - common, write_len - common)
+    fn transfer_lengths(read: &[u8], write: &[u8]) -> (usize, usize, usize) {
+        let common = read.len().min(write.len());
+        (common, read.len() - common, write.len() - common)
     }
 
     fn check_status(&mut self) -> Result<(), IoError> {
