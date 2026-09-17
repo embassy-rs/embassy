@@ -2,11 +2,10 @@
 #![no_main]
 
 use defmt::{error, info};
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nxp::Peri;
 use embassy_nxp::casper::{CASPER, CasperDriver, Opcode};
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -68,12 +67,12 @@ fn test_sramx_read_write(casper: &mut CasperDriver<'_>) {
     let b: u32 = 0xAABBCCDD;
 
     // 1. Write data to SRAMX at a certain offset (0x000 for example)
-    casper.write_dword(0x000usize, a);
-    casper.write_word(0x000usize + 8, b);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_word(0x000usize + 8, b).unwrap();
 
     // 2. Read data back from SRAMX
-    let read_a = casper.read_dword(0x000usize);
-    let read_b = casper.read_word(0x000usize + 8);
+    let read_a = casper.read_dword(0x000usize).unwrap();
+    let read_b = casper.read_word(0x000usize + 8).unwrap();
 
     // 3. Verifying
     if read_a == a && read_b == b {
@@ -88,12 +87,12 @@ fn test_sramx_clear(casper: &mut CasperDriver<'_>) {
     let c: u64 = 0xFFFFFFFFFFFFFFFF;
     let d: u32 = 0xFFFFFFFF;
 
-    casper.write_dword(0x400usize, c);
-    casper.write_word(0x400usize + 8, d);
+    casper.write_dword(0x400usize, c).unwrap();
+    casper.write_word(0x400usize + 8, d).unwrap();
 
-    casper.clear(0x400usize, 12);
-    let read_c = casper.read_dword(0x400usize);
-    let read_d = casper.read_word(0x400usize + 8);
+    casper.clear(0x400usize, 12).unwrap();
+    let read_c = casper.read_dword(0x400usize).unwrap();
+    let read_d = casper.read_word(0x400usize + 8).unwrap();
 
     if read_c == 0 && read_d == 0 {
         info!("SRAMX clear TEST: PASS");
@@ -107,20 +106,22 @@ fn test_execute_copy(casper: &mut CasperDriver<'_>) {
     let src0: u64 = 0x1122334455667788;
     let src1: u64 = 0x2211009988776655;
 
-    casper.write_dword(0x000usize, src0);
-    casper.write_dword(0x000usize + 8, src1);
-    casper.clear(0x400usize, 16);
+    casper.write_dword(0x000usize, src0).unwrap();
+    casper.write_dword(0x000usize + 8, src1).unwrap();
+    casper.clear(0x400usize, 16).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Copy,
-        1,          // iter = 1 (process 2 64-bit words)
-        0x000usize, // ab_offset
-        0,
-        0x400usize, // res_offset
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Copy,
+            1,          // iter = 1 (process 2 64-bit words)
+            0x000usize, // ab_offset
+            0,
+            0x400usize, // res_offset
+        )
+        .unwrap();
 
-    let dst0 = casper.read_dword(0x400usize);
-    let dst1 = casper.read_dword(0x400usize + 8);
+    let dst0 = casper.read_dword(0x400usize).unwrap();
+    let dst1 = casper.read_dword(0x400usize + 8).unwrap();
 
     if dst0 == src0 && dst1 == src1 {
         info!("Opcode::Copy TEST: PASS");
@@ -134,19 +135,21 @@ fn test_execute_zero(casper: &mut CasperDriver<'_>) {
     let src0: u64 = 0x1122334455667788;
     let src1: u64 = 0x2211009988776655;
 
-    casper.write_dword(0x400usize, src0);
-    casper.write_dword(0x400usize + 8, src1);
+    casper.write_dword(0x400usize, src0).unwrap();
+    casper.write_dword(0x400usize + 8, src1).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Zero,
-        1, // iter = 1 (process 2 64-bit words)
-        0,
-        0,
-        0x400usize, // res_offset
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Zero,
+            1, // iter = 1 (process 2 64-bit words)
+            0,
+            0,
+            0x400usize, // res_offset
+        )
+        .unwrap();
 
-    let dst0 = casper.read_dword(0x400usize);
-    let dst1 = casper.read_dword(0x400usize + 8);
+    let dst0 = casper.read_dword(0x400usize).unwrap();
+    let dst1 = casper.read_dword(0x400usize + 8).unwrap();
 
     if dst0 == 0 && dst1 == 0 {
         info!("Opcode::Zero TEST: PASS");
@@ -164,21 +167,23 @@ fn test_execute_xor(casper: &mut CasperDriver<'_>) {
     let d: u64 = 0x00000000FFFFFFFF;
     let expected2 = c ^ d;
 
-    casper.write_dword(0x000usize, a);
-    casper.write_dword(0x000usize + 8, c);
-    casper.write_dword(0x600usize, b);
-    casper.write_dword(0x600usize + 8, d);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_dword(0x000usize + 8, c).unwrap();
+    casper.write_dword(0x600usize, b).unwrap();
+    casper.write_dword(0x600usize + 8, d).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Xor64,
-        1,          // iter = 1 (2 XOR operations)
-        0x000usize, // A (ab_offset)
-        0,
-        0x600usize, // R (res_offset)
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Xor64,
+            1,          // iter = 1 (2 XOR operations)
+            0x000usize, // A (ab_offset)
+            0,
+            0x600usize, // R (res_offset)
+        )
+        .unwrap();
 
-    let result = casper.read_dword(0x600usize);
-    let result2 = casper.read_dword(0x600usize + 8);
+    let result = casper.read_dword(0x600usize).unwrap();
+    let result2 = casper.read_dword(0x600usize + 8).unwrap();
 
     if result == expected && result2 == expected2 {
         info!("Opcode::Xor64 TEST: PASS");
@@ -193,17 +198,19 @@ fn test_execute_double_basic(casper: &mut CasperDriver<'_>) {
     // let b: u64 = 5; // 2nd test with b = 0x0
     let (expected, carry) = a.overflowing_add(a);
 
-    casper.write_dword(0x600usize, a);
+    casper.write_dword(0x600usize, a).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Double64,
-        0, // iter = 0 (1 DOUBLE operation)
-        0,
-        0,
-        0x600usize, // R (res_offset)
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Double64,
+            0, // iter = 0 (1 DOUBLE operation)
+            0,
+            0,
+            0x600usize, // R (res_offset)
+        )
+        .unwrap();
 
-    let result = casper.read_dword(0x600usize);
+    let result = casper.read_dword(0x600usize).unwrap();
     let carry_bit = casper.carry();
 
     if (result == expected) && (carry_bit == carry) {
@@ -220,19 +227,21 @@ fn test_execute_double_multiword(casper: &mut CasperDriver<'_>) {
     let (expected0, _) = w0.overflowing_add(w0);
     let (expected1, expected_carry) = w1.overflowing_add(w1);
 
-    casper.write_dword(0x600usize, w0);
-    casper.write_dword(0x600usize + 8, w1 as u64);
+    casper.write_dword(0x600usize, w0).unwrap();
+    casper.write_dword(0x600usize + 8, w1 as u64).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Double64,
-        1, // iter = 1 (2 DOUBLE operations - process 2 64-bit words)
-        0,
-        0,
-        0x600usize, // R (res_offset)
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Double64,
+            1, // iter = 1 (2 DOUBLE operations - process 2 64-bit words)
+            0,
+            0,
+            0x600usize, // R (res_offset)
+        )
+        .unwrap();
 
-    let result0 = casper.read_dword(0x600usize);
-    let result1 = casper.read_dword(0x600usize + 8);
+    let result0 = casper.read_dword(0x600usize).unwrap();
+    let result1 = casper.read_dword(0x600usize + 8).unwrap();
     let carry = casper.carry();
 
     // info!(
@@ -260,18 +269,20 @@ fn test_execute_add_basic(casper: &mut CasperDriver<'_>) {
     let b: u64 = 0x000000000000000a;
     let (expected, carry) = a.overflowing_add(b);
 
-    casper.write_dword(0x000usize, a);
-    casper.write_dword(0x600usize, b);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_dword(0x600usize, b).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Add64,
-        0,          // iter = 0 (1 ADD operation: a + b)
-        0x000usize, // ab_offset
-        0,
-        0x600usize, // res_offset
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Add64,
+            0,          // iter = 0 (1 ADD operation: a + b)
+            0x000usize, // ab_offset
+            0,
+            0x600usize, // res_offset
+        )
+        .unwrap();
 
-    let result = casper.read_dword(0x600usize);
+    let result = casper.read_dword(0x600usize).unwrap();
     let carry_bit = casper.carry();
 
     if (result == expected) && (carry_bit == carry) {
@@ -299,23 +310,25 @@ fn test_execute_add_multiword(casper: &mut CasperDriver<'_>) {
     let expected1: u64 = 0x0000000000000000;
 
     // A = A1:A0
-    casper.write_dword(0x000usize, a0);
-    casper.write_dword(0x000usize + 8, a1);
+    casper.write_dword(0x000usize, a0).unwrap();
+    casper.write_dword(0x000usize + 8, a1).unwrap();
 
     // R = B1:B0
-    casper.write_dword(0x600usize, b0);
-    casper.write_dword(0x600usize + 8, b1);
+    casper.write_dword(0x600usize, b0).unwrap();
+    casper.write_dword(0x600usize + 8, b1).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Add64,
-        1,          // 2 64-bit cycles
-        0x000usize, // ab_offset
-        0,
-        0x600usize, // res_offset
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Add64,
+            1,          // 2 64-bit cycles
+            0x000usize, // ab_offset
+            0,
+            0x600usize, // res_offset
+        )
+        .unwrap();
 
-    let result0 = casper.read_dword(0x600usize);
-    let result1 = casper.read_dword(0x600usize + 8);
+    let result0 = casper.read_dword(0x600usize).unwrap();
+    let result1 = casper.read_dword(0x600usize + 8).unwrap();
 
     //let carry = casper.carry();
     // info!(
@@ -351,18 +364,20 @@ fn test_execute_sub_basic(casper: &mut CasperDriver<'_>) {
     let a: u64 = 0x000000000000000A;
 
     let (expected, borrow) = r.overflowing_sub(a);
-    casper.write_dword(0x000usize, a);
-    casper.write_dword(0x600usize, r);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_dword(0x600usize, r).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Sub64,
-        0,          // iter = 0 (1 64-bit cycle)
-        0x000usize, // A (ab_offset)
-        0,
-        0x600usize, // R (res_offset)
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Sub64,
+            0,          // iter = 0 (1 64-bit cycle)
+            0x000usize, // A (ab_offset)
+            0,
+            0x600usize, // R (res_offset)
+        )
+        .unwrap();
 
-    let result = casper.read_dword(0x600usize);
+    let result = casper.read_dword(0x600usize).unwrap();
     let carry = casper.carry();
 
     // info!(
@@ -403,23 +418,25 @@ fn test_execute_sub_multiword(casper: &mut CasperDriver<'_>) {
     let expected1: u64 = 0x0000000000000000;
 
     // A = A1:A0
-    casper.write_dword(0x000usize, b0);
-    casper.write_dword(0x000usize + 8, b1);
+    casper.write_dword(0x000usize, b0).unwrap();
+    casper.write_dword(0x000usize + 8, b1).unwrap();
 
     // R = B1:B0
-    casper.write_dword(0x600usize, a0);
-    casper.write_dword(0x600usize + 8, a1);
+    casper.write_dword(0x600usize, a0).unwrap();
+    casper.write_dword(0x600usize + 8, a1).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Sub64,
-        1,          // iter = 1 (2 64-bit cycles)
-        0x000usize, // A (ab_offset)
-        0,
-        0x600usize, // R (res_offset)
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Sub64,
+            1,          // iter = 1 (2 64-bit cycles)
+            0x000usize, // A (ab_offset)
+            0,
+            0x600usize, // R (res_offset)
+        )
+        .unwrap();
 
-    let result0 = casper.read_dword(0x600usize);
-    let result1 = casper.read_dword(0x600usize + 8);
+    let result0 = casper.read_dword(0x600usize).unwrap();
+    let result1 = casper.read_dword(0x600usize + 8).unwrap();
     let borrow = casper.carry();
 
     // info!(
@@ -454,18 +471,20 @@ fn test_execute_rsub_basic(casper: &mut CasperDriver<'_>) {
     // let r: u64 = 16;
 
     let (expected, expected_borrow) = a.overflowing_sub(r);
-    casper.write_dword(0x000usize, a);
-    casper.write_dword(0x600usize, r);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_dword(0x600usize, r).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Rsub64,
-        0,          // iter = 0 (1 64-bit cycle)
-        0x000usize, // A (ab_offset)
-        0,
-        0x600usize, // R (res_offset)
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Rsub64,
+            0,          // iter = 0 (1 64-bit cycle)
+            0x000usize, // A (ab_offset)
+            0,
+            0x600usize, // R (res_offset)
+        )
+        .unwrap();
 
-    let result = casper.read_dword(0x600usize);
+    let result = casper.read_dword(0x600usize).unwrap();
     let borrow = casper.carry();
 
     // info!("Opcode::Rsub64 TEST:\n\
@@ -504,23 +523,25 @@ fn test_execute_rsub_multiword(casper: &mut CasperDriver<'_>) {
     let expected1: u64 = 0x0000000000000000;
 
     // A = A1:A0
-    casper.write_dword(0x000usize, a0);
-    casper.write_dword(0x000usize + 8, a1);
+    casper.write_dword(0x000usize, a0).unwrap();
+    casper.write_dword(0x000usize + 8, a1).unwrap();
 
     // R = R1:R0
-    casper.write_dword(0x600usize, r0);
-    casper.write_dword(0x600usize + 8, r1);
+    casper.write_dword(0x600usize, r0).unwrap();
+    casper.write_dword(0x600usize + 8, r1).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Rsub64,
-        1,          // iter = 1 (2 64-bit cycles)
-        0x000usize, // A (ab_offset)
-        0,
-        0x600usize, // R (res_offset)
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Rsub64,
+            1,          // iter = 1 (2 64-bit cycles)
+            0x000usize, // A (ab_offset)
+            0,
+            0x600usize, // R (res_offset)
+        )
+        .unwrap();
 
-    let result0 = casper.read_dword(0x600usize);
-    let result1 = casper.read_dword(0x600usize + 8);
+    let result0 = casper.read_dword(0x600usize).unwrap();
+    let result1 = casper.read_dword(0x600usize + 8).unwrap();
     let borrow = casper.carry();
 
     // info!(
@@ -555,19 +576,21 @@ fn test_execute_mul_nosum_basic(casper: &mut CasperDriver<'_>) {
     let expected_high: u64 = 0xFFFFFFFFFFFFFFFE;
     let expected_low: u64 = 0x0000000000000001;
 
-    casper.write_dword(0x000usize, a);
-    casper.write_dword(0x400usize, b);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_dword(0x400usize, b).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Mul64Nosum,
-        0,          // iter = 0 (1 64-bit multiplication)
-        0x000usize, // ab_offset
-        0x400usize, // cd_offset
-        0x600usize, // res_offset
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Mul64Nosum,
+            0,          // iter = 0 (1 64-bit multiplication)
+            0x000usize, // ab_offset
+            0x400usize, // cd_offset
+            0x600usize, // res_offset
+        )
+        .unwrap();
 
-    let result_low = casper.read_dword(0x600usize);
-    let result_high = casper.read_dword(0x600usize + 8);
+    let result_low = casper.read_dword(0x600usize).unwrap();
+    let result_high = casper.read_dword(0x600usize + 8).unwrap();
 
     // info!(
     //     "Opcode::Mul64Nosum TEST:\n\
@@ -630,21 +653,23 @@ fn test_execute_mul_nosum_multiword(casper: &mut CasperDriver<'_>) {
     let expected1: u64 = 0x0000000000000000;
     let expected2: u64 = 0xFFFFFFFFFFFFFFFE;
 
-    casper.write_dword(0x000usize, a);
-    casper.write_dword(0x200usize, b0);
-    casper.write_dword(0x200usize + 8, b1);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_dword(0x200usize, b0).unwrap();
+    casper.write_dword(0x200usize + 8, b1).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Mul64Nosum,
-        1,          // iter = 1 (2 64-bit multiplications)
-        0x000usize, // ab_offset
-        0x200usize, // cd_offset
-        0x600usize, // res_offset
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Mul64Nosum,
+            1,          // iter = 1 (2 64-bit multiplications)
+            0x000usize, // ab_offset
+            0x200usize, // cd_offset
+            0x600usize, // res_offset
+        )
+        .unwrap();
 
-    let r0 = casper.read_dword(0x600usize);
-    let r1 = casper.read_dword(0x600usize + 8);
-    let r2 = casper.read_dword(0x600usize + 16);
+    let r0 = casper.read_dword(0x600usize).unwrap();
+    let r1 = casper.read_dword(0x600usize + 8).unwrap();
+    let r2 = casper.read_dword(0x600usize + 16).unwrap();
 
     // info!(
     //     "Opcode::Mul64Nosum WALKING J-LOOP TEST:\n\
@@ -676,19 +701,21 @@ fn test_execute_mul_sum_basic(casper: &mut CasperDriver<'_>) {
 
     let expected = initial + (a as u128) * (b as u128);
 
-    casper.write_dword(0x000usize, a);
-    casper.write_dword(0x200usize, b);
-    casper.write_dword(0x600usize, initial as u64);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_dword(0x200usize, b).unwrap();
+    casper.write_dword(0x600usize, initial as u64).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Mul64Sum,
-        0,          // iter = 0 (1 64-bit multiplication)
-        0x000usize, // ab_offset
-        0x200usize, // cd_offset
-        0x600usize, // res_offset
-    );
-    let result_low = casper.read_dword(0x600usize);
-    let result_high = casper.read_dword(0x600usize + 8);
+    casper
+        .execute_op_sync(
+            Opcode::Mul64Sum,
+            0,          // iter = 0 (1 64-bit multiplication)
+            0x000usize, // ab_offset
+            0x200usize, // cd_offset
+            0x600usize, // res_offset
+        )
+        .unwrap();
+    let result_low = casper.read_dword(0x600usize).unwrap();
+    let result_high = casper.read_dword(0x600usize + 8).unwrap();
     let result = (result_high as u128) << 64 | result_low as u128;
 
     // info!(
@@ -722,22 +749,24 @@ fn test_execute_mul_sum_multiword(casper: &mut CasperDriver<'_>) {
     let expected0 = (w0 as u128) + (a as u128) * (b0 as u128);
     let expected1 = (w1 as u128) + (a as u128) * (b1 as u128);
 
-    casper.write_dword(0x000usize, a);
-    casper.write_dword(0x200usize, b0);
-    casper.write_dword(0x200usize + 8, b1);
-    casper.write_dword(0x600usize, w0);
-    casper.write_dword(0x600usize + 8, w1);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_dword(0x200usize, b0).unwrap();
+    casper.write_dword(0x200usize + 8, b1).unwrap();
+    casper.write_dword(0x600usize, w0).unwrap();
+    casper.write_dword(0x600usize + 8, w1).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Mul64Sum,
-        1, // 2 64-bit J iterations
-        0x000usize,
-        0x200usize,
-        0x600usize,
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Mul64Sum,
+            1, // 2 64-bit J iterations
+            0x000usize,
+            0x200usize,
+            0x600usize,
+        )
+        .unwrap();
 
-    let result0 = casper.read_dword(0x600usize);
-    let result1 = casper.read_dword(0x600usize + 8);
+    let result0 = casper.read_dword(0x600usize).unwrap();
+    let result1 = casper.read_dword(0x600usize + 8).unwrap();
 
     // info!(
     //     "Opcode::Mul64Sum WALKING TEST:\n\
@@ -786,25 +815,27 @@ fn test_execute_mul_sum_vs_mul_fullsum(casper: &mut CasperDriver<'_>) {
     let expected2: u64 = 0x0000000000000001;
     let expected3: u64 = 0x0000000000000001;
 
-    casper.write_dword(0x000usize, a);
-    casper.write_dword(0x200usize, b0);
-    casper.write_dword(0x200usize + 8, b1);
-    casper.write_dword(0x600usize, w0);
-    casper.write_dword(0x600usize + 8, w1);
-    casper.write_dword(0x600usize + 16, w2);
-    casper.write_dword(0x600usize + 24, w3);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_dword(0x200usize, b0).unwrap();
+    casper.write_dword(0x200usize + 8, b1).unwrap();
+    casper.write_dword(0x600usize, w0).unwrap();
+    casper.write_dword(0x600usize + 8, w1).unwrap();
+    casper.write_dword(0x600usize + 16, w2).unwrap();
+    casper.write_dword(0x600usize + 24, w3).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Mul64Sum,
-        1,          // iter = 1 (2 64-bit multiplications)
-        0x000usize, // ab_offset
-        0x200usize, // cd_offset
-        0x600usize, // res_offset
-    );
-    let result0 = casper.read_dword(0x600usize);
-    let result1 = casper.read_dword(0x600usize + 8);
-    let result2 = casper.read_dword(0x600usize + 16);
-    let result3 = casper.read_dword(0x600usize + 24);
+    casper
+        .execute_op_sync(
+            Opcode::Mul64Sum,
+            1,          // iter = 1 (2 64-bit multiplications)
+            0x000usize, // ab_offset
+            0x200usize, // cd_offset
+            0x600usize, // res_offset
+        )
+        .unwrap();
+    let result0 = casper.read_dword(0x600usize).unwrap();
+    let result1 = casper.read_dword(0x600usize + 8).unwrap();
+    let result2 = casper.read_dword(0x600usize + 16).unwrap();
+    let result3 = casper.read_dword(0x600usize + 24).unwrap();
 
     // info!(
     //     "Opcode::Mul64Sum vs Opcode::Mul64Fullsum TEST:\n\
@@ -840,21 +871,23 @@ fn test_execute_mul_fullsum_basic(casper: &mut CasperDriver<'_>) {
     let product: u128 = (a as u128) * (b as u128);
     let expected: u128 = old_w + product;
 
-    casper.write_dword(0x000usize, a);
-    casper.write_dword(0x200usize, b);
-    casper.write_dword(0x600usize, w_low);
-    casper.write_dword(0x600usize + 8, w_high);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_dword(0x200usize, b).unwrap();
+    casper.write_dword(0x600usize, w_low).unwrap();
+    casper.write_dword(0x600usize + 8, w_high).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Mul64Fullsum,
-        0,          // iter = 0 (1 64-bit multiplication)
-        0x000usize, // ab_offset
-        0x200usize, // cd_offset
-        0x600usize, // res_offset
-    );
+    casper
+        .execute_op_sync(
+            Opcode::Mul64Fullsum,
+            0,          // iter = 0 (1 64-bit multiplication)
+            0x000usize, // ab_offset
+            0x200usize, // cd_offset
+            0x600usize, // res_offset
+        )
+        .unwrap();
 
-    let result_low = casper.read_dword(0x600usize);
-    let result_high = casper.read_dword(0x600usize + 8);
+    let result_low = casper.read_dword(0x600usize).unwrap();
+    let result_high = casper.read_dword(0x600usize + 8).unwrap();
     let result: u128 = ((result_high as u128) << 64) | (result_low as u128);
 
     // info!(
@@ -910,25 +943,27 @@ fn test_execute_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
     let expected2: u64 = 0x0000000000000002;
     let expected3: u64 = 0x0000000000000001;
 
-    casper.write_dword(0x000usize, a);
-    casper.write_dword(0x200usize, b0);
-    casper.write_dword(0x200usize + 8, b1);
-    casper.write_dword(0x600usize, w0);
-    casper.write_dword(0x600usize + 8, w1);
-    casper.write_dword(0x600usize + 16, w2);
-    casper.write_dword(0x600usize + 24, w3);
+    casper.write_dword(0x000usize, a).unwrap();
+    casper.write_dword(0x200usize, b0).unwrap();
+    casper.write_dword(0x200usize + 8, b1).unwrap();
+    casper.write_dword(0x600usize, w0).unwrap();
+    casper.write_dword(0x600usize + 8, w1).unwrap();
+    casper.write_dword(0x600usize + 16, w2).unwrap();
+    casper.write_dword(0x600usize + 24, w3).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Mul64Fullsum,
-        1,          // iter = 1 (2 64-bit multiplications)
-        0x000usize, // ab_offset
-        0x200usize, // cd_offset
-        0x600usize, // res_offset
-    );
-    let result0 = casper.read_dword(0x600usize);
-    let result1 = casper.read_dword(0x600usize + 8);
-    let result2 = casper.read_dword(0x600usize + 16);
-    let result3 = casper.read_dword(0x600usize + 24);
+    casper
+        .execute_op_sync(
+            Opcode::Mul64Fullsum,
+            1,          // iter = 1 (2 64-bit multiplications)
+            0x000usize, // ab_offset
+            0x200usize, // cd_offset
+            0x600usize, // res_offset
+        )
+        .unwrap();
+    let result0 = casper.read_dword(0x600usize).unwrap();
+    let result1 = casper.read_dword(0x600usize + 8).unwrap();
+    let result2 = casper.read_dword(0x600usize + 16).unwrap();
+    let result3 = casper.read_dword(0x600usize + 24).unwrap();
 
     // info!(
     //     "Opcode::Mul64Fullsum WALKING J-LOOP TEST:\n\
@@ -966,27 +1001,29 @@ fn test_execute_mul_reduce(casper: &mut CasperDriver<'_>) {
     let expected1: u64 = 0x0000000000000005;
     let expected2: u64 = 0x0000000000000002;
 
-    casper.write_dword(0x0000usize, m);
+    casper.write_dword(0x0000usize, m).unwrap();
 
-    casper.write_dword(0x0800usize, n0);
-    casper.write_dword(0x0800usize + 8, n1);
-    casper.write_dword(0x0800usize + 16, n2);
+    casper.write_dword(0x0800usize, n0).unwrap();
+    casper.write_dword(0x0800usize + 8, n1).unwrap();
+    casper.write_dword(0x0800usize + 16, n2).unwrap();
 
-    casper.clear(0x1000usize, 24 * 2); // This operation may access additional RES 64-bit words beyond the n explicitly initialized W 64-bit words.
-    casper.write_dword(0x1000usize, w0);
-    casper.write_dword(0x1000usize + 8, w1);
-    casper.write_dword(0x1000usize + 16, w2);
+    casper.clear(0x1000usize, 24 * 2).unwrap(); // This operation may access additional RES 64-bit words beyond the n explicitly initialized W 64-bit words.
+    casper.write_dword(0x1000usize, w0).unwrap();
+    casper.write_dword(0x1000usize + 8, w1).unwrap();
+    casper.write_dword(0x1000usize + 16, w2).unwrap();
 
-    casper.execute_op_sync(
-        Opcode::Mul64Reduce,
-        2,           // 3 64-bit J iterations
-        0x0000usize, // ab_offset (m)
-        0x0800usize, // cd_offset (N)
-        0x1000usize, // res_offset (W)
-    );
-    let result0 = casper.read_dword(0x1000usize);
-    let result1 = casper.read_dword(0x1000usize + 8);
-    let result2 = casper.read_dword(0x1000usize + 16);
+    casper
+        .execute_op_sync(
+            Opcode::Mul64Reduce,
+            2,           // 3 64-bit J iterations
+            0x0000usize, // ab_offset (m)
+            0x0800usize, // cd_offset (N)
+            0x1000usize, // res_offset (W)
+        )
+        .unwrap();
+    let result0 = casper.read_dword(0x1000usize).unwrap();
+    let result1 = casper.read_dword(0x1000usize + 8).unwrap();
+    let result2 = casper.read_dword(0x1000usize + 16).unwrap();
 
     // info!(
     //     "Opcode::Mul64Reduce:\n\
@@ -1014,9 +1051,9 @@ fn test_copy_values(casper: &mut CasperDriver<'_>) {
     let src0: u64 = 0x8877665544332211;
     let src1: u64 = 0xAABBCCDD11223344;
 
-    casper.copy_values(0x000usize, 0x400usize, &[src0, src1]);
-    let result0 = casper.read_dword(0x400usize);
-    let result1 = casper.read_dword(0x400usize + 8);
+    casper.copy_values(0x000usize, 0x400usize, &[src0, src1]).unwrap();
+    let result0 = casper.read_dword(0x400usize).unwrap();
+    let result1 = casper.read_dword(0x400usize + 8).unwrap();
     // info!("Copy TEST:\n RES+00 = {:#018x}\n RES+08 = {:#018x}", result0, result1);
     if result0 == src0 && result1 == src1 {
         info!("Copy TEST: PASS");
@@ -1030,15 +1067,15 @@ fn test_zero(casper: &mut CasperDriver<'_>) {
     let src0: u64 = 0x1122334455667788;
     let src1: u64 = 0x2211009988776655;
 
-    casper.write_dword(0x400usize, src0);
-    casper.write_dword(0x400usize + 8, src1);
-    let _test0 = casper.read_dword(0x400usize);
-    let _test1 = casper.read_dword(0x400usize + 8);
+    casper.write_dword(0x400usize, src0).unwrap();
+    casper.write_dword(0x400usize + 8, src1).unwrap();
+    let _test0 = casper.read_dword(0x400usize).unwrap();
+    let _test1 = casper.read_dword(0x400usize + 8).unwrap();
     // info!("Before Zero: dst0: {:#018x}, dst1: {:#018x}", _test0, _test1);
-    casper.zero(0x400usize, 2);
+    casper.zero(0x400usize, 2).unwrap();
 
-    let result0 = casper.read_dword(0x400usize);
-    let result1 = casper.read_dword(0x400usize + 8);
+    let result0 = casper.read_dword(0x400usize).unwrap();
+    let result1 = casper.read_dword(0x400usize + 8).unwrap();
     // info!("Zero TEST: res0: {:#018x}, res1: {:#018x}", result0, result1);
     if result0 == 0 && result1 == 0 {
         info!("Zero TEST: PASS");
@@ -1057,7 +1094,7 @@ fn test_xor(casper: &mut CasperDriver<'_>) {
     let expected1 = c ^ d;
 
     let mut result = [0u64; 2];
-    casper.xor(&[(a, b), (c, d)], &mut result);
+    casper.xor(&[(a, b), (c, d)], &mut result).unwrap();
 
     // info!("XOR TEST expected: {:#018x} {:#018x}\n XOR TEST result: {:#018x} {:#018x}", expected0, expected1, result[0], result[1]);
     if result[0] == expected0 && result[1] == expected1 {
@@ -1073,7 +1110,7 @@ fn test_double(casper: &mut CasperDriver<'_>) {
     let (expected, carry_expected) = a.overflowing_add(a);
 
     let mut result = [0u64; 1];
-    let carry = casper.double(&[a], &mut result);
+    let carry = casper.double(&[a], &mut result).unwrap();
     // info!("DOUBLE TEST: A = {:#x}\n RESULT = {:#x}\n EXPECTED = {:#x}\n CARRY = {}\n CARRY_EXPECTED = {}\n", a, result[0], expected, carry, carry_expected);
 
     if result[0] == expected && carry == carry_expected {
@@ -1091,7 +1128,7 @@ fn test_double_multiword(casper: &mut CasperDriver<'_>) {
     let (expected1, expected_carry1) = w1.overflowing_add(w1);
 
     let mut result = [0u64; 2];
-    let final_carry = casper.double(&[w0, w1], &mut result);
+    let final_carry = casper.double(&[w0, w1], &mut result).unwrap();
 
     // info!(
     //     "DOUBLE MULTIWORD TEST:\n\
@@ -1119,7 +1156,7 @@ fn test_add(casper: &mut CasperDriver<'_>) {
     let (expected, carry_expected) = a.overflowing_add(b);
 
     let mut result = [0u64; 1];
-    let carry = casper.add(&[(a, b)], &mut result);
+    let carry = casper.add(&[(a, b)], &mut result).unwrap();
     // info!("ADD TEST: A = {:#018x}; B = {:#018x}; RESULT = {:#018x}, EXPECTED = {:#018x}, CARRY = {}, EXPECTED_CARRY = {}", a, b, result[0], expected, carry, carry_expected);
 
     if (result[0] == expected) && (carry == carry_expected) {
@@ -1145,7 +1182,7 @@ fn test_add_multiword(casper: &mut CasperDriver<'_>) {
     let expected0: u64 = 0x0000000000000003;
     let expected1: u64 = 0x0000000000000000;
     let mut result = [0u64; 2];
-    let carry = casper.add(&[(a0, b0), (a1, b1)], &mut result);
+    let carry = casper.add(&[(a0, b0), (a1, b1)], &mut result).unwrap();
 
     // info!(
     //     "ADD MULTIWORD TEST:\n\
@@ -1180,7 +1217,7 @@ fn test_sub(casper: &mut CasperDriver<'_>) {
 
     let (expected, borrow) = r.overflowing_sub(a);
     let mut result = [0u64; 1];
-    let carry = casper.sub(&[(r, a)], &mut result);
+    let carry = casper.sub(&[(r, a)], &mut result).unwrap();
 
     // info!(
     //     "SUB TEST:\n\
@@ -1219,7 +1256,7 @@ fn test_sub_multiword(casper: &mut CasperDriver<'_>) {
     let expected1: u64 = 0x0000000000000000;
 
     let mut result = [0u64; 2];
-    let borrow = casper.sub(&[(a0, b0), (a1, b1)], &mut result);
+    let borrow = casper.sub(&[(a0, b0), (a1, b1)], &mut result).unwrap();
 
     // info!(
     //     "SUB MULTIWORD TEST:\n\
@@ -1254,7 +1291,7 @@ fn test_rsub(casper: &mut CasperDriver<'_>) {
     let (expected, expected_borrow) = a.overflowing_sub(r);
 
     let mut result = [0u64; 1];
-    let borrow = casper.rsub(&[(a, r)], &mut result);
+    let borrow = casper.rsub(&[(a, r)], &mut result).unwrap();
 
     // info!(
     //     "RSUB TEST:\n\
@@ -1294,7 +1331,7 @@ fn test_rsub_multiword(casper: &mut CasperDriver<'_>) {
     let expected1: u64 = 0x0000000000000000;
 
     let mut result = [0u64; 2];
-    let borrow = casper.rsub(&[(a0, r0), (a1, r1)], &mut result);
+    let borrow = casper.rsub(&[(a0, r0), (a1, r1)], &mut result).unwrap();
 
     // info!(
     //     "RSUB MULTIWORD TEST:\n\
@@ -1329,7 +1366,7 @@ fn test_mul_nosum(casper: &mut CasperDriver<'_>) {
     let expected_low: u64 = 0x0000000000000001;
 
     let mut result = [0u64; 2];
-    casper.mul_nosum(a, &[b], &mut result);
+    casper.mul_nosum(a, &[b], &mut result).unwrap();
 
     // info!(
     //     "MUL_NOSUM TEST:\n\
@@ -1394,7 +1431,7 @@ fn test_mul_nosum_multiword(casper: &mut CasperDriver<'_>) {
     let expected1: u64 = 0x0000000000000000;
     let expected2: u64 = 0xFFFFFFFFFFFFFFFE;
     let mut result = [0u64; 3];
-    casper.mul_nosum(a, &[b0, b1], &mut result);
+    casper.mul_nosum(a, &[b0, b1], &mut result).unwrap();
 
     // info!(
     //     "MUL_NOSUM WALKING J-LOOP TEST:\n\
@@ -1428,7 +1465,7 @@ fn test_mul_sum(casper: &mut CasperDriver<'_>) {
     let expected_high = (expected >> 64) as u64;
 
     let mut result = [0u64; 2];
-    casper.mul_sum(a, &[b], &[initial as u64], &mut result);
+    casper.mul_sum(a, &[b], &[initial as u64], &mut result).unwrap();
 
     // info!(
     //     "MUL_SUM TEST:\n\
@@ -1464,7 +1501,7 @@ fn test_mul_sum_multiword(casper: &mut CasperDriver<'_>) {
     let expected1 = (w1 as u128) + (a as u128) * (b1 as u128);
 
     let mut result = [0u64; 3];
-    casper.mul_sum(a, &[b0, b1], &[w0, w1], &mut result);
+    casper.mul_sum(a, &[b0, b1], &[w0, w1], &mut result).unwrap();
 
     // info!(
     //     "MUL_SUM WALKING J-LOOP TEST:\n\
@@ -1502,7 +1539,7 @@ fn test_mul_fullsum(casper: &mut CasperDriver<'_>) {
     // CARRY = FALSE
 
     let mut result = [0u64; 2];
-    let carry = casper.mul_fullsum(a, &[b], &[w_low, w_high], &mut result);
+    let carry = casper.mul_fullsum(a, &[b], &[w_low, w_high], &mut result).unwrap();
 
     // info!(
     //     "MUL_FULLSUM TEST:\n\
@@ -1552,7 +1589,7 @@ fn test_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
     let w2: u64 = 0x0000000000000001;
 
     let mut result = [0u64; 3];
-    let carry = casper.mul_fullsum(a, &[b0, b1], &[w0, w1, w2], &mut result);
+    let carry = casper.mul_fullsum(a, &[b0, b1], &[w0, w1, w2], &mut result).unwrap();
 
     let expected0: u64 = 0x0000000000000002;
     let expected1: u64 = 0xfffffffffffffffe;
@@ -1594,7 +1631,7 @@ fn test_mul_reduce(casper: &mut CasperDriver<'_>) {
     let expected2: u64 = 0x0000000000000002;
 
     let mut result = [0u64; 3];
-    casper.mul_reduce(m, &[n0, n1, n2], &[w0, w1, w2], &mut result);
+    casper.mul_reduce(m, &[n0, n1, n2], &[w0, w1, w2], &mut result).unwrap();
 
     // info!(
     //     "MUL_REDUCE TEST:\n\
