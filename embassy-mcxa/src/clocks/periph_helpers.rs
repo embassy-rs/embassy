@@ -331,7 +331,7 @@ impl SPConfHelper for AdcConfig {
         // Check clock speed is reasonable
         let div = self.div.into_divisor();
         let expected = freq / div;
-        // 22.3.2 peripheral clock max functional clock limits
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
@@ -386,8 +386,9 @@ pub struct OsTimerConfig {
 impl SPConfHelper for OsTimerConfig {
     fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         let mrcc0 = crate::pac::MRCC0;
-        // NOTE: complies with 22.3.2 peripheral clock max functional clock limits
-        // which is 1MHz, and we can only select 1mhz/16khz.
+        // NOTE: complies with the peripheral clock max functional clock limits
+        // (MCXA2xx 21.3.2, MCXA5xx 28.3.2), which is 1MHz, and we can only
+        // select 1mhz/16khz.
         Ok(match self.source {
             OstimerClockSel::Clk16kVddCore => {
                 // TODO: fix PAC names for consistency
@@ -577,7 +578,7 @@ impl SPConfHelper for LpspiConfig {
         let div = self.div.into_divisor();
         let expected = freq / div;
 
-        // 21.3.2 peripheral clock max functional clock limits
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
@@ -667,7 +668,7 @@ impl SPConfHelper for FlexspiConfig {
 
         let div = self.div.into_divisor();
         let expected = freq / div;
-        // 22.3.2 peripheral clock max functional clock limits
+        // Peripheral clock max functional clock limits: MCXA5xx 28.3.2
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
@@ -748,6 +749,7 @@ pub struct I3cConfig {
 
 impl SPConfHelper for I3cConfig {
     fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         #[cfg(feature = "mcxa2xx")]
         // Always 25MHz maximum frequency.
         const I3C_FCLK_MAX: u32 = 25_000_000;
@@ -962,7 +964,7 @@ impl SPConfHelper for Lpi2cConfig {
         };
         let div = self.div.into_divisor();
         let expected = freq / div;
-        // 22.3.2 peripheral clock max functional clock limits
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
@@ -1143,7 +1145,7 @@ impl SPConfHelper for LpuartConfig {
         // Check clock speed is reasonable
         let div = self.div.into_divisor();
         let expected = freq / div;
-        // 22.3.2 peripheral clock max functional clock limits
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
@@ -1321,7 +1323,7 @@ impl SPConfHelper for CTimerConfig {
         let div = self.div.into_divisor();
         let expected = freq / div;
 
-        // 22.3.2 peripheral clock max functional clock limits
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
@@ -1453,7 +1455,9 @@ impl SPConfHelper for CanConfig {
             }
         };
 
-        // These values for MidDriveMode, NormalMode, and OverDriveMode come from table 21.3.2 on page 845 of the datasheet.
+        // These values for MidDriveMode, NormalMode, and OverDriveMode come from the
+        // peripheral clock max functional clock limits: MCXA2xx 21.3.2 (p. 845),
+        // MCXA5xx 28.3.2 (p. 1273).
         let div = self.div.into_divisor();
         let expected = freq / div;
         let power = match self.power {
