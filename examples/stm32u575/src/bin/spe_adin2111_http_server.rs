@@ -38,7 +38,7 @@ use embassy_net::udp::{PacketMeta, UdpMetadata, UdpSocket};
 use embassy_net::wire::{IpAddress, IpCidr, IpEndpoint, Ipv6Address, Ipv6Cidr};
 use embassy_net::{Stack, StackStorage};
 use embassy_net_adin1110::{
-    ADIN1110, Device, PACKET_ID_PORT1, PACKET_ID_PORT2, PACKET_ID_PORT_MASK, PortLinks, Runner, Tc6, TxPort,
+    ADIN1110, Device, PACKET_ID_PORT_MASK, PACKET_ID_PORT1, PACKET_ID_PORT2, PortLinks, Runner, Tc6, TxPort,
 };
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
