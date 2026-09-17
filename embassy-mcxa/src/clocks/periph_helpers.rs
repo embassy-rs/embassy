@@ -665,6 +665,27 @@ impl SPConfHelper for FlexspiConfig {
             ),
         };
 
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+        // 22.3.2 peripheral clock max functional clock limits
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+
+        let fmax = match power {
+            VddLevel::MidDriveMode => 96_000_000,
+            VddLevel::NormalMode => 240_000_000,
+            VddLevel::OverDriveMode => 320_000_000,
+        };
+
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "flexspi fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }
