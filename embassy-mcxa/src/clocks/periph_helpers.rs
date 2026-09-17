@@ -825,7 +825,10 @@ impl SPConfHelper for I3cConfig {
             }
         };
 
-        if freq > I3C_FCLK_MAX {
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+
+        if expected > I3C_FCLK_MAX {
             return Err(ClockError::BadConfig {
                 clock: "i3c fclk",
                 reason: "exceeds max rating",
