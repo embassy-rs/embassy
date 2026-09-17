@@ -617,8 +617,11 @@ impl SPConfHelper for LpspiConfig {
 pub enum FlexspiClockSel {
     /// Gated FRO_HF / FIRC clock.
     FroHf,
-    /// PLL1 clock after its divider.
-    Pll1ClkDiv,
+    /// PLL1 clock, taken *before* `pll1_clk_div`.
+    ///
+    /// NOTE: unlike most peripherals, `MRCC_FLEXSPI0_CLKSEL[MUX] = 110b`
+    /// selects the undivided `PLL1_CLK`, not `PLL1_CLK_DIV`.
+    Pll1Clk,
 }
 
 /// Which instance of the `FlexSPI` peripheral is this?
@@ -656,8 +659,8 @@ impl SPConfHelper for FlexspiConfig {
                 clocks.ensure_fro_hf_active(&self.power)?,
                 FlexspiClkselMux::I1ClkrootFircGated,
             ),
-            FlexspiClockSel::Pll1ClkDiv => (
-                clocks.ensure_pll1_clk_div_active(&self.power)?,
+            FlexspiClockSel::Pll1Clk => (
+                clocks.ensure_pll1_clk_active(&self.power)?,
                 FlexspiClkselMux::I6ClkrootSpll,
             ),
         };
