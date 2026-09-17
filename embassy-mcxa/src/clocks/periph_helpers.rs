@@ -1325,8 +1325,8 @@ impl SPConfHelper for CTimerConfig {
         };
         #[cfg(feature = "mcxa2xx")]
         let fmax = match power {
-            VddLevel::MidDriveMode => 25_000_000,
-            VddLevel::OverDriveMode => 60_000_000,
+            VddLevel::MidDriveMode => 90_000_000,
+            VddLevel::OverDriveMode => 180_000_000,
         };
         #[cfg(feature = "mcxa5xx")]
         let fmax = match power {
