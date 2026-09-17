@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba65ri", "time-driver-any", "memory-x", "exti", "usb-host"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba65ri", "time-driver-any", "memory-x", "exti", "usb-host", "embassy-crypto-rng"]  }
 stm32-metapac = { version = "21", features = ["stm32wba65ri"] }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba65ri", "bt-hci", "wb-hci"], optional = true }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
@@ -36,7 +36,7 @@ stm32wb-hci = "0.19.0"
 default = ["ble"]
 mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba-mac", "dep:embassy-net"]
 ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/ble-stack-basic", "embassy-stm32-wpan/linklayer6-ble-basic"]
- 
+
 [profile.release]
 debug = 2
 
@@ -77,6 +77,10 @@ name = "ble_beacon"
 required-features = ["ble"]
 
 [[bin]]
+name = "ble_bonding"
+required-features = ["ble"]
+
+[[bin]]
 name = "ble_heart_rate"
 required-features = ["ble"]
 
@@ -90,6 +94,14 @@ required-features = ["ble"]
 
 [[bin]]
 name = "ble_direction_finding_tag"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_dtm"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_dtm_runtime"
 required-features = ["ble"]
 
 [[bin]]
