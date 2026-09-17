@@ -585,8 +585,8 @@ impl SPConfHelper for LpspiConfig {
 
         #[cfg(feature = "mcxa2xx")]
         let fmax = match power {
-            VddLevel::MidDriveMode => 25_000_000,
-            VddLevel::OverDriveMode => 60_000_000,
+            VddLevel::MidDriveMode => 50_000_000,
+            VddLevel::OverDriveMode => 100_000_000,
         };
 
         #[cfg(feature = "mcxa5xx")]
