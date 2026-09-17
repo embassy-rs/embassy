@@ -111,7 +111,7 @@ critical-section = "1.1"
 
 document-features = "0.2.7"
 
-# needed for AVR
+# see the `no-ptr-atomic` feature doc; also pulled in by `platform-avr` for its own reasons; no backend feature is selected here, the consuming crate must enable one itself
 portable-atomic = { version = "1.5", optional = true }
 
 # platform-cortex-m dependencies
@@ -184,11 +184,14 @@ platform-riscv64 = ["_platform"]
 ## WASM platform.
 platform-wasm = ["_platform", "dep:wasm-bindgen", "dep:js-sys"]
 ## AVR platform. Uses WFI for the thread executor. Interrupt executor is not supported.
-platform-avr = ["_platform", "dep:portable-atomic", "dep:avr-device"]
+platform-avr = ["_platform", "no-ptr-atomic", "dep:avr-device"]
 ## Spin-loop platform.
 ## 
 ## This "platform" implementation is architecture/platform/chip agnostic. The main loop polls the executor constantly without sleeping, and the pender callback simply does nothing. Using this is not recommended, you probably want to use a platform-specific implementation that can sleep instead.
 platform-spin = ["_platform"]
+
+## Enable this if your target has no usable `AtomicPtr` at all - not even load/store (e.g. bare ARMv4T; this is stricter than lacking a compare-and-swap instruction, which targets like Cortex-M0/AVR get by fine without this) - pulls in `portable-atomic` to provide `AtomicPtr` for `TaskHeader::executor`. `platform-avr` already enables this for its own, separate reasons; a target with no dedicated `platform-*` for its architecture needs to enable it directly. `portable-atomic` still needs a fallback of its own on such targets: enable its `critical-section` or `unsafe-assume-single-core` feature directly in your own `Cargo.toml`, whichever fits your application - this crate does not pick one for you.
+no-ptr-atomic = ["dep:portable-atomic"]
 
 #! ### Metadata
 
