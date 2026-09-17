@@ -3,15 +3,14 @@
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_nxp::Peri;
-use embassy_nxp::casper::{CASPER, CasperDriver, Opcode};
+use embassy_nxp::casper::{CasperDriver, Opcode};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let _p = embassy_nxp::init(Default::default());
+    let p = embassy_nxp::init(Default::default());
 
-    let mut casper = CasperDriver::new(unsafe { Peri::new_unchecked(CASPER) });
+    let mut casper = CasperDriver::new(p.CASPER);
     info!("CASPER tests starting...");
 
     test_sramx_read_write(&mut casper);

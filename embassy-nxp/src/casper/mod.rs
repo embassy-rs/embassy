@@ -1,22 +1,24 @@
 #![cfg(lpc55)]
-//! Cryptographic Accelerator and Signaling Processing Engine (CASPER)
+//! Cryptographic Accelerator and Signaling Processing Engine with RAM-sharing (CASPER) driver.
 //!
-//! This module provides hardware acceleration for asymmetric cryptography (RSA).
+//! This module provides hardware acceleration for big-integer arithmetic operations
+//! (addition, subtraction, multiplication, and Montgomery reduction steps)
+//! typically used in asymmetric cryptography (such as RSA and ECC).
 
-use embassy_hal_internal::{Peri, impl_peripheral};
+use embassy_hal_internal::Peri;
 
 use crate::pac;
+use crate::peripherals::CASPER;
 
-/// Base address of CASPER SRAMX dedicated memory (non-secure mode)
-pub const SRAMX_BASE: usize = 0x0400_0000;
-/// Bit position used by the SRAMX interleaved addressing scheme to select
-/// between the two RAMX banks.
+/// Base address of CASPER-dedicated SRAMX memory (non-secure mode)
+const SRAMX_BASE: usize = 0x0400_0000;
+/// Bit position used by the SRAMX interleaved addressing scheme to select between the two RAMX banks.
 const CASPER_RAM_OFFSET: usize = 14;
-/// Total size of SRAMX memory (8 KB)
-pub const SRAMX_SIZE: usize = 0x2000;
+/// Total size of CASPER-dedicated SRAMX memory (8 KB)
+const SRAMX_SIZE: usize = 0x2000;
 
 /// Internal SRAMX layout used for high-level CASPER operations
-pub(crate) mod offset {
+mod offset {
     pub const AB: usize = 0x0000;
     pub const CD: usize = 0x0800;
     pub const RES: usize = 0x1000;
@@ -56,20 +58,13 @@ pub enum Error {
     LengthMismatch,
 }
 
-/// Custom peripheral marker struct for CASPER hardware block
-pub struct CASPER;
-
-impl_peripheral!(CASPER);
-
 pub struct CasperDriver<'d> {
     _peri: Peri<'d, CASPER>,
 }
 
 impl<'d> CasperDriver<'d> {
     /// Create a new driver instance, enable clocks and apply hardware reset
-    pub fn new(peri: impl Into<Peri<'d, CASPER>>) -> Self {
-        let peri = peri.into();
-
+    pub fn new(peri: Peri<'d, CASPER>) -> Self {
         // Get access to SYSCON PAC instance
         let syscon = pac::SYSCON;
 
