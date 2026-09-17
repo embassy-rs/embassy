@@ -2,9 +2,10 @@
 #![no_main]
 
 use defmt::{error, info};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nxp::casper::{CasperDriver, Opcode};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -101,7 +102,7 @@ fn test_sramx_clear(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_copy(casper: &mut CasperDriver<'_>) {
-    // COPY TEST - hardware test (execute_op_sync)
+    // COPY TEST - low-level opcode test (execute_op_sync)
     let src0: u64 = 0x1122334455667788;
     let src1: u64 = 0x2211009988776655;
 
@@ -130,7 +131,7 @@ fn test_execute_copy(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_zero(casper: &mut CasperDriver<'_>) {
-    // ZERO TEST - hardware test (execute_op_sync)
+    // ZERO TEST - low-level opcode test (execute_op_sync)
     let src0: u64 = 0x1122334455667788;
     let src1: u64 = 0x2211009988776655;
 
@@ -158,7 +159,7 @@ fn test_execute_zero(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_xor(casper: &mut CasperDriver<'_>) {
-    // XOR TEST - hardware test (execute_op_sync)
+    // XOR TEST - low-level opcode test (execute_op_sync)
     let a: u64 = 0x1122334455667788;
     let b: u64 = 0xFFFF0000AAAA5555;
     let expected = a ^ b;
@@ -192,7 +193,7 @@ fn test_execute_xor(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_double_basic(casper: &mut CasperDriver<'_>) {
-    // DOUBLE TEST - hardware test (execute_op_sync)
+    // DOUBLE TEST - low-level opcode test (execute_op_sync)
     let a: u64 = 0x1122334455667788;
     // let b: u64 = 5; // 2nd test with b = 0x0
     let (expected, carry) = a.overflowing_add(a);
@@ -220,7 +221,7 @@ fn test_execute_double_basic(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_double_multiword(casper: &mut CasperDriver<'_>) {
-    // DOUBLE WALKING (MULTIWORD) TEST - hardware test (execute_op_sync)
+    // DOUBLE WALKING (MULTIWORD) TEST - low-level opcode test (execute_op_sync)
     let w0: u64 = 5;
     let w1: u64 = 0xF0F0F0F0F0F0F0F0;
     let (expected0, _) = w0.overflowing_add(w0);
@@ -263,7 +264,7 @@ fn test_execute_double_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_add_basic(casper: &mut CasperDriver<'_>) {
-    // ADD TEST - hardware test (execute_op_sync)
+    // ADD TEST - low-level opcode test (execute_op_sync)
     let a: u64 = 0xfffffffffffffff9;
     let b: u64 = 0x000000000000000a;
     let (expected, carry) = a.overflowing_add(b);
@@ -292,7 +293,7 @@ fn test_execute_add_basic(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_add_multiword(casper: &mut CasperDriver<'_>) {
-    // ADD 128-bit (multiword) TEST - hardware test (execute_op_sync)
+    // ADD 128-bit (multiword) TEST - low-level opcode test (execute_op_sync)
     // A = -7
     // B = 10
     // A = 0xFFFFFFFFFFFFFFFF_FFFFFFFFFFFFFFF9
@@ -352,7 +353,7 @@ fn test_execute_add_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_sub_basic(casper: &mut CasperDriver<'_>) {
-    // SUB TEST - hardware test (execute_op_sync)
+    // SUB TEST - low-level opcode test (execute_op_sync)
 
     // 1st test (no borrow)
     // let r: u64 = 0x1122334455667788;
@@ -398,7 +399,7 @@ fn test_execute_sub_basic(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_sub_multiword(casper: &mut CasperDriver<'_>) {
-    // SUB 128-bit (MULTIWORD) TEST - hardware test (execute_op_sync)
+    // SUB 128-bit (MULTIWORD) TEST - low-level opcode test (execute_op_sync)
     // A = 0x0000000000000001_0000000000000000
     // B = 0x0000000000000000_0000000000000001
     // A - B =
@@ -460,7 +461,7 @@ fn test_execute_sub_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_rsub_basic(casper: &mut CasperDriver<'_>) {
-    // RSUB TEST - hardware test (execute_op_sync)
+    // RSUB TEST - low-level opcode test (execute_op_sync)
     // 1st test (no borrow)
     let a: u64 = 20;
     let r: u64 = 7;
@@ -503,7 +504,7 @@ fn test_execute_rsub_basic(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_rsub_multiword(casper: &mut CasperDriver<'_>) {
-    // RSUB 128-bit (MULTIWORD) TEST - hardware test (execute_op_sync)
+    // RSUB 128-bit (MULTIWORD) TEST - low-level opcode test (execute_op_sync)
     // A = 0x0000000000000001_0000000000000000
     // R = 0x0000000000000000_0000000000000001
     // A - R =
@@ -565,7 +566,7 @@ fn test_execute_rsub_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_mul_nosum_basic(casper: &mut CasperDriver<'_>) {
-    // MUL_NOSUM TEST - hardware test (execute_op_sync)
+    // MUL_NOSUM TEST - low-level opcode test (execute_op_sync)
     // A = 0xFFFFFFFFFFFFFFFF
     // B = 0xFFFFFFFFFFFFFFFF
     // A * B = 0xFFFFFFFFFFFFFFFE_0000000000000001
@@ -613,7 +614,7 @@ fn test_execute_mul_nosum_basic(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_mul_nosum_multiword(casper: &mut CasperDriver<'_>) {
-    // MUL_NOSUM WALKING J-LOOP (MULTIWORD) TEST - hardware test (execute_op_sync)
+    // MUL_NOSUM WALKING J-LOOP (MULTIWORD) TEST - low-level opcode test (execute_op_sync)
     // A = 2
     // B[0] = 4
     // B[1] = 3
@@ -686,7 +687,7 @@ fn test_execute_mul_nosum_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_mul_sum_basic(casper: &mut CasperDriver<'_>) {
-    // MUL_SUM TEST - hardware test (execute_op_sync)
+    // MUL_SUM TEST - low-level opcode test (execute_op_sync)
 
     // 1st test (simple numbers)
     // let a: u64 = 2;
@@ -739,7 +740,7 @@ fn test_execute_mul_sum_basic(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_mul_sum_multiword(casper: &mut CasperDriver<'_>) {
-    // MUL_SUM WALKING J-LOOP (MULTIWORD) TEST - hardware test (execute_op_sync)
+    // MUL_SUM WALKING J-LOOP (MULTIWORD) TEST - low-level opcode test (execute_op_sync)
     let a: u64 = 2;
     let b0: u64 = 3;
     let b1: u64 = 4;
@@ -785,7 +786,7 @@ fn test_execute_mul_sum_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_mul_sum_vs_mul_fullsum(casper: &mut CasperDriver<'_>) {
-    // MUL_FULLSUM vs MUL_SUM (MULL_SUM iter = 1 test) - hardware test (execute_op_sync)
+    // MUL_FULLSUM vs MUL_SUM (MULL_SUM iter = 1 test) - low-level opcode test (execute_op_sync)
     // iter = 1
     // A  = FFFFFFFFFFFFFFFF
     // B0 = FFFFFFFFFFFFFFFF
@@ -856,7 +857,7 @@ fn test_execute_mul_sum_vs_mul_fullsum(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_mul_fullsum_basic(casper: &mut CasperDriver<'_>) {
-    // MUL_FULLSUM TEST - hardware test (execute_op_sync)
+    // MUL_FULLSUM TEST - low-level opcode test (execute_op_sync)
     // W = W + A * B
     let a: u64 = 0xFFFF_FFFF_FFFF_FFFF;
     let b: u64 = 2;
@@ -913,7 +914,7 @@ fn test_execute_mul_fullsum_basic(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
-    // MUL_FULLSUM vs MUL_SUM (MULL_FULLSUM iter = 1 test) - hardware test (execute_op_sync)
+    // MUL_FULLSUM vs MUL_SUM (MULL_FULLSUM iter = 1 test) - low-level opcode test (execute_op_sync)
     // iter = 1
     // A  = FFFFFFFFFFFFFFFF
     // B0 = FFFFFFFFFFFFFFFF
@@ -984,7 +985,7 @@ fn test_execute_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_execute_mul_reduce(casper: &mut CasperDriver<'_>) {
-    // MUL64_REDUCE TEST - hardware test (execute_op_sync)
+    // MUL64_REDUCE TEST - low-level opcode test (execute_op_sync)
     let _n: u64 = 3;
     let _modular_multiplicative_inverse: u64 = 0xaaaaaaaaaaaaaaab; // N^-1 mod 2^64 -> N (3) * N^-1 (0xaaaaaaaaaaaaaaab) mod 2^64 = 1
     let np: u64 = 0x5555555555555555; // N' = -N^-1 mod 2^64 -> 2^64 - 0xaaaaaaaaaaaaaaab = 0x5555555555555555
@@ -1046,7 +1047,7 @@ fn test_execute_mul_reduce(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_copy_values(casper: &mut CasperDriver<'_>) {
-    // COPY TEST - higher-level API test (copy_values() method)
+    // COPY TEST - high-level driver API test (copy_values)
     let src0: u64 = 0x8877665544332211;
     let src1: u64 = 0xAABBCCDD11223344;
 
@@ -1062,7 +1063,7 @@ fn test_copy_values(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_zero(casper: &mut CasperDriver<'_>) {
-    // ZERO TEST - higher-level API test (zero() method)
+    // ZERO TEST - high-level driver API test (zero)
     let src0: u64 = 0x1122334455667788;
     let src1: u64 = 0x2211009988776655;
 
@@ -1084,7 +1085,7 @@ fn test_zero(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_xor(casper: &mut CasperDriver<'_>) {
-    // XOR TEST - higher-level API test (xor() method)
+    // XOR TEST - high-level driver API test (xor)
     let a: u64 = 0x1122334455667788;
     let b: u64 = 0xFFFF0000AAAA5555;
     let expected0 = a ^ b;
@@ -1104,7 +1105,7 @@ fn test_xor(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_double(casper: &mut CasperDriver<'_>) {
-    // DOUBLE TEST - high-level API test (double() method)
+    // DOUBLE TEST - high-level driver API test (double)
     let a: u64 = 0x1122334455667788; // 2nd test with a = 0x0
     let (expected, carry_expected) = a.overflowing_add(a);
 
@@ -1120,7 +1121,7 @@ fn test_double(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_double_multiword(casper: &mut CasperDriver<'_>) {
-    // DOUBLE 128-bit (MULTIWORD) TEST - high-level API test (double() method)
+    // DOUBLE 128-bit (MULTIWORD) TEST - high-level driver API test (double)
     let w0: u64 = 5;
     let w1: u64 = 0xF0F0F0F0F0F0F0F0;
     let (expected0, _) = w0.overflowing_add(w0);
@@ -1149,7 +1150,7 @@ fn test_double_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_add(casper: &mut CasperDriver<'_>) {
-    // ADD TEST - high-level API test (add() method)
+    // ADD TEST - high-level driver API test (add)
     let a: u64 = 0xfffffffffffffff9;
     let b: u64 = 0x000000000000000a;
     let (expected, carry_expected) = a.overflowing_add(b);
@@ -1166,7 +1167,7 @@ fn test_add(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_add_multiword(casper: &mut CasperDriver<'_>) {
-    // ADD 128-bit (MULTIWORD) TEST - high-level API test (add() method)
+    // ADD 128-bit (MULTIWORD) TEST - high-level driver API test (add)
     // A = -7
     // B = 10
     // A = 0xFFFFFFFFFFFFFFFF_FFFFFFFFFFFFFFF9
@@ -1205,7 +1206,7 @@ fn test_add_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_sub(casper: &mut CasperDriver<'_>) {
-    // SUB TEST - high-level API test (sub() method)
+    // SUB TEST - high-level driver API test (sub)
     // 1st test (no borrow)
     let r: u64 = 0x1122334455667788;
     let a: u64 = 0x0011223344556677;
@@ -1237,7 +1238,7 @@ fn test_sub(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_sub_multiword(casper: &mut CasperDriver<'_>) {
-    // SUB 128-bit (MULTIWORD) TEST - high-level API test (sub() method)
+    // SUB 128-bit (MULTIWORD) TEST - high-level driver API test (sub)
     // A = 0x0000000000000001_0000000000000000
     // B = 0x0000000000000000_0000000000000001
     // A - B =
@@ -1279,7 +1280,7 @@ fn test_sub_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_rsub(casper: &mut CasperDriver<'_>) {
-    // RSUB TEST - high-level API test (rsub() method)
+    // RSUB TEST - high-level driver API test (rsub)
     // 1st test (no borrow)
     let a: u64 = 20;
     let r: u64 = 7;
@@ -1311,7 +1312,7 @@ fn test_rsub(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_rsub_multiword(casper: &mut CasperDriver<'_>) {
-    // RSUB 128-bit (MULTIWORD) TEST - high-level API test (rsub() method)
+    // RSUB 128-bit (MULTIWORD) TEST - high-level driver API test (rsub)
     // A = 0x0000000000000001_0000000000000000
     // R = 0x0000000000000000_0000000000000001
     // A - R =
@@ -1354,7 +1355,7 @@ fn test_rsub_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_mul_nosum(casper: &mut CasperDriver<'_>) {
-    // MUL_NOSUM TEST - high-level API test (mul_nosum() method)
+    // MUL_NOSUM TEST - high-level driver API test (mul_nosum)
     // A = 0xFFFFFFFFFFFFFFFF
     // B = 0xFFFFFFFFFFFFFFFF
     // A * B = 0xFFFFFFFFFFFFFFFE_0000000000000001
@@ -1389,7 +1390,7 @@ fn test_mul_nosum(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_mul_nosum_multiword(casper: &mut CasperDriver<'_>) {
-    // MUL_NOSUM WALKING J-LOOP TEST - high-level API test (mul_nosum() method)
+    // MUL_NOSUM WALKING J-LOOP TEST - high-level driver API test (mul_nosum)
     // A = 2
     // B[0] = 4
     // B[1] = 3
@@ -1448,7 +1449,7 @@ fn test_mul_nosum_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_mul_sum(casper: &mut CasperDriver<'_>) {
-    // MUL_SUM TEST - high-level API test (mul_sum() method)
+    // MUL_SUM TEST - high-level driver API test (mul_sum)
     // 1st test (simple numbers)
     // let a: u64 = 2;
     // let b: u64 = 3;
@@ -1488,7 +1489,7 @@ fn test_mul_sum(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_mul_sum_multiword(casper: &mut CasperDriver<'_>) {
-    // MUL_SUM WALKING J-LOOP TEST - high-level API test (mul_sum() method)
+    // MUL_SUM WALKING J-LOOP TEST - high-level driver API test (mul_sum)
     let a: u64 = 2;
     let b0: u64 = 3;
     let b1: u64 = 4;
@@ -1520,7 +1521,7 @@ fn test_mul_sum_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_mul_fullsum(casper: &mut CasperDriver<'_>) {
-    // MUL_FULLSUM TEST - high-level API test (mul_fullsum() method)
+    // MUL_FULLSUM TEST - high-level driver API test (mul_fullsum)
     // W = W + A * B
     let a: u64 = 0xFFFF_FFFF_FFFF_FFFF;
     let b: u64 = 2;
@@ -1565,7 +1566,7 @@ fn test_mul_fullsum(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
-    // MUL_FULLSUM vs MUL_SUM (MULL_FULLSUM iter = 1 test) - high-level API test (mul_fullsum() method)
+    // MUL_FULLSUM vs MUL_SUM (MULL_FULLSUM iter = 1 test) - high-level driver API test (mul_fullsum)
     // iter = 1
     // A  = FFFFFFFFFFFFFFFF
     // B0 = FFFFFFFFFFFFFFFF
@@ -1613,7 +1614,7 @@ fn test_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_mul_reduce(casper: &mut CasperDriver<'_>) {
-    // MUL_REDUCE TEST - high-level API test (mul_reduce() method)
+    // MUL_REDUCE TEST - high-level driver API test (mul_reduce)
     let _n: u64 = 3;
     let _modular_multiplicative_inverse: u64 = 0xaaaaaaaaaaaaaaab; // N^-1 mod 2^64 -> N (3) * N^-1 (0xaaaaaaaaaaaaaaab) mod 2^64 = 1
     let np: u64 = 0x5555555555555555; // N' = -N^-1 mod 2^64 -> 2^64 - 0xaaaaaaaaaaaaaaab = 0x5555555555555555

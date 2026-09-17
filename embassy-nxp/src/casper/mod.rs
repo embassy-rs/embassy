@@ -1,4 +1,4 @@
-#![cfg(lpc55)]
+#![cfg(feature = "lpc55-core0")]
 //! Cryptographic Accelerator and Signaling Processing Engine with RAM-sharing (CASPER) driver.
 //!
 //! This module provides hardware acceleration for big-integer arithmetic operations
