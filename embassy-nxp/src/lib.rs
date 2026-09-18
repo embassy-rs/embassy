@@ -6,7 +6,7 @@ pub(crate) mod fmt;
 
 #[cfg(lpc55)]
 pub mod adc;
-#[cfg(feature = "lpc55-core0")]
+#[cfg(lpc55)]
 pub mod casper;
 #[cfg(lpc55)]
 pub mod dma;
