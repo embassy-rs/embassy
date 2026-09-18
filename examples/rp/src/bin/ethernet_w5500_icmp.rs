@@ -81,7 +81,7 @@ async fn main(spawner: Spawner) {
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    iface.set_dhcpv4(Some(Default::default()));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
@@ -93,7 +93,7 @@ async fn main(spawner: Spawner) {
     info!("IP address: {:?}", local_addr);
 
     // Then we can use it! A raw socket receives whole IPv4 packets carrying ICMP.
-    let socket = unwrap!(RawSocket::new(stack, Some(IpVersion::Ipv4), Some(IpProtocol::Icmp)));
+    let socket = unwrap!(RawSocket::new(stack, Some(IpVersion::V4), Some(IpProtocol::Icmp)));
 
     // Identifier used to recognize our own echo replies.
     let ident = 42;

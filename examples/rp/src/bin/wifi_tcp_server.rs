@@ -97,7 +97,7 @@ async fn main(spawner: Spawner) {
     // Add the network interface to the stack.
     static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)));
-    iface.set_dhcpv4(Some(Default::default()));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
@@ -141,7 +141,7 @@ async fn main(spawner: Spawner) {
             continue;
         }
 
-        info!("Received connection from {:?}", socket.remote_endpoint());
+        info!("Received connection from {:?}", socket.remote_addr());
         control.gpio_set(0, true).await;
 
         loop {

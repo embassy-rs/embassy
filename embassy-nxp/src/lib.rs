@@ -10,6 +10,8 @@ pub mod adc;
 pub mod dma;
 pub mod gpio;
 #[cfg(lpc55)]
+pub mod i2c;
+#[cfg(lpc55)]
 pub mod pint;
 #[cfg(lpc55)]
 pub mod pwm;

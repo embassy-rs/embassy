@@ -38,14 +38,14 @@ use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
-#[cfg(feature = "icmp-errors")]
-pub use xarxa::IcmpError;
 use xarxa::driver::{Driver, LinkState};
+#[cfg(feature = "hostname")]
+use xarxa::error::HostnameTooLong;
 use xarxa::iface::IfaceHandle;
-pub use xarxa::{Full, config, wire};
+pub use xarxa::{config, error, wire};
 pub use xarxa_driver as driver;
 
-use crate::iface::Iface;
+use crate::iface::{AddIfaceError, Iface};
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 pub use crate::neighbor::{Neighbor, NeighborCache, NeighborState};
 use crate::route::Routes;
@@ -107,7 +107,7 @@ pub(crate) struct Inner<'d> {
     pub(crate) dns_waker: WakerRegistration,
     /// DNS servers set by hand, used on top of the ones DHCPv4 learns.
     #[cfg(feature = "dns")]
-    pub(crate) static_dns_servers: heapless::Vec<wire::IpAddress, { config::DNS_MAX_SERVER_COUNT }>,
+    pub(crate) static_dns_servers: heapless::Vec<wire::IpAddr, { config::DNS_MAX_SERVER_COUNT }>,
 }
 
 /// A network stack.
@@ -170,8 +170,15 @@ impl<'d> Stack<'d> {
     /// Add an interface to the stack, taking ownership of the driver.
     ///
     /// See [`add_iface`](Self::add_iface) for the no-alloc version.
+    ///
+    /// Errors:
+    /// - `Full` if the stack has no room for another interface.
+    /// - `UnsupportedMedium` if the build has no `medium-*` feature for the
+    ///   driver's medium.
+    /// - `HardwareAddrMismatch` if the hardware address the driver reports is not
+    ///   of the kind its medium uses.
     #[cfg(feature = "alloc")]
-    pub fn add_iface(&self, driver: alloc::boxed::Box<dyn Driver + 'd>) -> Result<Iface<'d>, Full> {
+    pub fn add_iface(&self, driver: alloc::boxed::Box<dyn Driver + 'd>) -> Result<Iface<'d>, AddIfaceError> {
         let handle = self.with_mut(|i| i.stack.add_iface(driver))?;
         Ok(self.iface(handle))
     }
@@ -186,7 +193,14 @@ impl<'d> Stack<'d> {
     /// static ETH: StaticCell<Device> = StaticCell::new();
     /// let eth = stack.add_iface(ETH.init(device)).unwrap();
     /// ```
-    pub fn add_iface(&self, driver: &'d mut dyn Driver) -> Result<Iface<'d>, Full> {
+    ///
+    /// Errors:
+    /// - `Full` if the stack has no room for another interface.
+    /// - `UnsupportedMedium` if the build has no `medium-*` feature for the
+    ///   driver's medium.
+    /// - `HardwareAddrMismatch` if the hardware address the driver reports is not
+    ///   of the kind its medium uses.
+    pub fn add_iface(&self, driver: &'d mut dyn Driver) -> Result<Iface<'d>, AddIfaceError> {
         let handle = self.with_mut(|i| i.stack.add_iface_borrowed(driver))?;
         Ok(self.iface(handle))
     }
@@ -228,10 +242,11 @@ impl<'d> Stack<'d> {
     ///
     /// An empty string clears the hostname.
     ///
-    /// # Panics
-    /// Panics if `hostname` is longer than 63 bytes.
+    /// Errors:
+    /// - `HostnameTooLong` if `hostname` is longer than 63 bytes. The stack is
+    ///   left unchanged.
     #[cfg(feature = "hostname")]
-    pub fn set_hostname(&self, hostname: &str) {
+    pub fn set_hostname(&self, hostname: &str) -> Result<(), HostnameTooLong> {
         self.with_mut(|i| i.stack.set_hostname(hostname))
     }
 
@@ -252,7 +267,7 @@ impl<'d> Stack<'d> {
     /// leases of every interface. The servers set here are used in addition to
     /// those, and come first.
     #[cfg(feature = "dns")]
-    pub fn set_dns_servers(&self, servers: &[crate::wire::IpAddress]) {
+    pub fn set_dns_servers(&self, servers: &[crate::wire::IpAddr]) {
         self.with_mut(|i| {
             i.static_dns_servers.clear();
             for s in servers {
@@ -271,20 +286,20 @@ impl<'d> Stack<'d> {
         &self,
         name: &str,
         qtype: dns::DnsQueryType,
-    ) -> Result<heapless::Vec<crate::wire::IpAddress, { xarxa::config::DNS_MAX_RESULT_COUNT }>, dns::Error> {
-        use crate::wire::IpAddress;
+    ) -> Result<heapless::Vec<crate::wire::IpAddr, { xarxa::config::DNS_MAX_RESULT_COUNT }>, dns::Error> {
+        use crate::wire::IpAddr;
 
         // For A and AAAA queries we try detect whether `name` is just an IP address
         match qtype {
             #[cfg(feature = "ipv4")]
             dns::DnsQueryType::A => {
-                if let Ok(ip) = name.parse().map(IpAddress::Ipv4) {
+                if let Ok(ip) = name.parse().map(IpAddr::V4) {
                     return Ok([ip].into_iter().collect());
                 }
             }
             #[cfg(feature = "ipv6")]
             dns::DnsQueryType::Aaaa => {
-                if let Ok(ip) = name.parse().map(IpAddress::Ipv6) {
+                if let Ok(ip) = name.parse().map(IpAddr::V6) {
                     return Ok([ip].into_iter().collect());
                 }
             }
@@ -370,7 +385,7 @@ impl<'d> Stack<'d> {
                 if iface
                     .ip_addrs()
                     .iter()
-                    .any(|a| matches!(a.cidr, xarxa::wire::IpCidr::Ipv6(_)) && !is_link_local(a))
+                    .any(|a| matches!(a.cidr, xarxa::wire::IpCidr::V6(_)) && !is_link_local(a))
                 {
                     return true;
                 }
@@ -420,7 +435,7 @@ impl Inner<'_> {
     /// over DHCPv4.
     #[cfg(feature = "dns")]
     pub(crate) fn update_dns_servers(&mut self) {
-        let mut servers: heapless::Vec<crate::wire::IpAddress, { xarxa::config::DNS_MAX_SERVER_COUNT }> =
+        let mut servers: heapless::Vec<crate::wire::IpAddr, { xarxa::config::DNS_MAX_SERVER_COUNT }> =
             heapless::Vec::new();
         let mut truncated = false;
 

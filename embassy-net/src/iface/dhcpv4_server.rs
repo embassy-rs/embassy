@@ -22,7 +22,7 @@ pub use xarxa::iface::dhcpv4_server::*;
 
 use crate::config::DHCP_MAX_DNS_SERVER_COUNT;
 use crate::time::{duration_to_xarxa, instant_from_xarxa};
-use crate::wire::{DhcpOption, EthernetAddress, Ipv4Address};
+use crate::wire::{DhcpOption, EthernetAddress, Ipv4Addr};
 
 /// Configuration of the DHCP server, passed to [`Iface::set_dhcpv4_server`].
 ///
@@ -34,15 +34,15 @@ use crate::wire::{DhcpOption, EthernetAddress, Ipv4Address};
 #[non_exhaustive]
 pub struct DhcpServerConfig {
     /// First address of the pool leases are taken from.
-    pub pool_start: Ipv4Address,
+    pub pool_start: Ipv4Addr,
     /// Last address of the pool, inclusive.
-    pub pool_end: Ipv4Address,
+    pub pool_end: Ipv4Addr,
     /// How long a lease lasts. Clients asking for a shorter lease get it.
     pub lease_duration: Duration,
     /// The default gateway sent to clients, if any.
-    pub gateway: Option<Ipv4Address>,
+    pub gateway: Option<Ipv4Addr>,
     /// The DNS servers sent to clients. Empty sends none.
-    pub dns_servers: Vec<Ipv4Address, DHCP_MAX_DNS_SERVER_COUNT>,
+    pub dns_servers: Vec<Ipv4Addr, DHCP_MAX_DNS_SERVER_COUNT>,
     /// Extra options added to every OFFER and ACK.
     pub outgoing_options: &'static [DhcpOption<'static>],
 }
@@ -50,7 +50,7 @@ pub struct DhcpServerConfig {
 impl DhcpServerConfig {
     /// A configuration leasing addresses from `pool_start` to `pool_end`
     /// (inclusive) for one hour, with no gateway and no DNS servers.
-    pub fn new(pool_start: Ipv4Address, pool_end: Ipv4Address) -> Self {
+    pub fn new(pool_start: Ipv4Addr, pool_end: Ipv4Addr) -> Self {
         Self {
             pool_start,
             pool_end,
@@ -86,7 +86,7 @@ impl DhcpServerLease {
     }
 
     /// The leased address.
-    pub fn address(&self) -> Ipv4Address {
+    pub fn address(&self) -> Ipv4Addr {
         self.0.address()
     }
 

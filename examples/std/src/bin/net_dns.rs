@@ -2,7 +2,7 @@ use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::StackStorage;
 use embassy_net::dns::DnsQueryType;
-use embassy_net::wire::{IpCidr, Ipv4Address};
+use embassy_net::wire::{IpCidr, Ipv4Addr};
 use embassy_net_tuntap::TunTapDevice;
 use log::*;
 use rand_core::{OsRng, TryRngCore};
@@ -47,14 +47,14 @@ async fn main_task(spawner: Spawner) {
     // Choose between dhcp or static ip
     if opts.static_ip {
         iface
-            .add_ip_addr(IpCidr::new(Ipv4Address::new(192, 168, 69, 2).into(), 24))
+            .add_ip_addr(IpCidr::new(Ipv4Addr::new(192, 168, 69, 2).into(), 24))
             .unwrap();
         stack
             .routes()
-            .add_default_ipv4_route(Ipv4Address::new(192, 168, 69, 1), iface.handle())
+            .add_default_ipv4_route(Ipv4Addr::new(192, 168, 69, 1), iface.handle())
             .unwrap();
     } else {
-        iface.set_dhcpv4(Some(Default::default()));
+        iface.set_dhcpv4(Some(Default::default())).unwrap();
     }
 
     // Launch network task

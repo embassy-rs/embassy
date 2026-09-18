@@ -8,7 +8,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
 use embassy_net::udp::{UdpMetadata, UdpSocket};
-use embassy_net::wire::{IpAddress, IpCidr, IpEndpoint, IpListenEndpoint, Ipv6Cidr};
+use embassy_net::wire::{IpAddr, IpCidr, Ipv6Cidr, ListenSocketAddr, SocketAddr};
 use embassy_nrf::config::{Config, HfclkSource};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::{bind_interrupts, embassy_net_802154_driver as net, peripherals, radio};
@@ -64,7 +64,7 @@ async fn main(spawner: Spawner) {
     // Add the network interface to the stack.
     static DEVICE: StaticCell<net::Device<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    unwrap!(iface.add_ip_addr(IpCidr::Ipv6(Ipv6Cidr::new(local, 64))));
+    unwrap!(iface.add_ip_addr(IpCidr::V6(Ipv6Cidr::new(local, 64))));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
@@ -72,17 +72,17 @@ async fn main(spawner: Spawner) {
     loop {
         let mut socket = unwrap!(UdpSocket::new(stack));
         socket
-            .bind(IpListenEndpoint {
-                addr: Some(IpAddress::Ipv6(local)),
+            .bind(ListenSocketAddr {
+                addr: Some(IpAddr::V6(local)),
                 port: 1234,
             })
             .unwrap();
         let rep = UdpMetadata {
-            endpoint: IpEndpoint {
-                addr: IpAddress::Ipv6(peer),
+            remote_addr: SocketAddr {
+                addr: IpAddr::V6(peer),
                 port: 1234,
             },
-            local_address: Some(IpAddress::Ipv6(local)),
+            local_addr: Some(IpAddr::V6(local)),
             meta: Default::default(),
         };
 

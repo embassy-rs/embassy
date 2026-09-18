@@ -81,7 +81,7 @@ async fn main(spawner: Spawner) {
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     // Get an address over DHCP.
-    iface.set_dhcpv4(Some(Default::default()));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));

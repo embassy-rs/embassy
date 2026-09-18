@@ -6,7 +6,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
 use embassy_net::tcp::{self, TcpListener, TcpSocket};
-use embassy_net::wire::IpListenEndpoint;
+use embassy_net::wire::ListenSocketAddr;
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
 use embassy_stm32::rcc::{
@@ -74,7 +74,7 @@ async fn main(spawner: Spawner) -> ! {
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    iface.set_dhcpv4(Some(Default::default()));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
     spawner.spawn(unwrap!(net_task(runner)));
     iface.wait_config_up().await;
 
@@ -84,7 +84,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut tx_buffer = [0; 1024];
 
     let mut listener = unwrap!(TcpListener::new(stack));
-    unwrap!(listener.listen(IpListenEndpoint { addr: None, port: 80 }));
+    unwrap!(listener.listen(ListenSocketAddr { addr: None, port: 80 }));
 
     loop {
         let token = unwrap!(listener.accept().await);

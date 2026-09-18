@@ -5,7 +5,7 @@ use embassy_futures::join::join;
 use embassy_net::Stack;
 use embassy_net::iface::Iface;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::wire::Ipv4Address;
+use embassy_net::wire::Ipv4Addr;
 use embassy_time::{Duration, with_timeout};
 
 pub struct Expected {
@@ -33,7 +33,7 @@ const TEST_DURATION: usize = 10;
 const IO_BUFFER_SIZE: usize = 1024;
 const RX_BUFFER_SIZE: usize = 4096;
 const TX_BUFFER_SIZE: usize = 4096;
-const SERVER_ADDRESS: Ipv4Address = Ipv4Address::new(192, 168, 2, 2);
+const SERVER_ADDRESS: Ipv4Addr = Ipv4Addr::new(192, 168, 2, 2);
 const DOWNLOAD_PORT: u16 = 4321;
 const UPLOAD_PORT: u16 = 4322;
 const UPLOAD_DOWNLOAD_PORT: u16 = 4323;

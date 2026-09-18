@@ -86,7 +86,7 @@ async fn main(spawner: Spawner) {
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    iface.set_dhcpv4(Some(Default::default()));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
@@ -105,12 +105,12 @@ async fn main(spawner: Spawner) {
 
         led.set_low();
         info!("Connecting...");
-        let host_addr = embassy_net::wire::Ipv4Address::from_str("192.168.1.110").unwrap();
+        let host_addr = embassy_net::wire::Ipv4Addr::from_str("192.168.1.110").unwrap();
         if let Err(e) = socket.connect((host_addr, 1234)).await {
             warn!("connect error: {:?}", e);
             continue;
         }
-        info!("Connected to {:?}", socket.remote_endpoint());
+        info!("Connected to {:?}", socket.remote_addr());
         led.set_high();
 
         let msg = b"Hello world!\n";

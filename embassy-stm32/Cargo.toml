@@ -163,7 +163,7 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", features = ["async", "packet-buf-align-8"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "d26bf86997757e5bdb635a0eb42abcf6d6340293", features = ["async", "packet-buf-align-8"] }
 embassy-crypto = { version = "0.1.0", path = "../embassy-crypto", features = ["large-contexts"] }
 crypto-bigint = { version = "0.7.5", default-features = false, optional = true }
 embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }

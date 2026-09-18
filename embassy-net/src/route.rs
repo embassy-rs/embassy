@@ -4,22 +4,22 @@
 //! interface; get a handle to it with [`Stack::routes`].
 
 use embassy_time::Instant;
-use xarxa::Full;
+use xarxa::error::Full;
 pub use xarxa::route::RouteOrigin;
-use xarxa::wire::{IpAddress, IpCidr};
+use xarxa::wire::{IpAddr, IpCidr};
 #[cfg(feature = "ipv4")]
-use xarxa::wire::{Ipv4Address, Ipv4Cidr};
+use xarxa::wire::{Ipv4Addr, Ipv4Cidr};
 #[cfg(feature = "ipv6")]
-use xarxa::wire::{Ipv6Address, Ipv6Cidr};
+use xarxa::wire::{Ipv6Addr, Ipv6Cidr};
 
 use crate::Stack;
 use crate::iface::IfaceHandle;
 use crate::time::{instant_from_xarxa, instant_to_xarxa};
 
 #[cfg(feature = "ipv4")]
-const IPV4_DEFAULT: IpCidr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(0, 0, 0, 0), 0));
+const IPV4_DEFAULT: IpCidr = IpCidr::V4(Ipv4Cidr::new(Ipv4Addr::new(0, 0, 0, 0), 0));
 #[cfg(feature = "ipv6")]
-const IPV6_DEFAULT: IpCidr = IpCidr::Ipv6(Ipv6Cidr::new(Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 0), 0));
+const IPV6_DEFAULT: IpCidr = IpCidr::V6(Ipv6Cidr::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0));
 
 /// A prefix of addresses that should be routed via a router, out of an interface.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -28,7 +28,7 @@ pub struct Route {
     /// The prefix this route covers.
     pub cidr: IpCidr,
     /// The router packets for the prefix are sent to.
-    pub via_router: IpAddress,
+    pub via_router: IpAddr,
     /// The interface this route goes out of.
     pub iface: IfaceHandle,
     /// Where the route came from.
@@ -42,7 +42,7 @@ pub struct Route {
 impl Route {
     /// Returns a route to 0.0.0.0/0 via the `gateway`, out of `iface`, with no expiry.
     #[cfg(feature = "ipv4")]
-    pub fn new_ipv4_gateway(gateway: Ipv4Address, iface: IfaceHandle) -> Route {
+    pub fn new_ipv4_gateway(gateway: Ipv4Addr, iface: IfaceHandle) -> Route {
         Route {
             cidr: IPV4_DEFAULT,
             via_router: gateway.into(),
@@ -55,7 +55,7 @@ impl Route {
 
     /// Returns a route to ::/0 via the `gateway`, out of `iface`, with no expiry.
     #[cfg(feature = "ipv6")]
-    pub fn new_ipv6_gateway(gateway: Ipv6Address, iface: IfaceHandle) -> Route {
+    pub fn new_ipv6_gateway(gateway: Ipv6Addr, iface: IfaceHandle) -> Route {
         Route {
             cidr: IPV6_DEFAULT,
             via_router: gateway.into(),
@@ -160,7 +160,7 @@ impl<'d> Routes<'d> {
     ///
     /// Replaces the existing default IPv4 route, which is returned.
     #[cfg(feature = "ipv4")]
-    pub fn add_default_ipv4_route(&self, gateway: Ipv4Address, iface: IfaceHandle) -> Result<Option<Route>, Full> {
+    pub fn add_default_ipv4_route(&self, gateway: Ipv4Addr, iface: IfaceHandle) -> Result<Option<Route>, Full> {
         self.stack
             .with_mut(|i| i.stack.routes_mut().add_default_ipv4_route(gateway, iface))
             .map(|r| r.map(Route::from_xarxa))
@@ -170,7 +170,7 @@ impl<'d> Routes<'d> {
     ///
     /// Replaces the existing default IPv6 route, which is returned.
     #[cfg(feature = "ipv6")]
-    pub fn add_default_ipv6_route(&self, gateway: Ipv6Address, iface: IfaceHandle) -> Result<Option<Route>, Full> {
+    pub fn add_default_ipv6_route(&self, gateway: Ipv6Addr, iface: IfaceHandle) -> Result<Option<Route>, Full> {
         self.stack
             .with_mut(|i| i.stack.routes_mut().add_default_ipv6_route(gateway, iface))
             .map(|r| r.map(Route::from_xarxa))
@@ -178,17 +178,17 @@ impl<'d> Routes<'d> {
 
     /// The default IPv4 route, if there is one.
     #[cfg(feature = "ipv4")]
-    pub fn get_default_ipv4_route(&self) -> Option<Route> {
+    pub fn default_ipv4_route(&self) -> Option<Route> {
         self.stack
-            .with(|i| i.stack.routes().get_default_ipv4_route())
+            .with(|i| i.stack.routes().default_ipv4_route())
             .map(Route::from_xarxa)
     }
 
     /// The default IPv6 route, if there is one.
     #[cfg(feature = "ipv6")]
-    pub fn get_default_ipv6_route(&self) -> Option<Route> {
+    pub fn default_ipv6_route(&self) -> Option<Route> {
         self.stack
-            .with(|i| i.stack.routes().get_default_ipv6_route())
+            .with(|i| i.stack.routes().default_ipv6_route())
             .map(Route::from_xarxa)
     }
 

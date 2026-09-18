@@ -62,7 +62,7 @@ async fn ppp_task(iface: Iface<'static>, mut runner: Runner<'static>, port: Seri
             };
             let mut dns_servers = Vec::<_, 3>::new();
             for s in ipv4.dns_servers.iter().flatten() {
-                let _ = dns_servers.push(embassy_net::wire::IpAddress::Ipv4(*s));
+                let _ = dns_servers.push(embassy_net::wire::IpAddr::V4(*s));
             }
             iface.set_ip_addrs([IpCidr::new(addr.into(), 0)]).unwrap();
             iface.stack().set_dns_servers(&dns_servers);
@@ -128,7 +128,7 @@ async fn main_task(spawner: Spawner) {
             continue;
         }
 
-        info!("Received connection from {:?}", socket.remote_endpoint());
+        info!("Received connection from {:?}", socket.remote_addr());
 
         loop {
             let n = match socket.read(&mut buf).await {
