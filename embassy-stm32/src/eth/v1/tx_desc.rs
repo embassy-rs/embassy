@@ -1,9 +1,11 @@
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 
+#[cfg(feature = "ptp")]
+use heapless::deque::DequeView;
 use vcell::VolatileCell;
 use xarxa_driver::PacketBuf;
 #[cfg(feature = "ptp")]
-use xarxa_driver::Timestamp;
+use xarxa_driver::{Timestamp, TxTimestamp};
 
 use crate::pac::ETH;
 
@@ -186,6 +188,9 @@ pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
     /// The buffer of each frame in flight, held until the DMA is done with it.
     buffers: &'a mut [Option<PacketBuf>],
+    #[cfg(feature = "ptp")]
+    /// Retained timestamps.
+    timestamps: &'a mut DequeView<TxTimestamp>,
     /// Next descriptor to submit.
     index: usize,
     /// Submitted descriptors not yet reclaimed.
@@ -194,7 +199,13 @@ pub(crate) struct TDesRing<'a> {
 
 impl<'a> TDesRing<'a> {
     /// Initialise this TDesRing. Assume TDesRing is corrupt
-    pub(crate) fn new(descriptors: &'a mut [TDes], buffers: &'a mut [Option<PacketBuf>]) -> Self {
+    pub(crate) fn new(
+        descriptors: &'a mut [TDes],
+        buffers: &'a mut [Option<PacketBuf>],
+        #[cfg(feature = "ptp")] timestamps: &'a mut DequeView<TxTimestamp>,
+    ) -> Self {
+        #[cfg(feature = "ptp")]
+        timestamps.clear();
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
 
@@ -213,6 +224,8 @@ impl<'a> TDesRing<'a> {
         Self {
             descriptors,
             buffers,
+            #[cfg(feature = "ptp")]
+            timestamps,
             index: 0,
             in_flight: 0,
         }
@@ -239,6 +252,8 @@ impl<'a> TDesRing<'a> {
             return None;
         }
 
+        // Observe DMA write-back before reading the timestamp or releasing the buffer.
+        fence(Ordering::Acquire);
         #[cfg(feature = "ptp")]
         let timestamp = descriptor.timestamp();
         #[cfg(not(feature = "ptp"))]
@@ -250,13 +265,40 @@ impl<'a> TDesRing<'a> {
         Some(timestamp)
     }
 
+    pub(crate) fn fast_forward(&mut self) {
+        loop {
+            let completion_index = self.completion_index();
+            #[cfg(feature = "ptp")]
+            let packet_id = self.buffers[completion_index].as_ref().map(|b| b.meta().id);
+            let Some(completion) = self.reclaim_one() else {
+                break;
+            };
+
+            #[cfg(feature = "ptp")]
+            if let Some(timestamp) = completion
+                && let Some(id) = packet_id
+            {
+                trace!("eth ptp tx complete idx={} packet_id={}", completion_index, id);
+
+                if self.timestamps.push_back(TxTimestamp { id, timestamp }).is_err() {
+                    warn!("dropping tx timestamp with id: {}", id)
+                }
+            }
+
+            #[cfg(not(feature = "ptp"))]
+            let _ = completion;
+            #[cfg(not(feature = "ptp"))]
+            let _ = completion_index;
+        }
+    }
+
+    #[cfg(feature = "ptp")]
+    pub(crate) fn poll_timestamp(&mut self) -> Option<TxTimestamp> {
+        self.timestamps.pop_front()
+    }
+
     /// Whether the next `transmit` will be accepted.
     pub(crate) fn can_transmit(&mut self) -> bool {
-        // Without PTP nothing else reclaims completed descriptors, so do it here.
-        // With PTP, `poll_timestamp` reclaims them so their timestamps are reported.
-        #[cfg(not(feature = "ptp"))]
-        while self.reclaim_one().is_some() {}
-
         // If every descriptor is already submitted but not yet reclaimed,
         // the slot at `index` must not be reused.
         if self.in_flight == self.len() {
@@ -264,22 +306,6 @@ impl<'a> TDesRing<'a> {
         }
 
         self.descriptors[self.index].available()
-    }
-
-    #[cfg(feature = "ptp")]
-    pub(crate) fn poll_timestamp(&mut self) -> Option<xarxa_driver::TxTimestamp> {
-        loop {
-            let completion_index = self.completion_index();
-            let packet_id = self.buffers[completion_index].as_ref().map(|b| b.meta().id);
-            let timestamp = self.reclaim_one()?;
-
-            if let Some(timestamp) = timestamp
-                && let Some(id) = packet_id
-            {
-                trace!("eth ptp tx complete idx={} packet_id={}", completion_index, id);
-                break Some(xarxa_driver::TxTimestamp { id, timestamp });
-            }
-        }
     }
 
     /// Transmit a frame. `can_transmit` must have returned `true`.
