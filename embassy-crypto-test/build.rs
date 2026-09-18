@@ -829,9 +829,8 @@ impl Weierstrass {
     }
 
     fn inv(x: &num_bigint_dig::BigUint, m: &num_bigint_dig::BigUint) -> num_bigint_dig::BigUint {
-        use num_bigint_dig::BigUint;
-        // `m` is prime.
-        x.modpow(&(m - BigUint::from(2u8)), m)
+        use num_bigint_dig::ModInverse;
+        x.clone().mod_inverse(m).unwrap().to_biguint().unwrap()
     }
 
     fn add(&self, p: &Affine, q: &Affine) -> Affine {
