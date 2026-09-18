@@ -19,6 +19,8 @@
 //!   (receive chunks available) fields of the footer.
 
 use embedded_hal_async::spi::{Operation, SpiDevice};
+#[cfg(feature = "packetmeta-id")]
+use xarxa_driver::PacketBuf;
 
 use super::Adin1110Protocol;
 use crate::crc32::ETH_FCS;
@@ -129,11 +131,17 @@ impl Footer {
     fn txc(self) -> u8 {
         ((self.0 >> 1) & 0x1F) as u8
     }
+    /// Zero based ingress port, in the vendor specific field (bits 23:22).
+    /// Only valid when SV is set. See `adi_mac_OaRxFooter_t` in ADI's `adi_spi_oa.h`.
+    #[allow(clippy::cast_possible_truncation)]
+    fn rx_port(self) -> u8 {
+        ((self.0 >> DATA_HDR_VS_SHIFT) & 0x1) as u8
+    }
 }
 
-/// Destination port(s) for transmitted frames on the ADIN2111.
+/// Destination port(s) for transmitted frames.
 ///
-/// The ADIN1110 has a single port; use [`TxPort::Port1`].
+/// The ADIN1110 has a single port: `Flood` transmits on port 1, `Port2` is invalid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TxPort {
@@ -144,6 +152,22 @@ pub enum TxPort {
     /// Transmit every frame on both ports, like an unmanaged switch flooding.
     Flood,
 }
+
+/// Transmit on the [`TxPort`] the driver was created with.
+#[cfg(feature = "packetmeta-id")]
+pub const PACKET_ID_DEFAULT_PORT: u32 = 0;
+/// Received on, or transmit on, port 1.
+#[cfg(feature = "packetmeta-id")]
+pub const PACKET_ID_PORT1: u32 = 1;
+/// Received on, or transmit on, port 2.
+#[cfg(feature = "packetmeta-id")]
+pub const PACKET_ID_PORT2: u32 = 2;
+/// Transmit on all ports.
+#[cfg(feature = "packetmeta-id")]
+pub const PACKET_ID_ALL_PORTS: u32 = 0xFF;
+/// The bits of `PacketMeta::id` holding the port. The others are reserved.
+#[cfg(feature = "packetmeta-id")]
+pub const PACKET_ID_PORT_MASK: u32 = 0xFF;
 
 /// TC6 (OPEN Alliance) protocol implementation.
 pub struct Tc6<SPI> {
@@ -165,13 +189,18 @@ pub struct Tc6<SPI> {
     rx_len: usize,
     /// A frame start (SV) was seen and its end (EV) is still pending.
     in_frame: bool,
+    /// Zero based ingress port of the frame being reassembled.
+    rx_port: u8,
+    /// 1 on the ADIN1110, 2 on the ADIN2111.
+    port_count: u8,
     /// `CONFIG0.PROTE` is set: every control data word is followed by its
     /// bitwise complement, in both directions.
     protected: bool,
 }
 
 impl<SPI> Tc6<SPI> {
-    /// Create a new TC6 protocol handler.
+    /// Create a new TC6 protocol handler for a single port chip.
+    /// See [`Tc6::set_port_count`].
     pub fn new(spi: SPI, append_fcs_on_tx: bool, tx_port: TxPort) -> Self {
         Self {
             spi,
@@ -183,6 +212,8 @@ impl<SPI> Tc6<SPI> {
             rx_buf: [0; MAX_FRAME_SIZE],
             rx_len: 0,
             in_frame: false,
+            rx_port: 0,
+            port_count: 1,
             protected: false,
         }
     }
@@ -196,6 +227,25 @@ impl<SPI> Tc6<SPI> {
     /// unprotected *write* is discarded without any error indication.
     pub fn set_protected(&mut self, protected: bool) {
         self.protected = protected;
+    }
+
+    /// Set the number of ports: 1 for the ADIN1110, 2 for the ADIN2111.
+    ///
+    /// # Panics
+    /// Panics if `port_count` is not 1 or 2, or if it is 1 and the driver
+    /// was created with [`TxPort::Port2`].
+    pub fn set_port_count(&mut self, port_count: u8) {
+        assert!(matches!(port_count, 1 | 2), "port count must be 1 or 2");
+        assert!(
+            port_count == 2 || self.tx_port != TxPort::Port2,
+            "TxPort::Port2 on a single port chip"
+        );
+        self.port_count = port_count;
+    }
+
+    /// The number of ports: 1 for the ADIN1110, 2 for the ADIN2111.
+    pub fn port_count(&self) -> u8 {
+        self.port_count
     }
 
     /// Receive chunks are available in the MAC-PHY, as of the last footer.
@@ -313,13 +363,13 @@ impl<SPI: SpiDevice> Tc6<SPI> {
 
     /// Process the payload of one receive chunk according to its footer.
     ///
-    /// Returns `Ok(Some(frame_len))` when a complete frame was copied into `out`.
+    /// Returns `Ok(Some((port, frame_len)))` when a complete frame was copied into `out`.
     fn process_rx_chunk(
         &mut self,
         payload: &[u8; CHUNK_PAYLOAD_SIZE],
         footer: Footer,
         out: &mut [u8],
-    ) -> Result<Option<usize>, AdinError<SPI::Error>> {
+    ) -> Result<Option<(u8, usize)>, AdinError<SPI::Error>> {
         if !footer.dv() {
             return Ok(None);
         }
@@ -341,8 +391,7 @@ impl<SPI: SpiDevice> Tc6<SPI> {
                 if self.in_frame {
                     trace!("TC6 RX: SV while in frame, dropping partial frame");
                 }
-                self.in_frame = true;
-                self.rx_len = 0;
+                self.start_frame(footer);
                 self.append_rx(&payload[sbo..=ebo])?;
                 self.finish_frame(out).map(Some)
             }
@@ -355,8 +404,7 @@ impl<SPI: SpiDevice> Tc6<SPI> {
                     trace!("TC6 RX: EV without frame start, ignored");
                     None
                 };
-                self.in_frame = true;
-                self.rx_len = 0;
+                self.start_frame(footer);
                 self.append_rx(&payload[sbo..])?;
                 match finished {
                     Some(res) => res.map(Some),
@@ -367,8 +415,7 @@ impl<SPI: SpiDevice> Tc6<SPI> {
                 if self.in_frame {
                     trace!("TC6 RX: SV while in frame, dropping partial frame");
                 }
-                self.in_frame = true;
-                self.rx_len = 0;
+                self.start_frame(footer);
                 self.append_rx(&payload[sbo..])?;
                 Ok(None)
             }
@@ -390,6 +437,12 @@ impl<SPI: SpiDevice> Tc6<SPI> {
         }
     }
 
+    fn start_frame(&mut self, footer: Footer) {
+        self.in_frame = true;
+        self.rx_len = 0;
+        self.rx_port = if self.port_count == 2 { footer.rx_port() } else { 0 };
+    }
+
     fn append_rx(&mut self, data: &[u8]) -> Result<(), AdinError<SPI::Error>> {
         if self.rx_len + data.len() > self.rx_buf.len() {
             self.in_frame = false;
@@ -402,8 +455,9 @@ impl<SPI: SpiDevice> Tc6<SPI> {
     }
 
     /// Validate the assembled frame, strip the FCS and copy it into `out`.
-    fn finish_frame(&mut self, out: &mut [u8]) -> Result<usize, AdinError<SPI::Error>> {
+    fn finish_frame(&mut self, out: &mut [u8]) -> Result<(u8, usize), AdinError<SPI::Error>> {
         let total = self.rx_len;
+        let port = self.rx_port;
         self.in_frame = false;
         self.rx_len = 0;
 
@@ -422,7 +476,7 @@ impl<SPI: SpiDevice> Tc6<SPI> {
         }
 
         out[0..len].copy_from_slice(&self.rx_buf[0..len]);
-        Ok(len)
+        Ok((port, len))
     }
 
     /// Transmit one frame on one port, in chunks, respecting TX credits.
@@ -482,6 +536,97 @@ impl<SPI: SpiDevice> Tc6<SPI> {
         }
 
         Ok(())
+    }
+
+    /// Receive one frame, returning the one based port it arrived on and its length.
+    async fn read_frame(&mut self, frame: &mut [u8]) -> Result<(u8, usize), AdinError<SPI::Error>> {
+        let mut polls = 0u32;
+        loop {
+            // Only clock out receive chunks the MAC-PHY has ready.
+            while self.rca == 0 {
+                self.poll_status().await?;
+                if self.rca == 0 {
+                    polls += 1;
+                    if polls > POLL_LIMIT {
+                        return Err(AdinError::TC6_TIMEOUT);
+                    }
+                    embassy_futures::yield_now().await;
+                }
+            }
+
+            let header = Self::data_header(false, false, false, 0, 0, false);
+            let tx_payload = [0u8; CHUNK_PAYLOAD_SIZE];
+            let mut rx_payload = [0u8; CHUNK_PAYLOAD_SIZE];
+            let footer = self.transfer_chunk(header, &tx_payload, &mut rx_payload).await?;
+
+            if let Some((port, len)) = self.process_rx_chunk(&rx_payload, footer, frame)? {
+                return Ok((port + 1, len));
+            }
+        }
+    }
+
+    /// Transmit one frame. [`TxPort::Flood`] sends one copy per port.
+    async fn send_frame(&mut self, frame: &[u8], port: TxPort) -> Result<(), AdinError<SPI::Error>> {
+        // Ethernet header: 6 bytes dst + 6 bytes src + 2 bytes type/len.
+        if frame.len() < (6 + 6 + 2) {
+            return Err(AdinError::PACKET_TOO_SMALL);
+        }
+        if frame.len() > MTU {
+            return Err(AdinError::PACKET_TOO_BIG);
+        }
+
+        // The MAC does not pad short frames; pad to the minimum frame size,
+        // FCS excluded.
+        let pad_len = frame.len().max(ETH_MIN_WITHOUT_FCS_LEN);
+
+        let fcs = if self.append_fcs_on_tx {
+            let mut fcs = ETH_FCS::new(frame);
+            if pad_len > frame.len() {
+                fcs = fcs.update(&[0u8; ETH_MIN_WITHOUT_FCS_LEN][0..pad_len - frame.len()]);
+            }
+            Some(fcs.hton_bytes())
+        } else {
+            None
+        };
+
+        match port {
+            TxPort::Port1 => self.send_frame_on_port(frame, pad_len, fcs, 0).await,
+            TxPort::Port2 => self.send_frame_on_port(frame, pad_len, fcs, 1).await,
+            TxPort::Flood if self.port_count == 1 => self.send_frame_on_port(frame, pad_len, fcs, 0).await,
+            TxPort::Flood => {
+                self.send_frame_on_port(frame, pad_len, fcs, 0).await?;
+                self.send_frame_on_port(frame, pad_len, fcs, 1).await
+            }
+        }
+    }
+}
+
+#[cfg(feature = "packetmeta-id")]
+impl<SPI: SpiDevice> Tc6<SPI> {
+    fn packet_id_tx_port(&self, id: u32) -> Option<TxPort> {
+        match id & PACKET_ID_PORT_MASK {
+            PACKET_ID_DEFAULT_PORT => Some(self.tx_port),
+            PACKET_ID_PORT1 => Some(TxPort::Port1),
+            PACKET_ID_PORT2 if self.port_count == 2 => Some(TxPort::Port2),
+            PACKET_ID_ALL_PORTS => Some(TxPort::Flood),
+            _ => None,
+        }
+    }
+
+    pub(crate) async fn receive_packet(&mut self, frame: &mut PacketBuf) -> Result<usize, AdinError<SPI::Error>> {
+        let (port, len) = self.read_frame(frame).await?;
+        frame.meta_mut().id = u32::from(port);
+        Ok(len)
+    }
+
+    /// Returns `None` without transmitting if the packet id names no port.
+    pub(crate) async fn transmit_packet(&mut self, frame: &PacketBuf) -> Option<Result<(), AdinError<SPI::Error>>> {
+        let id = frame.meta().id;
+        let Some(port) = self.packet_id_tx_port(id) else {
+            error!("TX packet id {:08x} names no port, DROP", id);
+            return None;
+        };
+        Some(self.send_frame(frame, port).await)
     }
 }
 
@@ -566,62 +711,11 @@ impl<SPI: SpiDevice> Adin1110Protocol for Tc6<SPI> {
     }
 
     async fn read_fifo(&mut self, frame: &mut [u8]) -> Result<usize, AdinError<Self::SpiError>> {
-        let mut polls = 0u32;
-        loop {
-            // Only clock out receive chunks the MAC-PHY has ready.
-            while self.rca == 0 {
-                self.poll_status().await?;
-                if self.rca == 0 {
-                    polls += 1;
-                    if polls > POLL_LIMIT {
-                        return Err(AdinError::TC6_TIMEOUT);
-                    }
-                    embassy_futures::yield_now().await;
-                }
-            }
-
-            let header = Self::data_header(false, false, false, 0, 0, false);
-            let tx_payload = [0u8; CHUNK_PAYLOAD_SIZE];
-            let mut rx_payload = [0u8; CHUNK_PAYLOAD_SIZE];
-            let footer = self.transfer_chunk(header, &tx_payload, &mut rx_payload).await?;
-
-            if let Some(len) = self.process_rx_chunk(&rx_payload, footer, frame)? {
-                return Ok(len);
-            }
-        }
+        self.read_frame(frame).await.map(|(_, len)| len)
     }
 
     async fn write_fifo(&mut self, frame: &[u8]) -> Result<(), AdinError<Self::SpiError>> {
-        // Ethernet header: 6 bytes dst + 6 bytes src + 2 bytes type/len.
-        if frame.len() < (6 + 6 + 2) {
-            return Err(AdinError::PACKET_TOO_SMALL);
-        }
-        if frame.len() > MTU {
-            return Err(AdinError::PACKET_TOO_BIG);
-        }
-
-        // The MAC does not pad short frames; pad to the minimum frame size,
-        // FCS excluded.
-        let pad_len = frame.len().max(ETH_MIN_WITHOUT_FCS_LEN);
-
-        let fcs = if self.append_fcs_on_tx {
-            let mut fcs = ETH_FCS::new(frame);
-            if pad_len > frame.len() {
-                fcs = fcs.update(&[0u8; ETH_MIN_WITHOUT_FCS_LEN][0..pad_len - frame.len()]);
-            }
-            Some(fcs.hton_bytes())
-        } else {
-            None
-        };
-
-        match self.tx_port {
-            TxPort::Port1 => self.send_frame_on_port(frame, pad_len, fcs, 0).await,
-            TxPort::Port2 => self.send_frame_on_port(frame, pad_len, fcs, 1).await,
-            TxPort::Flood => {
-                self.send_frame_on_port(frame, pad_len, fcs, 0).await?;
-                self.send_frame_on_port(frame, pad_len, fcs, 1).await
-            }
-        }
+        self.send_frame(frame, self.tx_port).await
     }
 }
 
@@ -660,9 +754,18 @@ mod tests {
     fn harness(
         expectations: &[SpiTransaction<u8>],
     ) -> (MockTc6, embedded_hal_mock::common::Generic<SpiTransaction<u8>>) {
+        harness_with_port(expectations, TxPort::Port1)
+    }
+
+    fn harness_with_port(
+        expectations: &[SpiTransaction<u8>],
+        tx_port: TxPort,
+    ) -> (MockTc6, embedded_hal_mock::common::Generic<SpiTransaction<u8>>) {
         let spi = SpiMock::new(expectations);
         let spi_dev = ExclusiveDevice::new(spi.clone(), CsPinMock, MockDelay {});
-        (Tc6::new(spi_dev, false, TxPort::Port1), spi)
+        let mut tc6 = Tc6::new(spi_dev, false, tx_port);
+        tc6.set_port_count(2);
+        (tc6, spi)
     }
 
     /// The chunk footer for the given flag bits, with valid parity.
@@ -674,6 +777,26 @@ mod tests {
     const FTR_DV: u32 = 1 << 21;
     const FTR_SV: u32 = 1 << 20;
     const FTR_EV: u32 = 1 << 14;
+
+    const fn ftr_rca(n: u32) -> u32 {
+        n << 24
+    }
+    const fn ftr_vs(vs: u32) -> u32 {
+        vs << DATA_HDR_VS_SHIFT
+    }
+    /// A `len` byte frame, and the same frame followed by its FCS.
+    fn frame_with_fcs(len: usize, seed: u8) -> (Vec<u8>, Vec<u8>) {
+        let mut frame = vec![0u8; len];
+        for (i, b) in frame.iter_mut().enumerate() {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                *b = (i as u8).wrapping_mul(7).wrapping_add(seed);
+            }
+        }
+        let mut wire = frame.clone();
+        wire.extend_from_slice(&ETH_FCS::new(&frame).hton_bytes());
+        (frame, wire)
+    }
 
     #[futures_test::test]
     async fn control_read_transaction() {
@@ -1006,5 +1129,302 @@ mod tests {
         assert!(f.ev());
         assert_eq!(f.ebo(), 17);
         assert_eq!(f.txc(), 12);
+    }
+    #[test]
+    fn footer_rx_port() {
+        for (vs, port) in [(0, 0), (1, 1), (2, 0), (3, 1)] {
+            assert_eq!(Footer(FTR_SV | ftr_vs(vs)).rx_port(), port);
+        }
+        assert_eq!(Footer(ftr_vs(3) | ftr_rca(0x1F)).rca(), 0x1F);
+    }
+
+    #[futures_test::test]
+    async fn receive_port_is_latched_at_frame_start() {
+        let (frame, wire) = frame_with_fcs(96, 0);
+
+        let rd_header = Tc6::<()>::data_header(false, false, false, 0, 0, false);
+        let expectations = [
+            SpiTransaction::transfer(
+                tx_chunk(rd_header, &[]),
+                rx_chunk(
+                    &wire[0..64],
+                    footer(FTR_SYNC | FTR_DV | FTR_SV | ftr_vs(1) | ftr_rca(1)),
+                ),
+            ),
+            SpiTransaction::flush(),
+            SpiTransaction::transfer(
+                tx_chunk(rd_header, &[]),
+                rx_chunk(
+                    &wire[64..100],
+                    footer(FTR_SYNC | FTR_DV | FTR_EV | (35 << 8) | ftr_vs(0)),
+                ),
+            ),
+            SpiTransaction::flush(),
+        ];
+        let (mut tc6, mut spi) = harness(&expectations);
+        tc6.rca = 2;
+
+        let mut out = [0u8; MTU];
+        let (port, n) = tc6.read_frame(&mut out).await.expect("read_frame");
+        assert_eq!(port, 2);
+        assert_eq!(n, 96);
+        assert_eq!(&out[0..n], &frame[..]);
+        spi.done();
+    }
+
+    #[futures_test::test]
+    async fn receive_port_across_end_and_start_in_one_chunk() {
+        let (frame_a, wire_a) = frame_with_fcs(96, 0);
+        let (frame_b, wire_b) = frame_with_fcs(60, 0x40);
+
+        // Frame A ends at EBO=35, frame B starts at SWO=10 (byte 40).
+        let mut mixed = vec![0u8; CHUNK_PAYLOAD_SIZE];
+        mixed[0..36].copy_from_slice(&wire_a[64..100]);
+        mixed[40..64].copy_from_slice(&wire_b[0..24]);
+
+        let rd_header = Tc6::<()>::data_header(false, false, false, 0, 0, false);
+        let expectations = [
+            SpiTransaction::transfer(
+                tx_chunk(rd_header, &[]),
+                rx_chunk(
+                    &wire_a[0..64],
+                    footer(FTR_SYNC | FTR_DV | FTR_SV | ftr_vs(0) | ftr_rca(2)),
+                ),
+            ),
+            SpiTransaction::flush(),
+            SpiTransaction::transfer(
+                tx_chunk(rd_header, &[]),
+                rx_chunk(
+                    &mixed,
+                    footer(FTR_SYNC | FTR_DV | FTR_EV | (35 << 8) | FTR_SV | (10 << 16) | ftr_vs(1) | ftr_rca(1)),
+                ),
+            ),
+            SpiTransaction::flush(),
+            SpiTransaction::transfer(
+                tx_chunk(rd_header, &[]),
+                rx_chunk(&wire_b[24..64], footer(FTR_SYNC | FTR_DV | FTR_EV | (39 << 8))),
+            ),
+            SpiTransaction::flush(),
+        ];
+        let (mut tc6, mut spi) = harness(&expectations);
+        tc6.rca = 3;
+
+        let mut out = [0u8; MTU];
+        let (port, n) = tc6.read_frame(&mut out).await.expect("frame A");
+        assert_eq!(port, 1);
+        assert_eq!(n, 96);
+        assert_eq!(&out[0..n], &frame_a[..]);
+
+        let (port, n) = tc6.read_frame(&mut out).await.expect("frame B");
+        assert_eq!(port, 2);
+        assert_eq!(n, 60);
+        assert_eq!(&out[0..n], &frame_b[..]);
+        spi.done();
+    }
+
+    #[futures_test::test]
+    async fn transmit_flood_sends_one_copy_per_port() {
+        let frame = [0x22u8; 14];
+        let mut payload = [0u8; 60];
+        payload[0..14].copy_from_slice(&frame);
+
+        let hdr_p1 = Tc6::<()>::data_header(true, true, true, 59, 0, true);
+        let hdr_p2 = Tc6::<()>::data_header(true, true, true, 59, 1, true);
+        let expectations = [
+            SpiTransaction::transfer(tx_chunk(hdr_p1, &payload), rx_chunk(&[], footer(FTR_SYNC | (20 << 1)))),
+            SpiTransaction::flush(),
+            SpiTransaction::transfer(tx_chunk(hdr_p2, &payload), rx_chunk(&[], footer(FTR_SYNC | (19 << 1)))),
+            SpiTransaction::flush(),
+        ];
+        let (mut tc6, mut spi) = harness_with_port(&expectations, TxPort::Flood);
+        tc6.txc = 31;
+
+        tc6.write_fifo(&frame).await.expect("write_fifo");
+        spi.done();
+    }
+
+    #[test]
+    #[should_panic(expected = "TxPort::Port2 on a single port chip")]
+    fn single_port_rejects_port2() {
+        let (mut tc6, _spi) = harness_with_port(&[], TxPort::Port2);
+        tc6.set_port_count(1);
+    }
+
+    #[futures_test::test]
+    async fn single_port_flood_sends_one_copy() {
+        let frame = [0x22u8; 14];
+        let mut payload = [0u8; 60];
+        payload[0..14].copy_from_slice(&frame);
+
+        let header = Tc6::<()>::data_header(true, true, true, 59, 0, true);
+        let expectations = [
+            SpiTransaction::transfer(tx_chunk(header, &payload), rx_chunk(&[], footer(FTR_SYNC | (20 << 1)))),
+            SpiTransaction::flush(),
+        ];
+        let (mut tc6, mut spi) = harness_with_port(&expectations, TxPort::Flood);
+        tc6.set_port_count(1);
+        tc6.txc = 31;
+
+        tc6.write_fifo(&frame).await.expect("write_fifo");
+        spi.done();
+    }
+
+    #[futures_test::test]
+    async fn single_port_receive_ignores_vs() {
+        let (frame, wire) = frame_with_fcs(60, 0);
+        let rd_header = Tc6::<()>::data_header(false, false, false, 0, 0, false);
+        let expectations = [
+            SpiTransaction::transfer(
+                tx_chunk(rd_header, &[]),
+                rx_chunk(
+                    &wire,
+                    footer(FTR_SYNC | FTR_DV | FTR_SV | FTR_EV | (63 << 8) | ftr_vs(1)),
+                ),
+            ),
+            SpiTransaction::flush(),
+        ];
+        let (mut tc6, mut spi) = harness(&expectations);
+        tc6.set_port_count(1);
+        tc6.rca = 1;
+
+        let mut out = [0u8; MTU];
+        let (port, n) = tc6.read_frame(&mut out).await.expect("read_frame");
+        assert_eq!(port, 1);
+        assert_eq!(&out[0..n], &frame[..]);
+        spi.done();
+    }
+
+    #[futures_test::test]
+    async fn write_fifo_uses_the_configured_port() {
+        let frame = [0x33u8; 14];
+        let mut payload = [0u8; 60];
+        payload[0..14].copy_from_slice(&frame);
+
+        let wr_header = Tc6::<()>::data_header(true, true, true, 59, 1, true);
+        let expectations = [
+            SpiTransaction::transfer(
+                tx_chunk(wr_header, &payload),
+                rx_chunk(&[], footer(FTR_SYNC | (10 << 1))),
+            ),
+            SpiTransaction::flush(),
+        ];
+        let (mut tc6, mut spi) = harness_with_port(&expectations, TxPort::Port2);
+        tc6.txc = 31;
+
+        tc6.write_fifo(&frame).await.expect("write_fifo");
+        spi.done();
+    }
+
+    #[cfg(feature = "packetmeta-id")]
+    fn packet_with_id(frame: &[u8], id: u32) -> PacketBuf {
+        let mut buf = PacketBuf::try_new().unwrap();
+        buf.set_len(frame.len());
+        buf.copy_from_slice(frame);
+        buf.meta_mut().id = id;
+        buf
+    }
+
+    #[cfg(feature = "packetmeta-id")]
+    #[test]
+    fn packet_id_tx_port() {
+        for port_count in [1, 2] {
+            for default in [TxPort::Port1, TxPort::Port2, TxPort::Flood] {
+                if port_count == 1 && default == TxPort::Port2 {
+                    continue;
+                }
+                let (mut tc6, mut spi) = harness_with_port(&[], default);
+                tc6.set_port_count(port_count);
+                for id in 0..=0xFFu32 {
+                    let expected = match id {
+                        0 => Some(default),
+                        1 => Some(TxPort::Port1),
+                        2 if port_count == 2 => Some(TxPort::Port2),
+                        0xFF => Some(TxPort::Flood),
+                        _ => None,
+                    };
+                    assert_eq!(tc6.packet_id_tx_port(id), expected);
+                    assert_eq!(tc6.packet_id_tx_port(id | 0xABCD_EF00), expected);
+                }
+                spi.done();
+            }
+        }
+    }
+
+    #[cfg(feature = "packetmeta-id")]
+    #[futures_test::test]
+    async fn receive_packet_sets_id_to_port() {
+        for (vs, id) in [(0, PACKET_ID_PORT1), (1, PACKET_ID_PORT2)] {
+            let (frame, wire) = frame_with_fcs(60, 3);
+            let rd_header = Tc6::<()>::data_header(false, false, false, 0, 0, false);
+            let expectations = [
+                SpiTransaction::transfer(
+                    tx_chunk(rd_header, &[]),
+                    rx_chunk(
+                        &wire,
+                        footer(FTR_SYNC | FTR_DV | FTR_SV | FTR_EV | (63 << 8) | ftr_vs(vs)),
+                    ),
+                ),
+                SpiTransaction::flush(),
+            ];
+            let (mut tc6, mut spi) = harness(&expectations);
+            tc6.rca = 1;
+
+            let mut buf = PacketBuf::try_new().unwrap();
+            buf.set_len(MTU);
+            let n = tc6.receive_packet(&mut buf).await.expect("receive_packet");
+            assert_eq!(buf.meta().id, id);
+            assert_eq!(&buf[0..n], &frame[..]);
+            spi.done();
+        }
+    }
+
+    #[cfg(feature = "packetmeta-id")]
+    #[futures_test::test]
+    async fn transmit_packet_sets_vs_from_id() {
+        // (port count, id, configured port, VS of each copy)
+        let cases: [(u8, u32, TxPort, &[u8]); 8] = [
+            (2, PACKET_ID_DEFAULT_PORT, TxPort::Port2, &[1]),
+            (2, PACKET_ID_DEFAULT_PORT, TxPort::Flood, &[0, 1]),
+            (2, PACKET_ID_PORT1, TxPort::Port2, &[0]),
+            (2, PACKET_ID_PORT2, TxPort::Port1, &[1]),
+            (2, PACKET_ID_ALL_PORTS, TxPort::Port1, &[0, 1]),
+            (2, 0xABCD_EF01, TxPort::Port2, &[0]),
+            (1, PACKET_ID_ALL_PORTS, TxPort::Port1, &[0]),
+            (1, PACKET_ID_DEFAULT_PORT, TxPort::Flood, &[0]),
+        ];
+        for (port_count, id, tx_port, vs_list) in cases {
+            let frame = [0x44u8; 14];
+            let mut payload = [0u8; 60];
+            payload[0..14].copy_from_slice(&frame);
+
+            let mut expectations = Vec::new();
+            for &vs in vs_list {
+                let header = Tc6::<()>::data_header(true, true, true, 59, vs, true);
+                expectations.push(SpiTransaction::transfer(
+                    tx_chunk(header, &payload),
+                    rx_chunk(&[], footer(FTR_SYNC | (20 << 1))),
+                ));
+                expectations.push(SpiTransaction::flush());
+            }
+            let (mut tc6, mut spi) = harness_with_port(&expectations, tx_port);
+            tc6.set_port_count(port_count);
+            tc6.txc = 31;
+
+            let sent = matches!(tc6.transmit_packet(&packet_with_id(&frame, id)).await, Some(Ok(())));
+            assert!(sent, "id {:#x}", id);
+            spi.done();
+        }
+    }
+
+    #[cfg(feature = "packetmeta-id")]
+    #[futures_test::test]
+    async fn transmit_packet_drops_unknown_id() {
+        for (port_count, id) in [(2, 3), (1, PACKET_ID_PORT2)] {
+            let (mut tc6, mut spi) = harness(&[]);
+            tc6.set_port_count(port_count);
+            tc6.txc = 31;
+            assert!(tc6.transmit_packet(&packet_with_id(&[0x55u8; 14], id)).await.is_none());
+            spi.done();
+        }
     }
 }

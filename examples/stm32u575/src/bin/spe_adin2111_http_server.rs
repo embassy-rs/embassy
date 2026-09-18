@@ -15,6 +15,8 @@
 //!     BME280 over I2C;
 //!   - finds its neighbors on the segment with a UDP multicast beacon, and
 //!     fetches their page every few seconds;
+//!   - sends one beacon per ADIN2111 port and logs which port each beacon it
+//!     hears left on and arrived on, alongside the per-port link state;
 //!   - uses the two Bristlefin LEDs for activity: LED 1 green while serving a
 //!     request, LED 2 a green heartbeat flash per sensor reading, red on a
 //!     sensor fault.
@@ -32,10 +34,12 @@ use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_net::iface::Iface;
 use embassy_net::tcp::{TcpListener, TcpSocket};
-use embassy_net::udp::UdpSocket;
+use embassy_net::udp::{PacketMeta, UdpMetadata, UdpSocket};
 use embassy_net::wire::{IpAddr, IpCidr, Ipv6Addr, Ipv6Cidr, SocketAddr};
 use embassy_net::{Stack, StackStorage};
-use embassy_net_adin1110::{ADIN1110, Device, Runner, Tc6, TxPort};
+use embassy_net_adin1110::{
+    ADIN1110, Device, PACKET_ID_PORT_MASK, PACKET_ID_PORT1, PACKET_ID_PORT2, PortLinks, Runner, Tc6, TxPort,
+};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
 use embassy_stm32::mode::Async;
@@ -231,6 +235,11 @@ async fn main(spawner: Spawner) {
     let (device, runner) =
         embassy_net_adin1110::new_tc6(mac, state, spe_spi, spe_int, spe_reset_n, false, TxPort::Flood).await;
 
+    // Take the port handle before the runner is moved into its task: the link
+    // state lives in `State`, so it stays readable while the runner runs.
+    let port_links = runner.port_links();
+    info!("MAC-PHY: {} port(s)", port_links.port_count());
+
     // Start the environmental sensor task, which doubles as the heartbeat.
     spawner.spawn(unwrap!(temp_task(I2cDevice::new(i2c_bus), leds)));
     // Start ethernet task
@@ -253,7 +262,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(net_task(runner)));
 
     // Announce ourselves and listen for peers, then poll whichever peer we find.
-    spawner.spawn(unwrap!(discovery_task(iface, node_id)));
+    spawner.spawn(unwrap!(discovery_task(iface, node_id, port_links)));
     spawner.spawn(unwrap!(neighbor_fetch_task(stack)));
 
     iface.wait_config_up().await;
@@ -358,8 +367,23 @@ const DISCOVERY_GROUP: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0x0042
 const DISCOVERY_PORT: u16 = 4242;
 /// How often each node announces itself.
 const BEACON_INTERVAL: Duration = Duration::from_secs(1);
-/// A beacon payload is just the sender's node id, big endian.
-const BEACON_LEN: usize = 8;
+/// A beacon payload is the sender's node id, big endian, followed by the one
+/// based ADIN2111 port it was transmitted on.
+const BEACON_LEN: usize = 9;
+
+/// The `PacketMeta::id` that steers a frame to each one based port. A node
+/// beacons on every port it has, so the receiver learns which hop it took.
+const PORT_IDS: [(u8, u32); 2] = [(1, PACKET_ID_PORT1), (2, PACKET_ID_PORT2)];
+
+/// Packet metadata asking the driver to transmit on one specific port.
+///
+/// `PacketMeta` is `#[non_exhaustive]`, so there is no struct literal for it
+/// outside its own crate; this is the idiom its documentation gives.
+fn packet_meta_id(id: u32) -> PacketMeta {
+    let mut meta = PacketMeta::default();
+    meta.id = id;
+    meta
+}
 
 /// Node id of the most recently heard peer, or 0 before we have heard any.
 ///
@@ -370,11 +394,15 @@ const BEACON_LEN: usize = 8;
 static PEER_NODE_ID: BlockingMutex<CriticalSectionRawMutex, Cell<u64>> = BlockingMutex::new(Cell::new(0));
 
 /// Announce this node's id on the discovery group, and record the ids of peers.
+///
+/// Doubles as the demonstration of the driver's port specific transmit and
+/// receive: each beacon is steered to one port through `PacketMeta::id` and
+/// carries that port in its payload, and the driver reports the port a beacon
+/// arrived on in the `PacketMeta::id` of the received datagram. Between the two
+/// the log shows the whole hop, peer port out to local port in.
 #[embassy_executor::task]
-async fn discovery_task(iface: Iface<'static>, my_node_id: u64) -> ! {
+async fn discovery_task(iface: Iface<'static>, my_node_id: u64, port_links: PortLinks<'static>) -> ! {
     let stack = iface.stack();
-    let _rx_buffer = [0u8; 256];
-    let _tx_buffer = [0u8; 256];
 
     // Without joining the group the interface drops the peers' beacons, so we
     // would still announce ourselves but never hear anybody.
@@ -389,27 +417,67 @@ async fn discovery_task(iface: Iface<'static>, my_node_id: u64) -> ! {
     let mut beacon = Ticker::every(BEACON_INTERVAL);
     let mut buf = [0u8; 64];
 
+    // Last reported hop and link state. `None` rather than a plain value so the
+    // first beacon and the first tick always report, startup state included.
+    let mut last_hop: Option<(u64, u8, u32)> = None;
+    let mut last_links: Option<[bool; 2]> = None;
+
     loop {
         match select(beacon.next(), socket.recv_from(&mut buf)).await {
-            // Time to announce ourselves.
+            // Time to announce ourselves, once per port.
             Either::First(()) => {
-                if let Err(e) = socket.send_to(&my_node_id.to_be_bytes(), group).await {
-                    error!("Discovery: beacon send failed: {:?}", e);
+                for &(port, id) in PORT_IDS.iter().take(usize::from(port_links.port_count())) {
+                    let mut payload = [0u8; BEACON_LEN];
+                    payload[..8].copy_from_slice(&my_node_id.to_be_bytes());
+                    payload[8] = port;
+
+                    // Without the metadata this would go out on the driver's
+                    // default TxPort, which for this example is every port.
+                    let dest = UdpMetadata {
+                        remote_addr: group,
+                        local_addr: None,
+                        meta: packet_meta_id(id),
+                    };
+                    if let Err(e) = socket.send_to(&payload, dest).await {
+                        error!("Discovery: beacon send on port {} failed: {:?}", port, e);
+                    }
+                }
+
+                let mut links = [false; 2];
+                for port in 1..=port_links.port_count() {
+                    links[usize::from(port) - 1] = port_links.link_up(port);
+                }
+                if last_links != Some(links) {
+                    last_links = Some(links);
+                    info!("Ports: p1 up {}, p2 up {}", links[0], links[1]);
                 }
             }
             // Somebody else announced themselves.
-            Either::Second(Ok((len, _meta))) => {
+            Either::Second(Ok((len, from))) => {
                 let Ok(payload) = <[u8; BEACON_LEN]>::try_from(&buf[..len.min(buf.len())]) else {
                     // Not one of ours; something else is using this group.
                     continue;
                 };
-                let peer = u64::from_be_bytes(payload);
+                let mut id_bytes = [0u8; 8];
+                id_bytes.copy_from_slice(&payload[..8]);
+                let peer = u64::from_be_bytes(id_bytes);
+                let peer_tx_port = payload[8];
+                // The driver puts the one based ingress port in `PacketMeta::id`.
+                let rx_port = from.meta.id & PACKET_ID_PORT_MASK;
+
                 // A node receives its own multicasts, so filter ourselves out.
                 if peer == 0 || peer == my_node_id {
                     continue;
                 }
                 if PEER_NODE_ID.lock(|p| p.replace(peer)) != peer {
                     info!("Discovery: found peer {:016x} at {}", peer, node_ip(peer).address());
+                }
+                if last_hop != Some((peer, peer_tx_port, rx_port)) {
+                    last_hop = Some((peer, peer_tx_port, rx_port));
+                    info!(
+                        "Discovery: peer {:016x} tx port {} -> our port {}",
+                        peer, peer_tx_port, rx_port
+                    );
                 }
             }
             Either::Second(Err(e)) => error!("Discovery: beacon receive failed: {:?}", e),
