@@ -1,19 +1,30 @@
 //! Driver for the HASHCRYPT peripheral, mode switch sckeleton
 
 use embassy_hal_internal::Peri;
+use nxp_pac::sct0::regs::Res;
 use pac::hashcrypt::vals;
 use pac::syscon::vals::HashAesRst::Released;
 
 use crate::pac;
 use crate::peripherals::HASHCRYPT;
 
+pub enum KeySise {
+    Bits128,
+    Bits192,
+    Bits256,
+}
+
 // Generic driver type
-struct GenericDriver<'d> {
+pub struct GenericDriver<'d> {
     _peri: Peri<'d, HASHCRYPT>,
 }
 
 // mode switching implementation of generic driver
 impl<'d> GenericDriver<'d> {
+    pub fn new(peri: Peri<'d, HASHCRYPT>) -> Self {
+        Self { _peri: peri }
+    }
+
     pub fn sha1(&mut self) -> Sha1<'_, 'd> {
         Sha1 { _peri: self }
     }
@@ -33,6 +44,7 @@ impl<'d> GenericDriver<'d> {
     pub fn aes_ctr(&mut self) -> AesCtr<'_, 'd> {
         AesCtr { _peri: self }
     }
+    // rename to generic driver or _driver
 }
 
 pub trait Digest {
@@ -45,39 +57,102 @@ pub trait Digest {
 }
 
 pub trait Aes {
-    #[doc = "Accepts a 16 byte block of plain text to be encrypted via one of the supported AES modes, and returns 16 byte ciphertext"]
-    fn encrypt_block(&mut self, block: &[u8; 16]) -> [u8; 16];
-    #[doc = "Accepts the final 16 byte block of plain text to be encrypted via one of the supported AES modes, and returns 16 byte ciphertext. Use this function if this is final or only block to be encrypted"]
-    fn encrypt_final(self, block: &[u8; 16]) -> [u8; 16];
+    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), ()> {
+        todo!("Add method boady");
+        // Universal encrypt confuguration, meaning
+        // MSW1ST = true, MSW1ST_OUT = true, SWAPKEY = true, SWAPDAT = true, AESDECRYPT = Encrypt
+        // Chop user provided data into words, feed 4 words at the time to indata()
+        // Every 4 words, poll digest and apend it to ouptut
+        // If the final part of the message is less than 4 words, padd with 0s
+        // Before feeding last 4 words, flip STREAMEDLAST to true
+        // Check that data.len = output.len
+        // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
+    }
+    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), ()> {
+        todo!("Add method boady");
+        // Universal encrypt confuguration, meaning
+        // MSW1ST = true, MSW1ST_OUT = true, SWAPKEY = true, SWAPDAT = false, AESDECRYPT = Decrypt
+        // Chop user provided data into words, feed 4 words at the time to indata()
+        // Every 4 words, poll digest and apend it to ouptut
+        // If the final part of the message is less than 4 words, padd with 0s
+        // Before feeding last 4 words, flip STREAMEDLAST to true
+        // Check that data.len = output.len
+        // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
+    }
 
-    #[doc = "Accepts a 16 byte block of cipher text to be decrypted via one of the supported AES modes, and returns 16 byte plaintext"]
-    fn decrypt_block(&mut self, block: &[u8; 16]) -> [u8; 16];
-    #[doc = "Accepts the final 16 byte block of cipher text to be decrypted via one of the supported AES modes, and returns 16 byte plain text. Use this function if this is final or only block to be decrypted"]
-    fn decrypt_final(self, block: &[u8; 16]) -> [u8; 16];
+    fn set_key_size(&mut self, size: KeySise) {
+        todo!("Add method boady");
+        // Select key size via register calls
+    }
+
+    fn key_size(&self) -> u8 // or smthing whatever the return type of .len() is
+    {
+        todo!("Add method boady !");
+        // get key size via register calls
+    }
+
+    fn set_key(&mut self, key: &[u8]) -> Result<(), ()> {
+        todo!("Add method boady");
+        // use fn key_size to check against user provided data, compair key_size with key.len()
+    }
 }
 
 // Specific driver types
 // todo!("Add buffer, buffer len and message length for sha1");
-struct Sha1<'a, 'd> {
+pub struct Sha1<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
+}
+
+impl<'a, 'd> Digest for Sha1<'a, 'd> {
+    type Output = [u8; 20];
+
+    fn update(&mut self, data: &[u8]) {
+        todo!("Add update function for Sha1");
+    }
+
+    fn finalise(self) -> Self::Output {
+        todo!("Add finalise method for Sha1");
+    }
 }
 
 // todo!("Add buffer, buffer len and message length for sha2");
-struct Sha256<'a, 'd> {
+pub struct Sha256<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
 }
 
-// todo!("Add key ebc");
-struct AesEcb<'a, 'd> {
+impl<'a, 'd> Digest for Sha256<'a, 'd> {
+    type Output = [u8; 32];
+
+    fn update(&mut self, data: &[u8]) {
+        todo!("Add update method for Sha 256");
+    }
+
+    fn finalise(self) -> Self::Output {
+        todo!("Add finalise method for Sha 256");
+    }
+}
+
+pub struct AesEcb<'a, 'd> {
+    _peri: &'a mut GenericDriver<'d>,
+}
+impl<'a, 'd> AesEcb<'a, 'd> {
+    todo!("Add impl boady");
+}
+pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
 }
 
-// todo!("Add key and iv for cbc");
-struct AesCbc<'a, 'd> {
+impl<'a, 'd> AesCbc<'a, 'd> {
+    fn set_iv(iv: &[u8]) -> Result<(), ()> {
+        todo!("Add method boady");
+    }
+}
+pub struct AesCtr<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
 }
 
-// todo!("Add key and counter for ctr");
-struct AesCtr<'a, 'd> {
-    _peri: &'a mut GenericDriver<'d>,
+impl<'a, 'd> AesCtr<'a, 'd> {
+    pub fn set_counter(couteer: &[u8]) -> Result<(), ()> {
+        todo!("Add method boady");
+    }
 }
