@@ -185,12 +185,16 @@ impl<'a> TDesRing<'a> {
         Some(timestamp)
     }
 
+    #[cfg(not(feature = "ptp"))]
+    pub(crate) fn reclaim(&mut self) {
+        while self.reclaim_one().is_some() {}
+    }
+
     /// Whether the next `transmit` will be accepted.
     pub(crate) fn can_transmit(&mut self) -> bool {
-        // Without PTP nothing else reclaims completed descriptors, so do it here.
         // With PTP, `poll_timestamp` reclaims them so their timestamps are reported.
         #[cfg(not(feature = "ptp"))]
-        while self.reclaim_one().is_some() {}
+        self.reclaim();
 
         // If every descriptor is already submitted but not yet reclaimed,
         // the slot at `index` must not be reused.
