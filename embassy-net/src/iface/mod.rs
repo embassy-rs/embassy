@@ -9,6 +9,11 @@ pub mod dhcpv4;
 #[cfg(feature = "dhcpv4-server")]
 pub mod dhcpv4_server;
 
+#[cfg(feature = "packetmeta-timestamp")]
+use core::future::{Future, poll_fn};
+#[cfg(feature = "packetmeta-timestamp")]
+use core::task::Poll;
+
 use embassy_time::Instant;
 use heapless::Vec;
 use xarxa::config::IFACE_ADDR_COUNT;
@@ -116,7 +121,7 @@ impl<'d> Iface<'d> {
         self.with(|i| i.ip_mtu())
     }
 
-    /// Poll the device for the timestamp of an already-transmitted packet, sent with
+    /// Poll for the timestamp of an already-transmitted packet, sent with
     /// [`PacketMeta::request_timestamp`](xarxa::driver::PacketMeta::request_timestamp) set.
     ///
     /// Returns `None` if no timestamp is available right now, which is also all a
@@ -126,6 +131,22 @@ impl<'d> Iface<'d> {
     #[cfg(feature = "packetmeta-timestamp")]
     pub fn poll_tx_timestamp(&self) -> Option<xarxa::driver::TxTimestamp> {
         self.with(|i| i.poll_tx_timestamp())
+    }
+
+    /// Wait for a transmit timestamp on this interface.
+    ///
+    /// Keep the network runner running. Only one task may consume timestamps
+    /// per interface. Reports may be lost; use a timeout for missing reports.
+    /// Cancelling the wait does not consume a report. Cancel waits before
+    /// removing the interface from the stack.
+    #[cfg(feature = "packetmeta-timestamp")]
+    pub fn tx_timestamp(&self) -> impl Future<Output = xarxa::driver::TxTimestamp> + '_ {
+        poll_fn(|cx| {
+            self.with(|iface| {
+                iface.register_tx_timestamp_waker(cx.waker());
+                iface.poll_tx_timestamp().map_or(Poll::Pending, Poll::Ready)
+            })
+        })
     }
 
     /// The hardware address of the interface.
