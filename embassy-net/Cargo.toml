@@ -127,6 +127,10 @@ packetmeta-id = ["xarxa/packetmeta-id"]
 ## `Driver::poll_tx_timestamp`.
 packetmeta-timestamp = ["packetmeta-id", "xarxa/packetmeta-timestamp"]
 
+#! ### Serialization
+## Support (de)serializing some types using `serde`.
+serde = ["xarxa/serde"]
+
 #! ### Logging
 ## Log with the `log` crate.
 log = ["dep:log", "xarxa/log"]
@@ -141,8 +145,8 @@ packet-log = ["xarxa/packet-log"]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", default-features = false, features = ["async"] }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", default-features = false, features = ["async"] }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "d26bf86997757e5bdb635a0eb42abcf6d6340293", default-features = false, features = ["async"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "d26bf86997757e5bdb635a0eb42abcf6d6340293", default-features = false, features = ["async"] }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }

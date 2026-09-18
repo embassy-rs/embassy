@@ -5,7 +5,7 @@
 //! not using `embedded-nal-async`.
 
 pub(crate) use xarxa::dns::{GetQueryResultError, StartQueryError};
-pub use xarxa::wire::{DnsType as DnsQueryType, IpAddress};
+pub use xarxa::wire::{DnsType as DnsQueryType, IpAddr};
 
 /// Errors returned by DnsClient.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -59,7 +59,7 @@ impl<'d> DnsClient<'d> {
         &self,
         name: &str,
         qtype: DnsQueryType,
-    ) -> Result<heapless::Vec<IpAddress, { xarxa::config::DNS_MAX_RESULT_COUNT }>, Error> {
+    ) -> Result<heapless::Vec<IpAddr, { xarxa::config::DNS_MAX_RESULT_COUNT }>, Error> {
         self.stack.dns_query(name, qtype).await
     }
 }
@@ -73,8 +73,6 @@ impl<'d> embedded_nal_async::Dns for DnsClient<'d> {
         host: &str,
         addr_type: embedded_nal_async::AddrType,
     ) -> Result<core::net::IpAddr, Self::Error> {
-        use core::net::IpAddr;
-
         use embedded_nal_async::AddrType;
 
         let (qtype, secondary_qtype) = match addr_type {
@@ -100,9 +98,9 @@ impl<'d> embedded_nal_async::Dns for DnsClient<'d> {
         if let Some(first) = addrs.get(0) {
             Ok(match first {
                 #[cfg(feature = "ipv4")]
-                IpAddress::Ipv4(addr) => IpAddr::V4(*addr),
+                IpAddr::V4(addr) => core::net::IpAddr::V4(*addr),
                 #[cfg(feature = "ipv6")]
-                IpAddress::Ipv6(addr) => IpAddr::V6(*addr),
+                IpAddr::V6(addr) => core::net::IpAddr::V6(*addr),
             })
         } else {
             Err(Error::Failed)

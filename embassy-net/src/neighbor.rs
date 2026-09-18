@@ -1,7 +1,8 @@
 //! Neighbor cache.
 
 use embassy_time::Instant;
-use xarxa::wire::{HardwareAddress, IpAddress};
+use xarxa::error::NotUnicast;
+use xarxa::wire::{HardwareAddress, IpAddr};
 
 use crate::Stack;
 use crate::iface::IfaceHandle;
@@ -14,7 +15,7 @@ pub struct Neighbor {
     /// Interface the neighbor is reachable through.
     pub iface: IfaceHandle,
     /// The neighbor's IP address.
-    pub addr: IpAddress,
+    pub addr: IpAddr,
     /// Whether the hardware address is known yet.
     pub state: NeighborState,
 }
@@ -66,7 +67,7 @@ impl<'d> NeighborCache<'d> {
     }
 
     /// Look up a neighbor by interface and IP address.
-    pub fn get(&self, iface: IfaceHandle, addr: IpAddress) -> Option<Neighbor> {
+    pub fn get(&self, iface: IfaceHandle, addr: IpAddr) -> Option<Neighbor> {
         self.stack
             .with(|i| i.stack.neighbor_cache().get(iface, addr))
             .map(Neighbor::from_xarxa)
@@ -81,7 +82,17 @@ impl<'d> NeighborCache<'d> {
     }
 
     /// Insert a neighbor, replacing any entry for the same interface and address.
-    pub fn insert(&self, iface: IfaceHandle, addr: IpAddress, hardware_addr: HardwareAddress, expires_at: Instant) {
+    ///
+    /// Errors:
+    /// - `NotUnicast` if `addr` or `hardware_addr` is not unicast. The cache
+    ///   is left unchanged.
+    pub fn insert(
+        &self,
+        iface: IfaceHandle,
+        addr: IpAddr,
+        hardware_addr: HardwareAddress,
+        expires_at: Instant,
+    ) -> Result<(), NotUnicast> {
         self.stack.with_mut(|i| {
             i.stack
                 .neighbor_cache_mut()
@@ -90,7 +101,7 @@ impl<'d> NeighborCache<'d> {
     }
 
     /// Remove a neighbor, returning it.
-    pub fn remove(&self, iface: IfaceHandle, addr: IpAddress) -> Option<Neighbor> {
+    pub fn remove(&self, iface: IfaceHandle, addr: IpAddr) -> Option<Neighbor> {
         self.stack
             .with_mut(|i| i.stack.neighbor_cache_mut().remove(iface, addr))
             .map(Neighbor::from_xarxa)

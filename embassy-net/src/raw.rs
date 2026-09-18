@@ -14,7 +14,8 @@ pub use xarxa::wire::EthernetProtocol;
 #[cfg(feature = "raw-ip")]
 pub use xarxa::wire::{IpProtocol, IpVersion};
 
-use crate::{Full, Stack, TryError};
+use crate::error::Full;
+use crate::{Stack, TryError};
 
 /// Error returned by [`RawSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -214,10 +215,7 @@ impl<'d> RawSocket<'d> {
     /// Receive a packet with a zero-copy function.
     ///
     /// This method will wait until a packet is received.
-    pub async fn recv_with<F, R>(&mut self, f: F) -> Result<R, RecvError>
-    where
-        F: FnOnce(&[u8], PacketMeta) -> R,
-    {
+    pub async fn recv_with<R>(&mut self, f: impl FnOnce(&[u8], PacketMeta) -> R) -> Result<R, RecvError> {
         let packet = self.recv_packet().await?;
         Ok(f(&packet, packet.meta()))
     }
@@ -296,10 +294,11 @@ impl<'d> RawSocket<'d> {
     /// This method will wait until a packet buffer is available before passing
     /// it to the closure. The closure returns the number of bytes written into
     /// the buffer.
-    pub async fn send_with<F, R>(&mut self, max_size: usize, f: F) -> Result<R, SendError>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
+    pub async fn send_with<R>(
+        &mut self,
+        max_size: usize,
+        f: impl FnOnce(&mut [u8]) -> (usize, R),
+    ) -> Result<R, SendError> {
         let mut f = Some(f);
         poll_fn(move |cx| {
             self.with_mut(|s| {

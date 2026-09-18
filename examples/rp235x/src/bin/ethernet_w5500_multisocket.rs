@@ -84,7 +84,7 @@ async fn main(spawner: Spawner) {
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    iface.set_dhcpv4(Some(Default::default()));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
@@ -123,7 +123,7 @@ async fn listen_task(stack: Stack<'static>, id: u8, port: u16) {
             warn!("accept error: {:?}", e);
             continue;
         }
-        info!("SOCKET {}: Received connection from {:?}", id, socket.remote_endpoint());
+        info!("SOCKET {}: Received connection from {:?}", id, socket.remote_addr());
 
         loop {
             let n = match socket.read(&mut buf).await {
