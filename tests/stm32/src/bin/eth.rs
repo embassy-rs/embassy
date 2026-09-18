@@ -106,9 +106,9 @@ async fn main(spawner: Spawner) {
     let eth = unwrap!(stack.add_iface(ETH.init(device)));
 
     // Get an address over DHCP.
-    eth.set_dhcpv4(Some(Default::default()));
-    //eth.add_ip_addr(IpCidr::new(Ipv4Address::new(10, 42, 0, 61).into(), 24)).unwrap();
-    //stack.routes().add_default_ipv4_route(Ipv4Address::new(10, 42, 0, 1), eth.handle()).unwrap();
+    unwrap!(eth.set_dhcpv4(Some(Default::default())));
+    //eth.add_ip_addr(IpCidr::new(Ipv4Addr::new(10, 42, 0, 61).into(), 24)).unwrap();
+    //stack.routes().add_default_ipv4_route(Ipv4Addr::new(10, 42, 0, 1), eth.handle()).unwrap();
 
     #[cfg(feature = "stop")]
     let _guard = WakeGuard::new(StopMode::Stop1);

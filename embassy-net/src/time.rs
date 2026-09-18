@@ -10,7 +10,7 @@ pub(crate) fn instant_to_xarxa(instant: Instant) -> XarxaInstant {
 }
 
 pub(crate) fn instant_from_xarxa(instant: XarxaInstant) -> Instant {
-    Instant::from_micros(instant.total_micros().max(0) as u64)
+    Instant::from_micros(instant.as_micros().max(0) as u64)
 }
 
 pub(crate) fn duration_to_xarxa(duration: Duration) -> XarxaDuration {
@@ -18,5 +18,5 @@ pub(crate) fn duration_to_xarxa(duration: Duration) -> XarxaDuration {
 }
 
 pub(crate) fn duration_from_xarxa(duration: XarxaDuration) -> Duration {
-    Duration::from_micros(duration.total_micros())
+    Duration::from_micros(duration.as_micros())
 }

@@ -11,15 +11,14 @@ pub mod dhcpv4_server;
 
 use embassy_time::Instant;
 use heapless::Vec;
-use xarxa::Full;
 use xarxa::config::IFACE_ADDR_COUNT;
 use xarxa::driver::{Capabilities, Driver, LinkState};
 #[cfg(feature = "multicast")]
 pub use xarxa::iface::MulticastError;
 #[cfg(feature = "slaac")]
 pub use xarxa::iface::slaac;
-pub use xarxa::iface::{AddrOrigin, IfaceHandle, Medium};
-use xarxa::wire::{HardwareAddress, IpAddress, IpCidr};
+pub use xarxa::iface::{AddIfaceError, AddrError, AddrOrigin, IfaceHandle, Medium, MediumMismatch};
+use xarxa::wire::{HardwareAddress, IpAddr, IpCidr};
 
 use crate::time::instant_from_xarxa;
 use crate::{Stack, is_config_up, is_link_up, wait_iface};
@@ -143,9 +142,10 @@ impl<'d> Iface<'d> {
     /// immediately. It does not announce the change on the link, so peers keep the
     /// old address in their neighbor caches until it expires.
     ///
-    /// # Panics
-    /// Panics if the address is not of the kind the device's medium uses.
-    pub fn set_hardware_addr(&self, addr: HardwareAddress) {
+    /// Errors:
+    /// - `MediumMismatch` if the address is not of the kind the interface's
+    ///   medium uses. The interface is left unchanged.
+    pub fn set_hardware_addr(&self, addr: HardwareAddress) -> Result<(), MediumMismatch> {
         self.with_mut(|i| i.set_hardware_addr(addr))
     }
 
@@ -155,7 +155,7 @@ impl<'d> Iface<'d> {
     }
 
     /// Whether the given address is assigned to the interface.
-    pub fn has_ip_addr(&self, addr: impl Into<IpAddress>) -> bool {
+    pub fn has_ip_addr(&self, addr: impl Into<IpAddr>) -> bool {
         self.with(|i| i.has_ip_addr(addr))
     }
 
@@ -165,18 +165,16 @@ impl<'d> Iface<'d> {
     /// previous CIDR returned. Otherwise the address is appended and `None` is
     /// returned.
     ///
-    /// # Panics
-    /// Panics if the address is not unicast.
-    ///
     /// Errors:
+    /// - `NotUnicast` if the address is not unicast.
     /// - `Full` if the interface has no room for another address.
-    pub fn add_ip_addr(&self, cidr: IpCidr) -> Result<Option<IpCidr>, Full> {
+    pub fn add_ip_addr(&self, cidr: IpCidr) -> Result<Option<IpCidr>, AddrError> {
         self.with_mut(|i| i.add_ip_addr(cidr))
     }
 
     /// Unassign an IP address from the interface, returning the CIDR it was
     /// assigned with, or `None` if it was not assigned.
-    pub fn remove_ip_addr(&self, addr: impl Into<IpAddress>) -> Option<IpCidr> {
+    pub fn remove_ip_addr(&self, addr: impl Into<IpAddr>) -> Option<IpCidr> {
         self.with_mut(|i| i.remove_ip_addr(addr))
     }
 
@@ -185,12 +183,12 @@ impl<'d> Iface<'d> {
     /// Equivalent to removing every address and adding the given ones. The
     /// automatic IPv6 link-local address is kept.
     ///
-    /// # Panics
-    /// Panics if any of the addresses is not unicast.
+    /// On error the interface is left unchanged.
     ///
     /// Errors:
-    /// - `Full` if the addresses do not fit. The interface is left unchanged.
-    pub fn set_ip_addrs(&self, addrs: impl IntoIterator<Item = IpCidr>) -> Result<(), Full> {
+    /// - `NotUnicast` if any of the addresses is not unicast.
+    /// - `Full` if the addresses do not fit.
+    pub fn set_ip_addrs(&self, addrs: impl IntoIterator<Item = IpCidr>) -> Result<(), AddrError> {
         self.with_mut(|i| i.set_ip_addrs(addrs))
     }
 
@@ -210,10 +208,10 @@ impl<'d> Iface<'d> {
     /// client is turned off. Turning it on when it is already on restarts it with
     /// the new configuration.
     ///
-    /// # Panics
-    /// Panics if the interface is not an Ethernet interface.
+    /// Errors:
+    /// - `MediumMismatch` if the interface is not an Ethernet interface.
     #[cfg(feature = "dhcpv4")]
-    pub fn set_dhcpv4(&self, config: Option<dhcpv4::DhcpConfig>) {
+    pub fn set_dhcpv4(&self, config: Option<dhcpv4::DhcpConfig>) -> Result<(), MediumMismatch> {
         self.with_mut(|i| i.set_dhcpv4(config.map(|c| c.to_xarxa())))
     }
 
@@ -241,11 +239,16 @@ impl<'d> Iface<'d> {
     /// Turning the server off, or on again with a new configuration, drops all
     /// leases.
     ///
-    /// # Panics
-    /// Panics if the interface is not an Ethernet interface, or if the pool is
-    /// backwards (`pool_start` above `pool_end`).
+    /// On error the server is left as it was.
+    ///
+    /// Errors:
+    /// - `MediumMismatch` if the interface is not an Ethernet interface.
+    /// - `InvalidPool` if `pool_end` is below `pool_start`.
     #[cfg(feature = "dhcpv4-server")]
-    pub fn set_dhcpv4_server(&self, config: Option<dhcpv4_server::DhcpServerConfig>) {
+    pub fn set_dhcpv4_server(
+        &self,
+        config: Option<dhcpv4_server::DhcpServerConfig>,
+    ) -> Result<(), dhcpv4_server::DhcpServerError> {
         self.with_mut(|i| i.set_dhcpv4_server(config.map(|c| c.to_xarxa())))
     }
 
@@ -274,13 +277,17 @@ impl<'d> Iface<'d> {
     ///
     /// The client is not told: it keeps using the address until it next renews.
     #[cfg(feature = "dhcpv4-server")]
-    pub fn remove_dhcpv4_server_lease(&self, address: xarxa::wire::Ipv4Address) -> bool {
+    pub fn remove_dhcpv4_server_lease(&self, address: xarxa::wire::Ipv4Addr) -> bool {
         self.with_mut(|i| i.remove_dhcpv4_server_lease(address))
     }
 
     /// Turn SLAAC on, with the given configuration, or off with `None`.
+    ///
+    /// Errors:
+    /// - `MediumMismatch` if the interface is not an Ethernet or IEEE 802.15.4
+    ///   interface.
     #[cfg(feature = "slaac")]
-    pub fn set_slaac(&self, config: Option<slaac::SlaacConfig>) {
+    pub fn set_slaac(&self, config: Option<slaac::SlaacConfig>) -> Result<(), MediumMismatch> {
         self.with_mut(|i| i.set_slaac(config))
     }
 
@@ -298,19 +305,19 @@ impl<'d> Iface<'d> {
 
     /// Join a multicast group.
     #[cfg(feature = "multicast")]
-    pub fn join_multicast_group(&self, addr: impl Into<IpAddress>) -> Result<(), MulticastError> {
+    pub fn join_multicast_group(&self, addr: impl Into<IpAddr>) -> Result<(), MulticastError> {
         self.with_mut(|i| i.join_multicast_group(addr))
     }
 
     /// Leave a multicast group.
     #[cfg(feature = "multicast")]
-    pub fn leave_multicast_group(&self, addr: impl Into<IpAddress>) -> Result<(), MulticastError> {
+    pub fn leave_multicast_group(&self, addr: impl Into<IpAddr>) -> Result<(), MulticastError> {
         self.with_mut(|i| i.leave_multicast_group(addr))
     }
 
     /// Whether the interface has joined the given multicast group.
     #[cfg(feature = "multicast")]
-    pub fn has_multicast_group(&self, addr: impl Into<IpAddress>) -> bool {
+    pub fn has_multicast_group(&self, addr: impl Into<IpAddr>) -> bool {
         self.with(|i| i.has_multicast_group(addr))
     }
 

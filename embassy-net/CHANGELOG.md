@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added APIs to access and edit the neighbor cache
 - Feature `proto-ipv4`/`proto-ipv6` renamed to `ipv4`/`ipv6`.
 - Feature `icmp-ping-reply` is no longer enabled by default. Enable it if you want your device to respond to pings.
-- Wire types (`Ipv4Address`, `IpCidr`, ...) moved to `embassy_net::wire`.
+- Wire types (`Ipv4Addr`, `IpCidr`, ...) moved to `embassy_net::wire`.
 - Implement `core::error::Error` for `dns::Error`, `tcp::AcceptError`, `udp::SendError` and `udp::RecvError`.
 - Prevent double DHCP DISCOVER on link state change.
 - Add functions to query the configuration state of IPv4 and IPv6 separately.

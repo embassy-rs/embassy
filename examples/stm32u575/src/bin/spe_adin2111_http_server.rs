@@ -33,7 +33,7 @@ use embassy_futures::select::{Either, select};
 use embassy_net::iface::Iface;
 use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::udp::UdpSocket;
-use embassy_net::wire::{IpAddress, IpCidr, IpEndpoint, Ipv6Address, Ipv6Cidr};
+use embassy_net::wire::{IpAddr, IpCidr, Ipv6Addr, Ipv6Cidr, SocketAddr};
 use embassy_net::{Stack, StackStorage};
 use embassy_net_adin1110::{ADIN1110, Device, Runner, Tc6, TxPort};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
@@ -94,7 +94,7 @@ fn node_id() -> u64 {
 /// Matches `bm_ip_init()` in bm_core (`network/bm_lwip.c`).
 fn node_ip(id: u64) -> Ipv6Cidr {
     let b = id.to_be_bytes();
-    let addr = Ipv6Address::new(
+    let addr = Ipv6Addr::new(
         0xfd00,
         0,
         0,
@@ -247,7 +247,7 @@ async fn main(spawner: Spawner) {
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    unwrap!(iface.add_ip_addr(IpCidr::Ipv6(ip_address)));
+    unwrap!(iface.add_ip_addr(IpCidr::V6(ip_address)));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
@@ -315,7 +315,7 @@ async fn main(spawner: Spawner) {
 
             info!(
                 "Served page to {:?}, temperature {}.{} C",
-                socket.remote_endpoint(),
+                socket.remote_addr(),
                 cel,
                 mcel
             );
@@ -353,7 +353,7 @@ async fn main(spawner: Spawner) {
 
 /// Multicast group for the discovery beacon. Link-local scope, because one
 /// Bristlemouth segment is a single L2 broadcast domain.
-const DISCOVERY_GROUP: Ipv6Address = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 0x0042);
+const DISCOVERY_GROUP: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0x0042);
 /// UDP port for the discovery beacon.
 const DISCOVERY_PORT: u16 = 4242;
 /// How often each node announces itself.
@@ -385,7 +385,7 @@ async fn discovery_task(iface: Iface<'static>, my_node_id: u64) -> ! {
     let mut socket = unwrap!(UdpSocket::new(stack));
     unwrap!(socket.bind(DISCOVERY_PORT));
 
-    let group = IpEndpoint::new(IpAddress::Ipv6(DISCOVERY_GROUP), DISCOVERY_PORT);
+    let group = SocketAddr::new(IpAddr::V6(DISCOVERY_GROUP), DISCOVERY_PORT);
     let mut beacon = Ticker::every(BEACON_INTERVAL);
     let mut buf = [0u8; 64];
 
@@ -461,7 +461,7 @@ async fn neighbor_fetch_task(stack: Stack<'static>) -> ! {
             continue;
         }
         let neighbor_ip = node_ip(peer).address();
-        let remote = IpEndpoint::new(IpAddress::Ipv6(neighbor_ip), HTTP_LISTEN_PORT);
+        let remote = SocketAddr::new(IpAddr::V6(neighbor_ip), HTTP_LISTEN_PORT);
 
         let started = embassy_time::Instant::now();
         let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
