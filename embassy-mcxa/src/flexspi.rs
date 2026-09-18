@@ -60,6 +60,7 @@ pub mod lookup {
     pub enum Command {
         Read = 0,
         ReadStatus = 1,
+        ReadConfig = 2,
         WriteEnable = 3,
         WriteStatus = 4,
         EraseSector = 5,
@@ -1054,18 +1055,42 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     fn issue_ip_write_command(&mut self, address: u32, seq_index: usize, data: &[u8]) -> Result<(), IoError> {
+        #[cfg(feature = "defmt")]
+        defmt::info!(
+            "FLEXSPI WRITE_DIAG seq={} addr={:#010x} len={}",
+            seq_index,
+            address,
+            data.len()
+        );
+
         self.prepare_ip_transfer();
 
         self.info
             .regs
             .ipcr0()
             .write(|r: &mut Ipcr0| r.set_sfar(self.ip_sfar(address)));
+
         self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data.len() as u16);
             r.set_iseqid(seq_index as u8);
             r.set_iseqnum(0);
             r.set_iparen(false);
         });
+
+        #[cfg(feature = "defmt")]
+        {
+            let intr = self.info.regs.intr().read();
+            defmt::info!(
+                "FLEXSPI IP_DIAG seq={} idatsz={} txwmrk={} iptxwe={} done={} cmderr={} cmdge={}",
+                seq_index,
+                self.info.regs.ipcr1().read().idatsz(),
+                self.info.regs.iptxfcr().read().txwmrk(),
+                intr.iptxwe(),
+                intr.ipcmddone(),
+                intr.ipcmderr(),
+                intr.ipcmdge()
+            );
+        }
 
         self.info
             .regs
@@ -1076,25 +1101,67 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         let mut offset = 0;
 
         while offset < data.len() {
+            #[cfg(feature = "defmt")]
+            defmt::info!(
+                "FLEXSPI TX_DIAG before_tfdr fill={=u8}",
+                self.info.regs.iptxfsts().read().fill()
+            );
+
             while !self.info.regs.intr().read().iptxwe() {}
 
             let chunk_len = (8 * tx_watermark).min(data.len() - offset);
+
             for (index, chunk) in data[offset..offset + chunk_len].chunks(4).enumerate() {
-                // Pad the trailing partial word with 0xFF.
                 let mut word = [0xFFu8; 4];
                 word[..chunk.len()].copy_from_slice(chunk);
                 self.info.regs.tfdr(index).write_value(Tfdr(u32::from_le_bytes(word)));
             }
 
+            #[cfg(feature = "defmt")]
+            defmt::info!(
+                "FLEXSPI TX_DIAG after_tfdr fill={=u8}",
+                self.info.regs.iptxfsts().read().fill()
+            );
+
             offset += chunk_len;
+
             self.info.regs.intr().write(|r: &mut Intr| r.set_iptxwe(true));
+
+            #[cfg(feature = "defmt")]
+            defmt::info!(
+                "FLEXSPI TX_DIAG after_iptxwe_ack fill={=u8}",
+                self.info.regs.iptxfsts().read().fill()
+            );
         }
 
         self.wait_ip_command_done();
+
+        #[cfg(feature = "defmt")]
+        {
+            let intr = self.info.regs.intr().read();
+            let sts1 = self.info.regs.sts1().read();
+
+            defmt::info!(
+                "FLEXSPI IP_DONE seq={} idatsz={} iptxwe={} done={} cmderr={} cmdge={} errcode={:?}",
+                seq_index,
+                self.info.regs.ipcr1().read().idatsz(),
+                intr.iptxwe(),
+                intr.ipcmddone(),
+                intr.ipcmderr(),
+                intr.ipcmdge(),
+                sts1.ipcmderrcode()
+            );
+        }
+
+        #[cfg(feature = "defmt")]
+        defmt::info!(
+            "FLEXSPI TX_DIAG after_ipcmddone fill={=u8}",
+            self.info.regs.iptxfsts().read().fill()
+        );
+
         self.wait_idle();
         self.wait_no_ip_error()
     }
-
     fn issue_ip_read_command(&mut self, address: u32, seq_index: usize, buffer: &mut [u8]) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
@@ -1620,6 +1687,60 @@ impl<'d> Flexspi<'d, Blocking> {
         self.inner.ip_config_index = index;
     }
 
+    /// Read using an explicitly selected LUT sequence.
+    ///
+    /// Intended for validating alternate flash read protocols without
+    /// changing the active AHB/XIP read sequence.
+    pub fn read_with_seq(&mut self, address: u32, seq_index: u8, buffer: &mut [u8]) -> Result<(), IoError> {
+        self.inner.check_in_bounds(address, buffer.len())?;
+
+        let mut offset = 0;
+
+        while offset < buffer.len() {
+            let remaining = buffer.len() - offset;
+            let chunk = remaining.min(IP_FIFO_CAPACITY_BYTES);
+
+            self.inner.issue_ip_read_command(
+                address + offset as u32,
+                seq_index as usize,
+                &mut buffer[offset..offset + chunk],
+            )?;
+
+            offset += chunk;
+        }
+
+        Ok(())
+    }
+    /// Set selected status-register bits using an explicitly selected
+    /// write-status LUT sequence, preserving all existing status bits.
+    ///
+    /// Returns the status register value read back after the write completes.
+    pub fn set_status_bits_with_seq(
+        &mut self,
+        seq_index: u8,
+        bits: u8,
+        config: u8,
+    ) -> Result<(u8, u8, u8), (u8, IoError)> {
+        let current = self.inner.read_status().map_err(|e| (1, e))?;
+        let updated = current | bits;
+        let mut after_wren = current;
+
+        if updated != current {
+            self.inner.write_enable().map_err(|e| (2, e))?;
+
+            after_wren = self.inner.read_status().map_err(|e| (3, e))?;
+
+            self.inner
+                .issue_ip_write_command(0, seq_index as usize, &[updated, config])
+                .map_err(|e| (4, e))?;
+
+            self.inner.wait_bus_busy().map_err(|e| (5, e))?;
+        }
+
+        let after_wrsr = self.inner.read_status().map_err(|e| (6, e))?;
+
+        Ok((current, after_wren, after_wrsr))
+    }
     /// Attach to a FlexSPI controller already configured for active XIP.
     ///
     /// Unlike `new_blocking`, this does not mux pins, reset the peripheral,
