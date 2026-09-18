@@ -152,11 +152,16 @@ impl<'a> TDesRing<'a> {
 
     /// The oldest submitted descriptor not yet reclaimed.
     const fn completion_index(&self) -> usize {
-        (self.index + self.len() - self.in_flight) % self.len()
+        if self.index >= self.in_flight {
+            self.index - self.in_flight
+        } else {
+            self.len() - (self.in_flight - self.index)
+        }
     }
 
     /// Reclaim the oldest completed descriptor: free its buffer and return its
     /// transmit timestamp, if any. `None` if nothing completed.
+    #[inline]
     fn reclaim_one(&mut self) -> Option<Completion> {
         if self.in_flight == 0 {
             return None;
@@ -265,7 +270,8 @@ impl<'a> TDesRing<'a> {
         self.in_flight += 1;
 
         // Increment index.
-        self.index = (self.index + 1) % self.descriptors.len();
+        let next = self.index + 1;
+        self.index = if next == self.descriptors.len() { 0 } else { next };
     }
 }
 
@@ -486,7 +492,8 @@ impl<'a> RDesRing<'a> {
             return Some(Timestamp::default());
         }
 
-        let next = (self.index + 1) % self.descriptors.len();
+        let next = self.index + 1;
+        let next = if next == self.descriptors.len() { 0 } else { next };
         let context = &self.descriptors[next];
         let info = context.info();
         if info.context_available() {
@@ -518,6 +525,7 @@ impl<'a> RDesRing<'a> {
         dma_ch0!(ETH.ethernet_dma(), dmac_rx_dtpr).write(|w| w.0 = &rd as *const _ as u32);
 
         // Increment index.
-        self.index = (self.index + 1) % self.descriptors.len();
+        let next = self.index + 1;
+        self.index = if next == self.descriptors.len() { 0 } else { next };
     }
 }
