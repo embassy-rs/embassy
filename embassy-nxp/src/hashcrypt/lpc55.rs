@@ -8,7 +8,7 @@ use pac::syscon::vals::HashAesRst::Released;
 use crate::pac;
 use crate::peripherals::HASHCRYPT;
 
-pub enum KeySise {
+pub enum KeySize {
     Bits128,
     Bits192,
     Bits256,
@@ -70,7 +70,7 @@ pub trait Aes {
     }
     fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), ()> {
         todo!("Add method boady");
-        // Universal encrypt confuguration, meaning
+        // Universal decrypt confuguration, meaning
         // MSW1ST = true, MSW1ST_OUT = true, SWAPKEY = true, SWAPDAT = false, AESDECRYPT = Decrypt
         // Chop user provided data into words, feed 4 words at the time to indata()
         // Every 4 words, poll digest and apend it to ouptut
@@ -80,13 +80,12 @@ pub trait Aes {
         // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
     }
 
-    fn set_key_size(&mut self, size: KeySise) {
+    fn set_key_size(&mut self, size: KeySize) {
         todo!("Add method boady");
         // Select key size via register calls
     }
 
-    fn key_size(&self) -> u8 // or smthing whatever the return type of .len() is
-    {
+    fn key_size(&self) -> u8 {
         todo!("Add method boady !");
         // get key size via register calls
     }
@@ -135,15 +134,22 @@ impl<'a, 'd> Digest for Sha256<'a, 'd> {
 pub struct AesEcb<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
 }
+
+impl<'a, 'd> Aes for AesEcb<'a, 'd> {
+    // No change to the default methods needed
+}
+
 impl<'a, 'd> AesEcb<'a, 'd> {
-    todo!("Add impl boady");
+    // Does not require anything passed the default aes methods
 }
 pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
 }
-
+impl<'a, 'd> Aes for AesCbc<'a, 'd> {
+    // Does not require anything passed the default aes methods
+}
 impl<'a, 'd> AesCbc<'a, 'd> {
-    fn set_iv(iv: &[u8]) -> Result<(), ()> {
+    fn set_iv(&mut self, iv: &[u8; 16]) -> Result<(), ()> {
         todo!("Add method boady");
     }
 }
@@ -151,8 +157,12 @@ pub struct AesCtr<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
 }
 
+impl<'a, 'd> Aes for AesCtr<'a, 'd> {
+    // Does not require anything passed the default aes methods
+}
+
 impl<'a, 'd> AesCtr<'a, 'd> {
-    pub fn set_counter(couteer: &[u8]) -> Result<(), ()> {
+    pub fn set_counter(&mut self, couteer: &[u8; 16]) -> Result<(), ()> {
         todo!("Add method boady");
     }
 }
