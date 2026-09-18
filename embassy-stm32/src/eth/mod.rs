@@ -76,13 +76,22 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     /// in a stack overflow.
     ///
     /// With this function, you can create an uninitialized `static` with type `MaybeUninit<PacketQueue<...>>`
-    /// and initialize it in-place, guaranteeing no stack usage.
+    /// and initialize the descriptor and buffer arrays in-place.
     ///
     /// After calling this function, calling `assume_init` on the MaybeUninit is guaranteed safe.
     pub fn init(this: &mut MaybeUninit<Self>) {
-        // All-zero bytes are a valid `PacketQueue`: zeroed descriptors, and `None` buffers.
+        // Descriptors are valid when zeroed. Construct buffers without relying
+        // on their private representation.
         unsafe {
-            this.as_mut_ptr().write_bytes(0u8, 1);
+            let ptr = this.as_mut_ptr();
+            (&raw mut (*ptr).tx_desc).write_bytes(0, 1);
+            (&raw mut (*ptr).rx_desc).write_bytes(0, 1);
+            for i in 0..TX {
+                (&raw mut (*ptr).tx_buf[i]).write(None);
+            }
+            for i in 0..RX {
+                (&raw mut (*ptr).rx_buf[i]).write(None);
+            }
         }
     }
 }
