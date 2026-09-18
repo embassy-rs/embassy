@@ -116,18 +116,6 @@ impl<'d> Iface<'d> {
         self.with(|i| i.ip_mtu())
     }
 
-    /// Poll the device for the timestamp of an already-transmitted packet, sent with
-    /// [`PacketMeta::request_timestamp`](xarxa::driver::PacketMeta::request_timestamp) set.
-    ///
-    /// Returns `None` if no timestamp is available right now, which is also all a
-    /// device without transmit timestamping support ever returns. Timestamps arrive
-    /// an arbitrary time after the packet was sent, possibly out of order, and
-    /// possibly never, so poll this repeatedly rather than once after sending.
-    #[cfg(feature = "packetmeta-timestamp")]
-    pub fn poll_tx_timestamp(&self) -> Option<xarxa::driver::TxTimestamp> {
-        self.with(|i| i.poll_tx_timestamp())
-    }
-
     /// The hardware address of the interface.
     ///
     /// Initially the address the device reported when the interface was added.
