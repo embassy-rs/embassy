@@ -526,7 +526,12 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         let mut this = Self {
             _peri: peri,
             wake_guard: T::RCC_INFO.wake_guard().into(),
-            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
+            tx: TDesRing::new(
+                &mut queue.tx_desc,
+                &mut queue.tx_buf,
+                #[cfg(feature = "ptp")]
+                queue.tx_timestamps.as_mut_view(),
+            ),
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
             _pins: pins,
             phy,
