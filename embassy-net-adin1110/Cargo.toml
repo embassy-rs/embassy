@@ -20,7 +20,7 @@ embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 bitfield = "0.14.0"
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "d26bf86997757e5bdb635a0eb42abcf6d6340293", optional = true }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "d26bf86997757e5bdb635a0eb42abcf6d6340293", optional = true, features = ["async"] }
 
 [dev-dependencies]
 embedded-hal-mock = { version = "0.10.0", features = ["embedded-hal-async", "eh1"] }
