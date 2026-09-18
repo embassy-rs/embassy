@@ -239,6 +239,8 @@ impl<'a> TDesRing<'a> {
             return None;
         }
 
+        // Observe DMA write-back before reading the timestamp or releasing the buffer.
+        fence(Ordering::Acquire);
         #[cfg(feature = "ptp")]
         let timestamp = descriptor.timestamp();
         #[cfg(not(feature = "ptp"))]
