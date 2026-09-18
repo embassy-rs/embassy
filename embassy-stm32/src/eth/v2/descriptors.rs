@@ -152,11 +152,16 @@ impl<'a> TDesRing<'a> {
 
     /// The oldest submitted descriptor not yet reclaimed.
     const fn completion_index(&self) -> usize {
-        (self.index + self.len() - self.in_flight) % self.len()
+        if self.index >= self.in_flight {
+            self.index - self.in_flight
+        } else {
+            self.len() - (self.in_flight - self.index)
+        }
     }
 
     /// Reclaim the oldest completed descriptor: free its buffer and return its
     /// transmit timestamp, if any. `None` if nothing completed.
+    #[inline]
     fn reclaim_one(&mut self) -> Option<Completion> {
         if self.in_flight == 0 {
             return None;
@@ -167,6 +172,8 @@ impl<'a> TDesRing<'a> {
             return None;
         }
 
+        // Observe DMA write-back before reading the timestamp or releasing the buffer.
+        fence(Ordering::Acquire);
         #[cfg(feature = "ptp")]
         let timestamp = descriptor.timestamp();
         #[cfg(not(feature = "ptp"))]
@@ -178,12 +185,16 @@ impl<'a> TDesRing<'a> {
         Some(timestamp)
     }
 
+    #[cfg(not(feature = "ptp"))]
+    pub(crate) fn reclaim(&mut self) {
+        while self.reclaim_one().is_some() {}
+    }
+
     /// Whether the next `transmit` will be accepted.
     pub(crate) fn can_transmit(&mut self) -> bool {
-        // Without PTP nothing else reclaims completed descriptors, so do it here.
         // With PTP, `poll_timestamp` reclaims them so their timestamps are reported.
         #[cfg(not(feature = "ptp"))]
-        while self.reclaim_one().is_some() {}
+        self.reclaim();
 
         // If every descriptor is already submitted but not yet reclaimed,
         // the slot at `index` must not be reused.
@@ -263,7 +274,8 @@ impl<'a> TDesRing<'a> {
         self.in_flight += 1;
 
         // Increment index.
-        self.index = (self.index + 1) % self.descriptors.len();
+        let next = self.index + 1;
+        self.index = if next == self.descriptors.len() { 0 } else { next };
     }
 }
 
@@ -484,7 +496,8 @@ impl<'a> RDesRing<'a> {
             return Some(Timestamp::default());
         }
 
-        let next = (self.index + 1) % self.descriptors.len();
+        let next = self.index + 1;
+        let next = if next == self.descriptors.len() { 0 } else { next };
         let context = &self.descriptors[next];
         let info = context.info();
         if info.context_available() {
@@ -516,6 +529,7 @@ impl<'a> RDesRing<'a> {
         dma_ch0!(ETH.ethernet_dma(), dmac_rx_dtpr).write(|w| w.0 = &rd as *const _ as u32);
 
         // Increment index.
-        self.index = (self.index + 1) % self.descriptors.len();
+        let next = self.index + 1;
+        self.index = if next == self.descriptors.len() { 0 } else { next };
     }
 }
