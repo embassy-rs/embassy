@@ -18,6 +18,8 @@ use crate::{PowerManagementMode, countries, events};
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum JoinError {
+    /// The passphrase is invalid for the selected authentication mode.
+    InvalidPassphrase,
     /// Network not found.
     NetworkNotFound,
     /// Failure to join network. Contains the status code from the SET_SSID event.
@@ -120,13 +122,14 @@ pub struct JoinOptions<'a> {
     pub cipher_tkip: bool,
     /// Enable AES encryption. Default true.
     pub cipher_aes: bool,
-    /// Passphrase. Default empty.
+    /// Passphrase. Must contain between 8 and 64 bytes for an encrypted network.
+    /// Default empty.
     pub passphrase: &'a [u8],
     /// If false, `passphrase` is the human-readable passphrase string.
     /// If true, `passphrase` is the result of applying the PBKDF2 hash to the
     /// passphrase string. This makes it possible to avoid storing unhashed passwords.
     ///
-    /// This is not compatible with WPA3.
+    /// Pre-hashed passphrases must contain exactly 32 bytes and are not compatible with WPA3.
     /// Default false.
     pub passphrase_is_prehashed: bool,
 }
@@ -163,6 +166,24 @@ impl<'a> Default for JoinOptions<'a> {
             passphrase: &[],
             passphrase_is_prehashed: false,
         }
+    }
+}
+
+fn validate_join_options(options: &JoinOptions<'_>) -> Result<(), JoinError> {
+    if options.auth == JoinAuth::Open {
+        return Ok(());
+    }
+
+    let valid = if options.passphrase_is_prehashed {
+        matches!(options.auth, JoinAuth::Wpa | JoinAuth::Wpa2) && options.passphrase.len() == 32
+    } else {
+        (MIN_PSK_LEN..=MAX_PSK_LEN).contains(&options.passphrase.len())
+    };
+
+    if valid {
+        Ok(())
+    } else {
+        Err(JoinError::InvalidPassphrase)
     }
 }
 
@@ -320,6 +341,8 @@ impl<'a> Control<'a> {
 
     /// Join a network with the provided SSID using the specified options.
     pub async fn join(&mut self, ssid: &str, options: JoinOptions<'_>) -> Result<(), JoinError> {
+        validate_join_options(&options)?;
+
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
         if options.auth == JoinAuth::Open {
@@ -441,6 +464,7 @@ impl<'a> Control<'a> {
 
         match result {
             Ok(()) => debug!("JOINED"),
+            Err(JoinError::InvalidPassphrase) => debug!("JOIN failed: invalid passphrase"),
             Err(JoinError::JoinFailure(status)) => debug!("JOIN failed: status={}", status),
             Err(JoinError::NetworkNotFound) => debug!("JOIN failed: network not found"),
             Err(JoinError::AuthenticationFailure) => debug!("JOIN failed: authentication failure"),
@@ -802,6 +826,61 @@ impl<'a> Control<'a> {
         let mut mac_addr = [0; 6];
         assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
         mac_addr
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_join_passphrase() {
+        let too_short = [0; MIN_PSK_LEN - 1];
+        assert!(matches!(
+            validate_join_options(&JoinOptions::new(&too_short)),
+            Err(JoinError::InvalidPassphrase)
+        ));
+
+        let minimum = [0; MIN_PSK_LEN];
+        assert!(validate_join_options(&JoinOptions::new(&minimum)).is_ok());
+
+        let maximum = [0; MAX_PSK_LEN];
+        assert!(validate_join_options(&JoinOptions::new(&maximum)).is_ok());
+
+        let too_long = [0; MAX_PSK_LEN + 1];
+        assert!(matches!(
+            validate_join_options(&JoinOptions::new(&too_long)),
+            Err(JoinError::InvalidPassphrase)
+        ));
+    }
+
+    #[test]
+    fn validate_join_prehashed_passphrase() {
+        let passphrase = [0; 32];
+        let mut options = JoinOptions::new(&passphrase);
+        options.auth = JoinAuth::Wpa2;
+        options.passphrase_is_prehashed = true;
+        assert!(validate_join_options(&options).is_ok());
+
+        options.auth = JoinAuth::Wpa3;
+        assert!(matches!(
+            validate_join_options(&options),
+            Err(JoinError::InvalidPassphrase)
+        ));
+
+        let invalid_passphrase = [0; 31];
+        options.auth = JoinAuth::Wpa2;
+        options.passphrase = &invalid_passphrase;
+        assert!(matches!(
+            validate_join_options(&options),
+            Err(JoinError::InvalidPassphrase)
+        ));
+    }
+
+    #[test]
+    fn validate_join_open_network_ignores_passphrase() {
+        let options = JoinOptions::new_open();
+        assert!(validate_join_options(&options).is_ok());
     }
 }
 
