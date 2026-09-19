@@ -37,6 +37,8 @@ pub enum BbqError {
     WrongParts,
     /// Requested an [`RxMode::MaxFrame`] too large for the provided buffer
     MaxFrameTooLarge,
+    /// Requested an invalid continuous RX half size for the provided buffer
+    InvalidContinuousRxSize,
 }
 
 impl core::fmt::Display for BbqError {
@@ -90,6 +92,77 @@ pub enum BbqRxMode {
     ///
     /// `size` must be <= (capacity / 4).
     MaxFrame { size: usize },
+
+    /// Continuous circular DMA with two fixed-size staging halves.
+    ///
+    /// DMA remains enabled while hardware wraps between the two halves. Idle,
+    /// half-transfer, and major-transfer interrupts publish newly received bytes
+    /// into the BBQueue without stopping or reprogramming the DMA channel.
+    ///
+    /// The staging ring consumes `2 * half_size` bytes from the supplied RX buffer;
+    /// the remainder backs the BBQueue. The complete staging ring must fit within
+    /// one DMA major loop and within one quarter of the remaining BBQueue capacity.
+    Continuous { half_size: usize },
+}
+
+struct RxBufferLayout {
+    queue: &'static mut [u8],
+    continuous_dma: Option<&'static mut [u8]>,
+    original_addr: usize,
+    original_len: usize,
+    mode_bits: u32,
+}
+
+fn prepare_rx_buffer(buffer: &'static mut [u8], mode: BbqRxMode) -> Result<RxBufferLayout, BbqError> {
+    let original_addr = buffer.as_mut_ptr() as usize;
+    let original_len = buffer.len();
+    let max_size = (original_len / 4).min(DMA_MAX_TRANSFER_SIZE);
+
+    match mode {
+        BbqRxMode::Efficiency => Ok(RxBufferLayout {
+            queue: buffer,
+            continuous_dma: None,
+            original_addr,
+            original_len,
+            mode_bits: (max_size as u32) << 16,
+        }),
+        BbqRxMode::MaxFrame { size } => {
+            if size > max_size {
+                return Err(BbqError::MaxFrameTooLarge);
+            }
+
+            Ok(RxBufferLayout {
+                queue: buffer,
+                continuous_dma: None,
+                original_addr,
+                original_len,
+                mode_bits: ((size as u32) << 16) | STATE_RXDMA_MODE_MAXFRAME,
+            })
+        }
+        BbqRxMode::Continuous { half_size } => {
+            let Some(staging_len) = half_size.checked_mul(2) else {
+                return Err(BbqError::InvalidContinuousRxSize);
+            };
+
+            if half_size == 0 || staging_len > DMA_MAX_TRANSFER_SIZE || staging_len >= original_len {
+                return Err(BbqError::InvalidContinuousRxSize);
+            }
+
+            let (continuous_dma, queue) = buffer.split_at_mut(staging_len);
+            let max_publish = (queue.len() / 4).min(DMA_MAX_TRANSFER_SIZE);
+            if staging_len > max_publish {
+                return Err(BbqError::InvalidContinuousRxSize);
+            }
+
+            Ok(RxBufferLayout {
+                queue,
+                continuous_dma: Some(continuous_dma),
+                original_addr,
+                original_len,
+                mode_bits: ((staging_len as u32) << 16) | STATE_RXDMA_MODE_CONTINUOUS,
+            })
+        }
+    }
 }
 
 /// Lpuart config
@@ -497,6 +570,9 @@ impl BbqHalfParts {
 impl LpuartBbq {
     /// Create a new LpuartBbq with both transmit and receive halves
     pub fn new(parts: BbqParts, config: BbqConfig, mode: BbqRxMode) -> Result<Self, BbqError> {
+        // Validate and split the RX allocation before changing shared peripheral state.
+        let rx_layout = prepare_rx_buffer(parts.rx_buffer, mode)?;
+
         // Get state for this instance, and try to move from the "uninit" to "initing" state
         parts.state.uninit_to_initing()?;
 
@@ -529,33 +605,21 @@ impl LpuartBbq {
         }
 
         // Setup the RX state
-        let len = parts.rx_buffer.len();
         // SAFETY: We have ensured we are in the INITING state, and the interrupt is not yet active.
         unsafe {
             LpuartBbqRx::initialize_rx_state(
                 parts.state,
-                parts.info,
                 parts.rx_dma_ch,
                 parts.vtable.dma_rx_cb,
-                parts.rx_buffer,
+                rx_layout.queue,
+                rx_layout.continuous_dma,
                 parts.rx_dma_req,
             );
         }
 
         // Update our state to "initialized", and that we have the TXDMA + RXDMA channels present
         // Okay to just store: we have exclusive access
-        let max_size = (len / 4).min(DMA_MAX_TRANSFER_SIZE);
-        let rx_mode_bits = match mode {
-            BbqRxMode::Efficiency => (max_size as u32) << 16,
-            BbqRxMode::MaxFrame { size } => {
-                if size > max_size {
-                    return Err(BbqError::MaxFrameTooLarge);
-                }
-                let size = (size as u32) << 16;
-                size | STATE_RXDMA_MODE_MAXFRAME
-            }
-        };
-        let new_state = STATE_INITED | STATE_TXDMA_PRESENT | STATE_RXDMA_PRESENT | rx_mode_bits;
+        let new_state = STATE_INITED | STATE_TXDMA_PRESENT | STATE_RXDMA_PRESENT | rx_layout.mode_bits;
         parts.state.state.store(new_state, Ordering::Release);
 
         // SAFETY: We have ensured that our ISR is present via the IRQ token, and we have
@@ -589,6 +653,8 @@ impl LpuartBbq {
                 info: parts.info,
                 vtable: parts.vtable,
                 mux: parts.rx_mux,
+                buffer_addr: rx_layout.original_addr,
+                buffer_len: rx_layout.original_len,
                 _rx_pins: RxPins {
                     rx_pin: parts.rx_pin,
                     rts_pin: parts.rts_pin,
@@ -978,6 +1044,7 @@ impl embedded_io_async::Error for BbqError {
             BbqError::Busy => embedded_io::ErrorKind::Other,
             BbqError::WrongParts => embedded_io::ErrorKind::Other,
             BbqError::MaxFrameTooLarge => embedded_io::ErrorKind::OutOfMemory,
+            BbqError::InvalidContinuousRxSize => embedded_io::ErrorKind::InvalidInput,
         }
     }
 }
@@ -1001,6 +1068,8 @@ pub struct LpuartBbqRx {
     info: &'static Info,
     vtable: BbqVtable,
     mux: crate::pac::port::Mux,
+    buffer_addr: usize,
+    buffer_len: usize,
     _rx_pins: RxPins<'static>,
     _wg: Option<WakeGuard>,
 }
@@ -1013,10 +1082,10 @@ impl LpuartBbqRx {
     /// of the given BbqState.
     unsafe fn initialize_rx_state(
         state: &'static BbqState,
-        _info: &'static Info,
         mut dma: DmaChannel<'static>,
         rx_callback: fn(),
-        rx_buffer: &'static mut [u8],
+        rx_queue_buffer: &'static mut [u8],
+        continuous_dma_buffer: Option<&'static mut [u8]>,
         request_num: u8,
     ) {
         // Set the callback to our completion handler, so our LPUART interrupt gets called to
@@ -1041,12 +1110,17 @@ impl LpuartBbqRx {
         // TODO: We could probably be more clever and setup the DMA transfer request
         // number ONCE in init, then just do a minimal-reload. This would allow us to
         // avoid storing the rxdma_num, and save some effort in the ISR.
-        let cont = Container::from(rx_buffer);
+        let queue_storage = Container::from(rx_queue_buffer);
 
         // SAFETY: We have exclusive access to the shared RX components, and the interrupt
         // is not yet enabled. We move ownership of these resources to the shared area.
         unsafe {
-            state.rx_queue.get().write(BBQueue::new_with_storage(cont));
+            state.rx_queue.get().write(BBQueue::new_with_storage(queue_storage));
+            // If a continuous DMA buffer is provided, store it in the shared state.
+            if let Some(buffer) = continuous_dma_buffer {
+                state.rx_dma_buffer.get().write(Container::from(buffer));
+            }
+            state.rx_published_pos.store(0, Ordering::Release);
             state.rxdma.get().write(dma);
             state.rxdma_num.store(request_num, Ordering::Release);
         }
@@ -1082,6 +1156,9 @@ impl LpuartBbqRx {
             return Err(BbqError::WrongParts);
         }
 
+        // Validate and split the RX allocation before changing shared peripheral state.
+        let rx_layout = prepare_rx_buffer(parts.buffer, mode)?;
+
         // Get state for this instance, and try to move from the "uninit" to "initing" state
         parts.state.uninit_to_initing()?;
 
@@ -1099,34 +1176,21 @@ impl LpuartBbqRx {
         let _wg = (parts.vtable.lpuart_init)(false, true, false, enable_rts, config.into()).map_err(BbqError::Basic)?;
 
         // Setup the RX half state
-        let len = parts.buffer.len();
-
         // SAFETY: We have ensured that we are in the INITING state, and the interrupt is not yet active.
         unsafe {
             Self::initialize_rx_state(
                 parts.state,
-                parts.info,
                 parts.dma_ch,
                 parts.vtable.dma_rx_cb,
-                parts.buffer,
+                rx_layout.queue,
+                rx_layout.continuous_dma,
                 parts.dma_req,
             );
         }
 
         // Update our state to "initialized", and that we have the RXDMA channel present
         // Okay to just store: we have exclusive access
-        let max_size = (len / 4).min(DMA_MAX_TRANSFER_SIZE);
-        let rx_mode_bits = match mode {
-            BbqRxMode::Efficiency => (max_size as u32) << 16,
-            BbqRxMode::MaxFrame { size } => {
-                if size > max_size {
-                    return Err(BbqError::MaxFrameTooLarge);
-                }
-                let size = (size as u32) << 16;
-                size | STATE_RXDMA_MODE_MAXFRAME
-            }
-        };
-        let new_state = STATE_INITED | STATE_RXDMA_PRESENT | rx_mode_bits;
+        let new_state = STATE_INITED | STATE_RXDMA_PRESENT | rx_layout.mode_bits;
         parts.state.state.store(new_state, Ordering::Release);
 
         // SAFETY: We have ensured that our ISR is present via the IRQ token, and we have
@@ -1148,6 +1212,8 @@ impl LpuartBbqRx {
             info: parts.info,
             vtable: parts.vtable,
             mux: parts.mux,
+            buffer_addr: rx_layout.original_addr,
+            buffer_len: rx_layout.original_len,
             _rx_pins: RxPins {
                 rx_pin: parts.pin,
                 rts_pin: parts.flow_pin,
@@ -1181,9 +1247,11 @@ impl LpuartBbqRx {
         buf[..to_copy].copy_from_slice(&rgr[..to_copy]);
         rgr.release(to_copy);
 
-        // If NO rx_dma is active, that means we stalled, so pend the interrupt to
-        // restart it now that we've freed space.
-        if (self.state.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0 {
+        // If no RX DMA is active, restart it after freeing space. Continuous mode
+        // keeps DMA active but may have deferred staging-ring publication while the
+        // queue was full, so also pend the ISR to retry that publication.
+        let state = self.state.state.load(Ordering::Acquire);
+        if (state & STATE_RXGR_ACTIVE) == 0 || (state & STATE_RXDMA_MODE_CONTINUOUS) != 0 {
             (self.vtable.int_pend)();
         }
 
@@ -1204,8 +1272,10 @@ impl LpuartBbqRx {
             | STATE_RXGR_ACTIVE
             | STATE_RXDMA_COMPLETE
             | STATE_RXDMA_MODE_MAXFRAME
+            | STATE_RXDMA_MODE_CONTINUOUS
             | STATE_RXGR_LEN_MASK;
         let state = self.state.state.fetch_and(!rx_state_bits, Ordering::AcqRel);
+        let continuous = (state & STATE_RXDMA_MODE_CONTINUOUS) != 0;
 
         // Then, disable receive-relevant interrupts
         critical_section::with(|_cs| {
@@ -1231,19 +1301,20 @@ impl LpuartBbqRx {
                 rxdma.clear_done();
                 fence(Ordering::Acquire);
 
-                // Then take the grant by ownership, and drop it, which releases the grant
-                _ = self.state.rxgr.get().read();
+                if !continuous {
+                    // Grant-based modes take the grant by ownership and drop it.
+                    // Continuous mode writes a fixed staging ring and has no RX grant.
+                    _ = self.state.rxgr.get().read();
+                }
             }
         }
 
-        // Get a reference to the rx_queue to retrieve the Container
-        //
-        // SAFETY: We have unset RXDMA_PRESENT and disabled all RX interrupts: we now have exclusive
-        // access to the shared rx resources.
-        let (ptr, len) = unsafe {
-            let rx_queue = &*self.state.rx_queue.get();
-            rx_queue.storage().ptr_len()
-        };
+        // Continuous mode splits the original allocation into staging and queue
+        // regions. Preserve the original address and length carried by the RX handle
+        // so teardown can return the complete allocation rather than only the queue.
+        // SAFETY: Every constructor obtains this address from a non-null mutable slice.
+        let ptr = unsafe { NonNull::new_unchecked(self.buffer_addr as *mut u8) };
+        let len = self.buffer_len;
 
         // Now, drop the queue in place. This is sound because as the LpuartBbqRx, we have exclusive
         // access to the "consumer" half, and by disabling the interrupt and notching out the state
@@ -1379,6 +1450,7 @@ pub(crate) const STATE_RXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0001
 pub(crate) const STATE_TXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0010_0000;
 pub(crate) const STATE_RXDMA_COMPLETE: u32 = 0b0000_0000_0000_0000_0000_0000_0100_0000;
 pub(crate) const STATE_RXDMA_MODE_MAXFRAME: u32 = 0b0000_0000_0000_0000_0000_0000_1000_0000;
+pub(crate) const STATE_RXDMA_MODE_CONTINUOUS: u32 = 0b0000_0000_0000_0000_0000_0001_0000_0000;
 pub(crate) const STATE_RXGR_LEN_MASK: u32 = 0b1111_1111_1111_1111_0000_0000_0000_0000;
 
 pub(crate) struct BbqState {
@@ -1389,7 +1461,8 @@ pub(crate) struct BbqState {
     ///                                    ^-------> 0b0: No Rx DMA present, 0b1: Rx DMA present
     ///                                   ^--------> 0b0: No Tx DMA present, 0b1: Tx DMA present
     ///                                  ^---------> 0b0: Rx DMA not complete, 0b1: Rx DMA complete
-    ///                                 ^----------> 0b0: RxMode "Efficiency", 0b1: RxMode "Max Frame"
+    ///                                 ^----------> 0b1: RxMode "Max Frame"
+    ///                                ^-----------> 0b1: RxMode "Continuous"
     ///   ^^^^_^^^^_^^^^_^^^^----------------------> 16-bit: RX Grant size
     pub(crate) state: AtomicU32,
 
@@ -1414,6 +1487,13 @@ pub(crate) struct BbqState {
     ///
     /// Only valid when state is STATE_INITED + STATE_RXDMA_PRESENT.
     rx_queue: GroundedCell<BBQueue<Container, AtomicCoord, MaiNotSpsc>>,
+    /// Fixed circular DMA staging buffer used only in continuous RX mode.
+    ///
+    /// Only valid when `STATE_RXDMA_MODE_CONTINUOUS` is set.
+    rx_dma_buffer: GroundedCell<Container>,
+    /// Next byte in the continuous DMA staging ring that has not yet been
+    /// published to `rx_queue`.
+    rx_published_pos: AtomicU32,
     /// The "incoming" receive grant, which DMA will write to.
     ///
     /// Only valid when state is STATE_INITED + STATE_RXDMA_PRESENT + STATE_RXGR_ACTIVE.
@@ -1437,6 +1517,8 @@ impl BbqState {
             state: AtomicU32::new(0),
             tx_queue: GroundedCell::uninit(),
             rx_queue: GroundedCell::uninit(),
+            rx_dma_buffer: GroundedCell::uninit(),
+            rx_published_pos: AtomicU32::new(0),
             rxgr: GroundedCell::uninit(),
             txgr: GroundedCell::uninit(),
             txdma: GroundedCell::uninit(),
@@ -1539,6 +1621,130 @@ impl BbqState {
         self.state.fetch_and(!STATE_RXGR_ACTIVE, Ordering::AcqRel);
     }
 
+    /// Publish bytes written by continuous circular DMA into the consumer BBQueue.
+    ///
+    /// DMA remains active throughout this operation. The current destination address
+    /// is the publication boundary: DMA may append after it, but bytes before it are
+    /// complete and will not be touched again until the staging ring wraps.
+    ///
+    /// Returns `false` when the BBQueue cannot currently accept the complete range.
+    /// In that case `rx_published_pos` is left unchanged so a later interrupt or read
+    /// can retry before the staging ring wraps.
+    ///
+    /// ## SAFETY
+    ///
+    /// * Continuous RX mode must be initialized and active.
+    /// * The RX DMA staging `Container` and RX BBQueue must be initialized.
+    /// * This must only run from the serialized LPUART interrupt handler.
+    unsafe fn publish_continuous_read(&'static self) -> bool {
+        // SAFETY: Continuous mode initialization writes both resources before the
+        // LPUART interrupt is enabled, and teardown clears RXDMA_PRESENT first.
+        let (dma_buffer, rx_queue, rxdma) =
+            unsafe { (&*self.rx_dma_buffer.get(), &*self.rx_queue.get(), &*self.rxdma.get()) };
+
+        let len = dma_buffer.len;
+        if len == 0 {
+            return false;
+        }
+
+        let start = dma_buffer.ptr.as_ptr() as usize;
+        let end = start.saturating_add(len);
+        let daddr = rxdma.daddr() as usize;
+        if daddr < start || daddr > end {
+            return false;
+        }
+
+        // write position within the circular DMA buffer
+        let write_pos = daddr.wrapping_sub(start) % len;
+        // position already published in the BBQueue
+        let published_pos = self.rx_published_pos.load(Ordering::Acquire) as usize;
+        let available = if write_pos >= published_pos {
+            write_pos - published_pos
+        } else {
+            len - published_pos + write_pos
+        };
+
+        if available == 0 {
+            return true;
+        }
+
+        // Mark the available data in the BBQueue for consumption.
+        let prod = rx_queue.stream_producer();
+        let Ok(mut wgr) = prod.grant_exact(available) else {
+            return false;
+        };
+
+        // Ensure DMA writes preceding the sampled DADDR are visible before copying.
+        fence(Ordering::Acquire);
+
+        // SAFETY: The staging allocation remains owned by BbqState while DMA is
+        // active. We only copy the completed range ending at the sampled DADDR;
+        // DMA writes after that boundary or into the opposite ping-pong half.
+        let source = unsafe { core::slice::from_raw_parts(dma_buffer.ptr.as_ptr(), len) };
+        let first_len = (len - published_pos).min(available);
+        wgr[..first_len].copy_from_slice(&source[published_pos..published_pos + first_len]);
+
+        if available > first_len {
+            let second_len = available - first_len;
+            wgr[first_len..available].copy_from_slice(&source[..second_len]);
+        }
+
+        wgr.commit(available);
+        self.rx_published_pos.store(write_pos as u32, Ordering::Release);
+
+        true
+    }
+
+    /// Start the fixed staging-ring transfer used by continuous RX mode.
+    ///
+    /// ## SAFETY
+    ///
+    /// * Continuous RX mode must be initialized but inactive.
+    /// * This must only run from ISR context while RXDMA_PRESENT is set.
+    unsafe fn start_continuous_read(&'static self, info: &'static Info) -> bool {
+        // SAFETY: Continuous mode initialization writes these resources before
+        // enabling the LPUART interrupt, and no transfer is active here.
+        let (rxdma, dma_buffer) = unsafe { (&mut *self.rxdma.get(), &mut *self.rx_dma_buffer.get()) };
+        let source = unsafe { DmaRequest::from_number_unchecked(self.rxdma_num.load(Ordering::Relaxed)) };
+
+        unsafe {
+            rxdma.disable_request();
+            rxdma.clear_done();
+            rxdma.clear_interrupt();
+            rxdma.set_request_source(source);
+        }
+
+        // SAFETY: The staging buffer is exclusively owned by BbqState and remains
+        // valid until teardown stops DMA. No Rust reference escapes this function.
+        let buffer = unsafe { core::slice::from_raw_parts_mut(dma_buffer.ptr.as_ptr(), dma_buffer.len) };
+        let peri_addr = info.regs().data().as_ptr().cast::<u8>();
+        let setup = unsafe {
+            rxdma.setup_circular_read_from_peripheral(
+                peri_addr,
+                buffer,
+                false,
+                TransferOptions {
+                    half_transfer_interrupt: true,
+                    complete_transfer_interrupt: true,
+                    ..TransferOptions::NO_INTERRUPTS
+                },
+            )
+        };
+        if setup.is_err() {
+            return false;
+        }
+
+        self.rx_published_pos.store(0, Ordering::Release);
+        info.regs().baud().modify(|w| w.set_rdmae(true));
+        unsafe {
+            rxdma.enable_request();
+        }
+        // Mark the RX as active in the shared state.
+        self.state.fetch_or(STATE_RXGR_ACTIVE, Ordering::AcqRel);
+
+        true
+    }
+
     /// Attempt to start an active write transfer. Called from ISR context.
     ///
     /// Returns true if a transfer was started, and returns false if no transfer
@@ -1623,12 +1829,13 @@ impl BbqState {
     /// * A write grant must NOT be active
     /// * We must be in ISR context
     unsafe fn start_read_transfer(&'static self, info: &'static Info) -> bool {
+        let state = self.state.load(Ordering::Relaxed);
+
         // SAFETY: RXDMA_PRESENT bit being enabled means the rx_queue has been initialized.
         // The rx_queue is safe to access in a shared manner after initialization.
         let rx_queue = unsafe { &*self.rx_queue.get() };
 
         // Determine the size and kind of grant to request
-        let state = self.state.load(Ordering::Relaxed);
         let len = (state >> 16) as usize;
         let is_max_frame = (state & STATE_RXDMA_MODE_MAXFRAME) != 0;
         let prod = rx_queue.stream_producer();
@@ -1757,30 +1964,55 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
     if rx_present {
         let rx_active = (pre_clear & STATE_RXGR_ACTIVE) != 0;
         let dma_complete = (pre_clear & STATE_RXDMA_COMPLETE) != 0;
-        if rx_active && (idle || dma_complete) {
-            // State change, move from Receiving -> Idle
-            //
-            // SAFETY: The HAL driver is initialized, we checked that RXDMA_PRESENT is set, we
-            // checked that RXGR_ACTIVE is set, we are in ISR context
-            unsafe {
-                state.finalize_read(info);
-            }
-        }
+        let continuous = (pre_clear & STATE_RXDMA_MODE_CONTINUOUS) != 0;
 
-        // If we are now idle, attempt to "reload" the transfer and being receiving again ASAP.
-        // Only do this if RXDMA is present. We re-load from state to ensure we see when
-        // `finalize_read` just cleared the bit.
-        let rx_idle = (state.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0;
-        if rx_idle {
-            // Either Idle -> Receiving or Idle -> Idle
-            //
-            // SAFETY: The HAL driver is initialized, we checked that RXDMA_PRESENT is set, we
-            // checked there isn't a write grant active, and we are in ISR context.
-            unsafe {
-                let started = state.start_read_transfer(info);
-                // Enable ILIE if we started a transfer, otherwise (keep) disabled.
-                // ILIE - Idle Line Interrupt Enable
-                regs.ctrl().modify(|w| w.set_ilie(started));
+        if continuous {
+            if rx_active {
+                // Publish on IDLE, DMA half/major completion, TX interrupts, or a
+                // software pend after the consumer frees queue space. This samples
+                // DADDR but deliberately leaves RDMAE and ERQ enabled.
+                //
+                // SAFETY: Continuous mode owns a fixed staging ring, RXDMA is present
+                // and active, and this is the serialized LPUART ISR.
+                unsafe {
+                    let _ = state.publish_continuous_read();
+                }
+            } else {
+                // Initial transition from Idle -> Receiving. Once started, continuous
+                // mode remains active until teardown.
+                //
+                // SAFETY: RXDMA is present, no transfer is active, and this is ISR context.
+                unsafe {
+                    let started = state.start_continuous_read(info);
+                    regs.ctrl().modify(|w| w.set_ilie(started));
+                }
+            }
+        } else {
+            if rx_active && (idle || dma_complete) {
+                // State change, move from Receiving -> Idle
+                //
+                // SAFETY: The HAL driver is initialized, we checked that RXDMA_PRESENT is set, we
+                // checked that RXGR_ACTIVE is set, we are in ISR context
+                unsafe {
+                    state.finalize_read(info);
+                }
+            }
+
+            // If we are now idle, attempt to "reload" the transfer and being receiving again ASAP.
+            // Only do this if RXDMA is present. We re-load from state to ensure we see when
+            // `finalize_read` just cleared the bit.
+            let rx_idle = (state.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0;
+            if rx_idle {
+                // Either Idle -> Receiving or Idle -> Idle
+                //
+                // SAFETY: The HAL driver is initialized, we checked that RXDMA_PRESENT is set, we
+                // checked there isn't a write grant active, and we are in ISR context.
+                unsafe {
+                    let started = state.start_read_transfer(info);
+                    // Enable ILIE if we started a transfer, otherwise (keep) disabled.
+                    // ILIE - Idle Line Interrupt Enable
+                    regs.ctrl().modify(|w| w.set_ilie(started));
+                }
             }
         }
     }
