@@ -2,6 +2,7 @@
 //!
 //! This module provides a trait for mutexes that can be used in different contexts.
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 /// Raw mutex trait.
 ///
@@ -56,6 +57,51 @@ unsafe impl RawMutex for CriticalSectionRawMutex {
 
     fn lock<R>(&self, f: impl FnOnce() -> R) -> R {
         critical_section::with(|_| f())
+    }
+}
+
+/// A mutex that panics if locked from multiple contexts.
+///
+/// # Safety
+///
+/// This mutex is safe to share between different executors and interrupts.
+#[derive(Debug)]
+pub struct PanicRawMutex {
+    locked: AtomicBool,
+}
+unsafe impl Send for PanicRawMutex {}
+unsafe impl Sync for PanicRawMutex {}
+
+impl PanicRawMutex {
+    /// Create a new `PanicRawMutex`.
+    pub const fn new() -> Self {
+        Self {
+            locked: AtomicBool::new(false),
+        }
+    }
+}
+
+unsafe impl RawMutex for PanicRawMutex {
+    const INIT: Self = Self::new();
+
+    fn lock<R>(&self, f: impl FnOnce() -> R) -> R {
+        #[cfg(target_has_atomic = "8")]
+        if self.locked.swap(true, Ordering::Relaxed) {
+            panic!("PanicRawMutex locked from multiple contexts")
+        }
+
+        #[cfg(not(target_has_atomic = "8"))]
+        critical_section::with(|_| {
+            if self.locked.load(Ordering::Acquire) {
+                panic!("PanicRawMutex locked from multiple contexts")
+            }
+            self.locked.store(true, Ordering::Release);
+        });
+
+        let ret = f();
+
+        self.locked.store(false, Ordering::Relaxed);
+        ret
     }
 }
 

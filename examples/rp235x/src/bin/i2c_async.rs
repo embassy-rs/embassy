@@ -13,7 +13,6 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::i2c::{self, Config, InterruptHandler};
 use embassy_rp::peripherals::I2C1;
 use embassy_time::Timer;
-use embedded_hal_async::i2c::I2c;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -76,7 +75,7 @@ async fn main(_spawner: Spawner) {
     let scl = p.PIN_15;
 
     info!("set up i2c ");
-    let mut i2c = i2c::I2c::new_async(p.I2C1, scl, sda, Irqs, Config::default());
+    let mut i2c = i2c::I2c::new(p.I2C1, scl, sda, Irqs, Config::default());
 
     use mcp23017::*;
 

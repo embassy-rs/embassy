@@ -25,7 +25,7 @@ async fn main(spawner: Spawner) -> ! {
     info!("Hello World!");
 
     let config = Config::default();
-    let mut usart = Uart::new(p.USART2, p.PD6, p.PD5, p.LPDMA1_CH0, p.LPDMA1_CH1, Irqs, config).unwrap();
+    let mut usart = Uart::new(p.USART2, p.PD5, p.PD6, p.LPDMA1_CH0, p.LPDMA1_CH1, Irqs, config).unwrap();
     unwrap!(usart.blocking_write(b"Type 8 chars to echo!\r\n"));
 
     let (mut tx, rx) = usart.split();

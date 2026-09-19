@@ -11,12 +11,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - bugfix: enforce each peripheral's own EasyDMA `MAXCNT` limit in uarte, buffered_uarte, spim, spis, twim, twis, i2s, pdm, pwm and saadc instead of the chip-wide `DMA_SIZE`.
 - added: per-peripheral `DMA_SIZE` constants in the `uarte`, `spim`, `spis`, `twim`, `twis`, `i2s`, `pdm` and `saadc` modules, and `pwm::MAX_SEQUENCE_LEN`.
 - removed: the crate-level `DMA_SIZE` constant. It was wrong because the max DMA size changes per peripheral.
+- added: `crypto` module for the CryptoCell (nRF52840, nRF91, nRF5340) and CRACEN (nRF54L) accelerators, with the same API on both:
+  - `crypto::symmetric::Symmetric`: AES in ECB, CBC, CTR, CMAC, CCM and, on nRF5340 and nRF54L, GCM; SHA-1/SHA-2 hash and HMAC; ChaCha20 and ChaCha20-Poly1305, plus ChaCha8/ChaCha12 and their Poly1305 AEADs on the CryptoCell
+  - `crypto::pka::Pka`: ECDSA, ECDH and RSA, with NIST P-192/P-224/P-256/P-384/P-521 and secp256k1 curve parameters
+  - `crypto::rng::Rng`
+- changed: renamed crypto RNG drivers:
+  - the CryptoCell RNG driver `cryptocell::rng::CcRng` is now `crypto::rng::Rng`.
+  - The CRACEN RNG driver `cracen::Cracen` is now `crypto::rng::Rng`.
+- removed: `cryptocell::activate`. The accelerator is powered while any `crypto` driver exists.
+- added: `embassy-crypto` drivers behind one `embassy-crypto-<operation>` feature each: hash, HMAC, AES, ChaCha8/12/20 and ChaCha8/12/20-Poly1305, P-256 and P-384 arithmetic, ECDH and ECDSA, RNG.
+  - Enabling any of these features takes over the peripheral, so the singleton disappears from `Peripherals`.
 - added: System OFF support for the nRF54L series.
 - bugfix: buffered_uarte: nRF54: reset the RX state when creating a `BufferedUarteRx`, so recreating one after dropping it receives data again.
 - bugfix: buffered_uarte: nRF54: stop the RX DMA and resume it on `consume()` when the RX buffer fills up, instead of panicking.
 - bugfix: usb: don't re-arm OUT endpoints twice per packet, which could silently drop received packets under load.
 - bugfix: usb: apply the nRF52840 Erratum 199 workaround around USBD EasyDMA transfers.
 - changed: allow configuring I2S in master mode without master clock output pin
+- changed: `Spim`, `Spis`, `Twim`, `Twis`, `Uarte`, `UarteTx`, `UarteRx` and `UarteRxWithIdle` now have a `Mode` generic (`crate::mode::{Async, Blocking}`). `new*` constructors take the interrupt binding and return the `Async` driver, the new `new_blocking*` constructors take no binding and return the `Blocking` driver. Async methods are only available on `Async` drivers.
+- changed: constructor argument order is now peripheral, pins, timer/PPI channels, interrupt binding, buffers, config in `spim`, `spis`, `twim`, `twis`, `uarte`, `buffered_uarte`, `i2s`, `pdm`, `qdec`, `qspi` and `sqspi`.
+- changed: pins are now passed TX before RX: `Uarte`/`BufferedUarte` take `txd, rxd`, `Spim` takes `sck, mosi, miso`, `Spis` takes `sck, mosi, miso, cs`, `Twim`/`Twis` take `scl, sda`. `BufferedUarte` takes `tx_buffer, rx_buffer`.
+- changed: `UarteTx::new_with_rtscts` and `UarteRx::new_with_rtscts` are now `new_with_cts` and `new_with_rts`.
+- changed: `Uarte::split_by_ref` and `BufferedUarte::split_by_ref` are now `split_ref` and return owned halves borrowing the driver. `BufferedUarte::split` now returns `(BufferedUarteTx, BufferedUarteRx)`.
+- changed: `BufferedUarte`, `BufferedUarteTx` and `BufferedUarteRx` on nRF54L no longer have an instance generic.
+- changed: `Twis::respond_to_read` and its variants now return `ReadStatus` instead of the number of bytes sent. `twis::Error::OverRead` is removed.
+- changed: `gpio::Input::get_level`, `Flex::get_level`, `Output::get_output_level` and `Flex::get_output_level` are now `level` and `output_level`.
+- changed: `wdt::WatchdogHandle::pet` and `is_pet` are now `feed` and `is_fed`, `Watchdog::awaiting_pets` is now `awaiting_feeds`.
+- changed: `pwm::SimplePwm` constructors take `SimpleConfig` by value, its setters take `&mut self`, `set_period`/`period` are now `set_frequency`/`frequency` taking and returning `time::Hertz`, and `duty`/`set_duty` moved to per-channel `SimplePwmChannel` handles obtained with `ch0()`..`ch3()` or `split()`.
+- added: `time::Hertz`.
+- added: `gpio::OutputOpenDrain`.
+- added: `pwm::SimplePwmChannel` implementing `embedded_hal::pwm::SetDutyCycle`.
+- added: `embedded_hal_02::blocking::i2c::Transactional` for `Twim`.
+- added: `embedded_io::Write` for `Uarte` and `UarteTx`.
+- added: `Spim::set_config`, `Spis::set_config` and `Twim::set_config` inherent methods.
+- bugfix: twis: apply `scl_pullup` instead of `sda_pullup` to the SCL pin.
 
 ## 0.11.0 - 2026-06-16
 

@@ -24,13 +24,13 @@ pub enum ResetReason {
 }
 
 /// Watchdog peripheral
-pub struct Watchdog {
-    phantom: PhantomData<WATCHDOG>,
+pub struct Watchdog<'d> {
+    phantom: PhantomData<&'d mut WATCHDOG>,
 }
 
-impl Watchdog {
+impl<'d> Watchdog<'d> {
     /// Create a new `Watchdog`
-    pub fn new(_watchdog: Peri<'static, WATCHDOG>) -> Self {
+    pub fn new(_watchdog: Peri<'d, WATCHDOG>) -> Self {
         Self { phantom: PhantomData }
     }
 
@@ -145,7 +145,7 @@ impl Watchdog {
     }
 
     /// Read data from scratch register
-    pub fn get_scratch(&mut self, index: usize) -> u32 {
+    pub fn scratch(&mut self, index: usize) -> u32 {
         let watchdog = pac::WATCHDOG;
         match index {
             0 => watchdog.scratch0().read(),

@@ -183,7 +183,7 @@ impl Registers {
             loop {
                 if can.txbcf().read().cf(bufidx) {
                     // Return false when a transmission has occured
-                    break can.txbto().read().to(bufidx) == false;
+                    break !can.txbto().read().to(bufidx);
                 }
             }
         } else {
@@ -264,7 +264,7 @@ impl Registers {
     #[inline]
     fn enter_init_mode(&self) {
         self.regs.cccr().modify(|w| w.set_init(true));
-        while false == self.regs.cccr().read().init() {}
+        while !self.regs.cccr().read().init() {}
         self.regs.cccr().modify(|w| w.set_cce(true));
     }
 
@@ -407,7 +407,7 @@ impl Registers {
 
         self.regs.cccr().modify(|w| w.set_cce(false));
         self.regs.cccr().modify(|w| w.set_init(false));
-        while self.regs.cccr().read().init() == true {}
+        while self.regs.cccr().read().init() {}
     }
 
     /// Moves out of ConfigMode and into specified mode
@@ -677,7 +677,7 @@ fn put_tx_header(mailbox: &mut TxBufferElement, header: &Header) {
     let (id, id_type) = match header.id() {
         // A standard identifier has to be written to ID[28:18].
         embedded_can::Id::Standard(id) => ((id.as_raw() as u32) << 18, IdType::StandardId),
-        embedded_can::Id::Extended(id) => (id.as_raw() as u32, IdType::ExtendedId),
+        embedded_can::Id::Extended(id) => (id.as_raw(), IdType::ExtendedId),
     };
 
     // Use FDCAN only for DLC > 8. FDCAN users can revise this if required.
@@ -709,7 +709,7 @@ fn put_tx_data(mailbox: &mut TxBufferElement, buffer: &[u8]) {
     let len = buffer.len();
     let data = unsafe { slice::from_raw_parts_mut(lbuffer.as_mut_ptr() as *mut u8, len) };
     data[..len].copy_from_slice(&buffer[..len]);
-    let data_len = ((len) + 3) / 4;
+    let data_len = (len).div_ceil(4);
     for (register, byte) in mailbox.data.iter_mut().zip(lbuffer[..data_len].iter()) {
         register.set(*byte);
     }

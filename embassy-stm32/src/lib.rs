@@ -84,7 +84,7 @@ pub(crate) mod dflt;
 pub mod adc;
 #[cfg(adf)]
 pub mod adf;
-#[cfg(any(aes_v2, aes_v3b))]
+#[cfg(aes)]
 pub mod aes;
 #[cfg(backup_sram)]
 pub mod backup_sram;
@@ -94,7 +94,7 @@ pub mod can;
 pub mod comp;
 #[cfg(all(cordic, not(stm32c5)))]
 pub mod cordic;
-#[cfg(any(aes_v2, aes_v3b, saes_n6))]
+#[cfg(any(aes, saes))]
 mod crypto;
 
 #[cfg(not(any(comp_u5, comp_v1, comp_v2, comp_u0)))]
@@ -138,6 +138,8 @@ pub mod dac;
 pub mod dcmi;
 #[cfg(dcmipp)]
 pub mod dcmipp;
+#[cfg(dfsdm)]
+pub mod dfsdm;
 #[cfg(dlybsd)]
 pub mod dlyb;
 #[cfg(dma2d)]
@@ -206,7 +208,7 @@ pub mod npu;
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
-#[cfg(any(pka_v1a, pka_n6))]
+#[cfg(pka)]
 pub mod pka;
 #[cfg(pssi)]
 pub mod pssi;
@@ -220,7 +222,7 @@ pub mod rif;
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
 pub mod rtc;
-#[cfg(any(saes_v1a, saes_n6))]
+#[cfg(saes)]
 pub mod saes;
 #[cfg(sai)]
 pub mod sai;
@@ -425,6 +427,34 @@ pub struct Config {
     #[cfg(stm32wba)]
     pub stop_mode_sram: rcc::StopModeSramConfig,
 
+    /// Enable the I/O analog switch voltage booster.
+    ///
+    /// The analog switch between a GPIO and the ADC (or comparator, or operational amplifier) has
+    /// a much higher resistance when the analog supply is low, which distorts conversions of pin
+    /// channels unless they are given a much longer sample time. The reference manuals ask for
+    /// this booster below 2.4 V (2.7 V on the H5, H7 and H7RS). It draws extra current, so it is
+    /// off by default.
+    ///
+    /// On boards where only VDDA is low and VDD is not, the analog switches can instead be
+    /// supplied from VDD, which this option does not do.
+    #[cfg(any(
+        stm32g0,
+        stm32g4,
+        stm32l4,
+        stm32l4_plus,
+        stm32l5,
+        stm32u0,
+        stm32u3,
+        stm32u5,
+        stm32wb,
+        stm32wba,
+        stm32wl,
+        stm32h5,
+        stm32h7,
+        stm32h7rs
+    ))]
+    pub enable_analog_switch_booster: bool,
+
     /// On the U5 series all analog peripherals are powered by a separate supply.
     #[cfg(any(stm32u5, stm32u3))]
     pub enable_independent_analog_supply: bool,
@@ -488,6 +518,23 @@ impl Default for Config {
             flash_fast_wakeup: false,
             #[cfg(stm32wba)]
             stop_mode_sram: rcc::StopModeSramConfig::default(),
+            #[cfg(any(
+                stm32g0,
+                stm32g4,
+                stm32l4,
+                stm32l4_plus,
+                stm32l5,
+                stm32u0,
+                stm32u3,
+                stm32u5,
+                stm32wb,
+                stm32wba,
+                stm32wl,
+                stm32h5,
+                stm32h7,
+                stm32h7rs
+            ))]
+            enable_analog_switch_booster: false,
             #[cfg(any(stm32u5, stm32u3))]
             enable_independent_analog_supply: true,
             #[cfg(bdma)]
@@ -875,6 +922,39 @@ fn init_hw(config: Config) -> Peripherals {
                 });
             }
         }
+
+        // I/O analog switch voltage booster. The bit lives in a different peripheral on almost
+        // every family: SYSCFG on most, SBS on the H7RS, PWR on the H5 (where it additionally
+        // only takes effect once software declares the analog supply good, RM0481 §10.11).
+        #[cfg(any(
+            stm32g0,
+            stm32g4,
+            stm32l4,
+            stm32l4_plus,
+            stm32l5,
+            stm32u0,
+            stm32u3,
+            stm32u5,
+            stm32wb,
+            stm32wba,
+            stm32wl
+        ))]
+        crate::pac::SYSCFG
+            .cfgr1()
+            .modify(|w| w.set_boosten(config.enable_analog_switch_booster));
+        #[cfg(stm32h7rs)]
+        crate::pac::SYSCFG
+            .pmcr()
+            .modify(|w| w.set_boosten(config.enable_analog_switch_booster));
+        #[cfg(stm32h7)]
+        crate::pac::SYSCFG
+            .pmcr()
+            .modify(|w| w.set_booste(config.enable_analog_switch_booster));
+        #[cfg(stm32h5)]
+        crate::pac::PWR.pmcr().modify(|w| {
+            w.set_avd_ready(config.enable_analog_switch_booster);
+            w.set_booste(config.enable_analog_switch_booster);
+        });
 
         // dead battery functionality is still present on these
         // chips despite them not having UCPD- disable it

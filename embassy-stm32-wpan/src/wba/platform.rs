@@ -62,7 +62,7 @@ use embassy_futures::join::join3;
 use embassy_futures::select::select;
 use embassy_stm32::aes::Aes;
 use embassy_stm32::mode::{Async, Blocking};
-use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
+use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
 use embassy_stm32::pka::Pka;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::suspend::ResumablePeripheral;
@@ -83,7 +83,7 @@ pub struct Platform {
     p256_req: Signal<CriticalSectionRawMutex, ([u32; 8], [u32; 8], [u32; 8])>,
     p256_resp: Signal<CriticalSectionRawMutex, ([u32; 8], [u32; 8])>,
     ble_init: Flag,
-    rng: Mutex<CriticalSectionRawMutex, ResumablePeripheral<Rng<'static, RNG>>>,
+    rng: Mutex<CriticalSectionRawMutex, ResumablePeripheral<Rng<'static, Async>>>,
     pka: Mutex<CriticalSectionRawMutex, Option<ResumablePeripheral<Pka<'static, PkaPeriph, Async>>>>,
     aes: Mutex<CriticalSectionRawMutex, Option<Aes<'static, AesPeriph, Blocking>>>,
 }
@@ -91,7 +91,7 @@ pub struct Platform {
 impl Platform {
     pub fn new_basic<const N: usize>(
         buf: &'static mut [ChannelPacket; N],
-        rng: Rng<'static, RNG>,
+        rng: Rng<'static, Async>,
     ) -> (Self, BasicRuntime) {
         (
             Self {
@@ -110,7 +110,7 @@ impl Platform {
 
     pub fn new_full<const N: usize>(
         buf: &'static mut [ChannelPacket; N],
-        rng: Rng<'static, RNG>,
+        rng: Rng<'static, Async>,
         pka: Pka<'static, PkaPeriph, Async>,
         aes: Aes<'static, AesPeriph, Blocking>,
     ) -> (Self, FullRuntime) {
@@ -262,7 +262,7 @@ impl Platform {
                         let mut guard = rng.borrow();
                         'outer: loop {
                             n = 0;
-                            if let Err(e) = guard.async_fill_bytes(&mut buf).await {
+                            if let Err(e) = guard.fill_bytes(&mut buf).await {
                                 warn!("rng: err during fill bytes: {}", e);
 
                                 continue;

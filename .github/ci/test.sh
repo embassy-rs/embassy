@@ -37,6 +37,8 @@ cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --fe
 cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f769ni,time-driver-any,exti,dual-bank,test
 
 cargo test --manifest-path ./embassy-net-adin1110/Cargo.toml
+cargo test --manifest-path ./embassy-crypto-rustcrypto/Cargo.toml --features all
+cargo test --manifest-path ./embassy-crypto-rand/Cargo.toml
 cargo test --manifest-path ./embassy-usb-dfu/Cargo.toml --features dfu
 cargo test --manifest-path ./embassy-usb-host/Cargo.toml
 cargo test --manifest-path ./embassy-net/Cargo.toml --features tcp,dhcpv4,medium-ethernet,ipv6

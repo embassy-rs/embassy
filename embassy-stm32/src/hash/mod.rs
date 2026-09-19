@@ -258,7 +258,15 @@ where
     id: u32,
     peripheral_initialized: bool,
     hmac_key_processed: bool,
-    first_word_sent: bool,
+    /// True when the IN buffer holds the staged trigger word (the saveable
+    /// state: NBWP = 1, DINIS = 1). False when the buffer is empty (NBWP = 0,
+    /// e.g. right after INIT or after any DCAL-drained phase such as HMAC key
+    /// processing). The next feed unit must be block+1 words (17 for
+    /// SHA-256) from empty, and exactly one block (16 words) from the
+    /// saveable state; see update_blocking. Recorded from hardware at
+    /// store_context on hash_v3/v4 (where DINIS = 1 makes NBWP unambiguous);
+    /// tracked in software on hash_v1/v2, which have no readable equivalent.
+    staged: bool,
     buffer: ContextBuffer<A, M>,
     buflen: usize,
     imr: u32,
@@ -347,16 +355,15 @@ impl<'d, T: Instance> Hash<'d, T, Blocking> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<HASH>();
-        let instance = Self {
+
+        Self {
             _peripheral: peripheral,
             _marker: PhantomData,
             current_id: None,
             #[cfg(any(hash_v2, hash_v3, hash_v4))]
             dma: None,
             next_id: 1,
-        };
-
-        instance
+        }
     }
 }
 
@@ -403,7 +410,7 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
                 long_hmac_key = true;
                 cr.set_init(true);
                 T::regs().cr().write_value(cr);
-                self.accumulate_blocking(key);
+                self.accumulate_blocking::<A>(key);
                 T::regs().str().write(|w| w.set_dcal(true));
                 while !T::regs().sr().read().dcis() {}
 
@@ -419,7 +426,7 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
             id: 0,
             peripheral_initialized: long_hmac_key,
             hmac_key_processed: false,
-            first_word_sent: false,
+            staged: false,
             buffer: <ContextBuffer<A, M>>::new(),
             buflen: 0,
             imr: 0,
@@ -440,7 +447,7 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         if long_hmac_key {
             let key = H::key_ref(&ctx.key).unwrap();
             T::regs().cr().write_value(cr);
-            self.accumulate_blocking(key);
+            self.accumulate_blocking::<A>(key);
             T::regs().str().write(|w| w.set_dcal(true));
             while !T::regs().sr().read().dinis() {}
             ctx.hmac_key_processed = true;
@@ -472,12 +479,25 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
             ctx.id
         );
 
-        let bs = A::BLOCK_SIZE;
+        // Feed discipline (RM software feeding + suspend procedure):
+        //
+        // A block's digest is triggered only by the FIRST WORD OF THE NEXT
+        // BLOCK. The saveable state at store_context is therefore "total
+        // words fed == 1 (mod 16)": one staged word in DIN, FIFO empty,
+        // DINIS = 1. Measured on STM32H563 (v3 dump): 17 words from empty
+        // -> NBWP=1 (saveable); 17 words from the saveable state -> NBWP=2
+        // (DINIS never returns, store spins forever).
+        //
+        // Hence the feed unit is 16 words (one block) once the peripheral
+        // is in the saveable state, and 17 words (block + trigger) only
+        // from the empty state. ctx.buffer holds exactly one 17-word unit
+        // (A::BLOCK_SIZE + 4 bytes). DINIS is polled before each unit by
+        // accumulate_blocking, so a unit is never written while the
+        // previous block's digest is still draining the FIFO.
         let total = input.len() + ctx.buflen;
+        let min_feed = if ctx.staged { A::BLOCK_SIZE } else { ctx.buffer().len() };
 
-        // not enough data to process yet.
-        let buffer_len = ctx.buffer().len();
-        if total < bs || (total < buffer_len && !ctx.first_word_sent) {
+        if total < min_feed {
             let buflen = ctx.buflen;
             ctx.buffer_mut()[buflen..total].copy_from_slice(input);
             ctx.buflen = total;
@@ -486,51 +506,49 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
 
         self.load_context(ctx);
 
+        // The HMAC key phase ends with DCAL, which drains the DIN buffer to
+        // empty -- the message that follows restarts at the block+trigger unit.
+        let mut unit = if ctx.staged { A::BLOCK_SIZE } else { ctx.buffer().len() };
         if !ctx.hmac_key_processed
             && let Some(key) = H::key_ref(&ctx.key)
         {
-            self.accumulate_blocking(key);
+            self.accumulate_blocking::<A>(key);
             T::regs().str().write(|w| w.set_dcal(true));
             while !T::regs().sr().read().dinis() {}
             ctx.hmac_key_processed = true;
+            ctx.staged = false;
+            unit = ctx.buffer().len();
         }
 
+        // Append input to the buffer, feeding one unit at a time.
         let mut remaining = input;
-
-        // flush existing buffered data (or the very first word) through the buffer.
-        if ctx.buflen > 0 || !ctx.first_word_sent {
-            let fill = min(buffer_len - ctx.buflen, remaining.len());
+        while ctx.buflen + remaining.len() >= unit {
+            let fill = min(unit - ctx.buflen, remaining.len());
             let buflen = ctx.buflen;
             ctx.buffer_mut()[buflen..buflen + fill].copy_from_slice(&remaining[..fill]);
             ctx.buflen += fill;
             remaining = &remaining[fill..];
 
-            self.accumulate_blocking(&ctx.buffer()[..ctx.buflen]);
-            ctx.buflen = 0;
-            ctx.first_word_sent = true;
+            if ctx.buflen == unit {
+                self.accumulate_blocking::<A>(&ctx.buffer()[..unit]);
+                ctx.buflen = 0;
+                // A full unit always ends with the trigger word of the next
+                // block sitting in the IN buffer (FIFO empty, DIN holding one
+                // word): the saveable "staged" state. Tracked in software
+                // here; on hash_v3/v4 store_context re-reads it from NBWP/
+                // DINNE for hardware truth.
+                ctx.staged = true;
+                // Subsequent units are whole blocks (16 words).
+                unit = A::BLOCK_SIZE;
+            }
         }
 
-        // not enough left for another full block.
-        if remaining.len() < bs {
-            ctx.buffer_mut()[..remaining.len()].copy_from_slice(remaining);
-            ctx.buflen = remaining.len();
+        // Buffer the tail (< one block). The sub-block remainder is legal
+        // here only because finish_blocking ends the message with DCAL.
+        let buflen = ctx.buflen;
+        ctx.buffer_mut()[buflen..buflen + remaining.len()].copy_from_slice(remaining);
+        ctx.buflen += remaining.len();
 
-            // Save the peripheral context.
-            self.store_context(ctx);
-
-            return;
-        }
-
-        // process all remaining full blocks directly from the input slice.
-        let tail = remaining.len() % bs;
-        let blocks_len = remaining.len() - tail;
-
-        self.accumulate_blocking(&remaining[..blocks_len]);
-
-        ctx.buflen = tail;
-        ctx.buffer_mut()[..tail].copy_from_slice(&remaining[blocks_len..]);
-
-        // Save the peripheral context.
         self.store_context(ctx);
     }
 
@@ -546,33 +564,44 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
     where
         A: ContextBufferType<Blocking>,
     {
+        if H::HMAC && !ctx.staged && ctx.buflen == 0 {
+            return self.finish_hmac_empty_blocking(&ctx, digest);
+        }
+
         // Restore the peripheral state.
         self.load_context(&ctx);
 
         if !ctx.hmac_key_processed
             && let Some(key) = H::key_ref(&ctx.key)
         {
-            self.accumulate_blocking(key);
+            self.accumulate_blocking::<A>(key);
             T::regs().str().write(|w| w.set_dcal(true));
             while !T::regs().sr().read().dinis() {}
             ctx.hmac_key_processed = true;
         }
 
         // Hash the leftover bytes, if any.
-        self.accumulate_blocking(&ctx.buffer()[0..ctx.buflen]);
+        self.accumulate_blocking::<A>(&ctx.buffer()[0..ctx.buflen]);
         ctx.buflen = 0;
 
-        // Start the digest calculation.
+        // Start the digest calculation. With an empty HMAC message this DCAL
+        // directly follows the key phase's, and is ignored while the core is
+        // still busy with the key block.
+        while T::regs().sr().read().busy() {}
         T::regs().str().write(|w| w.set_dcal(true));
 
         // For HMAC, after message digest the peripheral waits for the outer key.
         if let Some(key) = H::key_ref(&ctx.key) {
             while !T::regs().sr().read().dinis() {}
-            self.accumulate_blocking(key);
+            self.accumulate_blocking::<A>(key);
             T::regs().str().write(|w| w.set_dcal(true));
         }
         // Block until digest computation is complete.
         while !T::regs().sr().read().dcis() {}
+
+        // The hardware no longer holds a resumable context. Clones of `ctx`
+        // share its id, so they must not skip the restore in `load_context`.
+        self.current_id = None;
 
         // Return the digest.
         let digest_words = A::DIGEST_WORDS;
@@ -590,26 +619,103 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
             let word = hr[i];
             digest[(i * 4)..((i * 4) + 4)].copy_from_slice(word.to_be_bytes().as_slice());
         }
+
+        digest_len_bytes
+    }
+
+    /// HMAC of an empty message.
+    ///
+    /// The core ignores the message-phase DCAL when no data was written after
+    /// the key phase, so it cannot compute this on its own (the ST HAL rejects
+    /// a zero-length HMAC input for the same reason). Compute it from the
+    /// definition instead, `H((K ^ opad) || H(K ^ ipad))`, with `K` the
+    /// normalized, block-sized key, as two plain hashes.
+    fn finish_hmac_empty_blocking<A: AlgorithmSpec, CM: Mode, H: HmacMode<A>>(
+        &mut self,
+        ctx: &Context<A, CM, H>,
+        digest: &mut [u8],
+    ) -> usize
+    where
+        A: ContextBufferType<CM>,
+    {
+        let key = H::key_ref(&ctx.key).unwrap();
+        let bs = A::BLOCK_SIZE;
+        let digest_len_bytes = A::DIGEST_WORDS * 4;
+        if digest.len() < digest_len_bytes {
+            panic!("Digest buffer must be at least {} bytes long.", digest_len_bytes);
+        }
+
+        // Same algorithm and data type as the context, but a plain hash.
+        let mut cr = Cr(ctx.cr);
+        cr.set_mode(false);
+        cr.set_init(true);
+
+        // One block of padded key, followed by the inner digest.
+        let mut buf = [0u8; 128 + 64];
+
+        // Inner: H(K ^ ipad).
+        buf[..bs].fill(0x36);
+        for (b, k) in buf[..bs].iter_mut().zip(key) {
+            *b ^= k;
+        }
+        T::regs().cr().write_value(cr);
+        self.accumulate_blocking::<A>(&buf[..bs]);
+        T::regs().str().write(|w| w.set_dcal(true));
+        while !T::regs().sr().read().dcis() {}
+        for i in 0..A::DIGEST_WORDS {
+            buf[bs + i * 4..bs + i * 4 + 4].copy_from_slice(&T::regs().hr(i).read().to_be_bytes());
+        }
+
+        // Outer: H((K ^ opad) || inner).
+        buf[..bs].fill(0x5c);
+        for (b, k) in buf[..bs].iter_mut().zip(key) {
+            *b ^= k;
+        }
+        T::regs().cr().write_value(cr);
+        self.accumulate_blocking::<A>(&buf[..bs + digest_len_bytes]);
+        T::regs().str().write(|w| w.set_dcal(true));
+        while !T::regs().sr().read().dcis() {}
+
+        // The hardware no longer holds any context.
+        self.current_id = None;
+
+        for i in 0..A::DIGEST_WORDS {
+            digest[i * 4..i * 4 + 4].copy_from_slice(&T::regs().hr(i).read().to_be_bytes());
+        }
         digest_len_bytes
     }
 
     /// Push data into the hash core.
-    fn accumulate_blocking(&mut self, input: &[u8]) {
-        // Set the number of valid bits.
+    ///
+    /// Per the RM software-feeding procedure, software may write a new
+    /// quantum only once DINIS = 1 ("16 IN-buffer locations are free"). One
+    /// quantum is NBWE words (the block plus the word that triggers the
+    /// block's digest); after each quantum the buffer holds at most the one
+    /// staged word in DIN, which is the only state in which the context may
+    /// be saved. A partial final quantum is legal only when the caller ends
+    /// the message with DCAL (finish and HMAC key paths).
+    fn accumulate_blocking<A: AlgorithmSpec>(&mut self, input: &[u8]) {
+        if input.is_empty() {
+            return;
+        }
+        // Set the number of valid bits for the final partial word.
         let num_valid_bits: u8 = (8 * (input.len() % 4)) as u8;
         T::regs().str().modify(|w| w.set_nblw(num_valid_bits));
 
-        let mut chunks = input.chunks_exact(4);
-        for chunk in &mut chunks {
-            T::regs()
-                .din()
-                .write_value(u32::from_ne_bytes(chunk.try_into().unwrap()));
-        }
-        let rem = chunks.remainder();
-        if !rem.is_empty() {
-            let mut word: [u8; 4] = [0; 4];
-            word[0..rem.len()].copy_from_slice(rem);
-            T::regs().din().write_value(u32::from_ne_bytes(word));
+        let quantum = A::BLOCK_SIZE / 4 + 1;
+        let total_words = input.len() / 4 + usize::from(!input.len().is_multiple_of(4));
+        let mut word = 0;
+        while word < total_words {
+            if word % quantum == 0 {
+                // DINIS = 1: one full quantum can be accepted.
+                while !T::regs().sr().read().dinis() {}
+            }
+            let byte = word * 4;
+            let n = min(4, input.len() - byte);
+            let mut data: [u8; 4] = [0; 4];
+            data[..n].copy_from_slice(&input[byte..byte + n]);
+            T::regs().din().write_value(u32::from_ne_bytes(data));
+            word += 1;
         }
     }
 
@@ -625,8 +731,27 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
             self.next_id.wrapping_add(1)
         );
 
-        // Block waiting for data in ready.
+        // RM suspend (software-fed): "wait for BUSY = 0 then poll DINIS".
+        // DINIS = 1 guarantees <= 1 word remains in the IN buffer, which is
+        // the only state whose context is saveable.
+        while T::regs().sr().read().busy() {}
         while !T::regs().sr().read().dinis() {}
+
+        // DINIS = 1 means NBWP <= 1: the buffer either holds exactly the
+        // staged trigger word (saveable; next feed unit = one block) or is
+        // empty (next unit = block + trigger word). Record which.
+        //
+        // NBWP/DINNE only exist on hash_v3/hash_v4 status registers. On
+        // hash_v1/hash_v2 the identical staged state cannot be read back, so
+        // it is tracked in software (see update_blocking); the RM feed
+        // discipline is the same on all versions ("16 words, plus one if it
+        // is the first block" == NBWE words), so the tracked value matches
+        // what the hardware read would return.
+        #[cfg(any(hash_v3, hash_v4))]
+        {
+            let sr = T::regs().sr().read();
+            ctx.staged = sr.nbwp() != 0 || sr.dinne();
+        }
 
         // Store peripheral context.
         ctx.imr = T::regs().imr().read().0;
@@ -672,15 +797,22 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
             H::HMAC
         );
         // Restore the peripheral state from the context.
-        T::regs().imr().write_value(Imr { 0: ctx.imr });
-        T::regs().str().write_value(Str { 0: ctx.str });
-        T::regs().cr().write_value(Cr { 0: ctx.cr });
+        T::regs().imr().write_value(Imr(ctx.imr));
+        T::regs().str().write_value(Str(ctx.str));
+        T::regs().cr().write_value(Cr(ctx.cr));
         T::regs().cr().modify(|w| w.set_init(true));
         if ctx.peripheral_initialized {
             for i in 0..count {
                 T::regs().csr(i).write_value(ctx.csr.get(i));
             }
         }
+        // A full restore rewrites CR+INIT, so the hardware now holds THIS
+        // context's state regardless of what current_id said before. Claim
+        // ownership: without this, a subsequent ids-match skip on the
+        // previously-current context would use clobbered hardware (found by
+        // test_boundary_sizes n=68 m=1: finish of a fresh context between
+        // store and finish of another silently corrupts the digest).
+        self.current_id = Some(ctx.id);
         trace!("load_context: csr[0..{}] restored", count);
     }
 }
@@ -736,7 +868,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         }
 
         // Restore the peripheral state.
-        self.load_context(&ctx);
+        self.load_context(ctx);
 
         if !ctx.hmac_key_processed
             && let Some(key) = H::key_ref(&ctx.key)
@@ -818,6 +950,10 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
     where
         A: ContextBufferType<Async>,
     {
+        if H::HMAC && !ctx.staged && ctx.buflen == 0 {
+            return self.finish_hmac_empty_blocking(&ctx, digest);
+        }
+
         // Restore the peripheral state.
         self.load_context(&ctx);
 
@@ -838,6 +974,8 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         if ctx.buflen > 0 {
             self.accumulate(&ctx.buffer()[0..ctx.buflen]).await;
         }
+        // See finish_blocking: never issue DCAL while the core is busy.
+        while T::regs().sr().read().busy() {}
         T::regs().str().write(|w| w.set_dcal(true));
         ctx.buflen = 0;
 
@@ -863,6 +1001,10 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         })
         .await;
 
+        // The hardware no longer holds a resumable context. Clones of `ctx`
+        // share its id, so they must not skip the restore in `load_context`.
+        self.current_id = None;
+
         // Return the digest.
         let digest_words = A::DIGEST_WORDS;
         let digest_len_bytes = digest_words * 4;
@@ -885,7 +1027,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
     /// Push data into the hash core.
     async fn accumulate(&mut self, input: &[u8]) {
         // Ignore an input length of 0.
-        if input.len() == 0 {
+        if input.is_empty() {
             return;
         }
 
@@ -896,7 +1038,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         // Configure DMA to transfer input to hash core.
         let dst_ptr: *mut u32 = T::regs().din().as_ptr();
         let mut num_words = input.len() / 4;
-        if input.len() % 4 > 0 {
+        if !input.len().is_multiple_of(4) {
             num_words += 1;
         }
         let src_ptr: *const [u8] = ptr::slice_from_raw_parts(input.as_ptr().cast(), num_words * 4);
@@ -914,7 +1056,7 @@ impl<'d> SealedSuspendablePeripheral for Hash<'d, HASH, Blocking> {
     type InternalState = (Option<u32>, u32);
 
     fn resume(state: Self::InternalState) -> Self {
-        critical_section::with(|cs| rcc::enable_and_reset_with_cs_no_refcount::<HASH>(cs));
+        critical_section::with(rcc::enable_and_reset_with_cs_no_refcount::<HASH>);
 
         Self {
             _peripheral: unsafe { core::mem::transmute(()) },
@@ -931,8 +1073,32 @@ impl<'d> SealedSuspendablePeripheral for Hash<'d, HASH, Blocking> {
     }
 }
 
+#[cfg(any(
+    feature = "embassy-crypto-md5",
+    feature = "embassy-crypto-sha1",
+    feature = "embassy-crypto-sha224",
+    feature = "embassy-crypto-sha256",
+    feature = "embassy-crypto-sha384",
+    feature = "embassy-crypto-sha512",
+    feature = "embassy-crypto-sha512-224",
+    feature = "embassy-crypto-sha512-256",
+    feature = "embassy-crypto-hmac-sha1",
+    feature = "embassy-crypto-hmac-sha224",
+    feature = "embassy-crypto-hmac-sha256",
+    feature = "embassy-crypto-hmac-sha384",
+    feature = "embassy-crypto-hmac-sha512",
+    feature = "embassy-crypto-hmac-sha512-224",
+    feature = "embassy-crypto-hmac-sha512-256",
+))]
 mod driver {
-    use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+    //! `embassy-crypto` drivers served by the HASH peripheral, one per
+    //! `embassy-crypto-*` feature. Nothing is registered for algorithms the
+    //! peripheral revision does not implement.
+
+    #![allow(unused_imports, dead_code)]
+
+    use embassy_crypto::driver;
+    use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, PanicRawMutex};
     use embassy_sync::mutex::Mutex;
 
     #[cfg(any(hash_v1, hash_v2, hash_v4))]
@@ -944,42 +1110,33 @@ mod driver {
     use crate::peripherals::HASH;
     use crate::suspend::ResumablePeripheral;
 
-    static DRIVER: Mutex<CriticalSectionRawMutex, ResumablePeripheral<Hash<'static, HASH, Blocking>>> =
+    static DRIVER: Mutex<PanicRawMutex, ResumablePeripheral<Hash<'static, HASH, Blocking>>> =
         Mutex::new(ResumablePeripheral::new_suspended((None, 0)));
 
-    // =====================================================================
-    // Digest driver macro
-    // =====================================================================
+    struct HashDriver;
 
+    #[allow(unused_macros)]
     macro_rules! impl_digest_driver {
         (
-            $(#[$meta:meta])*
-            $driver:ident, $trait:path, $algo:ty,
-            $init:ident, $clone:ident, $update:ident, $finalize:ident,
+            $trait:path, $algo:ty, $size:literal,
             $impl_macro:path
         ) => {
-            $(#[$meta])*
-            struct $driver;
-            impl $trait for $driver {
+            impl $trait for HashDriver {
                 type Context = Context<$algo, Blocking, NonHmac>;
 
-                fn $init() -> Self::Context {
+                fn init() -> Self::Context {
                     DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
                 }
 
-                fn $clone(ctx: &Self::Context) -> Self::Context {
-                    ctx.clone()
-                }
-
-                fn $update(ctx: &mut Self::Context, data: &[u8]) {
+                fn update(ctx: &mut Self::Context, data: &[u8]) {
                     DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
                 }
 
-                fn $finalize(ctx: Self::Context, data: &mut [u8]) {
-                    DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
+                fn finalize(ctx: Self::Context, out: &mut [u8; $size]) {
+                    DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, out);
                 }
             }
-            $impl_macro!($driver);
+            $impl_macro!(HashDriver);
         };
     }
 
@@ -987,219 +1144,76 @@ mod driver {
     // HMAC driver macro
     // =====================================================================
 
+    #[allow(unused_macros)]
     macro_rules! impl_hmac_driver {
         (
-            $(#[$meta:meta])*
-            $driver:ident, $trait:path, $algo:ty,
-            $init:ident, $clone:ident, $update:ident, $finalize:ident,
+            $trait:path, $algo:ty, $size:literal,
             $impl_macro:path
         ) => {
-            $(#[$meta])*
-            struct $driver;
-            impl $trait for $driver {
+            impl $trait for HashDriver {
                 type Context = Context<$algo, Blocking, Hmac>;
 
-                fn $init(key: &[u8]) -> Self::Context {
-                    DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, Some(key))
+                fn init(key: &[u8]) -> Self::Context {
+                    DRIVER
+                        .try_lock()
+                        .unwrap()
+                        .borrow()
+                        .start(DataType::Width8, Some(key))
                 }
 
-                fn $clone(ctx: &Self::Context) -> Self::Context {
-                    ctx.clone()
-                }
-
-                fn $update(ctx: &mut Self::Context, data: &[u8]) {
+                fn update(ctx: &mut Self::Context, data: &[u8]) {
                     DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
                 }
 
-                fn $finalize(ctx: Self::Context, data: &mut [u8]) {
-                    DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
+                fn finalize(ctx: Self::Context, out: &mut [u8; $size]) {
+                    DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, out);
                 }
-
             }
-            $impl_macro!($driver);
+            $impl_macro!(HashDriver);
         };
     }
 
-    // =====================================================================
-    // Digest drivers
-    // =====================================================================
-    #[cfg(any(hash_v1, hash_v2, hash_v4))]
-    impl_digest_driver!(
-        Md5Driver,
-        embassy_crypto_driver::Md5,
-        Md5,
-        md5_init,
-        md5_clone,
-        md5_update,
-        md5_finalize,
-        embassy_crypto_driver::embassy_crypto_md5_impl
-    );
+    #[cfg(all(feature = "embassy-crypto-md5", any(hash_v1, hash_v2, hash_v4)))]
+    impl_digest_driver!(driver::Md5, Md5, 16, embassy_crypto::md5_impl);
+    #[cfg(feature = "embassy-crypto-sha1")]
+    impl_digest_driver!(driver::Sha1, Sha1, 20, embassy_crypto::sha1_impl);
+    #[cfg(feature = "embassy-crypto-sha224")]
+    impl_digest_driver!(driver::Sha224, Sha224, 28, embassy_crypto::sha224_impl);
+    #[cfg(feature = "embassy-crypto-sha256")]
+    impl_digest_driver!(driver::Sha256, Sha256, 32, embassy_crypto::sha256_impl);
+    #[cfg(all(feature = "embassy-crypto-sha384", hash_v3))]
+    impl_digest_driver!(driver::Sha384, Sha384, 48, embassy_crypto::sha384_impl);
+    #[cfg(all(feature = "embassy-crypto-sha512-224", hash_v3))]
+    impl_digest_driver!(driver::Sha512_224, Sha512_224, 28, embassy_crypto::sha512_224_impl);
+    #[cfg(all(feature = "embassy-crypto-sha512-256", hash_v3))]
+    impl_digest_driver!(driver::Sha512_256, Sha512_256, 32, embassy_crypto::sha512_256_impl);
+    #[cfg(all(feature = "embassy-crypto-sha512", hash_v3))]
+    impl_digest_driver!(driver::Sha512, Sha512, 64, embassy_crypto::sha512_impl);
 
-    impl_digest_driver!(
-        Sha1Driver,
-        embassy_crypto_driver::Sha1,
-        Sha1,
-        sha1_init,
-        sha1_clone,
-        sha1_update,
-        sha1_finalize,
-        embassy_crypto_driver::embassy_crypto_sha1_impl
-    );
-
-    impl_digest_driver!(
-        Sha224Driver,
-        embassy_crypto_driver::Sha224,
-        Sha224,
-        sha224_init,
-        sha224_clone,
-        sha224_update,
-        sha224_finalize,
-        embassy_crypto_driver::embassy_crypto_sha224_impl
-    );
-
-    impl_digest_driver!(
-        Sha256Driver,
-        embassy_crypto_driver::Sha256,
-        Sha256,
-        sha256_init,
-        sha256_clone,
-        sha256_update,
-        sha256_finalize,
-        embassy_crypto_driver::embassy_crypto_sha256_impl
-    );
-
-    #[cfg(hash_v3)]
-    impl_digest_driver!(
-        Sha384Driver,
-        embassy_crypto_driver::Sha384,
-        Sha384,
-        sha384_init,
-        sha384_clone,
-        sha384_update,
-        sha384_finalize,
-        embassy_crypto_driver::embassy_crypto_sha384_impl
-    );
-
-    #[cfg(hash_v3)]
-    impl_digest_driver!(
-        Sha512_224Driver,
-        embassy_crypto_driver::Sha512_224,
+    #[cfg(feature = "embassy-crypto-hmac-sha1")]
+    impl_hmac_driver!(driver::HmacSha1, Sha1, 20, embassy_crypto::hmac_sha1_impl);
+    #[cfg(feature = "embassy-crypto-hmac-sha224")]
+    impl_hmac_driver!(driver::HmacSha224, Sha224, 28, embassy_crypto::hmac_sha224_impl);
+    #[cfg(feature = "embassy-crypto-hmac-sha256")]
+    impl_hmac_driver!(driver::HmacSha256, Sha256, 32, embassy_crypto::hmac_sha256_impl);
+    #[cfg(all(feature = "embassy-crypto-hmac-sha384", hash_v3))]
+    impl_hmac_driver!(driver::HmacSha384, Sha384, 48, embassy_crypto::hmac_sha384_impl);
+    #[cfg(all(feature = "embassy-crypto-hmac-sha512-224", hash_v3))]
+    impl_hmac_driver!(
+        driver::HmacSha512_224,
         Sha512_224,
-        sha512_224_init,
-        sha512_224_clone,
-        sha512_224_update,
-        sha512_224_finalize,
-        embassy_crypto_driver::embassy_crypto_sha512_224_impl
+        28,
+        embassy_crypto::hmac_sha512_224_impl
     );
-
-    #[cfg(hash_v3)]
-    impl_digest_driver!(
-        Sha512_256Driver,
-        embassy_crypto_driver::Sha512_256,
+    #[cfg(all(feature = "embassy-crypto-hmac-sha512-256", hash_v3))]
+    impl_hmac_driver!(
+        driver::HmacSha512_256,
         Sha512_256,
-        sha512_256_init,
-        sha512_256_clone,
-        sha512_256_update,
-        sha512_256_finalize,
-        embassy_crypto_driver::embassy_crypto_sha512_256_impl
+        32,
+        embassy_crypto::hmac_sha512_256_impl
     );
-
-    #[cfg(hash_v3)]
-    impl_digest_driver!(
-        Sha512Driver,
-        embassy_crypto_driver::Sha512,
-        Sha512,
-        sha512_init,
-        sha512_clone,
-        sha512_update,
-        sha512_finalize,
-        embassy_crypto_driver::embassy_crypto_sha512_impl
-    );
-
-    // =====================================================================
-    // HMAC drivers
-    // =====================================================================
-
-    impl_hmac_driver!(
-        HmacSha1Driver,
-        embassy_crypto_driver::HmacSha1,
-        Sha1,
-        hmac_sha1_init,
-        hmac_sha1_clone,
-        hmac_sha1_update,
-        hmac_sha1_finalize,
-        embassy_crypto_driver::embassy_crypto_hmac_sha1_impl
-    );
-
-    impl_hmac_driver!(
-        HmacSha224Driver,
-        embassy_crypto_driver::HmacSha224,
-        Sha224,
-        hmac_sha224_init,
-        hmac_sha224_clone,
-        hmac_sha224_update,
-        hmac_sha224_finalize,
-        embassy_crypto_driver::embassy_crypto_hmac_sha224_impl
-    );
-
-    impl_hmac_driver!(
-        HmacSha256Driver,
-        embassy_crypto_driver::HmacSha256,
-        Sha256,
-        hmac_sha256_init,
-        hmac_sha256_clone,
-        hmac_sha256_update,
-        hmac_sha256_finalize,
-        embassy_crypto_driver::embassy_crypto_hmac_sha256_impl
-    );
-
-    #[cfg(hash_v3)]
-    impl_hmac_driver!(
-        HmacSha384Driver,
-        embassy_crypto_driver::HmacSha384,
-        Sha384,
-        hmac_sha384_init,
-        hmac_sha384_clone,
-        hmac_sha384_update,
-        hmac_sha384_finalize,
-        embassy_crypto_driver::embassy_crypto_hmac_sha384_impl
-    );
-
-    #[cfg(hash_v3)]
-    impl_hmac_driver!(
-        HmacSha512_224Driver,
-        embassy_crypto_driver::HmacSha512_224,
-        Sha512_224,
-        hmac_sha512_224_init,
-        hmac_sha512_224_clone,
-        hmac_sha512_224_update,
-        hmac_sha512_224_finalize,
-        embassy_crypto_driver::embassy_crypto_hmac_sha512_224_impl
-    );
-
-    #[cfg(hash_v3)]
-    impl_hmac_driver!(
-        HmacSha512_256Driver,
-        embassy_crypto_driver::HmacSha512_256,
-        Sha512_256,
-        hmac_sha512_256_init,
-        hmac_sha512_256_clone,
-        hmac_sha512_256_update,
-        hmac_sha512_256_finalize,
-        embassy_crypto_driver::embassy_crypto_hmac_sha512_256_impl
-    );
-
-    #[cfg(hash_v3)]
-    impl_hmac_driver!(
-        HmacSha512Driver,
-        embassy_crypto_driver::HmacSha512,
-        Sha512,
-        hmac_sha512_init,
-        hmac_sha512_clone,
-        hmac_sha512_update,
-        hmac_sha512_finalize,
-        embassy_crypto_driver::embassy_crypto_hmac_sha512_impl
-    );
+    #[cfg(all(feature = "embassy-crypto-hmac-sha512", hash_v3))]
+    impl_hmac_driver!(driver::HmacSha512, Sha512, 64, embassy_crypto::hmac_sha512_impl);
 }
 
 trait SealedInstance {

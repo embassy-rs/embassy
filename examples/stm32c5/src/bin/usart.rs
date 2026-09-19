@@ -13,7 +13,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mut usart = Uart::new_blocking(p.USART2, p.PD6, p.PD5, config).unwrap();
+    let mut usart = Uart::new_blocking(p.USART2, p.PD5, p.PD6, config).unwrap();
 
     unwrap!(usart.blocking_write(b"Hi"));
     info!("wrote 'Hi', starting echo");

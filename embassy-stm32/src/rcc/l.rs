@@ -196,9 +196,9 @@ pub(crate) unsafe fn init(config: Config) {
     // voltage range.
     #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
     {
-        #[cfg(any(stm32l4, stm32wb))]
+        #[cfg(any(all(stm32l4, not(rcc_l4plus)), stm32wb))]
         const MAX_LATENCY: u8 = 4;
-        #[cfg(stm32l5)]
+        #[cfg(any(rcc_l4plus, stm32l5))]
         const MAX_LATENCY: u8 = 5;
         #[cfg(any(stm32wl, stm32u0))]
         const MAX_LATENCY: u8 = 2;
@@ -216,9 +216,13 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     #[cfg(stm32l5)]
-    crate::pac::PWR.cr1().modify(|w| {
-        w.set_vos(crate::pac::pwr::vals::Vos::Range0);
-    });
+    {
+        crate::pac::PWR.cr1().modify(|w| {
+            w.set_vos(crate::pac::pwr::vals::Vos::Range0);
+        });
+        // RM0438 8.2.5: VOS resets to Range 2, so no clock may be raised until VOSF reports the new range.
+        while crate::pac::PWR.sr2().read().vosf() {}
+    }
 
     let rtc = config.ls.init();
 
@@ -335,6 +339,8 @@ pub(crate) unsafe fn init(config: Config) {
     assert!(sys_clk.0 <= 120_000_000);
     #[cfg(all(stm32l4, not(rcc_l4plus)))]
     assert!(sys_clk.0 <= 80_000_000);
+    #[cfg(stm32l5)]
+    assert!(sys_clk.0 <= 110_000_000);
 
     let hclk1 = sys_clk / config.ahb_pre;
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk1, config.apb1_pre);
@@ -357,13 +363,23 @@ pub(crate) unsafe fn init(config: Config) {
         (VoltageScale::Range3, ..=4_200_000) => false,
         _ => true,
     };
-    #[cfg(stm32l4)]
+    #[cfg(all(stm32l4, not(rcc_l4plus)))]
     let latency = match hclk1.0 {
         0..=16_000_000 => 0,
         0..=32_000_000 => 1,
         0..=48_000_000 => 2,
         0..=64_000_000 => 3,
         _ => 4,
+    };
+    #[cfg(rcc_l4plus)]
+    let latency = match hclk1.0 {
+        // RM0432 Table 12, VCORE Range 1 (boost and normal share these steps).
+        0..=20_000_000 => 0,
+        0..=40_000_000 => 1,
+        0..=60_000_000 => 2,
+        0..=80_000_000 => 3,
+        0..=100_000_000 => 4,
+        _ => 5,
     };
     #[cfg(stm32l5)]
     let latency = match hclk1.0 {
@@ -399,6 +415,12 @@ pub(crate) unsafe fn init(config: Config) {
         _ => 2,
     };
 
+    // RM0432 5.1.8: PWR_CR5 resets to Range 1 normal, which stops at 80 MHz; going above needs boost.
+    #[cfg(rcc_l4plus)]
+    if sys_clk.0 > 80_000_000 {
+        crate::pac::PWR.cr5().modify(|w| w.set_r1mode(false));
+    }
+
     #[cfg(stm32l1)]
     FLASH.acr().write(|w| w.set_acc64(true));
 
@@ -409,9 +431,19 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(not(stm32l5))]
     FLASH.acr().modify(|w| w.set_prften(true));
 
+    // RM0432 5.1.8 / RM0438 8.2.5: above 80 MHz the AHB prescaler must divide by two across the switch.
+    #[cfg(any(rcc_l4plus, stm32l5))]
+    let (hpre_stepped, ahb_pre) = if sys_clk.0 > 80_000_000 && config.ahb_pre == AHBPrescaler::Div1 {
+        (true, AHBPrescaler::Div2)
+    } else {
+        (false, config.ahb_pre)
+    };
+    #[cfg(not(any(rcc_l4plus, stm32l5)))]
+    let (hpre_stepped, ahb_pre) = (false, config.ahb_pre);
+
     RCC.cfgr().modify(|w| {
         w.set_sw(config.sys);
-        w.set_hpre(config.ahb_pre);
+        w.set_hpre(ahb_pre);
         #[cfg(stm32u0)]
         w.set_ppre(config.apb1_pre);
         #[cfg(not(stm32u0))]
@@ -420,6 +452,10 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(config.apb2_pre);
     });
     while RCC.cfgr().read().sws() != config.sys {}
+
+    if hpre_stepped {
+        RCC.cfgr().modify(|w| w.set_hpre(config.ahb_pre));
+    }
 
     #[cfg(any(stm32wl, stm32wb))]
     {

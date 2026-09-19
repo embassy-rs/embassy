@@ -51,14 +51,14 @@ impl<'d, T: Instance> Lpgpio<'d, T> {
     }
 
     /// Read the input level of a pin.
-    pub fn get_level(&self, pin: u8) -> bool {
+    pub fn level(&self, pin: u8) -> bool {
         assert!(pin < PIN_COUNT);
         (T::regs().idr().read().0 & (1 << pin)) != 0
     }
 
     /// Toggle an output pin.
     pub fn toggle(&mut self, pin: u8) {
-        self.set_level(pin, !self.get_level(pin));
+        self.set_level(pin, !self.level(pin));
     }
 }
 

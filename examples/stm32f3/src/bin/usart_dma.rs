@@ -23,7 +23,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mut usart = Uart::new(p.USART1, p.PE1, p.PE0, p.DMA1_CH4, p.DMA1_CH5, Irqs, config).unwrap();
+    let mut usart = Uart::new(p.USART1, p.PE0, p.PE1, p.DMA1_CH4, p.DMA1_CH5, Irqs, config).unwrap();
 
     for n in 0u32.. {
         let mut s: String<128> = String::new();

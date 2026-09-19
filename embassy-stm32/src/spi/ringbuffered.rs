@@ -16,8 +16,8 @@ use crate::rcc::WakeGuard;
 use crate::spi::flush_rx_fifo;
 use crate::spi::mode::Slave;
 use crate::spi::{
-    Config, CsPinType, Error, Info, Regs, RegsExt, SlaveSelectPolarity, Spi, Word, check_error_flags, reconfigure,
-    set_rxdmaen,
+    Config, ConfigError, CsPinType, Error, Info, Regs, RegsExt, SlaveSelectPolarity, Spi, Word, check_error_flags,
+    reconfigure, set_rxdmaen,
 };
 use crate::time::Hertz;
 
@@ -64,7 +64,7 @@ pub struct RingBufferedSpiRx<'d, W: Word> {
 
 impl<'d, W: Word> SetConfig for RingBufferedSpiRx<'d, W> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
 
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         self.set_config(config)
@@ -136,7 +136,7 @@ impl<'d> Spi<'d, Async, Slave> {
 
 impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
     /// Reconfigure the driver
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ()> {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
             self.nss_polarity = config.nss_polarity;

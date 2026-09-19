@@ -22,7 +22,7 @@ use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_net::StackStorage;
 use embassy_net::tcp::{TcpListener, TcpSocket};
-use embassy_net::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
+use embassy_net::wire::{IpCidr, Ipv4Addr, Ipv4Cidr};
 use embassy_net_adin1110::{ADIN1110, Device, GenericSpi, Runner};
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
@@ -56,7 +56,7 @@ bind_interrupts!(struct Irqs {
 // MAC-address used by the adin1110
 const MAC: [u8; 6] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 // Static IP settings
-const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 5), 24);
+const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Addr::new(192, 168, 1, 5), 24);
 // Listen port for the webserver
 const HTTP_LISTEN_PORT: u16 = 80;
 
@@ -198,7 +198,7 @@ async fn main(spawner: Spawner) {
 
     let mut rng = Rng::new(dp.RNG, Irqs);
     // Generate random seed
-    let seed = rng.next_u64();
+    let seed = rng.blocking_next_u64();
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
@@ -209,9 +209,9 @@ async fn main(spawner: Spawner) {
     let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     if uc_cfg0.is_low() {
         println!("Waiting for DHCP...");
-        iface.set_dhcpv4(Some(Default::default()));
+        unwrap!(iface.set_dhcpv4(Some(Default::default())));
     } else {
-        unwrap!(iface.add_ip_addr(IpCidr::Ipv4(IP_ADDRESS)));
+        unwrap!(iface.add_ip_addr(IpCidr::V4(IP_ADDRESS)));
     }
 
     // Launch network task

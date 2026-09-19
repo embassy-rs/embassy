@@ -128,9 +128,6 @@ where
     pub fn new_8bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -142,6 +139,9 @@ where
         v_sync: Peri<'d, impl VSyncPin<T>>,
         h_sync: Peri<'d, impl HSyncPin<T>>,
         pixclk: Peri<'d, impl PixClkPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7);
@@ -154,9 +154,6 @@ where
     pub fn new_10bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -170,6 +167,9 @@ where
         v_sync: Peri<'d, impl VSyncPin<T>>,
         h_sync: Peri<'d, impl HSyncPin<T>>,
         pixclk: Peri<'d, impl PixClkPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9);
@@ -182,9 +182,6 @@ where
     pub fn new_12bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -200,6 +197,9 @@ where
         v_sync: Peri<'d, impl VSyncPin<T>>,
         h_sync: Peri<'d, impl HSyncPin<T>>,
         pixclk: Peri<'d, impl PixClkPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11);
@@ -212,9 +212,6 @@ where
     pub fn new_14bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -232,6 +229,9 @@ where
         v_sync: Peri<'d, impl VSyncPin<T>>,
         h_sync: Peri<'d, impl HSyncPin<T>>,
         pixclk: Peri<'d, impl PixClkPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13);
@@ -244,9 +244,6 @@ where
     pub fn new_es_8bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -256,6 +253,9 @@ where
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
         pixclk: Peri<'d, impl PixClkPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7);
@@ -268,9 +268,6 @@ where
     pub fn new_es_10bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -282,6 +279,9 @@ where
         d8: Peri<'d, impl D8Pin<T>>,
         d9: Peri<'d, impl D9Pin<T>>,
         pixclk: Peri<'d, impl PixClkPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9);
@@ -294,9 +294,6 @@ where
     pub fn new_es_12bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -310,6 +307,9 @@ where
         d10: Peri<'d, impl D10Pin<T>>,
         d11: Peri<'d, impl D11Pin<T>>,
         pixclk: Peri<'d, impl PixClkPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11);
@@ -322,9 +322,6 @@ where
     pub fn new_es_14bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -340,6 +337,9 @@ where
         d12: Peri<'d, impl D12Pin<T>>,
         d13: Peri<'d, impl D13Pin<T>>,
         pixclk: Peri<'d, impl PixClkPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13);

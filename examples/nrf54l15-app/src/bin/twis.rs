@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner) {
 
     let mut config = twis::Config::default();
     config.address0 = 0x55; // Set i2c address
-    let mut i2c = Twis::new(p.SERIAL20, Irqs, p.P0_03, p.P0_04, config);
+    let mut i2c = Twis::new(p.SERIAL20, p.P0_04, p.P0_03, Irqs, config);
 
     info!("Listening...");
     loop {

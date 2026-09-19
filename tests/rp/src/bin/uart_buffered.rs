@@ -187,7 +187,7 @@ async fn main(_spawner: Spawner) {
         config.baudrate = 1000;
         config.parity = Parity::ParityEven;
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUartRx::new(uart.reborrow(), Irqs, rx.reborrow(), rx_buf, config);
+        let mut uart = BufferedUartRx::new(uart.reborrow(), rx.reborrow(), Irqs, rx_buf, config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, parity: u32) {
             send(pin, v, Some(parity != 0)).await;
@@ -234,7 +234,7 @@ async fn main(_spawner: Spawner) {
         let mut config = Config::default();
         config.baudrate = 1000;
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUartRx::new(uart.reborrow(), Irqs, rx.reborrow(), rx_buf, config);
+        let mut uart = BufferedUartRx::new(uart.reborrow(), rx.reborrow(), Irqs, rx_buf, config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, good: bool) {
             if good {

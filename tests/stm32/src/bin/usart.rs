@@ -30,7 +30,7 @@ async fn main(_spawner: Spawner) {
 
     {
         let config = Config::default();
-        let mut usart = Uart::new_blocking(usart.reborrow(), rx.reborrow(), tx.reborrow(), config).unwrap();
+        let mut usart = Uart::new_blocking(usart.reborrow(), tx.reborrow(), rx.reborrow(), config).unwrap();
 
         let test_usart = async |usart: &mut Uart<'_, Blocking>| -> Result<(), Error> {
             // We can't send too many bytes, they have to fit in the FIFO.
@@ -72,7 +72,7 @@ async fn main(_spawner: Spawner) {
     // Test error handling with with an overflow error
     {
         let config = Config::default();
-        let mut usart = Uart::new_blocking(usart.reborrow(), rx.reborrow(), tx.reborrow(), config).unwrap();
+        let mut usart = Uart::new_blocking(usart.reborrow(), tx.reborrow(), rx.reborrow(), config).unwrap();
 
         // Send enough bytes to fill the RX FIFOs off all USART versions.
         let data = [0; 64];
@@ -102,7 +102,7 @@ async fn main(_spawner: Spawner) {
 
         let mut config = Config::default();
         config.baudrate = baudrate;
-        let mut usart = match Uart::new_blocking(usart.reborrow(), rx.reborrow(), tx.reborrow(), config) {
+        let mut usart = match Uart::new_blocking(usart.reborrow(), tx.reborrow(), rx.reborrow(), config) {
             Ok(x) => x,
             Err(ConfigError::BaudrateTooHigh) => {
                 info!("baudrate too high");
@@ -148,11 +148,11 @@ async fn main(_spawner: Spawner) {
         let config = Config::default();
         let mut _usart = BufferedUart::new(
             usart.reborrow(),
-            rx.reborrow(),
             tx.reborrow(),
+            rx.reborrow(),
+            irq,
             &mut tx_buf,
             &mut rx_buf,
-            irq,
             config,
         )
         .unwrap();

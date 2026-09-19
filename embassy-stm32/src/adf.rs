@@ -81,13 +81,13 @@ impl<'d, T: Instance> Adf<'d, T> {
     /// `cck` drives the PDM bit clock and `sdi` receives the PDM data stream.
     pub fn new<D>(
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         config: Config,
         cck: Peri<'d, impl CckPin<T>>,
         sdi: Peri<'d, impl SdiPin<T>>,
         dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         dma_buf: &'d mut [u32],
     ) -> Self
     where

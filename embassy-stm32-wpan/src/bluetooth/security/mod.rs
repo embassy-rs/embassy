@@ -52,6 +52,9 @@ unsafe extern "C" {
     #[link_name = "ACI_GAP_PASS_KEY_RESP"]
     fn aci_gap_pass_key_resp(connection_handle: u16, pass_key: u32) -> tBleStatus;
 
+    #[link_name = "ACI_GAP_PASSKEY_INPUT"]
+    fn aci_gap_passkey_input(connection_handle: u16, input_type: u8) -> tBleStatus;
+
     #[link_name = "ACI_GAP_AUTHORIZATION_RESP"]
     fn aci_gap_authorization_resp(connection_handle: u16, authorize: u8) -> tBleStatus;
 
@@ -152,6 +155,23 @@ pub enum IoCapability {
     NoInputNoOutput = 0x03,
     /// Keyboard and display capability
     KeyboardDisplay = 0x04,
+}
+
+/// Passkey-entry keypress type for [`SecurityManager::passkey_input`].
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PasskeyInputType {
+    /// Passkey entry started.
+    Started = 0x00,
+    /// A passkey digit was entered.
+    DigitEntered = 0x01,
+    /// A passkey digit was erased.
+    DigitErased = 0x02,
+    /// The entered passkey was cleared.
+    Cleared = 0x03,
+    /// Passkey entry completed.
+    Completed = 0x04,
 }
 
 /// Secure Connections support mode
@@ -568,6 +588,24 @@ impl SecurityManager {
         unsafe {
             let status = aci_gap_pass_key_resp(conn_handle, passkey);
 
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Signal a passkey-entry keypress to the stack.
+    ///
+    /// During passkey entry the stack can forward keypress notifications to the
+    /// peer (requires `keypress_notification` in [`SecurityParams`]). Call this
+    /// as the user interacts with the local keypad; the 6-digit value itself is
+    /// sent with [`pass_key_response`](Self::pass_key_response) in response to
+    /// [`SecurityEvent::PasskeyRequest`].
+    pub fn passkey_input(&self, conn_handle: u16, input: PasskeyInputType) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_gap_passkey_input(conn_handle, input as u8);
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
             } else {

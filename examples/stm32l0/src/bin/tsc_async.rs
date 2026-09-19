@@ -81,7 +81,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         ..Default::default()
     };
 
-    let mut touch_controller = tsc::Tsc::new_async(context.TSC, pin_groups, tsc_conf, Irqs).unwrap();
+    let mut touch_controller = tsc::Tsc::new_async(context.TSC, Irqs, pin_groups, tsc_conf).unwrap();
 
     // Check if TSC is ready
     if touch_controller.get_state() != State::Ready {

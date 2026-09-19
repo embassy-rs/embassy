@@ -17,6 +17,9 @@ use stm32_metapac::metadata::{
 #[path = "./build_common.rs"]
 mod common;
 
+#[path = "./src/dfsdm/codegen.rs"]
+mod dfsdm_codegen;
+
 /// Helper function to handle peripheral versions with underscores.
 /// For a version like "v1_foo_bar", this generates all prefix combinations:
 /// - "kind_v1"
@@ -66,6 +69,11 @@ fn main() {
 
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
+            // The AES driver enables the peripheral's clock, which the metadata does not
+            // know for the AES of some chips (STM32L0, L1, F423): no driver there.
+            if r.kind == "aes" && p.rcc.is_none() {
+                continue;
+            }
             cfgs.enable(r.kind);
             foreach_version_cfg(&mut cfgs, r.kind, r.version, |cfgs, cfg_name| {
                 cfgs.enable(cfg_name);
@@ -247,6 +255,16 @@ fn main() {
     }
 
     cfgs.declare_all(&[
+        "adc_v2_u5",
+        "adc_oversampler",
+        "adc_oversampler_1024",
+        "adc_sync_clock",
+        "adc_sync_div1",
+        "adc_presc_f4",
+        "adc_presc_l1",
+        "adc_presc_full",
+        "adc_res14",
+        "adc_res16",
         "peri_adc1",
         "peri_adc2",
         "peri_adc3",
@@ -264,6 +282,8 @@ fn main() {
         "peri_ucpd2",
         "peri_usb_otg_fs",
         "peri_usb_otg_hs",
+        "peri_usb1_otg_hs",
+        "peri_usb2_otg_hs",
         "peri_octospi2",
         "peri_xspi2",
     ]);
@@ -350,48 +370,57 @@ fn main() {
         Err(GetOneError::Multiple) => panic!("Multiple time-driver-xxx Cargo features enabled"),
     };
 
-    let time_driver_singleton = match time_driver.as_ref().map(|x| x.as_ref()) {
-        None => "",
-        Some("tim1") => "TIM1",
-        Some("tim2") => "TIM2",
-        Some("tim3") => "TIM3",
-        Some("tim4") => "TIM4",
-        Some("tim5") => "TIM5",
-        Some("tim8") => "TIM8",
-        Some("tim9") => "TIM9",
-        Some("tim12") => "TIM12",
-        Some("tim15") => "TIM15",
-        Some("tim20") => "TIM20",
-        Some("tim21") => "TIM21",
-        Some("tim22") => "TIM22",
-        Some("tim23") => "TIM23",
-        Some("tim24") => "TIM24",
-        Some("lptim1") => "LPTIM1",
-        Some("lptim2") => "LPTIM2",
-        Some("lptim3") => "LPTIM3",
+    let time_driver_singleton: String = match time_driver.as_deref() {
+        None => String::new(),
         Some("any") => {
-            // Order of TIM candidators:
-            // 1. 2CH -> 2CH_CMP -> GP16 -> GP32 -> ADV
-            // 2. In same catagory: larger TIM number first
-            [
-                "TIM22", "TIM21", "TIM12", "TIM9",  // 2CH
-                "TIM15", // 2CH_CMP
-                "TIM19", "TIM4", "TIM3", // GP16
-                "TIM24", "TIM23", "TIM5", "TIM2", // GP32
-                "TIM20", "TIM8", "TIM1", //ADV
-            ]
-            .iter()
-            .find(|tim| singletons.contains(&tim.to_string())).expect("time-driver-any requested, but the chip doesn't have TIM1, TIM2, TIM3, TIM4, TIM5, TIM8, TIM9, TIM12, TIM15, TIM20, TIM21, TIM22, TIM23 or TIM24.")
+            // The driver uses CC1 for the halfway-point interrupt and CC2 for the alarm,
+            // so basic and 1-channel timers are out. Rank the rest:
+            // 1. 32-bit timers first: the counter overflows far less often, so the driver
+            //    takes far fewer interrupts. Then less-featured first, to leave the more
+            //    capable timers to the user.
+            // 2. Within a category, larger TIM number first.
+            METADATA
+                .peripherals
+                .iter()
+                .filter(|p| singletons.contains(&p.name.to_string()))
+                .filter_map(|p| {
+                    let regs = p.registers.as_ref()?;
+                    if regs.kind != "timer" {
+                        return None;
+                    }
+                    let category = match regs.block {
+                        "TIM_GP32" => 0,
+                        "TIM_2CH" => 1,
+                        "TIM_2CH_CMP" => 2,
+                        "TIM_GP16" => 3,
+                        "TIM_ADV" => 4,
+                        _ => return None,
+                    };
+                    let number: u32 = p.name.strip_prefix("TIM")?.parse().ok()?;
+                    Some(((category, std::cmp::Reverse(number)), p.name))
+                })
+                .min_by_key(|(rank, _)| *rank)
+                .map(|(_, name)| name.to_string())
+                .expect("time-driver-any requested, but the chip doesn't have a TIM with at least 2 capture/compare channels.")
         }
-        _ => panic!("unknown time_driver {:?}", time_driver),
+        Some(x) => x.to_ascii_uppercase(),
     };
 
     let time_driver_irq_decl = if !time_driver_singleton.is_empty() {
-        cfgs.enable(format!("time_driver_{}", time_driver_singleton.to_lowercase()));
+        cfgs.set(format!("time_driver_{}", time_driver_singleton.to_lowercase()), true);
 
-        let Some((p, regs)) = peripheral_map.get(time_driver_singleton) else {
+        let Some((p, regs)) = peripheral_map.get(time_driver_singleton.as_str()) else {
             panic!("Tried to select {time_driver_singleton}, which is not available on this device");
         };
+
+        // Tell the time driver how wide the timer's counter is.
+        if regs.kind == "timer" {
+            cfgs.enable(if regs.block == "TIM_GP32" {
+                "time_driver_32bit"
+            } else {
+                "time_driver_16bit"
+            });
+        }
 
         if regs.kind == "lptim" && regs.version == "n6" {
             panic!(
@@ -425,11 +454,12 @@ fn main() {
     };
 
     for tim in [
-        "lptim1", "lptim2", "lptim3", "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15",
-        "tim20", "tim21", "tim22", "tim23", "tim24",
+        "lptim1", "lptim2", "lptim3", "lptim4", "lptim5", "lptim6", "tim1", "tim2", "tim3", "tim4", "tim5", "tim8",
+        "tim9", "tim12", "tim15", "tim19", "tim20", "tim21", "tim22", "tim23", "tim24",
     ] {
         cfgs.declare(format!("time_driver_{}", tim));
     }
+    cfgs.declare_all(&["time_driver_16bit", "time_driver_32bit"]);
 
     // ========
     // Write singletons
@@ -444,7 +474,7 @@ fn main() {
 
     let singleton_tokens: Vec<_> = singletons
         .iter()
-        .filter(|s| *s != &time_driver_singleton.to_string())
+        .filter(|s| **s != time_driver_singleton)
         .map(|s| format_ident!("{}", s))
         .collect();
 
@@ -474,6 +504,14 @@ fn main() {
     });
 
     g.extend(time_driver_irq_decl);
+
+    if !time_driver_singleton.is_empty() {
+        let ident = format_ident!("{}", time_driver_singleton);
+        g.extend(quote! {
+            /// The peripheral used by the time driver.
+            pub(crate) type TimeDriverPeripheral = crate::peripherals::#ident;
+        });
+    }
 
     // ========
     // Generate FLASH regions
@@ -921,7 +959,7 @@ fn main() {
                 PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
             };
 
-            let bus_clock_frequency = clock_gen.gen_clock(p.name, &rcc.bus_clock);
+            let bus_clock_frequency = clock_gen.gen_clock(p.name, rcc.bus_clock);
 
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
             // This condition should be checked in stm32-data
@@ -1779,6 +1817,23 @@ fn main() {
         (("mdf", "SDI3"), quote!(crate::mdf::SdiPin)),
         (("mdf", "SDI4"), quote!(crate::mdf::SdiPin)),
         (("mdf", "SDI5"), quote!(crate::mdf::SdiPin)),
+        (("dfsdm", "CKOUT"), quote!(crate::dfsdm::CkoutPin)),
+        (("dfsdm", "DATIN0"), quote!(crate::dfsdm::Datin0Pin)),
+        (("dfsdm", "CKIN0"), quote!(crate::dfsdm::Ckin0Pin)),
+        (("dfsdm", "DATIN1"), quote!(crate::dfsdm::Datin1Pin)),
+        (("dfsdm", "CKIN1"), quote!(crate::dfsdm::Ckin1Pin)),
+        (("dfsdm", "DATIN2"), quote!(crate::dfsdm::Datin2Pin)),
+        (("dfsdm", "CKIN2"), quote!(crate::dfsdm::Ckin2Pin)),
+        (("dfsdm", "DATIN3"), quote!(crate::dfsdm::Datin3Pin)),
+        (("dfsdm", "CKIN3"), quote!(crate::dfsdm::Ckin3Pin)),
+        (("dfsdm", "DATIN4"), quote!(crate::dfsdm::Datin4Pin)),
+        (("dfsdm", "CKIN4"), quote!(crate::dfsdm::Ckin4Pin)),
+        (("dfsdm", "DATIN5"), quote!(crate::dfsdm::Datin5Pin)),
+        (("dfsdm", "CKIN5"), quote!(crate::dfsdm::Ckin5Pin)),
+        (("dfsdm", "DATIN6"), quote!(crate::dfsdm::Datin6Pin)),
+        (("dfsdm", "CKIN6"), quote!(crate::dfsdm::Ckin6Pin)),
+        (("dfsdm", "DATIN7"), quote!(crate::dfsdm::Datin7Pin)),
+        (("dfsdm", "CKIN7"), quote!(crate::dfsdm::Ckin7Pin)),
     ] {
         signals.entry(key).or_default().push(value);
     }
@@ -1922,10 +1977,8 @@ fn main() {
                 // Many families have USB as an additional function, not an
                 // alternate function, where the pin must be left in analog
                 // mode and enabling AF will break USB.
-                if p.name.starts_with("USB") && (pin.signal == "DM" || pin.signal == "DP") {
-                    if pin.af.is_some() {
-                        cfgs.enable("usb_alternate_function");
-                    }
+                if p.name.starts_with("USB") && (pin.signal == "DM" || pin.signal == "DP") && pin.af.is_some() {
+                    cfgs.enable("usb_alternate_function");
                 }
 
                 let pin_trait_impl = if let Some(afio) = &p.afio {
@@ -2133,6 +2186,7 @@ fn main() {
         (("adc", "ADC1"), quote!(crate::adc::RxDma)),
         (("adc", "ADC2"), quote!(crate::adc::RxDma)),
         (("adc", "ADC3"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC4"), quote!(crate::adc::RxDma)),
         (("ucpd", "RX"), quote!(crate::ucpd::RxDma)),
         (("ucpd", "TX"), quote!(crate::ucpd::TxDma)),
         (("usart", "RX"), quote!(crate::usart::RxDma)),
@@ -2179,6 +2233,14 @@ fn main() {
         (("mdf", "FLT5"), quote!(crate::mdf::RxDma<Flt5>)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
+        (("dfsdm", "FLT0"), quote!(crate::dfsdm::Dma<Flt0>)),
+        (("dfsdm", "FLT1"), quote!(crate::dfsdm::Dma<Flt1>)),
+        (("dfsdm", "FLT2"), quote!(crate::dfsdm::Dma<Flt2>)),
+        (("dfsdm", "FLT3"), quote!(crate::dfsdm::Dma<Flt3>)),
+        (("dfsdm", "FLT4"), quote!(crate::dfsdm::Dma<Flt4>)),
+        (("dfsdm", "FLT5"), quote!(crate::dfsdm::Dma<Flt5>)),
+        (("dfsdm", "FLT6"), quote!(crate::dfsdm::Dma<Flt6>)),
+        (("dfsdm", "FLT7"), quote!(crate::dfsdm::Dma<Flt7>)),
     ]
     .into();
 
@@ -2202,16 +2264,6 @@ fn main() {
 
     let trigger_expr = Regex::new(r"(?m)(.+?)(\d+)$").unwrap();
 
-    if chip_name.starts_with("stm32u5") {
-        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
-    } else {
-        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
-    }
-
-    if chip_name.starts_with("stm32wba") {
-        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
-    }
-
     // JPEG HAL: emit dma_trait impls on chips that use RX/TX DMA signal names.
     // ST naming: jpeg_rx_dma = mem→peri (input), jpeg_tx_dma = peri→mem (output).
     if chip_name.starts_with("stm32n6") || chip_name.starts_with("stm32u5f9") || chip_name.starts_with("stm32u5g9") {
@@ -2220,33 +2272,45 @@ fn main() {
     }
 
     if chip_name.starts_with("stm32g4") {
-        let line_number = chip_name.chars().skip(8).next().unwrap();
+        let line_number = chip_name.chars().nth(8).unwrap();
         if line_number == '3' || line_number == '4' {
             signals.insert(("adc", "ADC5"), quote!(crate::adc::RxDma));
         }
     }
 
+    let mut has_dfsdm_adc = false;
     for (p, regs) in &peripheral_list {
-        if (regs.kind == "adc" && (regs.version == "f3v3" || regs.version == "wb1"))
-            || ((regs.kind == "dac" || regs.kind == "hash") && chip_name.starts_with("stm32c5"))
-        {
+        if (regs.kind == "dac" || regs.kind == "hash") && chip_name.starts_with("stm32c5") {
             continue;
+        }
+
+        if regs.kind == "dfsdm" {
+            g.extend(dfsdm_codegen::gen_instance(p.name, regs.block));
+            if dfsdm_codegen::parse(regs.block).map_or(false, |s| s.adc) {
+                has_dfsdm_adc = true;
+            }
         }
 
         for trigger in p.triggers {
             let matches = trigger_expr.captures(trigger.signal).unwrap();
             let signal = &matches[1];
-            let idx: u8 = (&matches[2]).parse().unwrap();
+            let idx: u8 = matches[2].parse().unwrap();
 
             trigger_list.insert(trigger.source);
 
+            let source = format_ident!("{}", trigger.source);
+            let idx_q = quote!(#idx);
+
+            if regs.kind == "dfsdm" {
+                g.extend(dfsdm_codegen::gen_trigger_source(p.name, regs.block, &source, idx));
+                continue;
+            }
+
             if let Some(tr) = triggers.get(&(regs.kind, signal)) {
                 let peri = format_ident!("{}", p.name);
-                let source = format_ident!("{}", trigger.source);
-                let idx = quote!(#idx);
 
                 g.extend(quote! {
-                    trigger_trait_impl!(#tr, #peri, #source, #idx);
+                    trigger_trait_impl!(#tr, #peri, #source, #idx_q);
                 });
             }
         }
@@ -2322,7 +2386,7 @@ fn main() {
                         let register = format_ident!("{}", remap_info.register.to_lowercase());
                         let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
 
-                        let value = if is_bool_field("SYSCFG", &remap_info.register, &remap_info.field) {
+                        let value = if is_bool_field("SYSCFG", remap_info.register, remap_info.field) {
                             let bool_value = format_ident!("{}", remap_info.value > 0);
                             quote!(#bool_value)
                         } else {
@@ -2341,6 +2405,8 @@ fn main() {
             }
         }
     }
+
+    cfgs.set("dfsdm_adc", has_dfsdm_adc);
 
     // ========
     // Generate Triggers mod
@@ -2374,10 +2440,7 @@ fn main() {
     }) {
         for e in psc_enums.iter() {
             fn is_adc_name(e: &str) -> bool {
-                match e {
-                    "Presc" | "Adc4Presc" | "Adcpre" => true,
-                    _ => false,
-                }
+                matches!(e, "Presc" | "Adc4Presc" | "Adcpre")
             }
 
             fn is_rcc_name(e: &str) -> bool {
@@ -2471,11 +2534,12 @@ fn main() {
             let sname = format_ident!("{}", irq.signal);
             pt.extend(quote!(pub type #sname = crate::interrupt::typelevel::#iname;));
         }
-        if let Some(regs) = &p.registers {
-            if regs.kind == "spdifrx" && p.interrupts.is_empty() {
-                let iname = format_ident!("{}", p.name);
-                pt.extend(quote!(pub type GLOBAL = crate::interrupt::typelevel::#iname;));
-            }
+        if let Some(regs) = &p.registers
+            && regs.kind == "spdifrx"
+            && p.interrupts.is_empty()
+        {
+            let iname = format_ident!("{}", p.name);
+            pt.extend(quote!(pub type GLOBAL = crate::interrupt::typelevel::#iname;));
         }
 
         let pname = format_ident!("{}", p.name);
@@ -2568,14 +2632,92 @@ fn main() {
             let adc_num = p.name.strip_prefix("ADC").unwrap();
             let mut adc_common = None;
             for p2 in METADATA.peripherals {
-                if let Some(common_nums) = p2.name.strip_prefix("ADC").and_then(|s| s.strip_suffix("_COMMON")) {
-                    if common_nums.contains(adc_num) {
-                        adc_common = Some(p2);
-                    }
+                if let Some(common_nums) = p2.name.strip_prefix("ADC").and_then(|s| s.strip_suffix("_COMMON"))
+                    && common_nums.contains(adc_num)
+                    // Common peripherals without registers (their bits live in the ADC block).
+                    && p2.registers.is_some()
+                {
+                    adc_common = Some(p2);
                 }
             }
             let adc_common = adc_common.map(|p| p.name).unwrap_or("none");
-            let row = vec![p.name.to_string(), adc_common.to_string(), "adc".to_string()];
+            // Which driver implementation handles this instance: the first component of the
+            // register version (`v1_f4` -> legacy `v1`, ...). The U5 has both ADC generations
+            // in one register version; its `ADC4` block is a `v2` ADC.
+            let family = match (regs.version, regs.block) {
+                ("v3_u5", "ADC4") => {
+                    cfgs.enable("adc_v2");
+                    cfgs.enable("adc_v2_u5");
+                    "v2"
+                }
+                (version, _) => version.split('_').next().unwrap(),
+            };
+            // Which configuration options the hardware has, so the `Config` enums only offer
+            // what this chip can do.
+            for (cfg, enable) in [
+                (
+                    "adc_oversampler",
+                    matches!(
+                        regs.version,
+                        "v2_l0"
+                            | "v2_g0"
+                            | "v2_wba"
+                            | "v3_l4"
+                            | "v3_g4"
+                            | "v3_h7"
+                            | "v3_u5"
+                            | "v3_u3"
+                            | "v3_n6"
+                            | "v3_c5"
+                    ),
+                ),
+                (
+                    "adc_oversampler_1024",
+                    matches!(
+                        (regs.version, regs.block),
+                        ("v3_h7" | "v3_u3" | "v3_n6" | "v3_c5", _) | ("v3_u5", "ADC")
+                    ),
+                ),
+                (
+                    "adc_sync_clock",
+                    matches!(
+                        regs.version,
+                        "v2_f0" | "v2_l0" | "v2_wb1" | "v2_g0" | "v3_f3" | "v3_l4" | "v3_g4" | "v3_h7"
+                    ),
+                ),
+                (
+                    "adc_sync_div1",
+                    matches!(
+                        regs.version,
+                        "v2_l0" | "v2_wb1" | "v2_g0" | "v3_f3" | "v3_l4" | "v3_g4" | "v3_h7"
+                    ),
+                ),
+                ("adc_presc_f4", regs.version == "v1_f4"),
+                ("adc_presc_l1", regs.version == "v1_l1"),
+                (
+                    "adc_presc_full",
+                    matches!(
+                        regs.version,
+                        "v2_l0" | "v2_wb1" | "v2_g0" | "v2_wba" | "v3_u5" | "v3_l4" | "v3_g4" | "v3_h7" | "v3_u3"
+                    ),
+                ),
+                (
+                    "adc_res14",
+                    matches!((regs.version, regs.block), ("v3_h7", _) | ("v3_u5", "ADC")),
+                ),
+                ("adc_res16", regs.version == "v3_h7"),
+            ] {
+                if enable {
+                    cfgs.enable(cfg);
+                }
+            }
+            // The Rust type name of the register block (`ADC` -> `Adc`, `ADC4` -> `Adc4`).
+            let block = {
+                let mut b = regs.block.to_ascii_lowercase();
+                b[..1].make_ascii_uppercase();
+                b
+            };
+            let row = vec![p.name.to_string(), adc_common.to_string(), block, family.to_string()];
             adc_table.push(row);
         }
 
@@ -2602,6 +2744,8 @@ fn main() {
         let row = vec![regs.kind.to_string(), p.name.to_string()];
         peripherals_table.push(row);
     }
+
+    g.extend(dfsdm_codegen::gen_shapes());
 
     let mut dmas = TokenStream::new();
     let has_dmamux = METADATA
@@ -2806,7 +2950,7 @@ fn main() {
     // Generate gpio_block() function
 
     let gpio_base = peripheral_map.get("GPIOA").unwrap().0.address as usize;
-    let gpio_stride = 0x400 as usize;
+    let gpio_stride = 0x400_usize;
 
     for (p, bi) in &peripheral_list {
         if bi.kind == "gpio" {
@@ -3060,6 +3204,7 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/dfsdm/codegen.rs");
 
     if cfg!(feature = "memory-x") {
         gen_memory_x(memory, out_dir);
@@ -3188,7 +3333,7 @@ fn get_memory_range(memory: &[MemoryRegion], kind: MemoryRegionKind) -> (u32, u3
     let mut names = Vec::new();
     let mut best: Option<(u32, u32, String)> = None;
     for m in mems {
-        if !mem_filter(&METADATA.name, &m.name) {
+        if !mem_filter(METADATA.name, m.name) {
             continue;
         }
 

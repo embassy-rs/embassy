@@ -135,12 +135,12 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
     /// Create a new `Spdifrx` instance.
     pub fn new<D>(
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<T::GlobalInterrupt, GlobalInterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         config: Config,
         spdifrx_in: Peri<'d, impl InPin<T>>,
         data_dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<T::GlobalInterrupt, GlobalInterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         data_dma_buf: &'d mut [u32],
     ) -> Self
     where

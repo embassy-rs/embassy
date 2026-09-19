@@ -18,6 +18,7 @@ pub use pac::spim::vals::Order as BitOrder;
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::{self, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive};
 use crate::interrupt::typelevel::Interrupt;
+use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::spim::regs::RxMaxcnt;
 use crate::pac::spim::vals;
@@ -143,7 +144,7 @@ pub enum Error {
 
 /// SPIM configuration.
 #[non_exhaustive]
-#[derive(Clone)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Config {
     /// Frequency
     pub frequency: Frequency,
@@ -211,68 +212,225 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 /// SPIM driver.
-pub struct Spim<'d> {
+pub struct Spim<'d, M: PeriMode> {
     r: pac::spim::Spim,
     irq: interrupt::Interrupt,
     state: &'static State,
     #[cfg(feature = "_nrf54l")]
     clk: u32,
-    _p: PhantomData<&'d ()>,
+    _p: PhantomData<(&'d (), M)>,
 }
 
-impl<'d> Spim<'d> {
+impl<'d> Spim<'d, Async> {
     /// Create a new SPIM driver.
     pub fn new<T: Instance>(
         spim: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: Peri<'d, impl GpioPin>,
-        miso: Peri<'d, impl GpioPin>,
         mosi: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_inner(spim, Some(sck.into()), Some(miso.into()), Some(mosi.into()), config)
+        Self::new_async_inner(spim, Some(sck.into()), Some(mosi.into()), Some(miso.into()), config)
     }
 
     /// Create a new SPIM driver, capable of TX only (MOSI only).
     pub fn new_txonly<T: Instance>(
         spim: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: Peri<'d, impl GpioPin>,
         mosi: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_inner(spim, Some(sck.into()), None, Some(mosi.into()), config)
+        Self::new_async_inner(spim, Some(sck.into()), Some(mosi.into()), None, config)
     }
 
     /// Create a new SPIM driver, capable of RX only (MISO only).
     pub fn new_rxonly<T: Instance>(
         spim: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: Peri<'d, impl GpioPin>,
         miso: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_inner(spim, Some(sck.into()), Some(miso.into()), None, config)
+        Self::new_async_inner(spim, Some(sck.into()), None, Some(miso.into()), config)
     }
 
     /// Create a new SPIM driver, capable of TX only (MOSI only), without SCK pin.
     pub fn new_txonly_nosck<T: Instance>(
         spim: Peri<'d, T>,
+        mosi: Peri<'d, impl GpioPin>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_async_inner(spim, None, Some(mosi.into()), None, config)
+    }
+
+    fn new_async_inner<T: Instance>(
+        spim: Peri<'d, T>,
+        sck: Option<Peri<'d, AnyPin>>,
+        mosi: Option<Peri<'d, AnyPin>>,
+        miso: Option<Peri<'d, AnyPin>>,
+        config: Config,
+    ) -> Self {
+        let this = Self::new_inner(spim, sck, mosi, miso, config);
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        this
+    }
+
+    async fn async_inner_from_ram_chunk(&mut self, rx: *mut [u8], tx: *const [u8], offset: usize, length: usize) {
+        self.prepare_dma_transfer(rx, tx, offset, length);
+
+        #[cfg(feature = "_nrf52832_anomaly_109")]
+        if offset == 0 {
+            poll_fn(|cx| {
+                let s = self.state;
+
+                s.waker.register(cx.waker());
+
+                self.nrf52832_dma_workaround_status()
+            })
+            .await;
+        }
+
+        // Wait for 'end' event.
+        poll_fn(|cx| {
+            self.state.waker.register(cx.waker());
+            if self.r.events_end().read() != 0 {
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        compiler_fence(Ordering::SeqCst);
+    }
+
+    async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        slice_in_ram_or(tx, Error::BufferNotInRAM)?;
+        // NOTE: RAM slice check for rx is not necessary, as a mutable
+        // slice can only be built from data located in RAM.
+
+        let xfer_len = core::cmp::max(rx.len(), tx.len());
+        for offset in (0..xfer_len).step_by(DMA_SIZE) {
+            let length = core::cmp::min(xfer_len - offset, DMA_SIZE);
+            self.async_inner_from_ram_chunk(rx, tx, offset, length).await;
+        }
+        Ok(())
+    }
+
+    async fn async_inner(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
+        match self.async_inner_from_ram(rx, tx).await {
+            Ok(_) => Ok(()),
+            Err(Error::BufferNotInRAM) => {
+                // trace!("Copying SPIM tx buffer into RAM for DMA");
+                let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
+                tx_ram_buf.copy_from_slice(tx);
+                self.async_inner_from_ram(rx, tx_ram_buf).await
+            }
+        }
+    }
+
+    /// Reads data from the SPI bus without sending anything.
+    pub async fn read(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.async_inner(data, &[]).await
+    }
+
+    /// Simultaneously sends and receives data.
+    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
+    pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        self.async_inner(read, write).await
+    }
+
+    /// Same as [`transfer`](Spim::transfer) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    pub async fn transfer_from_ram(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        self.async_inner_from_ram(read, write).await
+    }
+
+    /// Simultaneously sends and receives data. Places the received data into the same buffer.
+    pub async fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.async_inner_from_ram(data, data).await
+    }
+
+    /// Sends data, discarding any received data.
+    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
+    pub async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.async_inner(&mut [], data).await
+    }
+
+    /// Same as [`write`](Spim::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    pub async fn write_from_ram(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.async_inner_from_ram(&mut [], data).await
+    }
+}
+
+impl<'d> Spim<'d, Blocking> {
+    /// Create a new blocking SPIM driver.
+    pub fn new_blocking<T: Instance>(
+        spim: Peri<'d, T>,
+        sck: Peri<'d, impl GpioPin>,
+        mosi: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl GpioPin>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(spim, Some(sck.into()), Some(mosi.into()), Some(miso.into()), config)
+    }
+
+    /// Create a new blocking SPIM driver, capable of TX only (MOSI only).
+    pub fn new_blocking_txonly<T: Instance>(
+        spim: Peri<'d, T>,
+        sck: Peri<'d, impl GpioPin>,
         mosi: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        Self::new_inner(spim, None, None, Some(mosi.into()), config)
+        Self::new_inner(spim, Some(sck.into()), Some(mosi.into()), None, config)
     }
 
+    /// Create a new blocking SPIM driver, capable of RX only (MISO only).
+    pub fn new_blocking_rxonly<T: Instance>(
+        spim: Peri<'d, T>,
+        sck: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl GpioPin>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(spim, Some(sck.into()), None, Some(miso.into()), config)
+    }
+
+    /// Create a new blocking SPIM driver, capable of TX only (MOSI only), without SCK pin.
+    pub fn new_blocking_txonly_nosck<T: Instance>(
+        spim: Peri<'d, T>,
+        mosi: Peri<'d, impl GpioPin>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(spim, None, Some(mosi.into()), None, config)
+    }
+}
+
+impl<'d, M: PeriMode> Spim<'d, M> {
     fn new_inner<T: Instance>(
         _spim: Peri<'d, T>,
         sck: Option<Peri<'d, AnyPin>>,
-        miso: Option<Peri<'d, AnyPin>>,
         mosi: Option<Peri<'d, AnyPin>>,
+        miso: Option<Peri<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         let r = T::regs();
+
+        let mut spim = Self {
+            r,
+            irq: T::Interrupt::IRQ,
+            state: T::state(),
+            #[cfg(feature = "_nrf54l")]
+            clk: T::clk(),
+            _p: PhantomData,
+        };
+
+        // Apply the runtime peripheral configuration before touching any pins.
+        spim.set_config(&config);
 
         // Configure pins
         if let Some(sck) = &sck {
@@ -318,23 +476,8 @@ impl<'d> Spim<'d> {
         // Enable SPIM instance.
         r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
-        let mut spim = Self {
-            r: T::regs(),
-            irq: T::Interrupt::IRQ,
-            state: T::state(),
-            #[cfg(feature = "_nrf54l")]
-            clk: T::clk(),
-            _p: PhantomData {},
-        };
-
-        // Apply runtime peripheral configuration
-        Self::set_config(&mut spim, &config).unwrap();
-
         // Disable all events interrupts
         r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
 
         spim
     }
@@ -439,60 +582,6 @@ impl<'d> Spim<'d> {
         }
     }
 
-    async fn async_inner_from_ram_chunk(&mut self, rx: *mut [u8], tx: *const [u8], offset: usize, length: usize) {
-        self.prepare_dma_transfer(rx, tx, offset, length);
-
-        #[cfg(feature = "_nrf52832_anomaly_109")]
-        if offset == 0 {
-            poll_fn(|cx| {
-                let s = self.state;
-
-                s.waker.register(cx.waker());
-
-                self.nrf52832_dma_workaround_status()
-            })
-            .await;
-        }
-
-        // Wait for 'end' event.
-        poll_fn(|cx| {
-            self.state.waker.register(cx.waker());
-            if self.r.events_end().read() != 0 {
-                return Poll::Ready(());
-            }
-
-            Poll::Pending
-        })
-        .await;
-
-        compiler_fence(Ordering::SeqCst);
-    }
-
-    async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
-        slice_in_ram_or(tx, Error::BufferNotInRAM)?;
-        // NOTE: RAM slice check for rx is not necessary, as a mutable
-        // slice can only be built from data located in RAM.
-
-        let xfer_len = core::cmp::max(rx.len(), tx.len());
-        for offset in (0..xfer_len).step_by(DMA_SIZE) {
-            let length = core::cmp::min(xfer_len - offset, DMA_SIZE);
-            self.async_inner_from_ram_chunk(rx, tx, offset, length).await;
-        }
-        Ok(())
-    }
-
-    async fn async_inner(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
-        match self.async_inner_from_ram(rx, tx).await {
-            Ok(_) => Ok(()),
-            Err(Error::BufferNotInRAM) => {
-                // trace!("Copying SPIM tx buffer into RAM for DMA");
-                let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
-                tx_ram_buf.copy_from_slice(tx);
-                self.async_inner_from_ram(rx, tx_ram_buf).await
-            }
-        }
-    }
-
     /// Reads data from the SPI bus without sending anything. Blocks until the buffer has been filled.
     pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<(), Error> {
         self.blocking_inner(data, &[])
@@ -506,7 +595,7 @@ impl<'d> Spim<'d> {
 
     /// Same as [`blocking_transfer`](Spim::blocking_transfer) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub fn blocking_transfer_from_ram(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
-        self.blocking_inner(read, write)
+        self.blocking_inner_from_ram(read, write)
     }
 
     /// Simultaneously sends and receives data.
@@ -523,39 +612,47 @@ impl<'d> Spim<'d> {
 
     /// Same as [`blocking_write`](Spim::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub fn blocking_write_from_ram(&mut self, data: &[u8]) -> Result<(), Error> {
-        self.blocking_inner(&mut [], data)
+        self.blocking_inner_from_ram(&mut [], data)
     }
 
-    /// Reads data from the SPI bus without sending anything.
-    pub async fn read(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        self.async_inner(data, &[]).await
-    }
+    /// Reconfigure the driver at runtime.
+    pub fn set_config(&mut self, config: &Config) {
+        let r = self.r;
 
-    /// Simultaneously sends and receives data.
-    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
-    pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
-        self.async_inner(read, write).await
-    }
+        // Configure mode.
+        let mode = config.mode;
+        r.config().write(|w| {
+            w.set_order(config.bit_order);
+            match mode {
+                MODE_0 => {
+                    w.set_cpol(vals::Cpol::ActiveHigh);
+                    w.set_cpha(vals::Cpha::Leading);
+                }
+                MODE_1 => {
+                    w.set_cpol(vals::Cpol::ActiveHigh);
+                    w.set_cpha(vals::Cpha::Trailing);
+                }
+                MODE_2 => {
+                    w.set_cpol(vals::Cpol::ActiveLow);
+                    w.set_cpha(vals::Cpha::Leading);
+                }
+                MODE_3 => {
+                    w.set_cpol(vals::Cpol::ActiveLow);
+                    w.set_cpha(vals::Cpha::Trailing);
+                }
+            }
+        });
 
-    /// Same as [`transfer`](Spim::transfer) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub async fn transfer_from_ram(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
-        self.async_inner_from_ram(read, write).await
-    }
+        // Configure frequency.
+        let frequency = config.frequency;
+        #[cfg(not(feature = "_nrf54l"))]
+        r.frequency().write(|w| w.set_frequency(frequency.into()));
+        #[cfg(feature = "_nrf54l")]
+        r.prescaler().write(|w| w.set_divisor(frequency.to_divisor(self.clk)));
 
-    /// Simultaneously sends and receives data. Places the received data into the same buffer.
-    pub async fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        self.async_inner_from_ram(data, data).await
-    }
-
-    /// Sends data, discarding any received data.
-    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
-    pub async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
-        self.async_inner(&mut [], data).await
-    }
-
-    /// Same as [`write`](Spim::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub async fn write_from_ram(&mut self, data: &[u8]) -> Result<(), Error> {
-        self.async_inner_from_ram(&mut [], data).await
+        // Set over-read character
+        let orc = config.orc;
+        r.orc().write(|w| w.set_orc(orc));
     }
 
     #[cfg(feature = "_nrf52832_anomaly_109")]
@@ -600,7 +697,7 @@ fn errata_55_69(r: pac::spim::Spim, enable: bool) {
     };
 }
 
-impl<'d> Drop for Spim<'d> {
+impl<'d, M: PeriMode> Drop for Spim<'d, M> {
     fn drop(&mut self) {
         trace!("spim drop");
 
@@ -699,7 +796,7 @@ macro_rules! impl_spim {
 mod eh02 {
     use super::*;
 
-    impl<'d> embedded_hal_02::blocking::spi::Transfer<u8> for Spim<'d> {
+    impl<'d, M: PeriMode> embedded_hal_02::blocking::spi::Transfer<u8> for Spim<'d, M> {
         type Error = Error;
         fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
             self.blocking_transfer_in_place(words)?;
@@ -707,7 +804,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::blocking::spi::Write<u8> for Spim<'d> {
+    impl<'d, M: PeriMode> embedded_hal_02::blocking::spi::Write<u8> for Spim<'d, M> {
         type Error = Error;
 
         fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
@@ -724,11 +821,11 @@ impl embedded_hal_1::spi::Error for Error {
     }
 }
 
-impl<'d> embedded_hal_1::spi::ErrorType for Spim<'d> {
+impl<'d, M: PeriMode> embedded_hal_1::spi::ErrorType for Spim<'d, M> {
     type Error = Error;
 }
 
-impl<'d> embedded_hal_1::spi::SpiBus<u8> for Spim<'d> {
+impl<'d, M: PeriMode> embedded_hal_1::spi::SpiBus<u8> for Spim<'d, M> {
     fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -750,7 +847,7 @@ impl<'d> embedded_hal_1::spi::SpiBus<u8> for Spim<'d> {
     }
 }
 
-impl<'d> embedded_hal_async::spi::SpiBus<u8> for Spim<'d> {
+impl<'d> embedded_hal_async::spi::SpiBus<u8> for Spim<'d, Async> {
     async fn flush(&mut self) -> Result<(), Error> {
         Ok(())
     }
@@ -772,48 +869,10 @@ impl<'d> embedded_hal_async::spi::SpiBus<u8> for Spim<'d> {
     }
 }
 
-impl<'d> SetConfig for Spim<'d> {
+impl<'d, M: PeriMode> SetConfig for Spim<'d, M> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = core::convert::Infallible;
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
-        let r = self.r;
-        // Configure mode.
-        let mode = config.mode;
-        r.config().write(|w| {
-            w.set_order(config.bit_order);
-            match mode {
-                MODE_0 => {
-                    w.set_cpol(vals::Cpol::ActiveHigh);
-                    w.set_cpha(vals::Cpha::Leading);
-                }
-                MODE_1 => {
-                    w.set_cpol(vals::Cpol::ActiveHigh);
-                    w.set_cpha(vals::Cpha::Trailing);
-                }
-                MODE_2 => {
-                    w.set_cpol(vals::Cpol::ActiveLow);
-                    w.set_cpha(vals::Cpha::Leading);
-                }
-                MODE_3 => {
-                    w.set_cpol(vals::Cpol::ActiveLow);
-                    w.set_cpha(vals::Cpha::Trailing);
-                }
-            }
-        });
-
-        // Configure frequency.
-        let frequency = config.frequency;
-        #[cfg(not(feature = "_nrf54l"))]
-        r.frequency().write(|w| w.set_frequency(frequency.into()));
-        #[cfg(feature = "_nrf54l")]
-        {
-            r.prescaler().write(|w| w.set_divisor(frequency.to_divisor(self.clk)));
-        }
-
-        // Set over-read character
-        let orc = config.orc;
-        r.orc().write(|w| w.set_orc(orc));
-
-        Ok(())
+        Ok(self.set_config(config))
     }
 }

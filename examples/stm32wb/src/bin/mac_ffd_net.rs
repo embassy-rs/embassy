@@ -101,7 +101,7 @@ async fn main(spawner: Spawner) {
     // Generate random seed.
     // let mut rng = Rng::new(p.RNG, Irqs);
     let seed = [0; 8];
-    // let _ = rng.async_fill_bytes(&mut seed).await;
+    // let _ = rng.fill_bytes(&mut seed).await;
     let seed = u64::from_le_bytes(seed);
 
     info!("seed generated");
@@ -114,7 +114,7 @@ async fn main(spawner: Spawner) {
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(driver)));
-    unwrap!(iface.add_ip_addr(IpCidr::Ipv6(Ipv6Cidr::new(ipv6_addr, 104))));
+    unwrap!(iface.add_ip_addr(IpCidr::V6(Ipv6Cidr::new(ipv6_addr, 104))));
 
     // wpan runner
     spawner.spawn(unwrap!(run_mac(mac_runner)));
@@ -139,12 +139,12 @@ async fn main(spawner: Spawner) {
 
     let mut socket = unwrap!(UdpSocket::new(stack));
 
-    let remote_endpoint = (Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc00a, 0x2fb), 8000);
+    let remote_addr = (Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc00a, 0x2fb), 8000);
 
     let send_buf = [0u8; 20];
 
     socket.bind((ipv6_addr, 8000)).unwrap();
-    socket.send_to(&send_buf, remote_endpoint).await.unwrap();
+    socket.send_to(&send_buf, remote_addr).await.unwrap();
 
     Timer::after(Duration::from_secs(2)).await;
 

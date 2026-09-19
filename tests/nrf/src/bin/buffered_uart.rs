@@ -29,7 +29,7 @@ async fn main(_spawner: Spawner) {
 
         info!("uarte initialized!");
 
-        let (mut rx, mut tx) = u.split();
+        let (mut tx, mut rx) = u.split();
 
         const COUNT: usize = 40_000;
 

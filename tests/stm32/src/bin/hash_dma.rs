@@ -96,7 +96,8 @@ async fn test_interrupt(hw_hasher: &mut Hash<'_, peripherals::HASH, Async>) {
 }
 
 // This uses sha512, so only supported on hash_v3 and up
-#[cfg(feature = "hash-v34")]
+// The HASH of the STM32H503 has no SHA-384/512.
+#[cfg(all(feature = "hash-v34", not(feature = "stm32h503rb")))]
 async fn test_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Async>) {
     let in1 = b"4BPuGudaDK";
     let in2 = b"cfFIGf0XSNhFBQ5LaIqzjnRKDRkoWweJI06HLUcicIUGjpuDNfOTQNSrRxDoveDPlazeZtt06SIYO5CvHvsJ98XSfO9yJEMHoDpDAmNQtwZOPlKmdiagRXsJ7w7IjdKpQH6I2t";
@@ -146,6 +147,7 @@ async fn main(_spawner: Spawner) {
     // Run it a second time to check hash-after-hmac
     test_interrupt(&mut hw_hasher).await;
 
+    #[cfg(not(feature = "stm32h503rb"))]
     test_sizes(&mut hw_hasher).await;
 
     info!("Test OK");

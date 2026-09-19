@@ -198,7 +198,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         feature_unit_descriptor.push(0x00).unwrap(); // iFeature (none)
 
         // ===============================================
-        // Format desciptor [UAC 4.5.3]
+        // Format descriptor [UAC 4.5.3]
         // Used later, for operational streaming interface
         let mut format_descriptor: Vec<u8, { 6 + 3 * MAX_SAMPLE_RATE_COUNT }> = Vec::from_slice(&[
             FORMAT_TYPE,               // bDescriptorSubtype

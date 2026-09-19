@@ -149,8 +149,8 @@ async fn main(_spawner: Spawner) {
     let mut panel = Rk050Hr18c::new(p.PE1, p.PQ3, p.PQ6);
     panel.power_on().await;
     let mut ltdc = Ltdc::<_, ltdc::Rgb888>::new_with_pins(
-        p.LTDC, Irqs, p.PB13, p.PB14, p.PE11, p.PG13, p.PG15, p.PA7, p.PB2, p.PG6, p.PH3, p.PH6, p.PA8, p.PA2, p.PG12,
-        p.PG1, p.PA1, p.PA0, p.PB15, p.PB12, p.PB11, p.PG8, p.PG0, p.PD9, p.PD15, p.PB4, p.PH4, p.PA15, p.PG11, p.PD8,
+        p.LTDC, p.PB13, p.PB14, p.PE11, p.PG13, p.PG15, p.PA7, p.PB2, p.PG6, p.PH3, p.PH6, p.PA8, p.PA2, p.PG12, p.PG1,
+        p.PA1, p.PA0, p.PB15, p.PB12, p.PB11, p.PG8, p.PG0, p.PD9, p.PD15, p.PB4, p.PH4, p.PA15, p.PG11, p.PD8, Irqs,
     );
     ltdc.init(&LTDC_CONFIG);
     let layer_config = LtdcLayerConfig {
@@ -172,7 +172,7 @@ async fn main(_spawner: Spawner) {
     // enough that we get an error only when the card is genuinely dead.
     let mut sd_cfg = embassy_stm32::sdmmc::Config::default();
     sd_cfg.data_transfer_timeout = 200_000_000;
-    let mut sd = Sdmmc::new_4bit(p.SDMMC2, Irqs, p.PC2, p.PC3, p.PC4, p.PC5, p.PC0, p.PE4, sd_cfg);
+    let mut sd = Sdmmc::new_4bit(p.SDMMC2, p.PC2, p.PC3, p.PC4, p.PC5, p.PC0, p.PE4, Irqs, sd_cfg);
     let mut cmd_block = CmdBlock::new();
     #[allow(deprecated)]
     let mut sd_state = match StorageDevice::new_sd_card(&mut sd, &mut cmd_block, Hertz(24_000_000)).await {

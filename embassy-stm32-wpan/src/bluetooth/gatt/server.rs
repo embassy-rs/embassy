@@ -3,13 +3,14 @@
 //! This is a thin Rust wrapper around ST's GATT server implementation.
 
 use stm32_bindings::ble::{
-    self, aci_gatt_add_char, aci_gatt_add_service, aci_gatt_init, aci_gatt_permit_read, aci_gatt_permit_write,
-    aci_gatt_read_handle_value, aci_gatt_set_event_mask, aci_gatt_update_char_value, aci_gatt_update_char_value_ext,
+    self, aci_gatt_add_char, aci_gatt_add_char_desc, aci_gatt_add_service, aci_gatt_init, aci_gatt_permit_read,
+    aci_gatt_permit_write, aci_gatt_read_handle_value, aci_gatt_set_desc_value, aci_gatt_set_event_mask,
+    aci_gatt_store_db, aci_gatt_update_char_value, aci_gatt_update_char_value_ext,
 };
 
 use super::types::{
-    CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType, Uuid,
-    UuidType,
+    AttributeAccess, CharProperties, CharacteristicHandle, DescriptorHandle, GattEventMask, SecurityPermissions,
+    ServiceHandle, ServiceType, Uuid, UuidType,
 };
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::hci::{self, Status};
@@ -515,5 +516,126 @@ impl GattServer {
     /// Deny a pending write permit request.
     pub fn deny_write(&self, conn_handle: u16, attr_handle: u16, error_code: u8) -> Result<(), BleError> {
         self.permit_write(conn_handle, attr_handle, false, error_code, &[])
+    }
+
+    /// Add a characteristic descriptor to a characteristic.
+    ///
+    /// ST allocates descriptor handles after the currently allocated handles,
+    /// so call this immediately after the `add_characteristic` that created
+    /// `char_handle` (before adding further characteristics/descriptors).
+    ///
+    /// # Parameters
+    ///
+    /// - `value_max_len`: maximum descriptor value length in bytes
+    /// - `value`: initial descriptor value
+    /// - `security`: security requirements (encryption/authentication)
+    /// - `access`: raw attribute access permissions (read/write/...)
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_descriptor(
+        &mut self,
+        service_handle: ServiceHandle,
+        char_handle: CharacteristicHandle,
+        uuid: Uuid,
+        value_max_len: u8,
+        value: &[u8],
+        security: SecurityPermissions,
+        access: AttributeAccess,
+        event_mask: GattEventMask,
+        encryption_key_size: u8,
+        is_variable: bool,
+    ) -> Result<DescriptorHandle, BleError> {
+        if value.len() > 255 {
+            return Err(BleError::InvalidParameter);
+        }
+
+        let mut desc_handle: u16 = 0;
+        unsafe {
+            let status = match uuid {
+                Uuid::Uuid16(uuid16) => {
+                    let uuid_bytes = uuid16.to_le_bytes();
+                    aci_gatt_add_char_desc(
+                        service_handle.0,
+                        char_handle.0,
+                        UuidType::Uuid16 as u8,
+                        uuid_bytes.as_ptr() as *const _,
+                        value_max_len,
+                        value.len() as u8,
+                        value.as_ptr(),
+                        security.0,
+                        access.0,
+                        event_mask.0,
+                        encryption_key_size,
+                        is_variable as u8,
+                        &mut desc_handle,
+                    )
+                }
+                Uuid::Uuid128(uuid128) => aci_gatt_add_char_desc(
+                    service_handle.0,
+                    char_handle.0,
+                    UuidType::Uuid128 as u8,
+                    uuid128.as_ptr() as *const _,
+                    value_max_len,
+                    value.len() as u8,
+                    value.as_ptr(),
+                    security.0,
+                    access.0,
+                    event_mask.0,
+                    encryption_key_size,
+                    is_variable as u8,
+                    &mut desc_handle,
+                ),
+            };
+
+            if status == BLE_STATUS_SUCCESS {
+                Ok(DescriptorHandle(desc_handle))
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Update the value of a descriptor created with
+    /// [`add_descriptor`](Self::add_descriptor).
+    pub fn update_descriptor_value(
+        &mut self,
+        service_handle: ServiceHandle,
+        char_handle: CharacteristicHandle,
+        desc_handle: DescriptorHandle,
+        offset: u16,
+        value: &[u8],
+    ) -> Result<(), BleError> {
+        if value.len() > 255 {
+            return Err(BleError::InvalidParameter);
+        }
+        unsafe {
+            let status = aci_gatt_set_desc_value(
+                service_handle.0,
+                char_handle.0,
+                desc_handle.0,
+                offset,
+                value.len() as u8,
+                value.as_ptr(),
+            );
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Force the stack to persist the GATT database.
+    ///
+    /// The stack already saves the database per active connection on
+    /// disconnect; use this to snapshot it immediately instead.
+    pub fn store_db(&self) -> Result<(), BleError> {
+        unsafe {
+            let status = aci_gatt_store_db();
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(Status::from_u8(status)))
+            }
+        }
     }
 }

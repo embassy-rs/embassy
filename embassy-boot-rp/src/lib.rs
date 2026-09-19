@@ -9,7 +9,8 @@ pub use embassy_boot::{
     FirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError, State,
 };
 use embassy_rp::Peri;
-use embassy_rp::flash::{Blocking, ERASE_SIZE, Flash};
+use embassy_rp::flash::{ERASE_SIZE, Flash};
+use embassy_rp::mode::Blocking;
 use embassy_rp::peripherals::{FLASH, WATCHDOG};
 use embassy_rp::watchdog::Watchdog;
 use embassy_time::Duration;
@@ -64,15 +65,15 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
 
 /// A flash implementation that will feed a watchdog when touching flash.
 pub struct WatchdogFlash<'d, const SIZE: usize> {
-    flash: Flash<'d, FLASH, Blocking, SIZE>,
-    watchdog: Watchdog,
+    flash: Flash<'d, Blocking, SIZE>,
+    watchdog: Watchdog<'d>,
     timeout: Duration,
 }
 
 impl<'d, const SIZE: usize> WatchdogFlash<'d, SIZE> {
     /// Start a new watchdog with a given flash and watchdog peripheral and a timeout
     pub fn start(flash: Peri<'static, FLASH>, watchdog: Peri<'static, WATCHDOG>, timeout: Duration) -> Self {
-        let flash = Flash::<_, Blocking, SIZE>::new_blocking(flash);
+        let flash = Flash::<Blocking, SIZE>::new_blocking(flash);
         let mut watchdog = Watchdog::new(watchdog);
         watchdog.start(timeout);
         Self {
@@ -83,18 +84,18 @@ impl<'d, const SIZE: usize> WatchdogFlash<'d, SIZE> {
     }
 
     /// Split back into separate flash and watchdog.
-    pub fn split(self) -> (Flash<'d, FLASH, Blocking, SIZE>, Watchdog) {
+    pub fn split(self) -> (Flash<'d, Blocking, SIZE>, Watchdog<'d>) {
         (self.flash, self.watchdog)
     }
 }
 
 impl<'d, const SIZE: usize> ErrorType for WatchdogFlash<'d, SIZE> {
-    type Error = <Flash<'d, FLASH, Blocking, SIZE> as ErrorType>::Error;
+    type Error = <Flash<'d, Blocking, SIZE> as ErrorType>::Error;
 }
 
 impl<'d, const SIZE: usize> NorFlash for WatchdogFlash<'d, SIZE> {
-    const WRITE_SIZE: usize = <Flash<'d, FLASH, Blocking, SIZE> as NorFlash>::WRITE_SIZE;
-    const ERASE_SIZE: usize = <Flash<'d, FLASH, Blocking, SIZE> as NorFlash>::ERASE_SIZE;
+    const WRITE_SIZE: usize = <Flash<'d, Blocking, SIZE> as NorFlash>::WRITE_SIZE;
+    const ERASE_SIZE: usize = <Flash<'d, Blocking, SIZE> as NorFlash>::ERASE_SIZE;
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
         self.watchdog.feed(self.timeout);
@@ -107,7 +108,7 @@ impl<'d, const SIZE: usize> NorFlash for WatchdogFlash<'d, SIZE> {
 }
 
 impl<'d, const SIZE: usize> ReadNorFlash for WatchdogFlash<'d, SIZE> {
-    const READ_SIZE: usize = <Flash<'d, FLASH, Blocking, SIZE> as ReadNorFlash>::READ_SIZE;
+    const READ_SIZE: usize = <Flash<'d, Blocking, SIZE> as ReadNorFlash>::READ_SIZE;
     fn read(&mut self, offset: u32, data: &mut [u8]) -> Result<(), Self::Error> {
         self.watchdog.feed(self.timeout);
         self.flash.blocking_read(offset, data)

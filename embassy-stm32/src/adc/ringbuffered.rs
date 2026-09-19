@@ -11,9 +11,11 @@ use crate::dma::Channel;
 use crate::dma::{ReadableRingBuffer, TransferOptions};
 use crate::rcc::{RccInfo, WakeGuard};
 
+/// The DMA ring buffer was not read fast enough and samples were lost.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OverrunError;
 
+/// ADC streaming samples into a circular DMA buffer, created by [`Adc::into_ring_buffered`](crate::adc::Adc::into_ring_buffered).
 #[allow(private_bounds)]
 pub struct RingBufferedAdc<'d, R: AdcRegs> {
     regs: R,
@@ -84,6 +86,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
         compiler_fence(Ordering::SeqCst);
     }
 
+    /// Discard all samples currently in the ring buffer.
     pub fn clear(&mut self) {
         self.ring_buf.clear();
     }
@@ -150,7 +153,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
             self.start();
         }
 
-        //        #[cfg(adc_v2)]
+        //        #[cfg(adc_v1_f4)]
         //        {
         //            // Clear overrun flag if set.
         //            if T::regs().sr().read().ovr() {
@@ -193,7 +196,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
             self.start();
         }
 
-        //        #[cfg(adc_v2)]
+        //        #[cfg(adc_v1_f4)]
         //        {
         //            // Clear overrun flag if set.
         //            if T::regs().sr().read().ovr() {

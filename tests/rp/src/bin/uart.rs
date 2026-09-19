@@ -9,7 +9,8 @@ use defmt::{assert_eq, *};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::uart::{Blocking, Config, Error, Parity, Uart, UartRx};
+use embassy_rp::mode::Blocking;
+use embassy_rp::uart::{Config, Error, Parity, Uart, UartRx};
 use embassy_time::Timer;
 use panic_probe as _;
 

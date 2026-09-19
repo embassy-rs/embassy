@@ -6,7 +6,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::wire::Ipv4Address;
+use embassy_net::wire::Ipv4Addr;
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_stm32::exti::{self, ExtiInput};
@@ -70,7 +70,7 @@ async fn main(spawner: Spawner) -> ! {
     // Generate random seed
     let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
-    unwrap!(rng.async_fill_bytes(&mut seed).await);
+    unwrap!(rng.fill_bytes(&mut seed).await);
     let seed = u64::from_le_bytes(seed);
 
     let mut spi_cfg = spi::Config::default();
@@ -97,7 +97,7 @@ async fn main(spawner: Spawner) -> ! {
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    iface.set_dhcpv4(Some(Default::default()));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
@@ -116,9 +116,9 @@ async fn main(spawner: Spawner) -> ! {
 
         socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 
-        let remote_endpoint = (Ipv4Address::new(10, 42, 0, 1), 8000);
+        let remote_addr = (Ipv4Addr::new(10, 42, 0, 1), 8000);
         info!("connecting...");
-        let r = socket.connect(remote_endpoint).await;
+        let r = socket.connect(remote_addr).await;
         if let Err(e) = r {
             info!("connect error: {:?}", e);
             Timer::after_secs(1).await;

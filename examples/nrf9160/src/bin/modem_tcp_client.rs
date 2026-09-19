@@ -16,7 +16,7 @@ use embassy_net::wire::{IpCidr, Ipv4Cidr};
 use embassy_net_nrf91::context::Status;
 use embassy_net_nrf91::{Runner, State, TraceBuffer, TraceReader, context};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
-use embassy_nrf::cryptocell::rng::CcRng;
+use embassy_nrf::crypto::rng::Rng;
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
 use embassy_nrf::uarte::Baudrate;
 use embassy_nrf::{Peri, bind_interrupts, interrupt, peripherals, uarte};
@@ -76,7 +76,7 @@ fn apply_status(iface: Iface<'static>, status: &Status) {
         panic!("Unexpected IP address");
     };
 
-    unwrap!(iface.set_ip_addrs([IpCidr::Ipv4(Ipv4Cidr::new(addr, 32))]));
+    unwrap!(iface.set_ip_addrs([IpCidr::V4(Ipv4Cidr::new(addr, 32))]));
 
     let stack = iface.stack();
     if let Some(IpAddr::V4(gateway)) = status.gateway {
@@ -126,8 +126,8 @@ async fn main(spawner: Spawner) {
         unsafe { peripherals::P0_01::steal() },
         Irqs,
         //unsafe { peripherals::P0_14::steal() },
-        config,
         unsafe { &mut *addr_of_mut!(TRACE_BUF) },
+        config,
     );
 
     static STATE: StaticCell<State> = StaticCell::new();
@@ -138,7 +138,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(trace_task(uart, tracer)));
 
     // Generate random seed.
-    let mut rng = CcRng::new_blocking(p.CC_RNG);
+    let mut rng = Rng::new_blocking(p.CRYPTO_RNG);
     let seed = rng.blocking_next_u64();
 
     // Init network stack
@@ -174,13 +174,13 @@ async fn main(spawner: Spawner) {
         socket.set_timeout(Some(Duration::from_secs(10)));
 
         info!("Connecting...");
-        let host_addr = embassy_net::wire::Ipv4Address::from_str("45.79.112.203").unwrap();
+        let host_addr = embassy_net::wire::Ipv4Addr::from_str("45.79.112.203").unwrap();
         if let Err(e) = socket.connect((host_addr, 4242)).await {
             warn!("connect error: {:?}", e);
             Timer::after_secs(10).await;
             continue;
         }
-        info!("Connected to {:?}", socket.remote_endpoint());
+        info!("Connected to {:?}", socket.remote_addr());
 
         let msg = b"Hello world!\n";
         for _ in 0..10 {

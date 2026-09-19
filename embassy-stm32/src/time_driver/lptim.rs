@@ -17,15 +17,10 @@ use stm32_metapac::lptim::Lptim;
 use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
 use crate::lptim::{SealedInstance, vals};
+use crate::rcc;
 use crate::rcc::SealedRccPeripheral;
-use crate::{peripherals, rcc};
 
-#[cfg(time_driver_lptim1)]
-type T = peripherals::LPTIM1;
-#[cfg(time_driver_lptim2)]
-type T = peripherals::LPTIM2;
-#[cfg(time_driver_lptim3)]
-type T = peripherals::LPTIM3;
+type T = crate::_generated::TimeDriverPeripheral;
 
 fn regs_lptim() -> Lptim {
     T::regs()

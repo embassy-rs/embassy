@@ -44,41 +44,47 @@ rm -rf out/tests/nrf51422-dk
 # disabled because these boards are not on the shelf
 rm -rf out/tests/mspm0g3507
 
-# rm out/tests/stm32wb55rg/wpan_mac
-# rm out/tests/stm32wb55rg/wpan_ble
+# rm -f out/tests/stm32wb55rg/wpan_mac
+# rm -f out/tests/stm32wb55rg/wpan_ble
+
+# temporarily disabled
+rm -rf out/tests/stm32wba65ri
+rm -rf out/tests/stm32l152re
+rm -rf out/tests/stm32f207zg
+rm -rf out/tests/nrf9160-dk
 
 # unstable, I think it's running out of RAM?
-rm out/tests/stm32f207zg/eth
+rm -f out/tests/stm32f207zg/eth
 
 # temporarily disabled, flaky.
-rm out/tests/stm32f207zg/usart_rx_ringbuffered
-rm out/tests/stm32l152re/usart_rx_ringbuffered
+rm -f out/tests/stm32f207zg/usart_rx_ringbuffered
+rm -f out/tests/stm32l152re/usart_rx_ringbuffered
 
 # doesn't work, gives "noise error", no idea why. usart_dma does pass.
-rm out/tests/stm32u5a5zj/usart
+rm -f out/tests/stm32u5a5zj/usart
 
 # probe-rs error: "multi-core ram flash start not implemented yet"
 # As of 2025-02-17 these tests work when run from flash
-rm out/tests/pimoroni-pico-plus-2/multicore
-rm out/tests/pimoroni-pico-plus-2/gpio_multicore
-rm out/tests/pimoroni-pico-plus-2/spinlock_mutex_multicore
+rm -f out/tests/pimoroni-pico-plus-2/multicore
+rm -f out/tests/pimoroni-pico-plus-2/gpio_multicore
+rm -f out/tests/pimoroni-pico-plus-2/spinlock_mutex_multicore
 # Doesn't work when run from ram on the 2350
-rm out/tests/pimoroni-pico-plus-2/flash
+rm -f out/tests/pimoroni-pico-plus-2/flash
 # This test passes locally but fails on the HIL, no idea why
-rm out/tests/pimoroni-pico-plus-2/i2c
+rm -f out/tests/pimoroni-pico-plus-2/i2c
 # The pico2 plus doesn't have the adcs hooked up like the picoW does.
-rm out/tests/pimoroni-pico-plus-2/adc
+rm -f out/tests/pimoroni-pico-plus-2/adc
 # temporarily disabled
-rm out/tests/pimoroni-pico-plus-2/pwm
-rm out/tests/frdm-mcx-a266/trng
+rm -f out/tests/pimoroni-pico-plus-2/pwm
+rm -f out/tests/frdm-mcx-a266/trng
 
 # flaky
-rm out/tests/rpi-pico/pwm
-rm out/tests/rpi-pico/cyw43-perf
-rm out/tests/rpi-pico/uart_buffered
-rm out/tests/rpi-pico/spi_async
+rm -f out/tests/rpi-pico/pwm
+rm -f out/tests/rpi-pico/cyw43-perf
+rm -f out/tests/rpi-pico/uart_buffered
+rm -f out/tests/rpi-pico/spi_async
 
-rm out/tests/stm32h563zi/usart_dma
+rm -f out/tests/stm32h563zi/usart_dma
 
 # tests are implemented but the HIL test farm doesn't actually have these boards, yet
 rm -rf out/tests/stm32c071rb

@@ -25,12 +25,12 @@ type SampleRateSub = Subscriber<'static, CriticalSectionRawMutex, u32, SR_CH_CAP
 /// Channel for sharing new sample rates
 static SAMPLE_RATE_CHANNEL: SampleRateChannel = SampleRateChannel::new();
 
-/// API for acces to the channel's publisher
+/// API for access to the channel's publisher
 fn sample_rate_publisher() -> SampleRatePub {
     SAMPLE_RATE_CHANNEL.publisher().unwrap()
 }
 
-/// API for acces to the channel's subscriber
+/// API for access to the channel's subscriber
 pub fn sample_rate_subscriber() -> SampleRateSub {
     SAMPLE_RATE_CHANNEL.subscriber().unwrap()
 }
@@ -100,7 +100,7 @@ impl<'d, D: Driver<'d>> AudioSourceEpOut<'d, D> {
 
 /// Implementation of the Audio Source interface
 pub struct AudioSource<'d, D: Driver<'d>> {
-    /// Audio In Enpoint
+    /// Audio In Endpoint
     pub audio_ep_in: AudioSourceEpIn<'d, D>,
     /// Feedback In Endpoint
     pub feedback_ep_in: AudioSourceEpIn<'d, D>,
@@ -304,12 +304,12 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
         (audio_in_endpoint, feedback_in_endpoint)
     }
 
-    /// Create a new Audio Source interface with control and streaming endpoints    
+    /// Create a new Audio Source interface with control and streaming endpoints
     pub fn new(
         b: &mut Builder<'d, D>,
         sample_rates: &'static [u32],
         sample_width: SampleWidth,
-        fedback_refresh_period_ms: u8,
+        feedback_refresh_period_ms: u8,
         terminal_type: Option<TerminalType>,
     ) -> Self {
         // Create the Audio Function (IAD groups IF0 & IF1)
@@ -340,7 +340,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
             &mut alt_setting,
             sample_rates,
             sample_width,
-            fedback_refresh_period_ms,
+            feedback_refresh_period_ms,
         );
 
         let ep_audio_addr = ep_audio_in.info().addr;
@@ -439,7 +439,7 @@ impl AudioSourceControlHandler {
                     }
                 }
             }
-            // Retun MIN/MAX/RES
+            // Return MIN/MAX/RES
             GET_MIN | GET_MAX | GET_RES => {
                 if control_selector == VOLUME_CONTROL && channel < 3 {
                     let value = match req.request {
@@ -707,7 +707,7 @@ impl Handler for AudioSourceControlHandler {
         debug!("AudioSourceControlHandler: USB device suspended: {}", suspended);
     }
 
-    /// Called when a control request is received with direction HostToDevice.    
+    /// Called when a control request is received with direction HostToDevice.
     fn control_out(&mut self, req: Request, buf: &[u8]) -> Option<OutResponse> {
         debug!(
             "AudioSourceControlHandler: USB device control OUT EP({:#02X}): {:?}, Data: {:?}",
@@ -726,7 +726,7 @@ impl Handler for AudioSourceControlHandler {
         }
     }
 
-    /// Called when a control request is received with direction DeviceToHost.    
+    /// Called when a control request is received with direction DeviceToHost.
     fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> Option<InResponse<'a>> {
         debug!(
             "AudioSourceControlHandler: USB device control IN EP({:#02X}): {:?}, Data: {:?}",

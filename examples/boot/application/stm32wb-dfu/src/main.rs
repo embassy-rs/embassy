@@ -50,7 +50,7 @@ async fn main(_spawner: Spawner) {
     let mut firmware_state = BlockingFirmwareState::from_config(config, &mut magic.0);
     firmware_state.mark_booted().expect("Failed to mark booted");
 
-    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, p.PA12, p.PA11, Irqs);
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Embassy");
     config.product = Some("USB-DFU Runtime example");

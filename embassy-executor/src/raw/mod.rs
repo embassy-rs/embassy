@@ -291,7 +291,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 this.raw.state.despawn();
 
                 #[cfg(feature = "trace")]
-                trace::task_end(unsafe { &*exec_ptr }.id(), p);
+                trace::TraceImpl::task_end(unsafe { &*exec_ptr }.id(), p);
             }
             Poll::Pending => {}
         }
@@ -435,7 +435,7 @@ unsafe impl Sync for Pender {}
 
 impl Pender {
     pub(crate) fn pend(self) {
-        crate::pender::pend(self.0);
+        crate::pender::PenderImpl::pend(self.0);
     }
 }
 
@@ -461,7 +461,7 @@ impl SyncExecutor {
     #[inline(always)]
     unsafe fn enqueue(&'static self, task: TaskRef, l: state::Token) {
         #[cfg(feature = "trace")]
-        trace::task_ready_begin(self.id(), task);
+        trace::TraceImpl::task_ready_begin(self.id(), task);
 
         if self.run_queue.enqueue(task, l) {
             self.pender.pend();
@@ -474,7 +474,7 @@ impl SyncExecutor {
             .store((self as *const Self).cast_mut(), Ordering::Relaxed);
 
         #[cfg(feature = "trace")]
-        trace::task_new(self.id(), task);
+        trace::TraceImpl::task_new(self.id(), task);
 
         state::locked(|l| {
             self.enqueue(task, l);
@@ -486,23 +486,23 @@ impl SyncExecutor {
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
         #[cfg(feature = "trace")]
-        trace::poll_start(self.id());
+        trace::TraceImpl::poll_start(self.id());
 
         self.run_queue.dequeue_all(|p| {
             let task = p.header();
 
             #[cfg(feature = "trace")]
-            trace::task_exec_begin(self.id(), p);
+            trace::TraceImpl::task_exec_begin(self.id(), p);
 
             // Run the task
             task.poll_fn.get().unwrap_unchecked()(p);
 
             #[cfg(feature = "trace")]
-            trace::task_exec_end(self.id(), p);
+            trace::TraceImpl::task_exec_end(self.id(), p);
         });
 
         #[cfg(feature = "trace")]
-        trace::executor_idle(self.id())
+        trace::TraceImpl::executor_idle(self.id())
     }
 
     /// Get a unique ID for this Executor.

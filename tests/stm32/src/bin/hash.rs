@@ -123,8 +123,116 @@ fn test_interrupt(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
     defmt::assert!(hw_hmac == sw_hmac[..]);
 }
 
+/// Regression test for the DINIS stall seen in the embedded-tls handshake on
+/// STM32H563: interleaved contexts where the old feed pattern left an
+/// untriggered block in the IN buffer, so `store_context` spun on DINIS
+/// forever (deterministic, because TLS record sizes are fixed). The exact
+/// update-size pattern from the hang is updates of 6, then 367, then 79
+/// bytes on one context, interleaved with unrelated digests. On the old
+/// driver this either stalls or (if words were silently lost) fails the
+/// digest comparison; both are caught here.
+fn test_dinis_stall_regression(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
+    let mut data = [0u8; 512];
+    for (i, b) in data.iter_mut().enumerate() {
+        *b = (i * 31 + 7) as u8;
+    }
+
+    // Context A: the TLS transcript-hash pattern.
+    let mut sw_a = SoftwareSha256::new();
+    sw_a.update(&data[..6]);
+    sw_a.update(&data[100..467]); // 367 bytes
+    sw_a.update(&data[200..279]); // 79 bytes
+    let expected_a = sw_a.finalize();
+
+    let mut ctx_a = hw_hasher.start::<Sha256, NonHmac>(DataType::Width8, None);
+    hw_hasher.update_blocking(&mut ctx_a, &data[..6]);
+
+    // Interleave a complete unrelated digest between updates of ctx_a.
+    let mut sw_b = SoftwareSha224::new();
+    sw_b.update(&data[300..413]); // 113 bytes
+    let expected_b = sw_b.finalize();
+
+    let mut ctx_b = hw_hasher.start::<Sha224, NonHmac>(DataType::Width8, None);
+    hw_hasher.update_blocking(&mut ctx_b, &data[300..413]);
+    let mut b_digest = [0u8; 28];
+    hw_hasher.finish_blocking(ctx_b, &mut b_digest);
+    defmt::assert!(b_digest == expected_b[..]);
+
+    // This is the update whose store left the stuck IN buffer on the old driver.
+    hw_hasher.update_blocking(&mut ctx_a, &data[100..467]);
+
+    // Interleave again, this time a SHA-256 context fed exactly one quantum
+    // (68 bytes) followed by one full block (64 bytes).
+    let mut sw_c = SoftwareSha256::new();
+    sw_c.update(&data[400..468]);
+    sw_c.update(&data[0..64]);
+    let expected_c = sw_c.finalize();
+
+    let mut ctx_c = hw_hasher.start::<Sha256, NonHmac>(DataType::Width8, None);
+    hw_hasher.update_blocking(&mut ctx_c, &data[400..468]);
+    hw_hasher.update_blocking(&mut ctx_c, &data[0..64]);
+    let mut c_digest = [0u8; 32];
+    hw_hasher.finish_blocking(ctx_c, &mut c_digest);
+    defmt::assert!(c_digest == expected_c[..]);
+
+    // Final update of ctx_a: used to hang in store_context here.
+    hw_hasher.update_blocking(&mut ctx_a, &data[200..279]);
+    let mut a_digest = [0u8; 32];
+    hw_hasher.finish_blocking(ctx_a, &mut a_digest);
+    defmt::assert!(a_digest == expected_a[..]);
+}
+
+/// Sweep first/second update sizes across the NBWE-quantum (block + 4 bytes)
+/// and block boundaries, interleaving an unrelated SHA-224 digest between
+/// the two updates of the SHA-256 context. Catches both the DINIS stall and
+/// silent word loss from overrunning the IN buffer.
+fn test_boundary_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
+    let mut data = [0u8; 512];
+    for (i, b) in data.iter_mut().enumerate() {
+        *b = (i * 13 + 5) as u8;
+    }
+
+    // Sizes straddling 63/64/65 (block), 67/68/69 (quantum = block + 4) and
+    // larger multiples: 132 = 2 quanta, 136 = 2 quanta + block, etc.
+    let sizes = [
+        1usize, 2, 3, 4, 5, 6, 15, 16, 17, 31, 32, 33, 47, 48, 49, 63, 64, 65, 66, 67, 68, 69, 70, 79, 96, 127, 128,
+        129, 130, 131, 132, 133, 134, 135, 136, 137, 255, 256, 257, 319, 367, 511,
+    ];
+    let splits = [1usize, 63, 64, 68, 79, 132];
+
+    for &n in &sizes {
+        for &m in &splits {
+            info!("boundary n={} m={}", n, m);
+
+            let mut ctx_a = hw_hasher.start::<Sha256, NonHmac>(DataType::Width8, None);
+            hw_hasher.update_blocking(&mut ctx_a, &data[..n]);
+
+            let b_off = 256 - m / 2;
+            let mut ctx_b = hw_hasher.start::<Sha224, NonHmac>(DataType::Width8, None);
+            hw_hasher.update_blocking(&mut ctx_b, &data[b_off..b_off + m]);
+            let mut b_digest = [0u8; 28];
+            hw_hasher.finish_blocking(ctx_b, &mut b_digest);
+
+            hw_hasher.update_blocking(&mut ctx_a, &data[100..100 + m]);
+
+            let mut a_digest = [0u8; 32];
+            hw_hasher.finish_blocking(ctx_a, &mut a_digest);
+
+            let mut sw_a = SoftwareSha256::new();
+            sw_a.update(&data[..n]);
+            sw_a.update(&data[100..100 + m]);
+            let mut sw_b = SoftwareSha224::new();
+            sw_b.update(&data[b_off..b_off + m]);
+
+            defmt::assert!(a_digest == sw_a.finalize()[..]);
+            defmt::assert!(b_digest == sw_b.finalize()[..]);
+        }
+    }
+}
+
 // This uses sha512, so only supported on hash_v3 and up
-#[cfg(feature = "hash-v34")]
+// The HASH of the STM32H503 has no SHA-384/512.
+#[cfg(all(feature = "hash-v34", not(feature = "stm32h503rb")))]
 fn test_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
     let in1 = b"4BPuGudaDK";
     let in2 = b"cfFIGf0XSNhFBQ5LaIqzjnRKDRkoWweJI06HLUcicIUGjpuDNfOTQNSrRxDoveDPlazeZtt06SIYO5CvHvsJ98XSfO9yJEMHoDpDAmNQtwZOPlKmdiagRXsJ7w7IjdKpQH6I2t";
@@ -174,7 +282,11 @@ async fn main(_spawner: Spawner) {
     // Run it a second time to check hash-after-hmac
     test_interrupt(&mut hw_hasher);
 
-    #[cfg(feature = "hash-v34")]
+    test_dinis_stall_regression(&mut hw_hasher);
+    test_boundary_sizes(&mut hw_hasher);
+
+    // The HASH of the STM32H503 has no SHA-384/512.
+    #[cfg(all(feature = "hash-v34", not(feature = "stm32h503rb")))]
     test_sizes(&mut hw_hasher);
 
     info!("Test OK");

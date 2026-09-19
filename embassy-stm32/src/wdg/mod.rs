@@ -110,7 +110,7 @@ foreach_peripheral!(
 fn wwdg_ticks(duration_us: u32, pclk1_hz: u32, prescaler_mul: u32) -> u64 {
     let num = duration_us as u64 * pclk1_hz as u64;
     let den = prescaler_mul as u64 * 4096 * 1_000_000;
-    (num + den - 1) / den
+    num.div_ceil(den)
 }
 
 #[cfg(wwdg)]

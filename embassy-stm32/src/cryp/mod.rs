@@ -96,6 +96,12 @@ pub trait Cipher<'c> {
     fn get_header_block(&self) -> &[u8] {
         return [0; 0].as_slice();
     }
+
+    /// CCM only: the counter block with the counter at zero, which the final
+    /// phase feeds to the core instead of the GCM lengths block.
+    fn ccm_ctr0(&self) -> Option<[u8; 16]> {
+        None
+    }
 }
 
 /// This trait enables restriction of ciphers to specific key sizes.
@@ -727,70 +733,122 @@ pub struct AesCcm<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZ
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> AesCcm<'c, KEY_SIZE, TAG_SIZE, IV_SIZE> {
     /// Constructs a new AES-CCM cipher for a cryptographic operation.
     pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; IV_SIZE], aad_len: usize, payload_len: usize) -> Self {
-        let mut aad_header: [u8; 6] = [0; 6];
-        let mut aad_header_len = 0;
-        let mut block0: Aligned<A4, [u8; 16]> = Aligned([0; 16]);
-        if aad_len != 0 {
-            if aad_len < 65280 {
-                aad_header[0] = (aad_len >> 8) as u8 & 0xFF;
-                aad_header[1] = aad_len as u8 & 0xFF;
-                aad_header_len = 2;
-            } else {
-                aad_header[0] = 0xFF;
-                aad_header[1] = 0xFE;
-                let aad_len_bytes: [u8; 4] = (aad_len as u32).to_be_bytes();
-                aad_header[2] = aad_len_bytes[0];
-                aad_header[3] = aad_len_bytes[1];
-                aad_header[4] = aad_len_bytes[2];
-                aad_header[5] = aad_len_bytes[3];
-                aad_header_len = 6;
-            }
-        }
-        let total_aad_len = aad_header_len + aad_len;
-        let mut aad_padding_len = 16 - (total_aad_len % 16);
-        if aad_padding_len == 16 {
-            aad_padding_len = 0;
-        }
-        aad_header_len += aad_padding_len;
-        let total_aad_len_padded = aad_header_len + aad_len;
-        if total_aad_len_padded > 0 {
-            block0[0] = 0x40;
-        }
-        block0[0] |= ((((TAG_SIZE as u8) - 2) >> 1) & 0x07) << 3;
-        block0[0] |= ((15 - (iv.len() as u8)) - 1) & 0x07;
-        block0[1..1 + iv.len()].copy_from_slice(iv);
-        let payload_len_bytes: [u8; 4] = (payload_len as u32).to_be_bytes();
-        if iv.len() <= 11 {
-            block0[12] = payload_len_bytes[0];
-        } else if payload_len_bytes[0] > 0 {
-            panic!("Message is too large for given IV size.");
-        }
-        if iv.len() <= 12 {
-            block0[13] = payload_len_bytes[1];
-        } else if payload_len_bytes[1] > 0 {
-            panic!("Message is too large for given IV size.");
-        }
-        block0[14] = payload_len_bytes[2];
-        block0[15] = payload_len_bytes[3];
-        let mut ctr: [u8; 16] = [0; 16];
-        ctr[0] = block0[0] & 0x07;
-        ctr[1..1 + iv.len()].copy_from_slice(&block0[1..1 + iv.len()]);
-        ctr[15] = 0x01;
-
-        return Self {
+        let (aad_header, aad_header_len, block0, ctr) = build_ccm_state(iv, TAG_SIZE, aad_len, payload_len);
+        Self {
             key: key,
             aad_header: aad_header,
             aad_header_len: aad_header_len,
             block0: block0,
             ctr: ctr,
-        };
+        }
+    }
+
+    /// View the precomputed state as a type-erased [`CcmOp`].
+    fn op(&self) -> CcmOp<'c> {
+        CcmOp {
+            key: self.key,
+            aad_header: self.aad_header,
+            aad_header_len: self.aad_header_len,
+            block0: Aligned(*self.block0),
+            ctr: self.ctr,
+        }
+    }
+}
+
+/// Precompute the CCM AAD-length header and B0/CTR0 blocks shared by
+/// [`AesCcm::new`] and the type-erased [`CcmOp`] constructor.
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+fn build_ccm_state(
+    iv: &[u8],
+    tag_size: usize,
+    aad_len: usize,
+    payload_len: usize,
+) -> ([u8; 6], usize, Aligned<A4, [u8; 16]>, [u8; 16]) {
+    let mut aad_header: [u8; 6] = [0; 6];
+    let mut aad_header_len = 0;
+    if aad_len != 0 {
+        if aad_len < 65280 {
+            aad_header[0] = (aad_len >> 8) as u8 & 0xFF;
+            aad_header[1] = aad_len as u8 & 0xFF;
+            aad_header_len = 2;
+        } else {
+            aad_header[0] = 0xFF;
+            aad_header[1] = 0xFE;
+            let aad_len_bytes: [u8; 4] = (aad_len as u32).to_be_bytes();
+            aad_header[2] = aad_len_bytes[0];
+            aad_header[3] = aad_len_bytes[1];
+            aad_header[4] = aad_len_bytes[2];
+            aad_header[5] = aad_len_bytes[3];
+            aad_header_len = 6;
+        }
+    }
+    let mut block0: Aligned<A4, [u8; 16]> = Aligned([0; 16]);
+    if aad_len > 0 {
+        block0[0] = 0x40;
+    }
+    block0[0] |= ((((tag_size as u8) - 2) >> 1) & 0x07) << 3;
+    block0[0] |= ((15 - (iv.len() as u8)) - 1) & 0x07;
+    block0[1..1 + iv.len()].copy_from_slice(iv);
+    let payload_len_bytes: [u8; 4] = (payload_len as u32).to_be_bytes();
+    if iv.len() <= 11 {
+        block0[12] = payload_len_bytes[0];
+    } else if payload_len_bytes[0] > 0 {
+        panic!("Message is too large for given IV size.");
+    }
+    if iv.len() <= 12 {
+        block0[13] = payload_len_bytes[1];
+    } else if payload_len_bytes[1] > 0 {
+        panic!("Message is too large for given IV size.");
+    }
+    block0[14] = payload_len_bytes[2];
+    block0[15] = payload_len_bytes[3];
+    let mut ctr: [u8; 16] = [0; 16];
+    ctr[0] = block0[0] & 0x07;
+    ctr[1..1 + iv.len()].copy_from_slice(&block0[1..1 + iv.len()]);
+    ctr[15] = 0x01;
+
+    (aad_header, aad_header_len, block0, ctr)
+}
+
+/// Type-erased AES-CCM operation.
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+pub(crate) struct CcmOp<'c> {
+    key: &'c [u8],
+    aad_header: [u8; 6],
+    aad_header_len: usize,
+    // 4-byte aligned because the async DMA path transfers this buffer as u32 words.
+    block0: Aligned<A4, [u8; 16]>,
+    ctr: [u8; 16],
+}
+
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+impl<'c> CcmOp<'c> {
+    /// Constructs a type-erased CCM operation, validating the nonce and tag
+    /// sizes at runtime (the const-generic [`AesCcm`] validates them at
+    /// compile time instead).
+    #[allow(dead_code)] // Only used by the optional `embassy-crypto` driver (`cryp/driver.rs`).
+    pub(crate) fn new(key: &'c [u8], iv: &[u8], tag_size: usize, aad_len: usize, payload_len: usize) -> Self {
+        assert!(
+            (7..=13).contains(&iv.len()),
+            "CCM nonce must be between 7 and 13 bytes."
+        );
+        assert!(
+            tag_size % 2 == 0 && (4..=16).contains(&tag_size),
+            "CCM tag size must be an even number of bytes between 4 and 16."
+        );
+        let (aad_header, aad_header_len, block0, ctr) = build_ccm_state(iv, tag_size, aad_len, payload_len);
+        Self {
+            key: key,
+            aad_header: aad_header,
+            aad_header_len: aad_header_len,
+            block0: block0,
+            ctr: ctr,
+        }
     }
 }
 
 #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
-impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cipher<'c>
-    for AesCcm<'c, KEY_SIZE, TAG_SIZE, IV_SIZE>
-{
+impl<'c> Cipher<'c> for CcmOp<'c> {
     const BLOCK_SIZE: usize = AES_BLOCK_SIZE;
 
     fn key(&self) -> &'c [u8] {
@@ -806,26 +864,36 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
         p.cr().modify(|w| w.set_algomode3(true));
     }
 
-    fn init_phase_blocking<T: Instance, M: Mode>(&self, p: pac::cryp::Cryp, cryp: &Cryp<T, M>) {
+    fn init_phase_blocking<T: Instance, M: Mode>(&self, p: pac::cryp::Cryp, _cryp: &Cryp<T, M>) {
         p.cr().modify(|w| w.set_gcm_ccmph(0));
 
-        cryp.write_bytes_blocking(Self::BLOCK_SIZE, &self.block0[..]);
-
+        // The core consumes B0 and clears CRYPEN itself once done, so it is
+        // enabled before B0 is written (as the ST HAL does); waiting on IFEM
+        // here would never return.
         p.cr().modify(|w| w.set_crypen(true));
+        for word in Cryp::<T, M>::phase_block_words(&self.block0) {
+            p.din().write_value(word);
+        }
         while p.cr().read().crypen() {}
     }
 
     async fn init_phase<T: Instance>(&self, p: pac::cryp::Cryp, cryp: &mut Cryp<'_, T, Async>) {
         p.cr().modify(|w| w.set_gcm_ccmph(0));
 
-        Cryp::<T, Async>::write_bytes(cryp.indma.as_mut().unwrap(), Self::BLOCK_SIZE, &self.block0[..]).await;
-
+        let words = Cryp::<T, Async>::phase_block_words(&self.block0);
         p.cr().modify(|w| w.set_crypen(true));
+        Cryp::<T, Async>::write_words(cryp.indma.as_mut().unwrap(), Self::BLOCK_SIZE, &words).await;
         while p.cr().read().crypen() {}
     }
 
     fn get_header_block(&self) -> &[u8] {
         return &self.aad_header[0..self.aad_header_len];
+    }
+
+    fn ccm_ctr0(&self) -> Option<[u8; 16]> {
+        let mut ctr0 = self.ctr;
+        ctr0[15] = 0;
+        Some(ctr0)
     }
 
     #[cfg(cryp_v2)]
@@ -926,6 +994,96 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
             }
             Cryp::<T, Async>::write_words(cryp.indma.as_mut().unwrap(), Self::BLOCK_SIZE, &in_data).await;
         }
+    }
+}
+
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+impl<'c> CipherSized for CcmOp<'c> {}
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+impl<'c> IVSized for CcmOp<'c> {}
+// `finish` always returns the full 16-byte block; the const parameter only
+// exists so the type system can size the return value and the driver
+// truncates it to the runtime tag length.
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+impl<'c> CipherAuthenticated<16> for CcmOp<'c> {}
+
+/// `Cipher` implementation for [`AesCcm`], forwarding to the shared
+/// type-erased [`CcmOp`] implementation so the hardware logic exists only
+/// once.
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cipher<'c>
+    for AesCcm<'c, KEY_SIZE, TAG_SIZE, IV_SIZE>
+{
+    const BLOCK_SIZE: usize = AES_BLOCK_SIZE;
+
+    fn key(&self) -> &'c [u8] {
+        self.key
+    }
+
+    fn iv(&self) -> &[u8] {
+        self.ctr.as_slice()
+    }
+
+    fn set_algomode(&self, p: pac::cryp::Cryp) {
+        self.op().set_algomode(p);
+    }
+
+    fn init_phase_blocking<T: Instance, M: Mode>(&self, p: pac::cryp::Cryp, cryp: &Cryp<T, M>) {
+        self.op().init_phase_blocking(p, cryp);
+    }
+
+    async fn init_phase<T: Instance>(&self, p: pac::cryp::Cryp, cryp: &mut Cryp<'_, T, Async>) {
+        let op = self.op();
+        op.init_phase(p, cryp).await;
+    }
+
+    fn get_header_block(&self) -> &[u8] {
+        // Direct field access: the returned slice borrows `self`, so this
+        // cannot forward through a temporary `CcmOp`.
+        &self.aad_header[0..self.aad_header_len]
+    }
+
+    fn ccm_ctr0(&self) -> Option<[u8; 16]> {
+        self.op().ccm_ctr0()
+    }
+
+    #[cfg(cryp_v2)]
+    fn pre_final(&self, p: pac::cryp::Cryp, dir: Direction, padding_len: usize) -> [u32; 4] {
+        self.op().pre_final(p, dir, padding_len)
+    }
+
+    #[cfg(any(cryp_v3, cryp_v4))]
+    fn pre_final(&self, p: pac::cryp::Cryp, dir: Direction, padding_len: usize) -> [u32; 4] {
+        self.op().pre_final(p, dir, padding_len)
+    }
+
+    #[cfg(cryp_v2)]
+    fn post_final_blocking<T: Instance, M: Mode>(
+        &self,
+        p: pac::cryp::Cryp,
+        cryp: &Cryp<T, M>,
+        dir: Direction,
+        int_data: &mut [u8; AES_BLOCK_SIZE],
+        temp1: [u32; 4],
+        padding_mask: [u8; 16],
+    ) {
+        self.op()
+            .post_final_blocking(p, cryp, dir, int_data, temp1, padding_mask);
+    }
+
+    #[cfg(cryp_v2)]
+    async fn post_final<T: Instance>(
+        &self,
+        p: pac::cryp::Cryp,
+        cryp: &mut Cryp<'_, T, Async>,
+        dir: Direction,
+        int_data: &mut [u8; AES_BLOCK_SIZE],
+        temp1: [u32; 4],
+        padding_mask: [u8; 16],
+    ) {
+        let op = self.op();
+        op.post_final(p, cryp, dir, int_data, temp1, padding_mask).await;
     }
 }
 
@@ -1346,7 +1504,11 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
         #[cfg(any(cryp_v3, cryp_v4))]
         let footer: [u32; 4] = [headerlen1, headerlen2, payloadlen1, payloadlen2];
 
-        self.write_words_blocking(C::BLOCK_SIZE, &footer);
+        if let Some(ctr0) = ctx.cipher.ccm_ctr0() {
+            self.write_words_blocking(C::BLOCK_SIZE, &Self::phase_block_words(&ctr0));
+        } else {
+            self.write_words_blocking(C::BLOCK_SIZE, &footer);
+        }
 
         while !T::regs().sr().read().ofne() {}
 
@@ -1358,6 +1520,28 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
         T::regs().cr().modify(|w| w.set_crypen(false));
 
         tag
+    }
+
+    /// Words of a 16-byte block fed in the CCM init or final phase (B0, CTR0).
+    ///
+    /// These blocks are not data: from cryp_v3 on they are taken as big-endian
+    /// words regardless of DATATYPE, while cryp_v2 byte-swaps them like data
+    /// (the ST HAL's rev.A path applies `__REV` for the 8-bit data type).
+    #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+    pub(crate) fn phase_block_words(block: &[u8; 16]) -> [u32; 4] {
+        let mut words = [0u32; 4];
+        for (word, chunk) in words.iter_mut().zip(block.chunks_exact(4)) {
+            let chunk: [u8; 4] = chunk.try_into().unwrap();
+            #[cfg(cryp_v2)]
+            {
+                *word = u32::from_ne_bytes(chunk);
+            }
+            #[cfg(any(cryp_v3, cryp_v4))]
+            {
+                *word = u32::from_be_bytes(chunk);
+            }
+        }
+        words
     }
 
     fn load_key(&self, key: &[u8]) {
@@ -1398,10 +1582,15 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
     }
 
     fn store_context<'c, C: Cipher<'c> + CipherSized>(&self, ctx: &mut Context<'c, C>) {
-        // Wait for data block processing to finish.
-        while !T::regs().sr().read().ifem() {}
-        while T::regs().sr().read().ofne() {}
-        while T::regs().sr().read().busy() {}
+        // Wait for data block processing to finish. Once the core has disabled
+        // itself (as it does at the end of the CCM init phase) nothing more
+        // will happen; cryp_v4 then even reports a non-empty input FIFO, so
+        // waiting would never return.
+        if T::regs().cr().read().crypen() {
+            while !T::regs().sr().read().ifem() {}
+            while T::regs().sr().read().ofne() {}
+            while T::regs().sr().read().busy() {}
+        }
 
         // Disable crypto processor.
         T::regs().cr().modify(|w| w.set_crypen(false));
@@ -1853,7 +2042,9 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         #[cfg(any(cryp_v3, cryp_v4))]
         let footer: [u32; 4] = [headerlen1, headerlen2, payloadlen1, payloadlen2];
 
-        let write = Self::write_words(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &footer);
+        let ccm_ctr0 = ctx.cipher.ccm_ctr0().map(|ctr0| Self::phase_block_words(&ctr0));
+        let block = ccm_ctr0.as_ref().unwrap_or(&footer);
+        let write = Self::write_words(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, block);
 
         let mut full_tag: Aligned<A4, [u8; 16]> = Aligned([0; 16]);
         let read = Self::read_bytes(self.outdma.as_mut().unwrap(), C::BLOCK_SIZE, &mut *full_tag);
@@ -1979,4 +2170,16 @@ foreach_interrupt!(
 dma_trait!(DmaIn, Instance);
 dma_trait!(DmaOut, Instance);
 
+#[cfg(any(
+    feature = "embassy-crypto-aes128-ecb",
+    feature = "embassy-crypto-aes128-cbc",
+    feature = "embassy-crypto-aes128-ctr",
+    feature = "embassy-crypto-aes128-gcm",
+    feature = "embassy-crypto-aes128-ccm",
+    feature = "embassy-crypto-aes256-ecb",
+    feature = "embassy-crypto-aes256-cbc",
+    feature = "embassy-crypto-aes256-ctr",
+    feature = "embassy-crypto-aes256-gcm",
+    feature = "embassy-crypto-aes256-ccm",
+))]
 mod driver;

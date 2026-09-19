@@ -231,13 +231,14 @@ async fn main(_spawner: Spawner) {
 
     // Full 24-bit RGB888 LTDC pin mapping from UM3300 §8.3.
     let mut ltdc = Ltdc::<_, ltdc::Rgb888>::new_with_pins(
-        p.LTDC, Irqs, p.PB13, // CLK
+        p.LTDC, p.PB13, // CLK
         p.PB14, // HSYNC
         p.PE11, // VSYNC
         p.PG13, // DE
         p.PG15, p.PA7, p.PB2, p.PG6, p.PH3, p.PH6, p.PA8, p.PA2, // B0..B7
         p.PG12, p.PG1, p.PA1, p.PA0, p.PB15, p.PB12, p.PB11, p.PG8, // G0..G7
         p.PG0, p.PD9, p.PD15, p.PB4, p.PH4, p.PA15, p.PG11, p.PD8, // R0..R7
+        Irqs,
     );
     ltdc.init(&LTDC_CONFIG);
 

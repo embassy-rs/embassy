@@ -16,7 +16,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    let mut usart = Uart::new(p.USART1, p.PB7, p.PB6, p.DMA1_CH2, p.DMA1_CH3, Irqs, Config::default()).unwrap();
+    let mut usart = Uart::new(p.USART1, p.PB6, p.PB7, p.DMA1_CH2, p.DMA1_CH3, Irqs, Config::default()).unwrap();
 
     usart.write(b"Hello Embassy World!\r\n").await.unwrap();
     info!("wrote Hello, starting echo");

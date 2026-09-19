@@ -4,6 +4,9 @@
 //! to reduce power consumption. The `embassy-stm32` HAL provides a `sleep()` function which
 //! can use knowledge of which peripherals are currently blocked upon to transparently and safely
 //! enter such low-power modes including `STOP1` and `STOP2` when possible.
+//! To archive lower power consumption consider enabling the `gpio-init-analog` feature, in
+//! order to start with all GPIOs set to analog input as recommended by STs low-power guidance
+//! AN4899 chapter 7.1
 //!
 //! `sleep()` determines which peripherals are active by their RCC state; consequently,
 //! low-power states can only be entered if peripherals which block stop have been `drop`'d and if

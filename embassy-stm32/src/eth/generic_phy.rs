@@ -119,11 +119,14 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
         // Clear WU CSR
         self.smi_write_ext(PHY_REG_WUCSR, 0);
 
-        // Enable auto-negotiation
-        let antx = self.sm.smi_read(self.phy_addr, PHY_REG_ANTX);
-        let antx = (antx & !PHY_REG_ANTX_TECH) | PHY_REG_ANTX_100BTX_FD;
-        self.sm.smi_write(self.phy_addr, PHY_REG_ANTX, antx);
-        self.sm.smi_write(self.phy_addr, PHY_REG_GBCR, 0);
+        #[cfg(eth_v2a)]
+        {
+            // The v2a MAC is fixed at 100M full duplex; advertise only that.
+            let antx = self.sm.smi_read(self.phy_addr, PHY_REG_ANTX);
+            let antx = (antx & !PHY_REG_ANTX_TECH) | PHY_REG_ANTX_100BTX_FD;
+            self.sm.smi_write(self.phy_addr, PHY_REG_ANTX, antx);
+            self.sm.smi_write(self.phy_addr, PHY_REG_GBCR, 0);
+        }
         self.sm
             .smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_AN | PHY_REG_BCR_ANRST);
     }

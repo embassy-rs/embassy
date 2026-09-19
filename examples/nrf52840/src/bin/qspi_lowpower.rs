@@ -39,13 +39,13 @@ async fn main(_p: Spawner) {
 
         let mut q = qspi::Qspi::new(
             p.QSPI.reborrow(),
-            Irqs,
             p.P0_19.reborrow(),
             p.P0_17.reborrow(),
             p.P0_20.reborrow(),
             p.P0_21.reborrow(),
             p.P0_22.reborrow(),
             p.P0_23.reborrow(),
+            Irqs,
             config,
         );
 

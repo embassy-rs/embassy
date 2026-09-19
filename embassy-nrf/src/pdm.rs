@@ -98,9 +98,9 @@ impl<'d> Pdm<'d> {
     /// Create PDM driver
     pub fn new<T: Instance>(
         pdm: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl GpioPin>,
         din: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(pdm, clk.into(), din.into(), config)

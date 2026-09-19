@@ -70,9 +70,15 @@ impl<'d> Rng<'d, Blocking> {
     ///
     /// The synchronous API is safe.
     pub fn new_blocking<T: Instance>(_rng: Peri<'d, T>) -> Self {
+        Self::new_inner(T::regs(), T::state())
+    }
+}
+
+impl<'d, M: Mode> Rng<'d, M> {
+    fn new_inner(r: pac::rng::Rng, state: &'static State) -> Self {
         let this = Self {
-            r: T::regs(),
-            state: T::state(),
+            r,
+            state,
             _phantom: PhantomData,
         };
 
@@ -323,6 +329,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
+#[allow(unused_macros)]
 macro_rules! impl_rng {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::rng::SealedInstance for peripherals::$type {
@@ -338,4 +345,35 @@ macro_rules! impl_rng {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
+}
+
+/// `embassy-crypto` random number driver served by the RNG, behind the
+/// `embassy-crypto-rng` feature. Chips with a CryptoCell register its TRNG instead.
+///
+/// The feature removes the `RNG` peripheral, so the generator has one owner: this driver,
+/// which locks it for the duration of every call and panics if a call finds it locked.
+#[cfg(all(feature = "embassy-crypto-rng", not(feature = "_cryptocell")))]
+mod driver {
+    use embassy_sync::blocking_mutex::Mutex;
+    use embassy_sync::blocking_mutex::raw::PanicRawMutex;
+
+    use super::{Rng, State};
+    use crate::mode::Blocking;
+    use crate::pac;
+
+    static LOCK: Mutex<PanicRawMutex, ()> = Mutex::new(());
+    static STATE: State = State::new();
+
+    struct Driver;
+
+    impl embassy_crypto::driver::Rng for Driver {
+        fn fill_bytes(buf: &mut [u8]) {
+            LOCK.lock(|_| {
+                let mut rng = Rng::<'static, Blocking>::new_inner(pac::RNG, &STATE);
+                rng.blocking_fill_bytes(buf);
+            })
+        }
+    }
+
+    embassy_crypto::rng_impl!(Driver);
 }

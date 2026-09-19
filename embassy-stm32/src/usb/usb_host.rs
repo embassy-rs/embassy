@@ -289,9 +289,9 @@ impl<'d, I: SealedHostInstance> UsbHost<'d, I> {
     /// Create a new USB driver.
     pub fn new(
         _usb: Peri<'d, USB>,
-        _irq: impl interrupt::typelevel::Binding<I::Interrupt, USBHostInterruptHandler<I>> + 'd,
         dp: Peri<'d, impl DpPin<I>>,
         dm: Peri<'d, impl DmPin<I>>,
+        _irq: impl interrupt::typelevel::Binding<I::Interrupt, USBHostInterruptHandler<I>> + 'd,
     ) -> Self {
         super::super::common_init::<I>();
 
