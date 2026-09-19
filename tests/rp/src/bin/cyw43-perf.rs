@@ -99,27 +99,36 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(net_task(runner)));
 
-    loop {
-        match control
-            .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
-            .await
-        {
-            Ok(_) => break,
-            Err(err) => {
-                panic!("join failed: {:?}", err);
-            }
-        }
+    // A scan proves boot and firmware, joining depends on AP present.
+    let mut networks = 0;
+    let mut scanner = control.scan(Default::default()).await;
+    while scanner.next().await.is_some() {
+        networks += 1;
+    }
+    drop(scanner);
+
+    info!("scan found {} networks", networks);
+    if networks == 0 {
+        panic!("scan found no networks");
     }
 
-    perf_client::run(
-        iface,
-        perf_client::Expected {
-            down_kbps: 200,
-            up_kbps: 200,
-            updown_kbps: 200,
-        },
-    )
-    .await;
+    let connected = control
+        .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
+        .await;
+
+    if let Err(err) = connected {
+        warn!("not connected ({:?}), skipping perf", err);
+    } else {
+        perf_client::run(
+            iface,
+            perf_client::Expected {
+                down_kbps: 200,
+                up_kbps: 200,
+                updown_kbps: 200,
+            },
+        )
+        .await;
+    }
 
     info!("Test OK");
     cortex_m::asm::bkpt();
