@@ -592,6 +592,16 @@ impl<'d, W: Word> I2S<'d, W> {
         }
     }
 
+    /// Return the number of samples currently readable from the RX DMA ring buffer.
+    ///
+    /// Returns [`Error::Overrun`] if the DMA has lapped the reader, mirroring [`Self::read`].
+    pub fn rx_len(&mut self) -> Result<usize, Error> {
+        match &mut self.rx_ring_buffer {
+            Some(ring) => Ok(ring.len()?),
+            _ => Err(Error::NotAReceiver),
+        }
+    }
+
     /// Write data to the I2S ringbuffer.
     /// This appends the data to the buffer and returns immediately. The data will be transmitted in the background.
     /// If thfre’s no space in the buffer, this waits until there is.
