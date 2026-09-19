@@ -1,7 +1,6 @@
 // The v1c ethernet driver was ported to embassy from the awesome stm32-eth project (https://github.com/stm32-rs/stm32-eth).
 
-mod rx_desc;
-mod tx_desc;
+mod descriptors;
 
 use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, fence};
@@ -14,8 +13,8 @@ mod ptp;
 #[cfg(feature = "ptp")]
 pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement, PtpTimeProvider};
 
-pub(crate) use self::rx_desc::{RDes, RDesRing};
-pub(crate) use self::tx_desc::{TDes, TDesRing};
+pub(crate) use self::descriptors::{RDes, RDesInfo, TDes};
+use super::ring::{RDesRing, TDesRing};
 use super::*;
 #[cfg(eth_v1a)]
 use crate::gpio::Pull;
@@ -28,7 +27,7 @@ use crate::pac::AFIO;
 use crate::pac::SYSCFG;
 #[cfg(any(eth_v1b, eth_v1c))]
 use crate::pac::eth::vals::Ipco;
-use crate::pac::eth::vals::{Apcs, Dm, DmaomrSr, Fes, Ftf, Ifg, Pbl, Rsf, St, Tsf};
+use crate::pac::eth::vals::{Apcs, Dm, DmaomrSr, Fes, Ftf, Ifg, Pbl, Rpd, Rsf, St, Tsf};
 use crate::pac::{ETH, RCC};
 use crate::rcc::MaybeWakeGuard;
 
@@ -361,7 +360,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_sr(DmaomrSr::Started); // start receiving channel
         });
 
-        this.rx.demand_poll();
+        ETH.ethernet_dma().dmarpdr().write(|w| w.set_rpd(Rpd::Poll));
 
         // Enable interrupts
         dma.dmaier().modify(|w| {
