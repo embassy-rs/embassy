@@ -5,13 +5,14 @@ mod ptp;
 use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, fence};
 
-pub(crate) use descriptors::{RDes, RDesRing, TDes, TDesRing};
+pub(crate) use descriptors::{RDes, RDesInfo, TDes};
 use embassy_hal_internal::Peri;
 #[cfg(feature = "ptp")]
 pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement, PtpTimeProvider};
 #[cfg(any(eth_v2, eth_v2b))]
 use stm32_metapac::syscfg::vals::EthSelPhy;
 
+use super::ring::{RDesRing, TDesRing};
 use super::*;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt::InterruptExt;

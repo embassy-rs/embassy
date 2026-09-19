@@ -8,6 +8,7 @@ compile_error!("The 'ptp' feature is not supported on STM32 Ethernet MAC v1a.");
 #[cfg_attr(any(eth_v2, eth_v2a, eth_v2b), path = "v2/mod.rs")]
 mod _version;
 mod generic_phy;
+mod ring;
 mod sma;
 
 use core::mem::MaybeUninit;
