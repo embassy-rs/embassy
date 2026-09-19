@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the `rtos-trace` feature.
 - Added `idle` trace callback (`_embassy_trace_v2_idle`), called by thread-mode executors right before sleeping.
 - Added `embassy_executor::trace_idle()` for custom thread-mode executors to emit the `idle` trace callback.
+- Added a `no-ptr-atomic` feature for targets with no usable `AtomicPtr` at all (not even
+  load/store, e.g. bare ARMv4T), so `TaskHeader::executor` can fall back to `portable-atomic`
+  there the same way `platform-avr` already does for its own reasons. This crate does not enable
+  a `portable-atomic` backend feature for you - enable `critical-section` or
+  `unsafe-assume-single-core` on `portable-atomic` in your own `Cargo.toml` as needed.
 
 ## 0.10.0 - 2026-03-10
 
