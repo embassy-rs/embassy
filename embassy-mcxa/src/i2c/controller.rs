@@ -175,24 +175,87 @@ impl From<Speed> for u32 {
     }
 }
 
-/// Compute LPI2C controller MCFGR1.PRESCALE + MCCR0 fields from peripheral
-/// input frequency and target SCL frequency.
+/// SCL duty cycle: the share of the SCL period the clock is driven high.
 ///
-/// Mirrors the NXP SDK `LPI2C_MasterSetBaudRate` algorithm
+/// CLKHI/CLKLO are 6-bit counters, and the high phase is additionally capped
+/// by the tBUF clamp below, so the achieved ratio is best effort and lands at
+/// ~48% for any request at or near [`MAX_PERCENT`](Self::MAX_PERCENT).
+///
+/// The minimum tHIGH of the I2C-bus specification (UM10204 Table 10) is 40%
+/// of the period in Standard mode, 24% in Fast mode and 26% in Fast Plus, so
+/// a value valid for one speed can violate another.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DutyCycle {
+    high_percent: u8,
+}
+
+impl DutyCycle {
+    /// Smallest accepted value: minimum tHIGH of the fastest-constrained mode
+    /// (Fast mode, 0.6 us of a 2.5 us period).
+    pub const MIN_PERCENT: u8 = 24;
+    /// Largest accepted value: past this the tBUF clamp caps the high phase anyway.
+    pub const MAX_PERCENT: u8 = 50;
+
+    /// Creates a duty cycle from the percentage of the SCL period spent high.
+    ///
+    /// Returns `None` if the value is outside
+    /// [`MIN_PERCENT`](Self::MIN_PERCENT)..=[`MAX_PERCENT`](Self::MAX_PERCENT).
+    pub const fn new(high_percent: u8) -> Option<Self> {
+        if high_percent < Self::MIN_PERCENT || high_percent > Self::MAX_PERCENT {
+            None
+        } else {
+            Some(Self { high_percent })
+        }
+    }
+
+    /// Requested percentage of the SCL period spent high.
+    pub const fn high_percent(&self) -> u8 {
+        self.high_percent
+    }
+}
+
+impl Default for DutyCycle {
+    /// Even split between the SCL high and low phases.
+    fn default() -> Self {
+        Self { high_percent: 50 }
+    }
+}
+
+/// Largest value the 6-bit MCCR0 CLKHI/CLKLO counters can hold.
+const MAX_CLK_COUNT: u32 = 0x3F;
+
+/// `2 + FILTSCL`; we do not program MCFGR2, so FILTSCL = 0.
+const SCL_LATENCY: u32 = 2;
+
+/// SCL high period, in prescaled cycles, for the requested duty cycle, capped
+/// so that tBUF >= 0.52 * SCL period (UM10204 Table 10: 1.3 us of a 2.5 us
+/// Fast mode period): CLKHI <= clkCycle - 0.52*src/baud/divider + 1.
+fn duty_clk_high(src_hz: u32, baud_hz: u32, divider: u32, clk_cycle: u32, duty_cycle: DutyCycle) -> u32 {
+    let scl_lat = SCL_LATENCY / divider;
+    let high = clk_cycle.saturating_sub(scl_lat) * u32::from(duty_cycle.high_percent()) / 100;
+    let a_tbuf = 13 * src_hz / baud_hz / divider / 25;
+    high.min(clk_cycle.saturating_sub(a_tbuf).saturating_add(1))
+}
+
+/// Compute LPI2C controller MCFGR1.PRESCALE + MCCR0 fields from peripheral
+/// input frequency, target SCL frequency and target duty cycle.
+///
+/// Based on the NXP SDK `LPI2C_MasterSetBaudRate` algorithm
 /// (see `fsl_lpi2c.c`). For each prescaler 0..=7, computes the period
-/// in periph cycles using round-to-nearest division, picks the one with
-/// the smallest absolute error to the target. Then derives:
-///   - CLKHI = (clkCycle - SCL_LATENCY) / 2, clamped down so that
-///     tBUF >= 0.52/baud.
+/// in periph cycles using round-to-nearest division and keeps the smallest
+/// absolute error to the target, preferring prescalers whose cycle budget can
+/// express the requested duty cycle within the 6-bit counters. A non-default
+/// duty cycle can therefore cost up to ~1% of frequency accuracy. Then derives:
+///   - CLKHI = (clkCycle - SCL_LATENCY) * duty, capped so that tBUF >=
+///     0.52/baud and floored so that CLKLO still fits its field.
 ///   - CLKLO = clkCycle - CLKHI.
 ///   - SETHOLD = clk_bdr/divider/2 - 1   (~half SCL period).
 ///   - DATAVD  = clk_bdr/divider/4 - 1   (~quarter SCL period).
 ///
 /// Where SCL_LATENCY = (2 + FILTSCL) / 2^prescale and we assume FILTSCL=0
 /// (we do not program MCFGR2 in this driver).
-fn compute_baud_params(src_hz: u32, baud_hz: u32) -> (Prescale, u8, u8, u8, u8) {
-    let filt_scl: u32 = 0;
-
+fn compute_baud_params(src_hz: u32, baud_hz: u32, duty_cycle: DutyCycle) -> (Prescale, u8, u8, u8, u8) {
     let prescalers = [
         Prescale::DivideBy1,
         Prescale::DivideBy2,
@@ -204,50 +267,64 @@ fn compute_baud_params(src_hz: u32, baud_hz: u32) -> (Prescale, u8, u8, u8, u8) 
         Prescale::DivideBy128,
     ];
 
-    let (best_prescale, best_div, best_clk_cycle, _) = prescalers.iter().fold(
-        (Prescale::DivideBy1, 1u32, 0u32, u32::MAX),
-        |best @ (_, _, _, best_err), &prescale| {
-            let divider: u32 = 1u32 << (prescale as u8);
-            let scl_lat = (2 + filt_scl) / divider;
+    let mut best: Option<(Prescale, u32, u32)> = None;
+    let mut best_err = u32::MAX;
+    let mut best_fit: Option<(Prescale, u32, u32)> = None;
+    let mut best_fit_err = u32::MAX;
 
-            // a = round(src / divider / baud)
-            let a = (10 * src_hz / divider / baud_hz + 5) / 10;
-            let b = scl_lat + 2;
-            if a <= b {
-                return best;
-            }
-            let clk_cycle = a - b;
-            if clk_cycle > 120u32.saturating_sub(scl_lat) {
-                return best;
-            }
+    for &prescale in &prescalers {
+        let divider: u32 = 1u32 << (prescale as u8);
+        let scl_lat = SCL_LATENCY / divider;
 
-            let computed = (src_hz / divider) / (clk_cycle + 2 + scl_lat);
-            let abs_err = computed.abs_diff(baud_hz);
-            if abs_err < best_err {
-                (prescale, divider, clk_cycle, abs_err)
-            } else {
-                best
-            }
-        },
-    );
+        // a = round(src / divider / baud)
+        let a = (10 * src_hz / divider / baud_hz + 5) / 10;
+        let b = scl_lat + 2;
+        if a <= b {
+            continue;
+        }
+        let clk_cycle = a - b;
+        if clk_cycle > 120u32.saturating_sub(scl_lat) {
+            continue;
+        }
 
-    let scl_lat = (2 + filt_scl) / best_div;
-    let mut tmp_high = best_clk_cycle.saturating_sub(scl_lat) / 2;
+        let computed = (src_hz / divider) / (clk_cycle + 2 + scl_lat);
+        let abs_err = computed.abs_diff(baud_hz);
 
-    // Clamp tmp_high so tBUF >= 0.52 * SCL period:
-    //   CLKHI <= clkCycle - 0.52*src/baud/divider + 1
-    let a_tbuf = 13 * src_hz / baud_hz / best_div / 25;
-    let max_high = best_clk_cycle.saturating_sub(a_tbuf).saturating_add(1);
-    if tmp_high > max_high {
-        tmp_high = max_high;
+        if abs_err < best_err {
+            best_err = abs_err;
+            best = Some((prescale, divider, clk_cycle));
+        }
+
+        let high = duty_clk_high(src_hz, baud_hz, divider, clk_cycle, duty_cycle);
+        if clk_cycle.saturating_sub(high) <= MAX_CLK_COUNT && abs_err < best_fit_err {
+            best_fit_err = abs_err;
+            best_fit = Some((prescale, divider, clk_cycle));
+        }
+    }
+
+    // A prescaler that cannot express the duty cycle still beats none; the
+    // split below keeps its output inside the counters either way.
+    let (best_prescale, best_div, best_clk_cycle) = match best_fit.or(best) {
+        Some(v) => v,
+        None => (Prescale::DivideBy1, 1, 0),
+    };
+
+    let mut clk_high = duty_clk_high(src_hz, baud_hz, best_div, best_clk_cycle, duty_cycle);
+    // Hand the low phase's overflow back to the high phase so CLKLO fits.
+    clk_high = clk_high
+        .max(best_clk_cycle.saturating_sub(MAX_CLK_COUNT))
+        .min(MAX_CLK_COUNT);
+    // Keep at least one cycle in each phase when the cycle budget allows it.
+    if best_clk_cycle >= 2 {
+        clk_high = clk_high.clamp(1, best_clk_cycle - 1);
     }
 
     let clk_bdr = src_hz / baud_hz;
     let tmp_hold = (clk_bdr / best_div / 2).saturating_sub(1);
     let tmp_datavd = (clk_bdr / best_div / 4).saturating_sub(1);
 
-    let clkhi = (tmp_high & 0x3F) as u8;
-    let clklo = ((best_clk_cycle - tmp_high) & 0x3F) as u8;
+    let clkhi = clk_high as u8;
+    let clklo = best_clk_cycle.saturating_sub(clk_high) as u8;
     let sethold = (tmp_hold & 0x3F) as u8;
     let datavd = (tmp_datavd & 0xFF) as u8;
 
@@ -267,6 +344,9 @@ enum SendStop {
 pub struct Config {
     /// Bus speed
     pub speed: Speed,
+
+    /// Share of the SCL period the clock is driven high (best effort)
+    pub duty_cycle: DutyCycle,
 
     /// Clock configuration
     pub clock_config: ClockConfig,
@@ -414,7 +494,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         if config.speed == Speed::UltraFast {
             todo!("LPI2C UltraFast (HS) mode is not yet supported");
         }
-        let (prescale, clklo, clkhi, sethold, datavd) = compute_baud_params(self.freq, target_hz);
+        let (prescale, clklo, clkhi, sethold, datavd) = compute_baud_params(self.freq, target_hz, config.duty_cycle);
 
         critical_section::with(|_| {
             self.info.regs().mcfgr1().modify(|w| w.set_prescale(prescale));
