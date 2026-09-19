@@ -1,7 +1,8 @@
 //! MIDI class implementation.
 
 use crate::Builder;
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
+use crate::descriptor::{SynchronizationType, UsageType};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_AUDIO_CLASS: u8 = 0x01;
@@ -98,12 +99,12 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         let midi_streaming_total_length = 7
             + (n_in_jacks + n_out_jacks) as usize * (MIDI_IN_SIZE + MIDI_OUT_SIZE) as usize
             + if n_out_jacks > 0 {
-                7 + (4 + n_out_jacks as usize)
+                9 + (4 + n_out_jacks as usize)
             } else {
                 0
             }
             + if n_in_jacks > 0 {
-                7 + (4 + n_in_jacks as usize)
+                9 + (4 + n_in_jacks as usize)
             } else {
                 0
             };
@@ -176,7 +177,15 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             for i in 0..n_out_jacks {
                 endpoint_data[2 + i as usize] = in_jack_id_emb(i);
             }
-            let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
+            let read_ep = alt.endpoint_out(
+                EndpointType::Bulk,
+                None,
+                max_packet_size,
+                0,
+                SynchronizationType::NoSynchronization,
+                UsageType::DataEndpoint,
+                &[0, 0],
+            );
             alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_out_jacks as usize]);
             Some(read_ep)
         } else {
@@ -188,7 +197,15 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             for i in 0..n_in_jacks {
                 endpoint_data[2 + i as usize] = out_jack_id_emb(i);
             }
-            let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
+            let write_ep = alt.endpoint_in(
+                EndpointType::Bulk,
+                None,
+                max_packet_size,
+                0,
+                SynchronizationType::NoSynchronization,
+                UsageType::DataEndpoint,
+                &[0, 0],
+            );
             alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_in_jacks as usize]);
             Some(write_ep)
         } else {
