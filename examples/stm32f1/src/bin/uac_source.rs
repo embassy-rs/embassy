@@ -8,9 +8,9 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals};
-use embassy_usb::class::uac1::source::{AudioSource, AudioSourceControlHandler, AudioSourceEpIn};
+use embassy_usb::class::uac1;
+use embassy_usb::class::uac1::source::{AudioSource, Config as SourceConfig, ControlMonitor, State, Stream};
 use embassy_usb::class::uac1::terminal_type::TerminalType;
-use embassy_usb::class::uac1::{self};
 use embassy_usb::{Builder, UsbVersion};
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -19,11 +19,8 @@ bind_interrupts!(struct Irqs {
     USB_LP_CAN1_RX0 => embassy_stm32::usb::InterruptHandler<peripherals::USB>;
 });
 
-// Use 32 bit samples, which allow for a lot of (software) volume adjustment without degradation of quality.
+// 16-bit samples, matching the sine table below.
 pub const SAMPLE_WIDTH: uac1::SampleWidth = uac1::SampleWidth::Width2Byte;
-
-// Feedback is provided in 10.14 format for full-speed endpoints.
-pub const FEEDBACK_REFRESH_PERIOD: u8 = 8; // 8 frames = 8ms
 
 /// Device supported sample rates
 static SUPPORTED_SAMPLE_RATES: [u32; 1] = [16_000];
@@ -46,35 +43,21 @@ async fn usb_bus(
 }
 
 #[embassy_executor::task]
-async fn audio_feedback(mut ep_in: AudioSourceEpIn<'static, embassy_stm32::usb::Driver<'static, peripherals::USB>>) {
-    let feedback_buf = [0x00, 0x00, 0x04]; //sample rate in 3 bytes for 10.14 format
-
-    loop {
-        // Wait for the endpoint to be enabled (blocks if disabled)
-        ep_in.wait_enabled().await;
-
-        // Now the endpoint is enabled, try to write
-        match ep_in.write(&feedback_buf).await {
-            Ok(_) => {
-                // Wait exactly 8 ms as required by bRefresh
-                embassy_time::Timer::after_millis(8).await;
-            }
-            Err(e) => {
-                error!("audio_feedback: write error {:?}", e);
-                // Short delay before retrying (in case of transient error)
-                embassy_time::Timer::after_micros(100).await;
-            }
-        }
-    }
-}
-
-#[embassy_executor::task]
 async fn sine_wave_gen(
-    mut audio_ep_in: AudioSourceEpIn<'static, embassy_stm32::usb::Driver<'static, peripherals::USB>>,
+    mut audio_ep_in: Stream<'static, embassy_stm32::usb::Driver<'static, peripherals::USB>>,
+    control_monitor: ControlMonitor<'static>,
 ) {
+    static SILENCE: [u8; SINE_16000HZ_1MS_16BIT_2CH.len()] = [0; SINE_16000HZ_1MS_16BIT_2CH.len()];
+
     loop {
-        audio_ep_in.wait_enabled().await;
-        let _ = audio_ep_in.write(&SINE_16000HZ_1MS_16BIT_2CH).await;
+        audio_ep_in.wait_connection().await;
+        // Honor the all-channels mute control.
+        let packet = if control_monitor.muted() {
+            &SILENCE
+        } else {
+            &SINE_16000HZ_1MS_16BIT_2CH
+        };
+        let _ = audio_ep_in.write_packet(packet).await;
     }
 }
 
@@ -145,23 +128,24 @@ async fn main(spawner: Spawner) {
     debug!("Create USB builder");
     let mut builder = Builder::new(driver, usb_cfg, cfg_descr, bos_descr, &mut [], ctrl_buf);
 
-    debug!("Create audio stream, feedback endpoints and handler");
+    debug!("Create audio stream endpoint and handler");
+    static STATE: StaticCell<State> = StaticCell::new();
     let AudioSource {
-        audio_ep_in,
-        feedback_ep_in,
-        handler,
+        stream: audio_ep_in,
+        control_monitor,
     } = AudioSource::new(
         &mut builder,
-        &SUPPORTED_SAMPLE_RATES,
-        SAMPLE_WIDTH,
-        FEEDBACK_REFRESH_PERIOD,
-        Some(TerminalType::MiniDisk),
+        STATE.init(State::new()),
+        SourceConfig {
+            // Mute-only defaults from `Config::new`, shown as a MiniDisk source.
+            input_terminal: TerminalType::MiniDisk,
+            ..SourceConfig::new(
+                &SUPPORTED_SAMPLE_RATES,
+                SAMPLE_WIDTH,
+                &[uac1::Channel::LeftFront, uac1::Channel::RightFront],
+            )
+        },
     );
-
-    static AUDIO_CONTROL_HANDLER: StaticCell<AudioSourceControlHandler> = StaticCell::new();
-    let audio_control_handler = AUDIO_CONTROL_HANDLER.init(handler);
-
-    builder.handler(audio_control_handler);
 
     debug!("Create UsbDevice instance in the builder!");
     let usb = builder.build();
@@ -173,10 +157,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(status_led(led).unwrap());
 
     debug!("Run \"sine_wave_gen\" task!");
-    spawner.spawn(sine_wave_gen(audio_ep_in).unwrap());
-
-    debug!("Run \"feedback_task\" task!");
-    spawner.spawn(audio_feedback(feedback_ep_in).unwrap());
+    spawner.spawn(sine_wave_gen(audio_ep_in, control_monitor).unwrap());
 
     debug!("All tasks were started!");
 }
