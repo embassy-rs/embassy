@@ -902,6 +902,41 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
     }
 }
 
+impl<'d, 'c, T: Instance, C> crate::crypto::BlockingCipherOps<'c, C> for Saes<'d, T, Blocking>
+where
+    C: Cipher<'c> + CipherSized + IVSized + 'c,
+{
+    type Context = Context<'c, C>;
+
+    fn start(&mut self, cipher: &'c C, dir: Direction) -> Result<Self::Context, Error> {
+        Ok(self.start(cipher, dir))
+    }
+
+    fn aad(&mut self, ctx: &mut Self::Context, aad: &[u8], last: bool) -> Result<(), Error>
+    where
+        C: CipherAuthenticated<16>,
+    {
+        // `saes_v1b` has no GCM/CCM phases, so this never runs there.
+        #[cfg(not(saes_v1b))]
+        {
+            self.aad_blocking::<C, 16>(ctx, aad, last)
+        }
+        #[cfg(saes_v1b)]
+        {
+            let _ = (ctx, aad, last);
+            unreachable!()
+        }
+    }
+
+    fn payload(&mut self, ctx: &mut Self::Context, input: &[u8], output: &mut [u8], last: bool) -> Result<(), Error> {
+        self.payload_blocking(ctx, input, output, last)
+    }
+
+    fn finish(&mut self, ctx: Self::Context) -> Result<Option<[u8; 16]>, Error> {
+        self.finish_blocking(ctx)
+    }
+}
+
 impl<'d, T: Instance> Saes<'d, T, Async> {
     /// Process authenticated additional data (AAD) for GCM/CCM modes (async facade).
     #[cfg(not(saes_v1b))]

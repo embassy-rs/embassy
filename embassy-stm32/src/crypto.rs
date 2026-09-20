@@ -50,6 +50,36 @@ pub trait CipherAuthenticated<const TAG_SIZE: usize> {
     const TAG_SIZE: usize = TAG_SIZE;
 }
 
+/// Blocking operation flow shared by the AES/SAES and CRYP driver shells.
+///
+/// A cipher operation is a sequence of phases — start, optional associated
+/// data, payload, finish — which both peripheral families implement with the
+/// same shapes; they differ only in error behavior (the CRYP shell is
+/// infallible at this level, panicking on misuse instead). The cipher type
+/// carries all mode-specific knowledge, so the hardware only ever sees the
+/// generic [`Cipher`] description.
+pub trait BlockingCipherOps<'c, C>
+where
+    C: Cipher<'c> + CipherSized + IVSized + 'c,
+{
+    /// Operation state carried between the phases.
+    type Context;
+
+    /// Starts an operation: loads the key and IV and enters the cipher's init phase.
+    fn start(&mut self, cipher: &'c C, dir: Direction) -> Result<Self::Context, Error>;
+
+    /// Processes associated data (authenticated ciphers only).
+    fn aad(&mut self, ctx: &mut Self::Context, aad: &[u8], last: bool) -> Result<(), Error>
+    where
+        C: CipherAuthenticated<16>;
+
+    /// Processes payload data; `last` marks the final chunk, which may be partial.
+    fn payload(&mut self, ctx: &mut Self::Context, input: &[u8], output: &mut [u8], last: bool) -> Result<(), Error>;
+
+    /// Completes the operation, returning the full tag block for authenticated ciphers.
+    fn finish(&mut self, ctx: Self::Context) -> Result<Option<[u8; 16]>, Error>;
+}
+
 /// AES block size in bytes (128 bits).
 const AES_BLOCK_SIZE: usize = 16;
 
@@ -140,6 +170,9 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesEcb<'c, KEY_SIZE> {
 impl<'c> CipherSized for AesEcb<'c, { 128 / 8 }> {}
 #[cfg(not(aes_v1))]
 impl<'c> CipherSized for AesEcb<'c, { 256 / 8 }> {}
+// CRYP additionally takes 192-bit keys.
+#[cfg(cryp)]
+impl<'c> CipherSized for AesEcb<'c, { 192 / 8 }> {}
 impl<'c, const KEY_SIZE: usize> IVSized for AesEcb<'c, KEY_SIZE> {}
 
 /// AES-CBC Cipher Mode
@@ -174,6 +207,8 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCbc<'c, KEY_SIZE> {
 impl<'c> CipherSized for AesCbc<'c, { 128 / 8 }> {}
 #[cfg(not(aes_v1))]
 impl<'c> CipherSized for AesCbc<'c, { 256 / 8 }> {}
+#[cfg(cryp)]
+impl<'c> CipherSized for AesCbc<'c, { 192 / 8 }> {}
 impl<'c, const KEY_SIZE: usize> IVSized for AesCbc<'c, KEY_SIZE> {}
 
 /// AES-CTR Cipher Mode
@@ -206,6 +241,8 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCtr<'c, KEY_SIZE> {
 }
 
 impl<'c> CipherSized for AesCtr<'c, { 128 / 8 }> {}
+#[cfg(cryp)]
+impl<'c> CipherSized for AesCtr<'c, { 192 / 8 }> {}
 #[cfg(not(aes_v1))]
 impl<'c> CipherSized for AesCtr<'c, { 256 / 8 }> {}
 impl<'c, const KEY_SIZE: usize> IVSized for AesCtr<'c, KEY_SIZE> {}
@@ -254,6 +291,8 @@ mod authenticated {
 
     impl<'c> CipherSized for AesGcm<'c, { 128 / 8 }> {}
     impl<'c> CipherSized for AesGcm<'c, { 256 / 8 }> {}
+    #[cfg(cryp)]
+    impl<'c> CipherSized for AesGcm<'c, { 192 / 8 }> {}
     impl<'c, const KEY_SIZE: usize> IVSized for AesGcm<'c, KEY_SIZE> {}
     impl<'c, const KEY_SIZE: usize> CipherAuthenticated<16> for AesGcm<'c, KEY_SIZE> {}
 
@@ -300,6 +339,8 @@ mod authenticated {
 
     impl<'c> CipherSized for AesGmac<'c, { 128 / 8 }> {}
     impl<'c> CipherSized for AesGmac<'c, { 256 / 8 }> {}
+    #[cfg(cryp)]
+    impl<'c> CipherSized for AesGmac<'c, { 192 / 8 }> {}
     impl<'c, const KEY_SIZE: usize> IVSized for AesGmac<'c, KEY_SIZE> {}
     impl<'c, const KEY_SIZE: usize> CipherAuthenticated<16> for AesGmac<'c, KEY_SIZE> {}
 
@@ -363,7 +404,7 @@ mod authenticated {
         /// Constructs a type-erased CCM operation, validating the nonce and tag
         /// sizes at runtime (the const-generic [`AesCcm`] validates them at
         /// compile time instead).
-        #[allow(dead_code)] // Only used by the optional `embassy-crypto` driver (`aes/driver.rs`).
+        #[allow(dead_code)] // Only used by the optional `embassy-crypto` driver (`crypto_driver.rs`).
         pub(crate) fn new(key: &'c [u8], iv: &[u8], tag_size: usize, aad_len: usize, payload_len: usize) -> Self {
             assert!((7..=13).contains(&iv.len()), "CCM IV must be 7-13 bytes");
             assert!(
@@ -465,6 +506,8 @@ mod authenticated {
 
     impl<'c, const IV_SIZE: usize, const TAG_SIZE: usize> CipherSized for AesCcm<'c, { 128 / 8 }, IV_SIZE, TAG_SIZE> {}
     impl<'c, const IV_SIZE: usize, const TAG_SIZE: usize> CipherSized for AesCcm<'c, { 256 / 8 }, IV_SIZE, TAG_SIZE> {}
+    #[cfg(cryp)]
+    impl<'c, const IV_SIZE: usize, const TAG_SIZE: usize> CipherSized for AesCcm<'c, { 192 / 8 }, IV_SIZE, TAG_SIZE> {}
     impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> IVSized
         for AesCcm<'c, KEY_SIZE, IV_SIZE, TAG_SIZE>
     {
