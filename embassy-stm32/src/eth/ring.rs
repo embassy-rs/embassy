@@ -54,6 +54,14 @@ enum RunningState {
     Running,
 }
 
+/// What reclaiming a completed transmit descriptor yields: its timestamp with PTP,
+/// nothing without.
+#[cfg(feature = "ptp")]
+type Completion = Option<Timestamp>;
+#[cfg(not(feature = "ptp"))]
+type Completion = ();
+
+
 /// Rx ring of descriptors and packets
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
@@ -211,12 +219,12 @@ impl<'a> RDesRing<'a> {
     /// value stored in the frame's metadata (`None` = no timestamp captured);
     /// the outer `None` keeps the frame queued until its timestamp arrives.
     #[cfg(all(feature = "ptp", any(eth_v1a, eth_v1b, eth_v1c)))]
-    fn timestamp(&self, _info: &RDesInfo) -> Option<Option<Timestamp>> {
+    fn timestamp(&self, _info: &RDesInfo) -> Option<Completion> {
         Some(self.descriptors[self.index].timestamp())
     }
 
     #[cfg(all(feature = "ptp", any(eth_v2, eth_v2a, eth_v2b)))]
-    fn timestamp(&self, info: &RDesInfo) -> Option<Option<Timestamp>> {
+    fn timestamp(&self, info: &RDesInfo) -> Option<Completion> {
         // RDES1 write-back status is valid only when RS1V is set in RDES3.
         // Descriptors returned to DMA are not required to clear RDES1, so do
         // not interpret TSA unless the hardware says the status word is valid.
@@ -279,12 +287,6 @@ impl<'a> RDesRing<'a> {
     }
 }
 
-/// What reclaiming a completed transmit descriptor yields: its timestamp with PTP,
-/// nothing without.
-#[cfg(feature = "ptp")]
-type Completion = Option<Timestamp>;
-#[cfg(not(feature = "ptp"))]
-type Completion = ();
 
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
