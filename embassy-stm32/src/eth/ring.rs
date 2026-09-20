@@ -61,7 +61,6 @@ type Completion = Option<Timestamp>;
 #[cfg(not(feature = "ptp"))]
 type Completion = ();
 
-
 /// Rx ring of descriptors and packets
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
@@ -286,7 +285,6 @@ impl<'a> RDesRing<'a> {
         self.index = (self.index + 1) % self.descriptors.len();
     }
 }
-
 
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
