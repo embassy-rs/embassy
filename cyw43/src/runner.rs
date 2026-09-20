@@ -1223,6 +1223,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                 if self.events.mask.is_enabled(event_type) {
                     let status = event_packet.msg.status;
+                    let reason = event_packet.msg.reason;
                     let event_payload = match event_type {
                         Event::ESCAN_RESULT if status == EStatus::PARTIAL => {
                             let Some((_, bss_info)) = ScanResults::parse(evt_data) else {
@@ -1244,7 +1245,14 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     self.events
                         .queue
                         .immediate_publisher()
-                        .publish_immediate(events::Message::new(Status { event_type, status }, event_payload));
+                        .publish_immediate(events::Message::new(
+                            Status {
+                                event_type,
+                                status,
+                                reason,
+                            },
+                            event_payload,
+                        ));
                 }
             }
             CHANNEL_TYPE_DATA => {

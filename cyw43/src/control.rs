@@ -427,8 +427,9 @@ impl<'a> Control<'a> {
                 (Event::SET_SSID, status, _) if status != EStatus::SUCCESS => {
                     break Err(JoinError::JoinFailure(status as u8));
                 }
-                // Ignore PSK_SUP "ABORT" which is sometimes sent before successful join
-                (Event::PSK_SUP, EStatus::ABORT, true) => {}
+                // PSK_SUP status 4 means waiting for M1, not the generic ABORT status.
+                // Ignore it only without a failure reason; reason 15 is a handshake timeout.
+                (Event::PSK_SUP, _, true) if msg.header.status == 4 && msg.header.reason == 0 => {}
                 // Event PSK_SUP with status 6 "UNSOLICITED" indicates success for secure networks
                 (Event::PSK_SUP, EStatus::UNSOLICITED, true) => break Ok(()),
                 // Events indicating authentication failure, possibly due to incorrect password
@@ -831,5 +832,80 @@ impl Scanner<'_> {
 impl Drop for Scanner<'_> {
     fn drop(&mut self) {
         self.events.mask.disable_all();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::future::Future;
+    use core::pin::pin;
+    use core::task::{Context, Poll, Waker};
+
+    use super::*;
+
+    fn replay_psk_events(events: &[(u32, u32)]) -> Poll<Result<(), JoinError>> {
+        let mut state = crate::State::new();
+        let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
+
+        let mut control = Control::new(
+            runner.state_runner(),
+            &state.net.events,
+            &state.ioctl_state,
+            &state.net.secure_network,
+        );
+
+        let mut join = pin!(control.wait_for_join(SsidInfo { len: 0, ssid: [0; 32] }, true));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(join.as_mut().poll(&mut cx).is_pending());
+
+        // Complete SetSsid as the radio runner would, then drive the real join
+        // future through its event queue without an application timeout.
+        {
+            let mut pending = pin!(state.ioctl_state.wait_pending());
+
+            assert!(pending.as_mut().poll(&mut cx).is_ready());
+        }
+
+        state.ioctl_state.ioctl_done(&[]);
+        assert!(join.as_mut().poll(&mut cx).is_pending());
+
+        for &(status, reason) in events {
+            state
+                .net
+                .events
+                .queue
+                .immediate_publisher()
+                .publish_immediate(events::Message::new(
+                    events::Status {
+                        event_type: Event::PSK_SUP,
+                        status,
+                        reason,
+                    },
+                    events::Payload::None,
+                ));
+
+            let result = join.as_mut().poll(&mut cx);
+
+            if result.is_ready() {
+                return result;
+            }
+        }
+
+        Poll::Pending
+    }
+
+    #[test]
+    fn m1_timeout_fails_join() {
+        assert!(matches!(
+            replay_psk_events(&[(4, 15)]),
+            Poll::Ready(Err(JoinError::AuthenticationFailure))
+        ));
+    }
+
+    #[test]
+    fn waiting_for_m1_without_an_error_allows_join_to_complete() {
+        assert!(replay_psk_events(&[(4, 0)]).is_pending());
+
+        assert!(matches!(replay_psk_events(&[(4, 0), (6, 0)]), Poll::Ready(Ok(()))));
     }
 }
