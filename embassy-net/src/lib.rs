@@ -167,6 +167,31 @@ impl<'d> Stack<'d> {
         r
     }
 
+    /// Take a TX timestamp from the stack-wide queue.
+    ///
+    /// Run the network runner concurrently to collect TX timestamps. The queue has
+    /// one consumer. Coordinate packet IDs across senders and remember their
+    /// interface and clock; do not reuse IDs while old timestamps can still arrive.
+    /// Timestamps may be lost or arrive out of order. Use timeouts for missing timestamps.
+    #[cfg(feature = "packetmeta-timestamp")]
+    pub fn poll_tx_timestamp(&self) -> Option<driver::TxTimestamp> {
+        self.with(|i| i.stack.poll_tx_timestamp())
+    }
+
+    /// Wait for a TX timestamp from the stack-wide queue.
+    ///
+    /// Only one task may wait at a time. See [`Self::poll_tx_timestamp`] for packet ID
+    /// and delivery requirements. Cancelling a pending wait consumes no timestamp.
+    #[cfg(feature = "packetmeta-timestamp")]
+    pub fn tx_timestamp(&self) -> impl Future<Output = driver::TxTimestamp> + '_ {
+        poll_fn(|cx| {
+            self.with(|i| {
+                i.stack.register_tx_timestamp_waker(cx.waker());
+                i.stack.poll_tx_timestamp().map_or(Poll::Pending, Poll::Ready)
+            })
+        })
+    }
+
     /// Add an interface to the stack, taking ownership of the driver.
     ///
     /// See [`add_iface`](Self::add_iface) for the no-alloc version.

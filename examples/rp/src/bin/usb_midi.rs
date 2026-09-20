@@ -12,7 +12,7 @@ use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
-use embassy_usb::class::midi::MidiClass;
+use embassy_usb::class::midi::{MidiClass, MidiClassConfig};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 use panic_probe as _;
@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner) {
     );
 
     // Create classes on the builder.
-    let mut class = MidiClass::new(&mut builder, 1, 1, 64);
+    let mut class = MidiClass::new(&mut builder, MidiClassConfig::default());
 
     // The `MidiClass` can be split into `Sender` and `Receiver`, to be used in separate tasks.
     // let (sender, receiver) = class.split();

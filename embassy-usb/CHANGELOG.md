@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `UAC1`: `Speaker::new` now returns `Self` with the parts inside instead of a tuple
 - `CDC-NCM`: Handle `SetEthernetPacketFilter` and advertise it in `bmNetworkCapabilities`, which also works around a macOS bug that intermittently left the data interface disabled
 - `MIDI`: Allow sender-only or receiver-only configuration
+- `MIDI`: Change constructor to take a configuration struct instead of discrete arguments
+- `MIDI`: Add extra fields to endpoint descriptors
+- Make `InterfaceAltBuilder::endpoint_in` and `InterfaceAltBuilder::endpoint_out` public
 - Fix various typos in comments and internal variable names
 
 ## 0.6.0 - 2026-03-10

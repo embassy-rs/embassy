@@ -5,13 +5,14 @@ mod ptp;
 use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, fence};
 
-pub(crate) use descriptors::{RDes, RDesRing, TDes, TDesRing};
+pub(crate) use descriptors::{RDes, RDesInfo, TDes};
 use embassy_hal_internal::Peri;
 #[cfg(feature = "ptp")]
 pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement, PtpTimeProvider};
 #[cfg(any(eth_v2, eth_v2b))]
 use stm32_metapac::syscfg::vals::EthSelPhy;
 
+use super::ring::{RDesRing, TDesRing};
 use super::*;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt::InterruptExt;
@@ -526,7 +527,12 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         let mut this = Self {
             _peri: peri,
             wake_guard: T::RCC_INFO.wake_guard().into(),
-            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
+            tx: TDesRing::new(
+                &mut queue.tx_desc,
+                &mut queue.tx_buf,
+                #[cfg(feature = "ptp")]
+                queue.tx_timestamps.as_mut_view(),
+            ),
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
             _pins: pins,
             phy,
