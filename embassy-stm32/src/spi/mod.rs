@@ -91,10 +91,25 @@ pub enum Direction {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SlaveSelectPolarity {
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
     /// SS active high
     ActiveHigh,
     /// SS active low
     ActiveLow,
+}
+
+impl SlaveSelectPolarity {
+    #[cfg(feature = "exti")]
+    fn from_regs(_regs: Regs) -> Self {
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        match _regs.cfg2().read().ssiop() {
+            vals::Ssiop::ActiveLow => SlaveSelectPolarity::ActiveLow,
+            vals::Ssiop::ActiveHigh => SlaveSelectPolarity::ActiveHigh,
+        }
+
+        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+        SlaveSelectPolarity::ActiveLow
+    }
 }
 
 /// CRC configuration.
@@ -292,10 +307,8 @@ impl<'d> CsPinType<'d> {
         match self {
             #[cfg(feature = "exti")]
             Self::Exti(exti) => match _polarity {
-                SlaveSelectPolarity::ActiveHigh => exti.wait_for_rising_edge().await,
-                #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-                SlaveSelectPolarity::ActiveLow => exti.wait_for_falling_edge().await,
                 #[cfg(any(spi_v4, spi_v5, spi_v6))]
+                SlaveSelectPolarity::ActiveHigh => exti.wait_for_falling_edge().await,
                 SlaveSelectPolarity::ActiveLow => exti.wait_for_rising_edge().await,
             },
             Self::Flex(_) | Self::None => core::future::pending().await,
@@ -1951,7 +1964,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> embedded_hal_1::spi::ErrorType for 
     type Error = Error;
 }
 
-impl<'d, W: Word, M: PeriMode, CM: CommunicationMode> embedded_hal_1::spi::SpiBus<W> for Spi<'d, M, CM> {
+impl<'d, W: Word, M: PeriMode> embedded_hal_1::spi::SpiBus<W> for Spi<'d, M, Master> {
     fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -1984,7 +1997,7 @@ impl embedded_hal_1::spi::Error for Error {
     }
 }
 
-impl<'d, W: Word, CM: CommunicationMode> embedded_hal_async::spi::SpiBus<W> for Spi<'d, Async, CM> {
+impl<'d, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, Async, Master> {
     async fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
