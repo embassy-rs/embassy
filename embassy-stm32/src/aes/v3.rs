@@ -197,6 +197,18 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
     }
 }
 
+#[cfg(any(
+    feature = "embassy-crypto-aes128-ecb",
+    feature = "embassy-crypto-aes128-cbc",
+    feature = "embassy-crypto-aes128-ctr",
+    feature = "embassy-crypto-aes128-gcm",
+    feature = "embassy-crypto-aes128-ccm",
+    feature = "embassy-crypto-aes256-ecb",
+    feature = "embassy-crypto-aes256-cbc",
+    feature = "embassy-crypto-aes256-ctr",
+    feature = "embassy-crypto-aes256-gcm",
+    feature = "embassy-crypto-aes256-ccm",
+))]
 impl<'d, 'c, T: Instance, C> crate::crypto::BlockingCipherOps<'c, C> for Aes<'d, T, Blocking>
 where
     C: Cipher<'c> + CipherSized + IVSized + 'c,

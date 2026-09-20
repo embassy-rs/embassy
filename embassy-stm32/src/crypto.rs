@@ -7,6 +7,9 @@
 /// AES error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+// On CRYP-only chips nothing ever constructs these (the CRYP shell is
+// infallible); the type is still named by the shared driver signatures.
+#[cfg_attr(all(cryp, not(any(aes, saes))), allow(dead_code))]
 pub enum Error {
     /// Invalid key size
     KeyError,
@@ -58,6 +61,21 @@ pub trait CipherAuthenticated<const TAG_SIZE: usize> {
 /// infallible at this level, panicking on misuse instead). The cipher type
 /// carries all mode-specific knowledge, so the hardware only ever sees the
 /// generic [`Cipher`] description.
+///
+/// Only compiled with an `embassy-crypto-aes*` feature: without one, nothing
+/// implements or uses it.
+#[cfg(any(
+    feature = "embassy-crypto-aes128-ecb",
+    feature = "embassy-crypto-aes128-cbc",
+    feature = "embassy-crypto-aes128-ctr",
+    feature = "embassy-crypto-aes128-gcm",
+    feature = "embassy-crypto-aes128-ccm",
+    feature = "embassy-crypto-aes256-ecb",
+    feature = "embassy-crypto-aes256-cbc",
+    feature = "embassy-crypto-aes256-ctr",
+    feature = "embassy-crypto-aes256-gcm",
+    feature = "embassy-crypto-aes256-ccm",
+))]
 pub trait BlockingCipherOps<'c, C>
 where
     C: Cipher<'c> + CipherSized + IVSized + 'c,
@@ -247,8 +265,9 @@ impl<'c> CipherSized for AesCtr<'c, { 192 / 8 }> {}
 impl<'c> CipherSized for AesCtr<'c, { 256 / 8 }> {}
 impl<'c, const KEY_SIZE: usize> IVSized for AesCtr<'c, KEY_SIZE> {}
 
-// The authenticated modes need the GCM/CCM phases, which aes_v1 lacks.
-#[cfg(not(aes_v1))]
+// The authenticated modes need the GCM/CCM phases, which aes_v1 and cryp_v1
+// lack; nothing else references the types on a chip with neither AES nor SAES.
+#[cfg(all(not(aes_v1), any(aes, saes, cryp_v2, cryp_v3, cryp_v4)))]
 mod authenticated {
     use super::*;
 
@@ -517,10 +536,17 @@ mod authenticated {
     {
     }
 }
-#[cfg(not(aes_v1))]
+
+// Nothing uses the authenticated cipher types on a cryp_v1-only chip (the
+// peripheral has no GCM/CCM phases); keep the re-export for the AES/SAES and
+// cryp_v2+ users.
+#[cfg(not(any(aes_v1, cryp_v1)))]
 pub use authenticated::*;
 
 /// Stores the state of the AES peripheral for a cipher operation.
+///
+/// Only the AES/SAES shells use this; CRYP has its own context type.
+#[cfg(any(aes, saes))]
 #[derive(Clone)]
 pub struct Context<'c, C: Cipher<'c>> {
     /// The cipher configuration

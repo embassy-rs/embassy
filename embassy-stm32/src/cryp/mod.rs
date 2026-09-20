@@ -401,10 +401,10 @@ impl<'c, C: crate::crypto::Cipher<'c>> Cipher<'c> for C {
         let _ = (p, cryp);
     }
 
-    fn pre_final(&self, p: pac::cryp::Cryp, dir: Direction, padding_len: usize) -> [u32; 4] {
+    fn pre_final(&self, p: pac::cryp::Cryp, dir: Direction, _padding_len: usize) -> [u32; 4] {
         #[cfg(cryp_v1)]
         {
-            let _ = (p, dir, padding_len);
+            let _ = (p, dir);
             return [0; 4];
         }
         #[cfg(cryp_v2)]
@@ -442,7 +442,7 @@ impl<'c, C: crate::crypto::Cipher<'c>> Cipher<'c> for C {
             let _ = dir;
             if <C as crate::crypto::Cipher<'c>>::uses_gcm_phases(self) {
                 // Handle special GCM/CCM partial block process.
-                p.cr().modify(|w| w.set_npblb(padding_len as u8));
+                p.cr().modify(|w| w.set_npblb(_padding_len as u8));
             }
             [0; 4]
         }
@@ -574,8 +574,15 @@ impl<'c, C: crate::crypto::Cipher<'c>> Cipher<'c> for C {
         if !<C as crate::crypto::Cipher<'c>>::is_ccm_mode(self) {
             return None;
         }
-        let b0: [u8; 16] = self.iv().try_into().unwrap();
-        Some(ccm_b0_to_ctr(&b0, true))
+        #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+        {
+            let b0: [u8; 16] = self.iv().try_into().unwrap();
+            Some(ccm_b0_to_ctr(&b0, true))
+        }
+        #[cfg(cryp_v1)]
+        {
+            unreachable!("no authenticated modes on cryp_v1")
+        }
     }
 }
 
@@ -1133,6 +1140,18 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
     }
 }
 
+#[cfg(any(
+    feature = "embassy-crypto-aes128-ecb",
+    feature = "embassy-crypto-aes128-cbc",
+    feature = "embassy-crypto-aes128-ctr",
+    feature = "embassy-crypto-aes128-gcm",
+    feature = "embassy-crypto-aes128-ccm",
+    feature = "embassy-crypto-aes256-ecb",
+    feature = "embassy-crypto-aes256-cbc",
+    feature = "embassy-crypto-aes256-ctr",
+    feature = "embassy-crypto-aes256-gcm",
+    feature = "embassy-crypto-aes256-ccm",
+))]
 impl<'d, 'c, T: Instance, C> crate::crypto::BlockingCipherOps<'c, C> for Cryp<'d, T, Blocking>
 where
     C: crate::crypto::Cipher<'c> + crate::crypto::CipherSized + crate::crypto::IVSized + 'c,
