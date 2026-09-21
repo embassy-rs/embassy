@@ -586,6 +586,17 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         chip_index: u8,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
+        Self::new_inner_with_rxclksrc(_peri, dma, clock, chip_index, flash, pac::flexspi::Rxclksrc::Val1)
+    }
+
+    fn new_inner_with_rxclksrc<T: Instance>(
+        _peri: Peri<'d, T>,
+        dma: Option<DmaState<'d>>,
+        clock: ClockConfig,
+        chip_index: u8,
+        flash: FlashConfig,
+        rxclksrc: pac::flexspi::Rxclksrc,
+    ) -> Result<Self, SetupError> {
         if flash.page_size == 0 || flash.page_size > MAX_PAGE_SIZE {
             return Err(SetupError::InvalidPageSize);
         }
@@ -617,7 +628,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             _phantom: PhantomData,
         };
 
-        flash_driver.initialize()?;
+        flash_driver.initialize(rxclksrc)?;
 
         if M::INTERRUPTS_ENABLED {
             T::Interrupt::unpend();
@@ -688,17 +699,17 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         Ok(0)
     }
 
-    fn initialize(&mut self) -> Result<(), SetupError> {
-        self.configure_controller();
+    fn initialize(&mut self, rxclksrc: pac::flexspi::Rxclksrc) -> Result<(), SetupError> {
+        self.configure_controller(rxclksrc);
         self.flash_reset()?;
         self.apply_device_mode()?;
         Ok(())
     }
 
-    fn configure_controller(&mut self) {
+    fn configure_controller(&mut self, rxclksrc: pac::flexspi::Rxclksrc) {
         self.info.regs.mcr0().write(|r: &mut Mcr0| {
             r.set_mdis(pac::flexspi::Mdis::Val0);
-            r.set_rxclksrc(pac::flexspi::Rxclksrc::Val1);
+            r.set_rxclksrc(rxclksrc);
             // Match the SDK's arbitration / low-power defaults. IPGRANTWAIT and
             // AHBGRANTWAIT bound how many (1024-serial-clock) cycles an IP- or
             // AHB-triggered command waits for the sequence-engine grant before a
@@ -1671,6 +1682,39 @@ impl<'d> Flexspi<'d, Blocking> {
 
         Ok(Self {
             inner: InnerFlexSpi::new_inner(peri, None, clock, ss.chip_index(), flash)?,
+        })
+    }
+
+    /// Initialize FlexSPI using its internally generated read strobe.
+    ///
+    /// This mode does not require or mux an external DQS pin.
+    pub fn new_blocking_internal_loopback<T: Instance, P: Port>(
+        peri: Peri<'d, T>,
+        ss: Peri<'d, impl SsPin<T, P> + 'd>,
+        sclk: Peri<'d, impl SclkPin<T, P> + 'd>,
+        data0: Peri<'d, impl Data0Pin<T, P> + 'd>,
+        data1: Peri<'d, impl Data1Pin<T, P> + 'd>,
+        data2: Peri<'d, impl Data2Pin<T, P> + 'd>,
+        data3: Peri<'d, impl Data3Pin<T, P> + 'd>,
+        clock: ClockConfig,
+        flash: FlashConfig,
+    ) -> Result<Self, SetupError> {
+        ss.mux();
+        sclk.mux();
+        data0.mux();
+        data1.mux();
+        data2.mux();
+        data3.mux();
+
+        Ok(Self {
+            inner: InnerFlexSpi::new_inner_with_rxclksrc(
+                peri,
+                None,
+                clock,
+                ss.chip_index(),
+                flash,
+                pac::flexspi::Rxclksrc::Val0,
+            )?,
         })
     }
 
