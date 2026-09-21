@@ -37,7 +37,7 @@ pub(crate) unsafe fn enable_blocking_write() {
 }
 
 pub(crate) unsafe fn disable_blocking_write() {
-    pac::FLASH.cr().write(|w| w.set_pg(false));
+    pac::FLASH.cr().modify(|w| w.set_pg(false));
     restore_data_cache_state();
 }
 

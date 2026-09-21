@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+Flash:
+- fix: stm32/flash: preserve F2/F4/F7/H7 PSIZE during programming cleanup so subsequent erases retain x32 parallelism.
+
 Align to API guidelines:
 - change: stm32/gpio: rename `get_level()` to `level()` and `get_output_level()` to `output_level()` on `Input`, `Output`, `OutputOpenDrain`, `Flex` and `ExtiInput`. `lpgpio::LpGpio::get_level()` is now `level()`.
 - change: stm32/rng: `Rng` is now `Rng<'d, M: Mode>` with the instance type erased. Added `Rng::new_blocking` and `Rng::new_blocking_with_config`. The async `async_fill_bytes` is now `fill_bytes`; the blocking `fill_bytes`, `next_u32` and `next_u64` are now `blocking_fill_bytes`, `blocking_next_u32` and `blocking_next_u64`.
