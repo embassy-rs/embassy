@@ -1,3 +1,9 @@
+#[cfg(feature = "executor-thread")]
+use core::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(feature = "executor-thread")]
+static THREAD_PENDER_CALLED: AtomicBool = AtomicBool::new(false);
+
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 struct CortexMPender;
 
@@ -16,6 +22,7 @@ impl crate::pender::Pender for CortexMPender {
             #[cfg(feature = "executor-thread")]
             // Try to make Rust optimize the branching away if we only use thread mode.
             if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
+                THREAD_PENDER_CALLED.store(true, Ordering::Release);
                 core::arch::asm!("sev");
                 return;
             }
@@ -47,6 +54,13 @@ impl crate::pender::Pender for CortexMPender {
             }
         }
     }
+}
+
+/// Return whether the Cortex-M thread-mode pender has been called since the
+/// previous call.
+#[cfg(feature = "executor-thread")]
+pub fn take_thread_pender_called() -> bool {
+    THREAD_PENDER_CALLED.swap(false, Ordering::AcqRel)
 }
 
 #[cfg(feature = "executor-thread")]

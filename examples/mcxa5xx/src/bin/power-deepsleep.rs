@@ -78,7 +78,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Going to sleep shortly...");
     cortex_m::asm::delay(48_000_000 / 4);
 
-    let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Slow);
+    let mut red = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Slow);
     loop {
         Timer::after_millis(900).await;
         red.set_low();
