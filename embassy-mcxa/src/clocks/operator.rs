@@ -1166,9 +1166,16 @@ impl ClockOperator<'_> {
                 w.set_div(d.into_bits());
             });
             // Then unhalt it, and reset it
+            //
+            // NOTE: `write()` zeroes any field not set here, so the divisor MUST
+            // be repeated. Omitting it silently reset DIV to divide-by-1 while
+            // `clocks.pll1_clk_div` still recorded `fout / (d + 1)`, so every
+            // downstream `fmax` check was validated against a frequency that was
+            // `(d + 1)` times too low. Matches the `frohfdiv` sequence above.
             self.syscon.pll1clkdiv().write(|w| {
                 w.set_halt(Pll1clkdivHalt::Run);
                 w.set_reset(Pll1clkdivReset::Released);
+                w.set_div(d.into_bits());
             });
 
             // Wait for clock to stabilize
