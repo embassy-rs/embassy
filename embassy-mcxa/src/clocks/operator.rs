@@ -14,13 +14,12 @@ use super::types::{Clock, ClockError, Clocks, PoweredClock};
 use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::Ckmode;
-use crate::pac::scg::{
-    Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Scs, SirccsrLk,
-    Sircerr, Sircvld, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
-};
-
 #[cfg(not(feature = "sosc-as-gpio"))]
 use crate::pac::scg::{Erefs, Range, SosccsrLk, Soscerr};
+use crate::pac::scg::{
+    Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Scs, SirccsrLk, Sircerr, Sircvld, Source, SpllLock,
+    SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+};
 use crate::pac::spc::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
 };

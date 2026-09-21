@@ -60,7 +60,19 @@ impl crate::pender::Pender for CortexMPender {
 /// previous call.
 #[cfg(feature = "executor-thread")]
 pub fn take_thread_pender_called() -> bool {
-    THREAD_PENDER_CALLED.swap(false, Ordering::AcqRel)
+    #[cfg(target_has_atomic = "8")]
+    {
+        THREAD_PENDER_CALLED.swap(false, Ordering::AcqRel)
+    }
+
+    #[cfg(not(target_has_atomic = "8"))]
+    {
+        critical_section::with(|_| {
+            let called = THREAD_PENDER_CALLED.load(Ordering::Acquire);
+            THREAD_PENDER_CALLED.store(false, Ordering::Release);
+            called
+        })
+    }
 }
 
 #[cfg(feature = "executor-thread")]
