@@ -1,17 +1,31 @@
 //! Driver for the HASHCRYPT peripheral, mode switch sckeleton
 
 use embassy_hal_internal::Peri;
-use nxp_pac::sct0::regs::Res;
-use pac::hashcrypt::vals;
-use pac::syscon::vals::HashAesRst::Released;
+use nxp_pac::hashcrypt::vals::Aeskeysz;
 
+use crate::hashcrypt::AesError::WrongKeySize;
 use crate::pac;
 use crate::peripherals::HASHCRYPT;
 
+enum Key {
+    Key128([u8; 16]),
+    Key192([u8; 24]),
+    Key256([u8; 32]),
+}
+#[derive(Clone, Copy)]
 pub enum KeySize {
     Bits128,
     Bits192,
     Bits256,
+}
+
+pub enum AesError {
+    KeySizeNeeded, //triggeres when .set_key is called without set_key_size
+    KeyNeeded,     // trigers when .encryp)/.decrypt or set_iv/set_counter are called before set_key()
+    IvNeeded,      // triggers when .encrypt/.decrypt for cbc are called without set_iv
+    CounterNeeded, // triggers when .encrypt/.decrypt for ctr are called without set_counter
+    WrongKeySize, // triggered set_key is called with a parameter that does not respect the size astablished by set_key_size
+    DeviceError,  // Reserved functiones were ussed
 }
 
 // Generic driver type
@@ -27,22 +41,39 @@ impl<'d> GenericDriver<'d> {
 
     pub fn sha1(&mut self) -> Sha1<'_, 'd> {
         Sha1 { _peri: self }
+        // Sha1 config via register calls
     }
 
     pub fn sha256(&mut self) -> Sha256<'_, 'd> {
         Sha256 { _peri: self }
+        // Sha2 config via register calls
     }
 
     pub fn aes_ecb(&mut self) -> AesEcb<'_, 'd> {
-        AesEcb { _peri: self }
+        AesEcb {
+            _peri: self,
+            key_size: None,
+            key: None,
+        }
+        // AES-ECB config via register calls
     }
 
     pub fn aes_cbc(&mut self) -> AesCbc<'_, 'd> {
-        AesCbc { _peri: self }
+        AesCbc {
+            _peri: self,
+            key_size: None,
+            key: None,
+        }
+        // AES-CBC config via register calls
     }
 
     pub fn aes_ctr(&mut self) -> AesCtr<'_, 'd> {
-        AesCtr { _peri: self }
+        AesCtr {
+            _peri: self,
+            key_size: None,
+            key: None,
+        }
+        // AES-CTR config via register calls
     }
     // rename to generic driver or _driver
 }
@@ -57,7 +88,7 @@ pub trait Digest {
 }
 
 pub trait Aes {
-    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), ()> {
+    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
         todo!("Add method boady");
         // Universal encrypt confuguration, meaning
         // MSW1ST = true, MSW1ST_OUT = true, SWAPKEY = true, SWAPDAT = true, AESDECRYPT = Encrypt
@@ -68,7 +99,7 @@ pub trait Aes {
         // Check that data.len = output.len
         // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
     }
-    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), ()> {
+    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
         todo!("Add method boady");
         // Universal decrypt confuguration, meaning
         // MSW1ST = true, MSW1ST_OUT = true, SWAPKEY = true, SWAPDAT = false, AESDECRYPT = Decrypt
@@ -79,25 +110,9 @@ pub trait Aes {
         // Check that data.len = output.len
         // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
     }
-
-    fn set_key_size(&mut self, size: KeySize) {
-        todo!("Add method boady");
-        // Select key size via register calls
-    }
-
-    fn key_size(&self) -> u8 {
-        todo!("Add method boady !");
-        // get key size via register calls
-    }
-
-    fn set_key(&mut self, key: &[u8]) -> Result<(), ()> {
-        todo!("Add method boady");
-        // use fn key_size to check against user provided data, compair key_size with key.len()
-    }
 }
 
 // Specific driver types
-// todo!("Add buffer, buffer len and message length for sha1");
 pub struct Sha1<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
 }
@@ -114,7 +129,6 @@ impl<'a, 'd> Digest for Sha1<'a, 'd> {
     }
 }
 
-// todo!("Add buffer, buffer len and message length for sha2");
 pub struct Sha256<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
 }
@@ -133,6 +147,8 @@ impl<'a, 'd> Digest for Sha256<'a, 'd> {
 
 pub struct AesEcb<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
+    key_size: Option<KeySize>,
+    key: Option<Key>,
 }
 
 impl<'a, 'd> Aes for AesEcb<'a, 'd> {
@@ -144,17 +160,21 @@ impl<'a, 'd> AesEcb<'a, 'd> {
 }
 pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
+    key_size: Option<KeySize>,
+    key: Option<Key>,
 }
 impl<'a, 'd> Aes for AesCbc<'a, 'd> {
     // Does not require anything passed the default aes methods
 }
 impl<'a, 'd> AesCbc<'a, 'd> {
-    fn set_iv(&mut self, iv: &[u8; 16]) -> Result<(), ()> {
+    pub fn set_iv(&mut self, iv: &[u8; 16]) -> Result<(), AesError> {
         todo!("Add method boady");
     }
 }
 pub struct AesCtr<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
+    key_size: Option<KeySize>,
+    key: Option<Key>,
 }
 
 impl<'a, 'd> Aes for AesCtr<'a, 'd> {
@@ -162,7 +182,81 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
 }
 
 impl<'a, 'd> AesCtr<'a, 'd> {
-    pub fn set_counter(&mut self, couteer: &[u8; 16]) -> Result<(), ()> {
+    pub fn set_counter(&mut self, counter: &[u8; 16]) -> Result<(), AesError> {
         todo!("Add method boady");
     }
 }
+
+macro_rules! impl_aes {
+    ($ty:ident) => {
+        impl<'a, 'd> $ty<'a, 'd> {
+            pub fn set_key_size(&mut self, size: KeySize) {
+                let val = match size {
+                    KeySize::Bits128 => Aeskeysz::Bits128,
+                    KeySize::Bits192 => Aeskeysz::Bits192,
+                    KeySize::Bits256 => Aeskeysz::Bits256,
+                };
+
+                pac::HASHCRYPT.cryptcfg().modify(|w| {
+                    w.set_aeskeysz(val);
+                });
+
+                self.key_size = Some(size);
+            }
+
+            pub fn key_size(&mut self) -> Result<u32, AesError> {
+                match pac::HASHCRYPT.cryptcfg().read().aeskeysz() {
+                    // Convert from bits to bytes
+                    Aeskeysz::Bits128 => return Ok(16),
+                    Aeskeysz::Bits192 => return Ok(24),
+                    Aeskeysz::Bits256 => return Ok(32),
+                    Aeskeysz::_RESERVED_3 => return Err(AesError::DeviceError),
+                }
+            }
+
+            pub fn set_key(&mut self, key: &[u8]) -> Result<(), AesError> {
+                let expected_size = match self.key_size {
+                    Some(s) => s,
+                    None => return Err(AesError::KeySizeNeeded),
+                };
+
+                let size = match expected_size {
+                    KeySize::Bits128 => 16,
+                    KeySize::Bits192 => 24,
+                    KeySize::Bits256 => 32,
+                };
+
+                if size == key.len() as u32 {
+                    self.key = Some(match size {
+                        16 => {
+                            let mut buf = [0u8; 16];
+                            buf.copy_from_slice(key);
+                            Key::Key128(buf)
+                        }
+                        24 => {
+                            let mut buf = [0u8; 24];
+                            buf.copy_from_slice(key);
+                            Key::Key192(buf)
+                        }
+                        32 => {
+                            let mut buf = [0u8; 32];
+                            buf.copy_from_slice(key);
+                            Key::Key256(buf)
+                        }
+
+                        _ => unreachable!(),
+                    });
+
+                    return Ok(());
+                    todo!("Add key feeding loop");
+                } else {
+                    return Err(AesError::WrongKeySize);
+                }
+            }
+        }
+    };
+}
+
+impl_aes!(AesEcb);
+impl_aes!(AesCbc);
+impl_aes!(AesCtr);
