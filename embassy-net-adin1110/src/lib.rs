@@ -20,6 +20,9 @@ mod phy;
 mod protocol;
 mod regs;
 
+#[cfg(feature = "tc6")]
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use ch::driver::{LinkState, PacketBuf};
 pub use crc32::ETH_FCS;
 use embassy_futures::select::{Either, select};
@@ -38,6 +41,10 @@ use phy::RegsC45;
 pub use protocol::Adin1110Protocol;
 #[cfg(feature = "generic-spi")]
 pub use protocol::GenericSpi;
+#[cfg(feature = "packetmeta-id")]
+pub use protocol::{
+    PACKET_ID_ALL_PORTS, PACKET_ID_DEFAULT_PORT, PACKET_ID_PORT_MASK, PACKET_ID_PORT1, PACKET_ID_PORT2,
+};
 #[cfg(feature = "tc6")]
 pub use protocol::{Tc6, TxPort};
 use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
@@ -56,7 +63,7 @@ pub const PHYID_ADIN2111: u32 = 0x0283_BCA1;
 #[allow(non_camel_case_types)]
 pub enum AdinError<E> {
     /// SPI-BUS Error
-    Spi(E),
+    Spi(#[cfg_attr(feature = "defmt", defmt(Debug2Format))] E),
     /// Ethernet FCS error
     FCS,
     /// SPI Header CRC error
@@ -116,6 +123,8 @@ pub type Device<'d> = embassy_net_driver_channel::Device<'d>;
 /// Internal state for the embassy-net integration.
 pub struct State<const N_RX: usize, const N_TX: usize> {
     ch_state: ch::State<N_RX, N_TX>,
+    #[cfg(feature = "tc6")]
+    port_link: [AtomicBool; 2],
 }
 impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
     /// Create a new `State`.
@@ -123,12 +132,37 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
     pub const fn new() -> Self {
         Self {
             ch_state: ch::State::new(),
+            #[cfg(feature = "tc6")]
+            port_link: [AtomicBool::new(false), AtomicBool::new(false)],
         }
     }
 }
 impl<const N_RX: usize, const N_TX: usize> Default for State<N_RX, N_TX> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Per-port link state, obtained from [`Runner::port_links`].
+#[cfg(feature = "tc6")]
+#[derive(Debug, Clone, Copy)]
+pub struct PortLinks<'d> {
+    port_link: &'d [AtomicBool; 2],
+    port_count: u8,
+}
+
+#[cfg(feature = "tc6")]
+impl PortLinks<'_> {
+    /// The number of ports: 1 for the ADIN1110, 2 for the ADIN2111.
+    #[must_use]
+    pub fn port_count(self) -> u8 {
+        self.port_count
+    }
+
+    /// Whether the link on `port` (1 or 2) is up.
+    #[must_use]
+    pub fn link_up(self, port: u8) -> bool {
+        self.port_link[usize::from(port) - 1].load(Ordering::Relaxed)
     }
 }
 
@@ -232,6 +266,11 @@ impl<SPI: SpiDevice> ADIN1110<Tc6<SPI>> {
     pub fn set_protected(&mut self, protected: bool) {
         self.protocol.set_protected(protected);
     }
+
+    /// Set the number of ports. See [`Tc6::set_port_count`].
+    pub fn set_port_count(&mut self, port_count: u8) {
+        self.protocol.set_port_count(port_count);
+    }
 }
 
 impl<P: Adin1110Protocol> mdio::MdioBus for ADIN1110<P> {
@@ -303,9 +342,8 @@ pub struct Runner<'d, P: Adin1110Protocol, INT, RST> {
     int: INT,
     #[cfg_attr(not(feature = "generic-spi"), allow(dead_code))]
     is_link_up: bool,
-    /// Per-port link state; the ADIN1110 only uses index 0.
-    #[cfg_attr(not(feature = "tc6"), allow(dead_code))]
-    port_link: [bool; 2],
+    #[cfg(feature = "tc6")]
+    port_link: &'d [AtomicBool; 2],
     _reset: RST,
 }
 
@@ -464,7 +502,16 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, GenericSpi<SPI>, INT,
 }
 
 #[cfg(feature = "tc6")]
-impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
+impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, Tc6<SPI>, INT, RST> {
+    /// Per-port link state, readable while the runner runs.
+    #[must_use]
+    pub fn port_links(&self) -> PortLinks<'d> {
+        PortLinks {
+            port_link: self.port_link,
+            port_count: self.mac.protocol.port_count(),
+        }
+    }
+
     /// Run the driver.
     ///
     /// In OPEN Alliance mode the MAC-PHY asserts `INT_N` when receive chunks
@@ -476,7 +523,7 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
         let mut mac = self.mac;
         let mut int = self.int;
-        let mut port_link = self.port_link;
+        let port_link = self.port_link;
 
         loop {
             let service_needed = mac.protocol.rx_available() || mac.protocol.ext_status();
@@ -493,7 +540,13 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
                         }
                     }
                     Either::Second(frame) => {
-                        match mac.write_fifo(&frame).await {
+                        #[cfg(not(feature = "packetmeta-id"))]
+                        let result = mac.write_fifo(&frame).await;
+                        #[cfg(feature = "packetmeta-id")]
+                        let Some(result) = mac.protocol.transmit_packet(&frame).await else {
+                            continue;
+                        };
+                        match result {
                             Ok(()) => trace!("TX Done"),
                             Err(e) => Self::log_tc6_error("TX", &e),
                         }
@@ -503,7 +556,7 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
             }
 
             if mac.protocol.ext_status() {
-                Self::handle_status(&mut mac, &state_chan, &mut port_link).await;
+                Self::handle_status(&mut mac, &state_chan, port_link).await;
                 mac.protocol.clear_ext_status();
             }
 
@@ -517,7 +570,11 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
                     continue;
                 };
                 frame.set_len(MTU);
-                match mac.read_fifo(&mut frame).await {
+                #[cfg(not(feature = "packetmeta-id"))]
+                let result = mac.read_fifo(&mut frame).await;
+                #[cfg(feature = "packetmeta-id")]
+                let result = mac.protocol.receive_packet(&mut frame).await;
+                match result {
                     Ok(n) => {
                         frame.set_len(n);
                         rx_chan.rx(frame).await;
@@ -546,7 +603,11 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
 
     /// Read, handle and acknowledge the MAC status registers, updating the
     /// link state from the PHY interrupt status.
-    async fn handle_status(mac: &mut ADIN1110<Tc6<SPI>>, state_chan: &ch::StateRunner<'_>, port_link: &mut [bool; 2]) {
+    async fn handle_status(
+        mac: &mut ADIN1110<Tc6<SPI>>,
+        state_chan: &ch::StateRunner<'_>,
+        port_link: &[AtomicBool; 2],
+    ) {
         let status0 = Status0(mac.read_reg(sr::STATUS0).await.unwrap());
         let status1 = Status1(mac.read_reg(sr::STATUS1).await.unwrap());
 
@@ -592,7 +653,7 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
     async fn service_phy_int(
         mac: &mut ADIN1110<Tc6<SPI>>,
         state_chan: &ch::StateRunner<'_>,
-        port_link: &mut [bool; 2],
+        port_link: &[AtomicBool; 2],
         phy_addr: u8,
         port_idx: usize,
     ) {
@@ -618,7 +679,7 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
             let _ = mac.read_cl45(phy_addr, RegsC45::DA7::AN_STATUS.into()).await;
             let an_status = mac.read_cl45(phy_addr, RegsC45::DA7::AN_STATUS.into()).await.unwrap();
             let link = an_status & (1 << 2) != 0;
-            port_link[port_idx] = link;
+            port_link[port_idx].store(link, Ordering::Relaxed);
 
             if link {
                 info!("LINK Changed: port {} Link Up", port_idx + 1);
@@ -626,7 +687,7 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
                 info!("LINK Changed: port {} Link Down", port_idx + 1);
             }
 
-            let any_link = port_link.iter().any(|&l| l);
+            let any_link = port_link.iter().any(|l| l.load(Ordering::Relaxed));
             state_chan.set_link_state(if any_link { LinkState::Up } else { LinkState::Down });
         }
     }
@@ -764,7 +825,8 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
             mac,
             int,
             is_link_up: false,
-            port_link: [false; 2],
+            #[cfg(feature = "tc6")]
+            port_link: &state.port_link,
             _reset: reset,
         },
     )
@@ -778,14 +840,23 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
 const IMASK0_OA: u32 = !0x0000_18FF;
 
 /// Interrupt mask 1 for OPEN Alliance mode: unmask `P1_RX_IFG_ERR`, `SPI_ERR`,
-/// `RX_ECC_ERR`, `TX_ECC_ERR`, `P2_PHYINT` and `P2_TXFCSE`. Notably `TX_RDY`,
-/// `P1_RX_RDY` and `P2_RX_RDY` stay masked: in OPEN Alliance mode receive availability and
-/// transmit credits are signalled through the data chunk footers instead.
+/// `RX_ECC_ERR` and `TX_ECC_ERR`. Notably `TX_RDY`, `P1_RX_RDY` and `P2_RX_RDY`
+/// stay masked: in OPEN Alliance mode receive availability and transmit credits
+/// are signalled through the data chunk footers instead.
 #[cfg(feature = "tc6")]
-const IMASK1_OA: u32 = !0x0108_1D00;
+const IMASK1_OA: u32 = !0x0000_1D00;
 
-/// Obtain a driver for using the ADIN2111 with [`embassy-net`](https://crates.io/crates/embassy-net),
+/// Additionally unmasked in interrupt mask 1 on the ADIN2111: `P2_PHYINT` and `P2_TXFCSE`.
+#[cfg(feature = "tc6")]
+const IMASK1_OA_P2: u32 = 0x0108_0000;
+
+/// Obtain a driver for using the ADIN1110 or ADIN2111 with [`embassy-net`](https://crates.io/crates/embassy-net),
 /// using the OPEN Alliance TC6 SPI protocol (`SPI_CFG0` strapped for OPEN Alliance mode).
+///
+/// On the ADIN1110, [`TxPort::Flood`] transmits on port 1.
+///
+/// # Panics
+/// Panics if `tx_port` is [`TxPort::Port2`] and the chip is an ADIN1110.
 #[cfg(feature = "tc6")]
 #[allow(clippy::too_many_lines)]
 pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait, RST: OutputPin>(
@@ -797,7 +868,7 @@ pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
     append_fcs_on_tx: bool,
     tx_port: TxPort,
 ) -> (Device<'_>, Runner<'_, Tc6<SPI>, INT, RST>) {
-    info!("INIT ADIN2111 (OPEN Alliance TC6)");
+    info!("INIT ADIN1110/ADIN2111 (OPEN Alliance TC6)");
 
     // Reset sequence
     reset.set_low().unwrap();
@@ -817,18 +888,20 @@ pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
     // Check PHYID. Right after power-up/reset the MAC-PHY may still answer
     // with all zeros (which fails the TC6 header echo check), so retry.
     let mut tries = 0;
-    loop {
+    let port_count = loop {
         match mac.read_reg(sr::PHYID).await {
-            Ok(id) if id == PHYID_ADIN2111 => break,
+            Ok(PHYID_ADIN1110) => break 1,
+            Ok(PHYID_ADIN2111) => break 2,
             Ok(id) => debug!("SPE: unexpected CHIP MAC/ID: {:08x}", id),
             Err(_) => debug!("SPE: chip not responding yet"),
         }
         tries += 1;
-        assert!(tries < 100, "ADIN2111 not responding after reset");
+        assert!(tries < 100, "ADIN1110/ADIN2111 not responding after reset");
         Timer::after_millis(2).await;
-    }
+    };
+    mac.set_port_count(port_count);
 
-    debug!("SPE: CHIP MAC/ID: {:08x}", PHYID_ADIN2111);
+    debug!("SPE: port count: {}", port_count);
 
     // `CONFIG0.PROTE` is strap-configurable, so read back what the MAC-PHY came
     // up with and match the control transaction format to it. This read is
@@ -854,7 +927,7 @@ pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
             break;
         }
         tries += 1;
-        assert!(tries < 100, "ADIN2111 reset never completed");
+        assert!(tries < 100, "reset never completed");
         Timer::after_millis(1).await;
     }
     mac.write_reg(sr::STATUS0, 0x0000_1FFF).await.unwrap();
@@ -870,50 +943,62 @@ pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
     config0.set_prote(protected);
     mac.write_reg(sr::CONFIG0, config0.0).await.unwrap();
 
-    // Config2, matching the ADI reference driver configuration for the
-    // ADIN2111: no cut through between ports, frames with unknown destination
-    // address are forwarded to the host from both ports.
+    // Config2, matching the ADI reference driver: frames with unknown
+    // destination address are forwarded to the host, and on the ADIN2111
+    // there is no cut through between ports.
     let mut config2 = Config2(0x0000_0800);
     // crc_append must be disabled if tx_fcs_validation_enable is true!
     config2.set_crc_append(!append_fcs_on_tx);
-    config2.set_port_cut_thru_en(false);
     config2.set_p1_fwd_unk2host(true);
-    config2.set_p2_fwd_unk2host(true);
+    if port_count == 2 {
+        config2.set_port_cut_thru_en(false);
+        config2.set_p2_fwd_unk2host(true);
+    }
     mac.write_reg(sr::CONFIG2, config2.0).await.unwrap();
 
-    // The port 2 PHY comes out of reset after the port 1 PHY; its registers
-    // read as all zeros until then.
-    let mut tries = 0;
-    loop {
-        let crsm_irq_mask = mac
-            .read_cl45(MDIO_PHY_ADDR_PORT2, RegsC45::DA1E::CRSM_IRQ_MASK.into())
-            .await
-            .unwrap();
-        if crsm_irq_mask != 0 {
-            break;
+    if port_count == 2 {
+        // The port 2 PHY comes out of reset after the port 1 PHY; its registers
+        // read as all zeros until then.
+        let mut tries = 0;
+        loop {
+            let crsm_irq_mask = mac
+                .read_cl45(MDIO_PHY_ADDR_PORT2, RegsC45::DA1E::CRSM_IRQ_MASK.into())
+                .await
+                .unwrap();
+            if crsm_irq_mask != 0 {
+                break;
+            }
+            tries += 1;
+            assert!(tries < 100, "ADIN2111 port 2 PHY never came out of reset");
+            Timer::after_millis(1).await;
         }
-        tries += 1;
-        assert!(tries < 100, "ADIN2111 port 2 PHY never came out of reset");
-        Timer::after_millis(1).await;
     }
 
-    // Both PHYs power up in software power-down (strap dependent); bring them
+    // The PHYs power up in software power-down (strap dependent); bring them
     // out of it so autonegotiation and link establishment can start.
-    for phy_addr in [MDIO_PHY_ADDR, MDIO_PHY_ADDR_PORT2] {
+    for phy_addr in [MDIO_PHY_ADDR, MDIO_PHY_ADDR_PORT2].into_iter().take(port_count.into()) {
         mac.write_cl45(phy_addr, RegsC45::DA1E::CRSM_SFT_PD_CNTRL.into(), 0)
             .await
             .unwrap();
     }
 
     // Program the mac address and broadcast filters, forwarding matching
-    // frames to the host from both ports.
-    mac.set_mac_addr_filters(&mac_addr, (1 << 30) | (1 << 31))
-        .await
-        .unwrap();
+    // frames to the host from every port.
+    let apply_ports = if port_count == 2 {
+        (1 << 30) | (1 << 31)
+    } else {
+        1 << 30
+    };
+    mac.set_mac_addr_filters(&mac_addr, apply_ports).await.unwrap();
 
     // Interrupt masks for OPEN Alliance mode.
+    let imask1 = if port_count == 2 {
+        IMASK1_OA & !IMASK1_OA_P2
+    } else {
+        IMASK1_OA
+    };
     mac.write_reg(sr::IMASK0, IMASK0_OA).await.unwrap();
-    mac.write_reg(sr::IMASK1, IMASK1_OA).await.unwrap();
+    mac.write_reg(sr::IMASK1, imask1).await.unwrap();
 
     // Configuration done: set CONFIG0.SYNC to enable data transactions.
     config0.set_sync(true);
@@ -931,7 +1016,7 @@ pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
             mac,
             int,
             is_link_up: false,
-            port_link: [false; 2],
+            port_link: &state.port_link,
             _reset: reset,
         },
     )
