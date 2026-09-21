@@ -46,27 +46,23 @@ async fn main(spawner: Spawner) {
 
     // needed for reading the firmware from flash via XIP.
     unsafe {
+        rom_data::connect_internal_flash();
         rom_data::flash_exit_xip();
+        rom_data::flash_flush_cache();
         rom_data::flash_enter_cmd_xip();
     }
 
-    // cyw43 firmware needs to be flashed manually:
-    //     probe-rs download 43439A0.bin --binary-format bin --chip RP2040 --base-address 0x101b0000
-    //     probe-rs download 43439A0_btfw.bin --binary-format bin --chip RP2040 --base-address 0x101f0000
-    //     probe-rs download 43439A0_clm.bin --binary-format bin --chip RP2040 --base-address 0x101f8000
-    // let fw = unsafe { core::slice::from_raw_parts(0x101b0000 as *const u8, 231077) };
-    // let _btfw = unsafe { core::slice::from_raw_parts(0x101f0000 as *const u8, 6164) };
-    // let clm = unsafe { core::slice::from_raw_parts(0x101f8000 as *const u8, 984) };
-
-    // Embedded in the ELF instead, in a flash section (see build.rs) since it doesn't fit in RAM.
-    const FW_LEN: usize = include_bytes!("../../../../cyw43-firmware/43439A0.bin").len();
-    const CLM_LEN: usize = include_bytes!("../../../../cyw43-firmware/43439A0_clm.bin").len();
-    #[unsafe(link_section = ".cyw43_fw")]
-    static FW: Aligned<A4, [u8; FW_LEN]> = Aligned(*include_bytes!("../../../../cyw43-firmware/43439A0.bin"));
-    #[unsafe(link_section = ".cyw43_fw")]
-    static CLM: Aligned<A4, [u8; CLM_LEN]> = Aligned(*include_bytes!("../../../../cyw43-firmware/43439A0_clm.bin"));
-    let fw: &Aligned<A4, [u8]> = &FW;
-    let clm: &[u8] = &*CLM;
+    // Firmware now in ELF (see build.rs)
+    macro_rules! flash_bytes {
+        ($section:literal, $path:literal) => {{
+            #[unsafe(link_section = $section)]
+            static BYTES: Aligned<A4, [u8; include_bytes!($path).len()]> = Aligned(*include_bytes!($path));
+            let bytes: &Aligned<A4, [u8]> = &BYTES;
+            bytes
+        }};
+    }
+    let fw = flash_bytes!(".cyw43_fw", "../../../../cyw43-firmware/43439A0.bin");
+    let clm = flash_bytes!(".cyw43_clm", "../../../../cyw43-firmware/43439A0_clm.bin");
     let nvram = aligned_bytes!("../../../../cyw43-firmware/nvram_rp2040.bin");
 
     let pwr = Output::new(p.PIN_23, Level::Low);
@@ -86,8 +82,6 @@ async fn main(spawner: Spawner) {
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
-    // let (net_device, mut control, runner) =
-    //     cyw43::new(state, pwr, spi, unsafe { core::mem::transmute(fw) }, nvram).await;
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
     spawner.spawn(unwrap!(wifi_task(runner)));
 
@@ -110,6 +104,9 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(net_task(runner)));
 
+    info!("mac: {:02x}", control.address().await);
+    let t0 = embassy_time::Instant::now();
+
     // A scan proves boot and firmware, joining depends on AP present.
     let mut networks = 0;
     let mut scanner = control.scan(Default::default()).await;
@@ -118,7 +115,7 @@ async fn main(spawner: Spawner) {
     }
     drop(scanner);
 
-    info!("scan found {} networks", networks);
+    info!("scan found {} networks in {} ms", networks, t0.elapsed().as_millis());
     if networks == 0 {
         panic!("scan found no networks");
     }
