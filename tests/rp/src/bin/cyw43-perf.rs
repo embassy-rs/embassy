@@ -13,6 +13,7 @@ use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, rom_data};
+use embassy_time::{Duration, with_timeout};
 use panic_probe as _;
 use static_cell::StaticCell;
 
@@ -107,7 +108,7 @@ async fn main(spawner: Spawner) {
     info!("mac: {:02x}", control.address().await);
     let t0 = embassy_time::Instant::now();
 
-    // A scan proves boot and firmware, joining depends on AP present.
+    // A scan proves boot and firmware
     let mut networks = 0;
     let mut scanner = control.scan(Default::default()).await;
     while scanner.next().await.is_some() {
@@ -120,13 +121,16 @@ async fn main(spawner: Spawner) {
         panic!("scan found no networks");
     }
 
-    let connected = control
-        .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
-        .await;
+    // Connecting depends on the AP, so failing or hanging here skips perf test
+    let join = control.join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()));
+    let connected = with_timeout(Duration::from_secs(10), join)
+        .await
+        .is_ok_and(|r| r.is_ok())
+        && with_timeout(Duration::from_secs(10), iface.wait_config_up())
+            .await
+            .is_ok();
 
-    if let Err(err) = connected {
-        warn!("not connected ({:?}), skipping perf", err);
-    } else {
+    if connected {
         perf_client::run(
             iface,
             perf_client::Expected {
@@ -136,6 +140,8 @@ async fn main(spawner: Spawner) {
             },
         )
         .await;
+    } else {
+        warn!("not connected, skipping perf");
     }
 
     info!("Test OK");
