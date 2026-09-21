@@ -8,12 +8,17 @@ compile_error!("The 'ptp' feature is not supported on STM32 Ethernet MAC v1a.");
 #[cfg_attr(any(eth_v2, eth_v2a, eth_v2b), path = "v2/mod.rs")]
 mod _version;
 mod generic_phy;
+mod ring;
 mod sma;
 
 use core::mem::MaybeUninit;
 use core::task::{Context, Waker};
 
 use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(feature = "ptp")]
+use heapless::Deque;
+#[cfg(feature = "ptp")]
+use xarxa_driver::TxTimestamp;
 use xarxa_driver::{Capabilities, Driver, HardwareAddress, LinkState, Medium, NotSupported, PacketBuf};
 
 pub use crate::eth::_version::{InterruptHandler, *};
@@ -48,6 +53,8 @@ const MTU: usize = 1514;
 pub struct PacketQueue<const TX: usize, const RX: usize> {
     tx_desc: [TDes; TX],
     rx_desc: [RDes; RX],
+    #[cfg(feature = "ptp")]
+    tx_timestamps: Deque<TxTimestamp, TX>,
     tx_buf: [Option<PacketBuf>; TX],
     rx_buf: [Option<PacketBuf>; RX],
 }
@@ -62,6 +69,8 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
         Self {
             tx_desc: [const { TDes::new() }; TX],
             rx_desc: [const { RDes::new() }; RX],
+            #[cfg(feature = "ptp")]
+            tx_timestamps: Deque::new(),
             tx_buf: [const { None }; TX],
             rx_buf: [const { None }; RX],
         }
@@ -76,13 +85,22 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     /// in a stack overflow.
     ///
     /// With this function, you can create an uninitialized `static` with type `MaybeUninit<PacketQueue<...>>`
-    /// and initialize it in-place, guaranteeing no stack usage.
+    /// and initialize the descriptor and buffer arrays in-place.
     ///
     /// After calling this function, calling `assume_init` on the MaybeUninit is guaranteed safe.
     pub fn init(this: &mut MaybeUninit<Self>) {
-        // All-zero bytes are a valid `PacketQueue`: zeroed descriptors, and `None` buffers.
+        // Descriptors are valid when zeroed. Construct buffers without relying
+        // on their private representation.
         unsafe {
-            this.as_mut_ptr().write_bytes(0u8, 1);
+            let ptr = this.as_mut_ptr();
+            (&raw mut (*ptr).tx_desc).write_bytes(0, 1);
+            (&raw mut (*ptr).rx_desc).write_bytes(0, 1);
+            for i in 0..TX {
+                (&raw mut (*ptr).tx_buf[i]).write(None);
+            }
+            for i in 0..RX {
+                (&raw mut (*ptr).rx_buf[i]).write(None);
+            }
         }
     }
 }
@@ -111,6 +129,8 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
     }
 
     fn receive(&mut self) -> Option<PacketBuf> {
+        self.tx.fast_forward();
+
         match self.rx.receive() {
             Some(buf) => {
                 self.wake_guard.disable();
@@ -124,6 +144,8 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
     }
 
     fn can_transmit(&mut self) -> bool {
+        self.tx.fast_forward();
+
         if self.tx.can_transmit() {
             self.wake_guard.disable();
             true
@@ -134,6 +156,8 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
     }
 
     fn transmit(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
+        self.tx.fast_forward();
+
         if !self.tx.can_transmit() {
             return Err(buf);
         }

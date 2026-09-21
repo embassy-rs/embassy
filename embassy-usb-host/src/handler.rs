@@ -4,7 +4,7 @@
 use embassy_time::Timer;
 use embassy_usb_driver::Speed;
 use embassy_usb_driver::host::pipe::{self, IsIn, IsOut};
-use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbPipe};
+use embassy_usb_driver::host::{HostError, PipeError, SplitInfo, SplitSpeed, UsbPipe};
 
 use crate::control::ControlPipeExt;
 use crate::descriptor::{ConfigurationDescriptor, ConfigurationDescriptorChain, DeviceDescriptor, USBDescriptor};
@@ -33,13 +33,20 @@ pub(crate) const DESCRIPTOR_RETRY_MS: u64 = 5;
 /// undo first. `SET_ADDRESS` and `SET_CONFIGURATION` deliberately do not
 /// go through here: repeating one of those is not the same as issuing it
 /// once.
-pub(crate) async fn retry_descriptor<T, E>(mut read: impl AsyncFnMut() -> Result<T, E>) -> Result<T, E> {
+///
+/// A disconnect is returned immediately because the device is gone.
+/// Retrying would start another transfer after detach, which cannot
+/// meaningfully succeed and may remain pending depending on the host driver.
+pub(crate) async fn retry_descriptor<T, E>(mut read: impl AsyncFnMut() -> Result<T, E>) -> Result<T, E>
+where
+    E: Copy + Into<HostError>,
+{
     let mut retries = DESCRIPTOR_RETRIES;
     loop {
         match read().await {
             Ok(value) => return Ok(value),
             Err(e) => {
-                if retries == 0 {
+                if retries == 0 || matches!(e.into(), HostError::PipeError(PipeError::Disconnected)) {
                     return Err(e);
                 }
                 retries -= 1;
@@ -261,5 +268,60 @@ pub enum RegisterError {
 impl From<HostError> for RegisterError {
     fn from(value: HostError) -> Self {
         RegisterError::HostError(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::pin::pin;
+    use core::task::{Context, Poll, Waker};
+
+    use embassy_time::{Duration, MockDriver};
+    use embassy_usb_driver::host::{HostError, PipeError};
+
+    use super::retry_descriptor;
+
+    /// Polls `fut` to completion, advancing the mock clock while it waits.
+    fn run<F: Future>(fut: F) -> F::Output {
+        let mut fut = pin!(fut);
+        let mut cx = Context::from_waker(Waker::noop());
+        loop {
+            if let Poll::Ready(v) = fut.as_mut().poll(&mut cx) {
+                return v;
+            }
+            MockDriver::get().advance(Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn retry_descriptor_does_not_retry_disconnect() {
+        // `PipeError`: callers that read with `control_in`.
+        let mut calls = 0;
+        let res: Result<(), PipeError> = run(retry_descriptor(async || {
+            calls += 1;
+            Err(PipeError::Disconnected)
+        }));
+        assert_eq!(res, Err(PipeError::Disconnected));
+        assert_eq!(calls, 1);
+
+        // `HostError`: callers that read with `request_descriptor`.
+        let mut calls = 0;
+        let res: Result<(), HostError> = run(retry_descriptor(async || {
+            calls += 1;
+            Err(HostError::PipeError(PipeError::Disconnected))
+        }));
+        assert_eq!(res, Err(HostError::PipeError(PipeError::Disconnected)));
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn retry_descriptor_retries_stall() {
+        let mut calls = 0;
+        let res: Result<u8, PipeError> = run(retry_descriptor(async || {
+            calls += 1;
+            if calls == 1 { Err(PipeError::Stall) } else { Ok(7) }
+        }));
+        assert_eq!(res, Ok(7));
+        assert_eq!(calls, 2);
     }
 }

@@ -120,6 +120,53 @@ impl<'d, T: Instance> Aes<'d, T> {
     }
 }
 
+#[cfg(any(
+    feature = "embassy-crypto-aes128-ecb",
+    feature = "embassy-crypto-aes128-cbc",
+    feature = "embassy-crypto-aes128-ctr",
+    feature = "embassy-crypto-aes128-gcm",
+    feature = "embassy-crypto-aes128-ccm",
+    feature = "embassy-crypto-aes256-ecb",
+    feature = "embassy-crypto-aes256-cbc",
+    feature = "embassy-crypto-aes256-ctr",
+    feature = "embassy-crypto-aes256-gcm",
+    feature = "embassy-crypto-aes256-ccm",
+))]
+impl<'d, 'c, T: Instance, C> crate::crypto::BlockingCipherOps<'c, C> for Aes<'d, T>
+where
+    C: Cipher<'c> + CipherSized + IVSized + 'c,
+{
+    type Context = Context<'c, C>;
+
+    fn start(&mut self, cipher: &'c C, dir: Direction) -> Result<Self::Context, Error> {
+        Ok(common::op_start(T::regs(), cipher, dir))
+    }
+
+    fn aad(&mut self, ctx: &mut Self::Context, aad: &[u8], last: bool) -> Result<(), Error>
+    where
+        C: crate::crypto::CipherAuthenticated<16>,
+    {
+        // `aes_v1` has no GCM/CCM phases, so this never runs there.
+        #[cfg(not(aes_v1))]
+        {
+            common::op_aad::<C, 16>(T::regs(), ctx, aad, last)
+        }
+        #[cfg(aes_v1)]
+        {
+            let _ = (ctx, aad, last);
+            unreachable!()
+        }
+    }
+
+    fn payload(&mut self, ctx: &mut Self::Context, input: &[u8], output: &mut [u8], last: bool) -> Result<(), Error> {
+        common::op_payload(T::regs(), ctx, input, output, last)
+    }
+
+    fn finish(&mut self, ctx: Self::Context) -> Result<Option<[u8; 16]>, Error> {
+        common::op_finish(T::regs(), ctx)
+    }
+}
+
 impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Aes<'d, T> {
     type InternalState = Peri<'d, T>;
 
