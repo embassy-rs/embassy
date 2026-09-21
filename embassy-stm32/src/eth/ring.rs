@@ -73,6 +73,9 @@ pub(crate) struct RDesRing<'a> {
 impl<'a> RDesRing<'a> {
     pub(crate) fn new(descriptors: &'a mut [RDes], buffers: &'a mut [Option<PacketBuf>]) -> Self {
         assert!(descriptors.len() > 1);
+        // A timestamped frame needs a frame descriptor, a context descriptor and a tail guard.
+        #[cfg(all(feature = "ptp", any(eth_v2, eth_v2a, eth_v2b)))]
+        assert!(descriptors.len() > 2);
         assert!(descriptors.len() == buffers.len());
 
         for i in 0..descriptors.len() {
@@ -107,7 +110,8 @@ impl<'a> RDesRing<'a> {
             let dma = ETH.ethernet_dma();
             dma_ch0!(dma, dmac_rx_dlar).write(|w| w.0 = descriptors.as_mut_ptr() as u32);
             dma_ch0!(dma, dmac_rx_rlr).write(|w| w.set_rdrl((descriptors.len() as u16) - 1));
-            dma_ch0!(dma, dmac_rx_dtpr).write(|w| w.0 = 0);
+            let tail = unwrap!(descriptors.last()) as *const RDes as u32;
+            dma_ch0!(dma, dmac_rx_dtpr).write(|w| w.0 = tail);
         }
 
         Self {
@@ -272,12 +276,11 @@ impl<'a> RDesRing<'a> {
         ETH.ethernet_dma().dmarpdr().write(|w| w.set_rpd(Rpd::Poll));
 
         #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
-        // The DMA stops fetching at the tail pointer, so it must point one
-        // PAST the descriptor just re-armed: the next slot in the ring.
+        // The DMA stops fetching at the tail pointer. Keep the rearmed
+        // descriptor as the tail, releasing the previous guard.
         // See issue #2129
         {
-            let next = (self.index + 1) % self.descriptors.len();
-            let tail = &raw const self.descriptors[next] as *const RDes as u32;
+            let tail = &raw const self.descriptors[self.index] as u32;
             dma_ch0!(ETH.ethernet_dma(), dmac_rx_dtpr).write(|w| w.0 = tail);
         }
 
@@ -309,6 +312,8 @@ impl<'a> TDesRing<'a> {
         #[cfg(feature = "ptp")]
         timestamps.clear();
         assert!(!descriptors.is_empty());
+        #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
+        assert!(descriptors.len() > 1);
         assert!(descriptors.len() == buffers.len());
 
         #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
@@ -338,7 +343,7 @@ impl<'a> TDesRing<'a> {
             let dma = ETH.ethernet_dma();
             dma_ch0!(dma, dmac_tx_dlar).write(|w| w.0 = descriptors.as_mut_ptr() as u32);
             dma_ch0!(dma, dmac_tx_rlr).write(|w| w.set_tdrl((descriptors.len() as u16) - 1));
-            dma_ch0!(dma, dmac_tx_dtpr).write(|w| w.0 = 0);
+            dma_ch0!(dma, dmac_tx_dtpr).write(|w| w.0 = descriptors.as_ptr() as u32);
         }
 
         Self {
@@ -353,6 +358,15 @@ impl<'a> TDesRing<'a> {
 
     pub(crate) const fn len(&self) -> usize {
         self.descriptors.len()
+    }
+
+    fn capacity(&self) -> usize {
+        // V2 reserves one descriptor for the exclusive DMA tail.
+        if cfg!(any(eth_v2, eth_v2a, eth_v2b)) {
+            self.len() - 1
+        } else {
+            self.len()
+        }
     }
 
     /// The oldest submitted descriptor not yet reclaimed.
@@ -419,18 +433,12 @@ impl<'a> TDesRing<'a> {
 
     /// Whether the next `transmit` will be accepted.
     pub(crate) fn can_transmit(&mut self) -> bool {
-        // If every descriptor is already submitted but not yet reclaimed,
-        // the slot at `index` must not be reused.
-        if self.in_flight == self.len() {
-            return false;
-        }
-
-        self.descriptors[self.index].available()
+        self.in_flight < self.capacity() && self.descriptors[self.index].available()
     }
 
     /// Transmit a frame. `can_transmit` must have returned `true`.
     pub(crate) fn transmit(&mut self, buf: PacketBuf) {
-        debug_assert!(self.in_flight < self.len());
+        debug_assert!(self.in_flight < self.capacity());
         let descriptor = &mut self.descriptors[self.index];
         debug_assert!(descriptor.available());
 
