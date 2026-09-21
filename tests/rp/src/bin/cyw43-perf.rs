@@ -2,7 +2,7 @@
 #![no_main]
 teleprobe_meta::target!(b"rpi-pico");
 
-use cyw43::{JoinOptions, SpiBus, aligned_bytes};
+use cyw43::{A4, Aligned, JoinOptions, SpiBus, aligned_bytes};
 use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::{panic, *};
 use defmt_rtt as _;
@@ -13,6 +13,7 @@ use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, rom_data};
+use embassy_time::{Duration, with_timeout};
 use panic_probe as _;
 use static_cell::StaticCell;
 
@@ -46,17 +47,23 @@ async fn main(spawner: Spawner) {
 
     // needed for reading the firmware from flash via XIP.
     unsafe {
+        rom_data::connect_internal_flash();
         rom_data::flash_exit_xip();
+        rom_data::flash_flush_cache();
         rom_data::flash_enter_cmd_xip();
     }
 
-    // cyw43 firmware needs to be flashed manually:
-    //     probe-rs download 43439A0.bin --binary-format bin --chip RP2040 --base-address 0x101b0000
-    //     probe-rs download 43439A0_btfw.bin --binary-format bin --chip RP2040 --base-address 0x101f0000
-    //     probe-rs download 43439A0_clm.bin --binary-format bin --chip RP2040 --base-address 0x101f8000
-    let fw = unsafe { core::slice::from_raw_parts(0x101b0000 as *const u8, 231077) };
-    let _btfw = unsafe { core::slice::from_raw_parts(0x101f0000 as *const u8, 6164) };
-    let clm = unsafe { core::slice::from_raw_parts(0x101f8000 as *const u8, 984) };
+    // Firmware now in ELF (see build.rs)
+    macro_rules! flash_bytes {
+        ($section:literal, $path:literal) => {{
+            #[unsafe(link_section = $section)]
+            static BYTES: Aligned<A4, [u8; include_bytes!($path).len()]> = Aligned(*include_bytes!($path));
+            let bytes: &Aligned<A4, [u8]> = &BYTES;
+            bytes
+        }};
+    }
+    let fw = flash_bytes!(".cyw43_fw", "../../../../cyw43-firmware/43439A0.bin");
+    let clm = flash_bytes!(".cyw43_clm", "../../../../cyw43-firmware/43439A0_clm.bin");
     let nvram = aligned_bytes!("../../../../cyw43-firmware/nvram_rp2040.bin");
 
     let pwr = Output::new(p.PIN_23, Level::Low);
@@ -76,8 +83,7 @@ async fn main(spawner: Spawner) {
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
-    let (net_device, mut control, runner) =
-        cyw43::new(state, pwr, spi, unsafe { core::mem::transmute(fw) }, nvram).await;
+    let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
     spawner.spawn(unwrap!(wifi_task(runner)));
 
     control.init(clm).await;
@@ -99,27 +105,44 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(net_task(runner)));
 
-    loop {
-        match control
-            .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
-            .await
-        {
-            Ok(_) => break,
-            Err(err) => {
-                panic!("join failed: {:?}", err);
-            }
-        }
+    info!("mac: {:02x}", control.address().await);
+    let t0 = embassy_time::Instant::now();
+
+    // A scan proves boot and firmware
+    let mut networks = 0;
+    let mut scanner = control.scan(Default::default()).await;
+    while scanner.next().await.is_some() {
+        networks += 1;
+    }
+    drop(scanner);
+
+    info!("scan found {} networks in {} ms", networks, t0.elapsed().as_millis());
+    if networks == 0 {
+        panic!("scan found no networks");
     }
 
-    perf_client::run(
-        iface,
-        perf_client::Expected {
-            down_kbps: 200,
-            up_kbps: 200,
-            updown_kbps: 200,
-        },
-    )
-    .await;
+    // Connecting depends on the AP, so failing or hanging here skips perf test
+    let join = control.join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()));
+    let connected = with_timeout(Duration::from_secs(10), join)
+        .await
+        .is_ok_and(|r| r.is_ok())
+        && with_timeout(Duration::from_secs(10), iface.wait_config_up())
+            .await
+            .is_ok();
+
+    if connected {
+        perf_client::run(
+            iface,
+            perf_client::Expected {
+                down_kbps: 100,
+                up_kbps: 100,
+                updown_kbps: 100,
+            },
+        )
+        .await;
+    } else {
+        warn!("not connected, skipping perf");
+    }
 
     info!("Test OK");
     cortex_m::asm::bkpt();

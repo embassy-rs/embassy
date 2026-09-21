@@ -8,6 +8,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rustc-link-search={}", out.display());
     println!("cargo:rerun-if-changed=../link_ram_cortex_m.x");
 
+    // cyw43 firmware is too big for RAM, so cyw43-perf puts it in flash at the addresses the examples use.
+    fs::write(
+        out.join("cyw43_fw.x"),
+        "MEMORY {\n\
+         \x20 CYW43_FW  : ORIGIN = 0x10100000, LENGTH = 256K\n\
+         \x20 CYW43_CLM : ORIGIN = 0x10140000, LENGTH = 256K\n\
+         }\n\
+         SECTIONS {\n\
+         \x20 .cyw43_fw  : { KEEP(*(.cyw43_fw));  } > CYW43_FW\n\
+         \x20 .cyw43_clm : { KEEP(*(.cyw43_clm)); } > CYW43_CLM\n\
+         } INSERT AFTER .uninit;\n",
+    )
+    .unwrap();
+    println!("cargo:rustc-link-arg-bin=cyw43-perf=-Tcyw43_fw.x");
+
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink_ram.x");
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
