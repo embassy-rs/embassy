@@ -63,7 +63,7 @@ pub const PHYID_ADIN2111: u32 = 0x0283_BCA1;
 #[allow(non_camel_case_types)]
 pub enum AdinError<E> {
     /// SPI-BUS Error
-    Spi(E),
+    Spi(#[cfg_attr(feature = "defmt", defmt(Debug2Format))] E),
     /// Ethernet FCS error
     FCS,
     /// SPI Header CRC error
