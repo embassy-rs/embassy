@@ -11,6 +11,8 @@ use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::VddLevel;
 #[cfg(feature = "mcxa5xx")]
 use crate::pac::mrcc::FlexspiClkselMux;
+#[cfg(feature = "mcxa5xx")]
+use crate::pac::mrcc::WwdtClkselMux;
 use crate::pac::mrcc::{
     AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, DacClkselMux, FclkClkselMux,
     FlexcanClkselMux, Lpi2cClkselMux, LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
@@ -65,6 +67,53 @@ pub trait SPConfHelper {
 
 /// Copy and paste macro that:
 ///
+/// * Resets and halts the div, and applies the calculated div4 bits
+/// * Releases reset + halt
+/// * Waits for the div to stabilize
+/// * Returns `Ok($freq / $conf.div.into_divisor())`
+///
+/// This is the half of [`apply_div4!`] that does not touch a clocksel mux.
+/// Use it directly for peripherals that have a `CLKDIV` register but no
+/// `CLKSEL` register - MCXA WWDT0 is one - and prefer [`apply_div4!`] for
+/// everything else.
+///
+/// Assumes:
+///
+/// * self is a configuration struct that has fields called:
+///   * `div`, which is a `Div4`
+///   * `power`, which is a `PoweredClock`
+///
+/// usage:
+///
+/// ```rust,ignore
+/// apply_div4_no_sel!(self, clkdiv, freq)
+/// ```
+#[doc(hidden)]
+#[macro_export]
+macro_rules! apply_div4_no_sel {
+    ($conf:ident, $divreg:ident, $freq:ident) => {{
+        // Set up clkdiv
+        $divreg.modify(|w| {
+            w.set_div($conf.div.into_bits());
+            w.set_halt(ClkdivHalt::Off);
+            w.set_reset(ClkdivReset::Off);
+        });
+        $divreg.modify(|w| {
+            w.set_halt(ClkdivHalt::On);
+            w.set_reset(ClkdivReset::On);
+        });
+
+        while $divreg.read().unstab() == ClkdivUnstab::Off {}
+
+        Ok(PreEnableParts {
+            freq: $freq / $conf.div.into_divisor(),
+            wake_guard: WakeGuard::for_power(&$conf.power),
+        })
+    }};
+}
+
+/// Copy and paste macro that:
+///
 /// * Sets the clocksel mux to `$selvar`
 /// * Resets and halts the div, and applies the calculated div4 bits
 /// * Releases reset + halt
@@ -94,23 +143,7 @@ macro_rules! apply_div4 {
         // set clksel
         $selreg.modify(|w| w.set_mux($selvar));
 
-        // Set up clkdiv
-        $divreg.modify(|w| {
-            w.set_div($conf.div.into_bits());
-            w.set_halt(ClkdivHalt::Off);
-            w.set_reset(ClkdivReset::Off);
-        });
-        $divreg.modify(|w| {
-            w.set_halt(ClkdivHalt::On);
-            w.set_reset(ClkdivReset::On);
-        });
-
-        while $divreg.read().unstab() == ClkdivUnstab::Off {}
-
-        Ok(PreEnableParts {
-            freq: $freq / $conf.div.into_divisor(),
-            wake_guard: WakeGuard::for_power(&$conf.power),
-        })
+        $crate::apply_div4_no_sel!($conf, $divreg, $freq)
     }};
 }
 
@@ -204,6 +237,144 @@ impl SPConfHelper for Clk1MConfig {
             freq: 1_000_000,
             wake_guard: None,
         })
+    }
+}
+
+//
+// Wwdt
+//
+
+/// Selectable clocks for the WWDT peripheral.
+///
+/// Only WWDT1, and only on MCXA5xx, has a source mux; its encodings are
+/// mirrored one-for-one from `MRCC_WWDT1_CLKSEL[MUX]` (MCXA5xx RM Rev 1
+/// 22.5.2.36). WWDT0 has no `CLKSEL` register on either family and is
+/// hardwired to `clk_1m` (MCXA5xx RM Rev 1 28.3.3, Figure 123), so
+/// [`Clk1M`][Self::Clk1M] is the only selection it accepts; asking WWDT0 for
+/// any other source is a [`ClockError::BadConfig`] rather than a silently
+/// ignored request.
+///
+/// Whether a selection is legal also depends on the configured clock tree,
+/// and is decided by validating the resolved frequency against the rating in
+/// 28.3.2 rather than by omitting variants here: `FroHfDiv` is inside that
+/// rating when `fro_hf_div` is divided far enough, and outside it otherwise.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum WwdtClockSel {
+    /// `CLK_16K`, the FRO16K VDD_CORE output (`MUX` = 00b).
+    ///
+    /// Runs through deep sleep unconditionally. Because the WWDT counter is
+    /// 24-bit, this reaches far longer timeouts than `CLK_1M` can.
+    ///
+    /// WWDT1 only.
+    #[cfg(feature = "mcxa5xx")]
+    Clk16kVddCore,
+    /// `FRO_HF_DIV` (`MUX` = 01b).
+    ///
+    /// WWDT1 only.
+    #[cfg(feature = "mcxa5xx")]
+    FroHfDiv,
+    /// `CLK_1M` (`MUX` = 10b).
+    ///
+    /// This is the source WWDT0 is hardwired to. `MUX` = 11b is a second
+    /// encoding of the same source and is not represented separately.
+    Clk1M,
+}
+
+/// Which WWDT instance a given configuration applies to
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum WwdtInstance {
+    /// Instance 0
+    Wwdt0,
+    /// Instance 1
+    #[cfg(feature = "mcxa5xx")]
+    Wwdt1,
+}
+
+/// Top level configuration for `Wwdt` instances.
+pub struct WwdtConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Selected clock-source for this peripheral
+    pub source: WwdtClockSel,
+    /// Pre-divisor, applied to the upstream clock output
+    pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: WwdtInstance,
+}
+
+impl SPConfHelper for WwdtConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let mrcc0 = crate::pac::MRCC0;
+
+        // WWDT0 has a divider - `MRCC_WWDT0_CLKDIV`, at offset 0xD4 on
+        // MCXA2xx and 0x13C on MCXA5xx - but no CLKSEL, so its source is
+        // resolved without touching a mux. WWDT1 has both (MCXA5xx RM Rev 1
+        // 22.5.2.36, 22.5.2.37).
+        let (freq, clkdiv) = match self.instance {
+            WwdtInstance::Wwdt0 => {
+                // WWDT0 has no CLKSEL, so `Clk1M` is the only selection it can
+                // honour. Reject anything else rather than silently ignoring
+                // it. On MCXA2xx the other variants do not exist, so this
+                // match is exhaustive with a single arm.
+                let freq = match self.source {
+                    WwdtClockSel::Clk1M => clocks.ensure_clk_1m_active(&self.power)?,
+                    #[cfg(feature = "mcxa5xx")]
+                    WwdtClockSel::Clk16kVddCore | WwdtClockSel::FroHfDiv => {
+                        return Err(ClockError::BadConfig {
+                            clock: "wwdt0 clk",
+                            reason: "hardwired to clk_1m, no other source selectable",
+                        });
+                    }
+                };
+
+                (freq, mrcc0.mrcc_wwdt0_clkdiv())
+            }
+            #[cfg(feature = "mcxa5xx")]
+            WwdtInstance::Wwdt1 => {
+                let clksel = mrcc0.mrcc_wwdt1_clksel();
+                let clkdiv = mrcc0.mrcc_wwdt1_clkdiv();
+
+                // Mux encodings: MCXA5xx 22.5.2.36. MUX = 11b is a second
+                // encoding of CLK_1M and is not offered separately.
+                let (freq, variant) = match self.source {
+                    WwdtClockSel::Clk16kVddCore => (
+                        clocks.ensure_clk_16k_vdd_core_active(&self.power)?,
+                        WwdtClkselMux::I0Clkroot16k,
+                    ),
+                    WwdtClockSel::FroHfDiv => (
+                        clocks.ensure_fro_hf_div_active(&self.power)?,
+                        WwdtClkselMux::I1ClkrootFircDiv,
+                    ),
+                    WwdtClockSel::Clk1M => (clocks.ensure_clk_1m_active(&self.power)?, WwdtClkselMux::I2Clkroot1m),
+                };
+
+                clksel.modify(|w| w.set_mux(variant));
+
+                (freq, clkdiv)
+            }
+        };
+
+        // Check clock speed is reasonable
+        let div = self.div.into_divisor();
+
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2,
+        // MCXA5xx 28.3.2. The "WWDT0/1 Clock" row is 1 MHz in every run mode,
+        // so unlike most peripherals this does not vary with the power state.
+        let fmax: u32 = 1_000_000;
+
+        // Compare exactly without overflowing: the post-divider frequency
+        // exceeds fmax exactly when `freq > fmax * div`.
+        if (freq as u64) > (fmax as u64) * (div as u64) {
+            return Err(ClockError::BadConfig {
+                clock: "wwdt clk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4_no_sel!(self, clkdiv, freq)
     }
 }
 
