@@ -4,12 +4,14 @@
 #[cfg(feature = "exti")]
 mod ringbuffered;
 use core::marker::PhantomData;
+use core::pin::pin;
 use core::ptr;
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
+use futures_util::future::{Either, select};
 #[cfg(feature = "exti")]
 pub use ringbuffered::RingBufferedSpiRx;
 
@@ -99,7 +101,6 @@ pub enum SlaveSelectPolarity {
 }
 
 impl SlaveSelectPolarity {
-    #[cfg(feature = "exti")]
     fn from_regs(_regs: Regs) -> Self {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         match _regs.cfg2().read().ssiop() {
@@ -302,7 +303,6 @@ impl<'d> CsPinType<'d> {
         }
     }
 
-    #[allow(unused)]
     pub async fn wait_for_edge(&mut self, _polarity: SlaveSelectPolarity) {
         match self {
             #[cfg(feature = "exti")]
@@ -1263,7 +1263,7 @@ impl<'d> Spi<'d, Async, Master> {
     }
 }
 
-impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
+impl<'d> Spi<'d, Async, Master> {
     /// SPI write, using DMA.
     pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
@@ -1538,6 +1538,320 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         self.transfer_inner(data, data).await
     }
+}
+
+impl<'d> Spi<'d, Async, Slave> {
+    /// SPI slave full-duplex transfer, using DMA.
+    ///
+    /// This is the core of the slave API, shared by [`transfer`](Self::transfer)
+    /// and [`transfer_in_place`](Self::transfer_in_place). Both buffers must be
+    /// non-empty and are transferred at the same time; the master clocks
+    /// `max(read.len(), write.len())` frames.
+    ///
+    /// Returns the number of frames transferred in each direction `(n_rx, n_tx)`.
+    /// If the master deselects the slave before the buffers are exhausted, the
+    /// number of frames transferred so far is returned, like `embassy-nrf`'s `Spis`.
+    async fn slave_transfer_inner<W: Word>(
+        &mut self,
+        read: *mut [W],
+        write: *const [W],
+    ) -> Result<(usize, usize), Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+        assert!(!read.is_empty() && !write.is_empty());
+
+        let regs = self.info.regs;
+
+        // Cycle SPE (off, then on again once DMA is armed) for every transfer.
+        // Empirically on spi_v4+ a full-duplex slave transfer only works when the
+        // peripheral is restarted here: otherwise the RX DMA is never triggered
+        // (received frames pile up in the RX FIFO until the deselect, and the
+        // transfer returns garbage). The slave must also be armed while NSS is
+        // still deasserted: the transaction is captured from the NSS falling
+        // edge, which the EXTI wait then tracks for early deselect.
+        regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
+
+        self.set_word_size(W::CONFIG);
+
+        // spi_v4 clears the rxfifo on SPE=0.
+        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+        flush_rx_fifo(regs);
+
+        set_rxdmaen(regs, true);
+
+        let n_rx_total = read.len();
+        let n_tx_total = write.len();
+
+        let res = {
+            let rx_src = regs.rx_ptr::<W>();
+            let mut rx_f = unsafe { self.rx_dma.as_mut().unwrap().read_raw(rx_src, read, Default::default()) };
+
+            let tx_dst: *mut W = regs.tx_ptr();
+            let mut tx_f = unsafe {
+                self.tx_dma
+                    .as_mut()
+                    .unwrap()
+                    .write_raw(write, tx_dst, Default::default())
+            };
+
+            set_txdmaen(regs, true);
+
+            // Memory barrier after DMA setup to ensure register writes complete before command
+            fence(Ordering::SeqCst);
+
+            regs.cr1().modify(|w| {
+                w.set_spe(true);
+            });
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            regs.cr1().modify(|w| {
+                w.set_cstart(true);
+            });
+
+            let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
+            match select(join(&mut tx_f, &mut rx_f), nss_fut).await {
+                Either::Left((((), ()), _)) => {
+                    finish_dma(regs);
+                    (n_rx_total, n_tx_total)
+                }
+                Either::Right(((), _)) => {
+                    // Deselect before the buffers were exhausted: report how much was
+                    // transferred, then stop the DMA channels (dropping the futures
+                    // resets them) and clean up.
+                    let n_tx = n_tx_total - tx_f.get_remaining_transfers() as usize;
+                    let n_rx = n_rx_total - rx_f.get_remaining_transfers() as usize;
+                    drop(tx_f);
+                    drop(rx_f);
+                    slave_abort(regs);
+                    (n_rx, n_tx)
+                }
+            }
+        };
+
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        {
+            // Clear sticky error flags raised by frames clocked after a DMA buffer
+            // filled up (overrun on the shorter buffer, underrun on the empty one).
+            regs.ifcr().write(|w| w.0 = 0xffff_ffff);
+        }
+
+        self.check_transfer_crc()?;
+
+        Ok(res)
+    }
+
+    /// Reads data from the SPI bus, using DMA.
+    ///
+    /// Clocks out dummy bytes so the master can clock data in. Blocks until `data`
+    /// is full or the slave is deselected.
+    /// Returns the number of bytes read. If the master deselects the slave before
+    /// `data` is full, the number of bytes received so far is returned, like
+    /// `embassy-nrf`'s `Spis`.
+    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<usize, Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+        if data.is_empty() {
+            return Ok(0);
+        }
+
+        let mut total = 0usize;
+
+        for chunk in data.chunks_mut(u16::MAX as usize) {
+            let regs = self.info.regs;
+
+            #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+            regs.cr1().modify(|w| {
+                w.set_spe(false);
+            });
+
+            self.set_word_size(W::CONFIG);
+
+            #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+            flush_rx_fifo(regs);
+
+            set_rxdmaen(regs, true);
+
+            let n = chunk.len();
+            let rx_src = regs.rx_ptr();
+            let mut rx_f = unsafe { self.rx_dma.as_mut().unwrap().read(rx_src, chunk, Default::default()) };
+
+            // Clock out dummy bytes so the master can clock data in. On spi_v4+
+            // a slave without TX data simply underruns (UDR), which is cleared below.
+            let dummy = W::default();
+            let mut tx_f = self
+                .tx_dma
+                .as_mut()
+                .map(|tx_dma| unsafe { tx_dma.write_repeated(&dummy, n, regs.tx_ptr(), Default::default()) });
+            if tx_f.is_some() {
+                set_txdmaen(regs, true);
+            }
+
+            // Memory barrier after DMA setup to ensure register writes complete before command
+            fence(Ordering::SeqCst);
+
+            regs.cr1().modify(|w| {
+                w.set_spe(true);
+            });
+
+            let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
+            let mut deselect_count = None;
+            match tx_f.as_mut() {
+                Some(tx_f) => match select(join(tx_f, &mut rx_f), nss_fut).await {
+                    Either::Left((((), ()), _)) => {
+                        finish_dma(regs);
+                    }
+                    Either::Right(((), _)) => {
+                        deselect_count = Some(n - rx_f.get_remaining_transfers() as usize);
+                    }
+                },
+                None => match select(&mut rx_f, nss_fut).await {
+                    Either::Left(((), _)) => {
+                        finish_dma(regs);
+                    }
+                    Either::Right(((), _)) => {
+                        deselect_count = Some(n - rx_f.get_remaining_transfers() as usize);
+                    }
+                },
+            }
+
+            if let Some(got) = deselect_count {
+                drop(rx_f);
+                drop(tx_f);
+                slave_abort(regs);
+                total += got;
+                return Ok(total);
+            }
+            total += n;
+        }
+
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        self.info.regs.ifcr().write(|w| w.0 = 0xffff_ffff);
+
+        self.check_transfer_crc()?;
+
+        Ok(total)
+    }
+
+    /// Sends data on the SPI bus, using DMA.
+    ///
+    /// Any data clocked in from the master is discarded. Blocks until `data` is
+    /// fully sent or the slave is deselected.
+    /// Returns the number of bytes sent. If the master deselects the slave before
+    /// `data` is fully sent, the number of bytes sent so far is returned, like
+    /// `embassy-nrf`'s `Spis`.
+    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<usize, Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+        if data.is_empty() {
+            return Ok(0);
+        }
+
+        let mut total = 0usize;
+
+        for chunk in data.chunks(u16::MAX as usize) {
+            let regs = self.info.regs;
+
+            #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+            regs.cr1().modify(|w| {
+                w.set_spe(false);
+            });
+
+            self.set_word_size(W::CONFIG);
+
+            let n = chunk.len();
+            let tx_dst = regs.tx_ptr();
+            let mut tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(chunk, tx_dst, Default::default()) };
+
+            set_txdmaen(regs, true);
+
+            // Memory barrier after DMA setup to ensure register writes complete before command
+            fence(Ordering::SeqCst);
+
+            regs.cr1().modify(|w| {
+                w.set_spe(true);
+            });
+
+            let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
+            let mut deselect_count = None;
+            match select(&mut tx_f, nss_fut).await {
+                Either::Left(((), _)) => {
+                    finish_dma(regs);
+                }
+                Either::Right(((), _)) => {
+                    deselect_count = Some(n - tx_f.get_remaining_transfers() as usize);
+                }
+            }
+
+            if let Some(sent) = deselect_count {
+                drop(tx_f);
+                slave_abort(regs);
+                total += sent;
+                return Ok(total);
+            }
+            total += n;
+        }
+
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        self.info.regs.ifcr().write(|w| w.0 = 0xffff_ffff);
+
+        self.check_transfer_crc()?;
+
+        Ok(total)
+    }
+
+    /// Simultaneously sends and receives data, using DMA.
+    ///
+    /// This transfers both buffers at the same time, so it is NOT equivalent to `write` followed by `read`.
+    ///
+    /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
+    /// If `write` is shorter it is padded with zero bytes.
+    ///
+    /// Blocks until the longest buffer is exhausted or the slave is deselected.
+    /// Returns the number of bytes transferred `(n_rx, n_tx)`. If the master
+    /// deselects the slave first, the number of bytes transferred so far is
+    /// returned, like `embassy-nrf`'s `Spis`.
+    pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(usize, usize), Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
+        if write.is_empty() {
+            return self.read(read).await.map(|n| (n, 0));
+        }
+        if read.is_empty() {
+            return self.write(write).await.map(|n| (0, n));
+        }
+
+        self.slave_transfer_inner(read, write).await
+    }
+
+    /// In-place bidirectional transfer, using DMA.
+    ///
+    /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
+    /// Returns the number of bytes transferred. If the master deselects the slave
+    /// before `data` is exhausted, the number of bytes transferred so far is
+    /// returned, like `embassy-nrf`'s `Spis`.
+    pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<usize, Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
+        self.slave_transfer_inner(data, data).await.map(|n| n.0)
+    }
+}
+
+/// Abort an in-progress slave transfer after the deselect edge was detected.
+///
+/// Unlike [`abort_dma`], this keeps the peripheral enabled. On spi_v4+,
+/// re-enabling the SPI (SPE=0 -> 1) while NSS is asserted latches an
+/// end-of-transaction and the slave then silently ignores the whole transaction.
+fn slave_abort(regs: Regs) {
+    set_txdmaen(regs, false);
+    set_rxdmaen(regs, false);
+
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    {
+        // Clear sticky error flags (OVR/UDR/MODF/CRCE/TIFRE/SUSP) raised by
+        // frames clocked around the deselect, and drop stale RX data.
+        regs.ifcr().write(|w| w.0 = 0xffff_ffff);
+        flush_rx_fifo(regs);
+    }
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    abort_dma(regs);
 }
 
 impl<'d, M: PeriMode, CM: CommunicationMode> Drop for Spi<'d, M, CM> {
@@ -1835,6 +2149,30 @@ fn finish_dma(regs: Regs) {
         reg.set_txdmaen(false);
         reg.set_rxdmaen(false);
     });
+}
+
+#[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+/// Abort an in-progress DMA transfer and disable SPI to leave hardware in a safe state.
+fn abort_dma(regs: Regs) {
+    // Disable DMA requests first so the peripheral stops requesting DMA.
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    regs.cr2().modify(|reg| {
+        reg.set_txdmaen(false);
+        reg.set_rxdmaen(false);
+    });
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    regs.cfg1().modify(|reg| {
+        reg.set_txdmaen(false);
+        reg.set_rxdmaen(false);
+    });
+
+    // Disable SPI to abort any ongoing transfer.
+    regs.cr1().modify(|w| {
+        w.set_spe(false);
+    });
+
+    // Flush any stale data in RX FIFO.
+    flush_rx_fifo(regs);
 }
 
 #[inline]
