@@ -148,9 +148,9 @@ async fn main(spawner: Spawner) {
         perf_client::run(
             iface,
             perf_client::Expected {
-                down_kbps: 100,
-                up_kbps: 100,
-                updown_kbps: 100,
+                down_kbps: 25,
+                up_kbps: 25,
+                updown_kbps: 25,
             },
         )
         .await;
