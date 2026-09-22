@@ -4,9 +4,8 @@
 //! instead of raw HCI commands. These provide more integrated functionality.
 
 use stm32_bindings::ble::{
-    aci_gap_set_direct_connectable, aci_gap_set_discoverable, aci_gap_set_non_discoverable,
-    aci_gap_set_undirected_connectable, aci_gap_start_general_discovery_proc, aci_gap_start_limited_discovery_proc,
-    aci_gap_start_observation_proc, aci_gap_terminate_gap_proc, aci_gap_update_adv_data,
+    Scan_Param_Phy_t, aci_gap_set_direct_connectable, aci_gap_set_discoverable, aci_gap_set_non_discoverable,
+    aci_gap_set_undirected_connectable, aci_gap_start_scan, aci_gap_terminate_gap_proc, aci_gap_update_adv_data,
 };
 
 use crate::bluetooth::error::BleError;
@@ -43,6 +42,52 @@ pub const WHITE_LIST_FOR_ALL: u8 = 0x03;
 pub const GAP_LIMITED_DISCOVERY_PROC: u8 = 0x01;
 pub const GAP_GENERAL_DISCOVERY_PROC: u8 = 0x02;
 pub const GAP_OBSERVATION_PROC: u8 = 0x80;
+
+const HCI_SCAN_TYPE_ACTIVE: u8 = 0x01;
+const HCI_SCANNING_PHYS_LE_1M: u8 = 0x01;
+
+/// Run a GAP discovery procedure through `aci_gap_start_scan`.
+///
+/// 1.10.0 dropped the legacy `aci_gap_start_{observation,limited,general}_discovery_proc`
+/// commands, so the discovery procedures go through `aci_gap_start_scan` now.
+fn start_scan(
+    procedure: u8,
+    scan_interval: u16,
+    scan_window: u16,
+    scan_type: u8,
+    own_address_type: u8,
+    filter_duplicates: bool,
+    filter_policy: u8,
+) -> Result<(), BleError> {
+    let scan_param = Scan_Param_Phy_t {
+        Scan_Type: scan_type,
+        Scan_Interval: scan_interval,
+        Scan_Window: scan_window,
+    };
+    // ACI_GAP_START_SCAN requires two PHY parameter records even when only
+    // LE 1M is selected. The second record is ignored in that configuration.
+    let scan_params = [scan_param; 2];
+
+    let status = unsafe {
+        aci_gap_start_scan(
+            0,
+            procedure,
+            own_address_type,
+            filter_duplicates as u8,
+            0,
+            0,
+            filter_policy,
+            HCI_SCANNING_PHYS_LE_1M,
+            scan_params.as_ptr(),
+        )
+    };
+
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(Status::from_u8(status)))
+    }
+}
 
 /// Start advertising using aci_gap_set_discoverable
 ///
@@ -173,21 +218,15 @@ pub fn start_observation(
     filter_duplicates: bool,
     filter_policy: u8,
 ) -> Result<(), BleError> {
-    let status = unsafe {
-        aci_gap_start_observation_proc(
-            scan_interval,
-            scan_window,
-            scan_type,
-            own_address_type,
-            filter_duplicates as u8,
-            filter_policy,
-        )
-    };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(Status::from_u8(status)))
-    }
+    start_scan(
+        GAP_OBSERVATION_PROC,
+        scan_interval,
+        scan_window,
+        scan_type,
+        own_address_type,
+        filter_duplicates,
+        filter_policy,
+    )
 }
 
 /// Start the GAP limited discovery procedure.
@@ -200,14 +239,15 @@ pub fn start_limited_discovery(
     own_address_type: u8,
     filter_duplicates: bool,
 ) -> Result<(), BleError> {
-    let status = unsafe {
-        aci_gap_start_limited_discovery_proc(scan_interval, scan_window, own_address_type, filter_duplicates as u8)
-    };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(Status::from_u8(status)))
-    }
+    start_scan(
+        GAP_LIMITED_DISCOVERY_PROC,
+        scan_interval,
+        scan_window,
+        HCI_SCAN_TYPE_ACTIVE,
+        own_address_type,
+        filter_duplicates,
+        0,
+    )
 }
 
 /// Start the GAP general discovery procedure.
@@ -219,14 +259,15 @@ pub fn start_general_discovery(
     own_address_type: u8,
     filter_duplicates: bool,
 ) -> Result<(), BleError> {
-    let status = unsafe {
-        aci_gap_start_general_discovery_proc(scan_interval, scan_window, own_address_type, filter_duplicates as u8)
-    };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(Status::from_u8(status)))
-    }
+    start_scan(
+        GAP_GENERAL_DISCOVERY_PROC,
+        scan_interval,
+        scan_window,
+        HCI_SCAN_TYPE_ACTIVE,
+        own_address_type,
+        filter_duplicates,
+        0,
+    )
 }
 
 /// Terminate a running GAP procedure by procedure code.
