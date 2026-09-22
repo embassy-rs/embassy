@@ -33,7 +33,7 @@ const MIDI_OUT_SIZE: u8 = 0x09;
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-pub struct MidiClassConfig {
+pub struct MidiClassConfig<'d> {
     /// Number of jacks for sending data to the host via the IN endpoint.
     /// If set to 0, the IN endpoint will not be allocated.
     pub n_in_jacks: u8,
@@ -46,75 +46,65 @@ pub struct MidiClassConfig {
     /// For full-speed devices, the value has to be one of 8, 16, 32 or 64.
     pub max_packet_size: u16,
 
-    /// Optional labels for the IN jacks.
-    /// If set, the slice must have a length of `n_in_jacks`.
-    /// For each element with a `Some` value, a string descriptor is added to name
-    /// the jack referenced by its index.
-    pub in_jack_labels: Option<&'static [Option<MidiJackLabel>]>,
+    /// Name of the MIDIStreaming interface, shown by the host.
+    pub interface_name: Option<&'d str>,
 
-    /// Optional labels for the OUT jacks.
-    /// If set, the slice must have a length of `n_out_jacks`.
-    /// For each element with a `Some` value, a string descriptor is added to name
-    /// the jack referenced by its index.
-    pub out_jack_labels: Option<&'static [Option<MidiJackLabel>]>,
+    /// Name of each IN jack, shown by the host. Jacks past the end of the slice are unnamed.
+    pub in_jack_names: &'d [Option<&'d str>],
+
+    /// Name of each OUT jack, shown by the host. Jacks past the end of the slice are unnamed.
+    pub out_jack_names: &'d [Option<&'d str>],
 }
 
-impl Default for MidiClassConfig {
+impl Default for MidiClassConfig<'_> {
     fn default() -> Self {
         Self {
             n_in_jacks: 1,
             n_out_jacks: 1,
             max_packet_size: 64,
-            in_jack_labels: None,
-            out_jack_labels: None,
+            interface_name: None,
+            in_jack_names: &[],
+            out_jack_names: &[],
         }
     }
 }
 
-impl Handler for MidiClassConfig {
+/// Internal state for a [`MidiClass`] with names, see [`MidiClass::new_with_names`].
+///
+/// Holds the names and answers the string requests for them. They are allocated consecutively,
+/// in the order interface, IN jacks, OUT jacks.
+pub struct MidiClassState<'d> {
+    first: u8,
+    interface_name: Option<&'d str>,
+    in_jack_names: &'d [Option<&'d str>],
+    out_jack_names: &'d [Option<&'d str>],
+}
+
+impl<'d> MidiClassState<'d> {
+    /// Creates a new `State`.
+    pub const fn new() -> Self {
+        MidiClassState {
+            first: 0,
+            interface_name: None,
+            in_jack_names: &[],
+            out_jack_names: &[],
+        }
+    }
+
+    /// The names, in allocation order.
+    fn names(&self) -> impl Iterator<Item = &Option<&str>> {
+        core::iter::once(&self.interface_name)
+            .chain(self.in_jack_names)
+            .chain(self.out_jack_names)
+    }
+}
+
+impl Handler for MidiClassState<'_> {
     fn get_string(&mut self, index: StringIndex, _lang_id: u16) -> Option<&str> {
-        if let Some(labels) = self.in_jack_labels {
-            for label in labels.iter() {
-                if let Some(label) = label
-                    && label.string_index == index
-                {
-                    return Some(label.string);
-                }
-            }
-        }
-
-        if let Some(labels) = self.out_jack_labels {
-            for label in labels.iter() {
-                if let Some(label) = label
-                    && label.string_index == index
-                {
-                    return Some(label.string);
-                }
-            }
-        }
-
-        None
-    }
-}
-
-/// Label for an IN or OUT jack.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct MidiJackLabel {
-    /// String for the label.
-    string: &'static str,
-
-    /// Index of the string descriptor associared with the label.
-    string_index: StringIndex,
-}
-
-impl MidiJackLabel {
-    /// Creates a new label with the provided string.
-    pub fn new<'d, D: Driver<'d>>(builder: &mut Builder<'d, D>, string: &'static str) -> Self {
-        Self {
-            string,
-            string_index: builder.string(),
-        }
+        self.names()
+            .nth(index.0.checked_sub(self.first)? as usize)
+            .copied()
+            .flatten()
     }
 }
 
@@ -137,37 +127,59 @@ pub struct MidiClass<'d, D: Driver<'d>> {
 
 impl<'d, D: Driver<'d>> MidiClass<'d, D> {
     /// Creates a new `MidiClass` with the provided UsbBus and configuration.
-    pub fn new(builder: &mut Builder<'d, D>, config: &'d mut MidiClassConfig) -> Self {
+    ///
+    /// The names in `config` are ignored, use [`MidiClass::new_with_names`] for those.
+    pub fn new(builder: &mut Builder<'d, D>, config: MidiClassConfig<'d>) -> Self {
+        Self::build(builder, config, &MidiClassState::new())
+    }
+
+    /// Creates a new `MidiClass` that also names its interface and jacks, so the host can show
+    /// the names for its MIDI ports.
+    pub fn new_with_names(
+        builder: &mut Builder<'d, D>,
+        state: &'d mut MidiClassState<'d>,
+        config: MidiClassConfig<'d>,
+    ) -> Self {
+        *state = MidiClassState {
+            first: builder.string().0,
+            interface_name: config.interface_name,
+            in_jack_names: config.in_jack_names,
+            out_jack_names: config.out_jack_names,
+        };
+        // The first index is allocated above, the rest here, consecutively.
+        for _ in 1..state.names().count() {
+            builder.string();
+        }
+
+        let class = Self::build(builder, config, state);
+        builder.handler(state);
+        class
+    }
+
+    /// Creates a new `MidiClass` with the provided UsbBus and configuration.
+    fn build(builder: &mut Builder<'d, D>, config: MidiClassConfig<'d>, names: &MidiClassState<'d>) -> Self {
         let MidiClassConfig {
             n_in_jacks,
             n_out_jacks,
             max_packet_size,
-            in_jack_labels,
-            out_jack_labels,
-        } = *config;
+            ..
+        } = config;
 
         // Some sanity checks.
         if n_in_jacks == 0 && n_out_jacks == 0 {
             panic!("n_in_jacks and n_out_jacks are both 0");
         }
-        if let Some(in_jack_labels) = in_jack_labels
-            && in_jack_labels.len() != n_in_jacks as usize
-        {
-            assert_eq!(
-                in_jack_labels.len(),
-                n_in_jacks as usize,
-                "Length of in_jack_labels slice does not match n_in_jacks"
-            );
-        }
-        if let Some(out_jack_labels) = out_jack_labels
-            && out_jack_labels.len() != n_out_jacks as usize
-        {
-            assert_eq!(
-                out_jack_labels.len(),
-                n_out_jacks as usize,
-                "Length of out_jack_labels slice does not match n_out_jacks"
-            );
-        }
+
+        // Both jacks of a port share a name; macOS reads the embedded one. `id` is 0 when the
+        // jack has no name, which is every jack when there is no state.
+        let interface_name = names.interface_name.map(|_| StringIndex(names.first));
+        let jacks = names.first + names.interface_name.is_some() as u8;
+        let id = |base: u8, len: usize, i: u8| match (i as usize) < len {
+            true => base + i,
+            false => 0,
+        };
+        let in_jack_name = |i| id(jacks, names.in_jack_names.len(), i);
+        let out_jack_name = |i| id(jacks + names.in_jack_names.len() as u8, names.out_jack_names.len(), i);
 
         let mut func = builder.function(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE);
 
@@ -180,7 +192,12 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
 
         // MIDIStreaming interface
         let mut iface = func.interface();
-        let mut alt = iface.alt_setting(USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS, PROTOCOL_NONE, None);
+        let mut alt = iface.alt_setting(
+            USB_AUDIO_CLASS,
+            USB_MIDISTREAMING_SUBCLASS,
+            PROTOCOL_NONE,
+            interface_name,
+        );
 
         let midi_streaming_total_length = 7
             + (n_in_jacks + n_out_jacks) as usize * (MIDI_IN_SIZE + MIDI_OUT_SIZE) as usize
@@ -216,35 +233,20 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         let in_jack_id_emb = |index| 2 * n_in_jacks + 2 * index + 2;
 
         for i in 0..n_in_jacks {
-            let ijack = in_jack_labels.map_or(0, |labels| {
-                labels
-                    .get(i as usize)
-                    .map_or(0, |label| label.as_ref().map_or(0, |label| label.string_index.0))
-            });
             alt.descriptor(
                 CS_INTERFACE,
-                &[MIDI_IN_JACK_SUBTYPE, EXTERNAL, in_jack_id_ext(i), ijack],
+                &[MIDI_IN_JACK_SUBTYPE, EXTERNAL, in_jack_id_ext(i), in_jack_name(i)],
             );
         }
 
         for i in 0..n_out_jacks {
-            let ijack = out_jack_labels.map_or(0, |labels| {
-                labels
-                    .get(i as usize)
-                    .map_or(0, |label| label.as_ref().map_or(0, |label| label.string_index.0))
-            });
             alt.descriptor(
                 CS_INTERFACE,
-                &[MIDI_IN_JACK_SUBTYPE, EMBEDDED, in_jack_id_emb(i), ijack],
+                &[MIDI_IN_JACK_SUBTYPE, EMBEDDED, in_jack_id_emb(i), out_jack_name(i)],
             );
         }
 
         for i in 0..n_out_jacks {
-            let ijack = out_jack_labels.map_or(0, |labels| {
-                labels
-                    .get(i as usize)
-                    .map_or(0, |label| label.as_ref().map_or(0, |label| label.string_index.0))
-            });
             alt.descriptor(
                 CS_INTERFACE,
                 &[
@@ -254,17 +256,12 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                     0x01,
                     in_jack_id_emb(i),
                     0x01,
-                    ijack,
+                    out_jack_name(i),
                 ],
             );
         }
 
         for i in 0..n_in_jacks {
-            let ijack = in_jack_labels.map_or(0, |labels| {
-                labels
-                    .get(i as usize)
-                    .map_or(0, |label| label.as_ref().map_or(0, |label| label.string_index.0))
-            });
             alt.descriptor(
                 CS_INTERFACE,
                 &[
@@ -274,7 +271,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                     0x01,
                     in_jack_id_ext(i),
                     0x01,
-                    ijack,
+                    in_jack_name(i),
                 ],
             );
         }
@@ -323,10 +320,6 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         } else {
             None
         };
-
-        drop(func);
-
-        builder.handler(config);
 
         MidiClass { read_ep, write_ep }
     }
