@@ -916,10 +916,7 @@ impl SecurityManager {
                     "  check_bonded_device(identity[{}]) OK -> type={} {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
                     i, id_type, id[5], id[4], id[3], id[2], id[1], id[0]
                 ),
-                None => warn!(
-                    "  check_bonded_device(identity[{}]) FAILED -- probe is unreliable",
-                    i
-                ),
+                None => warn!("  check_bonded_device(identity[{}]) FAILED -- probe is unreliable", i),
             }
         }
     }
@@ -1091,11 +1088,7 @@ impl SecurityManager {
                 return Err(BleError::CommandFailed(Status::from_u8(status)));
             }
 
-            let status = aci_gap_add_devices_to_list(
-                0,
-                core::ptr::null(),
-                GAP_ADD_DEV_MODE_CLEAR_BOTH_FROM_SDB,
-            );
+            let status = aci_gap_add_devices_to_list(0, core::ptr::null(), GAP_ADD_DEV_MODE_CLEAR_BOTH_FROM_SDB);
             if status != BLE_STATUS_SUCCESS {
                 return Err(BleError::CommandFailed(Status::from_u8(status)));
             }
@@ -1153,13 +1146,23 @@ impl SecurityManager {
     #[cfg(not(feature = "defmt"))]
     pub fn log_bonded_devices(&self) {}
 
-    /// Log the controller's resolving-list size and the current peer/local RPAs for each bond
-    /// (debug). Use this to verify that the bonded peer's IRK is actually loaded into the
-    /// controller resolving list — if HCI_LE_READ_PEER_RESOLVABLE_ADDRESS returns 0x02
-    /// (Unknown Connection Identifier), the IRK is missing or invalid and the LL will reject
-    /// incoming connect requests from that peer's RPAs.
+    /// Log the controller's resolving-list size and the bonded identity list (debug).
+    ///
+    /// The peer/local RPA readout is printed **only for the peer that is currently
+    /// connected**, if any, because that is the only time those values mean anything:
+    /// `HCI_LE_READ_PEER_RESOLVABLE_ADDRESS` reports "the *current* peer Resolvable
+    /// Private Address **being used**" for a peer (ST `ble_hci_le.h`, Core Spec
+    /// Vol 4 Part E 7.8.42), and with no connection to that peer there is no address
+    /// in use — the spec says the controller answers 0x02 (Unknown Connection
+    /// Identifier). This controller instead answers SUCCESS with a stale address, the
+    /// same one for every entry, which is why every `resolving_list[i]` used to print
+    /// an identical `peer_rpa`.
+    ///
+    /// Pass the peer of the live connection as `(identity_address_type,
+    /// identity_address)` in the same byte order `aci_gap_get_bonded_devices` returns,
+    /// or `None` when disconnected.
     #[cfg(feature = "defmt")]
-    pub fn log_resolving_list_diagnostics(&self) {
+    pub fn log_resolving_list_diagnostics(&self, connected_peer: Option<(u8, [u8; 6])>) {
         const MAX_BONDED: usize = 16;
         let mut entries = [BondedDeviceEntry {
             address_type: 0,
@@ -1182,15 +1185,12 @@ impl SecurityManager {
                 return;
             }
 
+            if connected_peer.is_none() {
+                info!("  (peer/local RPA omitted: only in use while that peer is connected)");
+            }
+
             for i in 0..(num as usize).min(MAX_BONDED) {
                 let e = &entries[i];
-                let mut peer_rpa = [0u8; 6];
-                let peer_status =
-                    hci_le_read_peer_resolvable_address(e.address_type, e.address.as_ptr(), peer_rpa.as_mut_ptr());
-
-                let mut local_rpa = [0u8; 6];
-                let local_status =
-                    hci_le_read_local_resolvable_address(e.address_type, e.address.as_ptr(), local_rpa.as_mut_ptr());
 
                 let id = [
                     e.address[5],
@@ -1205,6 +1205,21 @@ impl SecurityManager {
                     "resolving_list[{}]: identity type={} addr={:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
                     i, e.address_type, id[0], id[1], id[2], id[3], id[4], id[5]
                 );
+
+                // Only the connected peer has an address in use; for any other entry
+                // the query returns a stale value (see the doc comment above), so do
+                // not print one.
+                if !matches!(connected_peer, Some((t, a)) if t == e.address_type && a == e.address) {
+                    continue;
+                }
+
+                let mut peer_rpa = [0u8; 6];
+                let peer_status =
+                    hci_le_read_peer_resolvable_address(e.address_type, e.address.as_ptr(), peer_rpa.as_mut_ptr());
+
+                let mut local_rpa = [0u8; 6];
+                let local_status =
+                    hci_le_read_local_resolvable_address(e.address_type, e.address.as_ptr(), local_rpa.as_mut_ptr());
 
                 if peer_status == BLE_STATUS_SUCCESS {
                     info!(

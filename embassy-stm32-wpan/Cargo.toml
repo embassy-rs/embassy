@@ -60,6 +60,7 @@ log = ["dep:log"]
 bt-hci = ["dep:bt-hci"]
 wb-hci = ["bt-hci", "dep:stm32wb-hci"]
 
+
 wb = []
 wb-ble = []
 wb-mac = ["dep:bitflags", "dep:embassy-net-driver-channel", "dep:xarxa", "xarxa/medium-ieee802154"]

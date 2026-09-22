@@ -158,11 +158,50 @@ impl<'d, T: Runtime> Controller<'d, T> {
         // Wake the runner
         platform.start_run_ble();
 
-        Ok(Self {
+        #[allow(unused_mut)]
+        let mut this = Self {
             receiver,
             cmd_buf: ([0u8; 255], 0),
             _runtime: runtime,
-        })
+        };
+
+        // Link-Layer-Only has no host to program the identity address; the full
+        // stack does it later in `gap_init`. Mirrors Zephyr's
+        // `bt_hci_stm32wba_setup` (HCI vendor command ACI_HAL_WRITE_CONFIG_DATA,
+        // 0xFC0C). Without this the controller reports a junk identity address
+        // (observed 00:00:00:00:00:40) and bonded peers key their bond to it.
+        #[cfg(feature = "ble-stack-llo")]
+        this.set_public_bd_addr();
+
+        Ok(this)
+    }
+
+    /// Program the public device address (ST OUI 00:80:E1 + low UID bytes).
+    #[cfg(feature = "ble-stack-llo")]
+    fn set_public_bd_addr(&mut self) {
+        let uid = embassy_stm32::uid::uid();
+        let bd_addr = [uid[0], uid[1], uid[2], 0xE1, 0x80, 0x00];
+
+        {
+            let buf = &mut self.cmd_buf.0;
+            buf[0] = 0x01; // H4 command packet indicator
+            buf[1] = 0x0C; // ACI_HAL_WRITE_CONFIG_DATA (0xFC0C), little-endian
+            buf[2] = 0xFC;
+            buf[3] = 0x08; // parameter length
+            buf[4] = 0x00; // CONFIG_DATA_PUBADDR_OFFSET
+            buf[5] = 0x06; // value length
+            buf[6..12].copy_from_slice(&bd_addr);
+        }
+
+        self.cmd_buf.1 = unsafe { BleStack_Request(self.cmd_buf.0.as_mut_ptr()) }.into();
+        if self.cmd_buf.1 == 0 {
+            error!("set_public_bd_addr: no response to ACI_HAL_WRITE_CONFIG_DATA");
+        } else {
+            info!(
+                "public BD address {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X} (status 0x{:02X})",
+                bd_addr[5], bd_addr[4], bd_addr[3], bd_addr[2], bd_addr[1], bd_addr[0], self.cmd_buf.0[6]
+            );
+        }
     }
 
     fn exec<R>(&mut self, f: impl FnOnce(&mut [u8; 255]) -> R) -> R {
