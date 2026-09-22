@@ -169,7 +169,7 @@ async fn main(spawner: Spawner) {
     // the bond's IRK made it into the LL resolving list — if `peer_rpa` here matches the
     // identity address (instead of being a valid RPA), the LL has `peer_irk = 0` and will
     // silently drop incoming CONNECT_INDs from a bonded RPA-using peer like iOS.
-    security.log_resolving_list_diagnostics();
+    security.log_resolving_list_diagnostics(None);
 
     // ── GATT ──────────────────────────────────────────────────────────────────
     //
