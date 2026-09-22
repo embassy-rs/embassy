@@ -10,6 +10,9 @@ rp2040 = ["embassy-rp/rp2040"]
 rp235xa = ["embassy-rp/rp235xa"]
 rp235xb = ["embassy-rp/rp235xb"]
 
+# flash cyw fw
+flash-fw = []
+
 [dependencies]
 teleprobe-meta = "1.1"
 
