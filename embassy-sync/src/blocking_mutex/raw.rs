@@ -2,7 +2,10 @@
 //!
 //! This module provides a trait for mutexes that can be used in different contexts.
 use core::marker::PhantomData;
+#[cfg(not(feature = "portable-atomic"))]
+use core::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(feature = "portable-atomic")]
 use portable_atomic::{AtomicBool, Ordering};
 
 /// Raw mutex trait.

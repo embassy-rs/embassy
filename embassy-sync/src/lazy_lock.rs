@@ -2,7 +2,10 @@
 
 use core::cell::UnsafeCell;
 use core::mem::ManuallyDrop;
+#[cfg(not(feature = "portable-atomic"))]
+use core::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(feature = "portable-atomic")]
 use portable_atomic::{AtomicBool, Ordering};
 
 /// The `LazyLock` is a synchronization primitive that allows for

@@ -4,8 +4,11 @@ use core::cell::Cell;
 use core::fmt::{Debug, Formatter};
 use core::future::{Future, poll_fn};
 use core::mem::MaybeUninit;
+#[cfg(not(feature = "portable-atomic"))]
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
+#[cfg(feature = "portable-atomic")]
 use portable_atomic::{AtomicBool, Ordering};
 
 /// The `OnceLock` is a synchronization primitive that allows for

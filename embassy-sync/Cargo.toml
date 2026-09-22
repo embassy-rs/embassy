@@ -31,11 +31,12 @@ defmt = ["dep:defmt"]
 log = ["dep:log"]
 std = []
 turbowakers = []
+portable-atomic = ["dep:portable-atomic"]
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
-portable-atomic = { version = "1.5" }
+portable-atomic = { version = "1.5", optional = true }
 
 futures-sink = { version = "0.3", default-features = false, features = [] }
 futures-core = { version = "0.3.31", default-features = false }
