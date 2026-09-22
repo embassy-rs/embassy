@@ -2,7 +2,8 @@
 //!
 //! This module provides a trait for mutexes that can be used in different contexts.
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, Ordering};
+
+use portable_atomic::{AtomicBool, Ordering};
 
 /// Raw mutex trait.
 ///

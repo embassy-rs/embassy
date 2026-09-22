@@ -4,8 +4,9 @@ use core::cell::Cell;
 use core::fmt::{Debug, Formatter};
 use core::future::{Future, poll_fn};
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
+
+use portable_atomic::{AtomicBool, Ordering};
 
 /// The `OnceLock` is a synchronization primitive that allows for
 /// initializing a value once, and allowing others to `.await` a

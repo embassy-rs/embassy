@@ -2,7 +2,8 @@
 
 use core::cell::UnsafeCell;
 use core::mem::ManuallyDrop;
-use core::sync::atomic::{AtomicBool, Ordering};
+
+use portable_atomic::{AtomicBool, Ordering};
 
 /// The `LazyLock` is a synchronization primitive that allows for
 /// initializing a value once, and allowing others to obtain a
