@@ -257,9 +257,15 @@ impl Platform {
                 loop {
                     let mut buf = [0u8; 64];
                     let mut n;
+                    // The resume guard is held for the whole iteration, including the
+                    // pipe write below. Dropping it suspends the peripheral — for the
+                    // RNG that clears CR.RNGEN and gates its clock — and the BLE link
+                    // layer polls this same RNG from interrupt context whenever the
+                    // pipe runs dry. With the clock gated even a write to RNG_CR is
+                    // dropped, so that fallback could never see DRDY.
+                    #[allow(unused_mut)]
+                    let mut guard = rng.borrow();
                     {
-                        #[allow(unused_mut)]
-                        let mut guard = rng.borrow();
                         'outer: loop {
                             n = 0;
                             if let Err(e) = guard.fill_bytes(&mut buf).await {

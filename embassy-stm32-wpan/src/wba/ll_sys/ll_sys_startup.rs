@@ -189,7 +189,17 @@ pub mod ble_config {
     /// work; the full stack honours them. ST's own `BLE_Privacy_Peripheral`, which
     /// is the reference for the legacy + controller-privacy flow, ships
     /// `CFG_BLE_OPTIONS = 0`.
-    pub const CFG_BLE_OPTIONS: u16 = ble_options::DEV_NAME_READ_ONLY;
+    ///
+    /// When built with `ble-stack-llo` this flips to `LL_ONLY`: the library brings
+    /// up the link layer but no ST host/security database, and the application
+    /// owns GAP/GATT/SMP (Trouble). This is exactly what Zephyr's
+    /// `hci_stm32wba.c` does (`options = BLE_OPTIONS_LL_ONLY`) against the same
+    /// `libstm32wba_ble_stack_llo.a`.
+    pub const CFG_BLE_OPTIONS: u16 = if cfg!(feature = "ble-stack-llo") {
+        ble_options::LL_ONLY
+    } else {
+        ble_options::DEV_NAME_READ_ONLY
+    };
 
     // Memory block size (from ble_bufsize.h)
     const BLE_MEM_BLOCK_SIZE: usize = 32;
@@ -322,6 +332,10 @@ pub fn init_ble_stack() -> Result<(), u8> {
 
         // 1b. Pre-load any previously persisted bond data from flash into the
         // NVM cache so the BLE stack can restore bonds from a prior session.
+        // Link-Layer-Only builds have no ST host/security database, so that blob
+        // is meaningless there (Trouble owns bonds and resolving list) -- skip it
+        // so the LL is not handed a full-stack host blob to parse.
+        #[cfg(not(feature = "ble-stack-llo"))]
         {
             let cache_bytes = core::slice::from_raw_parts_mut(
                 ble_buffers::NVM_CACHE_BUFFER.0.as_mut_ptr() as *mut u8,

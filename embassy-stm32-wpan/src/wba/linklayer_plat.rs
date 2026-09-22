@@ -867,6 +867,136 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(enable: u8) {
 //   * @param  len: number of byte of anthropy to get.
 //   * @retval None
 //   */
+/// Polls per attempt while waiting for RNG data.
+///
+/// Each poll is a status read plus a branch, on the order of ten cycles, so this
+/// is a few hundred milliseconds at 168 MHz: far longer than a healthy RNG ever
+/// needs, while still bounded so a wedged peripheral cannot hold the interrupt
+/// forever. Being slow is the deliberate trade-off — this runs in interrupt
+/// context, so a long wait costs radio timing (the link may drop and reconnect),
+/// whereas handing out entropy we cannot account for would compromise channel
+/// selection and privacy.
+const RNG_POLLS_PER_ATTEMPT: u32 = 8_000_000;
+
+/// Re-arm-and-retry rounds after an attempt times out. Worst case is
+/// `RNG_ATTEMPTS * RNG_POLLS_PER_ATTEMPT` polls (a second or so) before the
+/// entropy source is treated as genuinely failed rather than merely stalled.
+const RNG_ATTEMPTS: u32 = 4;
+
+/// Bounded spins while the RNG finishes conditioning.
+const RNG_COND_SPINS: u32 = 20_000;
+
+/// Bring the RNG back up if the driver (or its suspend machinery) left it off.
+///
+/// `ResumablePeripheral::new` suspends the peripheral as soon as the platform takes
+/// ownership of it, and the resume guard is dropped before `run_rng` parks on a full
+/// pipe — so the hardware is unclocked for most of the time, and in particular
+/// whenever the link layer falls back to reading it directly. While the bus clock is
+/// gated every write to the RNG block is dropped, `CR.RNGEN` included: that is why a
+/// bare `CR.RNGEN = 1` never took effect and `DRDY` could never assert.
+///
+/// So the clock has to be enabled first, and only then the peripheral. Turning a
+/// source back on is not fabricating entropy.
+unsafe fn rng_ensure_enabled() {
+    use embassy_stm32::pac::{RCC, RNG};
+    use embassy_stm32::rng::RngConfig;
+
+    if !RCC.ahb2enr().read().rngen() {
+        RCC.ahb2enr().modify(|w| w.set_rngen(true));
+        // Read back so the write has retired before the peripheral is touched.
+        let _ = RCC.ahb2enr().read();
+    }
+
+    if !RNG.cr().read().rngen() {
+        let config = RngConfig::default();
+        RNG.sr().modify(|w| {
+            w.set_seis(false);
+            w.set_ceis(false);
+        });
+        // Mirror the driver's `reset_with_config`: the reference manual requires the
+        // configuration to be written in the same access as CONDRST.
+        RNG.cr().write(|w| {
+            w.set_condrst(true);
+            w.set_nistc(config.nistc);
+            w.set_rng_config1(config.rng_config1);
+            w.set_clkdiv(config.clkdiv);
+            w.set_rng_config2(config.rng_config2);
+            w.set_rng_config3(config.rng_config3);
+            w.set_ced(!config.clock_error_detector);
+            w.set_ardis(config.auto_reset_disable);
+            w.set_ie(false);
+            w.set_rngen(true);
+        });
+
+        // CONDRST self-clears when conditioning completes; bounded so this cannot
+        // spin, since it runs in interrupt context.
+        let mut spins = 0u32;
+        while RNG.cr().read().condrst() && spins < RNG_COND_SPINS {
+            spins += 1;
+        }
+
+        RNG.cr().modify(|w| {
+            w.set_rngen(true);
+            w.set_condrst(false);
+            w.set_configlock(config.config_lock);
+        });
+    }
+}
+
+/// Clear a latched seed/clock error and re-arm the RNG.
+///
+/// Clearing SEIS/CEIS alone is not enough: after a seed error the peripheral must
+/// be reset and re-enabled before DRDY will ever assert again. The previous code
+/// cleared the flags and kept polling, so one latched seed error meant DRDY never
+/// came back — and because this runs in interrupt context, the busy-wait never
+/// exited and the whole chip stopped (thread mode, UI, executor and UART all
+/// starve behind the ISR that never returns).
+///
+/// This is also the retry path: if the peripheral has simply gone quiet, resetting
+/// and re-enabling it is what makes it produce again.
+unsafe fn rng_recover() {
+    use embassy_stm32::pac::RNG;
+
+    RNG.sr().modify(|w| {
+        w.set_seis(false);
+        w.set_ceis(false);
+    });
+    RNG.cr().modify(|w| {
+        w.set_rngen(false);
+        w.set_condrst(true);
+    });
+    RNG.cr().modify(|w| {
+        w.set_condrst(false);
+        w.set_rngen(true);
+    });
+}
+
+/// Wait (bounded) for a single RNG word.
+///
+/// Returns `None` if the peripheral does not produce within `limit` polls, in
+/// which case the caller must either retry or give up — it must not block.
+unsafe fn rng_word_bounded(limit: u32) -> Option<u32> {
+    use embassy_stm32::pac::RNG;
+
+    let mut polls = 0u32;
+    let mut recovered = false;
+    loop {
+        let sr = RNG.sr().read();
+        if (sr.seis() || sr.ceis()) && !recovered {
+            recovered = true;
+            rng_recover();
+            continue;
+        }
+        if sr.drdy() {
+            return Some(RNG.dr().read());
+        }
+        polls += 1;
+        if polls >= limit {
+            return None;
+        }
+    }
+}
+
 /// Poll the hardware RNG directly to fill `buf`.
 ///
 /// Used as a fallback when the async pipe is transiently empty — e.g. when the
@@ -875,23 +1005,47 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(enable: u8) {
 /// embassy RNG driver holds the peripheral: the hardware immediately starts
 /// generating the next word after each DR read, so the async driver simply
 /// waits for the next DRDY interrupt.
+///
+/// This runs in interrupt context (the LL asks for entropy from its timer and
+/// scheduler callbacks), so it is bounded — but the bound is generous and the
+/// wait is retried with a peripheral re-arm first. There is deliberately **no**
+/// software fallback: a fabricated stream would be weaker than the channel
+/// selection and privacy the link layer expects, so a source that cannot produce
+/// is treated as a failed source rather than silently downgraded.
 unsafe fn fill_from_hardware_rng(buf: &mut [u8]) {
-    use embassy_stm32::pac::RNG;
+    rng_ensure_enabled();
+
     let mut i = 0;
     while i < buf.len() {
-        loop {
-            let sr = RNG.sr().read();
-            if sr.seis() || sr.ceis() {
-                RNG.sr().modify(|w| {
-                    w.set_seis(false);
-                    w.set_ceis(false);
-                });
+        let mut got = None;
+        for attempt in 0..RNG_ATTEMPTS {
+            if attempt > 0 {
+                rng_recover();
             }
-            if sr.drdy() {
+            if let Some(word) = rng_word_bounded(RNG_POLLS_PER_ATTEMPT) {
+                got = Some(word);
                 break;
             }
         }
-        let word = RNG.dr().read();
+
+        let word = match got {
+            Some(word) => word,
+            None => {
+                // Every attempt expired, so this is a failed entropy source, not
+                // a slow one. Reset rather than continue: the device must never
+                // run on entropy it cannot account for, and a reset is a
+                // controlled recovery that brings the NVM bonds back with it.
+                cortex_m::asm::dsb();
+                const AIRCR: *mut u32 = 0xE000_ED0C as *mut u32;
+                // VECTKEY | SYSRESETREQ
+                core::ptr::write_volatile(AIRCR, (0x05FA << 16) | (1 << 2));
+                cortex_m::asm::dsb();
+                loop {
+                    cortex_m::asm::wfi();
+                }
+            }
+        };
+
         let bytes = word.to_le_bytes();
         let to_copy = (buf.len() - i).min(4);
         buf[i..i + to_copy].copy_from_slice(&bytes[..to_copy]);

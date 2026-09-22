@@ -13,7 +13,7 @@ use embassy_futures::yield_now;
 use embassy_stm32::interrupt;
 use stm32wb_hci::event::{
     DisconnectionComplete, LeConnectionComplete, LeConnectionUpdateComplete, LeDataLengthChangeEvent,
-    LeEnhancedConnectionComplete, LePhyUpdateComplete,
+    LeEnhancedConnectionComplete, LePhyUpdateComplete, LeRemoteConnectionParameterRequest,
 };
 use stm32wb_hci::host::HostHci;
 use stm32wb_hci::host::uart::Packet;
@@ -279,11 +279,18 @@ impl<'d> HCI<'d, Normal> {
         }
 
         // Configure host-stack advertising parameters/data. `configure` also
-        // applies the full AD payload and the scan response.
+        // applies the full AD payload and the scan response, and the GAP command
+        // it issues starts advertising by itself.
+        //
+        // Deliberately no HCI_LE_Set_Advertising_Enable here. ST's interface
+        // documentation states it "must not be used when the Host stack is
+        // active (see ACI GAP commands instead)", and their reference
+        // applications never call it. Driving the link layer directly after GAP
+        // has already armed advertising splits the controller's advertising and
+        // filter state from GAP's, which stays invisible until the resolving and
+        // filter accept lists are populated and then makes the controller refuse
+        // every connection while still advertising -- no HCI event, nothing to log.
         gap::advertiser::configure(&self.cmd_sender, &params, &adv_data, scan_rsp_data.as_ref())?;
-
-        // Enable LL advertising
-        self.cmd_sender.le_set_advertise_enable(true)?;
         yield_now().await;
 
         self.is_advertising = true;
@@ -301,12 +308,10 @@ impl<'d> HCI<'d, Normal> {
             return Ok(());
         }
 
-        // Disable LL advertising
-        self.cmd_sender.le_set_advertise_enable(false)?;
-        yield_now().await;
-
-        // Remove advertising configuration from the host stack
+        // `aci_gap_set_non_discoverable` stops advertising through GAP; see
+        // `start_advertising` for why the raw HCI enable/disable is not used.
         gap::advertiser::unconfigure()?;
+        yield_now().await;
 
         self.is_advertising = false;
         Ok(())
@@ -511,6 +516,50 @@ impl<'d> HCI<'d, Normal> {
         )
     }
 
+    /// Ask the central to change the connection parameters, from the peripheral role.
+    ///
+    /// [`update_connection_params`](Self::update_connection_params) issues
+    /// `HCI_LE_Connection_Update`, which is a central-role command; a peripheral
+    /// has to route the request through L2CAP instead. This is the call ST's
+    /// reference peripherals use for their connection-parameter-update button
+    /// (`aci_l2cap_connection_parameter_update_req`).
+    ///
+    /// The central answers asynchronously with an L2CAP connection update
+    /// response, and applies the new parameters only if it accepts them.
+    ///
+    /// # Parameters
+    ///
+    /// - `handle`: Connection handle
+    /// - `interval_min`: Minimum connection interval (units of 1.25ms)
+    /// - `interval_max`: Maximum connection interval (units of 1.25ms)
+    /// - `latency`: Peripheral latency, in connection events
+    /// - `timeout_multiplier`: Supervision timeout (units of 10ms)
+    pub fn request_connection_params(
+        &self,
+        handle: ConnectionHandle,
+        interval_min: u16,
+        interval_max: u16,
+        latency: u16,
+        timeout_multiplier: u16,
+    ) -> Result<(), BleError> {
+        unsafe {
+            let status = stm32_bindings::ble::aci_l2cap_connection_parameter_update_req(
+                handle.0,
+                interval_min,
+                interval_max,
+                latency,
+                timeout_multiplier,
+            );
+            if status == 0 {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(crate::bluetooth::hci::types::Status::from_u8(
+                    status,
+                )))
+            }
+        }
+    }
+
     /// Read the current PHY for a connection
     ///
     /// # Returns
@@ -696,6 +745,31 @@ impl<'d> HCI<'d, Normal> {
                 } else {
                     None
                 }
+            }
+            Event::LeRemoteConnectionParameterRequest(LeRemoteConnectionParameterRequest {
+                conn_handle,
+                conn_interval,
+            }) => {
+                // When this event is unmasked the controller waits for a host reply. Accept the
+                // requested parameters so pairing is not blocked (Android sends this immediately
+                // after connect).
+                let (interval_min, interval_max) = conn_interval.interval();
+                let min = (interval_min.as_micros() / 1_250) as u16;
+                let max = (interval_max.as_micros() / 1_250) as u16;
+                let timeout = (conn_interval.supervision_timeout().as_micros() / 10_000) as u16;
+                match self.cmd_sender.le_remote_connection_parameter_request_reply(
+                    conn_handle.0,
+                    min,
+                    max,
+                    conn_interval.conn_latency(),
+                    timeout,
+                    0,
+                    0,
+                ) {
+                    Ok(()) => info!("accepted remote connection parameter request"),
+                    Err(e) => warn!("conn param request reply failed: {:?}", e),
+                }
+                None
             }
             Event::LeConnectionUpdateComplete(LeConnectionUpdateComplete {
                 status,
@@ -945,8 +1019,15 @@ impl<'d, M: Mode> HCI<'d, M> {
         use stm32wb_hci::host::uart::UartHci;
 
         loop {
-            if let Ok(Packet::Event(event)) = self.controller.read_packet().await {
-                return event;
+            match self.controller.read_packet().await {
+                Ok(Packet::Event(event)) => return event,
+                // Anything that fails to parse used to be dropped here without a
+                // trace, which hides the failures that matter most: an unparsable
+                // LE Enhanced Connection Complete means the link is up in the
+                // controller but the application never learns about it, so the
+                // peer sits at "connecting" until it times out with nothing
+                // logged on this side.
+                Err(_) => error!("HCI packet dropped: read or parse failed"),
             }
         }
     }
@@ -962,3 +1043,12 @@ pub struct VersionInfo {
     pub manufacturer_name: u16,
     pub lmp_subversion: u16,
 }
+
+pub mod config_data;
+
+// Always compiled: the ST full host cannot resolve a peer's Resolvable Private
+// Address without the Core-Spec `ah()` byte order, so a bonded reconnect from an
+// RPA-using central fails and the stored bond is never reused. See the module for
+// the full rationale, including the note that this replaces a symbol of the
+// certified stack.
+mod host_ah_fix;
