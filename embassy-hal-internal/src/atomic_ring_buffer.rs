@@ -1,7 +1,10 @@
 //! Atomic reusable ringbuffer.
 use core::iter::FusedIterator;
+#[cfg(not(feature = "portable-atomic"))]
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use core::{ptr, slice};
 
+#[cfg(feature = "portable-atomic")]
 use portable_atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 /// Atomic reusable ringbuffer
