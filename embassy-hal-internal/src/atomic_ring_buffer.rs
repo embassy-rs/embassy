@@ -1,7 +1,8 @@
 //! Atomic reusable ringbuffer.
 use core::iter::FusedIterator;
-use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use core::{ptr, slice};
+
+use portable_atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 /// Atomic reusable ringbuffer
 ///
