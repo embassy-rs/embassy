@@ -391,14 +391,10 @@ where
     }
 
     async fn read32(&mut self, func: u8, addr: u32) -> u32 {
-        if func == FUNC_BUS && addr == SPI_STATUS_REGISTER && self.status != 0 {
-            let status = self.status;
-            self.status = 0;
-
-            status
-        } else {
-            self.readn(func, addr, 4).await
-        }
+        // No special case for `SPI_STATUS_REGISTER`: a caller that asks for the
+        // bus status wants the status now, not the word some earlier transfer
+        // happened to return.
+        self.readn(func, addr, 4).await
     }
 
     #[allow(unused)]
