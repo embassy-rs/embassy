@@ -104,6 +104,7 @@
 
 #![allow(dead_code)]
 
+use core::cell::RefCell;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
@@ -304,6 +305,153 @@ pub enum Error {
     Configuration,
     /// Buffer overrun (for ring buffers).
     Overrun,
+}
+
+/// Selected buffer in a two-buffer ping-pong DMA transfer.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum PingPongSelector {
+    /// DMA buffer A selected.
+    BufferA,
+    /// DMA buffer B selected.
+    BufferB,
+}
+
+impl PingPongSelector {
+    const fn other(self) -> Self {
+        match self {
+            Self::BufferA => Self::BufferB,
+            Self::BufferB => Self::BufferA,
+        }
+    }
+}
+
+/// Ownership status of one ping-pong DMA buffer.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum BufferStatus {
+    /// Buffer is free for DMA to use.
+    Committed,
+    /// Buffer is granted to the peripheral driver and is not ready for DMA reuse.
+    Granted,
+}
+
+/// Snapshot of the ownership state for one ping-pong DMA channel.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) struct PingPongStatus {
+    /// Buffer currently selected for DMA writes.
+    pub(crate) current: PingPongSelector,
+    /// Ownership status of buffer A.
+    pub(crate) buffer_a_status: BufferStatus,
+    /// Ownership status of buffer B.
+    pub(crate) buffer_b_status: BufferStatus,
+    /// Sticky error set when DMA reuses an uncommitted buffer.
+    ///
+    /// Cleared only when the channel is stopped and configured again.
+    pub(crate) overrun_error: bool,
+}
+
+impl PingPongStatus {
+    const fn new() -> Self {
+        Self {
+            current: PingPongSelector::BufferA,
+            buffer_a_status: BufferStatus::Committed,
+            buffer_b_status: BufferStatus::Committed,
+            overrun_error: false,
+        }
+    }
+
+    fn buffer_status(&self, buffer: PingPongSelector) -> BufferStatus {
+        match buffer {
+            PingPongSelector::BufferA => self.buffer_a_status,
+            PingPongSelector::BufferB => self.buffer_b_status,
+        }
+    }
+
+    fn set_buffer_status(&mut self, buffer: PingPongSelector, status: BufferStatus) {
+        match buffer {
+            PingPongSelector::BufferA => self.buffer_a_status = status,
+            PingPongSelector::BufferB => self.buffer_b_status = status,
+        }
+    }
+
+    /// Return the single buffer currently granted to the peripheral driver.
+    pub(crate) fn granted_buffer(&self) -> Result<Option<PingPongSelector>, Error> {
+        if self.overrun_error {
+            return Err(Error::Overrun);
+        }
+
+        match (self.buffer_a_status, self.buffer_b_status) {
+            (BufferStatus::Committed, BufferStatus::Committed) => Ok(None),
+            (BufferStatus::Granted, BufferStatus::Committed) => Ok(Some(PingPongSelector::BufferA)),
+            (BufferStatus::Committed, BufferStatus::Granted) => Ok(Some(PingPongSelector::BufferB)),
+            (BufferStatus::Granted, BufferStatus::Granted) => Err(Error::Overrun),
+        }
+    }
+
+    fn set_overrun(&mut self) {
+        self.overrun_error = true;
+    }
+
+    /// Grant the current buffer after hardware reaches its boundary.
+    ///
+    /// The observed hardware phase must agree with `current`. The current
+    /// buffer becomes granted and DMA moves to the other buffer, which must
+    /// already have been committed by the peripheral driver.
+    fn grant_completed(&mut self, observed_completed: PingPongSelector) -> Result<(), Error> {
+        self.set_buffer_status(observed_completed, BufferStatus::Granted);
+        let next = observed_completed.other();
+        if self.buffer_status(next) != BufferStatus::Committed {
+            self.set_overrun();
+            return Err(Error::Overrun);
+        }
+
+        self.current = next;
+        Ok(())
+    }
+
+    /// Return a granted buffer to DMA after its contents have been copied.
+    fn commit(&mut self, buffer: PingPongSelector) -> Result<(), Error> {
+        if self.overrun_error || self.buffer_status(buffer) != BufferStatus::Granted {
+            self.set_overrun();
+            return Err(Error::Overrun);
+        }
+
+        self.set_buffer_status(buffer, BufferStatus::Committed);
+        Ok(())
+    }
+}
+
+const DMA_INSTANCE_COUNT: usize = 2;
+const DMA_CHANNEL_COUNT: usize = 12;
+
+/// Per-channel ping-pong state shared by the DMA and peripheral ISRs.
+///
+/// `None` means the channel is not configured for ping-pong operation. A
+/// critical-section mutex is used instead of `static mut` so snapshots and
+/// transitions remain race-free across interrupt contexts.
+static PING_PONG_STATUS: [[critical_section::Mutex<RefCell<Option<PingPongStatus>>>; DMA_CHANNEL_COUNT];
+    DMA_INSTANCE_COUNT] =
+    [const { [const { critical_section::Mutex::new(RefCell::new(None)) }; DMA_CHANNEL_COUNT] }; DMA_INSTANCE_COUNT];
+
+fn ping_pong_status(dma: usize, channel: usize) -> Option<PingPongStatus> {
+    critical_section::with(|cs| *PING_PONG_STATUS[dma][channel].borrow_ref(cs))
+}
+
+fn set_ping_pong_status(dma: usize, channel: usize, status: Option<PingPongStatus>) {
+    critical_section::with(|cs| {
+        *PING_PONG_STATUS[dma][channel].borrow_ref_mut(cs) = status;
+    });
+}
+
+fn update_ping_pong_status<R>(
+    dma: usize,
+    channel: usize,
+    update: impl FnOnce(&mut PingPongStatus) -> Result<R, Error>,
+) -> Result<R, Error> {
+    critical_section::with(|cs| {
+        let mut slot = PING_PONG_STATUS[dma][channel].borrow_ref_mut(cs);
+        let status = slot.as_mut().ok_or(Error::Configuration)?;
+        update(status)
+    })
 }
 
 /// An error that can occur if the parameters passed were invalid.
@@ -687,6 +835,33 @@ impl DmaChannel<'_> {
     /// Access TCD DADDR field
     pub(crate) fn daddr(&self) -> u32 {
         self.tcd().tcd_daddr().read().daddr()
+    }
+
+    /// Return the current ping-pong ownership state for this channel.
+    pub(crate) fn ping_pong_status(&self) -> Option<PingPongStatus> {
+        ping_pong_status(self.dma(), self.channel())
+    }
+
+    /// Return whether another buffer/major boundary is already pending.
+    pub(crate) fn ping_pong_boundary_pending(&self) -> bool {
+        self.tcd().ch_int().read().int()
+    }
+
+    /// Commit a completed buffer after the peripheral driver has copied it.
+    ///
+    /// Committing a buffer that is not currently granted, or committing after the
+    /// state has already gone sticky-overrun, stops hardware requests.
+    pub(crate) fn commit_ping_pong_buffer(&self, buffer: PingPongSelector) -> Result<(), Error> {
+        fence(Ordering::Release);
+        let result = update_ping_pong_status(self.dma(), self.channel(), |status| status.commit(buffer));
+        if result.is_err() {
+            // Stop accepting requests immediately. The peripheral driver will
+            // disable its request source and fully drain ACTIVE in its ISR.
+            unsafe {
+                self.disable_request();
+            }
+        }
+        result
     }
 
     fn clear_tcd(t: &pac::edma_tcd::Tcd) {
@@ -1543,6 +1718,7 @@ impl DmaChannel<'_> {
         let state = &STATES[self.dma()][self.channel()];
         state.peripheral_scatter_gather_active.store(false, Ordering::Release);
         state.peripheral_scatter_gather_done.store(false, Ordering::Release);
+        set_ping_pong_status(self.dma(), self.channel(), None);
 
         fence(Ordering::SeqCst);
     }
@@ -1580,6 +1756,7 @@ impl DmaChannel<'_> {
         let state = &STATES[self.dma()][self.channel()];
         state.peripheral_scatter_gather_active.store(false, Ordering::Release);
         state.peripheral_scatter_gather_done.store(false, Ordering::Release);
+        set_ping_pong_status(self.dma(), self.channel(), None);
     }
 
     /// Select final-interrupt completion tracking for peripheral-paced SG.
@@ -1587,6 +1764,7 @@ impl DmaChannel<'_> {
         let state = &STATES[self.dma()][self.channel()];
         state.peripheral_scatter_gather_done.store(false, Ordering::Release);
         state.peripheral_scatter_gather_active.store(true, Ordering::Release);
+        set_ping_pong_status(self.dma(), self.channel(), None);
     }
 
     /// Clear the DONE flag for this channel.
@@ -1811,7 +1989,8 @@ impl State {
     }
 }
 
-static STATES: [[State; 12]; 2] = [const { [const { State::new() }; 12] }; 2];
+static STATES: [[State; DMA_CHANNEL_COUNT]; DMA_INSTANCE_COUNT] =
+    [const { [const { State::new() }; DMA_CHANNEL_COUNT] }; DMA_INSTANCE_COUNT];
 
 pub(crate) fn waker(dma: usize, channel: usize) -> &'static WaitCell {
     &STATES[dma][channel].waker
@@ -2345,6 +2524,49 @@ impl<W: Word> Drop for RingBuffer<'_, '_, W> {
 }
 
 impl<'a> DmaChannel<'a> {
+    /// Configure a peripheral-paced circular read with two DMA-owned halves.
+    ///
+    /// The DMA ISR grants each completed buffer to the peripheral driver. The
+    /// driver must call [`DmaChannel::commit_ping_pong_buffer`] after copying it,
+    /// before DMA reaches the next buffer boundary. Failure to do so sets the
+    /// sticky overrun field in [`PingPongStatus`] and stops hardware requests.
+    /// The even buffer length becomes the major-loop iteration count; its midpoint
+    /// raises the Buffer A interrupt and major completion raises the Buffer B interrupt.
+    ///
+    /// # Safety
+    ///
+    /// - `peri_addr` must remain valid while the transfer is active.
+    /// - `buf` must remain valid and inaccessible through normal Rust references
+    ///   until the channel is stopped.
+    /// - The caller must disable the peripheral request source and stop the
+    ///   channel before releasing or reusing `buf`.
+    pub(crate) unsafe fn setup_ping_pong_read_from_peripheral<W: Word>(
+        &mut self,
+        peri_addr: *const W,
+        buf: &mut [W],
+        priority: Priority,
+    ) -> Result<(), InvalidParameters> {
+        if buf.len() < 2 || !buf.len().is_multiple_of(2) || buf.len() > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
+        }
+
+        unsafe {
+            self.setup_circular_read_from_peripheral(
+                peri_addr,
+                buf,
+                false,
+                TransferOptions {
+                    half_transfer_interrupt: true,
+                    complete_transfer_interrupt: true,
+                    priority,
+                },
+            )?;
+        }
+
+        set_ping_pong_status(self.dma(), self.channel(), Some(PingPongStatus::new()));
+        Ok(())
+    }
+
     /// Configure a circular DMA read from a peripheral without taking ownership of
     /// the channel or destination buffer.
     ///
@@ -2671,6 +2893,49 @@ pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
         return;
     }
 
+    let state = &STATES[dma][channel];
+
+    // If ping-pong mode is active, handle the boundary interrupt first.
+    if ping_pong_status(dma, channel).is_some() {
+        // Clear the observed boundary before sampling progress. If another
+        // boundary occurs while this ISR runs, hardware will latch CH_INT again
+        // instead of that newer event being lost in this W1C operation.
+        t.ch_int().write(|w| w.set_int(true));
+        let biter = t.tcd_biter_elinkno().read().biter();
+        let citer = t.tcd_citer_elinkno().read().citer();
+
+        let valid = biter >= 2 && biter.is_multiple_of(2) && citer <= biter;
+        // `current` independently validates this phase classification. If ISR
+        // latency spans another boundary, the sampled buffer will be unexpected
+        // (or a previous grant will remain), deliberately producing an overrun.
+        let completed = if valid && citer > 0 && citer <= biter / 2 {
+            Some(PingPongSelector::BufferA)
+        } else if valid {
+            Some(PingPongSelector::BufferB)
+        } else {
+            None
+        };
+
+        let granted = match completed {
+            Some(buffer) => update_ping_pong_status(dma, channel, |status| status.grant_completed(buffer)),
+            None => Err(Error::Overrun),
+        };
+        if granted.is_err() {
+            let _ = update_ping_pong_status(dma, channel, |status| {
+                status.set_overrun();
+                Ok(())
+            });
+            // Prevent DMA from entering another half before the peripheral ISR
+            // disables its request source and drains any active minor loop.
+            t.ch_csr().modify(|w| {
+                w.set_erq(false);
+                w.set_earq(false);
+            });
+        }
+
+        return;
+    }
+
     // Read TCD CSR to determine interrupt source
     let csr = t.tcd_csr().read();
 
@@ -2690,7 +2955,6 @@ pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
 
     // Peripheral-paced SG enables INTMAJOR only on its final TCD, so CH_INT
     // can be latched as whole-chain completion while that mode is active.
-    let state = &STATES[dma][channel];
     let wake = if state.peripheral_scatter_gather_active.load(Ordering::Acquire) {
         state.peripheral_scatter_gather_done.store(true, Ordering::Release);
         true
@@ -2734,5 +2998,5 @@ macro_rules! impl_dma_interrupt_handler {
 // TODO(AJM): This is a gross, gross hack. This implements optional callbacks
 // for DMA completion interrupts. This should go away once we switch to
 // "in-band" DMA interrupt binding with `bind_interrupts!`.
-pub(crate) static CALLBACKS: [[AtomicPtr<()>; 12]; 2] =
-    [const { [const { AtomicPtr::new(core::ptr::null_mut()) }; 12] }; 2];
+pub(crate) static CALLBACKS: [[AtomicPtr<()>; DMA_CHANNEL_COUNT]; DMA_INSTANCE_COUNT] =
+    [const { [const { AtomicPtr::new(core::ptr::null_mut()) }; DMA_CHANNEL_COUNT] }; DMA_INSTANCE_COUNT];
