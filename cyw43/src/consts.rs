@@ -37,6 +37,11 @@ pub(crate) const DATA_ERR_CHK_EN: u32 = 0x40;
 pub(crate) const SPI_STATUS_REGISTER: u32 = 0x00000008;
 pub(crate) const INITIAL_READ: usize = 0x04;
 
+/// Largest F2 packet the chip can legitimately announce, from the C driver's
+/// `WHD_LINK_MTU - WHD_BUS_GSPI_PACKET_OVERHEAD`. A length outside this is the
+/// status register lying, not a real frame.
+pub(crate) const GSPI_MAX_F2_PACKET: u32 = (1500 + 30 + 14) - 8;
+
 pub(crate) const STATUS_DATA_NOT_AVAILABLE: u32 = 0x00000001;
 pub(crate) const STATUS_UNDERFLOW: u32 = 0x00000002;
 pub(crate) const STATUS_OVERFLOW: u32 = 0x00000004;
@@ -61,6 +66,8 @@ pub(crate) const REG_BACKPLANE_BACKPLANE_ADDRESS_LOW: u32 = 0x1000A;
 pub(crate) const REG_BACKPLANE_BACKPLANE_ADDRESS_MID: u32 = 0x1000B;
 pub(crate) const REG_BACKPLANE_BACKPLANE_ADDRESS_HIGH: u32 = 0x1000C;
 pub(crate) const REG_BACKPLANE_FRAME_CONTROL: u32 = 0x1000D;
+/// `REG_BACKPLANE_FRAME_CONTROL` bit 0: terminate the current F2 read frame.
+pub(crate) const FRAME_CONTROL_ABORT_F2_READ: u8 = 1 << 0;
 pub(crate) const REG_BACKPLANE_CHIP_CLOCK_CSR: u32 = 0x1000E;
 pub(crate) const REG_BACKPLANE_PULL_UP: u32 = 0x1000F;
 pub(crate) const REG_BACKPLANE_READ_FRAME_BC_LOW: u32 = 0x1001B;
