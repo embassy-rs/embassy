@@ -396,6 +396,17 @@ impl<'a> BtRunner<'a> {
         let total_len = 4 + rounded_len;
 
         let read_pointer = bus.bp_read32(self.addr + BTSDIO_OFFSET_HOST2BT_OUT).await;
+
+        // As on the rx side: a corrupt read of this firmware-owned pointer makes
+        // `available` meaningless, and here that means writing over ring contents
+        // the firmware has not consumed yet. Drop the turn rather than act on it;
+        // the packet stays queued and the next attempt re-reads.
+        if read_pointer >= BTSDIO_FWBUF_SIZE {
+            warn!("host2bt read pointer out of range: {}", read_pointer);
+            yield_now().await;
+            return;
+        }
+
         let available = read_pointer.wrapping_sub(self.h2b_write_pointer + 4) % BTSDIO_FWBUF_SIZE;
         if available < total_len {
             warn!(
@@ -462,6 +473,18 @@ impl<'a> BtRunner<'a> {
             loop {
                 // Check if we have data.
                 let write_pointer = bus.bp_read32(self.addr + BTSDIO_OFFSET_BT2HOST_IN).await;
+
+                // The pointer is firmware-owned state read back over the shared
+                // bus, so a corrupt read is a real possibility -- see pico-sdk's
+                // `cybt_get_bt_buf_index`, which bounds-checks all four ring
+                // pointers for the same reason. A value past the end of the ring
+                // makes the `% BTSDIO_FWBUF_SIZE` below produce an `available`
+                // that has nothing to do with what the firmware wrote.
+                if write_pointer >= BTSDIO_FWBUF_SIZE {
+                    warn!("bt2host write pointer out of range: {}", write_pointer);
+                    break;
+                }
+
                 let available = write_pointer.wrapping_sub(self.b2h_read_pointer) % BTSDIO_FWBUF_SIZE;
                 if available == 0 {
                     break;
@@ -479,6 +502,18 @@ impl<'a> BtRunner<'a> {
                     warn!("ringbuf data not enough for a full packet?");
                     break;
                 }
+
+                // `available` is bounded by the ring, not by the packet buffer,
+                // so it does not keep the copy below in bounds: the ring is 4 KiB
+                // and a `BtPacketBuf` is 1 KiB. A corrupt length field between
+                // those two sizes passes the check above and then panics on the
+                // slice. Nothing the controller can legitimately send is this
+                // long, so treat it exactly like the truncated packet above.
+                if rounded_len as usize > BT_HCI_MTU - 1 {
+                    warn!("ringbuf packet longer than the HCI buffer: {}", len);
+                    break;
+                }
+
                 self.b2h_read_pointer = (self.b2h_read_pointer + 4) % BTSDIO_FWBUF_SIZE;
 
                 // Obtain a buf from the channel.
