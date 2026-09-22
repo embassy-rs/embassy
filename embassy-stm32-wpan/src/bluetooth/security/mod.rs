@@ -31,7 +31,6 @@ use crate::bluetooth::hci::types::Status;
 #[allow(non_camel_case_types)]
 type tBleStatus = u8;
 
-#[link(name = "stm32wba_ble_stack_basic")]
 unsafe extern "C" {
     #[link_name = "ACI_GAP_SET_IO_CAPABILITY"]
     fn aci_gap_set_io_capability(io_capability: u8) -> tBleStatus;
@@ -94,9 +93,6 @@ unsafe extern "C" {
 
     #[link_name = "ACI_GAP_ADD_DEVICES_TO_LIST"]
     fn aci_gap_add_devices_to_list(num_of_list_entries: u8, list_entry: *const ListEntry, mode: u8) -> tBleStatus;
-
-    #[link_name = "ACI_GAP_CONFIGURE_FILTER_ACCEPT_LIST"]
-    fn aci_gap_configure_filter_accept_list() -> tBleStatus;
 
     #[link_name = "HCI_LE_SET_PRIVACY_MODE"]
     fn hci_le_set_privacy_mode(
@@ -837,8 +833,13 @@ impl SecurityManager {
     ///
     /// Must NOT be called while advertising/scanning/initiating is active.
     pub fn configure_filter_accept_list(&self) -> Result<(), BleError> {
+        // 1.10.0 removed `ACI_GAP_CONFIGURE_FILTER_ACCEPT_LIST`. Its replacement is
+        // `ACI_GAP_ADD_DEVICES_TO_LIST` with `Mode = FILTER_ACC_LIST_ONLY | CONFIGURE_FROM_SDB`
+        // (`ble_defs.h`), which rebuilds the list from the bond database; no explicit
+        // entries are passed for the "configure from SDB" mode.
+        const FILTER_ACC_LIST_FROM_SDB: u8 = 0x02 | 0x08;
         unsafe {
-            let status = aci_gap_configure_filter_accept_list();
+            let status = aci_gap_add_devices_to_list(0, core::ptr::null(), FILTER_ACC_LIST_FROM_SDB);
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
             } else {

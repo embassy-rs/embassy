@@ -18,7 +18,7 @@ unsafe extern "C" {
 #[cfg(feature = "wba-ble")]
 const BLE_STATUS_SUCCESS: tBleStatus = 0;
 #[cfg(feature = "wba-mac")]
-use crate::bindings::mac::ST_MAC_preInit;
+use crate::wba::bindings::mac::ST_MAC_preInit;
 // /**
 //   ******************************************************************************
 //   * @file    ll_sys_startup.c
