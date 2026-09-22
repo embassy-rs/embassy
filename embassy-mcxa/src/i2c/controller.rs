@@ -508,6 +508,20 @@ impl<'d, M: Mode> I2c<'d, M> {
         self.is_tx_fifo_empty() || self.status().is_err()
     }
 
+    /// Checks whether a STOP completed or an error prevents it from completing.
+    ///
+    /// A NACK automatically schedules a STOP, so keep waiting for the stop
+    /// detect flag instead of returning as soon as the NACK flag is visible.
+    fn is_stop_complete_or_error(&self) -> bool {
+        let msr = self.info.regs().msr().read();
+
+        if msr.sdf() == MsrSdf::IntYes {
+            return true;
+        }
+
+        !matches!(self.parse_status(&msr), Ok(()) | Err(IOError::AddressNack))
+    }
+
     /// Checks whether the RX FIFO is empty.
     fn is_rx_fifo_empty(&self) -> bool {
         self.info.regs().mfsr().read().rxcount() == 0
@@ -533,8 +547,6 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// Will also send a STOP command if the tx_fifo is empty.
     fn status_and_act(&self) -> Result<(), IOError> {
         let msr = self.info.regs().msr().read();
-        self.info.regs().msr().write(|w| *w = msr);
-
         let status = self.parse_status(&msr);
 
         if let Err(IOError::AddressNack) = status {
@@ -547,10 +559,27 @@ impl<'d, M: Mode> I2c<'d, M> {
             // If neither of those conditions is true, we will send a
             // STOP ourselves.
             if !self.info.regs().mcfgr1().read().autostop() && self.is_tx_fifo_empty() {
-                self.remediation();
+                self.send_cmd(Cmd::STOP, 0);
             }
+
+            // Keep NDF asserted until STOP completes. Clearing NDF early can
+            // release the rejected command still held by the command engine,
+            // causing its data byte to become the address of the next packet.
+            while self.info.regs().msr().read().sdf() != MsrSdf::IntYes {
+                core::hint::spin_loop();
+            }
+
+            self.reset_fifos();
+
+            // Clear NDF only after STOP has completed and queued commands have
+            // been discarded.
+            let recovery_status = self.info.regs().msr().read();
+            self.info.regs().msr().write(|w| *w = recovery_status);
+
+            return status;
         }
 
+        self.info.regs().msr().write(|w| *w = msr);
         status
     }
 
@@ -616,8 +645,9 @@ impl<'d, M: Mode> I2c<'d, M> {
 
         self.send_cmd(Cmd::STOP, 0);
 
-        // Wait for TxFIFO to be drained
-        while !self.is_tx_fifo_empty_or_error() {}
+        // Wait until STOP is observed on the bus. FIFO empty only means the
+        // command was accepted by the controller, not that it completed.
+        while !self.is_stop_complete_or_error() {}
 
         self.status_and_act()
     }
@@ -795,6 +825,16 @@ where
         });
     }
 
+    fn enable_stop_ints(&self) {
+        self.info.regs().mier().write(|w| {
+            w.set_sdie(true);
+            w.set_ndie(true);
+            w.set_alie(true);
+            w.set_feie(true);
+            w.set_pltie(true);
+        });
+    }
+
     /// Schedule sending a START command and await it being pulled from the FIFO.
     ///
     /// Does not indicate that the command was responded to.
@@ -830,10 +870,8 @@ where
         self.info
             .wait_cell()
             .wait_for(|| {
-                // enable interrupts
-                self.enable_tx_ints();
-                // if the command FIFO is empty, we're done sending stop
-                self.is_tx_fifo_empty_or_error()
+                self.enable_stop_ints();
+                self.is_stop_complete_or_error()
             })
             .await
             .map_err(|_| IOError::Other)?;
@@ -1304,10 +1342,12 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             return Ok(());
         }
 
-        // perform corrective action if the future is dropped
+        // Stop DMA before controller remediation so it cannot refill the
+        // command FIFO after the FIFO reset.
         let on_drop = OnDrop::new(|| {
-            self.remediation();
             self.info.regs().mder().modify(|w| w.set_tdde(false));
+            self.mode.tx_dma.stop();
+            self.remediation();
         });
 
         for chunk in write.chunks(DMA_MAX_TRANSFER_SIZE) {
@@ -1337,11 +1377,28 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                 self.mode.tx_dma.enable_request();
             }
 
-            // Wait for completion asynchronously
-            core::future::poll_fn(|cx| {
+            // Wait for DMA completion or an I2C bus error. A data NACK can
+            // stop peripheral DMA requests before the transfer completes, so
+            // waiting only for DMA would leave this future pending forever.
+            let result = core::future::poll_fn(|cx| {
                 let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
+                let _ = self.info.wait_cell().poll_wait(cx);
+
+                if let Err(error) = self.status() {
+                    return core::task::Poll::Ready(Err(error));
+                }
+
+                // The shared I2C ISR disables MIER after every interrupt.
+                // Re-arm all bus-error sources on each poll.
+                self.info.regs().mier().write(|w| {
+                    w.set_ndie(true);
+                    w.set_alie(true);
+                    w.set_feie(true);
+                    w.set_pltie(true);
+                });
+
                 if self.mode.tx_dma.is_done() {
-                    core::task::Poll::Ready(())
+                    core::task::Poll::Ready(Ok(()))
                 } else {
                     core::task::Poll::Pending
                 }
@@ -1352,9 +1409,12 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             cortex_m::asm::dsb();
             // Cleanup
             self.info.regs().mder().modify(|w| w.set_tdde(false));
-            unsafe {
-                self.mode.tx_dma.disable_request();
-                self.mode.tx_dma.clear_done();
+            self.mode.tx_dma.stop();
+
+            if let Err(error) = result {
+                self.remediation();
+                on_drop.defuse();
+                return Err(error);
             }
         }
 
