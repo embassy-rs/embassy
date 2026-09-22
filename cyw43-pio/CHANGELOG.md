@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Breaking: `PioSpi::write` and `PioSpi::cmd_read` no longer return a status word, and `cmd_read` no longer clocks one after the response, following the `SpiBusCyw43` change in `cyw43`.
 - Fix deterministic single-bit corruption on RP2350 backplane reads by using two DMA channels (TX + RX). The single single-channel pattern raced with the PIO state machine in debug builds, causing the LSB of the last sampled word in `cmd_read` to be cleared.
 - Breaking: `PioSpi::new` now takes two `dma::Channel` arguments (TX and RX) instead of one.
 

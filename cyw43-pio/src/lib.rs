@@ -224,8 +224,8 @@ where
         }
     }
 
-    /// Write data to peripheral and return status.
-    pub async fn write(&mut self, write: &[u32]) -> u32 {
+    /// Write data to peripheral.
+    pub async fn write(&mut self, write: &[u32]) {
         self.sm.set_enable(false);
         let write_bits = write.len() * 32 - 1;
         let read_bits = 31;
@@ -242,19 +242,23 @@ where
 
         self.sm.set_enable(true);
 
-        let mut status = 0;
+        // The device sends nothing back after a write (see `SpiBusCyw43`), but
+        // the program's read phase cannot be shorter than one word, so one is
+        // clocked in and discarded. pico-sdk reads nothing here.
+        let mut discard = 0u32;
         let (rx, tx) = self.sm.rx_tx();
-        let rx_fut = rx.dma_pull(&mut self.dma_rx, slice::from_mut(&mut status), false);
+        let rx_fut = rx.dma_pull(&mut self.dma_rx, slice::from_mut(&mut discard), false);
         let tx_fut = tx.dma_push(&mut self.dma_tx, write, false);
         embassy_futures::join::join(tx_fut, rx_fut).await;
-        status
     }
 
     /// Send command and read response into buffer.
-    pub async fn cmd_read(&mut self, cmd: u32, read: &mut [u32]) -> u32 {
+    pub async fn cmd_read(&mut self, cmd: u32, read: &mut [u32]) {
         self.sm.set_enable(false);
         let write_bits = 31;
-        let read_bits = read.len() * 32 + 32 - 1;
+        // Exactly the response, with no trailing status word (see
+        // `SpiBusCyw43`). pico-sdk's `cyw43_read_bytes` does the same.
+        let read_bits = read.len() * 32 - 1;
 
         #[cfg(feature = "defmt")]
         defmt::trace!("cmd_read write={} read={}", write_bits, read_bits);
@@ -276,16 +280,8 @@ where
         let tx_fut = tx.dma_push(&mut self.dma_tx, slice::from_ref(&cmd), false);
         embassy_futures::join::join(tx_fut, rx_fut).await;
 
-        let mut status = 0;
-        self.sm
-            .rx()
-            .dma_pull(&mut self.dma_rx, slice::from_mut(&mut status), false)
-            .await;
-
         #[cfg(feature = "defmt")]
         defmt::trace!("cmd_read cmd = {:02x} len = {} read = {:08x}", cmd, read.len(), read);
-
-        status
     }
 }
 
@@ -293,18 +289,16 @@ impl<'d, PIO, const SM: usize> SpiBusCyw43 for PioSpi<'d, PIO, SM>
 where
     PIO: Instance,
 {
-    async fn cmd_write(&mut self, write: &[u32]) -> u32 {
+    async fn cmd_write(&mut self, write: &[u32]) {
         self.cs.set_low();
-        let status = self.write(write).await;
+        self.write(write).await;
         self.cs.set_high();
-        status
     }
 
-    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) -> u32 {
+    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) {
         self.cs.set_low();
-        let status = self.cmd_read(write, read).await;
+        self.cmd_read(write, read).await;
         self.cs.set_high();
-        status
     }
 
     async fn wait_for_event(&mut self) {

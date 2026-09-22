@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Fix the gSPI backplane wedging permanently when Wi-Fi and Bluetooth are used together. The bus no longer runs with `STATUS_ENABLE`, matching the C driver and WHD.
+- Breaking: `SpiBusCyw43::cmd_write` and `cmd_read` no longer return a status word. The device no longer sends one, so implementations must not clock a trailing status word after a read, and need read nothing back after a write.
 - Return `JoinError::InvalidPassphrase` instead of panicking when joining with an invalid passphrase.
 - Add WPA3 and WPA2/WPA3 transition-mode SoftAP support.
 - The multicast hardware address filter is now managed automatically by `embassy-net`/`xarxa` through the driver trait. `Control::(add|remove)_multicast_address` is removed.

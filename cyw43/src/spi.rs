@@ -11,17 +11,23 @@ use crate::runner::{BusType, SealedBus};
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
 /// Implementors are expected to hold the CS pin low during an operation.
+///
+/// The driver configures the device without `STATUS_ENABLE`, so it does not
+/// append a status word to transfers and implementations must not clock one.
+/// Anything that needs the bus status reads `SPI_STATUS_REGISTER` for it.
 pub trait SpiBusCyw43 {
     /// Issues a write command on the bus
     /// First 32 bits of `word` are expected to be a cmd word
-    async fn cmd_write(&mut self, write: &[u32]) -> u32;
+    /// Nothing needs to be read back afterwards.
+    async fn cmd_write(&mut self, write: &[u32]);
 
     /// Issues a read command on the bus
     /// `write` is expected to be a 32 bit cmd word
-    /// `read` will contain the response of the device
+    /// `read` will contain the response of the device, and exactly `read.len()`
+    /// words should be clocked in.
     /// Backplane reads have a response delay that produces one extra unspecified word at the beginning of `read`.
     /// Callers that want to read `n` word from the backplane, have to provide a slice that is `n+1` words long.
-    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) -> u32;
+    async fn cmd_read(&mut self, write: u32, read: &mut [u32]);
 
     /// Wait for events from the Device. A typical implementation would wait for the IRQ pin to be high.
     /// The default implementation always reports ready, resulting in active polling of the device.
@@ -125,6 +131,23 @@ where
         self.backplane_window = new_window;
     }
 
+    /// Read the bus status register.
+    ///
+    /// With `STATUS_ENABLE` clear the device does not volunteer status, so
+    /// anything that wants it asks. `SPI_STATUS_REGISTER` is F0: it needs
+    /// neither the backplane nor the window, so it still answers when a
+    /// backplane read does not -- which is exactly the property wanted from the
+    /// thing used to check one.
+    ///
+    /// Written longhand rather than through `readn`, which would call back into
+    /// here for backplane reads and make this an async cycle.
+    async fn read_status(&mut self) -> u32 {
+        let cmd = cmd_word(READ, INC_ADDR, FUNC_BUS, SPI_STATUS_REGISTER, 4);
+        let mut buf = [0u32; 1];
+        self.spi.cmd_read(cmd, &mut buf).await;
+        buf[0]
+    }
+
     /// Re-issue a backplane read the device could not serve.
     ///
     /// gSPI answers a read it has no data for by setting `DATA_NOT_AVAILABLE`
@@ -170,9 +193,18 @@ where
         let len = if func == FUNC_BACKPLANE { 2 } else { 1 };
 
         for attempt in 0..=READ_RETRIES {
-            self.status = self.spi.cmd_read(cmd, &mut buf[..len]).await;
+            self.spi.cmd_read(cmd, &mut buf[..len]).await;
 
-            if func != FUNC_BACKPLANE || self.reissue(attempt).await {
+            // Only the backplane spends a transaction on status. F0 registers
+            // are always readable and F2 is checked where it is read, so asking
+            // after every register access would double the traffic to learn
+            // nothing.
+            if func != FUNC_BACKPLANE {
+                break;
+            }
+
+            self.status = self.read_status().await;
+            if self.reissue(attempt).await {
                 break;
             }
         }
@@ -184,7 +216,7 @@ where
     async fn writen(&mut self, func: u8, addr: u32, val: u32, len: u32) {
         let cmd = cmd_word(WRITE, INC_ADDR, func, addr, len);
 
-        self.status = self.spi.cmd_write(&[cmd, val]).await;
+        self.spi.cmd_write(&[cmd, val]).await;
     }
 
     async fn read32_swapped(&mut self, func: u8, addr: u32) -> u32 {
@@ -192,7 +224,7 @@ where
         let cmd = swap16(cmd);
         let mut buf = [0; 1];
 
-        self.status = self.spi.cmd_read(cmd, &mut buf).await;
+        self.spi.cmd_read(cmd, &mut buf).await;
 
         swap16(buf[0])
     }
@@ -201,7 +233,7 @@ where
         let cmd = cmd_word(WRITE, INC_ADDR, func, addr, 4);
         let buf = [swap16(cmd), swap16(val)];
 
-        self.status = self.spi.cmd_write(&buf).await;
+        self.spi.cmd_write(&buf).await;
     }
 }
 
@@ -253,7 +285,13 @@ where
                 | INTERRUPT_POLARITY_HIGH
                 | WAKE_UP
                 | 0x4 << (8 * REG_BUS_RESPONSE_DELAY)
-                | STATUS_ENABLE << (8 * REG_BUS_STATUS_ENABLE)
+                // `STATUS_ENABLE` is deliberately absent. It makes the device
+                // append a status word to every read and write, and neither
+                // reference driver turns it on: `cyw43_ll.c:1561` passes
+                // `INTR_WITH_STATUS` alone, and WHD writes `(0 & STATUS_ENABLE)`
+                // beside it. Per `cyw43_spi.h:52` `INTR_WITH_STATUS` only means
+                // anything "if status is sent", so it is inert on its own; it is
+                // kept because both references keep it.
                 | INTR_WITH_STATUS << (8 * REG_BUS_STATUS_ENABLE),
         )
         .await;
@@ -312,7 +350,8 @@ where
         let cmd = cmd_word(READ, INC_ADDR, FUNC_WLAN, 0, len_in_u8);
         let len_in_u32 = (len_in_u8 as usize).div_ceil(4);
 
-        self.status = self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
+        self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
+        self.status = self.read_status().await;
 
         if self.status & STATUS_DATA_NOT_AVAILABLE != 0 {
             // What came back is padding, and the frame the device had started is
@@ -339,7 +378,7 @@ where
         let len = buf.len() - 4;
         buf[..4].copy_from_slice(&cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, len as u32).to_le_bytes());
 
-        self.status = self.spi.cmd_write(slice32_ref(buf)).await;
+        self.spi.cmd_write(slice32_ref(buf)).await;
 
         Ok(())
     }
@@ -378,11 +417,11 @@ where
 
             for attempt in 0..=READ_RETRIES {
                 // round `buf` to word boundary, add one extra word for the response delay
-                self.status = self
-                    .spi
+                self.spi
                     .cmd_read(cmd, &mut slice32_mut(buf)[..len.div_ceil(4) + 1])
                     .await;
 
+                self.status = self.read_status().await;
                 if self.reissue(attempt).await {
                     break;
                 }
@@ -427,7 +466,7 @@ where
             );
             slice32_mut(buf)[0] = cmd;
 
-            self.status = self.spi.cmd_write(&slice32_ref(buf)[..len.div_ceil(4) + 1]).await;
+            self.spi.cmd_write(&slice32_ref(buf)[..len.div_ceil(4) + 1]).await;
 
             // Advance ptr.
             addr += len as u32;
