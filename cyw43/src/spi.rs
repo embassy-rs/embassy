@@ -35,6 +35,10 @@ const fn slice32_mut(x: &mut Aligned<A4, [u8]>) -> &mut [u32] {
     unsafe { slice::from_raw_parts_mut(x as *mut Aligned<A4, [u8]> as *mut u32, len) }
 }
 
+/// How many times to re-issue a backplane read the device answered with
+/// `DATA_NOT_AVAILABLE` before giving up on it.
+const READ_RETRIES: usize = 3;
+
 const fn slice32_ref(x: &Aligned<A4, [u8]>) -> &[u32] {
     let len = size_of_val(x).div_ceil(4);
     unsafe { slice::from_raw_parts(x as *const Aligned<A4, [u8]> as *const u32, len) }
@@ -121,13 +125,57 @@ where
         self.backplane_window = new_window;
     }
 
+    /// Re-issue a backplane read the device could not serve.
+    ///
+    /// gSPI answers a read it has no data for by setting `DATA_NOT_AVAILABLE`
+    /// in the status and clocking out padding in place of the data. The read is
+    /// not consumed: the host is expected to notice and ask again. Nothing here
+    /// looked, so the padding -- whatever the device last had in its shift
+    /// register -- was handed to the caller as a register value or a ring
+    /// pointer.
+    ///
+    /// Only the backplane re-issues. F0 registers are always readable, and F2
+    /// carries packet data where asking again would clock out the remainder of
+    /// a frame whose beginning is already lost; `wlan_read` terminates that
+    /// frame instead.
+    ///
+    /// `DATA_NOT_AVAILABLE` also latches in `REG_BUS_INTERRUPT`, so it has to be
+    /// cleared between attempts for the next status to describe only the next
+    /// transfer.
+    ///
+    /// Returns whether the data is trustworthy.
+    async fn reissue(&mut self, attempt: usize) -> bool {
+        if self.status & STATUS_DATA_NOT_AVAILABLE == 0 {
+            return true;
+        }
+
+        if attempt < READ_RETRIES {
+            self.writen(FUNC_BUS, REG_BUS_INTERRUPT, IRQ_DATA_UNAVAILABLE as u32, 2)
+                .await;
+            return false;
+        }
+
+        warn!(
+            "gSPI backplane read unanswered after {} attempts, discarding: status {:08x}",
+            READ_RETRIES, self.status
+        );
+
+        true
+    }
+
     async fn readn(&mut self, func: u8, addr: u32, len: u32) -> u32 {
         let cmd = cmd_word(READ, INC_ADDR, func, addr, len);
         let mut buf = [0; 2];
         // if we are reading from the backplane, we need an extra word for the response delay
         let len = if func == FUNC_BACKPLANE { 2 } else { 1 };
 
-        self.status = self.spi.cmd_read(cmd, &mut buf[..len]).await;
+        for attempt in 0..=READ_RETRIES {
+            self.status = self.spi.cmd_read(cmd, &mut buf[..len]).await;
+
+            if func != FUNC_BACKPLANE || self.reissue(attempt).await {
+                break;
+            }
+        }
 
         // if we read from the backplane, the result is in the second word, after the response delay
         if func == FUNC_BACKPLANE { buf[1] } else { buf[0] }
@@ -266,6 +314,24 @@ where
 
         self.status = self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
 
+        if self.status & STATUS_DATA_NOT_AVAILABLE != 0 {
+            // What came back is padding, and the frame the device had started is
+            // still open. Both reference drivers terminate it rather than
+            // re-reading, because re-reading clocks out the remainder of a packet
+            // whose beginning is already lost.
+            warn!("gSPI F2 read unanswered, terminating the frame and dropping the packet");
+            self.writen(
+                FUNC_BACKPLANE,
+                REG_BACKPLANE_FRAME_CONTROL,
+                FRAME_CONTROL_ABORT_F2_READ as u32,
+                1,
+            )
+            .await;
+            // Reading before the FIFO has drained returns zeros.
+            Timer::after_millis(1).await;
+            return Err(crate::Error);
+        }
+
         Ok(())
     }
 
@@ -298,11 +364,17 @@ where
 
             let cmd = cmd_word(READ, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
 
-            // round `buf` to word boundary, add one extra word for the response delay
-            self.status = self
-                .spi
-                .cmd_read(cmd, &mut slice32_mut(buf)[..len.div_ceil(4) + 1])
-                .await;
+            for attempt in 0..=READ_RETRIES {
+                // round `buf` to word boundary, add one extra word for the response delay
+                self.status = self
+                    .spi
+                    .cmd_read(cmd, &mut slice32_mut(buf)[..len.div_ceil(4) + 1])
+                    .await;
+
+                if self.reissue(attempt).await {
+                    break;
+                }
+            }
 
             // when writing out the data, we skip the response-delay byte
             data[..len].copy_from_slice(&buf[4..][..len]);
