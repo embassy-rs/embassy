@@ -55,15 +55,29 @@ async fn main(spawner: Spawner) {
 
     // Firmware now in ELF (see build.rs)
     macro_rules! flash_bytes {
-        ($section:literal, $path:literal) => {{
-            #[unsafe(link_section = $section)]
-            static BYTES: Aligned<A4, [u8; include_bytes!($path).len()]> = Aligned(*include_bytes!($path));
-            let bytes: &Aligned<A4, [u8]> = &BYTES;
-            bytes
+        ($env:expr, $section:literal, $path:literal) => {{
+            #[cfg(feature = "flash-fw")]
+            {
+                #[unsafe(link_section = $section)]
+                static BYTES: Aligned<A4, [u8; include_bytes!($path).len()]> = Aligned(*include_bytes!($path));
+                let bytes: &Aligned<A4, [u8]> = &BYTES;
+                bytes
+            }
+
+            #[cfg(not(feature = "flash-fw"))]
+            {
+                unsafe {
+                    core::mem::transmute::<_, &Aligned<A4, [u8]>>(core::slice::from_raw_parts(
+                        parse_bin(env!($env)) as *const u8,
+                        include_bytes!($path).len(),
+                    ))
+                }
+            }
         }};
     }
-    let fw = flash_bytes!(".cyw43_fw", "../../../../cyw43-firmware/43439A0.bin");
-    let clm = flash_bytes!(".cyw43_clm", "../../../../cyw43-firmware/43439A0_clm.bin");
+    let fw = flash_bytes!("CYW43_FW", ".cyw43_fw", "../../../../cyw43-firmware/43439A0.bin");
+    let clm = flash_bytes!("CYW43_CLM", ".cyw43_clm", "../../../../cyw43-firmware/43439A0_clm.bin");
+
     let nvram = aligned_bytes!("../../../../cyw43-firmware/nvram_rp2040.bin");
 
     let pwr = Output::new(p.PIN_23, Level::Low);
@@ -146,4 +160,26 @@ async fn main(spawner: Spawner) {
 
     info!("Test OK");
     cortex_m::asm::bkpt();
+}
+
+#[cfg(not(feature = "flash-fw"))]
+const fn parse_bin(s: &str) -> usize {
+    let bytes = s.as_bytes();
+
+    let mut i = 0;
+    let mut value = 0usize;
+
+    while i < bytes.len() {
+        value <<= 1;
+
+        match bytes[i] {
+            b'0' => {}
+            b'1' => value |= 1,
+            _ => core::unreachable!(),
+        }
+
+        i += 1;
+    }
+
+    value
 }
