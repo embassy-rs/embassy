@@ -47,6 +47,9 @@ async fn main(_spawner: Spawner) {
     // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
     config.rcc.supply_config = SupplyConfig::External;
     let p = embassy_stm32::init(config);
+    // The STM32N6 boot ROM can jump to SRAM applications with PRIMASK set.
+    // Embassy timers and the GPU2D error/cache-hold path require interrupts.
+    unsafe { cortex_m::interrupt::enable() };
     #[cfg(feature = "stub-gpu2d")]
     let _ = p;
 

@@ -80,8 +80,16 @@ async fn main(_spawner: Spawner) {
     config.rcc.cpu = CpuClk::Ic1;
     config.rcc.sys = SysClk::Ic2;
 
-    // PLL4: 32 MHz pixel clock for LTDC.
-    config.rcc.pll4 = Some(Pll::Bypass { source: Pllsel::Hsi });
+    // PLL4: HSI 64 MHz / 4 * 25 / 4 / 2 = 50 MHz. IC16 / 2 gives the
+    // 25 MHz LTDC pixel clock used by the STM32CubeN6 board support package.
+    config.rcc.pll4 = Some(Pll::Oscillator {
+        source: Pllsel::Hsi,
+        divm: Plldivm::Div4,
+        fractional: 0,
+        divn: 25,
+        divp1: Pllpdiv::Div4,
+        divp2: Pllpdiv::Div2,
+    });
     config.rcc.ic16 = Some(IcConfig {
         source: Icsel::Pll4,
         divider: Icint::Div2,
@@ -89,6 +97,9 @@ async fn main(_spawner: Spawner) {
     config.rcc.mux.ltdcsel = Ltdcsel::Ic16;
 
     let p = embassy_stm32::init(config);
+    // The STM32N6 boot ROM can jump to SRAM applications with PRIMASK set.
+    // Timers, LTDC vblank waits, and GPU2D cache-hold handling need interrupts.
+    unsafe { cortex_m::interrupt::enable() };
     info!("stm32n6 neochrom_lcd demo starting");
 
     enable_all_sram();
@@ -210,7 +221,9 @@ async fn main(_spawner: Spawner) {
         gpu.blit_rotate_in_frame(&sprite, WIDTH as i32 - 120, HEIGHT as i32 - 120, angle)
             .expect("blit_rotate failed");
 
-        gpu.end_frame_async().await.expect("GPU frame failed");
+        // The GPU2D error interrupt is owned by the NemaGFX cache-hold hook, so
+        // it cannot also wake the command-list-complete future.
+        gpu.end_frame().expect("GPU frame failed");
 
         let t_flip = Instant::now();
         ltdc.set_buffer(LtdcLayer::Layer1, back.phys_addr() as *const ())
