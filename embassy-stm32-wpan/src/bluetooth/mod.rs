@@ -35,26 +35,20 @@ use crate::bluetooth::hci::types::DtmPacketPayload;
 use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy, RadioActivityMask};
 use crate::bluetooth::security::{SecurityEvent, SecurityManager, from_vendor_event as security_from_vendor_event};
 use crate::controller::{Controller, ControllerAdapter};
-use crate::{BasicRuntime, FullRuntime, HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
+use crate::{HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
 
 trait SealedMode {}
 #[allow(private_bounds)]
-pub trait Mode: SealedMode {
-    type Runtime: Runtime;
-}
+pub trait Mode: SealedMode {}
 
 pub struct Normal;
 pub struct Test;
 
 impl SealedMode for Normal {}
-impl Mode for Normal {
-    type Runtime = FullRuntime;
-}
+impl Mode for Normal {}
 
 impl SealedMode for Test {}
-impl Mode for Test {
-    type Runtime = BasicRuntime;
-}
+impl Mode for Test {}
 
 /// Main BLE interface
 ///
@@ -65,11 +59,11 @@ impl Mode for Test {
 /// ```no_run
 /// use embassy_stm32_wpan::{HCI, gap::{AdvData, AdvParams}};
 ///
-///  // Spawn the BLE runner task (required for proper BLE operation)
-///  spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
+/// // Spawn the BLE runner task (required for proper BLE operation)
+/// spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 ///
 /// // Initialize BLE stack (runner must be spawned first)
-/// let mut ble = HCI::new(new_controller_state!(8), rng, aes, pka, irqs).await.unwrap();
+/// let mut ble = HCI::new(platform, runtime, irqs).await.unwrap();
 ///
 /// // Create advertising data
 /// let mut adv_data = AdvData::new();
@@ -85,8 +79,18 @@ impl Mode for Test {
 ///     // Handle BLE events
 /// }
 /// ```
+///
+/// # Crypto
+///
+/// Full BLE operation requires `embassy-crypto` drivers registered for the
+/// operations the BLE stack uses: AES-128 ECB ([`embassy_crypto::Aes128`]),
+/// AES-128 CMAC ([`embassy_crypto::Aes128Cmac`]), AES-128 CCM
+/// ([`embassy_crypto::Aes128Ccm`]) and P-256 arithmetic
+/// ([`embassy_crypto::p256`]). The drivers are selected by the final binary,
+/// e.g. via the matching `embassy-crypto-*` features of `embassy-stm32` or via
+/// `embassy-crypto-rustcrypto`.
 pub struct HCI<'d, M: Mode> {
-    controller: ControllerAdapter<'d, M::Runtime>,
+    controller: ControllerAdapter<'d>,
     cmd_sender: CommandSender,
     connections: ConnectionManager<MAX_CONNECTIONS>,
     is_advertising: bool,
@@ -97,11 +101,11 @@ pub struct HCI<'d, M: Mode> {
 impl<'d> HCI<'d, Normal> {
     /// Create a new BLE instance
     ///
-    /// Requires hardware peripheral instances for RNG, AES, and PKA.
-    /// These are stored in statics so the BLE stack's `extern "C"` callbacks can access them.
+    /// Requires the shared [`Platform`] (RNG) and `embassy-crypto` drivers for
+    /// AES-128 and P-256; see the [type-level documentation](Self#crypto).
     pub async fn new(
         platform: &'static Platform,
-        runtime: &'d mut FullRuntime,
+        runtime: &'d mut Runtime,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
@@ -114,7 +118,7 @@ impl<'d> HCI<'d, Normal> {
     /// `ACI_GAP_START_OBSERVATION_PROC` to succeed).
     pub async fn new_with_role(
         platform: &'static Platform,
-        runtime: &'d mut FullRuntime,
+        runtime: &'d mut Runtime,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
         role: GapRole,
@@ -132,7 +136,7 @@ impl<'d> HCI<'d, Normal> {
     /// init parameter — e.g. a fixed public address.
     pub async fn new_with_gap_params(
         platform: &'static Platform,
-        runtime: &'d mut FullRuntime,
+        runtime: &'d mut Runtime,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
         gap_params: GapInitParams,
@@ -860,20 +864,20 @@ impl<'d> HCI<'d, Normal> {
 impl<'d> HCI<'d, Test> {
     /// Create a BLE instance for Direct Test Mode (DTM) only.
     ///
-    /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
-    /// (TX test, RX test, tone) where no pairing or crypto is used. Do not use
-    /// for full BLE (advertising, connections, GATT) as those require AES/PKA.
+    /// Use this for FCC DTM (TX test, RX test, tone) where no pairing or crypto
+    /// is used. Full BLE (advertising, connections, GATT) uses `new` instead,
+    /// which additionally initializes GATT and GAP.
     ///
     /// Performs the minimum initialization required before issuing DTM commands
     /// (HCI_LE_Transmitter_Test, HCI_LE_Receiver_Test, HCI_LE_Test_End).
     /// Does not initialize GATT or GAP — those layers are not used in DTM.
-    pub async fn new_dtm<T: Runtime>(
+    pub async fn new_dtm(
         platform: &'static Platform,
-        runtime: &'d mut T,
+        runtime: &'d mut Runtime,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
-        let controller = Controller::new(platform, runtime.to_basic(), irq)
+        let controller = Controller::new(platform, runtime, irq)
             .await
             .map_err(|_| BleError::InitializationFailed)?;
 
@@ -976,13 +980,13 @@ impl<'d, M: Mode> HCI<'d, M> {
     /// hardware to its initial state), and zeroes the host stack memory buffers so
     /// `init_ble_stack()` can reinitialize cleanly on the next `HCI::new()` call.
     ///
-    /// The returned `&'static mut ControllerState` can be passed directly to the next
+    /// The returned [`Runtime`] can be passed directly to the next
     /// `HCI::new()` or `HCI::new_dtm()` call, enabling multiple DTM cycles per boot
     /// without re-initializing the underlying static buffers.
     ///
     /// # Returns
     ///
-    /// - `Ok(&'static mut ControllerState)` on success
+    /// - `Ok(())` on success
     /// - `Err(BleError)` if the HCI reset failed
     pub fn deinit(mut self) -> Result<(), BleError> {
         // Terminate all active connections cleanly

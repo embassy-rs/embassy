@@ -88,20 +88,21 @@ impl Default for ChannelPacket {
     }
 }
 
-pub struct Controller<'d, T: Runtime> {
-    _runtime: &'d mut T,
+pub struct Controller<'d> {
+    _runtime: &'d mut Runtime,
     receiver: zerocopy_channel::Receiver<'static, CriticalSectionRawMutex, ChannelPacket>,
     cmd_buf: ([u8; 255], usize),
 }
 
-impl<'d, T: Runtime> Controller<'d, T> {
+impl<'d> Controller<'d> {
     /// Create a new BLE instance
     ///
-    /// Requires hardware peripheral instances for RNG, AES, and PKA.
-    /// These are stored in statics so the BLE stack's `extern "C"` callbacks can access them.
+    /// Requires the shared [`Platform`] (RNG) and an embassy-crypto driver
+    /// registered for each operation the BLE stack uses: AES-128 (ECB, CMAC,
+    /// CCM) and P-256 arithmetic.
     pub async fn new(
         platform: &'static Platform,
-        runtime: &'d mut T,
+        runtime: &'d mut Runtime,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, ()> {
@@ -227,14 +228,14 @@ impl<'d, T: Runtime> Controller<'d, T> {
 const ERR: bt_hci::cmd::Error<embedded_io::ErrorKind> = bt_hci::cmd::Error::Io(embedded_io::ErrorKind::InvalidData);
 
 #[cfg(feature = "bt-hci")]
-pub struct ControllerAdapter<'d, T: Runtime> {
-    controller: NoopMutex<RefCell<Controller<'d, T>>>,
+pub struct ControllerAdapter<'d> {
+    controller: NoopMutex<RefCell<Controller<'d>>>,
     pending_evt: AtomicBool,
 }
 
 #[cfg(feature = "bt-hci")]
-impl<'d, T: Runtime> ControllerAdapter<'d, T> {
-    pub const fn new(controller: Controller<'d, T>) -> Self {
+impl<'d> ControllerAdapter<'d> {
+    pub const fn new(controller: Controller<'d>) -> Self {
         Self {
             controller: NoopMutex::const_new(NoopRawMutex::new(), RefCell::new(controller)),
             pending_evt: AtomicBool::new(false),
@@ -243,12 +244,12 @@ impl<'d, T: Runtime> ControllerAdapter<'d, T> {
 }
 
 #[cfg(feature = "bt-hci")]
-impl<'d, T: Runtime> embedded_io::ErrorType for ControllerAdapter<'d, T> {
+impl<'d> embedded_io::ErrorType for ControllerAdapter<'d> {
     type Error = embedded_io::ErrorKind;
 }
 
 #[cfg(feature = "bt-hci")]
-impl<'d, T: Runtime> bt_hci::controller::Controller for ControllerAdapter<'d, T> {
+impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
     // Received packets borrow the controller's own event slots, not a caller buffer.
     type Buffer<'a> = ();
 
@@ -317,7 +318,7 @@ impl<'d, T: Runtime> bt_hci::controller::Controller for ControllerAdapter<'d, T>
 }
 
 #[cfg(feature = "bt-hci")]
-impl<'d, T: Runtime, C> bt_hci::controller::ControllerCmdSync<C> for ControllerAdapter<'d, T>
+impl<'d, C> bt_hci::controller::ControllerCmdSync<C> for ControllerAdapter<'d>
 where
     C: bt_hci::cmd::SyncCmd,
 {
@@ -342,7 +343,7 @@ where
 }
 
 #[cfg(feature = "bt-hci")]
-impl<'d, T: Runtime, C> bt_hci::controller::ControllerCmdAsync<C> for ControllerAdapter<'d, T>
+impl<'d, C> bt_hci::controller::ControllerCmdAsync<C> for ControllerAdapter<'d>
 where
     C: bt_hci::cmd::AsyncCmd,
 {
@@ -366,7 +367,7 @@ where
     }
 }
 
-impl<'d, T: Runtime> Drop for Controller<'d, T> {
+impl<'d> Drop for Controller<'d> {
     fn drop(&mut self) {
         // Zero host stack buffers and reset the one-time LL init guard so
         // init_ble_stack() → BleStack_Init() can run cleanly on next Ble::new().

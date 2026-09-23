@@ -13,15 +13,50 @@ use embassy_crypto::Error as CryptoError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::{Mutex, MutexGuard};
 
-#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
+#[cfg(any(
+    feature = "embassy-crypto-aes128-cbc",
+    all(feature = "embassy-crypto-aes256-cbc", not(aes_v1))
+))]
+use crate::crypto::AesCbc;
+#[cfg(all(
+    not(all(feature = "embassy-crypto-saes", saes_v1b)),
+    any(
+        feature = "embassy-crypto-aes128-ctr",
+        all(feature = "embassy-crypto-aes256-ctr", not(aes_v1))
+    )
+))]
 use crate::crypto::AesCtr;
-#[cfg(not(any(cryp_v1, aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
+#[cfg(any(
+    feature = "embassy-crypto-aes128-ecb",
+    all(feature = "embassy-crypto-aes256-ecb", not(aes_v1))
+))]
+use crate::crypto::AesEcb;
+#[cfg(all(
+    not(any(cryp_v1, aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))),
+    any(feature = "embassy-crypto-aes128-gcm", feature = "embassy-crypto-aes256-gcm")
+))]
 use crate::crypto::AesGcm;
-#[cfg(not(any(cryp_v1, aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
+#[cfg(all(
+    not(any(cryp_v1, aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))),
+    any(
+        feature = "embassy-crypto-aes128-gcm",
+        feature = "embassy-crypto-aes256-gcm",
+        feature = "embassy-crypto-aes128-ccm",
+        feature = "embassy-crypto-aes256-ccm"
+    )
+))]
 use crate::crypto::CcmOp;
-#[cfg(not(any(cryp_v1, aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
+#[cfg(all(
+    not(any(cryp_v1, aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))),
+    any(
+        feature = "embassy-crypto-aes128-gcm",
+        feature = "embassy-crypto-aes256-gcm",
+        feature = "embassy-crypto-aes128-ccm",
+        feature = "embassy-crypto-aes256-ccm"
+    )
+))]
 use crate::crypto::CipherAuthenticated;
-use crate::crypto::{AesCbc, AesEcb, BlockingCipherOps, Cipher, CipherSized, Direction, IVSized};
+use crate::crypto::{BlockingCipherOps, Cipher, CipherSized, Direction, IVSized};
 #[cfg(any(cryp, aes_v3a, aes_v3b, feature = "embassy-crypto-saes"))]
 use crate::mode::Blocking;
 use crate::suspend::ResumablePeripheral;
@@ -180,6 +215,7 @@ where
     Ok(())
 }
 
+#[cfg(any(feature = "embassy-crypto-aes128-gcm", feature = "embassy-crypto-aes256-gcm"))]
 #[cfg(not(any(cryp_v1, aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 macro_rules! define_gcm_runner {
     ($name:ident, $key_size:expr) => {
@@ -203,8 +239,10 @@ macro_rules! define_gcm_runner {
     };
 }
 
+#[cfg(feature = "embassy-crypto-aes128-gcm")]
 #[cfg(not(any(cryp_v1, aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 define_gcm_runner!(run_gcm128, 16);
+#[cfg(feature = "embassy-crypto-aes256-gcm")]
 #[cfg(not(any(cryp_v1, aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 define_gcm_runner!(run_gcm256, 32);
 

@@ -21,10 +21,8 @@
 
 use defmt::*;
 use defmt_rtt as _;
+use embassy_crypto_rustcrypto as _;
 use embassy_executor::Spawner;
-use embassy_stm32::aes::{self, Aes};
-use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
-use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc::{self};
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts};
@@ -42,8 +40,6 @@ use stm32wb_hci::vendor::event::VendorEvent;
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
-    AES => aes::InterruptHandler<AesPeriph>;
-    PKA => pka::InterruptHandler<PkaPeriph>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
 });
@@ -72,14 +68,9 @@ async fn main(spawner: Spawner) {
     info!("Embassy STM32WBA BLE Secure Peripheral Example");
 
     // Initialize hardware peripherals required by BLE stack
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Pka::new(p.PKA, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        8
-    );
+    let (platform, runtime) = new_platform!(Rng::new(p.RNG, Irqs), 8);
 
-    info!("Hardware peripherals initialized (RNG, AES, PKA)");
+    info!("Hardware peripherals initialized (RNG)");
 
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));

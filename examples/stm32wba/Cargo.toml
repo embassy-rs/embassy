@@ -6,8 +6,9 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba55cg", "time-driver-any", "memory-x", "exti", "unstable-pac"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba55cg", "time-driver-any", "memory-x", "exti", "unstable-pac", "embassy-crypto-aes128-ecb", "embassy-crypto-aes128-ccm", "embassy-crypto-p256-arith"]  }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba55cg", "ble-stack-basic", "linklayer-ble-basic"] }
+embassy-crypto-rustcrypto = { version = "0.1.0", path = "../../embassy-crypto-rustcrypto", features = ["embassy-crypto-aes128-cmac"], optional = true }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
@@ -29,7 +30,7 @@ stm32wb-hci = { git = "https://github.com/embassy-rs/stm32wb-hci", branch = "dev
 [features]
 default = ["ble"]
 mac = ["embassy-stm32-wpan/wba-mac", "dep:embassy-net"]
-ble = ["embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/wb-hci"]
+ble = ["embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/wb-hci", "dep:embassy-crypto-rustcrypto"]
 
 [[bin]]
 name = "mac_ffd"

@@ -82,12 +82,9 @@ use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
 use cortex_m::register::basepri;
 use critical_section;
+use embassy_crypto::{Aes128, Aes128Ccm, Aes128Cmac, p256};
 use embassy_stm32::NVIC_PRIO_BITS;
-use embassy_stm32::aes::{AesEcb, Direction};
-use embassy_stm32::mode::Async;
 use embassy_stm32::pac::{FLASH, PWR, RCC};
-use embassy_stm32::peripherals::PKA as PkaPeriph;
-use embassy_stm32::pka::{EccPoint, EcdsaCurveParams, Pka};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::zerocopy_channel;
 use embassy_time::{Duration, Instant, block_for};
@@ -98,6 +95,7 @@ use crate::controller::ChannelPacket;
 use crate::platform::Platform;
 use crate::wba::bindings::{link_layer, mac};
 use crate::wba::host_if::{TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST};
+use crate::wba::platform::P256Request;
 use crate::wba::util_seq;
 
 // RADIO interrupt numbers for STM32WBA
@@ -166,104 +164,27 @@ const fn get_channel() -> &'static mut zerocopy_channel::Sender<'static, Critica
 }
 
 // ============================================================================
-// AES-128 ECB Hardware Acceleration (Embassy driver)
+// AES-128 ECB (embassy-crypto driver)
 // ============================================================================
 
-/// Perform AES-128 ECB encryption using the Embassy AES driver.
+/// Perform AES-128 ECB encryption using the `embassy-crypto` driver registered
+/// for [`Aes128`] (selected by the final binary).
 fn aes_ecb_encrypt(key: &[u8; 16], input: &[u8; 16], output: &mut [u8; 16]) {
-    get_platform().borrow_aes(|aes| {
-        let cipher = AesEcb::new(key);
-        let mut ctx = aes.start(&cipher, Direction::Encrypt);
-        aes.payload_blocking(&mut ctx, input, output, true).unwrap();
-        aes.finish_blocking(ctx).unwrap();
-    });
+    let cipher = Aes128::new(key);
+    let mut block = *input;
+    cipher.encrypt_block(&mut block);
+    *output = block;
 }
 
 // ============================================================================
-// AES-CMAC (RFC 4493) Implementation
+// AES-CMAC (RFC 4493), via the `embassy-crypto` CMAC driver
 // ============================================================================
 
 /// Stored CMAC key for multi-step CMAC operations
 static mut CMAC_KEY: [u8; 16] = [0u8; 16];
 
-/// Left-shift a 16-byte block by 1 bit and conditionally XOR with Rb (0x87)
-fn cmac_shift_and_xor(input: &[u8; 16]) -> [u8; 16] {
-    let mut output = [0u8; 16];
-    let mut carry: u8 = 0;
-    for i in (0..16).rev() {
-        output[i] = (input[i] << 1) | carry;
-        carry = input[i] >> 7;
-    }
-    // If MSB of input was set, XOR last byte with 0x87 (Rb constant for AES-128)
-    if input[0] & 0x80 != 0 {
-        output[15] ^= 0x87;
-    }
-    output
-}
-
-/// Generate CMAC subkeys K1 and K2 from the cipher key
-fn cmac_generate_subkeys(key: &[u8; 16]) -> ([u8; 16], [u8; 16]) {
-    let zero_block = [0u8; 16];
-    let mut l = [0u8; 16];
-    aes_ecb_encrypt(key, &zero_block, &mut l);
-
-    let k1 = cmac_shift_and_xor(&l);
-    let k2 = cmac_shift_and_xor(&k1);
-
-    (k1, k2)
-}
-
-/// Compute AES-CMAC tag per RFC 4493
-fn cmac_compute(key: &[u8; 16], input: &[u8], output: &mut [u8; 16]) {
-    let (k1, k2) = cmac_generate_subkeys(key);
-
-    let n = input.len();
-    let n_blocks = if n == 0 { 1 } else { (n + 15) / 16 };
-    let complete = n != 0 && (n % 16 == 0);
-
-    // Prepare the last block
-    let mut last_block = [0u8; 16];
-    if complete {
-        // Complete block: XOR with K1
-        let start = (n_blocks - 1) * 16;
-        for i in 0..16 {
-            last_block[i] = input[start + i] ^ k1[i];
-        }
-    } else {
-        // Incomplete block: pad with 10...0, XOR with K2
-        let start = (n_blocks - 1) * 16;
-        let remaining = n - start;
-        for i in 0..remaining {
-            last_block[i] = input[start + i];
-        }
-        last_block[remaining] = 0x80; // padding bit
-        // rest is already 0
-        for i in 0..16 {
-            last_block[i] ^= k2[i];
-        }
-    }
-
-    // CBC-MAC chain: X starts as zero, then X = AES(K, X ^ M_i)
-    let mut x = [0u8; 16];
-    for i in 0..n_blocks - 1 {
-        let start = i * 16;
-        let mut y = [0u8; 16];
-        for j in 0..16 {
-            y[j] = x[j] ^ input[start + j];
-        }
-        aes_ecb_encrypt(key, &y, &mut x);
-    }
-
-    // Final block
-    let mut y = [0u8; 16];
-    for j in 0..16 {
-        y[j] = x[j] ^ last_block[j];
-    }
-    aes_ecb_encrypt(key, &y, output);
-}
-
 // ============================================================================
-// PKA P-256 Hardware Acceleration (Embassy driver)
+// P-256 scalar multiplication (embassy-crypto driver)
 // ============================================================================
 
 /// Call BLEPLATCB_PkaComplete if a PKA callback was deferred.
@@ -274,8 +195,8 @@ pub fn dispatch_pka_callback() {
 }
 
 /// Convert u32 LE word array (index 0 = LSW) to big-endian byte array.
-/// This is needed because the BLE stack uses u32 LE words, but the Embassy
-/// PKA driver uses big-endian byte arrays.
+/// This is needed because the BLE stack uses u32 LE words, while `embassy-crypto`
+/// uses big-endian byte arrays.
 fn words_le_to_be_bytes(words: &[u32; 8], bytes: &mut [u8; 32]) {
     for i in 0..8 {
         let be = words[7 - i].to_be_bytes();
@@ -290,38 +211,56 @@ fn be_bytes_to_words_le(bytes: &[u8], words: &mut [u32; 8]) {
     }
 }
 
-/// Perform P-256 ECC scalar multiplication using the Embassy PKA driver.
-/// k and point coordinates are u32 arrays in LE word order (index 0 = LSW).
-/// Returns 0 on success, non-zero on error.
-pub async fn pka_p256_mul(
-    pka: &mut Pka<'static, PkaPeriph, Async>,
-    k: &[u32; 8],
-    px: &[u32; 8],
-    py: &[u32; 8],
-    rx: &mut [u32; 8],
-    ry: &mut [u32; 8],
-) {
-    // Convert from BLE stack u32 LE words to big-endian bytes for Embassy PKA driver
-    let mut k_be = [0u8; 32];
-    let mut px_be = [0u8; 32];
-    let mut py_be = [0u8; 32];
-    words_le_to_be_bytes(k, &mut k_be);
-    words_le_to_be_bytes(px, &mut px_be);
-    words_le_to_be_bytes(py, &mut py_be);
+/// Encode a scalar and affine point as BLE-stack u32 LE words.
+/// All-zero words signal an error to `BLEPLAT_PkaReadP256Key`/`BLEPLAT_PkaReadDhKey`.
+fn p256_point_to_words(p: &p256::Point) -> ([u32; 8], [u32; 8]) {
+    let Some(affine) = p.to_affine() else {
+        return ([0u32; 8], [0u32; 8]);
+    };
+    let mut x = [0u32; 8];
+    let mut y = [0u32; 8];
+    be_bytes_to_words_le(&affine.x, &mut x);
+    be_bytes_to_words_le(&affine.y, &mut y);
+    (x, y)
+}
 
-    let curve = EcdsaCurveParams::nist_p256();
-    let mut result = EccPoint::new(32);
+/// Compute a P-256 operation requested by the BLE stack, using the
+/// `embassy-crypto` arithmetic driver registered for [`p256`].
+///
+/// `k` and the point coordinates are u32 arrays in LE word order (index 0 = LSW).
+/// Returns all-zero coordinates on any error (invalid scalar, point off the
+/// curve, or the point at infinity).
+pub fn p256_compute(req: &P256Request) -> ([u32; 8], [u32; 8]) {
+    fn scalar_from_words(words: &[u32; 8]) -> Option<p256::Scalar> {
+        let mut be = [0u8; 32];
+        words_le_to_be_bytes(words, &mut be);
+        p256::Scalar::from_bytes(&be).ok()
+    }
 
-    match pka.ecc_mul(&curve, &k_be, &px_be, &py_be, &mut result).await {
-        Ok(()) => {
-            // Convert result from big-endian bytes back to u32 LE words
-            be_bytes_to_words_le(&result.x[..32], rx);
-            be_bytes_to_words_le(&result.y[..32], ry);
+    match req {
+        P256Request::PublicKey { k } => {
+            let Some(scalar) = scalar_from_words(k) else {
+                warn!("PKA P-256 key: invalid scalar");
+                return ([0u32; 8], [0u32; 8]);
+            };
+            p256_point_to_words(&p256::Point::mul_base(&scalar))
         }
-        Err(e) => {
-            warn!("PKA ECC mul failed: {}", e);
+        P256Request::DhKey { k, peer_x, peer_y } => {
+            let (Some(scalar), Some(point)) = (scalar_from_words(k), point_from_words(peer_x, peer_y)) else {
+                warn!("PKA P-256 DH: invalid scalar or peer point");
+                return ([0u32; 8], [0u32; 8]);
+            };
+            p256_point_to_words(&point.mul(&scalar))
         }
     }
+}
+
+fn point_from_words(x: &[u32; 8], y: &[u32; 8]) -> Option<p256::Point> {
+    let mut x_be = [0u8; 32];
+    let mut y_be = [0u8; 32];
+    words_le_to_be_bytes(x, &mut x_be);
+    words_le_to_be_bytes(y, &mut y_be);
+    p256::Point::from_xy(&x_be, &y_be).ok()
 }
 
 // ============================================================================
@@ -1503,8 +1442,8 @@ pub unsafe extern "C" fn LINKLAYER_DEBUG_SIGNAL_TOGGLE() {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn BLEPLAT_Init() {
     trace!("BLEPLAT_Init");
-    // AES and PKA clocks are enabled by their respective Embassy driver constructors
-    // (Aes::new_blocking and Pka::new_blocking call rcc::enable_and_reset)
+    // AES and P-256 operations go through `embassy-crypto`'s link-time drivers,
+    // which take care of their own peripheral setup. Nothing to do here.
 }
 
 /// Get random numbers from RNG
@@ -1527,7 +1466,8 @@ pub unsafe extern "C" fn BLEPLAT_RngGet(n: u8, val: *mut u32) {
     }
 }
 
-/// AES ECB encrypt function using hardware AES peripheral.
+/// AES ECB encrypt function using the `embassy-crypto` driver registered
+/// for [`Aes128`].
 ///
 /// Used by the BLE stack for random address hash calculation and
 /// other cryptographic operations.
@@ -1573,7 +1513,8 @@ pub unsafe extern "C" fn BLEPLAT_AesCmacSetKey(key: *const u8) {
 /// AES CMAC compute function (RFC 4493).
 ///
 /// Computes a 16-byte CMAC tag over the input data using the key
-/// previously set by BLEPLAT_AesCmacSetKey.
+/// previously set by BLEPLAT_AesCmacSetKey, via the `embassy-crypto`
+/// CMAC driver registered for [`Aes128Cmac`].
 ///
 /// # Arguments
 /// * `input` - Input data
@@ -1596,189 +1537,26 @@ pub unsafe extern "C" fn BLEPLAT_AesCmacCompute(input: *const u8, input_length: 
 
     let output_slice: &mut [u8; 16] = &mut *(output_tag as *mut [u8; 16]);
 
-    cmac_compute(&CMAC_KEY, input_slice, output_slice);
+    *output_slice = Aes128Cmac::mac(&CMAC_KEY, input_slice);
 }
 
 // ============================================================================
-// AES-CCM (RFC 3610 / NIST SP 800-38C) Implementation
-// Built on top of AES-ECB hardware acceleration.
+// AES-CCM (RFC 3610 / NIST SP 800-38C), via the `embassy-crypto` CCM driver
 // ============================================================================
 
-/// XOR 16-byte blocks: dst ^= src
-fn xor_block(dst: &mut [u8; 16], src: &[u8; 16]) {
-    for i in 0..16 {
-        dst[i] ^= src[i];
-    }
-}
-
-/// Format the CCM B0 block (first block for CBC-MAC).
-/// flags = 64*Adata + 8*((t-2)/2) + (q-1) where q = 15 - iv_length
-fn ccm_format_b0(iv: &[u8], iv_length: usize, add_length: usize, input_length: u32, tag_length: usize) -> [u8; 16] {
-    let q = 15 - iv_length; // number of bytes for message length encoding
-    let adata = if add_length > 0 { 1 } else { 0 };
-    let flags = (adata << 6) | ((((tag_length as u8) - 2) / 2) << 3) | ((q as u8) - 1);
-
-    let mut b0 = [0u8; 16];
-    b0[0] = flags;
-    b0[1..1 + iv_length].copy_from_slice(&iv[..iv_length]);
-
-    // Encode message length in the last q bytes (big-endian)
-    let len_bytes = input_length.to_be_bytes();
-    for i in 0..q {
-        let src_idx = 4usize.saturating_sub(q) + i;
-        if src_idx < 4 {
-            b0[16 - q + i] = len_bytes[src_idx];
-        }
-    }
-    b0
-}
-
-/// Format CCM counter block Ai. flags = (q-1), then IV, then counter.
-fn ccm_format_ctr(iv: &[u8], iv_length: usize, counter: u32) -> [u8; 16] {
-    let q = 15 - iv_length;
-    let mut a = [0u8; 16];
-    a[0] = (q as u8) - 1;
-    a[1..1 + iv_length].copy_from_slice(&iv[..iv_length]);
-
-    // Counter in last q bytes (big-endian)
-    let ctr_bytes = counter.to_be_bytes();
-    for i in 0..q {
-        let src_idx = 4usize.saturating_sub(q) + i;
-        if src_idx < 4 {
-            a[16 - q + i] = ctr_bytes[src_idx];
-        }
-    }
-    a
-}
-
-/// AES-CCM encrypt or decrypt (RFC 3610).
-/// mode: 0 = encrypt, 1 = decrypt
-/// Returns BLEPLAT_OK (0) on success, BLEPLAT_ERROR (-5) on failure.
-fn aes_ccm_crypt(
-    mode: u8,
-    key: &[u8; 16],
-    iv: &[u8],
-    iv_length: usize,
-    aad: &[u8],
-    input: &[u8],
-    tag_length: usize,
-    tag: &mut [u8],
-    output: &mut [u8],
-) -> i32 {
-    let input_length = input.len() as u32;
-
-    // ---- CBC-MAC to compute/verify authentication tag ----
-    // For encryption: compute CBC-MAC over (B0 || AAD || plaintext)
-    // For decryption: compute CBC-MAC over (B0 || AAD || decrypted plaintext)
-    // We do the decryption first if needed, then compute tag.
-
-    // ---- CTR mode for encryption/decryption ----
-    // A0 is used to encrypt the tag, A1..An encrypt the payload
-    let mut ctr: u32 = 1;
-    let payload = input;
-    let payload_len = payload.len();
-
-    // CTR-mode encrypt/decrypt the payload
-    for offset in (0..payload_len).step_by(16) {
-        let a_i = ccm_format_ctr(iv, iv_length, ctr);
-        let mut keystream = [0u8; 16];
-        aes_ecb_encrypt(key, &a_i, &mut keystream);
-
-        let chunk_len = core::cmp::min(16, payload_len - offset);
-        for j in 0..chunk_len {
-            output[offset + j] = payload[offset + j] ^ keystream[j];
-        }
-        ctr += 1;
-    }
-
-    // Determine plaintext for CBC-MAC
-    let plaintext: &[u8] = if mode == 0 { input } else { &output[..payload_len] };
-
-    // Helper: CBC-MAC step — mac = AES(key, mac XOR block)
-    // Uses a temp buffer to avoid aliasing &mac and &mut mac.
-    let mut mac = [0u8; 16];
-    #[allow(unused_assignments)]
-    let mut tmp = [0u8; 16];
-
-    // CBC-MAC: start with B0
-    let b0 = ccm_format_b0(iv, iv_length, aad.len(), input_length, tag_length);
-    aes_ecb_encrypt(key, &b0, &mut mac);
-
-    // CBC-MAC: process AAD if present
-    if !aad.is_empty() {
-        // AAD header: encode length (assume < 65280, so 2-byte encoding)
-        let mut block = [0u8; 16];
-        let aad_len = aad.len();
-        block[0] = (aad_len >> 8) as u8;
-        block[1] = (aad_len & 0xFF) as u8;
-
-        let first_chunk = core::cmp::min(aad_len, 14);
-        block[2..2 + first_chunk].copy_from_slice(&aad[..first_chunk]);
-        xor_block(&mut mac, &block);
-        tmp = mac;
-        aes_ecb_encrypt(key, &tmp, &mut mac);
-
-        // Remaining AAD blocks
-        let mut aad_offset = first_chunk;
-        while aad_offset < aad_len {
-            let mut block = [0u8; 16];
-            let chunk = core::cmp::min(16, aad_len - aad_offset);
-            block[..chunk].copy_from_slice(&aad[aad_offset..aad_offset + chunk]);
-            xor_block(&mut mac, &block);
-            tmp = mac;
-            aes_ecb_encrypt(key, &tmp, &mut mac);
-            aad_offset += 16;
-        }
-    }
-
-    // CBC-MAC: process plaintext
-    for offset in (0..plaintext.len()).step_by(16) {
-        let mut block = [0u8; 16];
-        let chunk = core::cmp::min(16, plaintext.len() - offset);
-        block[..chunk].copy_from_slice(&plaintext[offset..offset + chunk]);
-        xor_block(&mut mac, &block);
-        tmp = mac;
-        aes_ecb_encrypt(key, &tmp, &mut mac);
-    }
-
-    // Encrypt the tag with A0
-    let a0 = ccm_format_ctr(iv, iv_length, 0);
-    let mut s0 = [0u8; 16];
-    aes_ecb_encrypt(key, &a0, &mut s0);
-
-    if mode == 0 {
-        // Encryption: output tag = CBC-MAC XOR S0
-        for i in 0..tag_length {
-            tag[i] = mac[i] ^ s0[i];
-        }
-    } else {
-        // Decryption: verify tag
-        let mut expected_tag = [0u8; 16];
-        for i in 0..tag_length {
-            expected_tag[i] = mac[i] ^ s0[i];
-        }
-        for i in 0..tag_length {
-            if tag[i] != expected_tag[i] {
-                return -5; // BLEPLAT_ERROR: authentication failure
-            }
-        }
-    }
-
-    0 // BLEPLAT_OK
-}
-
-/// AES-CCM encryption/decryption for the BLE stack.
+/// AES-CCM encryption/decryption for the BLE stack, via the `embassy-crypto`
+/// driver registered for [`Aes128Ccm`].
 ///
 /// # Arguments
 /// * `mode` - 0 for encryption, 1 for decryption
-/// * `key` - 16-byte AES key (Little Endian)
-/// * `iv_length` - IV length in bytes
+/// * `key` - 16-byte AES key
+/// * `iv_length` - IV length in bytes (7-13)
 /// * `iv` - IV data
 /// * `add_length` - Additional Authenticated Data length
 /// * `add` - AAD data
 /// * `input_length` - Input data length
 /// * `input` - Data to encrypt/decrypt
-/// * `tag_length` - CCM tag length
+/// * `tag_length` - CCM tag length (4, 6, 8, 10, 12, 14 or 16 bytes)
 /// * `tag` - CCM tag (written on encrypt, verified on decrypt)
 /// * `output` - Result data
 #[unsafe(no_mangle)]
@@ -1800,13 +1578,15 @@ pub unsafe extern "C" fn BLEPLAT_AesCcmCrypt(
         mode, iv_length, add_length, input_length, tag_length
     );
 
+    const BLEPLAT_ERROR: core::ffi::c_int = -5;
+
     if key.is_null() || iv.is_null() || tag.is_null() || output.is_null() {
         error!("BLEPLAT_AesCcmCrypt: null pointer");
-        return -5; // BLEPLAT_ERROR
+        return BLEPLAT_ERROR;
     }
     if input.is_null() && input_length > 0 {
         error!("BLEPLAT_AesCcmCrypt: null input with non-zero length");
-        return -5;
+        return BLEPLAT_ERROR;
     }
 
     let key_slice: &[u8; 16] = &*(key as *const [u8; 16]);
@@ -1824,17 +1604,24 @@ pub unsafe extern "C" fn BLEPLAT_AesCcmCrypt(
     let tag_slice = core::slice::from_raw_parts_mut(tag, tag_length as usize);
     let output_slice = core::slice::from_raw_parts_mut(output, input_length as usize);
 
-    aes_ccm_crypt(
-        mode,
-        key_slice,
-        iv_slice,
-        iv_length as usize,
-        aad_slice,
-        input_slice,
-        tag_length as usize,
-        tag_slice,
-        output_slice,
-    ) as core::ffi::c_int
+    let cipher = Aes128Ccm::new(key_slice);
+
+    let result = if mode == 0 {
+        output_slice.copy_from_slice(input_slice);
+        cipher.encrypt(iv_slice, aad_slice, output_slice, tag_slice)
+    } else {
+        output_slice.copy_from_slice(input_slice);
+        cipher.decrypt(iv_slice, aad_slice, output_slice, tag_slice)
+    };
+
+    match result {
+        Ok(()) => 0, // BLEPLAT_OK
+        // Includes `Error::InvalidSignature` on tag mismatch when decrypting.
+        Err(e) => {
+            warn!("BLEPLAT_AesCcmCrypt failed: {:?}", e);
+            BLEPLAT_ERROR
+        }
+    }
 }
 
 /// Start a BLE stack timer using embassy_time.
@@ -1975,20 +1762,13 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartP256Key(local_private_key: *const u32) 
 
     let k: &[u32; 8] = &*(local_private_key as *const [u32; 8]);
 
-    // Convert P-256 generator point from big-endian bytes to u32 LE words
-    let curve = EcdsaCurveParams::nist_p256();
-    let mut gx_words = [0u32; 8];
-    let mut gy_words = [0u32; 8];
-    be_bytes_to_words_le(curve.generator_x, &mut gx_words);
-    be_bytes_to_words_le(curve.generator_y, &mut gy_words);
-
     if get_platform().get_p256_req().signaled() {
-        error!("BLEPLAT_PkaStartDhKey: signal not empty");
+        error!("BLEPLAT_PkaStartP256Key: signal not empty");
         return -1;
     }
 
     get_platform().get_p256_resp().reset();
-    get_platform().get_p256_req().signal((*k, gx_words, gy_words));
+    get_platform().get_p256_req().signal(P256Request::PublicKey { k: *k });
 
     BLEPLAT_OK
 }
@@ -2063,7 +1843,11 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartDhKey(local_private_key: *const u32, re
     }
 
     get_platform().get_p256_resp().reset();
-    get_platform().get_p256_req().signal((*k, px, py));
+    get_platform().get_p256_req().signal(P256Request::DhKey {
+        k: *k,
+        peer_x: px,
+        peer_y: py,
+    });
 
     BLEPLAT_OK
 }
