@@ -1608,7 +1608,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         self.channel.start();
     }
 
-    /// Clear all data in the ring buffer.
+    /// Resets the ring buffer and marks it as full.
     pub fn clear(&mut self) {
         self.ringbuf.reset(&mut DmaCtrlImpl(self.channel.reborrow()));
     }

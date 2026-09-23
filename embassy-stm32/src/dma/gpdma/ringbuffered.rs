@@ -330,7 +330,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         self.channel.request_resume(); // clear SUSP if previously paused
     }
 
-    /// Clear all data in the ring buffer.
+    /// Resets the ring buffer and marks it as full.
     pub fn clear(&mut self) {
         self.ringbuf.reset(&mut DmaCtrlImpl::new(self.channel.reborrow()));
     }
