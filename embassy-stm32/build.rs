@@ -2120,7 +2120,8 @@ fn main() {
                 }
             }
 
-            if regs.kind == "comp" && (regs.version == "u5" || regs.version == "v1" || regs.version == "v2") {
+            // Keep this version list in sync with the `comp` module gate in `lib.rs`.
+            if regs.kind == "comp" && matches!(regs.version, "u5" | "v1" | "v2" | "u0") {
                 let peri = format_ident!("{}", p.name);
                 let pin_name = format_ident!("{}", pin.pin);
                 // Check if this peripheral has numbered signals (e.g. INP0/INP1 from extra YAML).
