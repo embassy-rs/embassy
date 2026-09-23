@@ -106,7 +106,14 @@ impl OsTimer {
         let alarm = self.alarms.borrow(cs);
         alarm.timestamp.set(timestamp);
 
-        // Wait until we're allowed to write to MATCH_L/MATCH_H registers
+        // Disable the previous alarm and clear a potentially latched match before
+        // replacing MATCH_L/MATCH_H.
+        OSTIMER0.osevent_ctrl().modify(|w| {
+            w.set_ostimer_intena(false);
+            w.set_ostimer_intrflag(true);
+        });
+
+        // Wait until any previous match-register synchronization completes.
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
 
         let gray_timestamp = dec_to_gray(timestamp);
@@ -116,7 +123,10 @@ impl OsTimer {
             .match_h()
             .write(|w| w.set_match_value((gray_timestamp >> 32) as u16));
 
-        // Check if the timestamp has already expired, which could mean the just set match value would never match.
+        // MATCH_L/MATCH_H are synchronized into hardware shadow registers. Wait
+        // for that synchronization before deciding whether the deadline passed.
+        while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
+
         let t = self.now();
         if timestamp <= t {
             OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
@@ -124,8 +134,12 @@ impl OsTimer {
             return false;
         }
 
-        // Enable interrupt. If the timestamp already matched, this would immediately pend the interrupt.
-        OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(true));
+        // INTRFLAG is write-one-to-clear. Explicitly write zero while enabling
+        // the alarm so a match that races this register update remains latched.
+        OSTIMER0.osevent_ctrl().modify(|w| {
+            w.set_ostimer_intrflag(false);
+            w.set_ostimer_intena(true);
+        });
         true
     }
 
