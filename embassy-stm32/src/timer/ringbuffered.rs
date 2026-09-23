@@ -5,8 +5,8 @@ use core::task::Waker;
 
 use super::low_level::Timer;
 use super::{Channel, GeneralInstance4Channel};
+pub use crate::dma::RingBufferError as Error;
 use crate::dma::WritableRingBuffer;
-use crate::dma::ringbuffer::Error;
 use crate::dma::word::Word;
 
 /// A PWM channel that uses a DMA ring buffer for continuous waveform generation.

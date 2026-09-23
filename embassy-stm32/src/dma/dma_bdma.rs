@@ -5,10 +5,11 @@ use core::task::{Context, Poll, Waker};
 
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
+use super::ringbuffer::{DmaCtrl, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use super::word::{Word, WordSize};
 use super::{Channel, Dir, Increment, Request, STATE, info};
 use crate::_generated::DmaChannel;
+use crate::dma::RingBufferError;
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::WakeGuard;
 use crate::{interrupt, pac};
@@ -1444,8 +1445,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
     /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
     /// Error is returned if the portion to be read was overwritten by the DMA controller.
-    pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), Error> {
-        self.ringbuf.read(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
+    pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), RingBufferError> {
+        Ok(self.ringbuf.read(&mut DmaCtrlImpl(self.channel.reborrow()), buf)?)
     }
 
     /// Read an exact number of elements from the ringbuffer.
@@ -1459,14 +1460,15 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// ring buffer was created with a buffer of size 'N':
     /// - If M equals N/2 or N/2 divides evenly into M, this function will return every N/2 elements read on the DMA source.
     /// - Otherwise, this function may need up to N/2 extra elements to arrive before returning.
-    pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, Error> {
-        self.ringbuf
+    pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, RingBufferError> {
+        Ok(self
+            .ringbuf
             .read_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
-            .await
+            .await?)
     }
 
     /// The current length of the ringbuffer
-    pub fn len(&mut self) -> Result<usize, Error> {
+    pub fn len(&mut self) -> Result<usize, RingBufferError> {
         Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
@@ -1613,32 +1615,34 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Write elements directly to the raw buffer.
     /// This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ringbuf.write_immediate(buf)
+    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), RingBufferError> {
+        Ok(self.ringbuf.write_immediate(buf)?)
     }
 
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
-    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ringbuf.write(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
+    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), RingBufferError> {
+        Ok(self.ringbuf.write(&mut DmaCtrlImpl(self.channel.reborrow()), buf)?)
     }
 
     /// Write an exact number of elements to the ringbuffer.
-    pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, Error> {
-        self.ringbuf
+    pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, RingBufferError> {
+        Ok(self
+            .ringbuf
             .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
-            .await
+            .await?)
     }
 
     /// Wait for any ring buffer write error.
-    pub async fn wait_write_error(&mut self) -> Result<usize, Error> {
-        self.ringbuf
+    pub async fn wait_write_error(&mut self) -> Result<usize, RingBufferError> {
+        Ok(self
+            .ringbuf
             .wait_write_error(&mut DmaCtrlImpl(self.channel.reborrow()))
-            .await
+            .await?)
     }
 
     /// The current length of the ringbuffer
-    pub fn len(&mut self) -> Result<usize, Error> {
+    pub fn len(&mut self) -> Result<usize, RingBufferError> {
         Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
