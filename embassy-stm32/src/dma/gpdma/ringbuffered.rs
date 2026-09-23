@@ -89,7 +89,7 @@ pub struct ReadableRingBuffer<'a, W: Word> {
 }
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
-    /// Create a new ring buffer.
+    /// Create a new empty ring buffer.
     ///
     /// Transfer options are applied to the individual linked list items.
     /// Half-transfer and transfer-complete IRQs are always enabled (same as BDMA ring
@@ -275,7 +275,7 @@ pub struct WritableRingBuffer<'a, W: Word> {
 }
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
-    /// Create a new ring buffer.
+    /// Create a new ring buffer filled with the given buffer data.
     ///
     /// Transfer options are applied to the individual linked list items.
     /// Half-transfer and transfer-complete IRQs are always enabled (same as BDMA ring

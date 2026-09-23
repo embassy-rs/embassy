@@ -1378,7 +1378,7 @@ pub struct ReadableRingBuffer<'a, W: Word> {
 }
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
-    /// Create a new ring buffer.
+    /// Create a new empty ring buffer.
     pub unsafe fn new<PW: Word>(
         channel: Channel<'a>,
         _request: Request,
@@ -1559,7 +1559,7 @@ pub struct WritableRingBuffer<'a, W: Word> {
 }
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
-    /// Create a new ring buffer.
+    /// Create a new ring buffer filled with the given buffer data.
     pub unsafe fn new<PW: Word>(
         channel: Channel<'a>,
         _request: Request,
