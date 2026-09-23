@@ -989,6 +989,179 @@ impl embassy_crypto::driver::Aes256Ctr for AesDriver {
     }
 }
 
+// ===========================================================================
+// AES-128/256 CMAC (NIST SP 800-38B)
+// ===========================================================================
+//
+// No AES/SAES/CRYP revision exposes a CMAC mode, so the MAC is computed in
+// software per NIST SP 800-38B with the raw block cipher runs served by the
+// peripheral — the same layering the CTR driver uses. ECB is universal, so
+// CMAC works on every backend; only the 256-bit key size is unavailable on
+// `aes_v1`.
+
+/// State of one CMAC computation.
+#[cfg(any(feature = "embassy-crypto-aes128-cmac", feature = "embassy-crypto-aes256-cmac"))]
+#[derive(Clone)]
+struct CmacContext<const KEY_SIZE: usize> {
+    key: [u8; KEY_SIZE],
+    /// First subkey, `2L` for `L = AES_k(0)`.
+    k1: [u8; 16],
+    /// Second subkey, `2K1`.
+    k2: [u8; 16],
+    /// Chaining state X.
+    state: [u8; 16],
+    /// Pending message bytes, holding back the last (possibly partial) block.
+    buf: [u8; 16],
+    buf_len: usize,
+}
+
+/// The low term of the reduction polynomial `x^128 + x^7 + x^2 + x + 1`
+/// (NIST SP 800-38B §5.3).
+#[cfg(any(feature = "embassy-crypto-aes128-cmac", feature = "embassy-crypto-aes256-cmac"))]
+const CMAC_RB: u8 = 0x87;
+
+/// One multiplication by `x` (doubling) in GF(2^128).
+#[cfg(any(feature = "embassy-crypto-aes128-cmac", feature = "embassy-crypto-aes256-cmac"))]
+fn cmac_double(block: &[u8; 16]) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    let mut carry = 0u8;
+    for i in (0..16).rev() {
+        out[i] = (block[i] << 1) | carry;
+        carry = block[i] >> 7;
+    }
+    if carry != 0 {
+        out[15] ^= CMAC_RB;
+    }
+    out
+}
+
+/// Fold one full message block into the chaining state: `X = AES_k(X ^ block)`.
+/// One concrete function per key size, so the cipher type (and its
+/// `CipherSized` bound) stays concrete.
+#[cfg(any(feature = "embassy-crypto-aes128-cmac", feature = "embassy-crypto-aes256-cmac"))]
+macro_rules! define_cmac_process {
+    ($name:ident, $key_size:literal) => {
+        fn $name(hw: &mut Hw, key: &[u8; $key_size], state: &mut [u8; 16], block: &[u8; 16]) {
+            let mut block = *block;
+            for i in 0..16 {
+                block[i] ^= state[i];
+            }
+            let cipher = AesEcb::new(key);
+            run_in_place(hw, &cipher, Direction::Encrypt, &mut block).unwrap();
+            *state = block;
+        }
+    };
+}
+
+#[cfg(feature = "embassy-crypto-aes128-cmac")]
+define_cmac_process!(cmac_process_16, 16);
+#[cfg(feature = "embassy-crypto-aes256-cmac")]
+#[cfg(not(aes_v1))]
+define_cmac_process!(cmac_process_32, 32);
+
+#[cfg(any(feature = "embassy-crypto-aes128-cmac", feature = "embassy-crypto-aes256-cmac"))]
+macro_rules! define_cmac_impl {
+    ($trait:ident, $key_size:literal, $process:ident) => {
+        impl embassy_crypto::driver::$trait for AesDriver {
+            type Context = CmacContext<$key_size>;
+
+            fn init(key: &[u8; $key_size]) -> Self::Context {
+                let mut driver = lock();
+                let hw = &mut *driver.borrow();
+                // Subkeys K1 = 2L and K2 = 2K1, with L = AES_k(0) (§6.1).
+                let mut l = [0u8; 16];
+                let cipher = AesEcb::new(key);
+                run_in_place(hw, &cipher, Direction::Encrypt, &mut l).unwrap();
+                let k1 = cmac_double(&l);
+                let k2 = cmac_double(&k1);
+                CmacContext {
+                    key: *key,
+                    k1,
+                    k2,
+                    state: [0; 16],
+                    buf: [0; 16],
+                    buf_len: 0,
+                }
+            }
+
+            fn update(ctx: &mut Self::Context, mut data: &[u8]) {
+                if data.is_empty() {
+                    return;
+                }
+                let mut driver = lock();
+                let hw = &mut *driver.borrow();
+                // A buffered full block was only possibly the last one; with
+                // more data arriving it no longer is, so fold it in.
+                if ctx.buf_len == 16 {
+                    $process(hw, &ctx.key, &mut ctx.state, &ctx.buf);
+                    ctx.buf_len = 0;
+                }
+                // Top up a partial block; if it fills and more data follows,
+                // it is not the last block either.
+                if ctx.buf_len > 0 {
+                    let n = core::cmp::min(16 - ctx.buf_len, data.len());
+                    ctx.buf[ctx.buf_len..ctx.buf_len + n].copy_from_slice(&data[..n]);
+                    ctx.buf_len += n;
+                    data = &data[n..];
+                    if data.is_empty() {
+                        return;
+                    }
+                    $process(hw, &ctx.key, &mut ctx.state, &ctx.buf);
+                    ctx.buf_len = 0;
+                }
+                // Fold in all but the last full block, which stays buffered:
+                // only finalize knows whether it is XORed with K1 or padded
+                // and XORed with K2.
+                while data.len() > 16 {
+                    let block: [u8; 16] = data[..16].try_into().unwrap();
+                    $process(hw, &ctx.key, &mut ctx.state, &block);
+                    data = &data[16..];
+                }
+                ctx.buf[..data.len()].copy_from_slice(data);
+                ctx.buf_len = data.len();
+            }
+
+            fn finalize(ctx: Self::Context, out: &mut [u8; 16]) {
+                let mut driver = lock();
+                let hw = &mut *driver.borrow();
+                let mut last = [0u8; 16];
+                last[..ctx.buf_len].copy_from_slice(&ctx.buf[..ctx.buf_len]);
+                if ctx.buf_len == 16 {
+                    // Complete final block: no padding, XOR K1.
+                    for i in 0..16 {
+                        last[i] ^= ctx.k1[i];
+                    }
+                } else {
+                    // Partial final block: pad with 10*, then XOR K2.
+                    last[ctx.buf_len] ^= 0x80;
+                    for i in 0..16 {
+                        last[i] ^= ctx.k2[i];
+                    }
+                }
+                let mut block = last;
+                for i in 0..16 {
+                    block[i] ^= ctx.state[i];
+                }
+                let cipher = AesEcb::new(&ctx.key);
+                run_in_place(hw, &cipher, Direction::Encrypt, &mut block).unwrap();
+                *out = block;
+            }
+
+            fn reset(ctx: &mut Self::Context) {
+                ctx.state = [0; 16];
+                ctx.buf = [0; 16];
+                ctx.buf_len = 0;
+            }
+        }
+    };
+}
+
+#[cfg(feature = "embassy-crypto-aes128-cmac")]
+define_cmac_impl!(Aes128Cmac, 16, cmac_process_16);
+#[cfg(feature = "embassy-crypto-aes256-cmac")]
+#[cfg(not(aes_v1))]
+define_cmac_impl!(Aes256Cmac, 32, cmac_process_32);
+
 #[cfg(feature = "embassy-crypto-aes128-ecb")]
 embassy_crypto::aes128_ecb_impl!(AesDriver);
 #[cfg(feature = "embassy-crypto-aes256-ecb")]
@@ -1018,3 +1191,8 @@ embassy_crypto::aes128_ctr_impl!(AesDriver);
 #[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
 #[cfg(not(aes_v1))]
 embassy_crypto::aes256_ctr_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes128-cmac")]
+embassy_crypto::aes128_cmac_impl!(AesDriver);
+#[cfg(feature = "embassy-crypto-aes256-cmac")]
+#[cfg(not(aes_v1))]
+embassy_crypto::aes256_cmac_impl!(AesDriver);

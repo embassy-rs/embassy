@@ -291,11 +291,13 @@ embassy-crypto-aes128-cbc = []
 embassy-crypto-aes128-ctr = []
 embassy-crypto-aes128-gcm = []
 embassy-crypto-aes128-ccm = []
+embassy-crypto-aes128-cmac = []
 embassy-crypto-aes256-ecb = []
 embassy-crypto-aes256-cbc = []
 embassy-crypto-aes256-ctr = []
 embassy-crypto-aes256-gcm = []
 embassy-crypto-aes256-ccm = []
+embassy-crypto-aes256-cmac = []
 ## Serve the `embassy-crypto-aes*` operations with the SAES peripheral instead of
 ## the AES one, on chips that have both. The SAES needs the RNG running: with
 ## `embassy-crypto-rng` the driver starts it, otherwise keep an

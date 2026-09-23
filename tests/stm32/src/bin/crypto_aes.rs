@@ -55,11 +55,11 @@ async fn main(_spawner: Spawner) {
     #[cfg(feature = "aes-via-saes")]
     let _rng = Rng::new(p.RNG, Irqs);
 
-    suites!(aes128_ecb, aes128_cbc);
+    suites!(aes128_ecb, aes128_cbc, aes128_cmac);
     #[cfg(feature = "aes-basic")]
     suites!(aes128_ctr);
     #[cfg(feature = "aes")]
-    suites!(aes128_gcm, aes256_gcm, aes128_ccm);
+    suites!(aes128_gcm, aes256_gcm, aes128_ccm, aes256_cmac);
 
     info!("Test OK");
     cortex_m::asm::bkpt();

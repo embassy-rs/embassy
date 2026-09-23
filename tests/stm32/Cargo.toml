@@ -49,6 +49,7 @@ spi-v345 = []
 aes-ecb-cbc = [
     "embassy-stm32/embassy-crypto-aes128-ecb",
     "embassy-stm32/embassy-crypto-aes128-cbc",
+    "embassy-stm32/embassy-crypto-aes128-cmac",
 ]
 aes-basic = ["aes-ecb-cbc", "embassy-stm32/embassy-crypto-aes128-ctr"]
 aes = [
@@ -56,6 +57,7 @@ aes = [
     "embassy-stm32/embassy-crypto-aes128-gcm",
     "embassy-stm32/embassy-crypto-aes128-ccm",
     "embassy-stm32/embassy-crypto-aes256-gcm",
+    "embassy-stm32/embassy-crypto-aes256-cmac",
 ]
 # The same drivers served by the SAES peripheral, which on STM32U5 only does ECB
 # and CBC.
