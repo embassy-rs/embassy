@@ -234,45 +234,17 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             ],
         );
 
-        // Calculates the index'th external midi in jack id
-        let in_jack_id_ext = |index| 2 * index + 1;
         // Calculates the index'th embedded midi out jack id
-        let out_jack_id_emb = |index| 2 * index + 2;
-        // Calculates the index'th external midi out jack id
-        let out_jack_id_ext = |index| 2 * n_in_jacks + 2 * index + 1;
+        let out_jack_id_emb = |index| 2 * index + 1;
+        // Calculates the index'th external midi in jack id
+        let in_jack_id_ext = |index| 2 * index + 2;
         // Calculates the index'th embedded midi in jack id
-        let in_jack_id_emb = |index| 2 * n_in_jacks + 2 * index + 2;
+        let in_jack_id_emb = |index| 2 * n_in_jacks + 2 * index + 1;
+        // Calculates the index'th external midi out jack id
+        let out_jack_id_ext = |index| 2 * n_in_jacks + 2 * index + 2;
 
         for i in 0..n_in_jacks {
-            alt.descriptor(
-                CS_INTERFACE,
-                &[MIDI_IN_JACK_SUBTYPE, EXTERNAL, in_jack_id_ext(i), names.in_jack(i)],
-            );
-        }
-
-        for i in 0..n_out_jacks {
-            alt.descriptor(
-                CS_INTERFACE,
-                &[MIDI_IN_JACK_SUBTYPE, EMBEDDED, in_jack_id_emb(i), names.out_jack(i)],
-            );
-        }
-
-        for i in 0..n_out_jacks {
-            alt.descriptor(
-                CS_INTERFACE,
-                &[
-                    MIDI_OUT_JACK_SUBTYPE,
-                    EXTERNAL,
-                    out_jack_id_ext(i),
-                    0x01,
-                    in_jack_id_emb(i),
-                    0x01,
-                    names.out_jack(i),
-                ],
-            );
-        }
-
-        for i in 0..n_in_jacks {
+            let i_jack = names.in_jack(i);
             alt.descriptor(
                 CS_INTERFACE,
                 &[
@@ -282,7 +254,31 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                     0x01,
                     in_jack_id_ext(i),
                     0x01,
-                    names.in_jack(i),
+                    i_jack,
+                ],
+            );
+            alt.descriptor(
+                CS_INTERFACE,
+                &[MIDI_IN_JACK_SUBTYPE, EXTERNAL, in_jack_id_ext(i), i_jack],
+            );
+        }
+
+        for i in 0..n_out_jacks {
+            let i_jack = names.out_jack(i);
+            alt.descriptor(
+                CS_INTERFACE,
+                &[MIDI_IN_JACK_SUBTYPE, EMBEDDED, in_jack_id_emb(i), i_jack],
+            );
+            alt.descriptor(
+                CS_INTERFACE,
+                &[
+                    MIDI_OUT_JACK_SUBTYPE,
+                    EXTERNAL,
+                    out_jack_id_ext(i),
+                    0x01,
+                    in_jack_id_emb(i),
+                    0x01,
+                    i_jack,
                 ],
             );
         }
