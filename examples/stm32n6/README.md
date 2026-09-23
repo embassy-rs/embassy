@@ -17,7 +17,9 @@ are hardware-validated on the STM32N6570-DK; for real GPU2D:
 ```bash
 cargo run --release --bin neochrom --no-default-features
 cargo run --release --bin neochrom_lcd --no-default-features
+cargo run --release --bin neochrom_graphics --no-default-features
 ```
 
 - `neochrom` — exercises fill, line, circle, and triangle APIs on a 64×64 RGBA8888 buffer.
 - `neochrom_lcd` — GPU-renders into double-buffered 800×480 RGB565 LTDC framebuffers in AXISRAM, driving the panel end-to-end.
+- `neochrom_graphics` — full 60 FPS dashboard: a `embedded-3dgfx` scene rasterized through the GPU2D, `embedded-gui` widgets, and a GPU-blitted text atlas. Runs at ~152 µs of GPU time per frame.

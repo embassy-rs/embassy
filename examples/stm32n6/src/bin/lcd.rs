@@ -212,8 +212,16 @@ async fn main(_spawner: Spawner) {
     config.rcc.cpu = CpuClk::Ic1;
     config.rcc.sys = SysClk::Ic2;
 
-    // PLL4 bypass → HSI 64 MHz. IC16 = 32 MHz drives the LTDC pixel clock.
-    config.rcc.pll4 = Some(Pll::Bypass { source: Pllsel::Hsi });
+    // PLL4: HSI 64 MHz / 4 * 25 / 4 / 2 = 50 MHz. IC16 / 2 gives the
+    // 25 MHz LTDC pixel clock used by the STM32CubeN6 board support package.
+    config.rcc.pll4 = Some(Pll::Oscillator {
+        source: Pllsel::Hsi,
+        divm: Plldivm::Div4,
+        fractional: 0,
+        divn: 25,
+        divp1: Pllpdiv::Div4,
+        divp2: Pllpdiv::Div2,
+    });
     config.rcc.ic16 = Some(IcConfig {
         source: Icsel::Pll4,
         divider: Icint::Div2,
@@ -221,6 +229,9 @@ async fn main(_spawner: Spawner) {
     config.rcc.mux.ltdcsel = Ltdcsel::Ic16;
 
     let p = embassy_stm32::init(config);
+    // The STM32N6 boot ROM can jump to SRAM applications with PRIMASK set.
+    // Timers and LTDC vblank waits need interrupts enabled explicitly.
+    unsafe { cortex_m::interrupt::enable() };
     info!("stm32n6 lcd example starting");
 
     enable_all_sram();
