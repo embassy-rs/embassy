@@ -12,7 +12,7 @@ use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
-use embassy_usb::class::midi::{MidiClass, MidiClassConfig};
+use embassy_usb::class::midi::{MidiClass, MidiClassConfig, MidiClassState};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 use panic_probe as _;
@@ -43,6 +43,7 @@ async fn main(_spawner: Spawner) {
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
+    let mut midi_state = MidiClassState::new();
 
     let mut builder = Builder::new(
         driver,
@@ -53,8 +54,19 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    // Create classes on the builder.
-    let mut class = MidiClass::new(&mut builder, MidiClassConfig::default());
+    // Creates the class on the builder.
+    // The default configuration returns most basic setup with 1 IN and 1 OUT jack.
+    // let mut class = MidiClass::new(&mut builder, MidiClassConfig::default());
+
+    // A more advanced setup can use several jacks with individual names.
+    // The names are shown by the host for its MIDI ports.
+    let mut midi_config = MidiClassConfig::default();
+    midi_config.n_in_jacks = 4;
+    midi_config.n_out_jacks = 4;
+    midi_config.interface_name = Some("Embassy MIDI");
+    midi_config.in_jack_names = &[Some("Embassy MIDI In A"), None, None, Some("Embassy MIDI In D")];
+    midi_config.out_jack_names = &[None, Some("Embassy MIDI Out B"), Some("Embassy MIDI Out C"), None];
+    let mut class = MidiClass::new_with_names(&mut builder, &mut midi_state, midi_config);
 
     // The `MidiClass` can be split into `Sender` and `Receiver`, to be used in separate tasks.
     // let (sender, receiver) = class.split();
