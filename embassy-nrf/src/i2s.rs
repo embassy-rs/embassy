@@ -17,25 +17,33 @@ use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2s::vals;
 use crate::util::slice_in_ram_or;
-use crate::{EASY_DMA_SIZE, interrupt, pac};
+use crate::{interrupt, pac};
+
+/// The maximum buffer size (in 32-bit words) that the I2S EasyDMA can transfer in one operation.
+pub const DMA_SIZE: usize = crate::util::easy_dma_max!(pac::i2s::regs::Maxcnt, set_maxcnt, maxcnt);
 
 /// Type alias for `MultiBuffering` with 2 buffers.
 pub type DoubleBuffering<S, const NS: usize> = MultiBuffering<S, 2, NS>;
 
 /// I2S transfer error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// The buffer is too long.
+    #[error("buffer is too long")]
     BufferTooLong,
     /// The buffer is empty.
+    #[error("buffer is empty")]
     BufferZeroLength,
     /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
     /// The buffer address is not aligned.
+    #[error("buffer address is not aligned")]
     BufferMisaligned,
     /// The buffer length is not a multiple of the alignment.
+    #[error("buffer length is not a multiple of the alignment")]
     BufferLengthMisaligned,
 }
 
@@ -418,13 +426,36 @@ pub struct I2S<'d> {
 }
 
 impl<'d> I2S<'d> {
-    /// Create a new I2S in master mode
+    /// Create a new I2S in master mode without an MCK output pin.
     pub fn new_master<T: Instance>(
-        _i2s: Peri<'d, T>,
+        i2s: Peri<'d, T>,
+        sck: Peri<'d, impl GpioPin>,
+        lrck: Peri<'d, impl GpioPin>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        master_clock: MasterClock,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(i2s, None, sck.into(), lrck.into(), master_clock, config)
+    }
+
+    /// Create a new I2S in master mode with an MCK output pin.
+    pub fn new_master_with_mck<T: Instance>(
+        i2s: Peri<'d, T>,
         mck: Peri<'d, impl GpioPin>,
         sck: Peri<'d, impl GpioPin>,
         lrck: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        master_clock: MasterClock,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(i2s, Some(mck.into()), sck.into(), lrck.into(), master_clock, config)
+    }
+
+    fn new_inner<T: Instance>(
+        _i2s: Peri<'d, T>,
+        mck: Option<Peri<'d, AnyPin>>,
+        sck: Peri<'d, AnyPin>,
+        lrck: Peri<'d, AnyPin>,
         master_clock: MasterClock,
         config: Config,
     ) -> Self {
@@ -434,9 +465,9 @@ impl<'d> I2S<'d> {
         Self {
             r: T::regs(),
             state: T::state(),
-            mck: Some(mck.into()),
-            sck: sck.into(),
-            lrck: lrck.into(),
+            mck,
+            sck,
+            lrck,
             sdin: None,
             sdout: None,
             master_clock: Some(master_clock),
@@ -447,9 +478,9 @@ impl<'d> I2S<'d> {
     /// Create a new I2S in slave mode
     pub fn new_slave<T: Instance>(
         _i2s: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: Peri<'d, impl GpioPin>,
         lrck: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         T::Interrupt::unpend();
@@ -1038,7 +1069,7 @@ impl Device {
             Err(Error::BufferMisaligned)
         } else if bytes_len % 4 != 0 {
             Err(Error::BufferLengthMisaligned)
-        } else if maxcnt as usize > EASY_DMA_SIZE {
+        } else if maxcnt as usize > DMA_SIZE {
             Err(Error::BufferTooLong)
         } else {
             Ok((ptr, maxcnt))

@@ -15,6 +15,7 @@ use crate::Peri;
 use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac::timer::vals::Etp;
+use crate::rcc::WakeGuard;
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
 
@@ -88,6 +89,7 @@ impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ext> {
 pub struct OnePulse<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
     _pin: Flex<'d>,
+    _wake_guard: WakeGuard,
 }
 
 impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
@@ -107,6 +109,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         let mut this = Self {
             inner: Timer::new(tim),
             _pin: pin.pin,
+            _wake_guard: T::RCC_INFO.wake_guard(),
         };
 
         this.inner.set_trigger_source(Ts::Ti1fEd);
@@ -134,6 +137,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         let mut this = Self {
             inner: Timer::new(tim),
             _pin: _pin.pin,
+            _wake_guard: T::RCC_INFO.wake_guard(),
         };
 
         this.inner.set_trigger_source(Ts::Ti1fp1);
@@ -162,6 +166,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         let mut this = Self {
             inner: Timer::new(tim),
             _pin: _pin.pin,
+            _wake_guard: T::RCC_INFO.wake_guard(),
         };
 
         this.inner.set_trigger_source(Ts::Ti2fp2);
@@ -189,6 +194,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         let mut this = Self {
             inner: Timer::new(tim),
             _pin: _pin.pin,
+            _wake_guard: T::RCC_INFO.wake_guard(),
         };
 
         this.inner.regs_gp16().smcr().modify(|r| {

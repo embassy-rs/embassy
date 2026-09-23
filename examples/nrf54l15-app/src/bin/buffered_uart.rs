@@ -25,12 +25,12 @@ async fn main(_spawner: Spawner) {
 
     let mut u = BufferedUarte::new(
         p.SERIAL20,
-        p.P1_12,
         p.P1_13,
+        p.P1_12,
         Irqs,
-        config,
-        &mut rx_buffer,
         &mut tx_buffer,
+        &mut rx_buffer,
+        config,
     );
 
     info!("uarte initialized!");

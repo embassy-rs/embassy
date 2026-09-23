@@ -5,7 +5,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
-use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
+use embassy_stm32::{Config, adc, bind_interrupts, dma, peripherals};
 use panic_probe as _;
 
 const DMA_BUF_LEN: usize = 512;
@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner) {
     }
     let mut p = embassy_stm32::init(config);
 
-    let adc = Adc::new(p.ADC1);
+    let adc = Adc::new_blocking(p.ADC1, adc::Config::default());
     let mut adc_dma_buf = [0u16; DMA_BUF_LEN];
     let mut measurements = [0u16; DMA_BUF_LEN / 2];
     let mut ring_buffered_adc = adc.into_ring_buffered(

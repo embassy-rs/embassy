@@ -4,8 +4,9 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_net::StackStorage;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Address, StackResources};
+use embassy_net::wire::Ipv4Addr;
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
 use embassy_stm32::rng::Rng;
@@ -23,7 +24,7 @@ bind_interrupts!(struct Irqs {
 type Device = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -58,7 +59,7 @@ async fn main(spawner: Spawner) -> ! {
     // Generate random seed.
     let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
-    rng.fill_bytes(&mut seed);
+    rng.blocking_fill_bytes(&mut seed);
     let seed = u64::from_le_bytes(seed);
 
     let mac_addr = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
@@ -69,7 +70,6 @@ async fn main(spawner: Spawner) -> ! {
     let device = Ethernet::new(
         PACKETS.init(PacketQueue::<4, 4>::new()),
         p.ETH,
-        Irqs,
         p.PA1,  // ref_clk
         p.PA7,  // CRS_DV: Carrier Sense
         p.PC4,  // RX_D0: Received Bit 0
@@ -81,24 +81,23 @@ async fn main(spawner: Spawner) -> ! {
         p.ETH_SMA,
         p.PA2, // mdio
         p.PC1, // mdc
+        Irqs,
     );
 
-    let config = embassy_net::Config::dhcpv4(Default::default());
-    //let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
-    //    address: Ipv4Cidr::new(Ipv4Address::new(10, 42, 0, 61), 24),
-    //    dns_servers: Vec::new(),
-    //    gateway: Some(Ipv4Address::new(10, 42, 0, 1)),
-    //});
-
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<Device> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
 
     // Ensure DHCP configuration is up before trying connect
-    stack.wait_config_up().await;
+    iface.wait_config_up().await;
 
     info!("Network task initialized");
 
@@ -107,14 +106,14 @@ async fn main(spawner: Spawner) -> ! {
     let mut tx_buffer = [0; 1024];
 
     loop {
-        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
 
         socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 
         // You need to start a server on the host machine, for example: `nc -l 8000`
-        let remote_endpoint = (Ipv4Address::new(10, 42, 0, 1), 8000);
+        let remote_addr = (Ipv4Addr::new(10, 42, 0, 1), 8000);
         info!("connecting...");
-        let r = socket.connect(remote_endpoint).await;
+        let r = socket.connect(remote_addr).await;
         if let Err(e) = r {
             info!("connect error: {:?}", e);
             Timer::after_secs(1).await;

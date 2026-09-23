@@ -1,9 +1,9 @@
 # embassy-net-driver-channel
 
 This crate provides a toolkit for implementing [`embassy-net`](https://crates.io/crates/embassy-net) drivers in a
-higher level way than implementing the [`embassy-net-driver`](https://crates.io/crates/embassy-net-driver) trait directly.
+higher level way than implementing the [`xarxa-driver`](https://crates.io/crates/xarxa-driver) `Driver` trait directly.
 
-The `embassy-net-driver` trait is polling-based. To implement it, you must write the packet receive/transmit state machines by
+The `Driver` trait is polling-based. To implement it, you must write the packet receive/transmit state machines by
 hand, and hook up the `Waker`s provided by `embassy-net` to the right interrupt handlers so that `embassy-net`
 knows when to poll your driver again to make more progress.
 
@@ -21,29 +21,30 @@ loop {
     match select(
         // ... the chip signaling an interrupt, indicating a packet is available to receive, or
         irq_pin.wait_for_low(),
-        // ... a TX buffer becoming available, i.e. embassy-net wants to send a packet
-        tx_chan.tx_buf(),
+        // ... a packet to send appearing, i.e. embassy-net wants to send a packet
+        tx_chan.tx(),
     ).await {
         Either::First(_) => {
             // a packet is ready to be received!
-            let buf = rx_chan.rx_buf().await; // allocate a rx buf from the packet queue
-            let n = receive_packet_over_spi(buf).await;
-            rx_chan.rx_done(n);
+            rx_chan.rx_ready().await; // wait for space in the rx queue
+            let mut buf = PacketBuf::try_new().unwrap();
+            let n = receive_packet_over_spi(&mut buf).await;
+            buf.set_len(n);
+            rx_chan.rx(buf).await;
         }
         Either::Second(buf) => {
             // a packet is ready to be sent!
-            send_packet_over_spi(buf).await;
-            tx_chan.tx_done();
+            send_packet_over_spi(&buf).await;
         }
     }
 }
 ```
 
-However, this code has a latent deadlock bug. The symptom is it can hang at `rx_chan.rx_buf().await` under load.
+However, this code has a latent deadlock bug. The symptom is it can hang at `rx_chan.rx_ready().await` under load.
 
 The reason is that, under load, both the TX and RX queues can get full at the same time. When this happens, the `embassy-net` task stalls trying to send because the TX queue is full, therefore it stops processing packets in the RX queue. Your driver task also stalls because the RX queue is full, therefore it stops processing packets in the TX queue.
 
-The fix is to make sure to always service the TX queue while you're waiting for space to become available in the RX queue. For example, select on either "tx_chan.tx_buf() available" or "INT is low AND rx_chan.rx_buf() available":
+The fix is to make sure to always service the TX queue while you're waiting for space to become available in the RX queue. For example, select on either "a packet to send is available" or "INT is low AND there is room in the RX queue":
 
 ```rust,ignore
 loop {
@@ -52,21 +53,22 @@ loop {
         async {
             // ... the chip signaling an interrupt, indicating a packet is available to receive
             irq_pin.wait_for_low().await;
-            // *AND* the buffer is ready...
-            rx_chan.rx_buf().await
+            // *AND* there being room in the rx queue...
+            rx_chan.rx_ready().await;
         },
-        // ... or a TX buffer becoming available, i.e. embassy-net wants to send a packet
-        tx_chan.tx_buf(),
+        // ... or a packet to send appearing, i.e. embassy-net wants to send a packet
+        tx_chan.tx(),
     ).await {
-        Either::First(buf) => {
+        Either::First(()) => {
             // a packet is ready to be received!
-            let n = receive_packet_over_spi(buf).await;
-            rx_chan.rx_done(n);
+            let mut buf = PacketBuf::try_new().unwrap();
+            let n = receive_packet_over_spi(&mut buf).await;
+            buf.set_len(n);
+            rx_chan.rx(buf).await;
         }
         Either::Second(buf) => {
             // a packet is ready to be sent!
-            send_packet_over_spi(buf).await;
-            tx_chan.tx_done();
+            send_packet_over_spi(&buf).await;
         }
     }
 }

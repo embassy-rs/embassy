@@ -162,18 +162,14 @@ const SD_INIT_FREQ: Hertz = Hertz(400_000);
 #[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Default)]
 pub enum Signalling {
+    #[default]
     SDR12,
     SDR25,
     SDR50,
     SDR104,
     DDR50,
-}
-
-impl Default for Signalling {
-    fn default() -> Self {
-        Signalling::SDR12
-    }
 }
 
 const fn aligned_mut(x: &mut [u32]) -> &mut Aligned<A4, [u8]> {
@@ -188,7 +184,7 @@ const fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
 
 #[allow(unused)]
 const fn slice32_mut(x: &mut Aligned<A4, [u8]>) -> &mut [u32] {
-    let len = (size_of_val(x) + 4 - 1) / 4;
+    let len = size_of_val(x).div_ceil(4);
     unsafe { slice::from_raw_parts_mut(x as *mut Aligned<A4, [u8]> as *mut u32, len) }
 }
 
@@ -204,7 +200,7 @@ const fn slice8_ref(x: &[u32]) -> &[u8] {
 
 #[allow(unused)]
 const fn slice32_ref(x: &Aligned<A4, [u8]>) -> &[u32] {
-    let len = (size_of_val(x) + 4 - 1) / 4;
+    let len = size_of_val(x).div_ceil(4);
     unsafe { slice::from_raw_parts(x as *const Aligned<A4, [u8]> as *const u32, len) }
 }
 
@@ -545,12 +541,12 @@ impl<'d> Sdmmc<'d> {
     pub fn new_1bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -580,15 +576,15 @@ impl<'d> Sdmmc<'d> {
     pub fn new_4bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -621,9 +617,6 @@ impl<'d> Sdmmc<'d> {
     pub fn new_8bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -634,6 +627,9 @@ impl<'d> Sdmmc<'d> {
         d5: Peri<'d, impl D5Pin<T>>,
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -665,10 +661,10 @@ impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 1 data lane.
     pub fn new_1bit<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -696,13 +692,13 @@ impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 4 data lanes.
     pub fn new_4bit<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -733,7 +729,6 @@ impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 8 data lanes.
     pub fn new_8bit<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -744,6 +739,7 @@ impl<'d> Sdmmc<'d> {
         d5: Peri<'d, impl D5Pin<T>>,
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -787,10 +783,10 @@ impl<'d> Sdmmc<'d> {
     /// card accepts the S18A request on ACMD41.
     pub fn new_1bit_with_vswitch<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         vswitch: Output<'d>,
         config: Config,
     ) -> Self {
@@ -817,13 +813,13 @@ impl<'d> Sdmmc<'d> {
     /// 4 data lanes; see [`Self::new_1bit_with_vswitch`].
     pub fn new_4bit_with_vswitch<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         vswitch: Output<'d>,
         config: Config,
     ) -> Self {
@@ -856,12 +852,12 @@ impl<'d> Sdmmc<'d> {
     /// without it, `acquire()` caps at SDR25.
     pub fn new_1bit_with_vswitch_ckin<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         vswitch: Output<'d>,
         ckin: Peri<'d, impl CkinPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -887,7 +883,6 @@ impl<'d> Sdmmc<'d> {
     /// 4 data lanes; see [`Self::new_1bit_with_vswitch_ckin`].
     pub fn new_4bit_with_vswitch_ckin<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -896,6 +891,7 @@ impl<'d> Sdmmc<'d> {
         d3: Peri<'d, impl D3Pin<T>>,
         vswitch: Output<'d>,
         ckin: Peri<'d, impl CkinPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -925,7 +921,6 @@ impl<'d> Sdmmc<'d> {
     /// Use on instances where CKIN is not routed (e.g. STM32N6 SDMMC2).
     pub fn new_4bit_with_vswitch_dlyb<T: Instance, D: DlybInstance<T>>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -934,6 +929,7 @@ impl<'d> Sdmmc<'d> {
         d3: Peri<'d, impl D3Pin<T>>,
         vswitch: Output<'d>,
         _dlyb: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         // DLL is held in reset out of POR; release it so the DLYB can
@@ -1276,7 +1272,7 @@ impl<'d> Sdmmc<'d> {
 
         regs.dctrl().modify(|w| {
             w.set_dtmode(byte_mode);
-            w.set_dblocksize(block_size as u8);
+            w.set_dblocksize(block_size);
             w.set_dtdir(true);
             #[cfg(sdmmc_v1)]
             {
@@ -1290,7 +1286,7 @@ impl<'d> Sdmmc<'d> {
 
         self.enable_interrupts();
 
-        WrappedTransfer::new(transfer, &self)
+        WrappedTransfer::new(transfer, self)
     }
 
     /// # Safety
@@ -1347,7 +1343,7 @@ impl<'d> Sdmmc<'d> {
 
         regs.dctrl().modify(|w| {
             w.set_dtmode(byte_mode);
-            w.set_dblocksize(block_size as u8);
+            w.set_dblocksize(block_size);
             w.set_dtdir(false);
             #[cfg(sdmmc_v1)]
             {
@@ -1361,7 +1357,7 @@ impl<'d> Sdmmc<'d> {
 
         self.enable_interrupts();
 
-        WrappedTransfer::new(transfer, &self)
+        WrappedTransfer::new(transfer, self)
     }
 
     /// Stops the DMA datapath
@@ -1585,7 +1581,7 @@ impl<'d> Sdmmc<'d> {
     /// _Stand-by State_
     fn select_card(&self, rca: Option<u16>) -> Result<(), Error> {
         match self.cmd(common_cmd::select_card(rca.unwrap_or(0)), true, false) {
-            Err(Error::Timeout) if rca == None => Ok(()),
+            Err(Error::Timeout) if rca.is_none() => Ok(()),
             result => result.map(|_| ()),
         }
     }
@@ -1626,7 +1622,7 @@ impl<'d> Sdmmc<'d> {
     /// Send command to card
     #[allow(unused_variables)]
     fn cmd<R: TypedResp>(&self, cmd: Cmd<R>, check_crc: bool, data: bool) -> Result<CommandResponse<R>, Error> {
-        debug!("(0) cmd arg: 0x{:x} 0x{:x}", cmd.cmd, cmd.arg);
+        trace!("(0) cmd arg: 0x{:x} 0x{:x}", cmd.cmd, cmd.arg);
 
         let regs = self.info.regs;
 

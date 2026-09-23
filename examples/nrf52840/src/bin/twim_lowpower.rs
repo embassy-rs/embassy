@@ -36,11 +36,11 @@ async fn main(_p: Spawner) {
         // Create the TWIM instance with borrowed singletons, so they're not consumed.
         let mut twi = Twim::new(
             p.TWISPI0.reborrow(),
-            Irqs,
-            p.P0_03.reborrow(),
             p.P0_04.reborrow(),
-            config,
+            p.P0_03.reborrow(),
+            Irqs,
             &mut ram_buffer,
+            config,
         );
 
         info!("Reading...");

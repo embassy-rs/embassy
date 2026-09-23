@@ -16,6 +16,7 @@ pub use crate::pac::timer::vals::{Bkbid as BreakBidirectionalMode, Bkdsrm as Bre
 pub use crate::pac::timer::vals::{
     Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity, Ccds, Ckd, Mms2, Ossi, Ossr,
 };
+use crate::rcc::WakeGuard;
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
 #[cfg(timer_v2)]
@@ -78,6 +79,7 @@ pub struct ComplementaryPwm<'d, T: AdvancedInstance4Channel> {
     _ch3n: Option<Flex<'d>>,
     _ch4: Option<Flex<'d>>,
     _ch4n: Option<Flex<'d>>,
+    _wake_guard: WakeGuard,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -143,6 +145,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
             _ch3n,
             _ch4,
             _ch4n,
+            _wake_guard: T::RCC_INFO.wake_guard(),
         };
 
         this.inner.set_counting_mode(counting_mode);
@@ -413,6 +416,20 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.get_break_input_pin_enable()
     }
 
+    /// Enable/disable routing DFSDM1_BREAK0 to this timer's break input.
+    ///
+    /// See `Timer::set_break_dfsdm_enable` for the part-availability caveat.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn set_break_dfsdm_enable(&mut self, enable: bool) {
+        self.inner.set_break_dfsdm_enable(enable);
+    }
+
+    /// Get DFSDM1_BREAK0 break input enable state.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn get_break_dfsdm_enable(&self) -> bool {
+        self.inner.get_break_dfsdm_enable()
+    }
+
     /// Enable/disable comparator output as break input 2 source.
     pub fn set_break2_comparator_enable(&mut self, comp_index: usize, enable: bool) {
         self.inner.set_break2_comparator_enable(comp_index, enable);
@@ -441,6 +458,20 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get external BK2IN pin enable state.
     pub fn get_break2_input_pin_enable(&self) -> bool {
         self.inner.get_break2_input_pin_enable()
+    }
+
+    /// Enable/disable routing DFSDM1_BREAK1 to this timer's break input 2.
+    ///
+    /// See `Timer::set_break2_dfsdm_enable` for the part-availability caveat.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn set_break2_dfsdm_enable(&mut self, enable: bool) {
+        self.inner.set_break2_dfsdm_enable(enable);
+    }
+
+    /// Get DFSDM1_BREAK1 break input 2 enable state.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn get_break2_dfsdm_enable(&self) -> bool {
+        self.inner.get_break2_dfsdm_enable()
     }
 
     /// Set Master Slave Mode
@@ -812,16 +843,16 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
 
         let target = value / outdiv;
         let (these_bits, result) = match target {
-            0..127 | 127 => (target as u8, target),
-            128..254 | 254..256 => {
+            0..=127 => (target as u8, target),
+            128..256 => {
                 let tmp = div_round(value, outdiv * 2);
                 ((tmp as u8 - 64) | 0b100_00000, tmp * 2)
             }
-            256..504 | 504..508 => {
+            256..508 => {
                 let tmp = div_round(value, outdiv * 8);
                 ((tmp as u8 - 32) | 0b110_00000, tmp * 8)
             }
-            508..512 | 512..1008 => {
+            508..1008 => {
                 let tmp = div_round(value, outdiv * 16);
                 ((tmp as u8 - 32) | 0b111_00000, tmp * 16)
             }

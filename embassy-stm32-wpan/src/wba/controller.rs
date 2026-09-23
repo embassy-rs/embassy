@@ -158,11 +158,50 @@ impl<'d, T: Runtime> Controller<'d, T> {
         // Wake the runner
         platform.start_run_ble();
 
-        Ok(Self {
+        #[allow(unused_mut)]
+        let mut this = Self {
             receiver,
             cmd_buf: ([0u8; 255], 0),
             _runtime: runtime,
-        })
+        };
+
+        // Link-Layer-Only has no host to program the identity address; the full
+        // stack does it later in `gap_init`. Mirrors Zephyr's
+        // `bt_hci_stm32wba_setup` (HCI vendor command ACI_HAL_WRITE_CONFIG_DATA,
+        // 0xFC0C). Without this the controller reports a junk identity address
+        // (observed 00:00:00:00:00:40) and bonded peers key their bond to it.
+        #[cfg(feature = "ble-stack-llo")]
+        this.set_public_bd_addr();
+
+        Ok(this)
+    }
+
+    /// Program the public device address (ST OUI 00:80:E1 + low UID bytes).
+    #[cfg(feature = "ble-stack-llo")]
+    fn set_public_bd_addr(&mut self) {
+        let uid = embassy_stm32::uid::uid();
+        let bd_addr = [uid[0], uid[1], uid[2], 0xE1, 0x80, 0x00];
+
+        {
+            let buf = &mut self.cmd_buf.0;
+            buf[0] = 0x01; // H4 command packet indicator
+            buf[1] = 0x0C; // ACI_HAL_WRITE_CONFIG_DATA (0xFC0C), little-endian
+            buf[2] = 0xFC;
+            buf[3] = 0x08; // parameter length
+            buf[4] = 0x00; // CONFIG_DATA_PUBADDR_OFFSET
+            buf[5] = 0x06; // value length
+            buf[6..12].copy_from_slice(&bd_addr);
+        }
+
+        self.cmd_buf.1 = unsafe { BleStack_Request(self.cmd_buf.0.as_mut_ptr()) }.into();
+        if self.cmd_buf.1 == 0 {
+            error!("set_public_bd_addr: no response to ACI_HAL_WRITE_CONFIG_DATA");
+        } else {
+            info!(
+                "public BD address {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X} (status 0x{:02X})",
+                bd_addr[5], bd_addr[4], bd_addr[3], bd_addr[2], bd_addr[1], bd_addr[0], self.cmd_buf.0[6]
+            );
+        }
     }
 
     fn exec<R>(&mut self, f: impl FnOnce(&mut [u8; 255]) -> R) -> R {
@@ -210,9 +249,15 @@ impl<'d, T: Runtime> embedded_io::ErrorType for ControllerAdapter<'d, T> {
 
 #[cfg(feature = "bt-hci")]
 impl<'d, T: Runtime> bt_hci::controller::Controller for ControllerAdapter<'d, T> {
+    // Received packets borrow the controller's own event slots, not a caller buffer.
+    type Buffer<'a> = ();
+
+    fn alloc_buf(&self) -> Result<Self::Buffer<'_>, Self::Error> {
+        Ok(())
+    }
+
     async fn write_acl_data(&self, packet: &bt_hci::data::AclPacket<'_>) -> Result<(), Self::Error> {
-        use bt_hci::WriteHci;
-        use bt_hci::transport::WithIndicator;
+        use bt_hci::transport::{PacketToController, WithIndicator};
 
         let mut controller = self.controller.borrow().borrow_mut();
 
@@ -228,8 +273,7 @@ impl<'d, T: Runtime> bt_hci::controller::Controller for ControllerAdapter<'d, T>
     }
 
     async fn write_sync_data(&self, packet: &bt_hci::data::SyncPacket<'_>) -> Result<(), Self::Error> {
-        use bt_hci::WriteHci;
-        use bt_hci::transport::WithIndicator;
+        use bt_hci::transport::{PacketToController, WithIndicator};
 
         let mut controller = self.controller.borrow().borrow_mut();
 
@@ -240,7 +284,10 @@ impl<'d, T: Runtime> bt_hci::controller::Controller for ControllerAdapter<'d, T>
         })
     }
 
-    async fn read<'a>(&self, _buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
+    async fn read<'a>(
+        &self,
+        _buf: &'a mut Self::Buffer<'_>,
+    ) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
         use core::future::poll_fn;
         use core::task::Poll;
 
@@ -275,8 +322,8 @@ where
     C: bt_hci::cmd::SyncCmd,
 {
     async fn exec(&self, cmd: &C) -> Result<C::Return, bt_hci::cmd::Error<Self::Error>> {
-        use bt_hci::transport::WithIndicator;
-        use bt_hci::{WriteHci, cmd};
+        use bt_hci::cmd;
+        use bt_hci::transport::{PacketToController, WithIndicator};
 
         use crate::util::make_cc_with_cs;
 
@@ -300,8 +347,7 @@ where
     C: bt_hci::cmd::AsyncCmd,
 {
     async fn exec(&self, cmd: &C) -> Result<(), bt_hci::cmd::Error<Self::Error>> {
-        use bt_hci::WriteHci;
-        use bt_hci::transport::WithIndicator;
+        use bt_hci::transport::{PacketToController, WithIndicator};
 
         use crate::util::make_cc_with_cs;
 

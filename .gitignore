@@ -4,6 +4,7 @@ target_ci_stable
 Cargo.lock
 third_party
 webroot
+work
 /Cargo.toml
 out/
 # editor artifacts

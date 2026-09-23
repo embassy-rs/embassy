@@ -41,6 +41,8 @@ as they implement both the link:https://github.com/rust-embedded/embedded-hal[Em
 === Networking
 The link:https://docs.embassy.dev/embassy-net/[embassy-net] network stack implements extensive networking functionality, including Ethernet, IP, TCP, UDP, ICMP and DHCP. Async drastically simplifies managing timeouts and serving multiple connections concurrently. Several drivers for WiFi and Ethernet chips can be found.
 
+The link:https://docs.embassy.dev/embassy-ptp-driver/[embassy-ptp-driver] crate defines a network-stack-independent interface for reading and adjusting PTP hardware clocks.
+
 === Bluetooth
 
 * The link:https://github.com/embassy-rs/trouble[trouble] crate provides a Bluetooth Low Energy 4.x and 5.x Host that runs on any microcontroller implementing the link:https://github.com/embassy-rs/bt-hci[bt-hci] traits (currently `nRF52`, `nrf54`, `rp2040`, `rp23xx` and `esp32` and `serial` controllers are supported).

@@ -15,6 +15,6 @@ pub use events::{
 };
 pub use server::GattServer;
 pub use types::{
-    CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType, Uuid,
-    UuidType,
+    AttributeAccess, CharProperties, CharacteristicHandle, DescriptorHandle, GattEventMask, SecurityPermissions,
+    ServiceHandle, ServiceType, Uuid, UuidType,
 };

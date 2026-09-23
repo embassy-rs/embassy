@@ -169,7 +169,7 @@ async fn main(spawner: Spawner) {
     // the bond's IRK made it into the LL resolving list — if `peer_rpa` here matches the
     // identity address (instead of being a valid RPA), the LL has `peer_irk = 0` and will
     // silently drop incoming CONNECT_INDs from a bonded RPA-using peer like iOS.
-    security.log_resolving_list_diagnostics();
+    security.log_resolving_list_diagnostics(None);
 
     // ── GATT ──────────────────────────────────────────────────────────────────
     //
@@ -354,6 +354,7 @@ fn make_adv_params() -> AdvParams {
         // 0x02 = resolvable private address when controller privacy is enabled.
         own_addr_type: OwnAddressType::PrivateFallbackPublic,
         filter_policy: AdvFilterPolicy::All,
+        peer_addr: None,
         channel_map: 0x07,
         // Use set_discoverable + le_set_advertise_enable (undirected path can hang centrals).
         privacy_undirected: false,

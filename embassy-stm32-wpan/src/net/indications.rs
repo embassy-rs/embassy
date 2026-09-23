@@ -1,6 +1,5 @@
 use core::slice;
 
-use xarxa::wire::ieee802154::Frame;
 use xarxa::wire::{Ieee802154FrameType, Ieee802154FrameVersion, Ieee802154Repr};
 
 use crate::net::typedefs::{
@@ -88,14 +87,23 @@ impl BeaconNotifyIndication {
     }
 }
 
-pub fn write_frame_from_beacon_indication<'a, T: AsRef<[u8]> + AsMut<[u8]>>(
-    data: &'a BeaconNotifyIndication,
-    buffer: &'a mut T,
-) {
-    let mut frame = Frame::new_unchecked(buffer);
+pub fn write_frame_from_beacon_indication(data: &BeaconNotifyIndication, buffer: &mut [u8]) -> usize {
+    let repr = Ieee802154Repr {
+        frame_type: Ieee802154FrameType::Beacon,
+        security_enabled: false,
+        frame_pending: false,
+        ack_request: false,
+        sequence_number: Some(data.bsn),
+        pan_id_compression: false,
+        frame_version: Ieee802154FrameVersion::Ieee802154,
+        dst_pan_id: None,
+        dst_addr: None,
+        src_pan_id: None,
+        src_addr: None,
+    };
 
-    frame.set_frame_type(Ieee802154FrameType::Beacon);
-    frame.set_sequence_number(data.bsn);
+    repr.emit(buffer);
+    repr.buffer_len()
 }
 
 /// MLME COMM STATUS Indication which is used by the MAC to indicate a communications status
@@ -286,10 +294,7 @@ impl DataIndication {
     }
 }
 
-pub fn write_frame_from_data_indication<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(
-    data: &'a DataIndication,
-    buffer: &'a mut T,
-) -> usize {
+pub fn write_frame_from_data_indication(data: &DataIndication, buffer: &mut [u8]) -> usize {
     let repr = Ieee802154Repr {
         frame_type: Ieee802154FrameType::Data,
         security_enabled: data.security_level == SecurityLevel::Secured,
@@ -304,13 +309,13 @@ pub fn write_frame_from_data_indication<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Size
         src_addr: Some(MacAddressAndMode(data.src_address, data.src_addr_mode).into()),
     };
 
-    let mut frame = Frame::new_unchecked(buffer);
+    let header_len = repr.buffer_len();
+    let payload = data.payload();
 
-    repr.emit(&mut frame);
+    repr.emit(buffer);
+    buffer[header_len..][..payload.len()].copy_from_slice(payload);
 
-    frame.payload_mut().unwrap().copy_from_slice(data.payload());
-
-    repr.buffer_len() + data.payload().len()
+    header_len + payload.len()
 }
 
 /// MLME POLL Indication which will be used for indicating the Data Request

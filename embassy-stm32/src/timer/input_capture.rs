@@ -11,6 +11,7 @@ use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, Ti
 pub use super::{Ch1, Ch2, Ch3, Ch4};
 use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
+use crate::rcc::WakeGuard;
 use crate::time::Hertz;
 use crate::timer::{TimerChannel, TimerInputTrigger};
 use crate::{Peri, dma};
@@ -71,6 +72,7 @@ pub struct InputCapture<'d, T: GeneralInstance4Channel> {
     _ch2: Option<InputType<'d>>,
     _ch3: Option<InputType<'d>>,
     _ch4: Option<InputType<'d>>,
+    _wake_guard: WakeGuard,
 }
 
 impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
@@ -112,6 +114,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
             _ch2,
             _ch3,
             _ch4,
+            _wake_guard: T::RCC_INFO.wake_guard(),
         };
 
         this.inner.set_counting_mode(counting_mode);

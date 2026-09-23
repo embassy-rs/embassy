@@ -60,25 +60,25 @@ unsafe impl Sync for Info {}
 macro_rules! impl_lpi2c_instance {
     ($n:literal) => {
         paste::paste! {
-            impl crate::i2c::SealedInstance for crate::peripherals::[<LPI2C $n>] {
-                fn info() -> &'static crate::i2c::Info {
-                    static INFO: crate::i2c::Info = crate::i2c::Info {
-                        regs: crate::pac::[<LPI2C $n>],
+            impl $crate::i2c::SealedInstance for $crate::peripherals::[<LPI2C $n>] {
+                fn info() -> &'static $crate::i2c::Info {
+                    static INFO: $crate::i2c::Info = $crate::i2c::Info {
+                        regs: $crate::pac::[<LPI2C $n>],
                         wait_cell: maitake_sync::WaitCell::new(),
                     };
                     &INFO
                 }
 
-                const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance
-                    = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
-                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
-                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
+                const CLOCK_INSTANCE: $crate::clocks::periph_helpers::Lpi2cInstance
+                    = $crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
+                const PERF_INT_INCR: fn() = $crate::perf_counters::[<incr_interrupt_i2c $n>];
+                const PERF_INT_WAKE_INCR: fn() = $crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
                 const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Tx>];
                 const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpi2C $n Rx>];
             }
 
-            impl crate::i2c::Instance for crate::peripherals::[<LPI2C $n>] {
-                type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
+            impl $crate::i2c::Instance for $crate::peripherals::[<LPI2C $n>] {
+                type Interrupt = $crate::interrupt::typelevel::[<LPI2C $n>];
             }
         }
     };
@@ -143,19 +143,19 @@ impl AsyncMode for Dma<'_> {}
 #[macro_export]
 macro_rules! impl_lpi2c_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
-        impl crate::i2c::sealed::SealedPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
+        impl $crate::i2c::sealed::SealedPin<$crate::peripherals::$peri> for $crate::peripherals::$pin {}
 
-        impl crate::i2c::$trait<crate::peripherals::$peri> for crate::peripherals::$pin {
+        impl $crate::i2c::$trait<$crate::peripherals::$peri> for $crate::peripherals::$pin {
             fn mux(&self) {
-                use crate::gpio::SealedPin;
-                self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
-                self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                self.set_function(crate::pac::port::Mux::$fn);
+                use $crate::gpio::SealedPin;
+                self.set_pull($crate::gpio::Pull::Disabled);
+                self.set_slew_rate($crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength($crate::gpio::DriveStrength::Double.into());
+                self.set_function($crate::pac::port::Mux::$fn);
                 self.set_enable_input_buffer(true);
                 // I2C requires open-drain so multiple devices can share the bus.
                 self.pcr_reg().modify(|w| {
-                    w.set_ode(crate::pac::port::Ode::Ode1);
+                    w.set_ode($crate::pac::port::Ode::Ode1);
                 });
             }
         }

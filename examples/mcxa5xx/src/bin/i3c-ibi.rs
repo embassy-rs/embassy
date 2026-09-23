@@ -12,7 +12,7 @@ use embassy_mcxa::clocks::config::{
 };
 use embassy_mcxa::clocks::periph_helpers::{Div4, I3cClockSel};
 use embassy_mcxa::gpio::{self, Input, Pull};
-use embassy_mcxa::i3c::controller::{self, BusType, I3c, IbiSlot, Operation, Payload};
+use embassy_mcxa::i3c::controller::{self, BusType, I3c, IbiEvent, IbiSlot, Operation, Payload};
 use embassy_mcxa::peripherals::{GPIO3, I3C0};
 use panic_probe as _;
 
@@ -176,10 +176,14 @@ async fn main(_spawner: Spawner) {
             Either::First(_) => {
                 defmt::info!("Button pressed");
             }
-            Either::Second(res) => {
-                let (addr, payload_len) = res.unwrap();
-                defmt::info!("IBI from 0x{:02x}, payload_len={}", addr, payload_len);
-            }
+            Either::Second(res) => match res.unwrap() {
+                IbiEvent::Ibi { address, payload_len } => {
+                    defmt::info!("IBI from 0x{:02x}, payload_len={}", address, payload_len);
+                }
+                e => {
+                    defmt::error!("Unexpected IBI event: {:?}", e);
+                }
+            },
         }
 
         i3c.async_write_read(addr, &[0x00], &mut buf, BusType::I3cSdr)

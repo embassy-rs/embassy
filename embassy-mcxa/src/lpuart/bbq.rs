@@ -187,6 +187,7 @@ pub struct LpuartBbq {
 
 #[derive(Copy, Clone)]
 struct BbqVtable {
+    #[allow(clippy::type_complexity)]
     lpuart_init: fn(bool, bool, bool, bool, super::Config) -> Result<Option<WakeGuard>, super::Error>,
     int_pend: fn(),
     int_unpend: fn(),
@@ -832,7 +833,9 @@ impl LpuartBbqTx {
     ///
     /// When this method completes, the outgoing buffer is empty.
     pub fn blocking_flush(&mut self) {
-        while (self.state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) != 0 {}
+        while (self.state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) != 0 {
+            core::hint::spin_loop()
+        }
     }
 
     /// Stop the TX side: disable TCIE, halt TX DMA, drop the tx_queue in place,
@@ -1694,18 +1697,18 @@ macro_rules! impl_lpuart_bbq_instance {
     ($n:expr) => {
         paste::paste! {
             #[allow(private_interfaces)]
-            impl crate::lpuart::bbq::BbqInstance for crate::peripherals::[<LPUART $n>] {
-                fn bbq_state() -> &'static crate::lpuart::bbq::BbqState {
-                    static STATE: crate::lpuart::bbq::BbqState = crate::lpuart::bbq::BbqState::new();
+            impl $crate::lpuart::bbq::BbqInstance for $crate::peripherals::[<LPUART $n>] {
+                fn bbq_state() -> &'static $crate::lpuart::bbq::BbqState {
+                    static STATE: $crate::lpuart::bbq::BbqState = $crate::lpuart::bbq::BbqState::new();
                     &STATE
                 }
 
                 fn dma_rx_complete_cb() {
-                    use crate::_generated::interrupt::typelevel::Interrupt;
+                    use $crate::_generated::interrupt::typelevel::Interrupt;
 
                     let state = Self::bbq_state();
                     // Mark the DMA as complete
-                    state.state.fetch_or(crate::lpuart::bbq::STATE_RXDMA_COMPLETE, core::sync::atomic::Ordering::AcqRel);
+                    state.state.fetch_or($crate::lpuart::bbq::STATE_RXDMA_COMPLETE, core::sync::atomic::Ordering::AcqRel);
                     // Pend the UART interrupt to handle the switchover
                     Self::Interrupt::pend();
                 }

@@ -1,12 +1,60 @@
 //! USB host device enumeration helpers.
 #![allow(missing_docs)]
 
+use embassy_time::Timer;
 use embassy_usb_driver::Speed;
 use embassy_usb_driver::host::pipe::{self, IsIn, IsOut};
-use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbPipe};
+use embassy_usb_driver::host::{HostError, PipeError, SplitInfo, SplitSpeed, UsbPipe};
 
 use crate::control::ControlPipeExt;
 use crate::descriptor::{ConfigurationDescriptor, ConfigurationDescriptorChain, DeviceDescriptor, USBDescriptor};
+
+/// How many times a descriptor read is re-attempted before its failure is
+/// taken as the answer.
+pub(crate) const DESCRIPTOR_RETRIES: u32 = 3;
+
+/// Milliseconds between those attempts.
+pub(crate) const DESCRIPTOR_RETRY_MS: u64 = 5;
+
+/// Runs a descriptor read, re-attempting it a few times before taking a
+/// failure as the answer.
+///
+/// Some devices STALL a descriptor read once and answer the identical
+/// request milliseconds later — nothing about the request differs between
+/// the two. Observed here on a USB gamepad (0428:4001), which refuses the
+/// first configuration-descriptor read issued after it is addressed.
+/// Linux's usbcore makes the same allowance for every descriptor read in
+/// `usb_get_descriptor`, commented "some devices are flakey".
+///
+/// Safe in a way it would not be for a state-changing request: a
+/// descriptor read is idempotent, and a control transfer restarts from
+/// its SETUP, which clears a control endpoint's protocol stall (USB 2.0
+/// §8.5.3.4) — so there is nothing left over from the failed attempt to
+/// undo first. `SET_ADDRESS` and `SET_CONFIGURATION` deliberately do not
+/// go through here: repeating one of those is not the same as issuing it
+/// once.
+///
+/// A disconnect is returned immediately because the device is gone.
+/// Retrying would start another transfer after detach, which cannot
+/// meaningfully succeed and may remain pending depending on the host driver.
+pub(crate) async fn retry_descriptor<T, E>(mut read: impl AsyncFnMut() -> Result<T, E>) -> Result<T, E>
+where
+    E: Copy + Into<HostError>,
+{
+    let mut retries = DESCRIPTOR_RETRIES;
+    loop {
+        match read().await {
+            Ok(value) => return Ok(value),
+            Err(e) => {
+                if retries == 0 || matches!(e.into(), HostError::PipeError(PipeError::Disconnected)) {
+                    return Err(e);
+                }
+                retries -= 1;
+                Timer::after_millis(DESCRIPTOR_RETRY_MS).await;
+            }
+        }
+    }
+}
 
 /// How a device's traffic reaches it on the bus.
 ///
@@ -111,9 +159,12 @@ impl EnumerationInfo {
         let mut index = None;
         let mut cfg_len = 0;
         for i in 0..self.device_desc.num_configurations {
-            let cfg_desc_short = channel
-                .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::BUF_SIZE }>(i, false)
-                .await?;
+            let cfg_desc_short = retry_descriptor(async || {
+                channel
+                    .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::BUF_SIZE }>(i, false)
+                    .await
+            })
+            .await?;
 
             if cfg_desc_short.configuration_value == cfg_id {
                 if cfg_desc_short.total_len as usize > cfg_desc_buf.len() {
@@ -127,9 +178,12 @@ impl EnumerationInfo {
 
         let index = index.ok_or(HostError::Other("Active configuration not found on device"))?;
         let dest = &mut cfg_desc_buf[0..cfg_len];
-        channel
-            .request_descriptor_bytes(ConfigurationDescriptor::DESC_TYPE, index, dest)
-            .await?;
+        retry_descriptor(async || {
+            channel
+                .request_descriptor_bytes(ConfigurationDescriptor::DESC_TYPE, index, &mut *dest)
+                .await
+        })
+        .await?;
 
         let cfg =
             ConfigurationDescriptorChain::try_from_slice(cfg_desc_buf).map_err(|_| HostError::InvalidDescriptor)?;
@@ -147,18 +201,44 @@ impl EnumerationInfo {
             return Err(HostError::InvalidDescriptor);
         }
 
-        let cfg_desc_short = channel
-            .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::BUF_SIZE }>(index, false)
-            .await?;
+        // Both reads below are retried, for the same reason the device
+        // descriptor above them already is: some devices STALL a
+        // descriptor read once and answer the identical request
+        // milliseconds later. Leaving the configuration descriptor as
+        // the only unretried read in enumeration means one such device
+        // never enumerates at all, having already got past every step
+        // that does allow for it.
+        //
+        // Observed on a USB gamepad (0428:4001), which STALLs the first
+        // configuration-descriptor read issued after it is addressed and
+        // then answers the same request on the next attempt. Linux's
+        // usbcore makes the same allowance for every descriptor read in
+        // `usb_get_descriptor`, commented "some devices are flakey".
+        //
+        // Retrying is safe here in a way it would not be for a
+        // state-changing request: a descriptor read is idempotent, and a
+        // control transfer restarts from its SETUP, which clears a
+        // control endpoint's protocol stall (USB 2.0 §8.5.3.4) — so
+        // there is no leftover state from the failed attempt to undo
+        // first.
+        let cfg_desc_short = retry_descriptor(async || {
+            channel
+                .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::BUF_SIZE }>(index, false)
+                .await
+        })
+        .await?;
 
         let total_len = cfg_desc_short.total_len as usize;
         if total_len > cfg_desc_buf.len() {
             return Err(HostError::InsufficientMemory);
         }
         let dest = &mut cfg_desc_buf[0..total_len];
-        channel
-            .request_descriptor_bytes(ConfigurationDescriptor::DESC_TYPE, index, dest)
-            .await?;
+        retry_descriptor(async || {
+            channel
+                .request_descriptor_bytes(ConfigurationDescriptor::DESC_TYPE, index, &mut *dest)
+                .await
+        })
+        .await?;
 
         trace!(
             "Full Configuration Descriptor [{}]: {:?}",
@@ -188,5 +268,60 @@ pub enum RegisterError {
 impl From<HostError> for RegisterError {
     fn from(value: HostError) -> Self {
         RegisterError::HostError(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::pin::pin;
+    use core::task::{Context, Poll, Waker};
+
+    use embassy_time::{Duration, MockDriver};
+    use embassy_usb_driver::host::{HostError, PipeError};
+
+    use super::retry_descriptor;
+
+    /// Polls `fut` to completion, advancing the mock clock while it waits.
+    fn run<F: Future>(fut: F) -> F::Output {
+        let mut fut = pin!(fut);
+        let mut cx = Context::from_waker(Waker::noop());
+        loop {
+            if let Poll::Ready(v) = fut.as_mut().poll(&mut cx) {
+                return v;
+            }
+            MockDriver::get().advance(Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn retry_descriptor_does_not_retry_disconnect() {
+        // `PipeError`: callers that read with `control_in`.
+        let mut calls = 0;
+        let res: Result<(), PipeError> = run(retry_descriptor(async || {
+            calls += 1;
+            Err(PipeError::Disconnected)
+        }));
+        assert_eq!(res, Err(PipeError::Disconnected));
+        assert_eq!(calls, 1);
+
+        // `HostError`: callers that read with `request_descriptor`.
+        let mut calls = 0;
+        let res: Result<(), HostError> = run(retry_descriptor(async || {
+            calls += 1;
+            Err(HostError::PipeError(PipeError::Disconnected))
+        }));
+        assert_eq!(res, Err(HostError::PipeError(PipeError::Disconnected)));
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn retry_descriptor_retries_stall() {
+        let mut calls = 0;
+        let res: Result<u8, PipeError> = run(retry_descriptor(async || {
+            calls += 1;
+            if calls == 1 { Err(PipeError::Stall) } else { Ok(7) }
+        }));
+        assert_eq!(res, Ok(7));
+        assert_eq!(calls, 2);
     }
 }

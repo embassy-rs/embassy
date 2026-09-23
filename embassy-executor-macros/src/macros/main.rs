@@ -37,13 +37,7 @@ pub static ARCH_CORTEX_M: Arch = Arch {
     executor_required: false,
 };
 
-pub static ARCH_CORTEX_AR: Arch = Arch {
-    default_entry: None,
-    flavor: Flavor::Standard,
-    executor_required: false,
-};
-
-pub static ARCH_Z7: Arch = Arch {
+pub static ARCH_AARCH32: Arch = Arch {
     default_entry: None,
     flavor: Flavor::Standard,
     executor_required: false,

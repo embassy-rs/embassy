@@ -17,6 +17,8 @@ const TRANSFER_INTERRUPT: u8 = 0x03;
 
 /// HID class request: GET_REPORT.
 const GET_REPORT: u8 = 0x01;
+/// HID class request: SET_REPORT;
+const SET_REPORT: u8 = 0x09;
 /// HID class request: SET_IDLE.
 const SET_IDLE: u8 = 0x0A;
 /// HID class request: SET_PROTOCOL.
@@ -175,8 +177,8 @@ pub fn find_hid(config_desc: &[u8]) -> Option<HidInfo> {
         let report_desc_len = iface
             .iter_descriptors()
             .find_map(|(_, data)| {
-                if data.len() >= 7 && data[1] == DESC_HID {
-                    Some(u16::from_le_bytes([data[5], data[6]]))
+                if data.len() >= 9 && data[1] == DESC_HID {
+                    Some(u16::from_le_bytes([data[7], data[8]]))
                 } else {
                     None
                 }
@@ -367,5 +369,37 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
         let setup = SetupPacket::class_interface_in(GET_REPORT, value, self.interface as u16, buf.len() as u16);
         let n = self.ctrl_ch.control_in(&setup.to_bytes(), buf).await?;
         Ok(n)
+    }
+
+    /// Issue a SET_REPORT control request.
+    ///
+    /// `report_type`: 1=Input, 2=Output, 3=Feature.
+    /// `report_id`: 0 if the device uses a single report.
+    /// `buf`: the report body
+    pub async fn set_report(&mut self, report_type: u8, report_id: u8, buf: &[u8]) -> Result<(), HidError> {
+        let value = (report_type as u16) << 8 | report_id as u16;
+        let setup = SetupPacket::class_interface_out(SET_REPORT, value, self.interface as u16, buf.len() as u16);
+        self.ctrl_ch.control_out(&setup.to_bytes(), buf).await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    /// A real HID class descriptor, whose report length (0x0034) sits at bytes 7-8.
+    const HID_CONFIG: [u8; 34] = [
+        9, 2, 34, 0, 1, 1, 0, 0x80, 50, // configuration
+        9, 4, 0, 0, 1, 0x03, 0x01, 0x01, 0, // interface, HID boot keyboard
+        9, 0x21, 0x11, 0x01, 0, 1, 0x22, 0x34, 0x00, // HID, report descriptor is 52 bytes
+        7, 5, 0x81, 0x03, 8, 0, 10, // endpoint, interrupt IN
+    ];
+
+    #[test]
+    fn reads_report_descriptor_length() {
+        let info = find_hid(&HID_CONFIG).expect("HID interface is found");
+        assert_eq!(info.report_descriptor_len, 0x0034);
+        assert_eq!(info.interrupt_in_ep, 0x81);
     }
 }

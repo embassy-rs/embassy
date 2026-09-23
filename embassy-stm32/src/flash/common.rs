@@ -91,7 +91,7 @@ pub(super) unsafe fn blocking_write(
     if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
     }
-    if offset % WRITE_SIZE as u32 != 0 || bytes.len() % WRITE_SIZE != 0 {
+    if !offset.is_multiple_of(WRITE_SIZE as u32) || !bytes.len().is_multiple_of(WRITE_SIZE) {
         return Err(Error::Unaligned);
     }
 

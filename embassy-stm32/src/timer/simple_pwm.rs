@@ -12,6 +12,7 @@ use crate::dma::word::Word;
 use crate::gpio::Pull;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::pac::timer::vals::Ccds;
+use crate::rcc::WakeGuard;
 use crate::time::Hertz;
 #[cfg(timer_v2)]
 use crate::timer::low_level::DitheringConfig;
@@ -137,7 +138,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     pub fn set_duty_cycle_fraction(&mut self, num: u32, denom: u32) {
         assert!(denom != 0);
         assert!(num <= denom);
-        let duty = u32::from(num) * u32::from(self.max_duty_cycle()) / u32::from(denom);
+        let duty = num * self.max_duty_cycle() / denom;
 
         // This is safe because we know that `num <= denom`, so `duty <= self.max_duty_cycle()` (u16)
         #[allow(clippy::cast_possible_truncation)]
@@ -222,6 +223,7 @@ pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
     ch2: Option<Flex<'d>>,
     ch3: Option<Flex<'d>>,
     ch4: Option<Flex<'d>>,
+    _wake_guard: WakeGuard,
 }
 
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
@@ -262,6 +264,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             ch2,
             ch3,
             ch4,
+            _wake_guard: T::RCC_INFO.wake_guard(),
         };
 
         this.inner.set_counting_mode(counting_mode);
@@ -608,7 +611,7 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
-        assert!(duty <= self.max_duty_cycle() as u32);
+        assert!(duty <= self.max_duty_cycle());
         self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 

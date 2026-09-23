@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new(p.USART2, p.PD6, p.PD5, p.LPDMA1_CH0, p.LPDMA1_CH1, Irqs, config).unwrap();
+    let mut usart = Uart::new(p.USART2, p.PD5, p.PD6, p.LPDMA1_CH0, p.LPDMA1_CH1, Irqs, config).unwrap();
     info!("Usart DMA example");
 
     for n in 0u32.. {

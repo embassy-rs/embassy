@@ -62,10 +62,10 @@ overflow-checks = false
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv7em-none-eabi", features = ["embassy-nrf/nrf52840"] },
-  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9160-ns"] },
-  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9120-ns"] },
-  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9151-ns"] },
-  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9161-ns"] },
-  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf54l15-app-s", "nrf54"] }
+  { target = "thumbv7em-none-eabi", features = ["embassy-nrf/nrf52840"], artifact-dir = "out/examples/boot/bootloader/nrf/nrf52840" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9160-ns"], artifact-dir = "out/examples/boot/bootloader/nrf/nrf9160" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9120-ns"], artifact-dir = "out/examples/boot/bootloader/nrf/nrf9120" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9151-ns"], artifact-dir = "out/examples/boot/bootloader/nrf/nrf9151" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9161-ns"], artifact-dir = "out/examples/boot/bootloader/nrf/nrf9161" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf54l15-app-s", "nrf54"], artifact-dir = "out/examples/boot/bootloader/nrf/nrf54l15" }
 ]

@@ -19,6 +19,7 @@ pub mod pac {
         UARTE00_NS as UARTE00,
         VPR00_NS as VPR00,
         P2_NS as P2,
+        P3_NS as P3,
         CTRLAP_NS as CTRLAP,
         TAD_NS as TAD,
         TIMER00_NS as TIMER00,
@@ -120,6 +121,7 @@ pub mod pac {
         RRAMC_S as RRAMC,
         VPR00_S as VPR00,
         P2_S as P2,
+        P3_S as P3,
         CTRLAP_S as CTRLAP,
         TAD_S as TAD,
         TIMER00_S as TIMER00,
@@ -199,8 +201,6 @@ pub mod pac {
     };
 }
 
-/// The maximum buffer size that the EasyDMA can send/recv in one operation.
-pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
 // 2 MB NVM
@@ -508,8 +508,12 @@ embassy_hal_internal::peripherals! {
     GPIOTE30_CH3,
 
     // CRACEN
-    #[cfg(feature = "_s")]
-    CRACEN,
+    #[cfg(all(feature = "_s", not(feature = "embassy-crypto-rng")))]
+    CRYPTO_RNG,
+    #[cfg(all(feature = "_s", not(feature = "_embassy-crypto-symmetric")))]
+    CRYPTO_SYMMETRIC,
+    #[cfg(all(feature = "_s", not(feature = "_embassy-crypto-pka")))]
+    CRYPTO_PKA,
 
     #[cfg(feature = "_s")]
     // RRAMC
@@ -789,17 +793,14 @@ impl_uarte!(SERIAL22, UARTE22, SERIAL22);
 impl_uarte!(SERIAL30, UARTE30, SERIAL30);
 
 // NB: SAADC uses "pin" abstraction, not "AIN"
-impl_saadc_input!(P1_04, 1, 4);
-impl_saadc_input!(P1_05, 1, 5);
-impl_saadc_input!(P1_06, 1, 6);
-impl_saadc_input!(P1_07, 1, 7);
-impl_saadc_input!(P1_11, 1, 11);
-impl_saadc_input!(P1_12, 1, 12);
-impl_saadc_input!(P1_13, 1, 13);
-impl_saadc_input!(P1_14, 1, 14);
-
-#[cfg(feature = "_s")]
-impl_cracen!(CRACEN, CRACEN, CRACEN);
+impl_saadc_input!(P1_00, 1, 0); // AIN0
+impl_saadc_input!(P1_31, 1, 31); // AIN1
+impl_saadc_input!(P1_30, 1, 30); // AIN2
+impl_saadc_input!(P1_29, 1, 29); // AIN3
+impl_saadc_input!(P1_06, 1, 6); // AIN4
+impl_saadc_input!(P1_05, 1, 5); // AIN5
+impl_saadc_input!(P1_04, 1, 4); // AIN6
+impl_saadc_input!(P1_03, 1, 3); // AIN7
 
 #[cfg(feature = "_s")]
 impl_vpr!(VPR, VPR00, VPR00);

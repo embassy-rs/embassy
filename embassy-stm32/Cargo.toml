@@ -94,7 +94,7 @@ build = [
     {target = "thumbv7m-none-eabi", features = ["defmt", "exti", "stm32f100c4", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32h503rb", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32h523cc", "time", "time-driver-any"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32h562ag", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32h562ag", "time", "time-driver-any", "embassy-crypto-rng"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32wba50ke", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32wba55ug", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32wba62cg", "time", "time-driver-any"]},
@@ -163,7 +163,10 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
-embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "e5bc1b0408773f804f8d165257f34c3a11ae0181", features = ["async", "packet-buf-align-8"] }
+embassy-crypto = { version = "0.1.0", path = "../embassy-crypto", features = ["large-contexts"] }
+crypto-bigint = { version = "0.7.5", default-features = false, optional = true }
+embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
@@ -213,11 +216,11 @@ heapless = "0.9.3"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7a8bb7113f8548e09dca4ed214af3acb7925aa31" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-3b1e9bcf7cd6a04e2ccb74182b22ded50d264723" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7a8bb7113f8548e09dca4ed214af3acb7925aa31" , default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-3b1e9bcf7cd6a04e2ccb74182b22ded50d264723", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
@@ -244,16 +247,19 @@ defmt = [
     "embassy-hal-internal/defmt",
     "embedded-io-async/defmt",
     "embassy-usb-driver/defmt",
-    "embassy-net-driver/defmt",
+    "xarxa-driver/defmt",
+    "embassy-ptp-driver?/defmt",
     "embassy-time?/defmt",
     "embassy-usb-synopsys-otg/defmt",
     "stm32-metapac/defmt",
-    "sdio/defmt"
+    "sdio/defmt",
+    "embassy-crypto/defmt",
 ]
+
 ## Use log for logging
 log = ["dep:log"]
 ## Enable Ethernet PTP hardware timestamping.
-ptp = ["embassy-net-driver/packetmeta-timestamp"]
+ptp = ["xarxa-driver/packetmeta-timestamp", "dep:embassy-ptp-driver"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
 
@@ -261,6 +267,62 @@ stm32-hrtim = ["dep:stm32-hrtim"]
 
 ## Enable USB host mode support
 usb-host = ["embassy-usb-synopsys-otg/host"]
+
+## Register the hardware driver for one `embassy-crypto` operation, served by
+## the HASH, AES or CRYP peripheral. See the `embassy-crypto` documentation.
+## Nothing is registered for chips that lack the peripheral or the algorithm.
+embassy-crypto-md5 = []
+embassy-crypto-sha1 = []
+embassy-crypto-sha224 = []
+embassy-crypto-sha256 = []
+embassy-crypto-sha384 = []
+embassy-crypto-sha512 = []
+embassy-crypto-sha512-224 = []
+embassy-crypto-sha512-256 = []
+embassy-crypto-hmac-sha1 = []
+embassy-crypto-hmac-sha224 = []
+embassy-crypto-hmac-sha256 = []
+embassy-crypto-hmac-sha384 = []
+embassy-crypto-hmac-sha512 = []
+embassy-crypto-hmac-sha512-224 = []
+embassy-crypto-hmac-sha512-256 = []
+embassy-crypto-aes128-ecb = []
+embassy-crypto-aes128-cbc = []
+embassy-crypto-aes128-ctr = []
+embassy-crypto-aes128-gcm = []
+embassy-crypto-aes128-ccm = []
+embassy-crypto-aes256-ecb = []
+embassy-crypto-aes256-cbc = []
+embassy-crypto-aes256-ctr = []
+embassy-crypto-aes256-gcm = []
+embassy-crypto-aes256-ccm = []
+## Serve the `embassy-crypto-aes*` operations with the SAES peripheral instead of
+## the AES one, on chips that have both. The SAES needs the RNG running: with
+## `embassy-crypto-rng` the driver starts it, otherwise keep an
+## [`Rng`](crate::rng::Rng) alive. See [`saes`](crate::saes).
+embassy-crypto-saes = []
+## Register the hardware driver for random numbers, served by the RNG. See the
+## `embassy-crypto` documentation. The driver takes the peripheral over and keeps
+## it running.
+embassy-crypto-rng = []
+## Register the hardware driver for P-256 arithmetic, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p256-arith = ["dep:crypto-bigint"]
+## Register the hardware driver for P-256 ECDH, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p256-ecdh = ["dep:crypto-bigint"]
+## Register the hardware driver for P-256 ECDSA, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p256-ecdsa = ["dep:crypto-bigint"]
+## Register the hardware driver for P-384 arithmetic, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p384-arith = ["dep:crypto-bigint"]
+## Register the hardware driver for P-384 ECDH, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p384-ecdh = ["dep:crypto-bigint"]
+## Register the hardware driver for P-384 ECDSA, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p384-ecdsa = ["dep:crypto-bigint"]
 
 exti = []
 low-power = [ "time" ]
@@ -301,7 +363,7 @@ time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 _time-driver = ["dep:embassy-time-driver", "time", "dep:embassy-time-queue-utils"]
 _lp-time-driver = ["_time-driver"]
 
-## Use any time driver
+## Pick any TIMx timer for the time driver. Prefers 32-bit timers, if available.
 time-driver-any = ["_time-driver"]
 ## Use TIM1 as time driver
 time-driver-tim1 = ["_time-driver"]
@@ -321,6 +383,8 @@ time-driver-tim9 = ["_time-driver"]
 time-driver-tim12 = ["_time-driver"]
 ## Use TIM15 as time driver
 time-driver-tim15 = ["_time-driver"]
+## Use TIM19 as time driver
+time-driver-tim19 = ["_time-driver"]
 ## Use TIM20 as time driver
 time-driver-tim20 = ["_time-driver"]
 ## Use TIM21 as time driver
@@ -337,6 +401,12 @@ time-driver-lptim1 = ["_lp-time-driver"]
 time-driver-lptim2 = ["_lp-time-driver"]
 ## Use LPTIM3 as time driver
 time-driver-lptim3 = ["_lp-time-driver"]
+## Use LPTIM4 as time driver
+time-driver-lptim4 = ["_lp-time-driver"]
+## Use LPTIM5 as time driver
+time-driver-lptim5 = ["_lp-time-driver"]
+## Use LPTIM6 as time driver
+time-driver-lptim6 = ["_lp-time-driver"]
 
 #! ## Analog Switch Pins (Pxy_C) on STM32H7 series
 #! Get `PXY` and `PXY_C` singletons. Digital impls are on `PXY`, Analog impls are on `PXY_C`
@@ -355,6 +425,7 @@ dual-bank = []
 single-bank = []
 
 # Set all GPIO pins (except SWD) to analog in init()
+# Recommended by AN4899 chapter 7.1 for power optimization
 gpio-init-analog = []
 
 ## internal use only

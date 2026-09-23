@@ -34,7 +34,7 @@ async fn main(_spawner: Spawner) {
     // Test 1: Generate random bytes using async method
     info!("\n=== Test 1: Async random bytes ===");
     let mut buf = [0u8; 16];
-    match rng.async_fill_bytes(&mut buf).await {
+    match rng.fill_bytes(&mut buf).await {
         Ok(_) => info!("Generated 16 random bytes: {:02x}", buf),
         Err(e) => error!("Error generating random bytes: {:?}", e),
     }
@@ -42,7 +42,7 @@ async fn main(_spawner: Spawner) {
     // Test 2: Generate multiple u32 values using blocking method
     info!("\n=== Test 2: Blocking u32 generation ===");
     for i in 0..5 {
-        let random = rng.next_u32();
+        let random = rng.blocking_next_u32();
         info!("Random u32 #{}: 0x{:08x} ({})", i + 1, random, random);
         Timer::after_millis(100).await;
     }
@@ -50,7 +50,7 @@ async fn main(_spawner: Spawner) {
     // Test 3: Generate u64 values
     info!("\n=== Test 3: u64 generation ===");
     for i in 0..3 {
-        let random = rng.next_u64();
+        let random = rng.blocking_next_u64();
         info!("Random u64 #{}: 0x{:016x}", i + 1, random);
         Timer::after_millis(100).await;
     }
@@ -58,7 +58,7 @@ async fn main(_spawner: Spawner) {
     // Test 4: Fill buffer using blocking method
     info!("\n=== Test 4: Blocking buffer fill ===");
     let mut buf2 = [0u8; 32];
-    rng.fill_bytes(&mut buf2);
+    rng.blocking_fill_bytes(&mut buf2);
     info!("Generated 32 random bytes:");
     info!("  {:02x}", &buf2[0..16]);
     info!("  {:02x}", &buf2[16..32]);
@@ -66,7 +66,7 @@ async fn main(_spawner: Spawner) {
     // Test 5: Continuous generation loop
     info!("\n=== Test 5: Continuous generation (10 samples) ===");
     for i in 0..10 {
-        let random = rng.next_u32();
+        let random = rng.blocking_next_u32();
         info!("Sample #{}: 0x{:08x}", i + 1, random);
         Timer::after_millis(200).await;
     }

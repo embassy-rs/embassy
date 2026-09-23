@@ -8,7 +8,9 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Flex, Input, Level, Output, OutputDrive, Pin as GpioPin, Pull, SealedPin as _};
+use crate::gpio::{
+    AnyPin, Flex, Input, Level, Output, OutputDrive, OutputOpenDrain, Pin as GpioPin, Pull, SealedPin as _,
+};
 use crate::interrupt::InterruptExt;
 #[cfg(not(feature = "_nrf51"))]
 use crate::pac::gpio::vals::Detectmode;
@@ -77,7 +79,17 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     {
         #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
         let ports = &[pac::P0, pac::P1];
-        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340")))]
+        #[cfg(all(feature = "_nrf54l", not(feature = "_gpio-p3")))]
+        let ports = &[pac::P0, pac::P1];
+        #[cfg(all(feature = "_nrf54l", feature = "_gpio-p3"))]
+        let ports = &[pac::P0, pac::P1, pac::P3];
+        #[cfg(not(any(
+            feature = "_nrf51",
+            feature = "nrf52833",
+            feature = "nrf52840",
+            feature = "_nrf5340",
+            feature = "_nrf54l"
+        )))]
         let ports = &[pac::P0];
 
         for &p in ports {
@@ -203,13 +215,16 @@ unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote) {
     if eport.read() != 0 {
         eport.write_value(0);
 
-        #[cfg(any(
-            feature = "nrf52833",
-            feature = "nrf52840",
-            feature = "_nrf5340",
-            feature = "_nrf54l"
-        ))]
-        let ports = &[pac::P0, pac::P1];
+        // Paired with the port index rather than enumerated: `PORT_WAKERS` is
+        // indexed by `port * 32 + pin`. But nRF54LM20's sense-capable ports are
+        // not contiguous — P2 has no sense mechanism, so it is skipped while P3
+        // must keep index 3.
+        #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
+        let ports = &[(0usize, pac::P0), (1, pac::P1)];
+        #[cfg(all(feature = "_nrf54l", not(feature = "_gpio-p3")))]
+        let ports = &[(0usize, pac::P0), (1, pac::P1)];
+        #[cfg(all(feature = "_nrf54l", feature = "_gpio-p3"))]
+        let ports = &[(0usize, pac::P0), (1, pac::P1), (3, pac::P3)];
         #[cfg(not(any(
             feature = "_nrf51",
             feature = "nrf52833",
@@ -217,12 +232,12 @@ unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote) {
             feature = "_nrf5340",
             feature = "_nrf54l"
         )))]
-        let ports = &[pac::P0];
+        let ports = &[(0usize, pac::P0)];
         #[cfg(feature = "_nrf51")]
-        let ports = &[pac::GPIO];
+        let ports = &[(0usize, pac::GPIO)];
 
         #[cfg(feature = "_nrf51")]
-        for (port, &p) in ports.iter().enumerate() {
+        for &(port, p) in ports {
             let inp = p.in_().read();
             for pin in 0..32 {
                 let fired = match p.pin_cnf(pin as usize).read().sense() {
@@ -239,7 +254,7 @@ unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote) {
         }
 
         #[cfg(not(feature = "_nrf51"))]
-        for (port, &p) in ports.iter().enumerate() {
+        for &(port, p) in ports {
             let bits = p.latch().read().0;
             for pin in BitIter(bits) {
                 p.pin_cnf(pin as usize).modify(|w| w.set_sense(Sense::Disabled));
@@ -340,6 +355,8 @@ impl<'d> InputChannel<'d> {
                 crate::gpio::Port::Port0 => 0,
                 crate::gpio::Port::Port1 => 1,
                 crate::gpio::Port::Port2 => 2,
+                #[cfg(feature = "_gpio-p3")]
+                crate::gpio::Port::Port3 => 3,
             });
             w.set_psel(pin.pin.pin.pin());
         });
@@ -517,6 +534,8 @@ impl<'d> OutputChannel<'d> {
                 crate::gpio::Port::Port0 => 0,
                 crate::gpio::Port::Port1 => 1,
                 crate::gpio::Port::Port2 => 2,
+                #[cfg(feature = "_gpio-p3")]
+                crate::gpio::Port::Port3 => 3,
             });
             w.set_psel(pin.pin.pin.pin());
         });
@@ -601,6 +620,33 @@ impl<'a> Future for PortInputFuture<'a> {
 }
 
 impl<'d> Input<'d> {
+    /// Wait until the pin is high. If it is already high, return immediately.
+    pub async fn wait_for_high(&mut self) {
+        self.pin.wait_for_high().await
+    }
+
+    /// Wait until the pin is low. If it is already low, return immediately.
+    pub async fn wait_for_low(&mut self) {
+        self.pin.wait_for_low().await
+    }
+
+    /// Wait for the pin to undergo a transition from low to high.
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.pin.wait_for_rising_edge().await
+    }
+
+    /// Wait for the pin to undergo a transition from high to low.
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.pin.wait_for_falling_edge().await
+    }
+
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
+    pub async fn wait_for_any_edge(&mut self) {
+        self.pin.wait_for_any_edge().await
+    }
+}
+
+impl<'d> OutputOpenDrain<'d> {
     /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
         self.pin.wait_for_high().await
@@ -860,6 +906,28 @@ impl<'d> embedded_hal_1::digital::InputPin for InputChannel<'d> {
 }
 
 impl<'d> embedded_hal_async::digital::Wait for Input<'d> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_high().await)
+    }
+
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_low().await)
+    }
+
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_rising_edge().await)
+    }
+
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_falling_edge().await)
+    }
+
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_any_edge().await)
+    }
+}
+
+impl<'d> embedded_hal_async::digital::Wait for OutputOpenDrain<'d> {
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         Ok(self.wait_for_high().await)
     }

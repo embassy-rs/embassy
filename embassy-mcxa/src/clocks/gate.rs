@@ -4,6 +4,14 @@ use super::CLOCKS;
 use super::periph_helpers::{PreEnableParts, SPConfHelper};
 use super::types::ClockError;
 
+/// Creates a default PAC register value, using the register argument to infer its type.
+#[inline]
+pub(crate) fn default_register_value<T: Copy + Default, A: crate::pac::common::Access>(
+    _: crate::pac::common::Reg<T, A>,
+) -> T {
+    T::default()
+}
+
 /// Trait describing an AHB clock gate that can be toggled through MRCC.
 pub trait Gate {
     type MrccPeriphConfig: SPConfHelper;
@@ -186,18 +194,18 @@ pub unsafe fn pulse_reset<G: Gate>() {
 #[macro_export]
 macro_rules! impl_cc_gate {
     ($name:ident, $clk_reg:ident, $field:ident, $config:ident) => {
-        impl crate::clocks::Gate for $crate::peripherals::$name {
-            type MrccPeriphConfig = crate::clocks::periph_helpers::$config;
+        impl $crate::clocks::Gate for $crate::peripherals::$name {
+            type MrccPeriphConfig = $crate::clocks::periph_helpers::$config;
 
             paste::paste! {
                 #[inline]
                 unsafe fn enable_clock() {
-                    crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
+                    $crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
                 }
 
                 #[inline]
                 unsafe fn disable_clock() {
-                    crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
+                    $crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
                 }
 
                 #[inline]
@@ -209,7 +217,7 @@ macro_rules! impl_cc_gate {
 
             #[inline]
             fn is_clock_enabled() -> bool {
-                crate::pac::MRCC0.$clk_reg().read().$field()
+                $crate::pac::MRCC0.$clk_reg().read().$field()
             }
 
             #[inline]
@@ -220,43 +228,55 @@ macro_rules! impl_cc_gate {
     };
 
     ($name:ident, $clk_reg:ident, $rst_reg:ident, $field:ident, $config:ident) => {
-        impl crate::clocks::Gate for $crate::peripherals::$name {
-            type MrccPeriphConfig = crate::clocks::periph_helpers::$config;
+        impl $crate::clocks::Gate for $crate::peripherals::$name {
+            type MrccPeriphConfig = $crate::clocks::periph_helpers::$config;
 
             paste::paste! {
                 #[inline]
                 unsafe fn enable_clock() {
-                    crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
+                    $crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
                 }
 
                 #[inline]
                 unsafe fn disable_clock() {
-                    crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
+                    $crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
                 }
 
                 #[inline]
                 unsafe fn release_reset() {
-                    crate::pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](true));
+                    // MRCC_GLB_RSTn_SET sets only the selected bit without a
+                    // software RMW on the shared reset register.
+                    let mut mask = $crate::clocks::default_register_value(
+                        $crate::pac::MRCC0.$rst_reg(),
+                    );
+                    mask.[<set_ $field>](true);
+                    $crate::pac::MRCC0.[<$rst_reg _set>]().write(|w| w.set_data(mask.0));
                     // Wait for reset to set
-                    while !crate::pac::MRCC0.$rst_reg().read().[<$field>]() {}
+                    while !$crate::pac::MRCC0.$rst_reg().read().[<$field>]() {}
                 }
 
                 #[inline]
                 unsafe fn assert_reset() {
-                    crate::pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](false));
+                    // MRCC_GLB_RSTn_CLR clears only the selected bit without a
+                    // software RMW on the shared reset register.
+                    let mut mask = $crate::clocks::default_register_value(
+                        $crate::pac::MRCC0.$rst_reg(),
+                    );
+                    mask.[<set_ $field>](true);
+                    $crate::pac::MRCC0.[<$rst_reg _clr>]().write(|w| w.set_data(mask.0));
                     // Wait for reset to clear
-                    while crate::pac::MRCC0.$rst_reg().read().[<$field>]() {}
+                    while $crate::pac::MRCC0.$rst_reg().read().[<$field>]() {}
                 }
             }
 
             #[inline]
             fn is_clock_enabled() -> bool {
-                crate::pac::MRCC0.$clk_reg().read().$field()
+                $crate::pac::MRCC0.$clk_reg().read().$field()
             }
 
             #[inline]
             fn is_reset_released() -> bool {
-                crate::pac::MRCC0.$rst_reg().read().$field()
+                $crate::pac::MRCC0.$rst_reg().read().$field()
             }
         }
     };

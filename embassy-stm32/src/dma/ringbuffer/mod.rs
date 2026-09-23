@@ -138,7 +138,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     pub fn set_alignment(&mut self, alignment: usize) {
         let alignment = alignment.max(1);
         assert!(
-            self.cap() % alignment == 0,
+            self.cap().is_multiple_of(alignment),
             "DMA buffer length must be a multiple of the alignment value"
         );
         assert!(
@@ -300,7 +300,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
                 Error::DmaUnsynced => {
                     #[cfg(feature = "defmt")]
                     defmt::error!("Ring buffer broken invariants detected!");
-                    return 0;
+                    0
                 }
             }
         });
@@ -338,13 +338,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     }
 
     fn read_buf(&self, offset: usize) -> W {
-        unsafe {
-            core::ptr::read_volatile(
-                self.dma_buf
-                    .as_ptr()
-                    .offset(self.read_index.as_index(self.cap(), offset) as isize),
-            )
-        }
+        unsafe { core::ptr::read_volatile(self.dma_buf.as_ptr().add(self.read_index.as_index(self.cap(), offset))) }
     }
 }
 
@@ -518,7 +512,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
             core::ptr::write_volatile(
                 self.dma_buf
                     .as_mut_ptr()
-                    .offset(self.write_index.as_index(self.cap(), offset) as isize),
+                    .add(self.write_index.as_index(self.cap(), offset)),
                 value,
             )
         }

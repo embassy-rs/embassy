@@ -774,16 +774,16 @@ unsafe impl Sync for Info {}
 macro_rules! impl_crc_instance {
     ($n:literal) => {
         paste::paste! {
-            impl crate::crc::SealedInstance for crate::peripherals::[<CRC $n>] {
-                fn info() -> &'static crate::crc::Info {
-                    static INFO: crate::crc::Info = crate::crc::Info {
-                        regs: crate::pac::[<CRC $n>],
+            impl $crate::crc::SealedInstance for $crate::peripherals::[<CRC $n>] {
+                fn info() -> &'static $crate::crc::Info {
+                    static INFO: $crate::crc::Info = $crate::crc::Info {
+                        regs: $crate::pac::[<CRC $n>],
                     };
                     &INFO
                 }
             }
 
-            impl crate::crc::Instance for crate::peripherals::[<CRC $n>] {}
+            impl $crate::crc::Instance for $crate::peripherals::[<CRC $n>] {}
         }
     };
 }

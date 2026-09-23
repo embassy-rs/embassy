@@ -210,7 +210,13 @@ fn setup_clkout(mux: Mux, div: Div4) {
         w.set_div(div.into_bits());
     });
 
-    while mrcc.mrcc_clkout_clkdiv().read().unstab() == ClkdivUnstab::On {}
+    // Wait for the divider to report a stable output.
+    //
+    // UNSTAB reads 0b while the divider clock is stable and 1b while it is not
+    // (MCXA2xx RM Rev 2 14.5.2.81, MCXA5xx RM Rev 1 22.5.2.112), so the loop
+    // must spin while the field reads `Off`. Comparing against `On` spun while
+    // the clock was already stable instead.
+    while mrcc.mrcc_clkout_clkdiv().read().unstab() == ClkdivUnstab::Off {}
 }
 
 /// Stop the
@@ -242,18 +248,18 @@ pub(crate) mod sealed {
     #[macro_export]
     macro_rules! impl_clkout_pin {
         ($pin:ident, $func:ident) => {
-            impl crate::clkout::sealed::ClockOutPin for crate::peripherals::$pin {
+            impl $crate::clkout::sealed::ClockOutPin for $crate::peripherals::$pin {
                 fn mux(&self) {
-                    use crate::gpio::SealedPin;
+                    use $crate::gpio::SealedPin;
 
-                    self.set_function(crate::pac::port::Mux::$func);
-                    self.set_pull(crate::gpio::Pull::Disabled);
+                    self.set_function($crate::pac::port::Mux::$func);
+                    self.set_pull($crate::gpio::Pull::Disabled);
 
                     // TODO: we may want to expose these as options to allow the slew rate
                     // and drive strength for clocks if they are particularly high speed.
                     //
-                    // self.set_drive_strength(crate::pac::port::pcr::Dse::Dse1);
-                    // self.set_slew_rate(crate::pac::port::pcr::Sre::Sre0);
+                    // self.set_drive_strength($crate::pac::port::pcr::Dse::Dse1);
+                    // self.set_slew_rate($crate::pac::port::pcr::Sre::Sre0);
                 }
             }
         };

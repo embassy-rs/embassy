@@ -78,13 +78,13 @@ async fn main(spawner: Spawner) {
 
     let sdmmc = Sdmmc::new_4bit(
         p.SDMMC1,
-        Irqs,
         p.PC12,
         p.PD2,
         p.PC8,
         p.PC9,
         p.PC10,
         p.PC11,
+        Irqs,
         Default::default(),
     );
 

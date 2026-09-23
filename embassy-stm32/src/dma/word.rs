@@ -35,7 +35,7 @@ pub trait Word: SealedWord + Default + Copy + 'static {
     fn bits() -> usize;
     /// Maximum value of this type.
     fn max() -> usize {
-        (1 << Self::bits()) - 1
+        1_usize.unbounded_shl(Self::bits() as u32).wrapping_sub(1)
     }
 }
 

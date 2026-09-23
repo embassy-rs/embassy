@@ -8,6 +8,7 @@ use super::{GeneralInstance4Channel, TimerPin};
 use crate::Peri;
 use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, Pull};
+use crate::rcc::WakeGuard;
 use crate::timer::{CoreInstance, TimerChannel};
 
 /// Qei driver config.
@@ -138,6 +139,7 @@ pub struct Qei<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
     _ch1: Flex<'d>,
     _ch2: Flex<'d>,
+    _wake_guard: WakeGuard,
 }
 
 impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
@@ -207,6 +209,7 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
             inner,
             _ch1: new_pin!(ch1, AfType::input(config.base.ch1_pull)).unwrap(),
             _ch2: new_pin!(ch2, AfType::input(config.base.ch2_pull)).unwrap(),
+            _wake_guard: T::RCC_INFO.wake_guard(),
         }
     }
 

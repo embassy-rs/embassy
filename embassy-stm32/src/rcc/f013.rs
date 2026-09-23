@@ -184,6 +184,12 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsi));
     while RCC.cfgr().read().sws() != Sysclk::Hsi {}
 
+    // PLL configuration cannot be changed while PLL is enabled.
+    if RCC.cr().read().pllrdy() {
+        RCC.cr().modify(|w| w.set_pllon(false));
+        while RCC.cr().read().pllrdy() {}
+    }
+
     // Configure HSI
     let hsi = match config.hsi {
         false => None,

@@ -2,6 +2,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::num::NonZeroU32;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU8, AtomicU32, AtomicUsize, Ordering, fence};
 use core::task::Poll;
@@ -15,10 +16,10 @@ use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 use grounded::uninit::GroundedCell;
 
-use super::{Info, Instance, SclPin, SdaPin};
+use super::{DeviceCharacteristics, Info, Instance, SclPin, SdaPin};
 pub use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
-use crate::dma::{Channel, DmaChannel, DmaRequest, TransferOptions};
+use crate::dma::{Channel, DmaChannel, DmaRequest, PeripheralWriteOperation, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Interrupt;
@@ -26,6 +27,17 @@ use crate::pac::i3c::{
     Evdet, Ibidis, Mstena, SctrlEvent, SdatactrlTxtrig, SdmactrlDmafb, SdmactrlDmatb, SdmactrlDmawidth, Sstatus,
     SstatusStart, SstatusTxnotfull, Stnotstop, Streqrd, Type,
 };
+
+/// Maximum number of bytes accepted in the ibi payload argument of the
+/// target-side IBI APIs.
+///
+/// Presently only the 1-byte Mandatory Data Byte (MDB) path is implemented:
+/// `ibi_payload[0]` (if any) is written to `SCTRL.IBIDATA` and emitted with
+/// the IBI header.
+///
+/// APIs return [`IOError::IbiPayloadTooLarge`] when the caller exceeds this
+/// bound.
+pub const MAX_IBI_PAYLOAD: usize = 1;
 
 /// Setup Errors
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -36,10 +48,6 @@ pub enum SetupError {
     ClockSetup(ClockError),
     /// User provided an invalid configuration
     InvalidConfiguration,
-    /// Invalid Vendor ID
-    InvalidVendorId,
-    /// Invalid Part Number
-    InvalidPartNumber,
     /// Other internal errors or unexpected state.
     Other,
 }
@@ -89,6 +97,9 @@ pub enum IOError {
     IbiNacked,
     /// IBIs are disabled by the controller (via DISEC CCC).
     IbiDisabled,
+    /// The `ibi_payload` supplied to an IBI API is larger than
+    /// [`MAX_IBI_PAYLOAD`].
+    IbiPayloadTooLarge,
     /// Other internal errors or unexpected state.
     Other,
 }
@@ -97,6 +108,15 @@ impl From<crate::dma::InvalidParameters> for IOError {
     fn from(_value: crate::dma::InvalidParameters) -> Self {
         Self::Other
     }
+}
+
+/// Hot-Join request errors.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum HotJoinError {
+    /// Target already holds a dynamic address; Hot-Join is not permitted.
+    HasDynamicAddress,
 }
 
 /// Bus transfer type.
@@ -123,17 +143,40 @@ impl From<BusType> for Type {
     }
 }
 
+/// MIPI vendor ID, constrained to the 15-bit field.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct VendorId(u16);
+
+impl VendorId {
+    /// Vendor ID 0x7FFF, the widest value the field can hold.
+    pub const MAX: Self = Self(0x7fff);
+
+    /// Tries to create a VendorId from a raw 16-bit integer.
+    ///
+    /// This will return None if raw is out of range of a 15-bit integer (> 0x7FFF).
+    pub const fn new(raw: u16) -> Option<Self> {
+        if raw > Self::MAX.0 { None } else { Some(Self(raw)) }
+    }
+}
+
+impl From<VendorId> for u16 {
+    fn from(value: VendorId) -> Self {
+        value.0
+    }
+}
+
 /// I3C target configuration
 #[non_exhaustive]
 pub struct Config {
     /// 7-bit target address.
     pub address: Option<u8>,
 
-    /// Vendor ID
-    pub vendor_id: Option<u16>,
+    /// MIPI vendor ID. `None` keeps the chip default.
+    pub vendor_id: Option<VendorId>,
 
-    /// Part number
-    pub partno: Option<u32>,
+    /// Part number. Requires a nonzero value.
+    pub partno: Option<NonZeroU32>,
 
     /// Max write length.
     ///
@@ -160,6 +203,10 @@ pub struct Config {
     /// IBI address header.  Set `SCTRL.IBIDATA` before asserting the event.
     pub ibi_has_payload: bool,
 
+    /// Device Characteristics Register (DCR) advertised to the controller via
+    /// GETDCR and during ENTDAA.
+    pub device_characteristics: DeviceCharacteristics,
+
     /// Clock configuration
     pub clock_config: ClockConfig,
 }
@@ -174,6 +221,7 @@ impl Default for Config {
             max_read_len: 256,
             ibi_capable: false,
             ibi_has_payload: false,
+            device_characteristics: DeviceCharacteristics::Generic,
             clock_config: ClockConfig::default(),
         }
     }
@@ -269,7 +317,46 @@ pub struct I3c<'d> {
     tx_dma: DmaChannel<'d>,
     tx_request: DmaRequest,
     freq: u32,
+    config: Config,
     _wg: Option<WakeGuard>,
+}
+
+struct TxDmaGuard<'a> {
+    dma: DmaChannel<'a>,
+    info: &'static Info,
+    dma_active: bool,
+}
+
+impl<'a> TxDmaGuard<'a> {
+    fn new(dma: DmaChannel<'a>, info: &'static Info) -> Self {
+        Self {
+            dma,
+            info,
+            dma_active: true,
+        }
+    }
+
+    fn complete_dma(&mut self) {
+        self.info
+            .regs()
+            .sdmactrl()
+            .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
+        self.dma.stop();
+        self.dma_active = false;
+    }
+}
+
+impl Drop for TxDmaGuard<'_> {
+    fn drop(&mut self) {
+        if self.dma_active {
+            self.info
+                .regs()
+                .sdmactrl()
+                .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
+            self.dma.stop();
+        }
+        self.info.regs().sctrl().modify(|w| w.set_event(SctrlEvent::NormalMode));
+    }
 }
 
 impl<'d> I3c<'d> {
@@ -306,10 +393,11 @@ impl<'d> I3c<'d> {
             tx_dma,
             tx_request: T::TX_DMA_REQUEST,
             freq: parts.freq,
+            config,
             _wg: parts.wake_guard,
         };
 
-        inst.set_configuration(&config)?;
+        inst.set_configuration(&inst.config);
 
         Ok(inst)
     }
@@ -375,7 +463,7 @@ impl<'d> I3c<'d> {
         });
     }
 
-    fn set_configuration(&self, config: &Config) -> Result<(), SetupError> {
+    fn set_configuration(&self, config: &Config) {
         self.info.regs().mconfig().write(|w| w.set_mstena(Mstena::MasterOff));
 
         // Defensive wipe of all interrupt enables and W1C error/status flags
@@ -403,7 +491,7 @@ impl<'d> I3c<'d> {
             // if (matchCount == 0) matchCount = 1;`. We were one tick high which
             // shifts the bus-available detect window.
             let mhz = self.freq / 1_000_000;
-            let bamatch = mhz.saturating_sub(1).max(1).min(63) as u8;
+            let bamatch = mhz.saturating_sub(1).clamp(1, 63) as u8;
             w.set_bamatch(bamatch);
         });
 
@@ -416,24 +504,12 @@ impl<'d> I3c<'d> {
         // Diagnostic logging below dumps SDYNADDR via a raw pointer so
         // we can tell whether the HW absorbed SETDASA at all.
 
-        if config.partno.is_some() {
-            let partno = config.partno.unwrap();
-
-            if partno == 0 {
-                return Err(SetupError::InvalidPartNumber);
-            }
-
-            self.info.regs().sidpartno().write(|w| w.set_partno(partno));
+        if let Some(partno) = config.partno {
+            self.info.regs().sidpartno().write(|w| w.set_partno(partno.get()));
         }
 
-        if config.vendor_id.is_some() {
-            let vendor_id = config.vendor_id.unwrap();
-
-            if vendor_id == 0 {
-                return Err(SetupError::InvalidVendorId);
-            }
-
-            self.info.regs().svendorid().write(|w| w.set_vid(vendor_id));
+        if let Some(vendor_id) = config.vendor_id {
+            self.info.regs().svendorid().write(|w| w.set_vid(vendor_id.into()));
         }
 
         self.info.regs().smaxlimits().write(|w| {
@@ -444,7 +520,10 @@ impl<'d> I3c<'d> {
         // Configure BCR (Bus Characteristics Register) — visible to the controller via GETBCR.
         // BCR[1]: IBI Request Capable; BCR[2]: IBI Payload (mandatory data byte follows).
         let bcr: u8 = if config.ibi_capable { 0x02 } else { 0 } | if config.ibi_has_payload { 0x04 } else { 0 };
-        self.info.regs().sidext().modify(|w| w.set_bcr(bcr));
+        self.info.regs().sidext().modify(|w| {
+            w.set_bcr(bcr);
+            w.set_dcr(config.device_characteristics.into());
+        });
 
         self.clear_status();
         self.flush_fifos();
@@ -462,15 +541,38 @@ impl<'d> I3c<'d> {
         // makes the slave behave as if it already had a dynamic address,
         // which causes the directed-phase `Sr 0x0a+W` (sent in I2C mode by
         // the master during SETDASA) to be ignored.
+    }
 
-        // Enable target
+    fn enable_target(&self) {
         self.info.regs().sconfig().modify(|w| w.set_slvena(true));
-
-        Ok(())
     }
 }
 
 impl<'d> I3c<'d> {
+    /// Return the currently valid dynamic address reported by the target
+    /// hardware, or `None` when no dynamic address is assigned.
+    pub fn dynamic_address(&self) -> Option<u8> {
+        let map = self.info.regs().smapctrl0().read();
+        map.ena().then(|| map.da())
+    }
+
+    /// Issue a Hot-Join request on the bus.
+    ///
+    /// Returns [`HotJoinError::HasDynamicAddress`] if the target currently holds
+    /// a dynamic address — Hot-Join is will nbt be issued in that state.
+    pub fn hot_join_request(&mut self) -> Result<(), HotJoinError> {
+        if self.dynamic_address().is_some() {
+            return Err(HotJoinError::HasDynamicAddress);
+        }
+
+        self.info
+            .regs()
+            .sctrl()
+            .modify(|w| w.set_event(SctrlEvent::HotJoinRequest));
+
+        Ok(())
+    }
+
     /// Create a new DMA-backed I3C target driver.
     ///
     /// Configures the I3C peripheral as a slave with DMA used for both TX
@@ -556,7 +658,74 @@ impl<'d> I3c<'d> {
                 .map_err(|_| SetupError::Other)?;
         }
 
+        inst.enable_target();
+
         Ok(inst)
+    }
+
+    /// Reset and reconfigure the I3C target without releasing its pins,
+    /// DMA channels, or RX buffer.
+    ///
+    /// This is a destructive operation. Any active transaction is aborted,
+    /// and partial or queued RX data is discarded rather than returned to the
+    /// caller.
+    ///
+    /// A peripheral reset also clears the dynamic address, so the controller
+    /// must assign a new address before directed I3C traffic resumes.
+    ///
+    /// Per NXP, if SCL or SDA is active when reset is released, the peripheral
+    /// enters Hot-Join mode and remains inactive. This method recovers the
+    /// peripheral from that state by reinitializing it. Alternatively, the
+    /// controller may recover it by handling the Hot-Join, but this method does
+    /// not rely on that path.
+    pub fn reset(&mut self) {
+        // Disable the I3C IRQ so we can safely manipulate the peripheral and BBQ state.
+        (self.info.disable_interrupt)();
+
+        // Disable the target.
+        self.info.regs().sconfig().modify(|w| w.set_slvena(false));
+
+        // Clear all pending interrupts and error/warning flags (W1C).
+        self.info.regs().mintclr().write(|w| w.0 = u32::MAX);
+        self.info.regs().sintclr().write(|w| w.0 = u32::MAX);
+
+        // Disable the TX DMA requests.
+        self.info
+            .regs()
+            .sdmactrl()
+            .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
+
+        // Stop any in-flight TX DMA transfer.
+        self.tx_dma.stop();
+
+        // Stop the RX DMA path and discard any unread bytes in the BBQ ring.
+        //
+        // SAFETY: This driver exclusively owns the per-instance BBQ state.
+        // bbq_state is only used by the I3C IRQ and this method, and the IRQ is disabled above.
+        unsafe { self.bbq_state.stop_and_drain_rx(self.info) };
+
+        // Reset the peripheral.
+        //
+        // SAFETY: This driver exclusively owns the peripheral, its IRQ is masked
+        // and both DMA channels are stopped. The bus itself may still be active,
+        // which has defined hardware behavior at reset release; the
+        // reinitialization below recovers the peripheral from that state.
+        unsafe { (self.info.reset_peripheral)() };
+
+        // Reconfigure the peripheral with the same settings as before.
+        self.set_configuration(&self.config);
+
+        // Re-arm the RX DMA path into a new grant.
+        //
+        // SAFETY: This driver exclusively owns the per-instance BBQ state.
+        // bbq_state is only used by the I3C IRQ and this method, and the IRQ is disabled above.
+        unsafe { self.bbq_state.rearm_rx(self.info) };
+
+        // Re-enable the I3C IRQ and target.
+        (self.info.enable_interrupt)();
+
+        // Re-enable the target.
+        self.enable_target();
     }
 }
 
@@ -680,23 +849,27 @@ impl<'d> I3c<'d> {
     ///
     /// Asserts an IBI request on the bus and waits for the controller to
     /// ACK it. The device must be configured with `Config::ibi_capable =
-    /// true` (and optionally `Config::ibi_has_payload = true`) for this to
-    /// be meaningful.
+    /// true` (and, when `ibi_payload` is non-empty, `Config::ibi_has_payload
+    /// = true`).
     ///
-    /// If `payload` is non-empty, `payload[0]` is placed in `SCTRL.IBIDATA`
-    /// as the mandatory data byte (requires `ibi_has_payload = true` /
-    /// BCR\[2\]=1).
+    /// If `ibi_payload` is non-empty, `ibi_payload[0]` is placed in
+    /// `SCTRL.IBIDATA` as the Mandatory Data Byte. Passing more than
+    /// [`MAX_IBI_PAYLOAD`] bytes returns [`IOError::IbiPayloadTooLarge`].
     ///
     /// If the future is dropped before completion, `SCTRL.EVENT` is
     /// restored to `NormalMode` to cancel the pending request.
-    pub async fn dma_send_ibi(&mut self, payload: &[u8]) -> Result<(), IOError> {
+    pub async fn dma_send_ibi(&mut self, ibi_payload: &[u8]) -> Result<(), IOError> {
+        if ibi_payload.len() > MAX_IBI_PAYLOAD {
+            return Err(IOError::IbiPayloadTooLarge);
+        }
+
         // Bail out early if the controller has disabled IBIs via DISEC CCC.
         if self.info.regs().sstatus().read().ibidis() == Ibidis::InterruptsDisabled {
             return Err(IOError::IbiDisabled);
         }
 
         self.info.regs().sctrl().modify(|w| {
-            if let Some(&b) = payload.first() {
+            if let Some(&b) = ibi_payload.first() {
                 w.set_ibidata(b);
             }
             w.set_event(SctrlEvent::Ibi);
@@ -750,8 +923,7 @@ impl<'d> I3c<'d> {
         Ok(())
     }
 
-    /// Combined IBI + read response: pre-load TX DMA, raise IBI, wait for
-    /// the controller to clock out the response.
+    /// Send an IBI and respond to the directed read that follows.
     ///
     /// At I3C-SDR speeds the post-IBI Sr→addr window is too tight (~640 ns)
     /// for the slave software to load the TX FIFO after observing the IBI
@@ -759,56 +931,110 @@ impl<'d> I3c<'d> {
     /// IBI so HW already has bytes queued by the time the controller starts
     /// clocking the directed read that follows.
     ///
-    /// Sequence:
-    /// 1. Arm `tx_dma` against `SWDATAB` for `buf.len() - 1` bytes.
-    /// 2. Set `SDMACTRL.dmatb = ENABLE_ONE_FRAME`, enable the DMA request.
-    /// 3. Raise `SCTRL.EVENT = Ibi` (with optional MDB).
-    /// 4. Wait for DMA completion.
-    /// 5. Push the final byte to `SWDATABE` so HW emits the end-of-data
-    ///    marker (T-bit) and the controller terminates the read cleanly.
-    /// 6. On any exit path, disable the DMA request, clear
-    ///    `SDMACTRL.dmatb`, and force `SCTRL.EVENT = NormalMode`.
+    /// `ibi_payload[0]`, if present, is written to `SCTRL.IBIDATA` as the
+    /// Mandatory Data Byte; passing more than [`MAX_IBI_PAYLOAD`] bytes
+    /// returns [`IOError::IbiPayloadTooLarge`].
     ///
-    /// `buf` must be non-empty.
-    pub async fn dma_respond_to_read_with_ibi(&mut self, buf: &[u8]) -> Result<(), IOError> {
-        if buf.is_empty() {
-            return Err(IOError::Other);
+    /// `read_response` is streamed through the TX FIFO for the directed read and
+    /// must be non-empty; it is independent of `ibi_payload` — the MDB is *not*
+    /// prepended to `read_response` on the wire.
+    ///
+    /// # Cancellation safety
+    ///
+    /// Dropping the future aborts the DMA transfer, disables target TX DMA,
+    /// and restores `SCTRL.EVENT` to `NormalMode`. Bytes already queued or
+    /// transmitted cannot be recalled.
+    pub async fn dma_respond_to_read_with_ibi(
+        &mut self,
+        ibi_payload: &[u8],
+        read_response: &[u8],
+    ) -> Result<(), IOError> {
+        if ibi_payload.len() > MAX_IBI_PAYLOAD {
+            return Err(IOError::IbiPayloadTooLarge);
         }
 
         if self.info.regs().sstatus().read().ibidis() == Ibidis::InterruptsDisabled {
             return Err(IOError::IbiDisabled);
         }
 
-        // Pre-arm the DMA TX path. Mirrors the controller's `async_write`:
-        // DMA streams `len-1` bytes through SWDATAB1; SW writes the last
-        // byte to SWDATABE to mark end-of-data.
-        let (last, rest) = buf.split_last().unwrap();
+        let (last, rest) = read_response.split_last().ok_or(IOError::Other)?;
+        let last = core::slice::from_ref(last);
+        let mdb = ibi_payload.first().copied().unwrap_or(0);
+        let swdatabe = self.info.regs().swdatabe().as_ptr() as *mut u8;
 
-        // Cleanup guard for any early exit (cancellation, error).
-        let info = self.info;
-        let regs_ptr = info.regs();
-        let _ibi_drop = OnDrop::new(|| {
-            regs_ptr.sctrl().modify(|w| w.set_event(SctrlEvent::NormalMode));
-            regs_ptr.sdmactrl().modify(|w| {
-                w.set_dmatb(SdmactrlDmatb::NotUsed);
-                w.set_dmafb(SdmactrlDmafb::NotUsed);
-            });
-        });
-
-        if !rest.is_empty() {
-            self.dma_tx_arm(rest)?;
+        if rest.is_empty() {
+            let mut sequence = [PeripheralWriteOperation::new(last, swdatabe)?];
+            self.dma_respond_to_read_with_ibi_scatter_gather(&mut sequence, mdb)
+                .await
+        } else {
+            let swdatab1 = self.info.regs().swdatab1().as_ptr() as *mut u8;
+            let mut sequence = PeripheralWriteOperation::new_sequence([(rest, swdatab1), (last, swdatabe)])?;
+            self.dma_respond_to_read_with_ibi_scatter_gather(&mut sequence, mdb)
+                .await
         }
+    }
 
+    /// Execute the pre-built scatter-gather response for an IBI-initiated read.
+    ///
+    /// The descriptors must write all streaming bytes to `SWDATAB1` and the
+    /// final byte to `SWDATABE`, which emits the I3C end-of-data marker. They
+    /// remain borrowed until DMA completes or the future is dropped.
+    ///
+    /// Sequence:
+    /// 1. Arm `tx_dma` with a scatter-gather sequence that writes
+    ///    `buf.len() - 1` bytes to `SWDATAB1`, then the final byte to
+    ///    `SWDATABE`.
+    /// 2. Set `SDMACTRL.dmatb`, then enable the DMA request.
+    /// 3. Raise `SCTRL.EVENT = Ibi` with the MDB.
+    /// 4. Wait for DMA completion; the final descriptor emits the
+    ///    end-of-data marker through `SWDATABE`.
+    /// 5. Wait for the controller's terminating Stop.
+    /// 6. On any exit path, disable TX DMA, clear `SDMACTRL.dmatb`, and
+    ///    force `SCTRL.EVENT = NormalMode`.
+    async fn dma_respond_to_read_with_ibi_scatter_gather(
+        &mut self,
+        sequence: &mut [PeripheralWriteOperation<'_>],
+        mdb: u8,
+    ) -> Result<(), IOError> {
         // Make sure the bus is actually idle before raising the IBI.
         // Phase A (`dma_respond_to_write`) is supposed to have waited for
         // end-of-chain, but if the caller skipped that step we'd race the
         // controller's Stop emission and corrupt this IBI.
         self.wait_for_end_of_chain().await?;
 
+        let info = self.info;
+        let bbq_state = self.bbq_state;
+        let dma = &mut self.tx_dma;
+        unsafe {
+            // SAFETY: Previous TX operation completed or aborted DMA before exit.
+            dma.disable_request();
+            // SAFETY: DMA requests are disabled, so no transfer can be in progress.
+            dma.clear_done();
+            // SAFETY: Requests have been disabled above.
+            dma.clear_interrupt();
+            // SAFETY: `tx_request` is the I3C target TX request.
+            dma.set_request_source(self.tx_request);
+            // SAFETY: `sequence` and its source buffers remain alive until DMA
+            // completes or is aborted. Its destinations are this instance's valid
+            // TX data registers, and the corresponding request source has been configured above.
+            dma.setup_write_to_peripheral_scatter_gather(sequence)?;
+
+            info.regs().sdmactrl().modify(|w| {
+                w.set_dmatb(SdmactrlDmatb::Enable);
+                w.set_dmawidth(SdmactrlDmawidth::Byte0);
+            });
+
+            // SAFETY: The request source and scatter-gather descriptors are fully
+            // configured, and the peripheral DMA request is enabled above.
+            dma.enable_request();
+        }
+
+        let mut guard = TxDmaGuard::new(dma.reborrow(), info);
+
         // Clear any stale Stop flag so the post-IBI wait below observes
         // the *new* Stop the controller emits after this IBI, not the
         // pre-IBI bus-idle state.
-        self.info.regs().sstatus().write(|w| w.set_stop(true));
+        info.regs().sstatus().write(|w| w.set_stop(true));
 
         // Snapshot the BBQ IRQ's stop counter. The BBQ IRQ owns the
         // latched STOP flag (it W1Cs it as part of its rotation logic),
@@ -818,7 +1044,7 @@ impl<'d> I3c<'d> {
         // counter is bumped from the IRQ after each W1C, giving us a
         // race-free way to wait for the next bus-end without coupling
         // to BBQ internals.
-        let stop_seq_pre = self.bbq_state.stop_seq.load(Ordering::Acquire);
+        let stop_seq_pre = bbq_state.stop_seq.load(Ordering::Acquire);
 
         // Raise the IBI. DMA is already armed and the request line enabled;
         // HW will push bytes into the TX FIFO as soon as TXNOTFULL is true.
@@ -833,64 +1059,43 @@ impl<'d> I3c<'d> {
         // EVENT=Ibi, mirroring SDK's `I3C_SlaveRequestIBIWithData`. The
         // MDB is sourced from SCTRL.IBIDATA (out-of-band from the TX
         // FIFO); leaving it stale means a bogus MDB on the wire.
-        let mdb = *buf.first().unwrap_or(&0);
-        self.info.regs().sctrl().modify(|w| {
+        info.regs().sctrl().modify(|w| {
             w.set_ibidata(mdb);
             w.set_event(SctrlEvent::Ibi);
         });
 
-        // Wait for DMA to drain `rest` into the FIFO. Safe to await here:
+        // Wait for DMA to complete. Safe to await here:
         // the controller is now draining the FIFO so DMA always makes
         // progress to completion.
-        if !rest.is_empty() {
-            poll_fn(|cx| {
-                let _ = self.tx_dma.wait_cell().poll_wait(cx);
-                if self.tx_dma.is_done() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            cortex_m::asm::dsb();
-
-            self.info
-                .regs()
-                .sdmactrl()
-                .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
-            unsafe {
-                self.tx_dma.disable_request();
-                self.tx_dma.clear_done();
+        poll_fn(|cx| {
+            let _ = guard.dma.wait_cell().poll_wait(cx);
+            if guard.dma.is_done() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
             }
-        }
+        })
+        .await;
 
-        // Push the final byte to SWDATABE so HW emits the end-of-data
-        // marker (T-bit) and the controller terminates the read cleanly.
-        self.wait_tx_space().await?;
-        self.info.regs().swdatabe().write(|w| w.set_data(*last));
+        cortex_m::asm::dsb();
+        guard.complete_dma();
 
         // Wait for the controller to complete the IBI handshake +
         // directed read and emit Stop. The BBQ IRQ bumps `stop_seq`
         // after W1C'ing each STOP latch; loop until it advances or an
         // error/warning surfaces.
-        self.info
-            .wait_cell()
+        info.wait_cell()
             .wait_for(|| {
-                self.info.regs().sintset().write(|w| {
+                info.regs().sintset().write(|w| {
                     w.set_errwarn(true);
                     w.set_stop(true);
                 });
-                self.info.regs().sstatus().read().errwarn()
-                    || self.bbq_state.stop_seq.load(Ordering::Acquire) != stop_seq_pre
+                info.regs().sstatus().read().errwarn() || bbq_state.stop_seq.load(Ordering::Acquire) != stop_seq_pre
             })
             .await
             .map_err(|_| IOError::Other)?;
 
-        // Force EVENT back to NormalMode in case HW didn't pulse.
-        self.info.regs().sctrl().modify(|w| w.set_event(SctrlEvent::NormalMode));
-
-        _ibi_drop.defuse();
+        drop(guard);
 
         // Treat `Terminated` as success: the controller is free to chunk this
         // logical response into multiple wire-level reads (each bounded by
@@ -903,9 +1108,7 @@ impl<'d> I3c<'d> {
         // got latched along the way. Mirrors `dma_respond_to_read`, which
         // exposes the same condition as `ReadStatus::EarlyStop`.
         //
-        // Genuine controller-side aborts (mid-payload Stop with bytes still
-        // pending in DMA) surface earlier as Underrun/UnderrunNack on the
-        // `wait_tx_space` / SWDATABE path, not here.
+        // Genuine controller-side aborts surface as Underrun/UnderrunNack.
         match self.check_status() {
             Ok(()) | Err(IOError::Terminated) => Ok(()),
             Err(e) => Err(e),
@@ -971,7 +1174,7 @@ impl<'d> I3c<'d> {
     /// SW-write the last byte to `SWDATABE`). Returns the number of bytes
     /// the DMA shipped before the SW end-byte (== `buf.len() - 1`).
     async fn dma_tx_run(&mut self, buf: &[u8]) -> Result<usize, IOError> {
-        let (last, rest) = buf.split_last().unwrap();
+        let (last, rest) = buf.split_last().ok_or(IOError::Other)?;
         let regs_ptr = self.info.regs();
         let _drop = OnDrop::new(|| {
             regs_ptr.sdmactrl().modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
@@ -1443,6 +1646,96 @@ impl BbqState {
         }
     }
 
+    /// Stop RX DMA and discard all buffered data.
+    ///
+    /// This is the first half of the reset-only RX teardown and rearm
+    /// sequence. It must be followed by a peripheral reset and reconfiguration,
+    /// then by [`Self::rearm_rx`]. Bytes in the active write grant and committed
+    /// unread grants are discarded and are not returned to the caller.
+    ///
+    /// # Safety
+    ///
+    /// For the duration of this call, the caller must have exclusive access to
+    /// this state's RX DMA channel, active write grant, and queue producer and
+    /// consumer state. The owning I3C interrupt must be disabled.
+    unsafe fn stop_and_drain_rx(&'static self, info: &'static Info) {
+        let state = self.state.load(Ordering::Acquire);
+
+        if (state & STATE_RXDMA_PRESENT) == 0 {
+            // Already paused / uninitialized; nothing to do.
+            return;
+        }
+
+        // Disable the RX DMA request line so the controller cannot push
+        // more bytes into the RX FIFO while we tear down the grant.
+        info.regs().sdmactrl().modify(|w| w.set_dmafb(SdmactrlDmafb::NotUsed));
+
+        // SAFETY: RXDMA_PRESENT guarantees initialization, and the function's
+        // safety contract guarantees exclusive access.
+        unsafe {
+            let rxdma = &mut *self.rxdma.get();
+            rxdma.stop();
+        }
+
+        // Clear the RXGR_ACTIVE + RXDMA_COMPLETE bits.
+        self.state
+            .fetch_and(!(STATE_RXGR_ACTIVE | STATE_RXDMA_COMPLETE), Ordering::AcqRel);
+
+        // Dropping an uncommitted grant returns its full capacity to the queue,
+        // discarding bytes from the interrupted transaction.
+        if (state & STATE_RXGR_ACTIVE) != 0 {
+            // SAFETY: RXGR_ACTIVE guarantees an initialized grant, the function's
+            // safety contract guarantees exclusive access, and DMA is stopped.
+            unsafe {
+                let write_grant = self.rxgr.get().read();
+                drop(write_grant);
+            };
+        }
+
+        // SAFETY: RXDMA_PRESENT guarantees queue initialization, and the
+        // function's safety contract excludes concurrent queue access.
+        let queue = unsafe { &*self.rx_queue.get() };
+        let consumer = queue.stream_consumer();
+        while let Ok(read_grant) = consumer.read() {
+            let len = read_grant.len();
+            read_grant.release(len);
+        }
+
+        // Reset the STOP sequence counter.
+        self.stop_seq.store(0, Ordering::Release);
+    }
+
+    /// Re-arm RX DMA using the retained queue and channel.
+    ///
+    /// This is the second half of the reset-only RX teardown and rearm
+    /// sequence. It must only be called after [`Self::stop_and_drain_rx`] and
+    /// after the peripheral has been reset and reconfigured.
+    ///
+    /// # Safety
+    ///
+    /// The caller must have exclusive access to this state RX DMA channel,
+    /// write grant, and queue producer state, and no write grant may be active.
+    /// The owning I3C interrupt must be disabled so its handler cannot access
+    /// them concurrently.
+    unsafe fn rearm_rx(&'static self, info: &'static Info) {
+        let state = self.state.load(Ordering::Acquire);
+        if state & STATE_RXDMA_PRESENT == 0 || state & STATE_RXGR_ACTIVE != 0 {
+            // Either uninitialized or a grant is already active; nothing to do.
+            return;
+        }
+
+        // Should not fail: init validated the grant size and DMA setup, and the
+        // preceding `stop_and_drain_rx` freed the whole ring.
+        //
+        // SAFETY: RXDMA_PRESENT guarantees initialized queue/DMA storage, and
+        // reset keeps the owning I3C interrupt disabled.
+        let started = unsafe { self.start_read_transfer(info) };
+        debug_assert!(started, "RX DMA rearm failed after draining the queue");
+
+        // Re-arm the BBQ rotation trigger; the reset cleared every interrupt enable.
+        info.regs().sintset().write(|w| w.set_stop(true));
+    }
+
     /// Move from UNINIT to INITING, returning an error if the state
     /// was anything other than UNINIT (i.e. some other I3c is
     /// already using this peripheral).
@@ -1571,7 +1864,7 @@ impl BbqState {
         self.state.fetch_and(!STATE_RXGR_ACTIVE, Ordering::AcqRel);
     }
 
-    /// Open a new RX grant and program DMA into it. Returns alse
+    /// Open a new RX grant and program DMA into it. Returns false
     /// if no grant could be obtained (ring full — consumer is behind).
     ///
     /// ## SAFETY

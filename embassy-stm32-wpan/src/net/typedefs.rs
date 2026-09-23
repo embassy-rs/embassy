@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use xarxa::wire::ieee802154::{Address, AddressingMode, Pan};
+use xarxa::wire::{Ieee802154Address as Address, Ieee802154Pan as Pan};
 
 use crate::numeric_enum;
 
@@ -105,15 +105,12 @@ numeric_enum! {
     default = NoAddress;
 }
 
-impl TryFrom<AddressingMode> for AddressMode {
-    type Error = ();
-
-    fn try_from(value: AddressingMode) -> Result<Self, Self::Error> {
+impl From<Address> for AddressMode {
+    fn from(value: Address) -> Self {
         match value {
-            AddressingMode::Absent => Ok(Self::NoAddress),
-            AddressingMode::Extended => Ok(Self::Extended),
-            AddressingMode::Short => Ok(Self::Short),
-            AddressingMode::Unknown(_) => Err(()),
+            Address::Absent => Self::NoAddress,
+            Address::Extended(_) => Self::Extended,
+            Address::Short(_) => Self::Short,
         }
     }
 }

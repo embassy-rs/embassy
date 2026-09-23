@@ -42,12 +42,14 @@ const WRITE_LINE_SIZE: usize = 16;
 pub const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;
 
 /// Error type for RRAMC operations.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Operation using a location not in flash.
+    #[error("out of bounds")]
     OutOfBounds,
     /// Unaligned operation or using unaligned buffers.
+    #[error("unaligned operation or buffer")]
     Unaligned,
 }
 

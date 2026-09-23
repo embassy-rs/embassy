@@ -1,5 +1,5 @@
 #![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_main)]
 #![allow(async_fn_in_trait)]
 #![allow(unsafe_op_in_unsafe_fn)]
 #![deny(unused_must_use)]
@@ -33,9 +33,7 @@ use embedded_hal_1::digital::OutputPin;
 use events::Events;
 use ioctl::IoctlState;
 
-pub use crate::control::{
-    AddMulticastAddressError, ApAuth, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
-};
+pub use crate::control::{ApAuth, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner};
 pub use crate::runner::Runner;
 pub use crate::sdio::SdioBus;
 pub use crate::spi::{SpiBus, SpiBusCyw43};
@@ -316,7 +314,7 @@ pub struct State {
 }
 
 struct NetState {
-    ch: ch::State<MTU, 4, 4>,
+    ch: ch::State<4, 4>,
     events: Events,
     secure_network: AtomicBool,
 }
@@ -425,7 +423,7 @@ impl PowerManagementMode {
 }
 
 /// Embassy-net driver.
-pub type NetDriver<'a> = ch::Device<'a, MTU>;
+pub type NetDriver<'a> = ch::Device<'a>;
 
 /// Create a new instance of the CYW43 driver.
 ///
@@ -442,7 +440,7 @@ where
     PWR: OutputPin,
     SPI: SpiBusCyw43,
 {
-    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]), MTU);
     let state_ch = ch_runner.state_runner();
 
     let mut runner = Runner::new(
@@ -498,7 +496,7 @@ pub async fn new_43439_sdio<'a, SDIO>(
 where
     SDIO: ::sdio::MmcBus,
 {
-    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]), MTU);
     let state_ch = ch_runner.state_runner();
 
     let mut runner = Runner::new(
@@ -534,7 +532,7 @@ pub async fn new_4373_sdio<'a, SDIO>(
 where
     SDIO: ::sdio::MmcBus,
 {
-    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]), MTU);
     let state_ch = ch_runner.state_runner();
 
     let mut runner = Runner::new(
@@ -581,7 +579,7 @@ where
     PWR: OutputPin,
     SPI: SpiBusCyw43,
 {
-    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]), MTU);
     let state_ch = ch_runner.state_runner();
 
     let (bt_runner, bt_driver) = bluetooth::new(&mut state.bt);

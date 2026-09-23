@@ -494,10 +494,7 @@ pub(crate) unsafe fn init(config: Config) {
     while RCC.cfgr().read().sws() != Sysclk::Hsi {}
 
     // Configure HSI
-    let hsi = match config.hsi {
-        None => None,
-        Some(hsidiv) => Some(HSI_FREQ / hsidiv),
-    };
+    let hsi = config.hsi.map(|hsidiv| HSI_FREQ / hsidiv);
 
     // Configure HSE
     let hse = match config.hse {

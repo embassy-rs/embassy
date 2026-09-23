@@ -16,6 +16,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let memory_x = include_bytes!("memory-nrf52840.x");
     #[cfg(feature = "nrf5340")]
     let memory_x = include_bytes!("memory-nrf5340.x");
+    #[cfg(feature = "nrf54l15")]
+    let memory_x = include_bytes!("memory-nrf54l15.x");
     #[cfg(feature = "nrf9160")]
     let memory_x = include_bytes!("memory-nrf9160.x");
     fs::write(out.join("memory.x"), memory_x).unwrap();

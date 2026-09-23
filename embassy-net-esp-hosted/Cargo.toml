@@ -19,11 +19,11 @@ build = [
 ]
 
 [features]
-defmt = ["dep:defmt", "heapless/defmt", "bt-hci?/defmt", "embedded-io-async?/defmt", "sdio/defmt"]
+defmt = ["dep:defmt", "heapless/defmt", "embedded-io-async?/defmt", "sdio/defmt"]
 log = ["dep:log"]
 
 ## Enable Bluetooth (BLE) support using `bt-hci/bt-hci-transport`.
-bluetooth = ["dep:bt-hci", "dep:bt-hci-transport", "dep:embedded-io-async"]
+bluetooth = ["dep:bt-hci-transport", "dep:embedded-io-async"]
 
 #! ### Hosted firmware support
 #! At least one of the following features must be enabled. When both are enabled,
@@ -57,7 +57,6 @@ document-features = "0.2.7"
 
 # Bluetooth deps
 embedded-io-async = { version = "0.7.0", optional = true }
-bt-hci = { version = "0.9.0", optional = true }
 bt-hci-transport = { version = "0.1.0", optional = true }
 
 [package.metadata.embassy_docs]

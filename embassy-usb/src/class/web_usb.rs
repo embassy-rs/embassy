@@ -18,7 +18,7 @@ const WEB_USB_DESCRIPTOR_TYPE_URL: u8 = 0x03;
 
 /// URL descriptor for WebUSB landing page.
 ///
-/// An ecoded URL descriptor to point to a website that is suggested to the user when the device is connected.
+/// An encoded URL descriptor to point to a website that is suggested to the user when the device is connected.
 pub struct Url<'d>(&'d str, u8);
 
 impl<'d> Url<'d> {

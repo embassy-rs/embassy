@@ -133,6 +133,12 @@ pub mod lookup {
         offset: usize,
     }
 
+    impl Default for SequenceBuilder {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl SequenceBuilder {
         pub const fn new() -> Self {
             Self {
@@ -158,6 +164,12 @@ pub mod lookup {
     #[derive(Clone, Copy, Debug)]
     #[repr(transparent)]
     pub struct LookupTable([Sequence; SEQUENCE_COUNT]);
+
+    impl Default for LookupTable {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
 
     impl LookupTable {
         pub const fn new() -> Self {
@@ -323,26 +335,26 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 macro_rules! impl_flexspi_instance {
     ($n:expr) => {
         paste::paste! {
-            impl crate::flexspi::sealed::Instance for crate::peripherals::[<FLEXSPI $n>] {
-                fn info() -> &'static crate::flexspi::Info {
-                    static INFO: crate::flexspi::Info = crate::flexspi::Info {
-                        regs: crate::pac::[<FLEXSPI $n>],
+            impl $crate::flexspi::sealed::Instance for $crate::peripherals::[<FLEXSPI $n>] {
+                fn info() -> &'static $crate::flexspi::Info {
+                    static INFO: $crate::flexspi::Info = $crate::flexspi::Info {
+                        regs: $crate::pac::[<FLEXSPI $n>],
                         pending_events: core::sync::atomic::AtomicU32::new(0),
                         waker: embassy_sync::waitqueue::AtomicWaker::new(),
                     };
                     &INFO
                 }
 
-                const CLOCK_INSTANCE: crate::clocks::periph_helpers::FlexspiInstance =
-                    crate::clocks::periph_helpers::FlexspiInstance::[<Flexspi $n>];
-                const TX_DMA_REQUEST: crate::dma::DmaRequest =
-                    crate::dma::DmaRequest::[<Flexspi $n Tx>];
-                const RX_DMA_REQUEST: crate::dma::DmaRequest =
-                    crate::dma::DmaRequest::[<Flexspi $n Rx>];
+                const CLOCK_INSTANCE: $crate::clocks::periph_helpers::FlexspiInstance =
+                    $crate::clocks::periph_helpers::FlexspiInstance::[<Flexspi $n>];
+                const TX_DMA_REQUEST: $crate::dma::DmaRequest =
+                    $crate::dma::DmaRequest::[<Flexspi $n Tx>];
+                const RX_DMA_REQUEST: $crate::dma::DmaRequest =
+                    $crate::dma::DmaRequest::[<Flexspi $n Rx>];
             }
 
-            impl crate::flexspi::Instance for crate::peripherals::[<FLEXSPI $n>] {
-                type Interrupt = crate::interrupt::typelevel::[<FLEXSPI $n>];
+            impl $crate::flexspi::Instance for $crate::peripherals::[<FLEXSPI $n>] {
+                type Interrupt = $crate::interrupt::typelevel::[<FLEXSPI $n>];
             }
         }
     };
@@ -392,10 +404,10 @@ pub trait SsPin<T: Instance, P: Port>: Pin<T, P> {
 macro_rules! impl_flexspi_pin {
     ($pin:ident, $peri:ident, $port:ident, $signal: ident) => {
         paste::paste! {
-            impl crate::flexspi::sealed::Sealed<crate::flexspi::$port> for crate::peripherals::$pin {}
-            impl crate::flexspi::Pin<crate::peripherals::$peri, crate::flexspi::$port> for crate::peripherals::$pin {}
-            impl crate::flexspi::[<$signal Pin>]<crate::peripherals::$peri, crate::flexspi::$port> for crate::peripherals::$pin {}
-            crate::impl_flexspi_cs_pin!($pin, $peri, $signal, $port);
+            impl $crate::flexspi::sealed::Sealed<$crate::flexspi::$port> for $crate::peripherals::$pin {}
+            impl $crate::flexspi::Pin<$crate::peripherals::$peri, $crate::flexspi::$port> for $crate::peripherals::$pin {}
+            impl $crate::flexspi::[<$signal Pin>]<$crate::peripherals::$peri, $crate::flexspi::$port> for $crate::peripherals::$pin {}
+            $crate::impl_flexspi_cs_pin!($pin, $peri, $signal, $port);
         }
     };
 }
@@ -404,22 +416,22 @@ macro_rules! impl_flexspi_pin {
 #[macro_export]
 macro_rules! impl_flexspi_cs_pin {
     ($pin:ident, $peri:ident, Ss0, A) => {
-        impl crate::flexspi::SsPin<crate::peripherals::$peri, crate::flexspi::A> for crate::peripherals::$pin {
+        impl $crate::flexspi::SsPin<$crate::peripherals::$peri, $crate::flexspi::A> for $crate::peripherals::$pin {
             const CHIP_INDEX: u8 = 0;
         }
     };
     ($pin:ident, $peri:ident, Ss0, B) => {
-        impl crate::flexspi::SsPin<crate::peripherals::$peri, crate::flexspi::B> for crate::peripherals::$pin {
+        impl $crate::flexspi::SsPin<$crate::peripherals::$peri, $crate::flexspi::B> for $crate::peripherals::$pin {
             const CHIP_INDEX: u8 = 1;
         }
     };
     ($pin:ident, $peri:ident, Ss1, A) => {
-        impl crate::flexspi::SsPin<crate::peripherals::$peri, crate::flexspi::A> for crate::peripherals::$pin {
+        impl $crate::flexspi::SsPin<$crate::peripherals::$peri, $crate::flexspi::A> for $crate::peripherals::$pin {
             const CHIP_INDEX: u8 = 2;
         }
     };
     ($pin:ident, $peri:ident, Ss1, B) => {
-        impl crate::flexspi::SsPin<crate::peripherals::$peri, crate::flexspi::B> for crate::peripherals::$pin {
+        impl $crate::flexspi::SsPin<$crate::peripherals::$peri, $crate::flexspi::B> for $crate::peripherals::$pin {
             const CHIP_INDEX: u8 = 3;
         }
     };
@@ -835,7 +847,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         if len == 0 || len > self.flash.page_size {
             return Err(IoError::InvalidTransferLength);
         }
-        if address as usize % WRITE_GRANULARITY != 0 || len % WRITE_GRANULARITY != 0 {
+        if !(address as usize).is_multiple_of(WRITE_GRANULARITY) || !len.is_multiple_of(WRITE_GRANULARITY) {
             return Err(IoError::Misaligned);
         }
         if (address as usize % self.flash.page_size) + len > self.flash.page_size {
@@ -1126,7 +1138,8 @@ impl<'d> InnerFlexSpi<'d, Async> {
 
         self.write_enable_async().await?;
 
-        if self.dma.is_some() && data.len() >= DMA_FIFO_WINDOW_BYTES && data.len() % DMA_FIFO_WINDOW_BYTES == 0 {
+        if self.dma.is_some() && data.len() >= DMA_FIFO_WINDOW_BYTES && data.len().is_multiple_of(DMA_FIFO_WINDOW_BYTES)
+        {
             let mut words = [0u32; MAX_PAGE_WORDS];
             let word_len = data.len().div_ceil(4);
             self.bytes_to_words(data, &mut words[..word_len]);
@@ -1288,7 +1301,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
         data: &[u32],
         data_len: usize,
     ) -> Result<(), IoError> {
-        if data_len % DMA_FIFO_WINDOW_BYTES != 0 {
+        if !data_len.is_multiple_of(DMA_FIFO_WINDOW_BYTES) {
             return Err(IoError::InvalidTransferLength);
         }
 

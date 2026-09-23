@@ -16,12 +16,14 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel, SampleTime, adc4};
-use embassy_stm32::{Config, bind_interrupts, peripherals};
+use embassy_stm32::adc::{
+    Adc, Config as AdcConfig, OversamplingRatio, Resolution, SampleTime, WatchdogChannels, WatchdogIndex,
+};
+use embassy_stm32::{Config, adc, bind_interrupts, peripherals};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
-    ADC4 => adc4::InterruptHandler<peripherals::ADC4>;
+    ADC4 => adc::InterruptHandler<peripherals::ADC4>;
 });
 
 #[embassy_executor::main]
@@ -31,27 +33,21 @@ async fn main(_spawner: Spawner) {
 
     info!("ADC4 analog watchdog example (PA0)");
 
-    let mut adc = Adc::new_adc4(p.ADC4);
-    let mut pin = p.PA0;
-    adc.set_resolution_adc4(adc4::Resolution::Bits12);
+    let mut adc_config = AdcConfig::default();
+    adc_config.resolution = Some(Resolution::Bits12);
     // 8× oversampling with matching right-shift → same 12-bit range, lower noise.
     // enable_watchdog will automatically scale AWD thresholds by >> 4 to match
     // the hardware's DR[15:4] comparison window.
-    adc.set_averaging_adc4(adc4::Averaging::Samples8);
+    adc_config.averaging = Some(OversamplingRatio::X8);
+    let mut adc = Adc::new(p.ADC4, Irqs, adc_config);
+    let mut pin = p.PA0;
 
-    let pin_ch = pin.reborrow_adc().get_hw_channel();
-
-    let max = adc4::resolution_to_max_count(adc4::Resolution::Bits12);
+    let max = adc.resolution().max_count();
 
     loop {
         {
             // Wait for PA0 to exceed ~0.6 V (raw > 0x07F at 12-bit / 3.3 V).
-            let mut wd = adc.enable_watchdog(
-                adc4::WatchdogIndex::Awd1,
-                adc4::WatchdogChannels::Single(pin_ch),
-                0,
-                0x07F,
-            );
+            let mut wd = adc.enable_watchdog(WatchdogIndex::Awd1, WatchdogChannels::from_channel(&pin), 0, 0x07F);
             let raw = wd.monitor(&mut adc, &mut pin, SampleTime::Cycles125).await;
             let v = 3.3 * raw as f32 / max as f32;
             info!("Above high threshold, raw={} ~{} V", raw, v);
@@ -59,12 +55,7 @@ async fn main(_spawner: Spawner) {
 
         {
             // Wait for PA0 to drop below ~0.2 V (raw < 0x01F at 12-bit / 3.3 V).
-            let mut wd = adc.enable_watchdog(
-                adc4::WatchdogIndex::Awd1,
-                adc4::WatchdogChannels::Single(pin_ch),
-                0x01F,
-                0x0FFF,
-            );
+            let mut wd = adc.enable_watchdog(WatchdogIndex::Awd1, WatchdogChannels::from_channel(&pin), 0x01F, 0x0FFF);
             let raw = wd.monitor(&mut adc, &mut pin, SampleTime::Cycles125).await;
             let v = 3.3 * raw as f32 / max as f32;
             info!("Below low threshold, raw={} ~{} V", raw, v);

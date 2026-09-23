@@ -8,8 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+Align to API guidelines:
+- change: stm32/gpio: rename `get_level()` to `level()` and `get_output_level()` to `output_level()` on `Input`, `Output`, `OutputOpenDrain`, `Flex` and `ExtiInput`. `lpgpio::LpGpio::get_level()` is now `level()`.
+- change: stm32/rng: `Rng` is now `Rng<'d, M: Mode>` with the instance type erased. Added `Rng::new_blocking` and `Rng::new_blocking_with_config`. The async `async_fill_bytes` is now `fill_bytes`; the blocking `fill_bytes`, `next_u32` and `next_u64` are now `blocking_fill_bytes`, `blocking_next_u32` and `blocking_next_u64`.
+- change: stm32/usart: `Uart` and `BufferedUart` constructors take pins as `tx, rx` instead of `rx, tx`.
+- change: stm32/usart: `BufferedUart::new` takes the interrupt binding before the buffers.
+- change: stm32/usart: `Uart::split_ref` returns owned `(UartTx<'_, M>, UartRx<'_, M>)` halves instead of `&mut` references.
+- change: stm32/usart: removed the `nb`-based `embedded_hal_02::serial::Read` and `embedded_hal_nb::serial::{Read, Write}` implementations.
+- add: stm32: `Config::enable_analog_switch_booster` enables the I/O analog switch voltage booster.
+- change: stm32/adc: the interrupt-driven `irq_read` is now `read`; the DMA method previously named `read` is now `read_sequence`.
+- change: stm32/adc: one `Adc<'d, T, M: Mode>` driver for every chip, with the same API everywhere. Methods and configuration options only exist on chips whose ADC supports them.
+- change: stm32/adc: constructors are `Adc::new(adc, irqs, config)` and `Adc::new_blocking(adc, config)`. `Config` sets resolution, averaging/oversampling, clock and dual mode. Removed `new_with_config`, `new_with_clock`, `set_averaging`, `set_oversampling`, `AdcConfig`, `Presc`, `Ckmode`.
+- change: stm32/adc: `enable_vref` is now `enable_vrefint`; `enable_temperature`, `enable_vbat`, `enable_vddcore`, `enable_dac` exist only on instances with that channel.
+- change: stm32/adc: `SampleTime` and `Exten` are the PAC enums. `resolution_to_max_count` is replaced by `Resolution::max_count()`.
+- change: stm32/adc: analog watchdogs are `Adc::enable_watchdog(...)` returning `AnalogWatchdog` with `is_triggered`, `wait`, `monitor`.
+- change: stm32/adc: `setup_injected_conversions` and `into_ring_buffered_and_injected` take the interrupt binding first and a mode (`Async`/`Blocking`).
+- feat: stm32/adc: DMA sequences, ring buffers, triggers, injected conversions, watchdogs, oversampling, differential inputs and `clock()` on every chip that has the hardware.
+- fix: stm32/adc: G0/C0 DMA sequences kept the wrong sample time; F0/L0 multi-channel DMA sequences hung; H7 internal channels are on `ADC3` (`ADC2` on H7A3/B3); H5/L5/U5 ran the ADC above its maximum clock; U5 `ADC12_COMMON` was at the wrong address.
+- change: stm32/spi: `set_config` returns `Result<(), spi::ConfigError>` instead of `Result<(), ()>`.
+- feat: stm32/i2c: implement `embedded_hal_02::blocking::i2c::Transactional` for `I2c`.
+- change: stm32: the interrupt binding argument now comes after all peripheral arguments in `eth`, `usb`, `sdmmc`, `ltdc`, `ucpd`, `dac`, `dcmi`, `adf`, `mdf`, `spdifrx`, `i2s`, `sai`, `spi` and `tsc` constructors.
+
+Crypto:
+- feat: stm32/hash, stm32/aes, stm32/cryp: the `embassy-crypto` drivers are now registered per operation behind `embassy-crypto-<operation>` features (`embassy-crypto-sha256`, `embassy-crypto-aes128-gcm`, ...) instead of unconditionally.
+- feat: stm32/aes: enable the driver on STM32U3 and STM32U5
+
 CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
+
+Ethernet:
+- fix: stm32/eth v2: place a memory barrier before handing a descriptor to the DMA, so the buffer address and the frame contents are visible to it first.
+
+USB:
+- fix: OTG_FS on STM32F1 uses 4 endpoints and 320 FIFO words.
+- fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
 
 DMA:
 - fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
@@ -25,6 +57,9 @@ DMA:
 - fix: stm32/dma: compute GPDMA `BR1.BNDT` from the memory-side width regardless of direction, fixing destination overrun on reads with peripheral width > memory width
 - feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
 - feat: stm32/dma: add `TwoDItem`, `TwoDConfig`, and `LinkedListItem` trait; `Table` is now generic over item type
+
+I2S:
+- feat: stm32/i2s: add `I2S::rx_len()` returning the number of samples buffered in the RX DMA ring buffer
 
 I2C:
 - feat: stm32/i2cv2: support zero-length transfers instead of returning `Error::ZeroLengthTransfer`, enabling bus scans via `transaction(addr, &mut [Operation::Write(&[])])`. On the slave side an empty `respond_to_write` accepts zero bytes and an empty `respond_to_read` sends `0xFF` filler, since I2C cannot encode "nothing to send"; both previously left ADDR set, holding SCL low and wedging the bus
@@ -42,6 +77,9 @@ COMP:
 - feat: stm32/comp: add support for comp_v1 (used on G0)
 
 Timer:
+- feat: stm32/time-driver: 32-bit timers now run the time driver with their full counter width instead of as 16-bit.
+- feat: stm32/time-driver: `time-driver-any` prefers 32-bit timers over 16-bit timers.
+- feat: stm32/time-driver: add `time-driver-tim19`, `time-driver-lptim4`, `time-driver-lptim5` and `time-driver-lptim6` features.
 - feat: stm32/timer/input_capture: add per-channel split API for concurrent multi-channel capture
 - feat: stm32/timer: add timer_v2 dithering APIs (`DitheringConfig`, ARR/CCR fractional nibble setters) in low-level, simple PWM, and complementary PWM drivers
 - feat: stm32/timer: add low-level timer status helpers for UIF remap control and counting direction (`is_counting_up`/`is_counting_down`)
@@ -51,7 +89,13 @@ QEI:
 - fix: stm32/qei: `count()`, `reset()`, and `auto_reload` always used the 16-bit register view, so on 32-bit timers `reset()` only cleared the lower 16 bits of the counter (leaving the upper bits stale) and `auto_reload`/`count()` were truncated to `u16`; `Config`/`AdvancedConfig` are now generic over the timer instance and `auto_reload` uses `T::Word`, while `count()` returns `u32` so 32-bit timers work correctly across their full range (breaking change)
 
 PKA:
+- changed: stm32/pka: `Pka::ecdsa_sign` and `Pka::ecdsa_sign_blocking` draw the nonce from an `Rng` passed in; the forms taking it from the caller are `ecdsa_sign_with_nonce` and `ecdsa_sign_with_nonce_blocking`
 - feat: stm32/pka: extend ECC point buffer support to 640-bit operands (80-byte coordinates) in public point types and Jacobian conversion paths
+- feat: stm32/pka: register `embassy-crypto` P-256 and P-384 arithmetic drivers behind the `embassy-crypto-p256-arith` and `embassy-crypto-p384-arith` features
+- feat: stm32/pka: add `EcdsaCurveParams::nist_p384()`
+- feat: stm32/pka: add `Pka::is_limited()`, reporting a PKA that only verifies ECDSA signatures
+- feat: stm32/pka: enable the driver on STM32U3 and STM32U5
+- fix: stm32/pka: `point_check` writes the Montgomery parameter the operation needs, and no longer reports points off the curve as on it
 
 CRYP:
 - feat: stm32/cryp: batch full-block DMA in payload and use 4-beat bursts on GPDMA
@@ -68,6 +112,7 @@ RCC:
 - change: stm32/rcc/c0: rename `Hsi::sys_div` to `Hsi::div` and `HsiSysDiv` to `HsiDiv` (breaking change). The field sets HSIDIV, not SYSDIV; the old name suggested otherwise
 - fix: stm32/rcc/c0: raise the flash read access latency before anything that can raise the core frequency, so a configuration handed over from a bootloader without a reset cannot run above 24 MHz with too few wait states
 - fix: stm32/rcc/l: set the maximum flash latency before raising the MSI range, so MSI above the reset wait-state limit (e.g. 48 MHz) as sysclk no longer hardfaults in `init()` on L4, L5, WB and U0 (extends the WL-only fix from #2786; L0/L1 are unaffected, their MSI tops out at 4.194 MHz)
+- fix: stm32/rcc/f247: report correct PLL output frequencies when the source clock is not evenly divisible by the PLL input divisor
 
 SPI:
 - change default NSS configuration from active-high to active-low

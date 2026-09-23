@@ -11,7 +11,7 @@ mod device;
 
 use embassy_futures::select::{Either3, select3};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::LinkState;
+use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
@@ -25,20 +25,18 @@ use crate::device::WiznetDevice;
 const MTU: usize = 1514;
 
 /// Type alias for the embassy-net driver.
-pub type Device<'d> = embassy_net_driver_channel::Device<'d, MTU>;
+pub type Device<'d> = embassy_net_driver_channel::Device<'d>;
 
 /// Internal state for the embassy-net integration.
 ///
 /// The two generic arguments `N_RX` and `N_TX` set the size of the receive and
-/// send packet queue. With a the ethernet MTU of _1514_ this takes up `N_RX +
-/// NTX * 1514` bytes. While setting these both to 1 is the minimum this might
-/// hurt performance as a packet can not be received while processing another.
-///
-/// # Warning
-/// On devices with a small amount of ram (think ~64k) watch out with the size
-/// of there parameters. They will quickly use too much RAM.
+/// send packet queue, in packets. The packets themselves come from the global
+/// packet pool, sized by xarxa's `packet-buf-count-N` feature, so these only
+/// bound how many of them this driver can hold at a time. Setting both to 1 is
+/// the minimum, but this might hurt performance as a packet can not be received
+/// while processing another.
 pub struct State<const N_RX: usize, const N_TX: usize> {
-    ch_state: ch::State<MTU, N_RX, N_TX>,
+    ch_state: ch::State<N_RX, N_TX>,
 }
 
 impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
@@ -55,7 +53,7 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
 /// You must call `.run()` in a background task for the driver to operate.
 pub struct Runner<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> {
     mac: WiznetDevice<C, SPI>,
-    ch: ch::Runner<'d, MTU>,
+    ch: ch::Runner<'d>,
     int: INT,
     _reset: RST,
 }
@@ -75,17 +73,26 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, 
                     if !rx_frames_remaining {
                         self.int.wait_for_low().await.ok();
                     }
-                    rx_chan.rx_buf().await
+                    rx_chan.rx_ready().await
                 },
-                tx_chan.tx_buf(),
+                tx_chan.tx(),
                 tick.next(),
             )
             .await
             {
-                Either3::First(mut p) => {
+                Either3::First(()) => {
+                    let Some(mut p) = PacketBuf::try_new() else {
+                        warn!("packet pool empty, can't receive");
+                        // Back off a little, so we don't spin until the stack frees a buffer.
+                        Timer::after_millis(1).await;
+                        rx_frames_remaining = false;
+                        continue;
+                    };
+                    p.set_len(MTU);
                     match self.mac.read_frame(&mut p).await {
                         Ok(n @ 1..) => {
-                            p.rx_done(n);
+                            p.set_len(n);
+                            rx_chan.rx(p).await;
                             rx_frames_remaining = true;
                         }
                         // Empty RX buffer, or a read error: no more frames to read
@@ -94,9 +101,8 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, 
                         }
                     };
                 }
-                Either3::Second(mut p) => {
-                    self.mac.write_frame(&mut p).await.ok();
-                    p.tx_done();
+                Either3::Second(p) => {
+                    self.mac.write_frame(&p).await.ok();
                 }
                 Either3::Third(()) => {
                     if self.mac.is_link_up().await {
@@ -134,7 +140,11 @@ pub async fn new<'a, const N_RX: usize, const N_TX: usize, C: Chip, SPI: SpiDevi
 
     let mac = WiznetDevice::new(spi_dev, mac_addr).await?;
 
-    let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ethernet(mac_addr));
+    let (runner, device) = ch::new(
+        &mut state.ch_state,
+        ch::driver::HardwareAddress::Ethernet(mac_addr),
+        MTU,
+    );
 
     Ok((
         device,

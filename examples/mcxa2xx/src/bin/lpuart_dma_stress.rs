@@ -21,6 +21,7 @@ use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::clocks::periph_helpers::LpuartClockSel;
 use embassy_mcxa::lpuart::{Config, Dma, Error, Lpuart, LpuartRx, LpuartTx};
 use embassy_mcxa::trng::{InterruptHandler, Trng};
+use embassy_mcxa2xx_examples::util::verify_equal;
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -279,29 +280,5 @@ async fn random_cancel_delay_us(trng: &mut Trng<'_, hal::trng::Async>, payload_l
 fn fill_pattern(buffer: &mut [u8], seed: u32) {
     for (idx, byte) in buffer.iter_mut().enumerate() {
         *byte = seed.wrapping_add(idx as u32) as u8;
-    }
-}
-
-fn verify_equal<T: PartialEq + defmt::Format + Copy>(actual: &[T], expected: &[T], label: &str) {
-    if actual != expected {
-        let mismatch_idx = actual
-            .iter()
-            .zip(expected.iter())
-            .position(|(a, e)| a != e)
-            .unwrap_or(actual.len().min(expected.len()));
-        error!(
-            "{=str} mismatch len={=usize}/{=usize} first_diff@{=usize} actual={} expected={}",
-            label,
-            actual.len(),
-            expected.len(),
-            mismatch_idx,
-            actual.get(mismatch_idx),
-            expected.get(mismatch_idx),
-        );
-        let end = (mismatch_idx + 8).min(actual.len());
-        let start = mismatch_idx.saturating_sub(2);
-        error!("  actual  [{=usize}..{=usize}] = {}", start, end, &actual[start..end]);
-        error!("  expected[{=usize}..{=usize}] = {}", start, end, &expected[start..end]);
-        panic!();
     }
 }
