@@ -10,7 +10,9 @@ use core::sync::atomic::{AtomicU8, Ordering};
 
 use crate::atomic::AtomicDecrement;
 pub use crate::dma::word;
-use crate::dma::{self, Channel, ReadableRingBuffer, Request, RingBufferError, TransferOptions, WritableRingBuffer, ringbuffer};
+use crate::dma::{
+    self, Channel, ReadableRingBuffer, Request, RingBufferError, TransferOptions, WritableRingBuffer, ringbuffer,
+};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::pac::sai::Sai as Regs;
 pub use crate::sai::vals::Mckdiv as MasterClockDivider;
@@ -31,7 +33,7 @@ pub enum Error {
 impl From<RingBufferError> for Error {
     fn from(e: RingBufferError) -> Self {
         match e {
-            RingBufferError::Overrun => Self::Overrun
+            RingBufferError::Overrun => Self::Overrun,
         }
     }
 }

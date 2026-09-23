@@ -5,7 +5,9 @@
 use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
-use crate::dma::{ChannelAndRequest, ReadableRingBuffer, RingBufferError, TransferOptions, WritableRingBuffer, ringbuffer};
+use crate::dma::{
+    ChannelAndRequest, ReadableRingBuffer, RingBufferError, TransferOptions, WritableRingBuffer, ringbuffer,
+};
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::mode::Async;
 use crate::pac::spi::Spi as Regs;
@@ -66,7 +68,7 @@ pub enum Error {
 impl From<RingBufferError> for Error {
     fn from(e: RingBufferError) -> Self {
         match e {
-            RingBufferError::Overrun => Self::Overrun
+            RingBufferError::Overrun => Self::Overrun,
         }
     }
 }

@@ -176,7 +176,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// - If M equals N/2 or N/2 divides evenly into M, this function will return every N/2 elements read on the DMA source.
     /// - Otherwise, this function may need up to N/2 extra elements to arrive before returning.
     pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, RingBufferError> {
-        Ok(self.ringbuf
+        Ok(self
+            .ringbuf
             .read_exact(&mut DmaCtrlImpl::new(self.channel.reborrow()), buffer)
             .await?)
     }

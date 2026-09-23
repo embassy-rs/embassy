@@ -1461,7 +1461,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// - If M equals N/2 or N/2 divides evenly into M, this function will return every N/2 elements read on the DMA source.
     /// - Otherwise, this function may need up to N/2 extra elements to arrive before returning.
     pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, RingBufferError> {
-        Ok(self.ringbuf
+        Ok(self
+            .ringbuf
             .read_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
             .await?)
     }
@@ -1626,14 +1627,16 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Write an exact number of elements to the ringbuffer.
     pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, RingBufferError> {
-        Ok(self.ringbuf
+        Ok(self
+            .ringbuf
             .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
             .await?)
     }
 
     /// Wait for any ring buffer write error.
     pub async fn wait_write_error(&mut self) -> Result<usize, RingBufferError> {
-        Ok(self.ringbuf
+        Ok(self
+            .ringbuf
             .wait_write_error(&mut DmaCtrlImpl(self.channel.reborrow()))
             .await?)
     }

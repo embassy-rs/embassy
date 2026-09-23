@@ -75,7 +75,7 @@ pub type Request = ();
 #[non_exhaustive]
 pub enum RingBufferError {
     /// Overrun error
-    Overrun
+    Overrun,
 }
 
 impl From<ringbuffer::Error> for RingBufferError {
