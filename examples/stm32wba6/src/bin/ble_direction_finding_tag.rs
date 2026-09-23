@@ -35,11 +35,10 @@
 
 use defmt::*;
 use defmt_rtt as _;
+use embassy_crypto_rustcrypto as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_stm32::aes::{self, Aes};
-use embassy_stm32::peripherals::{AES, PKA, RNG};
-use embassy_stm32::pka::{self, Pka};
+use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::HCI;
@@ -55,8 +54,6 @@ use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;
-    AES => aes::InterruptHandler<AES>;
-    PKA => pka::InterruptHandler<PKA>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
 });
@@ -101,12 +98,7 @@ async fn main(spawner: Spawner) {
 
     info!("Embassy STM32WBA6 BLE Direction Finding Tag Example");
 
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Pka::new(p.PKA, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        8
-    );
+    let (platform, runtime) = new_platform!(Rng::new(p.RNG, Irqs), 8);
 
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 
