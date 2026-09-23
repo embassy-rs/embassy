@@ -1,8 +1,8 @@
 //! Analog Comparator (COMP)
 //!
 //! This driver supports chips with the comp_u5 peripheral version
-//! (STM32WBA and STM32U5 series), comp_v1 (STM32G0 series) and
-//! comp_v2 (STM32G4 series).
+//! (STM32WBA and STM32U5 series), comp_v1 (STM32G0 series), comp_v2
+//! (STM32G4 series) and comp_u0 (STM32U0 series).
 #![macro_use]
 
 use core::future::poll_fn;
