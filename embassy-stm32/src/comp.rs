@@ -682,8 +682,10 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
         // INM1 = 0x06, INM2 = 0x07
         #[cfg(any(comp_u5, comp_v2, comp_v1))]
         let inmsel = vals::Inm::from_bits(0x06 + inm_channel);
+        // On U0 the input pins start at INMSEL 0b0101, after the VREFINT
+        // dividers and DAC1 (RM0503 Table 90).
         #[cfg(comp_u0)]
-        let inmsel = inm_channel;
+        let inmsel = 0x05 + inm_channel;
         #[cfg(any(comp_u5, comp_v2, comp_u0, comp_v1))]
         Self::configure_raw(inp_channel, inmsel, config)
     }
