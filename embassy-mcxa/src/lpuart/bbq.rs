@@ -21,7 +21,8 @@ use super::{CtsPin, DataBits, IdleConfig, Info, MsbFirst, Parity, RtsPin, RxPin,
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel};
 use crate::clocks::{PoweredClock, WakeGuard};
 use crate::dma::{
-    DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, PingPongSelector, Priority, TransferOptions,
+    DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, PingPongSelector, PingPongStatus, Priority,
+    TransferOptions,
 };
 use crate::gpio::{AnyPin, HasGpioInstance, PeriGpioExt};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
@@ -110,8 +111,8 @@ pub enum BbqRxMode {
     ///
     /// Each completed half must be copied into the BBQueue before DMA reaches the
     /// next boundary. If the BBQueue lacks capacity or interrupt handling is delayed
-    /// too long, reception stops and [`BbqError::Overrun`] remains sticky until this
-    /// RX half is torn down and initialized again.
+    /// too long, reception stops and [`BbqError::Overrun`] remains sticky until
+    /// [`LpuartBbqRx::clear_overrun`] is called or this RX half is reinitialized.
     Continuous { half_size: usize },
 }
 
@@ -684,6 +685,13 @@ impl LpuartBbq {
         self.rx.read(buf)
     }
 
+    /// Clear a continuous-RX overrun and schedule reception to restart.
+    ///
+    /// See [`LpuartBbqRx::clear_overrun`] for recovery semantics.
+    pub fn clear_overrun(&mut self) -> bool {
+        self.rx.clear_overrun()
+    }
+
     /// Wait for all bytes in the outgoing buffer to be flushed asynchronously.
     ///
     /// See [`LpuartBbqTx::flush`] for more information
@@ -1235,6 +1243,25 @@ impl LpuartBbqRx {
         })
     }
 
+    /// Acknowledge a continuous-RX overrun and schedule reception to restart.
+    ///
+    /// An overrun means the byte stream contains a gap. This discards any
+    /// unpublished staging bytes but preserves bytes already committed to the
+    /// BBQueue. DMA is restarted by the serialized LPUART interrupt handler.
+    ///
+    /// Returns `true` when a latched overrun was cleared. Returns `false` when
+    /// this RX half is not in continuous mode or no overrun was latched.
+    pub fn clear_overrun(&mut self) -> bool {
+        let state = self.state.state.load(Ordering::Acquire);
+        if (state & STATE_RXDMA_MODE_CONTINUOUS) == 0 || !self.state.rx_overrun.swap(false, Ordering::AcqRel) {
+            return false;
+        }
+
+        self.state.rx_publish_pending.store(false, Ordering::Release);
+        (self.vtable.int_pend)();
+        true
+    }
+
     /// Read some data from the incoming receive buffer
     ///
     /// This method waits until some data is able to be read from the internal buffer,
@@ -1247,7 +1274,8 @@ impl LpuartBbqRx {
     ///
     /// In efficiency and max-frame modes, data is discarded until this method frees
     /// capacity. In continuous mode, failing to publish a granted DMA half before the
-    /// next boundary stops reception and returns [`BbqError::Overrun`].
+    /// next boundary stops reception and returns [`BbqError::Overrun`]. Call
+    /// [`Self::clear_overrun`] to acknowledge the data gap and restart reception.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, BbqError> {
         // TODO: we could have a version of this that gives the user the grant directly
         // to reduce the effort of copying.
@@ -1261,7 +1289,7 @@ impl LpuartBbqRx {
         }
 
         // The overrun future is first so a simultaneously-ready error wins over
-        // queued data. The flag is sticky until the RX half is reinitialized.
+        // queued data. The flag is sticky until explicitly cleared or reinitialized.
         let rgr = match select(
             self.state
                 .rx_overrun_wait
@@ -1283,10 +1311,12 @@ impl LpuartBbqRx {
         buf[..to_copy].copy_from_slice(&rgr[..to_copy]);
         rgr.release(to_copy);
 
-        // If NO rx_dma is active, that means we stalled, so pend the interrupt to
-        // restart it now that we've freed space.
+        // Restart a stalled grant-based transfer after freeing queue capacity.
+        // Continuous DMA stays active, so only pend when publication was deferred.
         let state = self.state.state.load(Ordering::Acquire);
-        if (state & STATE_RXGR_ACTIVE) == 0 || (state & STATE_RXDMA_MODE_CONTINUOUS) != 0 {
+        let continuous_publish_pending =
+            (state & STATE_RXDMA_MODE_CONTINUOUS) != 0 && self.state.rx_publish_pending.load(Ordering::Acquire);
+        if (state & STATE_RXGR_ACTIVE) == 0 || continuous_publish_pending {
             (self.vtable.int_pend)();
         }
 
@@ -1527,7 +1557,7 @@ pub(crate) struct BbqState {
     /// Next byte in the continuous DMA staging ring that has not yet been
     /// published to `rx_queue`.
     rx_published_pos: AtomicU32,
-    /// A staging range could not be published because the BBQueue was full.
+    /// Continuous staging publication was deferred and should be retried.
     rx_publish_pending: AtomicBool,
     /// Sticky continuous-DMA overrun indication.
     rx_overrun: AtomicBool,
@@ -1663,7 +1693,7 @@ impl BbqState {
         self.state.fetch_and(!STATE_RXGR_ACTIVE, Ordering::AcqRel);
     }
 
-    /// Record a terminal continuous-DMA overrun and wake a blocked reader.
+    /// Record a sticky continuous-DMA overrun and wake a blocked reader.
     pub(crate) fn record_continuous_overrun(&'static self) {
         if !self.rx_overrun.swap(true, Ordering::AcqRel) {
             self.rx_overrun_wait.wake();
@@ -1674,14 +1704,24 @@ impl BbqState {
     ///
     /// A DMA boundary landing between the sampled values makes them legitimately
     /// inconsistent, so retry on the next pass instead of failing the transfer.
-    fn partial_retry_or_overrun(&'static self, rxdma: &DmaChannel<'static>) -> Result<bool, ()> {
-        if rxdma.ping_pong_boundary_pending() {
+    fn partial_retry_or_overrun(
+        &'static self,
+        rxdma: &DmaChannel<'static>,
+        status_before: PingPongStatus,
+    ) -> Result<bool, ()> {
+        if Self::ping_pong_boundary_crossed(rxdma, status_before) {
             self.rx_publish_pending.store(true, Ordering::Release);
             return Ok(false);
         }
 
         self.record_continuous_overrun();
         Err(())
+    }
+
+    /// Detect a boundary whether it is still pending or was already handled by
+    /// a higher-priority DMA ISR that cleared `CH_INT` and advanced ownership.
+    fn ping_pong_boundary_crossed(rxdma: &DmaChannel<'static>, status_before: PingPongStatus) -> bool {
+        rxdma.ping_pong_boundary_pending() || rxdma.ping_pong_status() != Some(status_before)
     }
 
     /// Stop continuous RX after an overrun without releasing its resources.
@@ -1716,6 +1756,15 @@ impl BbqState {
         let (dma_buffer, rx_queue, rxdma) =
             unsafe { (&*self.rx_dma_buffer.get(), &*self.rx_queue.get(), &*self.rxdma.get()) };
 
+        let Some(status_before) = rxdma.ping_pong_status() else {
+            self.record_continuous_overrun();
+            return Err(());
+        };
+        if status_before.granted_buffer() != Ok(Some(buffer)) {
+            self.record_continuous_overrun();
+            return Err(());
+        }
+
         let len = dma_buffer.len;
         if len < 2 || !len.is_multiple_of(2) {
             self.record_continuous_overrun();
@@ -1735,6 +1784,10 @@ impl BbqState {
 
         let available = boundary - published;
         if available == 0 {
+            if Self::ping_pong_boundary_crossed(rxdma, status_before) {
+                self.record_continuous_overrun();
+                return Err(());
+            }
             if rxdma.commit_ping_pong_buffer(buffer).is_err() {
                 self.record_continuous_overrun();
                 return Err(());
@@ -1760,7 +1813,7 @@ impl BbqState {
         // Complete all source reads before testing whether DMA wrapped back into
         // this half, which would mean the copy above raced against fresh writes.
         fence(Ordering::Release);
-        if rxdma.ping_pong_boundary_pending() {
+        if Self::ping_pong_boundary_crossed(rxdma, status_before) {
             drop(wgr);
             self.record_continuous_overrun();
             return Err(());
@@ -1795,6 +1848,8 @@ impl BbqState {
         let (dma_buffer, rx_queue, rxdma) =
             unsafe { (&*self.rx_dma_buffer.get(), &*self.rx_queue.get(), &*self.rxdma.get()) };
 
+        // If a DMA boundary is pending, the current half should be treated as completed
+        // and we should should publish it on the next ISR pass.
         if rxdma.ping_pong_boundary_pending() {
             self.rx_publish_pending.store(true, Ordering::Release);
             return Ok(false);
@@ -1820,8 +1875,9 @@ impl BbqState {
         let start = dma_buffer.ptr.as_ptr() as usize;
         let end = start.saturating_add(len);
         let daddr = rxdma.daddr() as usize;
+        // Check if the DMA address is within the valid range of the buffer.
         if daddr < start || daddr > end {
-            return self.partial_retry_or_overrun(rxdma);
+            return self.partial_retry_or_overrun(rxdma, status);
         }
 
         let write_pos = daddr.wrapping_sub(start) % len;
@@ -1836,8 +1892,9 @@ impl BbqState {
             PingPongSelector::BufferA => published <= half_len && write_pos <= half_len,
             PingPongSelector::BufferB => published >= half_len && write_pos >= half_len,
         };
+        // Check if the write position is within the current buffer half.
         if write_pos < published || !in_current_buffer {
-            return self.partial_retry_or_overrun(rxdma);
+            return self.partial_retry_or_overrun(rxdma, status);
         }
 
         let available = write_pos - published;
@@ -1857,8 +1914,7 @@ impl BbqState {
         // Complete all source reads before deciding that DMA has not crossed
         // this half boundary during the copy.
         fence(Ordering::Release);
-        let boundary_crossed = rxdma.ping_pong_boundary_pending() || rxdma.ping_pong_status() != Some(status);
-        if boundary_crossed {
+        if Self::ping_pong_boundary_crossed(rxdma, status) {
             drop(wgr);
             self.rx_publish_pending.store(true, Ordering::Release);
             return Ok(false);
@@ -2153,6 +2209,8 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
                                 Ok(true) => state.publish_continuous_partial(),
                                 other => other,
                             },
+                            // No buffer has been granted yet, that means we are still waiting
+                            // for the first half to be completed. This also happen at the very beginning of the transfer.
                             Ok(None) => state.publish_continuous_partial(),
                             Err(_) => {
                                 state.record_continuous_overrun();
@@ -2167,9 +2225,8 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
                 };
 
                 if result.is_err() || state.rx_overrun.load(Ordering::Acquire) {
-                    // An overrun is terminal until this RX half is torn down and
-                    // initialized again. Stop both the peripheral request source
-                    // and DMA before waking/returning the user-facing error.
+                    // Stop both the peripheral request source and DMA before
+                    // returning the sticky error. clear_overrun() may re-arm RX.
                     regs.ctrl().modify(|w| w.set_ilie(false));
                     // SAFETY: Continuous RX is active in the serialized UART ISR.
                     unsafe {

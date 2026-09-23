@@ -104,12 +104,11 @@
 
 #![allow(dead_code)]
 
-use core::cell::RefCell;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering, fence};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize, Ordering, fence};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -350,6 +349,12 @@ pub(crate) struct PingPongStatus {
 }
 
 impl PingPongStatus {
+    const ACTIVE: u32 = 1 << 0;
+    const CURRENT_B: u32 = 1 << 1;
+    const BUFFER_A_GRANTED: u32 = 1 << 2;
+    const BUFFER_B_GRANTED: u32 = 1 << 3;
+    const OVERRUN: u32 = 1 << 4;
+
     const fn new() -> Self {
         Self {
             current: PingPongSelector::BufferA,
@@ -357,6 +362,48 @@ impl PingPongStatus {
             buffer_b_status: BufferStatus::Committed,
             overrun_error: false,
         }
+    }
+
+    fn encode(self) -> u32 {
+        let mut value = Self::ACTIVE;
+        if self.current == PingPongSelector::BufferB {
+            value |= Self::CURRENT_B;
+        }
+        if self.buffer_a_status == BufferStatus::Granted {
+            value |= Self::BUFFER_A_GRANTED;
+        }
+        if self.buffer_b_status == BufferStatus::Granted {
+            value |= Self::BUFFER_B_GRANTED;
+        }
+        if self.overrun_error {
+            value |= Self::OVERRUN;
+        }
+        value
+    }
+
+    fn decode(value: u32) -> Option<Self> {
+        if value & Self::ACTIVE == 0 {
+            return None;
+        }
+
+        Some(Self {
+            current: if value & Self::CURRENT_B == 0 {
+                PingPongSelector::BufferA
+            } else {
+                PingPongSelector::BufferB
+            },
+            buffer_a_status: if value & Self::BUFFER_A_GRANTED == 0 {
+                BufferStatus::Committed
+            } else {
+                BufferStatus::Granted
+            },
+            buffer_b_status: if value & Self::BUFFER_B_GRANTED == 0 {
+                BufferStatus::Committed
+            } else {
+                BufferStatus::Granted
+            },
+            overrun_error: value & Self::OVERRUN != 0,
+        })
     }
 
     fn buffer_status(&self, buffer: PingPongSelector) -> BufferStatus {
@@ -397,6 +444,10 @@ impl PingPongStatus {
     /// buffer becomes granted and DMA moves to the other buffer, which must
     /// already have been committed by the peripheral driver.
     fn grant_completed(&mut self, observed_completed: PingPongSelector) -> Result<(), Error> {
+        if observed_completed != self.current {
+            self.set_overrun();
+            return Err(Error::Overrun);
+        }
         self.set_buffer_status(observed_completed, BufferStatus::Granted);
         let next = observed_completed.other();
         if self.buffer_status(next) != BufferStatus::Committed {
@@ -420,38 +471,37 @@ impl PingPongStatus {
     }
 }
 
-const DMA_INSTANCE_COUNT: usize = 2;
+// Because mcxa2xx only has 1 DMA instance, we need to conditionally set the instance count.
+const DMA_INSTANCE_COUNT: usize = if cfg!(feature = "mcxa5xx") { 2 } else { 1 };
 const DMA_CHANNEL_COUNT: usize = 12;
 
-/// Per-channel ping-pong state shared by the DMA and peripheral ISRs.
-///
-/// `None` means the channel is not configured for ping-pong operation. A
-/// critical-section mutex is used instead of `static mut` so snapshots and
-/// transitions remain race-free across interrupt contexts.
-static PING_PONG_STATUS: [[critical_section::Mutex<RefCell<Option<PingPongStatus>>>; DMA_CHANNEL_COUNT];
-    DMA_INSTANCE_COUNT] =
-    [const { [const { critical_section::Mutex::new(RefCell::new(None)) }; DMA_CHANNEL_COUNT] }; DMA_INSTANCE_COUNT];
-
 fn ping_pong_status(dma: usize, channel: usize) -> Option<PingPongStatus> {
-    critical_section::with(|cs| *PING_PONG_STATUS[dma][channel].borrow_ref(cs))
+    let value = STATES[dma][channel].ping_pong_status.load(Ordering::Acquire);
+    PingPongStatus::decode(value)
 }
 
 fn set_ping_pong_status(dma: usize, channel: usize, status: Option<PingPongStatus>) {
-    critical_section::with(|cs| {
-        *PING_PONG_STATUS[dma][channel].borrow_ref_mut(cs) = status;
-    });
+    let value = status.map(PingPongStatus::encode).unwrap_or(0);
+    STATES[dma][channel].ping_pong_status.store(value, Ordering::Release);
 }
 
-fn update_ping_pong_status<R>(
+fn update_ping_pong_status(
     dma: usize,
     channel: usize,
-    update: impl FnOnce(&mut PingPongStatus) -> Result<R, Error>,
-) -> Result<R, Error> {
-    critical_section::with(|cs| {
-        let mut slot = PING_PONG_STATUS[dma][channel].borrow_ref_mut(cs);
-        let status = slot.as_mut().ok_or(Error::Configuration)?;
-        update(status)
-    })
+    update: impl Fn(&mut PingPongStatus) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let state = &STATES[dma][channel].ping_pong_status;
+    let mut result = Ok(());
+
+    state
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            let mut status = PingPongStatus::decode(current)?;
+            result = update(&mut status);
+            Some(status.encode())
+        })
+        .map_err(|_| Error::Configuration)?;
+
+    result
 }
 
 /// An error that can occur if the parameters passed were invalid.
@@ -842,7 +892,10 @@ impl DmaChannel<'_> {
         ping_pong_status(self.dma(), self.channel())
     }
 
-    /// Return whether another buffer/major boundary is already pending.
+    /// Return whether an unhandled ping-pong boundary is currently pending.
+    ///
+    /// The DMA ISR clears this latch, so callers detecting a boundary across a
+    /// non-atomic operation must also compare ping-pong status snapshots.
     pub(crate) fn ping_pong_boundary_pending(&self) -> bool {
         self.tcd().ch_int().read().int()
     }
@@ -1972,6 +2025,9 @@ struct State {
     waker: WaitCell,
     /// WaitCell for half-transfer interrupt
     half_waker: WaitCell,
+    /// Packed ping-pong ownership state shared by DMA and peripheral ISRs.
+    /// Zero means the channel is not configured for ping-pong operation.
+    ping_pong_status: AtomicU32,
     /// Whether this channel currently contains a peripheral-paced SG sequence.
     peripheral_scatter_gather_active: AtomicBool,
     /// Set when final peripheral-paced SG completion is observed.
@@ -1983,6 +2039,7 @@ impl State {
         Self {
             waker: WaitCell::new(),
             half_waker: WaitCell::new(),
+            ping_pong_status: AtomicU32::new(0),
             peripheral_scatter_gather_active: AtomicBool::new(false),
             peripheral_scatter_gather_done: AtomicBool::new(false),
         }
@@ -2895,22 +2952,31 @@ pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
 
     let state = &STATES[dma][channel];
 
-    // If ping-pong mode is active, handle the boundary interrupt first.
     if ping_pong_status(dma, channel).is_some() {
         // Clear the observed boundary before sampling progress. If another
         // boundary occurs while this ISR runs, hardware will latch CH_INT again
         // instead of that newer event being lost in this W1C operation.
         t.ch_int().write(|w| w.set_int(true));
+
+        let done = t.ch_csr().read().done();
         let biter = t.tcd_biter_elinkno().read().biter();
         let citer = t.tcd_citer_elinkno().read().citer();
 
         let valid = biter >= 2 && biter.is_multiple_of(2) && citer <= biter;
+        let another_boundary = t.ch_int().read().int();
         // `current` independently validates this phase classification. If ISR
         // latency spans another boundary, the sampled buffer will be unexpected
         // (or a previous grant will remain), deliberately producing an overrun.
-        let completed = if valid && citer > 0 && citer <= biter / 2 {
+        let completed = if !valid || another_boundary {
+            None
+        } else if done {
+            // If DONE is set, it means Buffer B has completed.
+            Some(PingPongSelector::BufferB)
+        } else if citer > 0 && citer <= biter / 2 {
+            // If CITER is in the first half, it means Buffer A is currently being transferred.
             Some(PingPongSelector::BufferA)
-        } else if valid {
+        } else if citer > biter / 2 {
+            // B completed, but a new A request already cleared DONE.
             Some(PingPongSelector::BufferB)
         } else {
             None
