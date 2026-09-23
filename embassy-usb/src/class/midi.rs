@@ -72,6 +72,7 @@ impl Default for MidiClassConfig<'_> {
 /// Internal state for a [`MidiClass`].
 ///
 /// Holds names/string-indices for interface and jacks.
+#[derive(Default)]
 pub struct MidiClassState<'d> {
     first: u8,
     interface_name: Option<&'d str>,
