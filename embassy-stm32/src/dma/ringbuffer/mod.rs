@@ -1,3 +1,4 @@
+use core::fmt::Display;
 use core::future::poll_fn;
 use core::sync::atomic::{Ordering, fence};
 use core::task::{Poll, Waker};
@@ -16,16 +17,30 @@ pub trait DmaCtrl {
     fn set_waker(&mut self, waker: &Waker);
 }
 
-#[derive(Debug, PartialEq)]
+/// Ringbuffered DMA error.
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum Error {
+    /// Overrun.
     Overrun,
-    /// the newly read DMA positions don't make sense compared to the previous
+    /// The newly read DMA positions don't make sense compared to the previous
     /// ones. This can usually only occur due to wrong Driver implementation, if
     /// the driver author (or the user using raw metapac code) directly resets
     /// the channel for instance.
     DmaUnsynced,
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Overrun => "Overrun".fmt(f),
+            Self::DmaUnsynced => "DMA unsynced".fmt(f),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 #[derive(Debug, Clone, Copy, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
