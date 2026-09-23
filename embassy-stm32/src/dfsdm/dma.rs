@@ -2,8 +2,7 @@
 //! converted samples via DMA.
 
 use super::*;
-use crate::dma::ringbuffer::Error as DmaError;
-use crate::dma::{Channel, ReadableRingBuffer};
+use crate::dma::{Channel, ReadableRingBuffer, RingBufferError};
 use crate::interrupt::typelevel::Binding;
 use crate::rcc::WakeGuard;
 
@@ -224,9 +223,8 @@ where
     }
 }
 
-fn remap_dma_error(err: DmaError) -> Error {
+fn remap_dma_error(err: RingBufferError) -> Error {
     match err {
-        DmaError::Overrun => Error::Overrun,
-        DmaError::DmaUnsynced => Error::PeripheralError,
+        RingBufferError::Overrun => Error::Overrun,
     }
 }

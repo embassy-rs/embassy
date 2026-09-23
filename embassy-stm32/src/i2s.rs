@@ -5,9 +5,7 @@
 use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
-use crate::dma::{
-    ChannelAndRequest, ReadableRingBuffer, RingBufferError, TransferOptions, WritableRingBuffer,
-};
+use crate::dma::{ChannelAndRequest, ReadableRingBuffer, RingBufferError, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::mode::Async;
 use crate::pac::spi::Spi as Regs;

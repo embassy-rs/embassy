@@ -6,9 +6,8 @@ use core::marker::PhantomData;
 
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dma::ringbuffer::Error as RingbufferError;
 pub use crate::dma::word;
-use crate::dma::{Channel, ReadableRingBuffer, TransferOptions};
+use crate::dma::{Channel, ReadableRingBuffer, RingBufferError, TransferOptions};
 use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::spdifrx::Spdifrx as Regs;
@@ -104,14 +103,16 @@ pub struct Config {
 #[derive(Debug)]
 pub enum Error {
     /// DMA overrun error.
-    RingbufferError(RingbufferError),
+    Overrun,
     /// Left/right channel synchronization error.
     ChannelSyncError,
 }
 
-impl From<RingbufferError> for Error {
-    fn from(error: RingbufferError) -> Self {
-        Self::RingbufferError(error)
+impl From<RingBufferError> for Error {
+    fn from(e: RingBufferError) -> Self {
+        match e {
+            RingBufferError::Overrun => Self::Overrun,
+        }
     }
 }
 
