@@ -694,17 +694,11 @@ async fn main(_spawner: Spawner) {
     let mut fps_timer = Instant::now();
     let mut fps_frames: u32 = 0;
     let mut current_fps: u32 = 60;
-    let mut last_gpu_us: u64 = 0;
-    let mut last_3d_us: u64 = 0;
-    // The GUI phase is split, because 213 us is unexplained: its pixels are accounted
-    // for (fills offloaded, ~49 px/frame of per-pixel work) yet the time did not move
-    // when the fills left the CPU. Splitting setup from `render` says which half it is
-    // instead of guessing a fourth time.
-    let mut last_gui_setup_us: u64 = 0;
-    let mut last_gui_render_us: u64 = 0;
-    let mut last_gui_us: u64 = 0;
+    // The HUD reports its own draw time one frame late: the measurement only closes
+    // once the text has been blitted, which is after the value has been written into
+    // it. So this is the one phase timer that has to survive across iterations -- the
+    // others are measured and consumed within the frame that produced them.
     let mut last_hud_us: u64 = 0;
-    let mut last_flip_us: u64 = 0;
 
     // One reusable command list for the spectrum bars, bound circular once -- ST's
     // pattern. The per-frame path must therefore NOT re-bind or rewind it.
@@ -934,7 +928,7 @@ async fn main(_spawner: Spawner) {
             // No submit here any more: the whole frame's GPU work goes into one
             // command list and is submitted once, below.
         }
-        last_gpu_us = gpu_start.elapsed().as_micros();
+        let last_gpu_us = gpu_start.elapsed().as_micros();
 
         let current_fb = if back_idx == 0 { &mut fb0 } else { &mut fb1 };
 
@@ -950,17 +944,14 @@ async fn main(_spawner: Spawner) {
 
         // Emit that fill now so it precedes the wireframe in the command list -- both
         // go into the same list, so their order is what settles who wins.
-        let vp_filled = unsafe {
-            let n = nema_sink::emit_fills(
-                current_fb.fills(),
-                target_fb_ptr as usize,
-                WIDTH as u32,
-                HEIGHT as u32,
-                (WIDTH * 2) as i32,
-            );
-            current_fb.clear_fills();
-            n
-        };
+        let vp_filled = nema_sink::emit_fills(
+            current_fb.fills(),
+            target_fb_ptr as usize,
+            WIDTH as u32,
+            HEIGHT as u32,
+            (WIDTH * 2) as i32,
+        );
+        current_fb.clear_fills();
 
         let rot_x = (frame_count as f32) * 0.022;
         let rot_y = (frame_count as f32) * 0.034;
@@ -1008,48 +999,47 @@ async fn main(_spawner: Spawner) {
         // `execute` returns, which is the only point at which the whole frame's
         // primitives are known -- and submit through the same command list the
         // spectrum bars use.
-        let (vp_tris, vp_lines) = unsafe {
-            let counts = nema_sink::NEMA_RASTER_SINK.flush(
-                target_fb_ptr as usize,
-                WIDTH as u32,
-                HEIGHT as u32,
-                (WIDTH * 2) as i32,
-                270,
-                116,
-            );
-            counts
-        };
+        let (vp_tris, vp_lines) = nema_sink::NEMA_RASTER_SINK.flush(
+            target_fb_ptr as usize,
+            WIDTH as u32,
+            HEIGHT as u32,
+            (WIDTH * 2) as i32,
+            270,
+            116,
+        );
         if frame_count == 0 {
             info!("3D sink: {} triangles, {} lines -> GPU2D", vp_tris, vp_lines);
         }
-        last_3d_us = d3_start.elapsed().as_micros();
+        let last_3d_us = d3_start.elapsed().as_micros();
 
         // --- 3. embedded-gui Dashboard Widgets ---
         // Timed, because this was the only phase without a measurement. It renders
         // on the CPU -- embedded-graphics into the framebuffer -- so it is the
         // largest unaccounted block in the frame, and the first candidate for
         // moving to the GPU.
+        //
+        // The phase is split, because 213 us is unexplained: its pixels are accounted
+        // for (fills offloaded, ~49 px/frame of per-pixel work) yet the time did not
+        // move when the fills left the CPU. Splitting setup from `render` says which
+        // half it is instead of guessing a fourth time.
         let gui_start = Instant::now();
         let mut gui = GuiContext::<16, 8, 8>::new(Rect::new(20, 85, 230, 235));
         let _bar = gui
             .add_themed_progress_bar(Rect::new(30, 292, 210, 14), progress_val)
             .unwrap();
-        last_gui_setup_us = gui_start.elapsed().as_micros();
+        let last_gui_setup_us = gui_start.elapsed().as_micros();
         let gui_render_start = Instant::now();
         gui.render(current_fb).ok();
-        last_gui_render_us = gui_render_start.elapsed().as_micros();
-        let gui_filled = unsafe {
-            let n = nema_sink::emit_fills(
-                current_fb.fills(),
-                target_fb_ptr as usize,
-                WIDTH as u32,
-                HEIGHT as u32,
-                (WIDTH * 2) as i32,
-            );
-            current_fb.clear_fills();
-            n
-        };
-        last_gui_us = gui_start.elapsed().as_micros();
+        let last_gui_render_us = gui_render_start.elapsed().as_micros();
+        let gui_filled = nema_sink::emit_fills(
+            current_fb.fills(),
+            target_fb_ptr as usize,
+            WIDTH as u32,
+            HEIGHT as u32,
+            (WIDTH * 2) as i32,
+        );
+        current_fb.clear_fills();
+        let last_gui_us = gui_start.elapsed().as_micros();
 
         // --- 3b. One submit for the whole frame ---
         // The command list now holds everything the GPU owes this frame: the spectrum
@@ -1098,7 +1088,7 @@ async fn main(_spawner: Spawner) {
         let layer = pac::LTDC.layer(0);
         layer.cfbar().modify(|w| w.set_cfbadd(target_fb_ptr as u32));
         pac::LTDC.srcr().write(|w| w.set_vbr(pac::ltdc::vals::Vbr::Reload));
-        last_flip_us = flip_start.elapsed().as_micros();
+        let last_flip_us = flip_start.elapsed().as_micros();
 
         back_idx = 1 - back_idx;
         frame_count += 1;
