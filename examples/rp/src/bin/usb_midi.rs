@@ -54,12 +54,13 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    // Creates the class on the builder.
-    // The default configuration returns most basic setup with 1 IN and 1 OUT jack.
+    // Creates class using the builder.
+    // The default configuration returns basic setup with 1 IN and 1 OUT jack.
     // let mut class = MidiClass::new(&mut builder, MidiClassConfig::default());
 
     // A more advanced setup can use several jacks with individual names.
-    // The names are shown by the host for its MIDI ports.
+    // The host can then return named ports.
+    // Beware: ALSA on Linux tends to use OUT name in detriment to IN name.
     let mut midi_config = MidiClassConfig::default();
     midi_config.n_in_jacks = 4;
     midi_config.n_out_jacks = 4;

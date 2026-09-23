@@ -150,14 +150,14 @@ pub struct MidiClass<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> MidiClass<'d, D> {
-    /// Creates a new `MidiClass` with the provided UsbBus and configuration.
+    /// Creates a new `MidiClass` with the provided UsbBuilder and configuration.
     ///
     /// The names in `config` are ignored, use [`MidiClass::new_with_names`] if you need to name jacks.
     pub fn new(builder: &mut Builder<'d, D>, config: MidiClassConfig<'d>) -> Self {
         Self::build(builder, config, &MidiClassState::new())
     }
 
-    /// Creates a new `MidiClass` that names its interface and jacks
+    /// Creates a new `MidiClass` with the provided UsbBuilder that names its interface and jacks.
     pub fn new_with_names(
         builder: &mut Builder<'d, D>,
         state: &'d mut MidiClassState<'d>,
@@ -180,7 +180,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         class
     }
 
-    /// Creates a new `MidiClass` with the provided UsbBus and configuration.
+    /// Creates a new `MidiClass` with the provided UsbBuilder and configuration.
     fn build(builder: &mut Builder<'d, D>, config: MidiClassConfig<'d>, names: &MidiClassState<'d>) -> Self {
         let MidiClassConfig {
             n_in_jacks,
