@@ -69,6 +69,24 @@ pub type Request = u8;
 #[cfg(not(any(dma_v2, bdma_v2, gpdma, dmamux, lpdma)))]
 pub type Request = ();
 
+/// Ring buffer error.
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum RingBufferError {
+    /// Overrun error
+    Overrun
+}
+
+impl From<ringbuffer::Error> for RingBufferError {
+    fn from(e: ringbuffer::Error) -> Self {
+        if e == ringbuffer::Error::DmaUnsynced {
+            error!("Ring buffer broken invariants detected!");
+        }
+        Self::Overrun
+    }
+}
+
 /// DMA channel driver
 pub struct Channel<'d> {
     pub(crate) channel: DmaChannel,
