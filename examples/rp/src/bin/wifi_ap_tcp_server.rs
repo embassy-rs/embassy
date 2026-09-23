@@ -96,7 +96,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(net_device)));
     // Static address, we're the access point.
     unwrap!(iface.add_ip_addr(IpCidr::new(Ipv4Addr::new(10, 0, 0, 1).into(), 24)));
     let dhcp_config = DhcpServerConfig::new(Ipv4Addr::new(10, 0, 0, 100), Ipv4Addr::new(10, 0, 0, 199));

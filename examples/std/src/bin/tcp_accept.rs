@@ -44,7 +44,7 @@ async fn main_task(spawner: Spawner) {
 
     // Add the TAP interface to the stack.
     static DEVICE: StaticCell<TunTapDevice> = StaticCell::new();
-    let iface = stack.add_iface(DEVICE.init(device)).unwrap();
+    let iface = stack.add_iface_borrowed(DEVICE.init(device)).unwrap();
 
     // Choose between dhcp or static ip
     if opts.static_ip {

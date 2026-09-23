@@ -63,7 +63,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<net::Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
     unwrap!(iface.add_ip_addr(IpCidr::V6(Ipv6Cidr::new(local, 64))));
 
     spawner.spawn(unwrap!(net_task(runner)));
@@ -72,10 +72,13 @@ async fn main(spawner: Spawner) {
     loop {
         let mut socket = unwrap!(UdpSocket::new(stack));
         socket
-            .bind(ListenSocketAddr {
-                addr: Some(IpAddr::V6(local)),
-                port: 1234,
-            })
+            .bind(
+                ListenSocketAddr {
+                    addr: Some(IpAddr::V6(local)),
+                    port: 1234,
+                },
+                ListenSocketAddr::UNSPECIFIED,
+            )
             .unwrap();
         let rep = UdpMetadata {
             remote_addr: SocketAddr {

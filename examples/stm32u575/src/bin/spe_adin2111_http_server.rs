@@ -35,7 +35,7 @@ use embassy_futures::select::{Either, select};
 use embassy_net::iface::Iface;
 use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::udp::{PacketMeta, UdpMetadata, UdpSocket};
-use embassy_net::wire::{IpAddr, IpCidr, Ipv6Addr, Ipv6Cidr, SocketAddr};
+use embassy_net::wire::{IpAddr, IpCidr, Ipv6Addr, Ipv6Cidr, ListenSocketAddr, SocketAddr};
 use embassy_net::{Stack, StackStorage};
 use embassy_net_adin1110::{
     ADIN1110, Device, PACKET_ID_PORT_MASK, PACKET_ID_PORT1, PACKET_ID_PORT2, PortLinks, Runner, Tc6, TxPort,
@@ -255,7 +255,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
     unwrap!(iface.add_ip_addr(IpCidr::V6(ip_address)));
 
     // Launch network task
@@ -411,7 +411,7 @@ async fn discovery_task(iface: Iface<'static>, my_node_id: u64, port_links: Port
     }
 
     let mut socket = unwrap!(UdpSocket::new(stack));
-    unwrap!(socket.bind(DISCOVERY_PORT));
+    unwrap!(socket.bind(DISCOVERY_PORT, ListenSocketAddr::UNSPECIFIED));
 
     let group = SocketAddr::new(IpAddr::V6(DISCOVERY_GROUP), DISCOVERY_PORT);
     let mut beacon = Ticker::every(BEACON_INTERVAL);

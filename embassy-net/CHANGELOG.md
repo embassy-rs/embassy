@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Driver implementations must now implement `xarxa-driver` instead of `embassy-net-driver`.
 - You can now attach multiple interfaces to the network stack.
 - UDP and raw sockets are now zero-copy.
+- `UdpSocket::bind` now takes a local and a remote address.
+- Added TCP socket methods: `is_open`, `is_active`, `timeout`, `keep_alive`, `hop_limit`, `nagle_enabled`, `set_ack_delay`, `ack_delay`, `take_icmp_error` (feature `icmp-errors`).
+- Added `peek` methods to TCP, UDP and raw sockets.
+- Added `can_recv` and `hop_limit` to `UdpSocket`, and `can_recv` and `mode` to `RawSocket`.
+- Added `Stack::ifaces`, `Stack::reassembly_timeout` and `Stack::set_reassembly_timeout`.
+- Added `Iface::pan_id`, `Iface::set_pan_id`, `Iface::sixlowpan_address_context` and `Iface::set_sixlowpan_address_context` (feature `medium-ieee802154`).
 - Added `TcpListener`, used to accept incoming connections. Replcaes `TcpSocket::listen()`.
   - More memory-efficient: you only need to allocate TCP buffers when actually accepting a connection.
   - Avoids sending spurious RSTs that previously happened when all listening sockets were connected.
