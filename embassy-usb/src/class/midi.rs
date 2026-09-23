@@ -190,6 +190,10 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         // Some sanity checks.
         if n_in_jacks == 0 && n_out_jacks == 0 {
             panic!("n_in_jacks and n_out_jacks are both 0");
+        } else if n_in_jacks > 16 {
+            panic!("n_in_jacks is larger than 16");
+        } else if n_out_jacks > 16 {
+            panic!("n_out_jacks is larger than 16");
         }
 
         let mut func = builder.function(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE);
