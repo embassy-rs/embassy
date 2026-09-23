@@ -1,9 +1,8 @@
 //! Driver for the HASHCRYPT peripheral, mode switch sckeleton
-
 use embassy_hal_internal::Peri;
 use nxp_pac::hashcrypt::vals::Aeskeysz;
 
-use crate::hashcrypt::AesError::WrongKeySize;
+use crate::hashcrypt::inner::Key::{Key128, Key192, Key256};
 use crate::pac;
 use crate::peripherals::HASHCRYPT;
 
@@ -26,6 +25,57 @@ pub enum AesError {
     CounterNeeded, // triggers when .encrypt/.decrypt for ctr are called without set_counter
     WrongKeySize, // triggered set_key is called with a parameter that does not respect the size astablished by set_key_size
     DeviceError,  // Reserved functiones were ussed
+}
+
+fn wait_data() {
+    let mut trys = 0;
+    while !pac::HASHCRYPT.status().read().waiting() {
+        cortex_m::asm::nop();
+        trys += 1;
+        if trys > 25 {
+            break;
+        }
+    }
+}
+
+fn wait_key() {
+    let mut tries = 0;
+    while !pac::HASHCRYPT.status().read().needkey() {
+        cortex_m::asm::nop();
+        tries += 1;
+        if tries > 25 {
+            break;
+        }
+    }
+}
+
+fn feed_word(word: u32) {
+    pac::HASHCRYPT.indata().write(|w| {
+        w.set_data(word);
+    });
+}
+
+fn feed_key(key: &Key) {
+    wait_data();
+    wait_key();
+
+    match key {
+        Key128(bytes) => {
+            for chunk in bytes.chunks_exact(4) {
+                feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
+            }
+        }
+        Key192(bytes) => {
+            for chunk in bytes.chunks_exact(4) {
+                feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
+            }
+        }
+        Key256(bytes) => {
+            for chunk in bytes.chunks_exact(4) {
+                feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
+            }
+        }
+    }
 }
 
 // Generic driver type
@@ -247,8 +297,11 @@ macro_rules! impl_aes {
                         _ => unreachable!(),
                     });
 
+                    match &self.key {
+                        Some(key) => feed_key(key),
+                        None => {}
+                    }
                     return Ok(());
-                    todo!("Add key feeding loop");
                 } else {
                     return Err(AesError::WrongKeySize);
                 }
