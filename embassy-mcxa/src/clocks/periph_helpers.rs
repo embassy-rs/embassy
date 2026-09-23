@@ -685,38 +685,6 @@ impl SPConfHelper for AdcConfig {
     }
 }
 
-pub enum DacInstance {
-    Dac0,
-    #[cfg(feature = "mcxa5xx")]
-    Dac1,
-}
-
-pub struct DacConfig {
-    pub div: Div4,
-    pub power: PoweredClock,
-    pub instance: DacInstance,
-}
-
-impl SPConfHelper for DacConfig {
-    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
-        let mrcc0 = crate::pac::MRCC0;
-
-        let (clksel, clkdiv) = match self.instance {
-            DacInstance::Dac0 => (mrcc0.mrcc_dac0_clksel(), mrcc0.mrcc_dac0_clkdiv()),
-            #[cfg(feature = "mcxa5xx")]
-            DacInstance::Dac1 => (mrcc0.mrcc_dac1_clksel(), mrcc0.mrcc_dac1_clkdiv()),
-        };
-        #[cfg(feature = "mcxa5xx")]
-        let variant = DacClkselMux::I2ClkrootFunc2;
-        #[cfg(feature = "mcxa2xx")]
-        let variant = DacClkselMux::ClkrootFunc2;
-
-        let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-
-        apply_div4!(self, clksel, clkdiv, variant, freq)
-    }
-}
-
 //
 // OSTimer
 //

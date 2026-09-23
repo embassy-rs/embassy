@@ -4,7 +4,7 @@ use nxp_pac::port::Mux;
 
 use super::clocks::PoweredClock;
 use crate::clkout::Div4;
-use crate::clocks::periph_helpers::DacConfig;
+use crate::clocks::periph_helpers::{DacClockSel, DacConfig};
 use crate::clocks::{ClockError, Gate, WakeGuard, enable_and_reset};
 use crate::gpio::GpioPin;
 
@@ -63,6 +63,26 @@ pub(crate) mod sealed {
     }
 }
 
+#[non_exhaustive]
+pub struct Config {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Selected clock-source for this peripheral
+    pub source: DacClockSel,
+    /// Pre-divisor, applied to the upstream clock output
+    pub div: Div4,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            power: PoweredClock::AlwaysEnabled,
+            source: DacClockSel::FroLfDiv,
+            div: Div4::no_div(),
+        }
+    }
+}
+
 pub trait Instance: sealed::SealedInstance + PeripheralType + Gate<MrccPeriphConfig = DacConfig> {}
 pub trait DacPin<Instance>: sealed::SealedPin + GpioPin {}
 
@@ -71,12 +91,14 @@ impl Dac {
     pub fn new<P: Instance>(
         _instance: Peri<'static, P>,
         pin: Peri<'static, impl DacPin<P>>,
+        config: Config,
     ) -> Result<Self, InitError> {
         let clock = unsafe {
             enable_and_reset::<P>(&DacConfig {
-                div: Div4::no_div(),
-                power: PoweredClock::AlwaysEnabled,
+                div: config.div,
+                power: config.power,
                 instance: P::INSTANCE,
+                source: config.source,
             })?
         };
         let power = DacPower::power_on(<P as sealed::SealedInstance>::SOC_CNTRL_BIT);
