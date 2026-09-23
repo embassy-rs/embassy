@@ -5,7 +5,7 @@
 use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
-use crate::dma::{ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer, ringbuffer};
+use crate::dma::{ChannelAndRequest, ReadableRingBuffer, RingBufferError, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::mode::Async;
 use crate::pac::spi::Spi as Regs;
@@ -63,15 +63,11 @@ pub enum Error {
     Overrun,
 }
 
-impl From<ringbuffer::Error> for Error {
-    fn from(#[allow(unused)] err: ringbuffer::Error) -> Self {
-        #[cfg(feature = "defmt")]
-        {
-            if err == ringbuffer::Error::DmaUnsynced {
-                defmt::error!("Ringbuffer broken invariants detected!");
-            }
+impl From<RingBufferError> for Error {
+    fn from(e: RingBufferError) -> Self {
+        match e {
+            RingBufferError::Overrun => Self::Overrun
         }
-        Self::Overrun
     }
 }
 
