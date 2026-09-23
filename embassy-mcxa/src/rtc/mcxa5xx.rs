@@ -396,12 +396,18 @@ impl<'a> Rtc<'a> {
     ) -> Result<Self, SetupError> {
         let info = T::info();
 
-        // The RTC is NOT gated by the MRCC, but we DO need to make
-        // sure either the 16k clock or the 32k clock is active.
+        // The RTC is NOT gated by the MRCC, but the clock selected by
+        // CTRL[CLK_SEL] must actually be running: the register block stays in
+        // its resynchronizing state for as long as it is not (RM 38.3.1.2).
+        //
+        // The RTC sits in the VBAT domain, so it is fed by clk_16k[2] /
+        // osc32k[2] (RM p.81527), not the system-domain [0] outputs. Measured
+        // on FRDM-MCXA577 with CLK_SEL=0: the counter runs with FROCLKE=0b100
+        // alone, and stops with 0b001 or 0b010.
         let clocks = if config.clksel == ClkSel::Clk16384 {
-            with_clocks(|c| c.clk_16k_vsys.clone())
+            with_clocks(|c| c.clk_16k_vbat.clone())
         } else {
-            with_clocks(|c| c.clk_32k_vsys.clone())
+            with_clocks(|c| c.clk_32k_vbat.clone())
         };
 
         let clk = clocks.flatten().ok_or(SetupError::ClockSetup)?;
