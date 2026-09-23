@@ -9,7 +9,7 @@ use core::task::Waker;
 use super::{Channel, STATE, TransferOptions};
 use crate::_generated::ringbuffer_table;
 use crate::dma::gpdma::linked_list::{LinearItem, RunMode, Table};
-use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
+use crate::dma::ringbuffer::{DmaCtrl, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
 use crate::dma::{Dir, Request, RingBufferError};
 use crate::rcc::WakeGuard;

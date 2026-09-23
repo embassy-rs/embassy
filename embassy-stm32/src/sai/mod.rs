@@ -11,7 +11,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use crate::atomic::AtomicDecrement;
 pub use crate::dma::word;
 use crate::dma::{
-    self, Channel, ReadableRingBuffer, Request, RingBufferError, TransferOptions, WritableRingBuffer, ringbuffer,
+    self, Channel, ReadableRingBuffer, Request, RingBufferError, TransferOptions, WritableRingBuffer,
 };
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::pac::sai::Sai as Regs;
