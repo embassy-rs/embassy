@@ -58,8 +58,8 @@ bind_interrupts!(struct Irqs {
 //   fb1 lives at AXISRAM3 start; 750 KB straddles one bank boundary into AXISRAM4
 //        (unavoidable — no single bank except AXISRAM2 is big enough).
 // AXISRAM5..6 stays free; that's where a third buffer would go for triple buffering.
-const FB0_BASE: usize = 0x3410_0000;
-const FB1_BASE: usize = 0x3420_0000;
+const FB0_BASE: usize = 0x3420_0000; // AXISRAM3..4
+const FB1_BASE: usize = 0x342E_0000; // AXISRAM5..6
 const FB_PIXELS: usize = WIDTH as usize * HEIGHT as usize;
 
 const BG: Rgb565 = Rgb565::new(2, 4, 6);

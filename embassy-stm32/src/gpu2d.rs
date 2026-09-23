@@ -3,13 +3,40 @@
 //! The GPU2D is primarily programmed via command lists in memory; the peripheral
 //! registers expose status and interrupt control only.
 
+use core::cell::Cell;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
+use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpu2d::Gpu2d as Regs;
 use crate::{Peri, interrupt, rcc};
+
+// GPU2D has exactly one instance per chip today (see stm32-data), so a single
+// static waker is sufficient — unlike peripherals with multiple instances
+// (e.g. USART), which need one waker per instance.
+static WAKER: AtomicWaker = AtomicWaker::new();
+
+static ERROR_HOOK: critical_section::Mutex<Cell<Option<fn()>>> = critical_section::Mutex::new(Cell::new(None));
+
+/// Install a handler for the GPU2D error interrupt.
+///
+/// The GPU2D raises its error interrupt for two unrelated things: a genuine
+/// peripheral error, and the cache-hold handshake that NemaGFX's vector
+/// rendering path uses (`nema_ext_hold_assert()`), where the command-list
+/// processor halts until the CPU performs cache maintenance and deasserts the
+/// hold. Servicing the latter needs the NemaGFX library, which this crate must
+/// not depend on, so platforms that need it install a handler here.
+///
+/// When a hook is installed it takes over the interrupt entirely: this driver
+/// neither masks the interrupt nor wakes [`Gpu2d::wait_command_list_complete`]
+/// from it, since the hardware event is edge-triggered and has to stay
+/// unmasked. See [`set_error_hook(None)`][set_error_hook] to restore the
+/// default behaviour.
+pub fn set_error_hook(hook: Option<fn()>) {
+    critical_section::with(|cs| ERROR_HOOK.borrow(cs).set(hook));
+}
 
 /// GPU2D driver error flag.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -24,7 +51,7 @@ pub struct Gpu2d<'d, T: Instance> {
     _peri: Peri<'d, T>,
 }
 
-impl<'d, T: Instance> Gpu2d<'d, T> {
+impl<'d, T: Instance + crate::rcc::RccPeripheral> Gpu2d<'d, T> {
     /// Create a GPU2D instance.
     pub fn new(
         peri: Peri<'d, T>,
@@ -61,6 +88,28 @@ impl<'d, T: Instance> Gpu2d<'d, T> {
             Ok(())
         }
     }
+
+    /// Wait for the current command list to complete.
+    ///
+    /// Note: [`Error::SystemError`] is not observed here — check
+    /// [`Self::take_error`] separately if you need to detect hardware errors.
+    pub async fn wait_command_list_complete(&mut self) {
+        core::future::poll_fn(|cx| {
+            WAKER.register(cx.waker());
+            if self.command_list_complete() {
+                self.clear_command_list_complete();
+                // SAFETY: re-arming after consuming the flag we were woken for.
+                unsafe { T::Interrupt::enable() };
+                core::task::Poll::Ready(())
+            } else {
+                // First poll, or a spurious wake: make sure the interrupt is
+                // armed before parking on the waker.
+                unsafe { T::Interrupt::enable() };
+                core::task::Poll::Pending
+            }
+        })
+        .await
+    }
 }
 
 /// GPU2D error interrupt handler.
@@ -70,7 +119,20 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let _ = T::regs();
+        let hook = critical_section::with(|cs| ERROR_HOOK.borrow(cs).get());
+        if let Some(hook) = hook {
+            // A platform handler owns the error status. It must leave the
+            // interrupt unmasked, because the cache-hold handshake it services
+            // is edge-triggered and can recur per command list.
+            hook();
+            return;
+        }
+
+        // Neither CLC nor ER (see gpu2d_v1.yaml) has a separate
+        // interrupt-enable field, so mask at the NVIC level to avoid an
+        // interrupt storm; the waiting task clears the flag and re-enables.
+        T::Interrupt::disable();
+        WAKER.wake();
     }
 }
 
