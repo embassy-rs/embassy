@@ -345,6 +345,21 @@ impl Config {
     }
 }
 
+/// Value every RTC register reads back while the block is resynchronizing.
+///
+/// RM 38.3.1.2: "any read to the RTC register returns FFFEh as the code to
+/// indicate the clock domains are synchronizing". The block stays in that
+/// state for as long as the clock selected by CTRL[CLK_SEL] is not running,
+/// and register writes are rejected throughout -- including the write that
+/// would point CLK_SEL back at a live clock. It is therefore not
+/// self-clearing: once CLK_SEL is left selecting a stopped clock, only
+/// starting that clock or a VBAT power-on reset recovers the RTC.
+///
+/// Treating FFFEh as data is actively dangerous rather than merely wrong:
+/// ISR[ALM_IS] is bit 2, and bit 2 of FFFEh is set, so an alarm future would
+/// complete immediately instead of waiting.
+const DESYNCED: u16 = 0xfffe;
+
 /// Errors exclusive to HW initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -352,6 +367,9 @@ impl Config {
 pub enum SetupError {
     /// Clock configuration error.
     ClockSetup,
+    /// The RTC register block is not accessible: reads return the
+    /// synchronizing sentinel (RM 38.3.1.2) or a write did not take effect.
+    RegisterAccess,
 }
 
 /// Errors exclusive for datetime.
@@ -429,6 +447,13 @@ impl<'a> Rtc<'a> {
     }
 
     fn set_configuration(&mut self, config: &Config) -> Result<(), SetupError> {
+        // Refuse to touch a block we cannot read or write. Every write below
+        // would be silently discarded, and callers would then be handed FFFEh
+        // dressed up as register contents.
+        if self.info.regs().ctrl().read().0 == DESYNCED {
+            return Err(SetupError::RegisterAccess);
+        }
+
         self.disable_write_protect();
 
         self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Asserted));
@@ -472,6 +497,15 @@ impl<'a> Rtc<'a> {
         });
 
         self.enable_write_protect();
+
+        // Selecting a clock that is not running desynchronizes the block on the
+        // spot, so confirm CLK_SEL actually took the requested value. Check the
+        // sentinel first: bit 9 of FFFEh is set, so a failed write of
+        // ClkSel::Clk32768 would otherwise read back as success.
+        let ctrl = self.info.regs().ctrl().read();
+        if ctrl.0 == DESYNCED || ctrl.clk_sel() != bool::from(config.clksel) {
+            return Err(SetupError::RegisterAccess);
+        }
 
         Ok(())
     }
@@ -684,7 +718,13 @@ impl<'a> Rtc<'a> {
         let info = self.info;
         Ok(async move {
             info.wait_cell()
-                .wait_for(|| info.regs().isr().read().alm_is())
+                .wait_for(|| {
+                    let isr = info.regs().isr().read();
+                    // ALM_IS is bit 2 and bit 2 of the FFFEh synchronizing
+                    // sentinel is set, so an unguarded alm_is() reports a fired
+                    // alarm the instant the block loses its clock.
+                    isr.0 != DESYNCED && isr.alm_is()
+                })
                 .await
                 .map_err(|_| RtcError::Other)?;
             info.regs().isr().write(|w| w.set_alm_is(true));
@@ -712,10 +752,11 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 
         let regs = T::info().regs();
 
-        // Check if this is actually a time alarm interrupt
+        // Check if this is actually a time alarm interrupt. Reject the FFFEh
+        // synchronizing sentinel first: ALM_IS is bit 2, which is set in FFFEh.
         let status = regs.isr().read();
 
-        if status.alm_is() {
+        if status.0 != DESYNCED && status.alm_is() {
             // The RTC re-engages write protection on its own grace timer, which can
             // elapse during the wait between arming the alarm and it firing. Clearing
             // ALM_IE below is a protected register write, so re-run the WE unlock
