@@ -360,6 +360,18 @@ impl Config {
 /// complete immediately instead of waiting.
 const DESYNCED: u16 = 0xfffe;
 
+/// Value a counter register reads back while its contents are changing.
+///
+/// RM 38.5.1.11: STATUS[INVAL_BIT] is asserted for one oscillator clock either
+/// side of the 1 Hz boundary, and "reading when STATUS[INVAL_BIT] is asserted
+/// returns 0xFFFF. No transfer error is asserted." Decoded naively that is
+/// hour=31, minute=63, second=63, month=15, dow=7.
+///
+/// This is a distinct sentinel from [`DESYNCED`]: FFFFh means the counters are
+/// mid-update and the read should simply be retried, whereas FFFEh means the
+/// block has no clock at all and retrying will never succeed.
+const INVALID: u16 = 0xffff;
+
 /// Errors exclusive to HW initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -571,11 +583,63 @@ impl<'a> Rtc<'a> {
     ///
     /// Returns [`RtcError::InvalidDateTime`] if the RTC registers contain an invalid
     /// calendar or time field, such as while the peripheral is being reset.
+    ///
+    /// Returns [`RtcError::Other`] if the counters do not become stable, which
+    /// indicates the RTC has no running clock.
     pub fn now(&self) -> Result<DateTime, RtcError> {
-        let ym = self.info.regs().yearmon().read();
-        let d = self.info.regs().days().read();
-        let hm = self.info.regs().hourmin().read();
-        let second = self.info.regs().seconds().read().sec_cnt();
+        // The four counters are separate registers, so a second boundary
+        // falling between them would splice two different instants together.
+        //
+        // Waiting and sampling are deliberately separated. Waiting out the
+        // boundary window is the only part that takes appreciable time - two
+        // oscillator cycles, ~61 us at 32.768 kHz - so it runs with interrupts
+        // enabled. Only the sample itself is masked, and that is a fixed five
+        // register reads with no loop.
+        let mut attempts = 0u32;
+        let (second, hm, d, ym) = loop {
+            attempts += 1;
+            if attempts > 8 {
+                return Err(RtcError::Other);
+            }
+
+            // RM 38.5.1.11: INVAL_BIT is asserted either side of the 1 Hz edge
+            // and a counter read taken then returns FFFFh. Spin here, unmasked.
+            // Bounded so an RTC with no running clock reports an error instead
+            // of hanging the caller.
+            let mut spins = 0u32;
+            while self.info.regs().status().read().inval_bit() {
+                spins += 1;
+                if spins > 1_000_000 {
+                    return Err(RtcError::Other);
+                }
+                core::hint::spin_loop();
+            }
+
+            // Counters are stable. Take all four under one short critical
+            // section so an interrupt cannot preempt us across a boundary,
+            // re-checking INVAL_BIT inside it because the flag can assert
+            // between the wait above and the reads actually issuing. If the
+            // boundary arrives anyway the sentinel makes it detectable, and we
+            // go back to waiting - outside the critical section.
+            let sample = critical_section::with(|_| {
+                if self.info.regs().status().read().inval_bit() {
+                    return None;
+                }
+                let second = self.info.regs().seconds().read();
+                let hm = self.info.regs().hourmin().read();
+                let d = self.info.regs().days().read();
+                let ym = self.info.regs().yearmon().read();
+
+                if second.0 == INVALID || hm.0 == INVALID || d.0 == INVALID || ym.0 == INVALID {
+                    return None;
+                }
+                Some((second.sec_cnt(), hm, d, ym))
+            });
+
+            if let Some(sample) = sample {
+                break sample;
+            }
+        };
 
         let year = i16::from(ym.yrofst() as i8) + Self::BASE_YEAR;
         let month = Month::from_register(ym.mon_cnt())?;
