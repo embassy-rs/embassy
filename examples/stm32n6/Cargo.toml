@@ -47,8 +47,8 @@ sdio = "0.5.0"
 
 # `neochrom_graphics` only. embedded-3dgfx is pinned to the branch carrying the
 # RasterSink hook that hands the 3D primitives to the GPU2D.
-embedded-3dgfx = { git = "https://github.com/leftger/embedded-3dgfx.git", branch = "wba-render-hunt", default-features = false, features = ["row_width_320"] }
-embedded-gui = { git = "https://github.com/leftger/embedded-gui.git", default-features = false, features = ["rich-widgets", "micromath", "embedded-graphics"] }
+embedded-3dgfx = { version="0.7.2", default-features = false, features = ["row_width_320"] }
+embedded-gui = { version="0.2.7", default-features = false, features = ["rich-widgets", "micromath", "embedded-graphics"] }
 nalgebra = { version = "0.35", default-features = false, features = ["libm"] }
 
 [features]
