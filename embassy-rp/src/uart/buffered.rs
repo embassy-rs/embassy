@@ -195,7 +195,7 @@ impl<'d> BufferedUart<'d> {
         self.tx.write(buf).await
     }
 
-    /// Wait until the TX buffer has been fully handed over to the UART hardware.
+    /// Wait until all written bytes have been fully transmitted on the wire.
     pub async fn flush(&mut self) -> Result<(), Error> {
         self.tx.flush().await
     }
@@ -515,7 +515,7 @@ impl<'d> BufferedUartTx<'d> {
         .await
     }
 
-    /// Wait until the TX buffer has been fully handed over to the UART hardware.
+    /// Wait until all written bytes have been fully transmitted on the wire.
     pub async fn flush(&mut self) -> Result<(), Error> {
         let state = self.state;
         poll_fn(move |cx| {
@@ -524,9 +524,16 @@ impl<'d> BufferedUartTx<'d> {
                 return Poll::Pending;
             }
 
-            Poll::Ready(Ok(()))
+            Poll::Ready(())
         })
-        .await
+        .await;
+
+        // The ring buffer is empty, but the hardware FIFO and shift register may not be.
+        // There's no interrupt for that, so poll.
+        while self.busy() {
+            embassy_futures::yield_now().await;
+        }
+        Ok(())
     }
 
     /// Write to UART TX buffer blocking execution until done.
@@ -556,11 +563,9 @@ impl<'d> BufferedUartTx<'d> {
 
     /// Flush UART TX blocking execution until done.
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
-        loop {
-            if self.state.tx_buf.is_empty() {
-                return Ok(());
-            }
-        }
+        while !self.state.tx_buf.is_empty() {}
+        while self.busy() {}
+        Ok(())
     }
 
     /// Check if UART is busy.
@@ -590,7 +595,6 @@ impl<'d> BufferedUartTx<'d> {
         let wait_usecs = (1_000_000 * bits as u64 * divx64 * 16 + div_clk - 1) / div_clk;
 
         self.flush().await.unwrap();
-        while self.busy() {}
         regs.uartlcr_h().write_set(|w| w.set_brk(true));
         Timer::after_micros(wait_usecs).await;
         regs.uartlcr_h().write_clear(|w| w.set_brk(true));
