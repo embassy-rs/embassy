@@ -597,7 +597,7 @@ impl Default for Config {
 ///
 /// This should only be called once at startup, otherwise it panics.
 #[cfg(not(feature = "_dual-core"))]
-pub fn init(config: Config) -> Peripherals {
+pub fn init(config: Config, _irqs: impl Copy) -> Peripherals {
     init_hw(config)
 }
 
