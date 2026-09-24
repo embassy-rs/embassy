@@ -241,7 +241,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
     unwrap!(iface.add_ip_addr(IpCidr::V4(Ipv4Cidr::new(LOCAL_IP, 24))));
     unwrap!(stack.routes().add_default_ipv4_route(GATEWAY, iface.handle()));
 

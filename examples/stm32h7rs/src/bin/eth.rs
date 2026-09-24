@@ -89,7 +89,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
     unwrap!(iface.add_ip_addr(IpCidr::new(Ipv4Addr::new(10, 42, 0, 61).into(), 24)));
     unwrap!(
         stack

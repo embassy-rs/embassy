@@ -10,6 +10,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
 use embassy_net::udp::UdpSocket;
+use embassy_net::wire::ListenSocketAddr;
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
@@ -82,7 +83,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
     unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     // Launch network task
@@ -98,7 +99,7 @@ async fn main(spawner: Spawner) {
     let mut buf = [0; 4096];
     loop {
         let mut socket = unwrap!(UdpSocket::new(stack));
-        socket.bind(1234).unwrap();
+        socket.bind(1234, ListenSocketAddr::UNSPECIFIED).unwrap();
 
         loop {
             let (n, ep) = socket.recv_from(&mut buf).await.unwrap();

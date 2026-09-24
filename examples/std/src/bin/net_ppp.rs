@@ -98,7 +98,7 @@ async fn main_task(spawner: Spawner) {
     // Add the PPP interface to the stack. It gets its addresses from PPP itself,
     // in `ppp_task`.
     static DEVICE: StaticCell<embassy_net_ppp::Device<'static>> = StaticCell::new();
-    let iface = stack.add_iface(DEVICE.init(device)).unwrap();
+    let iface = stack.add_iface_borrowed(DEVICE.init(device)).unwrap();
 
     // Launch network task
     spawner.spawn(net_task(net_runner).unwrap());

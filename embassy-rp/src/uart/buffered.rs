@@ -257,11 +257,12 @@ impl<'d> BufferedUartRx<'d> {
         buf: &'a mut [u8],
     ) -> impl Future<Output = Result<usize, Error>> + 'a {
         poll_fn(move |cx| {
-            if let Poll::Ready(r) = Self::try_read(info, state, buf) {
-                return Poll::Ready(r);
-            }
+            // Register before `try_read`, which may (re-)enable the rx
+            // interrupt on its way to returning pending. Doing it the other way
+            // round leaves a window where the irq handler fires, finds no waker
+            // registered, and the wakeup is lost with data already in the ring.
             state.rx_waker.register(cx.waker());
-            Poll::Pending
+            Self::try_read(info, state, buf)
         })
     }
 
@@ -298,21 +299,32 @@ impl<'d> BufferedUartRx<'d> {
 
         let result = if n == 0 {
             match Self::get_rx_error(state) {
-                None => return Poll::Pending,
-                Some(e) => Err(e),
+                None => None,
+                Some(e) => Some(Err(e)),
             }
         } else {
-            Ok(n)
+            Some(Ok(n))
         };
 
         // (Re-)Enable the interrupt to receive more data in case it was
         // disabled because the buffer was full or errors were detected.
+        //
+        // This has to happen on the pending path as well, not just when we
+        // have something to report. The irq handler disables the interrupt on
+        // error, and the reader that consumes the error flag may well be gone
+        // by the time anyone looks again -- `embassy-net-ppp`, for instance,
+        // abandons the transport on a read error. A fresh reader then arrives
+        // to an empty buffer with no error left to observe, and without
+        // re-enabling here it would wait on an interrupt that never comes.
         info.regs.uartimsc().write_set(|w| {
             w.set_rxim(true);
             w.set_rtim(true);
         });
 
-        Poll::Ready(result)
+        match result {
+            Some(result) => Poll::Ready(result),
+            None => Poll::Pending,
+        }
     }
 
     /// Read from UART RX buffer blocking execution until done.
@@ -325,7 +337,7 @@ impl<'d> BufferedUartRx<'d> {
         }
     }
 
-    fn fill_buf<'a>(state: &'static State) -> impl Future<Output = Result<&'a [u8], Error>> {
+    fn fill_buf<'a>(info: &'static Info, state: &'static State) -> impl Future<Output = Result<&'a [u8], Error>> {
         poll_fn(move |cx| {
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let (p, n) = rx_reader.pop_buf();
@@ -333,16 +345,33 @@ impl<'d> BufferedUartRx<'d> {
                 match Self::get_rx_error(state) {
                     None => {
                         state.rx_waker.register(cx.waker());
-                        return Poll::Pending;
+                        None
                     }
-                    Some(e) => Err(e),
+                    Some(e) => Some(Err(e)),
                 }
             } else {
                 let buf = unsafe { slice::from_raw_parts(p, n) };
-                Ok(buf)
+                Some(Ok(buf))
             };
 
-            Poll::Ready(result)
+            // (Re-)Enable the interrupt to receive more data in case it was
+            // disabled because the buffer was full or errors were detected.
+            //
+            // `consume` also does this, but it is only reached after a
+            // successful fill. Returning an error here without re-arming would
+            // leave the interrupt masked with no way back: the error flag has
+            // just been consumed, so no later reader can observe it and
+            // re-enable on our behalf. `embassy-net-ppp`, for example, gives up
+            // on a read error without ever calling `consume`.
+            info.regs.uartimsc().write_set(|w| {
+                w.set_rxim(true);
+                w.set_rtim(true);
+            });
+
+            match result {
+                Some(result) => Poll::Ready(result),
+                None => Poll::Pending,
+            }
         })
     }
 
@@ -729,7 +758,7 @@ impl<'d> embedded_io_async::ReadReady for BufferedUartRx<'d> {
 
 impl<'d> embedded_io_async::BufRead for BufferedUart<'d> {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
-        BufferedUartRx::fill_buf(self.rx.state).await
+        BufferedUartRx::fill_buf(self.rx.info, self.rx.state).await
     }
 
     fn consume(&mut self, amt: usize) {
@@ -739,7 +768,7 @@ impl<'d> embedded_io_async::BufRead for BufferedUart<'d> {
 
 impl<'d> embedded_io_async::BufRead for BufferedUartRx<'d> {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
-        Self::fill_buf(self.state).await
+        Self::fill_buf(self.info, self.state).await
     }
 
     fn consume(&mut self, amt: usize) {

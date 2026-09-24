@@ -2,7 +2,7 @@ use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::StackStorage;
 use embassy_net::udp::UdpSocket;
-use embassy_net::wire::{IpCidr, Ipv4Addr};
+use embassy_net::wire::{IpCidr, Ipv4Addr, ListenSocketAddr};
 use embassy_net_tuntap::TunTapDevice;
 use log::*;
 use rand_core::{OsRng, TryRngCore};
@@ -42,7 +42,7 @@ async fn main_task(spawner: Spawner) {
 
     // Add the TAP interface to the stack.
     static DEVICE: StaticCell<TunTapDevice> = StaticCell::new();
-    let iface = stack.add_iface(DEVICE.init(device)).unwrap();
+    let iface = stack.add_iface_borrowed(DEVICE.init(device)).unwrap();
 
     // Choose between dhcp or static ip
     if opts.static_ip {
@@ -64,7 +64,7 @@ async fn main_task(spawner: Spawner) {
     let mut buf = [0; 4096];
 
     let mut socket = UdpSocket::new(stack).unwrap();
-    socket.bind(9400).unwrap();
+    socket.bind(9400, ListenSocketAddr::UNSPECIFIED).unwrap();
 
     loop {
         let (n, ep) = socket.recv_from(&mut buf).await.unwrap();

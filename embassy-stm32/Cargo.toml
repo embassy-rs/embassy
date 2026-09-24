@@ -163,7 +163,7 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "e5bc1b0408773f804f8d165257f34c3a11ae0181", features = ["async", "packet-buf-align-8"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "7dd74474e337a7175c3ec48dabb0504a32e255dc", features = ["async", "packet-buf-align-8"] }
 embassy-crypto = { version = "0.1.0", path = "../embassy-crypto", features = ["large-contexts"] }
 crypto-bigint = { version = "0.7.5", default-features = false, optional = true }
 embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }
@@ -291,11 +291,13 @@ embassy-crypto-aes128-cbc = []
 embassy-crypto-aes128-ctr = []
 embassy-crypto-aes128-gcm = []
 embassy-crypto-aes128-ccm = []
+embassy-crypto-aes128-cmac = []
 embassy-crypto-aes256-ecb = []
 embassy-crypto-aes256-cbc = []
 embassy-crypto-aes256-ctr = []
 embassy-crypto-aes256-gcm = []
 embassy-crypto-aes256-ccm = []
+embassy-crypto-aes256-cmac = []
 ## Serve the `embassy-crypto-aes*` operations with the SAES peripheral instead of
 ## the AES one, on chips that have both. The SAES needs the RNG running: with
 ## `embassy-crypto-rng` the driver starts it, otherwise keep an

@@ -1146,11 +1146,13 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
     feature = "embassy-crypto-aes128-ctr",
     feature = "embassy-crypto-aes128-gcm",
     feature = "embassy-crypto-aes128-ccm",
+    feature = "embassy-crypto-aes128-cmac",
     feature = "embassy-crypto-aes256-ecb",
     feature = "embassy-crypto-aes256-cbc",
     feature = "embassy-crypto-aes256-ctr",
     feature = "embassy-crypto-aes256-gcm",
     feature = "embassy-crypto-aes256-ccm",
+    feature = "embassy-crypto-aes256-cmac",
 ))]
 impl<'d, 'c, T: Instance, C> crate::crypto::BlockingCipherOps<'c, C> for Cryp<'d, T, Blocking>
 where

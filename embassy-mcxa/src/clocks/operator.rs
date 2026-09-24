@@ -413,21 +413,23 @@ impl ClockOperator<'_> {
         } = fro16k;
 
         // Enable clock outputs to both VSYS and VDD_CORE domains
-        // Bit 0: clk_16k0 to VSYS domain
-        // Bit 1: clk_16k1 to VDD_CORE/CORE_MAIN domain
-        // Bit 2: clk_16k2 to VBAT domain (5xx only)
-        //
-        // TODO: Define sub-fields for this register with a PAC patch?
-        let mut bits = 0;
+        // Gate 0: clk_16k0 to VSYS domain
+        // Gate 1: clk_16k1 to VDD_CORE/CORE_MAIN domain
+        // Gate 2: clk_16k2 to VBAT domain (5xx only)
+        self.vbat0.froclke().modify(|w| {
+            w.set_clke(0, *vsys_domain_active);
+            w.set_clke(1, *vdd_core_domain_active);
+            #[cfg(feature = "mcxa5xx")]
+            w.set_clke(2, *vbat_domain_active);
+        });
+
         if *vsys_domain_active {
-            bits |= 0b01;
             self.clocks.clk_16k_vsys = Some(Clock {
                 frequency: 16_384,
                 power: PoweredClock::AlwaysEnabled,
             });
         }
         if *vdd_core_domain_active {
-            bits |= 0b10;
             self.clocks.clk_16k_vdd_core = Some(Clock {
                 frequency: 16_384,
                 power: PoweredClock::AlwaysEnabled,
@@ -435,13 +437,11 @@ impl ClockOperator<'_> {
         }
         #[cfg(feature = "mcxa5xx")]
         if *vbat_domain_active {
-            bits |= 0b100;
             self.clocks.clk_16k_vbat = Some(Clock {
                 frequency: 16_384,
                 power: PoweredClock::AlwaysEnabled,
             });
         }
-        self.vbat0.froclke().modify(|w| w.set_clke(bits));
 
         Ok(())
     }
@@ -566,21 +566,19 @@ impl ClockOperator<'_> {
                     power: PoweredClock::NormalEnabledDeepSleepDisabled,
                 });
                 self.vbat0.oscclke().modify(|w| {
-                    let mut val = 0u8;
-                    if cfg.vsys_domain_active {
-                        val |= 0b001;
-                        self.clocks.clk_32k_vsys = ENABLED;
-                    }
-                    if cfg.vdd_core_domain_active {
-                        val |= 0b010;
-                        self.clocks.clk_32k_vdd_core = ENABLED;
-                    }
-                    if cfg.vbat_domain_active {
-                        val |= 0b100;
-                        self.clocks.clk_32k_vbat = ENABLED;
-                    }
-                    w.set_clke(val);
+                    w.set_clke(0, cfg.vsys_domain_active);
+                    w.set_clke(1, cfg.vdd_core_domain_active);
+                    w.set_clke(2, cfg.vbat_domain_active);
                 });
+                if cfg.vsys_domain_active {
+                    self.clocks.clk_32k_vsys = ENABLED;
+                }
+                if cfg.vdd_core_domain_active {
+                    self.clocks.clk_32k_vdd_core = ENABLED;
+                }
+                if cfg.vbat_domain_active {
+                    self.clocks.clk_32k_vbat = ENABLED;
+                }
             }
             Osc32KMode::LowPower {
                 coarse_amp_gain,
@@ -655,21 +653,19 @@ impl ClockOperator<'_> {
                     power: PoweredClock::AlwaysEnabled,
                 });
                 self.vbat0.oscclke().modify(|w| {
-                    let mut val = 0u8;
-                    if cfg.vsys_domain_active {
-                        val |= 0b001;
-                        self.clocks.clk_32k_vsys = ENABLED;
-                    }
-                    if cfg.vdd_core_domain_active {
-                        val |= 0b010;
-                        self.clocks.clk_32k_vdd_core = ENABLED;
-                    }
-                    if cfg.vbat_domain_active {
-                        val |= 0b100;
-                        self.clocks.clk_32k_vbat = ENABLED;
-                    }
-                    w.set_clke(val);
+                    w.set_clke(0, cfg.vsys_domain_active);
+                    w.set_clke(1, cfg.vdd_core_domain_active);
+                    w.set_clke(2, cfg.vbat_domain_active);
                 });
+                if cfg.vsys_domain_active {
+                    self.clocks.clk_32k_vsys = ENABLED;
+                }
+                if cfg.vdd_core_domain_active {
+                    self.clocks.clk_32k_vdd_core = ENABLED;
+                }
+                if cfg.vbat_domain_active {
+                    self.clocks.clk_32k_vbat = ENABLED;
+                }
             }
         }
 

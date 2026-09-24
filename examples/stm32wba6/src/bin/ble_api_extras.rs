@@ -20,10 +20,9 @@
 
 use defmt::*;
 use defmt_rtt as _;
+use embassy_crypto_rustcrypto as _;
 use embassy_executor::Spawner;
-use embassy_stm32::aes::{self, Aes};
-use embassy_stm32::peripherals::{AES, PKA, RNG};
-use embassy_stm32::pka::{self, Pka};
+use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::HCI;
@@ -40,8 +39,6 @@ use stm32wb_hci::{BdAddr, BdAddrType};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;
-    AES => aes::InterruptHandler<AES>;
-    PKA => pka::InterruptHandler<PKA>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
 });
@@ -77,12 +74,7 @@ async fn main(spawner: Spawner) {
     config.rcc = rcc::Config::new_wpan();
     let p = embassy_stm32::init(config);
 
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Pka::new(p.PKA, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        8
-    );
+    let (platform, runtime) = new_platform!(Rng::new(p.RNG, Irqs), 8);
     spawner.spawn(ble_runner_task(platform).expect("spawn ble runner"));
 
     let mut ble = HCI::new(platform, runtime, Irqs).await.expect("BLE init failed");

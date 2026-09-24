@@ -23,8 +23,10 @@ use crate::bluetooth::hci::CommandSender;
 /// 128-bit UUIDs, service data and explicit flags / TX power are silently
 /// dropped from connectable advertising.
 ///
-/// Does not enable LL advertising — that is the caller's responsibility via
-/// `le_set_advertise_enable`.
+/// The GAP command issued here puts the radio on the air by itself. Do not follow
+/// it with `le_set_advertise_enable`: ST forbids raw HCI advertising control while
+/// the host stack is active, and doing it anyway desynchronises the controller's
+/// advertising and filter state from GAP's.
 pub(crate) fn configure(
     cmd: &CommandSender,
     params: &AdvParams,
@@ -68,6 +70,14 @@ pub(crate) fn configure(
 
     let adv_bytes = adv_data.build();
 
+    // Scan response data goes down over raw HCI, so it must be programmed before a
+    // GAP command puts the radio on the air: ST's reference sets it once during
+    // init, well before advertising starts, and never touches the link layer once
+    // the host stack is driving. See `HCI::start_advertising`.
+    if let Some(scan_rsp) = scan_rsp_data {
+        update_scan_rsp_data(cmd, scan_rsp)?;
+    }
+
     if params.privacy_undirected {
         // ST BLE_Privacy_Peripheral: undirected connectable + explicit AD bytes
         // via the GAP layer (this path already carries the full payload).
@@ -107,10 +117,6 @@ pub(crate) fn configure(
         update_adv_data(cmd, adv_data)?;
     }
 
-    if let Some(scan_rsp) = scan_rsp_data {
-        update_scan_rsp_data(cmd, scan_rsp)?;
-    }
-
     Ok(())
 }
 
@@ -125,8 +131,8 @@ fn split_addr(addr: &BdAddrType) -> (u8, [u8; 6]) {
 
 /// Remove advertising configuration from the host stack.
 ///
-/// Calls aci_gap_set_non_discoverable. Does not disable LL advertising —
-/// that is the caller's responsibility via le_set_advertise_enable.
+/// Calls `aci_gap_set_non_discoverable`, which also takes the radio off the air.
+/// Do not pair this with `le_set_advertise_enable(false)`; see [`configure`].
 pub(crate) fn unconfigure() -> Result<(), BleError> {
     super::aci_gap::set_non_discoverable()
 }

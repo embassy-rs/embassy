@@ -52,7 +52,7 @@ pub(crate) unsafe fn enable_write() {
 }
 
 pub(crate) unsafe fn disable_write() {
-    pac::FLASH.cr().write(|w| {
+    pac::FLASH.cr().modify(|w| {
         w.set_pg(false);
         w.set_eopie(false);
         w.set_errie(false);
@@ -71,7 +71,7 @@ pub(crate) unsafe fn enable_blocking_write() {
 }
 
 pub(crate) unsafe fn disable_blocking_write() {
-    pac::FLASH.cr().write(|w| w.set_pg(false));
+    pac::FLASH.cr().modify(|w| w.set_pg(false));
     restore_data_cache_state();
 }
 
@@ -96,12 +96,18 @@ unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
     }
 }
 
-pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
+pub(crate) async unsafe fn erase_sector(
+    sector: &FlashSector,
+    parallelism: Option<super::EraseParallelism>,
+) -> Result<(), Error> {
     save_data_cache_state();
 
     trace!("Erasing sector number {}", sector.snb());
 
     pac::FLASH.cr().modify(|w| {
+        if let Some(parallelism) = parallelism {
+            w.set_psize(parallelism.psize());
+        }
         w.set_ser(true);
         w.set_snb(sector.snb());
         w.set_eopie(true);
@@ -122,12 +128,18 @@ pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Erro
     ret
 }
 
-pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_erase_sector(
+    sector: &FlashSector,
+    parallelism: Option<super::EraseParallelism>,
+) -> Result<(), Error> {
     save_data_cache_state();
 
     trace!("Blocking erasing sector number {}", sector.snb());
 
     pac::FLASH.cr().modify(|w| {
+        if let Some(parallelism) = parallelism {
+            w.set_psize(parallelism.psize());
+        }
         w.set_ser(true);
         w.set_snb(sector.snb())
     });

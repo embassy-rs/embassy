@@ -64,7 +64,7 @@ async fn main(spawner: Spawner) {
     static DEVICE: StaticCell<
         Enc28j60<ExclusiveDevice<Spim<'static, Async>, Output<'static>, Delay>, Output<'static>>,
     > = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
     unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     spawner.spawn(unwrap!(net_task(runner)));

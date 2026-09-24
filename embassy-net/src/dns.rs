@@ -11,9 +11,9 @@ pub use xarxa::wire::{DnsType as DnsQueryType, IpAddr};
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// Invalid name
+    /// The name is empty, or has an empty or too long label.
     InvalidName,
-    /// Name too long
+    /// The name is longer than [`DNS_MAX_NAME_SIZE`](crate::config::DNS_MAX_NAME_SIZE) in wire format.
     NameTooLong,
     /// Name lookup failed
     Failed,

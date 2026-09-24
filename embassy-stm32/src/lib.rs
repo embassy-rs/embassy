@@ -105,6 +105,7 @@ mod crypto;
             feature = "embassy-crypto-aes128-ctr",
             feature = "embassy-crypto-aes128-gcm",
             feature = "embassy-crypto-aes128-ccm",
+            feature = "embassy-crypto-aes128-cmac",
             feature = "embassy-crypto-aes256-ecb",
             feature = "embassy-crypto-aes256-cbc",
             feature = "embassy-crypto-aes256-ctr",
@@ -120,11 +121,13 @@ mod crypto;
             feature = "embassy-crypto-aes128-ctr",
             feature = "embassy-crypto-aes128-gcm",
             feature = "embassy-crypto-aes128-ccm",
+            feature = "embassy-crypto-aes128-cmac",
             feature = "embassy-crypto-aes256-ecb",
             feature = "embassy-crypto-aes256-cbc",
             feature = "embassy-crypto-aes256-ctr",
             feature = "embassy-crypto-aes256-gcm",
             feature = "embassy-crypto-aes256-ccm",
+            feature = "embassy-crypto-aes256-cmac",
         )
     ),
 ))]
@@ -195,7 +198,7 @@ pub mod fmc;
 pub mod gfxmmu;
 #[cfg(gfxtim)]
 pub mod gfxtim;
-#[cfg(all(gpu2d, stm32u5))]
+#[cfg(gpu2d)]
 pub mod gpu2d;
 #[cfg(all(hash, not(stm32c5)))]
 pub mod hash;

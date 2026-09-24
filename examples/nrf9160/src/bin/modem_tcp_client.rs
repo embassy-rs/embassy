@@ -147,7 +147,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<embassy_net_nrf91::NetDriver<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
 
     spawner.spawn(unwrap!(net_task(runner)));
 

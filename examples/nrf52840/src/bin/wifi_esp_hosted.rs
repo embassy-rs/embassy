@@ -29,13 +29,13 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::task]
 async fn wifi_task(
-    runner: hosted::Runner<
+    mut runner: hosted::Runner<
         'static,
         SpiInterface<ExclusiveDevice<Spim<'static, Async>, Output<'static>, Delay>, Input<'static>>,
         Output<'static>,
     >,
-) -> ! {
-    runner.run().await
+) {
+    runner.run().await.expect("heartbeat stopped");
 }
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
@@ -69,7 +69,7 @@ async fn main(spawner: Spawner) {
         net_device,
         mut control,
         runner,
-    } = embassy_net_esp_hosted::new(ESP_STATE.init(embassy_net_esp_hosted::State::new()), iface, reset).await;
+    } = embassy_net_esp_hosted::new(ESP_STATE.init(embassy_net_esp_hosted::State::new()), iface, reset);
 
     spawner.spawn(unwrap!(wifi_task(runner)));
 
@@ -88,7 +88,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<hosted::NetDriver<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(net_device)));
     unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     spawner.spawn(unwrap!(net_task(runner)));

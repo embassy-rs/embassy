@@ -15,11 +15,30 @@ use crate::peripherals::FLASH;
 pub struct Flash<'d, MODE = Async> {
     pub(crate) inner: Peri<'d, FLASH>,
     pub(crate) _mode: PhantomData<MODE>,
+    #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+    pub(crate) erase_parallelism: Option<super::EraseParallelism>,
 }
 
 impl<'d> Flash<'d, Blocking> {
     /// Create a new flash driver, usable in blocking mode.
     pub fn new_blocking(p: Peri<'d, FLASH>) -> Self {
+        Self::new_inner(
+            p,
+            #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+            super::Config::default(),
+        )
+    }
+
+    /// Create a blocking flash driver with the given configuration.
+    #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+    pub fn new_blocking_with_config(p: Peri<'d, FLASH>, config: super::Config) -> Self {
+        Self::new_inner(p, config)
+    }
+
+    fn new_inner(
+        p: Peri<'d, FLASH>,
+        #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))] config: super::Config,
+    ) -> Self {
         #[cfg(bank_setup_configurable)]
         // Check if the configuration matches the embassy setup
         super::check_bank_setup();
@@ -27,6 +46,8 @@ impl<'d> Flash<'d, Blocking> {
         Self {
             inner: p,
             _mode: PhantomData,
+            #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+            erase_parallelism: config.erase_parallelism,
         }
     }
 }
@@ -36,7 +57,11 @@ impl<'d, MODE> Flash<'d, MODE> {
     ///
     /// See module-level documentation for details on how memory regions work.
     pub fn into_blocking_regions(self) -> FlashLayout<'d, Blocking> {
-        FlashLayout::new(self.inner)
+        FlashLayout::new(
+            self.inner,
+            #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+            self.erase_parallelism,
+        )
     }
 
     /// Blocking read.
@@ -62,7 +87,15 @@ impl<'d, MODE> Flash<'d, MODE> {
     /// NOTE: `from` and `to` are offsets from the flash start, NOT an absolute address.
     /// For example, to erase address `0x0801_0000` you have to use offset `0x1_0000`.
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        unsafe { blocking_erase(FLASH_BASE as u32, from, to, erase_sector_unlocked) }
+        unsafe {
+            blocking_erase(FLASH_BASE as u32, from, to, |sector| {
+                erase_sector_unlocked(
+                    sector,
+                    #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+                    self.erase_parallelism,
+                )
+            })
+        }
     }
 }
 
@@ -136,7 +169,7 @@ pub(super) unsafe fn blocking_erase(
     base: u32,
     from: u32,
     to: u32,
-    erase_sector: unsafe fn(&FlashSector) -> Result<(), Error>,
+    mut erase_sector: impl FnMut(&FlashSector) -> Result<(), Error>,
 ) -> Result<(), Error> {
     let start_address = base + from;
     let end_address = base + to;
@@ -156,7 +189,10 @@ pub(super) unsafe fn blocking_erase(
     Ok(())
 }
 
-pub(super) unsafe fn erase_sector_unlocked(sector: &FlashSector) -> Result<(), Error> {
+pub(super) unsafe fn erase_sector_unlocked(
+    sector: &FlashSector,
+    #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))] parallelism: Option<super::EraseParallelism>,
+) -> Result<(), Error> {
     family::clear_all_err();
     fence(Ordering::SeqCst);
     family::unlock();
@@ -164,11 +200,24 @@ pub(super) unsafe fn erase_sector_unlocked(sector: &FlashSector) -> Result<(), E
 
     let _on_drop = OnDrop::new(|| family::lock());
 
-    family::blocking_erase_sector(sector)
+    family::blocking_erase_sector(
+        sector,
+        #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+        parallelism,
+    )
 }
 
-pub(super) unsafe fn erase_sector_with_critical_section(sector: &FlashSector) -> Result<(), Error> {
-    critical_section::with(|_| erase_sector_unlocked(sector))
+pub(super) unsafe fn erase_sector_with_critical_section(
+    sector: &FlashSector,
+    #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))] parallelism: Option<super::EraseParallelism>,
+) -> Result<(), Error> {
+    critical_section::with(|_| {
+        erase_sector_unlocked(
+            sector,
+            #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+            parallelism,
+        )
+    })
 }
 
 /// Returns (base, size, offset) for the contiguous region specified by the offset
@@ -285,7 +334,15 @@ foreach_flash_region! {
             /// NOTE: `from` and `to` are offsets from the flash start, NOT an absolute address.
             /// For example, to erase address `0x0801_0000` you have to use offset `0x1_0000`.
             pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-                unsafe { blocking_erase(self.0.base(), from, to, erase_sector_with_critical_section) }
+                unsafe {
+                    blocking_erase(self.0.base(), from, to, |sector| {
+                        erase_sector_with_critical_section(
+                            sector,
+                            #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+                            self.3,
+                        )
+                    })
+                }
             }
         }
 

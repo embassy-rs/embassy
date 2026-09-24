@@ -71,7 +71,7 @@ pub enum TryError<T> {
 /// (with `StaticCell`), or declare it before the stack.
 ///
 /// This holds only the stack-wide state. The drivers live wherever the caller
-/// puts them, and are handed to [`Stack::add_iface`].
+/// puts them, and are handed to [`Stack::add_iface_borrowed`].
 ///
 /// Socket storage is not here either: the stack has a fixed number of socket
 /// slots per type, set by the `*-socket-count-N` features of `xarxa`, and the
@@ -120,10 +120,14 @@ pub struct Stack<'d> {
 }
 
 impl<'d> Stack<'d> {
-    /// Create a new network stack.
+    /// Create a network stack.
+    ///
+    /// `random_seed` seeds the stack's PRNG, which picks TCP initial sequence
+    /// numbers and ephemeral ports. This should be random, or at least different
+    /// at every boot.
     ///
     /// The stack starts out with no interfaces: add them with
-    /// [`add_iface`](Self::add_iface).
+    /// [`add_iface_borrowed`](Self::add_iface_borrowed).
     pub fn new(storage: &'d mut StackStorage<'d>, random_seed: u64) -> (Self, Runner<'d>) {
         #[allow(unused_mut)]
         let mut stack = xarxa::Stack::new(random_seed);
@@ -167,12 +171,22 @@ impl<'d> Stack<'d> {
         r
     }
 
-    /// Take a TX timestamp from the stack-wide queue.
+    /// Take the timestamp of an already-transmitted packet, sent with
+    /// [`PacketMeta::request_timestamp`](crate::driver::PacketMeta::request_timestamp) set.
     ///
-    /// Run the network runner concurrently to collect TX timestamps. The queue has
-    /// one consumer. Coordinate packet IDs across senders and remember their
-    /// interface and clock; do not reuse IDs while old timestamps can still arrive.
-    /// Timestamps may be lost or arrive out of order. Use timeouts for missing timestamps.
+    /// The timestamps of every interface land in one queue, which the [`Runner`] fills
+    /// from the drivers. This only reads it, so run the runner concurrently.
+    ///
+    /// Timestamps arrive an arbitrary time after the packet was sent, possibly out of
+    /// order, and possibly never: a device may not support transmit timestamping, may
+    /// have run out of timestamp slots, or the queue may have been full (its capacity
+    /// is [`TX_TIMESTAMP_QUEUE_COUNT`](crate::config::TX_TIMESTAMP_QUEUE_COUNT)). Time
+    /// out waiting for one rather than expecting it.
+    ///
+    /// The queue has one consumer, so the packet ids it reports back must be unique
+    /// across everything the application sends, on every interface. Don't reuse an id
+    /// while a timestamp for the old packet can still arrive. Removing an interface
+    /// does not drop the timestamps it already queued.
     #[cfg(feature = "packetmeta-timestamp")]
     pub fn poll_tx_timestamp(&self) -> Option<driver::TxTimestamp> {
         self.with(|i| i.stack.poll_tx_timestamp())
@@ -192,40 +206,49 @@ impl<'d> Stack<'d> {
         })
     }
 
-    /// Add an interface to the stack, taking ownership of the driver.
+    /// Add an interface to the stack, returning it.
     ///
-    /// See [`add_iface`](Self::add_iface) for the no-alloc version.
+    /// The stack owns the boxed device, so this needs the `alloc` feature.
+    /// Without alloc, use the borrowing [`add_iface_borrowed`](Self::add_iface_borrowed).
     ///
-    /// Errors:
-    /// - `Full` if the stack has no room for another interface.
-    /// - `UnsupportedMedium` if the build has no `medium-*` feature for the
-    ///   driver's medium.
-    /// - `HardwareAddrMismatch` if the hardware address the driver reports is not
-    ///   of the kind its medium uses.
+    /// Configure the interface after adding it. At minimum, you will want to
+    /// add an IP address to it.
+    ///
+    /// # Errors
+    /// - `Full`: if the stack has no room for another interface. Only possible
+    ///   without the `alloc` feature, where the limit is
+    ///   [`IFACE_COUNT`](crate::config::IFACE_COUNT).
+    /// - `UnsupportedMedium`: if the build has no `medium-*` feature for the
+    ///   device's medium.
+    /// - `HardwareAddrMismatch`: if the hardware address the device reports is
+    ///   not of the kind its medium uses.
     #[cfg(feature = "alloc")]
     pub fn add_iface(&self, driver: alloc::boxed::Box<dyn Driver + 'd>) -> Result<Iface<'d>, AddIfaceError> {
         let handle = self.with_mut(|i| i.stack.add_iface(driver))?;
         Ok(self.iface(handle))
     }
 
-    /// Add an interface to the stack, borrowing the driver.
+    /// Add an interface to the stack, lending it the device, and returning it.
     ///
-    /// The driver is borrowed for as long as the stack lives. With a `StaticCell`
+    /// The device is borrowed for as long as the stack lives. With a `StaticCell`
     /// that is `'static`; with a local, the enclosing scope.
+    /// Otherwise this is `add_iface`.
     ///
     /// # Example
     /// ```ignore
     /// static ETH: StaticCell<Device> = StaticCell::new();
-    /// let eth = stack.add_iface(ETH.init(device)).unwrap();
+    /// let eth = stack.add_iface_borrowed(ETH.init(device)).unwrap();
     /// ```
     ///
-    /// Errors:
-    /// - `Full` if the stack has no room for another interface.
-    /// - `UnsupportedMedium` if the build has no `medium-*` feature for the
-    ///   driver's medium.
-    /// - `HardwareAddrMismatch` if the hardware address the driver reports is not
-    ///   of the kind its medium uses.
-    pub fn add_iface(&self, driver: &'d mut dyn Driver) -> Result<Iface<'d>, AddIfaceError> {
+    /// # Errors
+    /// - `Full`: if the stack has no room for another interface. Only possible
+    ///   without the `alloc` feature, where the limit is
+    ///   [`IFACE_COUNT`](crate::config::IFACE_COUNT).
+    /// - `UnsupportedMedium`: if the build has no `medium-*` feature for the
+    ///   device's medium.
+    /// - `HardwareAddrMismatch`: if the hardware address the device reports is
+    ///   not of the kind its medium uses.
+    pub fn add_iface_borrowed(&self, driver: &'d mut dyn Driver) -> Result<Iface<'d>, AddIfaceError> {
         let handle = self.with_mut(|i| i.stack.add_iface_borrowed(driver))?;
         Ok(self.iface(handle))
     }
@@ -233,7 +256,7 @@ impl<'d> Stack<'d> {
     /// Get an interface by its handle.
     ///
     /// # Panics
-    /// Panics if the handle does not belong to an interface on this stack.
+    /// Panics if the handle is stale (the interface was removed).
     pub fn iface(&self, handle: IfaceHandle) -> Iface<'d> {
         self.with(|i| {
             // Check the handle is live, so a bad one panics here instead of somewhere
@@ -245,13 +268,27 @@ impl<'d> Stack<'d> {
 
     /// Remove an interface from the stack.
     ///
-    /// Its addresses, routes and neighbor cache entries go with it. Sockets bound
-    /// to one of its addresses are not closed, they just stop receiving.
-    ///
     /// # Panics
-    /// Panics if the handle does not belong to an interface on this stack.
+    /// Panics if the handle is stale (the interface was already removed).
     pub fn remove_iface(&self, handle: IfaceHandle) {
         self.with_mut(|i| i.stack.remove_iface(handle))
+    }
+
+    /// Iterate over the interfaces added to the stack.
+    pub fn ifaces(&self) -> impl Iterator<Item = Iface<'d>> + 'd {
+        let stack = *self;
+        let mut n = 0;
+        core::iter::from_fn(move || {
+            let handle = stack.with(|i| {
+                let mut iter = i.stack.ifaces();
+                for _ in 0..n {
+                    iter.next()?;
+                }
+                iter.next().map(|(handle, _)| handle)
+            })?;
+            n += 1;
+            Some(stack.iface(handle))
+        })
     }
 
     /// The stack's hostname, or `None` if not set.
@@ -267,21 +304,39 @@ impl<'d> Stack<'d> {
     ///
     /// An empty string clears the hostname.
     ///
-    /// Errors:
-    /// - `HostnameTooLong` if `hostname` is longer than 63 bytes. The stack is
-    ///   left unchanged.
+    /// # Errors
+    /// - `HostnameTooLong`: if `hostname` is longer than 63 bytes. The hostname
+    ///   is left unchanged.
     #[cfg(feature = "hostname")]
     pub fn set_hostname(&self, hostname: &str) -> Result<(), HostnameTooLong> {
         self.with_mut(|i| i.stack.set_hostname(hostname))
     }
 
-    /// The stack's neighbor cache, shared by all interfaces.
+    /// Get the packet reassembly timeout.
+    ///
+    /// This is how long the fragments of an incoming IPv4 or 6LoWPAN packet are
+    /// kept while waiting for the rest of it. The default is 60 seconds.
+    #[cfg(any(feature = "ipv4-reassembly", feature = "sixlowpan-reassembly"))]
+    pub fn reassembly_timeout(&self) -> embassy_time::Duration {
+        self.with(|i| time::duration_from_xarxa(i.stack.reassembly_timeout()))
+    }
+
+    /// Set the packet reassembly timeout.
+    ///
+    /// Fragments of an incoming IPv4 or 6LoWPAN packet that is not complete by
+    /// then are dropped, and the packet buffer they were kept in is freed.
+    #[cfg(any(feature = "ipv4-reassembly", feature = "sixlowpan-reassembly"))]
+    pub fn set_reassembly_timeout(&self, timeout: embassy_time::Duration) {
+        self.with_mut(|i| i.stack.set_reassembly_timeout(time::duration_to_xarxa(timeout)))
+    }
+
+    /// Access the neighbor cache.
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     pub fn neighbor_cache(&self) -> NeighborCache<'d> {
         NeighborCache::new(*self)
     }
 
-    /// The stack's routing table, shared by all interfaces.
+    /// Access the routing table.
     pub fn routes(&self) -> Routes<'d> {
         Routes::new(*self)
     }
