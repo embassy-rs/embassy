@@ -1,6 +1,6 @@
 //! Driver for the HASHCRYPT peripheral, mode switch sckeleton
 use embassy_hal_internal::Peri;
-use nxp_pac::hashcrypt::vals::Aeskeysz;
+use nxp_pac::hashcrypt::vals::{self, Aesdecrypt, Aeskeysz, Aesmode, Aessecret, Mode};
 
 use crate::hashcrypt::inner::Key::{Key128, Key192, Key256};
 use crate::pac;
@@ -90,16 +90,35 @@ impl<'d> GenericDriver<'d> {
     }
 
     pub fn sha1(&mut self) -> Sha1<'_, 'd> {
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_mode(Mode::Sha1);
+            w.set_new_hash(true);
+        });
         Sha1 { _peri: self }
-        // Sha1 config via register calls
     }
 
     pub fn sha256(&mut self) -> Sha256<'_, 'd> {
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_mode(Mode::Sha2256);
+            w.set_new_hash(true);
+        });
         Sha256 { _peri: self }
-        // Sha2 config via register calls
     }
 
     pub fn aes_ecb(&mut self) -> AesEcb<'_, 'd> {
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_mode(Mode::Aes);
+            w.set_new_hash(true);
+        });
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesmode(Aesmode::Ecb);
+            w.set_aessecret(Aessecret::NormalWay);
+            w.set_msw1st(true);
+            w.set_msw1st_out(true);
+            w.set_swapkey(true);
+            w.set_streamlast(false);
+        });
         AesEcb {
             _peri: self,
             key_size: None,
@@ -138,28 +157,25 @@ pub trait Digest {
 }
 
 pub trait Aes {
-    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
-        todo!("Add method boady");
-        // Universal encrypt confuguration, meaning
-        // MSW1ST = true, MSW1ST_OUT = true, SWAPKEY = true, SWAPDAT = true, AESDECRYPT = Encrypt
-        // Chop user provided data into words, feed 4 words at the time to indata()
-        // Every 4 words, poll digest and apend it to ouptut
-        // If the final part of the message is less than 4 words, padd with 0s
-        // Before feeding last 4 words, flip STREAMEDLAST to true
-        // Check that data.len = output.len
-        // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
-    }
-    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
-        todo!("Add method boady");
-        // Universal decrypt confuguration, meaning
-        // MSW1ST = true, MSW1ST_OUT = true, SWAPKEY = true, SWAPDAT = false, AESDECRYPT = Decrypt
-        // Chop user provided data into words, feed 4 words at the time to indata()
-        // Every 4 words, poll digest and apend it to ouptut
-        // If the final part of the message is less than 4 words, padd with 0s
-        // Before feeding last 4 words, flip STREAMEDLAST to true
-        // Check that data.len = output.len
-        // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
-    }
+    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
+    // Universal encrypt confuguration, meaning
+    // MSW1ST = true, MSW1ST_OUT = true, SWAPKEY = true, SWAPDAT = true, AESDECRYPT = Encrypt
+    // Chop user provided data into words, feed 4 words at the time to indata()
+    // Every 4 words, poll digest and apend it to ouptut
+    // If the final part of the message is less than 4 words, padd with 0s
+    // Before feeding last 4 words, flip STREAMEDLAST to true
+    // Check that data.len = output.len
+    // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
+
+    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
+    // Universal decrypt confuguration, meaning
+    // MSW1ST = true, MSW1ST_OUT = true, SWAPKEY = true, SWAPDAT = false, AESDECRYPT = Decrypt
+    // Chop user provided data into words, feed 4 words at the time to indata()
+    // Every 4 words, poll digest and apend it to ouptut
+    // If the final part of the message is less than 4 words, padd with 0s
+    // Before feeding last 4 words, flip STREAMEDLAST to true
+    // Check that data.len = output.len
+    // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
 }
 
 // Specific driver types
@@ -202,7 +218,13 @@ pub struct AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> Aes for AesEcb<'a, 'd> {
-    // No change to the default methods needed
+    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+        todo!("Add encrypt method for ECB")
+    }
+
+    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+        todo!("Add decrypt method for ECB");
+    }
 }
 
 impl<'a, 'd> AesEcb<'a, 'd> {
@@ -214,7 +236,13 @@ pub struct AesCbc<'a, 'd> {
     key: Option<Key>,
 }
 impl<'a, 'd> Aes for AesCbc<'a, 'd> {
-    // Does not require anything passed the default aes methods
+    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+        todo!("Add encrypt method for CBC")
+    }
+
+    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+        todo!("Add decrypt method for CBC");
+    }
 }
 impl<'a, 'd> AesCbc<'a, 'd> {
     pub fn set_iv(&mut self, iv: &[u8; 16]) -> Result<(), AesError> {
@@ -228,7 +256,13 @@ pub struct AesCtr<'a, 'd> {
 }
 
 impl<'a, 'd> Aes for AesCtr<'a, 'd> {
-    // Does not require anything passed the default aes methods
+    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+        todo!("Add encrypt method for CTR")
+    }
+
+    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+        todo!("Add decrypt method for CTR");
+    }
 }
 
 impl<'a, 'd> AesCtr<'a, 'd> {
