@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UART: rename `new_with_rtscts_blocking` to `new_blocking_with_rtscts`.
 - UART: `split_ref` now returns owned halves borrowed for the duration instead of `&mut`.
 - UART: remove the `nb`-based `embedded-hal` 0.2 and `embedded-hal-nb` `serial` impls.
+- UART: add inherent `read`, `fill_buf`, `consume`, `read_ready`, `write` and `flush` methods to `BufferedUart`, and the matching ones to `BufferedUartRx`/`BufferedUartTx`.
+- PIO UART: add inherent `write` and `flush` methods to `PioUartTx`, and `read` to `PioUartRx`.
 - Flash: remove the instance generic; `Flash<'d, T, M, FLASH_SIZE>` is now `Flash<'d, M, FLASH_SIZE>`.
 - TRNG: remove the instance generic and add a `Mode` generic with a `new_blocking` constructor.
 - Watchdog: add a lifetime parameter, and rename `get_scratch` to `scratch`.
