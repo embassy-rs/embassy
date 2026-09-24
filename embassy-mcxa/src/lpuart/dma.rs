@@ -296,10 +296,12 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
         while self.info.regs().stat().read().tc() == Tc::Active {}
         Ok(())
     }
-    /// Flush TX.
-    ///
-    /// This is a no-op: [`write`](Self::write) only returns once the DMA transfer has completed.
+    /// Wait until all written bytes have been fully transmitted on the wire.
     pub async fn flush(&mut self) -> Result<(), Error> {
+        // DMA mode doesn't bind the LPUART interrupt, so there's no waker for TC. Poll instead.
+        while self.info.regs().water().read().txcount() != 0 || self.info.regs().stat().read().tc() == Tc::Active {
+            embassy_futures::yield_now().await;
+        }
         Ok(())
     }
 }
