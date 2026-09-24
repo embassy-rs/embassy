@@ -878,7 +878,28 @@ Many drivers implement a trait defined elsewhere (`embedded-hal`,
 treat the trait's documentation as a checklist of obligations and verify each
 one.
 
-#### `embedded-hal` implementations
+#### Trait implementations
+
+Drivers implement the ecosystem traits so they can be plugged into generic driver crates. The
+traits are **additional** API, not the primary API: everything a driver can do must also be
+available through inherent methods, so users never need to depend on a trait crate to
+use a driver's functionality. The trait impls should be thin wrappers that forward to the inherent
+methods.
+
+The trait crates we commonly implement:
+
+| Crate | Used for |
+| --- | --- |
+| `embedded-hal` 1.0, `embedded-hal-async` | GPIO, SPI, I2C, PWM, delays — see below |
+| `embedded-hal` 0.2 (as `embedded-hal-02`) | GPIO, UART, SPI, I2C (blocking traits only) — see below |
+| `embedded-io`, `embedded-io-async` | Buffered UART (`Read`, `Write`, `ReadReady`, `WriteReady`, `BufRead`), and any other byte-stream driver (USB CDC, PIO UART, …) |
+| `embedded-storage`, `embedded-storage-async` | Internal flash, QSPI/OSPI flash, EEPROM (`nor_flash::{ReadNorFlash, NorFlash, MultiwriteNorFlash}`) |
+| `embedded-can` | CAN frames and IDs (`Frame`, `Id`, `StandardId`, `ExtendedId`), and `blocking::Can` on the driver |
+| `rand_core` 0.6 / 0.9 / 0.10 | RNG/TRNG (`RngCore`, `CryptoRng`); each version behind its own `rand-core-NN` dependency |
+| `embassy-embedded-hal` | `SetConfig`, so drivers work with `SpiDeviceWithConfig`/`I2cDeviceWithConfig` and friends |
+| `embassy-usb-driver` | USB device (`Driver`, `Bus`, `ControlPipe`, `EndpointIn`, `EndpointOut`) and host controllers |
+| `embassy-time-driver` | The time driver backing `embassy-time` |
+| `xarxa-driver` | Driver for network interfaces, backing `embassy-net` and `xarxa` |
 
 ##### `embedded-hal` 1.0
 
@@ -892,8 +913,6 @@ Every driver implements the matching `embedded-hal` 1.0 traits, and the async on
 | SPI | `spi::{ErrorType, SpiBus}` | `spi::SpiBus` |
 | I2C | `i2c::{ErrorType, I2c}` | `i2c::I2c` |
 | PWM | `pwm::{ErrorType, SetDutyCycle}` | — |
-| Flash | `embedded_storage::nor_flash::{ReadNorFlash, NorFlash}` | `embedded_storage_async::nor_flash::*` |
-| RNG | `rand_core::RngCore` | — |
 
 ##### `embedded-hal` 0.2
 
@@ -1449,6 +1468,13 @@ impl<'d> BufferedUart<'d> {
 
     pub fn new_with_rtscts<T: Instance>(/* … */) -> Result<Self, ConfigError>;
 
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Error>;
+    pub async fn fill_buf(&mut self) -> Result<&[u8], Error>;
+    pub fn consume(&mut self, amt: usize);
+    pub fn read_ready(&mut self) -> Result<bool, Error>;
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<usize, Error>;
+    pub async fn flush(&mut self) -> Result<(), Error>;
+
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<usize, Error>;
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<usize, Error>;
     pub fn blocking_flush(&mut self) -> Result<(), Error>;
@@ -1458,8 +1484,7 @@ impl<'d> BufferedUart<'d> {
 }
 ```
 
-`BufferedUart` has **no `Mode` generic** — it is always interrupt-driven. Async I/O is exposed via
-`embedded_io_async::{Read, Write, BufRead}`, not inherent methods.
+`BufferedUart` has **no `Mode` generic** — it is always interrupt-driven.
 
 Note the buffer argument order: `tx_buffer` before `rx_buffer`, both `&'d mut [u8]` — the same
 [TX before RX](#tx-before-rx) rule as the pins and DMA channels.
