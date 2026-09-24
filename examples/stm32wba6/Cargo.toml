@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba65ri", "time-driver-any", "memory-x", "exti", "usb-host", "embassy-crypto-aes128-ecb", "embassy-crypto-aes128-ccm", "embassy-crypto-p256-arith"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba65ri", "time-driver-any", "memory-x", "exti", "usb-host", "embassy-crypto-aes128-ecb", "embassy-crypto-aes128-ccm", "embassy-crypto-p256-arith", "embassy-crypto-rng"]  }
 stm32-metapac = { version = "21", features = ["stm32wba65ri"] }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba65ri", "bt-hci", "wb-hci"], optional = true }
 embassy-crypto-rustcrypto = { version = "0.1.0", path = "../../embassy-crypto-rustcrypto", features = ["embassy-crypto-aes128-cmac"], optional = true }
@@ -78,6 +78,10 @@ name = "ble_beacon"
 required-features = ["ble"]
 
 [[bin]]
+name = "ble_bonding"
+required-features = ["ble"]
+
+[[bin]]
 name = "ble_heart_rate"
 required-features = ["ble"]
 
@@ -91,6 +95,14 @@ required-features = ["ble"]
 
 [[bin]]
 name = "ble_direction_finding_tag"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_dtm"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_dtm_runtime"
 required-features = ["ble"]
 
 [[bin]]

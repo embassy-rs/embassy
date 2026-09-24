@@ -7,6 +7,8 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
+#[cfg(feature = "embassy-crypto-rng")]
+use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Interrupt;
@@ -133,12 +135,24 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let bits = T::regs().sr().read();
-        if bits.drdy() || bits.seis() || bits.ceis() {
-            T::regs().cr().modify(|reg| reg.set_ie(false));
-            RNG_WAKER.wake();
-        }
+        on_irq::<T>();
     }
+}
+
+fn on_irq<T: Instance>() {
+    let bits = T::regs().sr().read();
+    if bits.drdy() || bits.seis() || bits.ceis() {
+        T::regs().cr().modify(|reg| reg.set_ie(false));
+        RNG_WAKER.wake();
+    }
+}
+
+#[cfg(all(feature = "rt", feature = "embassy-crypto-rng"))]
+fn on_irq_crypto<T: Instance>() {
+    on_irq::<T>();
+
+    // TODO: call the async fill_bytes method
+    // with_rng doesn't work because it provides the blocking method
 }
 
 /// RNG driver.
@@ -622,6 +636,10 @@ trait SealedInstance {
     fn regs() -> pac::rng::Rng {
         Self::info().regs
     }
+
+    #[cfg(feature = "embassy-crypto-rng")]
+    #[allow(dead_code)]
+    fn buf() -> RingBuffer;
 }
 
 /// RNG instance trait.
@@ -646,6 +664,17 @@ foreach_interrupt!(
                 };
                 &INFO
             }
+
+            #[cfg(feature = "embassy-crypto-rng")]
+            fn buf() -> RingBuffer {
+                todo!()
+            }
+        }
+
+        #[cfg(all(feature = "rt", feature = "embassy-crypto-rng"))]
+        #[interrupt]
+        fn $irq() {
+            on_irq_crypto::<peripherals::$inst>();
         }
     };
 );
