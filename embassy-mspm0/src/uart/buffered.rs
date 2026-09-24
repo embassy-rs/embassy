@@ -584,11 +584,12 @@ impl embedded_hal_nb::serial::Read for BufferedUart<'_> {
 
 impl embedded_hal_nb::serial::Read for BufferedUartRx<'_> {
     fn read(&mut self) -> nb::Result<u8, Self::Error> {
-        if self.info.regs.stat().read().rxfe() {
-            return Err(nb::Error::WouldBlock);
+        let mut buf = [0u8; 1];
+        match self.try_read(&mut buf) {
+            Poll::Ready(Ok(_)) => Ok(buf[0]),
+            Poll::Ready(Err(e)) => Err(nb::Error::Other(e)),
+            Poll::Pending => Err(nb::Error::WouldBlock),
         }
-
-        super::read_with_error(self.info.regs).map_err(nb::Error::Other)
     }
 }
 
