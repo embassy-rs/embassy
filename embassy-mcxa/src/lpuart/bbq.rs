@@ -116,12 +116,63 @@ pub enum BbqRxMode {
     Continuous { half_size: usize },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RxDmaMode {
+    Efficiency { max_len: u16 },
+    MaxFrame { size: u16 },
+    Continuous { staging_len: u16 },
+}
+
+impl RxDmaMode {
+    const MAX_FRAME_BIT: u32 = 1 << 7;
+    const CONTINUOUS_BIT: u32 = 1 << 8;
+    const KIND_MASK: u32 = Self::MAX_FRAME_BIT | Self::CONTINUOUS_BIT;
+    const LEN_SHIFT: u32 = 16;
+    const STATE_MASK: u32 = Self::KIND_MASK | STATE_RXGR_LEN_MASK;
+
+    const fn to_state_bits(self) -> u32 {
+        let (kind, len) = match self {
+            Self::Efficiency { max_len } => (0, max_len),
+            Self::MaxFrame { size } => (Self::MAX_FRAME_BIT, size),
+            Self::Continuous { staging_len } => (Self::CONTINUOUS_BIT, staging_len),
+        };
+
+        kind | ((len as u32) << Self::LEN_SHIFT)
+    }
+
+    fn from_state_bits(state: u32) -> Self {
+        let len = ((state & STATE_RXGR_LEN_MASK) >> Self::LEN_SHIFT) as u16;
+        match state & Self::KIND_MASK {
+            0 => Self::Efficiency { max_len: len },
+            Self::MAX_FRAME_BIT => Self::MaxFrame { size: len },
+            Self::CONTINUOUS_BIT => Self::Continuous { staging_len: len },
+            _ => unreachable!("RX DMA mode bits must encode exactly one mode"),
+        }
+    }
+
+    const fn transfer_len(self) -> usize {
+        match self {
+            Self::Efficiency { max_len } => max_len as usize,
+            Self::MaxFrame { size } => size as usize,
+            Self::Continuous { staging_len } => staging_len as usize,
+        }
+    }
+
+    const fn is_max_frame(self) -> bool {
+        matches!(self, Self::MaxFrame { .. })
+    }
+
+    const fn is_continuous(self) -> bool {
+        matches!(self, Self::Continuous { .. })
+    }
+}
+
 struct RxBufferLayout {
     queue: &'static mut [u8],
     continuous_dma: Option<&'static mut [u8]>,
     original_addr: usize,
     original_len: usize,
-    mode_bits: u32,
+    mode: RxDmaMode,
 }
 
 fn prepare_rx_buffer(buffer: &'static mut [u8], mode: BbqRxMode) -> Result<RxBufferLayout, BbqError> {
@@ -135,7 +186,9 @@ fn prepare_rx_buffer(buffer: &'static mut [u8], mode: BbqRxMode) -> Result<RxBuf
             continuous_dma: None,
             original_addr,
             original_len,
-            mode_bits: (max_size as u32) << 16,
+            mode: RxDmaMode::Efficiency {
+                max_len: max_size as u16,
+            },
         }),
         BbqRxMode::MaxFrame { size } => {
             if size > max_size {
@@ -147,7 +200,7 @@ fn prepare_rx_buffer(buffer: &'static mut [u8], mode: BbqRxMode) -> Result<RxBuf
                 continuous_dma: None,
                 original_addr,
                 original_len,
-                mode_bits: ((size as u32) << 16) | STATE_RXDMA_MODE_MAXFRAME,
+                mode: RxDmaMode::MaxFrame { size: size as u16 },
             })
         }
         BbqRxMode::Continuous { half_size } => {
@@ -170,7 +223,9 @@ fn prepare_rx_buffer(buffer: &'static mut [u8], mode: BbqRxMode) -> Result<RxBuf
                 continuous_dma: Some(continuous_dma),
                 original_addr,
                 original_len,
-                mode_bits: ((staging_len as u32) << 16) | STATE_RXDMA_MODE_CONTINUOUS,
+                mode: RxDmaMode::Continuous {
+                    staging_len: staging_len as u16,
+                },
             })
         }
     }
@@ -630,7 +685,7 @@ impl LpuartBbq {
 
         // Update our state to "initialized", and that we have the TXDMA + RXDMA channels present
         // Okay to just store: we have exclusive access
-        let new_state = STATE_INITED | STATE_TXDMA_PRESENT | STATE_RXDMA_PRESENT | rx_layout.mode_bits;
+        let new_state = STATE_INITED | STATE_TXDMA_PRESENT | STATE_RXDMA_PRESENT | rx_layout.mode.to_state_bits();
         parts.state.state.store(new_state, Ordering::Release);
 
         // SAFETY: We have ensured that our ISR is present via the IRQ token, and we have
@@ -1211,7 +1266,7 @@ impl LpuartBbqRx {
 
         // Update our state to "initialized", and that we have the RXDMA channel present
         // Okay to just store: we have exclusive access
-        let new_state = STATE_INITED | STATE_RXDMA_PRESENT | rx_layout.mode_bits;
+        let new_state = STATE_INITED | STATE_RXDMA_PRESENT | rx_layout.mode.to_state_bits();
         parts.state.state.store(new_state, Ordering::Release);
 
         // SAFETY: We have ensured that our ISR is present via the IRQ token, and we have
@@ -1253,7 +1308,7 @@ impl LpuartBbqRx {
     /// this RX half is not in continuous mode or no overrun was latched.
     pub fn clear_overrun(&mut self) -> bool {
         let state = self.state.state.load(Ordering::Acquire);
-        if (state & STATE_RXDMA_MODE_CONTINUOUS) == 0 || !self.state.rx_overrun.swap(false, Ordering::AcqRel) {
+        if !RxDmaMode::from_state_bits(state).is_continuous() || !self.state.rx_overrun.swap(false, Ordering::AcqRel) {
             return false;
         }
 
@@ -1315,7 +1370,7 @@ impl LpuartBbqRx {
         // Continuous DMA stays active, so only pend when publication was deferred.
         let state = self.state.state.load(Ordering::Acquire);
         let continuous_publish_pending =
-            (state & STATE_RXDMA_MODE_CONTINUOUS) != 0 && self.state.rx_publish_pending.load(Ordering::Acquire);
+            RxDmaMode::from_state_bits(state).is_continuous() && self.state.rx_publish_pending.load(Ordering::Acquire);
         if (state & STATE_RXGR_ACTIVE) == 0 || continuous_publish_pending {
             (self.vtable.int_pend)();
         }
@@ -1333,14 +1388,9 @@ impl LpuartBbqRx {
     fn teardown_inner(&mut self) -> (NonNull<u8>, usize, DmaChannel<'static>) {
         // First, mark the RXDMA as not present to halt the ISR from processing the state
         // machine
-        let rx_state_bits = STATE_RXDMA_PRESENT
-            | STATE_RXGR_ACTIVE
-            | STATE_RXDMA_COMPLETE
-            | STATE_RXDMA_MODE_MAXFRAME
-            | STATE_RXDMA_MODE_CONTINUOUS
-            | STATE_RXGR_LEN_MASK;
+        let rx_state_bits = STATE_RXDMA_PRESENT | STATE_RXGR_ACTIVE | STATE_RXDMA_COMPLETE | RxDmaMode::STATE_MASK;
         let state = self.state.state.fetch_and(!rx_state_bits, Ordering::AcqRel);
-        let continuous = (state & STATE_RXDMA_MODE_CONTINUOUS) != 0;
+        let continuous = RxDmaMode::from_state_bits(state).is_continuous();
 
         // Then, disable receive-relevant interrupts
         critical_section::with(|_cs| {
@@ -1354,6 +1404,10 @@ impl LpuartBbqRx {
 
         // Stop the peripheral request first, then wait for any accepted minor loop
         // to retire before returning the backing buffer to safe Rust.
+        // SAFETY: RXDMA_PRESENT was cleared above and receive interrupts are disabled,
+        // so the LPUART ISR can no longer access the shared RX state. This RX handle
+        // therefore has exclusive access to the stored DMA channel and active grant.
+        // `stop()` drains any accepted minor loop before either buffer is reclaimed.
         unsafe {
             // Take DMA channel by mut ref
             let rxdma = &mut *self.state.rxdma.get();
@@ -1512,8 +1566,6 @@ pub(crate) const STATE_TXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_1
 pub(crate) const STATE_RXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0001_0000;
 pub(crate) const STATE_TXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0010_0000;
 pub(crate) const STATE_RXDMA_COMPLETE: u32 = 0b0000_0000_0000_0000_0000_0000_0100_0000;
-pub(crate) const STATE_RXDMA_MODE_MAXFRAME: u32 = 0b0000_0000_0000_0000_0000_0000_1000_0000;
-pub(crate) const STATE_RXDMA_MODE_CONTINUOUS: u32 = 0b0000_0000_0000_0000_0000_0001_0000_0000;
 pub(crate) const STATE_RXGR_LEN_MASK: u32 = 0b1111_1111_1111_1111_0000_0000_0000_0000;
 
 pub(crate) struct BbqState {
@@ -1524,9 +1576,8 @@ pub(crate) struct BbqState {
     ///                                    ^-------> 0b0: No Rx DMA present, 0b1: Rx DMA present
     ///                                   ^--------> 0b0: No Tx DMA present, 0b1: Tx DMA present
     ///                                  ^---------> 0b0: Rx DMA not complete, 0b1: Rx DMA complete
-    ///                                 ^----------> 0b1: RxMode "Max Frame"
-    ///                                ^-----------> 0b1: RxMode "Continuous"
-    ///   ^^^^_^^^^_^^^^_^^^^----------------------> 16-bit: RX Grant size
+    ///                                ^^----------> Encoded `RxDmaMode` kind
+    ///   ^^^^_^^^^_^^^^_^^^^----------------------> `RxDmaMode` transfer length
     pub(crate) state: AtomicU32,
 
     /// The "outgoing" bbqueue buffer
@@ -1552,7 +1603,7 @@ pub(crate) struct BbqState {
     rx_queue: GroundedCell<BBQueue<Container, AtomicCoord, MaiNotSpsc>>,
     /// Fixed circular DMA staging buffer used only in continuous RX mode.
     ///
-    /// Only valid when `STATE_RXDMA_MODE_CONTINUOUS` is set.
+    /// Only valid when `RxDmaMode::Continuous` is encoded in `state`.
     rx_dma_buffer: GroundedCell<Container>,
     /// Next byte in the continuous DMA staging ring that has not yet been
     /// published to `rx_queue`.
@@ -2064,8 +2115,9 @@ impl BbqState {
 
         // Determine the size and kind of grant to request
         let state = self.state.load(Ordering::Relaxed);
-        let len = (state >> 16) as usize;
-        let is_max_frame = (state & STATE_RXDMA_MODE_MAXFRAME) != 0;
+        let mode = RxDmaMode::from_state_bits(state);
+        let len = mode.transfer_len();
+        let is_max_frame = mode.is_max_frame();
         let prod = rx_queue.stream_producer();
 
         let grant_res = if is_max_frame {
@@ -2192,7 +2244,7 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
     if rx_present {
         let rx_active = (pre_clear & STATE_RXGR_ACTIVE) != 0;
         let dma_complete = (pre_clear & STATE_RXDMA_COMPLETE) != 0;
-        let continuous = (pre_clear & STATE_RXDMA_MODE_CONTINUOUS) != 0;
+        let continuous = RxDmaMode::from_state_bits(pre_clear).is_continuous();
 
         if continuous {
             if rx_active {
