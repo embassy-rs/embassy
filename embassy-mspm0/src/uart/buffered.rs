@@ -151,7 +151,7 @@ impl<'d> BufferedUart<'d> {
         self.tx.write(buf).await
     }
 
-    /// Wait until all data in the TX buffer has been handed to the hardware.
+    /// Wait until all written bytes have been fully transmitted on the wire.
     pub async fn flush(&mut self) -> Result<(), Error> {
         self.tx.flush().await
     }
@@ -389,13 +389,9 @@ impl<'d> BufferedUartTx<'d> {
 
     /// Flush UART TX buffer, blocking execution until done.
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
-        let state = self.state;
-
-        loop {
-            if state.tx_buf.is_empty() {
-                return Ok(());
-            }
-        }
+        while !self.state.tx_buf.is_empty() {}
+        while super::busy(self.info.regs) {}
+        Ok(())
     }
 
     /// Write to UART TX buffer, waiting until there is space for at least one byte.
@@ -405,7 +401,7 @@ impl<'d> BufferedUartTx<'d> {
         self.write_inner(buf).await
     }
 
-    /// Wait until all data in the TX buffer has been handed to the hardware.
+    /// Wait until all written bytes have been fully transmitted on the wire.
     pub async fn flush(&mut self) -> Result<(), Error> {
         self.flush_inner().await
     }
@@ -961,9 +957,16 @@ impl<'d> BufferedUartTx<'d> {
                 return Poll::Pending;
             }
 
-            Poll::Ready(Ok(()))
+            Poll::Ready(())
         })
-        .await
+        .await;
+
+        // The ring buffer is empty, but the hardware FIFO and shift register may not be.
+        // There's no interrupt for that, so poll.
+        while super::busy(self.info.regs) {
+            embassy_futures::yield_now().await;
+        }
+        Ok(())
     }
 
     fn enable_and_configure(&mut self, tx_buffer: &'d mut [u8], config: &Config) -> Result<(), ConfigError> {

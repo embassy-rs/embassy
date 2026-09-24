@@ -27,3 +27,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Move from GPIO waker arrays to maitake-sync wait map
 - fix: Flush the I2C controller FIFOs on the NACK/error paths, to prevent stale data
 - feat: Add inherent async `read`, `write`, `flush`, `fill_buf`, `consume` and `read_ready` methods to `BufferedUart`, `BufferedUartRx`, `BufferedUartTx`
+- fix: `BufferedUart`/`BufferedUartTx` `flush` and `blocking_flush` wait until the last byte has been transmitted, not just until the TX buffer is empty
