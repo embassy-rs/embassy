@@ -177,9 +177,9 @@ macro_rules! new_platform {
         static PLATFORM: ::static_cell::StaticCell<::embassy_stm32_wpan::Platform> = ::static_cell::StaticCell::new();
         static RUNTIME: ::static_cell::StaticCell<::embassy_stm32_wpan::Runtime> = ::static_cell::StaticCell::new();
 
-        let (platform, runtime) = ::embassy_stm32_wpan::Platform::new(EVENT_BUFFER.init(
-            [::embassy_stm32_wpan::ChannelPacket::default(); $size],
-        ));
+        let (platform, runtime) = ::embassy_stm32_wpan::Platform::new(
+            EVENT_BUFFER.init([::embassy_stm32_wpan::ChannelPacket::default(); $size]),
+        );
 
         (
             PLATFORM.init(platform) as &'static ::embassy_stm32_wpan::Platform,
