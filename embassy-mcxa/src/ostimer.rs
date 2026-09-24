@@ -123,8 +123,10 @@ impl OsTimer {
             .match_h()
             .write(|w| w.set_match_value((gray_timestamp >> 32) as u16));
 
-        // MATCH_L/MATCH_H are synchronized into hardware shadow registers. Wait
-        // for that synchronization before deciding whether the deadline passed.
+        // Writing MATCH_H starts the transfer of the pair from the shadow registers into the
+        // active comparator. MATCH_WR_RDY reads 1 until that transfer completes, so wait for
+        // it to clear before sampling the timer. See section 36.6.1.8 of the MCXA5 Reference
+        // Manual for details
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
 
         let t = self.now();
