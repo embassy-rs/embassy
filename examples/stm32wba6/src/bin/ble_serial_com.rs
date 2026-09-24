@@ -28,10 +28,8 @@
 
 use defmt::*;
 use defmt_rtt as _;
-use embassy_crypto_rustcrypto as _;
 use embassy_executor::Spawner;
-use embassy_stm32::peripherals::{RNG, USART1};
-use embassy_stm32::rng::{self, Rng};
+use embassy_stm32::peripherals::USART1;
 use embassy_stm32::usart::{self, BufferedUart, BufferedUartRx, BufferedUartTx, Config as UartConfig};
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::HCI;
@@ -49,7 +47,6 @@ use stm32wb_hci::Event;
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
 
 bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<RNG>;
     USART1 => usart::BufferedInterruptHandler<USART1>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
@@ -130,7 +127,7 @@ async fn main(spawner: Spawner) {
 
     info!("Embassy STM32WBA6 BLE Serial Communication Example");
 
-    let (platform, runtime) = new_platform!(Rng::new(p.RNG, Irqs), 8);
+    let (platform, runtime) = new_platform!(8);
 
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 

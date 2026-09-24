@@ -14,7 +14,7 @@ pub use controller::{ChannelPacket, Controller, HighInterruptHandler, LowInterru
 pub use linklayer_plat::{erase_bond_nvm_flash, set_nvm_base_address};
 pub use platform::Platform;
 
-mod bindings {
+pub mod bindings {
     pub use stm32_bindings::bindings::{mac, wba_ble_stack as ble, wba_link_layer as link_layer};
 }
 
