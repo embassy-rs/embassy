@@ -103,7 +103,7 @@ pub(crate) async unsafe fn write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> 
     cortex_m::asm::dsb();
     fence(Ordering::SeqCst);
 
-    bank.cr().write(|w| {
+    bank.cr().modify(|w| {
         w.set_pg(false);
         w.set_eopie(false);
         w.set_operrie(false);
@@ -149,7 +149,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     cortex_m::asm::dsb();
     fence(Ordering::SeqCst);
 
-    bank.cr().write(|w| w.set_pg(false));
+    bank.cr().modify(|w| w.set_pg(false));
 
     unwrap!(res)
 }
