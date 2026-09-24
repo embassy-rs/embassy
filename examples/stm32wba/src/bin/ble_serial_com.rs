@@ -45,7 +45,6 @@ use embassy_stm32_wpan::bluetooth::gatt::{
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embedded_io_async::{Read, Write};
 use panic_probe as _;
 use static_cell::StaticCell;
 use stm32wb_hci::Event;

@@ -19,6 +19,8 @@ Align to API guidelines:
 - change: stm32/usart: `BufferedUart::new` takes the interrupt binding before the buffers.
 - change: stm32/usart: `Uart::split_ref` returns owned `(UartTx<'_, M>, UartRx<'_, M>)` halves instead of `&mut` references.
 - change: stm32/usart: removed the `nb`-based `embedded_hal_02::serial::Read` and `embedded_hal_nb::serial::{Read, Write}` implementations.
+- add: stm32/usart: inherent `read`, `blocking_read`, `fill_buf`, `consume`, `read_ready`, `write`, `flush`, `blocking_write`, `blocking_flush` and `write_ready` methods on `BufferedUart`, `BufferedUartRx` and `BufferedUartTx`.
+- add: stm32/usart: inherent `read_ready` method on `RingBufferedUartRx`.
 - add: stm32: `Config::enable_analog_switch_booster` enables the I/O analog switch voltage booster.
 - change: stm32/adc: the interrupt-driven `irq_read` is now `read`; the DMA method previously named `read` is now `read_sequence`.
 - change: stm32/adc: one `Adc<'d, T, M: Mode>` driver for every chip, with the same API everywhere. Methods and configuration options only exist on chips whose ADC supports them.

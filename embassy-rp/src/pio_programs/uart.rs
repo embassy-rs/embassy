@@ -119,6 +119,29 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
         self.sm_tx.tx().wait_push(data as u32).await;
     }
 
+    /// Write all bytes in `buf`.
+    ///
+    /// Returns once all bytes have been pushed into the state machine's TX FIFO.
+    pub async fn write(&mut self, buf: &[u8]) {
+        for byte in buf {
+            self.write_u8(*byte).await;
+        }
+    }
+
+    /// Wait until all written bytes have been fully transmitted on the wire.
+    pub async fn flush(&mut self) {
+        // There's no PIO interrupt for "TX FIFO empty" or "stalled", so poll.
+        while !self.sm_tx.tx().empty() {
+            embassy_futures::yield_now().await;
+        }
+        // The FIFO is empty but the SM may still be shifting out the last byte. It stalls
+        // on `pull` once the stop bit is done, so clear the stall flag and wait for it to be set again.
+        let _ = self.sm_tx.tx().stalled();
+        while !self.sm_tx.tx().stalled() {
+            embassy_futures::yield_now().await;
+        }
+    }
+
     /// Change baud rate on run time  
     pub fn set_baudrate(&mut self, baud: u32) {
         let clock_divider = calculate_pio_clock_divider(8 * baud);
@@ -136,13 +159,12 @@ impl<PIO: Instance, const SM: usize> ErrorType for PioUartTx<'_, PIO, SM> {
 
 impl<PIO: Instance, const SM: usize> Write for PioUartTx<'_, PIO, SM> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Infallible> {
-        for byte in buf {
-            self.write_u8(*byte).await;
-        }
+        PioUartTx::write(self, buf).await;
         Ok(buf.len())
     }
 
     async fn flush(&mut self) -> Result<(), Infallible> {
+        PioUartTx::flush(self).await;
         Ok(())
     }
 }
@@ -225,6 +247,13 @@ impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
         self.sm_rx.rx().wait_pull().await as u8
     }
 
+    /// Read bytes until `buf` is full.
+    pub async fn read(&mut self, buf: &mut [u8]) {
+        for byte in buf {
+            *byte = self.read_u8().await;
+        }
+    }
+
     /// Change Baud rate on runtime
     pub fn set_baudrate(&mut self, baud: u32) {
         let clock_divider = calculate_pio_clock_divider(8 * baud);
@@ -242,11 +271,7 @@ impl<PIO: Instance, const SM: usize> ErrorType for PioUartRx<'_, PIO, SM> {
 
 impl<PIO: Instance, const SM: usize> Read for PioUartRx<'_, PIO, SM> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Infallible> {
-        let mut i = 0;
-        while i < buf.len() {
-            buf[i] = self.read_u8().await;
-            i += 1;
-        }
-        Ok(i)
+        PioUartRx::read(self, buf).await;
+        Ok(buf.len())
     }
 }
