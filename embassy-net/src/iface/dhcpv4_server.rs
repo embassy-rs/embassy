@@ -10,7 +10,10 @@
 //! its subnet provides the subnet mask sent to clients. The pool must be inside
 //! that subnet.
 //!
-//! Only Ethernet interfaces are supported.
+//! Only Ethernet interfaces are supported. Requests relayed by a DHCP relay
+//! agent are ignored, and offered addresses are not probed with ICMP before
+//! being handed out (a client that detects a conflict declines the address,
+//! which takes it out of the pool for a while).
 //!
 //! [`Iface::set_dhcpv4_server`]: super::Iface::set_dhcpv4_server
 //! [`Iface::dhcpv4_server_leases`]: super::Iface::dhcpv4_server_leases

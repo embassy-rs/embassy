@@ -121,8 +121,8 @@ embassy-crypto-test = { version = "0.1.0", path = "../../embassy-crypto-test", f
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt"] }
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "e5bc1b0408773f804f8d165257f34c3a11ae0181", default-features = false }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "e5bc1b0408773f804f8d165257f34c3a11ae0181" }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "7dd74474e337a7175c3ec48dabb0504a32e255dc", default-features = false }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "7dd74474e337a7175c3ec48dabb0504a32e255dc" }
 
 defmt = "1.1.1"
 defmt-rtt = "1.3.0"

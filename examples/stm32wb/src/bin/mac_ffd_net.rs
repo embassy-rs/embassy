@@ -8,7 +8,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
 use embassy_net::udp::UdpSocket;
-use embassy_net::wire::{IpCidr, Ipv6Cidr};
+use embassy_net::wire::{IpCidr, Ipv6Cidr, ListenSocketAddr};
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::RNG;
@@ -113,7 +113,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(driver)));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(driver)));
     unwrap!(iface.add_ip_addr(IpCidr::V6(Ipv6Cidr::new(ipv6_addr, 104))));
 
     // wpan runner
@@ -143,7 +143,7 @@ async fn main(spawner: Spawner) {
 
     let send_buf = [0u8; 20];
 
-    socket.bind((ipv6_addr, 8000)).unwrap();
+    socket.bind((ipv6_addr, 8000), ListenSocketAddr::UNSPECIFIED).unwrap();
     socket.send_to(&send_buf, remote_addr).await.unwrap();
 
     Timer::after(Duration::from_secs(2)).await;
