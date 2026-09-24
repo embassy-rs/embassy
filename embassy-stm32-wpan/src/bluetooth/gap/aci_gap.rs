@@ -4,9 +4,9 @@
 //! instead of raw HCI commands. These provide more integrated functionality.
 
 use stm32_bindings::ble::{
-    aci_gap_set_direct_connectable, aci_gap_set_discoverable, aci_gap_set_non_discoverable,
-    aci_gap_set_undirected_connectable, aci_gap_start_general_discovery_proc, aci_gap_start_limited_discovery_proc,
-    aci_gap_start_observation_proc, aci_gap_terminate_gap_proc, aci_gap_update_adv_data,
+    Scan_Param_Phy_t, aci_gap_get_oob_data, aci_gap_set_direct_connectable, aci_gap_set_discoverable,
+    aci_gap_set_non_discoverable, aci_gap_set_oob_data, aci_gap_set_undirected_connectable, aci_gap_start_scan,
+    aci_gap_terminate_gap_proc, aci_gap_update_adv_data,
 };
 
 use crate::bluetooth::error::BleError;
@@ -43,6 +43,52 @@ pub const WHITE_LIST_FOR_ALL: u8 = 0x03;
 pub const GAP_LIMITED_DISCOVERY_PROC: u8 = 0x01;
 pub const GAP_GENERAL_DISCOVERY_PROC: u8 = 0x02;
 pub const GAP_OBSERVATION_PROC: u8 = 0x80;
+
+const HCI_SCAN_TYPE_ACTIVE: u8 = 0x01;
+const HCI_SCANNING_PHYS_LE_1M: u8 = 0x01;
+
+/// Run a GAP discovery procedure through `aci_gap_start_scan`.
+///
+/// 1.10.0 dropped the legacy `aci_gap_start_{observation,limited,general}_discovery_proc`
+/// commands, so the discovery procedures go through `aci_gap_start_scan` now.
+fn start_scan(
+    procedure: u8,
+    scan_interval: u16,
+    scan_window: u16,
+    scan_type: u8,
+    own_address_type: u8,
+    filter_duplicates: bool,
+    filter_policy: u8,
+) -> Result<(), BleError> {
+    let scan_param = Scan_Param_Phy_t {
+        Scan_Type: scan_type,
+        Scan_Interval: scan_interval,
+        Scan_Window: scan_window,
+    };
+    // ACI_GAP_START_SCAN requires two PHY parameter records even when only
+    // LE 1M is selected. The second record is ignored in that configuration.
+    let scan_params = [scan_param; 2];
+
+    let status = unsafe {
+        aci_gap_start_scan(
+            0,
+            procedure,
+            own_address_type,
+            filter_duplicates as u8,
+            0,
+            0,
+            filter_policy,
+            HCI_SCANNING_PHYS_LE_1M,
+            scan_params.as_ptr(),
+        )
+    };
+
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(Status::from_u8(status)))
+    }
+}
 
 /// Start advertising using aci_gap_set_discoverable
 ///
@@ -173,21 +219,15 @@ pub fn start_observation(
     filter_duplicates: bool,
     filter_policy: u8,
 ) -> Result<(), BleError> {
-    let status = unsafe {
-        aci_gap_start_observation_proc(
-            scan_interval,
-            scan_window,
-            scan_type,
-            own_address_type,
-            filter_duplicates as u8,
-            filter_policy,
-        )
-    };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(Status::from_u8(status)))
-    }
+    start_scan(
+        GAP_OBSERVATION_PROC,
+        scan_interval,
+        scan_window,
+        scan_type,
+        own_address_type,
+        filter_duplicates,
+        filter_policy,
+    )
 }
 
 /// Start the GAP limited discovery procedure.
@@ -200,14 +240,15 @@ pub fn start_limited_discovery(
     own_address_type: u8,
     filter_duplicates: bool,
 ) -> Result<(), BleError> {
-    let status = unsafe {
-        aci_gap_start_limited_discovery_proc(scan_interval, scan_window, own_address_type, filter_duplicates as u8)
-    };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(Status::from_u8(status)))
-    }
+    start_scan(
+        GAP_LIMITED_DISCOVERY_PROC,
+        scan_interval,
+        scan_window,
+        HCI_SCAN_TYPE_ACTIVE,
+        own_address_type,
+        filter_duplicates,
+        0,
+    )
 }
 
 /// Start the GAP general discovery procedure.
@@ -219,14 +260,15 @@ pub fn start_general_discovery(
     own_address_type: u8,
     filter_duplicates: bool,
 ) -> Result<(), BleError> {
-    let status = unsafe {
-        aci_gap_start_general_discovery_proc(scan_interval, scan_window, own_address_type, filter_duplicates as u8)
-    };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(Status::from_u8(status)))
-    }
+    start_scan(
+        GAP_GENERAL_DISCOVERY_PROC,
+        scan_interval,
+        scan_window,
+        HCI_SCAN_TYPE_ACTIVE,
+        own_address_type,
+        filter_duplicates,
+        0,
+    )
 }
 
 /// Terminate a running GAP procedure by procedure code.
@@ -290,5 +332,96 @@ pub fn set_non_discoverable() -> Result<(), BleError> {
         } else {
             Err(BleError::CommandFailed(Status::from_u8(status)))
         }
+    }
+}
+
+// ===== Secure Connections out-of-band (OOB) =====
+
+/// `Device_Type` for [`aci_gap_set_oob_data`]: this device's own material.
+const OOB_DEVICE_TYPE_LOCAL: u8 = 0x00;
+/// `Device_Type` for [`aci_gap_set_oob_data`]: the peer's material.
+const OOB_DEVICE_TYPE_REMOTE: u8 = 0x01;
+
+/// Secure Connections OOB material to read with [`read_local_oob_data`], or to
+/// program with [`set_remote_oob_data`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum OobDataType {
+    /// `0x01`: SC Random (`r`).
+    ScRandom = 0x01,
+    /// `0x02`: SC Confirm (`c`).
+    ScConfirm = 0x02,
+}
+
+/// Generate this device's Secure Connections OOB material.
+///
+/// `ACI_GAP_SET_OOB_DATA` with `Device_Type = Local` and a zero length, which
+/// makes the host derive the `r`/`c` pair from its local P-256 keypair.
+///
+/// The keypair has to exist first, otherwise the host answers
+/// `SMP_SC_Local_Public_Key_Unavailable` (0x06) — issue
+/// [`CommandSender::le_read_local_p256_public_key`] beforehand.
+///
+/// [`CommandSender::le_read_local_p256_public_key`]: crate::bluetooth::hci::CommandSender::le_read_local_p256_public_key
+pub fn generate_local_oob_data() -> Result<(), BleError> {
+    let status = unsafe { aci_gap_set_oob_data(OOB_DEVICE_TYPE_LOCAL, 0, core::ptr::null(), 0, 0, core::ptr::null()) };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(Status::from_u8(status)))
+    }
+}
+
+/// Read back one half of this device's Secure Connections OOB material.
+///
+/// The address out-parameters of `ACI_GAP_GET_OOB_DATA` describe this device and
+/// are not needed by a caller that already knows its own identity address, so
+/// they are discarded here.
+pub fn read_local_oob_data(kind: OobDataType) -> Result<[u8; 16], BleError> {
+    let mut address_type = 0u8;
+    let mut address = [0u8; 6];
+    let mut len = 16u8;
+    let mut data = [0u8; 16];
+
+    let status = unsafe {
+        aci_gap_get_oob_data(
+            kind as u8,
+            &mut address_type,
+            address.as_mut_ptr(),
+            &mut len,
+            data.as_mut_ptr(),
+        )
+    };
+    if status == BLE_STATUS_SUCCESS && len as usize == data.len() {
+        Ok(data)
+    } else if status == BLE_STATUS_SUCCESS {
+        Err(BleError::InvalidParameter)
+    } else {
+        Err(BleError::CommandFailed(Status::from_u8(status)))
+    }
+}
+
+/// Program the peer's Secure Connections OOB material into the host security
+/// database, so pairing with `address` can use it.
+pub fn set_remote_oob_data(
+    address_type: u8,
+    address: &[u8; 6],
+    kind: OobDataType,
+    data: &[u8; 16],
+) -> Result<(), BleError> {
+    let status = unsafe {
+        aci_gap_set_oob_data(
+            OOB_DEVICE_TYPE_REMOTE,
+            address_type,
+            address.as_ptr(),
+            kind as u8,
+            data.len() as u8,
+            data.as_ptr(),
+        )
+    };
+    if status == BLE_STATUS_SUCCESS {
+        Ok(())
+    } else {
+        Err(BleError::CommandFailed(Status::from_u8(status)))
     }
 }

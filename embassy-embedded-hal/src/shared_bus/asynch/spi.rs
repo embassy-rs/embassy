@@ -25,7 +25,9 @@
 //! let display2 = ST7735::new(spi_dev2, dc2, rst2, Default::default(), 160, 128);
 //! ```
 
-use embassy_hal_internal::drop::OnDrop;
+use core::mem;
+use core::mem::MaybeUninit;
+
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_hal_1::digital::OutputPin;
@@ -208,5 +210,29 @@ where
         cs_res.map_err(SpiDeviceError::Cs)?;
 
         Ok(())
+    }
+}
+
+/// A type to delay the drop handler invocation.
+#[must_use = "to delay the drop handler invocation to the end of the scope"]
+struct OnDrop<F: FnOnce()> {
+    f: MaybeUninit<F>,
+}
+
+impl<F: FnOnce()> OnDrop<F> {
+    /// Create a new instance.
+    pub fn new(f: F) -> Self {
+        Self { f: MaybeUninit::new(f) }
+    }
+
+    /// Prevent drop handler from running.
+    pub fn defuse(self) {
+        mem::forget(self)
+    }
+}
+
+impl<F: FnOnce()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        unsafe { self.f.as_ptr().read()() }
     }
 }

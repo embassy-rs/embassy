@@ -4,8 +4,8 @@ use core::mem::ManuallyDrop;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use crate::dac::{ChannelEvent, Info, State, Word};
+pub use crate::dma::RingBufferError as Error;
 use crate::dma::WritableRingBuffer;
-use crate::dma::ringbuffer::Error;
 
 /// A DAC channel backed by a DMA ring buffer.
 ///

@@ -8,13 +8,14 @@ use stm32_bindings::ble::{
     aci_hal_le_tx_test_packet_number, aci_hal_read_rssi, aci_hal_set_radio_activity_mask, hci_disconnect,
     hci_le_connection_cte_request_enable, hci_le_connection_cte_response_enable, hci_le_connection_update,
     hci_le_create_connection, hci_le_create_connection_cancel, hci_le_read_advertising_physical_channel_tx_power,
-    hci_le_read_antenna_information, hci_le_read_buffer_size_v2, hci_le_read_local_supported_features_page_0,
-    hci_le_read_phy, hci_le_receiver_test, hci_le_receiver_test_v2, hci_le_set_advertising_data,
-    hci_le_set_advertising_enable, hci_le_set_advertising_parameters, hci_le_set_connection_cte_receive_parameters,
-    hci_le_set_connection_cte_transmit_parameters, hci_le_set_data_length, hci_le_set_event_mask, hci_le_set_phy,
-    hci_le_set_random_address, hci_le_set_scan_enable, hci_le_set_scan_parameters, hci_le_set_scan_response_data,
-    hci_le_test_end, hci_le_transmitter_test, hci_le_transmitter_test_v2, hci_read_bd_addr,
-    hci_read_local_version_information, hci_reset, hci_set_event_mask,
+    hci_le_read_antenna_information, hci_le_read_buffer_size_v2, hci_le_read_local_p256_public_key,
+    hci_le_read_local_supported_features_page_0, hci_le_read_phy, hci_le_receiver_test, hci_le_receiver_test_v2,
+    hci_le_remote_connection_parameter_request_reply, hci_le_remove_device_from_resolving_list,
+    hci_le_set_advertising_data, hci_le_set_advertising_enable, hci_le_set_advertising_parameters,
+    hci_le_set_connection_cte_receive_parameters, hci_le_set_connection_cte_transmit_parameters,
+    hci_le_set_data_length, hci_le_set_event_mask, hci_le_set_phy, hci_le_set_random_address, hci_le_set_scan_enable,
+    hci_le_set_scan_parameters, hci_le_set_scan_response_data, hci_le_test_end, hci_le_transmitter_test,
+    hci_le_transmitter_test_v2, hci_read_bd_addr, hci_read_local_version_information, hci_reset, hci_set_event_mask,
 };
 use stm32wb_hci::BdAddrType;
 use stm32wb_hci::host::OwnAddressType;
@@ -25,6 +26,9 @@ use crate::bluetooth::hci::types;
 
 /// BLE Success status code
 const BLE_STATUS_SUCCESS: u8 = 0x00;
+
+/// `BLE_STATUS_PENDING`: the command was accepted and completes asynchronously.
+const BLE_STATUS_PENDING: u8 = 0x95;
 
 /// Enable or disable LE advertising in the link layer.
 ///
@@ -151,6 +155,43 @@ impl CommandSender {
         unsafe {
             let status = hci_le_set_random_address(address.as_ptr());
             Self::check_status(status)
+        }
+    }
+
+    /// Generate the local LESC P-256 keypair (`HCI_LE_READ_LOCAL_P256_PUBLIC_KEY`).
+    ///
+    /// The command is accepted asynchronously and the completion event is kept by
+    /// the ST full host, so `0x00` (keypair already available) and `0x95`
+    /// (`BLE_STATUS_PENDING`, generation started) are both success from the
+    /// caller's point of view. Anything else means no keypair will appear, and a
+    /// subsequent Secure Connections OOB request fails with status 0x06.
+    pub fn le_read_local_p256_public_key(&self) -> Result<(), BleError> {
+        let status = unsafe { hci_le_read_local_p256_public_key() };
+        if status == BLE_STATUS_SUCCESS || status == BLE_STATUS_PENDING {
+            Ok(())
+        } else {
+            Err(BleError::CommandFailed(types::Status::from_u8(status)))
+        }
+    }
+
+    /// Remove a device from the controller's resolving list.
+    ///
+    /// Leaves the bond in the host security database, which is what a caller
+    /// wants when address resolution is interfering with initiating a connection
+    /// to an already-bonded peer. Address translation must be disabled to mutate
+    /// the list — see [`SecurityManager::set_address_resolution_enable`].
+    ///
+    /// [`SecurityManager::set_address_resolution_enable`]: crate::bluetooth::security::SecurityManager::set_address_resolution_enable
+    pub fn le_remove_device_from_resolving_list(
+        &self,
+        peer_identity_address_type: u8,
+        peer_identity_address: &[u8; 6],
+    ) -> Result<(), BleError> {
+        unsafe {
+            Self::check_status(hci_le_remove_device_from_resolving_list(
+                peer_identity_address_type,
+                peer_identity_address.as_ptr(),
+            ))
         }
     }
 
@@ -359,6 +400,33 @@ impl CommandSender {
     ) -> Result<(), BleError> {
         unsafe {
             let status = hci_le_connection_update(
+                handle,
+                interval_min,
+                interval_max,
+                latency,
+                supervision_timeout,
+                ce_length_min,
+                ce_length_max,
+            );
+            Self::check_status(status)
+        }
+    }
+
+    /// Reply to an LE Remote Connection Parameter Request, accepting the peer's suggested
+    /// interval/latency/timeout. Required when that LE meta event is unmasked; otherwise the
+    /// controller waits for a host reply and pairing can stall until the SMP timeout.
+    pub fn le_remote_connection_parameter_request_reply(
+        &self,
+        handle: u16,
+        interval_min: u16,
+        interval_max: u16,
+        latency: u16,
+        supervision_timeout: u16,
+        ce_length_min: u16,
+        ce_length_max: u16,
+    ) -> Result<(), BleError> {
+        unsafe {
+            let status = hci_le_remote_connection_parameter_request_reply(
                 handle,
                 interval_min,
                 interval_max,

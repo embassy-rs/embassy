@@ -13,7 +13,7 @@ use super::{
     Config, ConfigError, Error, Info, State, UartRx, UsartWord, clear_interrupt_flags, flush, reconfigure,
     set_baudrate, sr,
 };
-use crate::dma::ReadableRingBuffer;
+use crate::dma::{ReadableRingBuffer, RingBufferError};
 use crate::gpio::Flex;
 use crate::mode::Async;
 use crate::rcc::WakeGuard;
@@ -406,15 +406,7 @@ impl embedded_io_async::Read for RingBufferedUartRx<'_, u8> {
 impl<W: UsartWord> ReadReady for RingBufferedUartRx<'_, W> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
         let len = self.ring_buf.len().map_err(|e| match e {
-            crate::dma::ringbuffer::Error::Overrun => Self::Error::Overrun,
-            crate::dma::ringbuffer::Error::DmaUnsynced => {
-                error!(
-                    "Ringbuffer error: DmaUNsynced, driver implementation is
-                    probably bugged please open an issue"
-                );
-                // we report this as overrun since its recoverable in the same way
-                Self::Error::Overrun
-            }
+            RingBufferError::Overrun => Self::Error::Overrun,
         })?;
         Ok(len > 0)
     }

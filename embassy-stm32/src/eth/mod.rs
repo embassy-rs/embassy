@@ -50,6 +50,8 @@ const MTU: usize = 1514;
 /// for RX), at the cost of pinning more packet buffers. Make sure the packet
 /// pool (the `packet-buf-count-N` feature of `xarxa`) is bigger than
 /// `TX + RX`, with room to spare for the stack and sockets.
+/// The v2 driver reserves one descriptor in each ring as a DMA tail guard.
+/// It requires at least two TX/RX descriptors, or three RX descriptors with PTP.
 pub struct PacketQueue<const TX: usize, const RX: usize> {
     tx_desc: [TDes; TX],
     rx_desc: [RDes; RX],

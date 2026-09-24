@@ -6,8 +6,7 @@ use embassy_hal_internal::PeripheralType;
 
 use crate::dflt::{Acqmod, Cckdir, Ccken, Cicmod, Ckgmod, Datsrc, Rxfifo};
 pub use crate::dflt::{ClockConfig, FilterConfig, SitfConfig, sample_from_dma_word, samples_from_dma_words};
-use crate::dma::ringbuffer::Error as RingbufferError;
-use crate::dma::{Channel, ReadableRingBuffer, TransferOptions};
+use crate::dma::{Channel, ReadableRingBuffer, RingBufferError, TransferOptions};
 use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::adf::Adf as Regs;
@@ -31,12 +30,14 @@ impl Filter for Flt0 {}
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// DMA ring buffer error.
-    Ringbuffer(RingbufferError),
+    Overrun,
 }
 
-impl From<RingbufferError> for Error {
-    fn from(err: RingbufferError) -> Self {
-        Self::Ringbuffer(err)
+impl From<RingBufferError> for Error {
+    fn from(e: RingBufferError) -> Self {
+        match e {
+            RingBufferError::Overrun => Self::Overrun,
+        }
     }
 }
 

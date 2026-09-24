@@ -20,6 +20,7 @@
 
 use defmt::*;
 use defmt_rtt as _;
+use embassy_crypto_rustcrypto as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::Pull;
@@ -79,7 +80,7 @@ async fn main(spawner: Spawner) {
     // Initialize hardware peripherals required by BLE stack
     let (platform, runtime) = new_platform!(Rng::new(p.RNG, Irqs), 8);
 
-    info!("Hardware peripherals initialized (RNG, AES, PKA)");
+    info!("Hardware peripherals initialized (RNG)");
 
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));

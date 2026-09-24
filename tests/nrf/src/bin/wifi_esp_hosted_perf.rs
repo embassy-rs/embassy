@@ -31,13 +31,13 @@ const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 
 #[embassy_executor::task]
 async fn wifi_task(
-    runner: hosted::Runner<
+    mut runner: hosted::Runner<
         'static,
         SpiInterface<ExclusiveDevice<Spim<'static, Async>, Output<'static>, Delay>, Input<'static>>,
         Output<'static>,
     >,
-) -> ! {
-    runner.run().await
+) {
+    runner.run().await.expect("heartbeat stopped");
 }
 
 type MyDriver = hosted::NetDriver<'static>;
@@ -74,7 +74,7 @@ async fn main(spawner: Spawner) {
         net_device,
         mut control,
         runner,
-    } = embassy_net_esp_hosted::new(STATE.init(embassy_net_esp_hosted::State::new()), iface, reset).await;
+    } = embassy_net_esp_hosted::new(STATE.init(embassy_net_esp_hosted::State::new()), iface, reset);
 
     spawner.spawn(unwrap!(wifi_task(runner)));
 

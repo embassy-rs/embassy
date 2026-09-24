@@ -154,9 +154,16 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     unwrap!(res)
 }
 
-pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
+pub(crate) async unsafe fn erase_sector(
+    sector: &FlashSector,
+    #[cfg(flash_h7)] parallelism: Option<super::EraseParallelism>,
+) -> Result<(), Error> {
     let bank = pac::FLASH.bank(sector.bank as usize);
     bank.cr().modify(|w| {
+        #[cfg(flash_h7)]
+        if let Some(parallelism) = parallelism {
+            w.set_psize(parallelism.psize());
+        }
         w.set_ser(true);
         #[cfg(flash_h7)]
         w.set_snb(sector.index_in_bank);
@@ -184,9 +191,16 @@ pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Erro
     ret
 }
 
-pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_erase_sector(
+    sector: &FlashSector,
+    #[cfg(flash_h7)] parallelism: Option<super::EraseParallelism>,
+) -> Result<(), Error> {
     let bank = pac::FLASH.bank(sector.bank as usize);
     bank.cr().modify(|w| {
+        #[cfg(flash_h7)]
+        if let Some(parallelism) = parallelism {
+            w.set_psize(parallelism.psize());
+        }
         w.set_ser(true);
         #[cfg(flash_h7)]
         w.set_snb(sector.index_in_bank);

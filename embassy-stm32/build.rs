@@ -616,9 +616,15 @@ fn main() {
 
             let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
             flash_regions.extend(quote! {
-            #[cfg(flash)]
-            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
-        });
+                #[cfg(flash)]
+                pub struct #region_type<'d, MODE = crate::flash::Async>(
+                    pub &'static crate::flash::FlashRegion,
+                    pub(crate) embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>,
+                    pub(crate) core::marker::PhantomData<MODE>,
+                    #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+                    pub(crate) Option<crate::flash::EraseParallelism>,
+                );
+            });
         }
 
         let (fields, (inits, region_names)): (Vec<TokenStream>, (Vec<TokenStream>, Vec<Ident>)) = flash_memory_regions
@@ -632,7 +638,13 @@ fn main() {
                 };
                 let region_name = format_ident!("{}", region_name);
                 let init = quote! {
-                    #field_name: #field_type(&#region_name, unsafe { p.clone_unchecked()}, core::marker::PhantomData)
+                    #field_name: #field_type(
+                        &#region_name,
+                        unsafe { p.clone_unchecked()},
+                        core::marker::PhantomData,
+                        #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+                        erase_parallelism,
+                    )
                 };
 
                 (field, (init, region_name))
@@ -649,7 +661,11 @@ fn main() {
 
             #[cfg(flash)]
             impl<'d, MODE> FlashLayout<'d, MODE> {
-                pub(crate) fn new(p: embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>) -> Self {
+                pub(crate) fn new(
+                    p: embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>,
+                    #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+                    erase_parallelism: Option<crate::flash::EraseParallelism>,
+                ) -> Self {
                     Self {
                         #(#inits),*,
                         _mode: core::marker::PhantomData,
@@ -2120,7 +2136,8 @@ fn main() {
                 }
             }
 
-            if regs.kind == "comp" && (regs.version == "u5" || regs.version == "v1" || regs.version == "v2") {
+            // Keep this version list in sync with the `comp` module gate in `lib.rs`.
+            if regs.kind == "comp" && matches!(regs.version, "u5" | "v1" | "v2" | "u0") {
                 let peri = format_ident!("{}", p.name);
                 let pin_name = format_ident!("{}", pin.pin);
                 // Check if this peripheral has numbered signals (e.g. INP0/INP1 from extra YAML).

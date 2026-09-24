@@ -117,8 +117,8 @@ async fn main(_spawner: Spawner) {
         match select(spdif_receiver.read(&mut buf), sai_transmitter.wait_write_error()).await {
             Either::First(spdif_read_result) => match spdif_read_result {
                 Ok(_) => (),
-                Err(spdifrx::Error::RingbufferError(_)) => {
-                    trace!("SPDIFRX ringbuffer error. Renew.");
+                Err(spdifrx::Error::Overrun) => {
+                    trace!("SPDIFRX ringbuffer overrun error. Renew.");
                     drop(spdif_receiver);
                     spdif_receiver = new_spdif_receiver(
                         p.SPDIFRX1.reborrow(),
