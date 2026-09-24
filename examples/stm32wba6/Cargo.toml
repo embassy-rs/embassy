@@ -37,7 +37,7 @@ stm32wb-hci = { git = "https://github.com/embassy-rs/stm32wb-hci", branch = "dev
 default = ["ble"]
 mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba-mac", "dep:embassy-net"]
 ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/ble-stack-basic", "embassy-stm32-wpan/linklayer6-ble-basic", "dep:embassy-crypto-rustcrypto"]
- 
+
 [profile.release]
 debug = 2
 
@@ -74,6 +74,10 @@ name = "ble_serial_com"
 required-features = ["ble"]
 
 [[bin]]
+name = "ble_bonding"
+required-features = ["ble"]
+
+[[bin]]
 name = "ble_beacon"
 required-features = ["ble"]
 
@@ -87,6 +91,14 @@ required-features = ["ble"]
 
 [[bin]]
 name = "ble_data_throughput_server"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_dtm"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_dtm_runtime"
 required-features = ["ble"]
 
 [[bin]]
