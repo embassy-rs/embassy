@@ -4,7 +4,7 @@
 //! Circuit (LPI2C) controller, supporting blocking,
 //! interrupt-only async, and DMA async modes of operation.
 //!
-//! The driver support all transfer speeds except for Fast Mode+.
+//! The driver supports Standard, Fast, and Fast Plus modes.
 //!
 //! ## Features
 //!
@@ -83,6 +83,12 @@ use crate::pac::lpi2c::{Alf, Cmd, Dmf, Dozen, Epf, McrRrf, McrRtf, Msr, MsrFef, 
 pub enum SetupError {
     /// Clock configuration error.
     ClockSetup(ClockError),
+    /// The requested duty cycle does not meet the selected bus mode's minimum tHIGH.
+    InvalidDutyCycle,
+    /// The selected bus speed is not implemented by this driver.
+    UnsupportedSpeed,
+    /// The peripheral clock cannot produce the requested timing within the supported error bound.
+    BaudrateNotAchievable,
     /// Other internal errors or unexpected state.
     Other,
 }
@@ -150,7 +156,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 /// Bus speed (nominal SCL, no clock stretching)
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Speed {
     #[default]
@@ -175,29 +181,48 @@ impl From<Speed> for u32 {
     }
 }
 
+impl Speed {
+    const fn minimum_high_time_ns(self) -> Option<u32> {
+        match self {
+            Self::Standard => Some(4_000),
+            Self::Fast => Some(600),
+            Self::FastPlus => Some(260),
+            Self::UltraFast => None,
+        }
+    }
+}
+
 /// SCL duty cycle: the share of the SCL period the clock is driven high.
 ///
 /// CLKHI/CLKLO are 6-bit counters, and the high phase is additionally capped
 /// by the tBUF clamp below, so the achieved ratio is best effort and lands at
 /// ~48% for any request at or near [`MAX_PERCENT`](Self::MAX_PERCENT).
 ///
-/// The minimum tHIGH of the I2C-bus specification (UM10204 Table 10) is 40%
-/// of the period in Standard mode, 24% in Fast mode and 26% in Fast Plus, so
-/// a value valid for one speed can violate another.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// The minimum accepted value depends on [`Speed`]. The combination is
+/// validated when the controller configuration is applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DutyCycle {
     high_percent: u8,
 }
 
 impl DutyCycle {
-    /// Smallest accepted value: minimum tHIGH of the fastest-constrained mode
-    /// (Fast mode, 0.6 us of a 2.5 us period).
+    /// Minimum percentage accepted by [`new`](Self::new).
     pub const MIN_PERCENT: u8 = 24;
+    /// Minimum percentage for Standard mode (4.0 us of a 10 us period).
+    pub const STANDARD_MIN_PERCENT: u8 = 40;
+    /// Minimum percentage for Fast mode (0.6 us of a 2.5 us period).
+    pub const FAST_MIN_PERCENT: u8 = 24;
+    /// Minimum percentage for Fast Plus mode (0.26 us of a 1 us period).
+    pub const FAST_PLUS_MIN_PERCENT: u8 = 26;
     /// Largest accepted value: past this the tBUF clamp caps the high phase anyway.
     pub const MAX_PERCENT: u8 = 50;
 
     /// Creates a duty cycle from the percentage of the SCL period spent high.
+    ///
+    /// This validates the range representable by the driver. The configured
+    /// [`Speed`] imposes a mode-specific minimum that is checked when the
+    /// configuration is applied.
     ///
     /// Returns `None` if the value is outside
     /// [`MIN_PERCENT`](Self::MIN_PERCENT)..=[`MAX_PERCENT`](Self::MAX_PERCENT).
@@ -213,29 +238,175 @@ impl DutyCycle {
     pub const fn high_percent(&self) -> u8 {
         self.high_percent
     }
+
+    /// Minimum accepted percentage for a supported bus speed.
+    ///
+    /// Returns `None` for [`Speed::UltraFast`], which is not implemented.
+    pub const fn minimum_for_speed(speed: Speed) -> Option<u8> {
+        match speed {
+            Speed::Standard => Some(Self::STANDARD_MIN_PERCENT),
+            Speed::Fast => Some(Self::FAST_MIN_PERCENT),
+            Speed::FastPlus => Some(Self::FAST_PLUS_MIN_PERCENT),
+            Speed::UltraFast => None,
+        }
+    }
+
+    const fn is_valid_for(self, speed: Speed) -> bool {
+        match Self::minimum_for_speed(speed) {
+            Some(minimum) => self.high_percent >= minimum && self.high_percent <= Self::MAX_PERCENT,
+            None => false,
+        }
+    }
 }
 
 impl Default for DutyCycle {
-    /// Even split between the SCL high and low phases.
+    /// Nominally even split; the tBUF clamp lands it at approximately 48%.
     fn default() -> Self {
         Self { high_percent: 50 }
     }
 }
 
+/// Nominal timing currently programmed into the controller.
+///
+/// Physical timing can differ due to SCL rise/fall time and clock stretching.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ConfiguredTiming {
+    /// Nominal SCL frequency in hertz.
+    pub frequency_hz: u32,
+    /// Nominal share of the SCL period spent high.
+    pub high_percent: u8,
+}
+
 /// Largest value the 6-bit MCCR0 CLKHI/CLKLO counters can hold.
 const MAX_CLK_COUNT: u32 = 0x3F;
 
-/// `2 + FILTSCL`; we do not program MCFGR2, so FILTSCL = 0.
-const SCL_LATENCY: u32 = 2;
+/// MCFGR2.FILTSCL value programmed by this driver.
+const SCL_FILTER_CYCLES: u32 = 0;
 
-/// SCL high period, in prescaled cycles, for the requested duty cycle, capped
-/// so that tBUF >= 0.52 * SCL period (UM10204 Table 10: 1.3 us of a 2.5 us
-/// Fast mode period): CLKHI <= clkCycle - 0.52*src/baud/divider + 1.
-fn duty_clk_high(src_hz: u32, baud_hz: u32, divider: u32, clk_cycle: u32, duty_cycle: DutyCycle) -> u32 {
-    let scl_lat = SCL_LATENCY / divider;
-    let high = clk_cycle.saturating_sub(scl_lat) * u32::from(duty_cycle.high_percent()) / 100;
-    let a_tbuf = 13 * src_hz / baud_hz / divider / 25;
-    high.min(clk_cycle.saturating_sub(a_tbuf).saturating_add(1))
+/// Fixed internal cycles in addition to MCFGR2.FILTSCL.
+const SCL_LATENCY_BASE_CYCLES: u32 = 2;
+
+/// Maximum additional baud error accepted to make a duty cycle fit.
+const MAX_DUTY_BAUD_DEGRADATION_PERCENT: u32 = 1;
+
+#[derive(Clone, Copy)]
+struct BaudCandidate {
+    prescale: Prescale,
+    clk_cycle: u32,
+}
+
+impl BaudCandidate {
+    const fn divider(self) -> u32 {
+        1u32 << (self.prescale as u8)
+    }
+
+    const fn scl_latency(self) -> u32 {
+        (SCL_LATENCY_BASE_CYCLES + SCL_FILTER_CYCLES) / self.divider()
+    }
+
+    const fn period_cycles(self) -> u32 {
+        self.clk_cycle + 2 + self.scl_latency()
+    }
+
+    /// Convert the requested physical high share to CLKHI. SCL latency is
+    /// part of tHIGH on LPI2C, so it is subtracted from the register value.
+    const fn requested_clk_high(self, duty_cycle: DutyCycle) -> u32 {
+        let high_cycles = self.period_cycles() * duty_cycle.high_percent() as u32 / 100;
+        high_cycles.saturating_sub(1 + self.scl_latency())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct BaudParams {
+    prescale: Prescale,
+    clklo: u8,
+    clkhi: u8,
+    sethold: u8,
+    datavd: u8,
+}
+
+impl BaudParams {
+    const fn divider(self) -> u32 {
+        1u32 << (self.prescale as u8)
+    }
+
+    const fn scl_latency(self) -> u32 {
+        (SCL_LATENCY_BASE_CYCLES + SCL_FILTER_CYCLES) / self.divider()
+    }
+
+    const fn high_cycles(self) -> u32 {
+        self.clkhi as u32 + 1 + self.scl_latency()
+    }
+
+    fn meets_minimum_high_time(self, src_hz: u32, speed: Speed) -> bool {
+        let Some(minimum_ns) = speed.minimum_high_time_ns() else {
+            return false;
+        };
+
+        u64::from(self.high_cycles()) * u64::from(self.divider()) * 1_000_000_000
+            >= u64::from(minimum_ns) * u64::from(src_hz)
+    }
+
+    #[cfg(test)]
+    fn configured_timing(self, src_hz: u32) -> ConfiguredTiming {
+        configured_timing(src_hz, self.prescale, SCL_FILTER_CYCLES as u8, self.clklo, self.clkhi)
+    }
+}
+
+fn configured_timing(src_hz: u32, prescale: Prescale, filter_cycles: u8, clklo: u8, clkhi: u8) -> ConfiguredTiming {
+    let divider = 1u32 << (prescale as u8);
+    let scl_latency = (SCL_LATENCY_BASE_CYCLES + u32::from(filter_cycles)) / divider;
+    let period_cycles = u32::from(clklo) + u32::from(clkhi) + 2 + scl_latency;
+    let high_cycles = u32::from(clkhi) + 1 + scl_latency;
+
+    ConfiguredTiming {
+        frequency_hz: (src_hz / divider) / period_cycles,
+        high_percent: ((high_cycles * 100 + period_cycles / 2) / period_cycles) as u8,
+    }
+}
+
+fn minimum_clk_high(src_hz: u32, speed: Speed, candidate: BaudCandidate) -> Option<u32> {
+    let minimum_ns = u64::from(speed.minimum_high_time_ns()?);
+    let denominator = 1_000_000_000u64 * u64::from(candidate.divider());
+    let high_cycles = (minimum_ns * u64::from(src_hz)).div_ceil(denominator);
+
+    Some((high_cycles as u32).saturating_sub(1 + candidate.scl_latency()))
+}
+
+fn params_for_candidate(
+    src_hz: u32,
+    speed: Speed,
+    duty_cycle: DutyCycle,
+    candidate: BaudCandidate,
+) -> Option<BaudParams> {
+    let baud_hz: u32 = speed.into();
+    let divider = candidate.divider();
+    let requested_high = candidate.requested_clk_high(duty_cycle);
+    let minimum_high = minimum_clk_high(src_hz, speed, candidate)?;
+
+    // Preserve tBUF >= 0.52 * SCL period, matching the NXP SDK bound.
+    let tbuf_cycles = (13u64 * u64::from(src_hz) / u64::from(baud_hz) / u64::from(divider) / 25) as u32;
+    let maximum_high = candidate.clk_cycle.saturating_sub(tbuf_cycles).saturating_add(1);
+    let clk_high = requested_high.max(minimum_high).min(maximum_high);
+    let clk_low = candidate.clk_cycle.checked_sub(clk_high)?;
+
+    if clk_high > MAX_CLK_COUNT || clk_low > MAX_CLK_COUNT {
+        return None;
+    }
+
+    let clk_bdr = src_hz / baud_hz;
+    let tmp_hold = (clk_bdr / divider / 2).saturating_sub(1);
+    let tmp_datavd = (clk_bdr / divider / 4).saturating_sub(1);
+    let params = BaudParams {
+        prescale: candidate.prescale,
+        clklo: clk_low as u8,
+        clkhi: clk_high as u8,
+        sethold: tmp_hold.min(MAX_CLK_COUNT) as u8,
+        datavd: tmp_datavd.min(MAX_CLK_COUNT) as u8,
+    };
+
+    params.meets_minimum_high_time(src_hz, speed).then_some(params)
 }
 
 /// Compute LPI2C controller MCFGR1.PRESCALE + MCCR0 fields from peripheral
@@ -245,17 +416,26 @@ fn duty_clk_high(src_hz: u32, baud_hz: u32, divider: u32, clk_cycle: u32, duty_c
 /// (see `fsl_lpi2c.c`). For each prescaler 0..=7, computes the period
 /// in periph cycles using round-to-nearest division and keeps the smallest
 /// absolute error to the target, preferring prescalers whose cycle budget can
-/// express the requested duty cycle within the 6-bit counters. A non-default
-/// duty cycle can therefore cost up to ~1% of frequency accuracy. Then derives:
-///   - CLKHI = (clkCycle - SCL_LATENCY) * duty, capped so that tBUF >=
-///     0.52/baud and floored so that CLKLO still fits its field.
+/// express the requested duty cycle within the 6-bit counters. A candidate is
+/// rejected if accommodating the duty cycle adds more than 1% baud error.
+/// Then derives:
+///   - CLKHI from the complete SCL period, including SCL latency, capped so
+///     tBUF >= 0.52/baud and raised as needed to meet the mode's minimum tHIGH.
 ///   - CLKLO = clkCycle - CLKHI.
 ///   - SETHOLD = clk_bdr/divider/2 - 1   (~half SCL period).
 ///   - DATAVD  = clk_bdr/divider/4 - 1   (~quarter SCL period).
-///
-/// Where SCL_LATENCY = (2 + FILTSCL) / 2^prescale and we assume FILTSCL=0
-/// (we do not program MCFGR2 in this driver).
-fn compute_baud_params(src_hz: u32, baud_hz: u32, duty_cycle: DutyCycle) -> (Prescale, u8, u8, u8, u8) {
+fn compute_baud_params(src_hz: u32, speed: Speed, duty_cycle: DutyCycle) -> Result<BaudParams, SetupError> {
+    if speed == Speed::UltraFast {
+        return Err(SetupError::UnsupportedSpeed);
+    }
+    if !duty_cycle.is_valid_for(speed) {
+        return Err(SetupError::InvalidDutyCycle);
+    }
+    if src_hz == 0 {
+        return Err(SetupError::BaudrateNotAchievable);
+    }
+
+    let baud_hz: u32 = speed.into();
     let prescalers = [
         Prescale::DivideBy1,
         Prescale::DivideBy2,
@@ -267,17 +447,17 @@ fn compute_baud_params(src_hz: u32, baud_hz: u32, duty_cycle: DutyCycle) -> (Pre
         Prescale::DivideBy128,
     ];
 
-    let mut best: Option<(Prescale, u32, u32)> = None;
     let mut best_err = u32::MAX;
-    let mut best_fit: Option<(Prescale, u32, u32)> = None;
+    let mut found_candidate = false;
+    let mut best_fit = None;
     let mut best_fit_err = u32::MAX;
 
     for &prescale in &prescalers {
         let divider: u32 = 1u32 << (prescale as u8);
-        let scl_lat = SCL_LATENCY / divider;
+        let scl_lat = (SCL_LATENCY_BASE_CYCLES + SCL_FILTER_CYCLES) / divider;
 
         // a = round(src / divider / baud)
-        let a = (10 * src_hz / divider / baud_hz + 5) / 10;
+        let a = ((10u64 * u64::from(src_hz) / u64::from(divider) / u64::from(baud_hz) + 5) / 10) as u32;
         let b = scl_lat + 2;
         if a <= b {
             continue;
@@ -289,46 +469,32 @@ fn compute_baud_params(src_hz: u32, baud_hz: u32, duty_cycle: DutyCycle) -> (Pre
 
         let computed = (src_hz / divider) / (clk_cycle + 2 + scl_lat);
         let abs_err = computed.abs_diff(baud_hz);
+        found_candidate = true;
 
         if abs_err < best_err {
             best_err = abs_err;
-            best = Some((prescale, divider, clk_cycle));
         }
 
-        let high = duty_clk_high(src_hz, baud_hz, divider, clk_cycle, duty_cycle);
-        if clk_cycle.saturating_sub(high) <= MAX_CLK_COUNT && abs_err < best_fit_err {
+        let candidate = BaudCandidate { prescale, clk_cycle };
+        if let Some(params) = params_for_candidate(src_hz, speed, duty_cycle, candidate)
+            && abs_err < best_fit_err
+        {
             best_fit_err = abs_err;
-            best_fit = Some((prescale, divider, clk_cycle));
+            best_fit = Some(params);
         }
     }
 
-    // A prescaler that cannot express the duty cycle still beats none; the
-    // split below keeps its output inside the counters either way.
-    let (best_prescale, best_div, best_clk_cycle) = match best_fit.or(best) {
-        Some(v) => v,
-        None => (Prescale::DivideBy1, 1, 0),
-    };
-
-    let mut clk_high = duty_clk_high(src_hz, baud_hz, best_div, best_clk_cycle, duty_cycle);
-    // Hand the low phase's overflow back to the high phase so CLKLO fits.
-    clk_high = clk_high
-        .max(best_clk_cycle.saturating_sub(MAX_CLK_COUNT))
-        .min(MAX_CLK_COUNT);
-    // Keep at least one cycle in each phase when the cycle budget allows it.
-    if best_clk_cycle >= 2 {
-        clk_high = clk_high.clamp(1, best_clk_cycle - 1);
+    if !found_candidate {
+        return Err(SetupError::BaudrateNotAchievable);
     }
 
-    let clk_bdr = src_hz / baud_hz;
-    let tmp_hold = (clk_bdr / best_div / 2).saturating_sub(1);
-    let tmp_datavd = (clk_bdr / best_div / 4).saturating_sub(1);
+    let params = best_fit.ok_or(SetupError::BaudrateNotAchievable)?;
+    let added_error = best_fit_err.saturating_sub(best_err);
+    if u64::from(added_error) * 100 > u64::from(baud_hz) * u64::from(MAX_DUTY_BAUD_DEGRADATION_PERCENT) {
+        return Err(SetupError::BaudrateNotAchievable);
+    }
 
-    let clkhi = clk_high as u8;
-    let clklo = best_clk_cycle.saturating_sub(clk_high) as u8;
-    let sethold = (tmp_hold & 0x3F) as u8;
-    let datavd = (tmp_datavd & 0xFF) as u8;
-
-    (best_prescale, clklo, clkhi, sethold, datavd)
+    Ok(params)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -345,7 +511,9 @@ pub struct Config {
     /// Bus speed
     pub speed: Speed,
 
-    /// Share of the SCL period the clock is driven high (best effort)
+    /// Share of the SCL period the clock is driven high (best effort).
+    ///
+    /// Must be at least [`DutyCycle::minimum_for_speed`] for [`Self::speed`].
     pub duty_cycle: DutyCycle,
 
     /// Clock configuration
@@ -416,7 +584,9 @@ impl<'d> I2c<'d, Blocking> {
     /// # Errors
     ///
     /// - `SetupError::ClockSetup`: If there is an issue with the clock configuration.
-    /// - `SetupError::Other`: For other unexpected initialization errors.
+    /// - `SetupError::InvalidDutyCycle`: If the duty cycle violates the selected mode's minimum tHIGH.
+    /// - `SetupError::UnsupportedSpeed`: If UltraFast mode is selected.
+    /// - `SetupError::BaudrateNotAchievable`: If the requested timing cannot be represented.
     pub fn new_blocking<T: Instance>(
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
@@ -453,7 +623,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         let _scl = scl.into();
         let _sda = sda.into();
 
-        let inst = Self {
+        let mut inst = Self {
             info: T::info(),
             _scl,
             _sda,
@@ -463,12 +633,32 @@ impl<'d, M: Mode> I2c<'d, M> {
             _wg: parts.wake_guard,
         };
 
-        inst.set_configuration(&config);
+        inst.set_configuration(&config)?;
 
         Ok(inst)
     }
 
-    fn set_configuration(&self, config: &Config) {
+    /// Returns the nominal frequency and high-phase share currently programmed.
+    ///
+    /// This reads the hardware registers, so it also reflects configurations
+    /// applied through [`embassy_embedded_hal::SetConfig`].
+    pub fn configured_timing(&self) -> ConfiguredTiming {
+        let mcfgr1 = self.info.regs().mcfgr1().read();
+        let mcfgr2 = self.info.regs().mcfgr2().read();
+        let mccr0 = self.info.regs().mccr0().read();
+
+        configured_timing(
+            self.freq,
+            mcfgr1.prescale(),
+            mcfgr2.filtscl(),
+            mccr0.clklo(),
+            mccr0.clkhi(),
+        )
+    }
+
+    fn set_configuration(&mut self, config: &Config) -> Result<(), SetupError> {
+        let params = compute_baud_params(self.freq, config.speed, config.duty_cycle)?;
+
         // Disable the controller.
         critical_section::with(|_| self.info.regs().mcr().modify(|w| w.set_men(false)));
 
@@ -487,22 +677,19 @@ impl<'d, M: Mode> I2c<'d, M> {
             });
         });
 
-        let target_hz: u32 = config.speed.into();
-        // UltraFast (HS) mode requires programming MCCR1 and special start
-        // commands beyond what this driver currently supports. Leave it
-        // explicitly unimplemented until the HS path is wired up end-to-end.
-        if config.speed == Speed::UltraFast {
-            todo!("LPI2C UltraFast (HS) mode is not yet supported");
-        }
-        let (prescale, clklo, clkhi, sethold, datavd) = compute_baud_params(self.freq, target_hz, config.duty_cycle);
-
         critical_section::with(|_| {
-            self.info.regs().mcfgr1().modify(|w| w.set_prescale(prescale));
+            // The timing calculation assumes FILTSCL=0, so program it
+            // explicitly rather than relying on the reset value.
+            self.info
+                .regs()
+                .mcfgr2()
+                .modify(|w| w.set_filtscl(SCL_FILTER_CYCLES as u8));
+            self.info.regs().mcfgr1().modify(|w| w.set_prescale(params.prescale));
             self.info.regs().mccr0().modify(|w| {
-                w.set_clklo(clklo);
-                w.set_clkhi(clkhi);
-                w.set_sethold(sethold);
-                w.set_datavd(datavd);
+                w.set_clklo(params.clklo);
+                w.set_clkhi(params.clkhi);
+                w.set_sethold(params.sethold);
+                w.set_datavd(params.datavd);
             });
 
             // Enable the controller.
@@ -520,6 +707,8 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_dmf(Dmf::IntYes);
             w.set_stf(Stf::IntYes);
         });
+
+        Ok(())
     }
 
     fn remediation(&self) {
@@ -1059,7 +1248,9 @@ impl<'d> I2c<'d, Async> {
     /// # Errors
     ///
     /// - `SetupError::ClockSetup`: If there is an issue with the clock configuration.
-    /// - `SetupError::Other`: For other unexpected initialization errors.
+    /// - `SetupError::InvalidDutyCycle`: If the duty cycle violates the selected mode's minimum tHIGH.
+    /// - `SetupError::UnsupportedSpeed`: If UltraFast mode is selected.
+    /// - `SetupError::BaudrateNotAchievable`: If the requested timing cannot be represented.
     pub fn new_async<T: Instance>(
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
@@ -1223,7 +1414,9 @@ impl<'d> I2c<'d, Dma<'d>> {
     /// # Errors
     ///
     /// - `SetupError::ClockSetup`: If there is an issue with the clock configuration.
-    /// - `SetupError::Other`: For other unexpected initialization errors.
+    /// - `SetupError::InvalidDutyCycle`: If the duty cycle violates the selected mode's minimum tHIGH.
+    /// - `SetupError::UnsupportedSpeed`: If UltraFast mode is selected.
+    /// - `SetupError::BaudrateNotAchievable`: If the requested timing cannot be represented.
     pub fn new_async_with_dma<T: Instance>(
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
@@ -1617,7 +1810,141 @@ impl<'d, M: Mode> embassy_embedded_hal::SetConfig for I2c<'d, M> {
     type ConfigError = SetupError;
 
     fn set_config(&mut self, config: &Self::Config) -> Result<(), SetupError> {
-        self.set_configuration(config);
-        Ok(())
+        self.set_configuration(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duty_cycle_validation_depends_on_speed() {
+        assert!(DutyCycle::new(DutyCycle::STANDARD_MIN_PERCENT - 1).is_some());
+
+        let below_standard = DutyCycle::new(DutyCycle::STANDARD_MIN_PERCENT - 1).unwrap();
+        assert!(!below_standard.is_valid_for(Speed::Standard));
+        assert!(
+            DutyCycle::new(DutyCycle::STANDARD_MIN_PERCENT)
+                .unwrap()
+                .is_valid_for(Speed::Standard)
+        );
+
+        assert!(DutyCycle::new(DutyCycle::FAST_MIN_PERCENT - 1).is_none());
+        assert!(
+            DutyCycle::new(DutyCycle::FAST_MIN_PERCENT)
+                .unwrap()
+                .is_valid_for(Speed::Fast)
+        );
+
+        assert!(
+            !DutyCycle::new(DutyCycle::FAST_PLUS_MIN_PERCENT - 1)
+                .unwrap()
+                .is_valid_for(Speed::FastPlus)
+        );
+        assert!(
+            DutyCycle::new(DutyCycle::FAST_PLUS_MIN_PERCENT)
+                .unwrap()
+                .is_valid_for(Speed::FastPlus)
+        );
+    }
+
+    #[test]
+    fn minimum_duty_meets_each_modes_minimum_high_time() {
+        let sources = [6_000_000, 12_000_000, 24_000_000, 48_000_000, 96_000_000, 150_000_000];
+        let speeds = [Speed::Standard, Speed::Fast, Speed::FastPlus];
+
+        for source in sources {
+            for speed in speeds {
+                let minimum = DutyCycle::minimum_for_speed(speed).unwrap();
+                let duty_cycle = DutyCycle::new(minimum).unwrap();
+                let params = compute_baud_params(source, speed, duty_cycle).unwrap();
+
+                assert!(
+                    params.meets_minimum_high_time(source, speed),
+                    "{source} Hz source did not meet {speed:?} tHIGH"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fast_mode_review_example_meets_thigh() {
+        let params = compute_baud_params(48_000_000, Speed::Fast, DutyCycle::new(24).unwrap()).unwrap();
+
+        assert_eq!((params.prescale as u8, params.clklo, params.clkhi), (1, 44, 13));
+        assert!(params.meets_minimum_high_time(48_000_000, Speed::Fast));
+        assert_eq!(
+            params.configured_timing(48_000_000),
+            ConfiguredTiming {
+                frequency_hz: 400_000,
+                high_percent: 25,
+            }
+        );
+    }
+
+    #[test]
+    fn default_duty_preserves_legacy_register_values() {
+        let cases = [
+            (6_000_000, Speed::Standard, (0, 30, 26, 29, 14)),
+            (6_000_000, Speed::Fast, (0, 7, 4, 6, 2)),
+            (6_000_000, Speed::FastPlus, (0, 2, 0, 2, 0)),
+            (12_000_000, Speed::Standard, (0, 61, 55, 59, 29)),
+            (12_000_000, Speed::Fast, (0, 14, 12, 14, 6)),
+            (12_000_000, Speed::FastPlus, (0, 5, 3, 5, 2)),
+            (24_000_000, Speed::Standard, (1, 61, 56, 59, 29)),
+            (24_000_000, Speed::Fast, (0, 30, 26, 29, 14)),
+            (24_000_000, Speed::FastPlus, (0, 11, 9, 11, 5)),
+            (48_000_000, Speed::Standard, (2, 61, 57, 59, 29)),
+            (48_000_000, Speed::Fast, (0, 61, 55, 59, 29)),
+            (48_000_000, Speed::FastPlus, (0, 23, 21, 23, 11)),
+            (96_000_000, Speed::Standard, (3, 61, 57, 59, 29)),
+            (96_000_000, Speed::Fast, (1, 61, 56, 59, 29)),
+            (96_000_000, Speed::FastPlus, (0, 48, 44, 47, 23)),
+            (150_000_000, Speed::Standard, (4, 47, 45, 45, 22)),
+            (150_000_000, Speed::Fast, (2, 47, 45, 45, 22)),
+            (150_000_000, Speed::FastPlus, (1, 38, 34, 36, 17)),
+        ];
+
+        for (source, speed, expected) in cases {
+            let params = compute_baud_params(source, speed, DutyCycle::default()).unwrap();
+            let actual = (
+                params.prescale as u8,
+                params.clklo,
+                params.clkhi,
+                params.sethold,
+                params.datavd,
+            );
+
+            assert_eq!(actual, expected, "source={source}, speed={speed:?}");
+        }
+    }
+
+    #[test]
+    fn duty_cycle_frequency_degradation_is_bounded() {
+        let duty_cycle = DutyCycle::new(DutyCycle::FAST_MIN_PERCENT).unwrap();
+
+        assert!(compute_baud_params(42_000_000, Speed::Fast, duty_cycle).is_ok());
+        assert!(matches!(
+            compute_baud_params(38_000_000, Speed::Fast, duty_cycle),
+            Err(SetupError::BaudrateNotAchievable)
+        ));
+    }
+
+    #[test]
+    fn invalid_or_unachievable_timing_returns_an_error() {
+        let fast_only_duty = DutyCycle::new(DutyCycle::FAST_MIN_PERCENT).unwrap();
+        assert!(matches!(
+            compute_baud_params(48_000_000, Speed::Standard, fast_only_duty),
+            Err(SetupError::InvalidDutyCycle)
+        ));
+        assert!(matches!(
+            compute_baud_params(1_000_000, Speed::FastPlus, DutyCycle::default()),
+            Err(SetupError::BaudrateNotAchievable)
+        ));
+        assert!(matches!(
+            compute_baud_params(48_000_000, Speed::UltraFast, DutyCycle::default()),
+            Err(SetupError::UnsupportedSpeed)
+        ));
     }
 }
