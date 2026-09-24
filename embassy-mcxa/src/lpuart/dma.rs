@@ -296,6 +296,12 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
         while self.info.regs().stat().read().tc() == Tc::Active {}
         Ok(())
     }
+    /// Flush TX.
+    ///
+    /// This is a no-op: [`write`](Self::write) only returns once the DMA transfer has completed.
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 impl<'a> LpuartRx<'a, Dma<'a>> {
@@ -737,6 +743,12 @@ impl<'a> Lpuart<'a, Dma<'a>> {
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.rx.read(buf).await
     }
+    /// Flush TX.
+    ///
+    /// See [`LpuartTx::flush`] for more information.
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.tx.flush().await
+    }
 }
 
 impl<'a> embedded_io_async::Read for LpuartRx<'a, Dma<'a>> {
@@ -751,24 +763,22 @@ impl<'a> embedded_io_async::Write for LpuartTx<'a, Dma<'a>> {
     }
 
     async fn flush(&mut self) -> core::result::Result<(), Self::Error> {
-        // No-op, when DMA transfer is completed, it is also flushed.
-        Ok(())
+        self.flush().await
     }
 }
 
 impl<'a> embedded_io_async::Read for Lpuart<'a, Dma<'a>> {
     async fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
-        self.rx.read(buf).await
+        self.read(buf).await
     }
 }
 
 impl<'a> embedded_io_async::Write for Lpuart<'a, Dma<'a>> {
     async fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
-        self.tx.write(buf).await
+        self.write(buf).await
     }
 
     async fn flush(&mut self) -> core::result::Result<(), Self::Error> {
-        // No-op, when DMA transfer is completed, it is also flushed.
-        self.tx.flush().await
+        self.flush().await
     }
 }
