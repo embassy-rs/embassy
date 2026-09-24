@@ -1296,7 +1296,34 @@ pub unsafe extern "C" fn BLEPLAT_AesEcbEncrypt(key: *const u8, input: *const u8,
     let input_slice: &[u8; 16] = &*(input as *const [u8; 16]);
     let output_slice: &mut [u8; 16] = &mut *(output as *mut [u8; 16]);
 
-    aes_ecb_encrypt(key_slice, input_slice, output_slice);
+    // ST's `bleplat.h` documents `key` here as "Little Endian format" -- i.e.
+    // byte-reversed relative to the standard AES/NIST convention `aes_ecb_encrypt`
+    // (and the CMAC/CCM code built on top of it) uses everywhere else. ST's own
+    // C platform driver (`hw_aes.c`) implements this via the STM32 AES
+    // peripheral's `HW_AES_REV` key mode, which -- together with the
+    // peripheral's fixed DINR/DOUTR word-write order -- also byte-reverses the
+    // data block and the output relative to the standard convention.
+    // `RndAddr_Check_Resolvable_Address` (in the closed
+    // `stm32wba_ble_stack_full.a`), the only direct caller of this extern "C"
+    // entry point, is written against that exact convention.
+    //
+    // The reversal must happen HERE, at the C-ABI boundary the closed library
+    // crosses -- NOT inside the shared `aes_ecb_encrypt` helper, which CMAC
+    // (RFC 4493, `cmac_compute`) and CCM also call directly for unrelated
+    // internal purposes that correctly expect the standard convention.
+    let mut rev_key = [0u8; 16];
+    let mut rev_input = [0u8; 16];
+    for i in 0..16 {
+        rev_key[i] = key_slice[15 - i];
+        rev_input[i] = input_slice[15 - i];
+    }
+
+    let mut rev_output = [0u8; 16];
+    aes_ecb_encrypt(&rev_key, &rev_input, &mut rev_output);
+
+    for i in 0..16 {
+        output_slice[i] = rev_output[15 - i];
+    }
 }
 
 /// AES CMAC set key function.
