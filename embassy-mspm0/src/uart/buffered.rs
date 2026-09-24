@@ -120,6 +120,42 @@ impl<'d> BufferedUart<'d> {
         self.rx.blocking_read(buffer)
     }
 
+    /// Read from UART RX buffer, waiting until at least one byte is available.
+    ///
+    /// Returns the number of bytes read.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.rx.read(buf).await
+    }
+
+    /// Check whether data is available to read without waiting.
+    pub fn read_ready(&mut self) -> Result<bool, Error> {
+        self.rx.read_ready()
+    }
+
+    /// Wait until the RX buffer has data, and return a slice of the buffered data.
+    ///
+    /// Call [`consume`](Self::consume) to mark bytes as read.
+    pub async fn fill_buf(&mut self) -> Result<&[u8], Error> {
+        self.rx.fill_buf().await
+    }
+
+    /// Mark `amt` bytes returned by [`fill_buf`](Self::fill_buf) as read.
+    pub fn consume(&mut self, amt: usize) {
+        self.rx.consume(amt)
+    }
+
+    /// Write to UART TX buffer, waiting until there is space for at least one byte.
+    ///
+    /// Returns the number of bytes written.
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.tx.write(buf).await
+    }
+
+    /// Wait until all data in the TX buffer has been handed to the hardware.
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.tx.flush().await
+    }
+
     /// Send break character.
     pub fn send_break(&mut self) {
         self.tx.send_break()
@@ -225,6 +261,30 @@ impl<'d> BufferedUartRx<'d> {
     /// Read from UART RX buffer, blocking execution until done.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         self.blocking_read_inner(buffer)
+    }
+
+    /// Read from UART RX buffer, waiting until at least one byte is available.
+    ///
+    /// Returns the number of bytes read.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.read_inner(buf).await
+    }
+
+    /// Check whether data is available to read without waiting.
+    pub fn read_ready(&mut self) -> Result<bool, Error> {
+        self.read_ready_inner()
+    }
+
+    /// Wait until the RX buffer has data, and return a slice of the buffered data.
+    ///
+    /// Call [`consume`](Self::consume) to mark bytes as read.
+    pub async fn fill_buf(&mut self) -> Result<&[u8], Error> {
+        self.fill_buf_inner().await
+    }
+
+    /// Mark `amt` bytes returned by [`fill_buf`](Self::fill_buf) as read.
+    pub fn consume(&mut self, amt: usize) {
+        self.consume_inner(amt)
     }
 }
 
@@ -338,6 +398,18 @@ impl<'d> BufferedUartTx<'d> {
         }
     }
 
+    /// Write to UART TX buffer, waiting until there is space for at least one byte.
+    ///
+    /// Returns the number of bytes written.
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.write_inner(buf).await
+    }
+
+    /// Wait until all data in the TX buffer has been handed to the hardware.
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.flush_inner().await
+    }
+
     /// Check if UART is busy.
     pub fn busy(&self) -> bool {
         super::busy(self.info.regs)
@@ -390,93 +462,93 @@ impl embedded_io_async::ErrorType for BufferedUartTx<'_> {
 
 impl embedded_io_async::Read for BufferedUart<'_> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.rx.read(buf).await
+        BufferedUart::read(self, buf).await
     }
 }
 
 impl embedded_io_async::Read for BufferedUartRx<'_> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.read_inner(buf).await
+        BufferedUartRx::read(self, buf).await
     }
 }
 
 impl embedded_io_async::ReadReady for BufferedUart<'_> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        self.rx.read_ready()
+        BufferedUart::read_ready(self)
     }
 }
 
 impl embedded_io_async::ReadReady for BufferedUartRx<'_> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        self.read_ready_inner()
+        BufferedUartRx::read_ready(self)
     }
 }
 
 impl embedded_io_async::BufRead for BufferedUart<'_> {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
-        self.rx.fill_buf().await
+        BufferedUart::fill_buf(self).await
     }
 
     fn consume(&mut self, amt: usize) {
-        self.rx.consume(amt);
+        BufferedUart::consume(self, amt)
     }
 }
 
 impl embedded_io_async::BufRead for BufferedUartRx<'_> {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
-        self.fill_buf_inner().await
+        BufferedUartRx::fill_buf(self).await
     }
 
     fn consume(&mut self, amt: usize) {
-        self.consume_inner(amt);
+        BufferedUartRx::consume(self, amt)
     }
 }
 
 impl embedded_io_async::Write for BufferedUart<'_> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.tx.write_inner(buf).await
+        BufferedUart::write(self, buf).await
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.tx.flush_inner().await
+        BufferedUart::flush(self).await
     }
 }
 
 impl embedded_io_async::Write for BufferedUartTx<'_> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.write_inner(buf).await
+        BufferedUartTx::write(self, buf).await
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.flush_inner().await
+        BufferedUartTx::flush(self).await
     }
 }
 
 impl embedded_io::Read for BufferedUart<'_> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.rx.read(buf)
+        self.blocking_read(buf)
     }
 }
 
 impl embedded_io::Read for BufferedUartRx<'_> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.blocking_read_inner(buf)
+        self.blocking_read(buf)
     }
 }
 
 impl embedded_io::Write for BufferedUart<'_> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.tx.write(buf)
+        self.blocking_write(buf)
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
-        self.tx.flush()
+        self.blocking_flush()
     }
 }
 
 impl embedded_io::Write for BufferedUartTx<'_> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.blocking_write_inner(buf)
+        self.blocking_write(buf)
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
@@ -510,7 +582,7 @@ impl embedded_hal_nb::serial::ErrorType for BufferedUartTx<'_> {
 
 impl embedded_hal_nb::serial::Read for BufferedUart<'_> {
     fn read(&mut self) -> nb::Result<u8, Self::Error> {
-        self.rx.read()
+        embedded_hal_nb::serial::Read::read(&mut self.rx)
     }
 }
 
@@ -526,11 +598,11 @@ impl embedded_hal_nb::serial::Read for BufferedUartRx<'_> {
 
 impl embedded_hal_nb::serial::Write for BufferedUart<'_> {
     fn write(&mut self, word: u8) -> nb::Result<(), Self::Error> {
-        self.tx.write(word)
+        embedded_hal_nb::serial::Write::write(&mut self.tx, word)
     }
 
     fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.tx.flush()
+        embedded_hal_nb::serial::Write::flush(&mut self.tx)
     }
 }
 
