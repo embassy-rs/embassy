@@ -1050,10 +1050,3 @@ pub struct VersionInfo {
 }
 
 pub mod config_data;
-
-// Always compiled: the ST full host cannot resolve a peer's Resolvable Private
-// Address without the Core-Spec `ah()` byte order, so a bonded reconnect from an
-// RPA-using central fails and the stored bond is never reused. See the module for
-// the full rationale, including the note that this replaces a symbol of the
-// certified stack.
-mod host_ah_fix;
