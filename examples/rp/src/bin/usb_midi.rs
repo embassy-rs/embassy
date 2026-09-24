@@ -11,11 +11,11 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
+use embassy_rp::uid::uid_hex;
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
 use embassy_usb::class::midi::{MidiClass, MidiClassConfig};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
-use embassy_rp::uid::uid_hex;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
