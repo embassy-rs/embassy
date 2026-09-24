@@ -21,11 +21,8 @@
 
 use defmt::*;
 use defmt_rtt as _;
-use embassy_crypto_rustcrypto as _;
 use embassy_executor::Spawner;
-use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rcc::{Config as RccConfig, LseDrive, LseMode};
-use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
@@ -60,7 +57,6 @@ const MIN_STOP_PAUSE_MS: u64 = 100;
 // Keep ADV interval and RF conditions fixed while comparing.
 
 bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<RNG>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
 });
@@ -120,14 +116,14 @@ async fn main(spawner: Spawner) {
         config.min_stop_pause = Duration::from_millis(20);
     }
 
-    let p = embassy_stm32::init(config);
+    let _p = embassy_stm32::init(config);
 
     info!("Embassy STM32WBA6 Low-Power BLE Advertiser Example");
 
     // Initialize hardware peripherals required by BLE stack
-    let (platform, runtime) = new_platform!(Rng::new(p.RNG, Irqs), 8);
+    let (platform, runtime) = new_platform!(8);
 
-    info!("Hardware peripherals initialized (RNG)");
+    info!("BLE platform initialized");
 
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));

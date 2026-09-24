@@ -21,11 +21,8 @@
 
 use defmt::*;
 use defmt_rtt as _;
-use embassy_crypto_rustcrypto as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_stm32::peripherals::RNG;
-use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType};
@@ -34,7 +31,6 @@ use embassy_time::{Duration, Ticker};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<RNG>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
 });
@@ -157,11 +153,11 @@ fn build_eddystone_tlm(adv_count: u32, uptime_100ms: u32) -> AdvData {
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
     config.rcc = rcc::Config::new_wpan();
-    let p = embassy_stm32::init(config);
+    let _p = embassy_stm32::init(config);
 
     info!("Embassy STM32WBA6 BLE Beacon Example");
 
-    let (platform, runtime) = new_platform!(Rng::new(p.RNG, Irqs), 8);
+    let (platform, runtime) = new_platform!(8);
 
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 

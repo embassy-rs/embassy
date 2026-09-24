@@ -83,8 +83,9 @@ impl Mode for Test {}
 /// # Crypto
 ///
 /// Full BLE operation requires `embassy-crypto` drivers registered for the
-/// operations the BLE stack uses: AES-128 ECB ([`embassy_crypto::Aes128`]),
-/// AES-128 CMAC ([`embassy_crypto::Aes128Cmac`]), AES-128 CCM
+/// operations the BLE stack uses: random numbers ([`embassy_crypto::Rng`]),
+/// AES-128 ECB ([`embassy_crypto::Aes128`]), AES-128 CMAC
+/// ([`embassy_crypto::Aes128Cmac`]), AES-128 CCM
 /// ([`embassy_crypto::Aes128Ccm`]) and P-256 arithmetic
 /// ([`embassy_crypto::p256`]). The drivers are selected by the final binary,
 /// e.g. via the matching `embassy-crypto-*` features of `embassy-stm32` or via
@@ -101,8 +102,8 @@ pub struct HCI<'d, M: Mode> {
 impl<'d> HCI<'d, Normal> {
     /// Create a new BLE instance
     ///
-    /// Requires the shared [`Platform`] (RNG) and `embassy-crypto` drivers for
-    /// AES-128 and P-256; see the [type-level documentation](Self#crypto).
+    /// Requires the shared [`Platform`] and `embassy-crypto` drivers for
+    /// RNG, AES-128 and P-256; see the [type-level documentation](Self#crypto).
     pub async fn new(
         platform: &'static Platform,
         runtime: &'d mut Runtime,
