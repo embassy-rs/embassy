@@ -158,9 +158,17 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         compiler_fence(Ordering::SeqCst);
     }
 
-    /// Clears ring buffer.
-    pub fn clear(&mut self) {
+    /// Discards all data currently in the ring buffer.
+    /// Returns error that were detected during background reception,
+    /// and were not yet consumed by calling read functions.
+    /// After calling this function ring buffer is empty and has no errors.
+    pub fn clear(&mut self) -> Result<(), Error> {
+        let sr = self.info.regs.sr().read();
+        clear_spi_errors(self.info.regs);
+        // clear ring buffer after clearing errors, otherwise errors
+        // that occur between could leave garbage and be unnoticed
         self.ring_buf.clear();
+        check_error_flags(sr, true)
     }
 
     /// (Re-)start DMA and SPI if it is not running (has not been started yet or has failed), and

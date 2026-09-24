@@ -203,9 +203,16 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
         compiler_fence(Ordering::SeqCst);
     }
 
-    /// Clears ring buffer.
-    pub fn clear(&mut self) {
+    /// Discards all data currently in the ring buffer.
+    /// Returns error that were detected during background reception,
+    /// and were not yet consumed by calling read functions.
+    /// After calling this function ring buffer is empty and has no errors.
+    pub fn clear(&mut self) -> Result<(), Error> {
+        let result = check_idle_and_errors(self.info.regs);
+        // clear ring buffer after clearing errors, otherwise errors
+        // that occur between could leave garbage and be unnoticed
         self.ring_buf.clear();
+        result.map(|_| ())
     }
 
     /// (Re-)start DMA and Uart if it is not running (has not been started yet or has failed), and
