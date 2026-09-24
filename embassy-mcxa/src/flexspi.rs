@@ -1074,6 +1074,17 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             data.len()
         );
 
+        #[cfg(feature = "defmt")]
+        if seq_index == 4 {
+            defmt::info!(
+                "WRSR LUT HW: LUT16={:#010x} LUT17={:#010x} LUT18={:#010x} LUT19={:#010x}",
+                self.info.regs.lut(16).read().0,
+                self.info.regs.lut(17).read().0,
+                self.info.regs.lut(18).read().0,
+                self.info.regs.lut(19).read().0,
+            );
+        }
+
         self.prepare_ip_transfer();
 
         self.info
@@ -1103,46 +1114,80 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             );
         }
 
-        self.info
-            .regs
-            .ipcmd()
-            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
-
         let tx_watermark = self.info.regs.iptxfcr().read().txwmrk() as usize + 1;
+        let fifo_window_len = 8 * tx_watermark;
         let mut offset = 0;
 
-        while offset < data.len() {
+        // Prime the first IP TX FIFO watermark before starting the command.
+        //
+        // This is especially important for short register writes such as
+        // WRSR. The FIFO entry is committed before IPCMD is triggered, while
+        // IPCR1.IDATSZ still controls the exact number of bytes transmitted.
+        if offset < data.len() {
             #[cfg(feature = "defmt")]
             defmt::info!(
-                "FLEXSPI TX_DIAG before_tfdr fill={=u8}",
+                "FLEXSPI TX_DIAG prefill_before_ipcmd fill={=u8}",
                 self.info.regs.iptxfsts().read().fill()
             );
 
             while !self.info.regs.intr().read().iptxwe() {}
 
-            let chunk_len = (8 * tx_watermark).min(data.len() - offset);
+            let chunk_len = fifo_window_len.min(data.len() - offset);
+            let mut fifo_window = [0xFFu8; IP_FIFO_CAPACITY_BYTES];
 
-            for (index, chunk) in data[offset..offset + chunk_len].chunks(4).enumerate() {
-                let mut word = [0xFFu8; 4];
-                word[..chunk.len()].copy_from_slice(chunk);
-                self.info.regs.tfdr(index).write_value(Tfdr(u32::from_le_bytes(word)));
+            fifo_window[..chunk_len].copy_from_slice(&data[offset..offset + chunk_len]);
+
+            for (index, chunk) in fifo_window[..fifo_window_len].chunks_exact(4).enumerate() {
+                self.info
+                    .regs
+                    .tfdr(index)
+                    .write_value(Tfdr(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])));
             }
 
             #[cfg(feature = "defmt")]
             defmt::info!(
-                "FLEXSPI TX_DIAG after_tfdr fill={=u8}",
+                "FLEXSPI TX_DIAG prefill_after_tfdr fill={=u8}",
                 self.info.regs.iptxfsts().read().fill()
             );
 
             offset += chunk_len;
 
+            // Commit the written watermark entry to the IP TX FIFO.
             self.info.regs.intr().write(|r: &mut Intr| r.set_iptxwe(true));
 
             #[cfg(feature = "defmt")]
             defmt::info!(
-                "FLEXSPI TX_DIAG after_iptxwe_ack fill={=u8}",
+                "FLEXSPI TX_DIAG prefill_committed fill={=u8}",
                 self.info.regs.iptxfsts().read().fill()
             );
+        }
+
+        // Start the serial flash command only after the first TX data has
+        // already been made available to FlexSPI.
+        self.info
+            .regs
+            .ipcmd()
+            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
+
+        // Feed any additional watermark windows after the command starts.
+        while offset < data.len() {
+            while !self.info.regs.intr().read().iptxwe() {}
+
+            let chunk_len = fifo_window_len.min(data.len() - offset);
+            let mut fifo_window = [0xFFu8; IP_FIFO_CAPACITY_BYTES];
+
+            fifo_window[..chunk_len].copy_from_slice(&data[offset..offset + chunk_len]);
+
+            for (index, chunk) in fifo_window[..fifo_window_len].chunks_exact(4).enumerate() {
+                self.info
+                    .regs
+                    .tfdr(index)
+                    .write_value(Tfdr(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])));
+            }
+
+            offset += chunk_len;
+
+            self.info.regs.intr().write(|r: &mut Intr| r.set_iptxwe(true));
         }
 
         self.wait_ip_command_done();
@@ -1755,16 +1800,70 @@ impl<'d> Flexspi<'d, Blocking> {
 
         Ok(())
     }
+    /// Issue a command-only LUT sequence.
+    ///
+    /// Intended for temporary flash protocol validation such as
+    /// entering or exiting Macronix QPI mode.
+    pub fn command_with_seq(&mut self, address: u32, seq_index: u8) -> Result<(), IoError> {
+        self.inner.issue_ip_command(address, seq_index as usize, 0, None)
+    }
+
+    /// Issue a write-data IP command using an explicitly selected LUT sequence.
+    ///
+    /// Intended for temporary protocol validation such as Macronix QPI WRSR.
+    pub fn write_with_seq(&mut self, address: u32, seq_index: u8, data: &[u8]) -> Result<(), IoError> {
+        self.inner.issue_ip_write_command(address, seq_index as usize, data)
+    }
     /// Set selected status-register bits using an explicitly selected
     /// write-status LUT sequence, preserving all existing status bits.
     ///
     /// Returns the status register value read back after the write completes.
-    pub fn set_status_bits_with_seq(
-        &mut self,
-        seq_index: u8,
-        bits: u8,
-        config: u8,
-    ) -> Result<(u8, u8, u8), (u8, IoError)> {
+    /// Diagnostic helper for validating Write Enable without modifying
+    /// the flash status register.
+    pub fn probe_write_enable_status(&mut self) -> Result<(u8, u8), (u8, IoError)> {
+        let before = self.inner.read_status().map_err(|e| (1, e))?;
+
+        self.inner.write_enable().map_err(|e| (2, e))?;
+
+        let after_wren = self.inner.read_status().map_err(|e| (3, e))?;
+
+        Ok((before, after_wren))
+    }
+    /// Diagnostic probe for a single-byte status-register write.
+    ///
+    /// WRSR is self-timed by the NOR after CS# rises. Poll RDSR until
+    /// WEL clears, which indicates that the WRSR cycle completed.
+    pub fn probe_status_write_with_seq(&mut self, seq_index: u8, bits: u8) -> Result<(u8, u8, u8, u8), (u8, IoError)> {
+        let before = self.inner.read_status().map_err(|e| (1, e))?;
+        let updated = before | bits;
+
+        self.inner.write_enable().map_err(|e| (2, e))?;
+
+        let after_wren = self.inner.read_status().map_err(|e| (3, e))?;
+
+        self.inner
+            .issue_ip_write_command(0, seq_index as usize, &[updated])
+            .map_err(|e| (4, e))?;
+
+        // Capture the very first status read after WRSR.
+        //
+        // WIP=1 means the flash accepted WRSR and started its
+        // self-timed write cycle.
+        // WIP=0 + WEL=1 means the flash rejected the WRSR transaction.
+        let immediate_after_wrsr = self.inner.read_status().map_err(|e| (5, e))?;
+        let mut after_wrsr = immediate_after_wrsr;
+
+        for _ in 0..100_000 {
+            if (after_wrsr & 0x02) == 0 {
+                break;
+            }
+
+            after_wrsr = self.inner.read_status().map_err(|e| (6, e))?;
+        }
+
+        Ok((before, after_wren, immediate_after_wrsr, after_wrsr))
+    }
+    pub fn set_status_bits_with_seq(&mut self, seq_index: u8, bits: u8) -> Result<(u8, u8, u8), (u8, IoError)> {
         let current = self.inner.read_status().map_err(|e| (1, e))?;
         let updated = current | bits;
         let mut after_wren = current;
@@ -1775,7 +1874,7 @@ impl<'d> Flexspi<'d, Blocking> {
             after_wren = self.inner.read_status().map_err(|e| (3, e))?;
 
             self.inner
-                .issue_ip_write_command(0, seq_index as usize, &[updated, config])
+                .issue_ip_write_command(0, seq_index as usize, &[updated])
                 .map_err(|e| (4, e))?;
 
             self.inner.wait_bus_busy().map_err(|e| (5, e))?;
