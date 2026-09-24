@@ -440,7 +440,7 @@ impl<'d, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::NorFlash fo
 }
 
 #[allow(dead_code)]
-mod ram_helpers {
+pub(crate) mod ram_helpers {
     use super::*;
     use crate::rom_data;
 

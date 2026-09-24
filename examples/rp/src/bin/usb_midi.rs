@@ -11,6 +11,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
+use embassy_rp::uid::uid_hex;
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
 use embassy_usb::class::midi::{MidiClass, MidiClassConfig};
 use embassy_usb::driver::EndpointError;
@@ -34,7 +35,7 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Embassy");
     config.product = Some("USB-MIDI example");
-    config.serial_number = Some("12345678");
+    config.serial_number = Some(uid_hex());
     config.max_power = 100;
     config.max_packet_size_0 = 64;
 
