@@ -57,12 +57,18 @@ unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
     }
 }
 
-pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_erase_sector(
+    sector: &FlashSector,
+    parallelism: Option<super::EraseParallelism>,
+) -> Result<(), Error> {
     save_data_cache_state();
 
     trace!("Blocking erasing sector number {}", sector.snb());
 
     pac::FLASH.cr().modify(|w| {
+        if let Some(parallelism) = parallelism {
+            w.set_psize(parallelism.psize());
+        }
         w.set_ser(true);
         w.set_snb(sector.snb())
     });

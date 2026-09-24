@@ -41,6 +41,65 @@ pub enum Blocking {}
 /// Async flash mode typestate.
 pub enum Async {}
 
+/// Flash driver configuration.
+#[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Config {
+    /// Parallelism applied before each sector erase, also after splitting into regions.
+    ///
+    /// `None` (the default) leaves PSIZE unchanged, including changes made by writes.
+    pub erase_parallelism: Option<EraseParallelism>,
+}
+
+/// Parallelism used for flash erase operations.
+///
+/// Available on STM32F2/F4/F7 and `flash_h7`. STM32H7A/B has no PSIZE selection.
+/// The supply must meet the selected device's voltage/VPP requirements throughout
+/// the erase; consult its reference manual and datasheet. F2/F4/F7 x64 requires
+/// external VPP where supported; H7 has different supply requirements.
+/// The driver does not check supply voltage.
+/// Parallelism affects erase duration and current consumption, not programming access width.
+#[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum EraseParallelism {
+    /// Erase 8 bits in parallel.
+    X8,
+    /// Erase 16 bits in parallel.
+    X16,
+    /// Erase 32 bits in parallel.
+    X32,
+    /// Erase 64 bits in parallel.
+    X64,
+}
+
+#[cfg(any(flash_f2, flash_f4, flash_f7))]
+impl EraseParallelism {
+    fn psize(self) -> crate::pac::flash::vals::Psize {
+        use crate::pac::flash::vals::Psize;
+        match self {
+            Self::X8 => Psize::Psize8,
+            Self::X16 => Psize::Psize16,
+            Self::X32 => Psize::Psize32,
+            Self::X64 => Psize::Psize64,
+        }
+    }
+}
+
+#[cfg(flash_h7)]
+impl EraseParallelism {
+    fn psize(self) -> u8 {
+        match self {
+            Self::X8 => 0,
+            Self::X16 => 1,
+            Self::X32 => 2,
+            Self::X64 => 3,
+        }
+    }
+}
+
 /// Flash memory region
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
