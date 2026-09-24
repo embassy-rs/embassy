@@ -345,6 +345,14 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
         }
     }
 
+    /// Return whether the DMA ring buffer contains data, so that a read would not wait.
+    pub fn read_ready(&mut self) -> Result<bool, Error> {
+        let len = self.ring_buf.len().map_err(|e| match e {
+            RingBufferError::Overrun => Error::Overrun,
+        })?;
+        Ok(len > 0)
+    }
+
     /// Set baudrate
     pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
         set_baudrate(self.info, self.kernel_clock, baudrate)
@@ -405,9 +413,6 @@ impl embedded_io_async::Read for RingBufferedUartRx<'_, u8> {
 
 impl<W: UsartWord> ReadReady for RingBufferedUartRx<'_, W> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        let len = self.ring_buf.len().map_err(|e| match e {
-            RingBufferError::Overrun => Self::Error::Overrun,
-        })?;
-        Ok(len > 0)
+        RingBufferedUartRx::read_ready(self)
     }
 }
