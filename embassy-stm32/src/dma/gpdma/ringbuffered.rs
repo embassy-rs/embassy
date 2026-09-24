@@ -365,7 +365,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             .await?)
     }
 
-    /// The current length of the ringbuffer
+    /// The free capacity of the ring buffer.
     pub fn len(&mut self) -> Result<usize, RingBufferError> {
         Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl::new(self.channel.reborrow()))?)
     }
