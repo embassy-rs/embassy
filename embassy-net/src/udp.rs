@@ -491,21 +491,17 @@ impl<'d> UdpSocket<'d> {
         })
     }
 
-    /// Wait until the socket becomes writable.
+    /// Wait until the socket is bound.
     ///
-    /// A socket becomes writable when the stack has a free packet buffer and the
-    /// network device has room for a frame.
+    /// This does not check packet buffer availability or device transmit room.
+    /// Use `send_to` to wait for a send, or `try_send_to` to attempt one.
     pub fn wait_send_ready(&self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| self.poll_send_ready(cx))
     }
 
-    /// Wait until a datagram can be sent.
+    /// Poll until the socket is bound.
     ///
-    /// When no datagram can be sent (the stack has no free packet buffer, or the
-    /// network device has no room), this method will return `Poll::Pending` and
-    /// register the current task to be notified when it can.
-    ///
-    /// When a datagram can be sent, this method will return `Poll::Ready`.
+    /// This does not check packet buffer availability or device transmit room.
     pub fn poll_send_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.with_mut(|s| {
             if s.is_open() {
@@ -737,7 +733,7 @@ impl<'d> UdpSocket<'d> {
         self.with_mut(|s| s.close())
     }
 
-    /// Returns whether the socket is ready to send data, i.e. it is bound and a packet buffer is free.
+    /// Returns whether the socket is bound. A send may still fail or wait for resources.
     pub fn may_send(&self) -> bool {
         self.with(|s| s.is_open())
     }

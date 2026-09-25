@@ -368,12 +368,16 @@ impl<'d> RawSocket<'d> {
         self.with(|s| s.can_recv())
     }
 
-    /// Wait until the socket becomes writable.
+    /// Wait until the socket is bound.
+    ///
+    /// This does not check packet buffer availability or device transmit room.
     pub fn wait_send_ready(&self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| self.poll_send_ready(cx))
     }
 
-    /// Wait until a packet can be sent.
+    /// Poll until the socket is bound.
+    ///
+    /// This does not check packet buffer availability or device transmit room.
     pub fn poll_send_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.with_mut(|s| {
             if s.is_open() {
