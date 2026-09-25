@@ -146,7 +146,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
     }
 
     /// Stop DMA backed SPI receiver
-    fn stop(&mut self) {
+    pub fn stop(&mut self) {
         self.ring_buf.request_pause();
 
         set_rxdmaen(self.info.regs, false);

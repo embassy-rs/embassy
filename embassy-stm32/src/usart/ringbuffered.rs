@@ -180,7 +180,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
     }
 
     /// Stop DMA backed UART receiver
-    fn stop_uart(&mut self) {
+    pub fn stop_uart(&mut self) {
         self.ring_buf.request_pause();
 
         let r = self.info.regs;
