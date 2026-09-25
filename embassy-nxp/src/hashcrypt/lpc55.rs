@@ -145,8 +145,7 @@ pub trait Digest {
 
 pub trait Aes {
     fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
-    // Universal encrypt confuguration, meaning
-    // MSW1ST = true, MSW1ST_OUT = true, SWAPKEY = true, SWAPDAT = true, AESDECRYPT = Encrypt
+    // Universal encrypt confuguration via register calls
     // Chop user provided data into words, feed 4 words at the time to indata()
     // Every 4 words, poll digest and apend it to ouptut
     // If the final part of the message is less than 4 words, padd with 0s
@@ -155,14 +154,17 @@ pub trait Aes {
     // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
 
     fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
-    // Universal decrypt confuguration, meaning
-    // MSW1ST = true, MSW1ST_OUT = true, SWAPKEY = true, SWAPDAT = false, AESDECRYPT = Decrypt
+    // Universal decrypt confuguration using register calls
     // Chop user provided data into words, feed 4 words at the time to indata()
     // Every 4 words, poll digest and apend it to ouptut
     // If the final part of the message is less than 4 words, padd with 0s
     // Before feeding last 4 words, flip STREAMEDLAST to true
     // Check that data.len = output.len
     // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
+
+    // to handle messages that are not divisible in 4 blocks, add pading with 0, keep track of the size of
+    // the paddind, all padding will produce garbage ouput which will need to be trimmed from the last block
+    // of the digest
 }
 
 // Specific driver types
