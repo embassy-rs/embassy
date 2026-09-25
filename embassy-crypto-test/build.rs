@@ -1210,7 +1210,9 @@ fn main() {
     ] {
         mac(&mut out, &w, file, suite, |_| true);
     }
-    hkdf(&mut out, &w, "hkdf_sha256", "hkdf_sha256");
+    for (file, suite) in [("hkdf_sha256", "hkdf_sha256"), ("hkdf_sha384", "hkdf_sha384")] {
+        hkdf(&mut out, &w, file, suite);
+    }
 
     aes_ecb_ctr(&mut out, &msg);
     cbc(&mut out, &w);

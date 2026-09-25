@@ -309,9 +309,43 @@ pub fn mac<M: Mac>(suite: &Suite<vectors::Mac>) -> Outcome {
 // HKDF
 // =============================================================================
 
-/// Run the HKDF-SHA-256 suite, through both `new` and `extract` + `from_prk`.
-pub fn hkdf(suite: &Suite<vectors::Hkdf>) -> Outcome {
-    use embassy_crypto::HkdfSha256;
+/// An HKDF type of `embassy_crypto`.
+pub trait Hkdf: Sized {
+    /// Size of the pseudorandom key.
+    const PRK_SIZE: usize;
+    /// See `embassy_crypto::HkdfSha256::new`.
+    fn new(salt: &[u8], ikm: &[u8]) -> Self;
+    /// `extract`, with the pseudorandom key written to `prk` (of `PRK_SIZE` bytes).
+    fn extract_into(salt: &[u8], ikm: &[u8], prk: &mut [u8]);
+    /// See `embassy_crypto::HkdfSha256::from_prk`.
+    fn from_prk(prk: &[u8]) -> Result<Self, Error>;
+    /// See `embassy_crypto::HkdfSha256::expand`.
+    fn expand(&self, info: &[u8], okm: &mut [u8]) -> Result<(), Error>;
+}
+
+macro_rules! impl_hkdf {
+    ($($t:ident),* $(,)?) => {$(
+        impl Hkdf for embassy_crypto::$t {
+            const PRK_SIZE: usize = embassy_crypto::$t::PRK_SIZE;
+            fn new(salt: &[u8], ikm: &[u8]) -> Self {
+                embassy_crypto::$t::new(salt, ikm)
+            }
+            fn extract_into(salt: &[u8], ikm: &[u8], prk: &mut [u8]) {
+                prk.copy_from_slice(&embassy_crypto::$t::extract(salt, ikm).0)
+            }
+            fn from_prk(prk: &[u8]) -> Result<Self, Error> {
+                embassy_crypto::$t::from_prk(prk)
+            }
+            fn expand(&self, info: &[u8], okm: &mut [u8]) -> Result<(), Error> {
+                embassy_crypto::$t::expand(self, info, okm)
+            }
+        }
+    )*};
+}
+impl_hkdf!(HkdfSha256, HkdfSha384);
+
+/// Run an HKDF suite, through both `new` and `extract` + `from_prk`.
+pub fn hkdf<H: Hkdf>(suite: &Suite<vectors::Hkdf>) -> Outcome {
     const MAX: usize = 256;
 
     run(
@@ -324,9 +358,11 @@ pub fn hkdf(suite: &Suite<vectors::Hkdf>) -> Outcome {
             let (mut a, mut b) = ([0u8; MAX], [0u8; MAX]);
             let (a, b) = (&mut a[..case.size], &mut b[..case.size]);
 
-            let accepted = HkdfSha256::new(case.salt, case.ikm).expand(case.info, a).is_ok();
-            let (prk, _) = HkdfSha256::extract(case.salt, case.ikm);
-            let accepted_prk = HkdfSha256::from_prk(&prk)
+            let accepted = H::new(case.salt, case.ikm).expand(case.info, a).is_ok();
+            let mut prk = [0u8; 64];
+            let prk = &mut prk[..H::PRK_SIZE];
+            H::extract_into(case.salt, case.ikm, prk);
+            let accepted_prk = H::from_prk(prk)
                 .map_err(|_| "extracted key rejected")?
                 .expand(case.info, b)
                 .is_ok();
@@ -1532,7 +1568,9 @@ named! {
     hmac_sha512_256 => mac::<embassy_crypto::HmacSha512_256>(&HMAC_SHA512_256);
 
     /// HKDF-SHA-256 (Wycheproof `hkdf_sha256_test`).
-    hkdf_sha256 => hkdf(&HKDF_SHA256);
+    hkdf_sha256 => hkdf::<embassy_crypto::HkdfSha256>(&HKDF_SHA256);
+    /// HKDF-SHA-384 (Wycheproof `hkdf_sha384_test`).
+    hkdf_sha384 => hkdf::<embassy_crypto::HkdfSha384>(&HKDF_SHA384);
 
     /// AES-128 ECB (generated).
     aes128_ecb => aes_ecb::<embassy_crypto::Aes128>(&AES_ECB_128);
