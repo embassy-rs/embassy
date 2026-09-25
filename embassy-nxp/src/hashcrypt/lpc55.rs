@@ -1,6 +1,6 @@
 //! Driver for the HASHCRYPT peripheral, mode switch sckeleton
 use embassy_hal_internal::Peri;
-use nxp_pac::hashcrypt::vals::{self, Aesdecrypt, Aeskeysz, Aesmode, Aessecret, Mode};
+use nxp_pac::hashcrypt::vals::{Aeskeysz, Mode};
 
 use crate::hashcrypt::inner::Key::{Key128, Key192, Key256};
 use crate::pac;
@@ -106,43 +106,30 @@ impl<'d> GenericDriver<'d> {
     }
 
     pub fn aes_ecb(&mut self) -> AesEcb<'_, 'd> {
-        pac::HASHCRYPT.ctrl().modify(|w| {
-            w.set_mode(Mode::Aes);
-            w.set_new_hash(true);
-        });
-
-        pac::HASHCRYPT.cryptcfg().modify(|w| {
-            w.set_aesmode(Aesmode::Ecb);
-            w.set_aessecret(Aessecret::NormalWay);
-            w.set_msw1st(true);
-            w.set_msw1st_out(true);
-            w.set_swapkey(true);
-            w.set_streamlast(false);
-        });
+        // AES-ECB config via register calls
         AesEcb {
             _peri: self,
             key_size: None,
             key: None,
         }
-        // AES-ECB config via register calls
     }
 
     pub fn aes_cbc(&mut self) -> AesCbc<'_, 'd> {
+        // AES-CBC config via register calls
         AesCbc {
             _peri: self,
             key_size: None,
             key: None,
         }
-        // AES-CBC config via register calls
     }
 
     pub fn aes_ctr(&mut self) -> AesCtr<'_, 'd> {
+        // AES-CTR config via register calls
         AesCtr {
             _peri: self,
             key_size: None,
             key: None,
         }
-        // AES-CTR config via register calls
     }
     // rename to generic driver or _driver
 }
@@ -186,7 +173,7 @@ pub struct Sha1<'a, 'd> {
 impl<'a, 'd> Digest for Sha1<'a, 'd> {
     type Output = [u8; 20];
 
-    fn update(&mut self, data: &[u8]) {
+    fn update(&mut self, _data: &[u8]) {
         todo!("Add update function for Sha1");
     }
 
@@ -202,7 +189,7 @@ pub struct Sha256<'a, 'd> {
 impl<'a, 'd> Digest for Sha256<'a, 'd> {
     type Output = [u8; 32];
 
-    fn update(&mut self, data: &[u8]) {
+    fn update(&mut self, _data: &[u8]) {
         todo!("Add update method for Sha 256");
     }
 
@@ -218,11 +205,11 @@ pub struct AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> Aes for AesEcb<'a, 'd> {
-    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+    fn encrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
         todo!("Add encrypt method for ECB")
     }
 
-    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+    fn decrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
         todo!("Add decrypt method for ECB");
     }
 }
@@ -236,16 +223,16 @@ pub struct AesCbc<'a, 'd> {
     key: Option<Key>,
 }
 impl<'a, 'd> Aes for AesCbc<'a, 'd> {
-    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+    fn encrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
         todo!("Add encrypt method for CBC")
     }
 
-    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+    fn decrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
         todo!("Add decrypt method for CBC");
     }
 }
 impl<'a, 'd> AesCbc<'a, 'd> {
-    pub fn set_iv(&mut self, iv: &[u8; 16]) -> Result<(), AesError> {
+    pub fn set_iv(&mut self, _iv: &[u8; 16]) -> Result<(), AesError> {
         todo!("Add method boady");
     }
 }
@@ -256,17 +243,17 @@ pub struct AesCtr<'a, 'd> {
 }
 
 impl<'a, 'd> Aes for AesCtr<'a, 'd> {
-    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+    fn encrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
         todo!("Add encrypt method for CTR")
     }
 
-    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+    fn decrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
         todo!("Add decrypt method for CTR");
     }
 }
 
 impl<'a, 'd> AesCtr<'a, 'd> {
-    pub fn set_counter(&mut self, counter: &[u8; 16]) -> Result<(), AesError> {
+    pub fn set_counter(&mut self, _counter: &[u8; 16]) -> Result<(), AesError> {
         todo!("Add method boady");
     }
 }
