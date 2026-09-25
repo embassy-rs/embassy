@@ -494,22 +494,30 @@ impl<'d> BufferedUartTx<'d> {
                 return Poll::Ready(Ok(0));
             }
 
+            // Register before pushing, mirroring `read`. With the old
+            // push-then-register order the irq handler could drain the whole
+            // buffer and wake in the window between a failed push and the
+            // register; its final drain pops an empty buffer and does not wake
+            // again, so the writer parked forever on an empty buffer with the
+            // FIFO idle. Registering first closes the window: any drain after
+            // this wakes us for a re-poll.
+            state.tx_waker.register(cx.waker());
+
             let mut tx_writer = unsafe { state.tx_buf.writer() };
             let n = tx_writer.push(|data| {
                 let n = data.len().min(buf.len());
                 data[..n].copy_from_slice(&buf[..n]);
                 n
             });
+            // The TX interrupt only fires on a transition through the FIFO
+            // trigger level, so an empty FIFO never raises it again. Kick the
+            // drain by hand; a full ring needs it just as much as a short write.
+            info.interrupt.pend();
+
             if n == 0 {
-                state.tx_waker.register(cx.waker());
                 return Poll::Pending;
             }
 
-            // The TX interrupt only triggers when the there was data in the
-            // FIFO and the number of bytes drops below a threshold. When the
-            // FIFO was empty we have to manually pend the interrupt to shovel
-            // TX data from the buffer into the FIFO.
-            info.interrupt.pend();
             Poll::Ready(Ok(n))
         })
         .await
@@ -517,10 +525,17 @@ impl<'d> BufferedUartTx<'d> {
 
     /// Wait until all written bytes have been fully transmitted on the wire.
     pub async fn flush(&mut self) -> Result<(), Error> {
+        let info = self.info;
         let state = self.state;
         poll_fn(move |cx| {
+            // Register before checking, for the same lost-wakeup window as in
+            // `write` above.
+            state.tx_waker.register(cx.waker());
+
             if !state.tx_buf.is_empty() {
-                state.tx_waker.register(cx.waker());
+                // Same one-shot TX interrupt hazard as in `write`: bytes are
+                // still queued, so make sure something will shovel them out.
+                info.interrupt.pend();
                 return Poll::Pending;
             }
 
