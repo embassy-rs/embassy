@@ -191,6 +191,7 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
 
     #[cfg(feature = "ptp")]
     fn poll_tx_timestamp(&mut self) -> Option<xarxa_driver::TxTimestamp> {
+        self.tx.fast_forward();
         self.tx.poll_timestamp()
     }
 }
