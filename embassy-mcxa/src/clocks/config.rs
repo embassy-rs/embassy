@@ -244,6 +244,12 @@ pub enum CoreSleep {
     /// This will also move the system into the "low power" state, which will disable any
     /// clocks not configured as `PoweredClock::AlwaysActive".
     ///
+    /// This requires a custom executor that enters deep sleep through
+    /// [`crate::clocks::deep_sleep_if_possible`] or [`crate::clocks::go_to_deep_sleep`]
+    /// and completes clock recovery before allowing interrupt handlers to run.
+    /// Enable either the `executor-platform` feature to use embassy-mcxa's executor
+    /// or `external-deep-sleep-executor` when providing that behavior externally.
+    ///
     /// ## TODO
     ///
     /// For now, this REQUIRES calling unsafe `okay_but_actually_enable_deep_sleep()`
