@@ -9,6 +9,8 @@ export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
 export PATH=$CARGO_HOME/bin:$PATH
 
+# when bumping these you must increment the version, otherwise the new version will not be installed
+
 cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev f8a8cce4092ef2566fbae04f088daa70c9e1fe93
 
 cargo embassy-devtool check-crlf
