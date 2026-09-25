@@ -14,6 +14,7 @@ mod macros;
 
 pub mod adc;
 pub mod dma;
+pub mod flash;
 #[cfg(feature = "_executor")]
 pub mod executor;
 pub mod gpio;
