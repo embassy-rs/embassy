@@ -20,9 +20,9 @@ use xarxa::wire::{Ipv4Addr, Ipv4Cidr};
 #[cfg(feature = "ipv6")]
 use xarxa::wire::{Ipv6Addr, Ipv6Cidr};
 
-use crate::Stack;
 use crate::iface::IfaceHandle;
 use crate::time::{instant_from_xarxa, instant_to_xarxa};
+use crate::{NoWake, Stack};
 
 #[cfg(feature = "ipv4")]
 const IPV4_DEFAULT: IpCidr = IpCidr::V4(Ipv4Cidr::new(Ipv4Addr::new(0, 0, 0, 0), 0));
@@ -127,7 +127,8 @@ impl<'d> Routes<'d> {
     /// - `Full`: if the table has no room. Only possible without the `alloc`
     ///   feature, where the limit is [`ROUTE_COUNT`](crate::config::ROUTE_COUNT).
     pub fn add(&self, route: Route) -> Result<(), RouteError> {
-        self.stack.with_mut(|i| i.stack.routes_mut().add(route.to_xarxa()))
+        self.stack
+            .with(|i| (i.stack.routes_mut().add(route.to_xarxa()), NoWake))
     }
 
     /// Remove the route at `index` and return it.
@@ -135,35 +136,36 @@ impl<'d> Routes<'d> {
     /// # Panics
     /// Panics if `index` is out of bounds.
     pub fn remove(&self, index: usize) -> Route {
-        Route::from_xarxa(self.stack.with_mut(|i| i.stack.routes_mut().remove(index)))
+        Route::from_xarxa(self.stack.with(|i| (i.stack.routes_mut().remove(index), NoWake)))
     }
 
     /// Keep only the routes for which `f` returns true.
     pub fn retain(&self, mut f: impl FnMut(&Route) -> bool) {
         self.stack
-            .with_mut(|i| i.stack.routes_mut().retain(|r| f(&Route::from_xarxa(*r))))
+            .with(|i| (i.stack.routes_mut().retain(|r| f(&Route::from_xarxa(*r))), NoWake))
     }
 
     /// Remove all routes.
     pub fn clear(&self) {
-        self.stack.with_mut(|i| i.stack.routes_mut().clear())
+        self.stack.with(|i| (i.stack.routes_mut().clear(), NoWake))
     }
 
     /// Iterate over the routes.
     pub fn iter(&self) -> impl Iterator<Item = Route> + 'd {
         let stack = self.stack;
-        (0..self.len())
-            .filter_map(move |n| stack.with(|i| i.stack.routes().iter().nth(n).copied().map(Route::from_xarxa)))
+        (0..self.len()).filter_map(move |n| {
+            stack.with(|i| (i.stack.routes().iter().nth(n).copied().map(Route::from_xarxa), NoWake))
+        })
     }
 
     /// Number of routes.
     pub fn len(&self) -> usize {
-        self.stack.with(|i| i.stack.routes().len())
+        self.stack.with(|i| (i.stack.routes().len(), NoWake))
     }
 
     /// Whether there are no routes.
     pub fn is_empty(&self) -> bool {
-        self.stack.with(|i| i.stack.routes().is_empty())
+        self.stack.with(|i| (i.stack.routes().is_empty(), NoWake))
     }
 
     /// Add a default ipv4 gateway (ie. "ip route add 0.0.0.0/0 via `gateway` dev `iface`").
@@ -178,7 +180,7 @@ impl<'d> Routes<'d> {
     #[cfg(feature = "ipv4")]
     pub fn add_default_ipv4_route(&self, gateway: Ipv4Addr, iface: IfaceHandle) -> Result<Option<Route>, RouteError> {
         self.stack
-            .with_mut(|i| i.stack.routes_mut().add_default_ipv4_route(gateway, iface))
+            .with(|i| (i.stack.routes_mut().add_default_ipv4_route(gateway, iface), NoWake))
             .map(|r| r.map(Route::from_xarxa))
     }
 
@@ -194,7 +196,7 @@ impl<'d> Routes<'d> {
     #[cfg(feature = "ipv6")]
     pub fn add_default_ipv6_route(&self, gateway: Ipv6Addr, iface: IfaceHandle) -> Result<Option<Route>, RouteError> {
         self.stack
-            .with_mut(|i| i.stack.routes_mut().add_default_ipv6_route(gateway, iface))
+            .with(|i| (i.stack.routes_mut().add_default_ipv6_route(gateway, iface), NoWake))
             .map(|r| r.map(Route::from_xarxa))
     }
 
@@ -202,7 +204,7 @@ impl<'d> Routes<'d> {
     #[cfg(feature = "ipv4")]
     pub fn default_ipv4_route(&self) -> Option<Route> {
         self.stack
-            .with(|i| i.stack.routes().default_ipv4_route())
+            .with(|i| (i.stack.routes().default_ipv4_route(), NoWake))
             .map(Route::from_xarxa)
     }
 
@@ -210,7 +212,7 @@ impl<'d> Routes<'d> {
     #[cfg(feature = "ipv6")]
     pub fn default_ipv6_route(&self) -> Option<Route> {
         self.stack
-            .with(|i| i.stack.routes().default_ipv6_route())
+            .with(|i| (i.stack.routes().default_ipv6_route(), NoWake))
             .map(Route::from_xarxa)
     }
 
@@ -218,7 +220,7 @@ impl<'d> Routes<'d> {
     #[cfg(feature = "ipv4")]
     pub fn remove_default_ipv4_route(&self) -> Option<Route> {
         self.stack
-            .with_mut(|i| i.stack.routes_mut().remove_default_ipv4_route())
+            .with(|i| (i.stack.routes_mut().remove_default_ipv4_route(), NoWake))
             .map(Route::from_xarxa)
     }
 
@@ -226,7 +228,7 @@ impl<'d> Routes<'d> {
     #[cfg(feature = "ipv6")]
     pub fn remove_default_ipv6_route(&self) -> Option<Route> {
         self.stack
-            .with_mut(|i| i.stack.routes_mut().remove_default_ipv6_route())
+            .with(|i| (i.stack.routes_mut().remove_default_ipv6_route(), NoWake))
             .map(Route::from_xarxa)
     }
 }

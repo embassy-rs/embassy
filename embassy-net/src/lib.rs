@@ -95,6 +95,26 @@ impl Default for StackStorage<'_> {
     }
 }
 
+/// Whether the runner must be woken after a [`Stack::with`] closure, to process
+/// what the closure changed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WakeRunner {
+    Wake,
+    NoWake,
+}
+pub(crate) use WakeRunner::{NoWake, Wake};
+
+/// `Wake` if `wake`, `NoWake` otherwise.
+pub(crate) fn wake_if(wake: bool) -> WakeRunner {
+    if wake { Wake } else { NoWake }
+}
+
+/// Pass `r` through, waking the runner if it is `Ok`.
+pub(crate) fn wake_if_ok<T, E>(r: Result<T, E>) -> (Result<T, E>, WakeRunner) {
+    let wake = wake_if(r.is_ok());
+    (r, wake)
+}
+
 pub(crate) struct Inner<'d> {
     pub(crate) stack: xarxa::Stack<'d>,
     /// Waker used for triggering polls.
@@ -157,17 +177,13 @@ impl<'d> Stack<'d> {
         (stack, Runner { stack })
     }
 
-    /// Borrow the stack, without waking the runner.
-    pub(crate) fn with<R>(&self, f: impl FnOnce(&mut Inner<'d>) -> R) -> R {
-        f(&mut self.inner.borrow_mut())
-    }
-
-    /// Borrow the stack, and wake the runner afterwards so it processes what
-    /// changed.
-    pub(crate) fn with_mut<R>(&self, f: impl FnOnce(&mut Inner<'d>) -> R) -> R {
+    /// Borrow the stack. `f` says whether the runner must be woken afterwards.
+    pub(crate) fn with<R>(&self, f: impl FnOnce(&mut Inner<'d>) -> (R, WakeRunner)) -> R {
         let mut inner = self.inner.borrow_mut();
-        let r = f(&mut inner);
-        inner.waker.wake();
+        let (r, wake) = f(&mut inner);
+        if wake == Wake {
+            inner.waker.wake();
+        }
         r
     }
 
@@ -189,7 +205,7 @@ impl<'d> Stack<'d> {
     /// does not drop the timestamps it already queued.
     #[cfg(feature = "packetmeta-timestamp")]
     pub fn poll_tx_timestamp(&self) -> Option<driver::TxTimestamp> {
-        self.with(|i| i.stack.poll_tx_timestamp())
+        self.with(|i| (i.stack.poll_tx_timestamp(), NoWake))
     }
 
     /// Wait for a TX timestamp from the stack-wide queue.
@@ -201,7 +217,7 @@ impl<'d> Stack<'d> {
         poll_fn(|cx| {
             self.with(|i| {
                 i.stack.register_tx_timestamp_waker(cx.waker());
-                i.stack.poll_tx_timestamp().map_or(Poll::Pending, Poll::Ready)
+                (i.stack.poll_tx_timestamp().map_or(Poll::Pending, Poll::Ready), NoWake)
             })
         })
     }
@@ -224,7 +240,7 @@ impl<'d> Stack<'d> {
     ///   not of the kind its medium uses.
     #[cfg(feature = "alloc")]
     pub fn add_iface(&self, driver: alloc::boxed::Box<dyn Driver + 'd>) -> Result<Iface<'d>, AddIfaceError> {
-        let handle = self.with_mut(|i| i.stack.add_iface(driver))?;
+        let handle = self.with(|i| wake_if_ok(i.stack.add_iface(driver)))?;
         Ok(self.iface(handle))
     }
 
@@ -249,7 +265,7 @@ impl<'d> Stack<'d> {
     /// - `HardwareAddrMismatch`: if the hardware address the device reports is
     ///   not of the kind its medium uses.
     pub fn add_iface_borrowed(&self, driver: &'d mut dyn Driver) -> Result<Iface<'d>, AddIfaceError> {
-        let handle = self.with_mut(|i| i.stack.add_iface_borrowed(driver))?;
+        let handle = self.with(|i| wake_if_ok(i.stack.add_iface_borrowed(driver)))?;
         Ok(self.iface(handle))
     }
 
@@ -262,6 +278,7 @@ impl<'d> Stack<'d> {
             // Check the handle is live, so a bad one panics here instead of somewhere
             // deeper the first time the interface is used.
             let _ = i.stack.iface(handle).capabilities();
+            ((), NoWake)
         });
         Iface::new(*self, handle)
     }
@@ -271,7 +288,7 @@ impl<'d> Stack<'d> {
     /// # Panics
     /// Panics if the handle is stale (the interface was already removed).
     pub fn remove_iface(&self, handle: IfaceHandle) {
-        self.with_mut(|i| i.stack.remove_iface(handle))
+        self.with(|i| (i.stack.remove_iface(handle), Wake))
     }
 
     /// Iterate over the interfaces added to the stack.
@@ -282,9 +299,11 @@ impl<'d> Stack<'d> {
             let handle = stack.with(|i| {
                 let mut iter = i.stack.ifaces();
                 for _ in 0..n {
-                    iter.next()?;
+                    if iter.next().is_none() {
+                        return (None, NoWake);
+                    }
                 }
-                iter.next().map(|(handle, _)| handle)
+                (iter.next().map(|(handle, _)| handle), NoWake)
             })?;
             n += 1;
             Some(stack.iface(handle))
@@ -294,7 +313,7 @@ impl<'d> Stack<'d> {
     /// The stack's hostname, or `None` if not set.
     #[cfg(feature = "hostname")]
     pub fn hostname<R>(&self, f: impl FnOnce(Option<&str>) -> R) -> R {
-        self.with(|i| f(i.stack.hostname()))
+        self.with(|i| (f(i.stack.hostname()), NoWake))
     }
 
     /// Set the stack's hostname.
@@ -309,7 +328,7 @@ impl<'d> Stack<'d> {
     ///   is left unchanged.
     #[cfg(feature = "hostname")]
     pub fn set_hostname(&self, hostname: &str) -> Result<(), HostnameTooLong> {
-        self.with_mut(|i| i.stack.set_hostname(hostname))
+        self.with(|i| (i.stack.set_hostname(hostname), NoWake))
     }
 
     /// Get the packet reassembly timeout.
@@ -318,7 +337,7 @@ impl<'d> Stack<'d> {
     /// kept while waiting for the rest of it. The default is 60 seconds.
     #[cfg(any(feature = "ipv4-reassembly", feature = "sixlowpan-reassembly"))]
     pub fn reassembly_timeout(&self) -> embassy_time::Duration {
-        self.with(|i| time::duration_from_xarxa(i.stack.reassembly_timeout()))
+        self.with(|i| (time::duration_from_xarxa(i.stack.reassembly_timeout()), NoWake))
     }
 
     /// Set the packet reassembly timeout.
@@ -327,7 +346,7 @@ impl<'d> Stack<'d> {
     /// then are dropped, and the packet buffer they were kept in is freed.
     #[cfg(any(feature = "ipv4-reassembly", feature = "sixlowpan-reassembly"))]
     pub fn set_reassembly_timeout(&self, timeout: embassy_time::Duration) {
-        self.with_mut(|i| i.stack.set_reassembly_timeout(time::duration_to_xarxa(timeout)))
+        self.with(|i| (i.stack.set_reassembly_timeout(time::duration_to_xarxa(timeout)), NoWake))
     }
 
     /// Access the neighbor cache.
@@ -348,7 +367,7 @@ impl<'d> Stack<'d> {
     /// those, and come first.
     #[cfg(feature = "dns")]
     pub fn set_dns_servers(&self, servers: &[crate::wire::IpAddr]) {
-        self.with_mut(|i| {
+        self.with(|i| {
             i.static_dns_servers.clear();
             for s in servers {
                 if i.static_dns_servers.push(*s).is_err() {
@@ -357,6 +376,7 @@ impl<'d> Stack<'d> {
                 }
             }
             i.update_dns_servers();
+            ((), NoWake)
         })
     }
 
@@ -387,17 +407,17 @@ impl<'d> Stack<'d> {
         }
 
         let query = poll_fn(|cx| {
-            self.with_mut(|i| {
+            self.with(|i| {
                 let Inner {
                     stack, dns, dns_waker, ..
                 } = i;
                 match dns.start_query(stack, name, qtype) {
-                    Ok(handle) => Poll::Ready(Ok::<_, dns::Error>(handle)),
+                    Ok(handle) => (Poll::Ready(Ok::<_, dns::Error>(handle)), Wake),
                     Err(xarxa::dns::StartQueryError::NoFreeSlot) => {
                         dns_waker.register(cx.waker());
-                        Poll::Pending
+                        (Poll::Pending, NoWake)
                     }
-                    Err(e) => Poll::Ready(Err(e.into())),
+                    Err(e) => (Poll::Ready(Err(e.into())), NoWake),
                 }
             })
         })
@@ -427,26 +447,32 @@ impl<'d> Stack<'d> {
         }
 
         let drop = OnDrop::new(|| {
-            self.with_mut(|i| {
+            self.with(|i| {
                 i.dns.cancel_query(query);
                 i.dns_waker.wake();
+                ((), NoWake)
             })
         });
 
         let res = poll_fn(|cx| {
-            self.with_mut(|i| match i.dns.get_query_result(query) {
-                Ok(addrs) => {
-                    i.dns_waker.wake();
-                    Poll::Ready(Ok(addrs))
-                }
-                Err(xarxa::dns::GetQueryResultError::Pending) => {
-                    i.dns.register_query_waker(query, cx.waker());
-                    Poll::Pending
-                }
-                Err(e) => {
-                    i.dns_waker.wake();
-                    Poll::Ready(Err(e.into()))
-                }
+            self.with(|i| {
+                (
+                    match i.dns.get_query_result(query) {
+                        Ok(addrs) => {
+                            i.dns_waker.wake();
+                            Poll::Ready(Ok(addrs))
+                        }
+                        Err(xarxa::dns::GetQueryResultError::Pending) => {
+                            i.dns.register_query_waker(query, cx.waker());
+                            Poll::Pending
+                        }
+                        Err(e) => {
+                            i.dns_waker.wake();
+                            Poll::Ready(Err(e.into()))
+                        }
+                    },
+                    NoWake,
+                )
             })
         })
         .await;
@@ -467,10 +493,10 @@ impl<'d> Stack<'d> {
                     .iter()
                     .any(|a| matches!(a.cidr, xarxa::wire::IpCidr::V6(_)) && !is_link_local(a))
                 {
-                    return true;
+                    return (true, NoWake);
                 }
             }
-            false
+            (false, NoWake)
         })
     }
 }
@@ -488,7 +514,7 @@ impl<'d> Runner<'d> {
     /// You must call this in a background task, to process network events.
     pub async fn run(&mut self) -> ! {
         poll_fn(|cx| {
-            self.stack.with(|i| i.poll(cx));
+            self.stack.with(|i| (i.poll(cx), NoWake));
             Poll::<()>::Pending
         })
         .await;
@@ -607,12 +633,15 @@ pub(crate) fn wait_iface<'a>(
     poll_fn(move |cx| {
         stack.with(|i| {
             let mut iface = i.stack.iface(handle);
-            if predicate(&mut iface) {
-                Poll::Ready(())
-            } else {
-                iface.register_waker(cx.waker());
-                Poll::Pending
-            }
+            (
+                if predicate(&mut iface) {
+                    Poll::Ready(())
+                } else {
+                    iface.register_waker(cx.waker());
+                    Poll::Pending
+                },
+                NoWake,
+            )
         })
     })
 }

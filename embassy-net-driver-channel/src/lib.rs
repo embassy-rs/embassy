@@ -351,6 +351,7 @@ pub fn new<'d, const N_RX: usize, const N_TX: usize>(
             shared: &state.shared,
             rx: state.rx.dyn_receiver(),
             tx: state.tx.dyn_sender(),
+            waker: None,
         },
     )
 }
@@ -363,6 +364,9 @@ pub struct Device<'d> {
     tx: DynamicSender<'d, PacketBuf>,
     shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
     caps: Capabilities,
+    /// The last waker passed to `register_waker`. `can_transmit` arms the TX queue's
+    /// wake with it when the queue is full.
+    waker: Option<Waker>,
 }
 
 impl driver::Driver for Device<'_> {
@@ -387,6 +391,9 @@ impl driver::Driver for Device<'_> {
         let _ = self.rx.poll_ready_to_receive(&mut cx);
         let _ = self.tx.poll_ready_to_send(&mut cx);
         self.shared.lock(|s| s.borrow_mut().waker.register(waker));
+        if !self.waker.as_ref().is_some_and(|w| w.will_wake(waker)) {
+            self.waker = Some(waker.clone());
+        }
         Ok(())
     }
 
@@ -395,7 +402,13 @@ impl driver::Driver for Device<'_> {
     }
 
     fn can_transmit(&mut self) -> bool {
-        !self.tx.is_full()
+        match &self.waker {
+            // The queue may have filled up since `register_waker`, and the stack must
+            // be woken when it has room again. This checks for room and, if there is
+            // none, arms that wake.
+            Some(waker) => self.tx.poll_ready_to_send(&mut Context::from_waker(waker)).is_ready(),
+            None => !self.tx.is_full(),
+        }
     }
 
     fn transmit(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {

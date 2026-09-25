@@ -25,7 +25,7 @@ pub use xarxa::wire::EthernetProtocol;
 pub use xarxa::wire::{IpProtocol, IpVersion};
 
 use crate::error::Full;
-use crate::{Stack, TryError};
+use crate::{NoWake, Stack, TryError, Wake, WakeRunner, wake_if};
 
 /// Error returned by [`RawSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -103,7 +103,7 @@ impl<'d> RawSocket<'d> {
     ///   [`RAW_SOCKET_COUNT`](crate::config::RAW_SOCKET_COUNT), set by the
     ///   `raw-socket-count-N` feature of `xarxa`.
     pub fn new_unbound(stack: Stack<'d>) -> Result<Self, Full> {
-        let handle = stack.with(|i| i.stack.add_raw_socket())?;
+        let handle = stack.with(|i| (i.stack.add_raw_socket(), NoWake))?;
         Ok(Self { stack, handle })
     }
 
@@ -119,7 +119,7 @@ impl<'d> RawSocket<'d> {
     /// # Panics
     /// Panics if the socket is bound to a stale interface handle.
     pub fn bind(&mut self, mode: RawMode) -> Result<(), BindError> {
-        match self.with_mut(|s| s.bind(mode)) {
+        match self.with(|s| (s.bind(mode), NoWake)) {
             Ok(()) => Ok(()),
             Err(raw::BindError::InvalidState) => Err(BindError::InvalidState),
             #[cfg(feature = "raw-ethernet")]
@@ -143,7 +143,7 @@ impl<'d> RawSocket<'d> {
     /// - `InvalidState`: if the socket is bound.
     #[cfg(feature = "iface-bind")]
     pub fn bind_to_iface(&mut self, iface: Option<IfaceHandle>) -> Result<(), BindError> {
-        match self.with_mut(|s| s.bind_to_iface(iface)) {
+        match self.with(|s| (s.bind_to_iface(iface), NoWake)) {
             Ok(()) => Ok(()),
             Err(raw::BindError::InvalidState) => Err(BindError::InvalidState),
             #[cfg(feature = "raw-ethernet")]
@@ -156,15 +156,11 @@ impl<'d> RawSocket<'d> {
     /// See [`bind_to_iface`](Self::bind_to_iface).
     #[cfg(feature = "iface-bind")]
     pub fn bound_iface(&self) -> Option<IfaceHandle> {
-        self.with(|s| s.bound_iface())
+        self.with(|s| (s.bound_iface(), NoWake))
     }
 
-    fn with<R>(&self, f: impl FnOnce(&mut raw::RawSocket<'_, 'd>) -> R) -> R {
+    fn with<R>(&self, f: impl FnOnce(&mut raw::RawSocket<'_, 'd>) -> (R, WakeRunner)) -> R {
         self.stack.with(|i| f(&mut i.stack.raw_socket(self.handle)))
-    }
-
-    fn with_mut<R>(&self, f: impl FnOnce(&mut raw::RawSocket<'_, 'd>) -> R) -> R {
-        self.stack.with_mut(|i| f(&mut i.stack.raw_socket(self.handle)))
     }
 
     /// Wait until the socket becomes readable.
@@ -177,13 +173,16 @@ impl<'d> RawSocket<'d> {
 
     /// Wait until a packet can be read.
     pub fn poll_recv_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s| {
-            if s.can_recv() {
-                Poll::Ready(())
-            } else {
-                s.register_recv_waker(cx.waker());
-                Poll::Pending
-            }
+        self.with(|s| {
+            (
+                if s.can_recv() {
+                    Poll::Ready(())
+                } else {
+                    s.register_recv_waker(cx.waker());
+                    Poll::Pending
+                },
+                NoWake,
+            )
         })
     }
 
@@ -211,11 +210,11 @@ impl<'d> RawSocket<'d> {
     /// - `Truncated`: if `buf` is smaller than the packet. The packet is
     ///   dropped.
     pub fn try_recv(&self, buf: &mut [u8]) -> Result<usize, TryError<RecvError>> {
-        self.with_mut(|s| match s.recv_slice(buf) {
-            Ok(n) => Ok(n),
-            Err(raw::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
-            Err(raw::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
-            Err(raw::RecvError::Exhausted) => Err(TryError::WouldBlock),
+        self.with(|s| match s.recv_slice(buf) {
+            Ok(n) => (Ok(n), Wake),
+            Err(raw::RecvError::InvalidState) => (Err(TryError::Other(RecvError::InvalidState)), NoWake),
+            Err(raw::RecvError::Truncated) => (Err(TryError::Other(RecvError::Truncated)), Wake),
+            Err(raw::RecvError::Exhausted) => (Err(TryError::WouldBlock), NoWake),
         })
     }
 
@@ -227,13 +226,13 @@ impl<'d> RawSocket<'d> {
     /// - `Truncated`: if `buf` is smaller than the packet. The packet is
     ///   dropped.
     pub fn poll_recv(&self, buf: &mut [u8], cx: &mut Context<'_>) -> Poll<Result<usize, RecvError>> {
-        self.with_mut(|s| match s.recv_slice(buf) {
-            Ok(n) => Poll::Ready(Ok(n)),
-            Err(raw::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
-            Err(raw::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
+        self.with(|s| match s.recv_slice(buf) {
+            Ok(n) => (Poll::Ready(Ok(n)), Wake),
+            Err(raw::RecvError::InvalidState) => (Poll::Ready(Err(RecvError::InvalidState)), NoWake),
+            Err(raw::RecvError::Truncated) => (Poll::Ready(Err(RecvError::Truncated)), Wake),
             Err(raw::RecvError::Exhausted) => {
                 s.register_recv_waker(cx.waker());
-                Poll::Pending
+                (Poll::Pending, NoWake)
             }
         })
     }
@@ -250,13 +249,13 @@ impl<'d> RawSocket<'d> {
     /// - `InvalidState`: if the socket is not bound.
     pub async fn recv_packet(&self) -> Result<PacketBuf, RecvError> {
         poll_fn(|cx| {
-            self.with_mut(|s| match s.recv() {
-                Ok(packet) => Poll::Ready(Ok(packet)),
-                Err(raw::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
+            self.with(|s| match s.recv() {
+                Ok(packet) => (Poll::Ready(Ok(packet)), Wake),
+                Err(raw::RecvError::InvalidState) => (Poll::Ready(Err(RecvError::InvalidState)), NoWake),
                 Err(raw::RecvError::Truncated) => unreachable!(),
                 Err(raw::RecvError::Exhausted) => {
                     s.register_recv_waker(cx.waker());
-                    Poll::Pending
+                    (Poll::Pending, NoWake)
                 }
             })
         })
@@ -295,11 +294,16 @@ impl<'d> RawSocket<'d> {
     /// - `Other(Truncated)`: if `buf` is smaller than the packet. No data is copied
     ///   and the packet stays in the queue.
     pub fn try_peek(&self, buf: &mut [u8]) -> Result<usize, TryError<RecvError>> {
-        self.with(|s| match s.peek_slice(buf) {
-            Ok(n) => Ok(n),
-            Err(raw::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
-            Err(raw::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
-            Err(raw::RecvError::Exhausted) => Err(TryError::WouldBlock),
+        self.with(|s| {
+            (
+                match s.peek_slice(buf) {
+                    Ok(n) => Ok(n),
+                    Err(raw::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
+                    Err(raw::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
+                    Err(raw::RecvError::Exhausted) => Err(TryError::WouldBlock),
+                },
+                NoWake,
+            )
         })
     }
 
@@ -314,14 +318,19 @@ impl<'d> RawSocket<'d> {
     /// - `Truncated`: if `buf` is smaller than the packet. No data is copied
     ///   and the packet stays in the queue.
     pub fn poll_peek(&self, buf: &mut [u8], cx: &mut Context<'_>) -> Poll<Result<usize, RecvError>> {
-        self.with_mut(|s| match s.peek_slice(buf) {
-            Ok(n) => Poll::Ready(Ok(n)),
-            Err(raw::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
-            Err(raw::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
-            Err(raw::RecvError::Exhausted) => {
-                s.register_recv_waker(cx.waker());
-                Poll::Pending
-            }
+        self.with(|s| {
+            (
+                match s.peek_slice(buf) {
+                    Ok(n) => Poll::Ready(Ok(n)),
+                    Err(raw::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
+                    Err(raw::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
+                    Err(raw::RecvError::Exhausted) => {
+                        s.register_recv_waker(cx.waker());
+                        Poll::Pending
+                    }
+                },
+                NoWake,
+            )
         })
     }
 
@@ -334,14 +343,19 @@ impl<'d> RawSocket<'d> {
     pub async fn peek_with<R>(&self, f: impl FnOnce(&[u8]) -> R) -> Result<R, RecvError> {
         let mut f = Some(f);
         poll_fn(|cx| {
-            self.with_mut(|s| match s.peek() {
-                Ok(packet) => Poll::Ready(Ok(unwrap!(f.take())(packet))),
-                Err(raw::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
-                Err(raw::RecvError::Truncated) => unreachable!(),
-                Err(raw::RecvError::Exhausted) => {
-                    s.register_recv_waker(cx.waker());
-                    Poll::Pending
-                }
+            self.with(|s| {
+                (
+                    match s.peek() {
+                        Ok(packet) => Poll::Ready(Ok(unwrap!(f.take())(packet))),
+                        Err(raw::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
+                        Err(raw::RecvError::Truncated) => unreachable!(),
+                        Err(raw::RecvError::Exhausted) => {
+                            s.register_recv_waker(cx.waker());
+                            Poll::Pending
+                        }
+                    },
+                    NoWake,
+                )
             })
         })
         .await
@@ -355,46 +369,68 @@ impl<'d> RawSocket<'d> {
     /// - `WouldBlock`: if no packet is available.
     /// - `Other(InvalidState)`: if the socket is not bound.
     pub fn try_peek_with<R>(&self, f: impl FnOnce(&[u8]) -> R) -> Result<R, TryError<RecvError>> {
-        self.with(|s| match s.peek() {
-            Ok(packet) => Ok(f(packet)),
-            Err(raw::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
-            Err(raw::RecvError::Truncated) => unreachable!(),
-            Err(raw::RecvError::Exhausted) => Err(TryError::WouldBlock),
+        self.with(|s| {
+            (
+                match s.peek() {
+                    Ok(packet) => Ok(f(packet)),
+                    Err(raw::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
+                    Err(raw::RecvError::Truncated) => unreachable!(),
+                    Err(raw::RecvError::Exhausted) => Err(TryError::WouldBlock),
+                },
+                NoWake,
+            )
         })
     }
 
     /// Check whether the RX queue is not empty.
     pub fn can_recv(&self) -> bool {
-        self.with(|s| s.can_recv())
+        self.with(|s| (s.can_recv(), NoWake))
     }
 
-    /// Wait until the socket becomes writable.
-    pub fn wait_send_ready(&self) -> impl Future<Output = ()> + '_ {
-        poll_fn(|cx| self.poll_send_ready(cx))
-    }
-
-    /// Wait until a packet can be sent.
-    pub fn poll_send_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s| {
-            if s.is_open() {
-                Poll::Ready(())
-            } else {
+    /// Make one send attempt with `f`, and arrange to be polled again if it has to
+    /// be retried.
+    ///
+    /// A packet that went out wakes the runner: it may be parked on a neighbor
+    /// resolution, or have left fragments behind. A refused one changes nothing the
+    /// runner acts on, so it doesn't.
+    fn poll_send<R>(
+        &self,
+        cx: &mut Context<'_>,
+        f: impl FnOnce(&mut raw::RawSocket<'_, 'd>) -> Result<R, raw::SendError>,
+    ) -> Poll<Result<R, SendError>> {
+        self.with(|s| match f(s) {
+            Ok(r) => (Poll::Ready(Ok(r)), Wake),
+            // xarxa wakes us when the device has room.
+            Err(raw::SendError::DeviceBusy) => {
                 s.register_send_waker(cx.waker());
-                Poll::Pending
+                (Poll::Pending, NoWake)
             }
+            // Nothing signals a freed buffer. Yield, and try again.
+            Err(raw::SendError::NoBuffer) => {
+                cx.waker().wake_by_ref();
+                (Poll::Pending, NoWake)
+            }
+            Err(raw::SendError::BufferFull) => (Poll::Ready(Err(SendError::BufferFull)), NoWake),
+            Err(raw::SendError::InvalidState) => (Poll::Ready(Err(SendError::InvalidState)), NoWake),
+            Err(raw::SendError::Unaddressable) => (Poll::Ready(Err(SendError::Unaddressable)), NoWake),
+            Err(raw::SendError::Malformed) => (Poll::Ready(Err(SendError::Malformed)), NoWake),
         })
     }
 
-    /// Map a xarxa send result to ours. `Pending` if the send must be retried later.
-    fn map_send(r: Result<(), raw::SendError>) -> Poll<Result<(), SendError>> {
-        match r {
-            Ok(()) => Poll::Ready(Ok(())),
-            Err(raw::SendError::NoBuffer) | Err(raw::SendError::DeviceBusy) => Poll::Pending,
-            Err(raw::SendError::BufferFull) => Poll::Ready(Err(SendError::BufferFull)),
-            Err(raw::SendError::InvalidState) => Poll::Ready(Err(SendError::InvalidState)),
-            Err(raw::SendError::Unaddressable) => Poll::Ready(Err(SendError::Unaddressable)),
-            Err(raw::SendError::Malformed) => Poll::Ready(Err(SendError::Malformed)),
-        }
+    /// Make one send attempt with `f`, without waiting. Like
+    /// [`poll_send`](Self::poll_send), only a packet that went out wakes the runner.
+    fn try_send_inner<R>(
+        &self,
+        f: impl FnOnce(&mut raw::RawSocket<'_, 'd>) -> Result<R, raw::SendError>,
+    ) -> Result<R, TryError<SendError>> {
+        self.with(|s| match f(s) {
+            Ok(r) => (Ok(r), Wake),
+            Err(raw::SendError::DeviceBusy | raw::SendError::NoBuffer) => (Err(TryError::WouldBlock), NoWake),
+            Err(raw::SendError::BufferFull) => (Err(TryError::Other(SendError::BufferFull)), NoWake),
+            Err(raw::SendError::InvalidState) => (Err(TryError::Other(SendError::InvalidState)), NoWake),
+            Err(raw::SendError::Unaddressable) => (Err(TryError::Other(SendError::Unaddressable)), NoWake),
+            Err(raw::SendError::Malformed) => (Err(TryError::Other(SendError::Malformed)), NoWake),
+        })
     }
 
     /// Send a packet, copying it from a slice.
@@ -428,13 +464,13 @@ impl<'d> RawSocket<'d> {
     /// - `WouldBlock`: if every packet buffer is in use, or the interface the
     ///   packet would go out of has no room for it right now.
     pub fn try_send(&self, buf: &[u8]) -> Result<(), TryError<SendError>> {
-        self.with_mut(|s| match Self::map_send(s.send_slice(buf)) {
-            Poll::Ready(r) => r.map_err(TryError::Other),
-            Poll::Pending => Err(TryError::WouldBlock),
-        })
+        self.try_send_inner(|s| s.send_slice(buf))
     }
 
     /// Send a packet with the given [`PacketMeta`] attached, copying it from a slice.
+    ///
+    /// When the packet cannot be sent right now, this method will return `Poll::Pending`
+    /// and arrange for the current task to be polled again.
     ///
     /// See [send_with_meta](#method.send_with_meta).
     pub fn poll_send_with_meta(
@@ -443,13 +479,7 @@ impl<'d> RawSocket<'d> {
         meta: PacketMeta,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), SendError>> {
-        self.with_mut(|s| {
-            let r = Self::map_send(s.send_slice_with_meta(buf, meta));
-            if r.is_pending() {
-                s.register_send_waker(cx.waker());
-            }
-            r
-        })
+        self.poll_send(cx, |s| s.send_slice_with_meta(buf, meta))
     }
 
     /// Send a packet, building it in place.
@@ -495,21 +525,14 @@ impl<'d> RawSocket<'d> {
     ) -> Result<R, SendError> {
         let mut f = Some(f);
         poll_fn(move |cx| {
-            self.with_mut(|s| {
+            self.poll_send(cx, |s| {
                 let mut ret = None;
-                let r = s.send_with(max_size, |buf| {
+                s.send_with(max_size, |buf| {
                     let (size, r) = unwrap!(f.take())(buf);
                     ret = Some(r);
                     size
-                });
-                match Self::map_send(r) {
-                    Poll::Ready(Ok(())) => Poll::Ready(Ok(unwrap!(ret))),
-                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                    Poll::Pending => {
-                        s.register_send_waker(cx.waker());
-                        Poll::Pending
-                    }
-                }
+                })
+                .map(|()| unwrap!(ret))
             })
         })
         .await
@@ -517,23 +540,31 @@ impl<'d> RawSocket<'d> {
 
     /// Check whether the socket is open (bound to a mode).
     pub fn is_open(&self) -> bool {
-        self.with(|s| s.is_open())
+        self.with(|s| (s.is_open(), NoWake))
     }
 
     /// Return the mode the socket is bound to, or `None` if it is unbound.
     pub fn mode(&self) -> Option<RawMode> {
-        self.with(|s| s.mode())
+        self.with(|s| (s.mode(), NoWake))
     }
 
     /// Close the socket, unbinding it and dropping any queued packets.
     pub fn close(&mut self) {
-        self.with_mut(|s| s.close())
+        self.with(|s| {
+            let freed = s.can_recv();
+            s.close();
+            ((), wake_if(freed))
+        })
     }
 }
 
 impl Drop for RawSocket<'_> {
     fn drop(&mut self) {
-        self.stack.with_mut(|i| i.stack.remove_raw_socket(self.handle));
+        self.stack.with(|i| {
+            let freed = i.stack.raw_socket(self.handle).can_recv();
+            i.stack.remove_raw_socket(self.handle);
+            ((), wake_if(freed))
+        });
     }
 }
 

@@ -4,9 +4,9 @@ use embassy_time::Instant;
 use xarxa::error::NotUnicast;
 use xarxa::wire::{HardwareAddress, IpAddr};
 
-use crate::Stack;
 use crate::iface::IfaceHandle;
 use crate::time::{instant_from_xarxa, instant_to_xarxa};
+use crate::{NoWake, Stack, wake_if_ok};
 
 /// An entry in the [`NeighborCache`].
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -79,7 +79,7 @@ impl<'d> NeighborCache<'d> {
     /// Compare `expires_at` against the current time if that matters.
     pub fn get(&self, iface: IfaceHandle, addr: IpAddr) -> Option<Neighbor> {
         self.stack
-            .with(|i| i.stack.neighbor_cache().get(iface, addr))
+            .with(|i| (i.stack.neighbor_cache().get(iface, addr), NoWake))
             .map(Neighbor::from_xarxa)
     }
 
@@ -87,7 +87,7 @@ impl<'d> NeighborCache<'d> {
     pub fn iter(&self) -> impl Iterator<Item = Neighbor> + 'd {
         let stack = self.stack;
         (0..self.len())
-            .filter_map(move |n| stack.with(|i| i.stack.neighbor_cache().iter().nth(n)))
+            .filter_map(move |n| stack.with(|i| (i.stack.neighbor_cache().iter().nth(n), NoWake)))
             .map(Neighbor::from_xarxa)
     }
 
@@ -110,10 +110,12 @@ impl<'d> NeighborCache<'d> {
         hardware_addr: HardwareAddress,
         expires_at: Instant,
     ) -> Result<(), NotUnicast> {
-        self.stack.with_mut(|i| {
-            i.stack
-                .neighbor_cache_mut()
-                .insert(iface, addr, hardware_addr, instant_to_xarxa(expires_at))
+        self.stack.with(|i| {
+            wake_if_ok(
+                i.stack
+                    .neighbor_cache_mut()
+                    .insert(iface, addr, hardware_addr, instant_to_xarxa(expires_at)),
+            )
         })
     }
 
@@ -124,7 +126,7 @@ impl<'d> NeighborCache<'d> {
     /// expires, a few seconds later.
     pub fn remove(&self, iface: IfaceHandle, addr: IpAddr) -> Option<Neighbor> {
         self.stack
-            .with_mut(|i| i.stack.neighbor_cache_mut().remove(iface, addr))
+            .with(|i| (i.stack.neighbor_cache_mut().remove(iface, addr), NoWake))
             .map(Neighbor::from_xarxa)
     }
 
@@ -132,31 +134,36 @@ impl<'d> NeighborCache<'d> {
     ///
     /// Same caveat as [`NeighborCache::remove`] for entries being resolved.
     pub fn retain(&self, mut f: impl FnMut(&Neighbor) -> bool) {
-        self.stack
-            .with_mut(|i| i.stack.neighbor_cache_mut().retain(|n| f(&Neighbor::from_xarxa(*n))))
+        self.stack.with(|i| {
+            (
+                i.stack.neighbor_cache_mut().retain(|n| f(&Neighbor::from_xarxa(*n))),
+                NoWake,
+            )
+        })
     }
 
     /// Remove all entries for one interface.
     ///
     /// Same caveat as [`NeighborCache::remove`] for entries being resolved.
     pub fn clear_iface(&self, iface: IfaceHandle) {
-        self.stack.with_mut(|i| i.stack.neighbor_cache_mut().clear_iface(iface))
+        self.stack
+            .with(|i| (i.stack.neighbor_cache_mut().clear_iface(iface), NoWake))
     }
 
     /// Remove all entries.
     ///
     /// Same caveat as [`NeighborCache::remove`] for entries being resolved.
     pub fn clear(&self) {
-        self.stack.with_mut(|i| i.stack.neighbor_cache_mut().clear())
+        self.stack.with(|i| (i.stack.neighbor_cache_mut().clear(), NoWake))
     }
 
     /// Number of entries.
     pub fn len(&self) -> usize {
-        self.stack.with(|i| i.stack.neighbor_cache().len())
+        self.stack.with(|i| (i.stack.neighbor_cache().len(), NoWake))
     }
 
     /// Whether the cache is empty.
     pub fn is_empty(&self) -> bool {
-        self.stack.with(|i| i.stack.neighbor_cache().is_empty())
+        self.stack.with(|i| (i.stack.neighbor_cache().is_empty(), NoWake))
     }
 }
