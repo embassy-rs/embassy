@@ -46,7 +46,12 @@ async fn main(_spawner: Spawner) {
 
     rtc.wait_for_alarm(alarm).await;
     let at = rtc.get_datetime();
-    defmt::info!("*** ALARM TRIGGERED at {=u8}:{=u8}:{=u8} ***", at.hour, at.minute, at.second);
+    defmt::info!(
+        "*** ALARM TRIGGERED at {=u8}:{=u8}:{=u8} ***",
+        at.hour,
+        at.minute,
+        at.second
+    );
 
     defmt::info!("Example complete - Test PASSED!");
 }
