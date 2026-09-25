@@ -12,6 +12,7 @@ use stm32_metapac::i2c::vals::{Addmode, Oamsk};
 use super::*;
 use crate::atomic::AtomicModify;
 use crate::pac::i2c;
+use crate::wait::{try_until_result, try_until_timeout};
 
 /// Bytes a slave transmits when it is read but has nothing to send.
 ///
@@ -164,6 +165,38 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         self.info.regs.cr1().modify(|w| w.set_pe(true));
     }
 
+    /// Wait for the START bit to be cleared by hardware, i.e. for any previous
+    /// address sequence to end automatically. This could be up to 50% of a bus
+    /// cycle (ie. up to 0.5/freq).
+    fn wait_start_cleared(info: &'static Info, timeout: Timeout) -> Result<(), Error> {
+        while info.regs.cr2().read().start() {
+            timeout.check()?;
+        }
+        Ok(())
+    }
+
+    /// Program the CR2 register for the start of a master transfer.
+    ///
+    /// The START bit can be set even if the bus is BUSY or I2C is in slave mode.
+    fn start_transfer(
+        info: &'static Info,
+        address: Address,
+        length: usize,
+        stop: Stop,
+        reload: bool,
+        dir: i2c::vals::Dir,
+    ) {
+        info.regs.cr2().modify(|w| {
+            w.set_sadd(address.sadd());
+            w.set_add10(address.add_mode());
+            w.set_dir(dir);
+            w.set_nbytes(length as u8);
+            w.set_start(true);
+            w.set_autoend(stop.autoend());
+            w.set_reload(Self::to_reload(reload));
+        });
+    }
+
     fn master_read(
         info: &'static Info,
         address: Address,
@@ -176,27 +209,11 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         assert!(length < 256);
 
         if !restart {
-            // Wait for any previous address sequence to end
-            // automatically. This could be up to 50% of a bus
-            // cycle (ie. up to 0.5/freq)
-            while info.regs.cr2().read().start() {
-                timeout.check()?;
-            }
+            Self::wait_start_cleared(info, timeout)?;
         }
 
-        // Set START and prepare to receive bytes into
-        // `buffer`. The START bit can be set even if the bus
-        // is BUSY or I2C is in slave mode.
-
-        info.regs.cr2().modify(|w| {
-            w.set_sadd(address.sadd());
-            w.set_add10(address.add_mode());
-            w.set_dir(i2c::vals::Dir::Read);
-            w.set_nbytes(length as u8);
-            w.set_start(true);
-            w.set_autoend(stop.autoend());
-            w.set_reload(Self::to_reload(reload));
-        });
+        // Set START and prepare to receive bytes into `buffer`.
+        Self::start_transfer(info, address, length, stop, reload, i2c::vals::Dir::Read);
 
         Ok(())
     }
@@ -213,27 +230,35 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         assert!(length < 256);
 
         if !restart {
-            // Wait for any previous address sequence to end
-            // automatically. This could be up to 50% of a bus
-            // cycle (ie. up to 0.5/freq)
-            while info.regs.cr2().read().start() {
-                timeout.check()?;
-            }
+            Self::wait_start_cleared(info, timeout)?;
         }
-        // Set START and prepare to send `bytes`. The
-        // START bit can be set even if the bus is BUSY or
-        // I2C is in slave mode.
-        info.regs.cr2().modify(|w| {
-            w.set_sadd(address.sadd());
-            w.set_add10(address.add_mode());
-            w.set_dir(i2c::vals::Dir::Write);
-            w.set_nbytes(length as u8);
-            w.set_start(true);
-            w.set_autoend(stop.autoend());
-            w.set_reload(Self::to_reload(reload));
-        });
+
+        // Set START and prepare to send `bytes`.
+        Self::start_transfer(info, address, length, stop, reload, i2c::vals::Dir::Write);
 
         Ok(())
+    }
+
+    /// Wait for either TCR (Transfer Complete Reload) or TC (Transfer Complete).
+    /// TCR occurs when RELOAD=1, TC occurs when RELOAD=0.
+    /// Both indicate the peripheral is ready for the next transfer.
+    fn wait_transfer_ready(info: &'static Info, timeout: Timeout) -> Result<(), Error> {
+        loop {
+            let isr = info.regs.isr().read();
+            if isr.tcr() || isr.tc() {
+                return Ok(());
+            }
+            timeout.check()?;
+        }
+    }
+
+    /// Program the next chunk length into CR2.
+    fn program_reload(info: &'static Info, length: usize, will_reload: bool, stop: Stop) {
+        info.regs.cr2().modify(|w| {
+            w.set_nbytes(length as u8);
+            w.set_reload(Self::to_reload(will_reload));
+            w.set_autoend(stop.autoend());
+        });
     }
 
     fn reload(
@@ -245,24 +270,27 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     ) -> Result<(), Error> {
         assert!(length < 256 && length > 0);
 
-        // Wait for either TCR (Transfer Complete Reload) or TC (Transfer Complete)
-        // TCR occurs when RELOAD=1, TC occurs when RELOAD=0
-        // Both indicate the peripheral is ready for the next transfer
-        loop {
-            let isr = info.regs.isr().read();
-            if isr.tcr() || isr.tc() {
-                break;
-            }
-            timeout.check()?;
-        }
-
-        info.regs.cr2().modify(|w| {
-            w.set_nbytes(length as u8);
-            w.set_reload(Self::to_reload(will_reload));
-            w.set_autoend(stop.autoend());
-        });
+        Self::wait_transfer_ready(info, timeout)?;
+        Self::program_reload(info, length, will_reload, stop);
 
         Ok(())
+    }
+
+    /// Returns `Err` for any error flag set in `isr`. The flags are not cleared here;
+    /// the callers clear them (directly or via `error_occurred`) once they take over.
+    #[inline]
+    fn error_flags(isr: &i2c::regs::Isr) -> Result<(), Error> {
+        if isr.nackf() {
+            Err(Error::Nack)
+        } else if isr.arlo() {
+            Err(Error::Arbitration)
+        } else if isr.berr() {
+            Err(Error::Bus)
+        } else if isr.ovr() {
+            Err(Error::Overrun)
+        } else {
+            Ok(())
+        }
     }
 
     fn flush_txdr(&self) {
@@ -921,6 +949,198 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     }
 }
 
+/// Async variants of the master transfer helpers.
+///
+/// These mirror the blocking helpers but wait with [`try_until_timeout`]/`try_until_result`
+/// instead of spinning on the status registers, so other tasks get to run while the
+/// peripheral completes a transfer (see https://github.com/embassy-rs/embassy/issues/7052).
+impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
+    async fn master_read_async(
+        info: &'static Info,
+        address: Address,
+        length: usize,
+        stop: Stop,
+        reload: bool,
+        restart: bool,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        assert!(length < 256);
+
+        if !restart {
+            Self::wait_start_cleared_async(info, timeout).await?;
+        }
+
+        // Set START and prepare to receive bytes into `buffer`.
+        Self::start_transfer(info, address, length, stop, reload, i2c::vals::Dir::Read);
+
+        Ok(())
+    }
+
+    async fn master_write_async(
+        info: &'static Info,
+        address: Address,
+        length: usize,
+        stop: Stop,
+        reload: bool,
+        restart: bool,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        assert!(length < 256);
+
+        if !restart {
+            Self::wait_start_cleared_async(info, timeout).await?;
+        }
+
+        // Set START and prepare to send `bytes`.
+        Self::start_transfer(info, address, length, stop, reload, i2c::vals::Dir::Write);
+
+        Ok(())
+    }
+
+    /// Wait for any previous address sequence to end automatically, yielding to other
+    /// tasks instead of spinning. This could be up to 50% of a bus cycle (ie. up to 0.5/freq).
+    async fn wait_start_cleared_async(info: &'static Info, timeout: Timeout) -> Result<(), Error> {
+        try_until_timeout(async || !info.regs.cr2().read().start(), timeout).await?;
+        Ok(())
+    }
+
+    /// Wait for TCR (Transfer Complete Reload) or TC (Transfer Complete), then program
+    /// the next chunk length.
+    async fn reload_async(
+        info: &'static Info,
+        length: usize,
+        will_reload: bool,
+        stop: Stop,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        assert!(length < 256 && length > 0);
+
+        try_until_timeout(
+            async || {
+                let isr = info.regs.isr().read();
+                isr.tcr() || isr.tc()
+            },
+            timeout,
+        )
+        .await?;
+        Self::program_reload(info, length, will_reload, stop);
+
+        Ok(())
+    }
+
+    /// Async version of [`I2c::wait_stop`].
+    async fn wait_stop_async(&self, timeout: Timeout) -> Result<(), Error> {
+        try_until_timeout(async || self.info.regs.isr().read().stopf(), timeout).await?;
+        trace!("STOP triggered.");
+        self.info.regs.icr().modify(|reg| reg.set_stopcf(true));
+        Ok(())
+    }
+
+    /// Async version of [`I2c::wait_tc`].
+    async fn wait_tc_async(&self, timeout: Timeout) -> Result<(), Error> {
+        try_until_timeout(
+            async || {
+                let isr = self.info.regs.isr().read();
+                isr.tc() || isr.tcr()
+            },
+            timeout,
+        )
+        .await?;
+        let isr = self.info.regs.isr().read();
+        self.error_occurred_async(&isr, timeout).await
+    }
+
+    /// Async version of [`I2c::error_occurred`].
+    async fn error_occurred_async(&self, isr: &i2c::regs::Isr, timeout: Timeout) -> Result<(), Error> {
+        if isr.nackf() {
+            trace!("NACK triggered.");
+            self.info.regs.icr().modify(|reg| reg.set_nackcf(true));
+            // NACK should be followed by STOP
+            if self.wait_stop_async(timeout).await.is_ok() {
+                trace!("Got STOP after NACK, clearing flag.");
+                self.info.regs.icr().modify(|reg| reg.set_stopcf(true));
+            }
+            self.flush_txdr();
+            return Err(Error::Nack);
+        } else if isr.berr() {
+            trace!("BERR triggered.");
+            self.info.regs.icr().modify(|reg| reg.set_berrcf(true));
+            self.flush_txdr();
+            self.soft_reset();
+            return Err(Error::Bus);
+        } else if isr.arlo() {
+            trace!("ARLO triggered.");
+            self.info.regs.icr().modify(|reg| reg.set_arlocf(true));
+            self.flush_txdr();
+            self.soft_reset();
+            return Err(Error::Arbitration);
+        } else if isr.ovr() {
+            trace!("OVR triggered.");
+            self.info.regs.icr().modify(|reg| reg.set_ovrcf(true));
+            return Err(Error::Overrun);
+        }
+        Ok(())
+    }
+
+    /// Zero-length write (address probe): no data bytes, [`Stop::Software`] end mode.
+    async fn write_empty_async(&mut self, address: Address, send_stop: bool, timeout: Timeout) -> Result<(), Error> {
+        Self::master_write_async(self.info, address, 0, Stop::Software, false, false, timeout).await?;
+        self.wait_tc_async(timeout).await?;
+        if send_stop {
+            self.master_stop();
+            self.wait_stop_async(timeout).await?;
+        }
+        Ok(())
+    }
+
+    /// Zero-length read (address probe): no data bytes, [`Stop::Automatic`] end mode.
+    async fn read_empty_async(&self, address: Address, restart: bool, timeout: Timeout) -> Result<(), Error> {
+        Self::master_read_async(self.info, address, 0, Stop::Automatic, false, restart, timeout).await?;
+        self.wait_stop_async(timeout).await?;
+        Ok(())
+    }
+
+    /// Async version of [`I2c::drain_rxdr_until_stop`].
+    async fn drain_rxdr_until_stop_async(&self, timeout: Timeout) -> Result<usize, Error> {
+        let mut discarded = 0;
+        loop {
+            let isr = self.info.regs.isr().read();
+
+            if isr.stopf() {
+                self.info.regs.icr().write(|w| w.set_stopcf(true));
+                if discarded > 0 {
+                    trace!("Drained {} excess bytes", discarded);
+                }
+                return Ok(discarded);
+            }
+
+            if isr.addr() {
+                // New START received (repeated start) - don't clear ADDR, let listen() handle it
+                trace!("New START during drain, ending receive");
+                return Ok(discarded);
+            }
+
+            if isr.rxne() {
+                let _ = self.info.regs.rxdr().read().rxdata();
+                discarded += 1;
+                continue;
+            }
+
+            // Nothing pending yet: sleep until a relevant flag changes, then re-check errors.
+            try_until_result(
+                async || -> Result<bool, Error> {
+                    let isr = self.info.regs.isr().read();
+                    Ok(isr.stopf() || isr.addr() || isr.rxne() || isr.nackf() || isr.berr() || isr.arlo() || isr.ovr())
+                },
+                timeout,
+            )
+            .await?;
+            let isr = self.info.regs.isr().read();
+            self.error_occurred_async(&isr, timeout).await?;
+        }
+    }
+}
+
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     async fn write_dma_internal(
         &mut self,
@@ -949,8 +1169,6 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             self.tx_dma.as_mut().unwrap().write(write, dst, Default::default())
         };
 
-        let mut remaining_len = total_len;
-
         let on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
             let isr = regs.isr().read();
@@ -975,79 +1193,76 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             }
         });
 
-        poll_fn(|cx| {
-            self.state.waker.register(cx.waker());
+        // Surface any error left over from a previous transfer before initiating.
+        Self::error_flags(&self.info.regs.isr().read())?;
 
-            let isr = self.info.regs.isr().read();
+        // Initiate the transfer before entering the interrupt-driven poll loop. The
+        // wait for a previous START to clear yields to other tasks instead of
+        // spinning (https://github.com/embassy-rs/embassy/issues/7052).
+        if first_slice {
+            Self::master_write_async(
+                self.info,
+                address,
+                total_len.min(255),
+                Stop::Software,
+                (total_len > 255) || !last_slice,
+                restart,
+                timeout,
+            )
+            .await?;
+        } else {
+            Self::reload_async(
+                self.info,
+                total_len.min(255),
+                (total_len > 255) || !last_slice,
+                Stop::Software,
+                timeout,
+            )
+            .await?;
+        }
+        // Re-enable TCIE unconditionally, after START/NBYTES has cleared TC.
+        //
+        // When this is not the first group of a transaction the previous group
+        // leaves TC set, so enabling TCIE before this poll fires the event
+        // interrupt straight away — and the handler disables TCIE again. Without
+        // re-enabling it here the real completion never raises an interrupt and
+        // the future waits until the transaction times out.
+        self.info.regs.cr1().modify(|w| w.set_tcie(true));
 
-            if isr.nackf() {
-                return Poll::Ready(Err(Error::Nack));
-            }
-            if isr.arlo() {
-                return Poll::Ready(Err(Error::Arbitration));
-            }
-            if isr.berr() {
-                return Poll::Ready(Err(Error::Bus));
-            }
-            if isr.ovr() {
-                return Poll::Ready(Err(Error::Overrun));
-            }
+        // Feed the peripheral the next chunk every time the previous one completes.
+        // The waits below are interrupt-driven: TCR/TC wakes the poll_fn, and
+        // `reload_async` returns promptly because the flag is already set.
+        let mut remaining_len = total_len.saturating_sub(255);
+        while remaining_len > 0 {
+            poll_fn(|cx| {
+                self.state.waker.register(cx.waker());
 
-            if remaining_len == total_len {
-                if first_slice {
-                    Self::master_write(
-                        self.info,
-                        address,
-                        total_len.min(255),
-                        Stop::Software,
-                        (total_len > 255) || !last_slice,
-                        restart,
-                        timeout,
-                    )?;
-                } else {
-                    Self::reload(
-                        self.info,
-                        total_len.min(255),
-                        (total_len > 255) || !last_slice,
-                        Stop::Software,
-                        timeout,
-                    )?;
+                let isr = self.info.regs.isr().read();
+                match Self::error_flags(&isr) {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(()) if isr.tcr() || isr.tc() => Poll::Ready(Ok(())),
+                    Ok(()) => Poll::Pending,
                 }
-                // Re-enable TCIE unconditionally, after START/NBYTES has cleared TC.
-                //
-                // When this is not the first group of a transaction the previous group
-                // leaves TC set, so enabling TCIE before this poll fires the event
-                // interrupt straight away — and the handler disables TCIE again. Without
-                // re-enabling it here the real completion never raises an interrupt and
-                // the future waits until the transaction times out.
-                self.info.regs.cr1().modify(|w| w.set_tcie(true));
-            } else if !(isr.tcr() || isr.tc()) {
-                // poll_fn was woken without an interrupt present
-                return Poll::Pending;
-            } else if remaining_len == 0 {
-                return Poll::Ready(Ok(()));
-            } else {
-                if let Err(e) = Self::reload(
-                    self.info,
-                    remaining_len.min(255),
-                    (remaining_len > 255) || !last_slice,
-                    Stop::Software,
-                    timeout,
-                ) {
-                    return Poll::Ready(Err(e));
-                }
-                self.info.regs.cr1().modify(|w| w.set_tcie(true));
-            }
+            })
+            .await?;
+
+            Self::reload_async(
+                self.info,
+                remaining_len.min(255),
+                (remaining_len > 255) || !last_slice,
+                Stop::Software,
+                timeout,
+            )
+            .await?;
+            self.info.regs.cr1().modify(|w| w.set_tcie(true));
 
             remaining_len = remaining_len.saturating_sub(255);
-            Poll::Pending
-        })
-        .await?;
+        }
 
         dma_transfer.await;
 
         // Always wait for TC after DMA completes - needed for consecutive buffers
-        self.wait_tc(timeout)?;
+        self.wait_tc_async(timeout).await?;
 
         if last_slice & send_stop {
             self.master_stop();
@@ -1080,8 +1295,6 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
         };
 
-        let mut remaining_len = total_len;
-
         let on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
             let isr = regs.isr().read();
@@ -1104,67 +1317,56 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             }
         });
 
-        poll_fn(|cx| {
-            self.state.waker.register(cx.waker());
+        // Surface any error left over from a previous transfer before initiating.
+        Self::error_flags(&self.info.regs.isr().read())?;
 
-            let isr = self.info.regs.isr().read();
-
-            if isr.nackf() {
-                return Poll::Ready(Err(Error::Nack));
-            }
-            if isr.arlo() {
-                return Poll::Ready(Err(Error::Arbitration));
-            }
-            if isr.berr() {
-                return Poll::Ready(Err(Error::Bus));
-            }
-            if isr.ovr() {
-                return Poll::Ready(Err(Error::Overrun));
-            }
-
-            if remaining_len == total_len {
-                Self::master_read(
-                    self.info,
-                    address,
-                    total_len.min(255),
-                    Stop::Automatic,
-                    total_len > 255, // reload
-                    restart,
-                    timeout,
-                )?;
-                if total_len <= 255 {
-                    return Poll::Ready(Ok(()));
-                }
-            } else if isr.tcr() {
-                // Transfer Complete Reload - need to set up next chunk
-                let last_piece = remaining_len <= 255;
-
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !last_piece, Stop::Automatic, timeout) {
-                    return Poll::Ready(Err(e));
-                }
-                // Return here if we are on last chunk,
-                // end of transfer will be awaited with the DMA below
-                if last_piece {
-                    return Poll::Ready(Ok(()));
-                }
-                self.info.regs.cr1().modify(|w| w.set_tcie(true));
-            } else {
-                // poll_fn was woken without TCR interrupt
-                return Poll::Pending;
-            }
-
-            remaining_len = remaining_len.saturating_sub(255);
-            Poll::Pending
-        })
+        // Initiate the transfer before entering the interrupt-driven poll loop. The
+        // wait for a previous START to clear yields to other tasks instead of
+        // spinning (https://github.com/embassy-rs/embassy/issues/7052).
+        Self::master_read_async(
+            self.info,
+            address,
+            total_len.min(255),
+            Stop::Automatic,
+            total_len > 255, // reload
+            restart,
+            timeout,
+        )
         .await?;
+
+        // Set up the next chunk every time the previous one completes. The waits
+        // below are interrupt-driven: TCR wakes the poll_fn, and `reload_async`
+        // returns promptly because the flag is already set.
+        let mut remaining_len = total_len;
+        while remaining_len > 255 {
+            poll_fn(|cx| {
+                self.state.waker.register(cx.waker());
+
+                let isr = self.info.regs.isr().read();
+                match Self::error_flags(&isr) {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(()) if isr.tcr() => Poll::Ready(Ok(())),
+                    Ok(()) => Poll::Pending,
+                }
+            })
+            .await?;
+
+            // Transfer Complete Reload - set up next chunk.
+            let rest = remaining_len - 255;
+            let last_piece = rest <= 255;
+            Self::reload_async(self.info, rest.min(255), !last_piece, Stop::Automatic, timeout).await?;
+            if last_piece {
+                break;
+            }
+            self.info.regs.cr1().modify(|w| w.set_tcie(true));
+            remaining_len = rest;
+        }
 
         dma_transfer.await;
 
         if !restart {
             // Wait for the bus to be free
-            while self.info.regs.isr().read().busy() {
-                timeout.check()?;
-            }
+            try_until_timeout(async || !self.info.regs.isr().read().busy(), timeout).await?;
         }
 
         drop(on_drop);
@@ -1180,7 +1382,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         let address = address.into();
         let timeout = self.timeout();
         if write.is_empty() {
-            self.write_internal(address, write, true, timeout)
+            self.write_empty_async(address, true, timeout).await
         } else {
             timeout
                 .with(self.write_dma_internal(address, write, true, true, true, false, timeout))
@@ -1196,7 +1398,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         let timeout = self.timeout();
 
         if write.is_empty() {
-            return self.write_internal(address, &[], true, timeout);
+            return self.write_empty_async(address, true, timeout).await;
         }
 
         let mut iter = write.iter();
@@ -1229,7 +1431,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         let timeout = self.timeout();
 
         if buffer.is_empty() {
-            self.read_internal(address, buffer, false, timeout)
+            self.read_empty_async(address, false, timeout).await
         } else {
             let fut = self.read_dma_internal(address, buffer, false, timeout);
             timeout.with(fut).await
@@ -1248,14 +1450,14 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         let timeout = self.timeout();
 
         if write.is_empty() {
-            self.write_internal(address, write, false, timeout)?;
+            self.write_empty_async(address, false, timeout).await?;
         } else {
             let fut = self.write_dma_internal(address, write, true, true, false, false, timeout);
             timeout.with(fut).await?;
         }
 
         if read.is_empty() {
-            self.read_internal(address, read, true, timeout)?;
+            self.read_empty_async(address, true, timeout).await?;
         } else {
             let fut = self.read_dma_internal(address, read, true, timeout);
             timeout.with(fut).await?;
@@ -1334,14 +1536,14 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         let total_bytes = Self::total_operation_bytes(operations);
 
         if total_bytes == 0 {
-            // Handle empty write group using blocking call
-            Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
+            // Handle empty write group
+            Self::master_write_async(self.info, address, 0, Stop::Software, false, !is_first_group, timeout).await?;
             if is_last_group {
-                self.wait_tc(timeout)?;
+                self.wait_tc_async(timeout).await?;
                 self.master_stop();
-                self.wait_stop(timeout)?;
+                self.wait_stop_async(timeout).await?;
             } else {
-                self.wait_tc(timeout)?;
+                self.wait_tc_async(timeout).await?;
             }
             return Ok(());
         }
@@ -1393,8 +1595,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         let total_bytes = Self::total_operation_bytes(operations);
 
         if total_bytes == 0 {
-            // Handle empty read group using blocking call
-            Self::master_read(
+            // Handle empty read group
+            Self::master_read_async(
                 self.info,
                 address,
                 0,
@@ -1402,11 +1604,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 false, // reload
                 !is_first_group,
                 timeout,
-            )?;
+            )
+            .await?;
             if is_last_group {
-                self.wait_stop(timeout)?;
+                self.wait_stop_async(timeout).await?;
             } else {
-                self.wait_tc(timeout)?;
+                self.wait_tc_async(timeout).await?;
             }
             return Ok(());
         }
@@ -1460,7 +1663,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         // Wait for transfer to complete
         if is_last_group {
-            self.wait_stop(timeout)?;
+            self.wait_stop_async(timeout).await?;
         }
 
         Ok(())
@@ -1490,8 +1693,6 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
         };
 
-        let mut remaining_len = total_len;
-
         let on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
             let isr = regs.isr().read();
@@ -1514,59 +1715,50 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             }
         });
 
-        poll_fn(|cx| {
-            self.state.waker.register(cx.waker());
+        // Surface any error left over from a previous transfer before initiating.
+        Self::error_flags(&self.info.regs.isr().read())?;
 
-            let isr = self.info.regs.isr().read();
-
-            if isr.nackf() {
-                return Poll::Ready(Err(Error::Nack));
-            }
-            if isr.arlo() {
-                return Poll::Ready(Err(Error::Arbitration));
-            }
-            if isr.berr() {
-                return Poll::Ready(Err(Error::Bus));
-            }
-            if isr.ovr() {
-                return Poll::Ready(Err(Error::Overrun));
-            }
-
-            if remaining_len == total_len {
-                Self::master_read(
-                    self.info,
-                    address,
-                    total_len.min(255),
-                    stop_mode,
-                    total_len > 255, // reload
-                    restart,
-                    timeout,
-                )?;
-                if total_len <= 255 {
-                    return Poll::Ready(Ok(()));
-                }
-            } else if isr.tcr() {
-                // Transfer Complete Reload - need to set up next chunk
-                let last_piece = remaining_len <= 255;
-
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !last_piece, stop_mode, timeout) {
-                    return Poll::Ready(Err(e));
-                }
-                // Return here if we are on last chunk,
-                // end of transfer will be awaited with the DMA below
-                if last_piece {
-                    return Poll::Ready(Ok(()));
-                }
-                self.info.regs.cr1().modify(|w| w.set_tcie(true));
-            } else {
-                // poll_fn was woken without TCR interrupt
-                return Poll::Pending;
-            }
-
-            remaining_len = remaining_len.saturating_sub(255);
-            Poll::Pending
-        })
+        // Initiate the transfer before entering the interrupt-driven poll loop. The
+        // wait for a previous START to clear yields to other tasks instead of
+        // spinning (https://github.com/embassy-rs/embassy/issues/7052).
+        Self::master_read_async(
+            self.info,
+            address,
+            total_len.min(255),
+            stop_mode,
+            total_len > 255, // reload
+            restart,
+            timeout,
+        )
         .await?;
+
+        // Set up the next chunk every time the previous one completes. The waits
+        // below are interrupt-driven: TCR wakes the poll_fn, and `reload_async`
+        // returns promptly because the flag is already set.
+        let mut remaining_len = total_len;
+        while remaining_len > 255 {
+            poll_fn(|cx| {
+                self.state.waker.register(cx.waker());
+
+                let isr = self.info.regs.isr().read();
+                match Self::error_flags(&isr) {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(()) if isr.tcr() => Poll::Ready(Ok(())),
+                    Ok(()) => Poll::Pending,
+                }
+            })
+            .await?;
+
+            // Transfer Complete Reload - set up next chunk.
+            let rest = remaining_len - 255;
+            let last_piece = rest <= 255;
+            Self::reload_async(self.info, rest.min(255), !last_piece, stop_mode, timeout).await?;
+            if last_piece {
+                break;
+            }
+            self.info.regs.cr1().modify(|w| w.set_tcie(true));
+            remaining_len = rest;
+        }
 
         dma_transfer.await;
         drop(on_drop);
@@ -2229,7 +2421,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         // If STOP wasn't received during DMA, we need to drain any excess bytes
         // the master might be sending
         if !stop_received {
-            self.drain_rxdr_until_stop(timeout)?;
+            self.drain_rxdr_until_stop_async(timeout).await?;
         }
 
         Ok(total_received)
