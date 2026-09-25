@@ -146,7 +146,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
     }
 
     /// Stop DMA backed SPI receiver
-    fn stop(&mut self) {
+    pub fn stop(&mut self) {
         self.ring_buf.request_pause();
 
         set_rxdmaen(self.info.regs, false);
@@ -268,6 +268,14 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
             }
         }
     }
+
+    /// Return whether the DMA ring buffer contains data, so that a read would not wait.
+    pub fn read_ready(&mut self) -> Result<bool, Error> {
+        let len = self.ring_buf.len().map_err(|e| match e {
+            RingBufferError::Overrun => Error::Overrun,
+        })?;
+        Ok(len > 0)
+    }
 }
 
 impl<W: Word> Drop for RingBufferedSpiRx<'_, W> {
@@ -289,10 +297,7 @@ impl embedded_io_async::Read for RingBufferedSpiRx<'_, u8> {
 
 impl<W: Word> ReadReady for RingBufferedSpiRx<'_, W> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        let len = self.ring_buf.len().map_err(|e| match e {
-            RingBufferError::Overrun => Error::Overrun,
-        })?;
-        Ok(len > 0)
+        RingBufferedSpiRx::read_ready(self)
     }
 }
 
