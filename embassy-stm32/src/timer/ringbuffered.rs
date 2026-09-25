@@ -91,13 +91,6 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
         self.ring_buf.set_waker(waker)
     }
 
-    /// Request the DMA to reset. The configuration for this channel will not be preserved.
-    ///
-    /// This doesn't immediately stop the transfer, you have to wait until is_running returns false.
-    pub fn request_reset(&mut self) {
-        self.ring_buf.request_reset()
-    }
-
     /// Request the transfer to pause, keeping the existing configuration for this channel.
     /// To restart the transfer, call [`start`](Self::start) again.
     ///
