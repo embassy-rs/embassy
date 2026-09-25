@@ -76,7 +76,7 @@ async fn main(_spawner: Spawner) {
 
     let config = dcmi::Config::default();
     let mut dcmi = Dcmi::new_8bit(
-        p.DCMI, p.DMA1_CH0, Irqs, p.PC6, p.PC7, p.PE0, p.PE1, p.PE4, p.PD3, p.PE5, p.PE6, p.PB7, p.PA4, p.PA6, config,
+        p.DCMI, p.DMA1_CH0, p.PC6, p.PC7, p.PE0, p.PE1, p.PE4, p.PD3, p.PE5, p.PE6, p.PB7, p.PA4, p.PA6, Irqs, config,
     );
 
     defmt::info!("attempting capture");

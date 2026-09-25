@@ -28,7 +28,7 @@ async fn main(_p: Spawner) {
     config.ratio = Ratio::Ratio80;
     config.operation_mode = OperationMode::Mono;
     config.gain_left = I7F1::from_bits(5); // 2.5 dB
-    let mut pdm = Pdm::new(p.PDM, Irqs, p.P0_00, p.P0_01, config);
+    let mut pdm = Pdm::new(p.PDM, p.P0_00, p.P0_01, Irqs, config);
 
     let mut bufs = [[0; 1024]; 2];
 

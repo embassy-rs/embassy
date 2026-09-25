@@ -17,15 +17,10 @@ use stm32_metapac::lptim::Lptim;
 use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
 use crate::lptim::{SealedInstance, vals};
+use crate::rcc;
 use crate::rcc::SealedRccPeripheral;
-use crate::{peripherals, rcc};
 
-#[cfg(time_driver_lptim1)]
-type T = peripherals::LPTIM1;
-#[cfg(time_driver_lptim2)]
-type T = peripherals::LPTIM2;
-#[cfg(time_driver_lptim3)]
-type T = peripherals::LPTIM3;
+type T = crate::_generated::TimeDriverPeripheral;
 
 fn regs_lptim() -> Lptim {
     T::regs()
@@ -127,11 +122,11 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 impl RtcDriver {
     /// initialize the timer, but don't start it.  Used for chips like stm32wle5
     /// for low power where the timer config is lost in STOP2.
-    pub(crate) fn init_timer(&'static self, _cs: critical_section::CriticalSection) {
+    pub(crate) fn init_timer(&'static self, cs: critical_section::CriticalSection) {
         let r = regs_lptim();
 
         // we want this to increment the stop mode counter (some lp timer can't do STOP2)
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_with_cs::<T>(cs);
 
         let timer_freq = T::frequency();
 

@@ -28,6 +28,7 @@ async fn main(_spawner: Spawner) {
     let wwdt_config = hal::wwdt::Config {
         timeout: Duration::from_millis(1050),
         warning: Some(Duration::from_micros(4000)),
+        clock: Default::default(),
     };
 
     let mut watchdog = Watchdog::new(p.WWDT0, Irqs, wwdt_config).unwrap();

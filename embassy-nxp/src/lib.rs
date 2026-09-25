@@ -7,10 +7,14 @@ pub(crate) mod fmt;
 #[cfg(lpc55)]
 pub mod adc;
 #[cfg(lpc55)]
+pub mod casper;
+#[cfg(lpc55)]
 pub mod dma;
 pub mod gpio;
 #[cfg(lpc55)]
 pub mod hashcrypt;
+#[cfg(lpc55)]
+pub mod i2c;
 #[cfg(lpc55)]
 pub mod pint;
 #[cfg(lpc55)]

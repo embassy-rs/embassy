@@ -3,16 +3,16 @@
 
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_nrf::cracen::Cracen;
+use embassy_nrf::crypto::rng::Rng;
 use panic_probe as _;
 use rand::Rng as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
-    let mut rng = Cracen::new_blocking(p.CRACEN);
+    let mut rng = Rng::new_blocking(p.CRYPTO_RNG);
 
-    // Async API
+    // Blocking API
     let mut bytes = [0; 4];
     rng.blocking_fill_bytes(&mut bytes);
     defmt::info!("Some random bytes: {:?}", bytes);

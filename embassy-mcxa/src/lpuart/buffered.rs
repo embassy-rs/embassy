@@ -218,6 +218,36 @@ impl<'a> Lpuart<'a, Buffered> {
             config,
         )
     }
+
+    /// Write data asynchronously
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.tx.write(buf).await
+    }
+
+    /// Flush the TX buffer and wait for transmission to complete
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.tx.flush().await
+    }
+
+    /// Try to write without blocking
+    ///
+    /// May return 0 if the provided buf is zero, or there are no bytes available
+    pub fn try_write(&mut self, buf: &[u8]) -> usize {
+        self.tx.try_write(buf)
+    }
+
+    /// Read data asynchronously
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.rx.read(buf).await
+    }
+
+    /// Try to read without blocking
+    ///
+    /// May return zero bytes if none are available, or the provided buffer is
+    /// of zero length.
+    pub fn try_read(&mut self, buf: &mut [u8]) -> usize {
+        self.rx.try_read(buf)
+    }
 }
 
 impl<'a> LpuartTx<'a, Buffered> {
@@ -641,16 +671,16 @@ impl embedded_io_async::Read for LpuartRx<'_, Buffered> {
 
 impl embedded_io_async::Write for Lpuart<'_, Buffered> {
     async fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
-        self.tx.write(buf).await
+        self.write(buf).await
     }
 
     async fn flush(&mut self) -> core::result::Result<(), Self::Error> {
-        self.tx.flush().await
+        self.flush().await
     }
 }
 
 impl embedded_io_async::Read for Lpuart<'_, Buffered> {
     async fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
-        self.rx.read(buf).await
+        self.read(buf).await
     }
 }

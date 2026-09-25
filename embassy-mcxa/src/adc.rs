@@ -881,21 +881,21 @@ pub trait Instance: SealedInstance + PeripheralType {
 macro_rules! impl_adc_instance {
     ($n:expr) => {
         paste::paste! {
-            impl crate::adc::SealedInstance for crate::peripherals::[<ADC $n>] {
-                fn info() -> &'static crate::adc::Info {
-                    static INFO: crate::adc::Info =
-                    crate::adc::Info {
-                        regs: crate::pac::[<ADC $n>],
+            impl $crate::adc::SealedInstance for $crate::peripherals::[<ADC $n>] {
+                fn info() -> &'static $crate::adc::Info {
+                    static INFO: $crate::adc::Info =
+                    $crate::adc::Info {
+                        regs: $crate::pac::[<ADC $n>],
                         wait_cell: maitake_sync::WaitCell::new(),
                     };
                     &INFO
                 }
 
-                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
+                const PERF_INT_INCR: fn() = $crate::perf_counters::[<incr_interrupt_adc $n>];
             }
 
-            impl crate::adc::Instance for crate::peripherals::[<ADC $n>] {
-                type Interrupt = crate::interrupt::typelevel::[<ADC $n>];
+            impl $crate::adc::Instance for $crate::peripherals::[<ADC $n>] {
+                type Interrupt = $crate::interrupt::typelevel::[<ADC $n>];
             }
         }
     };
@@ -983,9 +983,9 @@ impl Mode for Async {}
 #[macro_export]
 macro_rules! impl_adc_pin {
     ($pin:ident, $peri:ident, $channel:literal) => {
-        impl crate::adc::sealed::SealedAdcPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
+        impl $crate::adc::sealed::SealedAdcPin<$crate::peripherals::$peri> for $crate::peripherals::$pin {}
 
-        impl crate::adc::AdcPin<crate::peripherals::$peri> for crate::peripherals::$pin {
+        impl $crate::adc::AdcPin<$crate::peripherals::$peri> for $crate::peripherals::$pin {
             #[inline]
             fn channel(&self) -> u8 {
                 $channel

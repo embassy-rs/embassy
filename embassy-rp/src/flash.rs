@@ -10,6 +10,7 @@ use embedded_storage::nor_flash::{
     check_write,
 };
 
+use crate::mode::{Async, Blocking, Mode};
 use crate::peripherals::FLASH;
 use crate::{dma, interrupt, mode, pac};
 
@@ -76,19 +77,19 @@ impl NorFlashError for Error {
 
 /// Future that waits for completion of a background read
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct BackgroundRead<'a, 'd, T: Instance, const FLASH_SIZE: usize> {
-    flash: PhantomData<&'a mut Flash<'d, T, Async, FLASH_SIZE>>,
+pub struct BackgroundRead<'a, 'd, const FLASH_SIZE: usize> {
+    flash: PhantomData<&'a mut Flash<'d, Async, FLASH_SIZE>>,
     transfer: dma::Transfer<'a>,
 }
 
-impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Future for BackgroundRead<'a, 'd, T, FLASH_SIZE> {
+impl<'a, 'd, const FLASH_SIZE: usize> Future for BackgroundRead<'a, 'd, FLASH_SIZE> {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.transfer).poll(cx)
     }
 }
 
-impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, 'd, T, FLASH_SIZE> {
+impl<'a, 'd, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, 'd, FLASH_SIZE> {
     fn drop(&mut self) {
         if pac::XIP_CTRL.stream_ctr().read().0 == 0 {
             return;
@@ -112,12 +113,12 @@ impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, '
 }
 
 /// Flash driver.
-pub struct Flash<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> {
+pub struct Flash<'d, M: Mode, const FLASH_SIZE: usize> {
     dma: Option<dma::Channel<'d, mode::Async>>,
-    phantom: PhantomData<(&'d mut T, M)>,
+    phantom: PhantomData<(&'d mut (), M)>,
 }
 
-impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SIZE> {
+impl<'d, M: Mode, const FLASH_SIZE: usize> Flash<'d, M, FLASH_SIZE> {
     /// Blocking read.
     ///
     /// The offset and buffer must be aligned.
@@ -250,9 +251,9 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
     }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE> {
+impl<'d, const FLASH_SIZE: usize> Flash<'d, Blocking, FLASH_SIZE> {
     /// Create a new flash driver in blocking mode.
-    pub fn new_blocking(_flash: Peri<'d, T>) -> Self {
+    pub fn new_blocking<T: Instance>(_flash: Peri<'d, T>) -> Self {
         Self {
             dma: None,
             phantom: PhantomData,
@@ -260,9 +261,9 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE
     }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
+impl<'d, const FLASH_SIZE: usize> Flash<'d, Async, FLASH_SIZE> {
     /// Create a new flash driver in async mode.
-    pub fn new<D: dma::ChannelInstance>(
+    pub fn new<T: Instance, D: dma::ChannelInstance>(
         _flash: Peri<'d, T>,
         dma: Peri<'d, D>,
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
@@ -282,7 +283,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         &'a mut self,
         offset: u32,
         data: &'a mut [u32],
-    ) -> Result<BackgroundRead<'a, 'd, T, FLASH_SIZE>, Error> {
+    ) -> Result<BackgroundRead<'a, 'd, FLASH_SIZE>, Error> {
         trace!(
             "Reading in background from 0x{:x} to 0x{:x}",
             FLASH_BASE as u32 + offset,
@@ -375,11 +376,11 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
     }
 }
 
-impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ErrorType for Flash<'d, T, M, FLASH_SIZE> {
+impl<'d, M: Mode, const FLASH_SIZE: usize> ErrorType for Flash<'d, M, FLASH_SIZE> {
     type Error = Error;
 }
 
-impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ReadNorFlash for Flash<'d, T, M, FLASH_SIZE> {
+impl<'d, M: Mode, const FLASH_SIZE: usize> ReadNorFlash for Flash<'d, M, FLASH_SIZE> {
     const READ_SIZE: usize = READ_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -391,14 +392,14 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ReadNorFlash for Flash<'
     }
 }
 
-impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, T, M, FLASH_SIZE> {}
+impl<'d, M: Mode, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, M, FLASH_SIZE> {}
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::MultiwriteNorFlash
-    for Flash<'d, T, Async, FLASH_SIZE>
+impl<'d, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::MultiwriteNorFlash
+    for Flash<'d, Async, FLASH_SIZE>
 {
 }
 
-impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, M, FLASH_SIZE> {
+impl<'d, M: Mode, const FLASH_SIZE: usize> NorFlash for Flash<'d, M, FLASH_SIZE> {
     const WRITE_SIZE: usize = WRITE_SIZE;
 
     const ERASE_SIZE: usize = ERASE_SIZE;
@@ -412,9 +413,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> NorFlash for Flash<'d, T
     }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::ReadNorFlash
-    for Flash<'d, T, Async, FLASH_SIZE>
-{
+impl<'d, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::ReadNorFlash for Flash<'d, Async, FLASH_SIZE> {
     const READ_SIZE: usize = ASYNC_READ_SIZE;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -426,9 +425,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash
     }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::NorFlash
-    for Flash<'d, T, Async, FLASH_SIZE>
-{
+impl<'d, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::NorFlash for Flash<'d, Async, FLASH_SIZE> {
     const WRITE_SIZE: usize = WRITE_SIZE;
 
     const ERASE_SIZE: usize = ERASE_SIZE;
@@ -443,7 +440,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash
 }
 
 #[allow(dead_code)]
-mod ram_helpers {
+pub(crate) mod ram_helpers {
     use super::*;
     use crate::rom_data;
 
@@ -955,8 +952,66 @@ pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
         // Wait for completion of any background reads
         while pac::XIP_CTRL.stream_ctr().read().0 > 0 {}
 
+        // On RP235x the bootrom flash routines reset QMI window 1
+        // (CS1) to default XIP timings, which clobbers any custom
+        // configuration applied for an attached PSRAM. Snapshot the
+        // window-1 registers and restore them afterwards so PSRAM
+        // access keeps working across flash erase/program.
+        // See pico-sdk#1983.
+        #[cfg(feature = "_rp235x")]
+        let qmi_m1 = {
+            let m = pac::QMI.mem(1);
+            (
+                m.timing().read(),
+                m.rfmt().read(),
+                m.rcmd().read(),
+                m.wfmt().read(),
+                m.wcmd().read(),
+            )
+        };
+
+        // Clean the XIP cache before invoking the bootrom flash
+        // routines. The bootrom calls `flash_flush_cache`, which
+        // INVALIDATES every cache line by set/way — that silently
+        // drops any dirty PSRAM lines (writes the CPU made that
+        // hadn't yet been written back to physical PSRAM via the
+        // cache write-back path). Cleaning first pushes those writes
+        // out so the subsequent invalidate is harmless. See
+        // pico-sdk's `hardware_xip_cache::xip_cache_clean_all` and
+        // erratum RP2350-E11.
+        //
+        // Encoding: addr[2:0]=0x1 selects "clean by set/way";
+        // addr[12:3] is the set index (1024 sets), addr[13] is the
+        // way (2 ways) — 2048 lines total. Maintenance writes are
+        // anchored at the very top of the maintenance window
+        // (0x1BFFC000) so the bogus tag left in the line by erratum
+        // E11 (`clean by set/way` writes the maintenance address
+        // into the line tag) sits in a region nothing reads.
+        #[cfg(feature = "_rp235x")]
+        {
+            const MAINT_BASE: usize = 0x1BFFC000;
+            let mut i: usize = 0;
+            while i < 2048 {
+                let addr = MAINT_BASE + (i * 8) + 1;
+                core::ptr::write_volatile(addr as *mut u8, 0);
+                i += 1;
+            }
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+        }
+
         // Run our flash operation in RAM
         operation();
+
+        #[cfg(feature = "_rp235x")]
+        {
+            let m = pac::QMI.mem(1);
+            m.timing().write_value(qmi_m1.0);
+            m.rfmt().write_value(qmi_m1.1);
+            m.rcmd().write_value(qmi_m1.2);
+            m.wfmt().write_value(qmi_m1.3);
+            m.wcmd().write_value(qmi_m1.4);
+            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+        }
     });
 
     // Resume CORE1 execution
@@ -965,29 +1020,10 @@ pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
 }
 
 trait SealedInstance {}
-trait SealedMode {}
 
 /// Flash instance.
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType {}
-/// Flash mode.
-#[allow(private_bounds)]
-pub trait Mode: SealedMode {}
 
 impl SealedInstance for FLASH {}
 impl Instance for FLASH {}
-
-macro_rules! impl_mode {
-    ($name:ident) => {
-        impl SealedMode for $name {}
-        impl Mode for $name {}
-    };
-}
-
-/// Flash blocking mode.
-pub struct Blocking;
-/// Flash async mode.
-pub struct Async;
-
-impl_mode!(Blocking);
-impl_mode!(Async);

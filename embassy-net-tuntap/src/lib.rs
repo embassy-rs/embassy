@@ -5,11 +5,11 @@ use std::io::{Read, Write};
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::prelude::BorrowedFd;
-use std::task::Context;
+use std::task::{Context, Waker};
 
 use async_io::Async;
-use embassy_net_driver::{Capabilities, Driver, HardwareAddress, LinkState};
 use log::*;
+use xarxa_driver::{Capabilities, Driver, HardwareAddress, LinkState, NotSupported, PacketBuf};
 
 const ETHERNET_HEADER_LEN: usize = 14;
 
@@ -151,93 +151,51 @@ impl TunTapDevice {
 }
 
 impl Driver for TunTapDevice {
-    type RxToken<'a>
-        = RxToken
-    where
-        Self: 'a;
-    type TxToken<'a>
-        = TxToken<'a>
-    where
-        Self: 'a;
-
-    fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let mut buf = vec![0; self.device.get_ref().mtu];
-        loop {
-            match unsafe { self.device.get_mut() }.read(&mut buf) {
-                Ok(n) => {
-                    buf.truncate(n);
-                    return Some((
-                        RxToken { buffer: buf },
-                        TxToken {
-                            device: &mut self.device,
-                        },
-                    ));
-                }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    if !self.device.poll_readable(cx).is_ready() {
-                        return None;
-                    }
-                }
-                Err(e) => panic!("read error: {:?}", e),
-            }
-        }
-    }
-
-    fn transmit(&mut self, _cx: &mut Context) -> Option<Self::TxToken<'_>> {
-        Some(TxToken {
-            device: &mut self.device,
-        })
-    }
-
     fn capabilities(&self) -> Capabilities {
         let mut caps = Capabilities::default();
         caps.max_transmission_unit = self.device.get_ref().mtu;
         caps
     }
 
-    fn link_state(&mut self, _cx: &mut Context) -> LinkState {
-        LinkState::Up
-    }
-
     fn hardware_address(&self) -> HardwareAddress {
         HardwareAddress::Ethernet(self.hardware_address)
     }
-}
 
-#[doc(hidden)]
-pub struct RxToken {
-    buffer: Vec<u8>,
-}
-
-impl embassy_net_driver::RxToken for RxToken {
-    fn consume<R, F>(mut self, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        f(&mut self.buffer)
+    fn link_state(&mut self) -> LinkState {
+        LinkState::Up
     }
-}
 
-#[doc(hidden)]
-pub struct TxToken<'a> {
-    device: &'a mut Async<TunTap>,
-}
+    fn register_waker(&mut self, waker: &Waker) -> Result<(), NotSupported> {
+        let mut cx = Context::from_waker(waker);
+        let _ = self.device.poll_readable(&mut cx);
+        Ok(())
+    }
 
-impl<'a> embassy_net_driver::TxToken for TxToken<'a> {
-    fn consume<R, F>(self, len: usize, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        let mut buffer = vec![0; len];
-        let result = f(&mut buffer);
+    fn receive(&mut self) -> Option<PacketBuf> {
+        let mut buf = PacketBuf::try_new()?;
+        let mtu = self.device.get_ref().mtu.min(buf.capacity());
+        buf.set_len(mtu);
+        match unsafe { self.device.get_mut() }.read(&mut buf) {
+            Ok(n) => {
+                buf.set_len(n);
+                Some(buf)
+            }
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => None,
+            Err(e) => panic!("read error: {:?}", e),
+        }
+    }
 
+    fn can_transmit(&mut self) -> bool {
+        true
+    }
+
+    fn transmit(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
         // todo handle WouldBlock with async
-        match unsafe { self.device.get_mut() }.write(&buffer) {
+        match unsafe { self.device.get_mut() }.write(&buf) {
             Ok(_) => {}
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => info!("transmit WouldBlock"),
             Err(e) => panic!("transmit error: {:?}", e),
         }
-
-        result
+        Ok(())
     }
 }

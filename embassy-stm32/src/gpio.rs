@@ -184,7 +184,7 @@ impl<'d> Flex<'d> {
 
     /// Get the current pin input level.
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn level(&self) -> Level {
         self.is_high().into()
     }
 
@@ -203,7 +203,7 @@ impl<'d> Flex<'d> {
 
     /// Get the current output level.
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn output_level(&self) -> Level {
         self.is_set_high().into()
     }
 
@@ -354,8 +354,8 @@ impl<'d> Input<'d> {
 
     /// Get the current pin input level.
     #[inline]
-    pub fn get_level(&self) -> Level {
-        self.pin.get_level()
+    pub fn level(&self) -> Level {
+        self.pin.level()
     }
 }
 
@@ -441,8 +441,8 @@ impl<'d> Output<'d> {
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
-        self.pin.get_output_level()
+    pub fn output_level(&self) -> Level {
+        self.pin.output_level()
     }
 
     /// Toggle pin output
@@ -502,8 +502,8 @@ impl<'d> OutputOpenDrain<'d> {
 
     /// Get the current pin input level.
     #[inline]
-    pub fn get_level(&self) -> Level {
-        self.pin.get_level()
+    pub fn level(&self) -> Level {
+        self.pin.level()
     }
 
     /// Set the output as high.
@@ -538,8 +538,8 @@ impl<'d> OutputOpenDrain<'d> {
 
     /// Get the current output level.
     #[inline]
-    pub fn get_output_level(&self) -> Level {
-        self.pin.get_output_level()
+    pub fn output_level(&self) -> Level {
+        self.pin.output_level()
     }
 
     /// Toggle pin output
@@ -607,6 +607,15 @@ impl AfType {
             mode: speed.to_mode(),
             cnf: output_type.to_cnf_out().to_bits(),
             pull: Pull::None,
+        }
+    }
+
+    /// Output with output type, speed and pull-up or pull-down;
+    pub const fn output_pull(output_type: OutputType, speed: Speed, pull: Pull) -> Self {
+        Self {
+            mode: speed.to_mode(),
+            cnf: output_type.to_cnf_out().to_bits(),
+            pull,
         }
     }
 }
@@ -1161,12 +1170,14 @@ impl<'d> embedded_hal_1::digital::ErrorType for Output<'d> {
 impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
     #[inline]
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     #[inline]
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 
@@ -1202,12 +1213,14 @@ impl<'d> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d> {
 impl<'d> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d> {
     #[inline]
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     #[inline]
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 
@@ -1239,12 +1252,14 @@ impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
 impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
     #[inline]
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     #[inline]
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 

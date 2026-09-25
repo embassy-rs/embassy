@@ -34,5 +34,5 @@ debug = 2
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/nrf54l15" }
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/nrf54l15-app" }
 ]

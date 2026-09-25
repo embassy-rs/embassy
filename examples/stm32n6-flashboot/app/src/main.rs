@@ -93,7 +93,7 @@ async fn main(spawner: Spawner) {
 
         let mut uart_config = usart::Config::default();
         uart_config.parity = usart::Parity::ParityEven;
-        let uart = usart::Uart::new_blocking(p.USART1, p.PE6, p.PE5, uart_config).unwrap();
+        let uart = usart::Uart::new_blocking(p.USART1, p.PE5, p.PE6, uart_config).unwrap();
         let (tx, rx) = uart.split();
 
         match dfu::receive_firmware(rx, tx) {

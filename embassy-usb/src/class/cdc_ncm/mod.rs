@@ -6,6 +6,9 @@
 //!
 //! Linux: Well-supported since forever.
 //!
+//! macOS: Supported. We declare the D0 `bmNetworkCapabilities` bit with no actual filtering,
+//! otherwise macOS intermittently leaves the data interface disabled (Apple bug r.170072016).
+//!
 //! Android: Support for CDC-NCM is spotty and varies across manufacturers.
 //!
 //! - On Pixel 4a, it refused to work on Android 11, worked on Android 12.
@@ -44,7 +47,7 @@ const REQ_SEND_ENCAPSULATED_COMMAND: u8 = 0x00;
 //const REQ_SET_ETHERNET_MULTICAST_FILTERS: u8 = 0x40;
 //const REQ_SET_ETHERNET_POWER_MANAGEMENT_PATTERN_FILTER: u8 = 0x41;
 //const REQ_GET_ETHERNET_POWER_MANAGEMENT_PATTERN_FILTER: u8 = 0x42;
-//const REQ_SET_ETHERNET_PACKET_FILTER: u8 = 0x43;
+const REQ_SET_ETHERNET_PACKET_FILTER: u8 = 0x43;
 //const REQ_GET_ETHERNET_STATISTIC: u8 = 0x44;
 const REQ_GET_NTB_PARAMETERS: u8 = 0x80;
 //const REQ_GET_NET_ADDRESS: u8 = 0x81;
@@ -60,6 +63,10 @@ const REQ_SET_NTB_INPUT_SIZE: u8 = 0x86;
 
 //const NOTIF_MAX_PACKET_SIZE: u16 = 8;
 //const NOTIF_POLL_INTERVAL: u8 = 20;
+
+/// bmNetworkCapabilities D0. Claiming it also works around a macOS bug (Apple's r.170072016) that
+/// leaves the data interface disabled if the function declares no capabilities.
+const NCAP_ETH_PACKET_FILTER: u8 = 1 << 0;
 
 const NTB_MAX_SIZE: usize = 2048;
 const SIG_NTH: u32 = 0x484d_434e;
@@ -175,6 +182,15 @@ impl<'d> Handler for Control<'d> {
             REQ_SEND_ENCAPSULATED_COMMAND => {
                 // We don't actually support encapsulated commands but pretend we do for standards
                 // compatibility.
+                Some(OutResponse::Accepted)
+            }
+            REQ_SET_ETHERNET_PACKET_FILTER => {
+                // Inhibiting packets is optional per [USBECM12], so we accept any filter, keep
+                // forwarding everything, and leave the host to filter in software.
+                if req.length != 0 {
+                    return Some(OutResponse::Rejected);
+                }
+                info!("ncm: host set packet filter to {:04x}", req.value);
                 Some(OutResponse::Accepted)
             }
             REQ_SET_NTB_INPUT_SIZE => {
@@ -306,10 +322,10 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
         alt.descriptor(
             CS_INTERFACE,
             &[
-                CDC_TYPE_NCM, // bDescriptorSubtype
-                0x00,         // bcdNCMVersion
-                0x01,         // |
-                0,            // bmNetworkCapabilities
+                CDC_TYPE_NCM,           // bDescriptorSubtype
+                0x00,                   // bcdNCMVersion
+                0x01,                   // |
+                NCAP_ETH_PACKET_FILTER, // bmNetworkCapabilities
             ],
         );
 

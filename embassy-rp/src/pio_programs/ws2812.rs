@@ -115,12 +115,12 @@ impl<'d, P: Instance, const S: usize> PioWs2812<'d, P, S, Grb> {
     pub fn new<D: dma::ChannelInstance>(
         pio: &mut Common<'d, P>,
         sm: StateMachine<'d, P, S>,
+        pin: Peri<'d, impl PioPin>,
         dma: Peri<'d, D>,
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
-        pin: Peri<'d, impl PioPin>,
         program: &PioWs2812Program<'d, P>,
     ) -> Self {
-        Self::with_color_order(pio, sm, dma, irq, pin, program)
+        Self::with_color_order(pio, sm, pin, dma, irq, program)
     }
 }
 
@@ -133,9 +133,9 @@ where
     pub fn with_color_order<D: dma::ChannelInstance>(
         pio: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
+        pin: Peri<'d, impl PioPin>,
         dma: Peri<'d, D>,
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
-        pin: Peri<'d, impl PioPin>,
         program: &PioWs2812Program<'d, P>,
     ) -> Self {
         // Setup sm0
@@ -224,12 +224,12 @@ impl<'d, P: Instance, const S: usize> RgbwPioWs2812<'d, P, S, Grbw> {
     pub fn new<D: dma::ChannelInstance>(
         pio: &mut Common<'d, P>,
         sm: StateMachine<'d, P, S>,
+        pin: Peri<'d, impl PioPin>,
         dma: Peri<'d, D>,
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
-        pin: Peri<'d, impl PioPin>,
         program: &PioWs2812Program<'d, P>,
     ) -> Self {
-        Self::with_color_order(pio, sm, dma, irq, pin, program)
+        Self::with_color_order(pio, sm, pin, dma, irq, program)
     }
 }
 
@@ -242,9 +242,9 @@ where
     pub fn with_color_order<D: dma::ChannelInstance>(
         pio: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
+        pin: Peri<'d, impl PioPin>,
         dma: Peri<'d, D>,
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
-        pin: Peri<'d, impl PioPin>,
         program: &PioWs2812Program<'d, P>,
     ) -> Self {
         // Setup sm0

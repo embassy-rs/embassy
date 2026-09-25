@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Port to the `xarxa-driver` `Driver` trait, replacing `embassy-net-driver`.
+- Packets are now owned `PacketBuf`s from the global packet pool, passed through plain channels instead of zero-copy channels.
+
 ## 0.4.0 - 2026-03-11
 
 - Update embassy-sync to 0.8.0

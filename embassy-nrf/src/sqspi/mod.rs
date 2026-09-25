@@ -346,15 +346,15 @@ impl<'d> Sqspi<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<T: Instance>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        firmware: &[u8],
-        ram: &'d mut [MaybeUninit<u8>],
         sck: Peri<'d, impl GpioPin>,
         csn: Peri<'d, impl GpioPin>,
         io0: Peri<'d, impl GpioPin>,
         io1: Peri<'d, impl GpioPin>,
         io2: Peri<'d, impl GpioPin>,
         io3: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        firmware: &[u8],
+        ram: &'d mut [MaybeUninit<u8>],
         config: Config,
     ) -> Result<Self, Error> {
         let meta = FirmwareMetadata::parse(firmware)?;

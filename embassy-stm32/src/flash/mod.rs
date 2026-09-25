@@ -7,15 +7,18 @@ use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 mod asynch;
 #[cfg(flash)]
 mod common;
+#[cfg(flash_c5)]
+mod edata;
 #[cfg(eeprom)]
 mod eeprom;
-
 #[cfg(any(
     flash_f4, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab, flash_l4
 ))]
 pub use asynch::InterruptHandler;
 #[cfg(flash)]
 pub use common::*;
+#[cfg(flash_c5)]
+pub use edata::*;
 #[cfg(eeprom)]
 #[allow(unused_imports)]
 pub use eeprom::*;
@@ -37,6 +40,65 @@ pub const READ_SIZE: usize = 1;
 pub enum Blocking {}
 /// Async flash mode typestate.
 pub enum Async {}
+
+/// Flash driver configuration.
+#[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Config {
+    /// Parallelism applied before each sector erase, also after splitting into regions.
+    ///
+    /// `None` (the default) leaves PSIZE unchanged, including changes made by writes.
+    pub erase_parallelism: Option<EraseParallelism>,
+}
+
+/// Parallelism used for flash erase operations.
+///
+/// Available on STM32F2/F4/F7 and `flash_h7`. STM32H7A/B has no PSIZE selection.
+/// The supply must meet the selected device's voltage/VPP requirements throughout
+/// the erase; consult its reference manual and datasheet. F2/F4/F7 x64 requires
+/// external VPP where supported; H7 has different supply requirements.
+/// The driver does not check supply voltage.
+/// Parallelism affects erase duration and current consumption, not programming access width.
+#[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum EraseParallelism {
+    /// Erase 8 bits in parallel.
+    X8,
+    /// Erase 16 bits in parallel.
+    X16,
+    /// Erase 32 bits in parallel.
+    X32,
+    /// Erase 64 bits in parallel.
+    X64,
+}
+
+#[cfg(any(flash_f2, flash_f4, flash_f7))]
+impl EraseParallelism {
+    fn psize(self) -> crate::pac::flash::vals::Psize {
+        use crate::pac::flash::vals::Psize;
+        match self {
+            Self::X8 => Psize::Psize8,
+            Self::X16 => Psize::Psize16,
+            Self::X32 => Psize::Psize32,
+            Self::X64 => Psize::Psize64,
+        }
+    }
+}
+
+#[cfg(flash_h7)]
+impl EraseParallelism {
+    fn psize(self) -> u8 {
+        match self {
+            Self::X8 => 0,
+            Self::X16 => 1,
+            Self::X32 => 2,
+            Self::X64 => 3,
+        }
+    }
+}
 
 /// Flash memory region
 #[derive(Debug)]
@@ -103,7 +165,8 @@ pub enum FlashBank {
 compile_error!("The 'eeprom' cfg is enabled for a non-L0/L1 chip family. This is an unsupported configuration.");
 #[cfg_attr(any(flash_l0, flash_l1, flash_l4, flash_l5, flash_wl, flash_wb), path = "l.rs")]
 #[cfg_attr(flash_f0, path = "f0.rs")]
-#[cfg_attr(any(flash_f1, flash_f3), path = "f1f3.rs")]
+#[cfg_attr(all(any(flash_f1, flash_f3), not(flash_f1_xl)), path = "f1f3.rs")]
+#[cfg_attr(flash_f1_xl, path = "f1_xl.rs")]
 #[cfg_attr(flash_f2, path = "f2.rs")]
 #[cfg_attr(flash_f4, path = "f4.rs")]
 #[cfg_attr(flash_f7, path = "f7.rs")]
@@ -119,9 +182,34 @@ compile_error!("The 'eeprom' cfg is enabled for a non-L0/L1 chip family. This is
 #[cfg_attr(flash_u3, path = "u3.rs")]
 #[cfg_attr(
     not(any(
-        flash_l0, flash_l1, flash_l4, flash_l5, flash_wl, flash_wb, flash_f0, flash_f1, flash_f2, flash_f3, flash_f4,
-        flash_f7, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_c0, flash_c5, flash_h7, flash_h7ab,
-        flash_u5, flash_wba, flash_h50, flash_u0, flash_h5, flash_u3,
+        flash_l0,
+        flash_l1,
+        flash_l4,
+        flash_l5,
+        flash_wl,
+        flash_wb,
+        flash_f0,
+        flash_f1,
+        flash_f2,
+        flash_f3,
+        flash_f4,
+        flash_f7,
+        flash_g0x0,
+        flash_g0x1,
+        flash_g4c2,
+        flash_g4c3,
+        flash_g4c4,
+        flash_c0,
+        flash_c5,
+        flash_h7,
+        flash_h7ab,
+        flash_u5,
+        flash_wba,
+        flash_h50,
+        flash_u0,
+        flash_h5,
+        flash_u3,
+        flash_f1_xl,
     )),
     path = "other.rs"
 )]
@@ -144,6 +232,7 @@ pub enum Error {
     Protected,
     Unaligned,
     Parallelism,
+    EdataDisabled,
 }
 
 impl NorFlashError for Error {

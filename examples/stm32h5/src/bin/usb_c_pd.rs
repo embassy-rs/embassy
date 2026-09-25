@@ -60,7 +60,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let mut ucpd = Ucpd::new(p.UCPD1, Irqs {}, p.PB13, p.PB14, Default::default());
+    let mut ucpd = Ucpd::new(p.UCPD1, p.PB13, p.PB14, Irqs {}, Default::default());
     ucpd.cc_phy().set_pull(CcPull::Sink);
 
     // This pin controls the dead-battery mode on the attached TCPP01-M12.

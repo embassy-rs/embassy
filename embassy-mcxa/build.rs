@@ -29,7 +29,7 @@ fn main() {
 
     // Declare all drivers in nxp-pac (used or unused)
     for peripheral in nxp_pac::metadata::META_PERIPHERALS {
-        cfgs.declare(&driver_to_cfg_name(peripheral));
+        cfgs.declare(driver_to_cfg_name(peripheral));
     }
 
     // Enable all drivers for this chip
@@ -38,7 +38,7 @@ fn main() {
             continue;
         }
 
-        cfgs.enable(&driver_to_cfg_name(peripheral.driver_name));
+        cfgs.enable(driver_to_cfg_name(peripheral.driver_name));
     }
 
     let generated = [
@@ -56,6 +56,7 @@ fn main() {
         generate_ctimer_pin_impls(),
         generate_lpuart_pin_impls(),
         generate_flexspi_pin_impls(),
+        generate_dac_pin_impls(),
         generate_flexcan_pin_impls(),
         generate_dma_impls(),
     ];
@@ -191,7 +192,7 @@ fn pin_feature_gate(pin_name: &str) -> TokenStream {
         .pins
         .iter()
         .find(|pin| pin.name == pin_name)
-        .expect(&format!("Failed to find pin {pin_name}"));
+        .unwrap_or_else(|| panic!("Failed to find pin {pin_name}"));
     pin.feature
         .as_ref()
         .map_or(TokenStream::default(), |feature| quote! { #[cfg(feature = #feature)] })
@@ -201,7 +202,7 @@ fn generate_instance_calls() -> TokenStream {
     let mut generated = TokenStream::new();
 
     const REQUIRES_INSTANCE: &[&str] = &[
-        "adc", "crc", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi", "can",
+        "adc", "crc", "dac", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi", "can",
     ];
 
     let peripheral_regex = Regex::new(r"(^.*\D)(\d+)?").unwrap();
@@ -274,7 +275,7 @@ fn generate_adc_pin_impls() -> TokenStream {
         let adc_name = format_ident!("{}", adc.name);
         for signal in adc.signals {
             let channel: u8 = get_regex_num(signal.name, &adc_channel_regex)
-                .expect(&format!("Could not get ADC channel from: {}", signal.name))
+                .unwrap_or_else(|| panic!("Could not get ADC channel from: {}", signal.name))
                 .try_into()
                 .unwrap();
             for pin in signal.pins {
@@ -298,7 +299,7 @@ fn generate_clkout_impls() -> TokenStream {
     for clkout in METADATA
         .peripherals
         .iter()
-        .filter(|p| p.name.to_ascii_lowercase() == "clkout")
+        .filter(|p| p.name.eq_ignore_ascii_case("clkout"))
     {
         for signal in clkout.signals {
             for pin in signal.pins {
@@ -408,6 +409,29 @@ fn generate_flexspi_pin_impls() -> TokenStream {
                 generated.extend(quote! {
                     #feature_gate
                     crate::impl_flexspi_pin!(#pin_name, #flexspi_name, #port, #signal_name);
+                });
+            }
+        }
+    }
+
+    generated
+}
+
+fn generate_dac_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    let dac_regex = Regex::new(r"^DAC\d+").unwrap();
+    for dac in METADATA.peripherals.iter().filter(|p| dac_regex.is_match(p.name)) {
+        let dac_name = format_ident!("{}", dac.name);
+
+        for signal in dac.signals {
+            for pin in signal.pins {
+                let pin_name = format_ident!("{}", pin.pin);
+                let feature_gate = pin_feature_gate(pin.pin);
+
+                generated.extend(quote! {
+                    #feature_gate
+                    crate::impl_dac_pin!(#pin_name, #dac_name);
                 });
             }
         }

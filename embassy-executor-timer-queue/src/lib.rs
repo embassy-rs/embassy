@@ -28,6 +28,7 @@ unitrait::unitrait! {
     ///
     /// This trait is implemented by the executor (`embassy-executor`, most likely), which owns
     /// the storage for timer queue items.
+    #[symbol_prefix = "__embassy_time_queue"]
     pub trait TimerQueueItemProvider {
         /// Retrieves the `TimerQueueItem` reference that belongs to the task of the waker.
         ///
@@ -40,8 +41,7 @@ unitrait::unitrait! {
         /// the same time.
         ///
         /// This function must only be called in the context of a timer queue implementation.
-        #[symbol = "__embassy_time_queue_item_from_waker"]
-        pub unsafe fn item_from_waker(waker: &core::task::Waker) -> &'static mut TimerQueueItem;
+        unsafe fn item_from_waker(waker: &core::task::Waker) -> &'static mut TimerQueueItem;
 
         /// Like [`item_from_waker`](TimerQueueItemProvider::item_from_waker), but returns `None`
         /// instead of panicking if the waker is not an embassy waker.
@@ -50,8 +50,11 @@ unitrait::unitrait! {
         ///
         /// Same as [`item_from_waker`](TimerQueueItemProvider::item_from_waker).
         #[symbol = "__try_embassy_time_queue_item_from_waker"]
-        pub unsafe fn try_item_from_waker(waker: &core::task::Waker) -> Option<&'static mut TimerQueueItem>;
+        unsafe fn try_item_from_waker(waker: &core::task::Waker) -> Option<&'static mut TimerQueueItem>;
     }
+
+    /// The global [`TimerQueueItemProvider`] implementation.
+    pub struct TimerQueueItemProviderImpl;
 
     /// Register a type as the global [`TimerQueueItemProvider`] implementation.
     ///
@@ -97,7 +100,7 @@ impl TimerQueueItem {
     ///
     /// This function must only be called in the context of a timer queue implementation.
     pub unsafe fn from_embassy_waker(waker: &Waker) -> &'static mut Self {
-        unsafe { item_from_waker(waker) }
+        unsafe { TimerQueueItemProviderImpl::item_from_waker(waker) }
     }
 
     /// Access the data as a reference to a type `T`.

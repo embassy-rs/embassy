@@ -1,7 +1,7 @@
 //! embassy-net IEEE 802.15.4 driver
 
 use embassy_futures::select::{Either3, select3};
-use embassy_net_driver_channel::driver::LinkState;
+use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
 use embassy_net_driver_channel::{self as ch};
 use embassy_time::{Duration, Ticker};
 
@@ -13,11 +13,11 @@ use crate::{self as nrf, interrupt};
 pub const MTU: usize = Packet::CAPACITY as usize;
 
 /// embassy-net device for the driver.
-pub type Device<'d> = embassy_net_driver_channel::Device<'d, MTU>;
+pub type Device<'d> = embassy_net_driver_channel::Device<'d>;
 
 /// Internal state for the embassy-net driver.
 pub struct State<const N_RX: usize, const N_TX: usize> {
-    ch_state: ch::State<MTU, N_RX, N_TX>,
+    ch_state: ch::State<N_RX, N_TX>,
 }
 
 impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
@@ -34,7 +34,7 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
 /// You must call `.run()` in a background task for the driver to operate.
 pub struct Runner<'d> {
     radio: nrf::radio::ieee802154::Radio<'d>,
-    ch: ch::Runner<'d, MTU>,
+    ch: ch::Runner<'d>,
 }
 
 impl<'d> Runner<'d> {
@@ -47,24 +47,28 @@ impl<'d> Runner<'d> {
         loop {
             match select3(
                 async {
-                    let rx_buf = rx_chan.rx_buf().await;
-                    self.radio.receive(&mut packet).await.ok().map(|_| rx_buf)
+                    rx_chan.rx_ready().await;
+                    self.radio.receive(&mut packet).await.ok()
                 },
-                tx_chan.tx_buf(),
+                tx_chan.tx(),
                 tick.next(),
             )
             .await
             {
-                Either3::First(Some(mut rx_buf)) => {
-                    let len = rx_buf.len().min(packet.len() as usize);
-                    (&mut rx_buf[..len]).copy_from_slice(&*packet);
-                    rx_buf.rx_done(len);
+                Either3::First(Some(())) => {
+                    let Some(mut rx_buf) = PacketBuf::try_new() else {
+                        warn!("packet pool empty, dropping received packet");
+                        continue;
+                    };
+                    let len = MTU.min(packet.len() as usize);
+                    rx_buf.set_len(len);
+                    rx_buf.copy_from_slice(&packet[..len]);
+                    rx_chan.rx(rx_buf).await;
                 }
                 Either3::Second(tx_buf) => {
                     let len = tx_buf.len().min(Packet::CAPACITY as usize);
                     packet.copy_from_slice(&tx_buf[..len]);
                     self.radio.try_send(&mut packet).await.ok().unwrap();
-                    tx_buf.tx_done();
                 }
                 _ => {}
             }
@@ -90,7 +94,11 @@ where
 {
     let radio = Radio::new(radio, irq);
 
-    let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ieee802154(mac_addr));
+    let (runner, device) = ch::new(
+        &mut state.ch_state,
+        ch::driver::HardwareAddress::Ieee802154(mac_addr),
+        MTU,
+    );
 
     Ok((device, Runner { ch: runner, radio }))
 }

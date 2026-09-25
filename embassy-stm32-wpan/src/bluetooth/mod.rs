@@ -13,7 +13,7 @@ use embassy_futures::yield_now;
 use embassy_stm32::interrupt;
 use stm32wb_hci::event::{
     DisconnectionComplete, LeConnectionComplete, LeConnectionUpdateComplete, LeDataLengthChangeEvent,
-    LeEnhancedConnectionComplete, LePhyUpdateComplete,
+    LeEnhancedConnectionComplete, LePhyUpdateComplete, LeRemoteConnectionParameterRequest,
 };
 use stm32wb_hci::host::HostHci;
 use stm32wb_hci::host::uart::Packet;
@@ -32,29 +32,23 @@ use crate::bluetooth::gatt::{
 };
 use crate::bluetooth::hci::command::CommandSender;
 use crate::bluetooth::hci::types::DtmPacketPayload;
-use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy};
+use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy, RadioActivityMask};
 use crate::bluetooth::security::{SecurityEvent, SecurityManager, from_vendor_event as security_from_vendor_event};
 use crate::controller::{Controller, ControllerAdapter};
-use crate::{BasicRuntime, FullRuntime, HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
+use crate::{HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
 
 trait SealedMode {}
 #[allow(private_bounds)]
-pub trait Mode: SealedMode {
-    type Runtime: Runtime;
-}
+pub trait Mode: SealedMode {}
 
 pub struct Normal;
 pub struct Test;
 
 impl SealedMode for Normal {}
-impl Mode for Normal {
-    type Runtime = FullRuntime;
-}
+impl Mode for Normal {}
 
 impl SealedMode for Test {}
-impl Mode for Test {
-    type Runtime = BasicRuntime;
-}
+impl Mode for Test {}
 
 /// Main BLE interface
 ///
@@ -65,11 +59,11 @@ impl Mode for Test {
 /// ```no_run
 /// use embassy_stm32_wpan::{HCI, gap::{AdvData, AdvParams}};
 ///
-///  // Spawn the BLE runner task (required for proper BLE operation)
-///  spawner.spawn(ble_runner_task().expect("Failed to spawn BLE runner"));
+/// // Spawn the BLE runner task (required for proper BLE operation)
+/// spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 ///
 /// // Initialize BLE stack (runner must be spawned first)
-/// let mut ble = HCI::new(new_controller_state!(8), rng, aes, pka, irqs).await.unwrap();
+/// let mut ble = HCI::new(platform, runtime, irqs).await.unwrap();
 ///
 /// // Create advertising data
 /// let mut adv_data = AdvData::new();
@@ -85,8 +79,19 @@ impl Mode for Test {
 ///     // Handle BLE events
 /// }
 /// ```
+///
+/// # Crypto
+///
+/// Full BLE operation requires `embassy-crypto` drivers registered for the
+/// operations the BLE stack uses: random numbers ([`embassy_crypto::Rng`]),
+/// AES-128 ECB ([`embassy_crypto::Aes128`]), AES-128 CMAC
+/// ([`embassy_crypto::Aes128Cmac`]), AES-128 CCM
+/// ([`embassy_crypto::Aes128Ccm`]) and P-256 arithmetic
+/// ([`embassy_crypto::p256`]). The drivers are selected by the final binary,
+/// e.g. via the matching `embassy-crypto-*` features of `embassy-stm32` or via
+/// `embassy-crypto-rustcrypto`.
 pub struct HCI<'d, M: Mode> {
-    controller: ControllerAdapter<'d, M::Runtime>,
+    controller: ControllerAdapter<'d>,
     cmd_sender: CommandSender,
     connections: ConnectionManager<MAX_CONNECTIONS>,
     is_advertising: bool,
@@ -97,11 +102,11 @@ pub struct HCI<'d, M: Mode> {
 impl<'d> HCI<'d, Normal> {
     /// Create a new BLE instance
     ///
-    /// Requires hardware peripheral instances for RNG, AES, and PKA.
-    /// These are stored in statics so the BLE stack's `extern "C"` callbacks can access them.
+    /// Requires the shared [`Platform`] and `embassy-crypto` drivers for
+    /// RNG, AES-128 and P-256; see the [type-level documentation](Self#crypto).
     pub async fn new(
         platform: &'static Platform,
-        runtime: &'d mut FullRuntime,
+        runtime: &'d mut Runtime,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
@@ -114,7 +119,7 @@ impl<'d> HCI<'d, Normal> {
     /// `ACI_GAP_START_OBSERVATION_PROC` to succeed).
     pub async fn new_with_role(
         platform: &'static Platform,
-        runtime: &'d mut FullRuntime,
+        runtime: &'d mut Runtime,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
         role: GapRole,
@@ -132,7 +137,7 @@ impl<'d> HCI<'d, Normal> {
     /// init parameter — e.g. a fixed public address.
     pub async fn new_with_gap_params(
         platform: &'static Platform,
-        runtime: &'d mut FullRuntime,
+        runtime: &'d mut Runtime,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
         gap_params: GapInitParams,
@@ -278,14 +283,19 @@ impl<'d> HCI<'d, Normal> {
             self.stop_advertising().await?;
         }
 
-        // Configure host-stack advertising parameters and data
-        gap::advertiser::configure(&params, &adv_data, scan_rsp_data.as_ref())?;
-        if let Some(scan_rsp) = scan_rsp_data.as_ref() {
-            gap::advertiser::update_scan_rsp_data(&self.cmd_sender, scan_rsp)?;
-        }
-
-        // Enable LL advertising
-        self.cmd_sender.le_set_advertise_enable(true)?;
+        // Configure host-stack advertising parameters/data. `configure` also
+        // applies the full AD payload and the scan response, and the GAP command
+        // it issues starts advertising by itself.
+        //
+        // Deliberately no HCI_LE_Set_Advertising_Enable here. ST's interface
+        // documentation states it "must not be used when the Host stack is
+        // active (see ACI GAP commands instead)", and their reference
+        // applications never call it. Driving the link layer directly after GAP
+        // has already armed advertising splits the controller's advertising and
+        // filter state from GAP's, which stays invisible until the resolving and
+        // filter accept lists are populated and then makes the controller refuse
+        // every connection while still advertising -- no HCI event, nothing to log.
+        gap::advertiser::configure(&self.cmd_sender, &params, &adv_data, scan_rsp_data.as_ref())?;
         yield_now().await;
 
         self.is_advertising = true;
@@ -303,12 +313,10 @@ impl<'d> HCI<'d, Normal> {
             return Ok(());
         }
 
-        // Disable LL advertising
-        self.cmd_sender.le_set_advertise_enable(false)?;
-        yield_now().await;
-
-        // Remove advertising configuration from the host stack
+        // `aci_gap_set_non_discoverable` stops advertising through GAP; see
+        // `start_advertising` for why the raw HCI enable/disable is not used.
         gap::advertiser::unconfigure()?;
+        yield_now().await;
 
         self.is_advertising = false;
         Ok(())
@@ -513,6 +521,50 @@ impl<'d> HCI<'d, Normal> {
         )
     }
 
+    /// Ask the central to change the connection parameters, from the peripheral role.
+    ///
+    /// [`update_connection_params`](Self::update_connection_params) issues
+    /// `HCI_LE_Connection_Update`, which is a central-role command; a peripheral
+    /// has to route the request through L2CAP instead. This is the call ST's
+    /// reference peripherals use for their connection-parameter-update button
+    /// (`aci_l2cap_connection_parameter_update_req`).
+    ///
+    /// The central answers asynchronously with an L2CAP connection update
+    /// response, and applies the new parameters only if it accepts them.
+    ///
+    /// # Parameters
+    ///
+    /// - `handle`: Connection handle
+    /// - `interval_min`: Minimum connection interval (units of 1.25ms)
+    /// - `interval_max`: Maximum connection interval (units of 1.25ms)
+    /// - `latency`: Peripheral latency, in connection events
+    /// - `timeout_multiplier`: Supervision timeout (units of 10ms)
+    pub fn request_connection_params(
+        &self,
+        handle: ConnectionHandle,
+        interval_min: u16,
+        interval_max: u16,
+        latency: u16,
+        timeout_multiplier: u16,
+    ) -> Result<(), BleError> {
+        unsafe {
+            let status = stm32_bindings::ble::aci_l2cap_connection_parameter_update_req(
+                handle.0,
+                interval_min,
+                interval_max,
+                latency,
+                timeout_multiplier,
+            );
+            if status == 0 {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(crate::bluetooth::hci::types::Status::from_u8(
+                    status,
+                )))
+            }
+        }
+    }
+
     /// Read the current PHY for a connection
     ///
     /// # Returns
@@ -521,6 +573,22 @@ impl<'d> HCI<'d, Normal> {
     pub fn read_phy(&self, handle: ConnectionHandle) -> Result<(LePhy, LePhy), BleError> {
         let (tx, rx) = self.cmd_sender.le_read_phy(handle.0)?;
         Ok((LePhy::from_u8(tx), LePhy::from_u8(rx)))
+    }
+
+    /// Read the RSSI (dBm) of the most recently received packet.
+    ///
+    /// Returns `Ok(None)` when the controller reports that RSSI is not
+    /// available (raw value 127).
+    pub fn read_rssi(&self) -> Result<Option<i8>, BleError> {
+        self.cmd_sender.read_rssi()
+    }
+
+    /// Select which radio activities are reported through
+    /// `ACI_HAL_END_OF_RADIO_ACTIVITY_EVENT`.
+    ///
+    /// See [`RadioActivityMask`] for the available bits.
+    pub fn set_radio_activity_mask(&self, mask: RadioActivityMask) -> Result<(), BleError> {
+        self.cmd_sender.set_radio_activity_mask(mask)
     }
 
     // ===== Direction Finding / CTE Commands =====
@@ -683,6 +751,31 @@ impl<'d> HCI<'d, Normal> {
                     None
                 }
             }
+            Event::LeRemoteConnectionParameterRequest(LeRemoteConnectionParameterRequest {
+                conn_handle,
+                conn_interval,
+            }) => {
+                // When this event is unmasked the controller waits for a host reply. Accept the
+                // requested parameters so pairing is not blocked (Android sends this immediately
+                // after connect).
+                let (interval_min, interval_max) = conn_interval.interval();
+                let min = (interval_min.as_micros() / 1_250) as u16;
+                let max = (interval_max.as_micros() / 1_250) as u16;
+                let timeout = (conn_interval.supervision_timeout().as_micros() / 10_000) as u16;
+                match self.cmd_sender.le_remote_connection_parameter_request_reply(
+                    conn_handle.0,
+                    min,
+                    max,
+                    conn_interval.conn_latency(),
+                    timeout,
+                    0,
+                    0,
+                ) {
+                    Ok(()) => info!("accepted remote connection parameter request"),
+                    Err(e) => warn!("conn param request reply failed: {:?}", e),
+                }
+                None
+            }
             Event::LeConnectionUpdateComplete(LeConnectionUpdateComplete {
                 status,
                 conn_handle,
@@ -772,20 +865,20 @@ impl<'d> HCI<'d, Normal> {
 impl<'d> HCI<'d, Test> {
     /// Create a BLE instance for Direct Test Mode (DTM) only.
     ///
-    /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
-    /// (TX test, RX test, tone) where no pairing or crypto is used. Do not use
-    /// for full BLE (advertising, connections, GATT) as those require AES/PKA.
+    /// Use this for FCC DTM (TX test, RX test, tone) where no pairing or crypto
+    /// is used. Full BLE (advertising, connections, GATT) uses `new` instead,
+    /// which additionally initializes GATT and GAP.
     ///
     /// Performs the minimum initialization required before issuing DTM commands
     /// (HCI_LE_Transmitter_Test, HCI_LE_Receiver_Test, HCI_LE_Test_End).
     /// Does not initialize GATT or GAP — those layers are not used in DTM.
-    pub async fn new_dtm<T: Runtime>(
+    pub async fn new_dtm(
         platform: &'static Platform,
-        runtime: &'d mut T,
+        runtime: &'d mut Runtime,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
-        let controller = Controller::new(platform, runtime.to_basic(), irq)
+        let controller = Controller::new(platform, runtime, irq)
             .await
             .map_err(|_| BleError::InitializationFailed)?;
 
@@ -888,13 +981,13 @@ impl<'d, M: Mode> HCI<'d, M> {
     /// hardware to its initial state), and zeroes the host stack memory buffers so
     /// `init_ble_stack()` can reinitialize cleanly on the next `HCI::new()` call.
     ///
-    /// The returned `&'static mut ControllerState` can be passed directly to the next
+    /// The returned [`Runtime`] can be passed directly to the next
     /// `HCI::new()` or `HCI::new_dtm()` call, enabling multiple DTM cycles per boot
     /// without re-initializing the underlying static buffers.
     ///
     /// # Returns
     ///
-    /// - `Ok(&'static mut ControllerState)` on success
+    /// - `Ok(())` on success
     /// - `Err(BleError)` if the HCI reset failed
     pub fn deinit(mut self) -> Result<(), BleError> {
         // Terminate all active connections cleanly
@@ -931,8 +1024,15 @@ impl<'d, M: Mode> HCI<'d, M> {
         use stm32wb_hci::host::uart::UartHci;
 
         loop {
-            if let Ok(Packet::Event(event)) = self.controller.read_packet().await {
-                return event;
+            match self.controller.read_packet().await {
+                Ok(Packet::Event(event)) => return event,
+                // Anything that fails to parse used to be dropped here without a
+                // trace, which hides the failures that matter most: an unparsable
+                // LE Enhanced Connection Complete means the link is up in the
+                // controller but the application never learns about it, so the
+                // peer sits at "connecting" until it times out with nothing
+                // logged on this side.
+                Err(_) => error!("HCI packet dropped: read or parse failed"),
             }
         }
     }
@@ -948,3 +1048,5 @@ pub struct VersionInfo {
     pub manufacturer_name: u16,
     pub lmp_subversion: u16,
 }
+
+pub mod config_data;

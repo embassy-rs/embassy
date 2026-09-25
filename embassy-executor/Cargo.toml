@@ -20,7 +20,7 @@ build = [
     {target = "thumbv6m-none-eabi", features = ["defmt"]},
     {target = "thumbv6m-none-eabi", features = ["platform-cortex-m", "defmt", "executor-interrupt", "executor-thread"]},
     {target = "thumbv7em-none-eabi", features = ["platform-cortex-m"]},
-    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "rtos-trace"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "trace"]},
     {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-thread"]},
     {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt"]},
     {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"]},
@@ -33,14 +33,17 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority", "scheduler-deadline", "trace"]},
     {target = "thumbv7em-none-eabi", features = ["platform-spin"]},
     {target = "thumbv7em-none-eabi", features = ["platform-spin", "scheduler-deadline"]},
-    {target = "armv7a-none-eabi", features = ["platform-cortex-ar", "executor-thread"]},
-    {target = "armv7r-none-eabi", features = ["platform-cortex-ar", "executor-thread"]},
-    {target = "armv7r-none-eabihf", features = ["platform-cortex-ar", "executor-thread"]},
-    {target = "armv8r-none-eabihf", features = ["platform-cortex-ar", "executor-thread"]},
+    {target = "armv7a-none-eabi", features = ["platform-aarch32", "executor-thread"]},
+    {target = "armv7a-none-eabi", features = ["platform-aarch32", "executor-interrupt"]},
+    {target = "armv7a-none-eabi", features = ["platform-aarch32", "executor-thread", "executor-interrupt"]},
+    {target = "armv7r-none-eabi", features = ["platform-aarch32", "executor-thread", "executor-interrupt"]},
+    {target = "armv7r-none-eabi", features = ["platform-aarch32", "executor-thread"]},
+    {target = "armv7r-none-eabihf", features = ["platform-aarch32", "executor-thread"]},
+    {target = "armv8r-none-eabihf", features = ["platform-aarch32", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "trace"]},
-    {target = "riscv32imc-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "rtos-trace"]},
+    {target = "riscv32imc-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "trace"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64", "executor-thread"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64", "executor-thread", "trace"]},
@@ -63,7 +66,7 @@ build = [
     {group = "nightly", target = "riscv64imac-unknown-none-elf", features = ["nightly", "platform-riscv64", "executor-thread"]},
     {group = "nightly", target = "riscv64gc-unknown-none-elf", features = ["nightly", "platform-riscv64"]},
     {group = "nightly", target = "riscv64gc-unknown-none-elf", features = ["nightly", "platform-riscv64", "executor-thread"]},
-    {group = "nightly", target = "armv7a-none-eabi", features = ["nightly", "platform-cortex-ar", "executor-thread"]},
+    {group = "nightly", target = "armv7a-none-eabi", features = ["nightly", "platform-aarch32", "executor-thread"]},
     {group = "nightly", target = "avr-none", features = ["nightly", "platform-avr", "avr-device/atmega328p"], build-std = ["core", "alloc"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" }},
     # Xtensa builds
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = []},
@@ -74,7 +77,7 @@ build = [
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt", "platform-spin", "executor-thread"]},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s3-none-elf", features = ["defmt", "platform-spin", "executor-thread"]},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["platform-spin"]},
-    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["platform-spin", "rtos-trace"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["platform-spin", "trace"]},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["platform-spin", "executor-thread"]},
 ]
 
@@ -99,23 +102,22 @@ features = ["defmt", "platform-cortex-m", "executor-thread", "executor-interrupt
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
-rtos-trace = { version = "0.2", optional = true }
 
 embassy-executor-macros = { version = "0.8.0", path = "../embassy-executor-macros" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
 embassy-executor-timer-queue = { version = "0.1.1", path = "../embassy-executor-timer-queue" }
-unitrait = "1"
+unitrait = { git = "https://github.com/embassy-rs/unitrait", rev = "bb96601b3d293fa27d1ca2891f6ea148e534e433" }
 critical-section = "1.1"
 
 document-features = "0.2.7"
 
-# needed for AVR
+# needed if the target has no atomics
 portable-atomic = { version = "1.5", optional = true }
 
 # platform-cortex-m dependencies
 cortex-m = { version = "0.7.6", optional = true }
 
-# platform-cortex-ar dependencies
+# platform-aarch32 dependencies
 aarch32-cpu = { version = "0.3", optional = true }
 
 # platform-wasm dependencies
@@ -124,10 +126,6 @@ js-sys = { version = "0.3", optional = true }
 
 # platform-avr dependencies
 avr-device = { version = "0.8.1", optional = true }
-
-# platform-z7 dependencies
-zynq7000 = { version = "0.4", optional = true }
-arbitrary-int = { version = "2", optional = true }
 
 [dependencies.cordyceps]
 version = "0.3.5"
@@ -165,14 +163,12 @@ platform-std = ["_platform"]
 ## - Only usable on **bare-metal**. Do not use this if you want to run the executor inside an RTOS thread, you must use RTOS primitives to sleep/notify the thread instead.
 ## - Only usable on **privileged mode**. 
 platform-cortex-m = ["_platform", "dep:cortex-m"]
-## Cortex-A/R platform. Uses `WFE`/`SEV` for the thread executor. Interrupt executor is not supported.
+## AArch32 platform (Cortex-A/R and other ARMv7-A/R and ARMv8-A/R cores in 32-bit mode). Uses `WFE`/`SEV` for the thread executor, GICv1/GICv2 software-generated interrupts (SGI) for the interrupt executor.
 ## 
 ## - Only usable on **single-core chips**. (Exception: the thread executor might work if your chip has wired the "event" signal between the cores, so `SEV` on one core can break a `WFE` in the other)
 ## - Only usable on **bare-metal**. Do not use this if you want to run the executor inside an RTOS thread, you must use RTOS primitives to sleep/notify the thread instead.
 ## - Only usable on **privileged mode**. 
-platform-cortex-ar = ["_platform", "dep:aarch32-cpu", "dep:arm-targets"]
-# Zynq7000 Platform, Extension of the Cortex-A platform with interrupt executor support.
-platform-z7 = ["_platform", "dep:aarch32-cpu", "dep:arm-targets", "dep:zynq7000", "dep:arbitrary-int"]
+platform-aarch32 = ["_platform", "dep:aarch32-cpu", "dep:arm-targets"]
 ## RISC-V 32-bit platform. Uses WFI for the thread executor. Interrupt executor is not supported.
 ##
 ## - Only usable on **single-core chips**.
@@ -188,11 +184,14 @@ platform-riscv64 = ["_platform"]
 ## WASM platform.
 platform-wasm = ["_platform", "dep:wasm-bindgen", "dep:js-sys"]
 ## AVR platform. Uses WFI for the thread executor. Interrupt executor is not supported.
-platform-avr = ["_platform", "dep:portable-atomic", "dep:avr-device"]
+platform-avr = ["_platform", "portable-atomic", "dep:avr-device"]
 ## Spin-loop platform.
 ## 
 ## This "platform" implementation is architecture/platform/chip agnostic. The main loop polls the executor constantly without sleeping, and the pender callback simply does nothing. Using this is not recommended, you probably want to use a platform-specific implementation that can sleep instead.
 platform-spin = ["_platform"]
+
+## Enable this if your target has no atomics at all - not even load/store
+portable-atomic = ["dep:portable-atomic"]
 
 #! ### Metadata
 
@@ -206,10 +205,7 @@ executor-thread = []
 ## Enable the interrupt-mode executor (available in Cortex-M only)
 executor-interrupt = []
 ## Enable tracing hooks
-trace = ["_any_trace"]
-## Enable support for rtos-trace framework
-rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "embassy-time-driver"]
-_any_trace = []
+trace = []
 
 ## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
 ## tasks based on the remaining time before their deadline. Adds some overhead.

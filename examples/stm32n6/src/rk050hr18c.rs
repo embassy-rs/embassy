@@ -11,12 +11,12 @@ use embassy_time::Timer;
 pub const WIDTH: u16 = 800;
 pub const HEIGHT: u16 = 480;
 
-pub const H_SYNC: u16 = 1;
-pub const H_BACK_PORCH: u16 = 46;
-pub const H_FRONT_PORCH: u16 = 210;
-pub const V_SYNC: u16 = 1;
-pub const V_BACK_PORCH: u16 = 23;
-pub const V_FRONT_PORCH: u16 = 22;
+pub const H_SYNC: u16 = 4;
+pub const H_BACK_PORCH: u16 = 4;
+pub const H_FRONT_PORCH: u16 = 4;
+pub const V_SYNC: u16 = 4;
+pub const V_BACK_PORCH: u16 = 4;
+pub const V_FRONT_PORCH: u16 = 4;
 
 /// Panel LTDC timing — matches the RK050HR18C-B01 datasheet & STM32CubeN6 BSP.
 pub const LTDC_CONFIG: LtdcConfiguration = LtdcConfiguration {

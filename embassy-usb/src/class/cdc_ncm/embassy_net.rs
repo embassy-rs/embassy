@@ -2,17 +2,17 @@
 
 use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::LinkState;
+use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
 use embassy_usb_driver::Driver;
 
 use super::{CdcNcmClass, Receiver, Sender};
 
 /// Internal state for the embassy-net integration.
-pub struct State<const MTU: usize, const N_RX: usize, const N_TX: usize> {
-    ch_state: ch::State<MTU, N_RX, N_TX>,
+pub struct State<const N_RX: usize, const N_TX: usize> {
+    ch_state: ch::State<N_RX, N_TX>,
 }
 
-impl<const MTU: usize, const N_RX: usize, const N_TX: usize> State<MTU, N_RX, N_TX> {
+impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
     /// Create a new `State`.
     pub const fn new() -> Self {
         Self {
@@ -21,7 +21,7 @@ impl<const MTU: usize, const N_RX: usize, const N_TX: usize> State<MTU, N_RX, N_
     }
 }
 
-impl<const MTU: usize, const N_RX: usize, const N_TX: usize> Default for State<MTU, N_RX, N_TX> {
+impl<const N_RX: usize, const N_TX: usize> Default for State<N_RX, N_TX> {
     fn default() -> Self {
         Self::new()
     }
@@ -30,13 +30,14 @@ impl<const MTU: usize, const N_RX: usize, const N_TX: usize> Default for State<M
 /// Background runner for the CDC-NCM class.
 ///
 /// You must call `.run()` in a background task for the class to operate.
-pub struct Runner<'d, D: Driver<'d>, const MTU: usize> {
+pub struct Runner<'d, D: Driver<'d>> {
     tx_usb: Sender<'d, D>,
     rx_usb: Receiver<'d, D>,
-    ch: ch::Runner<'d, MTU>,
+    ch: ch::Runner<'d>,
+    mtu: usize,
 }
 
-impl<'d, D: Driver<'d>, const MTU: usize> Runner<'d, D, MTU> {
+impl<'d, D: Driver<'d>> Runner<'d, D> {
     /// Run the CDC-NCM class.
     ///
     /// You must call this in a background task for the class to operate.
@@ -53,9 +54,19 @@ impl<'d, D: Driver<'d>, const MTU: usize> Runner<'d, D, MTU> {
                 state_chan.set_link_state(LinkState::Up);
 
                 loop {
-                    let mut p = rx_chan.rx_buf().await;
+                    rx_chan.rx_ready().await;
+                    let Some(mut p) = PacketBuf::try_new() else {
+                        warn!("packet pool empty, can't receive");
+                        // Back off, so we don't spin until the stack frees a buffer.
+                        embassy_time::Timer::after_millis(1).await;
+                        continue;
+                    };
+                    p.set_len(self.mtu);
                     match self.rx_usb.read_packet(&mut p).await {
-                        Ok(n) => p.rx_done(n),
+                        Ok(n) => {
+                            p.set_len(n);
+                            rx_chan.rx(p).await;
+                        }
                         Err(e) => {
                             warn!("error reading packet: {:?}", e);
                             break;
@@ -66,11 +77,10 @@ impl<'d, D: Driver<'d>, const MTU: usize> Runner<'d, D, MTU> {
         };
         let tx_fut = async move {
             loop {
-                let p = tx_chan.tx_buf().await;
+                let p = tx_chan.tx().await;
                 if let Err(e) = self.tx_usb.write_packet(&p).await {
                     warn!("Failed to TX packet: {:?}", e);
                 }
-                p.tx_done();
             }
         };
         match select(rx_fut, tx_fut).await {
@@ -81,21 +91,23 @@ impl<'d, D: Driver<'d>, const MTU: usize> Runner<'d, D, MTU> {
 }
 
 // would be cool to use a TAIT here, but it gives a "may not live long enough". rustc bug?
-//pub type Device<'d, const MTU: usize> = impl embassy_net_driver_channel::driver::Driver + 'd;
+//pub type Device<'d> = impl embassy_net_driver_channel::driver::Driver + 'd;
 /// Type alias for the embassy-net driver for CDC-NCM.
-pub type Device<'d, const MTU: usize> = embassy_net_driver_channel::Device<'d, MTU>;
+pub type Device<'d> = embassy_net_driver_channel::Device<'d>;
 
 impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
     /// Obtain a driver for using the CDC-NCM class with [`embassy-net`](https://crates.io/crates/embassy-net).
-    pub fn into_embassy_net_device<const MTU: usize, const N_RX: usize, const N_TX: usize>(
+    pub fn into_embassy_net_device<const N_RX: usize, const N_TX: usize>(
         self,
-        state: &'d mut State<MTU, N_RX, N_TX>,
+        state: &'d mut State<N_RX, N_TX>,
         ethernet_address: [u8; 6],
-    ) -> (Runner<'d, D, MTU>, Device<'d, MTU>) {
+        mtu: usize,
+    ) -> (Runner<'d, D>, Device<'d>) {
         let (tx_usb, rx_usb) = self.split();
         let (runner, device) = ch::new(
             &mut state.ch_state,
             ch::driver::HardwareAddress::Ethernet(ethernet_address),
+            mtu,
         );
 
         (
@@ -103,6 +115,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
                 tx_usb,
                 rx_usb,
                 ch: runner,
+                mtu,
             },
             device,
         )

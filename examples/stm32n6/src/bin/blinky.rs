@@ -30,6 +30,9 @@ async fn main(spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     config.rcc.supply_config = embassy_stm32::rcc::SupplyConfig::External;
     let p = embassy_stm32::init(config);
+    unsafe {
+        cortex_m::interrupt::enable();
+    }
     info!("Hello World!");
 
     let mut led = Output::new(p.PG10, Level::High, Speed::Low);

@@ -23,7 +23,6 @@ use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
-use embedded_io_async::{Read, Write};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -166,13 +165,9 @@ async fn uart_read<PIO: pio::Instance, const SM: usize>(
 ) -> ! {
     let mut buf = [0; 64];
     loop {
-        let n = uart_rx.read(&mut buf).await.expect("UART read error");
-        if n == 0 {
-            continue;
-        }
-        let data = &buf[..n];
+        uart_rx.read(&mut buf).await;
         trace!("UART IN: {:x}", buf);
-        (*usb_pipe_writer).write(data).await;
+        (*usb_pipe_writer).write(&buf).await;
     }
 }
 
@@ -186,6 +181,6 @@ async fn uart_write<PIO: pio::Instance, const SM: usize>(
         let n = (*uart_pipe_reader).read(&mut buf).await;
         let data = &buf[..n];
         trace!("UART OUT: {:x}", data);
-        let _ = uart_tx.write(&data).await;
+        uart_tx.write(data).await;
     }
 }

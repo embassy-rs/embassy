@@ -35,7 +35,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, p.PA12, p.PA11, Irqs);
 
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Embassy");

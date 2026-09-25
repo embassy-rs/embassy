@@ -540,7 +540,11 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             .expect("alloc_endpoint_in failed")
     }
 
-    fn endpoint_in(
+    /// Allocate an IN endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_in(
         &mut self,
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
@@ -572,7 +576,11 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             .expect("alloc_endpoint_out failed")
     }
 
-    fn endpoint_out(
+    /// Allocate an OUT endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_out(
         &mut self,
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,

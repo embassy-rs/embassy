@@ -5,10 +5,11 @@ use core::task::{Context, Poll, Waker};
 
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
+use super::ringbuffer::{DmaCtrl, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use super::word::{Word, WordSize};
 use super::{Channel, Dir, Increment, Request, STATE, info};
 use crate::_generated::DmaChannel;
+use crate::dma::RingBufferError;
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::WakeGuard;
 use crate::{interrupt, pac};
@@ -690,29 +691,42 @@ impl<'d> Channel<'d> {
                     }
                 };
 
+                // mem_len is element count; BNDT is in bytes.
+                let mem_len_bytes = mem_len * usize::from(mem_size.bytes()); // or peri_size, depending on dir
+                assert!(mem_len_bytes > 0 && mem_len_bytes <= MDMA_MAX_BLOCK * MDMA_MAX_BLOCK_COUNT);
+
                 // Find the best block size/count. This is essentially a factorisation problem
                 // So it's best to avoid large prime number transfer sizes.
-                let mut block_count = mem_len.div_ceil(MDMA_MAX_BLOCK);
-                let mut block_size = mem_len.div_ceil(block_count);
+                let mut block_count = mem_len_bytes.div_ceil(MDMA_MAX_BLOCK);
+                let mut block_size = mem_len_bytes.div_ceil(block_count);
 
                 loop {
                     // Everything matches up so we're good to go
-                    if block_count * block_size == mem_len {
+                    if block_count * block_size == mem_len_bytes {
                         break;
                     }
 
                     // Try a higher block count, lower block size
                     block_count += 1;
-                    block_size = mem_len.div_ceil(block_count);
+                    block_size = mem_len_bytes.div_ceil(block_count);
 
                     if block_count > MDMA_MAX_BLOCK_COUNT {
                         panic!("MDMA: max block count hit");
                     }
                 }
 
+                // MDMA requires BNDT (block_size) to be a multiple of TLEN+1 (buffer_size).
+                // Auto-decrease buffer_size until it divides cleanly into block_size.
+                let mut buffer_size = options.buffer_size as usize;
+                while block_size % buffer_size != 0 && buffer_size > 1 {
+                    buffer_size -= 1;
+                }
+                // Update the options so the TCR write uses the correct value
+
                 let (sinc, dinc) = match (incr_mem, dir) {
                     (Increment::None, _) => (Incmode::Fixed, Incmode::Fixed),
                     (Increment::Both, _) => (Incmode::Increment, Incmode::Increment),
+                    (Increment::Memory, Dir::MemoryToMemory) => (Incmode::Increment, Incmode::Fixed),
                     (_, Dir::MemoryToMemory) => (Incmode::Increment, Incmode::Increment),
                     (Increment::Peripheral, Dir::PeripheralToMemory) => (Incmode::Increment, Incmode::Fixed),
                     (Increment::Peripheral, Dir::MemoryToPeripheral) => (Incmode::Fixed, Incmode::Increment),
@@ -721,7 +735,7 @@ impl<'d> Channel<'d> {
                 };
 
                 ch.tcr().write(|w| {
-                    w.set_tlen((options.buffer_size - 1) as u8);
+                    w.set_tlen((buffer_size - 1) as u8);
                     match dir {
                         Dir::MemoryToPeripheral => {
                             w.set_sincos(mem_size.into());
@@ -1177,6 +1191,71 @@ impl<'d> Channel<'d> {
             channel: self.reborrow(),
         }
     }
+
+    /// Create a memory DMA transfer (memory to memory) to a fixed destination address.
+    ///
+    /// This transfers data from a memory buffer (`buf`) to a fixed destination address (`dest_addr`).
+    ///
+    /// This is specifically required for peripherals like the DFSDM, which need
+    /// memory-to-memory DMA transfers to write data into their internal input registers
+    /// (e.g., `DATINR`), rather than standard memory-to-peripheral transfers.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the destination address is valid and that the
+    /// DMA transfer does not violate Rust's aliasing rules for the duration of the transfer.
+    pub unsafe fn write_mem2mem<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        buf: &'a [MW],
+        dest_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        self.write_mem2mem_raw(request, buf, dest_addr, options)
+    }
+
+    /// Create a memory DMA transfer (memory to memory) to a fixed destination address, using raw pointers.
+    ///
+    /// This is the raw pointer variant of [`write_mem2mem`](Self::write_mem2mem).
+    /// It transfers data from a raw source slice (`buf`) to a fixed destination address (`dest_addr`).
+    ///
+    /// This is specifically used for peripherals like the DFSDM, which require
+    /// memory-to-memory DMA to feed data into their internal registers.
+    ///
+    /// Note: The arguments are ordered logically as `(source, destination)` to avoid
+    /// the internal `peri_addr`/`mem_addr` ambiguity present in the underlying
+    /// `Dir::MemoryToMemory` hardware configuration.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the source and destination pointers are valid
+    /// and properly aligned for the duration of the transfer.
+    pub unsafe fn write_mem2mem_raw<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        buf: *const [MW],
+        dest_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        let mem_len = buf.len();
+
+        self.configure(
+            request,
+            Dir::MemoryToMemory,
+            buf as *const MW as *mut u32,
+            dest_addr as *mut u32,
+            mem_len,
+            Increment::Memory,
+            MW::size(),
+            PW::size(),
+            options,
+        );
+        self.start();
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
+    }
 }
 
 /// DMA transfer.
@@ -1300,7 +1379,7 @@ pub struct ReadableRingBuffer<'a, W: Word> {
 }
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
-    /// Create a new ring buffer.
+    /// Create a new empty ring buffer.
     pub unsafe fn new<PW: Word>(
         channel: Channel<'a>,
         _request: Request,
@@ -1366,8 +1445,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
     /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
     /// Error is returned if the portion to be read was overwritten by the DMA controller.
-    pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), Error> {
-        self.ringbuf.read(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
+    pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), RingBufferError> {
+        Ok(self.ringbuf.read(&mut DmaCtrlImpl(self.channel.reborrow()), buf)?)
     }
 
     /// Read an exact number of elements from the ringbuffer.
@@ -1381,14 +1460,15 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// ring buffer was created with a buffer of size 'N':
     /// - If M equals N/2 or N/2 divides evenly into M, this function will return every N/2 elements read on the DMA source.
     /// - Otherwise, this function may need up to N/2 extra elements to arrive before returning.
-    pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, Error> {
-        self.ringbuf
+    pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, RingBufferError> {
+        Ok(self
+            .ringbuf
             .read_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
-            .await
+            .await?)
     }
 
     /// The current length of the ringbuffer
-    pub fn len(&mut self) -> Result<usize, Error> {
+    pub fn len(&mut self) -> Result<usize, RingBufferError> {
         Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
@@ -1481,7 +1561,7 @@ pub struct WritableRingBuffer<'a, W: Word> {
 }
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
-    /// Create a new ring buffer.
+    /// Create a new ring buffer filled with the given buffer data.
     pub unsafe fn new<PW: Word>(
         channel: Channel<'a>,
         _request: Request,
@@ -1535,32 +1615,34 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Write elements directly to the raw buffer.
     /// This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ringbuf.write_immediate(buf)
+    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), RingBufferError> {
+        Ok(self.ringbuf.write_immediate(buf)?)
     }
 
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
-    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ringbuf.write(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
+    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), RingBufferError> {
+        Ok(self.ringbuf.write(&mut DmaCtrlImpl(self.channel.reborrow()), buf)?)
     }
 
     /// Write an exact number of elements to the ringbuffer.
-    pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, Error> {
-        self.ringbuf
+    pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, RingBufferError> {
+        Ok(self
+            .ringbuf
             .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
-            .await
+            .await?)
     }
 
     /// Wait for any ring buffer write error.
-    pub async fn wait_write_error(&mut self) -> Result<usize, Error> {
-        self.ringbuf
+    pub async fn wait_write_error(&mut self) -> Result<usize, RingBufferError> {
+        Ok(self
+            .ringbuf
             .wait_write_error(&mut DmaCtrlImpl(self.channel.reborrow()))
-            .await
+            .await?)
     }
 
-    /// The current length of the ringbuffer
-    pub fn len(&mut self) -> Result<usize, Error> {
+    /// The free capacity of the ring buffer.
+    pub fn len(&mut self) -> Result<usize, RingBufferError> {
         Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 

@@ -12,15 +12,15 @@ use embassy_rp::gpio::{Level, Output};
 use embassy_rp::i2c::{self, I2c, InterruptHandler};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C1};
 use embassy_rp::spi::{self, Spi};
-use embassy_rp::{bind_interrupts, dma};
+use embassy_rp::{bind_interrupts, dma, mode};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Timer;
 use panic_probe as _;
 use static_cell::StaticCell;
 
-type SpiBus = Mutex<NoopRawMutex, Spi<'static, spi::Async>>;
-type I2cBus = Mutex<NoopRawMutex, I2c<'static, i2c::Async>>;
+type SpiBus = Mutex<NoopRawMutex, Spi<'static, mode::Async>>;
+type I2cBus = Mutex<NoopRawMutex, I2c<'static, mode::Async>>;
 
 bind_interrupts!(struct Irqs {
     I2C1_IRQ => InterruptHandler<I2C1>;
@@ -33,7 +33,7 @@ async fn main(spawner: Spawner) {
     info!("Here we go!");
 
     // Shared I2C bus
-    let i2c = I2c::new_async(p.I2C1, p.PIN_15, p.PIN_14, Irqs, i2c::Config::default());
+    let i2c = I2c::new(p.I2C1, p.PIN_15, p.PIN_14, Irqs, i2c::Config::default());
     static I2C_BUS: StaticCell<I2cBus> = StaticCell::new();
     let i2c_bus = I2C_BUS.init(Mutex::new(i2c));
 
@@ -44,7 +44,8 @@ async fn main(spawner: Spawner) {
     let spi_cfg = spi::Config::default();
     let spi = Spi::new(
         p.SPI1, p.PIN_10, p.PIN_11, p.PIN_12, p.DMA_CH0, p.DMA_CH1, Irqs, spi_cfg,
-    );
+    )
+    .unwrap();
     static SPI_BUS: StaticCell<SpiBus> = StaticCell::new();
     let spi_bus = SPI_BUS.init(Mutex::new(spi));
 

@@ -9,6 +9,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::spi::Spi;
+use embassy_rp::time::Hertz;
 use embassy_rp::{gpio, spi};
 use gpio::{Level, Output};
 use panic_probe as _;
@@ -27,8 +28,8 @@ async fn main(_spawner: Spawner) {
 
     // create SPI
     let mut config = spi::Config::default();
-    config.frequency = 2_000_000;
-    let mut spi = Spi::new_blocking(p.SPI1, clk, mosi, miso, config);
+    config.frequency = Hertz(2_000_000);
+    let mut spi = Spi::new_blocking(p.SPI1, clk, mosi, miso, config).unwrap();
 
     // Configure CS
     let mut cs = Output::new(touch_cs, Level::Low);

@@ -37,7 +37,7 @@ async fn blinky(led: Peri<'static, peripherals::PB1>) {
 }
 
 bind_interrupts!(struct Irqs {
-    TIM2 => timer::CaptureCompareInterruptHandler<peripherals::TIM2>;
+    TIM3_TIM4 => timer::CaptureCompareInterruptHandler<peripherals::TIM3>;
 });
 
 #[embassy_executor::main]
@@ -47,14 +47,14 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(blinky(p.PB1)));
 
-    // Connect PB1 and PA8 with a 1k Ohm resistor
+    // Connect PA8 and PA6 with a 1k Ohm resistor
     let ch1_pin = PwmPin::new(p.PA8, OutputType::PushPull);
     let mut pwm = SimplePwm::new(p.TIM1, Some(ch1_pin), None, None, None, khz(1), Default::default());
     pwm.ch1().enable();
     pwm.ch1().set_duty_cycle(50);
 
-    let ch1 = CaptureInput::from_pin(p.PA0, Pull::None);
-    let mut ic = InputCapture::new(p.TIM2, ch1, None, None, None, Irqs, khz(1000), Default::default());
+    let ch1 = CaptureInput::from_pin(p.PA6, Pull::None);
+    let mut ic = InputCapture::new(p.TIM3, ch1, None, None, None, Irqs, khz(1000), Default::default());
 
     let mut old_capture = 0;
 

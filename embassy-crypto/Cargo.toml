@@ -1,0 +1,67 @@
+[package]
+name = "embassy-crypto"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Cryptography API for embedded systems, with link-time pluggable software and hardware drivers."
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-crypto"
+categories = [
+    "embedded",
+    "no-std",
+    "cryptography",
+]
+
+# Prevent multiple copies of this crate in the same binary.
+# Needed because different copies might get different context sizes, causing
+# memory corruption if the crypto driver is using one copy and user code is using another.
+# This is especially common when mixing crates from crates.io and git.
+links = "embassy-crypto"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-crypto-v$VERSION/embassy-crypto/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-crypto/src/"
+features = ["defmt"]
+target = "thumbv7em-none-eabi"
+
+[package.metadata.docs.rs]
+features = ["defmt"]
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["defmt"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "large-contexts"]},
+]
+
+[dependencies]
+defmt = { version = "1.0.1", optional = true }
+unitrait = { git = "https://github.com/embassy-rs/unitrait", rev = "bb96601b3d293fa27d1ca2891f6ea148e534e433" }
+
+[features]
+defmt = ["dep:defmt"]
+
+## Enlarge every driver context. Shorthand for all the `large-*` features below.
+large-contexts = [
+    "large-md5", "large-sha1", "large-sha224", "large-sha256", "large-sha384", "large-sha512-224", "large-sha512-256", "large-sha512",
+    "large-hmac-sha1", "large-hmac-sha224", "large-hmac-sha256", "large-hmac-sha384", "large-hmac-sha512-224", "large-hmac-sha512-256", "large-hmac-sha512",
+]
+
+## The `large-*` features enlarge the opaque driver context of one operation, for
+## drivers whose state does not fit the default size (typically hardware drivers
+## that save a snapshot of the peripheral's registers). They change the size of
+## the corresponding `embassy_crypto` type. Enabled by the driver crate that needs them.
+large-md5 = []
+large-sha1 = []
+large-sha224 = []
+large-sha256 = []
+large-sha384 = []
+large-sha512-224 = []
+large-sha512-256 = []
+large-sha512 = []
+large-hmac-sha1 = []
+large-hmac-sha224 = []
+large-hmac-sha256 = []
+large-hmac-sha384 = []
+large-hmac-sha512-224 = []
+large-hmac-sha512-256 = []
+large-hmac-sha512 = []

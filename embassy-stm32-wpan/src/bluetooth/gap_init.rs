@@ -31,7 +31,6 @@ const GAP_CENTRAL_ROLE: u8 = 0x04;
 #[allow(dead_code)]
 const GAP_OBSERVER_ROLE: u8 = 0x08;
 
-#[link(name = "stm32wba_ble_stack_basic")]
 unsafe extern "C" {
     /// Initialize GAP layer
     #[link_name = "ACI_GAP_INIT"]

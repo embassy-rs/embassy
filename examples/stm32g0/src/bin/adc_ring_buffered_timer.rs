@@ -14,8 +14,7 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel as _, Clock, Presc, RegularAdcTrigger, SampleTime};
-use embassy_stm32::pac::adc::vals::Exten;
+use embassy_stm32::adc::{Adc, AdcChannel as _, Clock, Config, Exten, Prescaler, RegularAdcTrigger, SampleTime};
 use embassy_stm32::peripherals::DMA1_CH1;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
@@ -56,7 +55,9 @@ async fn main(_spawner: Spawner) {
     pwm.set_mms2(Mms2::Update);
 
     // Configure ADC with DMA ring buffer
-    let mut adc = Adc::new_with_clock(p.ADC1, Clock::Async { div: Presc::Div1 });
+    let mut adc_config = Config::default();
+    adc_config.clock = Clock::Async(Prescaler::Div1);
+    let mut adc = Adc::new_blocking(p.ADC1, adc_config);
 
     // Setup channels to measure
     let mut vrefint = adc.enable_vrefint();
@@ -79,7 +80,7 @@ async fn main(_spawner: Spawner) {
         &mut dma_buf,
         Irqs,
         sequence,
-        RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge), // Timer 1 TRGO2 as trigger source and Trigger on rising edge (can also use FALLING_EDGE or BOTH_EDGES)
+        Some(RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge)), // Timer 1 TRGO2 as trigger source and Trigger on rising edge (can also use FallingEdge or BothEdges)
     );
 
     // Start ADC conversions and DMA transfer

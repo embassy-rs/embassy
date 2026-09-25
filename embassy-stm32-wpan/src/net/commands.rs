@@ -2,7 +2,7 @@
 
 use core::{mem, slice};
 
-use xarxa::wire::ieee802154::Frame;
+use xarxa::wire::{Ieee802154Address, Ieee802154Repr};
 
 use crate::net::iface::mlme::{RequestPacketKind, ResponsePacketKind};
 use crate::net::iface::{HostToControllerPacket, PacketKind, WriteHci, mcps, mlme};
@@ -392,22 +392,23 @@ impl DataRequest {
     }
 }
 
-impl<'a, T: AsRef<[u8]>> TryFrom<Frame<&'a T>> for DataRequest {
+impl<'a> TryFrom<&'a [u8]> for DataRequest {
     type Error = ();
 
-    fn try_from(frame: Frame<&'a T>) -> Result<Self, Self::Error> {
+    fn try_from(frame: &'a [u8]) -> Result<Self, Self::Error> {
         // TODO: map the rest of these
 
+        let (repr, header_len) = Ieee802154Repr::parse(frame).map_err(|_| ())?;
+
         let mut request = DataRequest {
-            src_addr_mode: frame.src_addressing_mode().try_into()?,
-            dst_addr_mode: frame.dst_addressing_mode().try_into()?,
-            dst_pan_id: frame.dst_pan_id().ok_or(())?.into(),
-            dst_address: frame.dst_addr().ok_or(())?.into(),
-            msdu_handle: frame.sequence_number().ok_or(())?,
-            key_source: frame.key_source().unwrap_or_default().try_into().unwrap_or_default(),
-            ack_tx: frame.ack_request() as u8,
+            src_addr_mode: repr.src_addr.unwrap_or(Ieee802154Address::Absent).into(),
+            dst_addr_mode: repr.dst_addr.unwrap_or(Ieee802154Address::Absent).into(),
+            dst_pan_id: repr.dst_pan_id.ok_or(())?.into(),
+            dst_address: repr.dst_addr.ok_or(())?.into(),
+            msdu_handle: repr.sequence_number.ok_or(())?,
+            ack_tx: repr.ack_request as u8,
             gts_tx: false,
-            security_level: if frame.security_enabled() {
+            security_level: if repr.security_enabled {
                 SecurityLevel::Secured
             } else {
                 SecurityLevel::Unsecure
@@ -415,7 +416,7 @@ impl<'a, T: AsRef<[u8]>> TryFrom<Frame<&'a T>> for DataRequest {
             ..Default::default()
         };
 
-        request.set_buffer(frame.payload().ok_or(())?);
+        request.set_buffer(&frame[header_len..]);
 
         Ok(request)
     }

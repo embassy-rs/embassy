@@ -1,7 +1,5 @@
 pub use nrf_pac as pac;
 
-/// The maximum buffer size that the EasyDMA can send/recv in one operation.
-pub const EASY_DMA_SIZE: usize = (1 << 15) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 512;
 
 pub const FLASH_SIZE: usize = 256 * 1024;
@@ -25,6 +23,7 @@ embassy_hal_internal::peripherals! {
     NVMC,
 
     // RNG
+    #[cfg(any(not(feature = "embassy-crypto-rng"), feature = "_cryptocell"))]
     RNG,
 
     // UARTE
@@ -171,6 +170,7 @@ impl_rtc!(RTC1, RTC1, RTC1);
 
 impl_qdec!(QDEC, QDEC, QDEC);
 
+#[cfg(any(not(feature = "embassy-crypto-rng"), feature = "_cryptocell"))]
 impl_rng!(RNG, RNG, RNG);
 
 impl_pin!(P0_00, 0, 0);

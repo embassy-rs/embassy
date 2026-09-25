@@ -6,13 +6,15 @@ teleprobe_meta::timeout!(120);
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackResources;
+use embassy_net::StackStorage;
 use embassy_net_wiznet::chip::W5100S;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::mode::Async;
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1};
-use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
+use embassy_rp::spi::{Config as SpiConfig, Spi};
+use embassy_rp::time::Hertz;
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -37,7 +39,7 @@ async fn ethernet_task(
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -47,9 +49,9 @@ async fn main(spawner: Spawner) {
     let mut rng = RoscRng;
 
     let mut spi_cfg = SpiConfig::default();
-    spi_cfg.frequency = 50_000_000;
+    spi_cfg.frequency = Hertz(50_000_000);
     let (miso, mosi, clk) = (p.PIN_16, p.PIN_19, p.PIN_18);
-    let spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, spi_cfg);
+    let spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, spi_cfg).unwrap();
     let cs = Output::new(p.PIN_17, Level::High);
     let w5500_int = Input::new(p.PIN_21, Pull::Up);
     let w5500_reset = Output::new(p.PIN_20, Level::High);
@@ -72,19 +74,20 @@ async fn main(spawner: Spawner) {
     let seed = rng.next_u64();
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(
-        device,
-        embassy_net::Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::new()),
-        seed,
-    );
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
+    // Get an address over DHCP.
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
 
     perf_client::run(
-        stack,
+        iface,
         perf_client::Expected {
             down_kbps: 500,
             up_kbps: 500,

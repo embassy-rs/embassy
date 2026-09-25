@@ -4,10 +4,11 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackResources;
-use embassy_net::tcp::TcpSocket;
+use embassy_net::StackStorage;
+use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net_enc28j60::Enc28j60;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
+use embassy_nrf::mode::Async;
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::Spim;
 use embassy_nrf::{bind_interrupts, peripherals, spim};
@@ -23,12 +24,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn net_task(
-    mut runner: embassy_net::Runner<
-        'static,
-        Enc28j60<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Output<'static>>,
-    >,
-) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -46,20 +42,13 @@ async fn main(spawner: Spawner) {
 
     let mut config = spim::Config::default();
     config.frequency = spim::Frequency::M16;
-    let spi = spim::Spim::new(p.SPI3, Irqs, eth_sck, eth_miso, eth_mosi, config);
+    let spi = spim::Spim::new(p.SPI3, eth_sck, eth_mosi, eth_miso, Irqs, config);
     let cs = Output::new(eth_cs, Level::High, OutputDrive::Standard);
     let spi = ExclusiveDevice::new(spi, cs, Delay);
 
     let rst = Output::new(eth_rst, Level::High, OutputDrive::Standard);
     let mac_addr = [2, 3, 4, 5, 6, 7];
     let device = Enc28j60::new(spi, Some(rst), mac_addr);
-
-    let config = embassy_net::Config::dhcpv4(Default::default());
-    // let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
-    //    address: Ipv4Cidr::new(Ipv4Address::new(10, 42, 0, 61), 24),
-    //    dns_servers: Vec::new(),
-    //    gateway: Some(Ipv4Address::new(10, 42, 0, 1)),
-    // });
 
     // Generate random seed
     let mut rng = Rng::new(p.RNG, Irqs);
@@ -68,8 +57,15 @@ async fn main(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<
+        Enc28j60<ExclusiveDevice<Spim<'static, Async>, Output<'static>, Delay>, Output<'static>>,
+    > = StaticCell::new();
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
@@ -79,17 +75,26 @@ async fn main(spawner: Spawner) {
     let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
 
-    loop {
-        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-        socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+    let mut listener = unwrap!(TcpListener::new(stack));
+    unwrap!(listener.listen(1234));
 
+    loop {
         info!("Listening on TCP:1234...");
-        if let Err(e) = socket.accept(1234).await {
+        let token = match listener.accept().await {
+            Ok(token) => token,
+            Err(e) => {
+                warn!("accept error: {:?}", e);
+                continue;
+            }
+        };
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
+        socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+        if let Err(e) = socket.accept(token).await {
             warn!("accept error: {:?}", e);
             continue;
         }
 
-        info!("Received connection from {:?}", socket.remote_endpoint());
+        info!("Received connection from {:?}", socket.remote_addr());
 
         loop {
             let n = match socket.read(&mut buf).await {

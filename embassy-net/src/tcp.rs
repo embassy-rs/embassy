@@ -1,24 +1,23 @@
 //! TCP sockets.
-//!
-//! # Listening
-//!
-//! `embassy-net` does not have a `TcpListener`. Instead, individual `TcpSocket`s can be put into
-//! listening mode by calling [`TcpSocket::accept`].
-//!
-//! Incoming connections when no socket is listening are rejected. To accept many incoming
-//! connections, create many sockets and put them all into listening mode.
 
 use core::future::{Future, poll_fn};
+use core::marker::PhantomData;
 use core::mem;
 use core::task::{Context, Poll};
 
 use embassy_time::Duration;
-use xarxa::iface::{Interface, SocketHandle};
-use xarxa::socket::tcp;
-pub use xarxa::socket::tcp::State;
-use xarxa::wire::{IpEndpoint, IpListenEndpoint};
+use xarxa::error::{Full, InvalidHopLimit};
+#[cfg(feature = "iface-bind")]
+pub use xarxa::iface::IfaceHandle;
+#[cfg(feature = "tcp-listener")]
+pub use xarxa::tcp::AcceptToken;
+pub use xarxa::tcp::State;
+#[cfg(feature = "tcp-listener")]
+use xarxa::tcp::TcpListenerHandle;
+use xarxa::tcp::{self, TcpHandle};
+use xarxa::wire::{ListenSocketAddr, SocketAddr};
 
-use crate::time::duration_to_xarxa;
+use crate::time::{duration_from_xarxa, duration_to_xarxa};
 use crate::{Stack, TryError};
 
 /// Error returned by TcpSocket read/write functions.
@@ -31,48 +30,90 @@ pub enum Error {
     ConnectionReset,
 }
 
-/// Error returned by [`TcpSocket::connect`].
+/// Error returned by [`TcpSocket::connect`]
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ConnectError {
-    /// The socket is already connected or listening.
+    /// The socket is already open.
     InvalidState,
+    /// The remote port is zero, the remote address is unspecified, or there is
+    /// no route to the remote host or no local address to reach it from.
+    Unaddressable,
+    /// No free port in the ephemeral range (only possible with tens of thousands
+    /// of open sockets).
+    NoFreePorts,
+    /// Another TCP socket already holds the identical 4-tuple.
+    InUse,
     /// The remote host rejected the connection with a RST packet.
     ConnectionReset,
     /// Connect timed out.
     TimedOut,
-    /// No route to host.
-    NoRoute,
 }
 
-/// Error returned by [`TcpSocket::accept`].
+/// Error returned by [`TcpListener::listen`]
+///
+/// Requires the `tcp-listener` feature.
+#[cfg(feature = "tcp-listener")]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ListenError {
+    /// The listener is already listening on a different address, or
+    /// `bind_to_iface` was called while it is open.
+    InvalidState,
+    /// The listen port is zero.
+    Unaddressable,
+    /// Another TCP listener is bound to the identical address.
+    InUse,
+}
+
+/// Error returned by [`TcpListener::accept`] and [`TcpSocket::accept`]
+///
+/// Requires the `tcp-listener` feature.
+#[cfg(feature = "tcp-listener")]
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AcceptError {
-    /// The socket is already connected or listening.
+    /// The listener is not listening, or the socket is still open, so it can't be
+    /// used for a new connection.
     InvalidState,
-    /// Invalid listen port
-    InvalidPort,
-    /// The remote host rejected the connection with a RST packet.
+    /// The remote reset the connection during the handshake.
     ConnectionReset,
 }
 
-/// A TCP socket.
-pub struct TcpSocket<'a> {
-    io: TcpIo<'a>,
+/// A Transmission Control Protocol socket.
+///
+#[cfg_attr(
+    not(feature = "tcp-listener"),
+    doc = "A TCP socket represents a single connection (connecting or connected): its",
+    doc = "4-tuple is fully set from the start, by [`connect`](Self::connect)."
+)]
+#[cfg_attr(
+    feature = "tcp-listener",
+    doc = "A TCP socket represents a single connection (connecting or connected): its",
+    doc = "4-tuple is fully set from the start, by [`connect`](Self::connect) or by",
+    doc = "[`accept`](Self::accept). Passive open lives in [`TcpListener`]."
+)]
+///
+/// `'a` is the lifetime of the socket's buffers, `'d` the lifetime of the
+/// stack.
+pub struct TcpSocket<'a, 'd> {
+    io: TcpIo<'d>,
+    bufs: PhantomData<&'a mut [u8]>,
 }
 
 /// The reader half of a TCP socket.
-pub struct TcpReader<'a> {
-    io: TcpIo<'a>,
+pub struct TcpReader<'a, 'd> {
+    io: TcpIo<'d>,
+    bufs: PhantomData<&'a mut [u8]>,
 }
 
 /// The writer half of a TCP socket.
-pub struct TcpWriter<'a> {
-    io: TcpIo<'a>,
+pub struct TcpWriter<'a, 'd> {
+    io: TcpIo<'d>,
+    bufs: PhantomData<&'a mut [u8]>,
 }
 
-impl<'a> TcpReader<'a> {
+impl<'a, 'd> TcpReader<'a, 'd> {
     /// Wait until the socket becomes readable.
     ///
     /// A socket becomes readable when the receive half of the full-duplex connection is open
@@ -113,10 +154,7 @@ impl<'a> TcpReader<'a> {
     /// and dequeue the amount of elements returned by `f`.
     ///
     /// If no data is available, it waits until there is at least one byte available.
-    pub async fn read_with<F, R>(&mut self, f: F) -> Result<R, Error>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
+    pub async fn read_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, Error> {
         self.io.read_with(f).await
     }
 
@@ -126,14 +164,50 @@ impl<'a> TcpReader<'a> {
     /// This method will not wait for data to be received.
     ///
     /// If no data is available, this method will return `Err(TryError::WouldBlock)`.
-    pub fn try_read_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
+    pub fn try_read_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, TryError<Error>> {
         self.io.try_read_with(f)
     }
 
-    /// Return the maximum number of bytes inside the transmit buffer.
+    /// Peek at received data without removing it from the receive buffer, copying
+    /// it into `buf`.
+    ///
+    /// If no data is available, it waits until there is at least one byte available.
+    ///
+    /// Like [`read`](Self::read), a return value of Ok(0) means that all data has
+    /// been read and the remote side has closed our receive half of the socket.
+    pub async fn peek(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.io.peek(buf).await
+    }
+
+    /// Peek at received data without removing it from the receive buffer, copying
+    /// it into `buf`.
+    ///
+    /// This method will not wait for data to be received.
+    ///
+    /// If no data is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_peek(&mut self, buf: &mut [u8]) -> Result<usize, TryError<Error>> {
+        self.io.try_peek(buf)
+    }
+
+    /// Call `f` with the largest contiguous slice of octets in the receive buffer,
+    /// without removing them from it.
+    ///
+    /// If no data is available, it waits until there is at least one byte available.
+    pub async fn peek_with<R>(&mut self, f: impl FnOnce(&[u8]) -> R) -> Result<R, Error> {
+        self.io.peek_with(f).await
+    }
+
+    /// Call `f` with the largest contiguous slice of octets in the receive buffer,
+    /// without removing them from it.
+    ///
+    /// This method will not wait for data to be received.
+    ///
+    /// If no data is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_peek_with<R>(&mut self, f: impl FnOnce(&[u8]) -> R) -> Result<R, TryError<Error>> {
+        self.io.try_peek_with(f)
+    }
+
+    /// Return the maximum number of bytes inside the recv buffer.
     pub fn recv_capacity(&self) -> usize {
         self.io.recv_capacity()
     }
@@ -141,25 +215,31 @@ impl<'a> TcpReader<'a> {
     /// Return the amount of octets queued in the receive buffer. This value can be larger than
     /// the slice read by the next `recv` or `peek` call because it includes all queued octets,
     /// and not only the octets that may be returned as a contiguous slice.
+    ///
+    /// Note that the Berkeley sockets interface does not have an equivalent of this API.
     pub fn recv_queue(&self) -> usize {
         self.io.recv_queue()
     }
 
     /// Return whether the receive half of the full-duplex connection is open.
-    /// This function returns true if it’s possible to receive data from the remote endpoint.
-    /// It will return true while there is data in the receive buffer, and if there isn’t,
-    /// as long as the remote endpoint has not closed the connection.
+    ///
+    /// This function returns true if it's possible to receive data from the remote peer.
+    /// It will return true while there is data in the receive buffer, and if there isn't,
+    /// as long as the remote peer has not closed the connection.
+    ///
+    /// In terms of the TCP state machine, the socket must be in the `ESTABLISHED`,
+    /// `FIN-WAIT-1`, or `FIN-WAIT-2` state, or have data in the receive buffer instead.
     pub fn may_recv(&self) -> bool {
-        self.io.with(|s, _| s.may_recv())
+        self.io.with(|s| s.may_recv())
     }
 
-    /// Get whether the socket is ready to receive data, i.e. whether there is some pending data in the receive buffer.
+    /// Check whether the receive buffer is not empty.
     pub fn can_recv(&self) -> bool {
-        self.io.with(|s, _| s.can_recv())
+        self.io.with(|s| s.can_recv())
     }
 }
 
-impl<'a> TcpWriter<'a> {
+impl<'a, 'd> TcpWriter<'a, 'd> {
     /// Wait until the socket becomes writable.
     ///
     /// A socket becomes writable when the transmit half of the full-duplex connection is open
@@ -206,10 +286,7 @@ impl<'a> TcpWriter<'a> {
     /// and enqueue the amount of elements returned by `f`.
     ///
     /// If the socket is not ready to accept data, it waits until it is.
-    pub async fn write_with<F, R>(&mut self, f: F) -> Result<R, Error>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
+    pub async fn write_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, Error> {
         self.io.write_with(f).await
     }
 
@@ -219,10 +296,7 @@ impl<'a> TcpWriter<'a> {
     /// This method will not wait for the buffer to become free.
     ///
     /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
-    pub fn try_write_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
+    pub fn try_write_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, TryError<Error>> {
         self.io.try_write_with(f)
     }
 
@@ -232,6 +306,8 @@ impl<'a> TcpWriter<'a> {
     }
 
     /// Return the amount of octets queued in the transmit buffer.
+    ///
+    /// Note that the Berkeley sockets interface does not have an equivalent of this API.
     pub fn send_queue(&self) -> usize {
         self.io.send_queue()
     }
@@ -239,46 +315,54 @@ impl<'a> TcpWriter<'a> {
     /// Return whether the transmit half of the full-duplex connection is open.
     ///
     /// This function returns true if it's possible to send data and have it arrive
-    /// to the remote endpoint. However, it does not make any guarantees about the state
+    /// to the remote peer. However, it does not make any guarantees about the state
     /// of the transmit buffer, and even if it returns true, [write](#method.write) may
     /// not be able to enqueue any octets.
     ///
     /// In terms of the TCP state machine, the socket must be in the `ESTABLISHED` or
     /// `CLOSE-WAIT` state.
     pub fn may_send(&self) -> bool {
-        self.io.with(|s, _| s.may_send())
+        self.io.with(|s| s.may_send())
     }
 
     /// Check whether the transmit half of the full-duplex connection is open
     /// (see [may_send](#method.may_send)), and the transmit buffer is not full.
     pub fn can_send(&self) -> bool {
-        self.io.with(|s, _| s.can_send())
+        self.io.with(|s| s.can_send())
     }
 
     /// Return whether the receive half of the full-duplex connection is open.
-    /// This function returns true if it’s possible for the corresponding [`TcpWriter`]
-    /// to receive data from the remote endpoint.
-    /// It will return true as long as the remote endpoint has not closed the connection.
+    ///
+    /// This function returns true if it's possible for the corresponding [`TcpReader`]
+    /// to receive data from the remote peer.
+    /// It will return true while there is data in the receive buffer, and if there isn't,
+    /// as long as the remote peer has not closed the connection.
+    ///
+    /// In terms of the TCP state machine, the socket must be in the `ESTABLISHED`,
+    /// `FIN-WAIT-1`, or `FIN-WAIT-2` state, or have data in the receive buffer instead.
     pub fn may_recv(&self) -> bool {
-        self.io.with(|s, _| s.may_recv())
+        self.io.with(|s| s.may_recv())
     }
 }
 
-impl<'a> TcpSocket<'a> {
+impl<'a, 'd> TcpSocket<'a, 'd> {
     /// Create a new TCP socket on the given stack, with the given buffers.
-    pub fn new(stack: Stack<'a>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
-        let handle = stack.with_mut(|i| {
-            let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
-            let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
-            i.sockets.add(tcp::Socket::new(
-                tcp::SocketBuffer::new(rx_buffer),
-                tcp::SocketBuffer::new(tx_buffer),
-            ))
-        });
+    ///
+    /// # Errors
+    /// - `Full`: if the stack has no room for another TCP socket. Only possible
+    ///   without the `alloc` feature, where the limit is set by the
+    ///   `tcp-socket-count-N` feature of `xarxa`.
+    pub fn new(stack: Stack<'d>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Result<Self, Full> {
+        let handle = stack.with(|i| {
+            let rx_buffer: &'d mut [u8] = unsafe { mem::transmute(rx_buffer) };
+            let tx_buffer: &'d mut [u8] = unsafe { mem::transmute(tx_buffer) };
+            i.stack.add_tcp_socket_with_bufs(rx_buffer, tx_buffer)
+        })?;
 
-        Self {
+        Ok(Self {
             io: TcpIo { stack, handle },
-        }
+            bufs: PhantomData,
+        })
     }
 
     /// Return the maximum number of bytes inside the recv buffer.
@@ -292,6 +376,8 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// Return the amount of octets queued in the transmit buffer.
+    ///
+    /// Note that the Berkeley sockets interface does not have an equivalent of this API.
     pub fn send_queue(&self) -> usize {
         self.io.send_queue()
     }
@@ -299,6 +385,8 @@ impl<'a> TcpSocket<'a> {
     /// Return the amount of octets queued in the receive buffer. This value can be larger than
     /// the slice read by the next `recv` or `peek` call because it includes all queued octets,
     /// and not only the octets that may be returned as a contiguous slice.
+    ///
+    /// Note that the Berkeley sockets interface does not have an equivalent of this API.
     pub fn recv_queue(&self) -> usize {
         self.io.recv_queue()
     }
@@ -307,10 +395,7 @@ impl<'a> TcpSocket<'a> {
     /// and enqueue the amount of elements returned by `f`.
     ///
     /// If the socket is not ready to accept data, it waits until it is.
-    pub async fn write_with<F, R>(&mut self, f: F) -> Result<R, Error>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
+    pub async fn write_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, Error> {
         self.io.write_with(f).await
     }
 
@@ -320,10 +405,7 @@ impl<'a> TcpSocket<'a> {
     /// This method will not wait for the buffer to become free.
     ///
     /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
-    pub fn try_write_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
+    pub fn try_write_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, TryError<Error>> {
         self.io.try_write_with(f)
     }
 
@@ -331,10 +413,7 @@ impl<'a> TcpSocket<'a> {
     /// and dequeue the amount of elements returned by `f`.
     ///
     /// If no data is available, it waits until there is at least one byte available.
-    pub async fn read_with<F, R>(&mut self, f: F) -> Result<R, Error>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
+    pub async fn read_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, Error> {
         self.io.read_with(f).await
     }
 
@@ -344,39 +423,159 @@ impl<'a> TcpSocket<'a> {
     /// This method will not wait for data to be received.
     ///
     /// If no data is available, this method will return `Err(TryError::WouldBlock)`.
-    pub fn try_read_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
+    pub fn try_read_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, TryError<Error>> {
         self.io.try_read_with(f)
     }
 
-    /// Split the socket into reader and a writer halves.
-    pub fn split(&mut self) -> (TcpReader<'_>, TcpWriter<'_>) {
-        (TcpReader { io: self.io }, TcpWriter { io: self.io })
+    /// Peek at received data without removing it from the receive buffer, copying
+    /// it into `buf`.
+    ///
+    /// If no data is available, it waits until there is at least one byte available.
+    ///
+    /// Like [`read`](Self::read), a return value of Ok(0) means that all data has
+    /// been read and the remote side has closed our receive half of the socket.
+    pub async fn peek(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.io.peek(buf).await
     }
 
-    /// Connect to a remote host.
-    pub async fn connect<T>(&mut self, remote_endpoint: T) -> Result<(), ConnectError>
-    where
-        T: Into<IpEndpoint>,
-    {
-        let local_port = self.io.stack.with_mut(|i| i.get_local_port());
+    /// Peek at received data without removing it from the receive buffer, copying
+    /// it into `buf`.
+    ///
+    /// This method will not wait for data to be received.
+    ///
+    /// If no data is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_peek(&mut self, buf: &mut [u8]) -> Result<usize, TryError<Error>> {
+        self.io.try_peek(buf)
+    }
 
-        match {
-            self.io
-                .with_mut(|s, i| s.connect(i.context(), remote_endpoint, local_port))
-        } {
-            Ok(()) => {}
-            Err(tcp::ConnectError::InvalidState) => return Err(ConnectError::InvalidState),
-            Err(tcp::ConnectError::Unaddressable) => return Err(ConnectError::NoRoute),
+    /// Call `f` with the largest contiguous slice of octets in the receive buffer,
+    /// without removing them from it.
+    ///
+    /// If no data is available, it waits until there is at least one byte available.
+    pub async fn peek_with<R>(&mut self, f: impl FnOnce(&[u8]) -> R) -> Result<R, Error> {
+        self.io.peek_with(f).await
+    }
+
+    /// Call `f` with the largest contiguous slice of octets in the receive buffer,
+    /// without removing them from it.
+    ///
+    /// This method will not wait for data to be received.
+    ///
+    /// If no data is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_peek_with<R>(&mut self, f: impl FnOnce(&[u8]) -> R) -> Result<R, TryError<Error>> {
+        self.io.try_peek_with(f)
+    }
+
+    /// Split the socket into reader and a writer halves.
+    pub fn split(&mut self) -> (TcpReader<'_, 'd>, TcpWriter<'_, 'd>) {
+        (
+            TcpReader {
+                io: self.io,
+                bufs: PhantomData,
+            },
+            TcpWriter {
+                io: self.io,
+                bufs: PhantomData,
+            },
+        )
+    }
+
+    /// Bind the socket to an interface, or unbind it with `None`.
+    ///
+    /// A socket bound to an interface only sends and receives packets on it:
+    /// - Destinations must be on-link on that iface, or have a route through it.
+    /// - Broadcast and multicast destinations go out on that iface only
+    /// - Local addresses will be picked from that iface only.
+    ///
+    /// The socket must be closed (see [`is_open`](Self::is_open)). The binding
+    /// is kept across connections, so a reused socket stays bound to its interface.
+    /// Accepting a connection into the socket overwrites it with the listener's binding.
+    ///
+    /// Two sockets with otherwise identical tuples may coexist if they are
+    /// bound to different interfaces.
+    ///
+    /// # Errors
+    /// - `InvalidState`: if the socket is open.
+    #[cfg(feature = "iface-bind")]
+    pub fn bind_to_iface(&mut self, iface: Option<IfaceHandle>) -> Result<(), ConnectError> {
+        match self.io.with_mut(|s| s.bind_to_iface(iface)) {
+            Ok(()) => Ok(()),
+            Err(tcp::ConnectError::InvalidState) => Err(ConnectError::InvalidState),
+            Err(_) => unreachable!(),
         }
+    }
+
+    /// Return the interface the socket is bound to, or `None`.
+    ///
+    /// See [`bind_to_iface`](Self::bind_to_iface).
+    #[cfg(feature = "iface-bind")]
+    pub fn bound_iface(&self) -> Option<IfaceHandle> {
+        self.io.with(|s| s.bound_iface())
+    }
+
+    fn start_connect(&mut self, remote: impl Into<SocketAddr>) -> Result<(), ConnectError> {
+        match self.io.with_mut(|s| s.connect(remote, ListenSocketAddr::UNSPECIFIED)) {
+            Ok(()) => Ok(()),
+            Err(tcp::ConnectError::InvalidState) => Err(ConnectError::InvalidState),
+            Err(tcp::ConnectError::Unaddressable) => Err(ConnectError::Unaddressable),
+            Err(tcp::ConnectError::NoFreePorts) => Err(ConnectError::NoFreePorts),
+            Err(tcp::ConnectError::InUse) => Err(ConnectError::InUse),
+        }
+    }
+
+    /// Connect to a given remote address, and wait until the connection is established.
+    ///
+    /// The local port is an ephemeral port (a free port in the 49152..=65535
+    /// range, picked at a random starting point), and the local address is
+    /// selected by the stack from the remote address.
+    ///
+    /// # Errors
+    /// - `InvalidState`: if the socket is open.
+    /// - `Unaddressable`: if the remote port is zero, the remote address is
+    ///   unspecified, there is no route to the remote address, or the interface
+    ///   the route goes out of has no address to send from.
+    /// - `NoFreePorts`: if the ephemeral range is exhausted.
+    /// - `InUse`: if another TCP socket already holds the identical 4-tuple.
+    /// - `ConnectionReset`: if the connection is reset or aborted during the handshake.
+    pub async fn connect(&mut self, remote: impl Into<SocketAddr>) -> Result<(), ConnectError> {
+        self.start_connect(remote)?;
 
         poll_fn(|cx| {
-            self.io.with_mut(|s, _| match s.state() {
+            self.io.with_mut(|s| match s.state() {
                 tcp::State::Closed | tcp::State::TimeWait => Poll::Ready(Err(ConnectError::ConnectionReset)),
-                tcp::State::Listen => unreachable!(),
                 tcp::State::SynSent | tcp::State::SynReceived => {
+                    s.register_send_waker(cx.waker());
+                    Poll::Pending
+                }
+                _ => Poll::Ready(Ok(())),
+            })
+        })
+        .await
+    }
+
+    /// Accept a connection attempt into this socket, and wait until its handshake completes.
+    ///
+    /// The token comes from [`TcpListener::accept`].
+    ///
+    /// The socket's interface binding (see `bind_to_iface`)
+    /// is set to the listener's binding. Other configuration (hop limit,
+    /// timeout, keep-alive, Nagle, ACK delay) is left unchanged.
+    ///
+    /// If the returned future is dropped before it completes, the connection attempt is reset.
+    ///
+    /// # Errors
+    /// - `InvalidState`: if the socket is not closed.
+    /// - `ConnectionReset`: if the remote resets the connection during the handshake.
+    #[cfg(feature = "tcp-listener")]
+    pub async fn accept(&mut self, token: AcceptToken) -> Result<(), AcceptError> {
+        self.io.with_mut(|s| s.accept(token)).map_err(|e| match e {
+            tcp::AcceptError::InvalidState => AcceptError::InvalidState,
+        })?;
+
+        poll_fn(|cx| {
+            self.io.with_mut(|s| match s.state() {
+                tcp::State::Closed | tcp::State::TimeWait => Poll::Ready(Err(AcceptError::ConnectionReset)),
+                tcp::State::SynReceived => {
                     s.register_send_waker(cx.waker());
                     Poll::Pending
                 }
@@ -396,74 +595,13 @@ impl<'a> TcpSocket<'a> {
     ///
     /// Once the connection is successfully established and ready to send/receive data,
     /// this method will return `Ok(())`.
-    pub fn try_connect<T>(&mut self, remote_endpoint: T) -> Result<(), TryError<ConnectError>>
-    where
-        T: Into<IpEndpoint>,
-    {
+    pub fn try_connect(&mut self, remote: impl Into<SocketAddr>) -> Result<(), TryError<ConnectError>> {
         match self.state() {
-            tcp::State::Closed | tcp::State::TimeWait => {
-                let local_port = self.io.stack.with_mut(|i| i.get_local_port());
-                match self
-                    .io
-                    .with_mut(|s, i| s.connect(i.context(), remote_endpoint, local_port))
-                {
-                    Ok(()) => Err(TryError::WouldBlock),
-                    Err(tcp::ConnectError::InvalidState) => Err(TryError::Other(ConnectError::InvalidState)),
-                    Err(tcp::ConnectError::Unaddressable) => Err(TryError::Other(ConnectError::NoRoute)),
-                }
-            }
-            tcp::State::SynSent | tcp::State::SynReceived => Err(TryError::WouldBlock),
-            tcp::State::Listen => Err(TryError::Other(ConnectError::InvalidState)),
-            _ => Ok(()),
-        }
-    }
-
-    /// Accept a connection from a remote host.
-    ///
-    /// This function puts the socket in listening mode, and waits until a connection is received.
-    pub async fn accept<T>(&mut self, local_endpoint: T) -> Result<(), AcceptError>
-    where
-        T: Into<IpListenEndpoint>,
-    {
-        match self.io.with_mut(|s, _| s.listen(local_endpoint)) {
-            Ok(()) => {}
-            Err(tcp::ListenError::InvalidState) => return Err(AcceptError::InvalidState),
-            Err(tcp::ListenError::Unaddressable) => return Err(AcceptError::InvalidPort),
-        }
-
-        poll_fn(|cx| {
-            self.io.with_mut(|s, _| match s.state() {
-                tcp::State::Listen | tcp::State::SynSent | tcp::State::SynReceived => {
-                    s.register_send_waker(cx.waker());
-                    Poll::Pending
-                }
-                _ => Poll::Ready(Ok(())),
-            })
-        })
-        .await
-    }
-
-    /// Accept a connection from a remote host.
-    ///
-    /// This method will not wait for a connection to be received.
-    ///
-    /// If the socket is not already listening, this method will put the socket into
-    /// listening mode and return `Err(TryError::WouldBlock)`. While waiting for
-    /// a remote host to connect, it will continue to return `Err(TryError::WouldBlock)`.
-    ///
-    /// Once a connection is successfully established and ready to send/receive data,
-    /// this method will return `Ok(())`.
-    pub fn try_accept<T>(&mut self, local_endpoint: T) -> Result<(), TryError<AcceptError>>
-    where
-        T: Into<IpListenEndpoint>,
-    {
-        match self.state() {
-            tcp::State::Closed | tcp::State::TimeWait => match self.io.with_mut(|s, _| s.listen(local_endpoint)) {
+            tcp::State::Closed | tcp::State::TimeWait => match self.start_connect(remote) {
                 Ok(()) => Err(TryError::WouldBlock),
-                Err(tcp::ListenError::InvalidState) => Err(TryError::Other(AcceptError::InvalidState)),
-                Err(tcp::ListenError::Unaddressable) => Err(TryError::Other(AcceptError::InvalidPort)),
+                Err(e) => Err(TryError::Other(e)),
             },
-            tcp::State::Listen | tcp::State::SynSent | tcp::State::SynReceived => Err(TryError::WouldBlock),
+            tcp::State::SynSent | tcp::State::SynReceived => Err(TryError::WouldBlock),
             _ => Ok(()),
         }
     }
@@ -540,170 +678,436 @@ impl<'a> TcpSocket<'a> {
         self.io.try_flush()
     }
 
-    /// Set the timeout for the socket.
+    /// Set the timeout duration.
     ///
-    /// If the timeout is set, the socket will be closed if no data is received for the
-    /// specified duration.
+    /// A socket with a timeout duration set will abort the connection if either of the following
+    /// occurs:
     ///
-    /// # Note:
-    /// Set a keep alive interval ([`set_keep_alive`] to prevent timeouts when
-    /// the remote could still respond.
+    ///   * After a [connect](#method.connect) call, the remote peer does not respond within
+    ///     the specified duration;
+    ///   * After establishing a connection, there is data in the transmit buffer and the remote
+    ///     peer exceeds the specified duration between any two packets it sends;
+    ///   * After enabling [keep-alive](#method.set_keep_alive), the remote peer exceeds
+    ///     the specified duration between any two packets it sends.
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
-        self.io.with_mut(|s, _| s.set_timeout(duration.map(duration_to_xarxa)))
+        self.io.with_mut(|s| s.set_timeout(duration.map(duration_to_xarxa)))
     }
 
-    /// Set the keep-alive interval for the socket.
+    /// Return the timeout duration.
     ///
-    /// If the keep-alive interval is set, the socket will send keep-alive packets after
-    /// the specified duration of inactivity.
+    /// See also the [set_timeout](#method.set_timeout) method.
+    pub fn timeout(&self) -> Option<Duration> {
+        self.io.with(|s| s.timeout().map(duration_from_xarxa))
+    }
+
+    /// Set the ACK delay duration.
     ///
-    /// If not set, the socket will not send keep-alive packets.
+    /// By default, the ACK delay is set to 10ms.
+    pub fn set_ack_delay(&mut self, duration: Option<Duration>) {
+        self.io.with_mut(|s| s.set_ack_delay(duration.map(duration_to_xarxa)))
+    }
+
+    /// Return the ACK delay duration.
     ///
-    /// By setting a [`timeout`](Self::timeout) larger then the keep alive you
-    /// can detect a remote endpoint that no longer answers.
+    /// See also the [set_ack_delay](#method.set_ack_delay) method.
+    pub fn ack_delay(&self) -> Option<Duration> {
+        self.io.with(|s| s.ack_delay().map(duration_from_xarxa))
+    }
+
+    /// Set the keep-alive interval.
+    ///
+    /// An idle socket with a keep-alive interval set will transmit a "keep-alive ACK" packet
+    /// every time it receives no communication during that interval. As a result, three things
+    /// may happen:
+    ///
+    ///   * The remote peer is fine and answers with an ACK packet.
+    ///   * The remote peer has rebooted and answers with an RST packet.
+    ///   * The remote peer has crashed and does not answer.
+    ///
+    /// The keep-alive functionality together with the timeout functionality allows to react
+    /// to these error conditions.
     pub fn set_keep_alive(&mut self, interval: Option<Duration>) {
-        self.io
-            .with_mut(|s, _| s.set_keep_alive(interval.map(duration_to_xarxa)))
+        self.io.with_mut(|s| s.set_keep_alive(interval.map(duration_to_xarxa)))
     }
 
-    /// Set the hop limit field in the IP header of sent packets.
-    pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
-        self.io.with_mut(|s, _| s.set_hop_limit(hop_limit))
-    }
-
-    /// Enable or disable Nagles's algorithm.
+    /// Return the keep-alive interval.
     ///
-    /// By default, Nagle's algorithm is enabled.
-    /// When enabled, Nagle’s Algorithm prevents sending segments smaller
-    /// than MSS if there is data in flight (sent but not acknowledged).
-    /// In other words, it ensures at most only one segment smaller than
-    /// MSS is in flight at a time.
-    /// It ensures better network utilization by preventing sending many
-    /// very small packets, at the cost of increased latency in some
-    /// situations, particularly when the remote peer has ACK delay enabled.
+    /// See also the [set_keep_alive](#method.set_keep_alive) method.
+    pub fn keep_alive(&self) -> Option<Duration> {
+        self.io.with(|s| s.keep_alive().map(duration_from_xarxa))
+    }
+
+    /// Set the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
+    ///
+    /// A socket without an explicitly set hop limit value uses the default [IANA recommended]
+    /// value (64).
+    ///
+    /// # Errors
+    /// - `InvalidHopLimit`: if the hop limit is `Some(0)`. A host must not send a
+    ///   packet with a hop limit of zero ([RFC 1122 § 3.2.1.7]). The socket is
+    ///   left unchanged.
+    ///
+    /// [IANA recommended]: https://www.iana.org/assignments/ip-parameters/ip-parameters.xhtml
+    /// [RFC 1122 § 3.2.1.7]: https://tools.ietf.org/html/rfc1122#section-3.2.1.7
+    pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) -> Result<(), InvalidHopLimit> {
+        self.io.with_mut(|s| s.set_hop_limit(hop_limit))
+    }
+
+    /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
+    ///
+    /// See also the [set_hop_limit](#method.set_hop_limit) method
+    pub fn hop_limit(&self) -> Option<u8> {
+        self.io.with(|s| s.hop_limit())
+    }
+
+    /// Enable or disable Nagle's Algorithm.
+    ///
+    /// Also known as "tinygram prevention". By default, it is enabled.
+    /// Disabling it is equivalent to Linux's TCP_NODELAY flag.
+    ///
+    /// When enabled, Nagle's Algorithm prevents sending segments smaller than MSS if
+    /// there is data in flight (sent but not acknowledged). In other words, it ensures
+    /// at most only one segment smaller than MSS is in flight at a time.
+    ///
+    /// It ensures better network utilization by preventing sending many very small packets,
+    /// at the cost of increased latency in some situations, particularly when the remote peer
+    /// has ACK delay enabled.
     pub fn set_nagle_enabled(&mut self, enabled: bool) {
-        self.io.with_mut(|s, _| s.set_nagle_enabled(enabled))
+        self.io.with_mut(|s| s.set_nagle_enabled(enabled))
     }
 
-    /// Get the local endpoint of the socket.
+    /// Return whether Nagle's Algorithm is enabled.
     ///
-    /// Returns `None` if the socket is not bound (listening) or not connected.
-    pub fn local_endpoint(&self) -> Option<IpEndpoint> {
-        self.io.with(|s, _| s.local_endpoint())
+    /// See also the [set_nagle_enabled](#method.set_nagle_enabled) method.
+    pub fn nagle_enabled(&self) -> bool {
+        self.io.with(|s| s.nagle_enabled())
     }
 
-    /// Get the remote endpoint of the socket.
-    ///
-    /// Returns `None` if the socket is not connected.
-    pub fn remote_endpoint(&self) -> Option<IpEndpoint> {
-        self.io.with(|s, _| s.remote_endpoint())
+    /// Return the local address, or None if not connected.
+    pub fn local_addr(&self) -> Option<SocketAddr> {
+        self.io.with(|s| s.local_addr())
     }
 
-    /// Get the state of the socket.
+    /// Return the remote address, or None if not connected.
+    pub fn remote_addr(&self) -> Option<SocketAddr> {
+        self.io.with(|s| s.remote_addr())
+    }
+
+    /// Return the connection state, in terms of the TCP state machine.
     pub fn state(&self) -> State {
-        self.io.with(|s, _| s.state())
+        self.io.with(|s| s.state())
     }
 
-    /// Close the write half of the socket.
+    /// Return whether the socket is open.
     ///
-    /// This closes only the write half of the socket. The read half side remains open, the
-    /// socket can still receive data.
+    /// This function returns true if the socket will process incoming or dispatch outgoing
+    /// packets. Note that this does not mean that it is possible to send or receive data through
+    /// the socket; for that, use [can_send](#method.can_send) or [can_recv](#method.can_recv).
     ///
-    /// Data that has been written to the socket and not yet sent (or not yet ACKed) will still
-    /// still sent. The last segment of the pending to send data is sent with the FIN flag set.
+    /// In terms of the TCP state machine, the socket must not be in the `CLOSED`
+    /// or `TIME-WAIT` states.
+    pub fn is_open(&self) -> bool {
+        self.io.with(|s| s.is_open())
+    }
+
+    /// Return whether a connection is active.
+    ///
+    /// This function returns true if the socket is actively exchanging packets with
+    /// a remote peer. Note that this does not mean that it is possible to send or receive
+    /// data through the socket; for that, use [can_send](#method.can_send) or
+    /// [can_recv](#method.can_recv).
+    ///
+    /// If a connection is established, [abort](#method.abort) will send a reset to
+    /// the remote peer.
+    ///
+    /// In terms of the TCP state machine, the socket must not be in the `CLOSED`
+    /// or `TIME-WAIT` state.
+    pub fn is_active(&self) -> bool {
+        self.io.with(|s| s.is_active())
+    }
+
+    /// Take the pending ICMP error, if one has been reported against this
+    /// connection.
+    #[cfg(feature = "icmp-errors")]
+    pub fn take_icmp_error(&mut self) -> Option<crate::error::IcmpError> {
+        self.io.with_mut(|s| s.take_icmp_error())
+    }
+
+    /// Close the transmit half of the full-duplex connection.
+    ///
+    /// Data that has been written to the socket and not yet sent (or not yet ACKed) will
+    /// still be sent. The last segment of the pending to send data is sent with the FIN flag set.
+    ///
+    /// Note that there is no corresponding function for the receive half of the full-duplex
+    /// connection; only the remote end can close it. If you no longer wish to receive any
+    /// data and would like to reuse the socket right away, use [abort](#method.abort).
     pub fn close(&mut self) {
-        self.io.with_mut(|s, _| s.close())
+        self.io.with_mut(|s| s.close())
     }
 
-    /// Forcibly close the socket.
+    /// Aborts the connection, if any.
     ///
-    /// This instantly closes both the read and write halves of the socket. Any pending data
-    /// that has not been sent will be lost.
+    /// This function instantly closes the socket. One reset packet will be sent to the remote
+    /// peer.
+    ///
+    /// In terms of the TCP state machine, the socket may be in any state and is moved to
+    /// the `CLOSED` state.
     ///
     /// Note that the TCP RST packet is not sent immediately - if the `TcpSocket` is dropped too soon
     /// the remote host may not know the connection has been closed.
     /// `abort()` callers should wait for a [`flush()`](TcpSocket::flush) call to complete before
     /// dropping or reusing the socket.
     pub fn abort(&mut self) {
-        self.io.with_mut(|s, _| s.abort())
+        self.io.with_mut(|s| s.abort())
     }
 
     /// Return whether the transmit half of the full-duplex connection is open.
     ///
     /// This function returns true if it's possible to send data and have it arrive
-    /// to the remote endpoint. However, it does not make any guarantees about the state
+    /// to the remote peer. However, it does not make any guarantees about the state
     /// of the transmit buffer, and even if it returns true, [write](#method.write) may
     /// not be able to enqueue any octets.
     ///
     /// In terms of the TCP state machine, the socket must be in the `ESTABLISHED` or
     /// `CLOSE-WAIT` state.
     pub fn may_send(&self) -> bool {
-        self.io.with(|s, _| s.may_send())
+        self.io.with(|s| s.may_send())
     }
 
     /// Check whether the transmit half of the full-duplex connection is open
     /// (see [may_send](#method.may_send)), and the transmit buffer is not full.
     pub fn can_send(&self) -> bool {
-        self.io.with(|s, _| s.can_send())
+        self.io.with(|s| s.can_send())
     }
 
-    /// return whether the receive half of the full-duplex connection is open.
-    /// This function returns true if it’s possible to receive data from the remote endpoint.
-    /// It will return true while there is data in the receive buffer, and if there isn’t,
-    /// as long as the remote endpoint has not closed the connection.
+    /// Return whether the receive half of the full-duplex connection is open.
+    ///
+    /// This function returns true if it's possible to receive data from the remote peer.
+    /// It will return true while there is data in the receive buffer, and if there isn't,
+    /// as long as the remote peer has not closed the connection.
+    ///
+    /// In terms of the TCP state machine, the socket must be in the `ESTABLISHED`,
+    /// `FIN-WAIT-1`, or `FIN-WAIT-2` state, or have data in the receive buffer instead.
     pub fn may_recv(&self) -> bool {
-        self.io.with(|s, _| s.may_recv())
+        self.io.with(|s| s.may_recv())
     }
 
-    /// Get whether the socket is ready to receive data, i.e. whether there is some pending data in the receive buffer.
+    /// Check whether the receive buffer is not empty.
     pub fn can_recv(&self) -> bool {
-        self.io.with(|s, _| s.can_recv())
+        self.io.with(|s| s.can_recv())
     }
 }
 
-impl<'a> Drop for TcpSocket<'a> {
+impl Drop for TcpSocket<'_, '_> {
     fn drop(&mut self) {
-        self.io.stack.with_mut(|i| i.sockets.remove(self.io.handle));
+        self.io.stack.with_mut(|i| i.stack.remove_tcp_socket(self.io.handle));
     }
 }
 
-fn _assert_covariant<'a, 'b: 'a>(x: TcpSocket<'b>) -> TcpSocket<'a> {
+// `'a` (the buffers) is covariant; `'d` (the stack) is invariant.
+fn _assert_covariant<'a, 'b: 'a, 'd>(x: TcpSocket<'b, 'd>) -> TcpSocket<'a, 'd> {
     x
 }
-fn _assert_covariant_reader<'a, 'b: 'a>(x: TcpReader<'b>) -> TcpReader<'a> {
+fn _assert_covariant_reader<'a, 'b: 'a, 'd>(x: TcpReader<'b, 'd>) -> TcpReader<'a, 'd> {
     x
 }
-fn _assert_covariant_writer<'a, 'b: 'a>(x: TcpWriter<'b>) -> TcpWriter<'a> {
+fn _assert_covariant_writer<'a, 'b: 'a, 'd>(x: TcpWriter<'b, 'd>) -> TcpWriter<'a, 'd> {
     x
 }
 
 // =======================
 
+/// A TCP listener.
+///
+/// Use a [`TcpListener`] to accept incoming TCP connections.
+///
+/// A listener can be bound to a port and optionally an address.
+/// It receives all incoming connection attempts and queues them.
+/// Calling [`accept`](TcpListener::accept) pops an attempt from the queue as
+/// an [`AcceptToken`]. Pass it to [`TcpSocket::accept`] to set up a socket for it,
+/// possibly in another task.
+///
+/// Connection attempts (SYN packets) are not answered (with a SYN|ACK packet)
+/// until a socket accepts them. The queue depth is set by the
+/// `tcp-listener-backlog-N` feature of `xarxa`.
+#[cfg(feature = "tcp-listener")]
+pub struct TcpListener<'d> {
+    stack: Stack<'d>,
+    handle: TcpListenerHandle,
+}
+
+#[cfg(feature = "tcp-listener")]
+impl<'d> TcpListener<'d> {
+    /// Create a new TCP listener on the given stack.
+    ///
+    /// The listener starts closed. Call [`listen`](Self::listen) to start listening.
+    ///
+    /// # Errors
+    /// - `Full`: if the stack has no room for another listener. Only possible
+    ///   without the `alloc` feature, where the limit is set by the
+    ///   `tcp-listener-count-N` feature of `xarxa`.
+    pub fn new(stack: Stack<'d>) -> Result<Self, Full> {
+        let handle = stack.with(|i| i.stack.add_tcp_listener())?;
+
+        Ok(Self { stack, handle })
+    }
+
+    fn with<R>(&self, f: impl FnOnce(&mut tcp::TcpListener<'_>) -> R) -> R {
+        self.stack.with(|i| f(&mut i.stack.tcp_listener(self.handle)))
+    }
+
+    fn with_mut<R>(&self, f: impl FnOnce(&mut tcp::TcpListener<'_>) -> R) -> R {
+        self.stack.with_mut(|i| f(&mut i.stack.tcp_listener(self.handle)))
+    }
+
+    /// Bind the listener to an interface, or unbind it with `None`.
+    ///
+    /// A listener bound to an interface only accepts connection attempts that arrive on that interface.
+    ///
+    /// When accepting a connection, the sockets inherit the binding.
+    ///
+    /// The listener must be closed. The binding is kept across
+    /// [`close`](Self::close).
+    ///
+    /// Two listeners on the same address can coexist if they are bound to different interfaces,
+    /// or if one is not bound. In the latter case, the bound listener "wins" for incoming
+    /// connections coming from the bound interface.
+    ///
+    /// # Errors
+    /// - `InvalidState`: if the listener is open.
+    #[cfg(feature = "iface-bind")]
+    pub fn bind_to_iface(&mut self, iface: Option<IfaceHandle>) -> Result<(), ListenError> {
+        match self.with_mut(|l| l.bind_to_iface(iface)) {
+            Ok(()) => Ok(()),
+            Err(tcp::ListenError::InvalidState) => Err(ListenError::InvalidState),
+            Err(_) => unreachable!(),
+        }
+    }
+
+    /// Return the interface the listener is bound to, or `None`.
+    ///
+    /// See [`bind_to_iface`](Self::bind_to_iface).
+    #[cfg(feature = "iface-bind")]
+    pub fn bound_iface(&self) -> Option<IfaceHandle> {
+        self.with(|l| l.bound_iface())
+    }
+
+    /// Start listening on the given local address.
+    ///
+    /// # Errors
+    /// - `Unaddressable`: if the port is zero.
+    /// - `InvalidState`: if the listener is already listening (unless it is
+    ///   listening on this same address, which is a no-op).
+    /// - `InUse`: if another listener is bound to an identical address.
+    ///   Listeners on the same port with *different* specificity (one wildcard,
+    ///   one per-version, one per-address) may coexist, and so may listeners on
+    ///   identical addresses bound to different interfaces.
+    pub fn listen(&mut self, local: impl Into<ListenSocketAddr>) -> Result<(), ListenError> {
+        match self.with_mut(|l| l.listen(local)) {
+            Ok(()) => Ok(()),
+            Err(tcp::ListenError::InvalidState) => Err(ListenError::InvalidState),
+            Err(tcp::ListenError::Unaddressable) => Err(ListenError::Unaddressable),
+            Err(tcp::ListenError::InUse) => Err(ListenError::InUse),
+        }
+    }
+
+    /// Stop listening, dropping all queued SYNs.
+    ///
+    /// The dropped SYNs are not reset. The clients' retransmissions are
+    /// answered with an RST once the listener is gone.
+    pub fn close(&mut self) {
+        self.with_mut(|l| l.close())
+    }
+
+    /// Whether the listener is listening.
+    pub fn is_open(&self) -> bool {
+        self.with(|l| l.is_open())
+    }
+
+    /// Return the listened address. The address is the filter the listen scoped
+    /// the listener to. A zero port means the listener is closed.
+    pub fn local_addr(&self) -> ListenSocketAddr {
+        self.with(|l| l.local_addr())
+    }
+
+    /// Whether a connection attempt is waiting to be [`accept`](Self::accept)ed.
+    pub fn can_accept(&self) -> bool {
+        self.with(|l| l.can_accept())
+    }
+
+    /// Wait until a connection attempt is waiting to be accepted.
+    ///
+    /// This is the equivalent of [accept](#method.accept), without accepting the connection.
+    pub fn wait_accept_ready(&self) -> impl Future<Output = ()> + '_ {
+        poll_fn(move |cx| {
+            self.with_mut(|l| {
+                if l.can_accept() {
+                    Poll::Ready(())
+                } else {
+                    l.register_accept_waker(cx.waker());
+                    Poll::Pending
+                }
+            })
+        })
+    }
+
+    /// Accept a queued connection attempt, waiting if none is queued yet.
+    ///
+    /// Returns an [`AcceptToken`].
+    ///
+    /// Pass it to [`TcpSocket::accept`] to set up a socket for the incoming connection,
+    /// possibly in another task.
+    ///
+    /// Dropping the token forgets the attempt. The client retransmits its SYN,
+    /// which queues the attempt on the listener again.
+    ///
+    /// # Errors
+    /// - `InvalidState`: if the listener is not listening.
+    pub async fn accept(&mut self) -> Result<AcceptToken, AcceptError> {
+        poll_fn(|cx| {
+            self.with_mut(|l| {
+                if !l.is_open() {
+                    return Poll::Ready(Err(AcceptError::InvalidState));
+                }
+                match l.accept() {
+                    Some(token) => Poll::Ready(Ok(token)),
+                    None => {
+                        l.register_accept_waker(cx.waker());
+                        Poll::Pending
+                    }
+                }
+            })
+        })
+        .await
+    }
+}
+
+#[cfg(feature = "tcp-listener")]
+impl Drop for TcpListener<'_> {
+    fn drop(&mut self) {
+        self.stack.with_mut(|i| i.stack.remove_tcp_listener(self.handle));
+    }
+}
+
+// =======================
+
 #[derive(Copy, Clone)]
-struct TcpIo<'a> {
-    stack: Stack<'a>,
-    handle: SocketHandle,
+struct TcpIo<'d> {
+    stack: Stack<'d>,
+    handle: TcpHandle,
 }
 
 impl<'d> TcpIo<'d> {
-    fn with<R>(&self, f: impl FnOnce(&tcp::Socket, &Interface) -> R) -> R {
-        self.stack.with(|i| {
-            let socket = i.sockets.get::<tcp::Socket>(self.handle);
-            f(socket, &i.iface)
-        })
+    fn with<R>(&self, f: impl FnOnce(&mut tcp::TcpSocket<'_, 'd>) -> R) -> R {
+        self.stack.with(|i| f(&mut i.stack.tcp_socket(self.handle)))
     }
 
-    fn with_mut<R>(&self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
-        self.stack.with_mut(|i| {
-            let socket = i.sockets.get_mut::<tcp::Socket>(self.handle);
-            let res = f(socket, &mut i.iface);
-            i.waker.wake();
-            res
-        })
+    fn with_mut<R>(&self, f: impl FnOnce(&mut tcp::TcpSocket<'_, 'd>) -> R) -> R {
+        self.stack.with_mut(|i| f(&mut i.stack.tcp_socket(self.handle)))
     }
 
     fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s, _| {
+        self.with_mut(|s| {
             if s.can_recv() {
                 Poll::Ready(())
             } else {
@@ -714,7 +1118,7 @@ impl<'d> TcpIo<'d> {
     }
 
     fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, TryError<Error>> {
-        self.with_mut(|s, _| match s.recv_slice(buf) {
+        self.with_mut(|s| match s.recv_slice(buf) {
             // Reading into empty buffer
             Ok(0) if buf.is_empty() => Ok(0),
             // No data ready
@@ -732,7 +1136,7 @@ impl<'d> TcpIo<'d> {
         poll_fn(|cx| {
             // CAUTION: xarxa semantics around EOF are different to what you'd expect
             // from posix-like IO, so we have to tweak things here.
-            self.with_mut(|s, _| match s.recv_slice(buf) {
+            self.with_mut(|s| match s.recv_slice(buf) {
                 // Reading into empty buffer
                 Ok(0) if buf.is_empty() => {
                     // embedded_io_async::Read's contract is to not block if buf is empty. While
@@ -756,7 +1160,7 @@ impl<'d> TcpIo<'d> {
     }
 
     fn poll_write_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s, _| {
+        self.with_mut(|s| {
             if s.can_send() {
                 Poll::Ready(())
             } else {
@@ -767,7 +1171,7 @@ impl<'d> TcpIo<'d> {
     }
 
     fn try_write(&mut self, buf: &[u8]) -> Result<usize, TryError<Error>> {
-        self.with_mut(|s, _| match s.send_slice(buf) {
+        self.with_mut(|s| match s.send_slice(buf) {
             // Writing an empty buffer
             Ok(0) if buf.is_empty() => Ok(0),
             // Not ready to send (no space in the tx buffer)
@@ -781,7 +1185,7 @@ impl<'d> TcpIo<'d> {
 
     fn write<'s>(&'s mut self, buf: &'s [u8]) -> impl Future<Output = Result<usize, Error>> + 's {
         poll_fn(|cx| {
-            self.with_mut(|s, _| match s.send_slice(buf) {
+            self.with_mut(|s| match s.send_slice(buf) {
                 // Writing an empty buffer
                 Ok(0) if buf.is_empty() => Poll::Ready(Ok(0)),
                 // Not ready to send (no space in the tx buffer)
@@ -797,11 +1201,8 @@ impl<'d> TcpIo<'d> {
         })
     }
 
-    fn try_write_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
-        self.with_mut(|s, _| {
+    fn try_write_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, TryError<Error>> {
+        self.with_mut(|s| {
             if !s.can_send() {
                 if s.may_send() {
                     Err(TryError::WouldBlock)
@@ -817,13 +1218,10 @@ impl<'d> TcpIo<'d> {
         })
     }
 
-    async fn write_with<F, R>(&mut self, f: F) -> Result<R, Error>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
+    async fn write_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, Error> {
         let mut f = Some(f);
         poll_fn(move |cx| {
-            self.with_mut(|s, _| {
+            self.with_mut(|s| {
                 if !s.can_send() {
                     if s.may_send() {
                         // socket buffer is full wait until it has atleast one byte free
@@ -845,11 +1243,8 @@ impl<'d> TcpIo<'d> {
         .await
     }
 
-    fn try_read_with<F, R>(&mut self, f: F) -> Result<R, TryError<Error>>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
-        self.with_mut(|s, _| {
+    fn try_read_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, TryError<Error>> {
+        self.with_mut(|s| {
             if !s.can_recv() {
                 if s.may_recv() {
                     Err(TryError::WouldBlock)
@@ -867,13 +1262,10 @@ impl<'d> TcpIo<'d> {
         })
     }
 
-    async fn read_with<F, R>(&mut self, f: F) -> Result<R, Error>
-    where
-        F: FnOnce(&mut [u8]) -> (usize, R),
-    {
+    async fn read_with<R>(&mut self, f: impl FnOnce(&mut [u8]) -> (usize, R)) -> Result<R, Error> {
         let mut f = Some(f);
         poll_fn(move |cx| {
-            self.with_mut(|s, _| {
+            self.with_mut(|s| {
                 if !s.can_recv() {
                     if s.may_recv() {
                         // socket buffer is empty wait until it has atleast one byte has arrived
@@ -897,14 +1289,73 @@ impl<'d> TcpIo<'d> {
         .await
     }
 
+    /// Map the receive-half state to a peek result: `Ok(true)` if data can be
+    /// peeked, `Ok(false)` if none has arrived yet, `Err(Ok(()))` on EOF.
+    fn peek_state(s: &mut tcp::TcpSocket<'_, 'd>) -> Result<bool, Result<(), Error>> {
+        match s.peek(0).map(|_| ()) {
+            Err(tcp::RecvError::Finished) => Err(Ok(())),
+            Err(tcp::RecvError::InvalidState) => Err(Err(Error::ConnectionReset)),
+            Ok(()) => Ok(s.can_recv()),
+        }
+    }
+
+    fn try_peek(&mut self, buf: &mut [u8]) -> Result<usize, TryError<Error>> {
+        self.with_mut(|s| match Self::peek_state(s) {
+            Err(Ok(())) => Ok(0),
+            Err(Err(e)) => Err(TryError::Other(e)),
+            Ok(_) if buf.is_empty() => Ok(0),
+            Ok(false) => Err(TryError::WouldBlock),
+            Ok(true) => Ok(unwrap!(s.peek_slice(buf))),
+        })
+    }
+
+    fn peek<'s>(&'s mut self, buf: &'s mut [u8]) -> impl Future<Output = Result<usize, Error>> + 's {
+        poll_fn(|cx| {
+            self.with_mut(|s| match Self::peek_state(s) {
+                Err(Ok(())) => Poll::Ready(Ok(0)),
+                Err(Err(e)) => Poll::Ready(Err(e)),
+                // Don't block if buf is empty, like `read`.
+                Ok(_) if buf.is_empty() => Poll::Ready(Ok(0)),
+                Ok(false) => {
+                    s.register_recv_waker(cx.waker());
+                    Poll::Pending
+                }
+                Ok(true) => Poll::Ready(Ok(unwrap!(s.peek_slice(buf)))),
+            })
+        })
+    }
+
+    fn try_peek_with<R>(&mut self, f: impl FnOnce(&[u8]) -> R) -> Result<R, TryError<Error>> {
+        self.with_mut(|s| match Self::peek_state(s) {
+            Err(_) => Err(TryError::Other(Error::ConnectionReset)),
+            Ok(false) => Err(TryError::WouldBlock),
+            Ok(true) => Ok(f(unwrap!(s.peek(usize::MAX)))),
+        })
+    }
+
+    async fn peek_with<R>(&mut self, f: impl FnOnce(&[u8]) -> R) -> Result<R, Error> {
+        let mut f = Some(f);
+        poll_fn(move |cx| {
+            self.with_mut(|s| match Self::peek_state(s) {
+                Err(_) => Poll::Ready(Err(Error::ConnectionReset)),
+                Ok(false) => {
+                    s.register_recv_waker(cx.waker());
+                    Poll::Pending
+                }
+                Ok(true) => Poll::Ready(Ok(unwrap!(f.take())(unwrap!(s.peek(usize::MAX))))),
+            })
+        })
+        .await
+    }
+
     fn try_flush(&mut self) -> Result<(), TryError<Error>> {
-        self.with_mut(|s, _| {
+        self.with_mut(|s| {
             let data_pending = (s.send_queue() > 0) && s.state() != tcp::State::Closed;
             let fin_pending = matches!(
                 s.state(),
                 tcp::State::FinWait1 | tcp::State::Closing | tcp::State::LastAck
             );
-            let rst_pending = s.state() == tcp::State::Closed && s.remote_endpoint().is_some();
+            let rst_pending = s.state() == tcp::State::Closed && s.remote_addr().is_some();
 
             if data_pending || fin_pending || rst_pending {
                 Err(TryError::WouldBlock)
@@ -916,13 +1367,13 @@ impl<'d> TcpIo<'d> {
 
     fn flush(&mut self) -> impl Future<Output = Result<(), Error>> + '_ {
         poll_fn(|cx| {
-            self.with_mut(|s, _| {
+            self.with_mut(|s| {
                 let data_pending = (s.send_queue() > 0) && s.state() != tcp::State::Closed;
                 let fin_pending = matches!(
                     s.state(),
                     tcp::State::FinWait1 | tcp::State::Closing | tcp::State::LastAck
                 );
-                let rst_pending = s.state() == tcp::State::Closed && s.remote_endpoint().is_some();
+                let rst_pending = s.state() == tcp::State::Closed && s.remote_addr().is_some();
 
                 // If there are outstanding send operations, register for wake up and wait
                 // xarxa issues wake-ups when octets are dequeued from the send buffer
@@ -938,19 +1389,19 @@ impl<'d> TcpIo<'d> {
     }
 
     fn recv_capacity(&self) -> usize {
-        self.with(|s, _| s.recv_capacity())
+        self.with(|s| s.recv_capacity())
     }
 
     fn send_capacity(&self) -> usize {
-        self.with(|s, _| s.send_capacity())
+        self.with(|s| s.send_capacity())
     }
 
     fn send_queue(&self) -> usize {
-        self.with(|s, _| s.send_queue())
+        self.with(|s| s.send_queue())
     }
 
     fn recv_queue(&self) -> usize {
-        self.with(|s, _| s.recv_queue())
+        self.with(|s| s.recv_queue())
     }
 }
 
@@ -969,8 +1420,8 @@ mod embedded_io_impls {
             match self {
                 ConnectError::ConnectionReset => embedded_io_async::ErrorKind::ConnectionReset,
                 ConnectError::TimedOut => embedded_io_async::ErrorKind::TimedOut,
-                ConnectError::NoRoute => embedded_io_async::ErrorKind::NotConnected,
-                ConnectError::InvalidState => embedded_io_async::ErrorKind::Other,
+                ConnectError::Unaddressable | ConnectError::NoFreePorts => embedded_io_async::ErrorKind::NotConnected,
+                ConnectError::InvalidState | ConnectError::InUse => embedded_io_async::ErrorKind::Other,
             }
         }
     }
@@ -992,23 +1443,23 @@ mod embedded_io_impls {
         }
     }
 
-    impl<'d> embedded_io_async::ErrorType for TcpSocket<'d> {
+    impl embedded_io_async::ErrorType for TcpSocket<'_, '_> {
         type Error = Error;
     }
 
-    impl<'d> embedded_io_async::Read for TcpSocket<'d> {
+    impl embedded_io_async::Read for TcpSocket<'_, '_> {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             self.io.read(buf).await
         }
     }
 
-    impl<'d> embedded_io_async::ReadReady for TcpSocket<'d> {
+    impl embedded_io_async::ReadReady for TcpSocket<'_, '_> {
         fn read_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.io.with(|s, _| s.can_recv() || !s.may_recv()))
+            Ok(self.io.with(|s| s.can_recv() || !s.may_recv()))
         }
     }
 
-    impl<'d> embedded_io_async::Write for TcpSocket<'d> {
+    impl embedded_io_async::Write for TcpSocket<'_, '_> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             self.io.write(buf).await
         }
@@ -1018,33 +1469,33 @@ mod embedded_io_impls {
         }
     }
 
-    impl<'d> embedded_io_async::WriteReady for TcpSocket<'d> {
+    impl embedded_io_async::WriteReady for TcpSocket<'_, '_> {
         fn write_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.io.with(|s, _| s.can_send()))
+            Ok(self.io.with(|s| s.can_send()))
         }
     }
 
-    impl<'d> embedded_io_async::ErrorType for TcpReader<'d> {
+    impl embedded_io_async::ErrorType for TcpReader<'_, '_> {
         type Error = Error;
     }
 
-    impl<'d> embedded_io_async::Read for TcpReader<'d> {
+    impl embedded_io_async::Read for TcpReader<'_, '_> {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             self.io.read(buf).await
         }
     }
 
-    impl<'d> embedded_io_async::ReadReady for TcpReader<'d> {
+    impl embedded_io_async::ReadReady for TcpReader<'_, '_> {
         fn read_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.io.with(|s, _| s.can_recv() || !s.may_recv()))
+            Ok(self.io.with(|s| s.can_recv() || !s.may_recv()))
         }
     }
 
-    impl<'d> embedded_io_async::ErrorType for TcpWriter<'d> {
+    impl embedded_io_async::ErrorType for TcpWriter<'_, '_> {
         type Error = Error;
     }
 
-    impl<'d> embedded_io_async::Write for TcpWriter<'d> {
+    impl embedded_io_async::Write for TcpWriter<'_, '_> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             self.io.write(buf).await
         }
@@ -1054,25 +1505,40 @@ mod embedded_io_impls {
         }
     }
 
-    impl<'d> embedded_io_async::WriteReady for TcpWriter<'d> {
+    impl embedded_io_async::WriteReady for TcpWriter<'_, '_> {
         fn write_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.io.with(|s, _| s.can_send()))
+            Ok(self.io.with(|s| s.can_send()))
         }
     }
 }
 
+#[cfg(feature = "tcp-listener")]
 impl core::fmt::Display for AcceptError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::InvalidState => f.write_str("InvalidState"),
-            Self::InvalidPort => f.write_str("InvalidPort"),
             Self::ConnectionReset => f.write_str("ConnectionReset"),
         }
     }
 }
+#[cfg(feature = "tcp-listener")]
 impl core::error::Error for AcceptError {}
 
+#[cfg(feature = "tcp-listener")]
+impl core::fmt::Display for ListenError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidState => f.write_str("InvalidState"),
+            Self::Unaddressable => f.write_str("Unaddressable"),
+            Self::InUse => f.write_str("InUse"),
+        }
+    }
+}
+#[cfg(feature = "tcp-listener")]
+impl core::error::Error for ListenError {}
+
 /// TCP client compatible with `embedded-nal-async` traits.
+#[cfg(feature = "embedded-nal")]
 pub mod client {
     use core::cell::{Cell, UnsafeCell};
     use core::mem::MaybeUninit;
@@ -1114,27 +1580,27 @@ pub mod client {
     {
         type Error = Error;
         type Connection<'m>
-            = TcpConnection<'m, N, TX_SZ, RX_SZ>
+            = TcpConnection<'m, 'd, N, TX_SZ, RX_SZ>
         where
             Self: 'm;
 
         async fn connect<'a>(&'a self, remote: core::net::SocketAddr) -> Result<Self::Connection<'a>, Self::Error> {
-            let addr: crate::IpAddress = match remote.ip() {
-                #[cfg(feature = "proto-ipv4")]
-                IpAddr::V4(addr) => crate::IpAddress::Ipv4(addr),
-                #[cfg(not(feature = "proto-ipv4"))]
+            let addr: crate::wire::IpAddr = match remote.ip() {
+                #[cfg(feature = "ipv4")]
+                IpAddr::V4(addr) => crate::wire::IpAddr::V4(addr),
+                #[cfg(not(feature = "ipv4"))]
                 IpAddr::V4(_) => panic!("ipv4 support not enabled"),
-                #[cfg(feature = "proto-ipv6")]
-                IpAddr::V6(addr) => crate::IpAddress::Ipv6(addr),
-                #[cfg(not(feature = "proto-ipv6"))]
+                #[cfg(feature = "ipv6")]
+                IpAddr::V6(addr) => crate::wire::IpAddr::V6(addr),
+                #[cfg(not(feature = "ipv6"))]
                 IpAddr::V6(_) => panic!("ipv6 support not enabled"),
             };
-            let remote_endpoint = (addr, remote.port());
+            let remote_addr = (addr, remote.port());
             let mut socket = TcpConnection::new(self.stack, self.state)?;
             socket.socket.set_timeout(self.socket_timeout);
             socket
                 .socket
-                .connect(remote_endpoint)
+                .connect(remote_addr)
                 .await
                 .map_err(|_| Error::ConnectionReset)?;
             Ok(socket)
@@ -1142,24 +1608,31 @@ pub mod client {
     }
 
     /// Opened TCP connection in a [`TcpClient`].
-    pub struct TcpConnection<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> {
-        socket: TcpSocket<'d>,
-        state: &'d TcpClientState<N, TX_SZ, RX_SZ>,
+    ///
+    /// `'a` is the lifetime of the borrow of the [`TcpClient`] (whose pool the
+    /// connection's buffers come from), `'d` the lifetime of the stack.
+    pub struct TcpConnection<'a, 'd, const N: usize, const TX_SZ: usize, const RX_SZ: usize> {
+        socket: TcpSocket<'a, 'd>,
+        state: &'a TcpClientState<N, TX_SZ, RX_SZ>,
         bufs: NonNull<([u8; TX_SZ], [u8; RX_SZ])>,
     }
 
-    impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpConnection<'d, N, TX_SZ, RX_SZ> {
-        fn new(stack: Stack<'d>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
+    impl<'a, 'd, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpConnection<'a, 'd, N, TX_SZ, RX_SZ> {
+        fn new(stack: Stack<'d>, state: &'a TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
             let mut bufs = state.pool.alloc().ok_or(Error::ConnectionReset)?;
-            Ok(Self {
-                socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().1, &mut bufs.as_mut().0) },
-                state,
-                bufs,
-            })
+            let socket = unsafe { TcpSocket::new(stack, &mut bufs.as_mut().1, &mut bufs.as_mut().0) };
+            let socket = match socket {
+                Ok(socket) => socket,
+                Err(Full) => {
+                    unsafe { state.pool.free(bufs) };
+                    return Err(Error::ConnectionReset);
+                }
+            };
+            Ok(Self { socket, state, bufs })
         }
     }
 
-    impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> Drop for TcpConnection<'d, N, TX_SZ, RX_SZ> {
+    impl<const N: usize, const TX_SZ: usize, const RX_SZ: usize> Drop for TcpConnection<'_, '_, N, TX_SZ, RX_SZ> {
         fn drop(&mut self) {
             unsafe {
                 self.socket.close();
@@ -1168,22 +1641,22 @@ pub mod client {
         }
     }
 
-    impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io_async::ErrorType
-        for TcpConnection<'d, N, TX_SZ, RX_SZ>
+    impl<const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io_async::ErrorType
+        for TcpConnection<'_, '_, N, TX_SZ, RX_SZ>
     {
         type Error = Error;
     }
 
-    impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io_async::Read
-        for TcpConnection<'d, N, TX_SZ, RX_SZ>
+    impl<const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io_async::Read
+        for TcpConnection<'_, '_, N, TX_SZ, RX_SZ>
     {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             self.socket.read(buf).await
         }
     }
 
-    impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io_async::Write
-        for TcpConnection<'d, N, TX_SZ, RX_SZ>
+    impl<const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io_async::Write
+        for TcpConnection<'_, '_, N, TX_SZ, RX_SZ>
     {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             self.socket.write(buf).await

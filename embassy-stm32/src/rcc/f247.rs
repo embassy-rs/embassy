@@ -449,13 +449,13 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
     let pll_src = pll_src.unwrap();
 
     let in_freq = pll_src / pll.prediv;
-    assert!(max::PLL_IN.contains(&in_freq));
+    rcc_assert!(max::PLL_IN.contains(&in_freq));
 
     let vco_num = u64::from(pll_src.0) * u64::from(pll.mul.num()) * u64::from(pll.prediv.denom());
     let vco_denom = u64::from(pll.mul.denom()) * u64::from(pll.prediv.num());
 
     let vco_freq = Hertz(unwrap!((vco_num / vco_denom).try_into()));
-    assert!(max::PLL_VCO.contains(&vco_freq));
+    rcc_assert!(max::PLL_VCO.contains(&vco_freq));
 
     // stm32f2 plls are like swiss cheese
     #[cfg(stm32f2)]

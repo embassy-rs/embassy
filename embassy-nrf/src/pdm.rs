@@ -12,7 +12,6 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::I7F1;
 
-use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::{AnyPin, DISCONNECTED, Pin as GpioPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
@@ -26,6 +25,9 @@ pub use crate::pac::pdm::vals::Freq as Frequency;
 ))]
 pub use crate::pac::pdm::vals::Ratio;
 use crate::{interrupt, pac};
+
+/// The maximum buffer size (in 16-bit samples) that the PDM EasyDMA can transfer in one operation.
+pub const DMA_SIZE: usize = crate::util::easy_dma_max!(crate::pac::pdm::regs::Maxcnt, set_buffsize, buffsize);
 
 /// Interrupt handler
 pub struct InterruptHandler<T: Instance> {
@@ -60,17 +62,21 @@ pub struct Pdm<'d> {
 }
 
 /// PDM error
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Buffer is too long
+    #[error("buffer is too long")]
     BufferTooLong,
     /// Buffer is empty
+    #[error("buffer is empty")]
     BufferZeroLength,
     /// PDM is not running
+    #[error("PDM is not running")]
     NotRunning,
     /// PDM is already running
+    #[error("PDM is already running")]
     AlreadyRunning,
 }
 
@@ -92,9 +98,9 @@ impl<'d> Pdm<'d> {
     /// Create PDM driver
     pub fn new<T: Instance>(
         pdm: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl GpioPin>,
         din: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(pdm, clk.into(), din.into(), config)
@@ -180,7 +186,7 @@ impl<'d> Pdm<'d> {
         if buffer.is_empty() {
             return Err(Error::BufferZeroLength);
         }
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
 

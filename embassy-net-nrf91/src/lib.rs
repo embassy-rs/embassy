@@ -34,7 +34,7 @@ const MTU: usize = 1500;
 /// Network driver.
 ///
 /// This is the type you have to pass to `embassy-net` when creating the network stack.
-pub type NetDriver<'a> = ch::Device<'a, MTU>;
+pub type NetDriver<'a> = ch::Device<'a>;
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -237,7 +237,7 @@ async fn new_internal<'a>(
         },
     }));
 
-    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ip);
+    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ip, MTU);
     let state_ch = ch_runner.state_runner();
 
     let control = Control {
@@ -283,7 +283,7 @@ impl TraceBuffer {
 
 /// Shared state for the driver.
 pub struct State {
-    ch: ch::State<MTU, 4, 4>,
+    ch: ch::State<4, 4>,
     inner: MaybeUninit<RefCell<StateInner>>,
 }
 
@@ -346,7 +346,7 @@ struct StateInner {
 }
 
 impl StateInner {
-    fn poll(&mut self, trace_writer: &mut Option<TraceWriter<'_>>, ch: &mut ch::Runner<MTU>) {
+    fn poll(&mut self, trace_writer: &mut Option<TraceWriter<'_>>, ch: &mut ch::Runner) {
         trace!("poll!");
         let ipc = pac::IPC_NS;
 
@@ -488,7 +488,7 @@ impl StateInner {
         }
     }
 
-    fn process(&mut self, list: *mut List, is_control: bool, ch: &mut ch::Runner<MTU>) -> bool {
+    fn process(&mut self, list: *mut List, is_control: bool, ch: &mut ch::Runner) -> bool {
         let mut did_work = false;
         let max = if is_control {
             self.rx_control_len
@@ -627,7 +627,7 @@ impl StateInner {
         self.tx_waker.wake();
     }
 
-    fn handle_data(&mut self, msg: &Message, ch: &mut ch::Runner<MTU>) {
+    fn handle_data(&mut self, msg: &Message, ch: &mut ch::Runner) {
         if !msg.data.is_null() {
             self.rx_check.check_length(msg.data, msg.data_len);
         }
@@ -657,16 +657,21 @@ impl StateInner {
                     9 => match (msg.id >> 16) & 0xFFF {
                         // IP receive notification
                         1 => {
-                            if let Some(mut buf) = ch.try_rx_buf() {
+                            if let Some(mut buf) = ch::driver::PacketBuf::try_new() {
                                 let mut len = msg.data_len;
-                                if len > buf.len() {
-                                    warn!("truncating rx'd packet from {} to {} bytes", len, buf.len());
-                                    len = buf.len();
+                                if len > MTU {
+                                    warn!("truncating rx'd packet from {} to {} bytes", len, MTU);
+                                    len = MTU;
                                 }
+                                buf.set_len(len);
                                 fence(Ordering::SeqCst); // synchronize volatile accesses with the nonvolatile copy_nonoverlapping.
                                 unsafe { ptr::copy_nonoverlapping(msg.data, buf.as_mut_ptr(), len) }
                                 fence(Ordering::SeqCst); // synchronize volatile accesses with the nonvolatile copy_nonoverlapping.
-                                buf.rx_done(len);
+                                if ch.try_rx(buf).is_err() {
+                                    warn!("rx queue full, dropping packet");
+                                }
+                            } else {
+                                warn!("packet pool empty, dropping rx'd packet");
                             }
                             false
                         }
@@ -950,7 +955,7 @@ impl<'a> Control<'a> {
 
 /// Background runner for the driver.
 pub struct Runner<'a> {
-    ch: ch::Runner<'a, MTU>,
+    ch: ch::Runner<'a>,
     state: &'a RefCell<StateInner>,
     trace_writer: Option<TraceWriter<'a>>,
 }
@@ -966,7 +971,7 @@ impl<'a> Runner<'a> {
             let mut state = self.state.borrow_mut();
             state.poll(&mut self.trace_writer, &mut self.ch);
 
-            if let Poll::Ready(buf) = self.ch.poll_tx_buf(cx) {
+            if let Poll::Ready(buf) = self.ch.poll_tx(cx) {
                 if let Some(fd) = state.net_fd {
                     let mut msg: Message = unsafe { mem::zeroed() };
                     msg.channel = 2; // data
@@ -976,7 +981,6 @@ impl<'a> Runner<'a> {
                     if let Err(e) = state.send_message(&mut msg, &buf) {
                         warn!("tx failed: {:?}", e);
                     }
-                    buf.tx_done();
                 }
             }
 

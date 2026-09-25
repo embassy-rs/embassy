@@ -23,13 +23,39 @@ fn rtc() -> pac::rtc::Rtc {
     pac::RTC1
 }
 
-// The nRF54 series (which has the GRTC) uses asymmetric channels
-// Namely, CC[0] is the only channel which supports "periodic interval" (page 298 in the datasheet),
-// which supports periodic alarms by adding the value in the INTERVAL register when EVENTS_COMPARE[0] triggers
-// Because the time driver does not make use of periodic alarms (but always reprograms it), it does not need to make use of this.
-// This selects the last CC channel (CC[11]) instead of CC[0] to keep CC[0] free for application use,
-// specifically for PPI-driven events that aim to avoid CPU intervention in periodic tasks.
-const TIME_DRIVER_CC_N: usize = if cfg!(feature = "_grtc") { 11 } else { 0 };
+#[cfg(feature = "time-driver-grtc")]
+const _: () = {
+    let selected = cfg!(feature = "time-driver-grtc-cc0") as u8
+        + cfg!(feature = "time-driver-grtc-cc1") as u8
+        + cfg!(feature = "time-driver-grtc-cc2") as u8
+        + cfg!(feature = "time-driver-grtc-cc3") as u8
+        + cfg!(feature = "time-driver-grtc-cc4") as u8
+        + cfg!(feature = "time-driver-grtc-cc5") as u8
+        + cfg!(feature = "time-driver-grtc-cc6") as u8
+        + cfg!(feature = "time-driver-grtc-cc7") as u8
+        + cfg!(feature = "time-driver-grtc-cc8") as u8
+        + cfg!(feature = "time-driver-grtc-cc9") as u8
+        + cfg!(feature = "time-driver-grtc-cc10") as u8
+        + cfg!(feature = "time-driver-grtc-cc11") as u8;
+    core::assert!(selected <= 1, "select at most one time-driver-grtc-ccN feature");
+};
+
+// GRTC defaults to CC11; RTC1 uses CC0. The selected channel must be reserved for the driver.
+const TIME_DRIVER_CC_N: usize = core::cfg_select! {
+    not(feature = "_grtc") => 0,
+    feature = "time-driver-grtc-cc0" => 0,
+    feature = "time-driver-grtc-cc1" => 1,
+    feature = "time-driver-grtc-cc2" => 2,
+    feature = "time-driver-grtc-cc3" => 3,
+    feature = "time-driver-grtc-cc4" => 4,
+    feature = "time-driver-grtc-cc5" => 5,
+    feature = "time-driver-grtc-cc6" => 6,
+    feature = "time-driver-grtc-cc7" => 7,
+    feature = "time-driver-grtc-cc8" => 8,
+    feature = "time-driver-grtc-cc9" => 9,
+    feature = "time-driver-grtc-cc10" => 10,
+    _ => 11,
+};
 
 // On nRF54L/LM GRTC, SYSCOUNTER[n], INTENSETn/INTENCLRn/INTENn, and the
 // GRTC_n interrupt all index by "domain":

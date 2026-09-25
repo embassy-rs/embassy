@@ -19,6 +19,7 @@ use crate::dma::{Dir, Request};
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
+#[derive(Default)]
 pub struct TwoDConfig {
     /// Base linear configuration (transfer complete mode, etc.).
     pub linear: ItemConfig,
@@ -34,19 +35,6 @@ pub struct TwoDConfig {
     /// Per-block-repeat destination address offset (range: -65535..=65535, in bytes).
     /// Applied at the end of each block.
     pub block_dst_addr_offset: i32,
-}
-
-impl Default for TwoDConfig {
-    fn default() -> Self {
-        Self {
-            linear: ItemConfig::default(),
-            block_repeat_count: 0,
-            src_addr_offset: 0,
-            dst_addr_offset: 0,
-            block_src_addr_offset: 0,
-            block_dst_addr_offset: 0,
-        }
-    }
 }
 
 /// A linked-list item for 2D GPDMA transfers (block repeat with address offsets).

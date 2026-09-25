@@ -6,11 +6,16 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32wba65ri", "time-driver-any", "memory-x", "unstable-pac", "exti", "low-power", "executor-thread"] }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32wba65ri", "time-driver-any", "memory-x", "unstable-pac", "exti", "low-power", "executor-thread", "embassy-crypto-aes128-ecb", "embassy-crypto-aes128-ccm", "embassy-crypto-p256-arith", "embassy-crypto-aes128-cmac", "embassy-crypto-rng"] }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba65ri", "bt-hci", "wb-hci"], optional = true }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-usb = {path = "../../embassy-usb"}
+embedded-hal-async = "1.0.0"
+embedded-io = {version = "0.7.1", features = ["defmt"]}
+embedded-io-async = "0.7.0"
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures"}
 
 defmt = "1.0.1"
 defmt-rtt = "1.1.0"

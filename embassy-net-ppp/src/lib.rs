@@ -10,7 +10,7 @@ use core::mem::MaybeUninit;
 
 use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::LinkState;
+use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
 use embedded_io_async::{BufRead, Write};
 use ppproto::pppos::{BufferFullError, PPPoS, PPPoSAction};
 pub use ppproto::{Config, Ipv4Status};
@@ -18,11 +18,11 @@ pub use ppproto::{Config, Ipv4Status};
 const MTU: usize = 1500;
 
 /// Type alias for the embassy-net driver.
-pub type Device<'d> = embassy_net_driver_channel::Device<'d, MTU>;
+pub type Device<'d> = embassy_net_driver_channel::Device<'d>;
 
 /// Internal state for the embassy-net integration.
 pub struct State<const N_RX: usize, const N_TX: usize> {
-    ch_state: ch::State<MTU, N_RX, N_TX>,
+    ch_state: ch::State<N_RX, N_TX>,
 }
 
 impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
@@ -38,7 +38,7 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
 ///
 /// You must call `.run()` in a background task for the driver to operate.
 pub struct Runner<'d> {
-    ch: ch::Runner<'d, MTU>,
+    ch: ch::Runner<'d>,
 }
 
 /// Error returned by [`Runner::run`].
@@ -87,7 +87,7 @@ impl<'d> Runner<'d> {
 
         loop {
             let rx_fut = async {
-                let buf = rx_chan.rx_buf().await;
+                rx_chan.rx_ready().await;
                 let rx_data = match needs_poll {
                     true => &[][..],
                     false => match rw.fill_buf().await {
@@ -96,14 +96,14 @@ impl<'d> Runner<'d> {
                         Err(e) => return Err(RunError::Read(e)),
                     },
                 };
-                Ok((buf, rx_data))
+                Ok(rx_data)
             };
-            let tx_fut = tx_chan.tx_buf();
+            let tx_fut = tx_chan.tx();
             match select(rx_fut, tx_fut).await {
                 Either::First(r) => {
                     needs_poll = false;
 
-                    let (mut buf, rx_data) = r?;
+                    let rx_data = r?;
                     let n = ppp.consume(rx_data, &mut rx_buf);
                     rw.consume(n);
 
@@ -111,11 +111,16 @@ impl<'d> Runner<'d> {
                         PPPoSAction::None => {}
                         PPPoSAction::Received(rg) => {
                             let pkt = &rx_buf[rg];
-                            if pkt.len() > buf.len() {
-                                warn!("received packet len {} exceeds MTU {}, dropping", pkt.len(), buf.len());
-                            } else {
-                                buf[..pkt.len()].copy_from_slice(pkt);
-                                buf.rx_done(pkt.len());
+                            match PacketBuf::try_new() {
+                                Some(mut buf) if pkt.len() <= MTU => {
+                                    buf.set_len(pkt.len());
+                                    buf.copy_from_slice(pkt);
+                                    rx_chan.rx(buf).await;
+                                }
+                                Some(_) => {
+                                    warn!("received packet len {} exceeds MTU {}, dropping", pkt.len(), MTU)
+                                }
+                                None => warn!("packet pool empty, dropping received packet"),
                             }
                         }
                         PPPoSAction::Transmit(n) => rw.write_all(&tx_buf[..n]).await.map_err(RunError::Write)?,
@@ -139,13 +144,10 @@ impl<'d> Runner<'d> {
                         }
                     }
                 }
-                Either::Second(pkt) => {
-                    match ppp.send(&pkt, &mut tx_buf) {
-                        Ok(n) => rw.write_all(&tx_buf[..n]).await.map_err(RunError::Write)?,
-                        Err(BufferFullError) => unreachable!(),
-                    }
-                    pkt.tx_done();
-                }
+                Either::Second(pkt) => match ppp.send(&pkt, &mut tx_buf) {
+                    Ok(n) => rw.write_all(&tx_buf[..n]).await.map_err(RunError::Write)?,
+                    Err(BufferFullError) => unreachable!(),
+                },
             }
         }
     }
@@ -157,7 +159,7 @@ impl<'d> Runner<'d> {
 /// - a `Device` that you must pass to the `embassy-net` stack.
 /// - a `Runner`. You must call `.run()` on it in a background task.
 pub fn new<'a, const N_RX: usize, const N_TX: usize>(state: &'a mut State<N_RX, N_TX>) -> (Device<'a>, Runner<'a>) {
-    let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ip);
+    let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ip, MTU);
     (device, Runner { ch: runner })
 }
 

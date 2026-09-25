@@ -112,8 +112,8 @@ impl<'d, Mode: PeriMode> ExtiInput<'d, Mode> {
     }
 
     /// Get the pin level.
-    pub fn get_level(&self) -> Level {
-        self.pin.get_level()
+    pub fn level(&self) -> Level {
+        self.pin.level()
     }
 
     /// Unsafely clone (duplicate) an ExtiInput.

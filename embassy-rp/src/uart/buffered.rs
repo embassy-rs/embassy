@@ -1,5 +1,5 @@
 //! Buffered UART driver.
-use core::future::Future;
+use core::marker::PhantomData;
 use core::slice;
 use core::sync::atomic::{AtomicU8, Ordering};
 
@@ -34,21 +34,28 @@ impl State {
 }
 
 /// Buffered UART driver.
-pub struct BufferedUart {
-    pub(super) rx: BufferedUartRx,
-    pub(super) tx: BufferedUartTx,
+pub struct BufferedUart<'d> {
+    pub(super) rx: BufferedUartRx<'d>,
+    pub(super) tx: BufferedUartTx<'d>,
 }
 
 /// Buffered UART RX handle.
-pub struct BufferedUartRx {
+pub struct BufferedUartRx<'d> {
     pub(super) info: &'static Info,
     pub(super) state: &'static State,
+    /// True for a handle produced by `split_ref`, which borrows the buffers rather than owning
+    /// them and so must not tear the peripheral down when it goes out of scope.
+    pub(super) is_borrowed: bool,
+    pub(super) _phantom: PhantomData<&'d mut [u8]>,
 }
 
 /// Buffered UART TX handle.
-pub struct BufferedUartTx {
+pub struct BufferedUartTx<'d> {
     pub(super) info: &'static Info,
     pub(super) state: &'static State,
+    /// See [`BufferedUartRx::is_borrowed`].
+    pub(super) is_borrowed: bool,
+    pub(super) _phantom: PhantomData<&'d mut [u8]>,
 }
 
 pub(super) fn init_buffers<'d>(
@@ -87,9 +94,9 @@ pub(super) fn init_buffers<'d>(
     unsafe { info.interrupt.enable() };
 }
 
-impl BufferedUart {
+impl<'d> BufferedUart<'d> {
     /// Create a buffered UART instance.
-    pub fn new<'d, T: Instance>(
+    pub fn new<T: Instance>(
         _uart: Peri<'d, T>,
         tx: Peri<'d, impl TxPin<T>>,
         rx: Peri<'d, impl RxPin<T>>,
@@ -105,16 +112,20 @@ impl BufferedUart {
             rx: BufferedUartRx {
                 info: T::info(),
                 state: T::buffered_state(),
+                is_borrowed: false,
+                _phantom: PhantomData,
             },
             tx: BufferedUartTx {
                 info: T::info(),
                 state: T::buffered_state(),
+                is_borrowed: false,
+                _phantom: PhantomData,
             },
         }
     }
 
     /// Create a buffered UART instance with flow control.
-    pub fn new_with_rtscts<'d, T: Instance>(
+    pub fn new_with_rtscts<T: Instance>(
         _uart: Peri<'d, T>,
         tx: Peri<'d, impl TxPin<T>>,
         rx: Peri<'d, impl RxPin<T>>,
@@ -139,12 +150,54 @@ impl BufferedUart {
             rx: BufferedUartRx {
                 info: T::info(),
                 state: T::buffered_state(),
+                is_borrowed: false,
+                _phantom: PhantomData,
             },
             tx: BufferedUartTx {
                 info: T::info(),
                 state: T::buffered_state(),
+                is_borrowed: false,
+                _phantom: PhantomData,
             },
         }
+    }
+
+    /// Read from UART RX buffer.
+    ///
+    /// Waits until at least one byte is available, then reads as many bytes as
+    /// are available (up to `buf.len()`) and returns the number of bytes read.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.rx.read(buf).await
+    }
+
+    /// Wait until data is available in the RX buffer, and return a slice to it.
+    ///
+    /// Call [`consume`](Self::consume) afterwards to mark bytes as read.
+    pub async fn fill_buf(&mut self) -> Result<&[u8], Error> {
+        self.rx.fill_buf().await
+    }
+
+    /// Mark `amt` bytes returned by [`fill_buf`](Self::fill_buf) as read.
+    pub fn consume(&mut self, amt: usize) {
+        self.rx.consume(amt)
+    }
+
+    /// Check whether data is available in the RX buffer, i.e. whether a read would not block.
+    pub fn read_ready(&mut self) -> Result<bool, Error> {
+        self.rx.read_ready()
+    }
+
+    /// Write to UART TX buffer.
+    ///
+    /// Waits until there is space in the TX buffer, then writes as many bytes as
+    /// fit (up to `buf.len()`) and returns the number of bytes written.
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.tx.write(buf).await
+    }
+
+    /// Wait until all written bytes have been fully transmitted on the wire.
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.tx.flush().await
     }
 
     /// Write to UART TX buffer blocking execution until done.
@@ -173,29 +226,34 @@ impl BufferedUart {
     }
 
     /// sets baudrate on runtime
-    pub fn set_baudrate<'d>(&mut self, baudrate: u32) {
+    pub fn set_baudrate(&mut self, baudrate: u32) {
         self.tx.set_baudrate(baudrate);
     }
 
+    /// Set the configuration at runtime (ignores pin inversions)
+    pub fn set_config(&mut self, config: Config) {
+        self.tx.set_config(config);
+    }
+
     /// Split into separate RX and TX handles.
-    pub fn split(self) -> (BufferedUartTx, BufferedUartRx) {
+    pub fn split(self) -> (BufferedUartTx<'d>, BufferedUartRx<'d>) {
         (self.tx, self.rx)
     }
 
     /// Split the Uart into a transmitter and receiver by mutable reference,
     /// which is particularly useful when having two tasks correlating to
     /// transmitting and receiving.
-    pub fn split_ref(&mut self) -> (&mut BufferedUartTx, &mut BufferedUartRx) {
-        (&mut self.tx, &mut self.rx)
+    pub fn split_ref(&mut self) -> (BufferedUartTx<'_>, BufferedUartRx<'_>) {
+        (self.tx.reborrow(), self.rx.reborrow())
     }
 }
 
-impl BufferedUartRx {
+impl<'d> BufferedUartRx<'d> {
     /// Create a new buffered UART RX.
-    pub fn new<'d, T: Instance>(
+    pub fn new<T: Instance>(
         _uart: Peri<'d, T>,
-        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx: Peri<'d, impl RxPin<T>>,
+        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -205,15 +263,17 @@ impl BufferedUartRx {
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            is_borrowed: false,
+            _phantom: PhantomData,
         }
     }
 
     /// Create a new buffered UART RX with flow control.
-    pub fn new_with_rts<'d, T: Instance>(
+    pub fn new_with_rts<T: Instance>(
         _uart: Peri<'d, T>,
-        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx: Peri<'d, impl RxPin<T>>,
         rts: Peri<'d, impl RtsPin<T>>,
+        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -223,21 +283,27 @@ impl BufferedUartRx {
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            is_borrowed: false,
+            _phantom: PhantomData,
         }
     }
 
-    fn read<'a>(
-        info: &'static Info,
-        state: &'static State,
-        buf: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + 'a {
+    /// Read from UART RX buffer.
+    ///
+    /// Waits until at least one byte is available, then reads as many bytes as
+    /// are available (up to `buf.len()`) and returns the number of bytes read.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        let info = self.info;
+        let state = self.state;
         poll_fn(move |cx| {
-            if let Poll::Ready(r) = Self::try_read(info, state, buf) {
-                return Poll::Ready(r);
-            }
+            // Register before `try_read`, which may (re-)enable the rx
+            // interrupt on its way to returning pending. Doing it the other way
+            // round leaves a window where the irq handler fires, finds no waker
+            // registered, and the wakeup is lost with data already in the ring.
             state.rx_waker.register(cx.waker());
-            Poll::Pending
+            Self::try_read(info, state, buf)
         })
+        .await
     }
 
     fn get_rx_error(state: &State) -> Option<Error> {
@@ -273,21 +339,32 @@ impl BufferedUartRx {
 
         let result = if n == 0 {
             match Self::get_rx_error(state) {
-                None => return Poll::Pending,
-                Some(e) => Err(e),
+                None => None,
+                Some(e) => Some(Err(e)),
             }
         } else {
-            Ok(n)
+            Some(Ok(n))
         };
 
         // (Re-)Enable the interrupt to receive more data in case it was
         // disabled because the buffer was full or errors were detected.
+        //
+        // This has to happen on the pending path as well, not just when we
+        // have something to report. The irq handler disables the interrupt on
+        // error, and the reader that consumes the error flag may well be gone
+        // by the time anyone looks again -- `embassy-net-ppp`, for instance,
+        // abandons the transport on a read error. A fresh reader then arrives
+        // to an empty buffer with no error left to observe, and without
+        // re-enabling here it would wait on an interrupt that never comes.
         info.regs.uartimsc().write_set(|w| {
             w.set_rxim(true);
             w.set_rtim(true);
         });
 
-        Poll::Ready(result)
+        match result {
+            Some(result) => Poll::Ready(result),
+            None => Poll::Pending,
+        }
     }
 
     /// Read from UART RX buffer blocking execution until done.
@@ -300,7 +377,12 @@ impl BufferedUartRx {
         }
     }
 
-    fn fill_buf<'a>(state: &'static State) -> impl Future<Output = Result<&'a [u8], Error>> {
+    /// Wait until data is available in the RX buffer, and return a slice to it.
+    ///
+    /// Call [`consume`](Self::consume) afterwards to mark bytes as read.
+    pub async fn fill_buf(&mut self) -> Result<&[u8], Error> {
+        let info = self.info;
+        let state = self.state;
         poll_fn(move |cx| {
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let (p, n) = rx_reader.pop_buf();
@@ -308,20 +390,41 @@ impl BufferedUartRx {
                 match Self::get_rx_error(state) {
                     None => {
                         state.rx_waker.register(cx.waker());
-                        return Poll::Pending;
+                        None
                     }
-                    Some(e) => Err(e),
+                    Some(e) => Some(Err(e)),
                 }
             } else {
                 let buf = unsafe { slice::from_raw_parts(p, n) };
-                Ok(buf)
+                Some(Ok(buf))
             };
 
-            Poll::Ready(result)
+            // (Re-)Enable the interrupt to receive more data in case it was
+            // disabled because the buffer was full or errors were detected.
+            //
+            // `consume` also does this, but it is only reached after a
+            // successful fill. Returning an error here without re-arming would
+            // leave the interrupt masked with no way back: the error flag has
+            // just been consumed, so no later reader can observe it and
+            // re-enable on our behalf. `embassy-net-ppp`, for example, gives up
+            // on a read error without ever calling `consume`.
+            info.regs.uartimsc().write_set(|w| {
+                w.set_rxim(true);
+                w.set_rtim(true);
+            });
+
+            match result {
+                Some(result) => Poll::Ready(result),
+                None => Poll::Pending,
+            }
         })
+        .await
     }
 
-    fn consume(info: &Info, state: &State, amt: usize) {
+    /// Mark `amt` bytes returned by [`fill_buf`](Self::fill_buf) as read.
+    pub fn consume(&mut self, amt: usize) {
+        let info = self.info;
+        let state = self.state;
         let mut rx_reader = unsafe { state.rx_buf.reader() };
         rx_reader.pop_done(amt);
 
@@ -333,18 +436,18 @@ impl BufferedUartRx {
         });
     }
 
-    /// we are ready to read if there is data in the buffer
-    fn read_ready(state: &State) -> Result<bool, Error> {
-        Ok(!state.rx_buf.is_empty())
+    /// Check whether data is available in the RX buffer, i.e. whether a read would not block.
+    pub fn read_ready(&mut self) -> Result<bool, Error> {
+        Ok(!self.state.rx_buf.is_empty())
     }
 }
 
-impl BufferedUartTx {
+impl<'d> BufferedUartTx<'d> {
     /// Create a new buffered UART TX.
-    pub fn new<'d, T: Instance>(
+    pub fn new<T: Instance>(
         _uart: Peri<'d, T>,
-        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx: Peri<'d, impl TxPin<T>>,
+        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -354,15 +457,17 @@ impl BufferedUartTx {
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            is_borrowed: false,
+            _phantom: PhantomData,
         }
     }
 
     /// Create a new buffered UART TX with flow control.
-    pub fn new_with_cts<'d, T: Instance>(
+    pub fn new_with_cts<T: Instance>(
         _uart: Peri<'d, T>,
-        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         cts: Peri<'d, impl CtsPin<T>>,
+        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -372,18 +477,31 @@ impl BufferedUartTx {
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            is_borrowed: false,
+            _phantom: PhantomData,
         }
     }
 
-    fn write<'d>(
-        info: &'static Info,
-        state: &'static State,
-        buf: &'d [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + 'd {
+    /// Write to UART TX buffer.
+    ///
+    /// Waits until there is space in the TX buffer, then writes as many bytes as
+    /// fit (up to `buf.len()`) and returns the number of bytes written.
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        let info = self.info;
+        let state = self.state;
         poll_fn(move |cx| {
             if buf.is_empty() {
                 return Poll::Ready(Ok(0));
             }
+
+            // Register before pushing, mirroring `read`. With the old
+            // push-then-register order the irq handler could drain the whole
+            // buffer and wake in the window between a failed push and the
+            // register; its final drain pops an empty buffer and does not wake
+            // again, so the writer parked forever on an empty buffer with the
+            // FIFO idle. Registering first closes the window: any drain after
+            // this wakes us for a re-poll.
+            state.tx_waker.register(cx.waker());
 
             let mut tx_writer = unsafe { state.tx_buf.writer() };
             let n = tx_writer.push(|data| {
@@ -391,29 +509,46 @@ impl BufferedUartTx {
                 data[..n].copy_from_slice(&buf[..n]);
                 n
             });
+            // The TX interrupt only fires on a transition through the FIFO
+            // trigger level, so an empty FIFO never raises it again. Kick the
+            // drain by hand; a full ring needs it just as much as a short write.
+            info.interrupt.pend();
+
             if n == 0 {
-                state.tx_waker.register(cx.waker());
                 return Poll::Pending;
             }
 
-            // The TX interrupt only triggers when the there was data in the
-            // FIFO and the number of bytes drops below a threshold. When the
-            // FIFO was empty we have to manually pend the interrupt to shovel
-            // TX data from the buffer into the FIFO.
-            info.interrupt.pend();
             Poll::Ready(Ok(n))
         })
+        .await
     }
 
-    fn flush(state: &'static State) -> impl Future<Output = Result<(), Error>> {
+    /// Wait until all written bytes have been fully transmitted on the wire.
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        let info = self.info;
+        let state = self.state;
         poll_fn(move |cx| {
+            // Register before checking, for the same lost-wakeup window as in
+            // `write` above.
+            state.tx_waker.register(cx.waker());
+
             if !state.tx_buf.is_empty() {
-                state.tx_waker.register(cx.waker());
+                // Same one-shot TX interrupt hazard as in `write`: bytes are
+                // still queued, so make sure something will shovel them out.
+                info.interrupt.pend();
                 return Poll::Pending;
             }
 
-            Poll::Ready(Ok(()))
+            Poll::Ready(())
         })
+        .await;
+
+        // The ring buffer is empty, but the hardware FIFO and shift register may not be.
+        // There's no interrupt for that, so poll.
+        while self.busy() {
+            embassy_futures::yield_now().await;
+        }
+        Ok(())
     }
 
     /// Write to UART TX buffer blocking execution until done.
@@ -443,11 +578,9 @@ impl BufferedUartTx {
 
     /// Flush UART TX blocking execution until done.
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
-        loop {
-            if self.state.tx_buf.is_empty() {
-                return Ok(());
-            }
-        }
+        while !self.state.tx_buf.is_empty() {}
+        while self.busy() {}
+        Ok(())
     }
 
     /// Check if UART is busy.
@@ -476,21 +609,51 @@ impl BufferedUartTx {
         let div_clk = clk_peri_freq() as u64 * 64;
         let wait_usecs = (1_000_000 * bits as u64 * divx64 * 16 + div_clk - 1) / div_clk;
 
-        Self::flush(self.state).await.unwrap();
-        while self.busy() {}
+        self.flush().await.unwrap();
         regs.uartlcr_h().write_set(|w| w.set_brk(true));
         Timer::after_micros(wait_usecs).await;
         regs.uartlcr_h().write_clear(|w| w.set_brk(true));
     }
 
     /// sets baudrate on runtime
-    pub fn set_baudrate<'d>(&mut self, baudrate: u32) {
+    pub fn set_baudrate(&mut self, baudrate: u32) {
         super::Uart::<'d, Async>::set_baudrate_inner(self.info, baudrate);
+    }
+
+    /// Set the configuration at runtime (ignores pin inversions)
+    pub fn set_config(&mut self, config: Config) {
+        super::Uart::<'d, Async>::set_config_inner(self.info, config);
     }
 }
 
-impl Drop for BufferedUartRx {
+impl<'d> BufferedUartRx<'d> {
+    fn reborrow(&mut self) -> BufferedUartRx<'_> {
+        BufferedUartRx {
+            info: self.info,
+            state: self.state,
+            is_borrowed: true,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d> BufferedUartTx<'d> {
+    fn reborrow(&mut self) -> BufferedUartTx<'_> {
+        BufferedUartTx {
+            info: self.info,
+            state: self.state,
+            is_borrowed: true,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d> Drop for BufferedUartRx<'d> {
     fn drop(&mut self) {
+        if self.is_borrowed {
+            return;
+        }
+
         unsafe { self.state.rx_buf.deinit() }
 
         // TX is inactive if the buffer is not available.
@@ -501,8 +664,12 @@ impl Drop for BufferedUartRx {
     }
 }
 
-impl Drop for BufferedUartTx {
+impl<'d> Drop for BufferedUartTx<'d> {
     fn drop(&mut self) {
+        if self.is_borrowed {
+            return;
+        }
+
         unsafe { self.state.tx_buf.deinit() }
 
         // RX is inactive if the buffer is not available.
@@ -627,105 +794,95 @@ impl embedded_io::Error for Error {
     }
 }
 
-impl embedded_io_async::ErrorType for BufferedUart {
+impl<'d> embedded_io_async::ErrorType for BufferedUart<'d> {
     type Error = Error;
 }
 
-impl embedded_io_async::ErrorType for BufferedUartRx {
+impl<'d> embedded_io_async::ErrorType for BufferedUartRx<'d> {
     type Error = Error;
 }
 
-impl embedded_io_async::ErrorType for BufferedUartTx {
+impl<'d> embedded_io_async::ErrorType for BufferedUartTx<'d> {
     type Error = Error;
 }
 
-impl embedded_io_async::Read for BufferedUart {
+impl<'d> embedded_io_async::Read for BufferedUart<'d> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        BufferedUartRx::read(self.rx.info, self.rx.state, buf).await
+        BufferedUart::read(self, buf).await
     }
 }
 
-impl embedded_io_async::Read for BufferedUartRx {
+impl<'d> embedded_io_async::Read for BufferedUartRx<'d> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        Self::read(self.info, self.state, buf).await
+        BufferedUartRx::read(self, buf).await
     }
 }
 
-impl embedded_io_async::ReadReady for BufferedUart {
+impl<'d> embedded_io_async::ReadReady for BufferedUart<'d> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        BufferedUartRx::read_ready(self.rx.state)
+        BufferedUart::read_ready(self)
     }
 }
 
-impl embedded_io_async::ReadReady for BufferedUartRx {
+impl<'d> embedded_io_async::ReadReady for BufferedUartRx<'d> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        Self::read_ready(self.state)
+        BufferedUartRx::read_ready(self)
     }
 }
 
-impl embedded_io_async::BufRead for BufferedUart {
+impl<'d> embedded_io_async::BufRead for BufferedUart<'d> {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
-        BufferedUartRx::fill_buf(self.rx.state).await
+        BufferedUart::fill_buf(self).await
     }
 
     fn consume(&mut self, amt: usize) {
-        BufferedUartRx::consume(self.rx.info, self.rx.state, amt)
+        BufferedUart::consume(self, amt)
     }
 }
 
-impl embedded_io_async::BufRead for BufferedUartRx {
+impl<'d> embedded_io_async::BufRead for BufferedUartRx<'d> {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
-        Self::fill_buf(self.state).await
+        BufferedUartRx::fill_buf(self).await
     }
 
     fn consume(&mut self, amt: usize) {
-        Self::consume(self.info, self.state, amt)
+        BufferedUartRx::consume(self, amt)
     }
 }
 
-impl embedded_io_async::Write for BufferedUart {
+impl<'d> embedded_io_async::Write for BufferedUart<'d> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        BufferedUartTx::write(self.tx.info, self.tx.state, buf).await
+        BufferedUart::write(self, buf).await
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        BufferedUartTx::flush(self.tx.state).await
+        BufferedUart::flush(self).await
     }
 }
 
-impl embedded_io_async::Write for BufferedUartTx {
+impl<'d> embedded_io_async::Write for BufferedUartTx<'d> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        Self::write(self.info, self.state, buf).await
+        BufferedUartTx::write(self, buf).await
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        Self::flush(self.state).await
+        BufferedUartTx::flush(self).await
     }
 }
 
-impl embedded_io::Read for BufferedUart {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.rx.blocking_read(buf)
-    }
-}
-
-impl embedded_io::Read for BufferedUartRx {
+impl<'d> embedded_io::Read for BufferedUart<'d> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.blocking_read(buf)
     }
 }
 
-impl embedded_io::Write for BufferedUart {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.tx.blocking_write(buf)
-    }
-
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        self.tx.blocking_flush()
+impl<'d> embedded_io::Read for BufferedUartRx<'d> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.blocking_read(buf)
     }
 }
 
-impl embedded_io::Write for BufferedUartTx {
+impl<'d> embedded_io::Write for BufferedUart<'d> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf)
     }
@@ -735,32 +892,17 @@ impl embedded_io::Write for BufferedUartTx {
     }
 }
 
-impl embedded_hal_02::serial::Read<u8> for BufferedUartRx {
-    type Error = Error;
+impl<'d> embedded_io::Write for BufferedUartTx<'d> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf)
+    }
 
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        let r = self.info.regs;
-        if r.uartfr().read().rxfe() {
-            return Err(nb::Error::WouldBlock);
-        }
-
-        let dr = r.uartdr().read();
-
-        if dr.oe() {
-            Err(nb::Error::Other(Error::Overrun))
-        } else if dr.be() {
-            Err(nb::Error::Other(Error::Break))
-        } else if dr.pe() {
-            Err(nb::Error::Other(Error::Parity))
-        } else if dr.fe() {
-            Err(nb::Error::Other(Error::Framing))
-        } else {
-            Ok(dr.data())
-        }
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
     }
 }
 
-impl embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx {
+impl<'d> embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx<'d> {
     type Error = Error;
 
     fn bwrite_all(&mut self, mut buffer: &[u8]) -> Result<(), Self::Error> {
@@ -779,15 +921,7 @@ impl embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx {
     }
 }
 
-impl embedded_hal_02::serial::Read<u8> for BufferedUart {
-    type Error = Error;
-
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        embedded_hal_02::serial::Read::read(&mut self.rx)
-    }
-}
-
-impl embedded_hal_02::blocking::serial::Write<u8> for BufferedUart {
+impl<'d> embedded_hal_02::blocking::serial::Write<u8> for BufferedUart<'d> {
     type Error = Error;
 
     fn bwrite_all(&mut self, mut buffer: &[u8]) -> Result<(), Self::Error> {
@@ -803,49 +937,5 @@ impl embedded_hal_02::blocking::serial::Write<u8> for BufferedUart {
 
     fn bflush(&mut self) -> Result<(), Self::Error> {
         self.blocking_flush()
-    }
-}
-
-impl embedded_hal_nb::serial::ErrorType for BufferedUartRx {
-    type Error = Error;
-}
-
-impl embedded_hal_nb::serial::ErrorType for BufferedUartTx {
-    type Error = Error;
-}
-
-impl embedded_hal_nb::serial::ErrorType for BufferedUart {
-    type Error = Error;
-}
-
-impl embedded_hal_nb::serial::Read for BufferedUartRx {
-    fn read(&mut self) -> nb::Result<u8, Self::Error> {
-        embedded_hal_02::serial::Read::read(self)
-    }
-}
-
-impl embedded_hal_nb::serial::Write for BufferedUartTx {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.blocking_flush().map_err(nb::Error::Other)
-    }
-}
-
-impl embedded_hal_nb::serial::Read for BufferedUart {
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        embedded_hal_02::serial::Read::read(&mut self.rx)
-    }
-}
-
-impl embedded_hal_nb::serial::Write for BufferedUart {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.blocking_flush().map_err(nb::Error::Other)
     }
 }

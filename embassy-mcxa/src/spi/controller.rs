@@ -258,12 +258,17 @@ impl<'d, M: IoMode> Spi<'d, M> {
             return Ok(());
         }
 
+        // Queue zero-valued transmit frames through TDR to generate the receive clocks.
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Mask);
+            w.set_txmsk(Txmsk::Normal);
             w.set_rxmsk(Rxmsk::Normal);
         });
 
         for word in data {
+            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
+            self.check_status()?;
+            self.info.regs().tdr().write(|w| w.set_data(0));
+
             // Wait until we have data in the RxFIFO.
             while self.info.regs().fsr().read().rxcount() == 0 {}
             self.check_status()?;
@@ -284,11 +289,9 @@ impl<'d, M: IoMode> Spi<'d, M> {
             w.set_rxmsk(Rxmsk::Mask);
         });
 
-        let fifo_size = LPSPI_FIFO_SIZE;
-
         for word in data {
             // Wait until we have at least one byte space in the TxFIFO.
-            while self.info.regs().fsr().read().txcount() - fifo_size == 0 {}
+            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
             self.check_status()?;
             self.info.regs().tdr().write(|w| w.set_data(*word as u32));
         }
@@ -302,16 +305,18 @@ impl<'d, M: IoMode> Spi<'d, M> {
             return Ok(());
         }
 
+        let common = read.len().min(write.len());
+        let (read_common, read_tail) = read.split_at_mut(common);
+        let (write_common, write_tail) = write.split_at(common);
+
         self.info.regs().tcr().modify(|w| {
             w.set_txmsk(Txmsk::Normal);
             w.set_rxmsk(Rxmsk::Normal);
         });
 
-        let fifo_size = LPSPI_FIFO_SIZE;
-
-        for (wb, rb) in write.iter().zip(read.iter_mut()) {
+        for (rb, wb) in read_common.iter_mut().zip(write_common.iter()) {
             // Wait until we have at least one byte space in the TxFIFO.
-            while self.info.regs().fsr().read().txcount() - fifo_size == 0 {}
+            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
             self.check_status()?;
             self.info.regs().tdr().write(|w| w.set_data(*wb as u32));
 
@@ -319,6 +324,30 @@ impl<'d, M: IoMode> Spi<'d, M> {
             while self.info.regs().fsr().read().rxcount() == 0 {}
             self.check_status()?;
             *rb = self.info.regs().rdr().read().data() as u8;
+        }
+
+        if !read_tail.is_empty() {
+            for rb in read_tail {
+                while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
+                self.check_status()?;
+                self.info.regs().tdr().write(|w| w.set_data(0));
+
+                while self.info.regs().fsr().read().rxcount() == 0 {}
+                self.check_status()?;
+                *rb = self.info.regs().rdr().read().data() as u8;
+            }
+        }
+
+        if !write_tail.is_empty() {
+            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
+            self.check_status()?;
+            self.info.regs().tcr().modify(|w| w.set_rxmsk(Rxmsk::Mask));
+
+            for wb in write_tail {
+                while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
+                self.check_status()?;
+                self.info.regs().tdr().write(|w| w.set_data(*wb as u32));
+            }
         }
 
         self.blocking_flush()
@@ -335,11 +364,9 @@ impl<'d, M: IoMode> Spi<'d, M> {
             w.set_rxmsk(Rxmsk::Normal);
         });
 
-        let fifo_size = LPSPI_FIFO_SIZE;
-
         for word in data {
             // Wait until we have at least one byte space in the TxFIFO.
-            while self.info.regs().fsr().read().txcount() - fifo_size == 0 {}
+            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
             self.check_status()?;
             self.info.regs().tdr().write(|w| w.set_data(*word as u32));
 
@@ -695,49 +722,14 @@ impl<'d> Spi<'d, Dma<'d>> {
         }
 
         // Wait for completion asynchronously
-        let tx_transfer = async {
-            core::future::poll_fn(|cx| {
-                let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
-
-                if self.mode.tx_dma.is_done() {
-                    core::task::Poll::Ready(())
-                } else {
-                    core::task::Poll::Pending
-                }
-            })
-            .await;
-
-            if read.len() > write.len() {
-                let write_bytes_len = read.len() - write.len();
-
-                unsafe {
-                    self.mode.tx_dma.disable_request();
-                    self.mode.tx_dma.clear_done();
-                    self.mode.tx_dma.clear_interrupt();
-
-                    self.mode.tx_dma.setup_write_zeros_to_peripheral(
-                        write_bytes_len,
-                        tx_peri_addr,
-                        TransferOptions::COMPLETE_INTERRUPT,
-                    )?;
-
-                    self.mode.tx_dma.enable_request();
-                }
-
-                core::future::poll_fn(|cx| {
-                    let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
-
-                    if self.mode.tx_dma.is_done() {
-                        core::task::Poll::Ready(())
-                    } else {
-                        core::task::Poll::Pending
-                    }
-                })
-                .await
+        let tx_transfer = core::future::poll_fn(|cx| {
+            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
+            if self.mode.tx_dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
             }
-
-            Ok::<(), IoError>(())
-        };
+        });
 
         let rx_transfer = core::future::poll_fn(|cx| {
             let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
@@ -748,8 +740,7 @@ impl<'d> Spi<'d, Dma<'d>> {
             }
         });
 
-        let (tx_res, ()) = join(tx_transfer, rx_transfer).await;
-        tx_res?;
+        join(tx_transfer, rx_transfer).await;
 
         // Cleanup
         self.info.regs().der().modify(|w| {
@@ -762,13 +753,6 @@ impl<'d> Spi<'d, Dma<'d>> {
 
             self.mode.tx_dma.disable_request();
             self.mode.tx_dma.clear_done();
-        }
-
-        // if write > read we should clear any overflow of the FIFO SPI buffer
-        if write.len() > read.len() {
-            while self.info.regs().fsr().read().rxcount() == 0 {}
-            self.check_status()?;
-            let _ = self.info.regs().rdr().read().data() as u8;
         }
 
         // Ensure all writes by DMA are visible to the CPU
@@ -920,12 +904,27 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
             return Ok(());
         }
 
+        // Queue zero-valued transmit frames through TDR to generate the receive clocks.
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Mask);
+            w.set_txmsk(Txmsk::Normal);
             w.set_rxmsk(Rxmsk::Normal);
         });
 
         for word in data {
+            self.info
+                .wait_cell()
+                .wait_for(|| {
+                    self.info.regs().ier().modify(|w| {
+                        w.set_tdie(true);
+                        w.set_teie(true);
+                    });
+                    self.info.regs().fsr().read().txcount() < LPSPI_FIFO_SIZE || self.info.regs().sr().read().tef()
+                })
+                .await
+                .map_err(|_| IoError::Other)?;
+            self.check_status()?;
+            self.info.regs().tdr().write(|w| w.set_data(0));
+
             // Wait until we have data in the RxFIFO.
             self.info
                 .wait_cell()
@@ -940,9 +939,6 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
                 .map_err(|_| IoError::Other)?;
 
             self.check_status()?;
-
-            // dummy data
-            self.info.regs().tdr().write(|w| w.set_data(0));
             *word = self.info.regs().rdr().read().data() as u8;
         }
 
@@ -986,13 +982,16 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
             return Ok(());
         }
 
+        let common = read.len().min(write.len());
+        let (read_common, read_tail) = read.split_at_mut(common);
+        let (write_common, write_tail) = write.split_at(common);
+
         self.info.regs().tcr().modify(|w| {
             w.set_txmsk(Txmsk::Normal);
             w.set_rxmsk(Rxmsk::Normal);
         });
 
-        // Zip will terminate whenever the first of write or read are exhausted
-        for (wb, rb) in write.iter().zip(read.iter_mut()) {
+        for (rb, wb) in read_common.iter_mut().zip(write_common.iter()) {
             // Wait until we have at least one byte space in the TxFIFO.
             self.info
                 .wait_cell()
@@ -1022,6 +1021,70 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
                 .map_err(|_| IoError::Other)?;
             self.check_status()?;
             *rb = self.info.regs().rdr().read().data() as u8;
+        }
+
+        if !read_tail.is_empty() {
+            for rb in read_tail {
+                self.info
+                    .wait_cell()
+                    .wait_for(|| {
+                        self.info.regs().ier().modify(|w| {
+                            w.set_tdie(true);
+                            w.set_teie(true);
+                        });
+                        self.info.regs().fsr().read().txcount() < LPSPI_FIFO_SIZE || self.info.regs().sr().read().tef()
+                    })
+                    .await
+                    .map_err(|_| IoError::Other)?;
+                self.check_status()?;
+                self.info.regs().tdr().write(|w| w.set_data(0));
+
+                self.info
+                    .wait_cell()
+                    .wait_for(|| {
+                        self.info.regs().ier().modify(|w| {
+                            w.set_rdie(true);
+                            w.set_reie(true);
+                        });
+                        self.info.regs().fsr().read().rxcount() > 0 || self.info.regs().sr().read().ref_()
+                    })
+                    .await
+                    .map_err(|_| IoError::Other)?;
+                self.check_status()?;
+                *rb = self.info.regs().rdr().read().data() as u8;
+            }
+        }
+
+        if !write_tail.is_empty() {
+            self.info
+                .wait_cell()
+                .wait_for(|| {
+                    self.info.regs().ier().modify(|w| {
+                        w.set_tdie(true);
+                        w.set_teie(true);
+                    });
+                    self.info.regs().fsr().read().txcount() < LPSPI_FIFO_SIZE || self.info.regs().sr().read().tef()
+                })
+                .await
+                .map_err(|_| IoError::Other)?;
+            self.check_status()?;
+            self.info.regs().tcr().modify(|w| w.set_rxmsk(Rxmsk::Mask));
+
+            for wb in write_tail {
+                self.info
+                    .wait_cell()
+                    .wait_for(|| {
+                        self.info.regs().ier().modify(|w| {
+                            w.set_tdie(true);
+                            w.set_teie(true);
+                        });
+                        self.info.regs().fsr().read().txcount() < LPSPI_FIFO_SIZE || self.info.regs().sr().read().tef()
+                    })
+                    .await
+                    .map_err(|_| IoError::Other)?;
+                self.check_status()?;
+                self.info.regs().tdr().write(|w| w.set_data(*wb as u32));
+            }
         }
 
         self.async_flush().await
@@ -1118,6 +1181,10 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
             return Ok(());
         }
 
+        let common = read.len().min(write.len());
+        let (read_common, read_tail) = read.split_at_mut(common);
+        let (write_common, write_tail) = write.split_at(common);
+
         self.info.regs().tcr().modify(|w| {
             w.set_txmsk(Txmsk::Normal);
             w.set_rxmsk(Rxmsk::Normal);
@@ -1127,11 +1194,37 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
             self.info.regs().der().modify(|w| w.set_tdde(false));
         });
 
-        for (read_chunk, write_chunk) in read
+        for (read_chunk, write_chunk) in read_common
             .chunks_mut(DMA_MAX_TRANSFER_SIZE)
-            .zip(write.chunks(DMA_MAX_TRANSFER_SIZE))
+            .zip(write_common.chunks(DMA_MAX_TRANSFER_SIZE))
         {
             self.transfer_dma_chunk(read_chunk, write_chunk).await?;
+        }
+
+        if !read_tail.is_empty() {
+            for read_chunk in read_tail.chunks_mut(DMA_MAX_TRANSFER_SIZE) {
+                self.read_dma_chunk(read_chunk).await?;
+            }
+        }
+
+        if !write_tail.is_empty() {
+            self.info
+                .wait_cell()
+                .wait_for(|| {
+                    self.info.regs().ier().modify(|w| {
+                        w.set_tdie(true);
+                        w.set_teie(true);
+                    });
+                    self.info.regs().fsr().read().txcount() < LPSPI_FIFO_SIZE || self.info.regs().sr().read().tef()
+                })
+                .await
+                .map_err(|_| IoError::Other)?;
+            self.check_status()?;
+            self.info.regs().tcr().modify(|w| w.set_rxmsk(Rxmsk::Mask));
+
+            for write_chunk in write_tail.chunks(DMA_MAX_TRANSFER_SIZE) {
+                self.write_dma_chunk(write_chunk).await?;
+            }
         }
 
         on_drop.defuse();

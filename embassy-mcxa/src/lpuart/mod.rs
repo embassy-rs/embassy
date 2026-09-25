@@ -137,36 +137,36 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 macro_rules! impl_lpuart_instance {
     ($n:expr) => {
         paste::paste! {
-            impl crate::lpuart::SealedInstance for crate::peripherals::[<LPUART $n>] {
-                fn info() -> &'static crate::lpuart::Info {
-                    use crate::interrupt::typelevel::Interrupt;
+            impl $crate::lpuart::SealedInstance for $crate::peripherals::[<LPUART $n>] {
+                fn info() -> &'static $crate::lpuart::Info {
+                    use $crate::interrupt::typelevel::Interrupt;
 
-                    static INFO: crate::lpuart::Info = crate::lpuart::Info {
-                        regs: crate::pac::[<LPUART $n>],
-                        int_disable: crate::interrupt::typelevel::[<LPUART $n>]::disable,
-                        mrcc_disable: crate::clocks::disable::<crate::peripherals::[<LPUART $n>]>,
+                    static INFO: $crate::lpuart::Info = $crate::lpuart::Info {
+                        regs: $crate::pac::[<LPUART $n>],
+                        int_disable: $crate::interrupt::typelevel::[<LPUART $n>]::disable,
+                        mrcc_disable: $crate::clocks::disable::<$crate::peripherals::[<LPUART $n>]>,
                     };
                     &INFO
                 }
 
-                fn state() -> &'static crate::lpuart::State {
-                    static STATE: crate::lpuart::State = crate::lpuart::State::new();
+                fn state() -> &'static $crate::lpuart::State {
+                    static STATE: $crate::lpuart::State = $crate::lpuart::State::new();
                     &STATE
                 }
 
-                const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
-                    = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
+                const CLOCK_INSTANCE: $crate::clocks::periph_helpers::LpuartInstance
+                    = $crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
                 const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Tx>];
                 const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Rx>];
-                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
-                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
+                const PERF_INT_INCR: fn() = $crate::perf_counters::[<incr_interrupt_lpuart $n>];
+                const PERF_INT_WAKE_INCR: fn() = $crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
             }
 
-            impl crate::lpuart::Instance for crate::peripherals::[<LPUART $n>] {
-                type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
+            impl $crate::lpuart::Instance for $crate::peripherals::[<LPUART $n>] {
+                type Interrupt = $crate::interrupt::typelevel::[<LPUART $n>];
             }
 
-            crate::impl_lpuart_bbq_instance!($n);
+            $crate::impl_lpuart_bbq_instance!($n);
         }
     };
 }
@@ -434,49 +434,49 @@ pub trait RtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
 #[macro_export]
 macro_rules! impl_lpuart_pin {
     ($inst:ident, $pin:ident, $alt:ident, TXD) => {
-        impl crate::lpuart::TxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
+        impl $crate::lpuart::TxPin<$crate::peripherals::$inst> for $crate::peripherals::$pin {
+            const MUX: $crate::pac::port::Mux = $crate::pac::port::Mux::$alt;
             fn as_tx(&self) {
-                use crate::gpio::SealedPin;
-                self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
-                self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-                self.set_function(<Self as crate::lpuart::TxPin<crate::peripherals::$inst>>::MUX);
+                use $crate::gpio::SealedPin;
+                self.set_pull($crate::gpio::Pull::Disabled);
+                self.set_slew_rate($crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength($crate::gpio::DriveStrength::Normal.into());
+                self.set_function(<Self as $crate::lpuart::TxPin<$crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(false);
             }
         }
     };
     ($inst:ident, $pin:ident, $alt:ident, RXD) => {
-        impl crate::lpuart::RxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
+        impl $crate::lpuart::RxPin<$crate::peripherals::$inst> for $crate::peripherals::$pin {
+            const MUX: $crate::pac::port::Mux = $crate::pac::port::Mux::$alt;
             fn as_rx(&self) {
-                use crate::gpio::SealedPin;
-                self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_function(<Self as crate::lpuart::RxPin<crate::peripherals::$inst>>::MUX);
+                use $crate::gpio::SealedPin;
+                self.set_pull($crate::gpio::Pull::Disabled);
+                self.set_function(<Self as $crate::lpuart::RxPin<$crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(true);
             }
         }
     };
     ($inst:ident, $pin:ident, $alt:ident, CTS_B) => {
-        impl crate::lpuart::CtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
+        impl $crate::lpuart::CtsPin<$crate::peripherals::$inst> for $crate::peripherals::$pin {
+            const MUX: $crate::pac::port::Mux = $crate::pac::port::Mux::$alt;
             fn as_cts(&self) {
-                use crate::gpio::SealedPin;
-                self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_function(<Self as crate::lpuart::CtsPin<crate::peripherals::$inst>>::MUX);
+                use $crate::gpio::SealedPin;
+                self.set_pull($crate::gpio::Pull::Disabled);
+                self.set_function(<Self as $crate::lpuart::CtsPin<$crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(true);
             }
         }
     };
     ($inst:ident, $pin:ident, $alt:ident, RTS_B) => {
-        impl crate::lpuart::RtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
-            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
+        impl $crate::lpuart::RtsPin<$crate::peripherals::$inst> for $crate::peripherals::$pin {
+            const MUX: $crate::pac::port::Mux = $crate::pac::port::Mux::$alt;
             fn as_rts(&self) {
-                use crate::gpio::SealedPin;
-                self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
-                self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-                self.set_function(<Self as crate::lpuart::RtsPin<crate::peripherals::$inst>>::MUX);
+                use $crate::gpio::SealedPin;
+                self.set_pull($crate::gpio::Pull::Disabled);
+                self.set_slew_rate($crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength($crate::gpio::DriveStrength::Normal.into());
+                self.set_function(<Self as $crate::lpuart::RtsPin<$crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(false);
             }
         }

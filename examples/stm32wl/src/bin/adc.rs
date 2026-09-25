@@ -7,7 +7,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::SharedData;
-use embassy_stm32::adc::{Adc, CkModePclk, Clock, SampleTime};
+use embassy_stm32::adc::{Adc, Clock, Config, SampleTime, SyncDiv};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -18,7 +18,9 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init_primary(Default::default(), &SHARED_DATA);
     info!("Hello World!");
 
-    let mut adc = Adc::new_with_clock(p.ADC1, Clock::Sync { div: CkModePclk::DIV1 });
+    let mut config = Config::default();
+    config.clock = Clock::Sync(SyncDiv::Div1);
+    let mut adc = Adc::new_blocking(p.ADC1, config);
 
     let mut pin = p.PB2;
 

@@ -541,7 +541,14 @@ unsafe fn read_dma(regs: pac::usbd::Usbd, i: usize, buf: &mut [u8]) -> Result<us
     regs.events_endepout(i).write_value(0);
     dma_end();
 
-    regs.size().epout(i).write(|_| ());
+    // Do NOT write SIZE.EPOUT here. A bulk/interrupt OUT endpoint resumes
+    // accepting packets when the EasyDMA transfer completes *or* when
+    // SIZE.EPOUT[n] is written — either one on its own re-arms it. ENDEPOUT
+    // above has already done so, and writing SIZE here arms it a second time,
+    // letting the endpoint accept a further packet on top of one it has not yet
+    // handed to software. That packet is overwritten in the endpoint's internal
+    // buffer and lost. Initial arming, before any DMA has run, is done in
+    // `endpoint_set_enabled`.
 
     Ok(size)
 }
@@ -728,9 +735,11 @@ impl<'d> driver::ControlPipe for ControlPipe<'d> {
 
 fn dma_start() {
     compiler_fence(Ordering::Release);
+    errata::dma_start();
 }
 
 fn dma_end() {
+    errata::dma_end();
     compiler_fence(Ordering::Acquire);
 }
 
@@ -841,6 +850,32 @@ mod errata {
     #[cfg(feature = "nrf52840")]
     unsafe fn peek(addr: u32) -> u32 {
         (addr as *mut u32).read_volatile()
+    }
+
+    /// Works around Erratum 199: "USBD cannot receive tasks during DMA". A USBD
+    /// task triggered while an EasyDMA transfer is in progress is silently
+    /// dropped instead of being performed.
+    ///
+    /// Applies to every nRF52840 revision — Nordic's `nrf52_errata_199()`
+    /// returns true for all of them, including its default arm — so unlike
+    /// errata 187 and 171 above there is no revision to check against.
+    ///
+    /// Called around every USBD EasyDMA transfer, matching nrfx's
+    /// `usbd_dma_pending_set` / `usbd_dma_pending_clear`.
+    /// based on https://docs.nordicsemi.com/r/bundle/errata_nrf52840_rev3/page/err/nrf52840/rev3/latest/anomaly_840_199.html
+    pub fn dma_start() {
+        #[cfg(feature = "nrf52840")]
+        unsafe {
+            poke(0x40027C1C, 0x00000082);
+        }
+    }
+
+    /// Counterpart to [`dma_start`]. Works around Erratum 199.
+    pub fn dma_end() {
+        #[cfg(feature = "nrf52840")]
+        unsafe {
+            poke(0x40027C1C, 0x00000000);
+        }
     }
 
     pub fn pre_enable() {

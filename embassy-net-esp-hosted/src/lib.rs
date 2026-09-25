@@ -12,7 +12,7 @@ use embassy_futures::select::{Either4 as EitherMany, select4 as select_many};
 #[cfg(feature = "bluetooth")]
 use embassy_futures::select::{Either5 as EitherMany, select5 as select_many};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::LinkState;
+use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_hal::digital::OutputPin;
 
@@ -136,7 +136,7 @@ pub struct State {
     shared: Shared,
     ioctl_buffer: [u8; MAX_IOCTL_SIZE],
     msg_buffer: IoctlMessage,
-    ch: ch::State<MTU, 4, 4>,
+    ch: ch::State<4, 4>,
     #[cfg(feature = "bluetooth")]
     bt: bluetooth::BtState,
 }
@@ -156,7 +156,7 @@ impl State {
 }
 
 /// Type alias for network driver.
-pub type NetDriver<'a> = ch::Device<'a, MTU>;
+pub type NetDriver<'a> = ch::Device<'a>;
 
 /// Handles returned by [`new`] for interacting with the esp-hosted driver.
 pub struct HostedResources<'a, I, OUT> {
@@ -178,12 +178,12 @@ pub struct HostedResources<'a, I, OUT> {
 ///
 /// Returns a device handle for interfacing with embassy-net, a control handle for
 /// interacting with the driver, and a runner for communicating with the WiFi device.
-pub async fn new<'a, I, OUT>(state: &'a mut State, iface: I, reset: OUT) -> HostedResources<'a, I, OUT>
+pub fn new<'a, I, OUT>(state: &'a mut State, iface: I, reset: OUT) -> HostedResources<'a, I, OUT>
 where
     I: Interface,
     OUT: OutputPin,
 {
-    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]), MTU);
     let state_ch = ch_runner.state_runner();
 
     #[cfg(feature = "bluetooth")]
@@ -213,7 +213,7 @@ where
 
 /// Runner for communicating with the WiFi device.
 pub struct Runner<'a, I, OUT> {
-    ch: ch::Runner<'a, MTU>,
+    ch: ch::Runner<'a>,
     state_ch: ch::StateRunner<'a>,
     shared: &'a Shared,
     backend: Backend,
@@ -228,35 +228,42 @@ pub struct Runner<'a, I, OUT> {
     bt: bluetooth::BtRunner<'a>,
 }
 
+/// Heartbeat from ESP32 have stopped
+#[allow(unused)]
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct HeartbeatStopped;
+
 impl<'a, I, OUT> Runner<'a, I, OUT>
 where
     I: Interface,
     OUT: OutputPin,
 {
     /// Run the packet processing.
-    pub async fn run(mut self) -> ! {
-        debug!("resetting...");
-        self.reset.set_low().unwrap();
-        Timer::after_millis(100).await;
-        self.reset.set_high().unwrap();
-        Timer::after_millis(1000).await;
-
-        self.iface.init(true).await;
-        self.shared.interface_ready();
-
+    pub async fn run(&mut self) -> Result<(), HeartbeatStopped> {
         let mut buffer = Aligned([0u8; MAX_BUFFER_SIZE]);
 
+        self.shared.reboot();
         loop {
             if let ioctl::ControlState::Reboot = self.shared.state() {
+                self.state_ch.set_link_state(LinkState::Down);
+
+                debug!("resetting...");
+                self.reset.set_low().unwrap();
+                Timer::after_millis(100).await;
+                self.reset.set_high().unwrap();
+                Timer::after_millis(1000).await;
+
+                self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP;
                 self.backend = Backend::default();
-                self.iface.init(false).await;
+                self.iface.init(true).await;
                 self.shared.interface_ready();
             }
 
             self.iface.wait_for_handshake().await;
 
             let ioctl = self.shared.ioctl_wait_pending();
-            let tx = self.ch.tx_buf();
+            let tx = self.ch.tx();
             let ev = self.iface.wait_for_ready();
             let hb = Timer::at(self.heartbeat_deadline);
 
@@ -310,8 +317,6 @@ where
                         // packet and send nothing this iteration.
                         buffer[..PayloadHeader::SIZE].fill(0);
                     }
-
-                    packet.tx_done();
                 }
                 EitherMany::Third(()) => {
                     buffer[..PayloadHeader::SIZE].fill(0);
@@ -323,7 +328,8 @@ where
                         self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP;
                         continue;
                     }
-                    panic!("heartbeat from esp32 stopped")
+                    error!("Heartbeat from ESP32 stopped");
+                    return Err(HeartbeatStopped);
                 }
 
                 // Bluetooth HCI packet queued by the host stack.
@@ -402,12 +408,15 @@ where
         let if_type = self.backend.decode_iface_type(if_type_and_num & 0x0f);
 
         match if_type {
-            Some(InterfaceType::Sta) => match self.ch.try_rx_buf() {
+            Some(InterfaceType::Sta) => match PacketBuf::try_new() {
                 Some(mut buf) => {
-                    buf[..payload.len()].copy_from_slice(payload);
-                    buf.rx_done(payload.len())
+                    buf.set_len(payload.len());
+                    buf.copy_from_slice(payload);
+                    if self.ch.try_rx(buf).is_err() {
+                        warn!("failed to push rxd packet to the channel.");
+                    }
                 }
-                None => warn!("failed to push rxd packet to the channel."),
+                None => warn!("packet pool empty, dropping rxd packet."),
             },
             Some(InterfaceType::Serial) => {
                 #[cfg(feature = "log")]

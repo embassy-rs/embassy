@@ -74,8 +74,8 @@ impl<'d> Input<'d> {
 
     /// Get the pin input level.
     #[inline]
-    pub fn get_level(&self) -> Level {
-        self.pin.get_level()
+    pub fn level(&self) -> Level {
+        self.pin.level()
     }
 }
 
@@ -272,12 +272,110 @@ impl<'d> Output<'d> {
 
     /// Get the current output level.
     #[inline]
-    pub fn get_output_level(&self) -> Level {
-        self.pin.get_output_level()
+    pub fn output_level(&self) -> Level {
+        self.pin.output_level()
     }
 }
 
 impl Output<'static> {
+    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
+    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
+    /// reuse of the underlying peripheral.
+    pub fn persist(self) {
+        self.pin.persist()
+    }
+}
+
+/// GPIO output open-drain driver.
+///
+/// The pin drives the line low when set low and leaves it floating (disconnected) when set
+/// high, so the line can be shared with other open-drain devices (wired-and). The input buffer
+/// stays connected, so the actual line level can be read back with [`is_high`](Self::is_high) and
+/// friends.
+pub struct OutputOpenDrain<'d> {
+    pub(crate) pin: Flex<'d>,
+}
+
+impl<'d> OutputOpenDrain<'d> {
+    /// Create GPIO output open-drain driver for a [Pin] with the provided [Level], [OutputDrive] and [Pull] configuration.
+    ///
+    /// `drive` selects the drive strength used when driving the line low. It should be one of the
+    /// `*Disconnect1` variants (typically [`OutputDrive::Standard0Disconnect1`]), otherwise the pin
+    /// will actively drive the line high as well.
+    #[inline]
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level, drive: OutputDrive, pull: Pull) -> Self {
+        let mut pin = Flex::new(pin);
+        match initial_output {
+            Level::High => pin.set_high(),
+            Level::Low => pin.set_low(),
+        }
+        pin.set_as_input_output(pull, drive);
+
+        Self { pin }
+    }
+
+    /// Set the output as high.
+    #[inline]
+    pub fn set_high(&mut self) {
+        self.pin.set_high()
+    }
+
+    /// Set the output as low.
+    #[inline]
+    pub fn set_low(&mut self) {
+        self.pin.set_low()
+    }
+
+    /// Toggle the output level.
+    #[inline]
+    pub fn toggle(&mut self) {
+        self.pin.toggle()
+    }
+
+    /// Set the output level.
+    #[inline]
+    pub fn set_level(&mut self, level: Level) {
+        self.pin.set_level(level)
+    }
+
+    /// Get whether the output level is set to high.
+    #[inline]
+    pub fn is_set_high(&self) -> bool {
+        self.pin.is_set_high()
+    }
+
+    /// Get whether the output level is set to low.
+    #[inline]
+    pub fn is_set_low(&self) -> bool {
+        self.pin.is_set_low()
+    }
+
+    /// Get the current output level.
+    #[inline]
+    pub fn output_level(&self) -> Level {
+        self.pin.output_level()
+    }
+
+    /// Get whether the pin input level is high.
+    #[inline]
+    pub fn is_high(&self) -> bool {
+        self.pin.is_high()
+    }
+
+    /// Get whether the pin input level is low.
+    #[inline]
+    pub fn is_low(&self) -> bool {
+        self.pin.is_low()
+    }
+
+    /// Get the pin input level.
+    #[inline]
+    pub fn level(&self) -> Level {
+        self.pin.level()
+    }
+}
+
+impl OutputOpenDrain<'static> {
     /// Persist the pin's configuration for the rest of the program's lifetime. This method should
     /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
     /// reuse of the underlying peripheral.
@@ -415,7 +513,7 @@ impl<'d> Flex<'d> {
 
     /// Get the pin input level.
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn level(&self) -> Level {
         self.is_high().into()
     }
 
@@ -464,7 +562,7 @@ impl<'d> Flex<'d> {
 
     /// Get the current output level.
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn output_level(&self) -> Level {
         self.is_set_high().into()
     }
 }
@@ -741,6 +839,51 @@ mod eh02 {
             Ok(())
         }
     }
+
+    impl<'d> embedded_hal_02::digital::v2::InputPin for OutputOpenDrain<'d> {
+        type Error = Infallible;
+
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
+    impl<'d> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d> {
+        type Error = Infallible;
+
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            self.set_high();
+            Ok(())
+        }
+
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            self.set_low();
+            Ok(())
+        }
+    }
+
+    impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for OutputOpenDrain<'d> {
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+
+    impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for OutputOpenDrain<'d> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            self.toggle();
+            Ok(())
+        }
+    }
 }
 
 impl<'d> embedded_hal_1::digital::ErrorType for Input<'d> {
@@ -774,6 +917,42 @@ impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
 }
 
 impl<'d> embedded_hal_1::digital::StatefulOutputPin for Output<'d> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_high())
+    }
+
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_low())
+    }
+}
+
+impl<'d> embedded_hal_1::digital::ErrorType for OutputOpenDrain<'d> {
+    type Error = Infallible;
+}
+
+impl<'d> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_high())
+    }
+
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_low())
+    }
+}
+
+impl<'d> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d> {
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        self.set_high();
+        Ok(())
+    }
+
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        self.set_low();
+        Ok(())
+    }
+}
+
+impl<'d> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<'d> {
     fn is_set_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_high())
     }

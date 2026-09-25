@@ -155,7 +155,8 @@ impl embedded_can::blocking::Can for FlexCan<'_, Blocking> {
     type Error = core::convert::Infallible;
 
     fn transmit(&mut self, frame: &Self::Frame) -> Result<(), Self::Error> {
-        Ok(self.blocking_send(frame))
+        self.blocking_send(frame);
+        Ok(())
     }
 
     fn receive(&mut self) -> Result<Self::Frame, Self::Error> {

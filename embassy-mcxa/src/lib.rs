@@ -23,6 +23,7 @@ mod mcxa5xx_exclusive {
     pub use crate::chips::mcxa5xx::init;
 }
 
+pub mod rom;
 pub mod trace;
 
 #[cfg(mcxa_adc)]
@@ -38,11 +39,12 @@ pub mod config;
 pub mod crc;
 #[cfg(mcxa_ctimer)]
 pub mod ctimer;
+#[cfg(mcxa_dac)]
+pub mod dac;
 #[cfg(mcxa_dma)]
 pub mod dma;
 #[cfg(feature = "executor-platform")]
 pub mod executor;
-pub mod flash; // TODO: Add dummy driver to metadata
 #[cfg(mcxa_can)]
 pub mod flexcan;
 #[cfg(mcxa_flexspi)]
@@ -89,6 +91,7 @@ pub(crate) mod _generated {
     #![allow(unused_imports)]
     #![allow(non_snake_case)]
     #![allow(missing_docs)]
+    #![allow(clippy::missing_safety_doc)]
 
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }

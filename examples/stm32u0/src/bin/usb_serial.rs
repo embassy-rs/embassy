@@ -40,7 +40,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     // Create the driver, from the HAL.
-    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, p.PA12, p.PA11, Irqs);
 
     // Create embassy-usb Config
     let config = embassy_usb::Config::new(0xc0de, 0xcafe);

@@ -8,8 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `tcp::client` and `dns::DnsClient` (the `embedded-nal-async` trait implementations) are now gated behind the `embedded-nal` feature.
+- Changed underlying network stack from `smoltcp` to [`xarxa`](https://github.com/embassy-rs/xarxa).
+  - Increases perf, decreases code size. See [benchmarks](https://github.com/embassy-rs/xarxa#benchmarks)
+  - Fixes many bugs, some inherent to `smoltcp` design.
+- Driver implementations must now implement `xarxa-driver` instead of `embassy-net-driver`.
+- You can now attach multiple interfaces to the network stack.
+- UDP and raw sockets are now zero-copy.
+- `UdpSocket::bind` now takes a local and a remote address.
+- Added TCP socket methods: `is_open`, `is_active`, `timeout`, `keep_alive`, `hop_limit`, `nagle_enabled`, `set_ack_delay`, `ack_delay`, `take_icmp_error` (feature `icmp-errors`).
+- Added `peek` methods to TCP, UDP and raw sockets.
+- Added `can_recv` and `hop_limit` to `UdpSocket`, and `can_recv` and `mode` to `RawSocket`.
+- Added `Stack::ifaces`, `Stack::reassembly_timeout` and `Stack::set_reassembly_timeout`.
+- Added `Iface::pan_id`, `Iface::set_pan_id`, `Iface::sixlowpan_address_context` and `Iface::set_sixlowpan_address_context` (feature `medium-ieee802154`).
+- Added `TcpListener`, used to accept incoming connections. Replcaes `TcpSocket::listen()`.
+  - More memory-efficient: you only need to allocate TCP buffers when actually accepting a connection.
+  - Avoids sending spurious RSTs that previously happened when all listening sockets were connected.
+- Reworked interface configuration to be simpler.
+  - DHCPv4 and SLAAC are configurable per-interface
+  - You can now add additional addresses manually even if using DHCPv4 or SLAAC.
+- Added a DHCPv4 server (feature `dhcpv4-server`).
+- Socket and buffer counts are configured via Cargo features instead of `StackResources` generic args.
+- `IcmpSocket` is gone.
+  - ICMP errors related to sent packets can be retrieved from sockets (feature `icmp-errors`).
+  - For other ICMP uses (e.g. pings) use a raw socket instead.
+- Socket and listener constructors no longer panic when the stack is out of slots, they return `Err(Full)` instead.
+- Added APIs to access and edit the route table
+- Added APIs to access and edit the neighbor cache
+- Feature `proto-ipv4`/`proto-ipv6` renamed to `ipv4`/`ipv6`.
+- Feature `icmp-ping-reply` is no longer enabled by default. Enable it if you want your device to respond to pings.
+- Wire types (`Ipv4Addr`, `IpCidr`, ...) moved to `embassy_net::wire`.
 - Implement `core::error::Error` for `dns::Error`, `tcp::AcceptError`, `udp::SendError` and `udp::RecvError`.
 - Prevent double DHCP DISCOVER on link state change.
+- Add functions to query the configuration state of IPv4 and IPv6 separately.
 
 ## 0.9.1 - 2026-04-16
 

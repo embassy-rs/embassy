@@ -10,8 +10,9 @@ use fixed::types::extra::U8;
 
 use crate::clocks::clk_sys_freq;
 use crate::gpio::Level;
+use crate::mode::{Async, Blocking, Mode};
 use crate::pio::{Common, Direction, Instance, LoadedProgram, Pin, PioPin, ShiftDirection, StateMachine};
-use crate::spi::{Async, Blocking, Config, Mode};
+use crate::spi::Config;
 use crate::{dma, interrupt, mode};
 
 /// This struct represents an SPI program loaded into pio instruction memory.
@@ -135,7 +136,7 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
         cfg.shift_out.direction = ShiftDirection::Left;
         cfg.shift_out.threshold = 8;
 
-        cfg.clock_divider = calculate_clock_divider(config.frequency);
+        cfg.clock_divider = calculate_clock_divider(config.frequency.0);
 
         sm.set_config(&cfg);
 
@@ -254,7 +255,7 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
     pub fn set_config(&mut self, pio: &mut Common<'d, PIO>, config: &Config) {
         self.sm.set_enable(false);
 
-        self.cfg.clock_divider = calculate_clock_divider(config.frequency);
+        self.cfg.clock_divider = calculate_clock_divider(config.frequency.0);
 
         if let Polarity::IdleHigh = config.polarity {
             self.clk_pin.set_output_inversion(true);

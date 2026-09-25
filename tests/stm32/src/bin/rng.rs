@@ -51,11 +51,11 @@ async fn main(_spawner: Spawner) {
     let mut rng = Rng::new(p.RNG, Irqs);
 
     let mut buf1 = [0u8; 16];
-    unwrap!(rng.async_fill_bytes(&mut buf1).await);
+    unwrap!(rng.fill_bytes(&mut buf1).await);
     info!("random bytes: {:02x}", buf1);
 
     let mut buf2 = [0u8; 16];
-    unwrap!(rng.async_fill_bytes(&mut buf2).await);
+    unwrap!(rng.fill_bytes(&mut buf2).await);
     info!("random bytes: {:02x}", buf2);
 
     defmt::assert!(buf1 != buf2);

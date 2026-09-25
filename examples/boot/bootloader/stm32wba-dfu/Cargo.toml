@@ -66,5 +66,5 @@ overflow-checks = false
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv8m.main-none-eabihf", features = ["embassy-stm32/stm32wba65ri", "verify"] }
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-stm32/stm32wba65ri", "verify"], artifact-dir = "out/examples/boot/bootloader/stm32wba-dfu" }
 ]

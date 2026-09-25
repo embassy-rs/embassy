@@ -6,7 +6,7 @@ mod fmt;
 
 pub use embassy_boot::{
     AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
-    FirmwareUpdater, FirmwareUpdaterConfig, State,
+    FirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError, State,
 };
 use embedded_storage::nor_flash::NorFlash;
 

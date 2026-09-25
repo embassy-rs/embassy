@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     info!("Initializing TWI...");
     let config = twim::Config::default();
     static RAM_BUFFER: ConstStaticCell<[u8; 16]> = ConstStaticCell::new([0; 16]);
-    let mut twi = Twim::new(p.SERIAL20, Irqs, p.P1_13, p.P1_12, config, RAM_BUFFER.take());
+    let mut twi = Twim::new(p.SERIAL20, p.P1_12, p.P1_13, Irqs, RAM_BUFFER.take(), config);
 
     info!("Reading...");
 

@@ -9,8 +9,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::adc::vals::{Rovsm, Trovs};
-use embassy_stm32::adc::{Adc, AdcChannel, AdcConfig, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel, Config as AdcConfig, Oversampling, OversamplingRatio, SampleTime};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -38,19 +37,14 @@ async fn main(_spawner: Spawner) {
     // From https://www.st.com/resource/en/reference_manual/rm0440-stm32g4-series-advanced-armbased-32bit-mcus-stmicroelectronics.pdf
     // page652 Oversampler
     // Table 172. Maximum output results vs N and M. Grayed values indicates truncation
-    // 0x00 oversampling ratio X2
-    // 0x01 oversampling ratio X4
-    // 0x02 oversampling ratio X8
-    // 0x03 oversampling ratio X16
-    // 0x04 oversampling ratio X32
-    // 0x05 oversampling ratio X64
-    // 0x06 oversampling ratio X128
-    // 0x07 oversampling ratio X256
-    config.oversampling_ratio = Some(0x03); // ratio X3
-    config.oversampling_shift = Some(0b0000); // no shift
-    config.oversampling_mode = Some((Rovsm::Resumed, Trovs::Automatic, true));
+    //
+    // Accumulate 16 samples (ratio X16) without shifting the sum, so a 12-bit conversion
+    // yields a 16-bit result.
+    let mut oversampling = Oversampling::new(OversamplingRatio::X16, 0); // no shift
+    oversampling.resumed = true; // resume the sequence after an injected conversion
+    config.oversampling = Some(oversampling);
 
-    let mut adc = Adc::new(p.ADC1, config);
+    let mut adc = Adc::new_blocking(p.ADC1, config);
 
     loop {
         let measured = adc.blocking_read(p.PA0.reborrow_adc(), SampleTime::Cycles65);

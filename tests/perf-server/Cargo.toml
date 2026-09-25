@@ -8,3 +8,5 @@ publish = false
 [dependencies]
 log = "0.4.17"
 pretty_env_logger = "0.4.0"
+rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }

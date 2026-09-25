@@ -300,6 +300,7 @@ struct EndpointData {
     ep_type: EndpointType,
     max_packet_size: u16,
     fifo_size_words: u16,
+    tx_fifo: u8,
 }
 
 /// Type-erased borrow of [`State`] passed to [`OtgInstance`], [`Driver`](crate::Driver), [`Bus`](crate::Bus),
@@ -339,6 +340,21 @@ where
     /// Returns the number of device endpoints supported by this state.
     pub fn endpoint_count(&self) -> usize {
         self.ep_states.len()
+    }
+
+    fn tx_fifo_in_use(&self, fifo: u8) -> bool {
+        (0..self.endpoint_count()).any(|i| self.ep_alloc_get(Direction::In, i).is_some_and(|ep| ep.tx_fifo == fifo))
+    }
+
+    fn alloc_tx_fifo(&self, ep_index: usize, tx_fifo_count: u8) -> Option<u8> {
+        if tx_fifo_count == 0 {
+            return None;
+        }
+        if ep_index == 0 {
+            (!self.tx_fifo_in_use(0)).then_some(0)
+        } else {
+            (1..tx_fifo_count).find(|&fifo| !self.tx_fifo_in_use(fifo))
+        }
     }
 }
 
@@ -470,6 +486,16 @@ pub struct Config {
     /// voltage divider. See ST application note AN4879 and the reference manual for more details.
     pub vbus_detection: bool,
 
+    /// Override the VBUS detection.
+    ///
+    /// Allows for software controlled VBUS detection when 'vbus_detection' is disabled. Connect a
+    /// voltage shifted VBUS to any digital input and manually set the USB configuration bits.
+    ///
+    /// Enable the VBUS valid override with 'vbvaloven' and control the value with 'vbvaloval'.
+    /// Enable the A-peripheral session valid override with 'avaloen' and control the value with 'avaloval'.
+    /// Enable the B-peripheral session valid override with 'bvaloen' and control the value with 'bvaloval'.
+    pub vbus_valid_override: bool,
+
     /// Enable transceiver delay.
     ///
     /// Some ULPI PHYs like the Microchip USB334x series require a delay between the ULPI register write that initiates
@@ -483,6 +509,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             vbus_detection: false,
+            vbus_valid_override: false,
             xcvrdly: false,
         }
     }
@@ -564,6 +591,7 @@ where
         let dir = D::dir();
         let st = self.instance.state;
         let endpoint_count = st.endpoint_count();
+        let tx_fifo_count = self.instance.tx_fifo_count;
 
         // Find endpoint slot
         let index = if let Some(addr) = ep_addr {
@@ -598,6 +626,18 @@ where
             }
         };
 
+        let tx_fifo = if dir == Direction::In {
+            match st.alloc_tx_fifo(index, tx_fifo_count) {
+                Some(fifo) => fifo,
+                None => {
+                    error!("No free TX FIFO");
+                    return Err(EndpointAllocError);
+                }
+            }
+        } else {
+            0
+        };
+
         unsafe {
             st.alloc_slot_write(
                 dir,
@@ -606,6 +646,7 @@ where
                     ep_type,
                     max_packet_size,
                     fifo_size_words,
+                    tx_fifo,
                 },
             );
         };
@@ -988,13 +1029,17 @@ where
         if phy_type == PhyType::InternalHighSpeed {
             r.gccfg_v3().modify(|w| {
                 w.set_vbvaloven(!self.config.vbus_detection);
-                w.set_vbvaloval(!self.config.vbus_detection);
+                if !self.config.vbus_valid_override {
+                    w.set_vbvaloval(!self.config.vbus_detection);
+                }
                 w.set_vbden(self.config.vbus_detection);
             });
         } else {
             r.gotgctl().modify(|w| {
                 w.set_bvaloen(!self.config.vbus_detection);
-                w.set_bvaloval(!self.config.vbus_detection);
+                if !self.config.vbus_valid_override {
+                    w.set_bvaloval(!self.config.vbus_detection);
+                }
             });
             r.gccfg_v3().modify(|w| {
                 w.set_vbden(self.config.vbus_detection);
@@ -1061,11 +1106,15 @@ where
             for i in 0..st.endpoint_count() {
                 if let Some(ep) = st.ep_alloc_get(Direction::In, i) {
                     trace!(
-                        "configuring tx fifo ep={}, offset={}, size={}",
-                        i, fifo_top, ep.fifo_size_words
+                        "configuring tx fifo ep={}, fifo={}, offset={}, size={}",
+                        i, ep.tx_fifo, fifo_top, ep.fifo_size_words
                     );
 
-                    let dieptxf = if i == 0 { regs.dieptxf0() } else { regs.dieptxf(i - 1) };
+                    let dieptxf = if ep.tx_fifo == 0 {
+                        regs.dieptxf0()
+                    } else {
+                        regs.dieptxf(ep.tx_fifo as usize - 1)
+                    };
 
                     dieptxf.write(|w| {
                         w.set_fd(ep.fifo_size_words);
@@ -1111,7 +1160,7 @@ where
                     // 0 this makes the device permanently unusable.
                     if regs.diepctl(index).read().epena() {
                         abort_in_endpoint(regs, index);
-                        flush_tx_fifo(regs, index as _);
+                        flush_tx_fifo(regs, ep.tx_fifo);
                     }
 
                     regs.diepctl(index).write(|w| {
@@ -1121,7 +1170,7 @@ where
                             w.set_mpsiz(ep.max_packet_size);
                             w.set_eptyp(to_eptyp(ep.ep_type));
                             w.set_sd0pid_sevnfrm(true);
-                            w.set_txfnum(index as _);
+                            w.set_txfnum(ep.tx_fifo);
                             w.set_snak(true);
                         }
                     });
@@ -1243,7 +1292,7 @@ where
             if !self.inited {
                 self.init_device();
                 // If no vbus detection, just return a single PowerDetected event at startup.
-                if !self.config.vbus_detection {
+                if !self.config.vbus_detection && !self.config.vbus_valid_override {
                     return Poll::Ready(Event::PowerDetected);
                 }
             }
@@ -1260,7 +1309,7 @@ where
                 regs.gintsts().write(|w| w.set_srqint(true)); // clear
                 self.restore_irqs();
 
-                if self.config.vbus_detection {
+                if self.config.vbus_detection || self.config.vbus_valid_override {
                     return Poll::Ready(Event::PowerDetected);
                 }
             }
@@ -1272,7 +1321,7 @@ where
 
                 if otgints.sedet() {
                     trace!("vbus removed");
-                    if self.config.vbus_detection {
+                    if self.config.vbus_detection || self.config.vbus_valid_override {
                         self.disable_all_endpoints();
                         return Poll::Ready(Event::PowerRemoved);
                     }
@@ -1366,6 +1415,7 @@ where
             && st
                 .ep_alloc_get(dir, index)
                 .is_some_and(|ep| has_data_toggle(ep.ep_type));
+        let in_tx_fifo = st.ep_alloc_get(Direction::In, index).map(|ep| ep.tx_fifo);
 
         match dir {
             Direction::Out => {
@@ -1387,7 +1437,9 @@ where
                     // then does not operate again.
                     if stalled && regs.diepctl(index).read().epena() {
                         abort_in_endpoint(regs, index);
-                        flush_tx_fifo(regs, index as _);
+                        if let Some(tx_fifo) = in_tx_fifo {
+                            flush_tx_fifo(regs, tx_fifo);
+                        }
                     }
 
                     regs.diepctl(index).modify(|w| {
@@ -1495,7 +1547,9 @@ where
                         }
                     });
 
-                    flush_tx_fifo(regs, ep_addr.index() as _);
+                    if let Some(ep) = st.ep_alloc_get(Direction::In, ep_addr.index()) {
+                        flush_tx_fifo(regs, ep.tx_fifo);
+                    }
                 });
 
                 st.ep_states[ep_addr.index()]
@@ -1509,6 +1563,7 @@ where
 
     async fn enable(&mut self) {
         trace!("enable");
+        self.init_device();
         // TODO: enable the peripheral once enable/disable semantics are cleared up in embassy-usb
     }
 
@@ -1516,7 +1571,7 @@ where
         trace!("disable");
 
         // TODO: disable the peripheral once enable/disable semantics are cleared up in embassy-usb
-        //Bus::disable(self);
+        self.deinit_device();
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
@@ -1960,6 +2015,11 @@ where
     pub phy_type: PhyType,
     /// Extra RX FIFO words needed by some implementations.
     pub extra_rx_fifo_words: u16,
+    /// Number of TX FIFOs.
+    ///
+    /// This value can be less than [`State::endpoint_count`].
+    /// If there is no free TX FIFO, allocation of an IN endpoint fails.
+    pub tx_fifo_count: u8,
     /// Function to calculate TRDT value based on some internal clock speed.
     pub calculate_trdt_fn: fn(speed: vals::Dspd) -> u8,
 }

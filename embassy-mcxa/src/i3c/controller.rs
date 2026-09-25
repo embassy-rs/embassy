@@ -299,6 +299,12 @@ pub struct DeviceInfo {
     pub addr: u8,
 }
 
+impl Default for DeviceInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DeviceInfo {
     // Create a new Device Info
     pub const fn new() -> Self {
@@ -735,10 +741,8 @@ impl<'d, M: Mode> I3c<'d, M> {
 
     /// DAA sequence
     pub fn daa(&mut self, devices: &mut [DeviceInfo], starting_address: u8) -> Result<(), IOError> {
-        let mut address = starting_address;
-
-        if address == 0 || address >= 0x7e || (address as usize) + devices.len() >= 0x7e {
-            return Err(IOError::AddressOutOfRange(address));
+        if starting_address == 0 || starting_address >= 0x7e || (starting_address as usize) + devices.len() >= 0x7e {
+            return Err(IOError::AddressOutOfRange(starting_address));
         }
 
         // Check if the bus is already in use.
@@ -757,7 +761,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         // Enumerate responding targets. The loop is bounded by the caller's
         // `devices` slice; DAA itself ends when no further target arbitrates,
         // which the hardware signals via `mstatus.complete()` (see below).
-        'daa: for device in devices {
+        'daa: for (device, address) in devices.iter_mut().zip(starting_address..) {
             // Wait for controller event
             loop {
                 let s = self.info.regs().mstatus().read();
@@ -804,8 +808,6 @@ impl<'d, M: Mode> I3c<'d, M> {
 
             // Trigger DAA processing
             self.info.regs().mctrl().write(|w| w.set_request(Request::Processdaa));
-
-            address += 1;
         }
 
         self.clear_flags();

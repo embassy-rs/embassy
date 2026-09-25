@@ -1,6 +1,6 @@
 use embassy_futures::join;
 use embassy_net_driver_channel as ch;
-use xarxa::wire::Ieee802154Frame;
+use embassy_net_driver_channel::driver::PacketBuf;
 
 use crate::net::commands::DataRequest;
 use crate::net::iface::{Controller, ControllerToHostPacket, ControllerToHostPacketBox, mcps};
@@ -10,14 +10,14 @@ use crate::net::{MTU, ZeroCopyPubSub};
 pub const BUF_SIZE: usize = 3;
 
 pub struct Runner<'a, C: Controller> {
-    ch: ch::Runner<'a, MTU>,
+    ch: ch::Runner<'a>,
     controller: &'a C,
 
     events: &'a ZeroCopyPubSub<C::Packet>,
 }
 
 impl<'a, C: Controller> Runner<'a, C> {
-    pub(crate) fn new(controller: &'a C, ch: ch::Runner<'a, MTU>, events: &'a ZeroCopyPubSub<C::Packet>) -> Self {
+    pub(crate) fn new(controller: &'a C, ch: ch::Runner<'a>, events: &'a ZeroCopyPubSub<C::Packet>) -> Self {
         Self { ch, controller, events }
     }
 
@@ -37,10 +37,16 @@ impl<'a, C: Controller> Runner<'a, C> {
                         ControllerToHostPacket::Mlme(_) => self.events.publish(pkt),
                         ControllerToHostPacket::Mcps(pkt) => match pkt {
                             mcps::Packet::Indication(mcps::IndicationPacket::Data(ind)) => {
-                                let mut rx_buf = rx.rx_buf().await;
-                                let len = write_frame_from_data_indication(ind, &mut *rx_buf);
+                                rx.rx_ready().await;
+                                let Some(mut rx_buf) = PacketBuf::try_new() else {
+                                    warn!("packet pool empty, dropping received frame");
+                                    continue;
+                                };
+                                rx_buf.set_len(MTU);
+                                let len = write_frame_from_data_indication(ind, &mut rx_buf);
+                                rx_buf.set_len(len);
 
-                                rx_buf.rx_done(len);
+                                rx.rx(rx_buf).await;
                             }
                             _ => continue,
                         },
@@ -49,11 +55,9 @@ impl<'a, C: Controller> Runner<'a, C> {
             },
             async {
                 loop {
-                    let tx_buf = tx.tx_buf().await;
-                    let b = &*tx_buf;
-                    let frame = Ieee802154Frame::new_unchecked(&b);
+                    let tx_buf = tx.tx().await;
 
-                    let Ok(request) = DataRequest::try_from(frame) else {
+                    let Ok(request) = DataRequest::try_from(&tx_buf[..]) else {
                         warn!("failed to make data request");
                         continue;
                     };
@@ -63,8 +67,6 @@ impl<'a, C: Controller> Runner<'a, C> {
                     } else {
                         warn!("data frame sent!");
                     }
-
-                    tx_buf.tx_done();
                 }
             },
         )

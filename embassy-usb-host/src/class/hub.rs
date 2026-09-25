@@ -108,9 +108,12 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             enum_info.split(),
         )?;
 
-        let desc = control_channel
-            .request_descriptor::<HubDescriptor, { HubDescriptor::BUF_SIZE }>(0, true)
-            .await?;
+        let desc = crate::handler::retry_descriptor(async || {
+            control_channel
+                .request_descriptor::<HubDescriptor, { HubDescriptor::BUF_SIZE }>(0, true)
+                .await
+        })
+        .await?;
 
         let mut hub = HubHandler {
             bus: bus.clone(),
@@ -142,11 +145,22 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             if hub_changes.take_hub_change() {
                 trace!("HUB {}: hub changed, requesting status", self.device_address);
 
-                let (status, change) = self.get_hub_status().await?;
+                let (status, mut change) = self.get_hub_status().await?;
                 debug!(
                     "HUB {}: hub status: {:?} change: {:?}",
                     self.device_address, status, change
                 );
+
+                if change.contains(HubStatusChange::LOCAL_POWER) {
+                    change.toggle(HubStatusChange::LOCAL_POWER);
+                    self.hub_feature(false, HubFeature::ChangeHubLocalPower).await?;
+                }
+
+                if change.contains(HubStatusChange::OVERCURRENT) {
+                    change.toggle(HubStatusChange::OVERCURRENT);
+                    self.hub_feature(false, HubFeature::ChangeHubOverCurrent).await?;
+                    warn!("HUB {}: hub over-current", self.device_address);
+                }
 
                 if !change.is_empty() {
                     return Err(HostError::Other("Unhandled hub status change"));
@@ -164,6 +178,23 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                 if change.contains(PortStatusChange::RESET) {
                     change.toggle(PortStatusChange::RESET);
                     self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
+                }
+
+                if change.contains(PortStatusChange::ENABLE) {
+                    change.toggle(PortStatusChange::ENABLE);
+                    self.port_feature(false, PortFeature::ChangeEnable, port, 0).await?;
+                }
+
+                if change.contains(PortStatusChange::SUSPEND) {
+                    change.toggle(PortStatusChange::SUSPEND);
+                    self.port_feature(false, PortFeature::ChangeSuspend, port, 0).await?;
+                }
+
+                if change.contains(PortStatusChange::OVERCURRENT) {
+                    change.toggle(PortStatusChange::OVERCURRENT);
+                    self.port_feature(false, PortFeature::ChangeOverCurrent, port, 0)
+                        .await?;
+                    warn!("HUB {}: over-current on port {}", self.device_address, port);
                 }
 
                 if change.contains(PortStatusChange::CONNECT) {
@@ -196,7 +227,6 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
         }
     }
 
-    #[allow(dead_code)]
     async fn hub_feature(&mut self, set: bool, feature: HubFeature) -> Result<(), HostError> {
         let setup = SetupPacket {
             request_type: RequestType {

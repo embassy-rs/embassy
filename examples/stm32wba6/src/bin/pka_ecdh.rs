@@ -58,7 +58,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Generate Alice's private key
     let mut alice_private = [0u8; 32];
-    if let Err(e) = rng.async_fill_bytes(&mut alice_private).await {
+    if let Err(e) = rng.fill_bytes(&mut alice_private).await {
         error!("Failed to generate Alice's private key: {:?}", e);
         loop {
             cortex_m::asm::wfi();
@@ -96,7 +96,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Generate Bob's private key
     let mut bob_private = [0u8; 32];
-    if let Err(e) = rng.async_fill_bytes(&mut bob_private).await {
+    if let Err(e) = rng.fill_bytes(&mut bob_private).await {
         error!("Failed to generate Bob's private key: {:?}", e);
         loop {
             cortex_m::asm::wfi();

@@ -66,6 +66,6 @@ overflow-checks = false
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv7em-none-eabi", features = ["embassy-stm32/stm32wb55rg"] },
-  { target = "thumbv7em-none-eabi", features = ["embassy-stm32/stm32wb55rg", "verify"] }
+  { target = "thumbv7em-none-eabi", features = ["embassy-stm32/stm32wb55rg"], artifact-dir = "out/examples/boot/bootloader/stm32wb-dfu/plain" },
+  { target = "thumbv7em-none-eabi", features = ["embassy-stm32/stm32wb55rg", "verify"], artifact-dir = "out/examples/boot/bootloader/stm32wb-dfu/verify" }
 ]

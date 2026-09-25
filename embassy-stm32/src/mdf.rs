@@ -6,8 +6,7 @@ use embassy_hal_internal::PeripheralType;
 
 use crate::dflt::{Acqmod, Bssel, Cckdir, Cicmod, Ckgmod, Datsrc, Rxfifo};
 pub use crate::dflt::{ClockConfig, FilterConfig, SitfConfig, sample_from_dma_word, samples_from_dma_words};
-use crate::dma::ringbuffer::Error as RingbufferError;
-use crate::dma::{Channel, ReadableRingBuffer, TransferOptions};
+use crate::dma::{Channel, ReadableRingBuffer, RingBufferError, TransferOptions};
 use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::mdf::Mdf as Regs;
@@ -99,12 +98,14 @@ foreach_interrupt!(
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// DMA ring buffer error.
-    Ringbuffer(RingbufferError),
+    Overrun,
 }
 
-impl From<RingbufferError> for Error {
-    fn from(err: RingbufferError) -> Self {
-        Self::Ringbuffer(err)
+impl From<RingBufferError> for Error {
+    fn from(e: RingBufferError) -> Self {
+        match e {
+            RingBufferError::Overrun => Self::Overrun,
+        }
     }
 }
 
@@ -167,13 +168,13 @@ impl<'d, T: Instance, F: Filter> Mdf<'d, T, F> {
     /// serial interface with the same index as the filter.
     pub fn new<D>(
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<F::Interrupt, FilterInterruptHandler<T, F>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         config: Config,
         cck: Peri<'d, impl CckPin<T>>,
         sdi: Peri<'d, impl SdiPin<T>>,
         dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<F::Interrupt, FilterInterruptHandler<T, F>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         dma_buf: &'d mut [u32],
     ) -> Self
     where
