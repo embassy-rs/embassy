@@ -270,6 +270,24 @@ fn mac(out: &mut Out, w: &Wycheproof, file: &str, suite: &str, keep: impl Fn(&Va
     out.suite(suite, "Mac", cases);
 }
 
+fn hkdf(out: &mut Out, w: &Wycheproof, file: &str, suite: &str) {
+    let cases: Vec<String> = w
+        .tests(file)
+        .iter()
+        .map(|(_, t)| {
+            let mut f = |n| out.bytes(&field(t, n));
+            let (ikm, salt, info, okm) = (f("ikm"), f("salt"), f("info"), f("okm"));
+            format!(
+                "Hkdf {{ tc_id: {}, ikm: {ikm}, salt: {salt}, info: {info}, size: {}, okm: {okm}, result: {} }}",
+                tc_id(t),
+                t["size"].as_u64().unwrap(),
+                expected(t["result"].as_str().unwrap())
+            )
+        })
+        .collect();
+    out.suite(suite, "Hkdf", cases);
+}
+
 /// ECDH over SEC1 points, and X25519. Both files share the private/public/shared shape.
 fn dh(out: &mut Out, w: &Wycheproof, file: &str, suite: &str) {
     let cases: Vec<String> = w
@@ -1192,6 +1210,7 @@ fn main() {
     ] {
         mac(&mut out, &w, file, suite, |_| true);
     }
+    hkdf(&mut out, &w, "hkdf_sha256", "hkdf_sha256");
 
     aes_ecb_ctr(&mut out, &msg);
     cbc(&mut out, &w);
