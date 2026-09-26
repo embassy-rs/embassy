@@ -1523,6 +1523,9 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         self.channel.is_running()
     }
 
+    /// Warning:
+    /// This function is legacy and on GPDMA has no effect except waiting.
+    ///
     /// Stop the DMA transfer and await until the buffer is full.
     ///
     /// This disables the DMA transfer's circular mode so that the transfer
@@ -1688,6 +1691,9 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         self.channel.is_running()
     }
 
+    /// Warning:
+    /// This function is legacy and on GPDMA has no effect except waiting.
+    ///
     /// Stop the DMA transfer and await until the buffer is empty.
     ///
     /// This disables the DMA transfer's circular mode so that the transfer
