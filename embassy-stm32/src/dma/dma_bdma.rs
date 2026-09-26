@@ -1507,14 +1507,6 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         self.channel.request_resume()
     }
 
-    /// Request the DMA to reset.
-    ///
-    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
-    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
-    pub fn request_reset(&mut self) {
-        self.channel.request_reset()
-    }
-
     /// Return whether DMA is still running.
     ///
     /// If this returns `false`, it can be because either the transfer finished, or
@@ -1545,7 +1537,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
 impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
     fn drop(&mut self) {
-        self.request_reset();
+        self.channel.request_reset();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
@@ -1663,15 +1655,6 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request the DMA to stop.
-    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
-    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
-    ///
-    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_reset(&mut self) {
-        self.channel.request_reset()
-    }
-
     /// Request the transfer to pause, keeping the existing configuration for this channel.
     /// To restart the transfer, call [`start`](Self::start) again.
     ///
@@ -1708,7 +1691,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
 impl<'a, W: Word> Drop for WritableRingBuffer<'a, W> {
     fn drop(&mut self) {
-        self.request_reset();
+        self.channel.request_reset();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."

@@ -223,16 +223,6 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         self.channel.request_resume()
     }
 
-    /// Request the DMA to reset.
-    ///
-    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
-    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
-    ///
-    /// Additionally reset causes the channel to unsuspend (resume).
-    pub fn request_reset(&mut self) {
-        self.channel.request_reset();
-    }
-
     /// Return whether this transfer is still running.
     ///
     /// If this returns `false`, it can be because either the transfer finished, or
@@ -260,7 +250,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
 impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
     fn drop(&mut self) {
-        self.request_reset();
+        self.channel.request_reset();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
@@ -401,14 +391,6 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         self.channel.request_resume()
     }
 
-    /// Request the DMA to reset.
-    ///
-    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
-    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
-    pub fn request_reset(&mut self) {
-        self.channel.request_reset();
-    }
-
     /// Return whether DMA is still running.
     ///
     /// If this returns `false`, it can be because either the transfer finished, or
@@ -438,7 +420,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
 impl<'a, W: Word> Drop for WritableRingBuffer<'a, W> {
     fn drop(&mut self) {
-        self.request_reset();
+        self.channel.request_reset();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
