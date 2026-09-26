@@ -331,7 +331,11 @@ where
             let s = &mut *rc.borrow_mut();
             let available = s.buffer.pop_buf();
             assert!(amt <= available.len());
+            let was_full = s.buffer.is_full();
             s.buffer.pop(amt);
+            if was_full {
+                s.write_waker.wake();
+            }
         })
     }
 

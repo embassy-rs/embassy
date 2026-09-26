@@ -608,6 +608,7 @@ where
         T: Clone,
     {
         self.lock(|c| {
+            let was_full = c.queue.len() == c.queue.capacity();
             let mut new_heap = BinaryHeap::<T, K, N>::new();
             for item in c.queue.iter() {
                 if !predicate(item) {
@@ -618,6 +619,9 @@ where
                 }
             }
             c.queue = new_heap;
+            if was_full {
+                c.senders_waker.wake();
+            }
         });
     }
 
