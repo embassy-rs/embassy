@@ -80,7 +80,7 @@ rm -f out/tests/frdm-mcx-a266/trng
 
 # flaky
 rm -f out/tests/rpi-pico/pwm
-# rm -f out/tests/rpi-pico/cyw43-perf
+rm -f out/tests/rpi-pico/cyw43-perf
 rm -f out/tests/rpi-pico/uart_buffered
 rm -f out/tests/rpi-pico/spi_async
 
