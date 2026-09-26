@@ -12,12 +12,16 @@
 
 use core::cell::{Cell, RefCell};
 use core::future::{Future, poll_fn};
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+#[cfg(not(feature = "portable-atomic"))]
+use core::sync::atomic::AtomicU32;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::waitqueue::WakerRegistration;
 use heapless::Vec;
+#[cfg(feature = "portable-atomic")]
+use portable_atomic::AtomicU32;
 
 use super::class_codes::*;
 use super::terminal_type::TerminalType;

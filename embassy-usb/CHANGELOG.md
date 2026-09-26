@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MIDI`: Add extra fields to endpoint descriptors
 - Make `InterfaceAltBuilder::endpoint_in` and `InterfaceAltBuilder::endpoint_out` public
 - Fix various typos in comments and internal variable names
+- Added portable_atomic for targets not supporting core::sync::AtomicU32 and change code using AtomiU32
 
 ## 0.6.0 - 2026-03-10
 
