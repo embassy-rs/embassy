@@ -345,6 +345,33 @@ impl Config {
     }
 }
 
+/// Value every RTC register reads back while the block is resynchronizing.
+///
+/// RM 38.3.1.2: "any read to the RTC register returns FFFEh as the code to
+/// indicate the clock domains are synchronizing". The block stays in that
+/// state for as long as the clock selected by CTRL[CLK_SEL] is not running,
+/// and register writes are rejected throughout -- including the write that
+/// would point CLK_SEL back at a live clock. It is therefore not
+/// self-clearing: once CLK_SEL is left selecting a stopped clock, only
+/// starting that clock or a VBAT power-on reset recovers the RTC.
+///
+/// Treating FFFEh as data is actively dangerous rather than merely wrong:
+/// ISR[ALM_IS] is bit 2, and bit 2 of FFFEh is set, so an alarm future would
+/// complete immediately instead of waiting.
+const DESYNCED: u16 = 0xfffe;
+
+/// Value a counter register reads back while its contents are changing.
+///
+/// RM 38.5.1.11: STATUS[INVAL_BIT] is asserted for one oscillator clock either
+/// side of the 1 Hz boundary, and "reading when STATUS[INVAL_BIT] is asserted
+/// returns 0xFFFF. No transfer error is asserted." Decoded naively that is
+/// hour=31, minute=63, second=63, month=15, dow=7.
+///
+/// This is a distinct sentinel from [`DESYNCED`]: FFFFh means the counters are
+/// mid-update and the read should simply be retried, whereas FFFEh means the
+/// block has no clock at all and retrying will never succeed.
+const INVALID: u16 = 0xffff;
+
 /// Errors exclusive to HW initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -352,6 +379,9 @@ impl Config {
 pub enum SetupError {
     /// Clock configuration error.
     ClockSetup,
+    /// The RTC register block is not accessible: reads return the
+    /// synchronizing sentinel (RM 38.3.1.2) or a write did not take effect.
+    RegisterAccess,
 }
 
 /// Errors exclusive for datetime.
@@ -396,12 +426,18 @@ impl<'a> Rtc<'a> {
     ) -> Result<Self, SetupError> {
         let info = T::info();
 
-        // The RTC is NOT gated by the MRCC, but we DO need to make
-        // sure either the 16k clock or the 32k clock is active.
+        // The RTC is NOT gated by the MRCC, but the clock selected by
+        // CTRL[CLK_SEL] must actually be running: the register block stays in
+        // its resynchronizing state for as long as it is not (RM 38.3.1.2).
+        //
+        // The RTC sits in the VBAT domain, so it is fed by clk_16k[2] /
+        // osc32k[2] (RM p.81527), not the system-domain [0] outputs. Measured
+        // on FRDM-MCXA577 with CLK_SEL=0: the counter runs with FROCLKE=0b100
+        // alone, and stops with 0b001 or 0b010.
         let clocks = if config.clksel == ClkSel::Clk16384 {
-            with_clocks(|c| c.clk_16k_vsys.clone())
+            with_clocks(|c| c.clk_16k_vbat.clone())
         } else {
-            with_clocks(|c| c.clk_32k_vsys.clone())
+            with_clocks(|c| c.clk_32k_vbat.clone())
         };
 
         let clk = clocks.flatten().ok_or(SetupError::ClockSetup)?;
@@ -423,6 +459,13 @@ impl<'a> Rtc<'a> {
     }
 
     fn set_configuration(&mut self, config: &Config) -> Result<(), SetupError> {
+        // Refuse to touch a block we cannot read or write. Every write below
+        // would be silently discarded, and callers would then be handed FFFEh
+        // dressed up as register contents.
+        if self.info.regs().ctrl().read().0 == DESYNCED {
+            return Err(SetupError::RegisterAccess);
+        }
+
         self.disable_write_protect();
 
         self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Asserted));
@@ -466,6 +509,15 @@ impl<'a> Rtc<'a> {
         });
 
         self.enable_write_protect();
+
+        // Selecting a clock that is not running desynchronizes the block on the
+        // spot, so confirm CLK_SEL actually took the requested value. Check the
+        // sentinel first: bit 9 of FFFEh is set, so a failed write of
+        // ClkSel::Clk32768 would otherwise read back as success.
+        let ctrl = self.info.regs().ctrl().read();
+        if ctrl.0 == DESYNCED || ctrl.clk_sel() != bool::from(config.clksel) {
+            return Err(SetupError::RegisterAccess);
+        }
 
         Ok(())
     }
@@ -531,11 +583,63 @@ impl<'a> Rtc<'a> {
     ///
     /// Returns [`RtcError::InvalidDateTime`] if the RTC registers contain an invalid
     /// calendar or time field, such as while the peripheral is being reset.
+    ///
+    /// Returns [`RtcError::Other`] if the counters do not become stable, which
+    /// indicates the RTC has no running clock.
     pub fn now(&self) -> Result<DateTime, RtcError> {
-        let ym = self.info.regs().yearmon().read();
-        let d = self.info.regs().days().read();
-        let hm = self.info.regs().hourmin().read();
-        let second = self.info.regs().seconds().read().sec_cnt();
+        // The four counters are separate registers, so a second boundary
+        // falling between them would splice two different instants together.
+        //
+        // Waiting and sampling are deliberately separated. Waiting out the
+        // boundary window is the only part that takes appreciable time - two
+        // oscillator cycles, ~61 us at 32.768 kHz - so it runs with interrupts
+        // enabled. Only the sample itself is masked, and that is a fixed five
+        // register reads with no loop.
+        let mut attempts = 0u32;
+        let (second, hm, d, ym) = loop {
+            attempts += 1;
+            if attempts > 8 {
+                return Err(RtcError::Other);
+            }
+
+            // RM 38.5.1.11: INVAL_BIT is asserted either side of the 1 Hz edge
+            // and a counter read taken then returns FFFFh. Spin here, unmasked.
+            // Bounded so an RTC with no running clock reports an error instead
+            // of hanging the caller.
+            let mut spins = 0u32;
+            while self.info.regs().status().read().inval_bit() {
+                spins += 1;
+                if spins > 1_000_000 {
+                    return Err(RtcError::Other);
+                }
+                core::hint::spin_loop();
+            }
+
+            // Counters are stable. Take all four under one short critical
+            // section so an interrupt cannot preempt us across a boundary,
+            // re-checking INVAL_BIT inside it because the flag can assert
+            // between the wait above and the reads actually issuing. If the
+            // boundary arrives anyway the sentinel makes it detectable, and we
+            // go back to waiting - outside the critical section.
+            let sample = critical_section::with(|_| {
+                if self.info.regs().status().read().inval_bit() {
+                    return None;
+                }
+                let second = self.info.regs().seconds().read();
+                let hm = self.info.regs().hourmin().read();
+                let d = self.info.regs().days().read();
+                let ym = self.info.regs().yearmon().read();
+
+                if second.0 == INVALID || hm.0 == INVALID || d.0 == INVALID || ym.0 == INVALID {
+                    return None;
+                }
+                Some((second.sec_cnt(), hm, d, ym))
+            });
+
+            if let Some(sample) = sample {
+                break sample;
+            }
+        };
 
         let year = i16::from(ym.yrofst() as i8) + Self::BASE_YEAR;
         let month = Month::from_register(ym.mon_cnt())?;
@@ -678,7 +782,13 @@ impl<'a> Rtc<'a> {
         let info = self.info;
         Ok(async move {
             info.wait_cell()
-                .wait_for(|| info.regs().isr().read().alm_is())
+                .wait_for(|| {
+                    let isr = info.regs().isr().read();
+                    // ALM_IS is bit 2 and bit 2 of the FFFEh synchronizing
+                    // sentinel is set, so an unguarded alm_is() reports a fired
+                    // alarm the instant the block loses its clock.
+                    isr.0 != DESYNCED && isr.alm_is()
+                })
                 .await
                 .map_err(|_| RtcError::Other)?;
             info.regs().isr().write(|w| w.set_alm_is(true));
@@ -706,10 +816,11 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 
         let regs = T::info().regs();
 
-        // Check if this is actually a time alarm interrupt
+        // Check if this is actually a time alarm interrupt. Reject the FFFEh
+        // synchronizing sentinel first: ALM_IS is bit 2, which is set in FFFEh.
         let status = regs.isr().read();
 
-        if status.alm_is() {
+        if status.0 != DESYNCED && status.alm_is() {
             // The RTC re-engages write protection on its own grace timer, which can
             // elapse during the wait between arming the alarm and it firing. Clearing
             // ALM_IE below is a protected register write, so re-run the WE unlock

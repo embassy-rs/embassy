@@ -141,7 +141,8 @@ pub struct Clocks {
     /// `clk_32k_vsys` is one of two/three outputs of the `FRO16K` internal oscillator.
     ///
     /// Also referred to as `clk_32k[0]` in the datasheet, it feeds peripherals in
-    /// the system domain, such as the CMP and RTC.
+    /// the system domain, such as the CMP. Note that it does NOT feed the RTC,
+    /// which is a VBAT-domain peripheral and uses `clk_32k[2]`.
     #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     pub clk_32k_vsys: Option<Clock>,
 
