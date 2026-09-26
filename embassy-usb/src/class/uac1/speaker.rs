@@ -12,9 +12,9 @@
 
 use core::cell::{Cell, RefCell};
 use core::future::{Future, poll_fn};
-use core::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_has_atomic = "32")]
 use core::sync::atomic::AtomicU32;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
