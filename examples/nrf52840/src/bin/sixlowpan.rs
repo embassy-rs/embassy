@@ -94,7 +94,7 @@ async fn main(spawner: Spawner) {
         let mut recv_buf = [0; 12];
         loop {
             delay.delay_ms(2000).await;
-            if socket.may_recv() {
+            if socket.can_recv() {
                 let n = match socket.recv_from(&mut recv_buf).await {
                     Ok((0, _)) => panic!(),
                     Ok((n, _)) => n,

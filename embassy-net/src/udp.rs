@@ -19,7 +19,7 @@ use xarxa::wire::ListenSocketAddr;
 
 use crate::error::Full;
 use crate::wire::SocketAddr;
-use crate::{Stack, TryError};
+use crate::{NoWake, Stack, TryError, Wake, WakeRunner, wake_if};
 
 /// Error returned by [`UdpSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -82,7 +82,7 @@ impl<'d> UdpSocket<'d> {
     /// - `Full` if the stack has no room for another UDP socket. The limit is set
     ///   by the `udp-socket-count-N` feature of `xarxa`.
     pub fn new(stack: Stack<'d>) -> Result<Self, Full> {
-        let handle = stack.with(|i| i.stack.add_udp_socket())?;
+        let handle = stack.with(|i| (i.stack.add_udp_socket(), NoWake))?;
 
         Ok(Self { stack, handle })
     }
@@ -142,7 +142,7 @@ impl<'d> UdpSocket<'d> {
         local: impl Into<ListenSocketAddr>,
         remote: impl Into<ListenSocketAddr>,
     ) -> Result<(), BindError> {
-        match self.with_mut(|s| s.bind(local, remote)) {
+        match self.with(|s| (s.bind(local, remote), NoWake)) {
             Ok(()) => Ok(()),
             Err(udp::BindError::InvalidState) => Err(BindError::InvalidState),
             Err(udp::BindError::InUse) => Err(BindError::InUse),
@@ -170,7 +170,7 @@ impl<'d> UdpSocket<'d> {
     /// - `InvalidState`: if the socket is open.
     #[cfg(feature = "iface-bind")]
     pub fn bind_to_iface(&mut self, iface: Option<IfaceHandle>) -> Result<(), BindError> {
-        match self.with_mut(|s| s.bind_to_iface(iface)) {
+        match self.with(|s| (s.bind_to_iface(iface), NoWake)) {
             Ok(()) => Ok(()),
             Err(udp::BindError::InvalidState) => Err(BindError::InvalidState),
             Err(_) => unreachable!(),
@@ -182,15 +182,11 @@ impl<'d> UdpSocket<'d> {
     /// See [`bind_to_iface`](Self::bind_to_iface).
     #[cfg(feature = "iface-bind")]
     pub fn bound_iface(&self) -> Option<IfaceHandle> {
-        self.with(|s| s.bound_iface())
+        self.with(|s| (s.bound_iface(), NoWake))
     }
 
-    fn with<R>(&self, f: impl FnOnce(&mut udp::UdpSocket<'_, 'd>) -> R) -> R {
+    fn with<R>(&self, f: impl FnOnce(&mut udp::UdpSocket<'_, 'd>) -> (R, WakeRunner)) -> R {
         self.stack.with(|i| f(&mut i.stack.udp_socket(self.handle)))
-    }
-
-    fn with_mut<R>(&self, f: impl FnOnce(&mut udp::UdpSocket<'_, 'd>) -> R) -> R {
-        self.stack.with_mut(|i| f(&mut i.stack.udp_socket(self.handle)))
     }
 
     /// Wait until the socket becomes readable.
@@ -208,14 +204,17 @@ impl<'d> UdpSocket<'d> {
     ///
     /// When a datagram is received, this method will return `Poll::Ready`.
     pub fn poll_recv_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s| {
-            if s.can_recv() {
-                Poll::Ready(())
-            } else {
-                // socket buffer is empty wait until at least one byte has arrived
-                s.register_recv_waker(cx.waker());
-                Poll::Pending
-            }
+        self.with(|s| {
+            (
+                if s.can_recv() {
+                    Poll::Ready(())
+                } else {
+                    // socket buffer is empty wait until at least one byte has arrived
+                    s.register_recv_waker(cx.waker());
+                    Poll::Pending
+                },
+                NoWake,
+            )
         })
     }
 
@@ -254,15 +253,15 @@ impl<'d> UdpSocket<'d> {
     /// - `Other(IcmpError)`: with the `icmp-errors` feature, if an ICMP error is
     ///   pending. See [recv](#method.recv).
     pub fn try_recv_from(&self, buf: &mut [u8]) -> Result<(usize, UdpMetadata), TryError<RecvError>> {
-        self.with_mut(|s| match s.recv_slice(buf) {
-            Ok((n, meta)) => Ok((n, meta)),
-            Err(udp::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
+        self.with(|s| match s.recv_slice(buf) {
+            Ok((n, meta)) => (Ok((n, meta)), Wake),
+            Err(udp::RecvError::InvalidState) => (Err(TryError::Other(RecvError::InvalidState)), NoWake),
             #[cfg(feature = "icmp-errors")]
             Err(udp::RecvError::IcmpError { error, remote }) => {
-                Err(TryError::Other(RecvError::IcmpError { error, remote }))
+                (Err(TryError::Other(RecvError::IcmpError { error, remote })), NoWake)
             }
-            Err(udp::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
-            Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
+            Err(udp::RecvError::Truncated) => (Err(TryError::Other(RecvError::Truncated)), Wake),
+            Err(udp::RecvError::Exhausted) => (Err(TryError::WouldBlock), NoWake),
         })
     }
 
@@ -288,18 +287,18 @@ impl<'d> UdpSocket<'d> {
         buf: &mut [u8],
         cx: &mut Context<'_>,
     ) -> Poll<Result<(usize, UdpMetadata), RecvError>> {
-        self.with_mut(|s| match s.recv_slice(buf) {
-            Ok((n, meta)) => Poll::Ready(Ok((n, meta))),
-            Err(udp::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
+        self.with(|s| match s.recv_slice(buf) {
+            Ok((n, meta)) => (Poll::Ready(Ok((n, meta))), Wake),
+            Err(udp::RecvError::InvalidState) => (Poll::Ready(Err(RecvError::InvalidState)), NoWake),
             #[cfg(feature = "icmp-errors")]
             Err(udp::RecvError::IcmpError { error, remote }) => {
-                Poll::Ready(Err(RecvError::IcmpError { error, remote }))
+                (Poll::Ready(Err(RecvError::IcmpError { error, remote })), NoWake)
             }
-            Err(udp::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
+            Err(udp::RecvError::Truncated) => (Poll::Ready(Err(RecvError::Truncated)), Wake),
             // No data ready
             Err(udp::RecvError::Exhausted) => {
                 s.register_recv_waker(cx.waker());
-                Poll::Pending
+                (Poll::Pending, NoWake)
             }
         })
     }
@@ -317,17 +316,17 @@ impl<'d> UdpSocket<'d> {
     ///   it clears it.
     pub async fn recv(&self) -> Result<RecvPacket, RecvError> {
         poll_fn(|cx| {
-            self.with_mut(|s| match s.recv() {
-                Ok(packet) => Poll::Ready(Ok(packet)),
-                Err(udp::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
+            self.with(|s| match s.recv() {
+                Ok(packet) => (Poll::Ready(Ok(packet)), Wake),
+                Err(udp::RecvError::InvalidState) => (Poll::Ready(Err(RecvError::InvalidState)), NoWake),
                 #[cfg(feature = "icmp-errors")]
                 Err(udp::RecvError::IcmpError { error, remote }) => {
-                    Poll::Ready(Err(RecvError::IcmpError { error, remote }))
+                    (Poll::Ready(Err(RecvError::IcmpError { error, remote })), NoWake)
                 }
                 Err(udp::RecvError::Truncated) => unreachable!(),
                 Err(udp::RecvError::Exhausted) => {
                     s.register_recv_waker(cx.waker());
-                    Poll::Pending
+                    (Poll::Pending, NoWake)
                 }
             })
         })
@@ -347,15 +346,15 @@ impl<'d> UdpSocket<'d> {
     ///   pending. It is reported before any queued datagram, once, and taking
     ///   it clears it.
     pub fn try_recv(&self) -> Result<RecvPacket, TryError<RecvError>> {
-        self.with_mut(|s| match s.recv() {
-            Ok(packet) => Ok(packet),
-            Err(udp::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
+        self.with(|s| match s.recv() {
+            Ok(packet) => (Ok(packet), Wake),
+            Err(udp::RecvError::InvalidState) => (Err(TryError::Other(RecvError::InvalidState)), NoWake),
             #[cfg(feature = "icmp-errors")]
             Err(udp::RecvError::IcmpError { error, remote }) => {
-                Err(TryError::Other(RecvError::IcmpError { error, remote }))
+                (Err(TryError::Other(RecvError::IcmpError { error, remote })), NoWake)
             }
             Err(udp::RecvError::Truncated) => unreachable!(),
-            Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
+            Err(udp::RecvError::Exhausted) => (Err(TryError::WouldBlock), NoWake),
         })
     }
 
@@ -409,13 +408,18 @@ impl<'d> UdpSocket<'d> {
     /// - `Other(Truncated)`: if `buf` is smaller than the payload. No data is copied
     ///   and the packet stays in the queue.
     pub fn try_peek_from(&self, buf: &mut [u8]) -> Result<(usize, UdpMetadata), TryError<RecvError>> {
-        self.with_mut(|s| match s.peek_slice(buf) {
-            Ok((n, meta)) => Ok((n, meta)),
-            Err(udp::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
-            Err(udp::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
-            Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
-            #[cfg(feature = "icmp-errors")]
-            Err(udp::RecvError::IcmpError { .. }) => unreachable!(),
+        self.with(|s| {
+            (
+                match s.peek_slice(buf) {
+                    Ok((n, meta)) => Ok((n, meta)),
+                    Err(udp::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
+                    Err(udp::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
+                    Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
+                    #[cfg(feature = "icmp-errors")]
+                    Err(udp::RecvError::IcmpError { .. }) => unreachable!(),
+                },
+                NoWake,
+            )
         })
     }
 
@@ -434,16 +438,21 @@ impl<'d> UdpSocket<'d> {
         buf: &mut [u8],
         cx: &mut Context<'_>,
     ) -> Poll<Result<(usize, UdpMetadata), RecvError>> {
-        self.with_mut(|s| match s.peek_slice(buf) {
-            Ok((n, meta)) => Poll::Ready(Ok((n, meta))),
-            Err(udp::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
-            Err(udp::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
-            Err(udp::RecvError::Exhausted) => {
-                s.register_recv_waker(cx.waker());
-                Poll::Pending
-            }
-            #[cfg(feature = "icmp-errors")]
-            Err(udp::RecvError::IcmpError { .. }) => unreachable!(),
+        self.with(|s| {
+            (
+                match s.peek_slice(buf) {
+                    Ok((n, meta)) => Poll::Ready(Ok((n, meta))),
+                    Err(udp::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
+                    Err(udp::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
+                    Err(udp::RecvError::Exhausted) => {
+                        s.register_recv_waker(cx.waker());
+                        Poll::Pending
+                    }
+                    #[cfg(feature = "icmp-errors")]
+                    Err(udp::RecvError::IcmpError { .. }) => unreachable!(),
+                },
+                NoWake,
+            )
         })
     }
 
@@ -457,16 +466,21 @@ impl<'d> UdpSocket<'d> {
     pub async fn peek_from_with<R>(&self, f: impl FnOnce(&[u8], UdpMetadata) -> R) -> Result<R, RecvError> {
         let mut f = Some(f);
         poll_fn(|cx| {
-            self.with_mut(|s| match s.peek() {
-                Ok((payload, meta)) => Poll::Ready(Ok(unwrap!(f.take())(payload, meta))),
-                Err(udp::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
-                Err(udp::RecvError::Exhausted) => {
-                    s.register_recv_waker(cx.waker());
-                    Poll::Pending
-                }
-                Err(udp::RecvError::Truncated) => unreachable!(),
-                #[cfg(feature = "icmp-errors")]
-                Err(udp::RecvError::IcmpError { .. }) => unreachable!(),
+            self.with(|s| {
+                (
+                    match s.peek() {
+                        Ok((payload, meta)) => Poll::Ready(Ok(unwrap!(f.take())(payload, meta))),
+                        Err(udp::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
+                        Err(udp::RecvError::Exhausted) => {
+                            s.register_recv_waker(cx.waker());
+                            Poll::Pending
+                        }
+                        Err(udp::RecvError::Truncated) => unreachable!(),
+                        #[cfg(feature = "icmp-errors")]
+                        Err(udp::RecvError::IcmpError { .. }) => unreachable!(),
+                    },
+                    NoWake,
+                )
             })
         })
         .await
@@ -481,51 +495,63 @@ impl<'d> UdpSocket<'d> {
     /// - `WouldBlock`: if no datagram is available.
     /// - `Other(InvalidState)`: if the socket is not bound.
     pub fn try_peek_from_with<R>(&self, f: impl FnOnce(&[u8], UdpMetadata) -> R) -> Result<R, TryError<RecvError>> {
-        self.with_mut(|s| match s.peek() {
-            Ok((payload, meta)) => Ok(f(payload, meta)),
-            Err(udp::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
-            Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
-            Err(udp::RecvError::Truncated) => unreachable!(),
-            #[cfg(feature = "icmp-errors")]
-            Err(udp::RecvError::IcmpError { .. }) => unreachable!(),
+        self.with(|s| {
+            (
+                match s.peek() {
+                    Ok((payload, meta)) => Ok(f(payload, meta)),
+                    Err(udp::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
+                    Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
+                    Err(udp::RecvError::Truncated) => unreachable!(),
+                    #[cfg(feature = "icmp-errors")]
+                    Err(udp::RecvError::IcmpError { .. }) => unreachable!(),
+                },
+                NoWake,
+            )
         })
     }
 
-    /// Wait until the socket becomes writable.
+    /// Make one send attempt with `f`, and arrange to be polled again if it has to
+    /// be retried.
     ///
-    /// A socket becomes writable when the stack has a free packet buffer and the
-    /// network device has room for a frame.
-    pub fn wait_send_ready(&self) -> impl Future<Output = ()> + '_ {
-        poll_fn(|cx| self.poll_send_ready(cx))
-    }
-
-    /// Wait until a datagram can be sent.
-    ///
-    /// When no datagram can be sent (the stack has no free packet buffer, or the
-    /// network device has no room), this method will return `Poll::Pending` and
-    /// register the current task to be notified when it can.
-    ///
-    /// When a datagram can be sent, this method will return `Poll::Ready`.
-    pub fn poll_send_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s| {
-            if s.is_open() {
-                Poll::Ready(())
-            } else {
+    /// A datagram that went out wakes the runner: it may be parked on a neighbor
+    /// resolution, or have left fragments behind. A refused one changes nothing the
+    /// runner acts on, so it doesn't.
+    fn poll_send<R>(
+        &self,
+        cx: &mut Context<'_>,
+        f: impl FnOnce(&mut udp::UdpSocket<'_, 'd>) -> Result<R, udp::SendError>,
+    ) -> Poll<Result<R, SendError>> {
+        self.with(|s| match f(s) {
+            Ok(r) => (Poll::Ready(Ok(r)), Wake),
+            // xarxa wakes us when the device has room.
+            Err(udp::SendError::DeviceBusy) => {
                 s.register_send_waker(cx.waker());
-                Poll::Pending
+                (Poll::Pending, NoWake)
             }
+            // Nothing signals a freed buffer. Yield, and try again.
+            Err(udp::SendError::NoBuffer) => {
+                cx.waker().wake_by_ref();
+                (Poll::Pending, NoWake)
+            }
+            Err(udp::SendError::BufferFull) => (Poll::Ready(Err(SendError::BufferFull)), NoWake),
+            Err(udp::SendError::InvalidState) => (Poll::Ready(Err(SendError::InvalidState)), NoWake),
+            Err(udp::SendError::Unaddressable) => (Poll::Ready(Err(SendError::Unaddressable)), NoWake),
         })
     }
 
-    /// Map a xarxa send result to ours. `Pending` if the send must be retried later.
-    fn map_send(r: Result<(), udp::SendError>) -> Poll<Result<(), SendError>> {
-        match r {
-            Ok(()) => Poll::Ready(Ok(())),
-            Err(udp::SendError::NoBuffer) | Err(udp::SendError::DeviceBusy) => Poll::Pending,
-            Err(udp::SendError::BufferFull) => Poll::Ready(Err(SendError::BufferFull)),
-            Err(udp::SendError::InvalidState) => Poll::Ready(Err(SendError::InvalidState)),
-            Err(udp::SendError::Unaddressable) => Poll::Ready(Err(SendError::Unaddressable)),
-        }
+    /// Make one send attempt with `f`, without waiting. Like
+    /// [`poll_send`](Self::poll_send), only a datagram that went out wakes the runner.
+    fn try_send_inner<R>(
+        &self,
+        f: impl FnOnce(&mut udp::UdpSocket<'_, 'd>) -> Result<R, udp::SendError>,
+    ) -> Result<R, TryError<SendError>> {
+        self.with(|s| match f(s) {
+            Ok(r) => (Ok(r), Wake),
+            Err(udp::SendError::DeviceBusy | udp::SendError::NoBuffer) => (Err(TryError::WouldBlock), NoWake),
+            Err(udp::SendError::BufferFull) => (Err(TryError::Other(SendError::BufferFull)), NoWake),
+            Err(udp::SendError::InvalidState) => (Err(TryError::Other(SendError::InvalidState)), NoWake),
+            Err(udp::SendError::Unaddressable) => (Err(TryError::Other(SendError::Unaddressable)), NoWake),
+        })
     }
 
     /// Send a datagram to the given remote address, copying the payload from a slice.
@@ -563,13 +589,7 @@ impl<'d> UdpSocket<'d> {
     /// - `Other(BufferFull)`: if the payload cannot fit in a packet buffer.
     pub fn try_send_to(&self, buf: &[u8], remote: impl Into<UdpMetadata>) -> Result<(), TryError<SendError>> {
         let remote: UdpMetadata = remote.into();
-        self.with_mut(|s| {
-            let r = s.send_slice(buf, remote);
-            match Self::map_send(r) {
-                Poll::Ready(r) => r.map_err(TryError::Other),
-                Poll::Pending => Err(TryError::WouldBlock),
-            }
-        })
+        self.try_send_inner(|s| s.send_slice(buf, remote))
     }
 
     /// Send a datagram to the given remote address, copying the payload from a slice.
@@ -595,14 +615,7 @@ impl<'d> UdpSocket<'d> {
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), SendError>> {
         let remote: UdpMetadata = remote.into();
-        self.with_mut(|s| {
-            let r = s.send_slice(buf, remote);
-            let r = Self::map_send(r);
-            if r.is_pending() {
-                s.register_send_waker(cx.waker());
-            }
-            r
-        })
+        self.poll_send(cx, |s| s.send_slice(buf, remote))
     }
 
     /// Send a datagram, building the payload in place.
@@ -640,21 +653,14 @@ impl<'d> UdpSocket<'d> {
     ) -> Result<R, SendError> {
         let mut f = Some(f);
         poll_fn(move |cx| {
-            self.with_mut(|s| {
+            self.poll_send(cx, |s| {
                 let mut ret = None;
-                let r = s.send_with(max_size, remote.into(), |buf| {
+                s.send_with(max_size, remote.into(), |buf| {
                     let (size, r) = unwrap!(f.take())(buf);
                     ret = Some(r);
                     size
-                });
-                match Self::map_send(r) {
-                    Poll::Ready(Ok(())) => Poll::Ready(Ok(unwrap!(ret))),
-                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                    Poll::Pending => {
-                        s.register_send_waker(cx.waker());
-                        Poll::Pending
-                    }
-                }
+                })
+                .map(|()| unwrap!(ret))
             })
         })
         .await
@@ -695,17 +701,13 @@ impl<'d> UdpSocket<'d> {
         f: impl FnOnce(&mut [u8]) -> R,
     ) -> Result<R, TryError<SendError>> {
         let remote: UdpMetadata = remote.into();
-        self.with_mut(|s| {
+        self.try_send_inner(|s| {
             let mut ret = None;
-            let r = s.send_with(size, remote, |buf| {
+            s.send_with(size, remote, |buf| {
                 ret = Some(f(buf));
                 size
-            });
-            match Self::map_send(r) {
-                Poll::Ready(Ok(())) => Ok(unwrap!(ret)),
-                Poll::Ready(Err(e)) => Err(TryError::Other(e)),
-                Poll::Pending => Err(TryError::WouldBlock),
-            }
+            })
+            .map(|()| unwrap!(ret))
         })
     }
 
@@ -715,7 +717,7 @@ impl<'d> UdpSocket<'d> {
     ///
     /// Returns `ListenSocketAddr::UNSPECIFIED` if not bound.
     pub fn local_addr(&self) -> ListenSocketAddr {
-        self.with(|s| s.local_addr())
+        self.with(|s| (s.local_addr(), NoWake))
     }
 
     /// Return the bound remote address.
@@ -724,39 +726,33 @@ impl<'d> UdpSocket<'d> {
     ///
     /// Returns `ListenSocketAddr::UNSPECIFIED` if not bound.
     pub fn remote_addr(&self) -> ListenSocketAddr {
-        self.with(|s| s.remote_addr())
+        self.with(|s| (s.remote_addr(), NoWake))
     }
 
     /// Check whether the socket is open (bound to a port).
     pub fn is_open(&self) -> bool {
-        self.with(|s| s.is_open())
+        self.with(|s| (s.is_open(), NoWake))
     }
 
     /// Close the socket, unbinding it and dropping any queued packets.
     pub fn close(&mut self) {
-        self.with_mut(|s| s.close())
-    }
-
-    /// Returns whether the socket is ready to send data, i.e. it is bound and a packet buffer is free.
-    pub fn may_send(&self) -> bool {
-        self.with(|s| s.is_open())
-    }
-
-    /// Returns whether the socket is ready to receive data, i.e. it has received a packet that's now in the queue.
-    pub fn may_recv(&self) -> bool {
-        self.with(|s| s.can_recv())
+        self.with(|s| {
+            let freed = s.can_recv();
+            s.close();
+            ((), wake_if(freed))
+        })
     }
 
     /// Check whether the RX queue is not empty.
     pub fn can_recv(&self) -> bool {
-        self.with(|s| s.can_recv())
+        self.with(|s| (s.can_recv(), NoWake))
     }
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     ///
     /// See also the [set_hop_limit](#method.set_hop_limit) method.
     pub fn hop_limit(&self) -> Option<u8> {
-        self.with(|s| s.hop_limit())
+        self.with(|s| (s.hop_limit(), NoWake))
     }
 
     /// Set the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -772,13 +768,17 @@ impl<'d> UdpSocket<'d> {
     /// [IANA recommended]: https://www.iana.org/assignments/ip-parameters/ip-parameters.xhtml
     /// [RFC 1122 § 3.2.1.7]: https://tools.ietf.org/html/rfc1122#section-3.2.1.7
     pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) -> Result<(), InvalidHopLimit> {
-        self.with_mut(|s| s.set_hop_limit(hop_limit))
+        self.with(|s| (s.set_hop_limit(hop_limit), NoWake))
     }
 }
 
 impl Drop for UdpSocket<'_> {
     fn drop(&mut self) {
-        self.stack.with_mut(|i| i.stack.remove_udp_socket(self.handle));
+        self.stack.with(|i| {
+            let freed = i.stack.udp_socket(self.handle).can_recv();
+            i.stack.remove_udp_socket(self.handle);
+            ((), wake_if(freed))
+        });
     }
 }
 
