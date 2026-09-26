@@ -1,8 +1,9 @@
 //! MIDI class implementation.
 
-use crate::Builder;
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
+use crate::types::StringIndex;
+use crate::{Builder, Handler};
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_AUDIO_CLASS: u8 = 0x01;
@@ -21,6 +22,7 @@ const MS_GENERAL: u8 = 0x01;
 const PROTOCOL_NONE: u8 = 0x00;
 const MIDI_IN_SIZE: u8 = 0x06;
 const MIDI_OUT_SIZE: u8 = 0x09;
+const MAX_MIDI_JACKS: u8 = 16;
 
 /// Configuration for the MIDI class.
 ///
@@ -32,7 +34,7 @@ const MIDI_OUT_SIZE: u8 = 0x09;
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-pub struct MidiClassConfig {
+pub struct MidiClassConfig<'d> {
     /// Number of jacks for sending data to the host via the IN endpoint.
     /// If set to 0, the IN endpoint will not be allocated.
     pub n_in_jacks: u8,
@@ -44,15 +46,89 @@ pub struct MidiClassConfig {
     /// Maximum packet size for the endpoints.
     /// For full-speed devices, the value has to be one of 8, 16, 32 or 64.
     pub max_packet_size: u16,
+
+    /// Name of the MIDIStreaming interface.
+    pub interface_name: Option<&'d str>,
+
+    /// Name of each IN jack.
+    pub in_jack_names: &'d [Option<&'d str>],
+
+    /// Name of each OUT jack.
+    pub out_jack_names: &'d [Option<&'d str>],
 }
 
-impl Default for MidiClassConfig {
+impl Default for MidiClassConfig<'_> {
     fn default() -> Self {
         Self {
             n_in_jacks: 1,
             n_out_jacks: 1,
             max_packet_size: 64,
+            interface_name: None,
+            in_jack_names: &[],
+            out_jack_names: &[],
         }
+    }
+}
+
+/// Internal state for a [`MidiClass`].
+///
+/// Holds names/string-indices for interface and jacks.
+#[derive(Default)]
+pub struct MidiClassState<'d> {
+    first: u8,
+    interface_name: Option<&'d str>,
+    in_jack_names: &'d [Option<&'d str>],
+    out_jack_names: &'d [Option<&'d str>],
+}
+
+impl<'d> MidiClassState<'d> {
+    /// Creates a new `State`.
+    pub const fn new() -> Self {
+        MidiClassState {
+            first: 0,
+            interface_name: None,
+            in_jack_names: &[],
+            out_jack_names: &[],
+        }
+    }
+
+    /// The names, in allocation order: interface, IN jacks, OUT jacks.
+    fn names(&self) -> impl Iterator<Item = &Option<&'d str>> {
+        core::iter::once(&self.interface_name)
+            .chain(self.in_jack_names)
+            .chain(self.out_jack_names)
+    }
+
+    /// The name in slot `n`, if there is one.
+    fn name(&self, n: usize) -> Option<&'d str> {
+        self.names().nth(n).copied().flatten()
+    }
+
+    // returns absolute StringIndex, or None if name is absent (or out of range).
+    fn index(&self, n: usize) -> Option<StringIndex> {
+        self.name(n).map(|_| StringIndex(self.first + n as u8))
+    }
+
+    fn id(&self, n: usize) -> u8 {
+        self.index(n).map_or(0, |i| i.0)
+    }
+
+    fn interface(&self) -> Option<StringIndex> {
+        self.index(0)
+    }
+
+    fn in_jack(&self, i: u8) -> u8 {
+        self.id(1 + i as usize)
+    }
+
+    fn out_jack(&self, i: u8) -> u8 {
+        self.id(1 + self.in_jack_names.len() + i as usize)
+    }
+}
+
+impl Handler for MidiClassState<'_> {
+    fn get_string(&mut self, index: StringIndex, _lang_id: u16) -> Option<&str> {
+        self.name(index.0.checked_sub(self.first)? as usize)
     }
 }
 
@@ -74,13 +150,60 @@ pub struct MidiClass<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> MidiClass<'d, D> {
-    /// Creates a new `MidiClass` with the provided UsbBus and configuration.
-    pub fn new(builder: &mut Builder<'d, D>, config: MidiClassConfig) -> Self {
+    /// Creates a new `MidiClass` with the provided UsbBuilder and configuration.
+    ///
+    /// The names in `config` are ignored, use [`MidiClass::new_with_names`] if you need to name jacks.
+    pub fn new(builder: &mut Builder<'d, D>, config: MidiClassConfig<'d>) -> Self {
+        Self::build(builder, config, &MidiClassState::new())
+    }
+
+    /// Creates a new `MidiClass` with the provided UsbBuilder that names its interface and jacks.
+    pub fn new_with_names(
+        builder: &mut Builder<'d, D>,
+        state: &'d mut MidiClassState<'d>,
+        config: MidiClassConfig<'d>,
+    ) -> Self {
+        *state = MidiClassState {
+            first: builder.string().0,
+            interface_name: config.interface_name,
+            in_jack_names: config.in_jack_names,
+            out_jack_names: config.out_jack_names,
+        };
+
+        // string index for interface allocated above, now allocate the jacks.
+        for _ in 1..state.names().count() {
+            builder.string();
+        }
+
+        let class = Self::build(builder, config, state);
+        builder.handler(state);
+        class
+    }
+
+    /// Creates a new `MidiClass` with the provided UsbBuilder and configuration.
+    fn build(builder: &mut Builder<'d, D>, config: MidiClassConfig<'d>, names: &MidiClassState<'d>) -> Self {
         let MidiClassConfig {
             n_in_jacks,
             n_out_jacks,
             max_packet_size,
+            ..
         } = config;
+
+        // Some sanity checks.
+        assert!(
+            n_in_jacks != 0 || n_out_jacks != 0,
+            "n_in_jacks and n_out_jacks are both 0"
+        );
+        assert!(
+            n_in_jacks <= MAX_MIDI_JACKS,
+            "n_in_jacks is larger than {}",
+            MAX_MIDI_JACKS,
+        );
+        assert!(
+            n_out_jacks <= MAX_MIDI_JACKS,
+            "n_out_jacks is larger than {}",
+            MAX_MIDI_JACKS,
+        );
 
         let mut func = builder.function(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE);
 
@@ -93,8 +216,12 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
 
         // MIDIStreaming interface
         let mut iface = func.interface();
-        let _midi_if = iface.interface_number();
-        let mut alt = iface.alt_setting(USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS, PROTOCOL_NONE, None);
+        let mut alt = iface.alt_setting(
+            USB_AUDIO_CLASS,
+            USB_MIDISTREAMING_SUBCLASS,
+            PROTOCOL_NONE,
+            names.interface(),
+        );
 
         let midi_streaming_total_length = 7
             + (n_in_jacks + n_out_jacks) as usize * (MIDI_IN_SIZE + MIDI_OUT_SIZE) as usize
@@ -120,39 +247,17 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             ],
         );
 
-        // Calculates the index'th external midi in jack id
-        let in_jack_id_ext = |index| 2 * index + 1;
         // Calculates the index'th embedded midi out jack id
-        let out_jack_id_emb = |index| 2 * index + 2;
-        // Calculates the index'th external midi out jack id
-        let out_jack_id_ext = |index| 2 * n_in_jacks + 2 * index + 1;
+        let out_jack_id_emb = |index| 2 * index + 1;
+        // Calculates the index'th external midi in jack id
+        let in_jack_id_ext = |index| 2 * index + 2;
         // Calculates the index'th embedded midi in jack id
-        let in_jack_id_emb = |index| 2 * n_in_jacks + 2 * index + 2;
+        let in_jack_id_emb = |index| 2 * n_in_jacks + 2 * index + 1;
+        // Calculates the index'th external midi out jack id
+        let out_jack_id_ext = |index| 2 * n_in_jacks + 2 * index + 2;
 
         for i in 0..n_in_jacks {
-            alt.descriptor(CS_INTERFACE, &[MIDI_IN_JACK_SUBTYPE, EXTERNAL, in_jack_id_ext(i), 0x00]);
-        }
-
-        for i in 0..n_out_jacks {
-            alt.descriptor(CS_INTERFACE, &[MIDI_IN_JACK_SUBTYPE, EMBEDDED, in_jack_id_emb(i), 0x00]);
-        }
-
-        for i in 0..n_out_jacks {
-            alt.descriptor(
-                CS_INTERFACE,
-                &[
-                    MIDI_OUT_JACK_SUBTYPE,
-                    EXTERNAL,
-                    out_jack_id_ext(i),
-                    0x01,
-                    in_jack_id_emb(i),
-                    0x01,
-                    0x00,
-                ],
-            );
-        }
-
-        for i in 0..n_in_jacks {
+            let i_jack = names.in_jack(i);
             alt.descriptor(
                 CS_INTERFACE,
                 &[
@@ -162,7 +267,31 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                     0x01,
                     in_jack_id_ext(i),
                     0x01,
-                    0x00,
+                    i_jack,
+                ],
+            );
+            alt.descriptor(
+                CS_INTERFACE,
+                &[MIDI_IN_JACK_SUBTYPE, EXTERNAL, in_jack_id_ext(i), i_jack],
+            );
+        }
+
+        for i in 0..n_out_jacks {
+            let i_jack = names.out_jack(i);
+            alt.descriptor(
+                CS_INTERFACE,
+                &[MIDI_IN_JACK_SUBTYPE, EMBEDDED, in_jack_id_emb(i), i_jack],
+            );
+            alt.descriptor(
+                CS_INTERFACE,
+                &[
+                    MIDI_OUT_JACK_SUBTYPE,
+                    EXTERNAL,
+                    out_jack_id_ext(i),
+                    0x01,
+                    in_jack_id_emb(i),
+                    0x01,
+                    i_jack,
                 ],
             );
         }
