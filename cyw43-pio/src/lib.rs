@@ -24,6 +24,7 @@ pub struct PioSpi<'d, PIO: Instance, const SM: usize> {
     dma_tx: Channel<'d, Async>,
     dma_rx: Channel<'d, Async>,
     wrap_target: u8,
+    pin_io: embassy_rp::pio::Pin<'d, PIO>,
 }
 
 /// Clock divider used for most applications
@@ -221,6 +222,7 @@ where
             dma_tx,
             dma_rx,
             wrap_target: loaded_program.wrap.target,
+            pin_io,
         }
     }
 
@@ -305,6 +307,15 @@ where
         let status = self.cmd_read(write, read).await;
         self.cs.set_high();
         status
+    }
+
+    async fn prepare_reset(&mut self) {
+        // As per pico-sdk's cyw43_spi_gpio_setup(). Must hold data pin low across the
+        // WL_REG_ON pulse.
+        self.sm.set_enable(false);
+        self.sm.set_pin_dirs(Direction::Out, &[&self.pin_io]);
+        self.sm.set_pins(Level::Low, &[&self.pin_io]);
+        self.cs.set_high();
     }
 
     async fn wait_for_event(&mut self) {
