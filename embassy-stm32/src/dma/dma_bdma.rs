@@ -1440,6 +1440,12 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         self.ringbuf.reset(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
 
+    /// Advance the ring buffer by `steps` words.
+    pub fn advance(&mut self, steps: isize) -> Result<(), RingBufferError> {
+        self.ringbuf.advance(steps)?;
+        Ok(())
+    }
+
     /// Read elements from the ring buffer
     /// Return a tuple of the length read and the length remaining in the buffer
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
@@ -1611,6 +1617,12 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
         self.ringbuf.reset(&mut DmaCtrlImpl(self.channel.reborrow()));
+    }
+
+    /// Advance the ring buffer by `steps` words.
+    pub fn advance(&mut self, steps: isize) -> Result<(), RingBufferError> {
+        self.ringbuf.advance(steps)?;
+        Ok(())
     }
 
     /// Write elements directly to the raw buffer.
