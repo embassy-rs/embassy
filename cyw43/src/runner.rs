@@ -482,7 +482,8 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         Ok(())
     }
 
-    pub(crate) async fn init(
+    /// Reset the bus, download firmware and nvram, and start the device core.
+    pub async fn init(
         &mut self,
         wifi_fw: &Aligned<A4, [u8]>,
         nvram: &Aligned<A4, [u8]>,
