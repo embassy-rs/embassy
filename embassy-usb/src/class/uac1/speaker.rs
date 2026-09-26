@@ -12,7 +12,7 @@
 
 use core::cell::{Cell, RefCell};
 use core::future::{Future, poll_fn};
-#[cfg(target_has_atomic = "32")]
+#[cfg(not(feature = "portable-atomic"))]
 use core::sync::atomic::AtomicU32;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
@@ -20,6 +20,8 @@ use core::task::Poll;
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::waitqueue::WakerRegistration;
 use heapless::Vec;
+#[cfg(feature = "portable-atomic")]
+use portable_atomic::AtomicU32;
 
 use super::class_codes::*;
 use super::terminal_type::TerminalType;
@@ -375,10 +377,7 @@ struct SharedControl<'d> {
     channels: &'d [Channel],
 
     /// The audio sample rate in Hz.
-    #[cfg(target_has_atomic = "32")]
     sample_rate_hz: AtomicU32,
-    #[cfg(not(target_has_atomic = "32"))]
-    sample_rate_hz: CriticalSectionMutex<Cell<u32>>,
 
     // Notification mechanism.
     waker: RefCell<WakerRegistration>,
@@ -390,10 +389,7 @@ impl<'d> Default for SharedControl<'d> {
         SharedControl {
             audio_settings: CriticalSectionMutex::new(Cell::new(AudioSettings::default())),
             channels: &[],
-            #[cfg(target_has_atomic = "32")]
             sample_rate_hz: AtomicU32::new(0),
-            #[cfg(not(target_has_atomic = "32"))]
-            sample_rate_hz: CriticalSectionMutex::new(Cell::new(0)),
             waker: RefCell::new(WakerRegistration::new()),
             changed: AtomicBool::new(false),
         }
@@ -483,10 +479,7 @@ impl<'d> ControlMonitor<'d> {
 
     /// Get the streaming endpoint's sample rate in Hz.
     pub fn sample_rate_hz(&self) -> u32 {
-        #[cfg(target_has_atomic = "32")]
-        return self.shared.sample_rate_hz.load(Ordering::Relaxed);
-        #[cfg(not(target_has_atomic = "32"))]
-        return self.shared.sample_rate_hz.lock(|x| x.get());
+        self.shared.sample_rate_hz.load(Ordering::Relaxed)
     }
 
     /// Return a future for when the control settings change.
@@ -606,10 +599,7 @@ impl<'d> Control<'d> {
         }
 
         let sample_rate_hz: u32 = (data[0] as u32) | (data[1] as u32) << 8 | (data[2] as u32) << 16;
-        #[cfg(target_has_atomic = "32")]
         self.shared.sample_rate_hz.store(sample_rate_hz, Ordering::Relaxed);
-        #[cfg(not(target_has_atomic = "32"))]
-        self.shared.sample_rate_hz.lock(|x| x.set(sample_rate_hz));
 
         debug!("Set endpoint {} sample rate to {} Hz", endpoint_address, sample_rate_hz);
 
@@ -710,10 +700,7 @@ impl<'d> Control<'d> {
             return Some(InResponse::Rejected);
         }
 
-        #[cfg(target_has_atomic = "32")]
         let sample_rate_hz = self.shared.sample_rate_hz.load(Ordering::Relaxed);
-        #[cfg(not(target_has_atomic = "32"))]
-        let sample_rate_hz = self.shared.sample_rate_hz.lock(|x| x.get());
 
         buf[0] = (sample_rate_hz & 0xFF) as u8;
         buf[1] = ((sample_rate_hz >> 8) & 0xFF) as u8;
