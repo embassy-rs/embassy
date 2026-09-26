@@ -96,7 +96,7 @@ impl<'d, W: Word> RingBufferedDacChannel<'d, W> {
 
     /// Stop the DMA transfer, waiting until all buffered samples have been output.
     pub async fn stop(&mut self) {
-        self.ring_buf.stop().await;
+        self.ring_buf.disable_circular_and_wait().await;
     }
 }
 

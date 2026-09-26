@@ -248,7 +248,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// This is designed to be used with streaming input data such as the
     /// I2S/SAI or ADC.
-    pub async fn stop(&mut self) {
+    pub async fn disable_circular_and_wait(&mut self) {
         // wait until cr.susp reads as true
         poll_fn(|cx| {
             self.set_waker(cx.waker());
@@ -426,7 +426,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// I2S/SAI or ADC.
     ///
     /// When using the UART, you probably want `request_stop()`.
-    pub async fn stop(&mut self) {
+    pub async fn disable_circular_and_wait(&mut self) {
         // wait until cr.susp reads as true
         poll_fn(|cx| {
             self.set_waker(cx.waker());
