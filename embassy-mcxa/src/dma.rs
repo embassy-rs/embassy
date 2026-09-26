@@ -1506,7 +1506,7 @@ impl DmaChannel<'_> {
     /// 4. Unpend the channel's IRQ in the NVIC so a queued dispatch is
     ///    dropped on the floor instead of running redundantly after CS
     ///    exit.
-    pub(crate) fn stop(&mut self) {
+    pub(crate) fn stop(&self) {
         let t = self.tcd();
         let irq = self.channel.interrupt();
 
