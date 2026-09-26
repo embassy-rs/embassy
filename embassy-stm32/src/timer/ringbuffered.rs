@@ -119,7 +119,7 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
     ///
     /// This is designed to be used with streaming output data such as the I2S/SAI or DAC.
     pub async fn stop(&mut self) {
-        self.ring_buf.stop().await
+        self.ring_buf.disable_circular_and_wait().await
     }
 
     /// Enable the given channel.
