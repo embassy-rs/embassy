@@ -189,6 +189,41 @@ fn drain_buffer(buffer: &[u8; 64]) {
     }
 }
 
+fn pad_drain_final(buffer: &mut [u8; 64], buffer_len: usize, total_len: u64) {
+    // This method is ment to be called inside the boady of a flianlze method
+    // Now that we know that there is no more incoming data from this message
+    // we can start padding the message padding according to FIPS 180-4 §5.1.1, pg 13
+
+    // Separate the message from the padding with a single 1
+    buffer[buffer_len] = 0x80;
+    // Is there room for the size of the message in the current block ?
+    if buffer_len < 56 {
+        // Add the padding until the last 2 words
+        for i in (buffer_len + 1)..56 {
+            buffer[i] = 0;
+        }
+        // Append the size of the entire message
+        buffer[56..64].copy_from_slice(&(total_len * 8).to_be_bytes());
+        drain_buffer(buffer);
+    } else {
+        // Pad until the block is completely filled
+        for i in (buffer_len + 1)..64 {
+            buffer[i] = 0;
+        }
+        // Drain the buffer in to the FIFO
+        drain_buffer(buffer);
+
+        // Reset
+        *buffer = [0u8; 64];
+        // Append the size of the entire message
+        buffer[56..64].copy_from_slice(&(total_len * 8).to_be_bytes());
+
+        // Now we can hash the final padded block
+        // Hashing begins automatically once the 16 words (512 bits) of the FIFO are full
+        drain_buffer(buffer);
+    }
+}
+
 pub trait Aes {
     fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
     // Universal encrypt confuguration via register calls
