@@ -25,7 +25,7 @@ pub use xarxa::wire::EthernetProtocol;
 pub use xarxa::wire::{IpProtocol, IpVersion};
 
 use crate::error::Full;
-use crate::{NoWake, Stack, TryError, Wake, WakeRunner, wake_if};
+use crate::{NoWake, Stack, TryError, Wake, WakeRunner, wake_if, wake_if_ok};
 
 /// Error returned by [`RawSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -417,20 +417,39 @@ impl<'d> RawSocket<'d> {
         })
     }
 
-    /// Make one send attempt with `f`, without waiting. Like
-    /// [`poll_send`](Self::poll_send), only a packet that went out wakes the runner.
-    fn try_send_inner<R>(
-        &self,
-        f: impl FnOnce(&mut raw::RawSocket<'_, 'd>) -> Result<R, raw::SendError>,
-    ) -> Result<R, TryError<SendError>> {
-        self.with(|s| match f(s) {
-            Ok(r) => (Ok(r), Wake),
-            Err(raw::SendError::DeviceBusy | raw::SendError::NoBuffer) => (Err(TryError::WouldBlock), NoWake),
-            Err(raw::SendError::BufferFull) => (Err(TryError::Other(SendError::BufferFull)), NoWake),
-            Err(raw::SendError::InvalidState) => (Err(TryError::Other(SendError::InvalidState)), NoWake),
-            Err(raw::SendError::Unaddressable) => (Err(TryError::Other(SendError::Unaddressable)), NoWake),
-            Err(raw::SendError::Malformed) => (Err(TryError::Other(SendError::Malformed)), NoWake),
+    /// Send an owned packet, preserving its packet metadata.
+    ///
+    /// The buffer contains a complete Ethernet frame or IP packet, according to
+    /// the socket's mode, as in [`send_with`](Self::send_with). In IP mode, reserve
+    /// [`crate::wire::LINK_HEADER_LEN`] to avoid a payload move to accomodate the
+    /// header.
+    ///
+    /// Errors also return the buffer unchanged.
+    ///
+    /// See [`try_send_packet`](Self::try_send_packet) for errors.
+    pub async fn send_packet(&self, buf: PacketBuf) -> Result<(), (SendError, PacketBuf)> {
+        // Each pending attempt restores the packet; success transfers it once.
+        let mut buf = Some(buf);
+        poll_fn(|cx| {
+            self.poll_send(cx, |s| {
+                s.send_packet(unwrap!(buf.take())).map_err(|(err, packet)| {
+                    buf = Some(packet);
+                    err
+                })
+            })
         })
+        .await
+        .map_err(|err| (err, unwrap!(buf)))
+    }
+
+    /// Try to send an owned packet without waiting or allocating a replacement
+    /// payload buffer.
+    ///
+    /// See [`send_packet`](Self::send_packet) for buffer layout and ownership.
+    /// Every error returns the buffer unchanged. `WouldBlock` means the device
+    /// has no room; other errors match [`send_with`](Self::send_with).
+    pub fn try_send_packet(&self, buf: PacketBuf) -> Result<(), (TryError<SendError>, PacketBuf)> {
+        self.with(|s| wake_if_ok(s.send_packet(buf).map_err(|(err, buf)| (map_send_error(err), buf))))
     }
 
     /// Send a packet, copying it from a slice.
@@ -464,7 +483,7 @@ impl<'d> RawSocket<'d> {
     /// - `WouldBlock`: if every packet buffer is in use, or the interface the
     ///   packet would go out of has no room for it right now.
     pub fn try_send(&self, buf: &[u8]) -> Result<(), TryError<SendError>> {
-        self.try_send_inner(|s| s.send_slice(buf))
+        self.with(|s| wake_if_ok(s.send_slice(buf).map_err(map_send_error)))
     }
 
     /// Send a packet with the given [`PacketMeta`] attached, copying it from a slice.
@@ -565,6 +584,16 @@ impl Drop for RawSocket<'_> {
             i.stack.remove_raw_socket(self.handle);
             ((), wake_if(freed))
         });
+    }
+}
+
+fn map_send_error(err: raw::SendError) -> TryError<SendError> {
+    match err {
+        raw::SendError::DeviceBusy | raw::SendError::NoBuffer => TryError::WouldBlock,
+        raw::SendError::BufferFull => TryError::Other(SendError::BufferFull),
+        raw::SendError::InvalidState => TryError::Other(SendError::InvalidState),
+        raw::SendError::Unaddressable => TryError::Other(SendError::Unaddressable),
+        raw::SendError::Malformed => TryError::Other(SendError::Malformed),
     }
 }
 
