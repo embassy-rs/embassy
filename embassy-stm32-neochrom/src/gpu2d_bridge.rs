@@ -75,23 +75,6 @@ unsafe extern "C" {
 
 /********** System interrupt / cache-hold handshake **********/
 
-/// `GPU2D_SYS_INTERRUPT`, which the PAC models only up to bit 0 (`er`) while
-/// bits 2 and 3 carry the GPU-initiated cache-hold requests. Accessed raw, the
-/// same way `HAL_GPU2D_ReadRegister`/`WriteRegister` already do.
-const SYS_INTERRUPT: usize = 0xFF8;
-
-/// A genuine peripheral error was signalled.
-const SYS_INTERRUPT_ERR: u32 = 1 << 0;
-/// Hold 2: the GPU needs the CPU to stop caching while it works.
-const SYS_INTERRUPT_HOLD_DISABLE_CACHE: u32 = 1 << 2;
-/// Hold 3: the GPU has written memory the CPU may still have cached.
-const SYS_INTERRUPT_HOLD_INVALIDATE_CACHE: u32 = 1 << 3;
-
-#[inline]
-fn sys_interrupt_reg() -> *mut u32 {
-    unsafe { (embassy_stm32::pac::GPU2D.as_ptr() as *mut u8).add(SYS_INTERRUPT) as *mut u32 }
-}
-
 /// Read and clear `SYS_INTERRUPT`, servicing any cache-hold request.
 ///
 /// Returns the raw bits that were pending.
@@ -101,22 +84,22 @@ fn sys_interrupt_reg() -> *mut u32 {
 /// critical section. The cache maintenance itself happens outside it: an
 /// invalidation blocks until the hardware reports completion.
 fn service_error() -> u32 {
-    let pending = critical_section::with(|_| unsafe {
-        let reg = sys_interrupt_reg();
-        let val = core::ptr::read_volatile(reg);
-        if val != 0 {
-            core::ptr::write_volatile(reg, val);
+    let pending = critical_section::with(|_| {
+        let r = embassy_stm32::pac::GPU2D.sys_interrupt();
+        let val = r.read();
+        if val.0 != 0 {
+            r.write_value(val);
         }
         val
     });
 
-    if pending & SYS_INTERRUPT_ERR != 0 {
+    if pending.er() {
         // A real peripheral error. Latch it for `take_hardware_error`; the
         // command-list path only sees "the IRQ fired".
         HARDWARE_ERROR.store(true, Ordering::Release);
     }
 
-    if pending & SYS_INTERRUPT_HOLD_DISABLE_CACHE != 0 {
+    if pending.hold_disable_cache() {
         // Hold 2. The ICACHE only exists on N6/U5; H7RS has GPU2D but no
         // ICACHE block, where there is nothing to disable.
         #[cfg(any(feature = "n6", feature = "u5"))]
@@ -126,7 +109,7 @@ fn service_error() -> u32 {
         unsafe { nema_ext_hold_deassert_imm(2) };
     }
 
-    if pending & SYS_INTERRUPT_HOLD_INVALIDATE_CACHE != 0 {
+    if pending.hold_invalidate_cache() {
         // Hold 3.
         #[cfg(any(feature = "n6", feature = "u5"))]
         {
@@ -137,7 +120,7 @@ fn service_error() -> u32 {
         unsafe { nema_ext_hold_deassert_imm(3) };
     }
 
-    pending
+    pending.0
 }
 
 /// Returns whether the command-list-complete flag is currently set.
