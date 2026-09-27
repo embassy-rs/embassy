@@ -542,19 +542,32 @@ impl<'d> RawSocket<'d> {
         max_size: usize,
         f: impl FnOnce(&mut [u8]) -> (usize, R),
     ) -> Result<R, SendError> {
-        let mut f = Some(f);
-        poll_fn(move |cx| {
-            self.poll_send(cx, |s| {
-                let mut ret = None;
-                s.send_with(max_size, |buf| {
-                    let (size, r) = unwrap!(f.take())(buf);
-                    ret = Some(r);
-                    size
-                })
-                .map(|()| unwrap!(ret))
-            })
+        let headroom = match self.mode().ok_or(SendError::InvalidState)? {
+            #[cfg(feature = "raw-ethernet")]
+            RawMode::Ethernet { .. } => 0,
+            #[cfg(feature = "raw-ip")]
+            RawMode::Ip { .. } => crate::wire::LINK_HEADER_LEN,
+        };
+        let mut buf = poll_fn(|cx| match PacketBuf::try_new() {
+            Some(buf) => Poll::Ready(buf),
+            None => {
+                // Nothing signals a freed buffer. Yield, and try again.
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
         })
-        .await
+        .await;
+        if max_size > buf.capacity() - headroom {
+            return Err(SendError::BufferFull);
+        }
+        buf.reserve(headroom);
+        buf.set_len(max_size);
+        let (size, ret) = f(&mut buf);
+        assert!(size <= max_size);
+        buf.set_len(size);
+
+        self.send_packet(buf).await.map_err(|(err, _)| err)?;
+        Ok(ret)
     }
 
     /// Check whether the socket is open (bound to a mode).
