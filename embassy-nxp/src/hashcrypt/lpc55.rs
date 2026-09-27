@@ -44,6 +44,7 @@ pub struct GenericHashcrypt<'d> {
 // mode switching implementation of generic driver
 #[allow(dead_code)]
 impl<'d> GenericHashcrypt<'d> {
+    /// Creates an instance of a generic hashcrypt driver, which can be used to create an instance of a specific driver for one of the criptographic operation that the chip is capabile of
     pub fn new(peri: Peri<'d, HASHCRYPT>) -> Self {
         pac::SYSCON.ahbclkctrl2().modify(|w| {
             w.set_hash_aes(true);
@@ -55,6 +56,10 @@ impl<'d> GenericHashcrypt<'d> {
         Self { _peri: peri }
     }
 
+    /// Creates an instance of a SHA-1 driver.
+    /// # Warning"
+    /// SHA-1 has been cryptographically broken since 2017
+    /// It's provided for legacy/protocol compatibility only, avoid it for anything security-sensitive.
     pub fn sha1(&mut self) -> Sha1<'_, 'd> {
         pac::HASHCRYPT.ctrl().modify(|w| {
             w.set_mode(Mode::Sha1);
@@ -68,6 +73,7 @@ impl<'d> GenericHashcrypt<'d> {
         }
     }
 
+    /// Creates an instance of a SHA-256 driver
     pub fn sha256(&mut self) -> Sha256<'_, 'd> {
         pac::HASHCRYPT.ctrl().modify(|w| {
             w.set_mode(Mode::Sha2256);
@@ -257,7 +263,7 @@ impl<'a, 'd> Digest for Sha1<'a, 'd> {
         // Now we can prepare the 8 word digest
 
         let mut digest: [u8; 20] = [0u8; 20];
-        read_digest(8, &mut digest);
+        read_digest(5, &mut digest);
 
         // Reset the HASHCRYPT peripheral, so it's ready for a new hash. When finalize() is called again,
         // all the registers including the length of the message that was previously hashed are reset, so that
@@ -285,9 +291,6 @@ pub struct Sha256<'a, 'd> {
 impl<'a, 'd> Digest for Sha256<'a, 'd> {
     type Output = [u8; 32];
     fn finalise(&mut self) -> Self::Output {
-<<<<<<< HEAD
-        todo!("Add finalise method for SHA-256");
-=======
         pad_drain_final(&mut self.buffer, self.buffer_len, self.total_len);
         // Now we can prepare the 8 word digest
 
@@ -307,7 +310,6 @@ impl<'a, 'd> Digest for Sha256<'a, 'd> {
         self.total_len = 0;
 
         digest
->>>>>>> 0e94ccd64 (add: finalize methods for sha1 and sha256)
     }
 }
 
@@ -374,6 +376,7 @@ impl<'a, 'd> AesCtr<'a, 'd> {
 macro_rules! impl_sha {
     ($ty:ident) => {
         impl<'a, 'd> $ty<'a, 'd> {
+            /// Acceps and buffers an arbitrary length SHA message to be hased
             pub fn update(&mut self, data: &[u8]) {
                 let data_len = data.len() as u32; // Length of the incoming data
                 let mut offset = 0; // tracks how many bytes of `data` have been consumed so far
