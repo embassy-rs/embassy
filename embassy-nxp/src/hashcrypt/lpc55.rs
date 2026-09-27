@@ -57,7 +57,8 @@ impl<'d> GenericHashcrypt<'d> {
     }
 
     /// Creates an instance of a SHA-1 driver.
-    /// # Warning"
+    ///
+    /// # Warning
     /// SHA-1 has been cryptographically broken since 2017
     /// It's provided for legacy/protocol compatibility only, avoid it for anything security-sensitive.
     pub fn sha1(&mut self) -> Sha1<'_, 'd> {
@@ -180,21 +181,19 @@ pub trait Digest {
     /// Returns the digest of the message streamed via `update`
     fn finalise(&mut self) -> Self::Output;
 }
-//Helper methods fot the types that implement the Digest trait
+// Helper methods for the types that implement the Digest trait
 fn drain_buffer(buffer: &[u8; 64]) {
-    let sha256 = pac::HASHCRYPT.indata();
+    let sha = pac::HASHCRYPT.indata();
     for chunk in buffer.chunks_exact(4) {
         let word = u32::from_le_bytes(chunk.try_into().unwrap());
-        sha256.write(|w| {
+        sha.write(|w| {
             w.set_data(word);
         });
     }
 }
 
-// TODO: add update with impl_sha! macro once it's introduced in the SHA PR
-
 fn pad_drain_final(buffer: &mut [u8; 64], buffer_len: usize, total_len: u64) {
-    // This method is ment to be called inside the boady of a flianlze method
+    // This method is meant to be called inside the body of a finalise method
     // Now that we know that there is no more incoming data from this message
     // we can start padding the message padding according to FIPS 180-4 §5.1.1, pg 13
 
@@ -330,7 +329,11 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> AesEcb<'a, 'd> {
+<<<<<<< HEAD
     // Does not require anything past the default aes methods
+=======
+    // Does not require anything past the default AES methods
+>>>>>>> 0201b479f (fix typos and inconsistencies in coments)
 }
 pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
@@ -376,7 +379,7 @@ impl<'a, 'd> AesCtr<'a, 'd> {
 macro_rules! impl_sha {
     ($ty:ident) => {
         impl<'a, 'd> $ty<'a, 'd> {
-            /// Acceps and buffers an arbitrary length SHA message to be hased
+            /// Accepts and buffers an arbitrary length SHA message to be hashed
             pub fn update(&mut self, data: &[u8]) {
                 let data_len = data.len() as u32; // Length of the incoming data
                 let mut offset = 0; // tracks how many bytes of `data` have been consumed so far
@@ -398,9 +401,9 @@ macro_rules! impl_sha {
 
                     // Once the buffer is full, we drain it in to the FIFO via .indata().set_data()
                     if self.buffer_len == 64 {
-                        // buffer is full, so we drain the message streamed so far in to the sha2 FIFO
+                        // buffer is full, so we drain the message streamed so far into the FIFO
                         drain_buffer(&self.buffer);
-                        // Once the 16 word FIFO is full (see [drain_sha2_buffer]), hashing begins automatically, and we are free to start
+                        // Once the 16 word FIFO is full (see [drain_buffer]), hashing begins automatically, and we are free to start
                         // overwriting the buffer so we can fill it once more with the incoming data
 
                         // Reset the buffer
