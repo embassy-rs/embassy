@@ -86,6 +86,7 @@ impl<'d> GenericHashcrypt<'d> {
             _peri: self,
             key_size: None,
             key: None,
+            iv: None,
         }
     }
 
@@ -95,6 +96,7 @@ impl<'d> GenericHashcrypt<'d> {
             _peri: self,
             key_size: None,
             key: None,
+            counter: None,
         }
     }
 
@@ -233,6 +235,7 @@ pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
     key: Option<Key>,
+    iv: Option<[u8; 16]>,
 }
 impl<'a, 'd> Aes for AesCbc<'a, 'd> {
     fn encrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
@@ -252,6 +255,7 @@ pub struct AesCtr<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
     key: Option<Key>,
+    counter: Option<[u8; 16]>,
 }
 
 impl<'a, 'd> Aes for AesCtr<'a, 'd> {
