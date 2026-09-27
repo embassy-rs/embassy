@@ -251,7 +251,7 @@ impl<'a, 'd> AesCtr<'a, 'd> {
     }
 }
 
-// TODO: replace with impl_sha! macro once it's introduced in the SHA PR
+// TODO: add with impl_sha! macro once it's introduced in the SHA PR
 
 macro_rules! impl_aes {
     ($ty:ident) => {
