@@ -174,6 +174,16 @@ pub trait Digest {
     /// Returns the digest of the message streamed via `update`
     fn finalise(&mut self) -> Self::Output;
 }
+//Helper methods fot the types that implement the Digest trait
+fn drain_buffer(buffer: &[u8; 64]) {
+    let sha256 = pac::HASHCRYPT.indata();
+    for chunk in buffer.chunks_exact(4) {
+        let word = u32::from_le_bytes(chunk.try_into().unwrap());
+        sha256.write(|w| {
+            w.set_data(word);
+        });
+    }
+}
 
 // TODO: add update with impl_sha! macro once it's introduced in the SHA PR
 
