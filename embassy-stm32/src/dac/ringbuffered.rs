@@ -82,11 +82,6 @@ impl<'d, W: Word> RingBufferedDacChannel<'d, W> {
         self.ring_buf.is_running()
     }
 
-    /// Request the DMA to stop, discarding the channel configuration.
-    pub fn request_reset(&mut self) {
-        self.ring_buf.request_reset();
-    }
-
     /// Request the DMA to pause, preserving the channel configuration.
     ///
     /// Resume with [`start`](Self::start).
