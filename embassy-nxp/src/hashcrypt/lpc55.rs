@@ -303,7 +303,52 @@ impl<'a, 'd> AesCtr<'a, 'd> {
     }
 }
 
-// TODO: add with impl_sha! macro once it's introduced in the SHA PR
+macro_rules! impl_sha {
+    ($ty:ident) => {
+        impl<'a, 'd> $ty<'a, 'd> {
+            pub fn update(&mut self, data: &[u8]) {
+                let data_len = data.len() as u32; // Length of the incoming data
+                let mut offset = 0; // tracks how many bytes of `data` have been consumed so far
+
+                self.total_len += data.len() as u64;
+                while offset < data_len {
+                    // how much room is there in the buffer ?
+                    let space = 64 - self.buffer_len;
+
+                    // how much can i take from the incoming data ?
+                    let take = space.min((data_len - offset) as usize);
+
+                    // move "take" bytes from the data to the buffer, occupying whatever space is left in the buffer
+                    self.buffer[self.buffer_len..(self.buffer_len + take)]
+                        .copy_from_slice(&data[(offset as usize)..((offset) as usize) + take]);
+
+                    self.buffer_len += take;
+                    offset += take as u32;
+
+                    // Once the buffer is full, we drain it in to the FIFO via .indata().set_data()
+                    if self.buffer_len == 64 {
+                        // buffer is full, so we drain the message streamed so far in to the sha2 FIFO
+                        drain_buffer(&self.buffer);
+                        // Once the 16 word FIFO is full (see [drain_sha2_buffer]), hashing begins automatically, and we are free to start
+                        // overwriting the buffer so we can fill it once more with the incoming data
+
+                        // Reset the buffer
+                        self.buffer_len = 0;
+                        self.buffer = [0u8; 64];
+                    }
+
+                    // Even though a digest might be ready to read at this point,
+                    // polling HASHCRYPT.status().read().digest() here would yield a useless, incomplete hash,
+                    // caused by an incomplete message. Instead, we will poll it in [finalize()] when we can
+                    // be sure that no more data will be streamed.
+                }
+            }
+        }
+    };
+}
+
+impl_sha!(Sha1);
+impl_sha!(Sha256);
 
 macro_rules! impl_aes {
     ($ty:ident) => {
