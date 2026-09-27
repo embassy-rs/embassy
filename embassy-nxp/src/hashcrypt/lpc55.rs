@@ -178,6 +178,16 @@ pub trait Digest {
     #[doc = "Returns the digest of the message streamed via `update`"]
     fn finalise(&mut self) -> Self::Output;
 }
+//Helper methods fot the types that implement the Digest trait
+fn drain_buffer(buffer: &[u8; 64]) {
+    let sha256 = pac::HASHCRYPT.indata();
+    for chunk in buffer.chunks_exact(4) {
+        let word = u32::from_le_bytes(chunk.try_into().unwrap());
+        sha256.write(|w| {
+            w.set_data(word);
+        });
+    }
+}
 
 pub trait Aes {
     fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
