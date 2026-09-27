@@ -21,7 +21,7 @@ async fn main(_spawner: Spawner) -> !
     info!("Device started !");
     
     // Creates an instance of a generic driver that lives for as long as the program does which
-    // holds the HASHCRYPT peripheral and and passes a mutable reference to itself to
+    // holds the HASHCRYPT peripheral and passes a mutable reference to itself to
     // whichever specific driver instance is created at a time
     let mut generic = hashcrypt::GenericDriver::new(p.HASHCRYPT);
 
@@ -49,7 +49,7 @@ async fn main(_spawner: Spawner) -> !
     info!("SHA-256");
     let mut sha2 = generic.sha256();
 
-    // Buffers an arbitrary length message which is drained in to the hashcrypt FIFO
+    // Buffers an arbitrary length message which is drained into the hashcrypt FIFO
     sha2.update(msg1.as_bytes());
     // Returns the 8 word digest for SHA-256
     let digest = sha2.finalise();

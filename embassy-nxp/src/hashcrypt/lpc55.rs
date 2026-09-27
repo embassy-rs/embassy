@@ -1,4 +1,4 @@
-//! Driver for the HASHCRYPT peripheral, mode switch sckeleton
+//! Driver for the HASHCRYPT peripheral, mode switch skeleton
 use embassy_hal_internal::Peri;
 use nxp_pac::hashcrypt::vals::{Aeskeysz, Mode};
 use nxp_pac::syscon::vals::HashAesRst::Released;
@@ -104,7 +104,7 @@ pub struct GenericDriver<'d> {
 
 // mode switching implementation of generic driver
 impl<'d> GenericDriver<'d> {
-    /// Creates an instance of a generic hashcrypt driver, which can be used to create an instance of a specific driver for one of the criptographic operation that the chip is capabile of
+    /// Creates an instance of a generic hashcrypt driver, which can be used to create an instance of a specific driver for one of the cryptographic operations that the chip is capable of
     pub fn new(peri: Peri<'d, HASHCRYPT>) -> Self {
         pac::SYSCON.ahbclkctrl2().modify(|w| {
             w.set_hash_aes(true);
@@ -117,7 +117,8 @@ impl<'d> GenericDriver<'d> {
     }
 
     /// Creates an instance of a SHA-1 driver.
-    /// # Warning"
+    ///
+    /// # Warning
     /// SHA-1 has been cryptographically broken since 2017
     /// It's provided for legacy/protocol compatibility only, avoid it for anything security-sensitive.
     pub fn sha1(&mut self) -> Sha1<'_, 'd> {
@@ -181,19 +182,19 @@ pub trait Digest {
     /// Returns the digest of the message streamed via `update`
     fn finalise(&mut self) -> Self::Output;
 }
-//Helper methods fot the types that implement the Digest trait
+// Helper methods for the types that implement the Digest trait
 fn drain_buffer(buffer: &[u8; 64]) {
-    let sha256 = pac::HASHCRYPT.indata();
+    let sha = pac::HASHCRYPT.indata();
     for chunk in buffer.chunks_exact(4) {
         let word = u32::from_le_bytes(chunk.try_into().unwrap());
-        sha256.write(|w| {
+        sha.write(|w| {
             w.set_data(word);
         });
     }
 }
 
 fn pad_drain_final(buffer: &mut [u8; 64], buffer_len: usize, total_len: u64) {
-    // This method is ment to be called inside the boady of a flianlze method
+    // This method is meant to be called inside the body of a finalise method
     // Now that we know that there is no more incoming data from this message
     // we can start padding the message padding according to FIPS 180-4 §5.1.1, pg 13
 
@@ -229,25 +230,25 @@ fn pad_drain_final(buffer: &mut [u8; 64], buffer_len: usize, total_len: u64) {
 
 pub trait Aes {
     fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
-    // Universal encrypt confuguration via register calls
+    // Universal encrypt configuration via register calls
     // Chop user provided data into words, feed 4 words at the time to indata()
-    // Every 4 words, poll digest and apend it to ouptut
+    // Every 4 words, poll digest and append it to output
     // If the final part of the message is less than 4 words, padd with 0s
     // Before feeding last 4 words, flip STREAMEDLAST to true
     // Check that data.len = output.len
     // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
 
     fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
-    // Universal decrypt confuguration using register calls
+    // Universal decrypt configuration using register calls
     // Chop user provided data into words, feed 4 words at the time to indata()
-    // Every 4 words, poll digest and apend it to ouptut
+    // Every 4 words, poll digest and append it to output
     // If the final part of the message is less than 4 words, padd with 0s
     // Before feeding last 4 words, flip STREAMEDLAST to true
     // Check that data.len = output.len
     // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
 
     // to handle messages that are not divisible in 4 blocks, add pading with 0, keep track of the size of
-    // the paddind, all padding will produce garbage ouput which will need to be trimmed from the last block
+    // the paddind, all padding will produce garbage output which will need to be trimmed from the last block
     // of the digest
 }
 
@@ -334,7 +335,7 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> AesEcb<'a, 'd> {
-    // Does not require anything passed the default aes methods
+    // Does not require anything past the default AES methods
 }
 pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericDriver<'d>,
@@ -352,7 +353,7 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
 }
 impl<'a, 'd> AesCbc<'a, 'd> {
     pub fn set_iv(&mut self, _iv: &[u8; 16]) -> Result<(), AesError> {
-        todo!("Add method boady");
+        todo!("Add method body");
     }
 }
 pub struct AesCtr<'a, 'd> {
@@ -373,14 +374,14 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
 
 impl<'a, 'd> AesCtr<'a, 'd> {
     pub fn set_counter(&mut self, _counter: &[u8; 16]) -> Result<(), AesError> {
-        todo!("Add method boady");
+        todo!("Add method body");
     }
 }
 
 macro_rules! impl_sha {
     ($ty:ident) => {
         impl<'a, 'd> $ty<'a, 'd> {
-            /// Acceps and buffers an arbitrary length SHA message to be hased
+            /// Accepts and buffers an arbitrary length SHA message to be hashed
             pub fn update(&mut self, data: &[u8]) {
                 let data_len = data.len() as u32; // Length of the incoming data
                 let mut offset = 0; // tracks how many bytes of `data` have been consumed so far
@@ -402,9 +403,9 @@ macro_rules! impl_sha {
 
                     // Once the buffer is full, we drain it in to the FIFO via .indata().set_data()
                     if self.buffer_len == 64 {
-                        // buffer is full, so we drain the message streamed so far in to the sha2 FIFO
+                        // buffer is full, so we drain the message streamed so far into the FIFO
                         drain_buffer(&self.buffer);
-                        // Once the 16 word FIFO is full (see [drain_sha2_buffer]), hashing begins automatically, and we are free to start
+                        // Once the 16 word FIFO is full (see [drain_buffer]), hashing begins automatically, and we are free to start
                         // overwriting the buffer so we can fill it once more with the incoming data
 
                         // Reset the buffer
