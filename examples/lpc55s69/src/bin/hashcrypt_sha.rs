@@ -6,20 +6,19 @@
 
 use cortex_m as _;
 use cortex_m_rt;
-use panic_probe as _;
-use defmt_rtt as _;   // <- this line is missing
 use defmt::info;
-use embassy_nxp::{self, hashcrypt::{Digest}};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_nxp::hashcrypt::Digest;
+use embassy_nxp::{self, hashcrypt};
 use embassy_time::Timer;
-use embassy_nxp::hashcrypt;
+use panic_probe as _;
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> !
-{
+async fn main(_spawner: Spawner) -> ! {
     let p = embassy_nxp::init(Default::default());
     info!("Device started !");
-    
+
     // Creates an instance of a generic driver that lives for as long as the program does which
     // holds the HASHCRYPT peripheral and passes a mutable reference to itself to
     // whichever specific driver instance is created at a time
@@ -36,14 +35,14 @@ async fn main(_spawner: Spawner) -> !
     sha_1.update(msg1.as_bytes());
     // Returns the 5 word digest for SHA-1
     let digest = sha_1.finalise();
-    info!("Input message:  {}", &msg1); 
-    info!("Message Digest: {:02x}",&digest);
+    info!("Input message:  {}", &msg1);
+    info!("Message Digest: {:02x}", &digest);
 
     // The instance of the specific SHA-1 driver is reusable after finalise() is called
     sha_1.update(msg2.as_bytes());
     let digest = sha_1.finalise();
     info!("Input message:  {}", &msg2);
-    info!("Message Digest: {:02x}",&digest);
+    info!("Message Digest: {:02x}", &digest);
 
     // The generic driver instance still exists and can be used to create a different specific driver
     info!("SHA-256");
