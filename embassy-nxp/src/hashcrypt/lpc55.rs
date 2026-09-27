@@ -120,7 +120,12 @@ impl<'d> GenericDriver<'d> {
             w.set_mode(Mode::Sha1);
             w.set_new_hash(true);
         });
-        Sha1 { _peri: self }
+        Sha1 {
+            _peri: self,
+            buffer: [0u8; 64],
+            buffer_len: 0usize,
+            total_len: 0u64,
+        }
     }
 
     pub fn sha256(&mut self) -> Sha256<'_, 'd> {
@@ -128,7 +133,12 @@ impl<'d> GenericDriver<'d> {
             w.set_mode(Mode::Sha2256);
             w.set_new_hash(true);
         });
-        Sha256 { _peri: self }
+        Sha256 {
+            _peri: self,
+            buffer: [0u8; 64],
+            buffer_len: 0usize,
+            total_len: 0u64,
+        }
     }
 
     pub fn aes_ecb(&mut self) -> AesEcb<'_, 'd> {
