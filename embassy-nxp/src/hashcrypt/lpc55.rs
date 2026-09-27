@@ -1,6 +1,6 @@
 //! Driver for the HASHCRYPT peripheral, mode switch skeleton
 use embassy_hal_internal::Peri;
-use nxp_pac::hashcrypt::vals::{Aeskeysz, Mode};
+use nxp_pac::hashcrypt::vals::{Aeskeysz, Aesmode, Aessecret, Mode};
 use nxp_pac::syscon::vals::HashAesRst::Released;
 
 use crate::hashcrypt::inner::Key::{Key128, Key192, Key256};
@@ -73,6 +73,21 @@ impl<'d> GenericHashcrypt<'d> {
 
     pub fn aes_ecb(&mut self) -> AesEcb<'_, 'd> {
         // AES-ECB config via register calls
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_mode(Mode::Aes);
+            w.set_new_hash(true);
+        });
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesmode(Aesmode::Ecb);
+            w.set_aessecret(Aessecret::NormalWay);
+            w.set_streamlast(false);
+            w.set_msw1st(true);
+            w.set_msw1st_out(true);
+            w.set_swapdat(true);
+            w.set_swapkey(true);
+        });
+
         AesEcb {
             _peri: self,
             key_size: None,
@@ -82,6 +97,21 @@ impl<'d> GenericHashcrypt<'d> {
 
     pub fn aes_cbc(&mut self) -> AesCbc<'_, 'd> {
         // AES-CBC config via register calls
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_mode(Mode::Aes);
+            w.set_new_hash(true);
+        });
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesmode(Aesmode::Cbc);
+            w.set_aessecret(Aessecret::NormalWay);
+            w.set_streamlast(false);
+            w.set_msw1st(true);
+            w.set_msw1st_out(true);
+            w.set_swapdat(true);
+            w.set_swapkey(true);
+        });
+
         AesCbc {
             _peri: self,
             key_size: None,
@@ -92,6 +122,20 @@ impl<'d> GenericHashcrypt<'d> {
 
     pub fn aes_ctr(&mut self) -> AesCtr<'_, 'd> {
         // AES-CTR config via register calls
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_mode(Mode::Aes);
+            w.set_new_hash(true);
+        });
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesmode(Aesmode::Ctr);
+            w.set_aessecret(Aessecret::NormalWay);
+            w.set_streamlast(false);
+            w.set_msw1st(true);
+            w.set_msw1st_out(true);
+            w.set_swapdat(true);
+            w.set_swapkey(true);
+        });
         AesCtr {
             _peri: self,
             key_size: None,
