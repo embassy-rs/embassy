@@ -10,7 +10,7 @@ use mode::{Master, MultiMaster};
 use stm32_metapac::i2c::vals::{Addmode, Oamsk};
 
 use super::*;
-use crate::atomic::AtomicModify;
+use crate::atomic::{AtomicModify, InterruptRegister};
 use crate::pac::i2c;
 use crate::wait::try_until_timeout;
 
@@ -1070,11 +1070,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// by the I2C event/error interrupts (armed here) instead of polling, and bounded
     /// by `timeout`.
     async fn wait_tc_async(&self, timeout: Timeout) -> Result<(), Error> {
-        self.info.regs.cr1().modify(|w| {
+        let _irq = self.info.regs.cr1().enable_interrupts(|w| {
             w.set_tcie(true);
             w.set_nackie(true);
             w.set_errie(true);
         });
+
         let result = timeout
             .with(poll_fn(|cx| {
                 self.state.waker.register(cx.waker());
@@ -1086,11 +1087,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 }
             }))
             .await;
-        self.info.regs.cr1().modify(|w| {
-            w.set_tcie(false);
-            w.set_nackie(false);
-            w.set_errie(false);
-        });
+
         result?;
         let isr = self.info.regs.isr().read();
         self.error_occurred_async(&isr, timeout).await
@@ -1153,22 +1150,14 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// drain, since the DMA teardown has disabled them) instead of polling, and bounded
     /// by `timeout`.
     async fn drain_rxdr_until_stop_async(&self, timeout: Timeout) -> Result<usize, Error> {
-        self.info.regs.cr1().modify(|w| {
+        // The DMA transfer is done and its OnDrop has run, so no context expects these
+        // enabled anymore. Make sure they are off on every exit (the interrupt handler
+        // already disables them when it wakes us).
+        let _irq = self.info.regs.cr1().enable_interrupts(|w| {
             w.set_stopie(true);
             w.set_addrie(true);
             w.set_nackie(true);
             w.set_errie(true);
-        });
-        // The DMA transfer is done and its OnDrop has run, so no context expects these
-        // enabled anymore. Make sure they are off on every exit (the interrupt handler
-        // already disables them when it wakes us).
-        let _irq_guard = OnDrop::new(|| {
-            self.info.regs.cr1().modify(|w| {
-                w.set_stopie(false);
-                w.set_addrie(false);
-                w.set_nackie(false);
-                w.set_errie(false);
-            });
         });
 
         let mut discarded = 0;
