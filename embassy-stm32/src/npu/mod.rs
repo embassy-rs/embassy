@@ -78,6 +78,10 @@
 
 pub mod cache;
 pub mod ecloader;
+/// CPU-side software epochs for the tail of a network (softmax, dequantization,
+/// argmax). Requires the `npu-nn` feature.
+#[cfg(feature = "npu-nn")]
+pub mod epoch;
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
