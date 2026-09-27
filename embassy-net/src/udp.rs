@@ -9,6 +9,7 @@
 use core::future::{Future, poll_fn};
 use core::task::{Context, Poll};
 
+use xarxa::driver::PacketBuf;
 pub use xarxa::driver::PacketMeta;
 use xarxa::error::InvalidHopLimit;
 #[cfg(feature = "iface-bind")]
@@ -19,7 +20,7 @@ use xarxa::wire::ListenSocketAddr;
 
 use crate::error::Full;
 use crate::wire::SocketAddr;
-use crate::{NoWake, Stack, TryError, Wake, WakeRunner, wake_if};
+use crate::{NoWake, Stack, TryError, Wake, WakeRunner, wake_if, wake_if_ok};
 
 /// Error returned by [`UdpSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -545,13 +546,49 @@ impl<'d> UdpSocket<'d> {
         &self,
         f: impl FnOnce(&mut udp::UdpSocket<'_, 'd>) -> Result<R, udp::SendError>,
     ) -> Result<R, TryError<SendError>> {
-        self.with(|s| match f(s) {
-            Ok(r) => (Ok(r), Wake),
-            Err(udp::SendError::DeviceBusy | udp::SendError::NoBuffer) => (Err(TryError::WouldBlock), NoWake),
-            Err(udp::SendError::BufferFull) => (Err(TryError::Other(SendError::BufferFull)), NoWake),
-            Err(udp::SendError::InvalidState) => (Err(TryError::Other(SendError::InvalidState)), NoWake),
-            Err(udp::SendError::Unaddressable) => (Err(TryError::Other(SendError::Unaddressable)), NoWake),
+        self.with(|s| wake_if_ok(f(s).map_err(Into::into)))
+    }
+
+    /// Send an owned UDP payload, adding the UDP, IP, and link headers.
+    ///
+    /// The buffer contains only the payload, without a UDP header.
+    /// `remote` selects addresses and replaces the buffer's packet metadata,
+    /// as in [`send_to_with`](Self::send_to_with).
+    ///
+    /// Errors also return the buffer unchanged.
+    pub async fn send_packet_to(
+        &self,
+        buf: PacketBuf,
+        remote: impl Into<UdpMetadata>,
+    ) -> Result<(), (SendError, PacketBuf)> {
+        let remote = remote.into();
+        // Each pending attempt restores the packet; success transfers it once.
+        let mut buf = Some(buf);
+        poll_fn(|cx| {
+            self.poll_send(cx, |s| {
+                s.send_packet(unwrap!(buf.take()), remote).map_err(|(err, packet)| {
+                    buf = Some(packet);
+                    err
+                })
+            })
         })
+        .await
+        .map_err(|err| (err, unwrap!(buf)))
+    }
+
+    /// Try to send an owned packet without waiting or allocating a replacement
+    /// payload buffer.
+    ///
+    /// See [`send_packet_to`](Self::send_packet_to) for buffer layout and ownership.
+    /// Every error returns the buffer unchanged. `WouldBlock` means transmission
+    /// is temporarily blocked; other errors match [`try_send_to`](Self::try_send_to).
+    pub fn try_send_packet_to(
+        &self,
+        buf: PacketBuf,
+        remote: impl Into<UdpMetadata>,
+    ) -> Result<(), (TryError<SendError>, PacketBuf)> {
+        let remote = remote.into();
+        self.with(|s| wake_if_ok(s.send_packet(buf, remote).map_err(|(err, buf)| (err.into(), buf))))
     }
 
     /// Send a datagram to the given remote address, copying the payload from a slice.
@@ -648,14 +685,15 @@ impl<'d> UdpSocket<'d> {
     pub async fn send_to_with<R>(
         &mut self,
         max_size: usize,
-        remote: impl Into<UdpMetadata> + Copy,
+        remote: impl Into<UdpMetadata>,
         f: impl FnOnce(&mut [u8]) -> (usize, R),
     ) -> Result<R, SendError> {
+        let remote = remote.into();
         let mut f = Some(f);
         poll_fn(move |cx| {
             self.poll_send(cx, |s| {
                 let mut ret = None;
-                s.send_with(max_size, remote.into(), |buf| {
+                s.send_with(max_size, remote, |buf| {
                     let (size, r) = unwrap!(f.take())(buf);
                     ret = Some(r);
                     size
@@ -779,6 +817,17 @@ impl Drop for UdpSocket<'_> {
             i.stack.remove_udp_socket(self.handle);
             ((), wake_if(freed))
         });
+    }
+}
+
+impl From<udp::SendError> for TryError<SendError> {
+    fn from(err: udp::SendError) -> TryError<SendError> {
+        match err {
+            udp::SendError::DeviceBusy | udp::SendError::NoBuffer => TryError::WouldBlock,
+            udp::SendError::BufferFull => TryError::Other(SendError::BufferFull),
+            udp::SendError::InvalidState => TryError::Other(SendError::InvalidState),
+            udp::SendError::Unaddressable => TryError::Other(SendError::Unaddressable),
+        }
     }
 }
 
