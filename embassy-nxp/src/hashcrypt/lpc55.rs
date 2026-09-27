@@ -260,7 +260,25 @@ impl<'a, 'd> Digest for Sha1<'a, 'd> {
     type Output = [u8; 20];
 
     fn finalise(&mut self) -> Self::Output {
-        todo!("Add finalise method for Sha1");
+        pad_drain_final(&mut self.buffer, self.buffer_len, self.total_len);
+        // Now we can prepare the 8 word digest
+
+        let mut digest: [u8; 20] = [0u8; 20];
+        read_digest(8, &mut digest);
+
+        // Reset the HASHCRYPT peripheral, so it's ready for a new hash. When finalize() is called again,
+        // all the registers including the length of the message that was previously hashed are reset, so that
+        // the next digest is correct and free of residual values from previous hash operations.
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        // Clean the buffer and total message length to get rid of any leftovers from previous messages.
+        self.buffer = [0u8; 64];
+        self.buffer_len = 0;
+        self.total_len = 0;
+
+        digest
     }
 }
 
@@ -274,7 +292,25 @@ pub struct Sha256<'a, 'd> {
 impl<'a, 'd> Digest for Sha256<'a, 'd> {
     type Output = [u8; 32];
     fn finalise(&mut self) -> Self::Output {
-        todo!("Add finalise method for Sha 256");
+        pad_drain_final(&mut self.buffer, self.buffer_len, self.total_len);
+        // Now we can prepare the 8 word digest
+
+        let mut digest: [u8; 32] = [0u8; 32];
+        read_digest(8, &mut digest);
+
+        // Reset the HASHCRYPT peripheral, so it's ready for a new hash. When finalize() is called again,
+        // all the registers including the length of the message that was previously hashed are reset, so that
+        // the next digest is correct and free of residual values from previous hash operations.
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        // Clean the buffer and total message length to get rid of any leftovers from previous messages.
+        self.buffer = [0u8; 64];
+        self.buffer_len = 0;
+        self.total_len = 0;
+
+        digest
     }
 }
 
