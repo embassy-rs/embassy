@@ -112,6 +112,7 @@ pub fn block_for_us(micros: u64) {
 #[cfg(feature = "time")]
 /// Polls `func` until it returns `true` or an error, `Err` from `func` is returned immediately,
 /// yielding to other tasks between polls. Returns `Err(TimeoutError)` if the timeout expires first.
+#[allow(dead_code)]
 pub async fn try_until_result<E: From<TimeoutError>>(
     mut func: impl AsyncFnMut() -> Result<bool, E>,
     timeout: Timeout,
@@ -154,6 +155,7 @@ pub async fn try_until_result<E: From<TimeoutError>>(
 #[cfg(not(feature = "time"))]
 /// Polls `func` until it returns `true` or an error, `Err` from `func` is returned immediately,
 /// yielding between polls. Without the `time` feature the timeout never expires.
+#[allow(dead_code)]
 pub async fn try_until_result<E: From<TimeoutError>>(
     mut func: impl AsyncFnMut() -> Result<bool, E>,
     _timeout: Timeout,

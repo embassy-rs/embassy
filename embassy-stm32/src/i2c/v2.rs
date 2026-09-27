@@ -12,7 +12,7 @@ use stm32_metapac::i2c::vals::{Addmode, Oamsk};
 use super::*;
 use crate::atomic::AtomicModify;
 use crate::pac::i2c;
-use crate::wait::{try_until_result, try_until_timeout};
+use crate::wait::try_until_timeout;
 
 /// Bytes a slave transmits when it is read but has nothing to send.
 ///
@@ -951,9 +951,13 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
 /// Async variants of the master transfer helpers.
 ///
-/// These mirror the blocking helpers but wait with [`try_until_timeout`]/`try_until_result`
-/// instead of spinning on the status registers, so other tasks get to run while the
-/// peripheral completes a transfer (see https://github.com/embassy-rs/embassy/issues/7052).
+/// These mirror the blocking helpers but wait without spinning on the status
+/// registers, so other tasks get to run while the peripheral completes a transfer
+/// (see https://github.com/embassy-rs/embassy/issues/7052). Waits that depend only
+/// on ISR flags are woken by the I2C event/error interrupts (the relevant interrupt
+/// enable is armed for the duration of the wait) and bounded by `timeout`; the
+/// remaining waits poll on a ticker because the peripheral has no interrupt for
+/// them.
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     async fn master_read_async(
         info: &'static Info,
@@ -999,6 +1003,9 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Wait for any previous address sequence to end automatically, yielding to other
     /// tasks instead of spinning. This could be up to 50% of a bus cycle (ie. up to 0.5/freq).
+    ///
+    /// Unlike the other waits there is no interrupt that signals the START bit
+    /// clearing, so this one polls on a ticker and is bounded by `timeout`.
     async fn wait_start_cleared_async(info: &'static Info, timeout: Timeout) -> Result<(), Error> {
         try_until_timeout(async || !info.regs.cr2().read().start(), timeout).await?;
         Ok(())
@@ -1006,46 +1013,85 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Wait for TCR (Transfer Complete Reload) or TC (Transfer Complete), then program
     /// the next chunk length.
-    async fn reload_async(
-        info: &'static Info,
-        length: usize,
-        will_reload: bool,
-        stop: Stop,
-        timeout: Timeout,
-    ) -> Result<(), Error> {
+    ///
+    /// The wait depends only on ISR flags, so it is woken by the I2C event interrupt
+    /// (TCIE) instead of polling, and bounded by `timeout`. `on_interrupt` disables
+    /// TCIE when it fires, so it is re-armed here both before the wait and after the
+    /// NBYTES write (which clears TC/TCR) for the next chunk.
+    async fn reload_async(&self, length: usize, will_reload: bool, stop: Stop, timeout: Timeout) -> Result<(), Error> {
         assert!(length < 256 && length > 0);
 
-        try_until_timeout(
-            async || {
-                let isr = info.regs.isr().read();
-                isr.tcr() || isr.tc()
-            },
-            timeout,
-        )
-        .await?;
-        Self::program_reload(info, length, will_reload, stop);
+        self.info.regs.cr1().modify(|w| w.set_tcie(true));
+        timeout
+            .with(poll_fn(|cx| {
+                self.state.waker.register(cx.waker());
+                let isr = self.info.regs.isr().read();
+                match Self::error_flags(&isr) {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(()) if isr.tcr() || isr.tc() => Poll::Ready(Ok(())),
+                    Ok(()) => Poll::Pending,
+                }
+            }))
+            .await?;
+        Self::program_reload(self.info, length, will_reload, stop);
+        self.info.regs.cr1().modify(|w| w.set_tcie(true));
 
         Ok(())
     }
 
     /// Async version of [`I2c::wait_stop`].
+    ///
+    /// The wait depends only on the STOPF ISR flag, so it is woken by the I2C event
+    /// interrupt (STOPIE, armed here) instead of polling, and bounded by `timeout`.
     async fn wait_stop_async(&self, timeout: Timeout) -> Result<(), Error> {
-        try_until_timeout(async || self.info.regs.isr().read().stopf(), timeout).await?;
+        self.info.regs.cr1().modify(|w| w.set_stopie(true));
+        let result = timeout
+            .with(poll_fn(|cx| -> Poll<Result<(), Error>> {
+                self.state.waker.register(cx.waker());
+                if self.info.regs.isr().read().stopf() {
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Pending
+                }
+            }))
+            .await;
+        // On success the interrupt handler has already disabled STOPIE; on timeout it
+        // is still armed. Disable it either way.
+        self.info.regs.cr1().modify(|w| w.set_stopie(false));
+        result?;
         trace!("STOP triggered.");
         self.info.regs.icr().modify(|reg| reg.set_stopcf(true));
         Ok(())
     }
 
     /// Async version of [`I2c::wait_tc`].
+    ///
+    /// The wait depends only on ISR flags (TC/TCR and the error flags), so it is woken
+    /// by the I2C event/error interrupts (armed here) instead of polling, and bounded
+    /// by `timeout`.
     async fn wait_tc_async(&self, timeout: Timeout) -> Result<(), Error> {
-        try_until_timeout(
-            async || {
+        self.info.regs.cr1().modify(|w| {
+            w.set_tcie(true);
+            w.set_nackie(true);
+            w.set_errie(true);
+        });
+        let result = timeout
+            .with(poll_fn(|cx| {
+                self.state.waker.register(cx.waker());
                 let isr = self.info.regs.isr().read();
-                isr.tc() || isr.tcr()
-            },
-            timeout,
-        )
-        .await?;
+                match Self::error_flags(&isr) {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(()) if isr.tc() || isr.tcr() => Poll::Ready(Ok(())),
+                    Ok(()) => Poll::Pending,
+                }
+            }))
+            .await;
+        self.info.regs.cr1().modify(|w| {
+            w.set_tcie(false);
+            w.set_nackie(false);
+            w.set_errie(false);
+        });
+        result?;
         let isr = self.info.regs.isr().read();
         self.error_occurred_async(&isr, timeout).await
     }
@@ -1101,7 +1147,30 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 
     /// Async version of [`I2c::drain_rxdr_until_stop`].
+    ///
+    /// The wait depends only on ISR flags (STOPF/ADDR/RXNE and the error flags), so it
+    /// is woken by the I2C event/error interrupts (armed here for the duration of the
+    /// drain, since the DMA teardown has disabled them) instead of polling, and bounded
+    /// by `timeout`.
     async fn drain_rxdr_until_stop_async(&self, timeout: Timeout) -> Result<usize, Error> {
+        self.info.regs.cr1().modify(|w| {
+            w.set_stopie(true);
+            w.set_addrie(true);
+            w.set_nackie(true);
+            w.set_errie(true);
+        });
+        // The DMA transfer is done and its OnDrop has run, so no context expects these
+        // enabled anymore. Make sure they are off on every exit (the interrupt handler
+        // already disables them when it wakes us).
+        let _irq_guard = OnDrop::new(|| {
+            self.info.regs.cr1().modify(|w| {
+                w.set_stopie(false);
+                w.set_addrie(false);
+                w.set_nackie(false);
+                w.set_errie(false);
+            });
+        });
+
         let mut discarded = 0;
         loop {
             let isr = self.info.regs.isr().read();
@@ -1127,14 +1196,17 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             }
 
             // Nothing pending yet: sleep until a relevant flag changes, then re-check errors.
-            try_until_result(
-                async || -> Result<bool, Error> {
+            timeout
+                .with(poll_fn(|cx| -> Poll<Result<(), Error>> {
+                    self.state.waker.register(cx.waker());
                     let isr = self.info.regs.isr().read();
-                    Ok(isr.stopf() || isr.addr() || isr.rxne() || isr.nackf() || isr.berr() || isr.arlo() || isr.ovr())
-                },
-                timeout,
-            )
-            .await?;
+                    if isr.stopf() || isr.addr() || isr.rxne() || isr.nackf() || isr.berr() || isr.arlo() || isr.ovr() {
+                        Poll::Ready(Ok(()))
+                    } else {
+                        Poll::Pending
+                    }
+                }))
+                .await?;
             let isr = self.info.regs.isr().read();
             self.error_occurred_async(&isr, timeout).await?;
         }
@@ -1154,6 +1226,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ) -> Result<(), Error> {
         let total_len = write.len();
 
+        // SAFETY: the DMA channel is not used for anything else until `dma_transfer` is dropped.
         let dma_transfer = unsafe {
             let regs = self.info.regs;
             regs.cr1().modify(|w| {
@@ -1166,7 +1239,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             });
             let dst = regs.txdr().as_ptr() as *mut u8;
 
-            self.tx_dma.as_mut().unwrap().write(write, dst, Default::default())
+            self.tx_dma
+                .as_ref()
+                .unwrap()
+                .clone_unchecked()
+                .write(write, dst, Default::default())
+                .unchecked_extend_lifetime()
         };
 
         let on_drop = OnDrop::new(|| {
@@ -1210,9 +1288,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 timeout,
             )
             .await?;
+            // Arm TCIE for the first chunk; `reload_async` re-arms itself on every
+            // subsequent round (on_interrupt disables TCIE when it wakes us).
+            self.info.regs.cr1().modify(|w| w.set_tcie(true));
         } else {
-            Self::reload_async(
-                self.info,
+            self.reload_async(
                 total_len.min(255),
                 (total_len > 255) || !last_slice,
                 Stop::Software,
@@ -1220,42 +1300,19 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             )
             .await?;
         }
-        // Re-enable TCIE unconditionally, after START/NBYTES has cleared TC.
-        //
-        // When this is not the first group of a transaction the previous group
-        // leaves TC set, so enabling TCIE before this poll fires the event
-        // interrupt straight away — and the handler disables TCIE again. Without
-        // re-enabling it here the real completion never raises an interrupt and
-        // the future waits until the transaction times out.
-        self.info.regs.cr1().modify(|w| w.set_tcie(true));
 
         // Feed the peripheral the next chunk every time the previous one completes.
-        // The waits below are interrupt-driven: TCR/TC wakes the poll_fn, and
-        // `reload_async` returns promptly because the flag is already set.
+        // Each `reload_async` waits (interrupt-driven, via TCIE) for the previous
+        // chunk to complete and is bounded by `timeout`.
         let mut remaining_len = total_len.saturating_sub(255);
         while remaining_len > 0 {
-            poll_fn(|cx| {
-                self.state.waker.register(cx.waker());
-
-                let isr = self.info.regs.isr().read();
-                match Self::error_flags(&isr) {
-                    Err(e) => Poll::Ready(Err(e)),
-                    Ok(()) if isr.tcr() || isr.tc() => Poll::Ready(Ok(())),
-                    Ok(()) => Poll::Pending,
-                }
-            })
-            .await?;
-
-            Self::reload_async(
-                self.info,
+            self.reload_async(
                 remaining_len.min(255),
                 (remaining_len > 255) || !last_slice,
                 Stop::Software,
                 timeout,
             )
             .await?;
-            self.info.regs.cr1().modify(|w| w.set_tcie(true));
-
             remaining_len = remaining_len.saturating_sub(255);
         }
 
@@ -1282,6 +1339,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ) -> Result<(), Error> {
         let total_len = buffer.len();
 
+        // SAFETY: the DMA channel is not used for anything else until `dma_transfer` is dropped.
         let dma_transfer = unsafe {
             let regs = self.info.regs;
             regs.cr1().modify(|w| {
@@ -1292,7 +1350,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             });
             let src = regs.rxdr().as_ptr() as *mut u8;
 
-            self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
+            self.rx_dma
+                .as_ref()
+                .unwrap()
+                .clone_unchecked()
+                .read(src, buffer, Default::default())
+                .unchecked_extend_lifetime()
         };
 
         let on_drop = OnDrop::new(|| {
@@ -1334,38 +1397,26 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         )
         .await?;
 
-        // Set up the next chunk every time the previous one completes. The waits
-        // below are interrupt-driven: TCR wakes the poll_fn, and `reload_async`
-        // returns promptly because the flag is already set.
+        // Set up the next chunk every time the previous one completes. Each
+        // `reload_async` waits (interrupt-driven, via TCIE) for the TCR of the
+        // previous chunk and is bounded by `timeout`.
         let mut remaining_len = total_len;
         while remaining_len > 255 {
-            poll_fn(|cx| {
-                self.state.waker.register(cx.waker());
-
-                let isr = self.info.regs.isr().read();
-                match Self::error_flags(&isr) {
-                    Err(e) => Poll::Ready(Err(e)),
-                    Ok(()) if isr.tcr() => Poll::Ready(Ok(())),
-                    Ok(()) => Poll::Pending,
-                }
-            })
-            .await?;
-
-            // Transfer Complete Reload - set up next chunk.
             let rest = remaining_len - 255;
             let last_piece = rest <= 255;
-            Self::reload_async(self.info, rest.min(255), !last_piece, Stop::Automatic, timeout).await?;
+            self.reload_async(rest.min(255), !last_piece, Stop::Automatic, timeout)
+                .await?;
             if last_piece {
                 break;
             }
-            self.info.regs.cr1().modify(|w| w.set_tcie(true));
             remaining_len = rest;
         }
 
         dma_transfer.await;
 
         if !restart {
-            // Wait for the bus to be free
+            // Wait for the bus to be free. There is no interrupt for the BUSY flag,
+            // so this polls on a ticker and is bounded by `timeout`.
             try_until_timeout(async || !self.info.regs.isr().read().busy(), timeout).await?;
         }
 
@@ -1680,6 +1731,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ) -> Result<(), Error> {
         let total_len = buffer.len();
 
+        // SAFETY: the DMA channel is not used for anything else until `dma_transfer` is dropped.
         let dma_transfer = unsafe {
             let regs = self.info.regs;
             regs.cr1().modify(|w| {
@@ -1690,7 +1742,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             });
             let src = regs.rxdr().as_ptr() as *mut u8;
 
-            self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
+            self.rx_dma
+                .as_ref()
+                .unwrap()
+                .clone_unchecked()
+                .read(src, buffer, Default::default())
+                .unchecked_extend_lifetime()
         };
 
         let on_drop = OnDrop::new(|| {
@@ -1732,31 +1789,18 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         )
         .await?;
 
-        // Set up the next chunk every time the previous one completes. The waits
-        // below are interrupt-driven: TCR wakes the poll_fn, and `reload_async`
-        // returns promptly because the flag is already set.
+        // Set up the next chunk every time the previous one completes. Each
+        // `reload_async` waits (interrupt-driven, via TCIE) for the TCR of the
+        // previous chunk and is bounded by `timeout`.
         let mut remaining_len = total_len;
         while remaining_len > 255 {
-            poll_fn(|cx| {
-                self.state.waker.register(cx.waker());
-
-                let isr = self.info.regs.isr().read();
-                match Self::error_flags(&isr) {
-                    Err(e) => Poll::Ready(Err(e)),
-                    Ok(()) if isr.tcr() => Poll::Ready(Ok(())),
-                    Ok(()) => Poll::Pending,
-                }
-            })
-            .await?;
-
-            // Transfer Complete Reload - set up next chunk.
             let rest = remaining_len - 255;
             let last_piece = rest <= 255;
-            Self::reload_async(self.info, rest.min(255), !last_piece, stop_mode, timeout).await?;
+            self.reload_async(rest.min(255), !last_piece, stop_mode, timeout)
+                .await?;
             if last_piece {
                 break;
             }
-            self.info.regs.cr1().modify(|w| w.set_tcie(true));
             remaining_len = rest;
         }
 
@@ -2314,6 +2358,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
             return out;
         }
 
+        // SAFETY: the DMA channel is not used for anything else until `dma_transfer` is dropped.
         let mut dma_transfer = unsafe {
             regs.cr1().modify(|w| {
                 w.set_rxdmaen(true);
@@ -2323,7 +2368,12 @@ impl<'d> I2c<'d, Async, MultiMaster> {
             });
             let src = regs.rxdr().as_ptr() as *mut u8;
 
-            self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
+            self.rx_dma
+                .as_ref()
+                .unwrap()
+                .clone_unchecked()
+                .read(src, buffer, Default::default())
+                .unchecked_extend_lifetime()
         };
 
         let state = self.state;
@@ -2431,6 +2481,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         let total_len = buffer.len();
         let mut remaining_len = total_len;
 
+        // SAFETY: the DMA channel is not used for anything else until `dma_transfer` is dropped.
         let mut dma_transfer = unsafe {
             let regs = self.info.regs;
             regs.cr1().modify(|w| {
@@ -2441,7 +2492,12 @@ impl<'d> I2c<'d, Async, MultiMaster> {
             });
             let dst = regs.txdr().as_ptr() as *mut u8;
 
-            self.tx_dma.as_mut().unwrap().write(buffer, dst, Default::default())
+            self.tx_dma
+                .as_ref()
+                .unwrap()
+                .clone_unchecked()
+                .write(buffer, dst, Default::default())
+                .unchecked_extend_lifetime()
         };
 
         let on_drop = OnDrop::new(|| {
