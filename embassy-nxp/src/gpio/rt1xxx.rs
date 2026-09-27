@@ -866,56 +866,74 @@ fn irq_handler(block: Gpio, wakers: &[AtomicWaker; 32], high_bits: bool) {
     }
 }
 
-#[cfg(all(any(feature = "mimxrt1011", feature = "mimxrt1062"), feature = "rt"))]
+#[cfg(all(
+    any(feature = "mimxrt1011", feature = "mimxrt1062", feature = "mimxrt1064"),
+    feature = "rt"
+))]
 #[interrupt]
 fn GPIO1_COMBINED_0_15() {
     irq_handler(pac::GPIO1, &GPIO1_WAKERS, false);
 }
 
-#[cfg(all(any(feature = "mimxrt1011", feature = "mimxrt1062"), feature = "rt"))]
+#[cfg(all(
+    any(feature = "mimxrt1011", feature = "mimxrt1062", feature = "mimxrt1064"),
+    feature = "rt"
+))]
 #[interrupt]
 fn GPIO1_COMBINED_16_31() {
     irq_handler(pac::GPIO1, &GPIO1_WAKERS, true);
 }
 
-#[cfg(all(any(feature = "mimxrt1011", feature = "mimxrt1062"), feature = "rt"))]
+#[cfg(all(
+    any(feature = "mimxrt1011", feature = "mimxrt1062", feature = "mimxrt1064"),
+    feature = "rt"
+))]
 #[interrupt]
 fn GPIO2_COMBINED_0_15() {
     irq_handler(pac::GPIO2, &GPIO2_WAKERS, false);
 }
 
-#[cfg(all(feature = "mimxrt1062", feature = "rt"))]
+#[cfg(all(any(feature = "mimxrt1062", feature = "mimxrt1064"), feature = "rt"))]
 #[interrupt]
 fn GPIO2_COMBINED_16_31() {
     irq_handler(pac::GPIO2, &GPIO2_WAKERS, true);
 }
 
-#[cfg(all(feature = "mimxrt1062", feature = "rt"))]
+#[cfg(all(any(feature = "mimxrt1062", feature = "mimxrt1064"), feature = "rt"))]
 #[interrupt]
 fn GPIO3_COMBINED_0_15() {
     irq_handler(pac::GPIO3, &GPIO3_WAKERS, false);
 }
 
-#[cfg(all(feature = "mimxrt1062", feature = "rt"))]
+#[cfg(all(any(feature = "mimxrt1062", feature = "mimxrt1064"), feature = "rt"))]
 #[interrupt]
 fn GPIO3_COMBINED_16_31() {
     irq_handler(pac::GPIO3, &GPIO3_WAKERS, true);
 }
 
-#[cfg(all(feature = "mimxrt1062", feature = "rt"))]
+#[cfg(all(any(feature = "mimxrt1062", feature = "mimxrt1064"), feature = "rt"))]
 #[interrupt]
 fn GPIO4_COMBINED_0_15() {
     irq_handler(pac::GPIO4, &GPIO4_WAKERS, false);
 }
 
-#[cfg(all(feature = "mimxrt1062", feature = "rt"))]
+#[cfg(all(any(feature = "mimxrt1062", feature = "mimxrt1064"), feature = "rt"))]
 #[interrupt]
 fn GPIO4_COMBINED_16_31() {
     irq_handler(pac::GPIO4, &GPIO4_WAKERS, true);
 }
 
-#[cfg(all(any(feature = "mimxrt1011", feature = "mimxrt1062"), feature = "rt"))]
+#[cfg(all(
+    any(feature = "mimxrt1011", feature = "mimxrt1062", feature = "mimxrt1064"),
+    feature = "rt"
+))]
 #[interrupt]
 fn GPIO5_COMBINED_0_15() {
+    irq_handler(pac::GPIO5, &GPIO5_WAKERS, false);
+}
+
+#[cfg(all(any(feature = "mimxrt1062", feature = "mimxrt1064"), feature = "rt"))]
+#[interrupt]
+fn GPIO5_COMBINED_16_31() {
     irq_handler(pac::GPIO5, &GPIO5_WAKERS, false);
 }
