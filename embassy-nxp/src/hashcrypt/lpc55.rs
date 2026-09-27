@@ -195,7 +195,10 @@ pub trait Aes {
 
 // Specific driver types
 pub struct Sha1<'a, 'd> {
-    _peri: &'a mut GenericDriver<'d>,
+    _peri: &'a mut GenericDriver<'d>, // A mutable reference to the generic driver which holds the HASHCRYPT peripheral
+    buffer: [u8; 64],                 // A 64 byte buffer in which we can dump incoming data streams
+    buffer_len: usize, // The number of valid bytes currently buffered, resets to 0 after buffer is drained
+    total_len: u64,    // The size of the complete message to be hashed
 }
 
 impl<'a, 'd> Digest for Sha1<'a, 'd> {
@@ -207,7 +210,10 @@ impl<'a, 'd> Digest for Sha1<'a, 'd> {
 }
 
 pub struct Sha256<'a, 'd> {
-    _peri: &'a mut GenericDriver<'d>,
+    _peri: &'a mut GenericDriver<'d>, // A mutable reference to the generic driver which holds the HASHCRYPT peripheral
+    buffer: [u8; 64],                 // A 64 byte buffer in which we can dump incoming data streams
+    buffer_len: usize, // The number of valid bytes currently buffered, resets to 0 after buffer is drained
+    total_len: u64,    // The size of the complete message to be hashed
 }
 
 impl<'a, 'd> Digest for Sha256<'a, 'd> {
