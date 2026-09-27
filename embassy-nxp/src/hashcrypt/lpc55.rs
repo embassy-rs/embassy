@@ -136,11 +136,11 @@ impl<'d> GenericDriver<'d> {
 
 pub trait Digest {
     type Output;
-    #[doc = "Accepts an arbitrary-length slice of bytes at the time, to be buffered until a full block is built, then drained in to the FIFO"]
-    fn update(&mut self, data: &[u8]);
+    // the update method is identical between sha1 and sha2 and so, it will be implemented
+    // by a macro similar to the key related functions for AES
 
     #[doc = "Returns the digest of the message streamed via `update`"]
-    fn finalise(self) -> Self::Output;
+    fn finalise(&mut self) -> Self::Output;
 }
 
 pub trait Aes {
@@ -175,11 +175,7 @@ pub struct Sha1<'a, 'd> {
 impl<'a, 'd> Digest for Sha1<'a, 'd> {
     type Output = [u8; 20];
 
-    fn update(&mut self, _data: &[u8]) {
-        todo!("Add update function for Sha1");
-    }
-
-    fn finalise(self) -> Self::Output {
+    fn finalise(&mut self) -> Self::Output {
         todo!("Add finalise method for Sha1");
     }
 }
@@ -190,12 +186,7 @@ pub struct Sha256<'a, 'd> {
 
 impl<'a, 'd> Digest for Sha256<'a, 'd> {
     type Output = [u8; 32];
-
-    fn update(&mut self, _data: &[u8]) {
-        todo!("Add update method for Sha 256");
-    }
-
-    fn finalise(self) -> Self::Output {
+    fn finalise(&mut self) -> Self::Output {
         todo!("Add finalise method for Sha 256");
     }
 }
@@ -259,6 +250,8 @@ impl<'a, 'd> AesCtr<'a, 'd> {
         todo!("Add method boady");
     }
 }
+
+// TODO: replace with impl_sha! macro once it's introduced in the SHA PR
 
 macro_rules! impl_aes {
     ($ty:ident) => {
