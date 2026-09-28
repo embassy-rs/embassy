@@ -1023,9 +1023,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 w.set_enable(true);
             });
 
-            // FIXME: What is this for?
-            regs.sie_ctrl().modify(|w| w.set_sof_sync(true));
-
             self.addr_endp_host().write(|w| {
                 w.set_address(self.dev_addr);
                 w.set_endpoint(self.ep_addr);
