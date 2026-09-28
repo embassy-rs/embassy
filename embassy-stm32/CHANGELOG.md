@@ -43,6 +43,8 @@ CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
 - fix: stm32/fdcan: apply `FdCanConfig::timestamp_source`. It was ignored and the timestamp counter always ran from the kernel clock, and `TimestampPrescaler` wrote the prescaler value instead of `TCP = prescaler - 1`.
 - fix: stm32/fdcan: the TX buffer element kept only 7 of the 8 message marker bits.
+- feat: stm32/fdcan: with `TimestampSource::FromTIM3` and TIM3 as the embassy time driver, RX and TX event timestamps are the exact start-of-frame instants.
+- feat: stm32/fdcan: `write_marked` / `write_fd_marked` store a TX event with a message marker; `dequeue_tx_event` reads the id, marker and timestamp back from the TX event FIFO.
 
 Ethernet:
 - fix: stm32/eth v2: place a memory barrier before handing a descriptor to the DMA, so the buffer address and the frame contents are visible to it first.
