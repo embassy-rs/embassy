@@ -530,12 +530,14 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// Parses the controller status producing an
     /// appropriate `Result<(), Error>` variant.
     fn parse_status(&self, msr: &Msr) -> Result<(), IOError> {
-        if msr.ndf() == Ndf::IntYes {
-            Err(IOError::AddressNack)
-        } else if msr.alf() == Alf::IntYes {
+        if msr.alf() == Alf::IntYes {
             Err(IOError::ArbitrationLoss)
         } else if msr.fef() == MsrFef::IntYes {
             Err(IOError::FifoError)
+        } else if msr.pltf() == Pltf::IntYes {
+            Err(IOError::Other)
+        } else if msr.ndf() == Ndf::IntYes {
+            Err(IOError::AddressNack)
         } else {
             Ok(())
         }
@@ -565,18 +567,23 @@ impl<'d, M: Mode> I2c<'d, M> {
             // Keep NDF asserted until STOP completes. Clearing NDF early can
             // release the rejected command still held by the command engine,
             // causing its data byte to become the address of the next packet.
-            while self.info.regs().msr().read().sdf() != MsrSdf::IntYes {
+            while !self.is_stop_complete_or_error() {
                 core::hint::spin_loop();
             }
 
+            let recovery_status = self.info.regs().msr().read();
+            let recovery_result = match self.parse_status(&recovery_status) {
+                Ok(()) | Err(IOError::AddressNack) => status,
+                error => error,
+            };
+
             self.reset_fifos();
 
-            // Clear NDF only after STOP has completed and queued commands have
-            // been discarded.
-            let recovery_status = self.info.regs().msr().read();
+            // Clear NDF only after STOP has completed, or after a terminal
+            // error has released the bus, and queued commands are discarded.
             self.info.regs().msr().write(|w| *w = recovery_status);
 
-            return status;
+            return recovery_result;
         }
 
         self.info.regs().msr().write(|w| *w = msr);
