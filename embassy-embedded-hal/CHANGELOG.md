@@ -8,7 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.6.1 - 2026-09-28
+
+- Fix the propagation of `flush()` in the `BlockingAsync` adapter
+- Remove the dependency on `embassy-embedded-hal`
 - Implement `core::error::Error` for `I2cDeviceError` and `SpiDeviceError`
+- Implement `SetConfig` for `YieldingAsync` and `BlockingAsync` adapters
 
 ## 0.6.0 - 2026-03-10
 
