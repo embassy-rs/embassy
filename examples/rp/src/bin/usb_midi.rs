@@ -13,7 +13,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::uid::uid_hex;
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
-use embassy_usb::class::midi::{MidiClass, MidiClassConfig, MidiClassState};
+use embassy_usb::class::midi::{MidiClass, MidiClassConfig, MidiClassState, MidiPacket};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 use panic_probe as _;
@@ -111,6 +111,15 @@ async fn midi_echo<'d, T: Instance + 'd>(class: &mut MidiClass<'d, Driver<'d, T>
         let n = class.read_packet(&mut buf).await?;
         let data = &buf[..n];
         info!("data: {:x}", data);
+
+        let packet = MidiPacket::try_from(data);
+        info!("packet: {:x}", packet);
+        if let Ok(packet) = packet {
+            let (cable_no, event) = packet.decode();
+            info!("cable_no: {:x}", cable_no);
+            info!("event: {:x}", event);
+        }
+
         class.write_packet(data).await?;
     }
 }

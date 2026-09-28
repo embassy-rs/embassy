@@ -1,5 +1,9 @@
 //! MIDI class implementation.
 
+mod packet;
+
+pub use packet::*;
+
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
 use crate::types::StringIndex;
