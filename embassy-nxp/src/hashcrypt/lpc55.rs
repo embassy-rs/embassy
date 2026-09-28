@@ -77,6 +77,25 @@ fn feed_key(key: &Key) {
         }
     }
 }
+#[allow(dead_code)] // This method is ment to be ussed by both SHA modes as well as all AES modes, atribute is temporary and wil be removed
+fn read_digest(count: usize, out: &mut [u8]) {
+    loop {
+        let status = pac::HASHCRYPT.status().read().digest();
+        // if status is true, that we have a digest ready to be read. We poll digest here and not in
+        // [update(&mut self, data: &[u8])] since we want to make sure that the entire message has
+        // been streamed.
+        if status {
+            for i in 0..count {
+                let word = pac::HASHCRYPT.digest0(i).read().digest();
+                out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
+            }
+            break;
+        }
+        // If status is false, then that means there is no digest ready to be read, and since there is
+        // no more incoming data, then that means we just need to keep waiting and so there is no need
+        // to explicitly handle that case
+    }
+}
 
 // Generic driver type
 pub struct GenericDriver<'d> {
