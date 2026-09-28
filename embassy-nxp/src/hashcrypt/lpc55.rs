@@ -78,7 +78,6 @@ fn feed_key(key: &Key) {
         }
     }
 }
-#[allow(dead_code)] // Used by the SHA and AES modes; remove once a caller exists.
 fn read_digest(count: usize, out: &mut [u8]) {
     loop {
         let status = pac::HASHCRYPT.status().read().digest();
