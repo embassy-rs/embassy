@@ -527,7 +527,7 @@ impl<'d, W: Word> I2S<'d, W> {
 
         let tx_f = async {
             if let Some(tx_ring_buffer) = &mut self.tx_ring_buffer {
-                tx_ring_buffer.stop().await;
+                tx_ring_buffer.disable_circular_and_wait().await;
 
                 set_txdmaen(regs_tx, false);
             }
@@ -535,7 +535,7 @@ impl<'d, W: Word> I2S<'d, W> {
 
         let rx_f = async {
             if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
-                rx_ring_buffer.stop().await;
+                rx_ring_buffer.disable_circular_and_wait().await;
 
                 set_rxdmaen(regs_rx, false);
             }

@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implement `core::error::Error` for `dns::Error`, `tcp::AcceptError`, `udp::SendError` and `udp::RecvError`.
 - Prevent double DHCP DISCOVER on link state change.
 - Add functions to query the configuration state of IPv4 and IPv6 separately.
+- Removed `UdpSocket::wait_send_ready`, `UdpSocket::poll_send_ready`, `UdpSocket::may_send`, `UdpSocket::may_recv`, `RawSocket::wait_send_ready` and `RawSocket::poll_send_ready`.
+- tcp: `wait_read_ready`, `wait_write_ready`, `ReadReady` and `WriteReady` now also report ready when the connection half is closed.
 
 ## 0.9.1 - 2026-04-16
 

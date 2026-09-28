@@ -156,7 +156,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
     ///
     /// Note: This is also done automatically by the read functions if
     /// required.
-    pub fn start_uart(&mut self) {
+    pub fn start(&mut self) {
         // Clear the buffer so that it is ready to receive data
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
@@ -180,7 +180,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
     }
 
     /// Stop DMA backed UART receiver
-    fn stop_uart(&mut self) {
+    pub fn stop(&mut self) {
         self.ring_buf.request_pause();
 
         let r = self.info.regs;
@@ -225,7 +225,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
             self.state.tx_waker.wake();
         }
         if !r.cr3().read().dmar() {
-            self.start_uart();
+            self.start();
         }
         Ok(())
     }
@@ -265,7 +265,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
                     return Ok(len);
                 }
                 Err(_) => {
-                    self.stop_uart();
+                    self.stop();
                     return Err(Error::Overrun);
                 }
             }
@@ -273,7 +273,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
             match self.wait_for_data_or_idle().await {
                 Ok(_) => {}
                 Err(err) => {
-                    self.stop_uart();
+                    self.stop();
                     return Err(err);
                 }
             }
@@ -368,7 +368,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
 
 impl<W: UsartWord> Drop for RingBufferedUartRx<'_, W> {
     fn drop(&mut self) {
-        self.stop_uart();
+        self.stop();
         super::drop_tx_rx(self.info, self.state);
     }
 }

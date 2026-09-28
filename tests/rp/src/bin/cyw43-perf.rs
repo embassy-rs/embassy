@@ -97,7 +97,15 @@ async fn main(spawner: Spawner) {
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
-    let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
+    let (net_device, mut control, mut runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
+
+    // init must be repeatable: embassy-rs/embassy#6948
+    for i in 0..10 {
+        if runner.init(fw, nvram, None).await.is_err() {
+            panic!("re-init {} failed", i);
+        }
+    }
+
     spawner.spawn(unwrap!(wifi_task(runner)));
 
     control.init(clm).await;

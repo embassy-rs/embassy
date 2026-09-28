@@ -75,6 +75,19 @@ impl NorFlashError for Error {
     }
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::OutOfBounds => f.write_str("Out of bounds"),
+            Self::Unaligned => f.write_str("Unaligned"),
+            Self::InvalidCore => f.write_str("Invalid core"),
+            Self::Other => f.write_str("Other error"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
+
 /// Future that waits for completion of a background read
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct BackgroundRead<'a, 'd, const FLASH_SIZE: usize> {
