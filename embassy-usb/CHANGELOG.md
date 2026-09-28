@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MIDI`: Change constructor to take a configuration struct instead of discrete arguments
 - `MIDI`: Add extra fields to endpoint descriptors
 - `MIDI`: Add optional names for the jacks
+- `MIDI`: Add packet encoding and decoding
 - Make `InterfaceAltBuilder::endpoint_in` and `InterfaceAltBuilder::endpoint_out` public
 - Fix various typos in comments and internal variable names
 
