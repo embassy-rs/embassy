@@ -48,6 +48,11 @@ impl MidiPacket {
         (self.cable_number(), self.event())
     }
 
+    /// Creates a new packet from bytes.
+    pub fn from_bytes(bytes: [u8; 4]) -> Self {
+        Self { raw: bytes }
+    }
+
     /// Returns a reference to the packet bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.raw
@@ -105,6 +110,17 @@ impl MidiPacket {
     }
 }
 
+/// Returns an iterator over packets from a bulk transaction.
+pub fn packets_iter(data: &[u8]) -> Result<impl Iterator<Item = MidiPacket> + '_, MidiPacketError> {
+    if data.is_empty() || !data.len().is_multiple_of(4) {
+        return Err(MidiPacketError::InvalidPacketLength);
+    }
+
+    Ok(data
+        .chunks_exact(4)
+        .map(|chunk| MidiPacket::from_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])))
+}
+
 /// Packet errors.
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -126,6 +142,9 @@ pub enum MidiPacketError {
 
     /// Event length does not match its status byte.
     InvalidEventLength,
+
+    /// Packet does not have a length of 4 bytes.
+    InvalidPacketLength,
 }
 
 /// Code Index Number (CIN) classifications.
