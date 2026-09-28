@@ -1,6 +1,6 @@
 //! Simple PWM driver.
 
-use core::convert::Infallible;
+use core::fmt;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
@@ -20,9 +20,44 @@ pub enum FourChannels {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
+pub enum InitError {
     /// The desired frequency can not be reached with the selected clock source and timer.
     InvalidFrequency,
+}
+
+impl fmt::Display for InitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InitError::InvalidFrequency => write!(f, "invalid frequency"),
+        }
+    }
+}
+
+impl core::error::Error for InitError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// The desired duty cycle is not supported with the current configuration.
+    InvalidDuty,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::InvalidDuty => write!(f, "invalid duty cycle"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
+
+impl embedded_hal::pwm::Error for Error {
+    fn kind(&self) -> embedded_hal::pwm::ErrorKind {
+        match self {
+            Error::InvalidDuty => embedded_hal::pwm::ErrorKind::Other,
+        }
+    }
 }
 
 /// Simple PWM configuration.
@@ -71,9 +106,9 @@ impl<'d, Channels, Bits: TimerBits> SimplePwm<'d, Channels, Bits> {
     ///
     /// The actual frequency may differ from the requested value due to hardware limitations. The timer will round
     /// towards a slower (longer) period.
-    pub fn set_frequency(&mut self, mode: CountingMode, freq: u32) -> Result<(), Error> {
+    pub fn set_frequency(&mut self, mode: CountingMode, freq: u32) -> Result<(), InitError> {
         if freq == 0 {
-            return Err(Error::InvalidFrequency);
+            return Err(InitError::InvalidFrequency);
         }
 
         let regs = self.info.regs;
@@ -168,7 +203,7 @@ impl<'d, Channels, Bits: TimerBits> SimplePwm<'d, Channels, Bits> {
             }
         }
 
-        let (ratio, prescaler, load) = result.ok_or(Error::InvalidFrequency)?;
+        let (ratio, prescaler, load) = result.ok_or(InitError::InvalidFrequency)?;
         trace!(
             "Selected: ratio (enum): {}, prescaler: {}, load: {}",
             ratio as u8, prescaler, load
@@ -349,7 +384,7 @@ impl<'d> SimplePwm<'d, TwoChannels, u16> {
         ch0: Option<PwmPin<'d, T, Ch0>>,
         ch1: Option<PwmPin<'d, T, Ch1>>,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, InitError> {
         Self::new_inner(
             T::info(),
             config,
@@ -372,7 +407,7 @@ impl<'d> SimplePwm<'d, FourChannels, u16> {
         ch2: Option<PwmPin<'d, T, Ch2>>,
         ch3: Option<PwmPin<'d, T, Ch3>>,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, InitError> {
         Self::new_inner(
             T::info(),
             config,
@@ -462,13 +497,13 @@ impl<'d, Bits: TimerBits> SimplePwmChannel<'d, Bits> {
 
     /// Set the duty cycle of this channel to be fully off.
     pub fn set_duty_cycle_fully_off(&mut self) {
-        set_duty_cycle_inner(self.info.regs, self.index, 0);
+        let _ = set_duty_cycle_inner(self.info.regs, self.index, 0);
     }
 
     /// Set the duty cycle of this channel to be fully on.
     pub fn set_duty_cycle_fully_on(&mut self) {
         let duty = max_duty_cycle_inner(self.info.regs);
-        set_duty_cycle_inner(self.info.regs, self.index, duty);
+        let _ = set_duty_cycle_inner(self.info.regs, self.index, duty);
     }
 
     // TODO: fractional duty cycle
@@ -490,7 +525,7 @@ impl<'d> SimplePwmChannel<'d, u16> {
     /// Set the duty cycle of this channel
     ///
     /// This must be a value equal to or less than [`SimplePwmChannel::max_duty_cycle`].
-    pub fn set_duty_cycle(&mut self, duty: u16) {
+    pub fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Error> {
         set_duty_cycle_inner(self.info.regs, self.index, duty as u32)
     }
 
@@ -512,7 +547,7 @@ impl<'d> SimplePwmChannel<'d, u32> {
     /// Set the duty cycle of this channel
     ///
     /// This must be a value equal to or less than [`SimplePwmChannel::max_duty_cycle`].
-    pub fn set_duty_cycle(&mut self, duty: u32) {
+    pub fn set_duty_cycle(&mut self, duty: u32) -> Result<(), Error> {
         set_duty_cycle_inner(self.info.regs, self.index, duty)
     }
 
@@ -523,8 +558,7 @@ impl<'d> SimplePwmChannel<'d, u32> {
 }
 
 impl<'d, Bits: TimerBits> embedded_hal::pwm::ErrorType for SimplePwmChannel<'d, Bits> {
-    // FIXME: Add error type since duty could be too high.
-    type Error = Infallible;
+    type Error = Error;
 }
 
 impl<'d, Bits: TimerBits> embedded_hal::pwm::SetDutyCycle for SimplePwmChannel<'d, Bits> {
@@ -535,8 +569,7 @@ impl<'d, Bits: TimerBits> embedded_hal::pwm::SetDutyCycle for SimplePwmChannel<'
     }
 
     fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
-        set_duty_cycle_inner(self.info.regs, self.index, duty as u32);
-        Ok(())
+        set_duty_cycle_inner(self.info.regs, self.index, duty as u32)
     }
 }
 
@@ -608,7 +641,7 @@ impl<'d, Channels, Bits: TimerBits> SimplePwm<'d, Channels, Bits> {
         ch1: Option<Peri<'d, AnyPin>>,
         ch2: Option<Peri<'d, AnyPin>>,
         ch3: Option<Peri<'d, AnyPin>>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, InitError> {
         let regs = info.regs;
 
         // Reset
@@ -757,9 +790,13 @@ fn max_duty_cycle_inner(r: Regs) -> u32 {
     r.counterregs(0).load().read().saturating_add(1)
 }
 
-fn set_duty_cycle_inner(r: Regs, index: u8, duty: u32) {
-    assert!(duty <= max_duty_cycle_inner(r));
+fn set_duty_cycle_inner(r: Regs, index: u8, duty: u32) -> Result<(), Error> {
+    if duty > max_duty_cycle_inner(r) {
+        return Err(Error::InvalidDuty);
+    }
+
     r.counterregs(0).cc(index as usize).write_value(duty);
+    Ok(())
 }
 
 fn current_duty_cycle_inner(r: Regs, index: u8) -> u32 {

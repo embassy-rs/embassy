@@ -55,9 +55,9 @@ async fn main(_spawner: Spawner) -> ! {
 
     loop {
         let (red_level, green_level, blue_level) = rainbow(hue);
-        red.set_duty_cycle(scale_duty(red_level, max_duty_cycle));
-        green.set_duty_cycle(scale_duty(green_level, max_duty_cycle));
-        blue.set_duty_cycle(scale_duty(blue_level, max_duty_cycle));
+        unwrap!(red.set_duty_cycle(scale_duty(red_level, max_duty_cycle)));
+        unwrap!(green.set_duty_cycle(scale_duty(green_level, max_duty_cycle)));
+        unwrap!(blue.set_duty_cycle(scale_duty(blue_level, max_duty_cycle)));
 
         hue = hue.wrapping_add(1);
         Timer::after_millis(20).await;
