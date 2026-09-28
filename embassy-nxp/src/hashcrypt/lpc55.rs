@@ -77,13 +77,12 @@ fn feed_key(key: &Key) {
         }
     }
 }
-#[allow(dead_code)] // This method is ment to be ussed by both SHA modes as well as all AES modes, atribute is temporary and wil be removed
+#[allow(dead_code)] // Used by the SHA and AES modes; remove once a caller exists.
 fn read_digest(count: usize, out: &mut [u8]) {
     loop {
         let status = pac::HASHCRYPT.status().read().digest();
-        // if status is true, that we have a digest ready to be read. We poll digest here and not in
-        // [update(&mut self, data: &[u8])] since we want to make sure that the entire message has
-        // been streamed.
+        // Block until the DIGEST status flag signals the output registers hold a
+        // complete result, then read `count` words out of DIGEST0..n.
         if status {
             for i in 0..count {
                 let word = pac::HASHCRYPT.digest0(i).read().digest();
