@@ -1,6 +1,7 @@
 //! Driver for the HASHCRYPT peripheral, mode switch sckeleton
 use embassy_hal_internal::Peri;
 use nxp_pac::hashcrypt::vals::{Aeskeysz, Mode};
+use nxp_pac::syscon::vals::HashAesRst::Released;
 
 use crate::hashcrypt::inner::Key::{Key128, Key192, Key256};
 use crate::pac;
@@ -104,6 +105,13 @@ pub struct GenericDriver<'d> {
 // mode switching implementation of generic driver
 impl<'d> GenericDriver<'d> {
     pub fn new(peri: Peri<'d, HASHCRYPT>) -> Self {
+        pac::SYSCON.ahbclkctrl2().modify(|w| {
+            w.set_hash_aes(true);
+        });
+
+        pac::SYSCON.presetctrl2().modify(|w| {
+            w.set_hash_aes_rst(Released);
+        });
         Self { _peri: peri }
     }
 
