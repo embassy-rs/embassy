@@ -74,6 +74,38 @@ impl DhcpServerConfig {
     }
 }
 
+/// The state of one [`DhcpServerLease`].
+///
+/// An offered, bound or declined lease holds its address until `expires_at`.
+/// Once a poll finds that time has passed, an offered or bound lease becomes
+/// `Expired`, and a declined one is removed from the table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum DhcpServerLeaseState {
+    /// The address was offered and the client has not requested it yet.
+    Offered {
+        /// When the offer lapses.
+        expires_at: Instant,
+    },
+    /// The client holds the address.
+    Bound {
+        /// When the lease ends.
+        expires_at: Instant,
+    },
+    /// The client reported the address as in use by someone else. The address
+    /// is kept out of the pool until the hold ends.
+    Declined {
+        /// When the hold ends.
+        expires_at: Instant,
+    },
+    /// The client released the address, or chose another server. Kept as a
+    /// record so a returning client gets the same address.
+    Released,
+    /// The offer lapsed, or the lease ended. Kept as a record so a returning
+    /// client gets the same address.
+    Expired,
+}
+
 /// One entry of the DHCP server's lease table.
 ///
 /// Read them with [`Iface::dhcpv4_server_leases`].
@@ -104,19 +136,24 @@ impl DhcpServerLease {
         self.0.client_id()
     }
 
-    /// The state of the lease.
+    /// The state of the lease, with when it ends if it holds its address.
     pub fn state(&self) -> DhcpServerLeaseState {
-        self.0.state()
-    }
-
-    /// When the lease stops holding its address.
-    ///
-    /// For an offered lease this is when the unanswered offer lapses, for a
-    /// bound one the end of the lease, and for a declined one the end of the
-    /// hold that keeps the address out of the pool. A released lease is already
-    /// past it. Past this time the entry is only a record: the address is free,
-    /// and the entry makes a returning client get it again.
-    pub fn expires_at(&self) -> Instant {
-        instant_from_xarxa(self.0.expires_at())
+        match self.0.state() {
+            xarxa::iface::dhcpv4_server::DhcpServerLeaseState::Offered { expires_at } => {
+                DhcpServerLeaseState::Offered {
+                    expires_at: instant_from_xarxa(expires_at),
+                }
+            }
+            xarxa::iface::dhcpv4_server::DhcpServerLeaseState::Bound { expires_at } => DhcpServerLeaseState::Bound {
+                expires_at: instant_from_xarxa(expires_at),
+            },
+            xarxa::iface::dhcpv4_server::DhcpServerLeaseState::Declined { expires_at } => {
+                DhcpServerLeaseState::Declined {
+                    expires_at: instant_from_xarxa(expires_at),
+                }
+            }
+            xarxa::iface::dhcpv4_server::DhcpServerLeaseState::Released => DhcpServerLeaseState::Released,
+            xarxa::iface::dhcpv4_server::DhcpServerLeaseState::Expired => DhcpServerLeaseState::Expired,
+        }
     }
 }
