@@ -41,6 +41,8 @@ Crypto:
 
 CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
+- fix: stm32/fdcan: apply `FdCanConfig::timestamp_source`. It was ignored and the timestamp counter always ran from the kernel clock, and `TimestampPrescaler` wrote the prescaler value instead of `TCP = prescaler - 1`.
+- fix: stm32/fdcan: the TX buffer element kept only 7 of the 8 message marker bits.
 
 Ethernet:
 - fix: stm32/eth v2: place a memory barrier before handing a descriptor to the DMA, so the buffer address and the frame contents are visible to it first.
