@@ -119,9 +119,9 @@ impl MidiPacket {
         Ok((Self { raw }, event_len))
     }
 
-    /// Tries to create a packet from an event with strict length checking.
+    /// Tries to create a packet from an event with length checking.
     /// Returns an error if the event length does not match the expected length.
-    pub fn try_encode_strict(cable_number: u8, event: &[u8]) -> Result<Self, MidiPacketError> {
+    pub fn try_encode_exact(cable_number: u8, event: &[u8]) -> Result<Self, MidiPacketError> {
         let packet = Self::try_encode(cable_number, event)?;
 
         if packet.1 == event.len() {
@@ -494,14 +494,14 @@ mod tests {
             }
         }
 
-        macro_rules! encode_packet_strict_test {
+        macro_rules! encode_packet_exact_test {
             ($($id:ident: $value:expr,)*) => {
                 $(
                     #[test]
                     fn $id() {
                         let ((cable, payload), expected) = $value;
                         let payload = payload.as_slice();
-                        let encoded = MidiPacket::try_encode_strict(cable, payload);
+                        let encoded = MidiPacket::try_encode_exact(cable, payload);
                         let expected: Result<[u8; 4], MidiPacketError> = expected;
                         assert_eq!(encoded, expected.map(
                             |v| MidiPacket::try_from(v.as_slice()).unwrap()
@@ -556,12 +556,12 @@ mod tests {
             empty: ((0, []), Err(MidiPacketError::EmptyEvent)),
         }
 
-        encode_packet_strict_test! {
-            note_on_strict: ((2, [0x96, 67, 14]), Ok([0x29, 0x96, 67, 14])),
-            program_change_strict: ((0, [0xC0, 36]), Ok([0x0C, 0xC0, 36, 0])),
-            program_change_strict_invalid: ((0, [0xC0, 36, 10]), Err(MidiPacketError::InvalidEventLength)),
-            timing_clock_strict: ((0, [0xF8]), Ok([0x0F, 0xF8, 0, 0])),
-            timing_clock_strict_invalid: ((0, [0xF8, 53]), Err(MidiPacketError::InvalidEventLength)),
+        encode_packet_exact_test! {
+            note_on_exact: ((2, [0x96, 67, 14]), Ok([0x29, 0x96, 67, 14])),
+            program_change_exact: ((0, [0xC0, 36]), Ok([0x0C, 0xC0, 36, 0])),
+            program_change_exact_invalid: ((0, [0xC0, 36, 10]), Err(MidiPacketError::InvalidEventLength)),
+            timing_clock_exact: ((0, [0xF8]), Ok([0x0F, 0xF8, 0, 0])),
+            timing_clock_exact_invalid: ((0, [0xF8, 53]), Err(MidiPacketError::InvalidEventLength)),
         }
     }
 
