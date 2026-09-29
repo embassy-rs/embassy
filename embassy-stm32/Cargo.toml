@@ -326,6 +326,9 @@ embassy-crypto-p384-ecdh = ["dep:crypto-bigint"]
 ## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
 embassy-crypto-p384-ecdsa = ["dep:crypto-bigint"]
 
+## Enable the [`exti`](crate::exti) module, for waiting on GPIO pin edges with
+## `ExtiInput`. The async SPI slave driver also needs it: its constructors and
+## `RingBufferedSpiRx` are only available with this feature.
 exti = []
 low-power = [ "time" ]
 low-power-debug-with-sleep = [ "low-power" ]
