@@ -1080,7 +1080,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 self.state.waker.register(cx.waker());
                 let isr = self.info.regs.isr().read();
                 match Self::error_flags(&isr) {
-                    Err(e) => Poll::Ready(Err(e)),
+                    Err(_) => Poll::Ready(Ok::<_, Error>(isr)),
                     Ok(()) if isr.tc() || isr.tcr() => Poll::Ready(Ok(isr)),
                     Ok(()) => Poll::Pending,
                 }
