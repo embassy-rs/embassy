@@ -657,14 +657,6 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             return Err(SetupError::InvalidPageSize);
         }
 
-        if chip_index != 0 {
-            #[cfg(feature = "defmt")]
-            defmt::warn!(
-                "Using flexspi with chip index {} is untested and might not work",
-                chip_index
-            );
-        }
-
         Ok(Self {
             info: T::info(),
             dma: None,
@@ -1066,25 +1058,6 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     fn issue_ip_write_command(&mut self, address: u32, seq_index: usize, data: &[u8]) -> Result<(), IoError> {
-        #[cfg(feature = "defmt")]
-        defmt::info!(
-            "FLEXSPI WRITE_DIAG seq={} addr={:#010x} len={}",
-            seq_index,
-            address,
-            data.len()
-        );
-
-        #[cfg(feature = "defmt")]
-        if seq_index == 4 {
-            defmt::info!(
-                "WRSR LUT HW: LUT16={:#010x} LUT17={:#010x} LUT18={:#010x} LUT19={:#010x}",
-                self.info.regs.lut(16).read().0,
-                self.info.regs.lut(17).read().0,
-                self.info.regs.lut(18).read().0,
-                self.info.regs.lut(19).read().0,
-            );
-        }
-
         self.prepare_ip_transfer();
 
         self.info
@@ -1099,21 +1072,6 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             r.set_iparen(false);
         });
 
-        #[cfg(feature = "defmt")]
-        {
-            let intr = self.info.regs.intr().read();
-            defmt::info!(
-                "FLEXSPI IP_DIAG seq={} idatsz={} txwmrk={} iptxwe={} done={} cmderr={} cmdge={}",
-                seq_index,
-                self.info.regs.ipcr1().read().idatsz(),
-                self.info.regs.iptxfcr().read().txwmrk(),
-                intr.iptxwe(),
-                intr.ipcmddone(),
-                intr.ipcmderr(),
-                intr.ipcmdge()
-            );
-        }
-
         let tx_watermark = self.info.regs.iptxfcr().read().txwmrk() as usize + 1;
         let fifo_window_len = 8 * tx_watermark;
         let mut offset = 0;
@@ -1124,12 +1082,6 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         // WRSR. The FIFO entry is committed before IPCMD is triggered, while
         // IPCR1.IDATSZ still controls the exact number of bytes transmitted.
         if offset < data.len() {
-            #[cfg(feature = "defmt")]
-            defmt::info!(
-                "FLEXSPI TX_DIAG prefill_before_ipcmd fill={=u8}",
-                self.info.regs.iptxfsts().read().fill()
-            );
-
             while !self.info.regs.intr().read().iptxwe() {}
 
             let chunk_len = fifo_window_len.min(data.len() - offset);
@@ -1144,22 +1096,10 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
                     .write_value(Tfdr(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])));
             }
 
-            #[cfg(feature = "defmt")]
-            defmt::info!(
-                "FLEXSPI TX_DIAG prefill_after_tfdr fill={=u8}",
-                self.info.regs.iptxfsts().read().fill()
-            );
-
             offset += chunk_len;
 
             // Commit the written watermark entry to the IP TX FIFO.
             self.info.regs.intr().write(|r: &mut Intr| r.set_iptxwe(true));
-
-            #[cfg(feature = "defmt")]
-            defmt::info!(
-                "FLEXSPI TX_DIAG prefill_committed fill={=u8}",
-                self.info.regs.iptxfsts().read().fill()
-            );
         }
 
         // Start the serial flash command only after the first TX data has
@@ -1191,29 +1131,6 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         }
 
         self.wait_ip_command_done();
-
-        #[cfg(feature = "defmt")]
-        {
-            let intr = self.info.regs.intr().read();
-            let sts1 = self.info.regs.sts1().read();
-
-            defmt::info!(
-                "FLEXSPI IP_DONE seq={} idatsz={} iptxwe={} done={} cmderr={} cmdge={} errcode={:?}",
-                seq_index,
-                self.info.regs.ipcr1().read().idatsz(),
-                intr.iptxwe(),
-                intr.ipcmddone(),
-                intr.ipcmderr(),
-                intr.ipcmdge(),
-                sts1.ipcmderrcode()
-            );
-        }
-
-        #[cfg(feature = "defmt")]
-        defmt::info!(
-            "FLEXSPI TX_DIAG after_ipcmddone fill={=u8}",
-            self.info.regs.iptxfsts().read().fill()
-        );
 
         self.wait_idle();
         self.wait_no_ip_error()
@@ -1440,43 +1357,22 @@ impl<'d> InnerFlexSpi<'d, Async> {
         let mut offset = 0;
 
         while offset < data.len() {
-            while !self.info.regs.intr().read().iptxwe() {}
+            self.wait_for_tx_watermark_async().await?;
 
             let chunk_len = (8 * tx_watermark).min(data.len() - offset);
-
-            let mut word_index = 0;
-            let mut byte_offset = 0;
-
-            while byte_offset < chunk_len {
-                let remaining = chunk_len - byte_offset;
-                let copy_len = remaining.min(4);
-
+            for (index, chunk) in data[offset..offset + chunk_len].chunks(4).enumerate() {
+                // Pad the trailing partial word with 0xFF (see the blocking
+                // sibling above for why).
                 let mut word = [0xFFu8; 4];
-
-                let src_start = offset + byte_offset;
-
-                let mut i = 0;
-                while i < copy_len {
-                    word[i] = data[src_start + i];
-                    i += 1;
-                }
-
-                self.info
-                    .regs
-                    .tfdr(word_index)
-                    .write_value(Tfdr(u32::from_le_bytes(word)));
-
-                word_index += 1;
-                byte_offset += copy_len;
+                word[..chunk.len()].copy_from_slice(chunk);
+                self.info.regs.tfdr(index).write_value(Tfdr(u32::from_le_bytes(word)));
             }
 
             offset += chunk_len;
             self.info.regs.intr().write(|r: &mut Intr| r.set_iptxwe(true));
         }
 
-        self.wait_ip_command_done();
-        self.wait_idle();
-        self.wait_no_ip_error()
+        self.wait_for_command_completion_async().await
     }
 
     async fn issue_ip_read_command_async(
