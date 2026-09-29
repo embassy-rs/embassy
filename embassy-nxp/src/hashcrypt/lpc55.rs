@@ -36,6 +36,26 @@ pub enum AesError {
     DeviceError,
 }
 
+fn wait_iv_counter() {
+    let mut tries = 0;
+    while !pac::HASHCRYPT.status().read().neediv() {
+        cortex_m::asm::nop();
+        tries += 1;
+        if tries > 15 {
+            break;
+        }
+    }
+}
+
+fn feed_iv_counter(words: &[u8; 16]) {
+    wait_data();
+    wait_iv_counter();
+
+    for chunk in words.chunks_exact(4) {
+        feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
+    }
+}
+
 // Generic driver type
 pub struct GenericHashcrypt<'d> {
     _peri: Peri<'d, HASHCRYPT>,
