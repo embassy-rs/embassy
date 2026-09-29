@@ -243,9 +243,6 @@ pub enum MidiPacketError {
     /// Cable number is out of the allowed range.
     InvalidCableNumber,
 
-    /// Code index number cannot be determined from the event.
-    InvalidCodeIndexNumber,
-
     /// Event does not contain any data.
     EmptyEvent,
 
@@ -319,32 +316,6 @@ enum CodeIndexNumber {
 
     /// Single Byte.
     SingleByte = 0xF,
-}
-
-impl TryFrom<u8> for CodeIndexNumber {
-    type Error = MidiPacketError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            x if x == CodeIndexNumber::MiscFunction as u8 => Ok(CodeIndexNumber::MiscFunction),
-            x if x == CodeIndexNumber::CableEvents as u8 => Ok(CodeIndexNumber::CableEvents),
-            x if x == CodeIndexNumber::SystemCommon2Bytes as u8 => Ok(CodeIndexNumber::SystemCommon2Bytes),
-            x if x == CodeIndexNumber::SystemCommon3Bytes as u8 => Ok(CodeIndexNumber::SystemCommon3Bytes),
-            x if x == CodeIndexNumber::SysexStartsOrContinues as u8 => Ok(CodeIndexNumber::SysexStartsOrContinues),
-            x if x == CodeIndexNumber::SystemCommon1Byte as u8 => Ok(CodeIndexNumber::SystemCommon1Byte),
-            x if x == CodeIndexNumber::SysexEnds2Bytes as u8 => Ok(CodeIndexNumber::SysexEnds2Bytes),
-            x if x == CodeIndexNumber::SysexEnds3Bytes as u8 => Ok(CodeIndexNumber::SysexEnds3Bytes),
-            x if x == CodeIndexNumber::NoteOff as u8 => Ok(CodeIndexNumber::NoteOff),
-            x if x == CodeIndexNumber::NoteOn as u8 => Ok(CodeIndexNumber::NoteOn),
-            x if x == CodeIndexNumber::PolyKeyPress as u8 => Ok(CodeIndexNumber::PolyKeyPress),
-            x if x == CodeIndexNumber::ControlChange as u8 => Ok(CodeIndexNumber::ControlChange),
-            x if x == CodeIndexNumber::ProgramChange as u8 => Ok(CodeIndexNumber::ProgramChange),
-            x if x == CodeIndexNumber::ChannelPressure as u8 => Ok(CodeIndexNumber::ChannelPressure),
-            x if x == CodeIndexNumber::PitchBendChange as u8 => Ok(CodeIndexNumber::PitchBendChange),
-            x if x == CodeIndexNumber::SingleByte as u8 => Ok(CodeIndexNumber::SingleByte),
-            _ => Err(MidiPacketError::InvalidCodeIndexNumber),
-        }
-    }
 }
 
 impl CodeIndexNumber {
