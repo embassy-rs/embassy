@@ -106,7 +106,7 @@ impl MidiPacket {
             // one data byte in the middle that must not have its status bit set.
             CodeIndexNumber::SysexEnds2Bytes => false,
             CodeIndexNumber::SysexEnds3Bytes => event[1] & 0x80 != 0,
-            _ => event[1..].iter().any(|byte| byte & 0x80 != 0),
+            _ => event[1..event_len].iter().any(|byte| byte & 0x80 != 0),
         };
         if invalid_data {
             return Err(MidiPacketError::InvalidEventData);
