@@ -40,7 +40,7 @@ impl MidiPacket {
     }
 
     /// Returns the cable number.
-    pub fn cable_number(&self) -> u8 {
+    pub const fn cable_number(&self) -> u8 {
         self.raw[0] >> 4
     }
 
@@ -70,12 +70,12 @@ impl MidiPacket {
     }
 
     /// Returns a reference to the packet bytes.
-    pub fn as_bytes(&self) -> &[u8; MIDI_PACKET_SIZE] {
+    pub const fn as_bytes(&self) -> &[u8; MIDI_PACKET_SIZE] {
         &self.raw
     }
 
     /// Returns the packet bytes as owned array.
-    pub fn to_bytes(&self) -> [u8; MIDI_PACKET_SIZE] {
+    pub const fn to_bytes(&self) -> [u8; MIDI_PACKET_SIZE] {
         self.raw
     }
 
@@ -373,7 +373,7 @@ impl CodeIndexNumber {
     }
 
     /// Returns the length of the event in bytes.
-    fn event_len(&self) -> usize {
+    const fn event_len(&self) -> usize {
         match self {
             Self::SystemCommon1Byte | Self::SingleByte => 1,
             Self::SystemCommon2Bytes | Self::SysexEnds2Bytes | Self::ProgramChange | Self::ChannelPressure => 2,
