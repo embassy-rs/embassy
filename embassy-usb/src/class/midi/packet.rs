@@ -87,6 +87,7 @@ impl MidiPacket {
 
     /// Tries to create a packet from an event with relaxed length checking.
     /// The event slice can be longer than expected, additional bytes are ignored.
+    /// The expected (and used) event length is returned in the result tuple as second member.
     pub fn try_encode(cable_number: u8, event: &[u8]) -> Result<(Self, usize), MidiPacketError> {
         if cable_number >= MAX_MIDI_JACKS {
             return Err(MidiPacketError::InvalidCableNumber);
