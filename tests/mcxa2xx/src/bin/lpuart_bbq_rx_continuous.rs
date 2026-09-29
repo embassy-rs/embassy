@@ -1,11 +1,11 @@
-//! Continuous LPUART BBQueue RX HIL stress test for MCXA577.
+//! Continuous LPUART BBQueue RX HIL stress test for MCXA266.
 //!
-//! Wire LPUART1 TX (P1_9) to LPUART5 RX (P1_16).
+//! Wire LPUART3 TX (P4_5) to LPUART2 RX (P2_3).
 
 #![no_std]
 #![no_main]
 
-teleprobe_meta::target!(b"frdm-mcx-a577");
+teleprobe_meta::target!(b"frdm-mcx-a266");
 
 use defmt::{error, info};
 use defmt_rtt as _;
@@ -46,7 +46,7 @@ const OVERRUN_SEQUENCE_START: u32 = 0x3333_3333;
 const RECOVERY_SEQUENCE_START: u32 = 0x4444_4444;
 
 bind_interrupts!(struct Irqs {
-    LPUART5 => lpuart::BbqInterruptHandler<hal::peripherals::LPUART5>;
+    LPUART2 => lpuart::BbqInterruptHandler<hal::peripherals::LPUART2>;
 });
 
 static RX_BUFFER: ConstStaticCell<[u8; RX_BUFFER_SIZE]> = ConstStaticCell::new([0; RX_BUFFER_SIZE]);
@@ -65,14 +65,14 @@ async fn main(_spawner: Spawner) {
         tx_fifo_watermark: 0,
         ..Default::default()
     };
-    let mut tx = LpuartTx::new_async_with_dma(p.LPUART1, p.P1_9, p.DMA0_CH0, tx_config).unwrap();
+    let mut tx = LpuartTx::new_async_with_dma(p.LPUART3, p.P4_5, p.DMA0_CH0, tx_config).unwrap();
 
     let mut rx_config = BbqConfig::default();
     rx_config.source = LpuartClockSel::FroHfDiv;
     rx_config.power = PoweredClock::NormalEnabledDeepSleepDisabled;
     rx_config.baudrate_bps = BAUD_RATE;
 
-    let rx_parts = BbqHalfParts::new_rx_half(p.LPUART5, Irqs, p.P1_16, RX_BUFFER.take(), DmaChannel::new(p.DMA0_CH5));
+    let rx_parts = BbqHalfParts::new_rx_half(p.LPUART2, Irqs, p.P2_3, RX_BUFFER.take(), DmaChannel::new(p.DMA0_CH1));
     let (mode_name, rx_mode) = if cfg!(feature = "max-frame-baseline") {
         ("max-frame-baseline", BbqRxMode::MaxFrame { size: DMA_HALF_SIZE })
     } else {
