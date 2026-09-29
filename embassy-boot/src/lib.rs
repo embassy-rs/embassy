@@ -43,7 +43,7 @@ pub enum State {
     Boot,
     /// Bootloader has swapped the active partition with the dfu partition and will attempt boot.
     Swap,
-    /// Bootloader has reverted the active partition with the dfu partition and will attempt boot.
+    /// Bootloader rejected an update or reverted a failed trial and will boot the previous image.
     Revert,
     /// Application has received a request to reboot into DFU mode to apply an update.
     DfuDetach,
