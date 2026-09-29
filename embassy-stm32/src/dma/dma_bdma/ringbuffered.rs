@@ -2,9 +2,9 @@ use core::future::poll_fn;
 use core::sync::atomic::{Ordering, fence};
 use core::task::Waker;
 
+use super::{Channel, Dir, Increment, Request, STATE};
 use crate::dma::ringbuffer::{DmaCtrl, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
-use super::{Channel, Dir, Increment, Request, STATE};
 use crate::dma::{RingBufferError, TransferOptions};
 use crate::rcc::WakeGuard;
 
