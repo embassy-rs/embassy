@@ -312,3 +312,135 @@ impl CodeIndexNumber {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod decode {
+        use super::*;
+
+        macro_rules! decode_packet_test {
+            ($($id:ident: $value:expr,)*) => {
+                $(
+                    #[test]
+                    fn $id() {
+                        let (raw, expected) = $value;
+                        let expected = (
+                            expected.0,
+                            expected.1.as_slice(),
+                            expected.2, expected.3,
+                            expected.4
+                        );
+                        let packet = MidiPacket::try_from(raw.as_slice()).unwrap();
+                        let decoded = (
+                            packet.cable_number(),
+                            packet.event(),
+                            packet.is_sysex(),
+                            packet.is_sysex_start(),
+                            packet.is_sysex_end()
+                        );
+                        assert_eq!(decoded, expected);
+                    }
+                )*
+            }
+        }
+
+        decode_packet_test! {
+            note_off: ([0x18, 0x80, 60, 64], (1, [0x80, 60, 64], false, false, false)),
+            note_on: ([0x49, 0x92, 48, 20], (4, [0x92, 48, 20], false, false, false)),
+            poly_key_press: ([0x0A, 0xA0, 15, 74], (0, [0xA0, 15, 74], false, false, false)),
+            control_change: ([0x0B, 0xB0, 64, 127], (0, [0xB0, 64, 127], false, false, false)),
+            program_change: ([0x0C, 0xC0, 5, 0], (0, [0xC0, 5], false, false, false)),
+            channel_pressure: ([0x0D, 0xD0, 85, 0], (0, [0xD0, 85], false, false, false)),
+            pitch_bend: ([0x0E, 0xE0, 40, 120], (0, [0xE0, 40, 120], false, false, false)),
+            mtc_quarter_frame: ([0x02, 0xF1, 27, 0], (0, [0xF1, 27], false, false, false)),
+            song_position_pointer: ([0x03, 0xF2, 38, 17], (0, [0xF2, 38, 17], false, false, false)),
+            song_select: ([0x02, 0xF3, 2, 0], (0, [0xF3, 2], false, false, false)),
+            tune_request: ([0x05, 0xF6, 0, 0], (0, [0xF6], false, false, false)),
+            timing_clock: ([0x0F, 0xF8, 0, 0], (0, [0xF8], false, false, false)),
+            tick: ([0x0F, 0xF9, 0, 0], (0, [0xF9], false, false, false)),
+            start: ([0x0F, 0xFA, 0, 0], (0, [0xFA], false, false, false)),
+            continue_: ([0x0F, 0xFB, 0, 0], (0, [0xFB], false, false, false)),
+            stop: ([0x0F, 0xFC, 0, 0], (0, [0xFC], false, false, false)),
+            active_sensing: ([0x0F, 0xFE, 0, 0], (0, [0xFE], false, false, false)),
+            system_reset: ([0x0F, 0xFF, 0, 0], (0, [0xFF], false, false, false)),
+            sysex_starts: ([0x04, 0xF0, 1, 2], (0, [0xF0, 1, 2], true, true, false)),
+            sysex_continues_1byte: ([0x0F, 1, 0, 0], (0, [1], true, false, false)),
+            sysex_continues_3bytes: ([0x04, 1, 2, 3], (0, [1, 2, 3], true, false, false)),
+            sysex_ends_1byte: ([0x05, 0xF7, 0, 0], (0, [0xF7], true, false, true)),
+            sysex_ends_2bytes: ([0x06, 1, 0xF7, 0], (0, [1, 0xF7], true, false, true)),
+            sysex_ends_3bytes: ([0x07, 1, 2, 0xF7], (0, [1, 2, 0xF7], true, false, true)),
+            sysex_2bytes: ([0x06, 0xF0, 0xF7, 0], (0, [0xF0, 0xF7], true, true, true)),
+            sysex_3bytes: ([0x07, 0xF0, 1, 0xF7], (0, [0xF0, 1, 0xF7], true, true, true)),
+            undefined_f4: ([0x02, 0xF4, 1, 0], (0, [0xF4, 1], false, false, false)),
+            undefined_f5: ([0x03, 0xF5, 1, 2], (0, [0xF5, 1, 2], false, false, false)),
+            empty: ([0x00, 0, 0, 0], (0, [0, 0, 0], false, false, false)),
+        }
+    }
+
+    mod encode {
+        use super::*;
+
+        macro_rules! encode_packet_test {
+            ($($id:ident: $value:expr,)*) => {
+                $(
+                    #[test]
+                    fn $id() {
+                        let ((cable, payload), expected) = $value;
+                        let payload = payload.as_slice();
+                        let encoded = MidiPacket::try_encode(cable, payload);
+                        let expected: Result<[u8; 4], MidiPacketError> = expected;
+                        assert_eq!(encoded, expected.map(
+                            |v| MidiPacket::try_from(v.as_slice()).unwrap())
+                        );
+                    }
+                )*
+            }
+        }
+
+        encode_packet_test! {
+            note_off: ((3, [0x80, 33, 75]), Ok([0x38, 0x80, 33, 75])),
+            note_on: ((2, [0x96, 67, 14]), Ok([0x29, 0x96, 67, 14])),
+            poly_key_press: ((0, [0xA0, 48, 72]), Ok([0x0A, 0xA0, 48, 72])),
+            control_change: ((0, [0xB0, 10, 127]), Ok([0x0B, 0xB0, 10, 127])),
+            program_change: ((0, [0xC0, 36]), Ok([0x0C, 0xC0, 36, 0])),
+            program_change_extra: ((0, [0xC0, 36, 54]), Ok([0x0C, 0xC0, 36, 0])),
+            channel_pressure: ((0, [0xD0, 115]), Ok([0x0D, 0xD0, 115, 0])),
+            channel_pressure_extra: ((0, [0xD0, 115, 27]), Ok([0x0D, 0xD0, 115, 0])),
+            pitch_bend: ((0, [0xE0, 93, 46]), Ok([0x0E, 0xE0, 93, 46])),
+            mtc_quarter_frame: ((0, [0xF1, 102, 46]), Ok([0x02, 0xF1, 102, 0])),
+            mtc_quarter_frame_extra: ((0, [0xF1, 102, 46, 7]), Ok([0x02, 0xF1, 102, 0])),
+            song_position_pointer: ((0, [0xF2, 42, 74]), Ok([0x03, 0xF2, 42, 74])),
+            song_select: ((0, [0xF3, 24]), Ok([0x02, 0xF3, 24, 0])),
+            song_select_extra: ((0, [0xF3, 24, 96]), Ok([0x02, 0xF3, 24, 0])),
+            tune_request: ((0, [0xF6]), Ok([0x05, 0xF6, 0, 0])),
+            tune_request_extra: ((0, [0xF6, 67, 72]), Ok([0x05, 0xF6, 0, 0])),
+            timing_clock: ((0, [0xF8]), Ok([0x0F, 0xF8, 0, 0])),
+            timing_clock_extra: ((0, [0xF8, 38, 126]), Ok([0x0F, 0xF8, 0, 0])),
+            tick: ((0, [0xF9]), Ok([0x0F, 0xF9, 0, 0])),
+            start: ((0, [0xFA]), Ok([0x0F, 0xFA, 0, 0])),
+            continue_: ((0, [0xFB]), Ok([0x0F, 0xFB, 0, 0])),
+            stop: ((0, [0xFC]), Ok([0x0F, 0xFC, 0, 0])),
+            active_sensing: ((0, [0xFE]), Ok([0x0F, 0xFE, 0, 0])),
+            system_reset: ((0, [0xFF]), Ok([0x0F, 0xFF, 0, 0])),
+            sysex_starts: ((0, [0xF0, 1, 2]), Ok([0x04, 0xF0, 1, 2])),
+            sysex_starts_1byte: ((0, [0xF0]), Err(MidiPacketError::InvalidEventLength)),
+            sysex_starts_2bytes: ((0, [0xF0, 1]), Err(MidiPacketError::InvalidEventLength)),
+            sysex_continues_1byte: ((0, [1]), Ok([0x0F, 1, 0, 0])),
+            sysex_continues_2bytes: ((0, [1, 2]), Err(MidiPacketError::InvalidEventLength)),
+            sysex_continues_3bytes: ((0, [1, 2, 3]), Ok([0x04, 1, 2, 3])),
+            sysex_ends_1byte: ((0, [0xF7]), Ok([0x05, 0xF7, 0, 0])),
+            sysex_ends_2bytes: ((0, [1, 0xF7]), Ok([0x06, 1, 0xF7, 0])),
+            sysex_ends_3bytes: ((0, [1, 2, 0xF7]), Ok([0x07, 1, 2, 0xF7])),
+            sysex_2bytes: ((0, [0xF0, 0xF7]), Ok([0x06, 0xF0, 0xF7, 0])),
+            sysex_3bytes: ((0, [0xF0, 1, 0xF7]), Ok([0x07, 0xF0, 1, 0xF7])),
+            undefined_f4: ((0, [0xF4]), Err(MidiPacketError::InvalidEventStatus)),
+            undefined_f5: ((0, [0xF5]), Err(MidiPacketError::InvalidEventStatus)),
+            note_off_missing_1byte: ((3, [0x80, 26]), Err(MidiPacketError::InvalidEventLength)),
+            note_off_missing_2bytes: ((3, [0x80]), Err(MidiPacketError::InvalidEventLength)),
+            note_off_invalid_data: ((3, [0x80, 33, 128]), Err(MidiPacketError::InvalidEventData)),
+            empty: ((0, []), Err(MidiPacketError::EmptyEvent)),
+        }
+    }
+}
