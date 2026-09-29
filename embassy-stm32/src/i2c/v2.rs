@@ -7,6 +7,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
 use mode::{Master, MultiMaster};
+use stm32_metapac::i2c::regs::Isr;
 use stm32_metapac::i2c::vals::{Addmode, Oamsk};
 
 use super::*;
@@ -1044,7 +1045,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// The wait depends only on the STOPF ISR flag, so it is woken by the I2C event
     /// interrupt (STOPIE, armed here) instead of polling, and bounded by `timeout`.
     async fn wait_stop_async(&self, timeout: Timeout) -> Result<(), Error> {
-        self.info.regs.cr1().modify(|w| w.set_stopie(true));
+        let _irq = self.info.regs.cr1().enable_interrupts(|w| w.set_stopie(true));
         let result = timeout
             .with(poll_fn(|cx| -> Poll<Result<(), Error>> {
                 self.state.waker.register(cx.waker());
@@ -1055,9 +1056,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 }
             }))
             .await;
-        // On success the interrupt handler has already disabled STOPIE; on timeout it
-        // is still armed. Disable it either way.
-        self.info.regs.cr1().modify(|w| w.set_stopie(false));
+
         result?;
         trace!("STOP triggered.");
         self.info.regs.icr().modify(|reg| reg.set_stopcf(true));
@@ -1076,53 +1075,19 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             w.set_errie(true);
         });
 
-        let result = timeout
+        let isr = timeout
             .with(poll_fn(|cx| {
                 self.state.waker.register(cx.waker());
                 let isr = self.info.regs.isr().read();
                 match Self::error_flags(&isr) {
                     Err(e) => Poll::Ready(Err(e)),
-                    Ok(()) if isr.tc() || isr.tcr() => Poll::Ready(Ok(())),
+                    Ok(()) if isr.tc() || isr.tcr() => Poll::Ready(Ok(isr)),
                     Ok(()) => Poll::Pending,
                 }
             }))
-            .await;
+            .await?;
 
-        result?;
-        let isr = self.info.regs.isr().read();
-        self.error_occurred_async(&isr, timeout).await
-    }
-
-    /// Async version of [`I2c::error_occurred`].
-    async fn error_occurred_async(&self, isr: &i2c::regs::Isr, timeout: Timeout) -> Result<(), Error> {
-        if isr.nackf() {
-            trace!("NACK triggered.");
-            self.info.regs.icr().modify(|reg| reg.set_nackcf(true));
-            // NACK should be followed by STOP
-            if self.wait_stop_async(timeout).await.is_ok() {
-                trace!("Got STOP after NACK, clearing flag.");
-                self.info.regs.icr().modify(|reg| reg.set_stopcf(true));
-            }
-            self.flush_txdr();
-            return Err(Error::Nack);
-        } else if isr.berr() {
-            trace!("BERR triggered.");
-            self.info.regs.icr().modify(|reg| reg.set_berrcf(true));
-            self.flush_txdr();
-            self.soft_reset();
-            return Err(Error::Bus);
-        } else if isr.arlo() {
-            trace!("ARLO triggered.");
-            self.info.regs.icr().modify(|reg| reg.set_arlocf(true));
-            self.flush_txdr();
-            self.soft_reset();
-            return Err(Error::Arbitration);
-        } else if isr.ovr() {
-            trace!("OVR triggered.");
-            self.info.regs.icr().modify(|reg| reg.set_ovrcf(true));
-            return Err(Error::Overrun);
-        }
-        Ok(())
+        self.error_occurred(&isr, timeout)
     }
 
     /// Zero-length write (address probe): no data bytes, [`Stop::Software`] end mode.
@@ -1185,19 +1150,19 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             }
 
             // Nothing pending yet: sleep until a relevant flag changes, then re-check errors.
-            timeout
-                .with(poll_fn(|cx| -> Poll<Result<(), Error>> {
+            let isr = timeout
+                .with(poll_fn(|cx| -> Poll<Result<Isr, Error>> {
                     self.state.waker.register(cx.waker());
                     let isr = self.info.regs.isr().read();
                     if isr.stopf() || isr.addr() || isr.rxne() || isr.nackf() || isr.berr() || isr.arlo() || isr.ovr() {
-                        Poll::Ready(Ok(()))
+                        Poll::Ready(Ok(isr))
                     } else {
                         Poll::Pending
                     }
                 }))
                 .await?;
-            let isr = self.info.regs.isr().read();
-            self.error_occurred_async(&isr, timeout).await?;
+
+            self.error_occurred(&isr, timeout)?;
         }
     }
 }
