@@ -1,13 +1,18 @@
 //! Packet processing for MIDI 1.0 events.
 
+use core::slice::ChunksExact;
+
 use super::MAX_MIDI_JACKS;
+
+/// Size of one event packet in bytes.
+pub const MIDI_PACKET_SIZE: usize = 4;
 
 /// Packet containing the encoded event.
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct MidiPacket {
     /// Packet data.
-    raw: [u8; 4],
+    raw: [u8; MIDI_PACKET_SIZE],
 }
 
 impl TryFrom<&[u8]> for MidiPacket {
@@ -22,24 +27,40 @@ impl TryFrom<&[u8]> for MidiPacket {
     }
 }
 
+impl From<[u8; MIDI_PACKET_SIZE]> for MidiPacket {
+    fn from(bytes: [u8; MIDI_PACKET_SIZE]) -> Self {
+        Self::new(bytes)
+    }
+}
+
 impl MidiPacket {
+    /// Creates a new packet from bytes.
+    pub const fn new(bytes: [u8; MIDI_PACKET_SIZE]) -> Self {
+        Self { raw: bytes }
+    }
+
     /// Returns the cable number.
     pub fn cable_number(&self) -> u8 {
         self.raw[0] >> 4
     }
 
-    /// Returns a slice to the event bytes with a length suitable for the event.
+    /// Returns the Code Index Number from the packet header.
+    pub const fn cin(&self) -> u8 {
+        self.raw[0] & 0x0F
+    }
+
+    #[inline]
+    const fn cin_kind(&self) -> CodeIndexNumber {
+        CodeIndexNumber::from_nibble(self.cin())
+    }
+
+    /// Returns the event bytes, or an empty slice when the packet uses a reserved CIN.
     pub fn event(&self) -> &[u8] {
-        let cin = self.raw[0] & 0x0F;
-
-        match CodeIndexNumber::try_from(cin) {
-            Ok(cin) => {
-                let size = cin.event_len();
-                &self.raw[1..1 + size]
-            }
-
-            // Can't really happen because of limited `cin` value range.
-            Err(_) => &[],
+        let cin = self.cin_kind();
+        if cin.is_reserved() {
+            &[]
+        } else {
+            &self.raw[1..1 + cin.event_len()]
         }
     }
 
@@ -48,18 +69,13 @@ impl MidiPacket {
         (self.cable_number(), self.event())
     }
 
-    /// Creates a new packet from bytes.
-    pub fn from_bytes(bytes: [u8; 4]) -> Self {
-        Self { raw: bytes }
-    }
-
     /// Returns a reference to the packet bytes.
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8; MIDI_PACKET_SIZE] {
         &self.raw
     }
 
     /// Returns the packet bytes as owned array.
-    pub fn to_bytes(&self) -> [u8; 4] {
+    pub fn to_bytes(&self) -> [u8; MIDI_PACKET_SIZE] {
         self.raw
     }
 
@@ -130,11 +146,7 @@ impl MidiPacket {
 
     /// Checks if the event is part of a SysEx message.
     pub fn is_sysex(&self) -> bool {
-        let Ok(cin) = CodeIndexNumber::try_from(self.raw[0] & 0x0F) else {
-            return false;
-        };
-
-        match cin {
+        match self.cin_kind() {
             CodeIndexNumber::SysexStartsOrContinues
             | CodeIndexNumber::SysexEnds2Bytes
             | CodeIndexNumber::SysexEnds3Bytes => true,
@@ -155,19 +167,74 @@ impl MidiPacket {
     }
 }
 
-/// Returns an iterator over packets from a bulk transaction.
-pub fn packets_iter(data: &[u8]) -> Result<impl Iterator<Item = MidiPacket> + '_, MidiPacketError> {
-    if data.is_empty() || !data.len().is_multiple_of(4) {
-        return Err(MidiPacketError::InvalidPacketLength);
+/// Writer for accumulating MIDI packets in a USB bulk transfer buffer.
+pub struct MidiPacketWriter<'a> {
+    buf: &'a mut [u8],
+    position: usize,
+}
+
+impl<'a> MidiPacketWriter<'a> {
+    /// Creates a writer that appends packets to `buf`.
+    pub const fn new(buf: &'a mut [u8]) -> Self {
+        Self { buf, position: 0 }
     }
 
-    Ok(data
-        .chunks_exact(4)
-        .map(|chunk| MidiPacket::from_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])))
+    /// Appends one packet to the transfer buffer.
+    pub fn write(&mut self, packet: MidiPacket) -> Result<(), MidiPacketError> {
+        let end = self
+            .position
+            .checked_add(MIDI_PACKET_SIZE)
+            .ok_or(MidiPacketError::BufferOverflow)?;
+        let destination = self
+            .buf
+            .get_mut(self.position..end)
+            .ok_or(MidiPacketError::BufferOverflow)?;
+        destination.copy_from_slice(packet.as_bytes());
+        self.position = end;
+        Ok(())
+    }
+
+    /// Returns the number of bytes written.
+    pub const fn position(&self) -> usize {
+        self.position
+    }
+
+    /// Returns the populated part of the transfer buffer.
+    pub fn into_buf(self) -> &'a mut [u8] {
+        &mut self.buf[..self.position]
+    }
+}
+
+/// Reader for iterating over MIDI packets in a USB bulk transfer.
+#[derive(Clone)]
+pub struct MidiPacketReader<'a> {
+    chunks: ChunksExact<'a, u8>,
+}
+
+impl<'a> MidiPacketReader<'a> {
+    /// Creates a reader over a non-empty transfer containing complete packets.
+    pub fn new(data: &'a [u8]) -> Result<Self, MidiPacketError> {
+        if data.is_empty() || !data.len().is_multiple_of(MIDI_PACKET_SIZE) {
+            return Err(MidiPacketError::InvalidPacketLength);
+        }
+
+        Ok(Self {
+            chunks: data.chunks_exact(MIDI_PACKET_SIZE),
+        })
+    }
+}
+
+impl Iterator for MidiPacketReader<'_> {
+    type Item = MidiPacket;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let chunk = self.chunks.next()?;
+        Some(MidiPacket::new([chunk[0], chunk[1], chunk[2], chunk[3]]))
+    }
 }
 
 /// Packet errors.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MidiPacketError {
     /// Invalid packet.
@@ -193,6 +260,9 @@ pub enum MidiPacketError {
 
     /// Packet does not have a length of 4 bytes.
     InvalidPacketLength,
+
+    /// Transfer buffer does not have room for another packet.
+    BufferOverflow,
 }
 
 /// Code Index Number (CIN) classifications.
@@ -350,6 +420,33 @@ impl CodeIndexNumber {
             Self::MiscFunction | Self::CableEvents => 3,
         }
     }
+
+    /// Creates a CIN from the low nibble of a USB-MIDI packet header.
+    const fn from_nibble(value: u8) -> Self {
+        match value & 0x0f {
+            0x0 => Self::MiscFunction,
+            0x1 => Self::CableEvents,
+            0x2 => Self::SystemCommon2Bytes,
+            0x3 => Self::SystemCommon3Bytes,
+            0x4 => Self::SysexStartsOrContinues,
+            0x5 => Self::SystemCommon1Byte,
+            0x6 => Self::SysexEnds2Bytes,
+            0x7 => Self::SysexEnds3Bytes,
+            0x8 => Self::NoteOff,
+            0x9 => Self::NoteOn,
+            0xa => Self::PolyKeyPress,
+            0xb => Self::ControlChange,
+            0xc => Self::ProgramChange,
+            0xd => Self::ChannelPressure,
+            0xe => Self::PitchBendChange,
+            _ => Self::SingleByte,
+        }
+    }
+
+    /// Returns whether the CIN is reserved for future use.
+    const fn is_reserved(&self) -> bool {
+        matches!(self, Self::MiscFunction | Self::CableEvents)
+    }
 }
 
 #[cfg(test)]
@@ -414,7 +511,8 @@ mod tests {
             sysex_3bytes: ([0x07, 0xF0, 1, 0xF7], (0, [0xF0, 1, 0xF7], true, true, true)),
             undefined_f4: ([0x02, 0xF4, 1, 0], (0, [0xF4, 1], false, false, false)),
             undefined_f5: ([0x03, 0xF5, 1, 2], (0, [0xF5, 1, 2], false, false, false)),
-            empty: ([0x00, 0, 0, 0], (0, [0, 0, 0], false, false, false)),
+            reserved_cable_event: ([0x01, 1, 2, 3], (0, [], false, false, false)),
+            empty: ([0x00, 0, 0, 0], (0, [], false, false, false)),
         }
     }
 
@@ -490,16 +588,67 @@ mod tests {
             note_off_missing_1byte: ((3, [0x80, 26]), Err(MidiPacketError::InvalidEventLength)),
             note_off_missing_2bytes: ((3, [0x80]), Err(MidiPacketError::InvalidEventLength)),
             note_off_invalid_data: ((3, [0x80, 33, 128]), Err(MidiPacketError::InvalidEventData)),
+            invalid_cable: ((16, [0x90, 33, 75]), Err(MidiPacketError::InvalidCableNumber)),
             empty: ((0, []), Err(MidiPacketError::EmptyEvent)),
         }
 
         encode_packet_relaxed_test! {
-            program_change_extra: ((0, [0xC0, 36, 54]), Ok([0x0C, 0xC0, 36, 0])),
-            channel_pressure_extra: ((0, [0xD0, 115, 27]), Ok([0x0D, 0xD0, 115, 0])),
-            mtc_quarter_frame_extra: ((0, [0xF1, 102, 46, 7]), Ok([0x02, 0xF1, 102, 0])),
-            song_select_extra: ((0, [0xF3, 24, 96]), Ok([0x02, 0xF3, 24, 0])),
-            tune_request_extra: ((0, [0xF6, 67, 72]), Ok([0x05, 0xF6, 0, 0])),
-            timing_clock_extra: ((0, [0xF8, 38, 126]), Ok([0x0F, 0xF8, 0, 0])),
+            program_change_relaxed: ((0, [0xC0, 36, 54]), Ok([0x0C, 0xC0, 36, 0])),
+            channel_pressure_relaxed: ((0, [0xD0, 115, 27]), Ok([0x0D, 0xD0, 115, 0])),
+            mtc_quarter_frame_relaxed: ((0, [0xF1, 102, 46, 7]), Ok([0x02, 0xF1, 102, 0])),
+            song_select_relaxed: ((0, [0xF3, 24, 96]), Ok([0x02, 0xF3, 24, 0])),
+            tune_request_relaxed: ((0, [0xF6, 67, 72]), Ok([0x05, 0xF6, 0, 0])),
+            timing_clock_relaxed: ((0, [0xF8, 38, 126]), Ok([0x0F, 0xF8, 0, 0])),
         }
+    }
+
+    #[test]
+    fn rejects_invalid_packet_slice_lengths() {
+        for raw in [&[][..], &[0; 3], &[0; 5]] {
+            assert_eq!(MidiPacket::try_from(raw), Err(MidiPacketError::InvalidPacket));
+        }
+    }
+
+    #[test]
+    fn iterates_complete_packets_from_bulk_transaction() {
+        let data = [0x09, 0x90, 60, 100, 0x08, 0x80, 60, 0];
+        let packets: heapless::Vec<_, 2> = MidiPacketReader::new(&data).unwrap().collect();
+        assert_eq!(packets.len(), 2);
+        assert_eq!(packets[0].event(), &[0x90, 60, 100]);
+        assert_eq!(packets[1].event(), &[0x80, 60, 0]);
+    }
+
+    #[test]
+    fn rejects_empty_and_partial_bulk_transactions() {
+        assert!(matches!(
+            MidiPacketReader::new(&[]),
+            Err(MidiPacketError::InvalidPacketLength)
+        ));
+        assert!(matches!(
+            MidiPacketReader::new(&[0; 7]),
+            Err(MidiPacketError::InvalidPacketLength)
+        ));
+    }
+
+    #[test]
+    fn writes_packets_to_bulk_transfer_buffer() {
+        let mut buffer = [0; 8];
+        let mut writer = MidiPacketWriter::new(&mut buffer);
+        writer.write(MidiPacket::new([0x09, 0x90, 60, 100])).unwrap();
+        writer.write(MidiPacket::new([0x08, 0x80, 60, 0])).unwrap();
+        assert_eq!(writer.position(), 8);
+        assert_eq!(writer.into_buf(), &[0x09, 0x90, 60, 100, 0x08, 0x80, 60, 0]);
+    }
+
+    #[test]
+    fn packet_writer_reports_buffer_overflow() {
+        let mut buffer = [0; 7];
+        let mut writer = MidiPacketWriter::new(&mut buffer);
+        writer.write(MidiPacket::new([0x09, 0x90, 60, 100])).unwrap();
+        assert_eq!(
+            writer.write(MidiPacket::new([0x08, 0x80, 60, 0])),
+            Err(MidiPacketError::BufferOverflow)
+        );
+        assert_eq!(writer.position(), 4);
     }
 }
