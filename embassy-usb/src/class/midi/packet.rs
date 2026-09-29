@@ -76,6 +76,12 @@ impl MidiPacket {
             return Err(MidiPacketError::InvalidEventLength);
         }
 
+        if !matches!(cin, CodeIndexNumber::SysexEnds2Bytes | CodeIndexNumber::SysexEnds3Bytes)
+            && event[1..].iter().any(|byte| byte & 0x80 != 0)
+        {
+            return Err(MidiPacketError::InvalidEventData);
+        }
+
         let mut raw = [0; 4];
         raw[0] = cable_number << 4 | cin as u8;
         raw[1..1 + event_len].copy_from_slice(&event[..event_len]);
@@ -139,6 +145,9 @@ pub enum MidiPacketError {
 
     /// Status byte of the event is invalid.
     InvalidEventStatus,
+
+    /// One or more data bytes of the event are invalid.
+    InvalidEventData,
 
     /// Event length does not match its status byte.
     InvalidEventLength,
