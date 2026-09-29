@@ -72,13 +72,52 @@ impl MidiPacket {
         let cin = CodeIndexNumber::try_from_event(event)?;
         let event_len = cin.event_len();
 
+        if event.len() != event_len {
+            return Err(MidiPacketError::InvalidEventLength);
+        }
+
+        let invalid_data = match cin {
+            // The first byte is either F0 or a data byte (checked while selecting
+            // the CIN), and the final byte is F7. A three-byte ending still has
+            // one data byte in the middle that must not have its status bit set.
+            CodeIndexNumber::SysexEnds2Bytes => false,
+            CodeIndexNumber::SysexEnds3Bytes => event[1] & 0x80 != 0,
+            _ => event[1..].iter().any(|byte| byte & 0x80 != 0),
+        };
+        if invalid_data {
+            return Err(MidiPacketError::InvalidEventData);
+        }
+
+        let mut raw = [0; 4];
+        raw[0] = cable_number << 4 | cin as u8;
+        raw[1..1 + event_len].copy_from_slice(&event[..event_len]);
+
+        Ok(Self { raw })
+    }
+
+    /// Tries to create a packet from an event with relaxed length checking.
+    /// The event slice can be longer than expected, additional bytes are ignored.
+    pub fn try_encode_relaxed(cable_number: u8, event: &[u8]) -> Result<Self, MidiPacketError> {
+        if cable_number >= MAX_MIDI_JACKS {
+            return Err(MidiPacketError::InvalidCableNumber);
+        }
+
+        let cin = CodeIndexNumber::try_from_event(event)?;
+        let event_len = cin.event_len();
+
         if event.len() < event_len {
             return Err(MidiPacketError::InvalidEventLength);
         }
 
-        if !matches!(cin, CodeIndexNumber::SysexEnds2Bytes | CodeIndexNumber::SysexEnds3Bytes)
-            && event[1..].iter().any(|byte| byte & 0x80 != 0)
-        {
+        let invalid_data = match cin {
+            // The first byte is either F0 or a data byte (checked while selecting
+            // the CIN), and the final byte is F7. A three-byte ending still has
+            // one data byte in the middle that must not have its status bit set.
+            CodeIndexNumber::SysexEnds2Bytes => false,
+            CodeIndexNumber::SysexEnds3Bytes => event[1] & 0x80 != 0,
+            _ => event[1..].iter().any(|byte| byte & 0x80 != 0),
+        };
+        if invalid_data {
             return Err(MidiPacketError::InvalidEventData);
         }
 
@@ -399,25 +438,36 @@ mod tests {
             }
         }
 
+        macro_rules! encode_packet_relaxed_test {
+            ($($id:ident: $value:expr,)*) => {
+                $(
+                    #[test]
+                    fn $id() {
+                        let ((cable, payload), expected) = $value;
+                        let payload = payload.as_slice();
+                        let encoded = MidiPacket::try_encode_relaxed(cable, payload);
+                        let expected: Result<[u8; 4], MidiPacketError> = expected;
+                        assert_eq!(encoded, expected.map(
+                            |v| MidiPacket::try_from(v.as_slice()).unwrap())
+                        );
+                    }
+                )*
+            }
+        }
+
         encode_packet_test! {
             note_off: ((3, [0x80, 33, 75]), Ok([0x38, 0x80, 33, 75])),
             note_on: ((2, [0x96, 67, 14]), Ok([0x29, 0x96, 67, 14])),
             poly_key_press: ((0, [0xA0, 48, 72]), Ok([0x0A, 0xA0, 48, 72])),
             control_change: ((0, [0xB0, 10, 127]), Ok([0x0B, 0xB0, 10, 127])),
             program_change: ((0, [0xC0, 36]), Ok([0x0C, 0xC0, 36, 0])),
-            program_change_extra: ((0, [0xC0, 36, 54]), Ok([0x0C, 0xC0, 36, 0])),
             channel_pressure: ((0, [0xD0, 115]), Ok([0x0D, 0xD0, 115, 0])),
-            channel_pressure_extra: ((0, [0xD0, 115, 27]), Ok([0x0D, 0xD0, 115, 0])),
             pitch_bend: ((0, [0xE0, 93, 46]), Ok([0x0E, 0xE0, 93, 46])),
-            mtc_quarter_frame: ((0, [0xF1, 102, 46]), Ok([0x02, 0xF1, 102, 0])),
-            mtc_quarter_frame_extra: ((0, [0xF1, 102, 46, 7]), Ok([0x02, 0xF1, 102, 0])),
+            mtc_quarter_frame: ((0, [0xF1, 102]), Ok([0x02, 0xF1, 102, 0])),
             song_position_pointer: ((0, [0xF2, 42, 74]), Ok([0x03, 0xF2, 42, 74])),
             song_select: ((0, [0xF3, 24]), Ok([0x02, 0xF3, 24, 0])),
-            song_select_extra: ((0, [0xF3, 24, 96]), Ok([0x02, 0xF3, 24, 0])),
             tune_request: ((0, [0xF6]), Ok([0x05, 0xF6, 0, 0])),
-            tune_request_extra: ((0, [0xF6, 67, 72]), Ok([0x05, 0xF6, 0, 0])),
             timing_clock: ((0, [0xF8]), Ok([0x0F, 0xF8, 0, 0])),
-            timing_clock_extra: ((0, [0xF8, 38, 126]), Ok([0x0F, 0xF8, 0, 0])),
             tick: ((0, [0xF9]), Ok([0x0F, 0xF9, 0, 0])),
             start: ((0, [0xFA]), Ok([0x0F, 0xFA, 0, 0])),
             continue_: ((0, [0xFB]), Ok([0x0F, 0xFB, 0, 0])),
@@ -441,6 +491,15 @@ mod tests {
             note_off_missing_2bytes: ((3, [0x80]), Err(MidiPacketError::InvalidEventLength)),
             note_off_invalid_data: ((3, [0x80, 33, 128]), Err(MidiPacketError::InvalidEventData)),
             empty: ((0, []), Err(MidiPacketError::EmptyEvent)),
+        }
+
+        encode_packet_relaxed_test! {
+            program_change_extra: ((0, [0xC0, 36, 54]), Ok([0x0C, 0xC0, 36, 0])),
+            channel_pressure_extra: ((0, [0xD0, 115, 27]), Ok([0x0D, 0xD0, 115, 0])),
+            mtc_quarter_frame_extra: ((0, [0xF1, 102, 46, 7]), Ok([0x02, 0xF1, 102, 0])),
+            song_select_extra: ((0, [0xF3, 24, 96]), Ok([0x02, 0xF3, 24, 0])),
+            tune_request_extra: ((0, [0xF6, 67, 72]), Ok([0x05, 0xF6, 0, 0])),
+            timing_clock_extra: ((0, [0xF8, 38, 126]), Ok([0x0F, 0xF8, 0, 0])),
         }
     }
 }
