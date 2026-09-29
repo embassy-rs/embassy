@@ -165,6 +165,17 @@ impl MidiPacket {
     pub fn is_sysex_end(&self) -> bool {
         self.is_sysex() && (self.raw[1] == 0xF7 || self.raw[2] == 0xF7 || self.raw[3] == 0xF7)
     }
+
+    /// Returns the event length, or `None` when the packet uses a reserved CIN.
+    pub const fn event_len(&self) -> Option<usize> {
+        let cin = self.cin_kind();
+        if cin.is_reserved() { None } else { Some(cin.event_len()) }
+    }
+
+    /// Returns the event bytes, or `None` when the packet uses a reserved CIN.
+    pub fn data(&self) -> Option<&[u8]> {
+        self.event_len().map(|_| self.event())
+    }
 }
 
 /// Writer for accumulating MIDI packets in a USB bulk transfer buffer.
