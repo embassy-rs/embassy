@@ -768,22 +768,34 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for BufferedInterr
         // TX
         if s.tx_buf.is_available() {
             let mut tx_reader = unsafe { s.tx_buf.reader() };
-            let tx_buf = tx_reader.pop_slice();
-            let mut n_written = 0;
-            for tx_byte in tx_buf.iter_mut() {
-                if r.uartfr().read().txff() {
+            // The ring can hold its data in two pieces, the second one after
+            // the wrap. Fill the FIFO from both: a short first piece alone can
+            // leave the FIFO below the trigger level, so it never drains
+            // through the level, the TX interrupt does not come again, and the
+            // rest waits in the ring until some other interrupt runs this.
+            let mut n_total = 0;
+            loop {
+                let tx_buf = tx_reader.pop_slice();
+                let mut n_written = 0;
+                for tx_byte in tx_buf.iter() {
+                    if r.uartfr().read().txff() {
+                        break;
+                    }
+                    r.uartdr().write(|w| w.set_data(*tx_byte));
+                    n_written += 1;
+                }
+                if n_written == 0 {
                     break;
                 }
-                r.uartdr().write(|w| w.set_data(*tx_byte));
-                n_written += 1;
-            }
-            if n_written > 0 {
                 tx_reader.pop_done(n_written);
+                n_total += n_written;
+            }
+            if n_total > 0 {
                 s.tx_waker.wake();
             }
             // The TX interrupt only triggers once when the FIFO threshold is
             // crossed. No need to disable it when the buffer becomes empty
-            // as it does re-trigger anymore once we have cleared it.
+            // as it does not re-trigger anymore once we have cleared it.
         }
     }
 }
