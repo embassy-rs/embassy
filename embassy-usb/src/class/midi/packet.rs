@@ -64,6 +64,12 @@ impl MidiPacket {
         }
     }
 
+    /// Returns the event length, `0` when the packet uses a reserved CIN.
+    pub const fn event_len(&self) -> usize {
+        let cin = self.cin_kind();
+        if cin.is_reserved() { 0 } else { cin.event_len() }
+    }
+
     /// Returns a tuple of (cable_no, event).
     pub fn decode(&self) -> (u8, &[u8]) {
         (self.cable_number(), self.event())
@@ -164,17 +170,6 @@ impl MidiPacket {
     /// Checks if the event is the end of a SysEx message.
     pub fn is_sysex_end(&self) -> bool {
         self.is_sysex() && (self.raw[1] == 0xF7 || self.raw[2] == 0xF7 || self.raw[3] == 0xF7)
-    }
-
-    /// Returns the event length, or `None` when the packet uses a reserved CIN.
-    pub const fn event_len(&self) -> Option<usize> {
-        let cin = self.cin_kind();
-        if cin.is_reserved() { None } else { Some(cin.event_len()) }
-    }
-
-    /// Returns the event bytes, or `None` when the packet uses a reserved CIN.
-    pub fn data(&self) -> Option<&[u8]> {
-        self.event_len().map(|_| self.event())
     }
 }
 
