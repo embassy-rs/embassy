@@ -122,10 +122,10 @@ impl MidiPacket {
     /// Tries to create a packet from an event with length checking.
     /// Returns an error if the event length does not match the expected length.
     pub fn try_encode_exact(cable_number: u8, event: &[u8]) -> Result<Self, MidiPacketError> {
-        let packet = Self::try_encode(cable_number, event)?;
+        let (packet, event_len) = Self::try_encode(cable_number, event)?;
 
-        if packet.1 == event.len() {
-            Ok(packet.0)
+        if event_len == event.len() {
+            Ok(packet)
         } else {
             Err(MidiPacketError::InvalidEventLength)
         }
