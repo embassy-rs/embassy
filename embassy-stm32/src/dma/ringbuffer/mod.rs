@@ -87,6 +87,20 @@ impl DmaIndex {
         self.pos = next % cap;
     }
 
+    /// Advance the index by `steps` words, incrementing `complete_count` for
+    /// each full lap completed.
+    fn advance_signed(&mut self, cap: usize, steps: isize) -> Result<(), Error> {
+        let cap = cap as isize;
+        let next = self.pos as isize + steps;
+        // Replace with isize::div_floor once stabilized.
+        self.complete_count = (self.complete_count as isize + next / cap
+            - if next % cap != 0 && next < 0 { 1 } else { 0 })
+        .try_into()
+        .map_err(|_| Error::Overrun)?;
+        self.pos = next.rem_euclid(cap) as usize;
+        Ok(())
+    }
+
     /// Subtract the smaller `complete_count` from both indices so that the
     /// absolute lap counts stay small. This prevents overflow in [`diff`] after
     /// many laps while leaving the relative difference unchanged.
@@ -155,6 +169,11 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         self.write_index.reset();
         self.write_index.dma_sync(self.cap(), dma);
         self.read_index = self.write_index;
+    }
+
+    /// Advance the index by `steps` words.
+    pub fn advance(&mut self, steps: isize) -> Result<(), Error> {
+        self.read_index.advance_signed(self.cap(), steps)
     }
 
     /// Get the full ringbuffer capacity.
@@ -371,6 +390,11 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         self.read_index.dma_sync(self.cap(), dma);
         self.write_index = self.read_index;
         self.write_index.advance(self.cap(), self.cap());
+    }
+
+    /// Advance the index by `steps` words.
+    pub fn advance(&mut self, steps: isize) -> Result<(), Error> {
+        self.write_index.advance_signed(self.cap(), steps)
     }
 
     /// Return the current write position (index into the DMA buffer where the next CPU write will go).
