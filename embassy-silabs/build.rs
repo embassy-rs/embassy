@@ -128,6 +128,28 @@ fn main() {
     }
     writeln!(out, ");\n").unwrap();
 
+    // Emit a bus-clock impl for every singleton with a CMU gate in the
+    // metadata (`enable`, like stm32-metapac's `rcc.enable`). The gate is set
+    // through the register's SET alias: one write, no read-modify-write race.
+    for p in METADATA.peripherals {
+        let Some(en) = &p.enable else { continue };
+        if !singletons.iter().any(|s| s == p.name) {
+            continue;
+        }
+        writeln!(
+            out,
+            "impl crate::rcc::SealedRccPeripheral for peripherals::{name} {{\n    \
+             fn enable_bus_clock() {{\n        \
+             crate::pac::CMU.{reg}_set().write(|w| w.set_{field}(true));\n    \
+             }}\n}}\nimpl crate::rcc::RccPeripheral for peripherals::{name} {{}}\n",
+            name = p.name,
+            reg = en.register,
+            field = en.field,
+        )
+        .unwrap();
+    }
+    writeln!(out).unwrap();
+
     writeln!(out, "embassy_hal_internal::peripherals_struct!(").unwrap();
     for s in &singletons {
         if s == time_driver_singleton {

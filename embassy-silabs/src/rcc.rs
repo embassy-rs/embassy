@@ -25,6 +25,23 @@ pub use crate::time::Hertz;
 
 /// FSRCO frequency, 20 MHz.
 pub const FSRCO_FREQ: Hertz = Hertz::mhz(20);
+
+pub(crate) trait SealedRccPeripheral {
+    fn enable_bus_clock();
+}
+
+/// A peripheral with a CMU bus-clock gate. `build.rs` implements it for
+/// every peripheral whose gate is in the metapac metadata.
+#[allow(private_bounds)]
+pub trait RccPeripheral: SealedRccPeripheral + 'static {}
+
+/// Turns on bus clock for peripheral `T`.
+///
+/// This is one write to the gate register's SET alias, so it needs no
+/// critical section.
+pub fn enable<T: RccPeripheral>() {
+    T::enable_bus_clock();
+}
 /// LFRCO frequency, 32.768 kHz.
 pub const LFRCO_FREQ: Hertz = Hertz(32_768);
 /// ULFRCO frequency, about 1 kHz.

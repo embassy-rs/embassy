@@ -231,7 +231,6 @@ impl State {
 trait SealedInstance {
     fn regs() -> eusart_mod::Eusart;
     fn state() -> &'static State;
-    fn enable_bus_clock();
     fn source_freq() -> Hertz;
     /// Route TX/RX to the given pins (`port` 0..=3, `pin` 0..=15) and enable them.
     fn route(tx_port: u8, tx_pin: u8, rx_port: u8, rx_pin: u8);
@@ -239,7 +238,7 @@ trait SealedInstance {
 
 /// An EUSART peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static {
+pub trait Instance: SealedInstance + crate::rcc::RccPeripheral + PeripheralType + 'static {
     /// Interrupt for RX events.
     type RxInterrupt: interrupt::typelevel::Interrupt;
     /// Interrupt for TX events.
@@ -269,7 +268,7 @@ fn em01grpcclk_freq() -> Hertz {
 }
 
 macro_rules! impl_eusart {
-    ($inst:ident, $rxirq:ident, $txirq:ident, $txroute:ident, $rxroute:ident, $routeen:ident, $enable:block, $freq:expr $(,)?) => {
+    ($inst:ident, $rxirq:ident, $txirq:ident, $txroute:ident, $rxroute:ident, $routeen:ident, $freq:expr $(,)?) => {
         impl SealedInstance for peripherals::$inst {
             fn regs() -> eusart_mod::Eusart {
                 crate::pac::$inst
@@ -278,7 +277,6 @@ macro_rules! impl_eusart {
                 static STATE: State = State::new();
                 &STATE
             }
-            fn enable_bus_clock() $enable
             fn source_freq() -> Hertz {
                 $freq
             }
@@ -306,8 +304,6 @@ macro_rules! impl_eusart {
 
 // EUSART instances. EUSART0 is the LF-capable instance with its own clock mux
 // (resolved by `eusart0_source_freq`); the rest are HF-only on EM01GRPCCLK.
-// MG26 (cmu_s2v7) has EUSART0-3 with bus-clock gates in CLKEN1 (EUSART0/1) +
-// CLKEN2 (EUSART2/3); FG25 (cmu_s2v4) has EUSART0-4 all gated in CLKEN1.
 impl_eusart!(
     EUSART0,
     EUSART0_RX,
@@ -315,9 +311,6 @@ impl_eusart!(
     eusart0_txroute,
     eusart0_rxroute,
     eusart0_routeen,
-    {
-        CMU.clken1().modify(|w| w.set_eusart0(true));
-    },
     eusart0_source_freq(),
 );
 impl_eusart!(
@@ -327,14 +320,10 @@ impl_eusart!(
     eusart1_txroute,
     eusart1_rxroute,
     eusart1_routeen,
-    {
-        CMU.clken1().modify(|w| w.set_eusart1(true));
-    },
     em01grpcclk_freq(),
 );
-// EUSART2/3 bus-clock gate: CLKEN2 on MG26 (cmu_s2v7), CLKEN1 on FG25 (cmu_s2v4,
-// which has no CLKEN2). Routing / regs / IRQ wiring are identical.
-#[cfg(silabs_series_2_config = "6")]
+// EUSART2/3 exist on MG26 and FG25. Their bus-clock gates differ
+// (CLKEN2 vs CLKEN1) and come from the metapac metadata.
 impl_eusart!(
     EUSART2,
     EUSART2_RX,
@@ -342,12 +331,8 @@ impl_eusart!(
     eusart2_txroute,
     eusart2_rxroute,
     eusart2_routeen,
-    {
-        CMU.clken2().modify(|w| w.set_eusart2(true));
-    },
     em01grpcclk_freq(),
 );
-#[cfg(silabs_series_2_config = "6")]
 impl_eusart!(
     EUSART3,
     EUSART3_RX,
@@ -355,38 +340,9 @@ impl_eusart!(
     eusart3_txroute,
     eusart3_rxroute,
     eusart3_routeen,
-    {
-        CMU.clken2().modify(|w| w.set_eusart3(true));
-    },
     em01grpcclk_freq(),
 );
-#[cfg(silabs_series_2_config = "5")]
-impl_eusart!(
-    EUSART2,
-    EUSART2_RX,
-    EUSART2_TX,
-    eusart2_txroute,
-    eusart2_rxroute,
-    eusart2_routeen,
-    {
-        CMU.clken1().modify(|w| w.set_eusart2(true));
-    },
-    em01grpcclk_freq(),
-);
-#[cfg(silabs_series_2_config = "5")]
-impl_eusart!(
-    EUSART3,
-    EUSART3_RX,
-    EUSART3_TX,
-    eusart3_txroute,
-    eusart3_rxroute,
-    eusart3_routeen,
-    {
-        CMU.clken1().modify(|w| w.set_eusart3(true));
-    },
-    em01grpcclk_freq(),
-);
-// EUSART4 exists only on FG25 (cmu_s2v4); also gated in CLKEN1.
+// EUSART4 exists only on FG25.
 #[cfg(silabs_series_2_config = "5")]
 impl_eusart!(
     EUSART4,
@@ -395,9 +351,6 @@ impl_eusart!(
     eusart4_txroute,
     eusart4_rxroute,
     eusart4_routeen,
-    {
-        CMU.clken1().modify(|w| w.set_eusart4(true));
-    },
     em01grpcclk_freq(),
 );
 
@@ -460,7 +413,7 @@ fn on_interrupt<T: Instance>() {
 
 /// Configure clocks, routing, pins and registers for instance `T`.
 fn init<T: Instance>(tx: &AnyPin, rx: &AnyPin, config: &Config) -> Result<(), ConfigError> {
-    T::enable_bus_clock();
+    crate::rcc::enable::<T>();
 
     let src = T::source_freq();
     let div = compute_clkdiv(src, config.baudrate, OVERSAMPLE)?;

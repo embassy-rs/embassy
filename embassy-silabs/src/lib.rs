@@ -8,10 +8,10 @@
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;
 
-// The EUSART driver supports MG26 (config 6, cmu_s2v7: EUSART0-3, with EUSART2/3
-// on CLKEN2) and FG25 (config 5, cmu_s2v4: EUSART0-4, all on CLKEN1) — the
-// per-instance bus-clock gate is cfg-split in eusart.rs. MG24 (config 4, cmu_s2v3)
-// and MG22 (config 2, EUART not EUSART) aren't covered yet.
+// The EUSART driver supports MG26 (config 6, EUSART0-3) and FG25 (config 5,
+// EUSART0-4). Bus-clock gates come from the metapac metadata (see
+// `rcc::RccPeripheral`). MG24 (config 4) and MG22 (config 2, EUART not
+// EUSART) aren't covered yet.
 #[cfg(any(silabs_series_2_config = "5", silabs_series_2_config = "6"))]
 pub mod eusart;
 pub mod gpio;
