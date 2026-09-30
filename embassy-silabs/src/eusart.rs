@@ -38,7 +38,7 @@ use eusart_mod::vals;
 use crate::gpio::{AnyPin, Pin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
-use crate::pac::{CMU, GPIO, eusart as eusart_mod};
+use crate::pac::{GPIO, eusart as eusart_mod};
 use crate::time::Hertz;
 use crate::{interrupt, peripherals};
 
@@ -231,7 +231,6 @@ impl State {
 trait SealedInstance {
     fn regs() -> eusart_mod::Eusart;
     fn state() -> &'static State;
-    fn source_freq() -> Hertz;
     /// Route TX/RX to the given pins (`port` 0..=3, `pin` 0..=15) and enable them.
     fn route(tx_port: u8, tx_pin: u8, rx_port: u8, rx_pin: u8);
 }
@@ -245,30 +244,8 @@ pub trait Instance: SealedInstance + crate::cmu::CmuPeripheral + PeripheralType 
     type TxInterrupt: interrupt::typelevel::Interrupt;
 }
 
-/// Resolve EUSART0's input-clock frequency from its CMU mux selection.
-fn eusart0_source_freq() -> Hertz {
-    use crate::cmu::Eusart0ClkSource as Sel;
-    // SAFETY: read-only; init_clocks has populated the frozen table by the time
-    // any driver is constructed.
-    let f = unsafe { crate::cmu::get_freqs() };
-    match CMU.eusart0clkctrl().read().clksel() {
-        Sel::Em01grpcclk => f.em01grpcclk,
-        Sel::Hfrcoem23 => f.hfrcoem23,
-        Sel::Lfrco => f.lfrco,
-        Sel::Lfxo => f.lfxo.expect("EUSART0 clocked from LFXO but LFXO is not configured"),
-        Sel::Disabled => panic!("EUSART0 clock source is Disabled"),
-        _ => unreachable!(),
-    }
-}
-
-/// EUSART1..3 are clocked directly from EM01GRPCCLK (no per-instance mux).
-fn em01grpcclk_freq() -> Hertz {
-    // SAFETY: read-only; the frozen clock table is populated by `init_clocks`.
-    unsafe { crate::cmu::get_freqs() }.em01grpcclk
-}
-
 macro_rules! impl_eusart {
-    ($inst:ident, $rxirq:ident, $txirq:ident, $txroute:ident, $rxroute:ident, $routeen:ident, $freq:expr $(,)?) => {
+    ($inst:ident, $rxirq:ident, $txirq:ident, $txroute:ident, $rxroute:ident, $routeen:ident $(,)?) => {
         impl SealedInstance for peripherals::$inst {
             fn regs() -> eusart_mod::Eusart {
                 crate::pac::$inst
@@ -276,9 +253,6 @@ macro_rules! impl_eusart {
             fn state() -> &'static State {
                 static STATE: State = State::new();
                 &STATE
-            }
-            fn source_freq() -> Hertz {
-                $freq
             }
             fn route(tx_port: u8, tx_pin: u8, rx_port: u8, rx_pin: u8) {
                 GPIO.$txroute().write(|w| {
@@ -302,8 +276,9 @@ macro_rules! impl_eusart {
     };
 }
 
-// EUSART instances. EUSART0 is the LF-capable instance with its own clock mux
-// (resolved by `eusart0_source_freq`); the rest are HF-only on EM01GRPCCLK.
+// EUSART instances. EUSART0 is the LF-capable instance with its own clock
+// mux; the rest are HF-only on EM01GRPCCLK. `T::frequency()` resolves both
+// from the metapac `kernel_clock` data.
 impl_eusart!(
     EUSART0,
     EUSART0_RX,
@@ -311,7 +286,6 @@ impl_eusart!(
     eusart0_txroute,
     eusart0_rxroute,
     eusart0_routeen,
-    eusart0_source_freq(),
 );
 impl_eusart!(
     EUSART1,
@@ -320,7 +294,6 @@ impl_eusart!(
     eusart1_txroute,
     eusart1_rxroute,
     eusart1_routeen,
-    em01grpcclk_freq(),
 );
 // EUSART2/3 exist on MG26 and FG25. Their bus-clock gates differ
 // (CLKEN2 vs CLKEN1) and come from the metapac metadata.
@@ -331,7 +304,6 @@ impl_eusart!(
     eusart2_txroute,
     eusart2_rxroute,
     eusart2_routeen,
-    em01grpcclk_freq(),
 );
 impl_eusart!(
     EUSART3,
@@ -340,7 +312,6 @@ impl_eusart!(
     eusart3_txroute,
     eusart3_rxroute,
     eusart3_routeen,
-    em01grpcclk_freq(),
 );
 // EUSART4 exists only on FG25.
 #[cfg(silabs_series_2_config = "5")]
@@ -351,7 +322,6 @@ impl_eusart!(
     eusart4_txroute,
     eusart4_rxroute,
     eusart4_routeen,
-    em01grpcclk_freq(),
 );
 
 /// Interrupt handler for an EUSART instance's RX vector (`EUSARTx_RX`).
@@ -415,7 +385,7 @@ fn on_interrupt<T: Instance>() {
 fn init<T: Instance>(tx: &AnyPin, rx: &AnyPin, config: &Config) -> Result<(), ConfigError> {
     crate::cmu::enable::<T>();
 
-    let src = T::source_freq();
+    let src = crate::cmu::frequency::<T>();
     let div = compute_clkdiv(src, config.baudrate, OVERSAMPLE)?;
     debug!(
         "eusart: src_hz={} baud={} ovs={} clkdiv={}",

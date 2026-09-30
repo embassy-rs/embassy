@@ -4,17 +4,13 @@ use core::mem::MaybeUninit;
 
 pub use cmu_mod::vals::{
     Em01grpaclkctrlClksel as Em01GrpAClkSource, Em4grpaclkctrlClksel as Em4GrpAClkSource,
-    Em23grpaclkctrlClksel as Em23GrpAClkSource, Hclkpresc as HclkPrescaler, IadcclkctrlClksel as IadcClkSource,
-    Pclkpresc as PclkPrescaler, SysclkctrlClksel as SysclkSource, Wdog0clkctrlClksel as Wdog0ClkSource,
+    Em23grpaclkctrlClksel as Em23GrpAClkSource, Hclkpresc as HclkPrescaler, Pclkpresc as PclkPrescaler,
+    SysclkctrlClksel as SysclkSource,
 };
-// These clock branches don't exist on MG22 (config 2): no EM01GRPCCLK split,
-// no SYSRTC0, no second WDOG, no EUSART, no TRACE clock select.
+// These clock branches don't exist on MG22 (config 2): no EM01GRPCCLK split
+// and no TRACE clock select.
 #[cfg(not(silabs_series_2_config = "2"))]
-pub use cmu_mod::vals::{
-    Em01grpcclkctrlClksel as Em01GrpCClkSource, Eusart0clkctrlClksel as Eusart0ClkSource,
-    Sysrtc0clkctrlClksel as Sysrtc0ClkSource, TraceclkctrlClksel as TraceClkSource,
-    Wdog1clkctrlClksel as Wdog1ClkSource,
-};
+pub use cmu_mod::vals::{Em01grpcclkctrlClksel as Em01GrpCClkSource, TraceclkctrlClksel as TraceClkSource};
 use critical_section::CriticalSection;
 
 use crate::pac::CMU;
@@ -27,8 +23,14 @@ pub use crate::time::Hertz;
 /// FSRCO frequency, 20 MHz.
 pub const FSRCO_FREQ: Hertz = Hertz::mhz(20);
 
+// `mux::ClockMux`, generated from the metapac `kernel_clock` data.
+include!(concat!(env!("OUT_DIR"), "/_cmu_mux.rs"));
+
 pub(crate) trait SealedCmuPeripheral {
     fn enable_bus_clock();
+    /// Frequency of the peripheral's kernel clock. Panics when the
+    /// peripheral has no kernel clock or its source is not running.
+    fn frequency() -> Hertz;
 }
 
 /// A peripheral with a CMU bus-clock gate. `build.rs` implements it for
@@ -43,6 +45,15 @@ pub trait CmuPeripheral: SealedCmuPeripheral + 'static {}
 pub fn enable<T: CmuPeripheral>() {
     T::enable_bus_clock();
 }
+
+/// Frequency of the kernel clock of peripheral `T`, like embassy-stm32's
+/// `rcc::frequency`. Reads the peripheral's clock select, if it has one.
+///
+/// Panics if `T` has no kernel clock or its source is not running.
+pub fn frequency<T: CmuPeripheral>() -> Hertz {
+    T::frequency()
+}
+
 /// LFRCO frequency, 32.768 kHz.
 pub const LFRCO_FREQ: Hertz = Hertz(32_768);
 /// ULFRCO frequency, about 1 kHz.
@@ -280,23 +291,12 @@ pub struct Config {
     pub em23grpaclk: Em23GrpAClkSource,
     /// EM4GRPACLK source select (peripherals active in EM4).
     pub em4grpaclk: Em4GrpAClkSource,
-    /// SYSRTC0 clock source. Not present on MG22 (config 2).
-    #[cfg(not(silabs_series_2_config = "2"))]
-    pub sysrtc0: Sysrtc0ClkSource,
-    /// WDOG0 clock source.
-    pub wdog0: Wdog0ClkSource,
-    /// WDOG1 clock source. Not present on MG22 (config 2).
-    #[cfg(not(silabs_series_2_config = "2"))]
-    pub wdog1: Wdog1ClkSource,
 
-    // Per-peripheral branches.
-    /// IADC clock source.
-    pub iadc: IadcClkSource,
-    /// EUSART0 clock source (EUSART0 is on the LF island so it gets a
-    /// separate mux from EUSART1..3 which are on EM01GRPCCLK).
-    /// Not present on MG22 (config 2 has EUART, not EUSART).
-    #[cfg(not(silabs_series_2_config = "2"))]
-    pub eusart0: Eusart0ClkSource,
+    /// Per-peripheral clock selects (`EUSART0CLKCTRL`, `IADCCLKCTRL`,
+    /// `SYSRTC0CLKCTRL`, `WDOG0CLKCTRL`, ...), like embassy-stm32's
+    /// `config.rcc.mux`. The fields are generated from the chip's metadata.
+    pub mux: mux::ClockMux,
+
     /// TRACE clock source. Only used by debugger ETM/ITM.
     /// Not a separate mux on MG22 (config 2).
     #[cfg(not(silabs_series_2_config = "2"))]
@@ -325,17 +325,11 @@ impl Config {
             // sleep-clock accuracy.
             em23grpaclk: Em23GrpAClkSource::Lfrco,
             em4grpaclk: Em4GrpAClkSource::Lfrco,
-            #[cfg(not(silabs_series_2_config = "2"))]
-            sysrtc0: Sysrtc0ClkSource::Lfrco,
-            wdog0: Wdog0ClkSource::Lfrco,
-            #[cfg(not(silabs_series_2_config = "2"))]
-            wdog1: Wdog1ClkSource::Lfrco,
 
-            // POR defaults: IADC on EM01GRPACLK, EUSART0 on EM01GRPCCLK,
-            // TRACE on SYSCLK.
-            iadc: IadcClkSource::Em01grpaclk,
-            #[cfg(not(silabs_series_2_config = "2"))]
-            eusart0: Eusart0ClkSource::Em01grpcclk,
+            // Keep the reset value of every peripheral clock select.
+            mux: mux::ClockMux::new(),
+
+            // POR default: TRACE on SYSCLK.
             #[cfg(not(silabs_series_2_config = "2"))]
             trace: TraceClkSource::Sysclk,
         }
@@ -349,23 +343,32 @@ impl Default for Config {
 }
 
 /// Frozen clock-tree frequencies. Populated once by [`init_clocks`].
+///
+/// The field names are the clock names of the metapac `kernel_clock` data,
+/// so `build.rs` can generate each peripheral's `frequency()`. `None` means
+/// the clock is not running or does not exist on this chip.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Clocks {
     pub hfxo: Option<Hertz>,
-    pub hfrcodpll: Hertz,
-    pub hfrcoem23: Hertz,
-    pub fsrco: Hertz,
+    pub hfrcodpll: Option<Hertz>,
+    pub hfrcoem23: Option<Hertz>,
+    pub fsrco: Option<Hertz>,
     pub lfxo: Option<Hertz>,
-    pub lfrco: Hertz,
-    pub ulfrco: Hertz,
+    pub lfrco: Option<Hertz>,
+    pub ulfrco: Option<Hertz>,
 
-    pub sysclk: Hertz,
-    pub hclk: Hertz,
-    pub pclk: Hertz,
-    pub em01grpaclk: Hertz,
-    #[cfg(not(silabs_series_2_config = "2"))]
-    pub em01grpcclk: Hertz,
+    pub sysclk: Option<Hertz>,
+    pub hclk: Option<Hertz>,
+    pub pclk: Option<Hertz>,
+    /// PCLK / 2 (I2C0, ACMP).
+    pub lspclk: Option<Hertz>,
+    pub em01grpaclk: Option<Hertz>,
+    /// Not tracked yet (PDM on MG22).
+    pub em01grpbclk: Option<Hertz>,
+    pub em01grpcclk: Option<Hertz>,
+    pub em23grpaclk: Option<Hertz>,
+    pub em4grpaclk: Option<Hertz>,
 }
 
 /// Frozen clock frequencies. The existence of this value indicates that
@@ -458,11 +461,8 @@ fn em01grpcclk_source_freq(src: Em01GrpCClkSource, hfxo: Option<Hertz>, hfrcodpl
 }
 
 pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
-    // Bus-clock gates for the HAL's own peripherals. SYSRTC0 is gated
-    // here because its mux is configured below. Its bus clock is
-    // independent of the mux register and is off after reset, so the
-    // first register access BusFaults. The Silicon Labs sleeptimer
-    // accesses it, and the SDK uses sleeptimer in many places.
+    // The SYSRTC0 bus clock is off after reset, and an access then BusFaults. Turn it on, so that
+    // code outside this HAL can use SYSRTC0.
     enable::<peripherals::GPIO>();
     #[cfg(not(silabs_series_2_config = "2"))]
     enable::<peripherals::SYSRTC0>();
@@ -492,17 +492,13 @@ pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
     CMU.em01grpaclkctrl().modify(|w| w.set_clksel(config.em01grpaclk));
     CMU.em23grpaclkctrl().modify(|w| w.set_clksel(config.em23grpaclk));
     CMU.em4grpaclkctrl().modify(|w| w.set_clksel(config.em4grpaclk));
-    CMU.wdog0clkctrl().modify(|w| w.set_clksel(config.wdog0));
-    CMU.iadcclkctrl().modify(|w| w.set_clksel(config.iadc));
     // Branches that only exist on config 4/5/6 (absent on MG22 / config 2).
     #[cfg(not(silabs_series_2_config = "2"))]
     {
         CMU.em01grpcclkctrl().modify(|w| w.set_clksel(config.em01grpcclk));
-        CMU.sysrtc0clkctrl().modify(|w| w.set_clksel(config.sysrtc0));
-        CMU.wdog1clkctrl().modify(|w| w.set_clksel(config.wdog1));
-        CMU.eusart0clkctrl().modify(|w| w.set_clksel(config.eusart0));
         CMU.traceclkctrl().modify(|w| w.set_clksel(config.trace));
     }
+    config.mux.init();
 
     let hfxo_hz = config.hfxo.map(|c| c.freq);
     let hfrcodpll_hz = match config.hfrcodpll {
@@ -517,7 +513,28 @@ pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
     let pclk = Hertz(hclk.0 / pclk_divisor(config.pclk_pre));
     let em01grpaclk = em01grpaclk_source_freq(config.em01grpaclk, hfxo_hz, hfrcodpll_hz, hfrcoem23_hz);
     #[cfg(not(silabs_series_2_config = "2"))]
-    let em01grpcclk = em01grpcclk_source_freq(config.em01grpcclk, hfxo_hz, hfrcodpll_hz, hfrcoem23_hz);
+    let em01grpcclk = Some(em01grpcclk_source_freq(
+        config.em01grpcclk,
+        hfxo_hz,
+        hfrcodpll_hz,
+        hfrcoem23_hz,
+    ));
+    #[cfg(silabs_series_2_config = "2")]
+    let em01grpcclk = None;
+    #[allow(unreachable_patterns)]
+    let em23grpaclk = match config.em23grpaclk {
+        Em23GrpAClkSource::Lfrco => Some(LFRCO_FREQ),
+        Em23GrpAClkSource::Lfxo => lfxo_hz,
+        Em23GrpAClkSource::Ulfrco => Some(ULFRCO_FREQ),
+        _ => None,
+    };
+    #[allow(unreachable_patterns)]
+    let em4grpaclk = match config.em4grpaclk {
+        Em4GrpAClkSource::Lfrco => Some(LFRCO_FREQ),
+        Em4GrpAClkSource::Lfxo => lfxo_hz,
+        Em4GrpAClkSource::Ulfrco => Some(ULFRCO_FREQ),
+        _ => None,
+    };
 
     cmu_assert!(sysclk.0 <= 80_000_000);
     cmu_assert!(hclk.0 <= 80_000_000);
@@ -525,18 +542,22 @@ pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
     unsafe {
         set_freqs(Clocks {
             hfxo: hfxo_hz,
-            hfrcodpll: hfrcodpll_hz,
-            hfrcoem23: hfrcoem23_hz,
-            fsrco: FSRCO_FREQ,
+            hfrcodpll: Some(hfrcodpll_hz),
+            // MG22 (config 2) has no HFRCOEM23.
+            hfrcoem23: (!cfg!(silabs_series_2_config = "2")).then_some(hfrcoem23_hz),
+            fsrco: Some(FSRCO_FREQ),
             lfxo: lfxo_hz,
-            lfrco: LFRCO_FREQ,
-            ulfrco: ULFRCO_FREQ,
-            sysclk,
-            hclk,
-            pclk,
-            em01grpaclk,
-            #[cfg(not(silabs_series_2_config = "2"))]
+            lfrco: Some(LFRCO_FREQ),
+            ulfrco: Some(ULFRCO_FREQ),
+            sysclk: Some(sysclk),
+            hclk: Some(hclk),
+            pclk: Some(pclk),
+            lspclk: Some(pclk / 2u32),
+            em01grpaclk: Some(em01grpaclk),
+            em01grpbclk: None,
             em01grpcclk,
+            em23grpaclk,
+            em4grpaclk,
         });
     }
 }
