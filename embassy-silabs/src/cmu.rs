@@ -18,6 +18,7 @@ pub use cmu_mod::vals::{
 use critical_section::CriticalSection;
 
 use crate::pac::CMU;
+use crate::peripherals;
 // `_mod` marks the metapac register modules, so they do not read like the `hfxo`, `lfxo` and
 // `msc` fields and variables.
 use crate::pac::{cmu as cmu_mod, hfrco as hfrco_mod, hfxo as hfxo_mod, lfxo as lfxo_mod, msc as msc_mod};
@@ -457,20 +458,14 @@ fn em01grpcclk_source_freq(src: Em01GrpCClkSource, hfxo: Option<Hertz>, hfrcodpl
 }
 
 pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
-    // Bus-clock gates for the HAL's own peripherals + the SYSRTC0
-    // mux that is configured below (its bus clock is independent of the
-    // mux register and otherwise stays at reset-default off, which
-    // BusFaults the first register access - including sleeptimer,
-    // which the Silicon Labs SDK uses pervasively).
-    CMU.clken0().modify(|w| {
-        w.set_gpio(true);
-        #[cfg(not(silabs_series_2_config = "2"))]
-        w.set_sysrtc0(true);
-        #[cfg(time_driver_timer0)]
-        w.set_timer0(true);
-        #[cfg(time_driver_timer1)]
-        w.set_timer1(true);
-    });
+    // Bus-clock gates for the HAL's own peripherals. SYSRTC0 is gated
+    // here because its mux is configured below. Its bus clock is
+    // independent of the mux register and is off after reset, so the
+    // first register access BusFaults. The Silicon Labs sleeptimer
+    // accesses it, and the SDK uses sleeptimer in many places.
+    enable::<peripherals::GPIO>();
+    #[cfg(not(silabs_series_2_config = "2"))]
+    enable::<peripherals::SYSRTC0>();
 
     // Start each oscillator before a branch selects it. SYSCLK on a stopped oscillator faults.
     if let Some(ref hfxo_cfg) = config.hfxo {
@@ -583,8 +578,7 @@ pub(crate) fn init_hfxo(config: &HfxoConfig) {
     const CTUNE_XO_DELTA: i16 = 0;
     let ctune_xo = ((ctune as i16) + CTUNE_XO_DELTA).clamp(0, 0xFF) as u8;
 
-    // 1. Bus clock on, registers unlocked.
-    CMU.clken0().modify(|w| w.set_hfxo0(true));
+    enable::<peripherals::HFXO0>();
     HFXO0.lock().write(|w| w.set_lockkey(hfxo_mod::vals::Lockkey::Unlock));
 
     // Stop HFXO. hfxo_s2v3 has no DISONDEMANDBUFOUT, so set only DISONDEMAND.
@@ -726,8 +720,7 @@ pub(crate) fn init_lfxo(config: &LfxoConfig) {
 
     let ctune = config.ctune.resolve();
 
-    // 1. Bus clock on, registers unlocked.
-    CMU.clken0().modify(|w| w.set_lfxo(true));
+    enable::<peripherals::LFXO>();
     LFXO.lock().write(|w| w.set_lockkey(lfxo_mod::vals::Lockkey::Unlock));
 
     // CAL and CFG are writable only while LFXO is stopped.
@@ -771,10 +764,8 @@ pub(crate) fn init_hfrcodpll(band: HfrcoBand) {
         band as u8
     );
 
-    CMU.clken0().modify(|w| {
-        w.set_hfrco0(true);
-        w.set_dpll0(true);
-    });
+    enable::<peripherals::HFRCO0>();
+    enable::<peripherals::DPLL0>();
 
     // Stop the DPLL before the band changes.
     if DPLL0.en().read().en() {
@@ -802,7 +793,7 @@ pub(crate) fn init_hfrcodpll(band: HfrcoBand) {
     // not run during init, and `init_clocks` never resets `SYSCLKCTRL.RHCLKPRESC`.
     let sysclk_is_hfrcodpll = CMU.sysclkctrl().read().clksel() == SysclkSource::Hfrcodpll;
     if sysclk_is_hfrcodpll {
-        CMU.clken1().modify(|w| w.set_msc(true));
+        enable::<peripherals::MSC>();
         let msc = crate::pac::MSC;
         msc.lock().write(|w| w.set_lockkey(msc_mod::vals::Lockkey::Unlock));
         msc.readctrl().modify(|w| w.set_mode(msc_mod::vals::Mode::Ws3));

@@ -80,6 +80,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver 
 
 impl TimerDriver {
     fn init(&'static self, _cs: CriticalSection) {
+        crate::cmu::enable::<T>();
         let t = regs();
 
         // `CFG` and `CCx_CFG` are writable only while `EN.EN` is 0. Other registers, except `EN`,
