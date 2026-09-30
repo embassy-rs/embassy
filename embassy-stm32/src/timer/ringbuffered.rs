@@ -96,7 +96,7 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
     ///
     /// This doesn't immediately stop the transfer, you have to wait until is_running returns false.
     pub fn request_pause(&mut self) {
-        self.ring_buf.request_pause()
+        self.ring_buf.stop()
     }
 
     /// Return whether DMA is still running.
