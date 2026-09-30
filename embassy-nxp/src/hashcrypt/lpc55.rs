@@ -305,6 +305,16 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
     }
 }
 
+impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
+    fn encrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<&[u8], AesError> {
+        todo!("Add function body");
+    }
+
+    fn decrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<&[u8], AesError> {
+        todo!("Add function body")
+    }
+}
+
 impl<'a, 'd> AesEcb<'a, 'd> {
     // Does not require anything past the default aes methods
 }
@@ -314,6 +324,7 @@ pub struct AesCbc<'a, 'd> {
     key: Option<Key>,
     iv: Option<[u8; 16]>,
 }
+
 impl<'a, 'd> Aes for AesCbc<'a, 'd> {
     fn encrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
         todo!("Add encrypt method for CBC")
@@ -323,6 +334,17 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
         todo!("Add decrypt method for CBC");
     }
 }
+
+impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
+    fn encrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<&[u8], AesError> {
+        todo!("Add function body");
+    }
+
+    fn decrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<&[u8], AesError> {
+        todo!("Add function body");
+    }
+}
+
 impl<'a, 'd> AesCbc<'a, 'd> {
     pub fn set_iv(&mut self, _iv: &[u8; 16]) -> Result<(), AesError> {
         todo!("Add method body");
