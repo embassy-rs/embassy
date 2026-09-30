@@ -10,7 +10,7 @@ mod fmt;
 
 // The EUSART driver supports MG26 (config 6, EUSART0-3) and FG25 (config 5,
 // EUSART0-4). Bus-clock gates come from the metapac metadata (see
-// `rcc::RccPeripheral`). MG24 (config 4) and MG22 (config 2, EUART not
+// `cmu::CmuPeripheral`). MG24 (config 4) and MG22 (config 2, EUART not
 // EUSART) aren't covered yet.
 #[cfg(any(silabs_series_2_config = "5", silabs_series_2_config = "6"))]
 pub mod eusart;
@@ -39,7 +39,7 @@ pub mod mode {
     impl_mode!(Async);
 }
 
-pub mod rcc;
+pub mod cmu;
 pub mod time;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
@@ -109,7 +109,7 @@ macro_rules! bind_interrupts {
 }
 
 /// `embassy-silabs` global configuration.
-pub use rcc::Config;
+pub use cmu::Config;
 
 /// Initializes embassy and returns the peripheral singletons for creating drivers.
 ///
@@ -120,7 +120,7 @@ pub fn init(config: Config) -> Peripherals {
     critical_section::with(|cs| {
         let peripherals = Peripherals::take_with_cs(cs);
 
-        rcc::init_clocks(cs, config);
+        cmu::init_clocks(cs, config);
 
         #[cfg(feature = "_time-driver")]
         time_driver::init(cs);

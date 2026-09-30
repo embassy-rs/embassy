@@ -91,13 +91,13 @@ impl TimerDriver {
 
         // TIMER0 lives on EM01GRPACLK. The source is configurable
         // (HFRCODPLL at reset, HFXO once the clock tree is reprogrammed,
-        // etc.) and the rate is recorded in `rcc::get_freqs().em01grpaclk`.
+        // etc.) and the rate is recorded in `cmu::get_freqs().em01grpaclk`.
         // Pick PRESC = (em01grpaclk / tick_hz) - 1 so the timer counts
         // at exactly `embassy_time_driver::TICK_HZ`.
         //
         // PRESC encoding: divisor = value + 1. The field is 10 bits, so
         // divisor must fit in 1..=1024.
-        let em01grpaclk = unsafe { crate::rcc::get_freqs().em01grpaclk }.0 as u64;
+        let em01grpaclk = unsafe { crate::cmu::get_freqs().em01grpaclk }.0 as u64;
         let tick_hz = embassy_time_driver::TICK_HZ;
         assert!(
             tick_hz != 0 && em01grpaclk % tick_hz == 0,

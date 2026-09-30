@@ -55,7 +55,7 @@ log = ["dep:log"]
 ## There are no plans to make this stable.
 unstable-pac = []
 
-## Skip the RCC sanity assertions (e.g. SYSCLK/HCLK frequency upper bounds).
+## Skip the CMU frequency checks (e.g. the SYSCLK and HCLK upper bounds).
 unchecked-overclocking = []
 
 #! ## Time

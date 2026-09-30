@@ -16,7 +16,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_silabs::init({
-        use embassy_silabs::rcc::*;
+        use embassy_silabs::cmu::*;
         let mut cfg = embassy_silabs::Config::default();
         // brd2713a (MGM260P) has a 40 MHz HFXO crystal.
         cfg.hfxo = Some(HfxoConfig {

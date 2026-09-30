@@ -1,4 +1,4 @@
-//! Reset and Clock Management Unit (CMU) for EFR32 Series 2.
+//! Clock Management Unit (CMU) for EFR32 Series 2.
 
 use core::mem::MaybeUninit;
 
@@ -26,20 +26,20 @@ pub use crate::time::Hertz;
 /// FSRCO frequency, 20 MHz.
 pub const FSRCO_FREQ: Hertz = Hertz::mhz(20);
 
-pub(crate) trait SealedRccPeripheral {
+pub(crate) trait SealedCmuPeripheral {
     fn enable_bus_clock();
 }
 
 /// A peripheral with a CMU bus-clock gate. `build.rs` implements it for
 /// every peripheral whose gate is in the metapac metadata.
 #[allow(private_bounds)]
-pub trait RccPeripheral: SealedRccPeripheral + 'static {}
+pub trait CmuPeripheral: SealedCmuPeripheral + 'static {}
 
 /// Turns on bus clock for peripheral `T`.
 ///
 /// This is one write to the gate register's SET alias, so it needs no
 /// critical section.
-pub fn enable<T: RccPeripheral>() {
+pub fn enable<T: CmuPeripheral>() {
     T::enable_bus_clock();
 }
 /// LFRCO frequency, 32.768 kHz.
@@ -378,7 +378,7 @@ static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
 /// Safety: writes a mutable global. Caller must ensure no other code is
 /// reading [`get_freqs`] concurrently.
 unsafe fn set_freqs(freqs: Clocks) {
-    debug!("rcc: {:?}", freqs);
+    debug!("cmu: {:?}", freqs);
     CLOCK_FREQS = MaybeUninit::new(freqs);
 }
 
@@ -524,8 +524,8 @@ pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
     #[cfg(not(silabs_series_2_config = "2"))]
     let em01grpcclk = em01grpcclk_source_freq(config.em01grpcclk, hfxo_hz, hfrcodpll_hz, hfrcoem23_hz);
 
-    rcc_assert!(sysclk.0 <= 80_000_000);
-    rcc_assert!(hclk.0 <= 80_000_000);
+    cmu_assert!(sysclk.0 <= 80_000_000);
+    cmu_assert!(hclk.0 <= 80_000_000);
 
     unsafe {
         set_freqs(Clocks {

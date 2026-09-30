@@ -138,10 +138,10 @@ fn main() {
         }
         writeln!(
             out,
-            "impl crate::rcc::SealedRccPeripheral for peripherals::{name} {{\n    \
+            "impl crate::cmu::SealedCmuPeripheral for peripherals::{name} {{\n    \
              fn enable_bus_clock() {{\n        \
              crate::pac::CMU.{reg}_set().write(|w| w.set_{field}(true));\n    \
-             }}\n}}\nimpl crate::rcc::RccPeripheral for peripherals::{name} {{}}\n",
+             }}\n}}\nimpl crate::cmu::CmuPeripheral for peripherals::{name} {{}}\n",
             name = p.name,
             reg = en.register,
             field = en.field,

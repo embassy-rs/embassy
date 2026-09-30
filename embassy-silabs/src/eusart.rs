@@ -238,7 +238,7 @@ trait SealedInstance {
 
 /// An EUSART peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + crate::rcc::RccPeripheral + PeripheralType + 'static {
+pub trait Instance: SealedInstance + crate::cmu::CmuPeripheral + PeripheralType + 'static {
     /// Interrupt for RX events.
     type RxInterrupt: interrupt::typelevel::Interrupt;
     /// Interrupt for TX events.
@@ -247,10 +247,10 @@ pub trait Instance: SealedInstance + crate::rcc::RccPeripheral + PeripheralType 
 
 /// Resolve EUSART0's input-clock frequency from its CMU mux selection.
 fn eusart0_source_freq() -> Hertz {
-    use crate::rcc::Eusart0ClkSource as Sel;
+    use crate::cmu::Eusart0ClkSource as Sel;
     // SAFETY: read-only; init_clocks has populated the frozen table by the time
     // any driver is constructed.
-    let f = unsafe { crate::rcc::get_freqs() };
+    let f = unsafe { crate::cmu::get_freqs() };
     match CMU.eusart0clkctrl().read().clksel() {
         Sel::Em01grpcclk => f.em01grpcclk,
         Sel::Hfrcoem23 => f.hfrcoem23,
@@ -264,7 +264,7 @@ fn eusart0_source_freq() -> Hertz {
 /// EUSART1..3 are clocked directly from EM01GRPCCLK (no per-instance mux).
 fn em01grpcclk_freq() -> Hertz {
     // SAFETY: read-only; the frozen clock table is populated by `init_clocks`.
-    unsafe { crate::rcc::get_freqs() }.em01grpcclk
+    unsafe { crate::cmu::get_freqs() }.em01grpcclk
 }
 
 macro_rules! impl_eusart {
@@ -413,7 +413,7 @@ fn on_interrupt<T: Instance>() {
 
 /// Configure clocks, routing, pins and registers for instance `T`.
 fn init<T: Instance>(tx: &AnyPin, rx: &AnyPin, config: &Config) -> Result<(), ConfigError> {
-    crate::rcc::enable::<T>();
+    crate::cmu::enable::<T>();
 
     let src = T::source_freq();
     let div = compute_clkdiv(src, config.baudrate, OVERSAMPLE)?;

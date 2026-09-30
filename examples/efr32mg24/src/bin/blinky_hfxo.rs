@@ -16,7 +16,7 @@ use panic_probe as _;
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_silabs::init({
-        use embassy_silabs::rcc::*;
+        use embassy_silabs::cmu::*;
         let mut cfg = embassy_silabs::Config::default();
         cfg.hfxo = Some(HfxoConfig {
             freq: Hertz::mhz(39),
