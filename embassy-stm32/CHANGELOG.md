@@ -229,6 +229,7 @@ STM32N6:
 - feat: stm32n6: add LTDC support
 - feat: stm32n6: rewrite RISAF access from raw pointer to PAC
 - feat: stm32n6: implement ClockCalculations for IC1 and IC2
+- feat: stm32/npu: add `npu::epoch` software epochs (softmax, dequantization, argmax) behind the new `npu-nn` feature, backed by `embedded-nn`
 
 STM32H7RS:
 - feat: stm32h7rs: add SYSCFG control for internal flash config
