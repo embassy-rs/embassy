@@ -1293,7 +1293,7 @@ trait SealedInstance {
 
     fn dma_state() -> &'static DmaState;
 
-    fn ring_buffered_state() -> &'static ring_buffered::State;
+    fn ring_buffered_state() -> &'static crate::dma_ring::State;
 }
 
 /// UART instance.
@@ -1329,8 +1329,8 @@ macro_rules! impl_instance {
                 &STATE
             }
 
-            fn ring_buffered_state() -> &'static ring_buffered::State {
-                static STATE: ring_buffered::State = ring_buffered::State::new();
+            fn ring_buffered_state() -> &'static crate::dma_ring::State {
+                static STATE: crate::dma_ring::State = crate::dma_ring::State::new();
                 &STATE
             }
         }
