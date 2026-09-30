@@ -7,19 +7,11 @@ use core::convert::Infallible;
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
 use crate::pac::GPIO;
-// GPIO routes to a different register-block version per Series 2 config:
-// MG24 (config 4) uses gpio_v3, FG25 (config 5) uses gpio_v4, MG26 (config 6)
-// uses gpio_v7. The port register newtypes (PortDout / PortModel / PortModeh)
-// have identical shapes across all three; alias the module so the code below
-// is version-agnostic.
-#[cfg(silabs_series_2_config = "2")]
-use crate::pac::gpio_v1 as gpio_mod;
-#[cfg(silabs_series_2_config = "4")]
-use crate::pac::gpio_v3 as gpio_mod;
-#[cfg(silabs_series_2_config = "5")]
-use crate::pac::gpio_v4 as gpio_mod;
-#[cfg(silabs_series_2_config = "6")]
-use crate::pac::gpio_v7 as gpio_mod;
+// GPIO routes to a different register-block version per chip (gpio_v1 on
+// MG22, gpio_v7 on MG26, ...). The port register newtypes (PortDout /
+// PortModel / PortModeh) have identical shapes across them; the metapac's
+// version-neutral `gpio` alias names the chip's version.
+use crate::pac::gpio as gpio_mod;
 
 /// Logic level.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

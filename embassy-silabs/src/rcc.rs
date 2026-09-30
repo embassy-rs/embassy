@@ -18,26 +18,9 @@ pub use cmu_mod::vals::{
 use critical_section::CriticalSection;
 
 use crate::pac::CMU;
-// CMU / HFXO / MSC / LFXO / HFRCO route to different register-block versions
-// per Series 2 config: MG22 (config 2), MG24 (config 4), FG25 (config 5),
-// MG26 (config 6). Alias them so the shared clock code below stays
-// version-agnostic. (TIMER is aliased the same way in time_driver.rs.)
-#[cfg(silabs_series_2_config = "2")]
-use crate::pac::{
-    cmu_v1 as cmu_mod, hfrco_v1 as hfrco_mod, hfxo_v2 as hfxo_mod, lfxo_v0 as lfxo_mod, msc_v8 as msc_mod,
-};
-#[cfg(silabs_series_2_config = "4")]
-use crate::pac::{
-    cmu_v3 as cmu_mod, hfrco_v2 as hfrco_mod, hfxo_v3 as hfxo_mod, lfxo_v1 as lfxo_mod, msc_v3 as msc_mod,
-};
-#[cfg(silabs_series_2_config = "5")]
-use crate::pac::{
-    cmu_v4 as cmu_mod, hfrco_v2 as hfrco_mod, hfxo_v4 as hfxo_mod, lfxo_v1 as lfxo_mod, msc_v4 as msc_mod,
-};
-#[cfg(silabs_series_2_config = "6")]
-use crate::pac::{
-    cmu_v7 as cmu_mod, hfrco_v2 as hfrco_mod, hfxo_v3 as hfxo_mod, lfxo_v1 as lfxo_mod, msc_v9 as msc_mod,
-};
+// `_mod` marks the metapac register modules, so they do not read like the `hfxo`, `lfxo` and
+// `msc` fields and variables.
+use crate::pac::{cmu as cmu_mod, hfrco as hfrco_mod, hfxo as hfxo_mod, lfxo as lfxo_mod, msc as msc_mod};
 pub use crate::time::Hertz;
 
 /// FSRCO frequency, 20 MHz.

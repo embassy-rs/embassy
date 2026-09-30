@@ -11,12 +11,9 @@ use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
 use crate::interrupt::typelevel::Interrupt;
-// TIMER0 routes to a different register-block version per Series 2 config:
-// MG22 (config 2) uses timer_v0_w; configs 4/5/6 use timer_v1_w.
-#[cfg(silabs_series_2_config = "2")]
-use crate::pac::timer_v0_w as timer_mod;
-#[cfg(not(silabs_series_2_config = "2"))]
-use crate::pac::timer_v1_w as timer_mod;
+// Version-neutral alias: timer_v0 on MG22, timer_v1 on MG24/FG25/MG26. Each
+// version has a 16-bit `Timer` and a 32-bit `Timer32` block.
+use crate::pac::timer as timer_mod;
 use crate::peripherals;
 
 mod sealed {
@@ -25,7 +22,6 @@ mod sealed {
 
 pub(crate) trait Instance: sealed::Instance + 'static {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
-    fn regs() -> *mut ();
 }
 
 macro_rules! impl_timer_instance {
@@ -33,9 +29,6 @@ macro_rules! impl_timer_instance {
         impl sealed::Instance for peripherals::$name {}
         impl Instance for peripherals::$name {
             type Interrupt = crate::interrupt::typelevel::$name;
-            fn regs() -> *mut () {
-                crate::pac::$name.as_ptr()
-            }
         }
     };
 }
@@ -48,8 +41,16 @@ type T = peripherals::TIMER0;
 #[cfg(time_driver_timer1)]
 type T = peripherals::TIMER1;
 
-fn regs() -> timer_mod::Timer {
-    unsafe { timer_mod::Timer::from_ptr(<T as Instance>::regs()) }
+// The driver needs a 32-bit counter. The typed PAC const only coerces to
+// `Timer32` when the instance is a wide timer, so a 16-bit TIMER fails to
+// compile here instead of running with a truncated counter.
+#[cfg(time_driver_timer0)]
+fn regs() -> timer_mod::Timer32 {
+    crate::pac::TIMER0
+}
+#[cfg(time_driver_timer1)]
+fn regs() -> timer_mod::Timer32 {
+    crate::pac::TIMER1
 }
 
 // `period` goes up at counter values 0 (overflow) and 0x8000_0000 (CC0). An even `period` means the
@@ -84,8 +85,8 @@ impl TimerDriver {
         // `CFG` and `CCx_CFG` are writable only while `EN.EN` is 0. Other registers, except `EN`,
         // BusFault while `EN.EN` is 0.
         t.en().write(|w| w.set_en(false));
-        // timer_v0_w (MG22) has no DISABLING status bit — disable is immediate.
-        #[cfg(not(silabs_series_2_config = "2"))]
+        // timer_v0 (MG22) has no DISABLING status bit — disable is immediate.
+        #[cfg(not(timer_v0))]
         while t.en().read().disabling() {}
 
         // TIMER0 lives on EM01GRPACLK. The source is configurable

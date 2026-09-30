@@ -88,14 +88,27 @@ fn main() {
         Err(GetOneError::Multiple) => panic!("Multiple time-driver-xxx Cargo features enabled"),
     };
 
+    // The time driver needs a 32-bit counter: the metadata block is
+    // `TIMER32` for wide timers and `TIMER` for 16-bit ones (TIMER1 on MG22).
+    let is_wide = |name: &str| {
+        METADATA
+            .peripherals
+            .iter()
+            .any(|p| p.name == name && p.block == "TIMER32")
+    };
     let time_driver_singleton = match time_driver.as_ref().map(|x| x.as_ref()) {
         None => "",
-        Some("timer0") => "TIMER0",
-        Some("timer1") => "TIMER1",
+        Some(t @ ("timer0" | "timer1")) => {
+            let name = if t == "timer0" { "TIMER0" } else { "TIMER1" };
+            if !is_wide(name) {
+                panic!("time-driver-{t} requested, but {name} on this chip is not a 32-bit TIMER");
+            }
+            name
+        }
         Some("any") => ["TIMER0", "TIMER1"]
-            .iter()
-            .find(|tim| singletons.contains(&tim.to_string()))
-            .expect("time-driver-any requested, but the chip doesn't have TIMER0 or TIMER1."),
+            .into_iter()
+            .find(|tim| is_wide(tim))
+            .expect("time-driver-any requested, but the chip has no 32-bit TIMER0 or TIMER1."),
         _ => panic!("unknown time_driver {:?}", time_driver),
     };
 
@@ -153,25 +166,24 @@ fn main() {
 
     fs::write(&out_path, &out).expect("write _generated.rs");
 
-    // Emit silabs_series + silabs_series_<N>_config cfg flags. Mirrors
-    // the SDK's `_SILICON_LABS_32B_SERIES_<N>` and
-    // `_SILICON_LABS_32B_SERIES_<N>_CONFIG_<M>` macros — HAL source
-    // gates erratas and per-generation register code with
-    // `#[cfg(silabs_series_2_config = "6")]` etc.
-    use silabs_metapac::metadata::Series;
-    let (series, cfg) = match METADATA.series {
-        Series::Series2(n) => (2u8, n as u16),
-        Series::Series3(n) => (3u8, n),
+    // Chip cfgs from silabs-metapac (`links = "silabs-metapac"` metadata):
+    // `silabs_series="2"`, `silabs_series_2_config="6"` (mirrors the SDK's
+    // `_SILICON_LABS_32B_SERIES_<N>_CONFIG_<M>`), and per peripheral
+    // `<kind>`, `<kind>_<version>` and its prefixes (`timer_v0`, `gpio_v7`).
+    // The check list declares every value any chip can have.
+    // `rerun-if-changed=build.rs` below turns off the default rerun rules, so
+    // the metapac variables need their own rerun rule, or the cfgs go stale.
+    let dep = |key: &str| {
+        println!("cargo:rerun-if-env-changed=DEP_SILABS_METAPAC_{key}");
+        env::var(format!("DEP_SILABS_METAPAC_{key}"))
+            .unwrap_or_else(|_| panic!("DEP_SILABS_METAPAC_{key} not set; silabs-metapac >= 0.6 is required"))
     };
-    println!("cargo:rustc-cfg=silabs_series=\"{series}\"");
-    println!("cargo:rustc-cfg=silabs_series_{series}_config=\"{cfg}\"");
-    // Declare the cfg names so `unexpected_cfgs` lint doesn't fire on
-    // downstream code that uses these gates.
-    println!("cargo:rustc-check-cfg=cfg(silabs_series, values(\"2\", \"3\"))");
-    println!(
-        "cargo:rustc-check-cfg=cfg(silabs_series_2_config, values(\"1\", \"2\", \"3\", \"4\", \"5\", \"6\", \"7\", \"8\", \"9\"))"
-    );
-    println!("cargo:rustc-check-cfg=cfg(silabs_series_3_config, values(\"301\"))");
+    for spec in dep("CHECK_CFGS").split_ascii_whitespace() {
+        println!("cargo:rustc-check-cfg={spec}");
+    }
+    for cfg in dep("CFGS").split_ascii_whitespace() {
+        println!("cargo:rustc-cfg={cfg}");
+    }
 
     println!("cargo:rerun-if-changed=build.rs");
 }
