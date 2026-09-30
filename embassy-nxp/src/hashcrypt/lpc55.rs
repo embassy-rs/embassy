@@ -252,6 +252,19 @@ pub trait Aes {
     // block is zero-padded internally and the extra output bytes are discarded.
 }
 
+// This trait is ment to be imlemented by AesEcb and AesCbc as they are not streaming algorithms
+// and so, the same padding scheme can not be implemented instead, we will use the padded with
+// PKCS#7, which lets decrypt_padded recover the original message length
+pub trait AesPadded {
+    fn encrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<usize, AesError>;
+
+    fn decrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<usize, AesError>;
+
+    // the methods in this trait will be similar to the ones in the Aes trait, but instead
+    // of only accepting messages with the size divisible by 16, it will accept arbitrary
+    // size messages that will be padded acroding to PKCS#7 padding scheme
+}
+
 // Specific driver types
 pub struct Sha1<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
