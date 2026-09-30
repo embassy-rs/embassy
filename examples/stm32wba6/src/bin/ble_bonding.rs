@@ -44,10 +44,7 @@
 
 use defmt::*;
 use defmt_rtt as _;
-use embassy_crypto_rustcrypto as _;
 use embassy_executor::Spawner;
-use embassy_stm32::peripherals::RNG;
-use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
@@ -66,7 +63,6 @@ use stm32wb_hci::event::{Encryption, EncryptionChange};
 use stm32wb_hci::vendor::event::{GapPairingComplete, GapPairingStatus, VendorEvent};
 
 bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<RNG>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
 });
@@ -88,7 +84,7 @@ async fn main(spawner: Spawner) {
     let mut config = Config::default();
     config.rcc = rcc::Config::new_wpan();
 
-    let p = embassy_stm32::init(config);
+    let _p = embassy_stm32::init(config);
 
     info!("Embassy STM32WBA6 BLE Pairing Code Example");
 
@@ -103,7 +99,7 @@ async fn main(spawner: Spawner) {
         }
     }
 
-    let (platform, runtime) = new_platform!(Rng::new(p.RNG, Irqs), 8);
+    let (platform, runtime) = new_platform!(8);
 
     spawner.spawn(ble_runner_task(platform).expect("ble runner"));
 

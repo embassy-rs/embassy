@@ -97,6 +97,10 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
             let ptr = this.as_mut_ptr();
             (&raw mut (*ptr).tx_desc).write_bytes(0, 1);
             (&raw mut (*ptr).rx_desc).write_bytes(0, 1);
+            // Copy a constant template: constructing a deque by value can also
+            // put its backing array on the stack, especially without optimization.
+            #[cfg(feature = "ptp")]
+            (&raw mut (*ptr).tx_timestamps).copy_from_nonoverlapping(const { &Deque::new() }, 1);
             for i in 0..TX {
                 (&raw mut (*ptr).tx_buf[i]).write(None);
             }
@@ -191,6 +195,7 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
 
     #[cfg(feature = "ptp")]
     fn poll_tx_timestamp(&mut self) -> Option<xarxa_driver::TxTimestamp> {
+        self.tx.fast_forward();
         self.tx.poll_timestamp()
     }
 }

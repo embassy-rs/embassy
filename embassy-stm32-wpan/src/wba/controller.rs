@@ -97,9 +97,9 @@ pub struct Controller<'d> {
 impl<'d> Controller<'d> {
     /// Create a new BLE instance
     ///
-    /// Requires the shared [`Platform`] (RNG) and an embassy-crypto driver
-    /// registered for each operation the BLE stack uses: AES-128 (ECB, CMAC,
-    /// CCM) and P-256 arithmetic.
+    /// Requires the shared [`Platform`] and an `embassy-crypto` driver
+    /// registered for each operation the BLE stack uses: RNG, AES-128 (ECB,
+    /// CMAC, CCM) and P-256 arithmetic.
     pub async fn new(
         platform: &'static Platform,
         runtime: &'d mut Runtime,
@@ -115,12 +115,6 @@ impl<'d> Controller<'d> {
 
             receiver
         };
-
-        trace!("Waiting for rng to fill...");
-        // Wait for the rng buffer to fill
-        platform.wait_rng_ready().await;
-
-        trace!("Waiting for rng to fill...done!");
 
         // Set-up sequencer stack
         util_seq::seq_resume();

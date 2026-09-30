@@ -61,6 +61,7 @@ pub mod time_driver;
 #[cfg(feature = "_rp235x")]
 pub mod trng;
 pub mod uart;
+pub mod uid;
 pub mod usb;
 pub mod watchdog;
 

@@ -74,6 +74,15 @@ impl Registers {
     #[cfg(feature = "time")]
     pub fn calc_timestamp(&self, ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
         let now_embassy = embassy_time::Instant::now();
+        // With TIM3 driving both embassy-time and the FDCAN timestamp counter
+        // (`TimestampSource::FromTIM3`), `ts_val` is the low 16 bits of the tick
+        // count at start of frame, whatever the tick rate. The delta is unambiguous
+        // as long as fewer than 2^16 ticks pass between the frame and this call.
+        #[cfg(time_driver_tim3)]
+        if self.timestamp_source_is_tim3() {
+            let delta = (now_embassy.as_ticks() as u16).wrapping_sub(ts_val);
+            return now_embassy.saturating_sub(embassy_time::Duration::from_ticks(u64::from(delta)));
+        }
         if ns_per_timer_tick == 0 {
             return now_embassy;
         }
@@ -92,14 +101,40 @@ impl Registers {
         ts_val
     }
 
-    pub fn put_tx_frame(&self, bufidx: usize, header: &Header, buffer: &[u8]) {
+    #[cfg(time_driver_tim3)]
+    fn timestamp_source_is_tim3(&self) -> bool {
+        cfg_if! {
+            if #[cfg(can_fdcan_v2)] {
+                self.regs.tscc().read().tss() == 2
+            } else {
+                self.regs.tscc().read().tss() == stm32_metapac::can::vals::Tss::External
+            }
+        }
+    }
+
+    pub fn put_tx_frame(&self, bufidx: usize, header: &Header, buffer: &[u8], marker: Option<u8>) {
         let mailbox = self.tx_buffer_element(bufidx);
         mailbox.reset();
-        put_tx_header(mailbox, header);
+        put_tx_header(mailbox, header, marker);
         put_tx_data(mailbox, buffer);
 
         // Set <idx as Mailbox> as ready to transmit
         self.regs.txbar().modify(|w| w.set_ar(bufidx, true));
+    }
+
+    /// Pops the oldest TX event: frame id, message marker and raw start-of-frame timestamp.
+    pub fn tx_event(&self) -> Option<(embedded_can::Id, u8, u16)> {
+        let status = self.regs.txefs().read();
+        if status.effl() == 0 {
+            return None;
+        }
+        let index = status.efgi();
+        let event = self.msg_ram_mut().transmit.efsa[index as usize].read();
+        let id = make_id(event.id().bits(), event.xtd().bits());
+        let marker = event.mm().bits();
+        let ts = event.txts().bits();
+        self.regs.txefa().write(|w| w.set_efai(index));
+        Some((id, marker, ts))
     }
 
     fn reg_to_error(value: u8) -> Option<BusError> {
@@ -224,7 +259,11 @@ impl Registers {
         }
     }
 
-    pub fn write<F: embedded_can::Frame + CanHeader>(&self, frame: &F) -> nb::Result<Option<F>, Infallible> {
+    pub fn write<F: embedded_can::Frame + CanHeader>(
+        &self,
+        frame: &F,
+        marker: Option<u8>,
+    ) -> nb::Result<Option<F>, Infallible> {
         let (idx, pending_frame) = if self.tx_queue_is_full() {
             if self.tx_queue_mode() == TxBufferMode::Fifo {
                 // Does not make sense to cancel a pending frame when using FIFO
@@ -251,7 +290,7 @@ impl Registers {
             (idx, None)
         };
 
-        self.put_tx_frame(idx as usize, frame.header(), frame.data());
+        self.put_tx_frame(idx as usize, frame.header(), frame.data(), marker);
 
         Ok(pending_frame)
     }
@@ -366,13 +405,7 @@ impl Registers {
 
         self.configure_msg_ram();
 
-        // Enable timestamping
-        #[cfg(not(can_fdcan_v2))]
-        self.regs
-            .tscc()
-            .write(|w| w.set_tss(stm32_metapac::can::vals::Tss::Increment));
-        #[cfg(can_fdcan_v2)]
-        self.regs.tscc().write(|w| w.set_tss(0x01));
+        self.set_timestamp_counter_source(config.timestamp_source);
 
         // this isn't really documented in the reference manual
         // but corresponding txbtie bit has to be set for the TC (TxComplete) interrupt to fire
@@ -529,19 +562,18 @@ impl Registers {
 
     /// Configures and resets the timestamp counter
     #[inline]
-    #[allow(unused)]
     pub fn set_timestamp_counter_source(&self, select: TimestampSource) {
         #[cfg(can_fdcan_v2)]
         let (tcp, tss) = match select {
             TimestampSource::None => (0, 0),
-            TimestampSource::Prescaler(p) => (p as u8, 1),
+            TimestampSource::Prescaler(p) => (p as u8 - 1, 1),
             TimestampSource::FromTIM3 => (0, 2),
         };
 
         #[cfg(not(can_fdcan_v2))]
         let (tcp, tss) = match select {
             TimestampSource::None => (0, stm32_metapac::can::vals::Tss::Zero),
-            TimestampSource::Prescaler(p) => (p as u8, stm32_metapac::can::vals::Tss::Increment),
+            TimestampSource::Prescaler(p) => (p as u8 - 1, stm32_metapac::can::vals::Tss::Increment),
             TimestampSource::FromTIM3 => (0, stm32_metapac::can::vals::Tss::External),
         };
 
@@ -673,7 +705,7 @@ fn make_id(id: u32, extended: bool) -> embedded_can::Id {
     }
 }
 
-fn put_tx_header(mailbox: &mut TxBufferElement, header: &Header) {
+fn put_tx_header(mailbox: &mut TxBufferElement, header: &Header, marker: Option<u8>) {
     let (id, id_type) = match header.id() {
         // A standard identifier has to be written to ID[28:18].
         embedded_can::Id::Standard(id) => ((id.as_raw() as u32) << 18, IdType::StandardId),
@@ -695,7 +727,7 @@ fn put_tx_header(mailbox: &mut TxBufferElement, header: &Header) {
             .xtd()
             .set_id_type(id_type)
             .set_len(DataLength::new(header.len(), frame_format))
-            .set_event(Event::NoEvent)
+            .set_event(marker.into())
             .fdf()
             .set_format(frame_format)
             .brs()

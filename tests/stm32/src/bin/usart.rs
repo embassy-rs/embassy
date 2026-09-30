@@ -10,7 +10,7 @@ use embassy_futures::join::join;
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::usart::{BufferedUart, Config, ConfigError, Error, Uart};
 use embassy_time::{Duration, Instant, block_for};
-use embedded_io_async::{Read, Write};
+use embedded_io_async::Write;
 
 #[cfg_attr(
     feature = "stop",

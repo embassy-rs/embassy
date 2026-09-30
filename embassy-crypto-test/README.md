@@ -14,7 +14,7 @@ embassy_crypto_test::aes128_gcm().unwrap();
 
 ## Vectors
 
-- [Wycheproof](https://github.com/C2SP/wycheproof) for HMAC, AES-CBC, GCM,
+- [Wycheproof](https://github.com/C2SP/wycheproof) for HMAC, HKDF, AES-CBC, GCM,
   CCM, CMAC, ChaCha20-Poly1305, ECDH, ECDSA verification, X25519 and Ed25519 verification. `build.rs` clones the
   repository at a pinned commit into `OUT_DIR`. Set `WYCHEPROOF_DIR` to an
   existing checkout to build offline.

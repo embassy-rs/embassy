@@ -5,6 +5,11 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
+#[cfg(feature = "_verify")]
+use crate::{
+    AlignedBuffer,
+    firmware_updater::{VerificationError, verify},
+};
 use crate::{DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC, State};
 
 /// Errors returned by bootloader
@@ -164,6 +169,48 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         }
     }
 
+    /// Verify the update in the DFU partition without copying either image.
+    ///
+    /// On `Swap` with zero copy progress, verify the signature at `signature_offset`
+    /// over the SHA-512 digest of DFU bytes `0..update_len`.
+    ///
+    /// An invalid signature records and returns `Revert`. Other states and swaps
+    /// with recorded progress are left unchanged. Flash errors are returned.
+    /// Call this before [`Self::prepare_boot`] on every boot; successful
+    /// verification is not recorded separately from swap progress.
+    ///
+    /// `aligned_buf` must satisfy [`Self::read_state`]'s buffer requirements and
+    /// the [hashing requirements](crate::BlockingFirmwareUpdater::hash).
+    /// The 64-byte signature at `signature_offset` must be readable from DFU.
+    #[cfg(feature = "_verify")]
+    pub fn verify_update(
+        &mut self,
+        aligned_buf: &mut [u8],
+        public_key: &[u8; 32],
+        update_len: u32,
+        signature_offset: u32,
+    ) -> Result<State, BootError> {
+        let state = self.read_state(aligned_buf)?;
+        if state != State::Swap || self.current_progress(aligned_buf)? != 0 {
+            return Ok(state);
+        }
+        let mut signature = AlignedBuffer([0; 64]);
+        self.dfu.read(signature_offset, signature.as_mut())?;
+        match verify(&mut self.dfu, public_key, &signature.0, update_len, aligned_buf) {
+            Ok(()) => Ok(State::Swap),
+            Err(VerificationError::Flash(error)) => Err(BootError::Flash(error)),
+            Err(VerificationError::Signature(_)) => {
+                // Invalidating progress here would make an interrupted rejection
+                // look like a completed swap requiring rollback.
+                self.state.erase(0, self.state.capacity() as u32)?;
+                let state_word = &mut aligned_buf[..STATE::WRITE_SIZE];
+                state_word.fill(REVERT_MAGIC);
+                self.state.write(0, state_word)?;
+                Ok(State::Revert)
+            }
+        }
+    }
+
     /// Perform necessary boot preparations like swapping images.
     ///
     /// The DFU partition is assumed to be 1 page bigger than the active partition for the swap
@@ -285,7 +332,10 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         Ok(state)
     }
 
-    /// Read the magic state from flash
+    /// Read the magic state from flash.
+    ///
+    /// The buffer must hold at least `STATE::WRITE_SIZE` bytes and satisfy the
+    /// state flash's buffer alignment requirements.
     pub fn read_state(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
         let state_word = &mut aligned_buf[..STATE::WRITE_SIZE];
         self.state.read(0, state_word)?;
@@ -310,7 +360,10 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
 
     fn current_progress(&mut self, aligned_buf: &mut [u8]) -> Result<usize, BootError> {
         let write_size = STATE::WRITE_SIZE as u32;
-        let max_index = ((self.state.capacity() - STATE::WRITE_SIZE) / STATE::WRITE_SIZE) - 2;
+        let state_words = self.state.capacity() / STATE::WRITE_SIZE;
+        // Magic, progress validity, progress records, and a trailing reserved word.
+        assert!(state_words > 3);
+        let max_index = state_words - 3;
         let state_word = &mut aligned_buf[..write_size as usize];
 
         self.state.read(write_size, state_word)?;
@@ -450,5 +503,122 @@ mod tests {
         static DFU: MemFlash<DFU_SIZE, 4, 4> = MemFlash::new(0xFF);
         static STATE: MemFlash<STATE_SIZE, 4, 4> = MemFlash::new(0xFF);
         assert_partitions(&ACTIVE, &DFU, &STATE, 4096);
+    }
+}
+
+#[cfg(all(test, feature = "_verify"))]
+mod verification_tests {
+    use ed25519_dalek::{Digest, Sha512, Signer, SigningKey};
+
+    use super::*;
+    use crate::mem_flash::MemFlash;
+
+    type Loader = BootLoader<MemFlash<96, 16, 4>, MemFlash<112, 16, 4, 4>, MemFlash<128, 128, 4>>;
+
+    fn pending() -> (Loader, [u8; 32]) {
+        let key = SigningKey::from_bytes(&[1; 32]);
+        let mut dfu = MemFlash::default();
+        dfu.mem[..32].fill(0xaa);
+        let signature = key.sign(&Sha512::digest(&dfu.mem[..32]));
+        dfu.mem[32..96].copy_from_slice(&signature.to_bytes());
+        let mut state = MemFlash::default();
+        state.mem[..4].fill(SWAP_MAGIC);
+        (
+            BootLoader::new(BootLoaderConfig {
+                active: MemFlash::new(0x55),
+                dfu,
+                state,
+            }),
+            key.verifying_key().to_bytes(),
+        )
+    }
+
+    #[test]
+    fn invalid_signature_preserves_images_and_reports_revert() {
+        let (mut boot, key) = pending();
+        boot.dfu.mem[32..96].fill(0);
+        let staged = boot.dfu.mem;
+        let mut buf = [0; 4];
+        assert_eq!(boot.verify_update(&mut buf, &key, 32, 32), Ok(State::Revert));
+        assert_eq!(boot.active.mem, [0x55; 96]);
+        assert_eq!(boot.dfu.mem, staged);
+        assert_eq!(boot.read_state(&mut buf), Ok(State::Revert));
+        boot.dfu.pending_read_successes = Some(0);
+        assert_eq!(boot.verify_update(&mut buf, &key, 32, 32), Ok(State::Revert));
+        assert_eq!(boot.prepare_boot(&mut buf), Ok(State::Revert));
+        assert_eq!(boot.active.mem, [0x55; 96]);
+    }
+
+    #[test]
+    fn read_errors_preserve_pending_swap_and_rejection_write_errors_preserve_active() {
+        // Fail both the signature read and a read while hashing the image.
+        for reads in [0, 1] {
+            let (mut boot, key) = pending();
+            let staged = boot.dfu.mem;
+            let mut buf = [0; 4];
+            boot.dfu.pending_read_successes = Some(reads);
+            assert_eq!(
+                boot.verify_update(&mut buf, &key, 32, 32),
+                Err(BootError::Flash(NorFlashErrorKind::Other))
+            );
+            assert_eq!(boot.read_state(&mut buf), Ok(State::Swap));
+            assert_eq!(boot.active.mem, [0x55; 96]);
+            assert_eq!(boot.dfu.mem, staged);
+        }
+        let (mut boot, key) = pending();
+        boot.dfu.mem[32..96].fill(0);
+        let mut buf = [0; 4];
+        // Reset after erasing the state but before recording Revert.
+        boot.state.pending_write_successes = Some(0);
+        assert!(boot.verify_update(&mut buf, &key, 32, 32).is_err());
+        boot.state.pending_write_successes = None;
+        boot.dfu.pending_read_successes = Some(0);
+        assert_eq!(boot.verify_update(&mut buf, &key, 32, 32), Ok(State::Boot));
+        assert_eq!(boot.active.mem, [0x55; 96]);
+    }
+
+    #[test]
+    fn interrupted_swap_verifies_only_before_progress_and_can_revert() {
+        let wrong_key = SigningKey::from_bytes(&[2; 32]).verifying_key().to_bytes();
+        for partition in 0..3 {
+            for writes in 0..=24 {
+                let (mut boot, key) = pending();
+                let candidate: [u8; 96] = boot.dfu.mem[..96].try_into().unwrap();
+                match partition {
+                    0 => boot.active.pending_write_successes = Some(writes),
+                    1 => boot.dfu.pending_write_successes = Some(writes),
+                    _ => boot.state.pending_write_successes = Some(writes),
+                }
+                let mut buf = [0; 4];
+                assert_eq!(boot.verify_update(&mut buf, &key, 32, 32), Ok(State::Swap));
+                assert_eq!(boot.active.mem, [0x55; 96]);
+                assert_eq!(&boot.dfu.mem[..96], &candidate);
+                let result = boot.prepare_boot(&mut buf);
+                boot.active.pending_write_successes = None;
+                boot.dfu.pending_write_successes = None;
+                boot.state.pending_write_successes = None;
+                if result.is_err() {
+                    let unstarted = boot.current_progress(&mut buf).unwrap() == 0;
+                    if unstarted {
+                        assert_eq!(&boot.dfu.mem[..96], &candidate);
+                        // The candidate must be verified again at zero progress.
+                        assert_eq!(boot.verify_update(&mut buf, &wrong_key, 32, 32), Ok(State::Revert));
+                        assert_eq!(boot.prepare_boot(&mut buf), Ok(State::Revert));
+                        assert_eq!(boot.active.mem, [0x55; 96]);
+                        continue;
+                    }
+                    // A different key must not recheck already authenticated copying.
+                    assert_eq!(boot.verify_update(&mut buf, &wrong_key, 32, 32), Ok(State::Swap));
+                    assert_eq!(boot.prepare_boot(&mut buf), Ok(State::Swap));
+                }
+                assert_eq!(boot.active.mem, candidate);
+                // Rollback must not try to authenticate the mixed DFU contents.
+                assert_eq!(boot.verify_update(&mut buf, &wrong_key, 32, 32), Ok(State::Swap));
+                assert_eq!(boot.active.mem, candidate);
+                boot.prepare_boot(&mut buf).unwrap();
+                assert_eq!(boot.read_state(&mut buf), Ok(State::Revert));
+                assert_eq!(boot.active.mem, [0x55; 96]);
+            }
+        }
     }
 }

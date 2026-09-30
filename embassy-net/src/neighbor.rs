@@ -4,9 +4,9 @@ use embassy_time::Instant;
 use xarxa::error::NotUnicast;
 use xarxa::wire::{HardwareAddress, IpAddr};
 
-use crate::Stack;
 use crate::iface::IfaceHandle;
 use crate::time::{instant_from_xarxa, instant_to_xarxa};
+use crate::{NoWake, Stack, wake_if_ok};
 
 /// An entry in the [`NeighborCache`].
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -32,8 +32,9 @@ impl Neighbor {
                     expires_at,
                 } => NeighborState::Reachable {
                     hardware_addr,
-                    expires_at: (expires_at != xarxa::time::Instant::MAX).then(|| instant_from_xarxa(expires_at)),
+                    expires_at: instant_from_xarxa(expires_at),
                 },
+                xarxa::NeighborState::Stale { hardware_addr } => NeighborState::Stale { hardware_addr },
             },
         }
     }
@@ -50,8 +51,17 @@ pub enum NeighborState {
     Reachable {
         /// The neighbor's hardware address.
         hardware_addr: HardwareAddress,
-        /// When the entry expires. `None` means never.
-        expires_at: Option<Instant>,
+        /// When the entry expires.
+        expires_at: Instant,
+    },
+    /// The entry expired. The stack no longer sends to this hardware address.
+    /// The next packet for the neighbor resolves it again.
+    ///
+    /// Traffic from the neighbor with the same hardware address makes the entry
+    /// reachable again.
+    Stale {
+        /// The neighbor's hardware address, when it was last known.
+        hardware_addr: HardwareAddress,
     },
 }
 
@@ -75,11 +85,12 @@ impl<'d> NeighborCache<'d> {
 
     /// Get the entry for a neighbor.
     ///
-    /// Expired entries are still reported until the stack reuses their slot.
-    /// Compare `expires_at` against the current time if that matters.
+    /// An entry that expired is reported as [`NeighborState::Stale`] from the
+    /// next poll on, until the stack reuses its slot. Before that poll it is
+    /// still `Reachable`, with an `expires_at` that has passed.
     pub fn get(&self, iface: IfaceHandle, addr: IpAddr) -> Option<Neighbor> {
         self.stack
-            .with(|i| i.stack.neighbor_cache().get(iface, addr))
+            .with(|i| (i.stack.neighbor_cache().get(iface, addr), NoWake))
             .map(Neighbor::from_xarxa)
     }
 
@@ -87,16 +98,20 @@ impl<'d> NeighborCache<'d> {
     pub fn iter(&self) -> impl Iterator<Item = Neighbor> + 'd {
         let stack = self.stack;
         (0..self.len())
-            .filter_map(move |n| stack.with(|i| i.stack.neighbor_cache().iter().nth(n)))
+            .filter_map(move |n| stack.with(|i| (i.stack.neighbor_cache().iter().nth(n), NoWake)))
             .map(Neighbor::from_xarxa)
     }
 
     /// Add or replace an entry, mapping `addr` on `iface` to `hardware_addr`.
     ///
-    /// `expires_at` is when the entry stops being used. Pass `Instant::MAX` for
-    /// a static entry that never expires. Note that ARP or neighbor discovery
-    /// can still replace it if the neighbor answers with a different hardware
-    /// address.
+    /// `expires_at` is when the entry stops being used. There are no static
+    /// entries. To keep an entry, insert it again before it expires. An
+    /// `expires_at` more than ~12 days away is clamped to that.
+    ///
+    /// The stack changes the entry too:
+    /// - Traffic from the neighbor sets it to expire 60 s later.
+    /// - ARP or neighbor discovery replaces it if the neighbor answers with a
+    ///   different hardware address.
     ///
     /// If the cache is full, another entry is evicted to make room.
     ///
@@ -110,21 +125,22 @@ impl<'d> NeighborCache<'d> {
         hardware_addr: HardwareAddress,
         expires_at: Instant,
     ) -> Result<(), NotUnicast> {
-        self.stack.with_mut(|i| {
-            i.stack
-                .neighbor_cache_mut()
-                .insert(iface, addr, hardware_addr, instant_to_xarxa(expires_at))
+        self.stack.with(|i| {
+            wake_if_ok(
+                i.stack
+                    .neighbor_cache_mut()
+                    .insert(iface, addr, hardware_addr, instant_to_xarxa(expires_at)),
+            )
         })
     }
 
     /// Remove the entry for a neighbor, returning it if there was one.
     ///
-    /// Removing an entry whose resolution is still in progress leaves the
-    /// packets parked on it waiting: they are dropped when their own timeout
-    /// expires, a few seconds later.
+    /// Removing an entry whose resolution is still in progress drops the packets
+    /// parked on it at the next poll.
     pub fn remove(&self, iface: IfaceHandle, addr: IpAddr) -> Option<Neighbor> {
         self.stack
-            .with_mut(|i| i.stack.neighbor_cache_mut().remove(iface, addr))
+            .with(|i| (i.stack.neighbor_cache_mut().remove(iface, addr), NoWake))
             .map(Neighbor::from_xarxa)
     }
 
@@ -132,31 +148,36 @@ impl<'d> NeighborCache<'d> {
     ///
     /// Same caveat as [`NeighborCache::remove`] for entries being resolved.
     pub fn retain(&self, mut f: impl FnMut(&Neighbor) -> bool) {
-        self.stack
-            .with_mut(|i| i.stack.neighbor_cache_mut().retain(|n| f(&Neighbor::from_xarxa(*n))))
+        self.stack.with(|i| {
+            (
+                i.stack.neighbor_cache_mut().retain(|n| f(&Neighbor::from_xarxa(*n))),
+                NoWake,
+            )
+        })
     }
 
     /// Remove all entries for one interface.
     ///
     /// Same caveat as [`NeighborCache::remove`] for entries being resolved.
     pub fn clear_iface(&self, iface: IfaceHandle) {
-        self.stack.with_mut(|i| i.stack.neighbor_cache_mut().clear_iface(iface))
+        self.stack
+            .with(|i| (i.stack.neighbor_cache_mut().clear_iface(iface), NoWake))
     }
 
     /// Remove all entries.
     ///
     /// Same caveat as [`NeighborCache::remove`] for entries being resolved.
     pub fn clear(&self) {
-        self.stack.with_mut(|i| i.stack.neighbor_cache_mut().clear())
+        self.stack.with(|i| (i.stack.neighbor_cache_mut().clear(), NoWake))
     }
 
     /// Number of entries.
     pub fn len(&self) -> usize {
-        self.stack.with(|i| i.stack.neighbor_cache().len())
+        self.stack.with(|i| (i.stack.neighbor_cache().len(), NoWake))
     }
 
     /// Whether the cache is empty.
     pub fn is_empty(&self) -> bool {
-        self.stack.with(|i| i.stack.neighbor_cache().is_empty())
+        self.stack.with(|i| (i.stack.neighbor_cache().is_empty(), NoWake))
     }
 }

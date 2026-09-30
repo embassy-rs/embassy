@@ -3,6 +3,8 @@ mod blocking;
 
 pub use asynch::{FirmwareState, FirmwareUpdater};
 pub use blocking::{BlockingFirmwareState, BlockingFirmwareUpdater};
+#[cfg(feature = "_verify")]
+pub(crate) use blocking::{VerificationError, verify};
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
 /// Firmware updater flash configuration holding the two flashes used by the updater

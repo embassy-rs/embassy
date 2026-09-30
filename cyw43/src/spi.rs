@@ -2,12 +2,14 @@ use core::slice;
 
 use aligned::{A4, Aligned};
 use embassy_futures::yield_now;
-use embassy_time::Timer;
+use embassy_time::{Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
 
+use crate::WithContext;
 use crate::consts::*;
 use crate::runner::{BusType, SealedBus};
+use crate::util::try_until;
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
 /// Implementors are expected to hold the CS pin low during an operation.
@@ -22,6 +24,10 @@ pub trait SpiBusCyw43 {
     /// Backplane reads have a response delay that produces one extra unspecified word at the beginning of `read`.
     /// Callers that want to read `n` word from the backplane, have to provide a slice that is `n+1` words long.
     async fn cmd_read(&mut self, write: u32, read: &mut [u32]) -> u32;
+
+    /// Called immediately before the device is power-cycled, to setup bus/pins
+    /// to the correct state required during reset.
+    async fn prepare_reset(&mut self) {}
 
     /// Wait for events from the Device. A typical implementation would wait for the IRQ pin to be high.
     /// The default implementation always reports ready, resulting in active polling of the device.
@@ -169,20 +175,31 @@ where
             if left == right { Ok(()) } else { Err(()) }
         }
 
+        // Device loses both on reset. 0xAAAAAAAA never matches, forcing a full window write.
+        self.backplane_window = 0xAAAA_AAAA;
+        self.status = 0;
+
         // Reset
         trace!("WL_REG off/on");
+        self.spi.prepare_reset().await;
         self.pwr.set_low().unwrap();
         Timer::after_millis(20).await;
         self.pwr.set_high().unwrap();
         Timer::after_millis(250).await;
 
+        // Timeout so that an error cannot hang init() forever. See embassy-rs/embassy#6948.
         trace!("read REG_BUS_TEST_RO");
-        while self
-            .read32_swapped(FUNC_BUS, REG_BUS_TEST_RO)
-            .inspect(|v| trace!("{:#x}", v))
-            .await
-            != FEEDBEAD
-        {}
+        try_until(
+            async || {
+                self.read32_swapped(FUNC_BUS, REG_BUS_TEST_RO)
+                    .inspect(|v| trace!("{:#x}", v))
+                    .await
+                    == FEEDBEAD
+            },
+            Duration::from_millis(500),
+        )
+        .await
+        .ctx("Timeout waiting for bus test register")?;
 
         trace!("write REG_BUS_TEST_RW");
         self.write32_swapped(FUNC_BUS, REG_BUS_TEST_RW, TEST_PATTERN).await;

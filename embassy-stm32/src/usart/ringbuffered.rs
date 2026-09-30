@@ -156,7 +156,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
     ///
     /// Note: This is also done automatically by the read functions if
     /// required.
-    pub fn start_uart(&mut self) {
+    pub fn start(&mut self) {
         // Clear the buffer so that it is ready to receive data
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
@@ -180,7 +180,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
     }
 
     /// Stop DMA backed UART receiver
-    fn stop_uart(&mut self) {
+    pub fn stop(&mut self) {
         self.ring_buf.request_pause();
 
         let r = self.info.regs;
@@ -203,9 +203,16 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
         compiler_fence(Ordering::SeqCst);
     }
 
-    /// Clears ring buffer.
-    pub fn clear(&mut self) {
+    /// Discards all data currently in the ring buffer.
+    /// Returns error that were detected during background reception,
+    /// and were not yet consumed by calling read functions.
+    /// After calling this function ring buffer is empty and has no errors.
+    pub fn clear(&mut self) -> Result<(), Error> {
+        let result = check_idle_and_errors(self.info.regs);
+        // clear ring buffer after clearing errors, otherwise errors
+        // that occur between could leave garbage and be unnoticed
         self.ring_buf.clear();
+        result.map(|_| ())
     }
 
     /// (Re-)start DMA and Uart if it is not running (has not been started yet or has failed), and
@@ -218,7 +225,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
             self.state.tx_waker.wake();
         }
         if !r.cr3().read().dmar() {
-            self.start_uart();
+            self.start();
         }
         Ok(())
     }
@@ -258,7 +265,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
                     return Ok(len);
                 }
                 Err(_) => {
-                    self.stop_uart();
+                    self.stop();
                     return Err(Error::Overrun);
                 }
             }
@@ -266,7 +273,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
             match self.wait_for_data_or_idle().await {
                 Ok(_) => {}
                 Err(err) => {
-                    self.stop_uart();
+                    self.stop();
                     return Err(err);
                 }
             }
@@ -345,6 +352,14 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
         }
     }
 
+    /// Return whether the DMA ring buffer contains data, so that a read would not wait.
+    pub fn read_ready(&mut self) -> Result<bool, Error> {
+        let len = self.ring_buf.len().map_err(|e| match e {
+            RingBufferError::Overrun => Error::Overrun,
+        })?;
+        Ok(len > 0)
+    }
+
     /// Set baudrate
     pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
         set_baudrate(self.info, self.kernel_clock, baudrate)
@@ -353,7 +368,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
 
 impl<W: UsartWord> Drop for RingBufferedUartRx<'_, W> {
     fn drop(&mut self) {
-        self.stop_uart();
+        self.stop();
         super::drop_tx_rx(self.info, self.state);
     }
 }
@@ -405,9 +420,6 @@ impl embedded_io_async::Read for RingBufferedUartRx<'_, u8> {
 
 impl<W: UsartWord> ReadReady for RingBufferedUartRx<'_, W> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        let len = self.ring_buf.len().map_err(|e| match e {
-            RingBufferError::Overrun => Self::Error::Overrun,
-        })?;
-        Ok(len > 0)
+        RingBufferedUartRx::read_ready(self)
     }
 }

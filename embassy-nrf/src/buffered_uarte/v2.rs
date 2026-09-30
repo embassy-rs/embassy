@@ -287,6 +287,13 @@ impl<'d> BufferedUarte<'d> {
         self.rx.consume(amt)
     }
 
+    /// Check whether there is data available to read without waiting.
+    ///
+    /// If this returns `true`, the next call to [`read`](Self::read) or [`fill_buf`](Self::fill_buf) will not wait.
+    pub fn read_ready(&mut self) -> Result<bool, Error> {
+        self.rx.read_ready()
+    }
+
     /// Write a buffer into this writer, returning how many bytes were written.
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         self.tx.write(buf).await
@@ -645,8 +652,10 @@ impl<'d> BufferedUarteRx<'d> {
         }
     }
 
-    /// we are ready to read if there is data in the buffer
-    fn read_ready(&self) -> Result<bool, Error> {
+    /// Check whether there is data available to read without waiting.
+    ///
+    /// If this returns `true`, the next call to [`read`](Self::read) or [`fill_buf`](Self::fill_buf) will not wait.
+    pub fn read_ready(&mut self) -> Result<bool, Error> {
         Ok(!self.buffered_state.rx_buf.is_empty())
     }
 }
@@ -707,13 +716,13 @@ mod _embedded_io {
 
     impl<'d> embedded_io_async::ReadReady for BufferedUarte<'d> {
         fn read_ready(&mut self) -> Result<bool, Self::Error> {
-            self.rx.read_ready()
+            self.read_ready()
         }
     }
 
     impl<'d> embedded_io_async::ReadReady for BufferedUarteRx<'d> {
         fn read_ready(&mut self) -> Result<bool, Self::Error> {
-            BufferedUarteRx::read_ready(self)
+            self.read_ready()
         }
     }
 

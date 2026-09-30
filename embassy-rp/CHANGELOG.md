@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UART: rename `new_with_rtscts_blocking` to `new_blocking_with_rtscts`.
 - UART: `split_ref` now returns owned halves borrowed for the duration instead of `&mut`.
 - UART: remove the `nb`-based `embedded-hal` 0.2 and `embedded-hal-nb` `serial` impls.
+- UART: add inherent `read`, `fill_buf`, `consume`, `read_ready`, `write` and `flush` methods to `BufferedUart`, and the matching ones to `BufferedUartRx`/`BufferedUartTx`.
+- PIO UART: add inherent `write` and `flush` methods to `PioUartTx`, and `read` to `PioUartRx`.
+- UART: `BufferedUart`/`BufferedUartTx` `flush` and `blocking_flush` wait until the last byte has been transmitted, not just until the TX buffer is empty.
+- PIO UART: `flush` waits until the last byte has been transmitted.
 - Flash: remove the instance generic; `Flash<'d, T, M, FLASH_SIZE>` is now `Flash<'d, M, FLASH_SIZE>`.
 - TRNG: remove the instance generic and add a `Mode` generic with a `new_blocking` constructor.
 - Watchdog: add a lifetime parameter, and rename `get_scratch` to `scratch`.
@@ -39,12 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - USB device: stalling an endpoint with a transfer in flight no longer lets that transfer complete, and the queued packet is no longer delivered once the halt is cleared.
 - USB device: a suspend latched before a bus reset no longer produces a spurious Suspend event that wedges enumeration.
 - Fix i2c_slave respond_to_read for buffers larger than one chunk
-
+- Add `uid`, returns device's unique ID as bytes or hexadecimal, using either OTP chip ID on RP235x or SPI flash chip's unique ID on RP2040.
 - Update `fixed` dependency
 - DMA: clear channel `EN` bit before `chan_abort` on RP2350, per errata RP2350-E5 (see pico-sdk `dma_channel_abort` docs). Prevents the aborted channel from re-triggering.
 - PIO: add `Config::set_input_sync_bypass` to declare input synchronizer bypass pins; the bypass is applied inside `StateMachine::set_config` once `GPIOBASE` is established, fixing bypass for pins >= 32 on RP2350B.
 - breaking: Remove `<T: Instance>` from `Spi`, `I2c` and `I2cSlave` ([#4900](https://github.com/embassy-rs/embassy/pull/4900))
 - Add set_baudrate() to BufferedUartTx.
+
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes
