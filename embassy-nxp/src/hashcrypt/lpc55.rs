@@ -262,9 +262,9 @@ pub trait Aes {
 // and so, the same padding scheme can not be implemented instead, we will use the padded with
 // PKCS#7, which lets decrypt_padded recover the original message length
 pub trait AesPadded {
-    fn encrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<&[u8], AesError>;
+    fn encrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError>;
 
-    fn decrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<&[u8], AesError>;
+    fn decrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError>;
 
     // the methods in this trait will be similar to the ones in the Aes trait, but instead
     // of only accepting messages with the size divisible by 16, it will accept arbitrary
@@ -312,11 +312,11 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
-    fn encrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<&[u8], AesError> {
+    fn encrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
         todo!("Add function body");
     }
 
-    fn decrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<&[u8], AesError> {
+    fn decrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
         todo!("Add function body")
     }
 }
@@ -342,11 +342,11 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
 }
 
 impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
-    fn encrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<&[u8], AesError> {
+    fn encrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
         todo!("Add function body");
     }
 
-    fn decrypt_padded(&mut self, data: &[u8], output: &mut [u8]) -> Result<&[u8], AesError> {
+    fn decrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
         todo!("Add function body");
     }
 }
