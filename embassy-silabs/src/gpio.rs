@@ -7,8 +7,8 @@ use core::convert::Infallible;
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
 use crate::pac::GPIO;
-// GPIO routes to a different register-block version per chip (gpio_v1 on
-// MG22, gpio_v7 on MG26, ...). The port register newtypes (PortDout /
+// GPIO routes to a different register-block version per chip (gpio_s2v1 on
+// MG22, gpio_s2v7 on MG26, ...). The port register newtypes (PortDout /
 // PortModel / PortModeh) have identical shapes across them; the metapac's
 // version-neutral `gpio` alias names the chip's version.
 use crate::pac::gpio as gpio_mod;
@@ -58,14 +58,7 @@ pub enum Speed {
     High,
 }
 
-#[repr(u32)]
-#[derive(Copy, Clone)]
-enum Mode {
-    Disabled = 0x0,
-    Input = 0x1,
-    InputPull = 0x2,
-    PushPull = 0x4,
-}
+use gpio_mod::vals::Mode;
 
 /// Type-erased GPIO pin reference.
 pub struct AnyPin {
@@ -105,7 +98,7 @@ impl<'d> Output<'d> {
             Level::High => write_dout_bit(&pin, true),
             Level::Low => write_dout_bit(&pin, false),
         }
-        write_mode(&pin, Mode::PushPull);
+        write_mode(&pin, Mode::Pushpull);
         Self { pin }
     }
 
@@ -131,12 +124,8 @@ impl<'d> Output<'d> {
     #[inline]
     pub fn toggle(&mut self) {
         let port = (self.pin.pin_port() >> 4) as usize;
-        let n = (self.pin.pin_port() & 0xF) as u32;
-        critical_section::with(|_| {
-            let cur = GPIO.p_dout(port).read().0;
-            let new = gpio_mod::regs::PortDout(cur ^ (1 << n));
-            GPIO.p_dout(port).write_value(new);
-        });
+        let n = self.pin.pin_port() & 0xF;
+        GPIO.p_dout_tgl(port).write_value(gpio_mod::regs::PortDout(1 << n));
     }
 
     /// Get the current output level.
@@ -174,11 +163,11 @@ impl<'d> Input<'d> {
             Pull::None => write_mode(&pin, Mode::Input),
             Pull::Up => {
                 write_dout_bit(&pin, true);
-                write_mode(&pin, Mode::InputPull);
+                write_mode(&pin, Mode::Inputpull);
             }
             Pull::Down => {
                 write_dout_bit(&pin, false);
-                write_mode(&pin, Mode::InputPull);
+                write_mode(&pin, Mode::Inputpull);
             }
         }
         Self { pin }
@@ -319,22 +308,14 @@ impl_pin!(PD15, 63);
 #[inline]
 fn write_mode(pin: &AnyPin, mode: Mode) {
     let port = (pin.pin_port() >> 4) as usize;
-    let pin_in_port = (pin.pin_port() & 0xF) as u32;
-    let mode_val = mode as u32;
+    let n = (pin.pin_port() & 0xF) as usize;
 
+    // A 4-bit mode field has no SET/CLR form, so read-modify-write it.
     critical_section::with(|_| {
-        if pin_in_port < 8 {
-            let shift = pin_in_port * 4;
-            let cur = GPIO.p_model(port).read().0;
-            let cleared = cur & !(0xF << shift);
-            let new = gpio_mod::regs::PortModel(cleared | (mode_val << shift));
-            GPIO.p_model(port).write_value(new);
+        if n < 8 {
+            GPIO.p_model(port).modify(|w| w.set_mode(n, mode));
         } else {
-            let shift = (pin_in_port - 8) * 4;
-            let cur = GPIO.p_modeh(port).read().0;
-            let cleared = cur & !(0xF << shift);
-            let new = gpio_mod::regs::PortModeh(cleared | (mode_val << shift));
-            GPIO.p_modeh(port).write_value(new);
+            GPIO.p_modeh(port).modify(|w| w.set_mode(n - 8, mode));
         }
     });
 }
@@ -342,13 +323,13 @@ fn write_mode(pin: &AnyPin, mode: Mode) {
 #[inline]
 fn write_dout_bit(pin: &AnyPin, high: bool) {
     let port = (pin.pin_port() >> 4) as usize;
-    let n = (pin.pin_port() & 0xF) as u32;
-    critical_section::with(|_| {
-        let cur = GPIO.p_dout(port).read().0;
-        let new_raw = if high { cur | (1 << n) } else { cur & !(1 << n) };
-        let new = gpio_mod::regs::PortDout(new_raw);
-        GPIO.p_dout(port).write_value(new);
-    });
+    let bit = gpio_mod::regs::PortDout(1 << (pin.pin_port() & 0xF));
+    // `P_DOUT_SET` and `P_DOUT_CLR` change only the written bits, so no critical section.
+    if high {
+        GPIO.p_dout_set(port).write_value(bit);
+    } else {
+        GPIO.p_dout_clr(port).write_value(bit);
+    }
 }
 
 /// Sets `pin` as a push-pull output for a peripheral, such as EUSART TX.
@@ -359,7 +340,7 @@ fn write_dout_bit(pin: &AnyPin, high: bool) {
 #[inline]
 pub(crate) fn set_as_alternate_output(pin: &AnyPin) {
     write_dout_bit(pin, true);
-    write_mode(pin, Mode::PushPull);
+    write_mode(pin, Mode::Pushpull);
 }
 
 /// Sets `pin` as a floating input for a peripheral, such as EUSART RX.

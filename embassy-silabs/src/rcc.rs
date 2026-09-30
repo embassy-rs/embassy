@@ -570,8 +570,7 @@ pub(crate) fn init_hfxo(config: &HfxoConfig) {
     CMU.clken0().modify(|w| w.set_hfxo0(true));
     HFXO0.lock().write(|w| w.set_lockkey(hfxo_mod::vals::Lockkey::Unlock));
 
-    // 2. Disable HFXO. Only DISONDEMAND is set — DISONDEMANDBUFOUT is
-    //    absent on hfxo_v3.
+    // Stop HFXO. hfxo_s2v3 has no DISONDEMANDBUFOUT, so set only DISONDEMAND.
     HFXO0.ctrl_set().write(|w| w.set_disondemand(true));
     HFXO0.ctrl_clr().write(|w| w.set_forceen(true));
     while HFXO0.status().read().ens() {}
@@ -620,7 +619,7 @@ pub(crate) fn init_hfxo(config: &HfxoConfig) {
         w.set_forcexo2gndana(false);
         w.set_forcexi2gndana(false);
         w.set_disondemand(false);
-        // EM23ONDEMAND isn't present on MG22's HFXO (hfxo_v2).
+        // EM23ONDEMAND isn't present on MG22's HFXO (hfxo_s2v2).
         #[cfg(not(silabs_series_2_config = "2"))]
         w.set_em23ondemand(false);
         w.set_forceen(true);
@@ -763,7 +762,7 @@ pub(crate) fn init_hfrcodpll(band: HfrcoBand) {
     // Stop the DPLL before the band changes.
     if DPLL0.en().read().en() {
         DPLL0.en_clr().write(|w| w.set_en(true));
-        // dpll_v0 (MG22) has no DISABLING status bit — disable is immediate.
+        // dpll_s2v0 (MG22) has no DISABLING status bit — disable is immediate.
         #[cfg(not(silabs_series_2_config = "2"))]
         while DPLL0.en().read().disabling() {}
     }

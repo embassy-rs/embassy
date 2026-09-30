@@ -166,13 +166,10 @@ fn main() {
 
     fs::write(&out_path, &out).expect("write _generated.rs");
 
-    // Chip cfgs from silabs-metapac (`links = "silabs-metapac"` metadata):
-    // `silabs_series="2"`, `silabs_series_2_config="6"` (mirrors the SDK's
-    // `_SILICON_LABS_32B_SERIES_<N>_CONFIG_<M>`), and per peripheral
-    // `<kind>`, `<kind>_<version>` and its prefixes (`timer_v0`, `gpio_v7`).
-    // The check list declares every value any chip can have.
-    // `rerun-if-changed=build.rs` below turns off the default rerun rules, so
-    // the metapac variables need their own rerun rule, or the cfgs go stale.
+    // Chip cfgs from silabs-metapac `links` metadata: `silabs_series="2"`,
+    // `silabs_series_2_config="6"` (MG26), and per peripheral `<kind>`, `<kind>_<version>` and its
+    // prefixes (`timer_s2`, `timer_s2v0`). `rerun-if-changed=build.rs` turns off the default rerun
+    // rules, so the metapac variables need their own rule, or the cfgs go stale.
     let dep = |key: &str| {
         println!("cargo:rerun-if-env-changed=DEP_SILABS_METAPAC_{key}");
         env::var(format!("DEP_SILABS_METAPAC_{key}"))

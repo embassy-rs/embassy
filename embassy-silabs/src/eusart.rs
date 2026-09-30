@@ -38,7 +38,7 @@ use eusart_mod::vals;
 use crate::gpio::{AnyPin, Pin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
-use crate::pac::{CMU, GPIO, eusart_v2 as eusart_mod};
+use crate::pac::{CMU, GPIO, eusart as eusart_mod};
 use crate::time::Hertz;
 use crate::{interrupt, peripherals};
 
@@ -272,7 +272,7 @@ macro_rules! impl_eusart {
     ($inst:ident, $rxirq:ident, $txirq:ident, $txroute:ident, $rxroute:ident, $routeen:ident, $enable:block, $freq:expr $(,)?) => {
         impl SealedInstance for peripherals::$inst {
             fn regs() -> eusart_mod::Eusart {
-                unsafe { eusart_mod::Eusart::from_ptr(crate::pac::$inst.as_ptr()) }
+                crate::pac::$inst
             }
             fn state() -> &'static State {
                 static STATE: State = State::new();
@@ -306,8 +306,8 @@ macro_rules! impl_eusart {
 
 // EUSART instances. EUSART0 is the LF-capable instance with its own clock mux
 // (resolved by `eusart0_source_freq`); the rest are HF-only on EM01GRPCCLK.
-// MG26 (cmu_v7) has EUSART0-3 with bus-clock gates in CLKEN1 (EUSART0/1) +
-// CLKEN2 (EUSART2/3); FG25 (cmu_v4) has EUSART0-4 all gated in CLKEN1.
+// MG26 (cmu_s2v7) has EUSART0-3 with bus-clock gates in CLKEN1 (EUSART0/1) +
+// CLKEN2 (EUSART2/3); FG25 (cmu_s2v4) has EUSART0-4 all gated in CLKEN1.
 impl_eusart!(
     EUSART0,
     EUSART0_RX,
@@ -332,7 +332,7 @@ impl_eusart!(
     },
     em01grpcclk_freq(),
 );
-// EUSART2/3 bus-clock gate: CLKEN2 on MG26 (cmu_v7), CLKEN1 on FG25 (cmu_v4,
+// EUSART2/3 bus-clock gate: CLKEN2 on MG26 (cmu_s2v7), CLKEN1 on FG25 (cmu_s2v4,
 // which has no CLKEN2). Routing / regs / IRQ wiring are identical.
 #[cfg(silabs_series_2_config = "6")]
 impl_eusart!(
@@ -386,7 +386,7 @@ impl_eusart!(
     },
     em01grpcclk_freq(),
 );
-// EUSART4 exists only on FG25 (cmu_v4); also gated in CLKEN1.
+// EUSART4 exists only on FG25 (cmu_s2v4); also gated in CLKEN1.
 #[cfg(silabs_series_2_config = "5")]
 impl_eusart!(
     EUSART4,

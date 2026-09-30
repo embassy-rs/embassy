@@ -11,7 +11,7 @@ use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
 use crate::interrupt::typelevel::Interrupt;
-// Version-neutral alias: timer_v0 on MG22, timer_v1 on MG24/FG25/MG26. Each
+// Version-neutral alias: timer_s2v0 on MG22, timer_s2v1 on MG24/FG25/MG26. Each
 // version has a 16-bit `Timer` and a 32-bit `Timer32` block.
 use crate::pac::timer as timer_mod;
 use crate::peripherals;
@@ -85,8 +85,8 @@ impl TimerDriver {
         // `CFG` and `CCx_CFG` are writable only while `EN.EN` is 0. Other registers, except `EN`,
         // BusFault while `EN.EN` is 0.
         t.en().write(|w| w.set_en(false));
-        // timer_v0 (MG22) has no DISABLING status bit — disable is immediate.
-        #[cfg(not(timer_v0))]
+        // timer_s2v0 (MG22) has no DISABLING bit and disables at once.
+        #[cfg(not(timer_s2v0))]
         while t.en().read().disabling() {}
 
         // TIMER0 lives on EM01GRPACLK. The source is configurable
