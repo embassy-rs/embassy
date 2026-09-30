@@ -34,6 +34,12 @@ pub enum AesError {
     WrongKeySize,
     /// Error triggers when the key-size register holds a reserved value
     DeviceError,
+    /// Error triggers when encrypr/decrypt are called with data and output of different lengths
+    LengthMismatch,
+    /// Error triggers when, in ecb and cbc mode, in an encrypt or decrypt call, the length of the data is not dividible by 16
+    UnalignedLength,
+    /// Error triggers when the buffer for the output is too small for the ciphertext or plaintext
+    OutputTooSmall,
 }
 
 fn wait_iv_counter() {
