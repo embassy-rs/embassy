@@ -118,17 +118,37 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let irqs = pac::NPU.intctrl().intreg().read();
 
+        // Debug snapshot, read before anything below can clear it: which
+        // blob section was executing and how far into it, at the moment of
+        // the fault. `Error::EpochController`'s single bit doesn't otherwise
+        // say *why* the epoch controller stopped.
+        let ectrl_ctrl = pac::NPU.epochctrl().ctrl().read();
+        let ectrl_label = pac::NPU.epochctrl().label().read();
+        let ectrl_bc = pac::NPU.epochctrl().bc().read();
+
         // Acknowledge interrupt *sources* first; the interrupt controller
         // latch is cleared afterwards, otherwise it re-latches immediately.
+        let mut ectrl_irq = None;
         if irqs.ectrl_evt() || irqs.ectrl_err() || irqs.ectrl_noack() {
             let v = pac::NPU.epochctrl().irq().read();
+            ectrl_irq = Some(v);
             pac::NPU.epochctrl().irq().write_value(v);
         }
         let streng = irqs.streng_evt() | irqs.streng_err();
+        let mut streng_irq = [0u32; STRENG_COUNT];
         for i in 0..STRENG_COUNT {
             if streng & (1 << i) != 0 {
                 let v = pac::NPU.streng(i).irq().read();
+                streng_irq[i] = v.0;
                 pac::NPU.streng(i).irq().write_value(v);
+            }
+        }
+        let mut busif_err = [0u32; BUSIF_COUNT];
+        if irqs.busif_err() != 0 {
+            for (i, slot) in busif_err.iter_mut().enumerate() {
+                if irqs.busif_err() & (1 << i) != 0 {
+                    *slot = pac::NPU.busif(i).err().read().0;
+                }
             }
         }
 
@@ -143,6 +163,16 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 .intormsk(0)
                 .write_value(pac::npu::regs::Intstatus(0xFFFF_FFFF));
             ERRORS.fetch_or(raw_errors, Ordering::Relaxed);
+            error!(
+                "NPU fault: intreg=0x{:08x} ectrl_ctrl={:?} ectrl_irq={:?} label=0x{:08x} bc=0x{:08x} streng_irq={:08x} busif_err={:08x}",
+                irqs.0,
+                ectrl_ctrl,
+                ectrl_irq.map(|v| v.0),
+                ectrl_label.label(),
+                ectrl_bc.count(),
+                streng_irq,
+                busif_err,
+            );
         }
         if irqs.ectrl_evt() {
             EVENTS.fetch_or(EVT_EC_DONE, Ordering::Relaxed);

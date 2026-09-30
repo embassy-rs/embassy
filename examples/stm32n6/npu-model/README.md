@@ -3,11 +3,10 @@
 ## `mexican_marigold_96x96.rgb`
 
 Raw `RGB8`, 96x96, 27 648 bytes — the fixed input tensor used by the
-`npu_mobilenet` example (and by `embedded-nn-tflite`'s `stai_golden` example
-when producing the reference logits). The model under test is
-MobileNetV1-0.25 trained on five flower classes
-(`daisy, dandelion, rose, sunflower, tulip`), so a flower makes a meaningful
-in-distribution test input.
+`npu_mobilenet` example. The compiled model under test is a MobileNetV1-0.25
+flower classifier (101 classes — see `GOLDEN_LOGITS` in `npu_mobilenet.rs`
+for why this differs from the 5-class `.tflite` ST publishes alongside it),
+so a flower makes a meaningful in-distribution test input.
 
 | | |
 | :--- | :--- |

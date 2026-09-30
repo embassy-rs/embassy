@@ -35,6 +35,14 @@ fn main() {
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
 
     println!("cargo:rerun-if-env-changed=STM32N6_GETTINGSTARTED_MODEL_DIR");
+    println!("cargo:rerun-if-changed=memory.x");
+    println!("cargo:rerun-if-changed=npu_link.x");
+
+    // Only `npu_mobilenet` defines `.npu_blob` / `.npu_uninit` (see npu_link.x);
+    // harmless to skip for every other bin, which don't reference NPUMEM at all.
+    if env::var_os("CARGO_FEATURE_NPU_MODEL").is_some() {
+        println!("cargo:rustc-link-arg-bins=-Tnpu_link.x");
+    }
 
     let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("npu");
     fs::create_dir_all(&out).unwrap();
