@@ -159,13 +159,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// To restart the transfer, call [`start`](Self::start) again.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_pause(&mut self) {
+    pub fn stop(&mut self) {
         self.channel.request_pause()
-    }
-
-    /// Request the transfer to resume after having been paused.
-    pub fn request_resume(&mut self) {
-        self.channel.request_resume()
     }
 
     /// Return whether DMA is still running.
@@ -323,7 +318,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// To restart the transfer, call [`start`](Self::start) again.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_pause(&mut self) {
+    pub fn stop(&mut self) {
         self.channel.request_pause()
     }
 
