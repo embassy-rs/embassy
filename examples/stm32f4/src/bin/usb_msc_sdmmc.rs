@@ -6,18 +6,19 @@
 use core::cell::RefCell;
 
 use defmt::{panic, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::peripherals::{DMA2_CH6, SDIO};
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::time::{mhz, Hertz};
+use embassy_stm32::time::{Hertz, mhz};
 use embassy_stm32::usb_otg::Driver;
-use embassy_stm32::{interrupt, Config};
-use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDevice, BlockDeviceError};
-use embassy_usb::class::msc::subclass::scsi::Scsi;
-use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
+use embassy_stm32::{Config, interrupt};
 use embassy_usb::Builder;
+use embassy_usb::class::msc::subclass::scsi::Scsi;
+use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDevice, BlockDeviceError};
+use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
 use futures::future::join;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // SDMMC driver only supports 512 byte blocks for now
 const BLOCK_SIZE: usize = 512;

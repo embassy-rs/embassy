@@ -1,5 +1,5 @@
-use super::control::Control;
 use super::PageCode;
+use super::control::Control;
 use crate::class::msc::subclass::scsi::enums::PageControl;
 use crate::packed_struct;
 

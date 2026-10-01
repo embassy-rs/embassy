@@ -3,13 +3,12 @@ pub mod block_device;
 pub mod commands;
 pub mod enums;
 
-use core::mem::MaybeUninit;
-
 use self::block_device::{BlockDevice, BlockDeviceError};
 use self::enums::AdditionalSenseCode;
+use crate::class::msc::MscSubclass;
 use crate::class::msc::subclass::scsi::commands::{
     CachingModePage, InformationalExceptionsControlModePage, InquiryCommand, InquiryResponse, ModeParameter6Writer,
-    ModeParameterHeader6, ModeSense6Command, PageCode, PreventAllowMediumRemoval, Read10Command, ReadCapacity10Command,
+    ModeSense6Command, PageCode, PreventAllowMediumRemoval, Read10Command, ReadCapacity10Command,
     ReadCapacity10Response, ReadFormatCapacitiesCommand, ReadFormatCapacitiesResponse, RequestSenseCommand,
     RequestSenseResponse, SupportedVitalProductDataPages, TestUnitReadyCommand, UnitSerialNumberPage,
     VitalProductDataPage, Write10Command,
@@ -19,7 +18,6 @@ use crate::class::msc::subclass::scsi::enums::{
     TargetPortGroupSupport,
 };
 use crate::class::msc::transport::{self, CommandSetHandler};
-use crate::class::msc::MscSubclass;
 
 /// Stores information (errors) about last operation.
 ///

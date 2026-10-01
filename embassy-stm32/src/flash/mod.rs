@@ -1,7 +1,5 @@
 //! Flash memory (FLASH)
-use embedded_storage::nor_flash::{
-    ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
-};
+use embedded_storage::nor_flash::{MultiwriteNorFlash, NorFlashError, NorFlashErrorKind};
 
 #[cfg(any(
     flash_f4, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab, flash_l4

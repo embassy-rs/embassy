@@ -5,6 +5,7 @@ macro_rules! const_assert {
     ($($list:ident : $ty:ty),* => $expr:expr $(,$msg:literal)?) => {{
         struct Assert<$(const $list: usize,)*>;
         impl<$(const $list: $ty,)*> Assert<$($list,)*> {
+            #[allow(dead_code)]
             const OK: () = core::assert!($expr, $($msg)?);
         }
         Assert::<$($list,)*>::OK
@@ -99,6 +100,7 @@ impl PackedField for u8 {
 pub struct BE<T>(T);
 
 /// Little Endian
+#[allow(dead_code)]
 pub struct LE<T>(T);
 
 macro_rules! impl_packed_field_int {
