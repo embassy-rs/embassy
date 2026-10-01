@@ -1,6 +1,6 @@
 //! Driver for the HASHCRYPT peripheral, mode switch skeleton
 use embassy_hal_internal::Peri;
-use nxp_pac::hashcrypt::vals::{Aeskeysz, Aesmode, Aessecret, Mode};
+use nxp_pac::hashcrypt::vals::{Aesdecrypt, Aeskeysz, Aesmode, Aessecret, Mode};
 use nxp_pac::syscon::vals::HashAesRst::Released;
 
 use crate::hashcrypt::inner::Key::{Key128, Key192, Key256};
@@ -62,6 +62,57 @@ fn feed_iv_counter(words: &[u8; 16]) {
     }
 }
 
+<<<<<<< HEAD
+=======
+fn process_blocks<'o>(data: &[u8], output: &'o mut [u8]) {
+    let mut offset = 0;
+    let mut blocks = data.chunks_exact(16);
+    for block in &mut blocks {
+        for word in block.chunks_exact(4) {
+            feed_word(u32::from_le_bytes(word.try_into().unwrap()));
+        }
+
+        read_digest(4, &mut output[offset..offset + 16]);
+        offset += 16;
+    }
+
+    let tail = blocks.remainder();
+    let pad = (16 - tail.len()) as u8;
+
+    let mut final_block = [0u8; 16];
+    final_block[..tail.len()].copy_from_slice(tail);
+    final_block[tail.len()..].fill(pad);
+
+    pac::HASHCRYPT.cryptcfg().modify(|w| {
+        w.set_streamlast(true);
+    });
+
+    for chunks in final_block.chunks_exact(4) {
+        feed_word(u32::from_le_bytes(chunks.try_into().unwrap()));
+    }
+    read_digest(4, &mut output[offset..offset + 16]);
+}
+
+// Used by the SHA and AES modes;
+fn read_digest(count: usize, out: &mut [u8]) {
+    loop {
+        let status = pac::HASHCRYPT.status().read().digest();
+        // Block until the DIGEST status flag signals the output registers hold a
+        // complete result, then read `count` words out of DIGEST0..n.
+        if status {
+            for i in 0..count {
+                let word = pac::HASHCRYPT.digest0(i).read().digest();
+                out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
+            }
+            break;
+        }
+        // If status is false, then that means there is no digest ready to be read, and since there is
+        // no more incoming data, then that means we just need to keep waiting and so there is no need
+        // to explicitly handle that case
+    }
+}
+
+>>>>>>> 00bc4b965 (feat: add helper method process block and AesEcb encrypt_padded function body)
 // Generic driver type
 pub struct GenericHashcrypt<'d> {
     _peri: Peri<'d, HASHCRYPT>,
@@ -313,7 +364,29 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
 
 impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
     fn encrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
-        todo!("Add function body");
+        let key = match &self.key {
+            Some(k) => k,
+            None => return Err(AesError::KeyNeeded),
+        };
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesdecrypt(Aesdecrypt::Encrypt);
+        });
+
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        let padded_len = (data.len() / 16 + 1) * 16;
+        if output.len() < padded_len {
+            return Err(AesError::OutputTooSmall);
+        }
+
+        feed_key(key);
+
+        process_blocks(data, output);
+
+        return Ok(&output[..padded_len]);
     }
 
     fn decrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
@@ -322,7 +395,11 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> AesEcb<'a, 'd> {
+<<<<<<< HEAD
     // Does not require anything past the default aes methods
+=======
+    // Does not require anything passed the default Aes and AesPadded methods
+>>>>>>> 00bc4b965 (feat: add helper method process block and AesEcb encrypt_padded function body)
 }
 pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
