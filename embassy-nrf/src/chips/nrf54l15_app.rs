@@ -196,7 +196,7 @@ pub mod pac {
 
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
-// 1.5 MB NVM
+// 1524 kB NVM
 #[allow(unused)]
 pub const FLASH_SIZE: usize = 1524 * 1024;
 
