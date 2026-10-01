@@ -127,6 +127,7 @@ impl RunQueue {
     /// This process will repeat until the local `sorted` queue AND the global
     /// runqueue are both empty, at which point this function will return.
     #[cfg(any(feature = "scheduler-priority", feature = "scheduler-deadline"))]
+    #[flux::trusted]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
         if self.definitely_empty() {
             return;

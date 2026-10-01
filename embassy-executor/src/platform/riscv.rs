@@ -60,6 +60,7 @@ mod thread {
         /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
         ///
         /// This function never returns.
+        #[flux::trusted]
         pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
             init(self.inner.spawner());
 
