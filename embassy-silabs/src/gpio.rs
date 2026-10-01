@@ -218,7 +218,7 @@ impl sealed::SealedPin for AnyPin {
 }
 impl Pin for AnyPin {}
 
-macro_rules! impl_pin {
+foreach_pin!(
     ($name:ident, $pin_port:expr) => {
         impl sealed::SealedPin for crate::peripherals::$name {
             #[inline]
@@ -234,76 +234,7 @@ macro_rules! impl_pin {
             }
         }
     };
-}
-
-// Port A
-impl_pin!(PA00, 0);
-impl_pin!(PA01, 1);
-impl_pin!(PA02, 2);
-impl_pin!(PA03, 3);
-impl_pin!(PA04, 4);
-impl_pin!(PA05, 5);
-impl_pin!(PA06, 6);
-impl_pin!(PA07, 7);
-impl_pin!(PA08, 8);
-impl_pin!(PA09, 9);
-impl_pin!(PA10, 10);
-impl_pin!(PA11, 11);
-impl_pin!(PA12, 12);
-impl_pin!(PA13, 13);
-impl_pin!(PA14, 14);
-impl_pin!(PA15, 15);
-// Port B
-impl_pin!(PB00, 16);
-impl_pin!(PB01, 17);
-impl_pin!(PB02, 18);
-impl_pin!(PB03, 19);
-impl_pin!(PB04, 20);
-impl_pin!(PB05, 21);
-impl_pin!(PB06, 22);
-impl_pin!(PB07, 23);
-impl_pin!(PB08, 24);
-impl_pin!(PB09, 25);
-impl_pin!(PB10, 26);
-impl_pin!(PB11, 27);
-impl_pin!(PB12, 28);
-impl_pin!(PB13, 29);
-impl_pin!(PB14, 30);
-impl_pin!(PB15, 31);
-// Port C
-impl_pin!(PC00, 32);
-impl_pin!(PC01, 33);
-impl_pin!(PC02, 34);
-impl_pin!(PC03, 35);
-impl_pin!(PC04, 36);
-impl_pin!(PC05, 37);
-impl_pin!(PC06, 38);
-impl_pin!(PC07, 39);
-impl_pin!(PC08, 40);
-impl_pin!(PC09, 41);
-impl_pin!(PC10, 42);
-impl_pin!(PC11, 43);
-impl_pin!(PC12, 44);
-impl_pin!(PC13, 45);
-impl_pin!(PC14, 46);
-impl_pin!(PC15, 47);
-// Port D
-impl_pin!(PD00, 48);
-impl_pin!(PD01, 49);
-impl_pin!(PD02, 50);
-impl_pin!(PD03, 51);
-impl_pin!(PD04, 52);
-impl_pin!(PD05, 53);
-impl_pin!(PD06, 54);
-impl_pin!(PD07, 55);
-impl_pin!(PD08, 56);
-impl_pin!(PD09, 57);
-impl_pin!(PD10, 58);
-impl_pin!(PD11, 59);
-impl_pin!(PD12, 60);
-impl_pin!(PD13, 61);
-impl_pin!(PD14, 62);
-impl_pin!(PD15, 63);
+);
 
 #[inline]
 fn write_mode(pin: &AnyPin, mode: Mode) {
@@ -335,8 +266,7 @@ fn write_dout_bit(pin: &AnyPin, high: bool) {
 /// Sets `pin` as a push-pull output for a peripheral, such as EUSART TX.
 /// Sets the line idle-high before switching to push-pull so a UART idle
 /// level is presented immediately.
-// Used by the EUSART driver (MG26 config 6 + FG25 config 5).
-#[cfg(any(silabs_series_2_config = "5", silabs_series_2_config = "6"))]
+#[cfg(eusart)]
 #[inline]
 pub(crate) fn set_as_alternate_output(pin: &AnyPin) {
     write_dout_bit(pin, true);
@@ -344,7 +274,7 @@ pub(crate) fn set_as_alternate_output(pin: &AnyPin) {
 }
 
 /// Sets `pin` as a floating input for a peripheral, such as EUSART RX.
-#[cfg(any(silabs_series_2_config = "5", silabs_series_2_config = "6"))]
+#[cfg(eusart)]
 #[inline]
 pub(crate) fn set_as_alternate_input(pin: &AnyPin) {
     write_mode(pin, Mode::Input);

@@ -14,13 +14,13 @@ async fn main(_spawner: Spawner) {
         use embassy_silabs::cmu::*;
         let mut cfg = embassy_silabs::Config::default();
         // brd2713a (MGM260P) has a 40 MHz HFXO crystal.
-        cfg.hfxo = Some(HfxoConfig {
+        cfg.cmu.hfxo = Some(HfxoConfig {
             freq: Hertz::mhz(40),
             mode: HfxoMode::Xtal,
             ctune: HfxoCtune::Auto { default: 140 },
         });
-        cfg.sysclk = SysclkSource::Hfxo;
-        cfg.em01grpaclk = Em01GrpAClkSource::Hfxo;
+        cfg.cmu.sysclk = SysclkSource::Hfxo;
+        cfg.cmu.mux.em01grpaclk = Some(mux::Em01grpaclkctrlClksel::Hfxo);
         cfg
     });
     info!("Hello World!");

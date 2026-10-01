@@ -5,14 +5,17 @@
 
 //! Embassy HAL for Silicon Labs EFR32 series microcontrollers.
 
+#[cfg(not(silabs_series = "2"))]
+compile_error!("embassy-silabs supports Series 2 chips only");
+
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;
 
-// The EUSART driver supports MG26 (config 6, EUSART0-3) and FG25 (config 5,
-// EUSART0-4). Bus-clock gates come from the metapac metadata (see
-// `cmu::CmuPeripheral`). MG24 (config 4) and MG22 (config 2, EUART not
-// EUSART) aren't covered yet.
-#[cfg(any(silabs_series_2_config = "5", silabs_series_2_config = "6"))]
+// Defines `foreach_peripheral!`, `foreach_interrupt!` and `foreach_pin!`.
+include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
+
+// MG22 has an EUART, not an EUSART, so it has no `eusart` module.
+#[cfg(eusart)]
 pub mod eusart;
 pub mod gpio;
 
@@ -109,7 +112,28 @@ macro_rules! bind_interrupts {
 }
 
 /// `embassy-silabs` global configuration.
-pub use cmu::Config;
+#[non_exhaustive]
+#[derive(Clone, Copy)]
+pub struct Config {
+    /// Clock tree.
+    pub cmu: cmu::Config,
+    /// Keep the debugger connected in EM2 (`EMU.CTRL.EM2DBGEN`). Default true.
+    pub enable_debug_during_sleep: bool,
+    /// Priority of the time driver interrupt. Default `P0`.
+    #[cfg(feature = "_time-driver")]
+    pub time_interrupt_priority: crate::interrupt::Priority,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            cmu: cmu::Config::new(),
+            enable_debug_during_sleep: true,
+            #[cfg(feature = "_time-driver")]
+            time_interrupt_priority: crate::interrupt::Priority::P0,
+        }
+    }
+}
 
 /// Initializes embassy and returns the peripheral singletons for creating drivers.
 ///
@@ -120,10 +144,15 @@ pub fn init(config: Config) -> Peripherals {
     critical_section::with(|cs| {
         let peripherals = Peripherals::take_with_cs(cs);
 
-        cmu::init_clocks(cs, config);
+        // EMU has no CMU clock gate.
+        pac::EMU
+            .ctrl()
+            .modify(|w| w.set_em2dbgen(config.enable_debug_during_sleep));
+
+        cmu::init_clocks(cs, config.cmu);
 
         #[cfg(feature = "_time-driver")]
-        time_driver::init(cs);
+        time_driver::init(cs, config.time_interrupt_priority);
 
         peripherals
     })

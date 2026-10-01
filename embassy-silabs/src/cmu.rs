@@ -2,28 +2,20 @@
 
 use core::mem::MaybeUninit;
 
-pub use cmu_mod::vals::{
-    Em01grpaclkctrlClksel as Em01GrpAClkSource, Em4grpaclkctrlClksel as Em4GrpAClkSource,
-    Em23grpaclkctrlClksel as Em23GrpAClkSource, Hclkpresc as HclkPrescaler, Pclkpresc as PclkPrescaler,
-    SysclkctrlClksel as SysclkSource,
-};
-// These clock branches don't exist on MG22 (config 2): no EM01GRPCCLK split
-// and no TRACE clock select.
-#[cfg(not(silabs_series_2_config = "2"))]
-pub use cmu_mod::vals::{Em01grpcclkctrlClksel as Em01GrpCClkSource, TraceclkctrlClksel as TraceClkSource};
+pub use cmu_mod::vals::{Hclkpresc as HclkPrescaler, Pclkpresc as PclkPrescaler, SysclkctrlClksel as SysclkSource};
 use critical_section::CriticalSection;
 
 use crate::pac::CMU;
-use crate::peripherals;
 // `_mod` marks the metapac register modules, so they do not read like the `hfxo`, `lfxo` and
 // `msc` fields and variables.
 use crate::pac::{cmu as cmu_mod, hfrco as hfrco_mod, hfxo as hfxo_mod, lfxo as lfxo_mod, msc as msc_mod};
+use crate::peripherals;
 pub use crate::time::Hertz;
 
 /// FSRCO frequency, 20 MHz.
 pub const FSRCO_FREQ: Hertz = Hertz::mhz(20);
 
-// `mux::ClockMux`, generated from the metapac `kernel_clock` data.
+// `Clocks`, group-clock frequency functions and `mux::ClockMux`, generated from metapac data.
 include!(concat!(env!("OUT_DIR"), "/_cmu_mux.rs"));
 
 pub(crate) trait SealedCmuPeripheral {
@@ -256,82 +248,51 @@ impl Default for LfxoConfig {
 
 /// Clock tree configuration for [`init_clocks`].
 ///
-/// `Default::default()` describes the chip's POR / reset state — every
-/// branch sources from its reset-default oscillator, no crystals
-/// enabled. Build a `Config` by starting from `default()` and
-/// overriding the fields that need to change.
+/// [`Config::new`] returns the reset state as a starting point.
 #[non_exhaustive]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// HFXO crystal. `None` leaves HFXO untouched.
     pub hfxo: Option<HfxoConfig>,
-    /// HFRCODPLL band calibration. `None` leaves HFRCO0 untouched — bus
-    /// clock disabled, `HFRCO0.CAL` retains its POR calibration.
+    /// HFRCODPLL band.
+    ///
+    /// `None` keeps the current band, and the reported frequency assumes the 19 MHz reset band.
+    /// When SYSCLK then runs from HFRCODPLL, flash keeps the slowest wait states.
     pub hfrcodpll: Option<HfrcoDpllConfig>,
     /// LFXO crystal. `None` leaves LFXO untouched.
     pub lfxo: Option<LfxoConfig>,
 
-    // High-frequency branches.
     /// SYSCLK source.
     pub sysclk: SysclkSource,
-    /// EM01GRPACLK source select (TIMER0..9 live on this branch).
-    pub em01grpaclk: Em01GrpAClkSource,
-    /// EM01GRPCCLK source select (EUSART module B-instances live on this branch).
-    /// Not present on MG22 (config 2).
-    #[cfg(not(silabs_series_2_config = "2"))]
-    pub em01grpcclk: Em01GrpCClkSource,
     /// HCLK = SYSCLK / `hclk_pre`.
     pub hclk_pre: HclkPrescaler,
     /// PCLK = HCLK / `pclk_pre`.
+    ///
+    /// `init` asserts the PCLK limit of the family: 50 MHz on MG22, 40 MHz on MG24 and MG26, and
+    /// 48.75 MHz on FG25.
     pub pclk_pre: PclkPrescaler,
 
-    // Low-frequency branches.
-    /// EM23GRPACLK source select (peripherals active in EM2/EM3).
-    pub em23grpaclk: Em23GrpAClkSource,
-    /// EM4GRPACLK source select (peripherals active in EM4).
-    pub em4grpaclk: Em4GrpAClkSource,
-
-    /// Per-peripheral clock selects (`EUSART0CLKCTRL`, `IADCCLKCTRL`,
-    /// `SYSRTC0CLKCTRL`, `WDOG0CLKCTRL`, ...), like embassy-stm32's
-    /// `config.rcc.mux`. The fields are generated from the chip's metadata.
+    /// Group and peripheral clock selects, generated from chip metadata.
+    ///
+    /// Examples are `em01grpaclk`, `em23grpaclk`, `eusart0`, `iadc` and `sysrtc0`.
     pub mux: mux::ClockMux,
-
-    /// TRACE clock source. Only used by debugger ETM/ITM.
-    /// Not a separate mux on MG22 (config 2).
-    #[cfg(not(silabs_series_2_config = "2"))]
-    pub trace: TraceClkSource,
 }
 
 impl Config {
-    /// Configuration matching the chip's POR / reset state.
+    /// Returns the reset state.
+    ///
+    /// SYSCLK runs from FSRCO (20 MHz), HCLK and PCLK are undivided, and no crystal runs. Every
+    /// `mux` field is `None`, so `init` writes no group or peripheral clock select.
     pub const fn new() -> Self {
         Self {
             hfxo: None,
             hfrcodpll: None,
             lfxo: None,
-
-            // POR defaults: all HF branches source from HFRCODPLL (theboot clock).
-            // HCLK undivided, PCLK = HCLK/2.
-            sysclk: SysclkSource::Hfrcodpll,
-            em01grpaclk: Em01GrpAClkSource::Hfrcodpll,
-            #[cfg(not(silabs_series_2_config = "2"))]
-            em01grpcclk: Em01GrpCClkSource::Hfrcodpll,
+            sysclk: SysclkSource::Fsrco,
             hclk_pre: HclkPrescaler::Div1,
-            pclk_pre: PclkPrescaler::Div2,
-
-            // POR defaults: LF branches source from LFRCO. Boards with
-            // an LFXO crystal typically override to `Lfxo` for better
-            // sleep-clock accuracy.
-            em23grpaclk: Em23GrpAClkSource::Lfrco,
-            em4grpaclk: Em4GrpAClkSource::Lfrco,
-
-            // Keep the reset value of every peripheral clock select.
+            pclk_pre: PclkPrescaler::Div1,
             mux: mux::ClockMux::new(),
-
-            // POR default: TRACE on SYSCLK.
-            #[cfg(not(silabs_series_2_config = "2"))]
-            trace: TraceClkSource::Sysclk,
         }
     }
 }
@@ -340,35 +301,6 @@ impl Default for Config {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Frozen clock-tree frequencies. Populated once by [`init_clocks`].
-///
-/// The field names are the clock names of the metapac `kernel_clock` data,
-/// so `build.rs` can generate each peripheral's `frequency()`. `None` means
-/// the clock is not running or does not exist on this chip.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Clocks {
-    pub hfxo: Option<Hertz>,
-    pub hfrcodpll: Option<Hertz>,
-    pub hfrcoem23: Option<Hertz>,
-    pub fsrco: Option<Hertz>,
-    pub lfxo: Option<Hertz>,
-    pub lfrco: Option<Hertz>,
-    pub ulfrco: Option<Hertz>,
-
-    pub sysclk: Option<Hertz>,
-    pub hclk: Option<Hertz>,
-    pub pclk: Option<Hertz>,
-    /// PCLK / 2 (I2C0, ACMP).
-    pub lspclk: Option<Hertz>,
-    pub em01grpaclk: Option<Hertz>,
-    /// Not tracked yet (PDM on MG22).
-    pub em01grpbclk: Option<Hertz>,
-    pub em01grpcclk: Option<Hertz>,
-    pub em23grpaclk: Option<Hertz>,
-    pub em4grpaclk: Option<Hertz>,
 }
 
 /// Frozen clock frequencies. The existence of this value indicates that
@@ -432,39 +364,42 @@ fn sysclk_source_freq(src: SysclkSource, hfxo: Option<Hertz>, hfrcodpll: Hertz) 
     }
 }
 
-fn em01grpaclk_source_freq(src: Em01GrpAClkSource, hfxo: Option<Hertz>, hfrcodpll: Hertz, _hfrcoem23: Hertz) -> Hertz {
-    match src {
-        Em01GrpAClkSource::Fsrco => FSRCO_FREQ,
-        Em01GrpAClkSource::Hfrcodpll => hfrcodpll,
-        // The RT (radio) and HFRCOEM23 sources don't exist on MG22 (config 2).
-        #[cfg(not(silabs_series_2_config = "2"))]
-        Em01GrpAClkSource::Hfrcodpllrt => hfrcodpll,
-        #[cfg(not(silabs_series_2_config = "2"))]
-        Em01GrpAClkSource::Hfrcoem23 => _hfrcoem23,
-        Em01GrpAClkSource::Hfxo => unwrap!(hfxo),
-        #[cfg(not(silabs_series_2_config = "2"))]
-        Em01GrpAClkSource::Hfxort => unwrap!(hfxo),
-        _ => unreachable!(),
-    }
-}
-
-// EM01GRPCCLK is a config-4/5/6 branch; MG22 (config 2) has no such mux.
-#[cfg(not(silabs_series_2_config = "2"))]
-fn em01grpcclk_source_freq(src: Em01GrpCClkSource, hfxo: Option<Hertz>, hfrcodpll: Hertz, hfrcoem23: Hertz) -> Hertz {
-    match src {
-        Em01GrpCClkSource::Fsrco => FSRCO_FREQ,
-        Em01GrpCClkSource::Hfrcodpll | Em01GrpCClkSource::Hfrcodpllrt => hfrcodpll,
-        Em01GrpCClkSource::Hfrcoem23 => hfrcoem23,
-        Em01GrpCClkSource::Hfxo | Em01GrpCClkSource::Hfxort => unwrap!(hfxo),
-        _ => unreachable!(),
-    }
-}
-
 pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
+    // Computes SYSCLK, HCLK and PCLK from `config` and asserts their limits before any register
+    // write, so a bad config panics with no clock changed. `unchecked-overclocking` skips this.
+    let hfxo_hz = config.hfxo.map(|c| c.freq);
+    let hfrcodpll_hz = match config.hfrcodpll {
+        None => HFRCODPLL_RESET_FREQ,
+        Some(c) => c.band.frequency(),
+    };
+    let sysclk = sysclk_source_freq(config.sysclk, hfxo_hz, hfrcodpll_hz);
+    let hclk = Hertz(sysclk.0 / hclk_divisor(config.hclk_pre));
+    let pclk = Hertz(hclk.0 / pclk_divisor(config.pclk_pre));
+
+    // Maximum `(HCLK and SYSCLK, PCLK)` in hertz at VSCALE2, the reset voltage scale that the HAL
+    // keeps, from datasheet table 4.2 (General Operating Conditions). `unchecked-overclocking`
+    // drops the asserts, so the limit is then unused.
+    #[cfg(silabs_series_2_config = "2")]
+    #[cfg_attr(feature = "unchecked-overclocking", allow(dead_code))]
+    const MAX_HCLK_PCLK: (u32, u32) = (76_800_000, 50_000_000);
+    #[cfg(silabs_series_2_config = "4")]
+    #[cfg_attr(feature = "unchecked-overclocking", allow(dead_code))]
+    const MAX_HCLK_PCLK: (u32, u32) = (78_000_000, 40_000_000);
+    #[cfg(silabs_series_2_config = "5")]
+    #[cfg_attr(feature = "unchecked-overclocking", allow(dead_code))]
+    const MAX_HCLK_PCLK: (u32, u32) = (97_500_000, 48_750_000);
+    #[cfg(silabs_series_2_config = "6")]
+    #[cfg_attr(feature = "unchecked-overclocking", allow(dead_code))]
+    const MAX_HCLK_PCLK: (u32, u32) = (78_000_000, 40_000_000);
+
+    cmu_assert!(sysclk.0 <= MAX_HCLK_PCLK.0);
+    cmu_assert!(hclk.0 <= MAX_HCLK_PCLK.0);
+    cmu_assert!(pclk.0 <= MAX_HCLK_PCLK.1);
+
     // The SYSRTC0 bus clock is off after reset, and an access then BusFaults. Turn it on, so that
     // code outside this HAL can use SYSRTC0.
     enable::<peripherals::GPIO>();
-    #[cfg(not(silabs_series_2_config = "2"))]
+    #[cfg(sysrtc)]
     enable::<peripherals::SYSRTC0>();
 
     // Start each oscillator before a branch selects it. SYSCLK on a stopped oscillator faults.
@@ -480,86 +415,65 @@ pub(crate) fn init_clocks(_cs: CriticalSection, config: Config) {
         init_hfrcodpll(hfrcodpll_cfg.band);
     }
 
-    // Branch-select MUXes + prescalers. Authoritative write of every
-    // clock-tree MUX — same-value writes are glitchless on Series 2 so
-    // calling this repeatedly is safe. POR defaults survive on any
-    // branch the Config doesn't override.
+    // Use the slowest flash timing while HCLK changes.
+    enable::<peripherals::MSC>();
+    let msc = crate::pac::MSC;
+    msc.lock().write(|w| w.set_lockkey(msc_mod::vals::Lockkey::Unlock));
+    msc.readctrl().modify(|w| w.set_mode(msc_mod::vals::Mode::Ws3));
+
     CMU.sysclkctrl().modify(|w| {
         w.set_clksel(config.sysclk);
         w.set_hclkpresc(config.hclk_pre);
         w.set_pclkpresc(config.pclk_pre);
     });
-    CMU.em01grpaclkctrl().modify(|w| w.set_clksel(config.em01grpaclk));
-    CMU.em23grpaclkctrl().modify(|w| w.set_clksel(config.em23grpaclk));
-    CMU.em4grpaclkctrl().modify(|w| w.set_clksel(config.em4grpaclk));
-    // Branches that only exist on config 4/5/6 (absent on MG22 / config 2).
-    #[cfg(not(silabs_series_2_config = "2"))]
-    {
-        CMU.em01grpcclkctrl().modify(|w| w.set_clksel(config.em01grpcclk));
-        CMU.traceclkctrl().modify(|w| w.set_clksel(config.trace));
-    }
     config.mux.init();
 
-    let hfxo_hz = config.hfxo.map(|c| c.freq);
-    let hfrcodpll_hz = match config.hfrcodpll {
-        None => HFRCODPLL_RESET_FREQ,
-        Some(c) => c.band.frequency(),
-    };
-    let hfrcoem23_hz = HFRCOEM23_RESET_FREQ;
-    let lfxo_hz = config.lfxo.map(|_| LFXO_FREQ);
-
-    let sysclk = sysclk_source_freq(config.sysclk, hfxo_hz, hfrcodpll_hz);
-    let hclk = Hertz(sysclk.0 / hclk_divisor(config.hclk_pre));
-    let pclk = Hertz(hclk.0 / pclk_divisor(config.pclk_pre));
-    let em01grpaclk = em01grpaclk_source_freq(config.em01grpaclk, hfxo_hz, hfrcodpll_hz, hfrcoem23_hz);
-    #[cfg(not(silabs_series_2_config = "2"))]
-    let em01grpcclk = Some(em01grpcclk_source_freq(
-        config.em01grpcclk,
-        hfxo_hz,
-        hfrcodpll_hz,
-        hfrcoem23_hz,
-    ));
-    #[cfg(silabs_series_2_config = "2")]
-    let em01grpcclk = None;
-    #[allow(unreachable_patterns)]
-    let em23grpaclk = match config.em23grpaclk {
-        Em23GrpAClkSource::Lfrco => Some(LFRCO_FREQ),
-        Em23GrpAClkSource::Lfxo => lfxo_hz,
-        Em23GrpAClkSource::Ulfrco => Some(ULFRCO_FREQ),
-        _ => None,
-    };
-    #[allow(unreachable_patterns)]
-    let em4grpaclk = match config.em4grpaclk {
-        Em4GrpAClkSource::Lfrco => Some(LFRCO_FREQ),
-        Em4GrpAClkSource::Lfxo => lfxo_hz,
-        Em4GrpAClkSource::Ulfrco => Some(ULFRCO_FREQ),
-        _ => None,
-    };
-
-    cmu_assert!(sysclk.0 <= 80_000_000);
-    cmu_assert!(hclk.0 <= 80_000_000);
-
-    unsafe {
-        set_freqs(Clocks {
-            hfxo: hfxo_hz,
-            hfrcodpll: Some(hfrcodpll_hz),
-            // MG22 (config 2) has no HFRCOEM23.
-            hfrcoem23: (!cfg!(silabs_series_2_config = "2")).then_some(hfrcoem23_hz),
-            fsrco: Some(FSRCO_FREQ),
-            lfxo: lfxo_hz,
-            lfrco: Some(LFRCO_FREQ),
-            ulfrco: Some(ULFRCO_FREQ),
-            sysclk: Some(sysclk),
-            hclk: Some(hclk),
-            pclk: Some(pclk),
-            lspclk: Some(pclk / 2u32),
-            em01grpaclk: Some(em01grpaclk),
-            em01grpbclk: None,
-            em01grpcclk,
-            em23grpaclk,
-            em4grpaclk,
-        });
+    let mut clocks = Clocks::default();
+    clocks.hfxo = hfxo_hz;
+    clocks.hfrcodpll = Some(hfrcodpll_hz);
+    #[cfg(hfrcoem)]
+    {
+        clocks.hfrcoem23 = Some(HFRCOEM23_RESET_FREQ);
     }
+    clocks.fsrco = Some(FSRCO_FREQ);
+    clocks.lfxo = config.lfxo.map(|_| LFXO_FREQ);
+    clocks.lfrco = Some(LFRCO_FREQ);
+    clocks.ulfrco = Some(ULFRCO_FREQ);
+    clocks.sysclk = Some(sysclk);
+    clocks.hclk = Some(hclk);
+    clocks.pclk = Some(pclk);
+    clocks.lspclk = Some(pclk / 2u32);
+    fill_group_freqs(&mut clocks);
+
+    // A bootloader can leave HFRCODPLL on a faster band, so a guessed HCLK keeps `Ws3`.
+    let hclk_unknown = config.sysclk == SysclkSource::Hfrcodpll && config.hfrcodpll.is_none();
+    if !hclk_unknown {
+        msc.readctrl().modify(|w| w.set_mode(flash_wait_states(hclk)));
+    }
+
+    unsafe { set_freqs(clocks) };
+}
+
+/// Returns the flash wait states for `hclk` at VSCALE2 (1.1 V), which the HAL keeps.
+///
+/// WS0 runs up to 40 MHz on MG22, MG24 and MG26. On FG25, WS0 runs up to 25 MHz, WS1 up to 50, WS2
+/// up to 75 and WS3 up to 97.5 MHz (datasheet table 4.2).
+fn flash_wait_states(hclk: Hertz) -> msc_mod::vals::Mode {
+    use msc_mod::vals::Mode;
+    // FG25 flash has its own table.
+    #[cfg(silabs_series_2_config = "5")]
+    let mode = match hclk.0 {
+        0..=25_000_000 => Mode::Ws0,
+        25_000_001..=50_000_000 => Mode::Ws1,
+        50_000_001..=75_000_000 => Mode::Ws2,
+        _ => Mode::Ws3,
+    };
+    #[cfg(not(silabs_series_2_config = "5"))]
+    let mode = match hclk.0 {
+        0..=40_000_000 => Mode::Ws0,
+        _ => Mode::Ws1,
+    };
+    mode
 }
 
 /// Starts HFXO in crystal mode and leaves it on demand after the first lock.
@@ -651,25 +565,15 @@ pub(crate) fn init_hfxo(config: &HfxoConfig) {
         w.set_forcexo2gndana(false);
         w.set_forcexi2gndana(false);
         w.set_disondemand(false);
-        // EM23ONDEMAND isn't present on MG22's HFXO (hfxo_s2v2).
-        #[cfg(not(silabs_series_2_config = "2"))]
+        #[cfg(not(hfxo_s2v2))]
         w.set_em23ondemand(false);
         w.set_forceen(true);
     });
 
-    // 8. Wait for HFXO lock and core-bias optimisation to complete.
-    //    `STATUS.FSMLOCK` exists only on Series 2 configs 1/2/7/9
-    //    (xG21/xG22/xG27/xG29); chips that lack it (MG24/MG26 etc.) skip
-    //    that bit in the readiness check.
     while {
         let s = HFXO0.status().read();
         let ready = s.rdy() && s.corebiasoptrdy() && s.ens();
-        #[cfg(any(
-            silabs_series_2_config = "1",
-            silabs_series_2_config = "2",
-            silabs_series_2_config = "7",
-            silabs_series_2_config = "9",
-        ))]
+        #[cfg(hfxo_s2v2)]
         let ready = ready && s.fsmlock();
         !ready
     } {}
@@ -677,22 +581,10 @@ pub(crate) fn init_hfxo(config: &HfxoConfig) {
     // Set DISONDEMAND, so that the XTALCFG and XTALCTRL writes below apply to the next locks.
     HFXO0.ctrl_set().write(|w| w.set_disondemand(true));
 
-    // `CMD.MANUALOVERRIDE` exists only on configs 2/7/9 (xG22/xG27/xG29) —
-    // xG21 has FSMLOCK but no MANUALOVERRIDE.
-    #[cfg(any(
-        silabs_series_2_config = "2",
-        silabs_series_2_config = "7",
-        silabs_series_2_config = "9",
-    ))]
+    #[cfg(hfxo_s2v2)]
     HFXO0.cmd().write(|w| w.set_manualoverride(true));
 
-    // Spin for the FSMLOCK FSM to release — same set as step 8.
-    #[cfg(any(
-        silabs_series_2_config = "1",
-        silabs_series_2_config = "2",
-        silabs_series_2_config = "7",
-        silabs_series_2_config = "9",
-    ))]
+    #[cfg(hfxo_s2v2)]
     while HFXO0.status().read().fsmlock() {}
 
     // After the first lock, T83us is enough for TIMEOUTSTEADY.
@@ -791,8 +683,8 @@ pub(crate) fn init_hfrcodpll(band: HfrcoBand) {
     // Stop the DPLL before the band changes.
     if DPLL0.en().read().en() {
         DPLL0.en_clr().write(|w| w.set_en(true));
-        // dpll_s2v0 (MG22) has no DISABLING status bit — disable is immediate.
-        #[cfg(not(silabs_series_2_config = "2"))]
+        // dpll_s2v0 has no DISABLING bit and stops at once.
+        #[cfg(not(dpll_s2v0))]
         while DPLL0.en().read().disabling() {}
     }
 

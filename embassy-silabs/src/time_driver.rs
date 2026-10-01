@@ -24,17 +24,14 @@ pub(crate) trait Instance: sealed::Instance + 'static {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
-macro_rules! impl_timer_instance {
-    ($name:ident) => {
-        impl sealed::Instance for peripherals::$name {}
-        impl Instance for peripherals::$name {
-            type Interrupt = crate::interrupt::typelevel::$name;
+foreach_interrupt!(
+    ($inst:ident, timer, GLOBAL, $irq:ident) => {
+        impl sealed::Instance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
-}
-
-impl_timer_instance!(TIMER0);
-impl_timer_instance!(TIMER1);
+);
 
 #[cfg(time_driver_timer0)]
 type T = peripherals::TIMER0;
@@ -79,7 +76,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver 
 });
 
 impl TimerDriver {
-    fn init(&'static self, _cs: CriticalSection) {
+    fn init(&'static self, _cs: CriticalSection, irq_prio: crate::interrupt::Priority) {
         crate::cmu::enable::<T>();
         let t = regs();
 
@@ -130,6 +127,7 @@ impl TimerDriver {
         });
 
         <T as Instance>::Interrupt::unpend();
+        <T as Instance>::Interrupt::set_priority(irq_prio);
         unsafe { <T as Instance>::Interrupt::enable() };
 
         t.cmd().write(|w| w.set_start(true));
@@ -234,8 +232,8 @@ impl Driver for TimerDriver {
     }
 }
 
-pub(crate) fn init(cs: CriticalSection) {
-    DRIVER.init(cs);
+pub(crate) fn init(cs: CriticalSection, irq_prio: crate::interrupt::Priority) {
+    DRIVER.init(cs, irq_prio);
 }
 
 #[cfg(feature = "rt")]

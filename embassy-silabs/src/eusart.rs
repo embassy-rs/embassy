@@ -36,11 +36,11 @@ use embassy_sync::waitqueue::AtomicWaker;
 use eusart_mod::vals;
 
 use crate::gpio::{AnyPin, Pin};
+use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
-use crate::pac::{GPIO, eusart as eusart_mod};
+use crate::pac::eusart as eusart_mod;
 use crate::time::Hertz;
-use crate::{interrupt, peripherals};
 
 /// Asynchronous-UART oversampling. 16× gives the best noise margin and is fixed
 /// for now; the divider math assumes it.
@@ -214,13 +214,13 @@ fn compute_clkdiv(src: Hertz, baudrate: u32, ovs: u32) -> Result<u32, ConfigErro
 }
 
 /// Per-instance shared state: the wakers signalled by the interrupt handler.
-struct State {
+pub(crate) struct State {
     rx_waker: AtomicWaker,
     tx_waker: AtomicWaker,
 }
 
 impl State {
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             rx_waker: AtomicWaker::new(),
             tx_waker: AtomicWaker::new(),
@@ -228,7 +228,7 @@ impl State {
     }
 }
 
-trait SealedInstance {
+pub(crate) trait SealedInstance {
     fn regs() -> eusart_mod::Eusart;
     fn state() -> &'static State;
     /// Route TX/RX to the given pins (`port` 0..=3, `pin` 0..=15) and enable them.
@@ -244,85 +244,39 @@ pub trait Instance: SealedInstance + crate::cmu::CmuPeripheral + PeripheralType 
     type TxInterrupt: interrupt::typelevel::Interrupt;
 }
 
+/// Implements [`Instance`] for one EUSART. `build.rs` invokes it for each EUSART in chip metadata.
 macro_rules! impl_eusart {
     ($inst:ident, $rxirq:ident, $txirq:ident, $txroute:ident, $rxroute:ident, $routeen:ident $(,)?) => {
-        impl SealedInstance for peripherals::$inst {
-            fn regs() -> eusart_mod::Eusart {
+        impl crate::eusart::SealedInstance for crate::peripherals::$inst {
+            fn regs() -> crate::pac::eusart::Eusart {
                 crate::pac::$inst
             }
-            fn state() -> &'static State {
-                static STATE: State = State::new();
+            fn state() -> &'static crate::eusart::State {
+                static STATE: crate::eusart::State = crate::eusart::State::new();
                 &STATE
             }
             fn route(tx_port: u8, tx_pin: u8, rx_port: u8, rx_pin: u8) {
-                GPIO.$txroute().write(|w| {
+                crate::pac::GPIO.$txroute().write(|w| {
                     w.set_port(tx_port);
                     w.set_pin(tx_pin);
                 });
-                GPIO.$rxroute().write(|w| {
+                crate::pac::GPIO.$rxroute().write(|w| {
                     w.set_port(rx_port);
                     w.set_pin(rx_pin);
                 });
-                GPIO.$routeen().modify(|w| {
+                crate::pac::GPIO.$routeen().modify(|w| {
                     w.set_txpen(true);
                     w.set_rxpen(true);
                 });
             }
         }
-        impl Instance for peripherals::$inst {
+        impl crate::eusart::Instance for crate::peripherals::$inst {
             type RxInterrupt = crate::interrupt::typelevel::$rxirq;
             type TxInterrupt = crate::interrupt::typelevel::$txirq;
         }
     };
 }
-
-// EUSART instances. EUSART0 is the LF-capable instance with its own clock
-// mux; the rest are HF-only on EM01GRPCCLK. `T::frequency()` resolves both
-// from the metapac `kernel_clock` data.
-impl_eusart!(
-    EUSART0,
-    EUSART0_RX,
-    EUSART0_TX,
-    eusart0_txroute,
-    eusart0_rxroute,
-    eusart0_routeen,
-);
-impl_eusart!(
-    EUSART1,
-    EUSART1_RX,
-    EUSART1_TX,
-    eusart1_txroute,
-    eusart1_rxroute,
-    eusart1_routeen,
-);
-// EUSART2/3 exist on MG26 and FG25. Their bus-clock gates differ
-// (CLKEN2 vs CLKEN1) and come from the metapac metadata.
-impl_eusart!(
-    EUSART2,
-    EUSART2_RX,
-    EUSART2_TX,
-    eusart2_txroute,
-    eusart2_rxroute,
-    eusart2_routeen,
-);
-impl_eusart!(
-    EUSART3,
-    EUSART3_RX,
-    EUSART3_TX,
-    eusart3_txroute,
-    eusart3_rxroute,
-    eusart3_routeen,
-);
-// EUSART4 exists only on FG25.
-#[cfg(silabs_series_2_config = "5")]
-impl_eusart!(
-    EUSART4,
-    EUSART4_RX,
-    EUSART4_TX,
-    eusart4_txroute,
-    eusart4_rxroute,
-    eusart4_routeen,
-);
+pub(crate) use impl_eusart;
 
 /// Interrupt handler for an EUSART instance's RX vector (`EUSARTx_RX`).
 ///
