@@ -62,41 +62,15 @@ fn feed_iv_counter(words: &[u8; 16]) {
     }
 }
 
-fn process_block(input: &[u8; 16], output: &mut [u8; 16], last: bool) {
-    if last {
-        pac::HASHCRYPT.cryptcfg().modify(|w| {
-            w.set_streamlast(true);
-        });
-    }
-
-    for word in input.chunks_exact(4) {
-        feed_word(u32::from_le_bytes(word.try_into().unwrap()));
-    }
-
-    read_digest(4, output);
-}
-
-fn process_blocks(data: &[u8], output: &mut [u8]) {
-    let nr_blocks = data.len() / 16;
-    let mut offset = 0;
-
-    for (i, block) in data.chunks_exact(16).enumerate() {
-        let block: &[u8; 16] = block.try_into().unwrap();
-        let last = if nr_blocks == i + 1 { true } else { false };
-        let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
-        process_block(block, out, last);
-        offset += 16
-    }
-}
-
-fn process_blocks_padded(data: &[u8], output: &mut [u8]) {
+fn process_blocks_padded<'o>(data: &[u8], output: &'o mut [u8]) {
     let mut offset = 0;
     let mut blocks = data.chunks_exact(16);
-
     for block in &mut blocks {
-        let block: &[u8; 16] = block.try_into().unwrap();
-        let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
-        process_block(block, out, false);
+        for word in block.chunks_exact(4) {
+            feed_word(u32::from_le_bytes(word.try_into().unwrap()));
+        }
+
+        read_digest(4, &mut output[offset..offset + 16]);
         offset += 16;
     }
 
@@ -107,8 +81,14 @@ fn process_blocks_padded(data: &[u8], output: &mut [u8]) {
     final_block[..tail.len()].copy_from_slice(tail);
     final_block[tail.len()..].fill(pad);
 
-    let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
-    process_block(&final_block, out, true);
+    pac::HASHCRYPT.cryptcfg().modify(|w| {
+        w.set_streamlast(true);
+    });
+
+    for chunks in final_block.chunks_exact(4) {
+        feed_word(u32::from_le_bytes(chunks.try_into().unwrap()));
+    }
+    read_digest(4, &mut output[offset..offset + 16]);
 }
 
 // Used by the SHA and AES modes;
