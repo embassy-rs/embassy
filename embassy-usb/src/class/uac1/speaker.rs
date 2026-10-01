@@ -231,7 +231,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
             streaming_interface, // baInterfaceNr
         ];
 
-        alt.descriptor_block(
+        alt.descriptors_then_patch(
             |alt| {
                 alt.descriptor(CS_INTERFACE, &interface_descriptor);
                 alt.descriptor(CS_INTERFACE, &input_terminal_descriptor);

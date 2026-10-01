@@ -235,7 +235,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             } else {
                 0
             };
-        let (read_ep, write_ep) = alt.descriptor_block(
+        let (read_ep, write_ep) = alt.descriptors_then_patch(
             |alt| {
                 alt.descriptor(
                     CS_INTERFACE,

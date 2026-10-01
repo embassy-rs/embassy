@@ -503,7 +503,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     }
 
     /// Add one of more custom descriptors to this alternate setting, and then patch the written bytes.
-    pub fn descriptor_block<R>(&mut self, add: impl FnOnce(&mut Self) -> R, patch: impl FnOnce(&mut [u8])) -> R {
+    pub fn descriptors_then_patch<R>(&mut self, add: impl FnOnce(&mut Self) -> R, patch: impl FnOnce(&mut [u8])) -> R {
         let mark = self.builder.config_descriptor.mark();
 
         let result = add(self);

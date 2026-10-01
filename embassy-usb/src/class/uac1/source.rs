@@ -179,7 +179,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
             streaming_interface,      // baInterfaceNr
         ];
 
-        b.descriptor_block(
+        b.descriptors_then_patch(
             |b| {
                 b.descriptor(CS_INTERFACE, &interface_descriptor);
                 b.descriptor(CS_INTERFACE, &input_terminal_descriptor);
