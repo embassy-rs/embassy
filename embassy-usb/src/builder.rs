@@ -544,6 +544,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
+    #[allow(clippy::too_many_arguments)]
     pub fn endpoint_in(
         &mut self,
         ep_type: EndpointType,
@@ -580,6 +581,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
+    #[allow(clippy::too_many_arguments)]
     pub fn endpoint_out(
         &mut self,
         ep_type: EndpointType,
