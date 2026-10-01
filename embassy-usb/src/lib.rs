@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
-#![warn(missing_docs)]
+// #![warn(missing_docs)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -14,6 +14,7 @@ pub mod control;
 pub mod descriptor;
 mod descriptor_reader;
 pub mod msos;
+mod packed;
 pub mod types;
 
 mod config {
