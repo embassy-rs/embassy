@@ -86,7 +86,7 @@ impl<'d, W: Word> RingBufferedDacChannel<'d, W> {
     ///
     /// Resume with [`start`](Self::start).
     pub fn request_pause(&mut self) {
-        self.ring_buf.request_pause();
+        self.ring_buf.stop();
     }
 
     /// Stop the DMA transfer, waiting until all buffered samples have been output.

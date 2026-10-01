@@ -128,7 +128,7 @@ where
 
     /// Pause the DMA transfers. Conversions are not stopped.
     pub fn stop(&mut self) {
-        self.ring_buf.request_pause();
+        self.ring_buf.stop();
     }
 
     /// Discard all buffered samples.
@@ -202,7 +202,7 @@ where
                     return Ok(len);
                 }
                 Err(err) => {
-                    self.ring_buf.request_pause();
+                    self.ring_buf.stop();
 
                     return Err(remap_dma_error(err));
                 }
