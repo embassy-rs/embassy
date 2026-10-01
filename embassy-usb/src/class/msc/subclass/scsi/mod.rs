@@ -264,7 +264,7 @@ impl<'d, B: BlockDevice> Scsi<'d, B> {
                 resp.set_response_code(ResponseCode::CurrentFixedSenseData);
 
                 let len = RequestSenseResponse::SIZE.min(req.allocation_length() as usize);
-                resp.set_additional_sense_length((len - 7) as u8);
+                resp.set_additional_sense_length((RequestSenseResponse::SIZE - 8) as u8);
 
                 match &self.sense {
                     Some(sense) => {

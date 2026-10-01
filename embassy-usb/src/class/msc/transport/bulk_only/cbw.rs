@@ -53,7 +53,7 @@ pub enum CommandBlockWrapperDeserializeError {
 
 impl CommandBlockWrapper {
     pub fn from_bytes(buf: &[u8]) -> Result<CommandBlockWrapper, CommandBlockWrapperDeserializeError> {
-        if buf.len() < size_of::<Self>() {
+        if buf.len() != size_of::<Self>() {
             return Err(CommandBlockWrapperDeserializeError::BufferTooShort);
         }
 

@@ -9,7 +9,7 @@ use self::cbw::CommandBlockWrapper;
 use self::csw::{CommandStatus, CommandStatusWrapper};
 use super::{CommandError, CommandSetHandler, DataPipeError, DataPipeIn, DataPipeOut};
 use crate::class::msc::{MscProtocol, USB_CLASS_MSC};
-use crate::control::{InResponse, Request, RequestType};
+use crate::control::{InResponse, OutResponse, Request, RequestType};
 use crate::driver::Driver;
 use crate::types::InterfaceNumber;
 use crate::{Builder, Handler};
@@ -84,11 +84,21 @@ impl Handler for Control {
                 buf[0] = self.max_lun;
                 Some(InResponse::Accepted(&buf[..1]))
             }
+            _ => Some(InResponse::Rejected),
+        }
+    }
+
+    fn control_out(&mut self, req: Request, _data: &[u8]) -> Option<OutResponse> {
+        if req.index != self.if_num.0 as u16 {
+            return None;
+        }
+
+        match (req.request_type, req.request) {
             (RequestType::Class, REQ_BULK_ONLY_RESET) => {
                 debug!("REQ_BULK_ONLY_RESET");
-                Some(InResponse::Accepted(&[]))
+                Some(OutResponse::Accepted)
             }
-            _ => Some(InResponse::Rejected),
+            _ => Some(OutResponse::Rejected),
         }
     }
 }
@@ -112,8 +122,8 @@ impl<'d, D: Driver<'d>, C: CommandSetHandler> BulkOnlyTransport<'d, D, C> {
 
         let mut alt = iface.alt_setting(USB_CLASS_MSC, subclass, MscProtocol::BulkOnlyTransport as _, None);
 
-        let read_ep = alt.endpoint_bulk_out(max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
 
         let control = state.control.write(Control {
             max_lun: C::MAX_LUN,
@@ -137,7 +147,7 @@ impl<'d, D: Driver<'d>, C: CommandSetHandler> BulkOnlyTransport<'d, D, C> {
         loop {
             // CBW is always sent at a packet boundary and is a short packet of 31 bytes
             match self.read_ep.read(&mut cbw_buf).await {
-                Ok(_) => match CommandBlockWrapper::from_bytes(&cbw_buf) {
+                Ok(read) => match CommandBlockWrapper::from_bytes(&cbw_buf[..read]) {
                     Ok(cbw) => return cbw,
                     Err(e) => {
                         error!("Invalid CBW: {:?}", e);
@@ -296,9 +306,12 @@ impl<'d, E: EndpointOut> DataPipeOut for BulkOnlyTransportDataPipeOut<'d, E> {
                 return Err(DataPipeError::TransferSizeExceeded);
             }
 
-            self.ep.read(chunk).await?;
-            self.data_residue -= chunk.len() as u32;
-            self.last_packet_full = chunk.len() == self.max_packet_size.into();
+            let read = self.ep.read(chunk).await?;
+            self.data_residue -= read as u32;
+            self.last_packet_full = read == self.max_packet_size.into();
+            if read != chunk.len() {
+                return Err(DataPipeError::TransferFinalized);
+            }
         }
 
         Ok(())
