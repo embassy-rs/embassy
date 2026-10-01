@@ -62,9 +62,7 @@ fn feed_iv_counter(words: &[u8; 16]) {
     }
 }
 
-<<<<<<< HEAD
-=======
-fn process_blocks<'o>(data: &[u8], output: &'o mut [u8]) {
+fn process_blocks_padded<'o>(data: &[u8], output: &'o mut [u8]) {
     let mut offset = 0;
     let mut blocks = data.chunks_exact(16);
     for block in &mut blocks {
@@ -111,8 +109,6 @@ fn read_digest(count: usize, out: &mut [u8]) {
         // to explicitly handle that case
     }
 }
-
->>>>>>> 00bc4b965 (feat: add helper method process block and AesEcb encrypt_padded function body)
 // Generic driver type
 pub struct GenericHashcrypt<'d> {
     _peri: Peri<'d, HASHCRYPT>,
@@ -384,7 +380,7 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
 
         feed_key(key);
 
-        process_blocks(data, output);
+        process_blocks_padded(data, output);
 
         return Ok(&output[..padded_len]);
     }
@@ -395,11 +391,7 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> AesEcb<'a, 'd> {
-<<<<<<< HEAD
-    // Does not require anything past the default aes methods
-=======
-    // Does not require anything passed the default Aes and AesPadded methods
->>>>>>> 00bc4b965 (feat: add helper method process block and AesEcb encrypt_padded function body)
+    // Does not require anything past the default Aes and AesPadded methods
 }
 pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
