@@ -220,34 +220,29 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
 
         // ==================================================
         // Class-specific AC Interface Descriptor [UAC 4.3.2]
-        const DESCRIPTOR_HEADER_SIZE: usize = 2;
         const INTERFACE_DESCRIPTOR_SIZE: usize = 7;
-
-        let mut total_descriptor_length = 0;
-
-        for size in [
-            INTERFACE_DESCRIPTOR_SIZE,
-            input_terminal_descriptor.len(),
-            feature_unit_descriptor.len(),
-            output_terminal_descriptor.len(),
-        ] {
-            total_descriptor_length += size + DESCRIPTOR_HEADER_SIZE;
-        }
-
         let interface_descriptor: [u8; INTERFACE_DESCRIPTOR_SIZE] = [
             HEADER_SUBTYPE, // bDescriptorSubtype (Header)
             ADC_VERSION as u8,
             (ADC_VERSION >> 8) as u8, // bcdADC
-            total_descriptor_length as u8,
-            (total_descriptor_length >> 8) as u8, // wTotalLength
-            0x01,                                 // bInCollection (1 streaming interface)
-            streaming_interface,                  // baInterfaceNr
+            0x00,
+            0x00,                // wTotalLength
+            0x01,                // bInCollection (1 streaming interface)
+            streaming_interface, // baInterfaceNr
         ];
 
-        alt.descriptor(CS_INTERFACE, &interface_descriptor);
-        alt.descriptor(CS_INTERFACE, &input_terminal_descriptor);
-        alt.descriptor(CS_INTERFACE, &feature_unit_descriptor);
-        alt.descriptor(CS_INTERFACE, &output_terminal_descriptor);
+        alt.descriptor_block(
+            |alt| {
+                alt.descriptor(CS_INTERFACE, &interface_descriptor);
+                alt.descriptor(CS_INTERFACE, &input_terminal_descriptor);
+                alt.descriptor(CS_INTERFACE, &feature_unit_descriptor);
+                alt.descriptor(CS_INTERFACE, &output_terminal_descriptor);
+            },
+            |buffer| {
+                let len = buffer.len() as u16;
+                buffer[5..7].copy_from_slice(&len.to_le_bytes());
+            },
+        );
 
         // =====================================================
         // Audio streaming interface, zero-bandwidth [UAC 4.5.1]

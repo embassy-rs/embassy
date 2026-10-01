@@ -168,33 +168,29 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
 
         // USB Device Class Definition for Audio Devices
         // 4.3.2 Class-Specific AC Interface Descriptor
-        const AC_HEADER_SIZE: usize = 2; // bLength + bDescriptorType
         const INTERFACE_DESCRIPTOR_SIZE: usize = 7;
-        let mut total_descriptor_length: usize = 0;
-
-        for size in [
-            INTERFACE_DESCRIPTOR_SIZE,
-            input_terminal_descriptor.len(),
-            feature_unit_descriptor.len(),
-            output_terminal_descriptor.len(),
-        ] {
-            total_descriptor_length += size + AC_HEADER_SIZE;
-        }
-
         let interface_descriptor: [u8; INTERFACE_DESCRIPTOR_SIZE] = [
-            HEADER_SUBTYPE,                       // bDescriptorSubtype (Header)
-            ADC_VERSION as u8,                    // bcdADC[0]
-            (ADC_VERSION >> 8) as u8,             // bcdADC[1]
-            total_descriptor_length as u8,        // wTotalLength[0]
-            (total_descriptor_length >> 8) as u8, // wTotalLength[1]
-            0x01,                                 // bInCollection (1 streaming interface)
-            streaming_interface,                  // baInterfaceNr
+            HEADER_SUBTYPE,           // bDescriptorSubtype (Header)
+            ADC_VERSION as u8,        // bcdADC[0]
+            (ADC_VERSION >> 8) as u8, // bcdADC[1]
+            0x00,                     // wTotalLength[0]
+            0x00,                     // wTotalLength[1]
+            0x01,                     // bInCollection (1 streaming interface)
+            streaming_interface,      // baInterfaceNr
         ];
 
-        b.descriptor(CS_INTERFACE, &interface_descriptor);
-        b.descriptor(CS_INTERFACE, &input_terminal_descriptor);
-        b.descriptor(CS_INTERFACE, &feature_unit_descriptor);
-        b.descriptor(CS_INTERFACE, &output_terminal_descriptor);
+        b.descriptor_block(
+            |b| {
+                b.descriptor(CS_INTERFACE, &interface_descriptor);
+                b.descriptor(CS_INTERFACE, &input_terminal_descriptor);
+                b.descriptor(CS_INTERFACE, &feature_unit_descriptor);
+                b.descriptor(CS_INTERFACE, &output_terminal_descriptor);
+            },
+            |buffer| {
+                let len = buffer.len() as u16;
+                buffer[5..7].copy_from_slice(&len.to_le_bytes());
+            },
+        );
     }
 
     fn create_streaming_iface_active(

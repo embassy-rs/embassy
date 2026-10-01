@@ -345,14 +345,8 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                 (read_ep, write_ep)
             },
             |buffer| {
-                let len = buffer.len();
-                let encoded_length = u16::from_le_bytes([buffer[5], buffer[6]]) as usize;
-                assert_eq!(
-                    encoded_length, len,
-                    "MIDIStreaming total length does not match descriptors"
-                );
-                buffer[5] = (len & 0xFF) as u8;
-                buffer[6] = ((len >> 8) & 0xFF) as u8;
+                let len = buffer.len() as u16;
+                buffer[5..7].copy_from_slice(&len.to_le_bytes());
             },
         );
 
