@@ -280,6 +280,16 @@ pub(crate) fn set_as_alternate_input(pin: &AnyPin) {
     write_mode(pin, Mode::Input);
 }
 
+/// Puts `pin` back in its reset state (`DISABLED`).
+///
+/// `DOUT` goes low first, because `DOUT` high in `DISABLED` mode turns on the pull-up.
+#[cfg(eusart)]
+#[inline]
+pub(crate) fn set_as_disabled(pin: &AnyPin) {
+    write_dout_bit(pin, false);
+    write_mode(pin, Mode::Disabled);
+}
+
 impl<'d> embedded_hal::digital::ErrorType for Output<'d> {
     type Error = Infallible;
 }

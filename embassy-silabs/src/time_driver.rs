@@ -11,44 +11,16 @@ use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
 use crate::interrupt::typelevel::Interrupt;
-// Version-neutral alias: timer_s2v0 on MG22, timer_s2v1 on MG24/FG25/MG26. Each
-// version has a 16-bit `Timer` and a 32-bit `Timer32` block.
+// Version-neutral alias: timer_s2v0 on MG22, timer_s2v1 on MG24, FG25 and MG26.
 use crate::pac::timer as timer_mod;
 use crate::peripherals;
+use crate::timer::{Instance, Instance32bit};
 
-mod sealed {
-    pub trait Instance {}
-}
-
-pub(crate) trait Instance: sealed::Instance + 'static {
-    type Interrupt: crate::interrupt::typelevel::Interrupt;
-}
-
-foreach_interrupt!(
-    ($inst:ident, timer, GLOBAL, $irq:ident) => {
-        impl sealed::Instance for peripherals::$inst {}
-        impl Instance for peripherals::$inst {
-            type Interrupt = crate::interrupt::typelevel::$irq;
-        }
-    };
-);
-
+// The driver needs a 32-bit counter, and only a 32-bit TIMER has `regs_32bit()`.
 #[cfg(time_driver_timer0)]
 type T = peripherals::TIMER0;
 #[cfg(time_driver_timer1)]
 type T = peripherals::TIMER1;
-
-// The driver needs a 32-bit counter. The typed PAC const only coerces to
-// `Timer32` when the instance is a wide timer, so a 16-bit TIMER fails to
-// compile here instead of running with a truncated counter.
-#[cfg(time_driver_timer0)]
-fn regs() -> timer_mod::Timer32 {
-    crate::pac::TIMER0
-}
-#[cfg(time_driver_timer1)]
-fn regs() -> timer_mod::Timer32 {
-    crate::pac::TIMER1
-}
 
 // `period` goes up at counter values 0 (overflow) and 0x8000_0000 (CC0). An even `period` means the
 // counter is in the low half, so `now()` stays correct when it races an overflow. At 1 MHz,
@@ -78,7 +50,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver 
 impl TimerDriver {
     fn init(&'static self, _cs: CriticalSection, irq_prio: crate::interrupt::Priority) {
         crate::cmu::enable::<T>();
-        let t = regs();
+        let t = T::regs_32bit();
 
         // `CFG` and `CCx_CFG` are writable only while `EN.EN` is 0. Other registers, except `EN`,
         // BusFault while `EN.EN` is 0.
@@ -135,7 +107,7 @@ impl TimerDriver {
 
     pub(crate) fn on_interrupt(&self) {
         critical_section::with(|cs| {
-            let t = regs();
+            let t = T::regs_32bit();
             let flags = t.if_().read();
             t.if_clr().write_value(flags);
 
@@ -160,9 +132,9 @@ impl TimerDriver {
         critical_section::with(|cs| {
             let alarm = self.alarm.borrow(cs).get();
             if alarm < lo + ARM_AHEAD {
-                regs().ien_set().write(|w| w.set_cc1(true));
+                T::regs_32bit().ien_set().write(|w| w.set_cc1(true));
             } else {
-                regs().ien_clr().write(|w| w.set_cc1(true));
+                T::regs_32bit().ien_clr().write(|w| w.set_cc1(true));
             }
         });
     }
@@ -175,7 +147,7 @@ impl TimerDriver {
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
-        let t = regs();
+        let t = T::regs_32bit();
         self.alarm.borrow(cs).set(timestamp);
 
         let now = self.now_inner();
@@ -209,7 +181,7 @@ impl TimerDriver {
     fn now_inner(&self) -> u64 {
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
-        let counter = regs().cnt().read().cnt();
+        let counter = T::regs_32bit().cnt().read().cnt();
         calc_now(period, counter)
     }
 }

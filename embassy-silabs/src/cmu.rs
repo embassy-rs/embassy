@@ -20,6 +20,7 @@ include!(concat!(env!("OUT_DIR"), "/_cmu_mux.rs"));
 
 pub(crate) trait SealedCmuPeripheral {
     fn enable_bus_clock();
+    fn disable_bus_clock();
     /// Frequency of the peripheral's kernel clock. Panics when the
     /// peripheral has no kernel clock or its source is not running.
     fn frequency() -> Hertz;
@@ -32,10 +33,23 @@ pub trait CmuPeripheral: SealedCmuPeripheral + 'static {}
 
 /// Turns on bus clock for peripheral `T`.
 ///
-/// This is one write to the gate register's SET alias, so it needs no
-/// critical section.
+/// Most gates belong to one peripheral. This is then one write to the gate
+/// register's SET alias, so it needs no critical section. A gate that
+/// several peripherals share (DMEM0 and DMEM1 on MG26) is refcounted in a
+/// critical section: it stays on until each user calls [`disable`].
 pub fn enable<T: CmuPeripheral>() {
     T::enable_bus_clock();
+}
+
+/// Turns off bus clock for peripheral `T`.
+///
+/// A shared gate turns off when its last user calls [`disable`].
+///
+/// # Panics
+///
+/// Panics if `disable` is called more times than `enable` for a shared gate.
+pub fn disable<T: CmuPeripheral>() {
+    T::disable_bus_clock();
 }
 
 /// Frequency of the kernel clock of peripheral `T`, like embassy-stm32's

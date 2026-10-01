@@ -46,6 +46,7 @@ pub mod cmu;
 pub mod time;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
+pub mod timer;
 
 pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]

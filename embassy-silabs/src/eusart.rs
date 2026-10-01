@@ -29,6 +29,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU8, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -213,10 +214,13 @@ fn compute_clkdiv(src: Hertz, baudrate: u32, ovs: u32) -> Result<u32, ConfigErro
     Ok(div as u32)
 }
 
-/// Per-instance shared state: the wakers signalled by the interrupt handler.
+/// Per-instance shared state.
 pub(crate) struct State {
     rx_waker: AtomicWaker,
     tx_waker: AtomicWaker,
+    /// Live `UartTx` and `UartRx` halves. The last one to drop turns the
+    /// peripheral off.
+    tx_rx_refcount: AtomicU8,
 }
 
 impl State {
@@ -224,12 +228,23 @@ impl State {
         Self {
             rx_waker: AtomicWaker::new(),
             tx_waker: AtomicWaker::new(),
+            tx_rx_refcount: AtomicU8::new(0),
         }
     }
 }
 
+/// Type-erased instance data.
+pub(crate) struct Info {
+    pub(crate) regs: eusart_mod::Eusart,
+    pub(crate) disable_clock: fn(),
+    /// Clears the instance's TX and RX bits in `GPIO.eusartX_routeen`.
+    pub(crate) disable_route: fn(),
+    /// Disables and unpends this instance's RX and TX interrupts in the NVIC.
+    pub(crate) disable_irqs: fn(),
+}
+
 pub(crate) trait SealedInstance {
-    fn regs() -> eusart_mod::Eusart;
+    fn info() -> &'static Info;
     fn state() -> &'static State;
     /// Route TX/RX to the given pins (`port` 0..=3, `pin` 0..=15) and enable them.
     fn route(tx_port: u8, tx_pin: u8, rx_port: u8, rx_pin: u8);
@@ -248,8 +263,25 @@ pub trait Instance: SealedInstance + crate::cmu::CmuPeripheral + PeripheralType 
 macro_rules! impl_eusart {
     ($inst:ident, $rxirq:ident, $txirq:ident, $txroute:ident, $rxroute:ident, $routeen:ident $(,)?) => {
         impl crate::eusart::SealedInstance for crate::peripherals::$inst {
-            fn regs() -> crate::pac::eusart::Eusart {
-                crate::pac::$inst
+            fn info() -> &'static crate::eusart::Info {
+                static INFO: crate::eusart::Info = crate::eusart::Info {
+                    regs: crate::pac::$inst,
+                    disable_clock: crate::cmu::disable::<crate::peripherals::$inst>,
+                    disable_route: || {
+                        crate::pac::GPIO.$routeen().modify(|w| {
+                            w.set_txpen(false);
+                            w.set_rxpen(false);
+                        })
+                    },
+                    disable_irqs: || {
+                        use crate::interrupt::typelevel::Interrupt;
+                        crate::interrupt::typelevel::$rxirq::disable();
+                        crate::interrupt::typelevel::$txirq::disable();
+                        crate::interrupt::typelevel::$rxirq::unpend();
+                        crate::interrupt::typelevel::$txirq::unpend();
+                    },
+                };
+                &INFO
             }
             fn state() -> &'static crate::eusart::State {
                 static STATE: crate::eusart::State = crate::eusart::State::new();
@@ -303,7 +335,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::TxInterrupt> for TxInterruptH
 }
 
 fn on_interrupt<T: Instance>() {
-    let r = T::regs();
+    let r = T::info().regs;
     let s = T::state();
     let if_ = r.if_().read();
     let ien = r.ien().read();
@@ -356,7 +388,7 @@ fn init<T: Instance>(tx: &AnyPin, rx: &AnyPin, config: &Config) -> Result<(), Co
         rx.pin_port() & 0xF,
     );
 
-    let r = T::regs();
+    let r = T::info().regs;
 
     // EUSART config registers are writable only while EN.EN = 0.
     r.en().write(|w| w.set_en(false));
@@ -399,16 +431,16 @@ fn init<T: Instance>(tx: &AnyPin, rx: &AnyPin, config: &Config) -> Result<(), Co
 
 /// UART transmitter.
 pub struct UartTx<'d, M: Mode> {
-    info: eusart_mod::Eusart,
+    info: &'static Info,
     state: &'static State,
-    _pin: Peri<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
     _phantom: PhantomData<M>,
 }
 
 impl<'d, M: Mode> UartTx<'d, M> {
     /// Write all bytes, blocking until each enters the TX FIFO.
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        let r = self.info;
+        let r = self.info.regs;
         for &b in buffer {
             while !r.status().read().txfl() {}
             r.txdata().write(|w| w.set_txdata(b as u16));
@@ -418,7 +450,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
 
     /// Block until all queued data has been shifted out.
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
-        while !self.info.status().read().txc() {}
+        while !self.info.regs.status().read().txc() {}
         Ok(())
     }
 }
@@ -426,7 +458,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
 impl<'d> UartTx<'d, Async> {
     /// Write all bytes, yielding to the executor while the TX FIFO is full.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        let r = self.info;
+        let r = self.info.regs;
         for &b in buffer {
             poll_fn(|cx| {
                 if r.status().read().txfl() {
@@ -448,7 +480,7 @@ impl<'d> UartTx<'d, Async> {
 
     /// Wait until all queued data has been shifted out.
     pub async fn flush(&mut self) -> Result<(), Error> {
-        let r = self.info;
+        let r = self.info.regs;
         poll_fn(|cx| {
             if r.status().read().txc() {
                 return Poll::Ready(());
@@ -486,16 +518,16 @@ fn rx_poll(r: &eusart_mod::Eusart) -> Result<bool, Error> {
 
 /// UART receiver.
 pub struct UartRx<'d, M: Mode> {
-    info: eusart_mod::Eusart,
+    info: &'static Info,
     state: &'static State,
-    _pin: Peri<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
     _phantom: PhantomData<M>,
 }
 
 impl<'d, M: Mode> UartRx<'d, M> {
     /// Fill `buffer` completely, blocking until enough bytes arrive.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        let r = self.info;
+        let r = self.info.regs;
         for slot in buffer {
             while !rx_poll(&r)? {}
             *slot = r.rxdata().read().rxdata() as u8;
@@ -509,7 +541,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         if buffer.is_empty() {
             return Ok(0);
         }
-        let r = self.info;
+        let r = self.info.regs;
         while !rx_poll(&r)? {}
         let mut n = 0;
         while n < buffer.len() && r.status().read().rxfl() {
@@ -523,7 +555,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
 impl<'d> UartRx<'d, Async> {
     /// Fill `buffer` completely, yielding while waiting for data.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        let r = self.info;
+        let r = self.info.regs;
         for slot in buffer {
             self.wait_rx_ready().await?;
             *slot = r.rxdata().read().rxdata() as u8;
@@ -537,7 +569,7 @@ impl<'d> UartRx<'d, Async> {
             return Ok(0);
         }
         self.wait_rx_ready().await?;
-        let r = self.info;
+        let r = self.info.regs;
         let mut n = 0;
         while n < buffer.len() && r.status().read().rxfl() {
             buffer[n] = r.rxdata().read().rxdata() as u8;
@@ -548,7 +580,7 @@ impl<'d> UartRx<'d, Async> {
 
     /// Yield until ≥1 byte is available, surfacing RX errors.
     async fn wait_rx_ready(&mut self) -> Result<(), Error> {
-        let r = self.info;
+        let r = self.info.regs;
         poll_fn(|cx| {
             match rx_poll(&r) {
                 Ok(true) => return Poll::Ready(Ok(())),
@@ -622,23 +654,25 @@ impl<'d> Uart<'d, Async> {
 
 impl<'d, M: Mode> Uart<'d, M> {
     fn wrap<T: Instance>(tx: Peri<'d, AnyPin>, rx: Peri<'d, AnyPin>) -> Self {
+        T::state().tx_rx_refcount.store(2, Ordering::Relaxed);
         Self {
             tx: UartTx {
-                info: T::regs(),
+                info: T::info(),
                 state: T::state(),
-                _pin: tx,
+                pin: tx,
                 _phantom: PhantomData,
             },
             rx: UartRx {
-                info: T::regs(),
+                info: T::info(),
                 state: T::state(),
-                _pin: rx,
+                pin: rx,
                 _phantom: PhantomData,
             },
         }
     }
 
-    /// Split into independent TX and RX halves.
+    /// Split into independent TX and RX halves. Each half keeps the
+    /// peripheral on until both are dropped.
     pub fn split(self) -> (UartTx<'d, M>, UartRx<'d, M>) {
         (self.tx, self.rx)
     }
@@ -683,6 +717,39 @@ impl<'d> Uart<'d, Async> {
     /// Read at least one byte, up to `buffer.len()`.
     pub async fn read_buf(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         self.rx.read_buf(buffer).await
+    }
+}
+
+impl<M: Mode> Drop for UartTx<'_, M> {
+    fn drop(&mut self) {
+        crate::gpio::set_as_disabled(&self.pin);
+        drop_tx_rx(self.info, self.state);
+    }
+}
+
+impl<M: Mode> Drop for UartRx<'_, M> {
+    fn drop(&mut self) {
+        // Stop the receiver, so it does not sample the disabled pin.
+        self.info.regs.cmd().write(|w| w.set_rxdis(true));
+        crate::gpio::set_as_disabled(&self.pin);
+        drop_tx_rx(self.info, self.state);
+    }
+}
+
+/// Turns the peripheral, its GPIO route and its clock off when the last
+/// half drops.
+fn drop_tx_rx(info: &Info, state: &State) {
+    if state.tx_rx_refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
+        let r = info.regs;
+        // The handler reads EUSART registers, so it must not run after
+        // the clock is off.
+        (info.disable_irqs)();
+        r.ien().write(|_| {});
+        r.if_clr().write_value(eusart_mod::regs::If(0xFFFF_FFFF));
+        r.en().write(|w| w.set_en(false));
+        while r.en().read().disabling() {}
+        (info.disable_route)();
+        (info.disable_clock)();
     }
 }
 
