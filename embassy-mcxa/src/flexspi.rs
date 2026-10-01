@@ -475,6 +475,16 @@ impl DeviceCommand {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct IpCommandConfig {
+    /// Base added to logical NOR offsets when issuing FlexSPI IP commands.
+    pub sfar_base: u32,
+    /// FLSHCR2 slot used when preparing IP commands.
+    ///
+    /// Defaults to the slot selected by the chip-select pin.
+    pub config_index: Option<u8>,
+}
+
 #[derive(Clone, Copy)]
 pub struct FlashConfig {
     pub flash_size_kbytes: u32,
@@ -584,9 +594,18 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         dma: Option<DmaState<'d>>,
         clock: ClockConfig,
         chip_index: u8,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
-        Self::new_inner_with_rxclksrc(_peri, dma, clock, chip_index, flash, pac::flexspi::Rxclksrc::Val1)
+        Self::new_inner_with_rxclksrc(
+            _peri,
+            dma,
+            clock,
+            chip_index,
+            ip_command,
+            flash,
+            pac::flexspi::Rxclksrc::Val1,
+        )
     }
 
     fn new_inner_with_rxclksrc<T: Instance>(
@@ -594,6 +613,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         dma: Option<DmaState<'d>>,
         clock: ClockConfig,
         chip_index: u8,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
         rxclksrc: pac::flexspi::Rxclksrc,
     ) -> Result<Self, SetupError> {
@@ -621,8 +641,8 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             info: T::info(),
             dma,
             chip_index,
-            ip_sfar_base: 0,
-            ip_config_index: chip_index,
+            ip_sfar_base: ip_command.sfar_base,
+            ip_config_index: ip_command.config_index.unwrap_or(chip_index),
             flash,
             _wg: parts.wake_guard,
             _phantom: PhantomData,
@@ -651,6 +671,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     unsafe fn new_inner_xip_attached<T: Instance>(
         _peri: Peri<'d, T>,
         chip_index: u8,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
         if flash.page_size == 0 || flash.page_size > MAX_PAGE_SIZE {
@@ -661,8 +682,8 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             info: T::info(),
             dma: None,
             chip_index,
-            ip_sfar_base: 0,
-            ip_config_index: chip_index,
+            ip_sfar_base: ip_command.sfar_base,
+            ip_config_index: ip_command.config_index.unwrap_or(chip_index),
             flash,
             _wg: None,
             _phantom: PhantomData,
@@ -1611,6 +1632,7 @@ impl<'d> Flexspi<'d, Blocking> {
         data2: Peri<'d, impl Data2Pin<T, P> + 'd>,
         data3: Peri<'d, impl Data3Pin<T, P> + 'd>,
         clock: ClockConfig,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
         ss.mux();
@@ -1622,7 +1644,7 @@ impl<'d> Flexspi<'d, Blocking> {
         data3.mux();
 
         Ok(Self {
-            inner: InnerFlexSpi::new_inner(peri, None, clock, ss.chip_index(), flash)?,
+            inner: InnerFlexSpi::new_inner(peri, None, clock, ss.chip_index(), ip_command, flash)?,
         })
     }
 
@@ -1638,6 +1660,7 @@ impl<'d> Flexspi<'d, Blocking> {
         data2: Peri<'d, impl Data2Pin<T, P> + 'd>,
         data3: Peri<'d, impl Data3Pin<T, P> + 'd>,
         clock: ClockConfig,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
         ss.mux();
@@ -1653,23 +1676,11 @@ impl<'d> Flexspi<'d, Blocking> {
                 None,
                 clock,
                 ss.chip_index(),
+                ip_command,
                 flash,
                 pac::flexspi::Rxclksrc::Val0,
             )?,
         })
-    }
-
-    /// Set the address base used for subsequent IP commands.
-    ///
-    /// Public NOR APIs remain zero-based. This base is added only when
-    /// programming IPCR0.SFAR for an IP command.
-    pub fn set_ip_sfar_base(&mut self, base: u32) {
-        self.inner.ip_sfar_base = base;
-    }
-
-    /// Set the physical FLSHCR2 slot used while preparing IP commands.
-    pub fn set_ip_config_index(&mut self, index: u8) {
-        self.inner.ip_config_index = index;
     }
 
     /// Read using an explicitly selected LUT sequence.
@@ -1792,10 +1803,11 @@ impl<'d> Flexspi<'d, Blocking> {
     pub unsafe fn new_blocking_xip_attached<T: Instance, P: Port>(
         peri: Peri<'d, T>,
         ss: Peri<'d, impl SsPin<T, P> + 'd>,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
         Ok(Self {
-            inner: unsafe { InnerFlexSpi::new_inner_xip_attached(peri, ss.chip_index(), flash)? },
+            inner: unsafe { InnerFlexSpi::new_inner_xip_attached(peri, ss.chip_index(), ip_command, flash)? },
         })
     }
 }
@@ -1812,6 +1824,7 @@ impl<'d> Flexspi<'d, Async> {
         data3: Peri<'d, impl Data3Pin<T, P> + 'd>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clock: ClockConfig,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
         ss.mux();
@@ -1823,7 +1836,7 @@ impl<'d> Flexspi<'d, Async> {
         data3.mux();
 
         Ok(Self {
-            inner: InnerFlexSpi::new_inner(peri, None, clock, ss.chip_index(), flash)?,
+            inner: InnerFlexSpi::new_inner(peri, None, clock, ss.chip_index(), ip_command, flash)?,
         })
     }
 
@@ -1840,6 +1853,7 @@ impl<'d> Flexspi<'d, Async> {
         rx_dma: Peri<'d, impl Channel>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clock: ClockConfig,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
         ss.mux();
@@ -1859,6 +1873,7 @@ impl<'d> Flexspi<'d, Async> {
                 }),
                 clock,
                 ss.chip_index(),
+                ip_command,
                 flash,
             )?,
         })
