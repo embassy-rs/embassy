@@ -360,7 +360,7 @@ impl<'d, B: BlockDevice> CommandSetHandler for Scsi<'d, B> {
                 Ok(())
             }
             Err(e) => {
-                error!("command_out error op={}, err={:?}", cmd.get(0), e);
+                error!("command_out error op={:?}, err={:?}", cmd.get(0), e);
                 self.sense = Some(e.into_sense_data());
                 Err(match e {
                     InternalError::DataPipeError(e) => e.into(),
@@ -382,7 +382,7 @@ impl<'d, B: BlockDevice> CommandSetHandler for Scsi<'d, B> {
                 Ok(())
             }
             Err(e) => {
-                error!("command_in error op={}, err={:?}", cmd.get(0), e);
+                error!("command_in error op={:?}, err={:?}", cmd.get(0), e);
                 self.sense = Some(e.into_sense_data());
                 Err(match e {
                     InternalError::DataPipeError(e) => e.into(),
