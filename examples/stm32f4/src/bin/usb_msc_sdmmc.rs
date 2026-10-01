@@ -1,33 +1,39 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
-#![feature(async_fn_in_trait)]
-
 use core::cell::RefCell;
 
+use block_device_driver::{BlockDevice as StorageBlockDevice, slice_to_blocks, slice_to_blocks_mut};
 use defmt::{panic, *};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::peripherals::{DMA2_CH6, SDIO};
+use embassy_futures::join::join;
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::time::{Hertz, mhz};
-use embassy_stm32::usb_otg::Driver;
-use embassy_stm32::{Config, interrupt};
+use embassy_stm32::time::Hertz;
+use embassy_stm32::usb::Driver;
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals, sdmmc, usb};
+use embassy_time::Delay;
 use embassy_usb::Builder;
 use embassy_usb::class::msc::subclass::scsi::Scsi;
 use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDevice, BlockDeviceError};
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
-use futures::future::join;
 use panic_probe as _;
+use sdio::sd::Card;
 
 // SDMMC driver only supports 512 byte blocks for now
 const BLOCK_SIZE: usize = 512;
 
-type MySdmmc<'d> = Sdmmc<'d, SDIO, DMA2_CH6>;
-const SDIO_FREQ: Hertz = Hertz(12_000_000);
+type MySdmmc<'d> = sdio::BlockDevice<Card, Sdmmc<'d>, Delay, BLOCK_SIZE>;
+const SDIO_FREQ: u32 = 12_000_000;
+
+bind_interrupts!(struct Irqs {
+    OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
+    SDIO => sdmmc::InterruptHandler<peripherals::SDIO>;
+    DMA2_STREAM6 => dma::InterruptHandler<peripherals::DMA2_CH6>;
+});
 
 struct SdmmcBlockDevice<'d> {
     sdmmc: RefCell<MySdmmc<'d>>,
+    multiblock_lba: Option<u32>,
 }
 
 impl<'d> BlockDevice for SdmmcBlockDevice<'d> {
@@ -39,9 +45,13 @@ impl<'d> BlockDevice for SdmmcBlockDevice<'d> {
         Ok(BLOCK_SIZE)
     }
 
-    fn num_blocks(&self) -> Result<u32, BlockDeviceError> {
-        // Ok(128)
-        Ok((self.sdmmc.borrow().card().unwrap().csd.card_size() / BLOCK_SIZE as u64) as u32)
+    async fn num_blocks(&self) -> Result<u32, BlockDeviceError> {
+        self.sdmmc
+            .borrow_mut()
+            .size()
+            .await
+            .map(|size| (size / BLOCK_SIZE as u64) as u32)
+            .map_err(|_| BlockDeviceError::ReadError)
     }
 
     async fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
@@ -49,13 +59,14 @@ impl<'d> BlockDevice for SdmmcBlockDevice<'d> {
             panic!("Invalid block alignment for SDMMC");
         }
 
-        let block: &mut [u8; BLOCK_SIZE] = block.try_into().unwrap();
-        let block = unsafe { core::mem::transmute(block) };
-
-        self.sdmmc.borrow_mut().read_block(lba, block).await.map_err(|e| {
-            error!("SDMMC read error: {:?}", e);
-            BlockDeviceError::ReadError
-        })
+        self.sdmmc
+            .borrow_mut()
+            .read(lba, slice_to_blocks_mut(block))
+            .await
+            .map_err(|e| {
+                error!("SDMMC read error: {:?}", e);
+                BlockDeviceError::ReadError
+            })
     }
 
     async fn write_block(&mut self, lba: u32, block: &[u8]) -> Result<(), BlockDeviceError> {
@@ -63,13 +74,48 @@ impl<'d> BlockDevice for SdmmcBlockDevice<'d> {
             panic!("Invalid block alignment for SDMMC");
         }
 
-        let block: &[u8; BLOCK_SIZE] = block.try_into().unwrap();
-        let block = unsafe { core::mem::transmute(block) };
+        self.sdmmc
+            .borrow_mut()
+            .write(lba, slice_to_blocks(block))
+            .await
+            .map_err(|e| {
+                error!("SDMMC write error: {:?}", e);
+                BlockDeviceError::WriteError
+            })
+    }
 
-        self.sdmmc.borrow_mut().write_block(lba, block).await.map_err(|e| {
-            error!("SDMMC write error: {:?}", e);
-            BlockDeviceError::WriteError
-        })
+    async fn prepare_multiblock_write(&mut self, lba: u32, _blocks_count: u32) -> Result<(), BlockDeviceError> {
+        self.multiblock_lba = Some(lba);
+        Ok(())
+    }
+
+    async fn write_multiblock_block(&mut self, block: &[u8]) -> Result<(), BlockDeviceError> {
+        let lba = self.multiblock_lba.ok_or(BlockDeviceError::Unknown)?;
+        self.write_block(lba, block).await?;
+        self.multiblock_lba = Some(lba + 1);
+        Ok(())
+    }
+
+    async fn stop_multiblock_write(&mut self) -> Result<(), BlockDeviceError> {
+        self.multiblock_lba = None;
+        Ok(())
+    }
+
+    async fn prepare_multiblock_read(&mut self, lba: u32) -> Result<(), BlockDeviceError> {
+        self.multiblock_lba = Some(lba);
+        Ok(())
+    }
+
+    async fn read_multiblock_block(&mut self, block: &mut [u8]) -> Result<(), BlockDeviceError> {
+        let lba = self.multiblock_lba.ok_or(BlockDeviceError::Unknown)?;
+        self.read_block(lba, block).await?;
+        self.multiblock_lba = Some(lba + 1);
+        Ok(())
+    }
+
+    async fn stop_multiblock_read(&mut self) -> Result<(), BlockDeviceError> {
+        self.multiblock_lba = None;
+        Ok(())
     }
 }
 
@@ -81,14 +127,31 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut config = Config::default();
-    config.rcc.pll48 = true;
-    config.rcc.sys_ck = Some(mhz(48));
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::Bypass,
+        });
+        config.rcc.pll_src = PllSource::Hse;
+        config.rcc.pll = Some(Pll {
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul168,
+            divp: Some(PllPDiv::Div2),
+            divq: Some(PllQDiv::Div7),
+            divr: None,
+        });
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.mux.clk48sel = mux::Clk48sel::Pll1Q;
+    }
 
     let p = embassy_stm32::init(config);
 
-    let mut sdmmc = Sdmmc::new_4bit(
+    let sdmmc = Sdmmc::new_4bit(
         p.SDIO,
-        interrupt::take!(SDIO),
         p.DMA2_CH6,
         p.PC12,
         p.PD2,
@@ -96,16 +159,20 @@ async fn main(_spawner: Spawner) {
         p.PC9,
         p.PC10,
         p.PC11,
+        Irqs,
         Default::default(),
     );
 
-    sdmmc.init_card(SDIO_FREQ).await.expect("SD card init failed");
-    info!("Initialized SD card: {:#?}", Debug2Format(sdmmc.card().unwrap()));
+    let sdmmc = sdio::BlockDevice::new_sd_card(sdmmc, SDIO_FREQ, Delay)
+        .await
+        .expect("SD card init failed");
+    info!("Initialized SD card: {:#?}", Debug2Format(sdmmc.card()));
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(OTG_FS);
     let mut ep_out_buffer = [0u8; 256];
-    let driver = Driver::new_fs(p.USB_OTG_FS, irq, p.PA12, p.PA11, &mut ep_out_buffer);
+    let mut config = embassy_stm32::usb::Config::default();
+    config.vbus_detection = false;
+    let driver = Driver::new_fs(p.USB_OTG_FS, p.PA12, p.PA11, Irqs, &mut ep_out_buffer, config);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -122,7 +189,6 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
@@ -132,9 +198,9 @@ async fn main(_spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
+        &mut [], // no msos descriptors
         &mut control_buf,
     );
 
@@ -143,6 +209,7 @@ async fn main(_spawner: Spawner) {
     let scsi = Scsi::new(
         SdmmcBlockDevice {
             sdmmc: RefCell::new(sdmmc),
+            multiblock_lba: None,
         },
         &mut scsi_buffer.0,
         "Embassy",

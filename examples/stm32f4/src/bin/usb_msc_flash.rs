@@ -1,25 +1,22 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
-#![feature(async_fn_in_trait)]
-
 use core::cell::RefCell;
 use core::ops::Range;
 
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::flash::{self, Flash};
-use embassy_stm32::time::mhz;
-use embassy_stm32::usb_otg::Driver;
-use embassy_stm32::{Config, interrupt};
+use embassy_futures::join::join;
+use embassy_stm32::flash::{Flash, MAX_ERASE_SIZE};
+use embassy_stm32::time::Hertz;
+use embassy_stm32::usb::Driver;
+use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb::Builder;
 use embassy_usb::class::msc::subclass::scsi::Scsi;
 use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDevice, BlockDeviceError};
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
 use embedded_storage::nor_flash::RmwMultiwriteNorFlashStorage;
 use embedded_storage::{ReadStorage, Storage};
-use futures::future::join;
 use panic_probe as _;
 
 // Ideally we would use 128K block size, which is the flash sector size of STM32,
@@ -32,9 +29,15 @@ use panic_probe as _;
 // WARNING: this example is way too slow to
 const BLOCK_SIZE: usize = 512;
 
+bind_interrupts!(struct Irqs {
+    OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
+    FLASH => embassy_stm32::flash::InterruptHandler;
+});
+
 struct FlashBlockDevice<'d> {
     flash: RefCell<RmwMultiwriteNorFlashStorage<'d, Flash<'d>>>,
     range: Range<usize>,
+    multiblock_lba: Option<u32>,
 }
 
 impl<'d> BlockDevice for FlashBlockDevice<'d> {
@@ -46,7 +49,7 @@ impl<'d> BlockDevice for FlashBlockDevice<'d> {
         Ok(BLOCK_SIZE)
     }
 
-    fn num_blocks(&self) -> Result<u32, BlockDeviceError> {
+    async fn num_blocks(&self) -> Result<u32, BlockDeviceError> {
         Ok((self.range.len() / BLOCK_SIZE) as u32)
     }
 
@@ -65,6 +68,40 @@ impl<'d> BlockDevice for FlashBlockDevice<'d> {
             .map_err(|_| BlockDeviceError::WriteError)?;
         Ok(())
     }
+
+    async fn prepare_multiblock_write(&mut self, lba: u32, _blocks_count: u32) -> Result<(), BlockDeviceError> {
+        self.multiblock_lba = Some(lba);
+        Ok(())
+    }
+
+    async fn write_multiblock_block(&mut self, block: &[u8]) -> Result<(), BlockDeviceError> {
+        let lba = self.multiblock_lba.ok_or(BlockDeviceError::Unknown)?;
+        self.write_block(lba, block).await?;
+        self.multiblock_lba = Some(lba + 1);
+        Ok(())
+    }
+
+    async fn stop_multiblock_write(&mut self) -> Result<(), BlockDeviceError> {
+        self.multiblock_lba = None;
+        Ok(())
+    }
+
+    async fn prepare_multiblock_read(&mut self, lba: u32) -> Result<(), BlockDeviceError> {
+        self.multiblock_lba = Some(lba);
+        Ok(())
+    }
+
+    async fn read_multiblock_block(&mut self, block: &mut [u8]) -> Result<(), BlockDeviceError> {
+        let lba = self.multiblock_lba.ok_or(BlockDeviceError::Unknown)?;
+        self.read_block(lba, block).await?;
+        self.multiblock_lba = Some(lba + 1);
+        Ok(())
+    }
+
+    async fn stop_multiblock_read(&mut self) -> Result<(), BlockDeviceError> {
+        self.multiblock_lba = None;
+        Ok(())
+    }
 }
 
 #[embassy_executor::main]
@@ -72,15 +109,34 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut config = Config::default();
-    config.rcc.pll48 = true;
-    config.rcc.sys_ck = Some(mhz(48));
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::Bypass,
+        });
+        config.rcc.pll_src = PllSource::Hse;
+        config.rcc.pll = Some(Pll {
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul168,
+            divp: Some(PllPDiv::Div2),
+            divq: Some(PllQDiv::Div7),
+            divr: None,
+        });
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.mux.clk48sel = mux::Clk48sel::Pll1Q;
+    }
 
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(OTG_FS);
     let mut ep_out_buffer = [0u8; 256];
-    let driver = Driver::new_fs(p.USB_OTG_FS, irq, p.PA12, p.PA11, &mut ep_out_buffer);
+    let mut config = embassy_stm32::usb::Config::default();
+    config.vbus_detection = false;
+    let driver = Driver::new_fs(p.USB_OTG_FS, p.PA12, p.PA11, Irqs, &mut ep_out_buffer, config);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -97,7 +153,6 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
@@ -107,16 +162,15 @@ async fn main(_spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
+        &mut [], // no msos descriptors
         &mut control_buf,
-        None,
     );
 
-    let mut flash_buffer = [0u8; flash::ERASE_SIZE];
+    let mut flash_buffer = [0u8; MAX_ERASE_SIZE];
     let flash = RefCell::new(RmwMultiwriteNorFlashStorage::new(
-        Flash::new(p.FLASH),
+        Flash::new(p.FLASH, Irqs),
         &mut flash_buffer,
     ));
 
@@ -125,7 +179,16 @@ async fn main(_spawner: Spawner) {
 
     let mut scsi_buffer = [0u8; BLOCK_SIZE];
     // Create SCSI target for our block device
-    let scsi = Scsi::new(FlashBlockDevice { flash, range }, &mut scsi_buffer, "Embassy", "MSC");
+    let scsi = Scsi::new(
+        FlashBlockDevice {
+            flash,
+            range,
+            multiblock_lba: None,
+        },
+        &mut scsi_buffer,
+        "Embassy",
+        "MSC",
+    );
 
     // Use bulk-only transport for our SCSI target
     let mut msc_transport = BulkOnlyTransport::new(&mut builder, &mut state, 64, scsi);
