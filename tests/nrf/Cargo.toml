@@ -32,7 +32,7 @@ cortex-m-rt = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 portable-atomic = { version = "1.6.0" }
 embassy-crypto = { version = "0.1.0", path = "../../embassy-crypto", features = ["defmt"] }
-embassy-crypto-test = { version = "0.1.0", path = "../../embassy-crypto-test", features = ["defmt"] }
+embassy-crypto-test = { version = "0.1.0", path = "../../embassy-crypto-test", features = ["defmt", "rng"] }
 
 [features]
 nrf51422 = ["embassy-nrf/nrf51",         "embassy-nrf/time-driver-rtc1", "portable-atomic/unsafe-assume-single-core"]

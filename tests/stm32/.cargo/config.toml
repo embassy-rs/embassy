@@ -3,7 +3,7 @@
 #build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "teleprobe client run"
+runner = "teleprobe client run -s"
 #runner = "teleprobe local run --chip STM32H7S3L8Hx --elf"
 
 rustflags = [
@@ -11,6 +11,11 @@ rustflags = [
   #"-Z", "trap-unreachable=no",
   "-C", "no-vectorize-loops",
 ]
+
+# Cortex-M33 targets: enable the DSP extension so assembly crypto backends
+# gated on UMAAL (`+dsp`) are selected (e.g. mcu-crypto-asm's P-256).
+[target.thumbv8m.main-none-eabihf]
+rustflags = ["-C", "target-feature=+dsp"]
 
 [build]
 #target = "thumbv6m-none-eabi"
