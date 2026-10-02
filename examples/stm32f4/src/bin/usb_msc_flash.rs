@@ -15,7 +15,7 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb::Builder;
 use embassy_usb::class::msc::subclass::scsi::Scsi;
-use embassy_usb::class::msc::subclass::scsi::block_device::BlockDeviceError;
+use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDeviceAdapter, BlockDeviceError};
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
 use embedded_storage::nor_flash::RmwMultiwriteNorFlashStorage;
 use embedded_storage::{ReadStorage, Storage};
@@ -147,7 +147,12 @@ async fn main(_spawner: Spawner) {
 
     let mut scsi_buffer = [Aligned::<A4, _>([0u8; BLOCK_SIZE]); 1];
     // Create SCSI target for our block device
-    let scsi = Scsi::new(FlashBlockDevice { flash, range }, &mut scsi_buffer, "Embassy", "MSC");
+    let scsi = Scsi::new(
+        BlockDeviceAdapter::new(FlashBlockDevice { flash, range }),
+        blocks_to_slice_mut(&mut scsi_buffer),
+        "Embassy",
+        "MSC",
+    );
 
     // Use bulk-only transport for our SCSI target
     let mut msc_transport = BulkOnlyTransport::new(&mut builder, &mut state, 64, scsi);

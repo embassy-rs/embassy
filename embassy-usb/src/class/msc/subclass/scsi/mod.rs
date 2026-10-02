@@ -3,18 +3,15 @@ pub mod block_device;
 pub mod commands;
 pub mod enums;
 
-use aligned::Aligned;
-use block_device_driver::{BlockDevice, blocks_to_slice, blocks_to_slice_mut};
-
-use self::block_device::BlockDeviceError;
+use self::block_device::{BlockDevice, BlockDeviceError};
 use self::enums::AdditionalSenseCode;
 use crate::class::msc::MscSubclass;
 use crate::class::msc::subclass::scsi::commands::{
     CachingModePage, InformationalExceptionsControlModePage, InquiryCommand, InquiryResponse, ModeParameter6Writer,
     ModeSense6Command, PageCode, PreventAllowMediumRemoval, Read10Command, ReadCapacity10Command,
     ReadCapacity10Response, ReadFormatCapacitiesCommand, ReadFormatCapacitiesResponse, RequestSenseCommand,
-    RequestSenseResponse, SupportedVitalProductDataPages, TestUnitReadyCommand, UnitSerialNumberPage,
-    VitalProductDataPage, Write10Command,
+    RequestSenseResponse, SupportedVitalProductDataPages, SynchronizeCache10Command, TestUnitReadyCommand,
+    UnitSerialNumberPage, VitalProductDataPage, Write10Command,
 };
 use crate::class::msc::subclass::scsi::enums::{
     PeripheralDeviceType, PeripheralQualifier, ResponseCode, ResponseDataFormat, SenseKey, SpcVersion,
@@ -34,19 +31,23 @@ pub struct SenseData {
     asc: AdditionalSenseCode,
 }
 
-pub struct Scsi<'d, B: BlockDevice<SIZE>, const SIZE: usize> {
+pub struct Scsi<'d, B: BlockDevice> {
     /// Backing storage block device
     device: B,
-    buffer: &'d mut [Aligned<B::Align, [u8; SIZE]>],
+    /// Transfer buffer, holding at least one block
+    buffer: &'d mut [u8],
     /// Last operation sense data
     sense: Option<SenseData>,
     vendor_id: [u8; 8],
     product_id: [u8; 16],
 }
 
-impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
-    pub fn new(device: B, buffer: &'d mut [Aligned<B::Align, [u8; SIZE]>], vendor: &str, product: &str) -> Self {
-        assert!(!buffer.is_empty(), "SCSI buffer must hold at least one block");
+impl<'d, B: BlockDevice> Scsi<'d, B> {
+    pub fn new(device: B, buffer: &'d mut [u8], vendor: &str, product: &str) -> Self {
+        assert!(
+            buffer.len() >= device.block_size(),
+            "SCSI buffer must hold at least one block"
+        );
 
         let mut vendor_id = [b' '; 8];
         fill_from_slice(&mut vendor_id, vendor.as_bytes());
@@ -64,11 +65,7 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
     }
 
     async fn num_blocks(&mut self) -> Result<u32, BlockDeviceError> {
-        let size = self.device.size().await.map_err(|_| {
-            error!("block device size failed");
-            BlockDeviceError::MediumNotPresent
-        })?;
-        match (size / SIZE as u64).min(u32::MAX as u64) as u32 {
+        match self.device.num_blocks().await? {
             // No blocks means no valid max LBA for READ CAPACITY
             0 => Err(BlockDeviceError::MediumNotPresent),
             n => Ok(n),
@@ -122,15 +119,25 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
                 let start_lba = req.lba();
                 let end_lba = self.end_lba(start_lba, req.transfer_length() as u32).await?;
 
-                for lba in (start_lba..end_lba).step_by(self.buffer.len()) {
-                    let count = (end_lba - lba).min(self.buffer.len() as u32) as usize;
-                    pipe.read(blocks_to_slice_mut(&mut self.buffer[..count])).await?;
-                    self.device.write(lba, &self.buffer[..count]).await.map_err(|_| {
-                        error!("block device write failed");
-                        BlockDeviceError::WriteError
-                    })?;
+                let block_size = self.device.block_size();
+                let chunk_blocks = (self.buffer.len() / block_size) as u32;
+                for lba in (start_lba..end_lba).step_by(chunk_blocks as usize) {
+                    let buf = &mut self.buffer[..(end_lba - lba).min(chunk_blocks) as usize * block_size];
+                    pipe.read(buf).await?;
+                    self.device.write(lba, buf).await?;
                 }
 
+                // Write-through per command: GOOD status means the data reached the medium
+                self.device.flush().await?;
+
+                Ok(())
+            }
+            SynchronizeCache10Command::OPCODE => {
+                let req = SynchronizeCache10Command::from_bytes(cmd).ok_or(InternalError::CommandParseError)?;
+                debug!("{:?}", req);
+
+                // Flush the whole device; IMMED is allowed to complete synchronously
+                self.device.flush().await?;
                 Ok(())
             }
             _ => Err(InternalError::UnknownOpcode),
@@ -232,8 +239,7 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
 
                 // pipe.write(&buf).await?;
 
-                let mut writer = ModeParameter6Writer::new(blocks_to_slice_mut(self.buffer))
-                    .map_err(|_| ERR_INVALID_FIELD_IN_CBD)?;
+                let mut writer = ModeParameter6Writer::new(self.buffer).map_err(|_| ERR_INVALID_FIELD_IN_CBD)?;
 
                 let all_pages = matches!(req.page_code(), Ok(PageCode::AllPages));
 
@@ -301,7 +307,7 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
 
                 let mut resp = ReadCapacity10Response::new();
                 resp.set_max_lba(self.num_blocks().await? - 1);
-                resp.set_block_size(SIZE as u32);
+                resp.set_block_size(self.device.block_size() as u32);
 
                 pipe.write(&resp.data).await?;
                 Ok(())
@@ -313,7 +319,7 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
                 let mut resp = ReadFormatCapacitiesResponse::new();
                 resp.set_capacity_list_length(8);
                 resp.set_num_blocks(self.num_blocks().await?);
-                resp.set_block_size(SIZE as u32);
+                resp.set_block_size(self.device.block_size() as u32);
                 resp.set_descriptor_type(0x03);
 
                 let len = resp.data.len().min(req.allocation_length() as usize);
@@ -327,13 +333,12 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
                 let start_lba = req.lba();
                 let end_lba = self.end_lba(start_lba, req.transfer_length() as u32).await?;
 
-                for lba in (start_lba..end_lba).step_by(self.buffer.len()) {
-                    let count = (end_lba - lba).min(self.buffer.len() as u32) as usize;
-                    self.device.read(lba, &mut self.buffer[..count]).await.map_err(|_| {
-                        error!("block device read failed");
-                        BlockDeviceError::ReadError
-                    })?;
-                    pipe.write(blocks_to_slice(&self.buffer[..count])).await?;
+                let block_size = self.device.block_size();
+                let chunk_blocks = (self.buffer.len() / block_size) as u32;
+                for lba in (start_lba..end_lba).step_by(chunk_blocks as usize) {
+                    let buf = &mut self.buffer[..(end_lba - lba).min(chunk_blocks) as usize * block_size];
+                    self.device.read(lba, buf).await?;
+                    pipe.write(buf).await?;
                 }
 
                 Ok(())
@@ -343,7 +348,7 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
     }
 }
 
-impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> CommandSetHandler for Scsi<'d, B, SIZE> {
+impl<'d, B: BlockDevice> CommandSetHandler for Scsi<'d, B> {
     const MSC_SUBCLASS: MscSubclass = MscSubclass::ScsiTransparentCommandSet;
     const MAX_LUN: u8 = 0;
 

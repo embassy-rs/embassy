@@ -18,7 +18,7 @@ use embassy_rp::peripherals::{DMA_CH0, USB};
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_usb::Builder;
 use embassy_usb::class::msc::subclass::scsi::Scsi;
-use embassy_usb::class::msc::subclass::scsi::block_device::BlockDeviceError;
+use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDeviceAdapter, BlockDeviceError};
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
 use embedded_storage::nor_flash::RmwMultiwriteNorFlashStorage;
 use embedded_storage::{ReadStorage, Storage};
@@ -96,7 +96,12 @@ async fn main(_spawner: Spawner) {
     let flash = RmwMultiwriteNorFlashStorage::new(flash, &mut flash_buffer);
     // One erase sector per chunk, so a sector-aligned write costs one erase instead of one per block
     let mut scsi_buffer = [Aligned::<A4, _>([0; BLOCK_SIZE]); ERASE_SIZE / BLOCK_SIZE];
-    let scsi = Scsi::new(FlashBlockDevice { flash }, &mut scsi_buffer, "Embassy", "MSC");
+    let scsi = Scsi::new(
+        BlockDeviceAdapter::new(FlashBlockDevice { flash }),
+        blocks_to_slice_mut(&mut scsi_buffer),
+        "Embassy",
+        "MSC",
+    );
     let mut msc = BulkOnlyTransport::new(&mut builder, &mut state, 64, scsi);
     let mut usb = builder.build();
 

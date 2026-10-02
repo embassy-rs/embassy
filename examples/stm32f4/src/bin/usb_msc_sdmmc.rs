@@ -2,6 +2,7 @@
 #![no_main]
 
 use aligned::{A4, Aligned};
+use block_device_driver::blocks_to_slice_mut;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -13,6 +14,7 @@ use embassy_stm32::{Config, bind_interrupts, dma, peripherals, sdmmc, usb};
 use embassy_time::Delay;
 use embassy_usb::Builder;
 use embassy_usb::class::msc::subclass::scsi::Scsi;
+use embassy_usb::class::msc::subclass::scsi::block_device::BlockDeviceAdapter;
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
 use panic_probe as _;
 
@@ -111,7 +113,12 @@ async fn main(_spawner: Spawner) {
 
     // Create SCSI target for our block device
     let mut scsi_buffer = [Aligned::<A4, _>([0u8; BLOCK_SIZE]); 1];
-    let scsi = Scsi::new(sdmmc, &mut scsi_buffer, "Embassy", "MSC");
+    let scsi = Scsi::new(
+        BlockDeviceAdapter::<_, BLOCK_SIZE>::new(sdmmc),
+        blocks_to_slice_mut(&mut scsi_buffer),
+        "Embassy",
+        "MSC",
+    );
 
     // Use bulk-only transport for our SCSI target
     let mut msc_transport = BulkOnlyTransport::new(&mut builder, &mut state, 64, scsi);

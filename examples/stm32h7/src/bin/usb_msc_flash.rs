@@ -3,8 +3,6 @@
 #![no_std]
 #![no_main]
 
-use aligned::{A4, Aligned};
-use block_device_driver::{BlockDevice, blocks_to_slice, blocks_to_slice_mut};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -21,7 +19,7 @@ use embassy_stm32::{Config, Peri, bind_interrupts, dma, usb};
 use embassy_time::{Duration, WithTimeout};
 use embassy_usb::Builder;
 use embassy_usb::class::msc::subclass::scsi::Scsi;
-use embassy_usb::class::msc::subclass::scsi::block_device::BlockDeviceError;
+use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDevice, BlockDeviceError, SectorCache};
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
 use panic_probe as _;
 
@@ -215,53 +213,58 @@ impl<'d> QspiFlash<'d> {
     }
 }
 
+/// One block per erase sector
 struct FlashBlockDevice<'d> {
     flash: QspiFlash<'d>,
-    sector: &'d mut [u8; SECTOR_SIZE],
+    page: [u8; PAGE_SIZE],
 }
 
-impl BlockDevice<BLOCK_SIZE> for FlashBlockDevice<'_> {
-    type Error = BlockDeviceError;
-    type Align = A4;
+impl BlockDevice for FlashBlockDevice<'_> {
+    fn block_size(&self) -> usize {
+        SECTOR_SIZE
+    }
 
-    async fn read(&mut self, lba: u32, blocks: &mut [Aligned<A4, [u8; BLOCK_SIZE]>]) -> Result<(), Self::Error> {
-        let address = lba
-            .checked_mul(BLOCK_SIZE as u32)
-            .ok_or(BlockDeviceError::LbaOutOfRange)?;
-        self.flash.read(address, blocks_to_slice_mut(blocks)).await;
+    async fn num_blocks(&mut self) -> Result<u32, BlockDeviceError> {
+        Ok((FLASH_SIZE / SECTOR_SIZE) as u32)
+    }
+
+    async fn read(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), BlockDeviceError> {
+        self.flash.read(lba * SECTOR_SIZE as u32, buf).await;
         Ok(())
     }
 
-    async fn write(&mut self, lba: u32, blocks: &[Aligned<A4, [u8; BLOCK_SIZE]>]) -> Result<(), Self::Error> {
-        let mut address = lba
-            .checked_mul(BLOCK_SIZE as u32)
-            .ok_or(BlockDeviceError::LbaOutOfRange)? as usize;
-        let mut data = blocks_to_slice(blocks);
+    async fn write(&mut self, lba: u32, buf: &[u8]) -> Result<(), BlockDeviceError> {
+        for (lba, sector) in (lba..).zip(buf.chunks(SECTOR_SIZE)) {
+            let address = lba * SECTOR_SIZE as u32;
 
-        while !data.is_empty() {
-            let sector_address = address / SECTOR_SIZE * SECTOR_SIZE;
-            let sector_offset = address - sector_address;
-            let len = data.len().min(SECTOR_SIZE - sector_offset);
+            // Programming only clears bits, so erase only when a page needs a bit set
+            let mut changed = [false; SECTOR_SIZE / PAGE_SIZE];
+            let mut erase = false;
+            for (i, new) in sector.chunks(PAGE_SIZE).enumerate() {
+                self.flash.read(address + (i * PAGE_SIZE) as u32, &mut self.page).await;
+                changed[i] = self.page[..] != *new;
+                erase |= self.page.iter().zip(new).any(|(old, new)| old & new != *new);
+            }
 
-            self.flash.read(sector_address as u32, self.sector).await;
-            self.sector[sector_offset..sector_offset + len].copy_from_slice(&data[..len]);
-            self.flash
-                .erase_sector(sector_address as u32)
-                .await
-                .map_err(|_| BlockDeviceError::WriteError)?;
-            self.flash
-                .program(sector_address as u32, self.sector)
-                .await
-                .map_err(|_| BlockDeviceError::WriteError)?;
+            if erase {
+                self.flash
+                    .erase_sector(address)
+                    .await
+                    .map_err(|_| BlockDeviceError::EraseError)?;
+                // Erased pages are all 0xFF, so skip programming pages that stay that way
+                for (changed, new) in changed.iter_mut().zip(sector.chunks(PAGE_SIZE)) {
+                    *changed = new.iter().any(|b| *b != 0xFF);
+                }
+            }
 
-            address += len;
-            data = &data[len..];
+            for (i, new) in sector.chunks(PAGE_SIZE).enumerate().filter(|(i, _)| changed[*i]) {
+                self.flash
+                    .program(address + (i * PAGE_SIZE) as u32, new)
+                    .await
+                    .map_err(|_| BlockDeviceError::WriteError)?;
+            }
         }
         Ok(())
-    }
-
-    async fn size(&mut self) -> Result<u64, Self::Error> {
-        Ok(FLASH_SIZE as u64)
     }
 }
 
@@ -318,13 +321,19 @@ async fn main(_spawner: Spawner) {
     );
 
     let flash = QspiFlash::new(p.QUADSPI, p.MDMA_CH0, Irqs, p.PF8, p.PF9, p.PF7, p.PF6, p.PF10, p.PG6);
-    let mut sector = [0; SECTOR_SIZE];
-    let mut scsi_buffer = [Aligned::<A4, _>([0; BLOCK_SIZE]); SECTOR_SIZE / BLOCK_SIZE];
+    // Host blocks are merged per sector in the cache, so each sector is erased once per SCSI WRITE
+    let mut cache = [0; SECTOR_SIZE];
+    // One host block is enough: the cache does the merging
+    let mut scsi_buffer = [0; BLOCK_SIZE];
     let scsi = Scsi::new(
-        FlashBlockDevice {
-            flash,
-            sector: &mut sector,
-        },
+        SectorCache::new(
+            FlashBlockDevice {
+                flash,
+                page: [0; PAGE_SIZE],
+            },
+            &mut cache,
+            BLOCK_SIZE,
+        ),
         &mut scsi_buffer,
         "Embassy",
         "Daisy QSPI",

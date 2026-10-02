@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-use aligned::{A4, Aligned};
-use block_device_driver::BlockDevice;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -11,7 +9,7 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb::Builder;
 use embassy_usb::class::msc::subclass::scsi::Scsi;
-use embassy_usb::class::msc::subclass::scsi::block_device::BlockDeviceError;
+use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDevice, BlockDeviceError};
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
 use panic_probe as _;
 
@@ -27,38 +25,35 @@ struct RamBlockDevice {
 }
 
 impl RamBlockDevice {
-    fn block_range(&self, lba: u32) -> Result<core::ops::Range<usize>, BlockDeviceError> {
+    fn byte_range(&self, lba: u32, len: usize) -> Result<core::ops::Range<usize>, BlockDeviceError> {
         let start = (lba as usize)
             .checked_mul(BLOCK_SIZE)
             .ok_or(BlockDeviceError::LbaOutOfRange)?;
         let end = start
-            .checked_add(BLOCK_SIZE)
+            .checked_add(len)
             .filter(|&end| end <= self.data.len())
             .ok_or(BlockDeviceError::LbaOutOfRange)?;
         Ok(start..end)
     }
 }
 
-impl BlockDevice<BLOCK_SIZE> for RamBlockDevice {
-    type Error = BlockDeviceError;
-    type Align = A4;
-
-    async fn size(&mut self) -> Result<u64, BlockDeviceError> {
-        Ok((BLOCK_COUNT * BLOCK_SIZE) as u64)
+impl BlockDevice for RamBlockDevice {
+    fn block_size(&self) -> usize {
+        BLOCK_SIZE
     }
 
-    async fn read(&mut self, lba: u32, blocks: &mut [Aligned<A4, [u8; BLOCK_SIZE]>]) -> Result<(), BlockDeviceError> {
-        for (lba, block) in (lba..).zip(blocks) {
-            block.copy_from_slice(&self.data[self.block_range(lba)?]);
-        }
+    async fn num_blocks(&mut self) -> Result<u32, BlockDeviceError> {
+        Ok(BLOCK_COUNT as u32)
+    }
+
+    async fn read(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), BlockDeviceError> {
+        buf.copy_from_slice(&self.data[self.byte_range(lba, buf.len())?]);
         Ok(())
     }
 
-    async fn write(&mut self, lba: u32, blocks: &[Aligned<A4, [u8; BLOCK_SIZE]>]) -> Result<(), BlockDeviceError> {
-        for (lba, block) in (lba..).zip(blocks) {
-            let range = self.block_range(lba)?;
-            self.data[range].copy_from_slice(&block[..]);
-        }
+    async fn write(&mut self, lba: u32, buf: &[u8]) -> Result<(), BlockDeviceError> {
+        let range = self.byte_range(lba, buf.len())?;
+        self.data[range].copy_from_slice(buf);
         Ok(())
     }
 }
@@ -115,7 +110,7 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    let mut scsi_buffer = [Aligned::<A4, _>([0u8; BLOCK_SIZE]); 1];
+    let mut scsi_buffer = [0u8; BLOCK_SIZE];
     let scsi = Scsi::new(
         RamBlockDevice {
             data: [0; BLOCK_SIZE * BLOCK_COUNT],

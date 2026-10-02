@@ -28,5 +28,8 @@ pub use prevent_allow_medium_removal::*;
 mod request_sense;
 pub use request_sense::*;
 
+mod synchronize_cache;
+pub use synchronize_cache::*;
+
 mod write;
 pub use write::*;
