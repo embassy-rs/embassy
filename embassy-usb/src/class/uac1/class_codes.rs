@@ -60,6 +60,9 @@ pub const DYN_RANGE_COMP_PROCESS: u16 = 0x06;
 pub const EP_DESCRIPTOR_UNDEFINED: u8 = 0x00;
 pub const EP_GENERAL: u8 = 0x01;
 
+// bmAttributes bits of the class-specific isochronous audio data endpoint descriptor [UAC 4.6.1.2]
+pub const EP_CS_ATTR_SAMPLING_FREQ: u8 = 0x01;
+
 // Audio Class-Specific Request Codes
 pub const REQUEST_CODE_UNDEFINED: u8 = 0x00;
 pub const SET_CUR: u8 = 0x01;
