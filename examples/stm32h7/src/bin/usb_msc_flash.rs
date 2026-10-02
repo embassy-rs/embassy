@@ -9,7 +9,6 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::dma;
 use embassy_stm32::interrupt::typelevel::Binding;
 use embassy_stm32::mode::Async;
 use embassy_stm32::peripherals::*;
@@ -18,7 +17,7 @@ use embassy_stm32::qspi::enums::{
 };
 use embassy_stm32::qspi::{self, Instance, MatchMode, Qspi, QuadDma, TransferConfig};
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{Config, Peri, bind_interrupts, usb};
+use embassy_stm32::{Config, Peri, bind_interrupts, dma, usb};
 use embassy_time::{Duration, WithTimeout};
 use embassy_usb::Builder;
 use embassy_usb::class::msc::subclass::scsi::Scsi;
