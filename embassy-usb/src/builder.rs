@@ -502,6 +502,17 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         self.builder.config_descriptor.write(descriptor_type, descriptor, &[]);
     }
 
+    /// Add one of more custom descriptors to this alternate setting, and then patch the written bytes.
+    pub fn descriptors_then_patch<R>(&mut self, add: impl FnOnce(&mut Self) -> R, patch: impl FnOnce(&mut [u8])) -> R {
+        let mark = self.builder.config_descriptor.mark();
+
+        let result = add(self);
+
+        self.builder.config_descriptor.patch(mark, patch);
+
+        result
+    }
+
     /// Add a custom Binary Object Store (BOS) descriptor to this alternate setting.
     pub fn bos_capability(&mut self, capability_type: u8, capability: &[u8]) {
         self.builder.bos_descriptor.capability(capability_type, capability);

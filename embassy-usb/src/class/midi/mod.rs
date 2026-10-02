@@ -239,111 +239,120 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             } else {
                 0
             };
+        let (read_ep, write_ep) = alt.descriptors_then_patch(
+            |alt| {
+                alt.descriptor(
+                    CS_INTERFACE,
+                    &[
+                        MS_HEADER_SUBTYPE,
+                        0x00,
+                        0x01,
+                        (midi_streaming_total_length & 0xFF) as u8,
+                        ((midi_streaming_total_length >> 8) & 0xFF) as u8,
+                    ],
+                );
 
-        alt.descriptor(
-            CS_INTERFACE,
-            &[
-                MS_HEADER_SUBTYPE,
-                0x00,
-                0x01,
-                (midi_streaming_total_length & 0xFF) as u8,
-                ((midi_streaming_total_length >> 8) & 0xFF) as u8,
-            ],
+                // Calculates the index'th embedded midi out jack id
+                let out_jack_id_emb = |index| 2 * index + 1;
+                // Calculates the index'th external midi in jack id
+                let in_jack_id_ext = |index| 2 * index + 2;
+                // Calculates the index'th embedded midi in jack id
+                let in_jack_id_emb = |index| 2 * n_in_jacks + 2 * index + 1;
+                // Calculates the index'th external midi out jack id
+                let out_jack_id_ext = |index| 2 * n_in_jacks + 2 * index + 2;
+
+                for i in 0..n_in_jacks {
+                    let i_jack = names.in_jack(i);
+                    alt.descriptor(
+                        CS_INTERFACE,
+                        &[
+                            MIDI_OUT_JACK_SUBTYPE,
+                            EMBEDDED,
+                            out_jack_id_emb(i),
+                            0x01,
+                            in_jack_id_ext(i),
+                            0x01,
+                            i_jack,
+                        ],
+                    );
+                    alt.descriptor(
+                        CS_INTERFACE,
+                        &[MIDI_IN_JACK_SUBTYPE, EXTERNAL, in_jack_id_ext(i), i_jack],
+                    );
+                }
+
+                for i in 0..n_out_jacks {
+                    let i_jack = names.out_jack(i);
+                    alt.descriptor(
+                        CS_INTERFACE,
+                        &[MIDI_IN_JACK_SUBTYPE, EMBEDDED, in_jack_id_emb(i), i_jack],
+                    );
+                    alt.descriptor(
+                        CS_INTERFACE,
+                        &[
+                            MIDI_OUT_JACK_SUBTYPE,
+                            EXTERNAL,
+                            out_jack_id_ext(i),
+                            0x01,
+                            in_jack_id_emb(i),
+                            0x01,
+                            i_jack,
+                        ],
+                    );
+                }
+
+                let mut endpoint_data = [
+                    MS_GENERAL, 0, // Number of jacks
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // Jack mappings
+                ];
+
+                let read_ep = if n_out_jacks > 0 {
+                    endpoint_data[1] = n_out_jacks;
+                    for i in 0..n_out_jacks {
+                        endpoint_data[2 + i as usize] = in_jack_id_emb(i);
+                    }
+                    let read_ep = alt.endpoint_out(
+                        EndpointType::Bulk,
+                        None,
+                        max_packet_size,
+                        0,
+                        SynchronizationType::NoSynchronization,
+                        UsageType::DataEndpoint,
+                        &[0, 0],
+                    );
+                    alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_out_jacks as usize]);
+                    Some(read_ep)
+                } else {
+                    None
+                };
+
+                let write_ep = if n_in_jacks > 0 {
+                    endpoint_data[1] = n_in_jacks;
+                    for i in 0..n_in_jacks {
+                        endpoint_data[2 + i as usize] = out_jack_id_emb(i);
+                    }
+                    let write_ep = alt.endpoint_in(
+                        EndpointType::Bulk,
+                        None,
+                        max_packet_size,
+                        0,
+                        SynchronizationType::NoSynchronization,
+                        UsageType::DataEndpoint,
+                        &[0, 0],
+                    );
+                    alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_in_jacks as usize]);
+                    Some(write_ep)
+                } else {
+                    None
+                };
+
+                (read_ep, write_ep)
+            },
+            |buffer| {
+                let len = buffer.len() as u16;
+                buffer[5..7].copy_from_slice(&len.to_le_bytes());
+            },
         );
-
-        // Calculates the index'th embedded midi out jack id
-        let out_jack_id_emb = |index| 2 * index + 1;
-        // Calculates the index'th external midi in jack id
-        let in_jack_id_ext = |index| 2 * index + 2;
-        // Calculates the index'th embedded midi in jack id
-        let in_jack_id_emb = |index| 2 * n_in_jacks + 2 * index + 1;
-        // Calculates the index'th external midi out jack id
-        let out_jack_id_ext = |index| 2 * n_in_jacks + 2 * index + 2;
-
-        for i in 0..n_in_jacks {
-            let i_jack = names.in_jack(i);
-            alt.descriptor(
-                CS_INTERFACE,
-                &[
-                    MIDI_OUT_JACK_SUBTYPE,
-                    EMBEDDED,
-                    out_jack_id_emb(i),
-                    0x01,
-                    in_jack_id_ext(i),
-                    0x01,
-                    i_jack,
-                ],
-            );
-            alt.descriptor(
-                CS_INTERFACE,
-                &[MIDI_IN_JACK_SUBTYPE, EXTERNAL, in_jack_id_ext(i), i_jack],
-            );
-        }
-
-        for i in 0..n_out_jacks {
-            let i_jack = names.out_jack(i);
-            alt.descriptor(
-                CS_INTERFACE,
-                &[MIDI_IN_JACK_SUBTYPE, EMBEDDED, in_jack_id_emb(i), i_jack],
-            );
-            alt.descriptor(
-                CS_INTERFACE,
-                &[
-                    MIDI_OUT_JACK_SUBTYPE,
-                    EXTERNAL,
-                    out_jack_id_ext(i),
-                    0x01,
-                    in_jack_id_emb(i),
-                    0x01,
-                    i_jack,
-                ],
-            );
-        }
-
-        let mut endpoint_data = [
-            MS_GENERAL, 0, // Number of jacks
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // Jack mappings
-        ];
-
-        let read_ep = if n_out_jacks > 0 {
-            endpoint_data[1] = n_out_jacks;
-            for i in 0..n_out_jacks {
-                endpoint_data[2 + i as usize] = in_jack_id_emb(i);
-            }
-            let read_ep = alt.endpoint_out(
-                EndpointType::Bulk,
-                None,
-                max_packet_size,
-                0,
-                SynchronizationType::NoSynchronization,
-                UsageType::DataEndpoint,
-                &[0, 0],
-            );
-            alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_out_jacks as usize]);
-            Some(read_ep)
-        } else {
-            None
-        };
-
-        let write_ep = if n_in_jacks > 0 {
-            endpoint_data[1] = n_in_jacks;
-            for i in 0..n_in_jacks {
-                endpoint_data[2 + i as usize] = out_jack_id_emb(i);
-            }
-            let write_ep = alt.endpoint_in(
-                EndpointType::Bulk,
-                None,
-                max_packet_size,
-                0,
-                SynchronizationType::NoSynchronization,
-                UsageType::DataEndpoint,
-                &[0, 0],
-            );
-            alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_in_jacks as usize]);
-            Some(write_ep)
-        } else {
-            None
-        };
 
         MidiClass { read_ep, write_ep }
     }
