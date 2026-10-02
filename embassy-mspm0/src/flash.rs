@@ -126,8 +126,8 @@ impl<'d> FlashController<'d> {
         );
 
         self.regs.cmdtype().write(|w| {
-            w.set_command(vals::Command::BLANKVERIFY);
-            w.set_size(vals::Size::ONEWORD);
+            w.set_command(vals::Command::Blankverify);
+            w.set_size(vals::Size::Oneword);
         });
         self.regs.cmdaddr().write(|w| *w = addr as *const _ as u32);
         self.regs.cmdexec().write(|w| w.set_val(true));
@@ -146,8 +146,8 @@ impl<'d> FlashController<'d> {
         self.disable_dyn_writeprotect();
 
         self.regs.cmdtype().write(|w| {
-            w.set_command(vals::Command::PROGRAM);
-            w.set_size(vals::Size::ONEWORD);
+            w.set_command(vals::Command::Program);
+            w.set_size(vals::Size::Oneword);
         });
 
         self.regs.cmddataindex().write(|w| w.set_val(0));
@@ -165,8 +165,8 @@ impl<'d> FlashController<'d> {
     pub fn erase_page(&mut self, addr: *mut u8) -> impl Future<Output = Result<(), FlashError>> {
         self.disable_dyn_writeprotect();
         self.regs.cmdtype().write(|w| {
-            w.set_command(vals::Command::ERASE);
-            w.set_size(vals::Size::SECTOR);
+            w.set_command(vals::Command::Erase);
+            w.set_size(vals::Size::Sector);
         });
         self.regs.cmdaddr().write(|w| *w = addr as *const _ as u32);
         self.regs.cmdexec().write(|w| w.set_val(true));
