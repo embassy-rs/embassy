@@ -1,5 +1,5 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "teleprobe local run --chip MSPM0G3507 --protocol swd --elf"
+runner = "teleprobe local run --chip MSPM0G3507 --protocol swd"
 
 [build]
 target = "thumbv6m-none-eabi"
