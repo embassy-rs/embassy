@@ -18,7 +18,6 @@ pub mod msos;
 pub mod types;
 
 /// USB host support.
-/// USB host support.
 pub mod host;
 
 mod config {
