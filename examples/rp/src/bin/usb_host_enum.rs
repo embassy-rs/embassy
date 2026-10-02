@@ -4,7 +4,7 @@
 //! turns out to be a hub, register it and enumerate whatever is on its ports, until the
 //! tree is exhausted or the USB tier limit is reached.
 //!
-//! Device types come from the class drivers in `embassy-usb-host` rather than from
+//! Device types come from the class drivers in `embassy-usb::host` rather than from
 //! hand-rolled class-code checks, so a device is reported the same way here as the driver
 //! that would actually claim it sees it. That matters for the awkward ones: smart-card
 //! readers are routinely shipped under the vendor-specific class, and a MIDI device is an
@@ -20,18 +20,18 @@ use embassy_futures::select::{Either3, select3};
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_time::{Duration, Instant, Timer};
+use embassy_usb::host::class::cdc_acm::find_cdc_acm;
+use embassy_usb::host::class::gip::find_gip;
+use embassy_usb::host::class::hid::find_hid;
+use embassy_usb::host::class::hub::{HubEvent, HubHandler};
+use embassy_usb::host::class::msc::find_msc;
+use embassy_usb::host::class::uac::descriptors::AudioInterfaceCollection;
+use embassy_usb::host::class::vcp::cp210x::{find_cp210x, id};
+use embassy_usb::host::descriptor::{ConfigurationDescriptorChain, DeviceDescriptor};
+use embassy_usb::host::handler::{EnumerationInfo, HandlerEvent};
+use embassy_usb::host::{BusHandle, BusRoute, BusState};
 use embassy_usb_driver::Speed;
 use embassy_usb_driver::host::UsbHostAllocator;
-use embassy_usb_host::class::cdc_acm::find_cdc_acm;
-use embassy_usb_host::class::gip::find_gip;
-use embassy_usb_host::class::hid::find_hid;
-use embassy_usb_host::class::hub::{HubEvent, HubHandler};
-use embassy_usb_host::class::msc::find_msc;
-use embassy_usb_host::class::uac::descriptors::AudioInterfaceCollection;
-use embassy_usb_host::class::vcp::cp210x::{find_cp210x, id};
-use embassy_usb_host::descriptor::{ConfigurationDescriptorChain, DeviceDescriptor};
-use embassy_usb_host::handler::{EnumerationInfo, HandlerEvent};
-use embassy_usb_host::{BusHandle, BusRoute, BusState};
 use heapless::Vec;
 use panic_probe as _;
 
@@ -105,7 +105,7 @@ async fn main(_spawner: Spawner) {
     let driver = embassy_rp::usb::host::Driver::new(p.USB, Irqs);
 
     static BUS_STATE: BusState = BusState::new();
-    let (mut bus_ctrl, bus) = embassy_usb_host::bus(driver, &BUS_STATE);
+    let (mut bus_ctrl, bus) = embassy_usb::host::bus(driver, &BUS_STATE);
 
     info!("waiting for a device on the root port ...");
     // Drives the bus reset and returns the speed the device settled on.

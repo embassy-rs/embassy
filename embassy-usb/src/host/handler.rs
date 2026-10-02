@@ -6,8 +6,8 @@ use embassy_usb_driver::Speed;
 use embassy_usb_driver::host::pipe::{self, IsIn, IsOut};
 use embassy_usb_driver::host::{HostError, PipeError, SplitInfo, SplitSpeed, UsbPipe};
 
-use crate::control::ControlPipeExt;
-use crate::descriptor::{ConfigurationDescriptor, ConfigurationDescriptorChain, DeviceDescriptor, USBDescriptor};
+use crate::host::control::ControlPipeExt;
+use crate::host::descriptor::{ConfigurationDescriptor, ConfigurationDescriptorChain, DeviceDescriptor, USBDescriptor};
 
 /// How many times a descriptor read is re-attempted before its failure is
 /// taken as the answer.

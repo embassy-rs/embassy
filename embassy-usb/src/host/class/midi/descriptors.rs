@@ -4,8 +4,8 @@ use embassy_usb_driver::EndpointType;
 use heapless::Vec;
 
 use super::{USB_CLASS_AUDIO, USB_MIDI_1_PROTOCOL, USB_SUBCLASS_MIDI_STREAMING};
-use crate::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, ENDPOINT};
-use crate::descriptor::{
+use crate::host::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, ENDPOINT};
+use crate::host::descriptor::{
     ConfigurationDescriptorChain, DeviceDescriptor, EndpointDescriptor, InterfaceDescriptorChain,
     RawDescriptorIterator, USBDescriptor,
 };

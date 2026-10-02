@@ -8,12 +8,12 @@ use bitflags::bitflags;
 use embassy_usb_driver::host::{HostError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
 
-use crate::control::ControlPipeExt;
-use crate::descriptor::{
+use crate::host::control::ControlPipeExt;
+use crate::host::descriptor::{
     DEFAULT_MAX_DESCRIPTOR_SIZE, DescriptorError, InterfaceDescriptor, USBDescriptor, VariableSizeDescriptor,
     WritableDescriptor,
 };
-use crate::handler::{EnumerationInfo, HandlerEvent, RegisterError};
+use crate::host::handler::{EnumerationInfo, HandlerEvent, RegisterError};
 
 #[repr(C)]
 #[derive(Debug)]

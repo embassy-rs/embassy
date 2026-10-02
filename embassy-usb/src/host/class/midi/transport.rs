@@ -4,7 +4,7 @@ use embassy_usb_driver::host::{UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{EndpointAddress, EndpointInfo, EndpointType};
 
 use super::{EVENT_PACKET_SIZE, MidiEndpointDescriptor, MidiError};
-use crate::handler::EnumerationInfo;
+use crate::host::handler::EnumerationInfo;
 
 /// Device-to-host USB-MIDI bulk transport.
 pub struct MidiInputPipe<'d, A: UsbHostAllocator<'d>> {

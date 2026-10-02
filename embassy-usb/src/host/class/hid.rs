@@ -6,9 +6,9 @@ use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 pub use super::hid_report::{ReportDescriptor, ReportField};
-use crate::control::SetupPacket;
-use crate::descriptor::ConfigurationDescriptorChain;
-use crate::handler::EnumerationInfo;
+use crate::host::control::SetupPacket;
+use crate::host::descriptor::ConfigurationDescriptorChain;
+use crate::host::handler::EnumerationInfo;
 
 /// HID class code.
 const USB_CLASS_HID: u8 = 0x03;

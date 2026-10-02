@@ -8,7 +8,7 @@ use core::slice::ChunksExact;
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator};
 use heapless::Vec;
 
-use crate::handler::EnumerationInfo;
+use crate::host::handler::EnumerationInfo;
 
 mod descriptors;
 mod transport;

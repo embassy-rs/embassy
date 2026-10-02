@@ -4,8 +4,8 @@ use heapless::Vec;
 use heapless::index_map::FnvIndexMap;
 
 use super::codes::*;
-use crate::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, INTERFACE_ASSOCIATION};
-use crate::descriptor::{
+use crate::host::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, INTERFACE_ASSOCIATION};
+use crate::host::descriptor::{
     ConfigurationDescriptorChain, DescriptorError, DescriptorVisitor, EndpointDescriptor, ExtendableDescriptor,
     InterfaceDescriptor, InterfaceDescriptorChain, StringIndex, USBDescriptor, VariableSizeDescriptor, VisitError,
     WritableDescriptor,
@@ -836,7 +836,7 @@ impl From<u16> for TerminalType {
     fn from(terminal_type: u16) -> TerminalType {
         use TerminalType::*;
 
-        use crate::class::uac::codes::terminal_type::*;
+        use crate::host::class::uac::codes::terminal_type::*;
 
         match terminal_type {
             usb::UNDEFINED => UsbUndefined,
@@ -891,7 +891,7 @@ impl From<TerminalType> for u16 {
     fn from(terminal_type: TerminalType) -> u16 {
         use TerminalType::*;
 
-        use crate::class::uac::codes::terminal_type::*;
+        use crate::host::class::uac::codes::terminal_type::*;
 
         match terminal_type {
             UsbUndefined => usb::UNDEFINED,
@@ -1532,7 +1532,7 @@ mod test {
     use heapless::Vec;
 
     use super::*;
-    use crate::descriptor::ConfigurationDescriptor;
+    use crate::host::descriptor::ConfigurationDescriptor;
 
     #[test]
     fn test_parse() {

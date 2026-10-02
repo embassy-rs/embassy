@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add USB host support, including enumeration, descriptor parsing, and class drivers
+- Add host-side `midi` and `ccid` class support
+- Add host HID `SET_REPORT` request
+- Add host `get_string_descriptor` so a STRING request can carry a LANGID
+- Add host `WritableDescriptor` trait, with implementations for the built-in descriptor types
+- Add host `StringDescriptor`, `StringDescriptorZero`, `StringDescriptorLossy`, and english language identifiers
+- Fix host enumeration reliability: retry descriptor reads on error, free the device address on enumeration failure, hold an address already assigned by `SET_ADDRESS`, guard against short/zero-length descriptors, read the HID report descriptor length from the correct offset, fix the length of `DeviceDescriptorPartial`
+- Fix host hub handling: don't panic on hubs with more ports than `MAX_PORTS`, take a hub port's speed after reset (not before), match multi-TT hubs (not just single-TT), acknowledge hub/port status changes that aren't otherwise handled
+- Fix host MIDI: skip reserved packets, recognize legacy Yamaha vendor-specific interfaces
+- Use the USB spec minimum packet size before the max is known; use `bInterval` for host HID interrupt endpoints
 - Bump usbd-hid from 0.9.0 to 0.10.0
 - `UAC1`: Add audio source
 - `UAC1`: `Speaker::new` now returns `Self` with the parts inside instead of a tuple
