@@ -170,7 +170,8 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
                                 buf[SupportedVitalProductDataPages::SIZE + i] = (*page).into();
                             }
 
-                            pipe.write(&buf).await?;
+                            let len = buf.len().min(req.allocation_length() as usize);
+                            pipe.write(&buf[..len]).await?;
                             Ok(())
                         }
                         Ok(VitalProductDataPage::UnitSerialNumber) => {
@@ -182,7 +183,8 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
 
                             buf[UnitSerialNumberPage::SIZE..].copy_from_slice(SERIAL_NUMBER);
 
-                            pipe.write(&buf).await?;
+                            let len = buf.len().min(req.allocation_length() as usize);
+                            pipe.write(&buf[..len]).await?;
                             Ok(())
                         }
                         _ => Err(ERR_INVALID_FIELD_IN_CBD),
@@ -208,7 +210,8 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
                     resp.set_product_identification(&self.product_id);
                     resp.set_product_revision_level(b"1.00");
 
-                    pipe.write(&resp.data).await?;
+                    let len = resp.data.len().min(req.allocation_length() as usize);
+                    pipe.write(&resp.data[..len]).await?;
                     Ok(())
                 }
             }
@@ -262,7 +265,9 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
                 if writer.page_size() == 0 {
                     Err(ERR_INVALID_FIELD_IN_CBD)
                 } else {
-                    pipe.write(writer.finalize()).await?;
+                    let data = writer.finalize();
+                    let len = data.len().min(req.allocation_length() as usize);
+                    pipe.write(&data[..len]).await?;
                     Ok(())
                 }
             }
@@ -311,7 +316,8 @@ impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
                 resp.set_block_size(SIZE as u32);
                 resp.set_descriptor_type(0x03);
 
-                pipe.write(&resp.data).await?;
+                let len = resp.data.len().min(req.allocation_length() as usize);
+                pipe.write(&resp.data[..len]).await?;
                 return Ok(());
             }
             Read10Command::OPCODE => {

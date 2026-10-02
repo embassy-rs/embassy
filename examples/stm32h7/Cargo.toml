@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Change stm32h743bi to your chip name, if necessary.
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32h743bi", "time-driver-tim2", "exti", "memory-x", "unstable-pac", "chrono"] }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "time-driver-tim2", "exti", "memory-x", "unstable-pac", "chrono"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../../embassy-embedded-hal" }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
@@ -39,6 +39,11 @@ embedded-storage = "0.3.1"
 static_cell = "2"
 chrono = { version = "^0.4", default-features = false }
 grounded = "0.2.0"
+
+[features]
+default = ["stm32h743bi"]
+stm32h743bi = ["embassy-stm32/stm32h743bi"]
+stm32h750ib = ["embassy-stm32/stm32h750ib"]
 
 # cargo build/run
 [profile.dev]

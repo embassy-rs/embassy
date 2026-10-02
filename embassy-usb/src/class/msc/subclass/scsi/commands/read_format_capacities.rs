@@ -30,8 +30,12 @@ packed_struct! {
         num_blocks: BE<u32>,
         #[offset = 8*8, size = 2]
         descriptor_type: u8,
-        // TODO should be 24 bits
-        #[offset = 8*8, size = 32]
-        block_size: BE<u32>,
+    }
+}
+
+impl<T: AsRef<[u8]> + AsMut<[u8]>> ReadFormatCapacitiesResponse<T> {
+    /// Block length is a 24-bit big-endian field in bytes 9..12; packed_struct has no 24-bit type.
+    pub fn set_block_size(&mut self, val: u32) {
+        self.data.as_mut()[9..12].copy_from_slice(&val.to_be_bytes()[1..]);
     }
 }

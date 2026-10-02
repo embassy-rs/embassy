@@ -94,7 +94,8 @@ async fn main(_spawner: Spawner) {
 
     let mut flash_buffer = [0; ERASE_SIZE];
     let flash = RmwMultiwriteNorFlashStorage::new(flash, &mut flash_buffer);
-    let mut scsi_buffer = [Aligned::<A4, _>([0; BLOCK_SIZE]); 1];
+    // One erase sector per chunk, so a sector-aligned write costs one erase instead of one per block
+    let mut scsi_buffer = [Aligned::<A4, _>([0; BLOCK_SIZE]); ERASE_SIZE / BLOCK_SIZE];
     let scsi = Scsi::new(FlashBlockDevice { flash }, &mut scsi_buffer, "Embassy", "MSC");
     let mut msc = BulkOnlyTransport::new(&mut builder, &mut state, 64, scsi);
     let mut usb = builder.build();
