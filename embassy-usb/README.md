@@ -14,6 +14,7 @@ Async USB device stack for embedded devices in Rust.
     - Ethernet (CDC NCM)
     - Human Interface Devices (HID)
     - MIDI
+    - Generic USB Display (GUD)
 
 ## Adding support for new hardware
 
