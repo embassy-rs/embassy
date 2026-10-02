@@ -12,16 +12,14 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
-use embassy_rp::flash::{ERASE_SIZE, Flash};
+use embassy_rp::flash::{ERASE_SIZE, Error, Flash};
 use embassy_rp::mode::Async;
 use embassy_rp::peripherals::{DMA_CH0, USB};
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_usb::Builder;
 use embassy_usb::class::msc::subclass::scsi::Scsi;
-use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDeviceAdapter, BlockDeviceError};
+use embassy_usb::class::msc::subclass::scsi::block_device::BlockDeviceAdapter;
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
-use embedded_storage::nor_flash::RmwMultiwriteNorFlashStorage;
-use embedded_storage::{ReadStorage, Storage};
 use panic_probe as _;
 
 const BLOCK_SIZE: usize = 512;
@@ -34,32 +32,26 @@ bind_interrupts!(struct Irqs {
 });
 
 struct FlashBlockDevice<'d> {
-    flash: RmwMultiwriteNorFlashStorage<'d, Flash<'d, Async, FLASH_SIZE>>,
+    flash: Flash<'d, Async, FLASH_SIZE>,
 }
 
-impl BlockDevice<BLOCK_SIZE> for FlashBlockDevice<'_> {
-    type Error = BlockDeviceError;
+impl BlockDevice<ERASE_SIZE> for FlashBlockDevice<'_> {
+    type Error = Error;
     type Align = A4;
 
-    async fn read(&mut self, lba: u32, blocks: &mut [Aligned<A4, [u8; BLOCK_SIZE]>]) -> Result<(), Self::Error> {
-        self.flash
-            .read(
-                STORAGE_RANGE.start as u32 + lba * BLOCK_SIZE as u32,
-                blocks_to_slice_mut(blocks),
-            )
-            .map_err(|_| BlockDeviceError::ReadError)
+    async fn read(&mut self, lba: u32, sectors: &mut [Aligned<A4, [u8; ERASE_SIZE]>]) -> Result<(), Error> {
+        let offset = STORAGE_RANGE.start as u32 + lba * ERASE_SIZE as u32;
+        self.flash.read(offset, blocks_to_slice_mut(sectors)).await
     }
 
-    async fn write(&mut self, lba: u32, blocks: &[Aligned<A4, [u8; BLOCK_SIZE]>]) -> Result<(), Self::Error> {
-        self.flash
-            .write(
-                STORAGE_RANGE.start as u32 + lba * BLOCK_SIZE as u32,
-                blocks_to_slice(blocks),
-            )
-            .map_err(|_| BlockDeviceError::WriteError)
+    async fn write(&mut self, lba: u32, sectors: &[Aligned<A4, [u8; ERASE_SIZE]>]) -> Result<(), Error> {
+        let offset = STORAGE_RANGE.start as u32 + lba * ERASE_SIZE as u32;
+        let bytes = blocks_to_slice(sectors);
+        self.flash.blocking_erase(offset, offset + bytes.len() as u32)?;
+        self.flash.blocking_write(offset, bytes)
     }
 
-    async fn size(&mut self) -> Result<u64, Self::Error> {
+    async fn size(&mut self) -> Result<u64, Error> {
         Ok(STORAGE_RANGE.len() as u64)
     }
 }
@@ -92,13 +84,12 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    let mut flash_buffer = [0; ERASE_SIZE];
-    let flash = RmwMultiwriteNorFlashStorage::new(flash, &mut flash_buffer);
-    // One erase sector per chunk, so a sector-aligned write costs one erase instead of one per block
-    let mut scsi_buffer = [Aligned::<A4, _>([0; BLOCK_SIZE]); ERASE_SIZE / BLOCK_SIZE];
+    // Expose 512-byte blocks over 4 KiB erase sectors.
+    let mut cache = Aligned::<A4, _>([0; ERASE_SIZE]);
+    let mut scsi_buffer = [0; BLOCK_SIZE];
     let scsi = Scsi::new(
-        BlockDeviceAdapter::new(FlashBlockDevice { flash }),
-        blocks_to_slice_mut(&mut scsi_buffer),
+        BlockDeviceAdapter::new(FlashBlockDevice { flash }).with_cache(&mut cache, BLOCK_SIZE),
+        &mut scsi_buffer,
         "Embassy",
         "MSC",
     );

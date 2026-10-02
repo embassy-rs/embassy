@@ -19,6 +19,8 @@ pub enum BlockDeviceError {
     WriteError,
     /// SCSI MEDIUM ERROR 51h/00h ERASE FAILURE
     EraseError,
+    /// Device-side buffer is misaligned or does not contain whole blocks.
+    Unaligned,
     /// Unknown error
     Unknown,
 }
@@ -148,8 +150,8 @@ impl<'a, D: BlockDevice> BlockDevice for SectorCache<'a, D> {
 
 /// Adapts a [`block_device_driver::BlockDevice`] with `SIZE`-byte blocks into a [`BlockDevice`].
 ///
-/// Buffers are passed straight through, so the SCSI buffer (or [`SectorCache`] buffer) must be
-/// aligned to `B::Align`, or reads and writes panic.
+/// Direct reads and writes require buffers aligned to `B::Align` and sized in whole device blocks.
+/// [`with_cache`](Self::with_cache) supplies a typed, aligned buffer for smaller blocks.
 #[cfg(feature = "block-device-driver")]
 pub struct BlockDeviceAdapter<B, const SIZE: usize> {
     device: B,
@@ -160,6 +162,15 @@ impl<B: block_device_driver::BlockDevice<SIZE>, const SIZE: usize> BlockDeviceAd
     /// Wrap `device`.
     pub fn new(device: B) -> Self {
         Self { device }
+    }
+
+    /// Present `block_size`-byte blocks through a [`SectorCache`] with an aligned device-block buffer.
+    pub fn with_cache<'a>(
+        self,
+        buf: &'a mut aligned::Aligned<B::Align, [u8; SIZE]>,
+        block_size: usize,
+    ) -> SectorCache<'a, Self> {
+        SectorCache::new(self, &mut buf[..], block_size)
     }
 }
 
@@ -178,6 +189,7 @@ impl<B: block_device_driver::BlockDevice<SIZE>, const SIZE: usize> BlockDevice f
     }
 
     async fn read(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), BlockDeviceError> {
+        check_blocks::<B::Align, SIZE>(buf)?;
         let blocks = block_device_driver::slice_to_blocks_mut::<B::Align, SIZE>(buf);
         self.device.read(lba, blocks).await.map_err(|_| {
             error!("block device read failed");
@@ -186,12 +198,26 @@ impl<B: block_device_driver::BlockDevice<SIZE>, const SIZE: usize> BlockDevice f
     }
 
     async fn write(&mut self, lba: u32, buf: &[u8]) -> Result<(), BlockDeviceError> {
+        check_blocks::<B::Align, SIZE>(buf)?;
         let blocks = block_device_driver::slice_to_blocks::<B::Align, SIZE>(buf);
         self.device.write(lba, blocks).await.map_err(|_| {
             error!("block device write failed");
             BlockDeviceError::WriteError
         })
     }
+}
+
+#[cfg(feature = "block-device-driver")]
+fn check_blocks<A, const SIZE: usize>(buf: &[u8]) -> Result<(), BlockDeviceError> {
+    let align = core::mem::align_of::<A>();
+    if buf.len() % SIZE != 0 || buf.len() % align != 0 || buf.as_ptr() as usize % align != 0 {
+        error!(
+            "block device buffer is not aligned to {} or a multiple of {}",
+            align, SIZE
+        );
+        return Err(BlockDeviceError::Unaligned);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -285,6 +311,70 @@ mod tests {
             }
             cache.flush().await.unwrap();
             assert_eq!(cache.device.data, model);
+        });
+    }
+
+    #[cfg(feature = "block-device-driver")]
+    #[test]
+    fn adapter_rejects_unaligned_buffers() {
+        use aligned::{A4, Aligned};
+
+        struct Blocks([u8; SIZE * BLOCKS]);
+
+        impl block_device_driver::BlockDevice<SIZE> for Blocks {
+            type Error = ();
+            type Align = A4;
+
+            async fn read(&mut self, lba: u32, blocks: &mut [Aligned<A4, [u8; SIZE]>]) -> Result<(), ()> {
+                let at = lba as usize * SIZE;
+                let bytes = block_device_driver::blocks_to_slice_mut(blocks);
+                bytes.copy_from_slice(&self.0[at..at + bytes.len()]);
+                Ok(())
+            }
+
+            async fn write(&mut self, lba: u32, blocks: &[Aligned<A4, [u8; SIZE]>]) -> Result<(), ()> {
+                let at = lba as usize * SIZE;
+                let bytes = block_device_driver::blocks_to_slice(blocks);
+                self.0[at..at + bytes.len()].copy_from_slice(bytes);
+                Ok(())
+            }
+
+            async fn size(&mut self) -> Result<u64, ()> {
+                Ok((SIZE * BLOCKS) as u64)
+            }
+        }
+
+        let mut adapter = BlockDeviceAdapter::new(Blocks([0; SIZE * BLOCKS]));
+        let mut io: Aligned<A4, [u8; SIZE * 2 + 4]> = Aligned([7; SIZE * 2 + 4]);
+        block_on(async {
+            assert_eq!(adapter.num_blocks().await, Ok(BLOCKS as u32));
+            adapter.write(1, &io[..SIZE * 2]).await.unwrap();
+            io.fill(0);
+            adapter.read(1, &mut io[..SIZE * 2]).await.unwrap();
+            assert_eq!(io[..SIZE * 2], [7; SIZE * 2]);
+            assert_eq!(
+                adapter.write(1, &io[1..SIZE + 1]).await,
+                Err(BlockDeviceError::Unaligned)
+            );
+            assert_eq!(
+                adapter.read(1, &mut io[1..SIZE + 1]).await,
+                Err(BlockDeviceError::Unaligned)
+            );
+            assert_eq!(
+                adapter.read(1, &mut io[..SIZE + 4]).await,
+                Err(BlockDeviceError::Unaligned)
+            );
+        });
+
+        let mut buf = Aligned::<A4, _>([0; SIZE]);
+        let mut cache = BlockDeviceAdapter::new(Blocks([0; SIZE * BLOCKS])).with_cache(&mut buf, HOST);
+        block_on(async {
+            assert_eq!(cache.num_blocks().await, Ok((SIZE * BLOCKS / HOST) as u32));
+            cache.write(5, &io[1..HOST * 3 + 1]).await.unwrap();
+            cache.flush().await.unwrap();
+            let mut back = [0; HOST * 3];
+            cache.read(5, &mut back).await.unwrap();
+            assert_eq!(back[..], io[1..HOST * 3 + 1]);
         });
     }
 

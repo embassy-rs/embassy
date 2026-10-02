@@ -1,35 +1,26 @@
 #![no_std]
 #![no_main]
-use core::cell::RefCell;
-use core::ops::Range;
-
 use aligned::{A4, Aligned};
 use block_device_driver::{BlockDevice, blocks_to_slice, blocks_to_slice_mut};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::flash::{Flash, MAX_ERASE_SIZE};
+use embassy_stm32::flash::{Error, Flash, MAX_ERASE_SIZE};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb::Builder;
 use embassy_usb::class::msc::subclass::scsi::Scsi;
-use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDeviceAdapter, BlockDeviceError};
+use embassy_usb::class::msc::subclass::scsi::block_device::BlockDeviceAdapter;
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
-use embedded_storage::nor_flash::RmwMultiwriteNorFlashStorage;
-use embedded_storage::{ReadStorage, Storage};
 use panic_probe as _;
 
-// Ideally we would use 128K block size, which is the flash sector size of STM32,
-// however, most operating systems only support 512 or 4096 byte blocks.
-//
-// To work around this limitation we must use RmwMultiwriteNorFlashStorage, which performs
-// read-modify(-erase)-write operations on flash storage and optimises the number of erase
-// operations.
-//
-// WARNING: this example is way too slow to
+// Expose 512-byte blocks over 128 KiB erase sectors.
 const BLOCK_SIZE: usize = 512;
+// Bank 2: eight 128 KiB sectors.
+const STORAGE_START: u32 = 1024 * 1024;
+const STORAGE_SIZE: u32 = 1024 * 1024;
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
@@ -37,38 +28,27 @@ bind_interrupts!(struct Irqs {
 });
 
 struct FlashBlockDevice<'d> {
-    flash: RefCell<RmwMultiwriteNorFlashStorage<'d, Flash<'d>>>,
-    range: Range<usize>,
+    flash: Flash<'d>,
 }
 
-impl<'d> BlockDevice<BLOCK_SIZE> for FlashBlockDevice<'d> {
-    type Error = BlockDeviceError;
+impl BlockDevice<MAX_ERASE_SIZE> for FlashBlockDevice<'_> {
+    type Error = Error;
     type Align = A4;
 
-    async fn size(&mut self) -> Result<u64, BlockDeviceError> {
-        Ok(self.range.len() as u64)
+    async fn read(&mut self, lba: u32, blocks: &mut [Aligned<A4, [u8; MAX_ERASE_SIZE]>]) -> Result<(), Error> {
+        let offset = STORAGE_START + lba * MAX_ERASE_SIZE as u32;
+        self.flash.blocking_read(offset, blocks_to_slice_mut(blocks))
     }
 
-    async fn read(&mut self, lba: u32, blocks: &mut [Aligned<A4, [u8; BLOCK_SIZE]>]) -> Result<(), BlockDeviceError> {
-        self.flash
-            .borrow_mut()
-            .read(
-                self.range.start as u32 + (lba * BLOCK_SIZE as u32),
-                blocks_to_slice_mut(blocks),
-            )
-            .map_err(|_| BlockDeviceError::ReadError)?;
-        Ok(())
+    async fn write(&mut self, lba: u32, blocks: &[Aligned<A4, [u8; MAX_ERASE_SIZE]>]) -> Result<(), Error> {
+        let offset = STORAGE_START + lba * MAX_ERASE_SIZE as u32;
+        let bytes = blocks_to_slice(blocks);
+        self.flash.erase(offset, offset + bytes.len() as u32).await?;
+        self.flash.write(offset, bytes).await
     }
 
-    async fn write(&mut self, lba: u32, blocks: &[Aligned<A4, [u8; BLOCK_SIZE]>]) -> Result<(), BlockDeviceError> {
-        let mut flash = self.flash.borrow_mut();
-        flash
-            .write(
-                self.range.start as u32 + (lba * BLOCK_SIZE as u32),
-                blocks_to_slice(blocks),
-            )
-            .map_err(|_| BlockDeviceError::WriteError)?;
-        Ok(())
+    async fn size(&mut self) -> Result<u64, Error> {
+        Ok(STORAGE_SIZE as u64)
     }
 }
 
@@ -136,20 +116,16 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    let mut flash_buffer = [0u8; MAX_ERASE_SIZE];
-    let flash = RefCell::new(RmwMultiwriteNorFlashStorage::new(
-        Flash::new(p.FLASH, Irqs),
-        &mut flash_buffer,
-    ));
+    let flash = FlashBlockDevice {
+        flash: Flash::new(p.FLASH, Irqs),
+    };
 
-    // Use upper 1MB of the 2MB flash
-    let range = (1024 * 1024)..(2048 * 1024);
-
-    let mut scsi_buffer = [Aligned::<A4, _>([0u8; BLOCK_SIZE]); 1];
+    let mut cache = Aligned::<A4, _>([0u8; MAX_ERASE_SIZE]);
+    let mut scsi_buffer = [0u8; BLOCK_SIZE];
     // Create SCSI target for our block device
     let scsi = Scsi::new(
-        BlockDeviceAdapter::new(FlashBlockDevice { flash, range }),
-        blocks_to_slice_mut(&mut scsi_buffer),
+        BlockDeviceAdapter::new(flash).with_cache(&mut cache, BLOCK_SIZE),
+        &mut scsi_buffer,
         "Embassy",
         "MSC",
     );

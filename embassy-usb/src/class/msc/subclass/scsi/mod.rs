@@ -450,7 +450,7 @@ impl InternalError {
                     key: SenseKey::IllegalRequest,
                     asc: AdditionalSenseCode::LogicalBlockAddressOutOfRange,
                 },
-                BlockDeviceError::HardwareError => SenseData {
+                BlockDeviceError::HardwareError | BlockDeviceError::Unaligned => SenseData {
                     key: SenseKey::HardwareError,
                     asc: AdditionalSenseCode::NoAdditionalSenseInformation,
                 },
