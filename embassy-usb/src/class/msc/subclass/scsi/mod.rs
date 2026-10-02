@@ -3,7 +3,10 @@ pub mod block_device;
 pub mod commands;
 pub mod enums;
 
-use self::block_device::{BlockDevice, BlockDeviceError};
+use aligned::Aligned;
+use block_device_driver::{BlockDevice, blocks_to_slice, blocks_to_slice_mut};
+
+use self::block_device::BlockDeviceError;
 use self::enums::AdditionalSenseCode;
 use crate::class::msc::MscSubclass;
 use crate::class::msc::subclass::scsi::commands::{
@@ -31,18 +34,20 @@ pub struct SenseData {
     asc: AdditionalSenseCode,
 }
 
-pub struct Scsi<'d, B: BlockDevice> {
+pub struct Scsi<'d, B: BlockDevice<SIZE>, const SIZE: usize> {
     /// Backing storage block device
     device: B,
-    buffer: &'d mut [u8],
+    buffer: &'d mut [Aligned<B::Align, [u8; SIZE]>],
     /// Last operation sense data
     sense: Option<SenseData>,
     vendor_id: [u8; 8],
     product_id: [u8; 16],
 }
 
-impl<'d, B: BlockDevice> Scsi<'d, B> {
-    pub fn new(device: B, buffer: &'d mut [u8], vendor: &str, product: &str) -> Self {
+impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> Scsi<'d, B, SIZE> {
+    pub fn new(device: B, buffer: &'d mut [Aligned<B::Align, [u8; SIZE]>], vendor: &str, product: &str) -> Self {
+        assert!(!buffer.is_empty(), "SCSI buffer must hold at least one block");
+
         let mut vendor_id = [b' '; 8];
         fill_from_slice(&mut vendor_id, vendor.as_bytes());
 
@@ -56,6 +61,26 @@ impl<'d, B: BlockDevice> Scsi<'d, B> {
             vendor_id,
             product_id,
         }
+    }
+
+    async fn num_blocks(&mut self) -> Result<u32, BlockDeviceError> {
+        let size = self.device.size().await.map_err(|_| {
+            error!("block device size failed");
+            BlockDeviceError::MediumNotPresent
+        })?;
+        match (size / SIZE as u64).min(u32::MAX as u64) as u32 {
+            // No blocks means no valid max LBA for READ CAPACITY
+            0 => Err(BlockDeviceError::MediumNotPresent),
+            n => Ok(n),
+        }
+    }
+
+    async fn end_lba(&mut self, start: u32, count: u32) -> Result<u32, InternalError> {
+        let end = start.checked_add(count).ok_or(InternalError::LbaOutOfRange)?;
+        if end > self.num_blocks().await? {
+            return Err(InternalError::LbaOutOfRange);
+        }
+        Ok(end)
     }
 
     async fn handle_command_out(
@@ -74,7 +99,7 @@ impl<'d, B: BlockDevice> Scsi<'d, B> {
             TestUnitReadyCommand::OPCODE => {
                 let req = TestUnitReadyCommand::from_bytes(cmd).ok_or(InternalError::CommandParseError)?;
                 debug!("{:?}", req);
-                self.device.status().map_err(|e| e.into())
+                self.num_blocks().await.map(|_| ()).map_err(|e| e.into())
             }
             PreventAllowMediumRemoval::OPCODE => {
                 let req = PreventAllowMediumRemoval::from_bytes(cmd).ok_or(InternalError::CommandParseError)?;
@@ -95,29 +120,15 @@ impl<'d, B: BlockDevice> Scsi<'d, B> {
                 debug!("{:?}", req);
 
                 let start_lba = req.lba();
-                let transfer_length = req.transfer_length() as u32;
+                let end_lba = self.end_lba(start_lba, req.transfer_length() as u32).await?;
 
-                if start_lba + transfer_length > self.device.num_blocks().await? {
-                    return Err(InternalError::LbaOutOfRange);
-                }
-
-                let block_size = self.device.block_size()?;
-                assert!(
-                    block_size <= self.buffer.len(),
-                    "SCSI buffer smaller than device block size"
-                );
-
-                if transfer_length == 0 {
-                } else if transfer_length == 1 {
-                    pipe.read(&mut self.buffer[..block_size]).await?;
-                    self.device.write_block(start_lba, &self.buffer[..block_size]).await?;
-                } else {
-                    self.device.prepare_multiblock_write(start_lba, transfer_length).await?;
-                    for _lba in start_lba..start_lba + transfer_length {
-                        pipe.read(&mut self.buffer[..block_size]).await?;
-                        self.device.write_multiblock_block(&self.buffer[..block_size]).await?;
-                    }
-                    self.device.stop_multiblock_write().await?;
+                for lba in (start_lba..end_lba).step_by(self.buffer.len()) {
+                    let count = (end_lba - lba).min(self.buffer.len() as u32) as usize;
+                    pipe.read(blocks_to_slice_mut(&mut self.buffer[..count])).await?;
+                    self.device.write(lba, &self.buffer[..count]).await.map_err(|_| {
+                        error!("block device write failed");
+                        BlockDeviceError::WriteError
+                    })?;
                 }
 
                 Ok(())
@@ -218,7 +229,8 @@ impl<'d, B: BlockDevice> Scsi<'d, B> {
 
                 // pipe.write(&buf).await?;
 
-                let mut writer = ModeParameter6Writer::new(self.buffer).map_err(|_| ERR_INVALID_FIELD_IN_CBD)?;
+                let mut writer = ModeParameter6Writer::new(blocks_to_slice_mut(self.buffer))
+                    .map_err(|_| ERR_INVALID_FIELD_IN_CBD)?;
 
                 let all_pages = matches!(req.page_code(), Ok(PageCode::AllPages));
 
@@ -283,8 +295,8 @@ impl<'d, B: BlockDevice> Scsi<'d, B> {
                 debug!("{:?}", req);
 
                 let mut resp = ReadCapacity10Response::new();
-                resp.set_max_lba(self.device.num_blocks().await? - 1);
-                resp.set_block_size(self.device.block_size()? as u32);
+                resp.set_max_lba(self.num_blocks().await? - 1);
+                resp.set_block_size(SIZE as u32);
 
                 pipe.write(&resp.data).await?;
                 Ok(())
@@ -295,8 +307,8 @@ impl<'d, B: BlockDevice> Scsi<'d, B> {
 
                 let mut resp = ReadFormatCapacitiesResponse::new();
                 resp.set_capacity_list_length(8);
-                resp.set_num_blocks(self.device.num_blocks().await?);
-                resp.set_block_size(self.device.block_size()? as u32);
+                resp.set_num_blocks(self.num_blocks().await?);
+                resp.set_block_size(SIZE as u32);
                 resp.set_descriptor_type(0x03);
 
                 pipe.write(&resp.data).await?;
@@ -307,34 +319,15 @@ impl<'d, B: BlockDevice> Scsi<'d, B> {
                 debug!("{:?}", req);
 
                 let start_lba = req.lba();
-                let transfer_length = req.transfer_length() as u32;
+                let end_lba = self.end_lba(start_lba, req.transfer_length() as u32).await?;
 
-                if start_lba + transfer_length > self.device.num_blocks().await? {
-                    return Err(InternalError::LbaOutOfRange);
-                }
-
-                let block_size = self.device.block_size()?;
-                assert!(
-                    block_size <= self.buffer.len(),
-                    "SCSI buffer smaller than device block size"
-                );
-
-                if transfer_length == 0 {
-                } else if transfer_length == 1 {
-                    self.device
-                        .read_block(start_lba, &mut self.buffer[..block_size])
-                        .await?;
-                    pipe.write(&self.buffer[..block_size]).await?;
-                } else {
-                    self.device.prepare_multiblock_read(start_lba).await?;
-                    for _lba in start_lba..start_lba + transfer_length {
-                        self.device
-                            .read_multiblock_block(&mut self.buffer[..block_size])
-                            .await?;
-
-                        pipe.write(&self.buffer[..block_size]).await?;
-                    }
-                    self.device.stop_multiblock_read().await?;
+                for lba in (start_lba..end_lba).step_by(self.buffer.len()) {
+                    let count = (end_lba - lba).min(self.buffer.len() as u32) as usize;
+                    self.device.read(lba, &mut self.buffer[..count]).await.map_err(|_| {
+                        error!("block device read failed");
+                        BlockDeviceError::ReadError
+                    })?;
+                    pipe.write(blocks_to_slice(&self.buffer[..count])).await?;
                 }
 
                 Ok(())
@@ -344,7 +337,7 @@ impl<'d, B: BlockDevice> Scsi<'d, B> {
     }
 }
 
-impl<'d, B: BlockDevice> CommandSetHandler for Scsi<'d, B> {
+impl<'d, B: BlockDevice<SIZE>, const SIZE: usize> CommandSetHandler for Scsi<'d, B, SIZE> {
     const MSC_SUBCLASS: MscSubclass = MscSubclass::ScsiTransparentCommandSet;
     const MAX_LUN: u8 = 0;
 

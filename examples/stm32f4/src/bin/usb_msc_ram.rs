@@ -1,5 +1,7 @@
 #![no_std]
 #![no_main]
+use aligned::{A4, Aligned};
+use block_device_driver::BlockDevice;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -9,7 +11,7 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb::Builder;
 use embassy_usb::class::msc::subclass::scsi::Scsi;
-use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDevice, BlockDeviceError};
+use embassy_usb::class::msc::subclass::scsi::block_device::BlockDeviceError;
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
 use panic_probe as _;
 
@@ -23,63 +25,27 @@ bind_interrupts!(struct Irqs {
 
 struct RamBlockDevice {
     data: [u8; BLOCK_SIZE * BLOCK_COUNT],
-    multiblock_lba: Option<u32>,
 }
 
-impl BlockDevice for RamBlockDevice {
-    fn status(&self) -> Result<(), BlockDeviceError> {
+impl BlockDevice<BLOCK_SIZE> for RamBlockDevice {
+    type Error = BlockDeviceError;
+    type Align = A4;
+
+    async fn size(&mut self) -> Result<u64, BlockDeviceError> {
+        Ok((BLOCK_COUNT * BLOCK_SIZE) as u64)
+    }
+
+    async fn read(&mut self, lba: u32, blocks: &mut [Aligned<A4, [u8; BLOCK_SIZE]>]) -> Result<(), BlockDeviceError> {
+        for (lba, block) in (lba..).zip(blocks) {
+            block.copy_from_slice(&self.data[lba as usize * BLOCK_SIZE..(lba as usize + 1) * BLOCK_SIZE]);
+        }
         Ok(())
     }
 
-    fn block_size(&self) -> Result<usize, BlockDeviceError> {
-        Ok(BLOCK_SIZE)
-    }
-
-    async fn num_blocks(&self) -> Result<u32, BlockDeviceError> {
-        Ok(BLOCK_COUNT as u32)
-    }
-
-    async fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
-        block.copy_from_slice(&self.data[lba as usize * BLOCK_SIZE..(lba as usize + 1) * BLOCK_SIZE]);
-        Ok(())
-    }
-
-    async fn write_block(&mut self, lba: u32, block: &[u8]) -> Result<(), BlockDeviceError> {
-        self.data[lba as usize * BLOCK_SIZE..(lba as usize + 1) * BLOCK_SIZE].copy_from_slice(block);
-        Ok(())
-    }
-
-    async fn prepare_multiblock_write(&mut self, lba: u32, _blocks_count: u32) -> Result<(), BlockDeviceError> {
-        self.multiblock_lba = Some(lba);
-        Ok(())
-    }
-
-    async fn write_multiblock_block(&mut self, block: &[u8]) -> Result<(), BlockDeviceError> {
-        let lba = self.multiblock_lba.ok_or(BlockDeviceError::Unknown)?;
-        self.write_block(lba, block).await?;
-        self.multiblock_lba = Some(lba + 1);
-        Ok(())
-    }
-
-    async fn stop_multiblock_write(&mut self) -> Result<(), BlockDeviceError> {
-        self.multiblock_lba = None;
-        Ok(())
-    }
-
-    async fn prepare_multiblock_read(&mut self, lba: u32) -> Result<(), BlockDeviceError> {
-        self.multiblock_lba = Some(lba);
-        Ok(())
-    }
-
-    async fn read_multiblock_block(&mut self, block: &mut [u8]) -> Result<(), BlockDeviceError> {
-        let lba = self.multiblock_lba.ok_or(BlockDeviceError::Unknown)?;
-        self.read_block(lba, block).await?;
-        self.multiblock_lba = Some(lba + 1);
-        Ok(())
-    }
-
-    async fn stop_multiblock_read(&mut self) -> Result<(), BlockDeviceError> {
-        self.multiblock_lba = None;
+    async fn write(&mut self, lba: u32, blocks: &[Aligned<A4, [u8; BLOCK_SIZE]>]) -> Result<(), BlockDeviceError> {
+        for (lba, block) in (lba..).zip(blocks) {
+            self.data[lba as usize * BLOCK_SIZE..(lba as usize + 1) * BLOCK_SIZE].copy_from_slice(&block[..]);
+        }
         Ok(())
     }
 }
@@ -149,11 +115,10 @@ async fn main(_spawner: Spawner) {
     );
 
     // Create SCSI target for our block device
-    let mut scsi_buffer = [0u8; BLOCK_SIZE];
+    let mut scsi_buffer = [Aligned::<A4, _>([0u8; BLOCK_SIZE]); 1];
     let scsi = Scsi::new(
         RamBlockDevice {
             data: [0u8; BLOCK_SIZE * BLOCK_COUNT],
-            multiblock_lba: None,
         },
         &mut scsi_buffer,
         "Embassy",

@@ -22,35 +22,3 @@ pub enum BlockDeviceError {
     /// Unknown error
     Unknown,
 }
-
-pub trait BlockDevice {
-    /// Called for periodic `TEST UNIT READY` SCSI requests.
-    ///
-    /// Should return error if device is not ready (i.e. [BlockDeviceError::MediumRemoved] if SD card is not present).
-    fn status(&self) -> Result<(), BlockDeviceError>;
-
-    /// The number of bytes per block. This determines the size of the buffer passed
-    /// to read/write functions.
-    fn block_size(&self) -> Result<usize, BlockDeviceError>;
-
-    /// Number of blocks in device
-    async fn num_blocks(&self) -> Result<u32, BlockDeviceError>;
-
-    /// Read the block indicated by `lba` into the provided buffer
-    async fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError>;
-
-    /// Write the `block` buffer to the block indicated by `lba`
-    async fn write_block(&mut self, lba: u32, block: &[u8]) -> Result<(), BlockDeviceError>;
-
-    async fn prepare_multiblock_write(&mut self, lba: u32, blocks_count: u32) -> Result<(), BlockDeviceError>;
-
-    async fn write_multiblock_block(&mut self, block: &[u8]) -> Result<(), BlockDeviceError>;
-
-    async fn stop_multiblock_write(&mut self) -> Result<(), BlockDeviceError>;
-
-    async fn prepare_multiblock_read(&mut self, lba: u32) -> Result<(), BlockDeviceError>;
-
-    async fn read_multiblock_block(&mut self, block: &mut [u8]) -> Result<(), BlockDeviceError>;
-
-    async fn stop_multiblock_read(&mut self) -> Result<(), BlockDeviceError>;
-}
