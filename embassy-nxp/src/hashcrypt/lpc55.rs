@@ -42,7 +42,7 @@ pub enum AesError {
     OutputTooSmall,
 }
 
-fn wait_iv_counter() {
+fn _wait_iv_counter() {
     let mut tries = 0;
     while !pac::HASHCRYPT.status().read().neediv() {
         cortex_m::asm::nop();
@@ -53,16 +53,43 @@ fn wait_iv_counter() {
     }
 }
 
-fn feed_iv_counter(words: &[u8; 16]) {
+fn _feed_iv_counter(words: &[u8; 16]) {
     wait_data();
-    wait_iv_counter();
+    _wait_iv_counter();
 
     for chunk in words.chunks_exact(4) {
         feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
     }
 }
 
-fn process_blocks_padded<'o>(data: &[u8], output: &'o mut [u8]) {
+fn process_block(input: &[u8; 16], output: &mut [u8; 16], last: bool) {
+    if last {
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_streamlast(true);
+        });
+    }
+
+    for word in input.chunks_exact(4) {
+        feed_word(u32::from_le_bytes(word.try_into().unwrap()));
+    }
+
+    read_digest(4, output);
+}
+
+fn _process_blocks(data: &[u8], output: &mut [u8]) {
+    let nr_blocks = data.len() / 16;
+    let mut offset = 0;
+
+    for (i, block) in data.chunks_exact(16).enumerate() {
+        let block: &[u8; 16] = block.try_into().unwrap();
+        let last = if nr_blocks == i + 1 { true } else { false };
+        let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
+        process_block(block, out, last);
+        offset += 16
+    }
+}
+
+fn process_blocks_padded(data: &[u8], output: &mut [u8]) {
     let mut offset = 0;
     let mut blocks = data.chunks_exact(16);
     for block in &mut blocks {
@@ -189,7 +216,7 @@ impl<'d> GenericHashcrypt<'d> {
             _peri: self,
             key_size: None,
             key: None,
-            iv: None,
+            _iv: None,
         }
     }
 
@@ -213,7 +240,7 @@ impl<'d> GenericHashcrypt<'d> {
             _peri: self,
             key_size: None,
             key: None,
-            counter: None,
+            _counter: None,
         }
     }
 
@@ -434,7 +461,7 @@ pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
     key: Option<Key>,
-    iv: Option<[u8; 16]>,
+    _iv: Option<[u8; 16]>,
 }
 
 impl<'a, 'd> Aes for AesCbc<'a, 'd> {
@@ -448,11 +475,11 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
 }
 
 impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
-    fn encrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
+    fn encrypt_padded<'o>(&mut self, _data: &[u8], _output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
         todo!("Add function body");
     }
 
-    fn decrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
+    fn decrypt_padded<'o>(&mut self, _data: &[u8], _output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
         todo!("Add function body");
     }
 }
@@ -466,7 +493,7 @@ pub struct AesCtr<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
     key: Option<Key>,
-    counter: Option<[u8; 16]>,
+    _counter: Option<[u8; 16]>,
 }
 
 impl<'a, 'd> Aes for AesCtr<'a, 'd> {
