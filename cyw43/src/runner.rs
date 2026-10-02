@@ -18,7 +18,7 @@ use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
-use crate::util::try_until;
+use crate::util::{WriteBuffer, try_until};
 use crate::{Chip, ChipId, Core, WithContext, events};
 
 #[cfg(feature = "firmware-logs")]
@@ -51,8 +51,7 @@ pub(crate) trait SealedBus {
 
     async fn init<'a>(&mut self, bluetooth: bool) -> crate::Result<()>;
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
-    /// The first 4 bytes of this buffer are reserved for the cmd word
-    async fn wlan_write(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
+    async fn wlan_write(&mut self, buf: &mut WriteBuffer) -> crate::Result<()>;
     async fn bp_read(&mut self, addr: u32, data: &mut [u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
     async fn bp_write(&mut self, addr: u32, data: &[u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
     async fn bp_read8(&mut self, addr: u32) -> u8;
@@ -110,10 +109,9 @@ async fn wlan_read(
     bus.wlan_read(&mut buf[start..][..len]).await.ctx("wlan_read failed")
 }
 
-/// The first 4 bytes of this buffer are reserved for the cmd word
-async fn wlan_write(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>, len: usize) -> crate::Result<()> {
+async fn wlan_write(bus: &mut impl Bus, buf: &mut WriteBuffer) -> crate::Result<()> {
     wake_bus(bus).await?;
-    bus.wlan_write(&mut buf[..4 + len]).await.ctx("wlan_write failed")
+    bus.wlan_write(buf).await.ctx("wlan_write failed")
 }
 
 /// Driver communicating with the WiFi chip.
@@ -813,7 +811,8 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     Either4::Second(packet) => {
                         trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
-                        let buf8 = &mut buf[4..];
+                        let write_buffer = WriteBuffer::new(&mut buf);
+                        let buf8 = write_buffer.buf();
 
                         // There MUST be 2 bytes of padding between the SDPCM and BDC headers.
                         // And ONLY for data packets!
@@ -860,7 +859,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-                        let _ = wlan_write(&mut self.bus, &mut buf, total_len).await;
+                        let _ = wlan_write(&mut self.bus, &mut write_buffer[..total_len]).await;
                         drop(packet);
                         self.check_status(&mut buf).await;
                     }
@@ -1346,7 +1345,8 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         data: &[u8],
         buf: &mut Aligned<A4, [u8; 4 + 2048]>,
     ) {
-        let buf8 = &mut buf[4..];
+        let write_buffer = WriteBuffer::new(buf);
+        let buf8 = write_buffer.buf();
 
         let total_len = SdpcmHeader::SIZE + CdcHeader::SIZE + data.len();
 
@@ -1383,6 +1383,6 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-        let _ = wlan_write(&mut self.bus, buf, total_len).await;
+        let _ = wlan_write(&mut self.bus, &mut write_buffer[..total_len]).await;
     }
 }
