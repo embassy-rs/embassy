@@ -365,6 +365,11 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
             None => return Err(AesError::KeyNeeded),
         };
 
+        let padded_len = (data.len() / 16 + 1) * 16;
+        if output.len() < padded_len {
+            return Err(AesError::OutputTooSmall);
+        }
+
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesdecrypt(Aesdecrypt::Encrypt);
             w.set_streamlast(true);
@@ -373,11 +378,6 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
         pac::HASHCRYPT.ctrl().modify(|w| {
             w.set_new_hash(true);
         });
-
-        let padded_len = (data.len() / 16 + 1) * 16;
-        if output.len() < padded_len {
-            return Err(AesError::OutputTooSmall);
-        }
 
         feed_key(key);
 
