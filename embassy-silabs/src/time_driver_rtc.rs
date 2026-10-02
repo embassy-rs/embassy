@@ -14,7 +14,7 @@ use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::{CMU, RTC};
+use crate::pac::RTC;
 use crate::peripherals;
 
 /// Half the 24-bit counter range.
@@ -55,18 +55,15 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 #[cfg_attr(not(feature = "rt"), allow(dead_code))]
 impl RtcDriver {
     fn init(&'static self, _cs: CriticalSection, irq_prio: crate::interrupt::Priority) {
-        // `cmu::init_clocks` has turned on the LE interface and LFACLK.
+        // `cmu::init_clocks` has started LFACLK.
         crate::cmu::enable::<peripherals::RTC>();
 
-        // The RTC runs on LFACLK / LFAPRESC0.RTC. The metapac kernel clock
-        // of the RTC is LFACLK and does not include this prescaler, so set
-        // it to 1.
-        while CMU.syncbusy().read().lfapresc0() {}
-        CMU.lfapresc0().modify(|w| w.set_rtc(crate::pac::cmu::vals::Rtc::Div1));
-        let lfaclk = crate::cmu::frequency::<peripherals::RTC>().0 as u64;
+        // A bootloader can have changed `LFAPRESC0.RTC`.
+        crate::cmu::set_divider::<peripherals::RTC>(1);
+        let rtc_clk = crate::cmu::frequency::<peripherals::RTC>().0 as u64;
         assert!(
-            lfaclk == embassy_time_driver::TICK_HZ,
-            "time-driver-rtc: LFACLK is not TICK_HZ (32768 Hz)"
+            rtc_clk == embassy_time_driver::TICK_HZ,
+            "time-driver-rtc: the RTC clock is not TICK_HZ (32768 Hz)"
         );
 
         // Stop the RTC. A disable and enable restarts the counter at 0.

@@ -1,5 +1,5 @@
 [target.thumbv7m-none-eabi]
-runner = "probe-rs run --chip EFM32GG990F1024"
+runner = "probe-rs run --chip EFM32GG390F1024"
 rustflags = [
   "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=-Tdevice.x",

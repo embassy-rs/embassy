@@ -20,7 +20,8 @@ use std::{env, fs};
 
 use silabs_metapac::metadata::ir::{BlockItemInner, IR};
 use silabs_metapac::metadata::{
-    METADATA, Peripheral, PeripheralCmuKernelClock, PeripheralCmuRegister, PinRoute, PinRouteEnable, Series,
+    ClockEnable, METADATA, Peripheral, PeripheralCmuKernelClock, PeripheralCmuRegister, PinRoute, PinRouteEnable,
+    Series,
 };
 
 /// Returns `true` on Series 0 (EFM32GG) and `false` on Series 2.
@@ -137,15 +138,13 @@ fn main() {
     }
     writeln!(out, ");\n").unwrap();
 
-    // Emit the CMU impls for every singleton with a CMU gate in the
-    // metadata (`cmu`, like stm32-metapac's `rcc`):
-    // - `enable_bus_clock()` / `disable_bus_clock()` write the gate's SET /
-    //   CLR alias: one write, no read-modify-write race. A gate that several
-    //   singletons share gets a refcount, like embassy-stm32: the first
-    //   enable sets it and the last disable clears it.
-    // - `frequency()` returns the kernel clock. A fixed clock reads the
-    //   frozen `Clocks` table. A mux reads the select field at run time and
-    //   maps each enum variant to a `Clocks` field.
+    // CMU impls for each singleton with a CMU gate.
+    // - Series 2 writes the SET or CLR alias, which has no read-modify-write race. Series 0 has no
+    //   alias, so it uses a critical section.
+    // - A gate that several singletons share has a refcount.
+    // - `bus_enable` (Series 0 `hfcoreclken0.le`) is a shared gate. It goes on first and off last.
+    // - `CMU.SYNCBUSY` clears only while the LF branch runs, so the code asserts that the branch
+    //   has a clock before it waits.
     let cmu_ir = METADATA
         .peripherals
         .iter()
@@ -158,15 +157,28 @@ fn main() {
         .filter(|p| singletons.iter().any(|s| s == p.name))
         .filter_map(|p| {
             let cmu = p.cmu.as_ref()?;
-            Some((p, cmu, cmu.enable.as_ref()?))
+            (cmu.enable.is_some() || cmu.bus_enable.is_some()).then_some((p, cmu))
         })
         .collect();
     let mut gate_count: BTreeMap<(&str, &str), usize> = BTreeMap::new();
-    for (_, _, en) in &gated {
-        *gate_count.entry((en.register, en.field)).or_default() += 1;
+    for (_, cmu) in &gated {
+        if let Some(en) = &cmu.enable {
+            *gate_count.entry((en.register, en.field)).or_default() += 1;
+        }
     }
     let refcount_name = |reg: &str, field: &str| format!("{reg}_{field}").to_ascii_uppercase();
-    let shared: Vec<_> = gate_count.iter().filter(|(_, n)| **n > 1).map(|(k, _)| *k).collect();
+    let mut shared: BTreeSet<(&str, &str)> = gate_count.iter().filter(|(_, n)| **n > 1).map(|(k, _)| *k).collect();
+    for (_, cmu) in &gated {
+        if let Some(b) = &cmu.bus_enable {
+            assert!(
+                !gate_count.contains_key(&(b.register, b.field)),
+                "CMU gate {}.{} is both a bus enable and a peripheral gate",
+                b.register,
+                b.field
+            );
+            shared.insert((b.register, b.field));
+        }
+    }
     if !shared.is_empty() {
         writeln!(out, "mod cmu_refcount {{").unwrap();
         for (reg, field) in &shared {
@@ -181,22 +193,55 @@ fn main() {
         writeln!(out, "}}\n").unwrap();
     }
     let mut muxes: BTreeSet<(String, String, String)> = BTreeSet::new();
-    for (p, cmu, en) in gated {
-        let (set, clr) = if series0 {
-            gate_s0(cmu_ir, en.register, en.field)
-        } else {
-            (
-                format!(
-                    "crate::pac::CMU.{}_set().write(|w| w.set_{}(true));",
-                    en.register, en.field
-                ),
-                format!(
-                    "crate::pac::CMU.{}_clr().write(|w| w.set_{}(true));",
-                    en.register, en.field
-                ),
-            )
+    for (p, cmu) in gated {
+        // `(set, clear)` statements for one gate, without refcount.
+        let gate_writes = |en: &ClockEnable| -> (String, String) {
+            if series0 {
+                let wait = match en.sync_busy {
+                    Some(sync) => {
+                        let branch = match &cmu.kernel_clock {
+                            Some(PeripheralCmuKernelClock::Clock(c)) => *c,
+                            other => panic!(
+                                "{}: the gate {}.{} waits for SYNCBUSY, but the kernel clock {other:?} names no LF branch",
+                                p.name, en.register, en.field
+                            ),
+                        };
+                        format!(
+                            "assert!(unsafe {{ crate::cmu::get_freqs() }}.{branch}.is_some(), \
+                             \"{name}: {branch} has no clock, so CMU.SYNCBUSY.{sync} never clears\");\n            \
+                             while crate::pac::CMU.syncbusy().read().{sync}() {{}}\n            ",
+                            name = p.name,
+                        )
+                    }
+                    None => String::new(),
+                };
+                let write = |on: bool| {
+                    format!(
+                        "critical_section::with(|_| {{\n            {wait}crate::pac::CMU.{}().modify(|w| w.set_{}({on}));\n        }});",
+                        en.register, en.field
+                    )
+                };
+                (write(true), write(false))
+            } else {
+                assert!(en.sync_busy.is_none(), "{}: Series 2 gate with sync_busy", p.name);
+                (
+                    format!(
+                        "crate::pac::CMU.{}_set().write(|w| w.set_{}(true));",
+                        en.register, en.field
+                    ),
+                    format!(
+                        "crate::pac::CMU.{}_clr().write(|w| w.set_{}(true));",
+                        en.register, en.field
+                    ),
+                )
+            }
         };
-        let (enable, disable) = if shared.contains(&(en.register, en.field)) {
+        // `(enable, disable)` for one gate, with a refcount when the gate is shared.
+        let gate_code = |en: &ClockEnable| -> (String, String) {
+            let (set, clr) = gate_writes(en);
+            if !shared.contains(&(en.register, en.field)) {
+                return (set, clr);
+            }
             let count = format!(
                 "let count = crate::cmu_refcount::{}.borrow(cs);",
                 refcount_name(en.register, en.field)
@@ -216,16 +261,54 @@ fn main() {
                     name = p.name,
                 ),
             )
-        } else {
-            (set, clr)
         };
-        let frequency = match &cmu.kernel_clock {
-            None => format!("panic!(\"peripheral '{}' has no kernel clock\")", p.name),
-            Some(PeripheralCmuKernelClock::Clock(clock)) => clock_expr(p.name, clock, 1),
+        let (mut enable, mut disable) = (String::new(), String::new());
+        let own = cmu.enable.as_ref().map(gate_code);
+        let bus = cmu.bus_enable.as_ref().map(gate_code);
+        if let Some((on, _)) = &bus {
+            enable.push_str(on);
+        }
+        if let Some((on, off)) = &own {
+            if !enable.is_empty() {
+                enable.push_str("\n        ");
+            }
+            enable.push_str(on);
+            disable.push_str(off);
+        }
+        if let Some((_, off)) = &bus {
+            if !disable.is_empty() {
+                disable.push_str("\n        ");
+            }
+            disable.push_str(off);
+        }
+        let kernel = match &cmu.kernel_clock {
+            None => None,
+            Some(PeripheralCmuKernelClock::Clock(clock)) => Some(clock_expr(p.name, clock, 1)),
             Some(PeripheralCmuKernelClock::Mux(mux)) => {
                 let enum_name = mux_enum(cmu_ir, mux);
                 muxes.insert((mux.register.to_string(), mux.field.to_string(), enum_name.clone()));
-                mux_expr(p.name, cmu_ir, mux, &enum_name)
+                Some(mux_expr(p.name, cmu_ir, mux, &enum_name))
+            }
+        };
+        let frequency = match (kernel, &cmu.prescaler) {
+            (None, _) => format!("panic!(\"peripheral '{}' has no kernel clock\")", p.name),
+            (Some(k), None) => k,
+            (Some(k), Some(presc)) => format!(
+                "let f: crate::time::Hertz = {k};\n        f / {}",
+                prescaler_read_expr(cmu_ir, presc)
+            ),
+        };
+        let set_divider = match &cmu.prescaler {
+            None => String::new(),
+            Some(presc) => {
+                let branch = match &cmu.kernel_clock {
+                    Some(PeripheralCmuKernelClock::Clock(c)) => *c,
+                    other => panic!("{}: a prescaler on the kernel clock {other:?}", p.name),
+                };
+                format!(
+                    "    fn set_divider(div: u32) {{\n        {}\n    }}\n",
+                    prescaler_write_code(cmu_ir, p.name, presc, branch)
+                )
             }
         };
         writeln!(
@@ -239,7 +322,7 @@ fn main() {
              }}\n    \
              fn frequency() -> crate::time::Hertz {{\n        \
              {frequency}\n    \
-             }}\n}}\nimpl crate::cmu::CmuPeripheral for peripherals::{name} {{}}\n",
+             }}\n{set_divider}}}\nimpl crate::cmu::CmuPeripheral for peripherals::{name} {{}}\n",
             name = p.name,
         )
         .unwrap();
@@ -253,6 +336,7 @@ fn main() {
         let mux = PeripheralCmuRegister {
             register,
             field: "clksel",
+            sync_busy: None,
         };
         let Some(enum_name) = find_mux_enum(cmu_ir, &mux) else {
             continue;
@@ -300,6 +384,7 @@ fn main() {
     make_table(&mut macros, "foreach_pin", &tables.pins);
     fs::write(out_dir.join("_macros.rs"), &macros).expect("write _macros.rs");
 
+    write_gpio_exti(&mut out);
     if series0 {
         write_usart_s0_impls(&mut out);
     } else {
@@ -343,17 +428,25 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 }
 
-/// `Clocks` fields that `cmu::init_clocks` fills in, for the chip's series.
-/// A mux source that is not in this list (an external pin, CLKIN0, a PLL)
-/// makes `frequency()` panic when the mux selects it.
-fn clocks() -> &'static [&'static str] {
-    if series0() { CLOCKS_S0 } else { CLOCKS_S2 }
+/// Returns the `Clocks` field names.
+///
+/// The fields are the clocks that `cmu::init_clocks` sets, and each clock in `METADATA.clocks`
+/// (kernel clocks and mux sources).
+///
+/// A field that `init_clocks` does not set stays `None`, for example an external pin (`pcnts0`) or
+/// a PLL. `frequency()` panics if a peripheral uses it.
+fn clocks() -> Vec<&'static str> {
+    let init = if series0() { INIT_CLOCKS_S0 } else { INIT_CLOCKS_S2 };
+    let mut all: Vec<&'static str> = init.iter().chain(METADATA.clocks).copied().collect();
+    all.sort_unstable();
+    all.dedup();
+    all
 }
 
-/// Series 0 `Clocks` fields. The metapac `kernel_clock` names are
-/// `hfperclk`, `hfcoreclk`, `lfaclk` and `lfbclk`. The PCNT mux adds
-/// `lfaclk`.
-const CLOCKS_S0: &[&str] = &[
+/// Series 0 clocks that `cmu::init_clocks` sets.
+///
+/// Oscillators and HFCLK are not in `METADATA.clocks`, because no peripheral uses them directly.
+const INIT_CLOCKS_S0: &[&str] = &[
     "hfrco",
     "hfxo",
     "lfrco",
@@ -365,8 +458,8 @@ const CLOCKS_S0: &[&str] = &[
     "lfbclk",
 ];
 
-/// Series 2 `Clocks` fields.
-const CLOCKS_S2: &[&str] = &[
+/// Series 2 clocks that `cmu::init_clocks` sets. `fill_group_freqs` sets the group clock fields.
+const INIT_CLOCKS_S2: &[&str] = &[
     "hfxo",
     "hfrcodpll",
     "hfrcoem23",
@@ -378,12 +471,76 @@ const CLOCKS_S2: &[&str] = &[
     "hclk",
     "pclk",
     "lspclk",
-    "em01grpaclk",
-    "em01grpbclk",
-    "em01grpcclk",
-    "em23grpaclk",
-    "em4grpaclk",
 ];
+
+/// Returns the enum for a prescaler field and its `(variant, divider)` pairs.
+///
+/// Each variant is `Div<N>`, where N is the divider (metapac `PeripheralCmu.prescaler`).
+fn prescaler_enum(ir: &IR, presc: &PeripheralCmuRegister) -> (String, Vec<(&'static str, u32)>) {
+    let enum_name = find_mux_enum(ir, presc).unwrap_or_else(|| {
+        panic!(
+            "CMU has no prescaler field {}.{} with an enum",
+            presc.register, presc.field
+        )
+    });
+    let e = ir.enums.iter().find(|e| e.name == enum_name).unwrap();
+    let divs = e
+        .variants
+        .iter()
+        .map(|v| {
+            let n = v
+                .name
+                .strip_prefix("Div")
+                .and_then(|n| n.parse().ok())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "prescaler {}.{}: variant {} is not Div<N>",
+                        presc.register, presc.field, v.name
+                    )
+                });
+            (v.name, n)
+        })
+        .collect();
+    (enum_name, divs)
+}
+
+/// Returns the divider that a prescaler field selects at run time, as a `u32` expression.
+fn prescaler_read_expr(ir: &IR, presc: &PeripheralCmuRegister) -> String {
+    let (enum_name, divs) = prescaler_enum(ir, presc);
+    let mut arms = String::new();
+    for (v, n) in divs {
+        write!(arms, "crate::pac::cmu::vals::{enum_name}::{v} => {n}u32, ").unwrap();
+    }
+    format!(
+        "match crate::pac::CMU.{}().read().{}() {{ {arms}#[allow(unreachable_patterns)] _ => unreachable!() }}",
+        presc.register, presc.field
+    )
+}
+
+/// Returns code that writes the prescaler field for divider `div`.
+///
+/// The code asserts that the LF branch runs, then waits for the field's `SYNCBUSY` bit.
+fn prescaler_write_code(ir: &IR, name: &str, presc: &PeripheralCmuRegister, branch: &str) -> String {
+    let (enum_name, divs) = prescaler_enum(ir, presc);
+    let mut arms = String::new();
+    for (v, n) in divs {
+        write!(arms, "{n} => crate::pac::cmu::vals::{enum_name}::{v}, ").unwrap();
+    }
+    let wait = match presc.sync_busy {
+        Some(sync) => format!(
+            "assert!(unsafe {{ crate::cmu::get_freqs() }}.{branch}.is_some(), \
+             \"{name}: {branch} has no clock, so CMU.SYNCBUSY.{sync} never clears\");\n            \
+             while crate::pac::CMU.syncbusy().read().{sync}() {{}}\n            "
+        ),
+        None => String::new(),
+    };
+    format!(
+        "let v = match div {{ {arms}_ => panic!(\"{name}: the prescaler has no divider {{}}\", div) }};\n        \
+         critical_section::with(|_| {{\n            {wait}crate::pac::CMU.{reg}().modify(|w| w.set_{field}(v));\n        }});",
+        reg = presc.register,
+        field = presc.field,
+    )
+}
 
 /// Returns `clock` frequency divided by `div`, read from the frozen `Clocks` table.
 fn clock_expr(peripheral: &str, clock: &str, div: u32) -> String {
@@ -748,6 +905,52 @@ fn write_eusart_impls(out: &mut String) {
     writeln!(out).unwrap();
 }
 
+/// Writes GPIO external interrupt data for `gpio::exti`.
+///
+/// The data is the line count, the `GPIO_EVEN` and `GPIO_ODD` IRQs, and their handlers with the
+/// `rt` feature. The line count is the width of `EXTIRISE.EXTIRISE`: 16 on Series 0 and MG26, and
+/// 12 on MG22, MG24 and FG25.
+fn write_gpio_exti(out: &mut String) {
+    let gpio = METADATA
+        .peripherals
+        .iter()
+        .find(|p| p.name == "GPIO")
+        .expect("chip has no GPIO");
+    let lines = field_bit_size(gpio.ir, "extirise", "extirise")
+        .unwrap_or_else(|| panic!("GPIO IR has no EXTIRISE.EXTIRISE field"));
+    assert_eq!(
+        field_bit_size(gpio.ir, "extifall", "extifall"),
+        Some(lines),
+        "GPIO EXTIFALL and EXTIRISE have different widths"
+    );
+    assert!(lines <= 16, "GPIO has {lines} EXTI lines, more than 16");
+    let (even, odd) = (irq(gpio, "EVEN"), irq(gpio, "ODD"));
+    writeln!(
+        out,
+        "pub(crate) mod _generated_exti {{\n    \
+         /// Number of GPIO external interrupt lines.\n    \
+         pub(crate) const LINES: usize = {lines};\n    \
+         pub(crate) const EVEN_IRQ: crate::interrupt::Interrupt = crate::interrupt::Interrupt::{even};\n    \
+         pub(crate) const ODD_IRQ: crate::interrupt::Interrupt = crate::interrupt::Interrupt::{odd};\n\
+         }}\n\n\
+         #[cfg(feature = \"rt\")]\n#[interrupt]\nfn {even}() {{\n    crate::gpio::exti::on_interrupt(0x5555);\n}}\n\n\
+         #[cfg(feature = \"rt\")]\n#[interrupt]\nfn {odd}() {{\n    crate::gpio::exti::on_interrupt(0xAAAA);\n}}\n"
+    )
+    .unwrap();
+}
+
+/// Returns the width of `register.field` in the first block of `ir` that has the register.
+fn field_bit_size(ir: &IR, register: &str, field: &str) -> Option<u32> {
+    ir.blocks.iter().find_map(|b| {
+        let item = b.items.iter().find(|i| i.name == register)?;
+        let BlockItemInner::Register(reg) = &item.inner else {
+            return None;
+        };
+        let fs = ir.fieldsets.iter().find(|f| Some(f.name) == reg.fieldset)?;
+        fs.fields.iter().find(|f| f.name == field).map(|f| f.bit_size)
+    })
+}
+
 /// Checks that a route's enable field is the one that the driver writes.
 fn check_enable(peripheral: &str, signal: &str, enable: &Option<PinRouteEnable>, register: &str, field: &str) {
     match enable {
@@ -756,42 +959,6 @@ fn check_enable(peripheral: &str, signal: &str, enable: &Option<PinRouteEnable>,
             panic!("{peripheral} {signal}: the metadata enable is {other:?}, but the driver sets `{register}.{field}`")
         }
     }
-}
-
-/// Series 0 CMU gate writes: `(enable, disable)`. The gate registers have
-/// no SET/CLR aliases, so each write is a read-modify-write in a critical
-/// section. A gate register in the LF domain (`lfaclken0`, `lfbclken0`) has
-/// a `CMU.SYNCBUSY` field of the same name. The write waits until that
-/// field is clear, because a write while it is set is lost.
-fn gate_s0(ir: &IR, register: &str, field: &str) -> (String, String) {
-    let wait = if has_field(ir, "Cmu", "syncbusy", register) {
-        format!("while crate::pac::CMU.syncbusy().read().{register}() {{}}\n            ")
-    } else {
-        String::new()
-    };
-    let write = |on: bool| {
-        format!(
-            "critical_section::with(|_| {{\n            {wait}crate::pac::CMU.{register}().modify(|w| w.set_{field}({on}));\n        }});"
-        )
-    };
-    (write(true), write(false))
-}
-
-/// The register `register` of block `block` has a field `field`.
-fn has_field(ir: &IR, block: &str, register: &str, field: &str) -> bool {
-    let Some(b) = ir.blocks.iter().find(|b| b.name == block) else {
-        return false;
-    };
-    let Some(item) = b.items.iter().find(|i| i.name == register) else {
-        return false;
-    };
-    let BlockItemInner::Register(reg) = &item.inner else {
-        return false;
-    };
-    ir.fieldsets
-        .iter()
-        .find(|f| Some(f.name) == reg.fieldset)
-        .is_some_and(|fs| fs.fields.iter().any(|f| f.name == field))
 }
 
 /// Writes `impl_usart!` for each Series 0 USART and UART.
@@ -946,12 +1113,12 @@ fn irq(p: &Peripheral, signal: &str) -> &'static str {
         .unwrap_or_else(|| panic!("{} has no {signal} interrupt", p.name))
 }
 
-/// Skip kinds that don't make sense as embassy peripheral singletons.
-/// Conservative — only DEVINFO is dropped (read-only chip identity, not
-/// a controllable peripheral). Security / mailbox / config peripherals
-/// stay in so HALs can grow drivers for them without revisiting this list.
+/// Returns `true` for peripheral kinds that get no singleton.
+///
+/// These are DEVINFO and the Series 0 ROMTABLE, which only hold read-only chip identity. Other
+/// kinds keep a singleton for future drivers.
 fn skip_peripheral_kind(kind: &str) -> bool {
-    matches!(kind, "devinfo")
+    matches!(kind, "devinfo" | "romtable")
 }
 
 enum GetOneError {

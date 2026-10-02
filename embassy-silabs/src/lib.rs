@@ -5,8 +5,8 @@
 
 //! Embassy HAL for Silicon Labs EFR32 (Series 2) and EFM32GG (Series 0) microcontrollers.
 //!
-//! Series 0 support is initial: CMU, GPIO, the RTC time driver
-//! (`time-driver-rtc`) and a blocking USART.
+//! Series 0 support covers CMU, GPIO with async edge waits, the RTC time driver (`time-driver-rtc`)
+//! and a blocking or async USART.
 
 #[cfg(not(any(silabs_series = "0", silabs_series = "2")))]
 compile_error!("embassy-silabs supports Series 0 and Series 2 chips only");
@@ -132,6 +132,10 @@ pub struct Config {
     /// Series 0 has no such bit, so this field exists only on Series 2.
     #[cfg(silabs_series = "2")]
     pub enable_debug_during_sleep: bool,
+    /// Priority of the GPIO interrupts (`GPIO_EVEN`, `GPIO_ODD`). Default `P0`.
+    ///
+    /// The GPIO `wait_for_*` functions use these interrupts.
+    pub gpio_interrupt_priority: crate::interrupt::Priority,
     /// Priority of the time driver interrupt. Default `P0`.
     #[cfg(feature = "_time-driver")]
     pub time_interrupt_priority: crate::interrupt::Priority,
@@ -143,6 +147,7 @@ impl Default for Config {
             cmu: cmu::Config::new(),
             #[cfg(silabs_series = "2")]
             enable_debug_during_sleep: true,
+            gpio_interrupt_priority: crate::interrupt::Priority::P0,
             #[cfg(feature = "_time-driver")]
             time_interrupt_priority: crate::interrupt::Priority::P0,
         }
@@ -165,6 +170,7 @@ pub fn init(config: Config) -> Peripherals {
             .modify(|w| w.set_em2dbgen(config.enable_debug_during_sleep));
 
         cmu::init_clocks(cs, config.cmu);
+        gpio::init(config.gpio_interrupt_priority);
 
         #[cfg(feature = "_time-driver")]
         time_driver::init(cs, config.time_interrupt_priority);

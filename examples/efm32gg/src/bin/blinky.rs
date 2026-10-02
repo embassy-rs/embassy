@@ -1,5 +1,9 @@
-//! Blinky on the EFM32GG STK3700 with reset-default clocks (HFRCO 14 MHz).
-//! LED0 is on PE2 and LED1 is on PE3. The time driver is the RTC on LFRCO.
+//! Blinky on the Bosch XDK110 (EFM32GG390F1024) with reset-default clocks.
+//!
+//! HFRCO runs at 14 MHz, and the RTC time driver runs on LFRCO.
+//!
+//! Connect an LED with a resistor from PA1 (extension-bus pin A12) to GND. No public document gives
+//! the on-board LED pins (see `README.md`).
 #![no_std]
 #![no_main]
 
@@ -15,13 +19,11 @@ async fn main(_spawner: Spawner) {
     let p = embassy_silabs::init(embassy_silabs::Config::default());
     info!("Hello World!");
 
-    let mut led0 = Output::new(p.PE2, Level::Low, Speed::Medium);
-    let mut led1 = Output::new(p.PE3, Level::High, Speed::Medium);
+    let mut led = Output::new(p.PA1, Level::Low, Speed::Medium);
 
     loop {
         info!("blink");
-        led0.toggle();
-        led1.toggle();
+        led.toggle();
         Timer::after_millis(500).await;
     }
 }

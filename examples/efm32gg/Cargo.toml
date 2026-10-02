@@ -6,20 +6,30 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-silabs   = { path = "../../embassy-silabs", features = ["defmt", "efm32gg990f1024", "time-driver-rtc", "unstable-pac"] }
+embassy-silabs   = { path = "../../embassy-silabs", features = ["defmt", "efm32gg390f1024", "time-driver-rtc", "unstable-pac"] }
 embassy-sync     = { path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 # The tick rate comes from `time-driver-rtc` (32768 Hz).
 embassy-time     = { path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-futures  = { path = "../../embassy-futures" }
-# The linker script comes from the metapac (`memory-x`).
-silabs-metapac   = { version = "0.6", features = ["memory-x"] }
+# The default linker script comes from the metapac (feature `memory-x`).
+silabs-metapac   = { version = "0.6" }
 
 cortex-m         = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt      = "0.7"
 defmt            = "1"
 defmt-rtt        = "1"
 panic-probe      = { version = "1", features = ["print-defmt"] }
+
+
+[features]
+default = ["memory-x"]
+## Link at flash address 0 with the metapac `memory.x`, for a J-Link debug probe on the XDK110.
+memory-x = ["silabs-metapac/memory-x"]
+## Link for the XDK110 USB bootloader, with the application at 0x00010000 (`memory-xdk110.x`).
+## Build with `--no-default-features --features xdk110-bootloader`. cortex-m-rt then sets the stack
+## pointer and VTOR at reset, because the bootloader jumps to the application.
+xdk110-bootloader = ["cortex-m-rt/set-sp", "cortex-m-rt/set-vtor"]
 
 [profile.release]
 debug = 2
