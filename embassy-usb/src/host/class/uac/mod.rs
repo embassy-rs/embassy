@@ -38,16 +38,16 @@ use core::future::{Future, poll_fn};
 use core::pin::pin;
 use core::task::Poll;
 
+use crate::control::Request;
 use aligned::{A4, Aligned};
 use embassy_time::{Duration, Instant, Timer};
-use embassy_usb::control::Request;
 use embassy_usb_driver::host::{HostError, PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use heapless::{String, Vec};
 
-use crate::control::{ControlType, Recipient, RequestType, SetupPacket};
-use crate::descriptor::DEFAULT_MAX_DESCRIPTOR_SIZE;
-use crate::handler::{EnumerationInfo, RegisterError};
+use crate::host::control::{ControlType, Recipient, RequestType, SetupPacket};
+use crate::host::descriptor::DEFAULT_MAX_DESCRIPTOR_SIZE;
+use crate::host::handler::{EnumerationInfo, RegisterError};
 
 const MAX_RANGES: usize = 16;
 // 256 is the maximum buffer size that can be used to store a string
@@ -350,7 +350,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
     /// Returns the string as a UTF-8 encoded string, or an error if the request fails.
     pub async fn get_string(
         &mut self,
-        index: crate::descriptor::StringIndex,
+        index: crate::host::descriptor::StringIndex,
         lang_id: u16,
     ) -> Result<String<MAX_STRING_LENGTH>, RequestError> {
         // First, get just the length

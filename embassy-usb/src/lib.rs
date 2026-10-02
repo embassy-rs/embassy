@@ -17,6 +17,10 @@ mod descriptor_reader;
 pub mod msos;
 pub mod types;
 
+/// USB host support.
+/// USB host support.
+pub mod host;
+
 mod config {
     #![allow(unused)]
     include!(concat!(env!("OUT_DIR"), "/config.rs"));

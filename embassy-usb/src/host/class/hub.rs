@@ -7,19 +7,19 @@
 use core::num::NonZeroU8;
 use core::ops::Deref;
 
+use crate::control::Request;
 use bitflags::bitflags;
 use embassy_time::Timer;
-use embassy_usb::control::Request;
 use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 
-use crate::control::{ControlPipeExt, ControlType, Recipient, RequestType, SetupPacket};
-use crate::descriptor::{
+use crate::host::control::{ControlPipeExt, ControlType, Recipient, RequestType, SetupPacket};
+use crate::host::descriptor::{
     DEFAULT_MAX_DESCRIPTOR_SIZE, DescriptorError, InterfaceDescriptor, USBDescriptor, VariableSizeDescriptor,
     WritableDescriptor,
 };
-use crate::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
-use crate::{BusHandle, EnumerationError};
+use crate::host::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
+use crate::host::{BusHandle, EnumerationError};
 
 /// How many times a port is polled for `ENABLED` after a reset before
 /// enumeration gives up waiting and proceeds with the speed it has.
@@ -108,7 +108,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             enum_info.split(),
         )?;
 
-        let desc = crate::handler::retry_descriptor(async || {
+        let desc = crate::host::handler::retry_descriptor(async || {
             control_channel
                 .request_descriptor::<HubDescriptor, { HubDescriptor::BUF_SIZE }>(0, true)
                 .await

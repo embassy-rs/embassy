@@ -7,8 +7,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::HostDriver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb_host::class::cdc_acm::{CdcAcmHost, LineCoding};
-use embassy_usb_host::{BusRoute, BusState};
+use embassy_usb::host::class::cdc_acm::{CdcAcmHost, LineCoding};
+use embassy_usb::host::{BusRoute, BusState};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -48,7 +48,7 @@ async fn main(_spawner: Spawner) {
     let driver = HostDriver::new_fs_host(p.USB_OTG_FS, p.PA12, p.PA11, Irqs);
 
     static BUS_STATE: BusState = BusState::new();
-    let (mut bus_ctrl, bus) = embassy_usb_host::bus(driver, &BUS_STATE);
+    let (mut bus_ctrl, bus) = embassy_usb::host::bus(driver, &BUS_STATE);
     info!("USB host initialized, waiting for device...");
 
     loop {

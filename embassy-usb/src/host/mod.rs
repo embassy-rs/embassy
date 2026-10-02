@@ -1,7 +1,9 @@
-#![no_std]
+//! Async USB host stack.
+//!
+//! This module provides USB host enumeration, descriptor parsing, and class driver support on top of
+//! the [`embassy_usb_driver::host`] hardware traits.
+
 #![allow(async_fn_in_trait)]
-#![doc = include_str!("../README.md")]
-#![warn(missing_docs)]
 
 /// Get max value in const context.
 macro_rules! const_max {
@@ -34,10 +36,10 @@ use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, UsbHostAllocat
 pub use embassy_usb_driver::host::{SplitInfo, SplitSpeed};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
-use crate::control::{ControlPipeExt, SetupPacket};
-use crate::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
-pub use crate::handler::BusRoute;
-use crate::handler::EnumerationInfo;
+use crate::host::control::{ControlPipeExt, SetupPacket};
+use crate::host::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
+pub use crate::host::handler::BusRoute;
+use crate::host::handler::EnumerationInfo;
 
 /// USB host enumeration error.
 #[derive(Debug)]
@@ -313,7 +315,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
     ) -> Result<(EnumerationInfo, usize), EnumerationError> {
         use embassy_time::Timer;
 
-        use crate::descriptor::DeviceDescriptorPartial;
+        use crate::host::descriptor::DeviceDescriptorPartial;
 
         // Serialise enumerations against other concurrent callers on
         // the same bus: the default (address 0) state is bus-global.
@@ -392,7 +394,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
         // arm straight out of the loop — so the read with the largest
         // retry budget in the function was also the one that gave up
         // first on the most likely failure.
-        let dev_desc = crate::handler::retry_descriptor(async || {
+        let dev_desc = crate::host::handler::retry_descriptor(async || {
             ch.request_descriptor::<DeviceDescriptor, { DeviceDescriptor::BUF_SIZE }>(0, false)
                 .await
         })
@@ -405,8 +407,10 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
 
         // Step 4: Get configuration descriptor header (9 bytes).
         let setup = SetupPacket::get_config_descriptor(0, 9);
-        let n = crate::handler::retry_descriptor(async || ch.control_in(&setup.to_bytes(), &mut config_buf[..9]).await)
-            .await?;
+        let n = crate::host::handler::retry_descriptor(async || {
+            ch.control_in(&setup.to_bytes(), &mut config_buf[..9]).await
+        })
+        .await?;
 
         if n < 9 {
             return Err(EnumerationError::InvalidDescriptor);
@@ -422,7 +426,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
 
         // Get full configuration descriptor.
         let setup = SetupPacket::get_config_descriptor(0, total_len as u16);
-        let n = crate::handler::retry_descriptor(async || {
+        let n = crate::host::handler::retry_descriptor(async || {
             ch.control_in(&setup.to_bytes(), &mut config_buf[..total_len]).await
         })
         .await?;

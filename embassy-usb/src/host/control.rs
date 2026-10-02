@@ -2,12 +2,12 @@
 
 use core::num::NonZeroU8;
 
-use embassy_usb::control::Request;
+use crate::control::Request;
 use embassy_usb_driver::Direction;
 pub use embassy_usb_driver::host::pipe;
 use embassy_usb_driver::host::{HostError, UsbPipe};
 
-use crate::descriptor::{USBDescriptor, descriptor_type};
+use crate::host::descriptor::{USBDescriptor, descriptor_type};
 
 /// Recipient of a USB control request.
 ///
@@ -213,7 +213,7 @@ impl SetupPacket {
     /// [`StringDescriptorZero`]) and is the one request for which `lang_id: 0`
     /// is correct. Any other index needs a LANGID the device listed there.
     ///
-    /// [`StringDescriptorZero`]: crate::descriptor::StringDescriptorZero
+    /// [`StringDescriptorZero`]: crate::host::descriptor::StringDescriptorZero
     pub const fn get_string_descriptor(index: u8, lang_id: u16, max_len: u16) -> Self {
         Self {
             request_type: RequestType {
@@ -423,7 +423,7 @@ pub trait ControlPipeExt<D: pipe::Direction>: UsbPipe<pipe::Control, D> {
         // failure — `RegisterError::HostError(PipeError(Stall))` where
         // the honest answer is usually `NoSupportedInterface`, since
         // registration never got far enough to look at an interface.
-        crate::handler::retry_descriptor(async || self.control_in(&setup.to_bytes(), &mut buf).await).await?;
+        crate::host::handler::retry_descriptor(async || self.control_in(&setup.to_bytes(), &mut buf).await).await?;
         Ok(NonZeroU8::new(buf[0]))
     }
 

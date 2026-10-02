@@ -6,8 +6,8 @@
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
-use crate::descriptor::ConfigurationDescriptorChain;
-use crate::handler::EnumerationInfo;
+use crate::host::descriptor::ConfigurationDescriptorChain;
+use crate::host::handler::EnumerationInfo;
 
 const USB_CLASS_CCID: u8 = 0x0b;
 const TRANSFER_BULK: u8 = 0x02;
@@ -45,7 +45,7 @@ pub struct CcidInfo {
 
 /// Find the first CCID interface with bulk IN and OUT endpoints.
 ///
-/// An interface qualifies either by declaring class [`USB_CLASS_CCID`], or by carrying
+/// An interface qualifies either by declaring class `USB_CLASS_CCID`, or by carrying
 /// a CCID functional descriptor. The latter matters because readers are commonly
 /// shipped under the vendor-specific class while speaking standard CCID.
 pub fn find_ccid(config_desc: &[u8]) -> Option<CcidInfo> {
