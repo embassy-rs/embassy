@@ -2,11 +2,11 @@
 
 use core::num::NonZeroU8;
 
-use crate::control::Request;
 use embassy_usb_driver::Direction;
 pub use embassy_usb_driver::host::pipe;
 use embassy_usb_driver::host::{HostError, UsbPipe};
 
+use crate::control::Request;
 use crate::host::descriptor::{USBDescriptor, descriptor_type};
 
 /// Recipient of a USB control request.

@@ -18,9 +18,6 @@ macro_rules! const_max {
     }};
 }
 
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
-
 pub mod class;
 pub mod control;
 pub mod descriptor;

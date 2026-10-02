@@ -38,13 +38,13 @@ use core::future::{Future, poll_fn};
 use core::pin::pin;
 use core::task::Poll;
 
-use crate::control::Request;
 use aligned::{A4, Aligned};
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb_driver::host::{HostError, PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use heapless::{String, Vec};
 
+use crate::control::Request;
 use crate::host::control::{ControlType, Recipient, RequestType, SetupPacket};
 use crate::host::descriptor::DEFAULT_MAX_DESCRIPTOR_SIZE;
 use crate::host::handler::{EnumerationInfo, RegisterError};

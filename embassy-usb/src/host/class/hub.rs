@@ -7,12 +7,12 @@
 use core::num::NonZeroU8;
 use core::ops::Deref;
 
-use crate::control::Request;
 use bitflags::bitflags;
 use embassy_time::Timer;
 use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 
+use crate::control::Request;
 use crate::host::control::{ControlPipeExt, ControlType, Recipient, RequestType, SetupPacket};
 use crate::host::descriptor::{
     DEFAULT_MAX_DESCRIPTOR_SIZE, DescriptorError, InterfaceDescriptor, USBDescriptor, VariableSizeDescriptor,
