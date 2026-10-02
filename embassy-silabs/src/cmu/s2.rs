@@ -1,64 +1,17 @@
-//! Clock Management Unit (CMU) for EFR32 Series 2.
-
-use core::mem::MaybeUninit;
+//! EFR32 (Series 2) clock tree.
 
 pub use cmu_mod::vals::{Hclkpresc as HclkPrescaler, Pclkpresc as PclkPrescaler, SysclkctrlClksel as SysclkSource};
 use critical_section::CriticalSection;
 
+use super::{Clocks, Hertz, enable, fill_group_freqs, mux, set_freqs};
 use crate::pac::CMU;
 // `_mod` marks the metapac register modules, so they do not read like the `hfxo`, `lfxo` and
 // `msc` fields and variables.
 use crate::pac::{cmu as cmu_mod, hfrco as hfrco_mod, hfxo as hfxo_mod, lfxo as lfxo_mod, msc as msc_mod};
 use crate::peripherals;
-pub use crate::time::Hertz;
 
 /// FSRCO frequency, 20 MHz.
 pub const FSRCO_FREQ: Hertz = Hertz::mhz(20);
-
-// `Clocks`, group-clock frequency functions and `mux::ClockMux`, generated from metapac data.
-include!(concat!(env!("OUT_DIR"), "/_cmu_mux.rs"));
-
-pub(crate) trait SealedCmuPeripheral {
-    fn enable_bus_clock();
-    fn disable_bus_clock();
-    /// Frequency of the peripheral's kernel clock. Panics when the
-    /// peripheral has no kernel clock or its source is not running.
-    fn frequency() -> Hertz;
-}
-
-/// A peripheral with a CMU bus-clock gate. `build.rs` implements it for
-/// every peripheral whose gate is in the metapac metadata.
-#[allow(private_bounds)]
-pub trait CmuPeripheral: SealedCmuPeripheral + 'static {}
-
-/// Turns on bus clock for peripheral `T`.
-///
-/// Most gates belong to one peripheral. This is then one write to the gate
-/// register's SET alias, so it needs no critical section. A gate that
-/// several peripherals share (DMEM0 and DMEM1 on MG26) is refcounted in a
-/// critical section: it stays on until each user calls [`disable`].
-pub fn enable<T: CmuPeripheral>() {
-    T::enable_bus_clock();
-}
-
-/// Turns off bus clock for peripheral `T`.
-///
-/// A shared gate turns off when its last user calls [`disable`].
-///
-/// # Panics
-///
-/// Panics if `disable` is called more times than `enable` for a shared gate.
-pub fn disable<T: CmuPeripheral>() {
-    T::disable_bus_clock();
-}
-
-/// Frequency of the kernel clock of peripheral `T`, like embassy-stm32's
-/// `rcc::frequency`. Reads the peripheral's clock select, if it has one.
-///
-/// Panics if `T` has no kernel clock or its source is not running.
-pub fn frequency<T: CmuPeripheral>() -> Hertz {
-    T::frequency()
-}
 
 /// LFRCO frequency, 32.768 kHz.
 pub const LFRCO_FREQ: Hertz = Hertz(32_768);
@@ -315,29 +268,6 @@ impl Default for Config {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Frozen clock frequencies. The existence of this value indicates that
-/// the clock configuration can no longer be changed.
-static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
-
-/// Sets global clock frequencies.
-///
-/// # Safety
-///
-/// Safety: writes a mutable global. Caller must ensure no other code is
-/// reading [`get_freqs`] concurrently.
-unsafe fn set_freqs(freqs: Clocks) {
-    debug!("cmu: {:?}", freqs);
-    CLOCK_FREQS = MaybeUninit::new(freqs);
-}
-
-/// Read the frozen clock-tree table. Only call after [`init_clocks`] has run.
-///
-/// Safety: reads a mutable global. Caller must ensure [`set_freqs`] has
-/// been called first.
-pub(crate) unsafe fn get_freqs() -> &'static Clocks {
-    (*&raw const CLOCK_FREQS).assume_init_ref()
 }
 
 fn hclk_divisor(p: HclkPrescaler) -> u32 {

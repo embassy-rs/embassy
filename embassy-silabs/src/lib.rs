@@ -3,10 +3,13 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(async_fn_in_trait)]
 
-//! Embassy HAL for Silicon Labs EFR32 series microcontrollers.
+//! Embassy HAL for Silicon Labs EFR32 (Series 2) and EFM32GG (Series 0) microcontrollers.
+//!
+//! Series 0 support is initial: CMU, GPIO, the RTC time driver
+//! (`time-driver-rtc`) and a blocking USART.
 
-#[cfg(not(silabs_series = "2"))]
-compile_error!("embassy-silabs supports Series 2 chips only");
+#[cfg(not(any(silabs_series = "0", silabs_series = "2")))]
+compile_error!("embassy-silabs supports Series 0 and Series 2 chips only");
 
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;
@@ -14,10 +17,14 @@ mod fmt;
 // Defines `foreach_peripheral!`, `foreach_interrupt!` and `foreach_pin!`.
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
+// `gpio` goes before the drivers: they use its `pin_trait!` macro.
+pub mod gpio;
 // MG22 has an EUART, not an EUSART, so it has no `eusart` module.
 #[cfg(eusart)]
 pub mod eusart;
-pub mod gpio;
+// Series 0 USART and UART, with ROUTE LOCATION pin routing.
+#[cfg(all(silabs_series = "0", usart))]
+pub mod usart;
 
 pub mod mode {
     trait SealedMode {}
@@ -44,7 +51,9 @@ pub mod mode {
 
 pub mod cmu;
 pub mod time;
+// Series 2: a 32-bit TIMER at 1 MHz. Series 0: the 24-bit RTC at 32768 Hz.
 #[cfg(feature = "_time-driver")]
+#[cfg_attr(silabs_series = "0", path = "time_driver_rtc.rs")]
 mod time_driver;
 pub mod timer;
 
@@ -118,7 +127,10 @@ macro_rules! bind_interrupts {
 pub struct Config {
     /// Clock tree.
     pub cmu: cmu::Config,
-    /// Keep the debugger connected in EM2 (`EMU.CTRL.EM2DBGEN`). Default true.
+    /// Whether the debugger stays connected in EM2 (`EMU.CTRL.EM2DBGEN`). Default `true`.
+    ///
+    /// Series 0 has no such bit, so this field exists only on Series 2.
+    #[cfg(silabs_series = "2")]
     pub enable_debug_during_sleep: bool,
     /// Priority of the time driver interrupt. Default `P0`.
     #[cfg(feature = "_time-driver")]
@@ -129,6 +141,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             cmu: cmu::Config::new(),
+            #[cfg(silabs_series = "2")]
             enable_debug_during_sleep: true,
             #[cfg(feature = "_time-driver")]
             time_interrupt_priority: crate::interrupt::Priority::P0,
@@ -146,6 +159,7 @@ pub fn init(config: Config) -> Peripherals {
         let peripherals = Peripherals::take_with_cs(cs);
 
         // EMU has no CMU clock gate.
+        #[cfg(silabs_series = "2")]
         pac::EMU
             .ctrl()
             .modify(|w| w.set_em2dbgen(config.enable_debug_during_sleep));

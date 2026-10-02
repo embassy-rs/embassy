@@ -7,10 +7,8 @@ use core::convert::Infallible;
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
 use crate::pac::GPIO;
-// GPIO routes to a different register-block version per chip (gpio_s2v1 on
-// MG22, gpio_s2v7 on MG26, ...). The port register newtypes (PortDout /
-// PortModel / PortModeh) have identical shapes across them; the metapac's
-// version-neutral `gpio` alias names the chip's version.
+// Port registers have the same shape in every GPIO version. Series 0 `DOUTSET`, `DOUTCLR` and
+// `DOUTTGL` are real registers, not bus aliases, with Series 2 names (`p_dout_set`) and behavior.
 use crate::pac::gpio as gpio_mod;
 
 /// Logic level.
@@ -210,6 +208,49 @@ mod sealed {
 #[allow(private_bounds)]
 pub trait Pin: PeripheralType + Into<AnyPin> + sealed::SealedPin {}
 
+/// Declares the pin trait of one peripheral signal, like embassy-stm32's
+/// `pin_trait!`. `pin_trait!(TxPin, Instance)` gives
+/// `pub trait TxPin<T: Instance>: Pin {}`. A driver takes `impl TxPin<T>`,
+/// so a pin that cannot carry the signal fails to compile. MG22 has no
+/// driver with pin traits yet, so the macro can be unused.
+///
+/// `pin_trait!(TxPin, Instance, locations)` is the Series 0 form. The trait
+/// has `fn locations(&self) -> &'static [u8]`: the ROUTE LOCATION values at
+/// which the pin carries the signal, in increasing order.
+#[allow(unused_macros)]
+macro_rules! pin_trait {
+    ($signal:ident, $instance:path) => {
+        #[doc = concat!(stringify!($signal), " pin trait")]
+        pub trait $signal<T: $instance>: crate::gpio::Pin {}
+    };
+    ($signal:ident, $instance:path, locations) => {
+        #[doc = concat!(stringify!($signal), " pin trait")]
+        pub trait $signal<T: $instance>: crate::gpio::Pin {
+            #[doc = concat!("The ROUTE LOCATION values at which this pin is ", stringify!($signal), ", in increasing order.")]
+            fn locations(&self) -> &'static [u8];
+        }
+    };
+}
+
+/// Implements a pin trait for one pin.
+///
+/// `build.rs` emits one call for each pin of the signal in chip metadata (`Peripheral.pins`).
+///
+/// The Series 0 form adds locations: `pin_trait_impl!(crate::usart::TxPin, USART1, PD0, [1])`.
+#[allow(unused_macros)]
+macro_rules! pin_trait_impl {
+    (crate::$mod:ident::$trait:ident, $instance:ident, $pin:ident) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance> for crate::peripherals::$pin {}
+    };
+    (crate::$mod:ident::$trait:ident, $instance:ident, $pin:ident, [$($location:literal),+]) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn locations(&self) -> &'static [u8] {
+                &[$($location),+]
+            }
+        }
+    };
+}
+
 impl sealed::SealedPin for AnyPin {
     #[inline]
     fn pin_port(&self) -> u8 {
@@ -266,7 +307,7 @@ fn write_dout_bit(pin: &AnyPin, high: bool) {
 /// Sets `pin` as a push-pull output for a peripheral, such as EUSART TX.
 /// Sets the line idle-high before switching to push-pull so a UART idle
 /// level is presented immediately.
-#[cfg(eusart)]
+#[cfg(any(eusart, all(silabs_series = "0", usart)))]
 #[inline]
 pub(crate) fn set_as_alternate_output(pin: &AnyPin) {
     write_dout_bit(pin, true);
@@ -274,7 +315,7 @@ pub(crate) fn set_as_alternate_output(pin: &AnyPin) {
 }
 
 /// Sets `pin` as a floating input for a peripheral, such as EUSART RX.
-#[cfg(eusart)]
+#[cfg(any(eusart, all(silabs_series = "0", usart)))]
 #[inline]
 pub(crate) fn set_as_alternate_input(pin: &AnyPin) {
     write_mode(pin, Mode::Input);
@@ -283,7 +324,7 @@ pub(crate) fn set_as_alternate_input(pin: &AnyPin) {
 /// Puts `pin` back in its reset state (`DISABLED`).
 ///
 /// `DOUT` goes low first, because `DOUT` high in `DISABLED` mode turns on the pull-up.
-#[cfg(eusart)]
+#[cfg(any(eusart, all(silabs_series = "0", usart)))]
 #[inline]
 pub(crate) fn set_as_disabled(pin: &AnyPin) {
     write_dout_bit(pin, false);

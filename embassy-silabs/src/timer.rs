@@ -17,7 +17,8 @@ pub trait Instance16bit: Instance {
     fn regs_16bit() -> crate::pac::timer::Timer;
 }
 
-/// A TIMER with a 32-bit counter (`Timer32` block).
+/// A TIMER with a 32-bit counter (`Timer32` block). Series 0 TIMERs are all 16-bit.
+#[cfg(silabs_series = "2")]
 pub trait Instance32bit: Instance {
     /// Returns this instance's registers.
     fn regs_32bit() -> crate::pac::timer::Timer32;

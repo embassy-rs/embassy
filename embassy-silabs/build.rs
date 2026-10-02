@@ -11,35 +11,7 @@
 //! - Metapac chip cfgs. Code that depends on register shape uses version cfgs (`hfxo_s2v2`,
 //!   `sysrtc`). Use `silabs_series_2_config = "<M>"` only for errata and family-specific tables.
 //!
-//! - Read the per-chip metadata exposed by `silabs-metapac` once the
-//!   chip's Cargo feature is enabled.
-//! - For every peripheral instance, emit a singleton in
-//!   `embassy_hal_internal::peripherals_definition!{…}` (so the type
-//!   exists) and `embassy_hal_internal::peripherals_struct!{…}` (so
-//!   `init()` returns it in `Peripherals`).
-//! - The chosen time-driver timer (`time-driver-timer0`, etc.) is
-//!   present in `peripherals_definition!` but skipped from
-//!   `peripherals_struct!` — the time driver owns it.
-//! - For every peripheral with CMU data (`cmu`, like stm32-metapac's
-//!   `rcc`), emit `cmu::SealedCmuPeripheral` with `enable_bus_clock()`,
-//!   `disable_bus_clock()` and the kernel-clock `frequency()`. Write
-//!   `cmu::Clocks`, the group-clock frequency functions and
-//!   `cmu::mux::ClockMux` (one field per group and peripheral clock
-//!   select) to `$OUT_DIR/_cmu_mux.rs`.
-//! - Emit `interrupt_mod!{…}` for every NVIC vector the chip exposes.
-//! - Emit the `foreach_peripheral!`, `foreach_interrupt!` and
-//!   `foreach_pin!` table macros to `$OUT_DIR/_macros.rs`, like
-//!   embassy-stm32, and the `impl_eusart!` invocations. Interrupts come
-//!   from `Peripheral.interrupts` and pins from `METADATA.pins`.
-//! - Emit the `timer::Instance` impls, with `Instance16bit` or
-//!   `Instance32bit` chosen by the metadata `block`.
-//! - Forward the metapac chip cfgs. Gate code that depends on register
-//!   shape on version cfgs (`hfxo_s2v2`, `sysrtc`). Use
-//!   `silabs_series_2_config = "<M>"` only for errata and per-family
-//!   characterization.
-//!
-//! `$OUT_DIR/_generated.rs` and `$OUT_DIR/_macros.rs` are included from
-//! `src/lib.rs`.
+//! `src/lib.rs` includes `$OUT_DIR/_generated.rs` and `$OUT_DIR/_macros.rs`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -47,9 +19,33 @@ use std::path::PathBuf;
 use std::{env, fs};
 
 use silabs_metapac::metadata::ir::{BlockItemInner, IR};
-use silabs_metapac::metadata::{METADATA, Peripheral, PeripheralCmuKernelClock, PeripheralCmuRegister};
+use silabs_metapac::metadata::{
+    METADATA, Peripheral, PeripheralCmuKernelClock, PeripheralCmuRegister, PinRoute, PinRouteEnable, Series,
+};
+
+/// Returns `true` on Series 0 (EFM32GG) and `false` on Series 2.
+///
+/// # Panics
+///
+/// Panics on other series.
+fn series0() -> bool {
+    match METADATA.series {
+        Series::Series0 => true,
+        Series::Series2(_) => false,
+        s => panic!("embassy-silabs supports Series 0 and Series 2 chips only, not {s:?}"),
+    }
+}
 
 fn main() {
+    let series0 = series0();
+    // Chip features in Cargo.toml select `embassy-hal-internal/prio-bits-3` on Series 0 and
+    // `prio-bits-4` on Series 2. Check that the chip agrees.
+    let prio_bits = if series0 { 3 } else { 4 };
+    assert_eq!(
+        METADATA.nvic_priority_bits, prio_bits,
+        "{}: the chip has {} NVIC priority bits, but its Cargo feature selects prio-bits-{prio_bits}",
+        METADATA.name, METADATA.nvic_priority_bits
+    );
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set"));
     let out_path = out_dir.join("_generated.rs");
 
@@ -97,8 +93,20 @@ fn main() {
             .iter()
             .any(|p| p.name == name && p.block == "Timer32")
     };
+    match (series0, time_driver.as_deref()) {
+        (true, Some(t @ ("any" | "timer0" | "timer1"))) => panic!(
+            "time-driver-{t} is a Series 2 TIMER driver with a 1 MHz tick. Series 0 TIMERs are 16-bit, and their \
+             power-of-two prescaler cannot make 1 MHz from HFPERCLK. Use time-driver-rtc on Series 0."
+        ),
+        (false, Some("rtc")) => panic!(
+            "time-driver-rtc is the Series 0 RTC driver. Use time-driver-any, time-driver-timer0 or \
+             time-driver-timer1 on Series 2."
+        ),
+        _ => {}
+    }
     let time_driver_singleton = match time_driver.as_ref().map(|x| x.as_ref()) {
         None => "",
+        Some("rtc") => "RTC",
         Some(t @ ("timer0" | "timer1")) => {
             let name = if t == "timer0" { "TIMER0" } else { "TIMER1" };
             if !is_wide(name) {
@@ -119,7 +127,7 @@ fn main() {
             time_driver_singleton.to_ascii_lowercase()
         );
     }
-    for tim in ["timer0", "timer1"] {
+    for tim in ["timer0", "timer1", "rtc"] {
         println!("cargo:rustc-check-cfg=cfg(time_driver_{tim})");
     }
 
@@ -174,14 +182,20 @@ fn main() {
     }
     let mut muxes: BTreeSet<(String, String, String)> = BTreeSet::new();
     for (p, cmu, en) in gated {
-        let set = format!(
-            "crate::pac::CMU.{}_set().write(|w| w.set_{}(true));",
-            en.register, en.field
-        );
-        let clr = format!(
-            "crate::pac::CMU.{}_clr().write(|w| w.set_{}(true));",
-            en.register, en.field
-        );
+        let (set, clr) = if series0 {
+            gate_s0(cmu_ir, en.register, en.field)
+        } else {
+            (
+                format!(
+                    "crate::pac::CMU.{}_set().write(|w| w.set_{}(true));",
+                    en.register, en.field
+                ),
+                format!(
+                    "crate::pac::CMU.{}_clr().write(|w| w.set_{}(true));",
+                    en.register, en.field
+                ),
+            )
+        };
         let (enable, disable) = if shared.contains(&(en.register, en.field)) {
             let count = format!(
                 "let count = crate::cmu_refcount::{}.borrow(cs);",
@@ -243,7 +257,7 @@ fn main() {
         let Some(enum_name) = find_mux_enum(cmu_ir, &mux) else {
             continue;
         };
-        if CLOCKS.contains(&name) {
+        if clocks().contains(&name) {
             write_group_freq(&mut mux_out, cmu_ir, name, &mux, &enum_name);
         }
         mux_fields.push((name.to_string(), register.to_string(), "clksel".to_string(), enum_name));
@@ -286,7 +300,11 @@ fn main() {
     make_table(&mut macros, "foreach_pin", &tables.pins);
     fs::write(out_dir.join("_macros.rs"), &macros).expect("write _macros.rs");
 
-    write_eusart_impls(&mut out);
+    if series0 {
+        write_usart_s0_impls(&mut out);
+    } else {
+        write_eusart_impls(&mut out);
+    }
     write_timer_impls(&mut out, &singletons);
 
     if !time_driver_singleton.is_empty() {
@@ -294,7 +312,7 @@ fn main() {
             .peripherals
             .iter()
             .find(|p| p.name == time_driver_singleton)
-            .unwrap();
+            .unwrap_or_else(|| panic!("the time driver needs {time_driver_singleton}, but the chip has none"));
         let irq = irq(timer, "GLOBAL");
         writeln!(out).unwrap();
         writeln!(out, "#[cfg(feature = \"rt\")]").unwrap();
@@ -325,10 +343,30 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 }
 
-/// `Clocks` fields that `cmu::init_clocks` fills in. A mux source that is
-/// not in this list (an external pin, CLKIN0, a PLL) makes `frequency()`
-/// panic when the mux selects it.
-const CLOCKS: &[&str] = &[
+/// `Clocks` fields that `cmu::init_clocks` fills in, for the chip's series.
+/// A mux source that is not in this list (an external pin, CLKIN0, a PLL)
+/// makes `frequency()` panic when the mux selects it.
+fn clocks() -> &'static [&'static str] {
+    if series0() { CLOCKS_S0 } else { CLOCKS_S2 }
+}
+
+/// Series 0 `Clocks` fields. The metapac `kernel_clock` names are
+/// `hfperclk`, `hfcoreclk`, `lfaclk` and `lfbclk`. The PCNT mux adds
+/// `lfaclk`.
+const CLOCKS_S0: &[&str] = &[
+    "hfrco",
+    "hfxo",
+    "lfrco",
+    "lfxo",
+    "hfclk",
+    "hfcoreclk",
+    "hfperclk",
+    "lfaclk",
+    "lfbclk",
+];
+
+/// Series 2 `Clocks` fields.
+const CLOCKS_S2: &[&str] = &[
     "hfxo",
     "hfrcodpll",
     "hfrcoem23",
@@ -350,7 +388,7 @@ const CLOCKS: &[&str] = &[
 /// Returns `clock` frequency divided by `div`, read from the frozen `Clocks` table.
 fn clock_expr(peripheral: &str, clock: &str, div: u32) -> String {
     assert!(
-        CLOCKS.contains(&clock),
+        clocks().contains(&clock),
         "{peripheral}: kernel clock `{clock}` is not a cmu::Clocks field"
     );
     let div = if div == 1 {
@@ -374,7 +412,7 @@ fn mux_source(variant: &str) -> Option<(String, u32)> {
     }
     // `Hfxort` and `Hfrcodpllrt` are retimed copies of `Hfxo` and `Hfrcodpll`.
     let v = match v.strip_suffix("rt") {
-        Some(base) if CLOCKS.contains(&base) => base.to_owned(),
+        Some(base) if clocks().contains(&base) => base.to_owned(),
         _ => v,
     };
     // `Hclkdiv1024` is HCLK / 1024.
@@ -382,7 +420,7 @@ fn mux_source(variant: &str) -> Option<(String, u32)> {
         Some((base, div)) if div.parse::<u32>().is_ok() => (base.to_owned(), div.parse().unwrap()),
         _ => (v, 1),
     };
-    CLOCKS.contains(&v.as_str()).then_some((v, div))
+    clocks().contains(&v.as_str()).then_some((v, div))
 }
 
 /// Returns the enum name for a CMU select field.
@@ -458,7 +496,7 @@ const GROUP_MUXES: &[(&str, &str)] = &[
     ("traceclkctrl", "traceclk"),
 ];
 
-/// `cmu::Clocks`, one `Option<Hertz>` field per entry of [`CLOCKS`].
+/// Writes `cmu::Clocks`, one `Option<Hertz>` field per [`clocks`] entry.
 fn write_clocks(out: &mut String) {
     writeln!(
         out,
@@ -472,7 +510,7 @@ fn write_clocks(out: &mut String) {
          pub struct Clocks {{"
     )
     .unwrap();
-    for clock in CLOCKS {
+    for clock in clocks() {
         writeln!(out, "    pub {clock}: Option<Hertz>,").unwrap();
     }
     writeln!(out, "}}\n").unwrap();
@@ -511,10 +549,17 @@ fn write_group_freq(out: &mut String, ir: &IR, name: &str, mux: &PeripheralCmuRe
     writeln!(out, "        _ => None,\n    }}\n}}\n").unwrap();
 }
 
-/// `fill_group_freqs()`: fills every group clock of this chip in `c`.
+/// Writes `fill_group_freqs()`, which fills each group clock in `c`.
+///
+/// Series 0 has no group clocks, so the function is empty there.
 fn write_fill_group_freqs(out: &mut String, fields: &[(String, String, String, String)]) {
-    writeln!(out, "pub(crate) fn fill_group_freqs(c: &mut Clocks) {{").unwrap();
-    for (name, ..) in fields.iter().filter(|(name, ..)| CLOCKS.contains(&name.as_str())) {
+    let groups: Vec<_> = fields
+        .iter()
+        .filter(|(name, ..)| clocks().contains(&name.as_str()))
+        .collect();
+    let param = if groups.is_empty() { "_c" } else { "c" };
+    writeln!(out, "pub(crate) fn fill_group_freqs({param}: &mut Clocks) {{").unwrap();
+    for (name, ..) in groups {
         writeln!(out, "    c.{name} = {name}_freq(c);").unwrap();
     }
     writeln!(out, "}}\n").unwrap();
@@ -645,6 +690,11 @@ macro_rules! {} {{
 /// Writes `impl_eusart!` per EUSART.
 ///
 /// `macro_rules!` cannot join identifiers, so the interrupt and GPIO route names are spelled out.
+///
+/// Also `pin_trait_impl!` for `TxPin` and `RxPin`, one for each pin of the
+/// `Dbus` entry of the `TX` and `RX` signals in `Peripheral.pins`. The entry
+/// must name the route register and the `routeen` enable field that
+/// `impl_eusart!` writes.
 fn write_eusart_impls(out: &mut String) {
     let gpio_items: Vec<&str> = METADATA
         .peripherals
@@ -674,8 +724,189 @@ fn write_eusart_impls(out: &mut String) {
             route("routeen"),
         )
         .unwrap();
+        let routeen = route("routeen");
+        for (signal, trait_name, suffix, field) in
+            [("TX", "TxPin", "txroute", "txpen"), ("RX", "RxPin", "rxroute", "rxpen")]
+        {
+            let register = route(suffix);
+            let mut n = 0;
+            for e in p.pins.iter().filter(|e| e.signal == signal) {
+                let PinRoute::Dbus { register: r, enable } = &e.route else {
+                    panic!("{} {signal}: not a DBUS route: {:?}", p.name, e.route);
+                };
+                assert_eq!(*r, register, "{} {signal}: route register", p.name);
+                // `impl_eusart!` sets `GPIO.<routeen>.txpen` and `.rxpen`.
+                check_enable(p.name, signal, enable, &routeen, field);
+                for pin in e.pins {
+                    writeln!(out, "pin_trait_impl!(crate::eusart::{trait_name}, {}, {pin});", p.name).unwrap();
+                    n += 1;
+                }
+            }
+            assert!(n > 0, "{} has no {signal} pins in the metadata", p.name);
+        }
     }
     writeln!(out).unwrap();
+}
+
+/// Checks that a route's enable field is the one that the driver writes.
+fn check_enable(peripheral: &str, signal: &str, enable: &Option<PinRouteEnable>, register: &str, field: &str) {
+    match enable {
+        Some(e) if e.register == register && e.field == field => {}
+        other => {
+            panic!("{peripheral} {signal}: the metadata enable is {other:?}, but the driver sets `{register}.{field}`")
+        }
+    }
+}
+
+/// Series 0 CMU gate writes: `(enable, disable)`. The gate registers have
+/// no SET/CLR aliases, so each write is a read-modify-write in a critical
+/// section. A gate register in the LF domain (`lfaclken0`, `lfbclken0`) has
+/// a `CMU.SYNCBUSY` field of the same name. The write waits until that
+/// field is clear, because a write while it is set is lost.
+fn gate_s0(ir: &IR, register: &str, field: &str) -> (String, String) {
+    let wait = if has_field(ir, "Cmu", "syncbusy", register) {
+        format!("while crate::pac::CMU.syncbusy().read().{register}() {{}}\n            ")
+    } else {
+        String::new()
+    };
+    let write = |on: bool| {
+        format!(
+            "critical_section::with(|_| {{\n            {wait}crate::pac::CMU.{register}().modify(|w| w.set_{field}({on}));\n        }});"
+        )
+    };
+    (write(true), write(false))
+}
+
+/// The register `register` of block `block` has a field `field`.
+fn has_field(ir: &IR, block: &str, register: &str, field: &str) -> bool {
+    let Some(b) = ir.blocks.iter().find(|b| b.name == block) else {
+        return false;
+    };
+    let Some(item) = b.items.iter().find(|i| i.name == register) else {
+        return false;
+    };
+    let BlockItemInner::Register(reg) = &item.inner else {
+        return false;
+    };
+    ir.fieldsets
+        .iter()
+        .find(|f| Some(f.name) == reg.fieldset)
+        .is_some_and(|fs| fs.fields.iter().any(|f| f.name == field))
+}
+
+/// Writes `impl_usart!` for each Series 0 USART and UART.
+///
+/// Both have metadata kind `usart`, because UART0 and UART1 are USART blocks in asynchronous mode.
+///
+/// Also writes `pin_trait_impl!` for `TxPin` and `RxPin`. A pin can be at several locations for a
+/// signal (USART0 CLK PB13 is at 4 and 5), so each pin gets one impl with all its `Location`
+/// numbers. Each entry must enable the `route` field that `impl_usart!` writes.
+fn write_usart_s0_impls(out: &mut String) {
+    for p in METADATA.peripherals.iter().filter(|p| p.kind == "usart") {
+        writeln!(
+            out,
+            "crate::usart::impl_usart!({}, {}, {});",
+            p.name,
+            irq(p, "RX"),
+            irq(p, "TX"),
+        )
+        .unwrap();
+        for (signal, trait_name, field) in [("TX", "TxPin", "txpen"), ("RX", "RxPin", "rxpen")] {
+            let locations = locations_by_pin(p, signal);
+            for e in p.pins.iter().filter(|e| e.signal == signal) {
+                let PinRoute::Location { enable, .. } = &e.route else {
+                    panic!("{} {signal}: not a Location route: {:?}", p.name, e.route);
+                };
+                check_enable(p.name, signal, enable, "route", field);
+            }
+            // EFM32GG900 (die parts) has no pin data. The instance stays usable from the PAC, but
+            // `Uart::new_blocking` accepts no pin.
+            if locations.is_empty() {
+                println!(
+                    "cargo:warning={} has no {signal} pins in the metadata, so no {trait_name} impls",
+                    p.name
+                );
+            }
+            for (pin, locs) in locations {
+                let locs: Vec<String> = locs.iter().map(u8::to_string).collect();
+                writeln!(
+                    out,
+                    "pin_trait_impl!(crate::usart::{trait_name}, {}, {pin}, [{}]);",
+                    p.name,
+                    locs.join(", ")
+                )
+                .unwrap();
+            }
+        }
+    }
+    check_usart1_af();
+}
+
+/// Returns the `Location` numbers for each pin of a signal.
+///
+/// The pins are in `METADATA.pins` order: by port, then by pin number.
+fn locations_by_pin(p: &Peripheral, signal: &str) -> Vec<(&'static str, Vec<u8>)> {
+    let mut out: Vec<(&'static str, Vec<u8>)> = Vec::new();
+    for bonded in METADATA.pins {
+        let mut locs: Vec<u8> = p
+            .pins
+            .iter()
+            .filter(|e| e.signal == signal && e.pins.contains(&bonded.name))
+            .filter_map(|e| match e.route {
+                PinRoute::Location { location, .. } => Some(location),
+                _ => None,
+            })
+            .collect();
+        locs.sort_unstable();
+        if !locs.is_empty() {
+            out.push((bonded.name, locs));
+        }
+    }
+    out
+}
+
+/// EFM32GG USART1 locations as `(signal, [(location, pin)])`.
+///
+/// The values come from EFM32GG datasheet table 5.2 (Alternate Functionality Overview).
+const EFM32GG_USART1_AF: &[(&str, &[(u8, &str)])] = &[
+    ("TX", &[(0, "PC0"), (1, "PD0"), (2, "PD7")]),
+    ("RX", &[(0, "PC1"), (1, "PD1"), (2, "PD6")]),
+];
+
+/// Checks EFM32GG metadata at build time.
+///
+/// The USART1 locations must equal the datasheet table, filtered by the bonded pins.
+fn check_usart1_af() {
+    if !METADATA.name.starts_with("EFM32GG") {
+        return;
+    }
+    let Some(p) = METADATA.peripherals.iter().find(|p| p.name == "USART1") else {
+        return;
+    };
+    // EFM32GG900 (die parts) has no pin data, so there is nothing to check.
+    if p.pins.is_empty() {
+        return;
+    }
+    for &(signal, table) in EFM32GG_USART1_AF {
+        let expected: Vec<(&str, Vec<u8>)> = METADATA
+            .pins
+            .iter()
+            .filter_map(|b| {
+                let locs: Vec<u8> = table
+                    .iter()
+                    .filter(|(_, pin)| *pin == b.name)
+                    .map(|(n, _)| *n)
+                    .collect();
+                (!locs.is_empty()).then_some((b.name, locs))
+            })
+            .collect();
+        assert_eq!(
+            locations_by_pin(p, signal),
+            expected,
+            "{}: USART1 {signal} locations differ from the EFM32GG AF headers",
+            METADATA.name
+        );
+    }
 }
 
 /// Writes `timer::Instance` and the counter width trait per TIMER singleton.

@@ -9,9 +9,11 @@
 //!
 //! # Pin routing
 //!
-//! Series 2 has a digital bus matrix: *any* GPIO can carry *any* EUSART signal.
-//! The constructors therefore take plain [`Pin`]s and program the
-//! `GPIO.eusartX_txroute` / `eusartX_rxroute` / `eusartX_routeen` registers at runtime.
+//! Series 2 routes EUSART signals through the GPIO digital bus. Each signal
+//! reaches only some ports (MG24 EUSART0: ports A and B). The constructors
+//! take [`TxPin`] and [`RxPin`] pins, so a pin that cannot carry the signal
+//! does not compile. They program the `GPIO.eusartX_txroute` /
+//! `eusartX_rxroute` / `eusartX_routeen` registers at runtime.
 //!
 //! # Examples
 //!
@@ -36,7 +38,7 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use eusart_mod::vals;
 
-use crate::gpio::{AnyPin, Pin};
+use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
@@ -258,6 +260,9 @@ pub trait Instance: SealedInstance + crate::cmu::CmuPeripheral + PeripheralType 
     /// Interrupt for TX events.
     type TxInterrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(TxPin, Instance);
+pin_trait!(RxPin, Instance);
 
 /// Implements [`Instance`] for one EUSART. `build.rs` invokes it for each EUSART in chip metadata.
 macro_rules! impl_eusart {
@@ -614,8 +619,8 @@ impl<'d> Uart<'d, Blocking> {
     /// Create a blocking UART on `tx`/`rx` for instance `peri`.
     pub fn new_blocking<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Peri<'d, impl Pin>,
-        tx: Peri<'d, impl Pin>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         let tx: Peri<'d, AnyPin> = tx.into();
@@ -630,8 +635,8 @@ impl<'d> Uart<'d, Async> {
     /// `EUSARTx_TX` to [`InterruptHandler<T>`].
     pub fn new<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Peri<'d, impl Pin>,
-        tx: Peri<'d, impl Pin>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
         _irqs: impl interrupt::typelevel::Binding<T::RxInterrupt, RxInterruptHandler<T>>
         + interrupt::typelevel::Binding<T::TxInterrupt, TxInterruptHandler<T>>
         + 'd,
