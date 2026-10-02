@@ -18,7 +18,7 @@ use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
-use crate::util::{WriteBuffer, try_until};
+use crate::util::{WriteBuffer, packetbuf_storage, try_until};
 use crate::{Chip, ChipId, Core, WithContext, events};
 
 #[cfg(feature = "firmware-logs")]
@@ -113,6 +113,16 @@ async fn wlan_write(bus: &mut impl Bus, buf: &mut WriteBuffer) -> crate::Result<
     wake_bus(bus).await?;
     bus.wlan_write(buf).await.ctx("wlan_write failed")
 }
+
+/// Headroom reserved in front of a frame received into a `PacketBuf`, so its
+/// headers can be turned into headroom without copying.
+///
+/// `SdpcmHeader::header_length` places the payload after itself, and the
+/// firmware sometimes adds the 2 bytes of data padding there, so the headers
+/// can be larger than the plain SDPCM + BDC header size
+/// ([`SdpcmHeader::SIZE`] + [`BdcHeader::SIZE`]). The field is a `u8`, so
+/// this covers the worst case.
+const RX_HEADER_SPACE: usize = 0xff + BdcHeader::SIZE;
 
 /// Driver communicating with the WiFi chip.
 pub struct Runner<'a, BUS: Bus, CHIP: Chip> {
@@ -808,11 +818,8 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         self.apply_multicast_filter(&filter, &mut buf).await;
                         self.mcast_gen = filter.generation;
                     }
-                    Either4::Second(packet) => {
+                    Either4::Second(mut packet) => {
                         trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
-
-                        let write_buffer = WriteBuffer::new(&mut buf);
-                        let buf8 = write_buffer.buf();
 
                         // There MUST be 2 bytes of padding between the SDPCM and BDC headers.
                         // And ONLY for data packets!
@@ -823,6 +830,13 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         // and adds it to the header size her https://github.com/Infineon/wifi-host-driver/blob/c04fcbb6b0d049304f376cf483fd7b1b570c8cd5/WiFi_Host_Driver/src/whd_sdpcm.c#L597
                         // ¯\_(ツ)_/¯
                         const PADDING_SIZE: usize = 2;
+
+                        // Space needed in front of the frame: the SDPCM header, the padding,
+                        // the BDC header, and the 4-byte cmd word the bus prepends. The cmd
+                        // word is the start of the bus transfer, so it must stay 4-byte
+                        // aligned within the buffer.
+                        const HEADER_SPACE: usize = 4 + SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE;
+
                         let total_len = SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE + packet.len();
 
                         let seq = self.sdpcm_seq;
@@ -849,11 +863,31 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         trace!("tx {:?}", sdpcm_header);
                         trace!("    {:?}", bdc_header);
 
+                        // Make room for the headers in front of the frame. This may move
+                        // the frame within the buffer, but never to another buffer. The
+                        // headroom is bumped up to the next value that keeps the cmd word
+                        // 4-byte aligned.
+                        let headroom = packet.headroom();
+                        let target = if headroom >= HEADER_SPACE {
+                            HEADER_SPACE + (headroom - HEADER_SPACE).next_multiple_of(4)
+                        } else {
+                            HEADER_SPACE
+                        };
+                        if !packet.ensure_headroom(target) {
+                            warn!("tx packet doesn't fit with header space, dropping.");
+                            continue;
+                        }
+
+                        // Lay out the frame as [cmd word][SDPCM][padding][BDC][ethernet],
+                        // writing only the headers; the ethernet frame is already in place.
+                        let headroom = packet.headroom();
+                        let storage = packetbuf_storage(&mut packet);
+                        let write_buffer = WriteBuffer::new(&mut storage[headroom - HEADER_SPACE..]);
+                        let buf8 = write_buffer.buf();
+
                         buf8[0..SdpcmHeader::SIZE].copy_from_slice(sdpcm_header.to_bytes());
                         buf8[SdpcmHeader::SIZE + PADDING_SIZE..][..BdcHeader::SIZE]
                             .copy_from_slice(bdc_header.to_bytes());
-                        buf8[SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE..][..packet.len()]
-                            .copy_from_slice(&packet);
 
                         let total_len = (total_len + 3) & !3; // round up to 4byte
 
@@ -990,19 +1024,42 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     let status = self.bus.read32(FUNC_BUS, SPI_STATUS_REGISTER).await;
                     trace!("check status{}", FormatStatus(status));
 
-                    if status & STATUS_F2_PKT_AVAILABLE != 0 {
-                        let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        if wlan_read(&mut self.bus, buf, true, 0, len as usize).await.is_err() {
-                            debug!("spi wlan_read failed");
-                            break;
-                        }
-                        trace!("rx {:02x}", Bytes(&buf[..(len as usize).min(48)]));
-                        self.rx(&mut buf[..len as usize]);
-                    } else {
+                    if status & STATUS_F2_PKT_AVAILABLE == 0 {
                         break;
+                    }
+
+                    let len = ((status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT) as usize;
+                    // Receive the whole frame into a `PacketBuf` if the pool has one
+                    // that fits it, so a data frame can be handed to the stack
+                    // without copying. The frame type is only known after reading,
+                    // hence the fallback to the scratch buffer, in which data
+                    // frames are discarded.
+                    match PacketBuf::try_new() {
+                        Some(mut pkt) if len <= pkt.capacity() - RX_HEADER_SPACE => {
+                            pkt.reserve(RX_HEADER_SPACE);
+                            if wlan_read(&mut self.bus, packetbuf_storage(&mut pkt), true, RX_HEADER_SPACE, len)
+                                .await
+                                .is_err()
+                            {
+                                debug!("spi wlan_read failed");
+                                break;
+                            }
+                            self.rx_packetbuf(pkt, len);
+                        }
+                        pkt => {
+                            drop(pkt);
+                            if wlan_read(&mut self.bus, buf, true, 0, len).await.is_err() {
+                                debug!("spi wlan_read failed");
+                                break;
+                            }
+                            trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
+                            self.rx(&mut buf[..len]);
+                        }
                     }
                 }
                 BusType::Sdio => {
+                    // The first 4 bytes of the frame are its SDPCM `len`/`len_inv`
+                    // fields, read first ("hwtag") to learn the frame length.
                     if wlan_read(&mut self.bus, buf, true, 0, INITIAL_READ).await.is_err() {
                         debug!("failed to read sdio hwtag");
                         break;
@@ -1023,36 +1080,128 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                     trace!("pkt ready...");
                     let len = len as usize;
-                    if len > INITIAL_READ {
-                        if wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
-                            .await
-                            .is_err()
-                        {
-                            debug!("failed to read sdio payload, len={}", len);
-                            break;
-                        }
-                    } else {
+                    if len <= INITIAL_READ {
                         // TODO: investigate this condition
                         trace!("no extra space required");
                         continue;
                     }
 
-                    if len == SdpcmHeader::SIZE {
-                        let Some((sdpcm_header, _)) = SdpcmHeader::parse(&mut buf[..len]) else {
-                            debug!("failed to parse sdpcm header");
-                            break;
-                        };
-
-                        self.update_credit(sdpcm_header);
-                    } else if len > SdpcmHeader::SIZE {
-                        trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
-                        self.rx(&mut buf[..len]);
+                    // As in the SPI path: receive the rest of the frame into a
+                    // `PacketBuf` if one fits it, else into the scratch buffer.
+                    match PacketBuf::try_new() {
+                        Some(mut pkt) if len <= pkt.capacity() - RX_HEADER_SPACE => {
+                            pkt.reserve(RX_HEADER_SPACE);
+                            packetbuf_storage(&mut pkt)[RX_HEADER_SPACE..][..INITIAL_READ]
+                                .copy_from_slice(&buf[..INITIAL_READ]);
+                            if wlan_read(
+                                &mut self.bus,
+                                packetbuf_storage(&mut pkt),
+                                false,
+                                RX_HEADER_SPACE + INITIAL_READ,
+                                len - INITIAL_READ,
+                            )
+                            .await
+                            .is_err()
+                            {
+                                debug!("failed to read sdio payload, len={}", len);
+                                break;
+                            }
+                            self.rx_packetbuf(pkt, len);
+                        }
+                        pkt => {
+                            drop(pkt);
+                            if wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
+                                .await
+                                .is_err()
+                            {
+                                debug!("failed to read sdio payload, len={}", len);
+                                break;
+                            }
+                            trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
+                            self.rx(&mut buf[..len]);
+                        }
                     }
                 }
             }
         }
     }
 
+    /// Handle a frame received into a `PacketBuf` (zero-copy path).
+    ///
+    /// The frame was read with [`RX_HEADER_SPACE`] bytes of headroom, so
+    /// if it turns out to be a data packet, the SDPCM/BDC headers can be
+    /// turned into headroom and the ethernet frame is handed straight to the
+    /// network stack. Other frame types are handled and `pkt` is returned to
+    /// the pool.
+    fn rx_packetbuf(&mut self, mut pkt: PacketBuf, len: usize) {
+        pkt.set_len(len);
+        trace!("rx {:02x}", Bytes(&pkt[..len.min(48)]));
+
+        let channel = {
+            let Some((sdpcm_header, _)) = SdpcmHeader::parse(&mut pkt[..]) else {
+                return;
+            };
+            self.update_credit(sdpcm_header);
+            sdpcm_header.channel_and_flags & 0x0f
+        };
+
+        if len == SdpcmHeader::SIZE {
+            // Header-only packet: carries just a credit update, handled above.
+            return;
+        }
+
+        match channel {
+            CHANNEL_TYPE_DATA => {
+                let (hdr_len, packet_len) = {
+                    let Some((_, payload)) = SdpcmHeader::parse(&mut pkt[..]) else {
+                        return;
+                    };
+                    let Some((_bdc_header, packet)) = BdcHeader::parse(payload) else {
+                        warn!("BDC data, incomplete header");
+                        return;
+                    };
+                    trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
+                    (len - packet.len(), packet.len())
+                };
+
+                if hdr_len > pkt.headroom() {
+                    // Can't happen with [`RX_HEADER_SPACE`] of headroom: the
+                    // SDPCM `header_length` field is a `u8`. Drop the frame.
+                    warn!("BDC data header too large: {}", hdr_len);
+                    return;
+                }
+
+                // The ethernet frame is already in `pkt`, right after the headers.
+                // Turn the headers into headroom and trim the padding: no copy.
+                pkt.pull_front(hdr_len);
+                pkt.set_len(packet_len);
+
+                if self.ch.try_rx(pkt).is_err() {
+                    warn!("failed to push rxd packet to the channel.");
+                }
+            }
+            CHANNEL_TYPE_CONTROL => {
+                let Some((_, payload)) = SdpcmHeader::parse(&mut pkt[..]) else {
+                    return;
+                };
+                self.handle_control(payload);
+            }
+            CHANNEL_TYPE_EVENT => {
+                let Some((_, payload)) = SdpcmHeader::parse(&mut pkt[..]) else {
+                    return;
+                };
+                self.handle_event(payload);
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle a frame received into the scratch buffer.
+    ///
+    /// Only control and event frames are of interest here: data frames were
+    /// received into the scratch buffer because the packet pool had no free
+    /// `PacketBuf` (or the frame didn't fit), so the ethernet frame is
+    /// discarded rather than copied.
     fn rx(&mut self, packet: &mut [u8]) {
         let Some((sdpcm_header, payload)) = SdpcmHeader::parse(packet) else {
             return;
@@ -1060,33 +1209,51 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
         self.update_credit(sdpcm_header);
 
+        if payload.is_empty() {
+            // Header-only packet: carries just a credit update, handled above.
+            return;
+        }
+
         let channel = sdpcm_header.channel_and_flags & 0x0f;
 
         match channel {
-            CHANNEL_TYPE_CONTROL => {
-                let Some((cdc_header, response)) = CdcHeader::parse(payload) else {
+            CHANNEL_TYPE_CONTROL => self.handle_control(payload),
+            CHANNEL_TYPE_EVENT => self.handle_event(payload),
+            CHANNEL_TYPE_DATA => {
+                let Some((_, packet)) = BdcHeader::parse(payload) else {
                     return;
                 };
-                trace!("    {:?}", cdc_header);
-
-                if cdc_header.id == self.ioctl_id {
-                    if cdc_header.status != 0 {
-                        // TODO: propagate error instead
-                        warn!("IOCTL error {}", cdc_header.status as i32);
-                    }
-
-                    if self.inline_ioctl_pending {
-                        self.inline_ioctl_pending = false;
-                    } else {
-                        self.ioctl_state.ioctl_done(response);
-                    }
-                }
+                trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
             }
-            CHANNEL_TYPE_EVENT => {
-                let Some((_, bdc_packet)) = BdcHeader::parse(payload) else {
-                    warn!("BDC event, incomplete header");
-                    return;
-                };
+            _ => {}
+        }
+    }
+
+    fn handle_control(&mut self, payload: &mut [u8]) {
+        let Some((cdc_header, response)) = CdcHeader::parse(payload) else {
+            return;
+        };
+        trace!("    {:?}", cdc_header);
+
+        if cdc_header.id == self.ioctl_id {
+            if cdc_header.status != 0 {
+                // TODO: propagate error instead
+                warn!("IOCTL error {}", cdc_header.status as i32);
+            }
+
+            if self.inline_ioctl_pending {
+                self.inline_ioctl_pending = false;
+            } else {
+                self.ioctl_state.ioctl_done(response);
+            }
+        }
+    }
+
+    fn handle_event(&mut self, payload: &mut [u8]) {
+        let Some((_, bdc_packet)) = BdcHeader::parse(payload) else {
+            warn!("BDC event, incomplete header");
+            return;
+        };
 
                 let Some((event_packet, evt_data)) = EventPacket::parse(bdc_packet) else {
                     warn!("BDC event, incomplete data");
@@ -1243,26 +1410,6 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                             event_payload,
                         ));
                 }
-            }
-            CHANNEL_TYPE_DATA => {
-                let Some((_, packet)) = BdcHeader::parse(payload) else {
-                    return;
-                };
-                trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
-
-                match PacketBuf::try_new() {
-                    Some(mut buf) => {
-                        buf.set_len(packet.len());
-                        buf.copy_from_slice(packet);
-                        if self.ch.try_rx(buf).is_err() {
-                            warn!("failed to push rxd packet to the channel.");
-                        }
-                    }
-                    None => warn!("packet pool empty, dropping rxd packet."),
-                }
-            }
-            _ => {}
-        }
     }
 
     fn update_credit(&mut self, sdpcm_header: &SdpcmHeader) {
