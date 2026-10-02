@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     });
     info!("Hello World!");
 
-    let mut uart = unwrap!(Uart::new_blocking(p.EUSART0, p.PA05, p.PA04, Config::default()));
+    let mut uart = unwrap!(Uart::new_blocking(p.EUSART0, p.PA04, p.PA05, Config::default()));
 
     unwrap!(uart.blocking_write(b"Hello Embassy World!\r\n"));
     info!("wrote Hello, starting echo");

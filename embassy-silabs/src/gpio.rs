@@ -708,12 +708,12 @@ fn write_dout_bit(pin: &AnyPin, high: bool) {
 }
 
 /// Sets `pin` as a push-pull output for a peripheral, such as EUSART TX.
-/// Sets the line idle-high before switching to push-pull so a UART idle
-/// level is presented immediately.
+///
+/// `DOUT` gets the idle level first, so the line idles while the peripheral route is off.
 #[cfg(any(eusart, all(silabs_series = "0", usart)))]
 #[inline]
-pub(crate) fn set_as_alternate_output(pin: &AnyPin) {
-    write_dout_bit(pin, true);
+pub(crate) fn set_as_alternate_output(pin: &AnyPin, idle_high: bool) {
+    write_dout_bit(pin, idle_high);
     write_mode(pin, Mode::Pushpull);
 }
 

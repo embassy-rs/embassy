@@ -23,7 +23,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_silabs::init(embassy_silabs::Config::default());
     info!("Hello World!");
 
-    let mut uart = unwrap!(Uart::new(p.EUSART0, p.PB01, p.PB00, Irqs, Config::default()));
+    let mut uart = unwrap!(Uart::new(p.EUSART0, p.PB00, p.PB01, Irqs, Config::default()));
     unwrap!(uart.blocking_write(b"Type 8 chars to echo!\r\n"));
 
     let (mut tx, rx) = uart.split();

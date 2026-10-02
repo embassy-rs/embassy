@@ -38,35 +38,25 @@ pub enum HfxoMode {
 
 /// HFXO load capacitance trim source.
 ///
-/// 1. **DEVINFO.MODXOCAL** (`HFXOCTUNEXIANA`) — set by Silicon Labs at
-///    module manufacturing time. Used for module parts (BGM/MGM/etc.)
-///    where Silicon Labs already characterised the assembled module.
-///    Selected when `DEVINFO.MODULEINFO.HFXOCALVAL` reads as valid.
-/// 2. **USERDATA flash page** at `0x0FE00100` — written by the board
-///    manufacturer during board-level crystal trimming. Valid if the
-///    16-bit value is `<= 0xFF` (unprogrammed flash reads `0xFFFF`).
-/// 3. **Caller-supplied default** — used when neither token is valid,
-///    e.g. on development boards without per-unit trimming.
+/// [`HfxoCtune::Auto`] uses the first valid source:
 ///
-/// Use [`HfxoCtune::Auto`] for the standard chain.
-/// Use [`HfxoCtune::Fixed`] to override factory tokens (testing, custom characterisation).
+/// 1. The module trim that Silicon Labs writes into DEVINFO on modules such as MGM260P (reference
+///    manual 6.4, `DEVINFO_MODXOCAL`).
+/// 2. The `MFG_CTUNE` value that the board maker writes into USERDATA flash.
+/// 3. The caller default.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HfxoCtune {
-    /// Run the factory-trim resolution chain. The `default` is the
-    /// step-3 fallback (typically the `SL_CLOCK_MANAGER_HFXO_CTUNE`
-    /// value from a matching SLCP config — e.g. `140` for brd2713a).
+    /// Uses the first valid trim source.
+    ///
+    /// `default` is source 3, the nominal trim of the board, such as `140` on brd2713a.
     Auto { default: u8 },
     /// Uses this value and ignores DEVINFO and USERDATA.
     Fixed(u8),
 }
 
 impl HfxoCtune {
-    /// Resolve to a concrete CTUNE byte. Performs DEVINFO/USERDATA reads
-    /// for [`HfxoCtune::Auto`] via [`resolve_hfxo_ctune_auto`].
-    ///
-    /// Safe: the DEVINFO peripheral is memory-mapped read-only chip
-    /// info, and the USERDATA flash page is a fixed-address read.
+    /// Returns the CTUNE value to use.
     pub fn resolve(self) -> u8 {
         match self {
             HfxoCtune::Fixed(v) => v,
@@ -75,27 +65,14 @@ impl HfxoCtune {
     }
 }
 
-/// Run the factory-trim resolution chain nd return the resolved value.
-///
-/// Resolution order:
-/// 1. **DEVINFO module trim** — `MODULEINFO.HFXOCALVAL` reads `false`
-///    when a valid factory trim is present in `MODXOCAL.HFXOCTUNEXIANA`
-///    (Silicon Labs module parts: BGM/MGM/…).
-/// 2. **USERDATA flash page** — 16-bit value at `0x0FE00100`. Valid if
-///    `<= 0xFF` (an 8-bit value zero-extended to 16 bits). Unprogrammed
-///    flash reads back `0xFFFF`, which fails the check.
-/// 3. **Caller-supplied default** — used when neither token is valid.
+/// Returns the first valid HFXO trim, as [`HfxoCtune::Auto`] describes.
 fn resolve_hfxo_ctune_auto(default: u8) -> u8 {
-    let devinfo_valid = !crate::pac::DEVINFO.moduleinfo().read().hfxocalval();
-    let userdata_raw = unsafe { core::ptr::read_volatile(0x0FE00100 as *const u16) };
-
-    if devinfo_valid {
-        crate::pac::DEVINFO.modxocal().read().hfxoctunexiana()
-    } else if userdata_raw <= 0xFF {
-        userdata_raw as u8
-    } else {
-        default
+    if !crate::pac::DEVINFO.moduleinfo().read().hfxocalval() {
+        return crate::pac::DEVINFO.modxocal().read().hfxoctunexiana();
     }
+    // An 8-bit value in a 16-bit token. Erased flash is out of range.
+    let token = crate::pac::USERDATA.mfg_ctune().read();
+    if token <= 0xFF { token as u8 } else { default }
 }
 
 /// HFXO oscillator configuration.
@@ -157,22 +134,24 @@ pub struct HfrcoDpllConfig {
     pub band: HfrcoBand,
 }
 
-/// LFXO load-capacitance trim source. Mirrors [`HfxoCtune`]'s resolution
-/// chain — the LFXO MFG token lives at `0x0FE0009C` and is valid iff
-/// `<= 0x7F` (the `LFXO_CAL_CAPTUNE` field is 7 bits wide).
+/// LFXO load capacitance trim source.
+///
+/// [`LfxoCtune::Auto`] uses the first valid source:
+///
+/// 1. The module trim in DEVINFO (reference manual 6.4, `DEVINFO_MODXOCAL`).
+/// 2. The `MFG_LFXO_TUNE` value in USERDATA flash.
+/// 3. The caller default.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum LfxoCtune {
-    /// Resolve at runtime: USERDATA → `default`. (LFXO has no DEVINFO
-    /// module-info path equivalent to HFXO's `MODULEINFO.HFXOCALVAL`.)
+    /// Uses the first valid trim source. `default` is source 3.
     Auto { default: u8 },
     /// Uses this value, masked to `0..=0x7F`, and ignores the factory trim.
     Fixed(u8),
 }
 
 impl LfxoCtune {
-    /// Resolve to a concrete CTUNE byte. Performs USERDATA reads for
-    /// [`LfxoCtune::Auto`].
+    /// Returns the CTUNE value to use, in `0..=0x7F`.
     pub fn resolve(self) -> u8 {
         match self {
             LfxoCtune::Fixed(v) => v & 0x7F,
@@ -181,13 +160,13 @@ impl LfxoCtune {
     }
 }
 
+/// Returns the first valid LFXO trim, as [`LfxoCtune::Auto`] describes.
 fn resolve_lfxo_ctune_auto(default: u8) -> u8 {
-    // Silicon Labs convention: 8-bit LFXO trim at `0x0FE0009C` in the
-    // USERDATA flash page. Valid iff `<= 0x7F`. Unprogrammed flash reads
-    // back `0xFF`, which fails the check.
-    const USERDATA_LFXO_CTUNE: *const u8 = 0x0FE0009C as *const u8;
-    let raw = unsafe { core::ptr::read_volatile(USERDATA_LFXO_CTUNE) };
-    if raw <= 0x7F { raw } else { default }
+    if !crate::pac::DEVINFO.moduleinfo().read().lfxocalval() {
+        return crate::pac::DEVINFO.modxocal().read().lfxocaptune();
+    }
+    let token = crate::pac::USERDATA.mfg_lfxo_tune().read();
+    if token <= 0x7F { token } else { default }
 }
 
 /// LFXO oscillator configuration.

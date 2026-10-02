@@ -30,7 +30,7 @@ async fn main(_spawner: Spawner) {
         cfg.cmu.mux.em01grpcclk = Some(mux::Em01grpcclkctrlClksel::Hfxo);
         cfg
     });
-    let mut uart = unwrap!(Uart::new(p.EUSART0, p.PA05, p.PA04, Irqs, Config::default()));
+    let mut uart = unwrap!(Uart::new(p.EUSART0, p.PA04, p.PA05, Irqs, Config::default()));
 
     uart.write(b"Hello Embassy World!\r\n").await.unwrap();
     info!("wrote Hello, starting echo");

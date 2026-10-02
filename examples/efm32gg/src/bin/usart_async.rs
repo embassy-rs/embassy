@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_silabs::init(embassy_silabs::Config::default());
     info!("Hello World!");
 
-    let mut uart = unwrap!(Uart::new(p.UART1, p.PB10, p.PB9, Irqs, Config::default()));
+    let mut uart = unwrap!(Uart::new(p.UART1, p.PB9, p.PB10, Irqs, Config::default()));
 
     unwrap!(uart.write(b"Hello Embassy World!\r\n").await);
     info!("wrote Hello, starting echo");

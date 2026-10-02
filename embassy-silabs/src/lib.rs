@@ -19,6 +19,9 @@ include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
 // `gpio` goes before the drivers: they use its `pin_trait!` macro.
 pub mod gpio;
+// Goes before the UART drivers, which use its `impl_uart_common!` macro.
+#[cfg(any(eusart, all(silabs_series = "0", usart)))]
+mod uart_common;
 // MG22 has an EUART, not an EUSART, so it has no `eusart` module.
 #[cfg(eusart)]
 pub mod eusart;

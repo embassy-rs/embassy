@@ -17,7 +17,7 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     let p = embassy_silabs::init(embassy_silabs::Config::default());
 
-    let mut uart = unwrap!(Uart::new(p.EUSART0, p.PB01, p.PB00, Irqs, Config::default()));
+    let mut uart = unwrap!(Uart::new(p.EUSART0, p.PB00, p.PB01, Irqs, Config::default()));
 
     uart.write(b"Hello Embassy World!\r\n").await.unwrap();
     info!("wrote Hello, starting echo");

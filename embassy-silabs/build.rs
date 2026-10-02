@@ -848,10 +848,8 @@ macro_rules! {} {{
 ///
 /// `macro_rules!` cannot join identifiers, so the interrupt and GPIO route names are spelled out.
 ///
-/// Also `pin_trait_impl!` for `TxPin` and `RxPin`, one for each pin of the
-/// `Dbus` entry of the `TX` and `RX` signals in `Peripheral.pins`. The entry
-/// must name the route register and the `routeen` enable field that
-/// `impl_eusart!` writes.
+/// Also writes `pin_trait_impl!` for `TxPin` and `RxPin`, one per pin in the `TX` and `RX` `Dbus`
+/// entries of `Peripheral.pins`. Each entry must name the route register and `routeen` field.
 fn write_eusart_impls(out: &mut String) {
     let gpio_items: Vec<&str> = METADATA
         .peripherals
@@ -872,13 +870,14 @@ fn write_eusart_impls(out: &mut String) {
         };
         writeln!(
             out,
-            "crate::eusart::impl_eusart!({}, {}, {}, {}, {}, {});",
+            "crate::eusart::impl_eusart!({}, {}, {}, {}, {}, {}, {});",
             p.name,
             irq(p, "RX"),
             irq(p, "TX"),
             route("txroute"),
             route("rxroute"),
-            route("routeen"),
+            route("routeen_set"),
+            route("routeen_clr"),
         )
         .unwrap();
         let routeen = route("routeen");
@@ -968,6 +967,8 @@ fn check_enable(peripheral: &str, signal: &str, enable: &Option<PinRouteEnable>,
 /// Also writes `pin_trait_impl!` for `TxPin` and `RxPin`. A pin can be at several locations for a
 /// signal (USART0 CLK PB13 is at 4 and 5), so each pin gets one impl with all its `Location`
 /// numbers. Each entry must enable the `route` field that `impl_usart!` writes.
+///
+/// Also writes one `UartPins` impl per [`usart_pin_pairs`] entry.
 fn write_usart_s0_impls(out: &mut String) {
     for p in METADATA.peripherals.iter().filter(|p| p.kind == "usart") {
         writeln!(
@@ -1005,8 +1006,51 @@ fn write_usart_s0_impls(out: &mut String) {
                 .unwrap();
             }
         }
+        for (tx, rx, location) in usart_pin_pairs(p) {
+            writeln!(
+                out,
+                "impl crate::usart::UartPins<crate::peripherals::{}> for (crate::peripherals::{tx}, crate::peripherals::{rx}) {{ const LOCATION: u8 = {location}; }}",
+                p.name
+            )
+            .unwrap();
+        }
     }
     check_usart1_af();
+}
+
+/// Returns `(TX pin, RX pin, location)` pairs for a Series 0 USART.
+///
+/// A pair is a bonded TX pin and a bonded RX pin at one `Location`. A pair at several locations
+/// gets the smallest one. The result is sorted by location, then by pin.
+fn usart_pin_pairs(p: &Peripheral) -> Vec<(&'static str, &'static str, u8)> {
+    let bonded = |pin: &str| METADATA.pins.iter().any(|b| b.name == pin);
+    let at = |signal: &str| -> Vec<(&'static str, u8)> {
+        p.pins
+            .iter()
+            .filter(|e| e.signal == signal)
+            .filter_map(|e| match e.route {
+                PinRoute::Location { location, .. } => Some((e, location)),
+                _ => None,
+            })
+            .flat_map(|(e, location)| e.pins.iter().map(move |pin| (*pin, location)))
+            .filter(|(pin, _)| bonded(pin))
+            .collect()
+    };
+    let (txs, rxs) = (at("TX"), at("RX"));
+    let mut pairs: Vec<(&'static str, &'static str, u8)> = Vec::new();
+    for &(tx, lt) in &txs {
+        for &(rx, lr) in &rxs {
+            if lt != lr {
+                continue;
+            }
+            match pairs.iter_mut().find(|(t, r, _)| *t == tx && *r == rx) {
+                Some(pair) => pair.2 = pair.2.min(lt),
+                None => pairs.push((tx, rx, lt)),
+            }
+        }
+    }
+    pairs.sort_by_key(|&(tx, rx, location)| (location, tx, rx));
+    pairs
 }
 
 /// Returns the `Location` numbers for each pin of a signal.

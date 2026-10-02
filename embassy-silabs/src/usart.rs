@@ -1,19 +1,15 @@
 //! Series 0 (EFM32GG) USART and UART, as a UART.
 //!
-//! The API follows the Series 2 EUSART driver and embassy-stm32: [`Uart`],
-//! [`UartTx`] and [`UartRx`] with the [`Blocking`] and [`Async`] modes.
-//! UART0 and UART1 are USART blocks in asynchronous mode, so this driver
-//! serves them too.
+//! The API matches the Series 2 `eusart` driver: [`Uart`], [`UartTx`] and [`UartRx`] in `Blocking`
+//! and `Async` modes. It also drives UART0 and UART1, which are USART blocks in asynchronous mode.
 //!
 //! # Pin routing
 //!
-//! A Series 0 peripheral routes its pins through `ROUTE.LOCATION`. One
-//! location number selects the pins of all signals of the peripheral. The
-//! [`TxPin`] and [`RxPin`] traits give the locations at which a pin carries
-//! the signal (`LOCATIONS`). [`Uart::new`] and [`Uart::new_blocking`] use the
-//! smallest location that both pins have. A pin that is at no location of
-//! the signal does not compile. An RX pin and a TX pin that share no location
-//! do not compile either: the constructors check this in a `const` block.
+//! A Series 0 peripheral has a few numbered pin locations. One location number, written to
+//! `ROUTE.LOCATION`, selects the pins of all signals of the peripheral.
+//!
+//! [`Uart::new`] and [`Uart::new_blocking`] need a TX pin and an RX pin that share a location
+//! ([`UartPins`]), and use the smallest shared location. Other pin pairs do not compile.
 //!
 //! # Examples
 //!
@@ -26,7 +22,8 @@
 //! });
 //!
 //! // USART1 location 1: TX PD0, RX PD1.
-//! let mut uart = usart::Uart::new(p.USART1, p.PD1, p.PD0, Irqs, usart::Config::default()).unwrap();
+//! let mut uart =
+//!     usart::Uart::new(p.USART1, p.PD0, p.PD1, Irqs, usart::Config::default()).unwrap();
 //! uart.write(b"hello\r\n").await.unwrap();
 //! ```
 
@@ -41,185 +38,41 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-pub use crate::mode::{Async, Blocking, Mode};
+use crate::mode::{Async, Blocking, Mode};
 use crate::pac::usart as usart_mod;
 use crate::pac::usart::vals;
 use crate::time::Hertz;
+pub use crate::uart_common::{Config, ConfigError, DataBits, Error, Parity, StopBits};
 
 /// Asynchronous oversampling. The divider math assumes 16x.
 const OVERSAMPLE: u32 = 16;
 
-/// Number of data bits per frame.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum DataBits {
-    /// 5 data bits.
-    DataBits5,
-    /// 6 data bits.
-    DataBits6,
-    /// 7 data bits.
-    DataBits7,
-    /// 8 data bits.
-    DataBits8,
-    /// 9 data bits. The byte API sends the 9th bit as 0 (`CTRL.BIT8DV`), and
-    /// drops it on receive.
-    DataBits9,
-}
-
-impl DataBits {
-    fn to_vals(self) -> vals::Databits {
-        match self {
-            DataBits::DataBits5 => vals::Databits::Five,
-            DataBits::DataBits6 => vals::Databits::Six,
-            DataBits::DataBits7 => vals::Databits::Seven,
-            DataBits::DataBits8 => vals::Databits::Eight,
-            DataBits::DataBits9 => vals::Databits::Nine,
-        }
+fn databits(d: DataBits) -> vals::Databits {
+    match d {
+        DataBits::DataBits5 => vals::Databits::Five,
+        DataBits::DataBits6 => vals::Databits::Six,
+        DataBits::DataBits7 => vals::Databits::Seven,
+        DataBits::DataBits8 => vals::Databits::Eight,
+        // The byte API sends the 9th bit as 0 (`CTRL.BIT8DV`).
+        DataBits::DataBits9 => vals::Databits::Nine,
     }
 }
 
-/// Parity bit.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Parity {
-    /// No parity bit.
-    ParityNone,
-    /// Even parity.
-    ParityEven,
-    /// Odd parity.
-    ParityOdd,
-}
-
-impl Parity {
-    fn to_vals(self) -> vals::Parity {
-        match self {
-            Parity::ParityNone => vals::Parity::None,
-            Parity::ParityEven => vals::Parity::Even,
-            Parity::ParityOdd => vals::Parity::Odd,
-        }
+fn parity(p: Parity) -> vals::Parity {
+    match p {
+        Parity::ParityNone => vals::Parity::None,
+        Parity::ParityEven => vals::Parity::Even,
+        Parity::ParityOdd => vals::Parity::Odd,
     }
 }
 
-/// Number of stop bits.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum StopBits {
-    /// 0.5 stop bits.
-    STOP0P5,
-    /// 1 stop bit.
-    STOP1,
-    /// 1.5 stop bits.
-    STOP1P5,
-    /// 2 stop bits.
-    STOP2,
-}
-
-impl StopBits {
-    fn to_vals(self) -> vals::Stopbits {
-        match self {
-            StopBits::STOP0P5 => vals::Stopbits::Half,
-            StopBits::STOP1 => vals::Stopbits::One,
-            StopBits::STOP1P5 => vals::Stopbits::Oneandahalf,
-            StopBits::STOP2 => vals::Stopbits::Two,
-        }
+fn stopbits(s: StopBits) -> vals::Stopbits {
+    match s {
+        StopBits::STOP0P5 => vals::Stopbits::Half,
+        StopBits::STOP1 => vals::Stopbits::One,
+        StopBits::STOP1P5 => vals::Stopbits::Oneandahalf,
+        StopBits::STOP2 => vals::Stopbits::Two,
     }
-}
-
-/// UART configuration.
-#[non_exhaustive]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Config {
-    /// Baud rate in bits per second.
-    pub baudrate: u32,
-    /// Number of data bits.
-    pub data_bits: DataBits,
-    /// Parity.
-    pub parity: Parity,
-    /// Number of stop bits.
-    pub stop_bits: StopBits,
-}
-
-impl Default for Config {
-    /// 115200 8N1.
-    fn default() -> Self {
-        Self {
-            baudrate: 115_200,
-            data_bits: DataBits::DataBits8,
-            parity: Parity::ParityNone,
-            stop_bits: StopBits::STOP1,
-        }
-    }
-}
-
-/// Runtime UART error.
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
-pub enum Error {
-    /// Framing error: the stop bit was not high.
-    Framing,
-    /// The parity bit was wrong.
-    Parity,
-    /// The receive buffer overflowed and data was lost.
-    Overrun,
-}
-
-impl core::fmt::Display for Error {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let s = match self {
-            Error::Framing => "framing error",
-            Error::Parity => "parity error",
-            Error::Overrun => "RX overrun",
-        };
-        write!(f, "{s}")
-    }
-}
-
-impl core::error::Error for Error {}
-
-/// Error from a constructor or from `set_config`.
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
-pub enum ConfigError {
-    /// The baud rate is too low for HFPERCLK: the divider does not fit in
-    /// `CLKDIV.DIV`.
-    BaudrateTooLow,
-    /// The baud rate is too high for HFPERCLK.
-    BaudrateTooHigh,
-}
-
-impl core::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let s = match self {
-            ConfigError::BaudrateTooLow => "baud rate too low",
-            ConfigError::BaudrateTooHigh => "baud rate too high",
-        };
-        write!(f, "{s}")
-    }
-}
-
-impl core::error::Error for ConfigError {}
-
-/// The smallest location that is in both lists, at compile time.
-const fn common_location(rx: &[u8], tx: &[u8]) -> Option<u8> {
-    let mut best: Option<u8> = None;
-    let mut i = 0;
-    while i < rx.len() {
-        let mut j = 0;
-        while j < tx.len() {
-            if rx[i] == tx[j] {
-                best = match best {
-                    Some(b) if b <= rx[i] => Some(b),
-                    _ => Some(rx[i]),
-                };
-            }
-            j += 1;
-        }
-        i += 1;
-    }
-    best
 }
 
 /// Returns the nearest `CLKDIV.DIV` value for a baud rate.
@@ -292,6 +145,20 @@ pub trait Instance: SealedInstance + crate::cmu::CmuPeripheral + PeripheralType 
 pin_trait!(TxPin, Instance, locations);
 pin_trait!(RxPin, Instance, locations);
 
+/// A TX pin and an RX pin at one ROUTE LOCATION for instance `T`.
+///
+/// `build.rs` implements it for each such pair in chip metadata. `LOCATION` is the smallest
+/// location that the pins share.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a (TX, RX) pin pair at one ROUTE LOCATION of `{T}`",
+    label = "the TX pin and the RX pin share no ROUTE LOCATION",
+    note = "a Series 0 USART routes all of its signals through one ROUTE LOCATION: use a TX pin and an RX pin of the same location"
+)]
+pub trait UartPins<T: Instance> {
+    /// The pair's ROUTE LOCATION.
+    const LOCATION: u8;
+}
+
 /// Implements [`Instance`] for one USART or UART.
 ///
 /// `build.rs` invokes it for each `usart` peripheral in chip metadata.
@@ -352,23 +219,22 @@ impl<T: Instance> interrupt::typelevel::Handler<T::TxInterrupt> for TxInterruptH
 }
 
 /// Disables the interrupt sources that fired and wakes their futures, which enable them again.
+///
+/// `RXDATAV` and `TXBL` are levels whose flags clear only when the condition is false, so the
+/// handler must disable them. The receiver arms `RXDATAV` and `RXOF` only. A frame with a parity or
+/// framing error also sets `RXDATAV`, and its read reports the error.
 fn on_interrupt(info: &Info, state: &State) {
     let r = info.regs;
     let if_ = r.if_().read();
     let ien = r.ien().read();
 
-    let rx = (if_.rxdatav() && ien.rxdatav())
-        || (if_.rxof() && ien.rxof())
-        || (if_.perr() && ien.perr())
-        || (if_.ferr() && ien.ferr());
+    let rx = (if_.rxdatav() && ien.rxdatav()) || (if_.rxof() && ien.rxof());
     let tx = (if_.txbl() && ien.txbl()) || (if_.txc() && ien.txc());
     critical_section::with(|_| {
         r.ien().modify(|w| {
             if rx {
                 w.set_rxdatav(false);
                 w.set_rxof(false);
-                w.set_perr(false);
-                w.set_ferr(false);
             }
             if tx {
                 w.set_txbl(false);
@@ -389,15 +255,21 @@ fn ien_set(r: usart_mod::Usart, f: impl FnOnce(&mut usart_mod::regs::Ien)) {
     critical_section::with(|_| r.ien().modify(f));
 }
 
-/// Write the frame format and the baud rate. Nothing is written when the
-/// baud rate is not possible.
+/// Writes the frame format, inversion and loopback bits, and baud rate.
+///
+/// Writes nothing when the baud rate is not possible.
 fn apply_config(info: &Info, config: &Config) -> Result<(), ConfigError> {
     let div = compute_clkdiv((info.frequency)(), config.baudrate)?;
     let r = info.regs;
+    r.ctrl().modify(|w| {
+        w.set_txinv(config.invert_tx);
+        w.set_rxinv(config.invert_rx);
+        w.set_loopbk(config.loopback);
+    });
     r.frame().write(|w| {
-        w.set_databits(config.data_bits.to_vals());
-        w.set_parity(config.parity.to_vals());
-        w.set_stopbits(config.stop_bits.to_vals());
+        w.set_databits(databits(config.data_bits));
+        w.set_parity(parity(config.parity));
+        w.set_stopbits(stopbits(config.stop_bits));
     });
     r.clkdiv().write(|w| w.set_div(div));
     debug!("usart: baud={} clkdiv={}", config.baudrate, div);
@@ -437,7 +309,7 @@ fn init(
 
     // TX is a push-pull output, idle high, and RX is an input.
     if let Some(tx) = tx {
-        crate::gpio::set_as_alternate_output(tx);
+        crate::gpio::set_as_alternate_output(tx, !config.invert_tx);
     }
     if let Some(rx) = rx {
         crate::gpio::set_as_alternate_input(rx);
@@ -474,8 +346,7 @@ pub struct UartTx<'d, M: Mode> {
 }
 
 impl<'d> UartTx<'d, Blocking> {
-    /// Create a blocking transmitter on `tx` for instance `peri`, at the
-    /// smallest location of `tx`.
+    /// Creates a blocking transmitter on `tx` for instance `peri`, at the smallest `tx` location.
     pub fn new_blocking<T: Instance, X: TxPin<T>>(
         _peri: Peri<'d, T>,
         tx: Peri<'d, X>,
@@ -490,9 +361,9 @@ impl<'d> UartTx<'d, Blocking> {
 }
 
 impl<'d> UartTx<'d, Async> {
-    /// Create an interrupt-driven transmitter on `tx` for instance `peri`,
-    /// at the smallest location of `tx`. Bind the TX vector to
-    /// [`TxInterruptHandler<T>`].
+    /// Creates an interrupt-driven transmitter on `tx` for `peri`, at the smallest `tx` location.
+    ///
+    /// Bind the TX vector to [`TxInterruptHandler<T>`].
     pub fn new<T: Instance, X: TxPin<T>>(
         _peri: Peri<'d, T>,
         tx: Peri<'d, X>,
@@ -561,8 +432,23 @@ impl<'d, M: Mode> UartTx<'d, M> {
         }
     }
 
-    /// Write all bytes. Wait for space in the transmit buffer before each
-    /// byte.
+    /// Returns a half for [`Uart::split_ref`] that does not turn the peripheral off when it drops.
+    fn borrowed(&mut self) -> UartTx<'_, M> {
+        UartTx {
+            info: self.info,
+            state: self.state,
+            pin: self.pin.reborrow(),
+            owner: false,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Returns `true` if the transmit buffer has space for a frame.
+    fn write_ready(&self) -> bool {
+        self.info.regs.status().read().txbl()
+    }
+
+    /// Writes all bytes. Blocks until each byte is in the transmit buffer.
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
         for &b in buffer {
@@ -573,27 +459,21 @@ impl<'d, M: Mode> UartTx<'d, M> {
         Ok(())
     }
 
-    /// Wait until all written bytes are sent.
+    /// Blocks until all written bytes are sent.
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         while self.busy() {}
         Ok(())
     }
 
-    /// The transmitter is busy: a written byte is not sent yet.
+    /// Returns `true` if a written byte is not sent yet.
     pub fn busy(&self) -> bool {
-        if !self.state.tx_pending.load(Ordering::Relaxed) {
-            return false;
-        }
-        if self.info.regs.status().read().txc() {
-            self.state.tx_pending.store(false, Ordering::Relaxed);
-            return false;
-        }
-        true
+        tx_busy(self.info, self.state)
     }
 
-    /// Send a break: one frame with data 0 and a low stop bit
-    /// (`TXDATAX.TXBREAK`). The line is high again before the next frame.
-    /// A break longer than one frame needs the GPIO.
+    /// Sends a break: one frame with data 0 and a low stop bit (`TXDATAX.TXBREAK`).
+    ///
+    /// The line is high again before the next frame, so a longer break needs GPIO. Returns when the
+    /// frame is in the transmit buffer, and [`busy`](Self::busy) stays `true` until the break ends.
     pub fn send_break(&mut self) {
         let r = self.info.regs;
         while !r.status().read().txbl() {}
@@ -604,13 +484,14 @@ impl<'d, M: Mode> UartTx<'d, M> {
         });
     }
 
-    /// Change the frame format and the baud rate. Call it when the
-    /// transmitter is idle. On a split driver, the receiver changes too.
+    /// Changes the configuration once the transmitter is idle.
+    ///
+    /// A frame received during the change can be wrong. On a split UART, the receiver changes too.
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        apply_config(self.info, config)
+        set_config(self.info, self.state, config)
     }
 
-    /// Change the baud rate. On a split driver, the receiver changes too.
+    /// Changes the baud rate. On a split UART, the receiver changes too.
     pub fn set_baudrate(&mut self, baudrate: u32) -> Result<(), ConfigError> {
         set_baudrate(self.info, baudrate)
     }
@@ -627,8 +508,7 @@ pub struct UartRx<'d, M: Mode> {
 }
 
 impl<'d> UartRx<'d, Blocking> {
-    /// Create a blocking receiver on `rx` for instance `peri`, at the
-    /// smallest location of `rx`.
+    /// Creates a blocking receiver on `rx` for instance `peri`, at the smallest `rx` location.
     pub fn new_blocking<T: Instance, R: RxPin<T>>(
         _peri: Peri<'d, T>,
         rx: Peri<'d, R>,
@@ -643,9 +523,9 @@ impl<'d> UartRx<'d, Blocking> {
 }
 
 impl<'d> UartRx<'d, Async> {
-    /// Create an interrupt-driven receiver on `rx` for instance `peri`, at
-    /// the smallest location of `rx`. Bind the RX vector to
-    /// [`RxInterruptHandler<T>`].
+    /// Creates an interrupt-driven receiver on `rx` for `peri`, at the smallest `rx` location.
+    ///
+    /// Bind the RX vector to [`RxInterruptHandler<T>`].
     pub fn new<T: Instance, R: RxPin<T>>(
         _peri: Peri<'d, T>,
         rx: Peri<'d, R>,
@@ -723,7 +603,23 @@ impl<'d, M: Mode> UartRx<'d, M> {
         }
     }
 
-    /// Fill `buffer`. Wait for each byte.
+    /// Returns a half for [`Uart::split_ref`] that does not turn the peripheral off when it drops.
+    fn borrowed(&mut self) -> UartRx<'_, M> {
+        UartRx {
+            info: self.info,
+            state: self.state,
+            pin: self.pin.reborrow(),
+            owner: false,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Returns `true` if a frame is available, or `Err` on an overrun.
+    fn read_ready(&mut self) -> Result<bool, Error> {
+        rx_poll(&self.info.regs)
+    }
+
+    /// Fills `buffer`. Blocks until each byte is received.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         let r = self.info.regs;
         for slot in buffer {
@@ -750,16 +646,40 @@ impl<'d, M: Mode> UartRx<'d, M> {
         Ok(n)
     }
 
-    /// Change the frame format and the baud rate. On a split driver, the
-    /// transmitter changes too.
+    /// Changes the frame format and baud rate, like [`UartTx::set_config`].
+    ///
+    /// On a split UART, the transmitter changes too.
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        apply_config(self.info, config)
+        set_config(self.info, self.state, config)
     }
 
-    /// Change the baud rate. On a split driver, the transmitter changes too.
+    /// Changes the baud rate. On a split UART, the transmitter changes too.
     pub fn set_baudrate(&mut self, baudrate: u32) -> Result<(), ConfigError> {
         set_baudrate(self.info, baudrate)
     }
+}
+
+/// Returns `true` if a written frame is not sent yet.
+///
+/// `STATUS.TXC` is 0 at reset and is set only after a frame is sent, so `tx_pending` tells an
+/// unused transmitter from a busy one.
+fn tx_busy(info: &Info, state: &State) -> bool {
+    if !state.tx_pending.load(Ordering::Relaxed) {
+        return false;
+    }
+    if info.regs.status().read().txc() {
+        state.tx_pending.store(false, Ordering::Relaxed);
+        return false;
+    }
+    true
+}
+
+/// Waits until the transmitter is idle, then writes the configuration.
+fn set_config(info: &Info, state: &State, config: &Config) -> Result<(), ConfigError> {
+    // Check the baud rate first, so an error returns at once.
+    compute_clkdiv((info.frequency)(), config.baudrate)?;
+    while tx_busy(info, state) {}
+    apply_config(info, config)
 }
 
 fn set_baudrate(info: &Info, baudrate: u32) -> Result<(), ConfigError> {
@@ -768,56 +688,56 @@ fn set_baudrate(info: &Info, baudrate: u32) -> Result<(), ConfigError> {
     Ok(())
 }
 
-/// Check for an overrun, then return whether a frame is available.
+/// Reads `IF` once and returns whether a frame is available.
+///
+/// # Errors
+///
+/// On an overrun, clears the RX error flags that are set and returns [`Error::Overrun`]. Parity and
+/// framing errors are per frame: [`read_frame`] reports them.
 fn rx_poll(r: &usart_mod::Usart) -> Result<bool, Error> {
-    if r.if_().read().rxof() {
-        r.if_clr().write(|w| w.set_rxof(true));
+    let if_ = r.if_().read();
+    if if_.rxof() {
+        r.if_clr().write(|w| {
+            w.set_rxof(true);
+            w.set_perr(if_.perr());
+            w.set_ferr(if_.ferr());
+        });
         return Err(Error::Overrun);
     }
     Ok(r.status().read().rxdatav())
 }
 
-/// Read one frame. A frame with a framing or parity error enters the
-/// receive buffer like a good frame (RM 17.3.2.4.4 and 17.3.2.4.5).
-/// `RXDATAX` gives the error flags of this frame, so the read consumes the
-/// frame and reports its own error.
+/// Reads one frame.
+///
+/// A frame with a parity or framing error enters the receive buffer like a good frame (RM
+/// 17.3.2.4.4 and 17.3.2.4.5). `RXDATAX` gives its errors, so the read consumes the frame and
+/// reports its own error. The read clears both sticky `IF` flags, and parity wins over framing.
 fn read_frame(r: &usart_mod::Usart) -> Result<u8, Error> {
     let x = r.rxdatax().read();
-    if x.ferr() {
-        r.if_clr().write(|w| w.set_ferr(true));
-        return Err(Error::Framing);
-    }
-    if x.perr() {
-        r.if_clr().write(|w| w.set_perr(true));
-        return Err(Error::Parity);
+    if x.perr() || x.ferr() {
+        r.if_clr().write(|w| {
+            w.set_perr(x.perr());
+            w.set_ferr(x.ferr());
+        });
+        return Err(if x.perr() { Error::Parity } else { Error::Framing });
     }
     Ok(x.rxdata() as u8)
 }
 
-/// Bidirectional UART.
-pub struct Uart<'d, M: Mode> {
-    tx: UartTx<'d, M>,
-    rx: UartRx<'d, M>,
-}
-
 impl<'d> Uart<'d, Blocking> {
-    /// Create a blocking UART on `rx` and `tx` for instance `peri`.
+    /// Creates a blocking UART on `tx` and `rx` for instance `peri`.
     ///
-    /// The driver uses the smallest location that both pins have. Pins that
-    /// share no location fail to compile in `cargo build`. `cargo check` does
-    /// not evaluate this check.
-    pub fn new_blocking<T: Instance, R: RxPin<T>, X: TxPin<T>>(
+    /// The pins must share a ROUTE LOCATION: `(X, R)` must implement [`UartPins`].
+    pub fn new_blocking<T: Instance, X: TxPin<T>, R: RxPin<T>>(
         _peri: Peri<'d, T>,
-        rx: Peri<'d, R>,
         tx: Peri<'d, X>,
+        rx: Peri<'d, R>,
         config: Config,
-    ) -> Result<Self, ConfigError> {
-        let location = const {
-            match common_location(R::LOCATIONS, X::LOCATIONS) {
-                Some(l) => l,
-                None => ::core::panic!("usart: the RX pin and the TX pin share no ROUTE LOCATION"),
-            }
-        };
+    ) -> Result<Self, ConfigError>
+    where
+        (X, R): UartPins<T>,
+    {
+        let location = <(X, R) as UartPins<T>>::LOCATION;
         let tx: Peri<'d, AnyPin> = tx.into();
         let rx: Peri<'d, AnyPin> = rx.into();
         init(T::info(), T::state(), Some(&tx), Some(&rx), location, &config)?;
@@ -826,26 +746,23 @@ impl<'d> Uart<'d, Blocking> {
 }
 
 impl<'d> Uart<'d, Async> {
-    /// Create an interrupt-driven UART on `rx` and `tx` for instance `peri`.
+    /// Creates an interrupt-driven UART on `tx` and `rx` for instance `peri`.
     ///
-    /// The driver uses the smallest location that both pins have. Pins that
-    /// share no location fail to compile in `cargo build`. `cargo check` does
-    /// not evaluate this check.
-    pub fn new<T: Instance, R: RxPin<T>, X: TxPin<T>>(
+    /// Bind the vectors to [`RxInterruptHandler<T>`] and [`TxInterruptHandler<T>`]. The pins must
+    /// share a ROUTE LOCATION: `(X, R)` must implement [`UartPins`].
+    pub fn new<T: Instance, X: TxPin<T>, R: RxPin<T>>(
         _peri: Peri<'d, T>,
-        rx: Peri<'d, R>,
         tx: Peri<'d, X>,
+        rx: Peri<'d, R>,
         _irqs: impl interrupt::typelevel::Binding<T::RxInterrupt, RxInterruptHandler<T>>
         + interrupt::typelevel::Binding<T::TxInterrupt, TxInterruptHandler<T>>
         + 'd,
         config: Config,
-    ) -> Result<Self, ConfigError> {
-        let location = const {
-            match common_location(R::LOCATIONS, X::LOCATIONS) {
-                Some(l) => l,
-                None => ::core::panic!("usart: the RX pin and the TX pin share no ROUTE LOCATION"),
-            }
-        };
+    ) -> Result<Self, ConfigError>
+    where
+        (X, R): UartPins<T>,
+    {
+        let location = <(X, R) as UartPins<T>>::LOCATION;
         let tx: Peri<'d, AnyPin> = tx.into();
         let rx: Peri<'d, AnyPin> = rx.into();
         init(T::info(), T::state(), Some(&tx), Some(&rx), location, &config)?;
@@ -859,26 +776,6 @@ impl<'d> Uart<'d, Async> {
 
         Ok(Self::wrap::<T>(tx, rx))
     }
-
-    /// Write all bytes, async.
-    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        self.tx.write(buffer).await
-    }
-
-    /// Wait until all written bytes are sent.
-    pub async fn flush(&mut self) -> Result<(), Error> {
-        self.tx.flush().await
-    }
-
-    /// Fill `buffer`, async.
-    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        self.rx.read(buffer).await
-    }
-
-    /// Wait for at least one byte, then read up to `buffer.len()` bytes.
-    pub async fn read_buf(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        self.rx.read_buf(buffer).await
-    }
 }
 
 impl<'d, M: Mode> Uart<'d, M> {
@@ -888,74 +785,6 @@ impl<'d, M: Mode> Uart<'d, M> {
             tx: UartTx::wrap(T::info(), T::state(), tx),
             rx: UartRx::wrap(T::info(), T::state(), rx),
         }
-    }
-
-    /// Split into independent TX and RX halves. Each half keeps the
-    /// peripheral on until both are dropped.
-    pub fn split(self) -> (UartTx<'d, M>, UartRx<'d, M>) {
-        (self.tx, self.rx)
-    }
-
-    /// Borrow the TX and RX halves. The halves do not turn the peripheral
-    /// off when they drop: the `Uart` does.
-    pub fn split_ref(&mut self) -> (UartTx<'_, M>, UartRx<'_, M>) {
-        (
-            UartTx {
-                info: self.tx.info,
-                state: self.tx.state,
-                pin: self.tx.pin.reborrow(),
-                owner: false,
-                _phantom: PhantomData,
-            },
-            UartRx {
-                info: self.rx.info,
-                state: self.rx.state,
-                pin: self.rx.pin.reborrow(),
-                owner: false,
-                _phantom: PhantomData,
-            },
-        )
-    }
-
-    /// Change the frame format and the baud rate. Call it when the
-    /// transmitter is idle.
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        self.tx.set_config(config)
-    }
-
-    /// Change the baud rate.
-    pub fn set_baudrate(&mut self, baudrate: u32) -> Result<(), ConfigError> {
-        self.tx.set_baudrate(baudrate)
-    }
-
-    /// Send a break. See [`UartTx::send_break`].
-    pub fn send_break(&mut self) {
-        self.tx.send_break()
-    }
-
-    /// The transmitter is busy: a written byte is not sent yet.
-    pub fn busy(&self) -> bool {
-        self.tx.busy()
-    }
-
-    /// Write all bytes, blocking.
-    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        self.tx.blocking_write(buffer)
-    }
-
-    /// Wait until all written bytes are sent.
-    pub fn blocking_flush(&mut self) -> Result<(), Error> {
-        self.tx.blocking_flush()
-    }
-
-    /// Fill `buffer`, blocking.
-    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        self.rx.blocking_read(buffer)
-    }
-
-    /// Wait for at least one byte, then read up to `buffer.len()` bytes.
-    pub fn blocking_read_buf(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        self.rx.blocking_read_buf(buffer)
     }
 }
 
@@ -1002,150 +831,4 @@ fn drop_tx_rx(info: &Info, state: &State) {
     }
 }
 
-impl embedded_io::Error for Error {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        embedded_io::ErrorKind::Other
-    }
-}
-
-impl<M: Mode> embedded_io::ErrorType for Uart<'_, M> {
-    type Error = Error;
-}
-impl<M: Mode> embedded_io::ErrorType for UartTx<'_, M> {
-    type Error = Error;
-}
-impl<M: Mode> embedded_io::ErrorType for UartRx<'_, M> {
-    type Error = Error;
-}
-
-impl<M: Mode> embedded_io::Write for UartTx<'_, M> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        self.blocking_write(buf)?;
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> Result<(), Error> {
-        self.blocking_flush()
-    }
-}
-
-impl<M: Mode> embedded_io::Write for Uart<'_, M> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        self.blocking_write(buf)?;
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> Result<(), Error> {
-        self.blocking_flush()
-    }
-}
-
-impl<M: Mode> embedded_io::Read for UartRx<'_, M> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        self.blocking_read_buf(buf)
-    }
-}
-
-impl<M: Mode> embedded_io::Read for Uart<'_, M> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        self.blocking_read_buf(buf)
-    }
-}
-
-impl<M: Mode> embedded_io::ReadReady for UartRx<'_, M> {
-    fn read_ready(&mut self) -> Result<bool, Error> {
-        rx_poll(&self.info.regs)
-    }
-}
-
-impl<M: Mode> embedded_io::ReadReady for Uart<'_, M> {
-    fn read_ready(&mut self) -> Result<bool, Error> {
-        embedded_io::ReadReady::read_ready(&mut self.rx)
-    }
-}
-
-impl<M: Mode> embedded_io::WriteReady for UartTx<'_, M> {
-    fn write_ready(&mut self) -> Result<bool, Error> {
-        Ok(self.info.regs.status().read().txbl())
-    }
-}
-
-impl<M: Mode> embedded_io::WriteReady for Uart<'_, M> {
-    fn write_ready(&mut self) -> Result<bool, Error> {
-        embedded_io::WriteReady::write_ready(&mut self.tx)
-    }
-}
-
-impl embedded_io_async::Write for UartTx<'_, Async> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        UartTx::write(self, buf).await?;
-        Ok(buf.len())
-    }
-    async fn flush(&mut self) -> Result<(), Error> {
-        UartTx::flush(self).await
-    }
-}
-
-impl embedded_io_async::Write for Uart<'_, Async> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        Uart::write(self, buf).await?;
-        Ok(buf.len())
-    }
-    async fn flush(&mut self) -> Result<(), Error> {
-        Uart::flush(self).await
-    }
-}
-
-impl embedded_io_async::Read for UartRx<'_, Async> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        UartRx::read_buf(self, buf).await
-    }
-}
-
-impl embedded_io_async::Read for Uart<'_, Async> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        Uart::read_buf(self, buf).await
-    }
-}
-
-impl<M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'_, M> {
-    type Error = Error;
-    fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        self.blocking_write(buffer)
-    }
-    fn bflush(&mut self) -> Result<(), Error> {
-        self.blocking_flush()
-    }
-}
-
-impl<M: Mode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'_, M> {
-    type Error = Error;
-    fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        self.blocking_write(buffer)
-    }
-    fn bflush(&mut self) -> Result<(), Error> {
-        self.blocking_flush()
-    }
-}
-
-impl<M: Mode> embassy_embedded_hal::SetConfig for Uart<'_, M> {
-    type Config = Config;
-    type ConfigError = ConfigError;
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        Uart::set_config(self, config)
-    }
-}
-
-impl<M: Mode> embassy_embedded_hal::SetConfig for UartTx<'_, M> {
-    type Config = Config;
-    type ConfigError = ConfigError;
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        UartTx::set_config(self, config)
-    }
-}
-
-impl<M: Mode> embassy_embedded_hal::SetConfig for UartRx<'_, M> {
-    type Config = Config;
-    type ConfigError = ConfigError;
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        UartRx::set_config(self, config)
-    }
-}
+crate::uart_common::impl_uart_common!();
