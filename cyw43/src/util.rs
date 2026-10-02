@@ -84,7 +84,8 @@ pub(crate) async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Dur
 }
 
 /// Buffer with space for a cmd
-pub struct WriteBuffer {    buf: Aligned<A4, [u8]>,
+pub struct WriteBuffer {
+    buf: Aligned<A4, [u8]>,
 }
 
 impl WriteBuffer {

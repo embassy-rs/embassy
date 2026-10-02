@@ -1255,161 +1255,161 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             return;
         };
 
-                let Some((event_packet, evt_data)) = EventPacket::parse(bdc_packet) else {
-                    warn!("BDC event, incomplete data");
-                    return;
-                };
+        let Some((event_packet, evt_data)) = EventPacket::parse(bdc_packet) else {
+            warn!("BDC event, incomplete data");
+            return;
+        };
 
-                const ETH_P_LINK_CTL: u16 = 0x886c; // HPNA, wlan link local tunnel, according to linux if_ether.h
-                if event_packet.eth.ether_type != ETH_P_LINK_CTL {
-                    warn!(
-                        "unexpected ethernet type 0x{:04x}, expected Broadcom ether type 0x{:04x}",
-                        event_packet.eth.ether_type, ETH_P_LINK_CTL
-                    );
-                    return;
+        const ETH_P_LINK_CTL: u16 = 0x886c; // HPNA, wlan link local tunnel, according to linux if_ether.h
+        if event_packet.eth.ether_type != ETH_P_LINK_CTL {
+            warn!(
+                "unexpected ethernet type 0x{:04x}, expected Broadcom ether type 0x{:04x}",
+                event_packet.eth.ether_type, ETH_P_LINK_CTL
+            );
+            return;
+        }
+        const BROADCOM_OUI: &[u8] = &[0x00, 0x10, 0x18];
+        if event_packet.hdr.oui != BROADCOM_OUI {
+            warn!(
+                "unexpected ethernet OUI {:02x}, expected Broadcom OUI {:02x}",
+                Bytes(&event_packet.hdr.oui),
+                Bytes(BROADCOM_OUI)
+            );
+            return;
+        }
+        const BCMILCP_SUBTYPE_VENDOR_LONG: u16 = 32769;
+        if event_packet.hdr.subtype != BCMILCP_SUBTYPE_VENDOR_LONG {
+            warn!("unexpected subtype {}", event_packet.hdr.subtype);
+            return;
+        }
+
+        const BCMILCP_BCM_SUBTYPE_EVENT: u16 = 1;
+        if event_packet.hdr.user_subtype != BCMILCP_BCM_SUBTYPE_EVENT {
+            warn!("unexpected user_subtype {}", event_packet.hdr.subtype);
+            return;
+        }
+
+        let event_type = Event::from(event_packet.msg.event_type as u8);
+        let status = EStatus::from(event_packet.msg.status as u8);
+        debug!(
+            "=== EVENT {:?}: {:?} {:02x}",
+            event_type,
+            event_packet.msg,
+            Bytes(evt_data)
+        );
+
+        let update_link_status = match (
+            event_type,
+            status,
+            event_packet.msg.flags,
+            event_packet.msg.reason,
+            event_packet.msg.auth_type,
+        ) {
+            // Events indicating that the link is down
+            // Event LINK with flag 0 indicates link down. reason = 1: loss of signal (e.g. out of range), reason = 2: controlled network shutdown
+            // Event AUTH with status FAIL, reason 16, and auth_type 3 is specific for WPA3 networks
+            // Event DEAUTH_IND is an AP-initiated deauth (e.g. AP reset); any status/reason means the link is down
+            // Event DISASSOC_IND is an AP-initiated disassoc (e.g. idle-station inactivity timeout); any status/reason means the link is down
+            (Event::LINK, EStatus::SUCCESS, 0, ..)
+            | (Event::DEAUTH, EStatus::SUCCESS, ..)
+            | (Event::DEAUTH_IND, ..)
+            | (Event::DISASSOC_IND, ..)
+            | (Event::AUTH, EStatus::FAIL, _, 16, 3) => {
+                self.auth_ok = false;
+                self.join_ok = false;
+                self.key_exchange_ok = false;
+                true
+            }
+            // Update auth flag. Ignore unsolicited events.
+            // When changing passwords on a WPA3 AP which we are already connected to, or we roam to, PSK_SUP events indicating
+            // success are still sent. Only the AUTH events indicate failure and this flag helps cover that scenario
+            (Event::AUTH, status, ..) if status != EStatus::UNSOLICITED => {
+                self.auth_ok = status == EStatus::SUCCESS;
+                debug!("auth_ok flag: {}", self.auth_ok as u8);
+                false
+            }
+            // Successfully joined the network. Open or WPA3 networks are now fully connected - WPA1/2 networks additionally require a successful key exchange.
+            (Event::JOIN, EStatus::SUCCESS, ..) => {
+                self.join_ok = true;
+                true
+            }
+
+            // Key exchange events (PSK_SUP) for secure networks
+            // The status codes for PSK_SUP events seem to have different meanings from other event types
+
+            // Successful key exchange, indicated by a PSK_SUP event with status 6 "UNSOLICITED"
+            // Disregard if auth_ok is false, which can happen in WPA3 networks
+            (Event::PSK_SUP, EStatus::UNSOLICITED, 0, 0, _) => {
+                if self.auth_ok {
+                    self.key_exchange_ok = true;
+                    true
+                } else {
+                    false
                 }
-                const BROADCOM_OUI: &[u8] = &[0x00, 0x10, 0x18];
-                if event_packet.hdr.oui != BROADCOM_OUI {
-                    warn!(
-                        "unexpected ethernet OUI {:02x}, expected Broadcom OUI {:02x}",
-                        Bytes(&event_packet.hdr.oui),
-                        Bytes(BROADCOM_OUI)
-                    );
-                    return;
-                }
-                const BCMILCP_SUBTYPE_VENDOR_LONG: u16 = 32769;
-                if event_packet.hdr.subtype != BCMILCP_SUBTYPE_VENDOR_LONG {
-                    warn!("unexpected subtype {}", event_packet.hdr.subtype);
-                    return;
-                }
+            }
+            // Ignore PSK_SUP events with reason 14 as they are often sent when the device roams from one AP to another
+            (Event::PSK_SUP, _, _, 14, _) => false,
+            // Other PSK_SUP events indicate key exchange errors
+            (Event::PSK_SUP, ..) => {
+                self.key_exchange_ok = false;
+                true
+            }
+            _ => false,
+        };
 
-                const BCMILCP_BCM_SUBTYPE_EVENT: u16 = 1;
-                if event_packet.hdr.user_subtype != BCMILCP_BCM_SUBTYPE_EVENT {
-                    warn!("unexpected user_subtype {}", event_packet.hdr.subtype);
-                    return;
-                }
+        if update_link_status {
+            let secure_network = self.secure_network.load(Relaxed);
+            let link_state = if self.join_ok && (!secure_network || self.key_exchange_ok) {
+                LinkState::Up
+            } else {
+                LinkState::Down
+            };
 
-                let event_type = Event::from(event_packet.msg.event_type as u8);
-                let status = EStatus::from(event_packet.msg.status as u8);
-                debug!(
-                    "=== EVENT {:?}: {:?} {:02x}",
-                    event_type,
-                    event_packet.msg,
-                    Bytes(evt_data)
-                );
+            self.ch.set_link_state(link_state);
 
-                let update_link_status = match (
-                    event_type,
-                    status,
-                    event_packet.msg.flags,
-                    event_packet.msg.reason,
-                    event_packet.msg.auth_type,
-                ) {
-                    // Events indicating that the link is down
-                    // Event LINK with flag 0 indicates link down. reason = 1: loss of signal (e.g. out of range), reason = 2: controlled network shutdown
-                    // Event AUTH with status FAIL, reason 16, and auth_type 3 is specific for WPA3 networks
-                    // Event DEAUTH_IND is an AP-initiated deauth (e.g. AP reset); any status/reason means the link is down
-                    // Event DISASSOC_IND is an AP-initiated disassoc (e.g. idle-station inactivity timeout); any status/reason means the link is down
-                    (Event::LINK, EStatus::SUCCESS, 0, ..)
-                    | (Event::DEAUTH, EStatus::SUCCESS, ..)
-                    | (Event::DEAUTH_IND, ..)
-                    | (Event::DISASSOC_IND, ..)
-                    | (Event::AUTH, EStatus::FAIL, _, 16, 3) => {
-                        self.auth_ok = false;
-                        self.join_ok = false;
-                        self.key_exchange_ok = false;
-                        true
-                    }
-                    // Update auth flag. Ignore unsolicited events.
-                    // When changing passwords on a WPA3 AP which we are already connected to, or we roam to, PSK_SUP events indicating
-                    // success are still sent. Only the AUTH events indicate failure and this flag helps cover that scenario
-                    (Event::AUTH, status, ..) if status != EStatus::UNSOLICITED => {
-                        self.auth_ok = status == EStatus::SUCCESS;
-                        debug!("auth_ok flag: {}", self.auth_ok as u8);
-                        false
-                    }
-                    // Successfully joined the network. Open or WPA3 networks are now fully connected - WPA1/2 networks additionally require a successful key exchange.
-                    (Event::JOIN, EStatus::SUCCESS, ..) => {
-                        self.join_ok = true;
-                        true
-                    }
+            debug!(
+                "link_ok: {}, secure_network: {}, auth_ok: {}, password_ok: {}, link_state {}",
+                self.join_ok as u8,
+                secure_network as u8,
+                self.auth_ok as u8,
+                self.key_exchange_ok as u8,
+                link_state as u8
+            );
+        }
 
-                    // Key exchange events (PSK_SUP) for secure networks
-                    // The status codes for PSK_SUP events seem to have different meanings from other event types
-
-                    // Successful key exchange, indicated by a PSK_SUP event with status 6 "UNSOLICITED"
-                    // Disregard if auth_ok is false, which can happen in WPA3 networks
-                    (Event::PSK_SUP, EStatus::UNSOLICITED, 0, 0, _) => {
-                        if self.auth_ok {
-                            self.key_exchange_ok = true;
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    // Ignore PSK_SUP events with reason 14 as they are often sent when the device roams from one AP to another
-                    (Event::PSK_SUP, _, _, 14, _) => false,
-                    // Other PSK_SUP events indicate key exchange errors
-                    (Event::PSK_SUP, ..) => {
-                        self.key_exchange_ok = false;
-                        true
-                    }
-                    _ => false,
-                };
-
-                if update_link_status {
-                    let secure_network = self.secure_network.load(Relaxed);
-                    let link_state = if self.join_ok && (!secure_network || self.key_exchange_ok) {
-                        LinkState::Up
-                    } else {
-                        LinkState::Down
+        if self.events.mask.is_enabled(event_type) {
+            let status = event_packet.msg.status;
+            let reason = event_packet.msg.reason;
+            let event_payload = match event_type {
+                Event::ESCAN_RESULT if status == EStatus::PARTIAL => {
+                    let Some((_, bss_info)) = ScanResults::parse(evt_data) else {
+                        return;
                     };
-
-                    self.ch.set_link_state(link_state);
-
-                    debug!(
-                        "link_ok: {}, secure_network: {}, auth_ok: {}, password_ok: {}, link_state {}",
-                        self.join_ok as u8,
-                        secure_network as u8,
-                        self.auth_ok as u8,
-                        self.key_exchange_ok as u8,
-                        link_state as u8
-                    );
-                }
-
-                if self.events.mask.is_enabled(event_type) {
-                    let status = event_packet.msg.status;
-                    let reason = event_packet.msg.reason;
-                    let event_payload = match event_type {
-                        Event::ESCAN_RESULT if status == EStatus::PARTIAL => {
-                            let Some((_, bss_info)) = ScanResults::parse(evt_data) else {
-                                return;
-                            };
-                            let Some(bss_info) = BssInfo::parse(bss_info) else {
-                                return;
-                            };
-                            events::Payload::BssInfo(bss_info.clone())
-                        }
-                        Event::ESCAN_RESULT => events::Payload::None,
-                        _ => events::Payload::None,
+                    let Some(bss_info) = BssInfo::parse(bss_info) else {
+                        return;
                     };
-
-                    // this intentionally uses the non-blocking publish immediate
-                    // publish() is a deadlock risk in the current design as awaiting here prevents ioctls
-                    // The `Runner` always yields when accessing the device, so consumers always have a chance to receive the event
-                    // (if they are actively awaiting the queue)
-                    self.events
-                        .queue
-                        .immediate_publisher()
-                        .publish_immediate(events::Message::new(
-                            Status {
-                                event_type,
-                                status,
-                                reason,
-                            },
-                            event_payload,
-                        ));
+                    events::Payload::BssInfo(bss_info.clone())
                 }
+                Event::ESCAN_RESULT => events::Payload::None,
+                _ => events::Payload::None,
+            };
+
+            // this intentionally uses the non-blocking publish immediate
+            // publish() is a deadlock risk in the current design as awaiting here prevents ioctls
+            // The `Runner` always yields when accessing the device, so consumers always have a chance to receive the event
+            // (if they are actively awaiting the queue)
+            self.events
+                .queue
+                .immediate_publisher()
+                .publish_immediate(events::Message::new(
+                    Status {
+                        event_type,
+                        status,
+                        reason,
+                    },
+                    event_payload,
+                ));
+        }
     }
 
     fn update_credit(&mut self, sdpcm_header: &SdpcmHeader) {
