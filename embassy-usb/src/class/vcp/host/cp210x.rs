@@ -19,7 +19,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use embassy_usb::class::vcp::host::cp210x::{Cp210xDevice, LineCoding, Parity, StopBits, id};
+//! use embassy_usb::class::vcp::host::cp210x::{Cp210xDevice, LineCoding, ParityType, StopBits, id};
 //!
 //! if enum_info.device_desc.vendor_id != id::VID_SILABS {
 //!     continue;
@@ -28,12 +28,7 @@
 //! let device = Cp210xDevice::new(&bus, &enum_info)?;
 //! let mut port = device.port(&config_buf[..config_len], 0)?;
 //! port.enable().await?;
-//! port.set_line_coding(&LineCoding {
-//!     baud_rate: 115200,
-//!     data_bits: 8,
-//!     parity: Parity::None,
-//!     stop_bits: StopBits::One,
-//! }).await?;
+//! port.set_line_coding(&LineCoding::new(115200, StopBits::One, ParityType::None, 8)).await?;
 //! port.set_control_line_state(true, true).await?;
 //!
 //! let mut buf = [0u8; 64];
@@ -48,6 +43,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_usb_driver::host::{PipeError, SplitInfo, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
+pub use crate::class::cdc_acm::{LineCoding, ParityType, StopBits};
 use crate::host::control::SetupPacket;
 use crate::host::descriptor::ConfigurationDescriptorChain;
 use crate::host::handler::EnumerationInfo;
@@ -161,83 +157,14 @@ where
     Ok(BAUD_CLOCK / div as u32)
 }
 
-/// Parity setting.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum Parity {
-    /// No parity bit.
-    None = 0,
-    /// Odd parity.
-    Odd = 1,
-    /// Even parity.
-    Even = 2,
-    /// Always 1.
-    Mark = 3,
-    /// Always 0.
-    Space = 4,
+/// Decodes a `GET_LINE_CTL` stop-bits field, rejecting reserved values.
+fn stop_bits(b: u8) -> Option<StopBits> {
+    (b <= 2).then(|| StopBits::from(b))
 }
 
-impl Parity {
-    fn from_bits(b: u8) -> Option<Self> {
-        Some(match b {
-            0 => Self::None,
-            1 => Self::Odd,
-            2 => Self::Even,
-            3 => Self::Mark,
-            4 => Self::Space,
-            _ => return None,
-        })
-    }
-}
-
-/// Number of stop bits.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum StopBits {
-    /// 1 stop bit.
-    One = 0,
-    /// 1.5 stop bits.
-    OneAndHalf = 1,
-    /// 2 stop bits.
-    Two = 2,
-}
-
-impl StopBits {
-    fn from_bits(b: u8) -> Option<Self> {
-        Some(match b {
-            0 => Self::One,
-            1 => Self::OneAndHalf,
-            2 => Self::Two,
-            _ => return None,
-        })
-    }
-}
-
-/// Serial line parameters.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct LineCoding {
-    /// Baud rate in bits per second.
-    pub baud_rate: u32,
-    /// Data bits. Legal values are 5, 6, 7 and 8.
-    pub data_bits: u8,
-    /// Parity setting.
-    pub parity: Parity,
-    /// Stop bits.
-    pub stop_bits: StopBits,
-}
-
-impl Default for LineCoding {
-    fn default() -> Self {
-        Self {
-            baud_rate: 115200,
-            data_bits: 8,
-            parity: Parity::None,
-            stop_bits: StopBits::One,
-        }
-    }
+/// Decodes a `GET_LINE_CTL` parity field, rejecting reserved values.
+fn parity(b: u8) -> Option<ParityType> {
+    (b <= 4).then(|| ParityType::from(b))
 }
 
 macro_rules! bitflags {
@@ -794,12 +721,13 @@ where
     /// baud rate. Re-issue the full line coding before resuming data
     /// transfer.
     pub async fn set_line_coding(&mut self, coding: &LineCoding) -> Result<(), Cp210xError> {
-        if !matches!(coding.data_bits, 5..=8) {
+        if !matches!(coding.data_bits(), 5..=8) {
             return Err(Cp210xError::InvalidArgument);
         }
-        let line_ctl = (coding.stop_bits as u16) | ((coding.parity as u16) << 4) | ((coding.data_bits as u16) << 8);
+        let line_ctl =
+            (coding.stop_bits() as u16) | ((coding.parity_type() as u16) << 4) | ((coding.data_bits() as u16) << 8);
         self.vendor_out(SET_LINE_CTL, line_ctl, &[]).await?;
-        self.set_baud_rate(coding.baud_rate).await
+        self.set_baud_rate(coding.data_rate()).await
     }
 
     /// Read baud rate, data/stop bits and parity.
@@ -809,19 +737,14 @@ where
         let mut buf = [0u8; 2];
         self.vendor_in(GET_LINE_CTL, 0, &mut buf).await?;
         let ctl = u16::from_le_bytes(buf);
-        let stop_bits = StopBits::from_bits((ctl & 0xF) as u8).ok_or(Cp210xError::InvalidResponse)?;
-        let parity = Parity::from_bits(((ctl >> 4) & 0xF) as u8).ok_or(Cp210xError::InvalidResponse)?;
+        let stop_bits = stop_bits((ctl & 0xF) as u8).ok_or(Cp210xError::InvalidResponse)?;
+        let parity = parity(((ctl >> 4) & 0xF) as u8).ok_or(Cp210xError::InvalidResponse)?;
         let data_bits = (ctl >> 8) as u8;
         if !matches!(data_bits, 5..=8) {
             return Err(Cp210xError::InvalidResponse);
         }
         let baud_rate = self.baud_rate().await?;
-        Ok(LineCoding {
-            baud_rate,
-            data_bits,
-            parity,
-            stop_bits,
-        })
+        Ok(LineCoding::new(baud_rate, stop_bits, parity, data_bits))
     }
 
     /// Drive DTR and RTS to the given levels.
