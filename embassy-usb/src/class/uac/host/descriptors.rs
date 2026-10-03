@@ -3,8 +3,8 @@
 use heapless::Vec;
 use heapless::index_map::FnvIndexMap;
 
-use super::codes::*;
-pub use crate::class::uac::terminal_type::TerminalType;
+use crate::class::uac::terminal_type::TerminalType;
+use crate::class::uac::uac2_codes::*;
 use crate::host::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, INTERFACE_ASSOCIATION};
 use crate::host::descriptor::{
     ConfigurationDescriptorChain, DescriptorError, DescriptorVisitor, EndpointDescriptor, ExtendableDescriptor,

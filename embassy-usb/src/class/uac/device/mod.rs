@@ -9,8 +9,6 @@ pub mod speaker;
 ///Audio `source` module
 pub mod source;
 
-use super::uac1_codes as class_codes;
-
 /// The maximum supported audio channel index (corresponds to `Top`).
 /// FIXME: Use `core::mem::variant_count(...)` when stabilized.
 const MAX_AUDIO_CHANNEL_INDEX: usize = 12;

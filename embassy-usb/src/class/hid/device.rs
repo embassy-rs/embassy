@@ -20,6 +20,22 @@ use crate::{Builder, Handler};
 const HID_DESC_SPEC_1_10: [u8; 2] = [0x10, 0x01];
 const HID_DESC_COUNTRY_UNSPEC: u8 = 0x00;
 
+/// HID class descriptor (HID 1.11 §6.2.1) announcing one report descriptor of `report_len` bytes.
+const fn hid_descriptor(report_len: usize) -> [u8; 9] {
+    [
+        9,
+        HID_DESC_TYPE_HID,
+        HID_DESC_SPEC_1_10[0],
+        HID_DESC_SPEC_1_10[1],
+        HID_DESC_COUNTRY_UNSPEC,
+        // Number of class descriptors that follow.
+        1,
+        HID_DESC_TYPE_REPORT,
+        report_len as u8,
+        (report_len >> 8) as u8,
+    ]
+}
+
 /// Configuration for the HID class.
 pub struct Config<'d> {
     /// HID report descriptor.
@@ -92,24 +108,8 @@ fn build<'d, D: Driver<'d>>(
         None,
     );
 
-    // HID descriptor
-    alt.descriptor(
-        HID_DESC_TYPE_HID,
-        &[
-            // HID Class spec version
-            HID_DESC_SPEC_1_10[0],
-            HID_DESC_SPEC_1_10[1],
-            // Country code not supported
-            HID_DESC_COUNTRY_UNSPEC,
-            // Number of following descriptors
-            1,
-            // We have a HID report descriptor the host should read
-            HID_DESC_TYPE_REPORT,
-            // HID report descriptor size,
-            (len & 0xFF) as u8,
-            (len >> 8 & 0xFF) as u8,
-        ],
-    );
+    // `descriptor` adds bLength and bDescriptorType, so skip those bytes here.
+    alt.descriptor(HID_DESC_TYPE_HID, &hid_descriptor(len)[2..]);
 
     let ep_in = alt.endpoint_interrupt_in(None, config.max_packet_size, config.poll_ms);
     let ep_out = if with_out_endpoint {
@@ -418,24 +418,7 @@ impl<'d> Control<'d> {
             report_descriptor,
             request_handler,
             out_report_offset,
-            hid_descriptor: [
-                // Length of buf inclusive of size prefix
-                9,
-                // Descriptor type
-                HID_DESC_TYPE_HID,
-                // HID Class spec version
-                HID_DESC_SPEC_1_10[0],
-                HID_DESC_SPEC_1_10[1],
-                // Country code not supported
-                HID_DESC_COUNTRY_UNSPEC,
-                // Number of following descriptors
-                1,
-                // We have a HID report descriptor the host should read
-                HID_DESC_TYPE_REPORT,
-                // HID report descriptor size,
-                (report_descriptor.len() & 0xFF) as u8,
-                (report_descriptor.len() >> 8 & 0xFF) as u8,
-            ],
+            hid_descriptor: hid_descriptor(report_descriptor.len()),
         }
     }
 }

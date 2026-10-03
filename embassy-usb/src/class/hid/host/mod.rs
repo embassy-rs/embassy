@@ -11,9 +11,8 @@ use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInf
 pub use self::hid_report::{ReportDescriptor, ReportField};
 use super::{
     HID_DESC_TYPE_HID, HID_DESC_TYPE_REPORT, HID_REQ_GET_REPORT, HID_REQ_SET_IDLE, HID_REQ_SET_PROTOCOL,
-    HID_REQ_SET_REPORT, USB_CLASS_HID,
+    HID_REQ_SET_REPORT, HidProtocolMode, ReportId, USB_CLASS_HID,
 };
-pub use super::{HidProtocolMode, ReportId};
 use crate::host::control::SetupPacket;
 use crate::host::descriptor::ConfigurationDescriptorChain;
 use crate::host::handler::EnumerationInfo;

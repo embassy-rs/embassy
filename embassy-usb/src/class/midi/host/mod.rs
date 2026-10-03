@@ -8,15 +8,14 @@ use core::marker::PhantomData;
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator};
 use heapless::Vec;
 
-use crate::class::midi::{MidiPacket, MidiPacketError, MidiPacketReader};
+use crate::class::midi::{MAX_MIDI_JACKS, MidiPacket, MidiPacketError, MidiPacketReader};
 use crate::host::handler::EnumerationInfo;
 
 mod descriptors;
 mod transport;
 
 use descriptors::{
-    MAX_MIDI_JACKS, MidiDescriptorError, MidiEndpointDescriptor, MidiStreamingInterface,
-    parse_midi_interfaces_for_device,
+    MidiDescriptorError, MidiEndpointDescriptor, MidiStreamingInterface, parse_midi_interfaces_for_device,
 };
 
 /// Advanced descriptor and endpoint-level USB-MIDI APIs.

@@ -5,8 +5,9 @@
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
-use super::{CDC_SUBCLASS_ACM, REQ_SET_CONTROL_LINE_STATE, REQ_SET_LINE_CODING, USB_CLASS_CDC, USB_CLASS_CDC_DATA};
-pub use super::{LineCoding, ParityType, StopBits};
+use super::{
+    CDC_SUBCLASS_ACM, LineCoding, REQ_SET_CONTROL_LINE_STATE, REQ_SET_LINE_CODING, USB_CLASS_CDC, USB_CLASS_CDC_DATA,
+};
 use crate::host::control::SetupPacket;
 use crate::host::descriptor::ConfigurationDescriptorChain;
 use crate::host::handler::EnumerationInfo;
