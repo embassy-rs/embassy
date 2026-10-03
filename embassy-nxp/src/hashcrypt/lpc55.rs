@@ -376,8 +376,37 @@ pub struct AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> Aes for AesEcb<'a, 'd> {
-    fn encrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
-        todo!("Add encrypt method for ECB")
+    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+        let key = match &self.key {
+            Some(k) => k,
+            None => return Err(AesError::KeyNeeded),
+        };
+
+        if data.len() % 16 != 0 {
+            return Err(AesError::UnalignedLength);
+        }
+
+        if data.len() != output.len() {
+            return Err(AesError::LengthMismatch);
+        }
+
+        if data.is_empty() == true {
+            return Ok(());
+        }
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesdecrypt(Aesdecrypt::Encrypt);
+            w.set_streamlast(false);
+        });
+
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        feed_key(key);
+        process_blocks(data, output);
+
+        return Ok(());
     }
 
     fn decrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
