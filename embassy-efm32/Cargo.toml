@@ -1,0 +1,182 @@
+[package]
+name = "embassy-efm32"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for Silicon Labs EFM32 microcontrollers"
+keywords = ["embedded", "async", "efm32", "gecko", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-efm32"
+
+publish = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7m-none-eabi", features = [
+    "defmt",
+    "efm32gg990",
+    "time-driver-rtc",
+  ] },
+  { target = "thumbv7m-none-eabi", features = [
+    "efm32gg390",
+    "time-driver-rtc",
+    "log",
+  ] },
+  { target = "thumbv7m-none-eabi", features = [
+    "efm32gg230",
+    "lfxo-as-gpio",
+    "swd-as-gpio",
+  ] },
+  { target = "thumbv7m-none-eabi", features = [
+    "efm32gg840",
+    "time-driver-rtc",
+  ] },
+  { target = "thumbv7m-none-eabi", features = [
+    "efm32gg330",
+  ] },
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-efm32-v$VERSION/embassy-efm32/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-efm32/src/"
+features = ["defmt", "unstable-pac", "time-driver-rtc"]
+flavors = [{ regex_feature = "efm32gg.*", target = "thumbv7m-none-eabi" }]
+
+[package.metadata.docs.rs]
+features = ["defmt", "unstable-pac", "time-driver-rtc", "efm32gg990"]
+default-target = "thumbv7m-none-eabi"
+targets = ["thumbv7m-none-eabi"]
+
+[dependencies]
+cortex-m = "0.7.7"
+cortex-m-rt = "0.7.0"
+critical-section = "1.1.2"
+embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = [
+  "cortex-m",
+  "prio-bits-3",
+] }
+embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
+embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
+embedded-io = "0.7.1"
+embedded-io-async = "0.7.0"
+embedded-hal = "1.0.0"
+embedded-hal-async = "1.0"
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
+defmt = { version = "1", optional = true }
+log = { version = "0.4.27", optional = true }
+document-features = "0.2.7"
+
+# Chip family dependencies.
+#
+# `embassy-efm32` is organized so that additional Gecko families (efm32pg, efm32hg, efm32lg, ...)
+# can be added as siblings to `efm32gg-pac` here, each gated by their own Cargo features, following
+# the same pattern used for the individual chips within `efm32gg-pac` below.
+efm32gg-pac = { version = "0.1.4", optional = true }
+
+[build-dependencies]
+proc-macro2 = "1.0.94"
+quote = "1.0.40"
+
+[dev-dependencies]
+critical-section = { version = "1.2", features = ["std"] }
+
+[features]
+default = ["rt"]
+## Cortex-M runtime (enabled by default).
+##
+## This defines the interrupt handlers the HAL uses internally: the RTC for the time driver, and
+## `GPIO_EVEN`/`GPIO_ODD` for waiting on pins. Without it, the time driver isn't available and the
+## GPIO `wait_for_*` methods don't exist.
+rt = ["efm32gg-pac?/rt"]
+
+## Enable defmt
+defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt"]
+
+## Enable log
+log = ["dep:log"]
+
+## Use the RTC as the time driver for `embassy-time`, with a tick rate of 32.768khz
+time-driver-rtc = ["_time-driver", "embassy-time-driver?/tick-hz-32_768"]
+
+## Hand out the SWD pins (PF0 = SWCLK, PF1 = SWDIO) as GPIOs.
+##
+## Without this feature, `init` leaves them routed to the debug interface, and they're not in
+## `Peripherals`. With it, `init` switches them over to the GPIO, which makes attaching a debugger
+## to the running firmware impossible: only a debugger that can hold the chip in reset can recover
+## it.
+swd-as-gpio = []
+
+## Hand out the low-frequency crystal pins (PB7 = LFXTAL_P, PB8 = LFXTAL_N) as GPIOs.
+##
+## Without this feature, these pins are reserved for the crystal (`cmu::LfClockSource::Lfxo`), and
+## they're not in `Peripherals`. With it, they're ordinary GPIOs, and `LfClockSource::Lfxo` isn't
+## available.
+lfxo-as-gpio = []
+
+## Reexport the PAC for the currently enabled chip at `embassy_efm32::pac` (unstable)
+unstable-pac = []
+# This is unstable because semver-minor (non-breaking) releases of embassy-efm32 may major-bump (breaking) the PAC version.
+# If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
+# There are no plans to make this stable.
+
+#! ### Chip selection features
+#!
+#! Select your chip by enabling exactly one of these. Features are named after the silicon die, so each one covers
+#! all flash sizes of that chip (e.g. `efm32gg990` for both the EFM32GG990F512 and EFM32GG990F1024).
+## EFM32GG230
+efm32gg230 = ["efm32gg-pac?/efm32gg230", "_efm32gg"]
+## EFM32GG232
+efm32gg232 = ["efm32gg-pac?/efm32gg232", "_efm32gg"]
+## EFM32GG280
+efm32gg280 = ["efm32gg-pac?/efm32gg280", "_efm32gg", "_uart"]
+## EFM32GG290
+efm32gg290 = ["efm32gg-pac?/efm32gg290", "_efm32gg", "_uart"]
+## EFM32GG295
+efm32gg295 = ["efm32gg-pac?/efm32gg295", "_efm32gg", "_uart"]
+## EFM32GG330
+efm32gg330 = ["efm32gg-pac?/efm32gg330", "_efm32gg", "_usb"]
+## EFM32GG332
+efm32gg332 = ["efm32gg-pac?/efm32gg332", "_efm32gg", "_usb"]
+## EFM32GG380
+efm32gg380 = ["efm32gg-pac?/efm32gg380", "_efm32gg", "_usb", "_uart"]
+## EFM32GG390
+efm32gg390 = ["efm32gg-pac?/efm32gg390", "_efm32gg", "_usb", "_uart"]
+## EFM32GG395
+efm32gg395 = ["efm32gg-pac?/efm32gg395", "_efm32gg", "_usb", "_uart"]
+## EFM32GG840
+efm32gg840 = ["efm32gg-pac?/efm32gg840", "_efm32gg", "_lcd"]
+## EFM32GG842
+efm32gg842 = ["efm32gg-pac?/efm32gg842", "_efm32gg", "_lcd"]
+## EFM32GG880
+efm32gg880 = ["efm32gg-pac?/efm32gg880", "_efm32gg", "_uart", "_lcd"]
+## EFM32GG890
+efm32gg890 = ["efm32gg-pac?/efm32gg890", "_efm32gg", "_uart", "_lcd"]
+## EFM32GG895
+efm32gg895 = ["efm32gg-pac?/efm32gg895", "_efm32gg", "_uart", "_lcd"]
+## EFM32GG900
+efm32gg900 = ["efm32gg-pac?/efm32gg900", "_efm32gg", "_usb", "_uart", "_lcd"]
+## EFM32GG940
+efm32gg940 = ["efm32gg-pac?/efm32gg940", "_efm32gg", "_usb", "_lcd"]
+## EFM32GG942
+efm32gg942 = ["efm32gg-pac?/efm32gg942", "_efm32gg", "_usb", "_lcd"]
+## EFM32GG980
+efm32gg980 = ["efm32gg-pac?/efm32gg980", "_efm32gg", "_usb", "_uart", "_lcd"]
+## EFM32GG990
+efm32gg990 = ["efm32gg-pac?/efm32gg990", "_efm32gg", "_usb", "_uart", "_lcd"]
+## EFM32GG995
+efm32gg995 = ["efm32gg-pac?/efm32gg995", "_efm32gg", "_usb", "_uart", "_lcd"]
+
+# Features starting with `_` are for internal use only. They're not intended
+# to be enabled by other crates, and are not covered by semver guarantees.
+
+_time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
+# Host unit tests (`cargo test --no-default-features --features efm32gg990,time-driver-rtc,_test`).
+_test = []
+_efm32gg = ["dep:efm32gg-pac", "efm32gg-pac?/critical-section"]
+# Optional peripherals, present on some chips only.
+_usb = []
+_uart = [] # UART0, UART1 and the EBI
+_lcd = []
