@@ -134,9 +134,6 @@ pub struct SetupPacket {
     pub length: u16,
 }
 
-/// HID class descriptor type: Report (HID 1.11 §7.1.1).
-const HID_REPORT_DESCRIPTOR_TYPE: u8 = 0x22;
-
 impl SetupPacket {
     /// Serialize this SETUP packet to its 8-byte wire format.
     ///
@@ -243,13 +240,6 @@ impl SetupPacket {
             index: interface,
             length: max_len,
         }
-    }
-
-    /// Build a GET_DESCRIPTOR(HID Report Descriptor) SETUP packet.
-    ///
-    /// `interface` is the HID interface number; `len` is from `HidInfo::report_descriptor_len`.
-    pub const fn get_hid_report_descriptor(interface: u8, len: u16) -> Self {
-        Self::get_interface_descriptor(HID_REPORT_DESCRIPTOR_TYPE, interface as u16, len)
     }
 
     /// Build a SET_ADDRESS SETUP packet.
