@@ -3,7 +3,9 @@
 use embassy_usb_driver::host::{UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{EndpointAddress, EndpointInfo, EndpointType};
 
-use super::{EVENT_PACKET_SIZE, MidiEndpointDescriptor, MidiError};
+use super::{MidiEndpointDescriptor, MidiError};
+use crate::class::midi::packet::check_transfer_len;
+use crate::class::midi::{MIDI_PACKET_SIZE, MidiPacketError};
 use crate::host::handler::EnumerationInfo;
 
 /// Device-to-host USB-MIDI bulk transport.
@@ -31,10 +33,11 @@ impl<'d, A: UsbHostAllocator<'d>> MidiInputPipe<'d, A> {
 
     /// Receive one USB bulk transfer containing complete event packets.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, MidiError> {
-        check_transfer_buffer(buffer)?;
+        check_transfer_len(buffer.len())?;
         let length = self.pipe.request_in(buffer).await?;
-        if length % EVENT_PACKET_SIZE != 0 {
-            return Err(MidiError::InvalidPacketLength);
+        // A zero-length transfer is valid and carries no packets.
+        if !length.is_multiple_of(MIDI_PACKET_SIZE) {
+            return Err(MidiPacketError::InvalidPacketLength.into());
         }
         Ok(length)
     }
@@ -65,17 +68,10 @@ impl<'d, A: UsbHostAllocator<'d>> MidiOutputPipe<'d, A> {
 
     /// Send one USB bulk transfer containing complete event packets.
     pub async fn write(&mut self, packets: &[u8]) -> Result<(), MidiError> {
-        check_transfer_buffer(packets)?;
+        check_transfer_len(packets.len())?;
         self.pipe.request_out(packets, false).await?;
         Ok(())
     }
-}
-
-fn check_transfer_buffer(buffer: &[u8]) -> Result<(), MidiError> {
-    if buffer.is_empty() || !buffer.len().is_multiple_of(EVENT_PACKET_SIZE) {
-        return Err(MidiError::InvalidPacketLength);
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -84,23 +80,14 @@ mod tests {
 
     #[test]
     fn accepts_one_or_more_complete_event_packets() {
-        assert!(check_transfer_buffer(&[0; EVENT_PACKET_SIZE]).is_ok());
-        assert!(check_transfer_buffer(&[0; EVENT_PACKET_SIZE * 4]).is_ok());
+        assert!(check_transfer_len(MIDI_PACKET_SIZE).is_ok());
+        assert!(check_transfer_len(MIDI_PACKET_SIZE * 4).is_ok());
     }
 
     #[test]
     fn rejects_empty_and_partial_event_packets() {
-        assert!(matches!(
-            check_transfer_buffer(&[]),
-            Err(MidiError::InvalidPacketLength)
-        ));
-        assert!(matches!(
-            check_transfer_buffer(&[0; EVENT_PACKET_SIZE - 1]),
-            Err(MidiError::InvalidPacketLength)
-        ));
-        assert!(matches!(
-            check_transfer_buffer(&[0; EVENT_PACKET_SIZE + 1]),
-            Err(MidiError::InvalidPacketLength)
-        ));
+        for len in [0, MIDI_PACKET_SIZE - 1, MIDI_PACKET_SIZE + 1] {
+            assert_eq!(check_transfer_len(len), Err(MidiPacketError::InvalidPacketLength));
+        }
     }
 }

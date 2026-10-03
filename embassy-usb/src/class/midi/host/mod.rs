@@ -3,11 +3,12 @@
 //! USB MIDI 1.0 transports one or more virtual MIDI cables over bulk
 //! endpoints. Each transfer consists of four-byte USB-MIDI event packets.
 
-use core::slice::ChunksExact;
+use core::marker::PhantomData;
 
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator};
 use heapless::Vec;
 
+use crate::class::midi::{MidiPacket, MidiPacketError, MidiPacketReader};
 use crate::host::handler::EnumerationInfo;
 
 mod descriptors;
@@ -22,118 +23,6 @@ use descriptors::{
 pub mod raw {
     pub use super::descriptors::*;
     pub use super::transport::{MidiInputPipe, MidiOutputPipe};
-    pub use super::{UsbMidiEventPacket, event_packets};
-}
-
-pub(crate) const USB_CLASS_AUDIO: u8 = 0x01;
-pub(crate) const USB_SUBCLASS_MIDI_STREAMING: u8 = 0x03;
-pub(crate) const USB_MIDI_1_PROTOCOL: u8 = 0x00;
-
-/// USB-MIDI event packet size.
-pub const EVENT_PACKET_SIZE: usize = 4;
-
-/// One USB-MIDI 1.0 event packet.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct UsbMidiEventPacket([u8; EVENT_PACKET_SIZE]);
-
-/// Error constructing a USB-MIDI 1.0 event packet from MIDI bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum MidiPacketError {
-    /// USB-MIDI 1.0 cable numbers are limited to 0 through 15.
-    InvalidCable,
-    /// The status byte is unsupported or reserved.
-    InvalidStatus,
-    /// The byte count does not match the MIDI status.
-    InvalidLength,
-    /// A MIDI data byte has its status bit set.
-    InvalidData,
-}
-
-impl UsbMidiEventPacket {
-    /// Create an event packet from its wire representation.
-    pub const fn new(bytes: [u8; EVENT_PACKET_SIZE]) -> Self {
-        Self(bytes)
-    }
-
-    /// Encode one complete non-SysEx MIDI 1.0 message for a virtual cable.
-    pub fn from_midi_bytes(cable: u8, data: &[u8]) -> Result<Self, MidiPacketError> {
-        if cable > 0x0f {
-            return Err(MidiPacketError::InvalidCable);
-        }
-        let status = *data.first().ok_or(MidiPacketError::InvalidLength)?;
-        let (cin, expected_len) = match status {
-            0x80..=0xef => {
-                let cin = status >> 4;
-                let len = if matches!(cin, 0x0c | 0x0d) { 2 } else { 3 };
-                (cin, len)
-            }
-            0xf1 | 0xf3 => (0x02, 2),
-            0xf2 => (0x03, 3),
-            0xf6 | 0xf7 => (0x05, 1),
-            0xf8 | 0xfa..=0xfc | 0xfe | 0xff => (0x0f, 1),
-            _ => return Err(MidiPacketError::InvalidStatus),
-        };
-        if data.len() != expected_len {
-            return Err(MidiPacketError::InvalidLength);
-        }
-        if data[1..].iter().any(|byte| byte & 0x80 != 0) {
-            return Err(MidiPacketError::InvalidData);
-        }
-
-        let mut packet = [0; EVENT_PACKET_SIZE];
-        packet[0] = cable << 4 | cin;
-        packet[1..1 + expected_len].copy_from_slice(data);
-        Ok(Self(packet))
-    }
-
-    /// Virtual cable number carried by this packet.
-    pub const fn cable(&self) -> u8 {
-        self.0[0] >> 4
-    }
-
-    /// Code Index Number describing the MIDI message carried by this packet.
-    pub const fn cin(&self) -> u8 {
-        self.0[0] & 0x0f
-    }
-
-    /// Number of valid MIDI bytes, or `None` for a reserved CIN.
-    pub const fn message_len(&self) -> Option<usize> {
-        match self.cin() {
-            0x2 | 0x6 | 0xc | 0xd => Some(2),
-            0x3 | 0x4 | 0x7 | 0x8..=0xb | 0xe => Some(3),
-            0x5 | 0xf => Some(1),
-            _ => None,
-        }
-    }
-
-    /// Valid MIDI bytes, or `None` for a reserved CIN.
-    pub fn data(&self) -> Option<&[u8]> {
-        self.message_len().map(|len| &self.0[1..1 + len])
-    }
-
-    /// Four-byte USB-MIDI wire representation.
-    pub const fn as_bytes(&self) -> &[u8; EVENT_PACKET_SIZE] {
-        &self.0
-    }
-}
-
-impl From<[u8; EVENT_PACKET_SIZE]> for UsbMidiEventPacket {
-    fn from(bytes: [u8; EVENT_PACKET_SIZE]) -> Self {
-        Self::new(bytes)
-    }
-}
-
-/// Iterate over complete USB-MIDI event packets in a transfer.
-pub fn event_packets(data: &[u8]) -> Result<impl Iterator<Item = UsbMidiEventPacket> + '_, MidiError> {
-    if data.is_empty() || !data.len().is_multiple_of(EVENT_PACKET_SIZE) {
-        return Err(MidiError::InvalidPacketLength);
-    }
-
-    Ok(data
-        .chunks_exact(EVENT_PACKET_SIZE)
-        .map(|chunk| UsbMidiEventPacket::new([chunk[0], chunk[1], chunk[2], chunk[3]])))
 }
 
 /// USB MIDI host error.
@@ -156,10 +45,8 @@ pub enum MidiError {
     UnsupportedTopology,
     /// A port does not belong to this MIDI device direction.
     InvalidPort,
-    /// A MIDI message could not be encoded as an event packet.
-    InvalidMessage(MidiPacketError),
-    /// USB-MIDI transfers must contain complete four-byte event packets.
-    InvalidPacketLength,
+    /// A MIDI message could not be encoded, or a transfer is not made of complete event packets.
+    Packet(MidiPacketError),
 }
 
 impl From<PipeError> for MidiError {
@@ -176,7 +63,7 @@ impl From<MidiDescriptorError> for MidiError {
 
 impl From<MidiPacketError> for MidiError {
     fn from(error: MidiPacketError) -> Self {
-        Self::InvalidMessage(error)
+        Self::Packet(error)
     }
 }
 
@@ -191,59 +78,42 @@ impl core::fmt::Display for MidiError {
             Self::Descriptor(_) => write!(f, "invalid USB MIDI descriptors"),
             Self::UnsupportedTopology => write!(f, "unsupported USB MIDI topology"),
             Self::InvalidPort => write!(f, "USB MIDI port does not belong to this device direction"),
-            Self::InvalidMessage(_) => write!(f, "invalid MIDI message"),
-            Self::InvalidPacketLength => write!(f, "USB MIDI data is not a multiple of four bytes"),
+            Self::Packet(_) => write!(f, "invalid MIDI message or USB-MIDI packet"),
         }
     }
 }
 
 impl core::error::Error for MidiError {}
 
-/// A logical device-to-host MIDI port discovered from a USB cable association.
+/// Marker for device-to-host ports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct MidiInputPort {
-    device_address: u8,
-    interface_number: u8,
-    endpoint_address: u8,
-    cable: u8,
-    jack_id: u8,
-}
+pub struct In;
 
-impl MidiInputPort {
-    /// One-based port number suitable for display.
-    pub const fn number(&self) -> u8 {
-        self.cable + 1
-    }
+/// Marker for host-to-device ports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Out;
 
-    /// Zero-based USB-MIDI virtual cable number.
-    pub const fn cable(&self) -> u8 {
-        self.cable
-    }
-
-    /// Associated embedded jack identifier.
-    pub const fn jack_id(&self) -> u8 {
-        self.jack_id
-    }
-
-    /// MIDIStreaming interface number.
-    pub const fn interface_number(&self) -> u8 {
-        self.interface_number
-    }
-}
+/// A logical device-to-host MIDI port discovered from a USB cable association.
+pub type MidiInputPort = MidiPort<In>;
 
 /// A logical host-to-device MIDI port discovered from a USB cable association.
+pub type MidiOutputPort = MidiPort<Out>;
+
+/// A logical MIDI port discovered from a USB cable association; `D` is [`In`] or [`Out`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct MidiOutputPort {
+pub struct MidiPort<D> {
     device_address: u8,
     interface_number: u8,
     endpoint_address: u8,
     cable: u8,
     jack_id: u8,
+    direction: PhantomData<D>,
 }
 
-impl MidiOutputPort {
+impl<D> MidiPort<D> {
     /// One-based port number suitable for display.
     pub const fn number(&self) -> u8 {
         self.cable + 1
@@ -309,7 +179,7 @@ impl<'d, A: UsbHostAllocator<'d>> MidiHost<'d, A> {
         self.sender.write_packet(packets).await
     }
 
-    /// Encode and send one complete non-SysEx MIDI message to a logical port.
+    /// Encode and send one MIDI message, or a SysEx fragment of up to three bytes, to a logical port.
     pub async fn send(&mut self, port: MidiOutputPort, message: &[u8]) -> Result<(), MidiError> {
         self.sender.send(port, message).await
     }
@@ -375,7 +245,7 @@ impl<'d, A: UsbHostAllocator<'d>> Sender<'d, A> {
                 ports: Vec::new(),
             });
         };
-        let ports = output_ports(interface.interface_number, endpoint, enum_info.device_address)?;
+        let ports = cable_ports(interface.interface_number, endpoint, enum_info.device_address)?;
         let pipe = transport::MidiOutputPipe::open(alloc, endpoint, enum_info)?;
         Ok(Self {
             pipe: Some(pipe),
@@ -393,12 +263,12 @@ impl<'d, A: UsbHostAllocator<'d>> Sender<'d, A> {
         self.pipe.as_mut().ok_or(MidiError::NoEndpoint)?.write(packets).await
     }
 
-    /// Encode and send one complete non-SysEx MIDI message to a logical port.
+    /// Encode and send one MIDI message, or a SysEx fragment of up to three bytes, to a logical port.
     pub async fn send(&mut self, port: MidiOutputPort, message: &[u8]) -> Result<(), MidiError> {
         if !self.ports.contains(&port) {
             return Err(MidiError::InvalidPort);
         }
-        let packet = UsbMidiEventPacket::from_midi_bytes(port.cable, message)?;
+        let packet = MidiPacket::try_encode_exact(port.cable, message)?;
         self.write_packet(packet.as_bytes()).await
     }
 }
@@ -422,7 +292,7 @@ impl<'d, A: UsbHostAllocator<'d>> Receiver<'d, A> {
                 ports: Vec::new(),
             });
         };
-        let ports = input_ports(interface.interface_number, endpoint, enum_info.device_address)?;
+        let ports = cable_ports(interface.interface_number, endpoint, enum_info.device_address)?;
         let pipe = transport::MidiInputPipe::open(alloc, endpoint, enum_info)?;
         Ok(Self {
             pipe: Some(pipe),
@@ -443,25 +313,26 @@ impl<'d, A: UsbHostAllocator<'d>> Receiver<'d, A> {
     /// Receive one transfer and map each event packet to its logical input port.
     pub async fn receive<'a>(&'a mut self, buffer: &'a mut [u8]) -> Result<ReceivedMidiPackets<'a>, MidiError> {
         let length = self.read_transfer(buffer).await?;
-        for chunk in buffer[..length].chunks_exact(EVENT_PACKET_SIZE) {
-            let cable = chunk[0] >> 4;
-            if !self.ports.iter().any(|port| port.cable == cable) {
+        // `read_transfer` checked the length, so this is `None` only for a zero-length transfer.
+        let packets = MidiPacketReader::new(&buffer[..length]).ok();
+        for packet in packets.clone().into_iter().flatten() {
+            if !self.ports.iter().any(|port| port.cable == packet.cable_number()) {
                 return Err(MidiError::InvalidPort);
             }
         }
         Ok(ReceivedMidiPackets {
-            chunks: buffer[..length].chunks_exact(EVENT_PACKET_SIZE),
+            packets,
             ports: &self.ports,
         })
     }
 }
 
 /// One received USB-MIDI event packet and its logical input port.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ReceivedMidiPacket {
     port: MidiInputPort,
-    packet: UsbMidiEventPacket,
+    packet: MidiPacket,
 }
 
 impl ReceivedMidiPacket {
@@ -471,19 +342,19 @@ impl ReceivedMidiPacket {
     }
 
     /// USB-MIDI event packet.
-    pub const fn packet(&self) -> UsbMidiEventPacket {
-        self.packet
+    pub const fn packet(&self) -> &MidiPacket {
+        &self.packet
     }
 
-    /// Valid MIDI bytes, or `None` for a reserved CIN.
-    pub fn data(&self) -> Option<&[u8]> {
-        self.packet.data()
+    /// MIDI bytes carried by the packet.
+    pub fn data(&self) -> &[u8] {
+        self.packet.event()
     }
 }
 
 /// Iterator over the logical MIDI packets in one received USB transfer.
 pub struct ReceivedMidiPackets<'a> {
-    chunks: ChunksExact<'a, u8>,
+    packets: Option<MidiPacketReader<'a>>,
     ports: &'a [MidiInputPort],
 }
 
@@ -492,51 +363,36 @@ impl Iterator for ReceivedMidiPackets<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let chunk = self.chunks.next()?;
-            let packet = UsbMidiEventPacket::new([chunk[0], chunk[1], chunk[2], chunk[3]]);
-            if packet.data().is_none() {
+            let packet = self.packets.as_mut()?.next()?;
+            // Reserved CINs carry no MIDI bytes.
+            if packet.event_len() == 0 {
                 continue;
             }
-            let port = self.ports.iter().find(|port| port.cable == packet.cable()).copied()?;
+            let port = self
+                .ports
+                .iter()
+                .find(|port| port.cable == packet.cable_number())
+                .copied()?;
             return Some(ReceivedMidiPacket { port, packet });
         }
     }
 }
 
-fn input_ports(
+fn cable_ports<D>(
     interface_number: u8,
     endpoint: &MidiEndpointDescriptor,
     device_address: u8,
-) -> Result<Vec<MidiInputPort, MAX_MIDI_JACKS>, MidiError> {
+) -> Result<Vec<MidiPort<D>, MAX_MIDI_JACKS>, MidiError> {
     let mut ports = Vec::new();
     for (cable, &jack_id) in cable_jacks(endpoint).enumerate() {
         ports
-            .push(MidiInputPort {
+            .push(MidiPort {
                 device_address,
                 interface_number,
                 endpoint_address: endpoint.address,
                 cable: cable as u8,
                 jack_id,
-            })
-            .map_err(|_| MidiDescriptorError::Capacity)?;
-    }
-    Ok(ports)
-}
-
-fn output_ports(
-    interface_number: u8,
-    endpoint: &MidiEndpointDescriptor,
-    device_address: u8,
-) -> Result<Vec<MidiOutputPort, MAX_MIDI_JACKS>, MidiError> {
-    let mut ports = Vec::new();
-    for (cable, &jack_id) in cable_jacks(endpoint).enumerate() {
-        ports
-            .push(MidiOutputPort {
-                device_address,
-                interface_number,
-                endpoint_address: endpoint.address,
-                cable: cable as u8,
-                jack_id,
+                direction: PhantomData,
             })
             .map_err(|_| MidiDescriptorError::Capacity)?;
     }
@@ -558,30 +414,30 @@ mod tests {
 
     #[test]
     fn decodes_event_packet_fields_and_lengths() {
-        let note_on = UsbMidiEventPacket::new([0x39, 0x90, 60, 100]);
-        assert_eq!(note_on.cable(), 3);
+        let note_on = MidiPacket::new([0x39, 0x90, 60, 100]);
+        assert_eq!(note_on.cable_number(), 3);
         assert_eq!(note_on.cin(), 9);
-        assert_eq!(note_on.data(), Some(&[0x90, 60, 100][..]));
+        assert_eq!(note_on.event(), &[0x90, 60, 100]);
 
-        let program_change = UsbMidiEventPacket::new([0x0c, 0xc0, 12, 0]);
-        assert_eq!(program_change.data(), Some(&[0xc0, 12][..]));
+        let program_change = MidiPacket::new([0x0c, 0xc0, 12, 0]);
+        assert_eq!(program_change.event(), &[0xc0, 12]);
 
-        let clock = UsbMidiEventPacket::new([0x0f, 0xf8, 0, 0]);
-        assert_eq!(clock.data(), Some(&[0xf8][..]));
+        let clock = MidiPacket::new([0x0f, 0xf8, 0, 0]);
+        assert_eq!(clock.event(), &[0xf8]);
 
-        let reserved = UsbMidiEventPacket::new([0x00, 0, 0, 0]);
-        assert_eq!(reserved.data(), None);
+        let reserved = MidiPacket::new([0x00, 0, 0, 0]);
+        assert_eq!(reserved.event_len(), 0);
     }
 
     #[test]
     fn iterates_complete_event_packets() {
         let data = [0x09, 0x90, 60, 100, 0x08, 0x80, 60, 0];
-        let packets: heapless::Vec<_, 2> = event_packets(&data).unwrap().collect();
+        let packets: heapless::Vec<_, 2> = MidiPacketReader::new(&data).unwrap().collect();
         assert_eq!(packets.len(), 2);
-        assert_eq!(packets[0].data(), Some(&[0x90, 60, 100][..]));
-        assert_eq!(packets[1].data(), Some(&[0x80, 60, 0][..]));
-        assert!(event_packets(&data[..7]).is_err());
-        assert!(event_packets(&[]).is_err());
+        assert_eq!(packets[0].event(), &[0x90, 60, 100]);
+        assert_eq!(packets[1].event(), &[0x80, 60, 0]);
+        assert!(MidiPacketReader::new(&data[..7]).is_err());
+        assert!(MidiPacketReader::new(&[]).is_err());
     }
 
     #[test]
@@ -596,10 +452,10 @@ mod tests {
             (&[0xe0, 0, 64], 0x0e),
         ];
         for &(message, cin) in messages {
-            let packet = UsbMidiEventPacket::from_midi_bytes(3, message).unwrap();
-            assert_eq!(packet.cable(), 3);
+            let packet = MidiPacket::try_encode_exact(3, message).unwrap();
+            assert_eq!(packet.cable_number(), 3);
             assert_eq!(packet.cin(), cin);
-            assert_eq!(packet.data(), Some(message));
+            assert_eq!(packet.event(), message);
         }
     }
 
@@ -619,9 +475,9 @@ mod tests {
             (&[0xff], 0x0f),
         ];
         for &(message, cin) in messages {
-            let packet = UsbMidiEventPacket::from_midi_bytes(15, message).unwrap();
+            let packet = MidiPacket::try_encode_exact(15, message).unwrap();
             assert_eq!(packet.cin(), cin);
-            assert_eq!(packet.data(), Some(message));
+            assert_eq!(packet.event(), message);
             for &padding in &packet.as_bytes()[1 + message.len()..] {
                 assert_eq!(padding, 0);
             }
@@ -631,25 +487,44 @@ mod tests {
     #[test]
     fn rejects_invalid_midi_event_packet_inputs() {
         assert_eq!(
-            UsbMidiEventPacket::from_midi_bytes(16, &[0x90, 60, 100]),
-            Err(MidiPacketError::InvalidCable)
+            MidiPacket::try_encode_exact(16, &[0x90, 60, 100]),
+            Err(MidiPacketError::InvalidCableNumber)
         );
-        for status in [0x00, 0x7f, 0xf0, 0xf4, 0xf5, 0xf9, 0xfd] {
+        for status in [0xf4, 0xf5, 0xfd] {
             assert_eq!(
-                UsbMidiEventPacket::from_midi_bytes(0, &[status]),
-                Err(MidiPacketError::InvalidStatus)
+                MidiPacket::try_encode_exact(0, &[status]),
+                Err(MidiPacketError::InvalidEventStatus)
             );
         }
-        for message in [&[][..], &[0x90, 60][..], &[0xc0, 12, 0][..], &[0xf8, 0][..]] {
+        assert_eq!(MidiPacket::try_encode_exact(0, &[]), Err(MidiPacketError::EmptyEvent));
+        for message in [&[0xf0][..], &[0x90, 60][..], &[0xc0, 12, 0][..], &[0xf8, 0][..]] {
             assert_eq!(
-                UsbMidiEventPacket::from_midi_bytes(0, message),
-                Err(MidiPacketError::InvalidLength)
+                MidiPacket::try_encode_exact(0, message),
+                Err(MidiPacketError::InvalidEventLength)
             );
         }
         assert_eq!(
-            UsbMidiEventPacket::from_midi_bytes(0, &[0x90, 0x80, 0]),
-            Err(MidiPacketError::InvalidData)
+            MidiPacket::try_encode_exact(0, &[0x90, 0x80, 0]),
+            Err(MidiPacketError::InvalidEventData)
         );
+    }
+
+    #[test]
+    fn encodes_sysex_and_single_byte_event_packets() {
+        let messages: &[(&[u8], u8)] = &[
+            (&[0xf0, 0x7e, 0x7f], 0x04),
+            (&[0x01, 0x02, 0x03], 0x04),
+            (&[0x01, 0xf7], 0x06),
+            (&[0x01, 0x02, 0xf7], 0x07),
+            (&[0x00], 0x0f),
+            (&[0x7f], 0x0f),
+            (&[0xf9], 0x0f),
+        ];
+        for &(message, cin) in messages {
+            let packet = MidiPacket::try_encode_exact(0, message).unwrap();
+            assert_eq!(packet.cin(), cin);
+            assert_eq!(packet.event(), message);
+        }
     }
 
     #[test]
@@ -659,7 +534,7 @@ mod tests {
             max_packet_size: 64,
             jack_ids: Vec::from_slice(&[3, 7]).unwrap(),
         };
-        let ports = input_ports(2, &endpoint, 5).unwrap();
+        let ports = cable_ports::<In>(2, &endpoint, 5).unwrap();
 
         assert_eq!(ports.len(), 2);
         assert_eq!(ports[0].number(), 1);
@@ -678,16 +553,16 @@ mod tests {
             max_packet_size: 64,
             jack_ids: Vec::from_slice(&[3, 7]).unwrap(),
         };
-        let ports = input_ports(2, &endpoint, 5).unwrap();
+        let ports = cable_ports::<In>(2, &endpoint, 5).unwrap();
         let transfer = [0, 0, 0, 0, 0x19, 0x90, 60, 100, 0, 0, 0, 0];
         let mut packets = ReceivedMidiPackets {
-            chunks: transfer.chunks_exact(EVENT_PACKET_SIZE),
+            packets: MidiPacketReader::new(&transfer).ok(),
             ports: &ports,
         };
 
         let received = packets.next().unwrap();
         assert_eq!(received.port(), ports[1]);
-        assert_eq!(received.data(), Some(&[0x90, 60, 100][..]));
+        assert_eq!(received.data(), &[0x90, 60, 100]);
         assert!(packets.next().is_none());
     }
 
@@ -698,7 +573,7 @@ mod tests {
             max_packet_size: 64,
             jack_ids: Vec::new(),
         };
-        let ports = output_ports(1, &endpoint, 4).unwrap();
+        let ports = cable_ports::<Out>(1, &endpoint, 4).unwrap();
 
         assert_eq!(ports.len(), 1);
         assert_eq!(ports[0].cable(), 0);

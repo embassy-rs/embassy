@@ -1,32 +1,23 @@
 //! MIDI class implementation.
 
-mod packet;
-
-pub use packet::*;
-
+use super::{
+    MAX_MIDI_JACKS, MIDI_IN_JACK_LEN, MIDI_IN_JACK_SUBTYPE, MIDI_OUT_JACK_BASE_LEN, MIDI_OUT_JACK_SUBTYPE,
+    MIDI_VERSION, MS_GENERAL, MS_GENERAL_BASE_LEN, MS_HEADER_LEN, MS_HEADER_SUBTYPE, MidiJackType, PROTOCOL_NONE,
+    USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS,
+};
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
 use crate::types::StringIndex;
 use crate::{Builder, Handler};
 
-/// This should be used as `device_class` when building the `UsbDevice`.
-pub const USB_AUDIO_CLASS: u8 = 0x01;
-
 const USB_AUDIOCONTROL_SUBCLASS: u8 = 0x01;
-const USB_MIDISTREAMING_SUBCLASS: u8 = 0x03;
-const MIDI_IN_JACK_SUBTYPE: u8 = 0x02;
-const MIDI_OUT_JACK_SUBTYPE: u8 = 0x03;
-const EMBEDDED: u8 = 0x01;
-const EXTERNAL: u8 = 0x02;
 const CS_INTERFACE: u8 = 0x24;
 const CS_ENDPOINT: u8 = 0x25;
 const HEADER_SUBTYPE: u8 = 0x01;
-const MS_HEADER_SUBTYPE: u8 = 0x01;
-const MS_GENERAL: u8 = 0x01;
-const PROTOCOL_NONE: u8 = 0x00;
-const MIDI_IN_SIZE: u8 = 0x06;
-const MIDI_OUT_SIZE: u8 = 0x09;
-const MAX_MIDI_JACKS: u8 = 16;
+const EMBEDDED: u8 = MidiJackType::Embedded as u8;
+const EXTERNAL: u8 = MidiJackType::External as u8;
+// Each OUT jack has one source pin.
+const MIDI_OUT_JACK_LEN: u8 = MIDI_OUT_JACK_BASE_LEN + 2;
 
 /// Configuration for the MIDI class.
 ///
@@ -199,12 +190,12 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             "n_in_jacks and n_out_jacks are both 0"
         );
         assert!(
-            n_in_jacks <= MAX_MIDI_JACKS,
+            n_in_jacks as usize <= MAX_MIDI_JACKS,
             "n_in_jacks is larger than {}",
             MAX_MIDI_JACKS,
         );
         assert!(
-            n_out_jacks <= MAX_MIDI_JACKS,
+            n_out_jacks as usize <= MAX_MIDI_JACKS,
             "n_out_jacks is larger than {}",
             MAX_MIDI_JACKS,
         );
@@ -227,15 +218,15 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             names.interface(),
         );
 
-        let midi_streaming_total_length = 7
-            + (n_in_jacks + n_out_jacks) as usize * (MIDI_IN_SIZE + MIDI_OUT_SIZE) as usize
+        let midi_streaming_total_length = MS_HEADER_LEN as usize
+            + (n_in_jacks + n_out_jacks) as usize * (MIDI_IN_JACK_LEN + MIDI_OUT_JACK_LEN) as usize
             + if n_out_jacks > 0 {
-                9 + (4 + n_out_jacks as usize)
+                9 + (MS_GENERAL_BASE_LEN as usize + n_out_jacks as usize)
             } else {
                 0
             }
             + if n_in_jacks > 0 {
-                9 + (4 + n_in_jacks as usize)
+                9 + (MS_GENERAL_BASE_LEN as usize + n_in_jacks as usize)
             } else {
                 0
             };
@@ -245,8 +236,8 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                     CS_INTERFACE,
                     &[
                         MS_HEADER_SUBTYPE,
-                        0x00,
-                        0x01,
+                        MIDI_VERSION.to_le_bytes()[0],
+                        MIDI_VERSION.to_le_bytes()[1],
                         (midi_streaming_total_length & 0xFF) as u8,
                         ((midi_streaming_total_length >> 8) & 0xFF) as u8,
                     ],
