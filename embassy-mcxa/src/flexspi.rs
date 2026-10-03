@@ -60,6 +60,7 @@ pub mod lookup {
     pub enum Command {
         Read = 0,
         ReadStatus = 1,
+        ReadConfig = 2,
         WriteEnable = 3,
         WriteStatus = 4,
         EraseSector = 5,
@@ -474,6 +475,16 @@ impl DeviceCommand {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct IpCommandConfig {
+    /// Base added to logical NOR offsets when issuing FlexSPI IP commands.
+    pub sfar_base: u32,
+    /// FLSHCR2 slot used when preparing IP commands.
+    ///
+    /// Defaults to the slot selected by the chip-select pin.
+    pub config_index: Option<u8>,
+}
+
 #[derive(Clone, Copy)]
 pub struct FlashConfig {
     pub flash_size_kbytes: u32,
@@ -562,6 +573,16 @@ struct InnerFlexSpi<'d, M: Mode> {
     dma: Option<DmaState<'d>>,
     /// The index of the chip we're set up to use. The current impl only supports 1 chip at a time
     chip_index: u8,
+    /// Base added to logical NOR offsets when issuing FlexSPI IP commands.
+    ///
+    /// Zero by default. Platforms whose flash occupies a later FlexSPI
+    /// address region may set this after controller configuration.
+    ip_sfar_base: u32,
+    /// FLSHCR2 slot used when preparing IP commands.
+    ///
+    /// Normally identical to `chip_index`. A platform that remaps the
+    /// configured flash to another hardware slot may update this afterward.
+    ip_config_index: u8,
     flash: FlashConfig,
     _wg: Option<WakeGuard>,
     _phantom: PhantomData<M>,
@@ -573,7 +594,28 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         dma: Option<DmaState<'d>>,
         clock: ClockConfig,
         chip_index: u8,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
+    ) -> Result<Self, SetupError> {
+        Self::new_inner_with_rxclksrc(
+            _peri,
+            dma,
+            clock,
+            chip_index,
+            ip_command,
+            flash,
+            pac::flexspi::Rxclksrc::Val1,
+        )
+    }
+
+    fn new_inner_with_rxclksrc<T: Instance>(
+        _peri: Peri<'d, T>,
+        dma: Option<DmaState<'d>>,
+        clock: ClockConfig,
+        chip_index: u8,
+        ip_command: IpCommandConfig,
+        flash: FlashConfig,
+        rxclksrc: pac::flexspi::Rxclksrc,
     ) -> Result<Self, SetupError> {
         if flash.page_size == 0 || flash.page_size > MAX_PAGE_SIZE {
             return Err(SetupError::InvalidPageSize);
@@ -599,12 +641,14 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             info: T::info(),
             dma,
             chip_index,
+            ip_sfar_base: ip_command.sfar_base,
+            ip_config_index: ip_command.config_index.unwrap_or(chip_index),
             flash,
             _wg: parts.wake_guard,
             _phantom: PhantomData,
         };
 
-        flash_driver.initialize()?;
+        flash_driver.initialize(rxclksrc)?;
 
         if M::INTERRUPTS_ENABLED {
             T::Interrupt::unpend();
@@ -612,6 +656,43 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         }
 
         Ok(flash_driver)
+    }
+
+    /// Attach to an already-configured FlexSPI controller that is actively
+    /// supplying XIP instruction fetches.
+    ///
+    /// This deliberately does not enable/reset the peripheral or initialize
+    /// the controller/flash again.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that FlexSPI, its pins, LUT, AHB mapping,
+    /// and flash device are already configured compatibly with `flash`.
+    unsafe fn new_inner_xip_attached<T: Instance>(
+        _peri: Peri<'d, T>,
+        chip_index: u8,
+        ip_command: IpCommandConfig,
+        flash: FlashConfig,
+    ) -> Result<Self, SetupError> {
+        if flash.page_size == 0 || flash.page_size > MAX_PAGE_SIZE {
+            return Err(SetupError::InvalidPageSize);
+        }
+
+        Ok(Self {
+            info: T::info(),
+            dma: None,
+            chip_index,
+            ip_sfar_base: ip_command.sfar_base,
+            ip_config_index: ip_command.config_index.unwrap_or(chip_index),
+            flash,
+            _wg: None,
+            _phantom: PhantomData,
+        })
+    }
+
+    #[inline]
+    fn ip_sfar(&self, address: u32) -> u32 {
+        self.ip_sfar_base.wrapping_add(address)
     }
 
     pub fn page_size(&self) -> usize {
@@ -631,17 +712,17 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         Ok(0)
     }
 
-    fn initialize(&mut self) -> Result<(), SetupError> {
-        self.configure_controller();
+    fn initialize(&mut self, rxclksrc: pac::flexspi::Rxclksrc) -> Result<(), SetupError> {
+        self.configure_controller(rxclksrc);
         self.flash_reset()?;
         self.apply_device_mode()?;
         Ok(())
     }
 
-    fn configure_controller(&mut self) {
+    fn configure_controller(&mut self, rxclksrc: pac::flexspi::Rxclksrc) {
         self.info.regs.mcr0().write(|r: &mut Mcr0| {
             r.set_mdis(pac::flexspi::Mdis::Val0);
-            r.set_rxclksrc(pac::flexspi::Rxclksrc::Val1);
+            r.set_rxclksrc(rxclksrc);
             // Match the SDK's arbitration / low-power defaults. IPGRANTWAIT and
             // AHBGRANTWAIT bound how many (1024-serial-clock) cycles an IP- or
             // AHB-triggered command waits for the sequence-engine grant before a
@@ -930,7 +1011,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         self.info.regs.inten().write(|_| {});
         self.info
             .regs
-            .flshcr2(self.chip_index as usize)
+            .flshcr2(self.ip_config_index as usize)
             .modify(|r: &mut Flshcr2| r.set_clrinstrptr(true));
         self.info.regs.intr().write(|r: &mut Intr| {
             r.set_ahbcmderr(true);
@@ -973,7 +1054,10 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     ) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info
+            .regs
+            .ipcr0()
+            .write(|r: &mut Ipcr0| r.set_sfar(self.ip_sfar(address)));
         self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data_size);
             r.set_iseqid(seq_index as u8);
@@ -997,7 +1081,11 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     fn issue_ip_write_command(&mut self, address: u32, seq_index: usize, data: &[u8]) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info
+            .regs
+            .ipcr0()
+            .write(|r: &mut Ipcr0| r.set_sfar(self.ip_sfar(address)));
+
         self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data.len() as u16);
             r.set_iseqid(seq_index as u8);
@@ -1005,38 +1093,76 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             r.set_iparen(false);
         });
 
+        let tx_watermark = self.info.regs.iptxfcr().read().txwmrk() as usize + 1;
+        let fifo_window_len = 8 * tx_watermark;
+        let mut offset = 0;
+
+        // Prime the first IP TX FIFO watermark before starting the command.
+        //
+        // This is especially important for short register writes such as
+        // WRSR. The FIFO entry is committed before IPCMD is triggered, while
+        // IPCR1.IDATSZ still controls the exact number of bytes transmitted.
+        if offset < data.len() {
+            while !self.info.regs.intr().read().iptxwe() {}
+
+            let chunk_len = fifo_window_len.min(data.len() - offset);
+            let mut fifo_window = [0xFFu8; IP_FIFO_CAPACITY_BYTES];
+
+            fifo_window[..chunk_len].copy_from_slice(&data[offset..offset + chunk_len]);
+
+            for (index, chunk) in fifo_window[..fifo_window_len].chunks_exact(4).enumerate() {
+                self.info
+                    .regs
+                    .tfdr(index)
+                    .write_value(Tfdr(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])));
+            }
+
+            offset += chunk_len;
+
+            // Commit the written watermark entry to the IP TX FIFO.
+            self.info.regs.intr().write(|r: &mut Intr| r.set_iptxwe(true));
+        }
+
+        // Start the serial flash command only after the first TX data has
+        // already been made available to FlexSPI.
         self.info
             .regs
             .ipcmd()
             .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
 
-        let tx_watermark = self.info.regs.iptxfcr().read().txwmrk() as usize + 1;
-        let mut offset = 0;
-
+        // Feed any additional watermark windows after the command starts.
         while offset < data.len() {
             while !self.info.regs.intr().read().iptxwe() {}
 
-            let chunk_len = (8 * tx_watermark).min(data.len() - offset);
-            for (index, chunk) in data[offset..offset + chunk_len].chunks(4).enumerate() {
-                // Pad the trailing partial word with 0xFF.
-                let mut word = [0xFFu8; 4];
-                word[..chunk.len()].copy_from_slice(chunk);
-                self.info.regs.tfdr(index).write_value(Tfdr(u32::from_le_bytes(word)));
+            let chunk_len = fifo_window_len.min(data.len() - offset);
+            let mut fifo_window = [0xFFu8; IP_FIFO_CAPACITY_BYTES];
+
+            fifo_window[..chunk_len].copy_from_slice(&data[offset..offset + chunk_len]);
+
+            for (index, chunk) in fifo_window[..fifo_window_len].chunks_exact(4).enumerate() {
+                self.info
+                    .regs
+                    .tfdr(index)
+                    .write_value(Tfdr(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])));
             }
 
             offset += chunk_len;
+
             self.info.regs.intr().write(|r: &mut Intr| r.set_iptxwe(true));
         }
 
         self.wait_ip_command_done();
+
         self.wait_idle();
         self.wait_no_ip_error()
     }
-
     fn issue_ip_read_command(&mut self, address: u32, seq_index: usize, buffer: &mut [u8]) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info
+            .regs
+            .ipcr0()
+            .write(|r: &mut Ipcr0| r.set_sfar(self.ip_sfar(address)));
         self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(buffer.len() as u16);
             r.set_iseqid(seq_index as u8);
@@ -1202,7 +1328,10 @@ impl<'d> InnerFlexSpi<'d, Async> {
     ) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info
+            .regs
+            .ipcr0()
+            .write(|r: &mut Ipcr0| r.set_sfar(self.ip_sfar(address)));
         self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data_size);
             r.set_iseqid(seq_index as u8);
@@ -1229,7 +1358,10 @@ impl<'d> InnerFlexSpi<'d, Async> {
     ) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info
+            .regs
+            .ipcr0()
+            .write(|r: &mut Ipcr0| r.set_sfar(self.ip_sfar(address)));
         self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data.len() as u16);
             r.set_iseqid(seq_index as u8);
@@ -1272,7 +1404,10 @@ impl<'d> InnerFlexSpi<'d, Async> {
     ) -> Result<(), IoError> {
         self.prepare_ip_transfer();
 
-        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info
+            .regs
+            .ipcr0()
+            .write(|r: &mut Ipcr0| r.set_sfar(self.ip_sfar(address)));
         self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(buffer.len() as u16);
             r.set_iseqid(seq_index as u8);
@@ -1307,7 +1442,10 @@ impl<'d> InnerFlexSpi<'d, Async> {
 
         self.prepare_ip_transfer();
 
-        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info
+            .regs
+            .ipcr0()
+            .write(|r: &mut Ipcr0| r.set_sfar(self.ip_sfar(address)));
         self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data_len as u16);
             r.set_iseqid(seq_index as u8);
@@ -1355,7 +1493,10 @@ impl<'d> InnerFlexSpi<'d, Async> {
 
         self.prepare_ip_transfer();
 
-        self.info.regs.ipcr0().write(|r: &mut Ipcr0| r.set_sfar(address));
+        self.info
+            .regs
+            .ipcr0()
+            .write(|r: &mut Ipcr0| r.set_sfar(self.ip_sfar(address)));
         self.info.regs.ipcr1().write(|r: &mut Ipcr1| {
             r.set_idatsz(data_len as u16);
             r.set_iseqid(seq_index as u8);
@@ -1491,6 +1632,7 @@ impl<'d> Flexspi<'d, Blocking> {
         data2: Peri<'d, impl Data2Pin<T, P> + 'd>,
         data3: Peri<'d, impl Data3Pin<T, P> + 'd>,
         clock: ClockConfig,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
         ss.mux();
@@ -1502,7 +1644,170 @@ impl<'d> Flexspi<'d, Blocking> {
         data3.mux();
 
         Ok(Self {
-            inner: InnerFlexSpi::new_inner(peri, None, clock, ss.chip_index(), flash)?,
+            inner: InnerFlexSpi::new_inner(peri, None, clock, ss.chip_index(), ip_command, flash)?,
+        })
+    }
+
+    /// Initialize FlexSPI using its internally generated read strobe.
+    ///
+    /// This mode does not require or mux an external DQS pin.
+    pub fn new_blocking_internal_loopback<T: Instance, P: Port>(
+        peri: Peri<'d, T>,
+        ss: Peri<'d, impl SsPin<T, P> + 'd>,
+        sclk: Peri<'d, impl SclkPin<T, P> + 'd>,
+        data0: Peri<'d, impl Data0Pin<T, P> + 'd>,
+        data1: Peri<'d, impl Data1Pin<T, P> + 'd>,
+        data2: Peri<'d, impl Data2Pin<T, P> + 'd>,
+        data3: Peri<'d, impl Data3Pin<T, P> + 'd>,
+        clock: ClockConfig,
+        ip_command: IpCommandConfig,
+        flash: FlashConfig,
+    ) -> Result<Self, SetupError> {
+        ss.mux();
+        sclk.mux();
+        data0.mux();
+        data1.mux();
+        data2.mux();
+        data3.mux();
+
+        Ok(Self {
+            inner: InnerFlexSpi::new_inner_with_rxclksrc(
+                peri,
+                None,
+                clock,
+                ss.chip_index(),
+                ip_command,
+                flash,
+                pac::flexspi::Rxclksrc::Val0,
+            )?,
+        })
+    }
+
+    /// Read using an explicitly selected LUT sequence.
+    ///
+    /// Intended for validating alternate flash read protocols without
+    /// changing the active AHB/XIP read sequence.
+    pub fn read_with_seq(&mut self, address: u32, seq_index: u8, buffer: &mut [u8]) -> Result<(), IoError> {
+        self.inner.check_in_bounds(address, buffer.len())?;
+
+        let mut offset = 0;
+
+        while offset < buffer.len() {
+            let remaining = buffer.len() - offset;
+            let chunk = remaining.min(IP_FIFO_CAPACITY_BYTES);
+
+            self.inner.issue_ip_read_command(
+                address + offset as u32,
+                seq_index as usize,
+                &mut buffer[offset..offset + chunk],
+            )?;
+
+            offset += chunk;
+        }
+
+        Ok(())
+    }
+    /// Issue a command-only LUT sequence.
+    ///
+    /// Intended for temporary flash protocol validation such as
+    /// entering or exiting Macronix QPI mode.
+    pub fn command_with_seq(&mut self, address: u32, seq_index: u8) -> Result<(), IoError> {
+        self.inner.issue_ip_command(address, seq_index as usize, 0, None)
+    }
+
+    /// Issue a write-data IP command using an explicitly selected LUT sequence.
+    ///
+    /// Intended for temporary protocol validation such as Macronix QPI WRSR.
+    pub fn write_with_seq(&mut self, address: u32, seq_index: u8, data: &[u8]) -> Result<(), IoError> {
+        self.inner.issue_ip_write_command(address, seq_index as usize, data)
+    }
+    /// Set selected status-register bits using an explicitly selected
+    /// write-status LUT sequence, preserving all existing status bits.
+    ///
+    /// Returns the status register value read back after the write completes.
+    /// Diagnostic helper for validating Write Enable without modifying
+    /// the flash status register.
+    pub fn probe_write_enable_status(&mut self) -> Result<(u8, u8), (u8, IoError)> {
+        let before = self.inner.read_status().map_err(|e| (1, e))?;
+
+        self.inner.write_enable().map_err(|e| (2, e))?;
+
+        let after_wren = self.inner.read_status().map_err(|e| (3, e))?;
+
+        Ok((before, after_wren))
+    }
+    /// Diagnostic probe for a single-byte status-register write.
+    ///
+    /// WRSR is self-timed by the NOR after CS# rises. Poll RDSR until
+    /// WEL clears, which indicates that the WRSR cycle completed.
+    pub fn probe_status_write_with_seq(&mut self, seq_index: u8, bits: u8) -> Result<(u8, u8, u8, u8), (u8, IoError)> {
+        let before = self.inner.read_status().map_err(|e| (1, e))?;
+        let updated = before | bits;
+
+        self.inner.write_enable().map_err(|e| (2, e))?;
+
+        let after_wren = self.inner.read_status().map_err(|e| (3, e))?;
+
+        self.inner
+            .issue_ip_write_command(0, seq_index as usize, &[updated])
+            .map_err(|e| (4, e))?;
+
+        // Capture the very first status read after WRSR.
+        //
+        // WIP=1 means the flash accepted WRSR and started its
+        // self-timed write cycle.
+        // WIP=0 + WEL=1 means the flash rejected the WRSR transaction.
+        let immediate_after_wrsr = self.inner.read_status().map_err(|e| (5, e))?;
+        let mut after_wrsr = immediate_after_wrsr;
+
+        for _ in 0..100_000 {
+            if (after_wrsr & 0x02) == 0 {
+                break;
+            }
+
+            after_wrsr = self.inner.read_status().map_err(|e| (6, e))?;
+        }
+
+        Ok((before, after_wren, immediate_after_wrsr, after_wrsr))
+    }
+    pub fn set_status_bits_with_seq(&mut self, seq_index: u8, bits: u8) -> Result<(u8, u8, u8), (u8, IoError)> {
+        let current = self.inner.read_status().map_err(|e| (1, e))?;
+        let updated = current | bits;
+        let mut after_wren = current;
+
+        if updated != current {
+            self.inner.write_enable().map_err(|e| (2, e))?;
+
+            after_wren = self.inner.read_status().map_err(|e| (3, e))?;
+
+            self.inner
+                .issue_ip_write_command(0, seq_index as usize, &[updated])
+                .map_err(|e| (4, e))?;
+
+            self.inner.wait_bus_busy().map_err(|e| (5, e))?;
+        }
+
+        let after_wrsr = self.inner.read_status().map_err(|e| (6, e))?;
+
+        Ok((current, after_wren, after_wrsr))
+    }
+    /// Attach to a FlexSPI controller already configured for active XIP.
+    ///
+    /// Unlike `new_blocking`, this does not mux pins, reset the peripheral,
+    /// initialize controller registers, reload the LUT, or reset the NOR.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that this peripheral and flash are already
+    /// configured compatibly with the supplied `FlashConfig`.
+    pub unsafe fn new_blocking_xip_attached<T: Instance, P: Port>(
+        peri: Peri<'d, T>,
+        ss: Peri<'d, impl SsPin<T, P> + 'd>,
+        ip_command: IpCommandConfig,
+        flash: FlashConfig,
+    ) -> Result<Self, SetupError> {
+        Ok(Self {
+            inner: unsafe { InnerFlexSpi::new_inner_xip_attached(peri, ss.chip_index(), ip_command, flash)? },
         })
     }
 }
@@ -1519,6 +1824,7 @@ impl<'d> Flexspi<'d, Async> {
         data3: Peri<'d, impl Data3Pin<T, P> + 'd>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clock: ClockConfig,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
         ss.mux();
@@ -1530,7 +1836,7 @@ impl<'d> Flexspi<'d, Async> {
         data3.mux();
 
         Ok(Self {
-            inner: InnerFlexSpi::new_inner(peri, None, clock, ss.chip_index(), flash)?,
+            inner: InnerFlexSpi::new_inner(peri, None, clock, ss.chip_index(), ip_command, flash)?,
         })
     }
 
@@ -1547,6 +1853,7 @@ impl<'d> Flexspi<'d, Async> {
         rx_dma: Peri<'d, impl Channel>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clock: ClockConfig,
+        ip_command: IpCommandConfig,
         flash: FlashConfig,
     ) -> Result<Self, SetupError> {
         ss.mux();
@@ -1566,6 +1873,7 @@ impl<'d> Flexspi<'d, Async> {
                 }),
                 clock,
                 ss.chip_index(),
+                ip_command,
                 flash,
             )?,
         })

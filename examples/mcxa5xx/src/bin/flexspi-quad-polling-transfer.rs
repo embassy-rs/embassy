@@ -36,6 +36,7 @@ async fn main(_spawner: Spawner) {
         p.P3_10,
         p.P3_11,
         FlexspiClockConfig::default(),
+        Default::default(),
         FLASH_CONFIG,
     ));
 
