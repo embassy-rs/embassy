@@ -5,5 +5,6 @@ pub mod cmsis_dap_v2;
 pub mod dfu;
 pub mod hid;
 pub mod midi;
+pub mod msc;
 pub mod uac1;
 pub mod web_usb;
