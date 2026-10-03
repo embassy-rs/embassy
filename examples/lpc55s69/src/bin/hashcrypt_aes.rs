@@ -6,7 +6,7 @@ use defmt::{error, info};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nxp;
-use embassy_nxp::hashcrypt::{AesPadded, GenericDriver, KeySize};
+use embassy_nxp::hashcrypt::{Aes, AesPadded, GenericDriver, KeySize};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -132,6 +132,27 @@ async fn main(_spawner: Spawner) -> ! {
         Ok(pt) => {
             info!("Plain text:  {:02x}", pt);
             info!("Cipher text: {:02x}", ct);
+        }
+        Err(e) => {
+            error!("{}", defmt::Debug2Format(&e));
+        }
+    }
+
+    info!("Test6: Using NIST test vector F.1.1 ECB-AES128.Encrypt, block 2 with .encrypt");
+    info!("");
+
+    ecb.set_key(&key).unwrap();
+
+    let pt2: [u8; 16] = [
+        0xAE, 0x2D, 0x8A, 0x57, 0x1E, 0x03, 0xAC, 0x9C, 0x9E, 0xB7, 0x6F, 0xAC, 0x45, 0xAF, 0x8E, 0x51,
+    ];
+
+    let mut out = [0u8; 16];
+    let result = ecb.encrypt(pt2.as_slice(), out.as_mut_slice());
+    match result {
+        Ok(_) => {
+            info!("Plain text:  {:02x}", pt2);
+            info!("Cipher text: {:02x}", out);
         }
         Err(e) => {
             error!("{}", defmt::Debug2Format(&e));
