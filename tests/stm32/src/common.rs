@@ -233,6 +233,8 @@ define_peris!(
     DAC = DAC1, DAC_PIN = PA4, DAC_ADC = ADC1,
     CAN = CAN1, CAN_RX = PA11, CAN_TX = PA12,
     ADC = ADC1, ADC_PIN = PA4, ADC_DMA = DMA2_CH0,
+    TIM = TIM1, TIM_DMA = DMA2_CH5, TIM_PWM_PIN = PA8,
+    INPUT_PIN = PC0,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
@@ -246,6 +248,9 @@ define_peris!(
     },
     @irq ADC_IRQ = {
         ADC => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
+    @irq TIM = {
+        DMA2_STREAM5 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH5>;
     },
 );
 #[cfg(feature = "stm32wb55rg")]
