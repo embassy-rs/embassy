@@ -9,7 +9,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::usb::HostDriver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb::class::cdc_acm::host::{CdcAcmHost, LineCoding};
+use embassy_usb::class::cdc_acm::host::{CdcAcmHost, LineCoding, ParityType, StopBits};
 use embassy_usb::host::{BusRoute, BusState};
 use panic_probe as _;
 
@@ -78,7 +78,7 @@ async fn main(_spawner: Spawner) {
         };
 
         // Configure serial: 115200 8N1
-        let coding = LineCoding::default();
+        let coding = LineCoding::new(115_200, StopBits::One, ParityType::None, 8);
         if let Err(e) = cdc.set_line_coding(&coding).await {
             error!("SET_LINE_CODING failed: {:?}", e);
             continue;
