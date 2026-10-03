@@ -242,12 +242,21 @@ impl AtomicWaker {
                 //
                 // SAFETY: We hold the WAKING bit; the protocol guarantees
                 // no other call can touch the waker cell while we own it.
-                unsafe {
-                    if let Some(w) = &*self.waker.get() {
-                        w.wake_by_ref();
-                    }
-                }
+                let waker = unsafe { (*self.waker.get()).clone() };
                 self.state.swap(WAITING, Release);
+                // Wake only after releasing the WAKING bit. Waking can hand
+                // control to the woken task before this function returns: an
+                // interrupt-mode executor at a higher priority than the
+                // interrupt calling `wake()` preempts it right here. If the
+                // task then registers again while WAKING is still set,
+                // `register()` wakes it at once, the executor polls it again,
+                // and the preempted `wake()` never gets to clear the bit: a
+                // livelock that starves everything at or below the waking
+                // interrupt's priority. `futures`' `AtomicWaker`, which this
+                // is ported from, also releases the state before waking.
+                if let Some(w) = waker {
+                    w.wake();
+                }
             }
             _ => {
                 // Previous state was REGISTERING (now REGISTERING | WAKING due
@@ -369,6 +378,54 @@ mod tests {
         aw.wake();
 
         assert_eq!(a.count(), 1);
+    }
+
+    /// A waker whose wake registers it again on the same `AtomicWaker`, as a
+    /// task does when an executor that preempts the waking interrupt polls
+    /// it before `wake()` has returned. Built by hand on a `static` vtable
+    /// and a `static` context, so `will_wake` holds between all its copies
+    /// (it does not for `Waker::from(Arc)` under Miri, whose vtables have no
+    /// stable address).
+    mod reregistering {
+        use core::sync::atomic::{AtomicUsize, Ordering};
+        use core::task::{RawWaker, RawWakerVTable, Waker};
+
+        use super::AtomicWaker;
+
+        pub static AW: AtomicWaker = AtomicWaker::new();
+        pub static WAKES: AtomicUsize = AtomicUsize::new(0);
+        static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake, drop);
+
+        pub fn waker() -> Waker {
+            // SAFETY: the vtable functions touch nothing but the statics.
+            unsafe { Waker::from_raw(RawWaker::new(&WAKES as *const AtomicUsize as *const (), &VTABLE)) }
+        }
+
+        fn clone(_: *const ()) -> RawWaker {
+            RawWaker::new(&WAKES as *const AtomicUsize as *const (), &VTABLE)
+        }
+
+        fn wake(_: *const ()) {
+            // Bounded, so a regression fails the assertion instead of
+            // recursing without end.
+            if WAKES.fetch_add(1, Ordering::SeqCst) < 10 {
+                AW.register(&waker());
+            }
+        }
+
+        fn drop(_: *const ()) {}
+    }
+
+    #[test]
+    fn register_from_within_wake_is_not_woken_again() {
+        use reregistering::{AW, WAKES, waker};
+
+        AW.register(&waker());
+        AW.wake();
+
+        // One wake. Registering from inside the wake must not see the wake
+        // still in flight and wake the task again (and again).
+        assert_eq!(WAKES.load(Ordering::SeqCst), 1);
     }
 
     #[test]
