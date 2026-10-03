@@ -1,4 +1,4 @@
-//! USB MIDI 1.0 class.
+//! CDC ACM (serial over USB) class.
 
 pub mod device;
 pub mod host;
