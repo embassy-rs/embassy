@@ -17,6 +17,9 @@ mod descriptor_reader;
 pub mod msos;
 pub mod types;
 
+#[cfg(test)]
+mod tests;
+
 mod config {
     #![allow(unused)]
     include!(concat!(env!("OUT_DIR"), "/config.rs"));
@@ -32,7 +35,7 @@ use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{descriptor_type, lang_id};
 use crate::descriptor_reader::foreach_endpoint;
-use crate::driver::{Bus, ControlPipe, Direction, Driver, EndpointAddress, Event};
+use crate::driver::{Bus, ControlPipe, Direction, Driver, EndpointAddress, EndpointType, Event};
 use crate::types::{InterfaceNumber, StringIndex};
 
 /// The global state of the USB device.
@@ -414,6 +417,40 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
 }
 
 impl<'d, D: Driver<'d>> Inner<'d, D> {
+    fn endpoint_for_request(&self, index: u16) -> Option<(EndpointAddress, EndpointType)> {
+        // wIndex contains an endpoint number and direction; all other bits are reserved.
+        if index & !0x8f != 0 {
+            return None;
+        }
+        if !matches!(
+            self.device_state,
+            UsbDeviceState::Addressed | UsbDeviceState::Configured
+        ) {
+            return None;
+        }
+
+        let address = EndpointAddress::from(index as u8);
+        // The default control pipe is not part of an interface descriptor. Accept either direction.
+        if address.index() == 0 {
+            return Some((address, EndpointType::Control));
+        }
+        if self.device_state != UsbDeviceState::Configured {
+            return None;
+        }
+
+        let mut endpoint = None;
+        foreach_endpoint(self.config_descriptor, |ep| {
+            if ep.configuration == CONFIGURATION_VALUE
+                && ep.ep_address == address
+                && self.interfaces[ep.interface.0 as usize].current_alt_setting == ep.interface_alt
+            {
+                endpoint = Some((ep.ep_address, ep.ep_type));
+            }
+        })
+        .unwrap();
+        endpoint
+    }
+
     async fn handle_bus_event(&mut self, evt: Event) {
         match evt {
             Event::Reset => {
@@ -580,14 +617,16 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 }
             }
             (RequestType::Standard, Recipient::Endpoint) => match (req.request, req.value) {
-                (Request::SET_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
-                    let ep_addr = ((req.index as u8) & 0x8f).into();
-                    self.bus.endpoint_set_stalled(ep_addr, true);
-                    OutResponse::Accepted
-                }
-                (Request::CLEAR_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
-                    let ep_addr = ((req.index as u8) & 0x8f).into();
-                    self.bus.endpoint_set_stalled(ep_addr, false);
+                (Request::SET_FEATURE | Request::CLEAR_FEATURE, Request::FEATURE_ENDPOINT_HALT) if req.length == 0 => {
+                    let Some((ep_addr, EndpointType::Bulk | EndpointType::Interrupt)) =
+                        self.endpoint_for_request(req.index)
+                    else {
+                        // Control pipes do not implement the optional halt feature, and isochronous
+                        // endpoints cannot halt.
+                        return OutResponse::Rejected;
+                    };
+                    self.bus
+                        .endpoint_set_stalled(ep_addr, req.request == Request::SET_FEATURE);
                     OutResponse::Accepted
                 }
                 _ => OutResponse::Rejected,
@@ -640,10 +679,15 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 }
             }
             (RequestType::Standard, Recipient::Endpoint) => match req.request {
-                Request::GET_STATUS => {
-                    let ep_addr: EndpointAddress = ((req.index as u8) & 0x8f).into();
+                Request::GET_STATUS if req.value == 0 && req.length == 2 => {
+                    let Some((ep_addr, ep_type)) = self.endpoint_for_request(req.index) else {
+                        return InResponse::Rejected;
+                    };
                     let mut status: u16 = 0x0000;
-                    if self.bus.endpoint_is_stalled(ep_addr) {
+                    // Control-pipe protocol stalls are not the optional endpoint halt feature.
+                    if matches!(ep_type, EndpointType::Bulk | EndpointType::Interrupt)
+                        && self.bus.endpoint_is_stalled(ep_addr)
+                    {
                         status |= 0x0001;
                     }
                     buf[..2].copy_from_slice(&status.to_le_bytes());
