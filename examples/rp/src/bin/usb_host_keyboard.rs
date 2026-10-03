@@ -6,7 +6,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
-use embassy_usb::host::class::hid::HidHost;
+use embassy_usb::class::hid::host::HidHost;
 use embassy_usb::host::{BusRoute, BusState};
 use panic_probe as _;
 

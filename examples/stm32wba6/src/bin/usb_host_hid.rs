@@ -9,7 +9,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::usb::HostDriver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb::host::class::hid::HidHost;
+use embassy_usb::class::hid::host::HidHost;
 use embassy_usb::host::{BusRoute, BusState};
 use panic_probe as _;
 

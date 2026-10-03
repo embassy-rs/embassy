@@ -19,7 +19,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use embassy_usb::host::class::vcp::cp210x::{Cp210xDevice, LineCoding, Parity, StopBits, id};
+//! use embassy_usb::class::vcp::host::cp210x::{Cp210xDevice, LineCoding, Parity, StopBits, id};
 //!
 //! if enum_info.device_desc.vendor_id != id::VID_SILABS {
 //!     continue;

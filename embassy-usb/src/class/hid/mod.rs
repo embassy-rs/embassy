@@ -1,4 +1,4 @@
-//! USB MIDI 1.0 class.
+//! Human Interface Device (HID) class.
 
 pub mod device;
 pub mod host;
