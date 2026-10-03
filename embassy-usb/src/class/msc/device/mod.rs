@@ -9,6 +9,12 @@ use core::mem::MaybeUninit;
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 
+use super::bot::{CSW_STATUS_FAILED, CSW_STATUS_PASSED, CSW_STATUS_PHASE_ERROR, Cbw, Csw, encode_csw, parse_cbw};
+use super::scsi::*;
+use super::{
+    BOT_REQ_GET_MAX_LUN, BOT_REQ_RESET, SenseData, SenseKey, USB_CLASS_MSC, USB_PROTOCOL_BULK_ONLY,
+    USB_SUBCLASS_SCSI_TRANSPARENT,
+};
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::InterfaceNumber;
@@ -16,49 +22,6 @@ use crate::{Builder, Handler};
 
 mod block_device;
 pub use block_device::*;
-
-/// This should be used as `device_class` when building a pure MSC device.
-pub const USB_CLASS_MSC: u8 = 0x08;
-
-const USB_SUBCLASS_SCSI_TRANSPARENT: u8 = 0x06;
-const USB_PROTOCOL_BULK_ONLY: u8 = 0x50;
-
-const BOT_REQ_RESET: u8 = 0xff;
-const BOT_REQ_GET_MAX_LUN: u8 = 0xfe;
-
-const CBW_SIGNATURE: u32 = 0x4342_5355;
-const CSW_SIGNATURE: u32 = 0x5342_5355;
-
-const CSW_STATUS_PASSED: u8 = 0x00;
-const CSW_STATUS_FAILED: u8 = 0x01;
-const CSW_STATUS_PHASE_ERROR: u8 = 0x02;
-
-const SCSI_TEST_UNIT_READY: u8 = 0x00;
-const SCSI_REQUEST_SENSE: u8 = 0x03;
-const SCSI_INQUIRY: u8 = 0x12;
-const SCSI_MODE_SENSE_6: u8 = 0x1a;
-const SCSI_START_STOP_UNIT: u8 = 0x1b;
-const SCSI_PREVENT_ALLOW_MEDIUM_REMOVAL: u8 = 0x1e;
-const SCSI_READ_FORMAT_CAPACITIES: u8 = 0x23;
-const SCSI_READ_CAPACITY_10: u8 = 0x25;
-const SCSI_READ_10: u8 = 0x28;
-const SCSI_WRITE_10: u8 = 0x2a;
-const SCSI_SYNCHRONIZE_CACHE_10: u8 = 0x35;
-const SCSI_MODE_SENSE_10: u8 = 0x5a;
-
-const SENSE_KEY_NO_SENSE: u8 = 0x00;
-const SENSE_KEY_MEDIUM_ERROR: u8 = 0x03;
-const SENSE_KEY_ILLEGAL_REQUEST: u8 = 0x05;
-const SENSE_KEY_DATA_PROTECT: u8 = 0x07;
-
-const ASC_INVALID_COMMAND_OPERATION_CODE: u8 = 0x20;
-const ASC_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE: u8 = 0x21;
-const ASC_INVALID_FIELD_IN_CDB: u8 = 0x24;
-const ASC_LOGICAL_UNIT_NOT_SUPPORTED: u8 = 0x25;
-const ASC_WRITE_PROTECTED: u8 = 0x27;
-const ASC_UNRECOVERED_READ_ERROR: u8 = 0x11;
-const ASC_WRITE_ERROR: u8 = 0x0c;
-const ASCQ_NONE: u8 = 0x00;
 
 const VPD_PAGE_SUPPORTED_PAGES: u8 = 0x00;
 const VPD_PAGE_UNIT_SERIAL_NUMBER: u8 = 0x80;
@@ -520,7 +483,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         let allocation_len = cbw.cb[4] as usize;
         let mut data = [0u8; 18];
         data[0] = 0x70;
-        data[2] = self.sense.key;
+        data[2] = self.sense.key as u8;
         data[7] = 10;
         data[12] = self.sense.asc;
         data[13] = self.sense.ascq;
@@ -988,24 +951,9 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         Ok(())
     }
 
-    fn set_sense(&mut self, key: u8, asc: u8, ascq: u8) {
+    fn set_sense(&mut self, key: SenseKey, asc: u8, ascq: u8) {
         self.sense = SenseData { key, asc, ascq };
     }
-}
-
-#[derive(Clone, Copy)]
-struct SenseData {
-    key: u8,
-    asc: u8,
-    ascq: u8,
-}
-
-impl SenseData {
-    const NO_SENSE: Self = Self {
-        key: SENSE_KEY_NO_SENSE,
-        asc: 0,
-        ascq: 0,
-    };
 }
 
 #[derive(Clone, Copy)]
@@ -1037,136 +985,9 @@ impl CommandResult {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-struct Cbw {
-    tag: u32,
-    data_transfer_length: u32,
-    flags: u8,
-    lun: u8,
-    cb_length: u8,
-    cb: [u8; 16],
-}
-
-impl Cbw {
-    fn direction_in(&self) -> bool {
-        self.flags & 0x80 != 0
-    }
-}
-
-#[derive(Clone, Copy)]
-struct Csw {
-    tag: u32,
-    residue: u32,
-    status: u8,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum ParseCbwError {
-    InvalidLength,
-    InvalidSignature,
-    InvalidCbLength,
-}
-
-fn parse_cbw(raw: &[u8]) -> Result<Cbw, ParseCbwError> {
-    if raw.len() != 31 {
-        return Err(ParseCbwError::InvalidLength);
-    }
-
-    let signature = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
-    if signature != CBW_SIGNATURE {
-        return Err(ParseCbwError::InvalidSignature);
-    }
-
-    let cb_length = raw[14] & 0x1f;
-    if cb_length == 0 || cb_length > 16 {
-        return Err(ParseCbwError::InvalidCbLength);
-    }
-
-    let mut cb = [0u8; 16];
-    cb.copy_from_slice(&raw[15..31]);
-
-    Ok(Cbw {
-        tag: u32::from_le_bytes([raw[4], raw[5], raw[6], raw[7]]),
-        data_transfer_length: u32::from_le_bytes([raw[8], raw[9], raw[10], raw[11]]),
-        flags: raw[12],
-        lun: raw[13] & 0x0f,
-        cb_length,
-        cb,
-    })
-}
-
-fn encode_csw(csw: Csw) -> [u8; 13] {
-    let mut out = [0u8; 13];
-    out[0..4].copy_from_slice(&CSW_SIGNATURE.to_le_bytes());
-    out[4..8].copy_from_slice(&csw.tag.to_le_bytes());
-    out[8..12].copy_from_slice(&csw.residue.to_le_bytes());
-    out[12] = csw.status;
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_valid_cbw() {
-        let mut raw = [0u8; 31];
-        raw[0..4].copy_from_slice(&CBW_SIGNATURE.to_le_bytes());
-        raw[4..8].copy_from_slice(&0x1122_3344u32.to_le_bytes());
-        raw[8..12].copy_from_slice(&0x5566_7788u32.to_le_bytes());
-        raw[12] = 0x80;
-        raw[13] = 0x00;
-        raw[14] = 10;
-        raw[15] = SCSI_INQUIRY;
-
-        let cbw = parse_cbw(&raw).unwrap();
-        core::assert_eq!(cbw.tag, 0x1122_3344);
-        core::assert_eq!(cbw.data_transfer_length, 0x5566_7788);
-        core::assert!(cbw.direction_in());
-        core::assert_eq!(cbw.cb_length, 10);
-        core::assert_eq!(cbw.cb[0], SCSI_INQUIRY);
-    }
-
-    #[test]
-    fn rejects_bad_signature() {
-        let mut raw = [0u8; 31];
-        raw[14] = 6;
-        core::assert_eq!(parse_cbw(&raw), Err(ParseCbwError::InvalidSignature));
-    }
-
-    #[test]
-    fn rejects_bad_cb_length() {
-        let mut raw = [0u8; 31];
-        raw[0..4].copy_from_slice(&CBW_SIGNATURE.to_le_bytes());
-        raw[14] = 0;
-        core::assert_eq!(parse_cbw(&raw), Err(ParseCbwError::InvalidCbLength));
-    }
-
-    #[test]
-    fn masks_lun_nibble() {
-        let mut raw = [0u8; 31];
-        raw[0..4].copy_from_slice(&CBW_SIGNATURE.to_le_bytes());
-        raw[13] = 0xF2;
-        raw[14] = 6;
-        let cbw = parse_cbw(&raw).unwrap();
-        core::assert_eq!(cbw.lun, 2);
-    }
-
-    #[test]
-    fn encodes_csw() {
-        let raw = encode_csw(Csw {
-            tag: 0xAABB_CCDD,
-            residue: 0x0102_0304,
-            status: CSW_STATUS_FAILED,
-        });
-
-        core::assert_eq!(&raw[0..4], &CSW_SIGNATURE.to_le_bytes());
-        core::assert_eq!(&raw[4..8], &0xAABB_CCDDu32.to_le_bytes());
-        core::assert_eq!(&raw[8..12], &0x0102_0304u32.to_le_bytes());
-        core::assert_eq!(raw[12], CSW_STATUS_FAILED);
-    }
 
     #[test]
     fn pads_ascii() {
