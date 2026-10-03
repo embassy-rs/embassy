@@ -349,28 +349,24 @@ pub struct WritableDmaRingBuffer<'a, W: Word> {
 }
 
 impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
-    /// Construct a ringbuffer filled with the given buffer data.
+    /// Construct an empty ring buffer.
     pub fn new(dma_buf: &'a mut [W]) -> Self {
         Self {
             dma_buf,
             read_index: Default::default(),
             write_index: DmaIndex {
-                complete_count: 1,
+                complete_count: 0,
                 pos: 0,
             },
         }
     }
 
-    /// Reset the ring buffer after an overrun. Anchors read_index to the current DMA position
-    /// and places write_index one full buffer ahead, giving the CPU maximum lead time before
-    /// the next overrun can occur. No writable space is available immediately; the DMA must
-    /// advance before sync_len() returns non-zero.
+    /// Reset the ring buffer to its initial state.
     pub fn reset(&mut self, dma: &mut impl DmaCtrl) {
         _ = dma.reset_complete_count();
         self.read_index.reset();
         self.read_index.dma_sync(self.cap(), dma);
         self.write_index = self.read_index;
-        self.write_index.advance(self.cap(), self.cap());
     }
 
     /// Return the current write position (index into the DMA buffer where the next CPU write will go).
