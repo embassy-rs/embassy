@@ -14,9 +14,11 @@ use super::types::{Clock, ClockError, Clocks, PoweredClock};
 use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::Ckmode;
+#[cfg(not(feature = "sosc-as-gpio"))]
+use crate::pac::scg::{Erefs, Range, SosccsrLk, Soscerr};
 use crate::pac::scg::{
-    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Range, Scs, SirccsrLk, Sircerr, Sircvld,
-    SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+    Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Scs, SirccsrLk, Sircerr, Sircvld, Source, SpllLock,
+    SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
 use crate::pac::spc::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
@@ -1534,7 +1536,10 @@ impl ClockOperator<'_> {
             CoreSleep::DeepSleep => {
                 // We can only support deep sleep with a custom executor which properly
                 // handles going to sleep and returning
-                #[cfg(all(not(feature = "executor-platform"), feature = "defmt"))]
+                #[cfg(all(
+                    not(any(feature = "executor-platform", feature = "external-deep-sleep-executor")),
+                    feature = "defmt"
+                ))]
                 defmt::warn!("deep sleep enabled without custom executor");
 
                 // For now, just enable light sleep. The executor will set deep sleep when

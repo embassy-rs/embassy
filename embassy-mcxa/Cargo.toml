@@ -156,6 +156,10 @@ trace = []
 # If this feature is enabled, users should NOT enable `embassy-executor/platform-cortex-m` or any other executor platform.
 executor-platform = []
 
+# Mark that an executor outside embassy-mcxa performs the required deep-sleep
+# entry and wake recovery. This does not install an executor platform.
+external-deep-sleep-executor = []
+
 # This feature is not done yet, don't use it!
 unstable-osc32k = []
 

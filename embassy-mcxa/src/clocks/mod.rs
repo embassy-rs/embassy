@@ -54,7 +54,7 @@ mod types;
 pub use config::VddLevel;
 pub(crate) use gate::default_register_value;
 pub use gate::{Gate, assert_reset, disable, enable, enable_and_reset, is_reset_released, pulse_reset, release_reset};
-pub use sleep::deep_sleep_if_possible;
+pub use sleep::{deep_sleep_if_possible, go_to_deep_power_down, go_to_deep_sleep, go_to_power_down, go_to_sleep};
 pub use types::{Clock, ClockError, Clocks, PoweredClock, WakeGuard};
 
 //
