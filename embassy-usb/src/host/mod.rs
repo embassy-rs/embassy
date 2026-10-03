@@ -5,20 +5,6 @@
 
 #![allow(async_fn_in_trait)]
 
-/// Get max value in const context.
-macro_rules! const_max {
-    ($first:expr $(, $next:expr)* $(,)?) => {{
-        let mut max = $first;
-        $(
-            if max < $next {
-                max = $next;
-            }
-        )*
-        max
-    }};
-}
-
-pub mod class;
 pub mod control;
 pub mod descriptor;
 pub mod handler;

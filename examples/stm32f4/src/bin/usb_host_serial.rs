@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::HostDriver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb::host::class::cdc_acm::{CdcAcmHost, LineCoding};
+use embassy_usb::class::cdc_acm::host::{CdcAcmHost, LineCoding};
 use embassy_usb::host::{BusRoute, BusState};
 use panic_probe as _;
 

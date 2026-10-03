@@ -836,7 +836,7 @@ impl From<u16> for TerminalType {
     fn from(terminal_type: u16) -> TerminalType {
         use TerminalType::*;
 
-        use crate::host::class::uac::codes::terminal_type::*;
+        use crate::class::uac::host::codes::terminal_type::*;
 
         match terminal_type {
             usb::UNDEFINED => UsbUndefined,
@@ -891,7 +891,7 @@ impl From<TerminalType> for u16 {
     fn from(terminal_type: TerminalType) -> u16 {
         use TerminalType::*;
 
-        use crate::host::class::uac::codes::terminal_type::*;
+        use crate::class::uac::host::codes::terminal_type::*;
 
         match terminal_type {
             UsbUndefined => usb::UNDEFINED,

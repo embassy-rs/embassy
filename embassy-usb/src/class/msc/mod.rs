@@ -1,4 +1,4 @@
-//! USB MIDI 1.0 class.
+//! USB Mass Storage Class (MSC).
 
 pub mod device;
 pub mod host;

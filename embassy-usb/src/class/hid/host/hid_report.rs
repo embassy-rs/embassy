@@ -6,8 +6,8 @@
 //! # Usage
 //!
 //! ```ignore
-//! use embassy_usb::host::class::hid::{HidHost, PROTOCOL_BOOT};
-//! use embassy_usb::host::class::hid_report::{ReportDescriptor, usage_page, usage};
+//! use embassy_usb::class::hid::host::{HidHost, PROTOCOL_BOOT};
+//! use embassy_usb::class::hid::host::hid_report::{ReportDescriptor, usage_page, usage};
 //!
 //! // After enumeration, fetch the HID report descriptor:
 //! let mut desc_buf = [0u8; 256];

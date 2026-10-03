@@ -33,7 +33,7 @@
 //! Rumble while the A button is held:
 //!
 //! ```ignore
-//! use embassy_usb::host::class::gip::{GipHost, XboxOneSGamepad, GipEvent, RumbleCommand};
+//! use embassy_usb::class::gip::host::{GipHost, XboxOneSGamepad, GipEvent, RumbleCommand};
 //!
 //! let mut gip = GipHost::<_, XboxOneSGamepad>::try_register(
 //!     &bus,

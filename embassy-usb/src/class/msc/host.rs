@@ -20,7 +20,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use embassy_usb::host::class::msc::MscDevice;
+//! use embassy_usb::class::msc::host::MscDevice;
 //!
 //! let device = MscDevice::new(&bus, &enum_info, &config_buf[..config_len]).await?;
 //! let mut lun = device.lun(0)?;
