@@ -769,8 +769,8 @@ impl<'d, W: word::Word> Sai<'d, W> {
 
     /// Write data to the SAI ringbuffer.
     ///
-    /// The first write starts the DMA after filling the ring buffer with the provided data.
-    /// This ensures that the DMA does not run before data is available in the ring buffer.
+    /// This function does not start ring buffer automatically,
+    /// it must be started manually using [`start`](Self::start).
     ///
     /// This appends the data to the buffer and returns immediately. The
     /// data will be transmitted in the background.
@@ -779,12 +779,7 @@ impl<'d, W: word::Word> Sai<'d, W> {
     pub async fn write(&mut self, data: &[W]) -> Result<(), Error> {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => {
-                if buffer.is_running() {
-                    buffer.write_exact(data).await?;
-                } else {
-                    buffer.write_immediate(data)?;
-                    buffer.start();
-                }
+                buffer.write_exact(data).await?;
                 Ok(())
             }
             _ => Err(Error::NotATransmitter),
