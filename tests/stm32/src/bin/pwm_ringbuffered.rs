@@ -1,4 +1,4 @@
-// required-features: pwm, input
+// required-features: pwm
 #![no_std]
 #![no_main]
 #[path = "../common.rs"]
@@ -43,10 +43,10 @@ async fn main(_spawner: Spawner) {
     let tim = peri!(p, TIM);
     let tim_dma = peri!(p, TIM_DMA);
     let pwm_pin = peri!(p, TIM_PWM_PIN);
-    let input_pin = peri!(p, INPUT_PIN);
+    let pwm_pin_in = peri!(p, TIM_PWM_PIN_IN);
     let irq = irqs!(TIM);
 
-    let input = Input::new(input_pin, Pull::None);
+    let input = Input::new(pwm_pin_in, Pull::None);
 
     let ch1 = PwmPin::new(pwm_pin, OutputType::PushPull);
     let mut pwm = SimplePwm::new(
