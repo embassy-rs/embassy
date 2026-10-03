@@ -616,15 +616,6 @@ impl<'d, W: Word> I2S<'d, W> {
         self.tx_ring_buffer.as_ref().map(|rb| rb.write_pos())
     }
 
-    /// Write data directly to the raw I2S ringbuffer.
-    /// This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, data: &[W]) -> Result<(usize, usize), Error> {
-        match &mut self.tx_ring_buffer {
-            Some(ring) => Ok(ring.write_immediate(data)?),
-            _ => Err(Error::NotATransmitter),
-        }
-    }
-
     fn regs_tx(&self) -> Regs {
         self.spi.info.regs
     }

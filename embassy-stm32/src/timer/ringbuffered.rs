@@ -55,11 +55,6 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
         self.ring_buf.clear()
     }
 
-    /// Write elements directly to the raw buffer. This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ring_buf.write_immediate(buf)
-    }
-
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
     pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {

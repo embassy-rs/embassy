@@ -349,28 +349,24 @@ pub struct WritableDmaRingBuffer<'a, W: Word> {
 }
 
 impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
-    /// Construct a ringbuffer filled with the given buffer data.
+    /// Construct an empty ring buffer.
     pub fn new(dma_buf: &'a mut [W]) -> Self {
         Self {
             dma_buf,
             read_index: Default::default(),
             write_index: DmaIndex {
-                complete_count: 1,
+                complete_count: 0,
                 pos: 0,
             },
         }
     }
 
-    /// Reset the ring buffer after an overrun. Anchors read_index to the current DMA position
-    /// and places write_index one full buffer ahead, giving the CPU maximum lead time before
-    /// the next overrun can occur. No writable space is available immediately; the DMA must
-    /// advance before sync_len() returns non-zero.
+    /// Reset the ring buffer to its initial state.
     pub fn reset(&mut self, dma: &mut impl DmaCtrl) {
         _ = dma.reset_complete_count();
         self.read_index.reset();
         self.read_index.dma_sync(self.cap(), dma);
         self.write_index = self.read_index;
-        self.write_index.advance(self.cap(), self.cap());
     }
 
     /// Return the current write position (index into the DMA buffer where the next CPU write will go).
@@ -412,28 +408,6 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         self.write_raw(dma, buf).inspect_err(|_e| {
             self.reset(dma);
         })
-    }
-
-    /// Write elements directly to the buffer.
-    ///
-    /// Subsequent writes will overwrite the content of the buffer, so it is not useful to call this more than once.
-    /// Data is aligned towards the end of the buffer.
-    ///
-    /// In case of success, returns the written length, and the empty space in front of the written block.
-    /// Fails if the data to write exceeds the buffer capacity.
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        fence(Ordering::Release);
-
-        if buf.len() > self.cap() {
-            return Err(Error::Overrun);
-        }
-
-        let start = self.cap() - buf.len();
-        for (i, data) in buf.iter().enumerate() {
-            self.write_buf(start + i, *data)
-        }
-        let written = buf.len().min(self.cap());
-        Ok((written, self.cap() - written))
     }
 
     /// Wait for any ring buffer write error.
