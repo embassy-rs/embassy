@@ -76,7 +76,7 @@ fn process_block(input: &[u8; 16], output: &mut [u8; 16], last: bool) {
     read_digest(4, output);
 }
 
-fn _process_blocks(data: &[u8], output: &mut [u8]) {
+fn process_blocks(data: &[u8], output: &mut [u8]) {
     let nr_blocks = data.len() / 16;
     let mut offset = 0;
 
@@ -427,7 +427,7 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
         }
 
         pac::HASHCRYPT.cryptcfg().modify(|w| {
-            w.set_aesdecrypt(Aesdecrypt::Encrypt);
+            w.set_aesdecrypt(Aesdecrypt::Decrypt);
             w.set_streamlast(false);
         });
 
@@ -436,7 +436,7 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
         });
 
         feed_key(key);
-        process_blocks_padded(data, output);
+        process_blocks(data, output);
 
         let len = data.len();
         let n = output[len - 1] as usize;
