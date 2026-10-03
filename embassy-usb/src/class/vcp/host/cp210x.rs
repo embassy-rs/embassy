@@ -19,7 +19,8 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use embassy_usb::class::vcp::host::cp210x::{Cp210xDevice, LineCoding, ParityType, StopBits, id};
+//! use embassy_usb::class::cdc_acm::{LineCoding, ParityType, StopBits};
+//! use embassy_usb::class::vcp::host::cp210x::{Cp210xDevice, id};
 //!
 //! if enum_info.device_desc.vendor_id != id::VID_SILABS {
 //!     continue;
@@ -43,7 +44,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_usb_driver::host::{PipeError, SplitInfo, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
-pub use crate::class::cdc_acm::{LineCoding, ParityType, StopBits};
+use crate::class::cdc_acm::{LineCoding, ParityType, StopBits};
 use crate::host::control::SetupPacket;
 use crate::host::descriptor::ConfigurationDescriptorChain;
 use crate::host::handler::EnumerationInfo;

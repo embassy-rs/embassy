@@ -195,7 +195,7 @@ pub mod control_selector {
         pub const BASS_CONTROL: u16 = 0x03 << 8;
         pub const MID_CONTROL: u16 = 0x04 << 8;
         pub const TREBLE_CONTROL: u16 = 0x05 << 8;
-        pub const GRAPHIC_EQUALIZER_CONTROL: u8 = 0x06;
+        pub const GRAPHIC_EQUALIZER_CONTROL: u16 = 0x06 << 8;
         pub const AUTOMATIC_GAIN_CONTROL: u16 = 0x07 << 8;
         pub const DELAY_CONTROL: u16 = 0x08 << 8;
         pub const BASS_BOOST_CONTROL: u16 = 0x09 << 8;

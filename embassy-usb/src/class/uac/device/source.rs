@@ -3,10 +3,10 @@ use embassy_sync::pubsub::{PubSubChannel, Publisher, Subscriber};
 use embassy_usb_driver::{EndpointAddress, EndpointIn, EndpointOut};
 use heapless::Vec;
 
-use super::class_codes::*;
 use super::{ChannelConfig, SampleWidth};
 use crate::builder::InterfaceAltBuilder;
 use crate::class::uac::terminal_type::TerminalType;
+use crate::class::uac::uac1_codes::*;
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointType};
