@@ -9,7 +9,6 @@ pub mod speaker;
 ///Audio `source` module
 pub mod source;
 
-pub use super::terminal_type;
 use super::uac1_codes as class_codes;
 
 /// The maximum supported audio channel index (corresponds to `Top`).
