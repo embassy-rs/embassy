@@ -5,7 +5,7 @@
 mod common;
 
 use common::*;
-use defmt::{assert, info};
+use defmt::assert;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
