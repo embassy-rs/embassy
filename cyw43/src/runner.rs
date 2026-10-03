@@ -18,7 +18,7 @@ use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
-use crate::util::try_until;
+use crate::util::{WriteBuffer, packetbuf_storage, try_until};
 use crate::{Chip, ChipId, Core, WithContext, events};
 
 #[cfg(feature = "firmware-logs")]
@@ -51,8 +51,7 @@ pub(crate) trait SealedBus {
 
     async fn init<'a>(&mut self, bluetooth: bool) -> crate::Result<()>;
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
-    /// The first 4 bytes of this buffer are reserved for the cmd word
-    async fn wlan_write(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
+    async fn wlan_write(&mut self, buf: &mut WriteBuffer) -> crate::Result<()>;
     async fn bp_read(&mut self, addr: u32, data: &mut [u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
     async fn bp_write(&mut self, addr: u32, data: &[u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
     async fn bp_read8(&mut self, addr: u32) -> u8;
@@ -110,11 +109,20 @@ async fn wlan_read(
     bus.wlan_read(&mut buf[start..][..len]).await.ctx("wlan_read failed")
 }
 
-/// The first 4 bytes of this buffer are reserved for the cmd word
-async fn wlan_write(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>, len: usize) -> crate::Result<()> {
+async fn wlan_write(bus: &mut impl Bus, buf: &mut WriteBuffer) -> crate::Result<()> {
     wake_bus(bus).await?;
-    bus.wlan_write(&mut buf[..4 + len]).await.ctx("wlan_write failed")
+    bus.wlan_write(buf).await.ctx("wlan_write failed")
 }
+
+/// Headroom reserved in front of a frame received into a `PacketBuf`, so its
+/// headers can be turned into headroom without copying.
+///
+/// `SdpcmHeader::header_length` places the payload after itself, and the
+/// firmware sometimes adds the 2 bytes of data padding there, so the headers
+/// can be larger than the plain SDPCM + BDC header size
+/// ([`SdpcmHeader::SIZE`] + [`BdcHeader::SIZE`]). The field is a `u8`, so
+/// this covers the worst case.
+const RX_HEADER_SPACE: usize = 0xff + BdcHeader::SIZE;
 
 /// Driver communicating with the WiFi chip.
 pub struct Runner<'a, BUS: Bus, CHIP: Chip> {
@@ -810,10 +818,8 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         self.apply_multicast_filter(&filter, &mut buf).await;
                         self.mcast_gen = filter.generation;
                     }
-                    Either4::Second(packet) => {
+                    Either4::Second(mut packet) => {
                         trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
-
-                        let buf8 = &mut buf[4..];
 
                         // There MUST be 2 bytes of padding between the SDPCM and BDC headers.
                         // And ONLY for data packets!
@@ -824,6 +830,13 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         // and adds it to the header size her https://github.com/Infineon/wifi-host-driver/blob/c04fcbb6b0d049304f376cf483fd7b1b570c8cd5/WiFi_Host_Driver/src/whd_sdpcm.c#L597
                         // ¯\_(ツ)_/¯
                         const PADDING_SIZE: usize = 2;
+
+                        // Space needed in front of the frame: the SDPCM header, the padding,
+                        // the BDC header, and the 4-byte cmd word the bus prepends. The cmd
+                        // word is the start of the bus transfer, so it must stay 4-byte
+                        // aligned within the buffer.
+                        const HEADER_SPACE: usize = 4 + SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE;
+
                         let total_len = SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE + packet.len();
 
                         let seq = self.sdpcm_seq;
@@ -850,17 +863,37 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         trace!("tx {:?}", sdpcm_header);
                         trace!("    {:?}", bdc_header);
 
+                        // Make room for the headers in front of the frame. This may move
+                        // the frame within the buffer, but never to another buffer. The
+                        // headroom is bumped up to the next value that keeps the cmd word
+                        // 4-byte aligned.
+                        let headroom = packet.headroom();
+                        let target = if headroom >= HEADER_SPACE {
+                            HEADER_SPACE + (headroom - HEADER_SPACE).next_multiple_of(4)
+                        } else {
+                            HEADER_SPACE
+                        };
+                        if !packet.ensure_headroom(target) {
+                            warn!("tx packet doesn't fit with header space, dropping.");
+                            continue;
+                        }
+
+                        // Lay out the frame as [cmd word][SDPCM][padding][BDC][ethernet],
+                        // writing only the headers; the ethernet frame is already in place.
+                        let headroom = packet.headroom();
+                        let storage = packetbuf_storage(&mut packet);
+                        let write_buffer = WriteBuffer::new(&mut storage[headroom - HEADER_SPACE..]);
+                        let buf8 = write_buffer.buf();
+
                         buf8[0..SdpcmHeader::SIZE].copy_from_slice(sdpcm_header.to_bytes());
                         buf8[SdpcmHeader::SIZE + PADDING_SIZE..][..BdcHeader::SIZE]
                             .copy_from_slice(bdc_header.to_bytes());
-                        buf8[SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE..][..packet.len()]
-                            .copy_from_slice(&packet);
 
                         let total_len = (total_len + 3) & !3; // round up to 4byte
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-                        let _ = wlan_write(&mut self.bus, &mut buf, total_len).await;
+                        let _ = wlan_write(&mut self.bus, &mut write_buffer[..total_len]).await;
                         drop(packet);
                         self.check_status(&mut buf).await;
                     }
@@ -991,19 +1024,42 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     let status = self.bus.read32(FUNC_BUS, SPI_STATUS_REGISTER).await;
                     trace!("check status{}", FormatStatus(status));
 
-                    if status & STATUS_F2_PKT_AVAILABLE != 0 {
-                        let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        if wlan_read(&mut self.bus, buf, true, 0, len as usize).await.is_err() {
-                            debug!("spi wlan_read failed");
-                            break;
-                        }
-                        trace!("rx {:02x}", Bytes(&buf[..(len as usize).min(48)]));
-                        self.rx(&mut buf[..len as usize]);
-                    } else {
+                    if status & STATUS_F2_PKT_AVAILABLE == 0 {
                         break;
+                    }
+
+                    let len = ((status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT) as usize;
+                    // Receive the whole frame into a `PacketBuf` if the pool has one
+                    // that fits it, so a data frame can be handed to the stack
+                    // without copying. The frame type is only known after reading,
+                    // hence the fallback to the scratch buffer, in which data
+                    // frames are discarded.
+                    match PacketBuf::try_new() {
+                        Some(mut pkt) if len <= pkt.capacity() - RX_HEADER_SPACE => {
+                            pkt.reserve(RX_HEADER_SPACE);
+                            if wlan_read(&mut self.bus, packetbuf_storage(&mut pkt), true, RX_HEADER_SPACE, len)
+                                .await
+                                .is_err()
+                            {
+                                debug!("spi wlan_read failed");
+                                break;
+                            }
+                            self.rx_packetbuf(pkt, len);
+                        }
+                        pkt => {
+                            drop(pkt);
+                            if wlan_read(&mut self.bus, buf, true, 0, len).await.is_err() {
+                                debug!("spi wlan_read failed");
+                                break;
+                            }
+                            trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
+                            self.rx(&mut buf[..len]);
+                        }
                     }
                 }
                 BusType::Sdio => {
+                    // The first 4 bytes of the frame are its SDPCM `len`/`len_inv`
+                    // fields, read first ("hwtag") to learn the frame length.
                     if wlan_read(&mut self.bus, buf, true, 0, INITIAL_READ).await.is_err() {
                         debug!("failed to read sdio hwtag");
                         break;
@@ -1024,36 +1080,128 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                     trace!("pkt ready...");
                     let len = len as usize;
-                    if len > INITIAL_READ {
-                        if wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
-                            .await
-                            .is_err()
-                        {
-                            debug!("failed to read sdio payload, len={}", len);
-                            break;
-                        }
-                    } else {
+                    if len <= INITIAL_READ {
                         // TODO: investigate this condition
                         trace!("no extra space required");
                         continue;
                     }
 
-                    if len == SdpcmHeader::SIZE {
-                        let Some((sdpcm_header, _)) = SdpcmHeader::parse(&mut buf[..len]) else {
-                            debug!("failed to parse sdpcm header");
-                            break;
-                        };
-
-                        self.update_credit(sdpcm_header);
-                    } else if len > SdpcmHeader::SIZE {
-                        trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
-                        self.rx(&mut buf[..len]);
+                    // As in the SPI path: receive the rest of the frame into a
+                    // `PacketBuf` if one fits it, else into the scratch buffer.
+                    match PacketBuf::try_new() {
+                        Some(mut pkt) if len <= pkt.capacity() - RX_HEADER_SPACE => {
+                            pkt.reserve(RX_HEADER_SPACE);
+                            packetbuf_storage(&mut pkt)[RX_HEADER_SPACE..][..INITIAL_READ]
+                                .copy_from_slice(&buf[..INITIAL_READ]);
+                            if wlan_read(
+                                &mut self.bus,
+                                packetbuf_storage(&mut pkt),
+                                false,
+                                RX_HEADER_SPACE + INITIAL_READ,
+                                len - INITIAL_READ,
+                            )
+                            .await
+                            .is_err()
+                            {
+                                debug!("failed to read sdio payload, len={}", len);
+                                break;
+                            }
+                            self.rx_packetbuf(pkt, len);
+                        }
+                        pkt => {
+                            drop(pkt);
+                            if wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
+                                .await
+                                .is_err()
+                            {
+                                debug!("failed to read sdio payload, len={}", len);
+                                break;
+                            }
+                            trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
+                            self.rx(&mut buf[..len]);
+                        }
                     }
                 }
             }
         }
     }
 
+    /// Handle a frame received into a `PacketBuf` (zero-copy path).
+    ///
+    /// The frame was read with [`RX_HEADER_SPACE`] bytes of headroom, so
+    /// if it turns out to be a data packet, the SDPCM/BDC headers can be
+    /// turned into headroom and the ethernet frame is handed straight to the
+    /// network stack. Other frame types are handled and `pkt` is returned to
+    /// the pool.
+    fn rx_packetbuf(&mut self, mut pkt: PacketBuf, len: usize) {
+        pkt.set_len(len);
+        trace!("rx {:02x}", Bytes(&pkt[..len.min(48)]));
+
+        let channel = {
+            let Some((sdpcm_header, _)) = SdpcmHeader::parse(&mut pkt[..]) else {
+                return;
+            };
+            self.update_credit(sdpcm_header);
+            sdpcm_header.channel_and_flags & 0x0f
+        };
+
+        if len == SdpcmHeader::SIZE {
+            // Header-only packet: carries just a credit update, handled above.
+            return;
+        }
+
+        match channel {
+            CHANNEL_TYPE_DATA => {
+                let (hdr_len, packet_len) = {
+                    let Some((_, payload)) = SdpcmHeader::parse(&mut pkt[..]) else {
+                        return;
+                    };
+                    let Some((_bdc_header, packet)) = BdcHeader::parse(payload) else {
+                        warn!("BDC data, incomplete header");
+                        return;
+                    };
+                    trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
+                    (len - packet.len(), packet.len())
+                };
+
+                if hdr_len > pkt.headroom() {
+                    // Can't happen with [`RX_HEADER_SPACE`] of headroom: the
+                    // SDPCM `header_length` field is a `u8`. Drop the frame.
+                    warn!("BDC data header too large: {}", hdr_len);
+                    return;
+                }
+
+                // The ethernet frame is already in `pkt`, right after the headers.
+                // Turn the headers into headroom and trim the padding: no copy.
+                pkt.pull_front(hdr_len);
+                pkt.set_len(packet_len);
+
+                if self.ch.try_rx(pkt).is_err() {
+                    warn!("failed to push rxd packet to the channel.");
+                }
+            }
+            CHANNEL_TYPE_CONTROL => {
+                let Some((_, payload)) = SdpcmHeader::parse(&mut pkt[..]) else {
+                    return;
+                };
+                self.handle_control(payload);
+            }
+            CHANNEL_TYPE_EVENT => {
+                let Some((_, payload)) = SdpcmHeader::parse(&mut pkt[..]) else {
+                    return;
+                };
+                self.handle_event(payload);
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle a frame received into the scratch buffer.
+    ///
+    /// Only control and event frames are of interest here: data frames were
+    /// received into the scratch buffer because the packet pool had no free
+    /// `PacketBuf` (or the frame didn't fit), so the ethernet frame is
+    /// discarded rather than copied.
     fn rx(&mut self, packet: &mut [u8]) {
         let Some((sdpcm_header, payload)) = SdpcmHeader::parse(packet) else {
             return;
@@ -1061,208 +1209,206 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
         self.update_credit(sdpcm_header);
 
+        if payload.is_empty() {
+            // Header-only packet: carries just a credit update, handled above.
+            return;
+        }
+
         let channel = sdpcm_header.channel_and_flags & 0x0f;
 
         match channel {
-            CHANNEL_TYPE_CONTROL => {
-                let Some((cdc_header, response)) = CdcHeader::parse(payload) else {
-                    return;
-                };
-                trace!("    {:?}", cdc_header);
-
-                if cdc_header.id == self.ioctl_id {
-                    if cdc_header.status != 0 {
-                        // TODO: propagate error instead
-                        warn!("IOCTL error {}", cdc_header.status as i32);
-                    }
-
-                    if self.inline_ioctl_pending {
-                        self.inline_ioctl_pending = false;
-                    } else {
-                        self.ioctl_state.ioctl_done(response);
-                    }
-                }
-            }
-            CHANNEL_TYPE_EVENT => {
-                let Some((_, bdc_packet)) = BdcHeader::parse(payload) else {
-                    warn!("BDC event, incomplete header");
-                    return;
-                };
-
-                let Some((event_packet, evt_data)) = EventPacket::parse(bdc_packet) else {
-                    warn!("BDC event, incomplete data");
-                    return;
-                };
-
-                const ETH_P_LINK_CTL: u16 = 0x886c; // HPNA, wlan link local tunnel, according to linux if_ether.h
-                if event_packet.eth.ether_type != ETH_P_LINK_CTL {
-                    warn!(
-                        "unexpected ethernet type 0x{:04x}, expected Broadcom ether type 0x{:04x}",
-                        event_packet.eth.ether_type, ETH_P_LINK_CTL
-                    );
-                    return;
-                }
-                const BROADCOM_OUI: &[u8] = &[0x00, 0x10, 0x18];
-                if event_packet.hdr.oui != BROADCOM_OUI {
-                    warn!(
-                        "unexpected ethernet OUI {:02x}, expected Broadcom OUI {:02x}",
-                        Bytes(&event_packet.hdr.oui),
-                        Bytes(BROADCOM_OUI)
-                    );
-                    return;
-                }
-                const BCMILCP_SUBTYPE_VENDOR_LONG: u16 = 32769;
-                if event_packet.hdr.subtype != BCMILCP_SUBTYPE_VENDOR_LONG {
-                    warn!("unexpected subtype {}", event_packet.hdr.subtype);
-                    return;
-                }
-
-                const BCMILCP_BCM_SUBTYPE_EVENT: u16 = 1;
-                if event_packet.hdr.user_subtype != BCMILCP_BCM_SUBTYPE_EVENT {
-                    warn!("unexpected user_subtype {}", event_packet.hdr.subtype);
-                    return;
-                }
-
-                let event_type = Event::from(event_packet.msg.event_type as u8);
-                let status = EStatus::from(event_packet.msg.status as u8);
-                debug!(
-                    "=== EVENT {:?}: {:?} {:02x}",
-                    event_type,
-                    event_packet.msg,
-                    Bytes(evt_data)
-                );
-
-                let update_link_status = match (
-                    event_type,
-                    status,
-                    event_packet.msg.flags,
-                    event_packet.msg.reason,
-                    event_packet.msg.auth_type,
-                ) {
-                    // Events indicating that the link is down
-                    // Event LINK with flag 0 indicates link down. reason = 1: loss of signal (e.g. out of range), reason = 2: controlled network shutdown
-                    // Event AUTH with status FAIL, reason 16, and auth_type 3 is specific for WPA3 networks
-                    // Event DEAUTH_IND is an AP-initiated deauth (e.g. AP reset); any status/reason means the link is down
-                    // Event DISASSOC_IND is an AP-initiated disassoc (e.g. idle-station inactivity timeout); any status/reason means the link is down
-                    (Event::LINK, EStatus::SUCCESS, 0, ..)
-                    | (Event::DEAUTH, EStatus::SUCCESS, ..)
-                    | (Event::DEAUTH_IND, ..)
-                    | (Event::DISASSOC_IND, ..)
-                    | (Event::AUTH, EStatus::FAIL, _, 16, 3) => {
-                        self.auth_ok = false;
-                        self.join_ok = false;
-                        self.key_exchange_ok = false;
-                        true
-                    }
-                    // Update auth flag. Ignore unsolicited events.
-                    // When changing passwords on a WPA3 AP which we are already connected to, or we roam to, PSK_SUP events indicating
-                    // success are still sent. Only the AUTH events indicate failure and this flag helps cover that scenario
-                    (Event::AUTH, status, ..) if status != EStatus::UNSOLICITED => {
-                        self.auth_ok = status == EStatus::SUCCESS;
-                        debug!("auth_ok flag: {}", self.auth_ok as u8);
-                        false
-                    }
-                    // Successfully joined the network. Open or WPA3 networks are now fully connected - WPA1/2 networks additionally require a successful key exchange.
-                    (Event::JOIN, EStatus::SUCCESS, ..) => {
-                        self.join_ok = true;
-                        true
-                    }
-
-                    // Key exchange events (PSK_SUP) for secure networks
-                    // The status codes for PSK_SUP events seem to have different meanings from other event types
-
-                    // Successful key exchange, indicated by a PSK_SUP event with status 6 "UNSOLICITED"
-                    // Disregard if auth_ok is false, which can happen in WPA3 networks
-                    (Event::PSK_SUP, EStatus::UNSOLICITED, 0, 0, _) => {
-                        if self.auth_ok {
-                            self.key_exchange_ok = true;
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    // Ignore PSK_SUP events with reason 14 as they are often sent when the device roams from one AP to another
-                    (Event::PSK_SUP, _, _, 14, _) => false,
-                    // Other PSK_SUP events indicate key exchange errors
-                    (Event::PSK_SUP, ..) => {
-                        self.key_exchange_ok = false;
-                        true
-                    }
-                    _ => false,
-                };
-
-                if update_link_status {
-                    let secure_network = self.secure_network.load(Relaxed);
-                    let link_state = if self.join_ok && (!secure_network || self.key_exchange_ok) {
-                        LinkState::Up
-                    } else {
-                        LinkState::Down
-                    };
-
-                    self.ch.set_link_state(link_state);
-
-                    debug!(
-                        "link_ok: {}, secure_network: {}, auth_ok: {}, password_ok: {}, link_state {}",
-                        self.join_ok as u8,
-                        secure_network as u8,
-                        self.auth_ok as u8,
-                        self.key_exchange_ok as u8,
-                        link_state as u8
-                    );
-                }
-
-                if self.events.mask.is_enabled(event_type) {
-                    let status = event_packet.msg.status;
-                    let reason = event_packet.msg.reason;
-                    let event_payload = match event_type {
-                        Event::ESCAN_RESULT if status == EStatus::PARTIAL => {
-                            let Some((_, bss_info)) = ScanResults::parse(evt_data) else {
-                                return;
-                            };
-                            let Some(bss_info) = BssInfo::parse(bss_info) else {
-                                return;
-                            };
-                            events::Payload::BssInfo(bss_info.clone())
-                        }
-                        Event::ESCAN_RESULT => events::Payload::None,
-                        _ => events::Payload::None,
-                    };
-
-                    // this intentionally uses the non-blocking publish immediate
-                    // publish() is a deadlock risk in the current design as awaiting here prevents ioctls
-                    // The `Runner` always yields when accessing the device, so consumers always have a chance to receive the event
-                    // (if they are actively awaiting the queue)
-                    self.events
-                        .queue
-                        .immediate_publisher()
-                        .publish_immediate(events::Message::new(
-                            Status {
-                                event_type,
-                                status,
-                                reason,
-                            },
-                            event_payload,
-                        ));
-                }
-            }
+            CHANNEL_TYPE_CONTROL => self.handle_control(payload),
+            CHANNEL_TYPE_EVENT => self.handle_event(payload),
             CHANNEL_TYPE_DATA => {
                 let Some((_, packet)) = BdcHeader::parse(payload) else {
                     return;
                 };
                 trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
-
-                match PacketBuf::try_new() {
-                    Some(mut buf) => {
-                        buf.set_len(packet.len());
-                        buf.copy_from_slice(packet);
-                        if self.ch.try_rx(buf).is_err() {
-                            warn!("failed to push rxd packet to the channel.");
-                        }
-                    }
-                    None => warn!("packet pool empty, dropping rxd packet."),
-                }
             }
             _ => {}
+        }
+    }
+
+    fn handle_control(&mut self, payload: &mut [u8]) {
+        let Some((cdc_header, response)) = CdcHeader::parse(payload) else {
+            return;
+        };
+        trace!("    {:?}", cdc_header);
+
+        if cdc_header.id == self.ioctl_id {
+            if cdc_header.status != 0 {
+                // TODO: propagate error instead
+                warn!("IOCTL error {}", cdc_header.status as i32);
+            }
+
+            if self.inline_ioctl_pending {
+                self.inline_ioctl_pending = false;
+            } else {
+                self.ioctl_state.ioctl_done(response);
+            }
+        }
+    }
+
+    fn handle_event(&mut self, payload: &mut [u8]) {
+        let Some((_, bdc_packet)) = BdcHeader::parse(payload) else {
+            warn!("BDC event, incomplete header");
+            return;
+        };
+
+        let Some((event_packet, evt_data)) = EventPacket::parse(bdc_packet) else {
+            warn!("BDC event, incomplete data");
+            return;
+        };
+
+        const ETH_P_LINK_CTL: u16 = 0x886c; // HPNA, wlan link local tunnel, according to linux if_ether.h
+        if event_packet.eth.ether_type != ETH_P_LINK_CTL {
+            warn!(
+                "unexpected ethernet type 0x{:04x}, expected Broadcom ether type 0x{:04x}",
+                event_packet.eth.ether_type, ETH_P_LINK_CTL
+            );
+            return;
+        }
+        const BROADCOM_OUI: &[u8] = &[0x00, 0x10, 0x18];
+        if event_packet.hdr.oui != BROADCOM_OUI {
+            warn!(
+                "unexpected ethernet OUI {:02x}, expected Broadcom OUI {:02x}",
+                Bytes(&event_packet.hdr.oui),
+                Bytes(BROADCOM_OUI)
+            );
+            return;
+        }
+        const BCMILCP_SUBTYPE_VENDOR_LONG: u16 = 32769;
+        if event_packet.hdr.subtype != BCMILCP_SUBTYPE_VENDOR_LONG {
+            warn!("unexpected subtype {}", event_packet.hdr.subtype);
+            return;
+        }
+
+        const BCMILCP_BCM_SUBTYPE_EVENT: u16 = 1;
+        if event_packet.hdr.user_subtype != BCMILCP_BCM_SUBTYPE_EVENT {
+            warn!("unexpected user_subtype {}", event_packet.hdr.subtype);
+            return;
+        }
+
+        let event_type = Event::from(event_packet.msg.event_type as u8);
+        let status = EStatus::from(event_packet.msg.status as u8);
+        debug!(
+            "=== EVENT {:?}: {:?} {:02x}",
+            event_type,
+            event_packet.msg,
+            Bytes(evt_data)
+        );
+
+        let update_link_status = match (
+            event_type,
+            status,
+            event_packet.msg.flags,
+            event_packet.msg.reason,
+            event_packet.msg.auth_type,
+        ) {
+            // Events indicating that the link is down
+            // Event LINK with flag 0 indicates link down. reason = 1: loss of signal (e.g. out of range), reason = 2: controlled network shutdown
+            // Event AUTH with status FAIL, reason 16, and auth_type 3 is specific for WPA3 networks
+            // Event DEAUTH_IND is an AP-initiated deauth (e.g. AP reset); any status/reason means the link is down
+            // Event DISASSOC_IND is an AP-initiated disassoc (e.g. idle-station inactivity timeout); any status/reason means the link is down
+            (Event::LINK, EStatus::SUCCESS, 0, ..)
+            | (Event::DEAUTH, EStatus::SUCCESS, ..)
+            | (Event::DEAUTH_IND, ..)
+            | (Event::DISASSOC_IND, ..)
+            | (Event::AUTH, EStatus::FAIL, _, 16, 3) => {
+                self.auth_ok = false;
+                self.join_ok = false;
+                self.key_exchange_ok = false;
+                true
+            }
+            // Update auth flag. Ignore unsolicited events.
+            // When changing passwords on a WPA3 AP which we are already connected to, or we roam to, PSK_SUP events indicating
+            // success are still sent. Only the AUTH events indicate failure and this flag helps cover that scenario
+            (Event::AUTH, status, ..) if status != EStatus::UNSOLICITED => {
+                self.auth_ok = status == EStatus::SUCCESS;
+                debug!("auth_ok flag: {}", self.auth_ok as u8);
+                false
+            }
+            // Successfully joined the network. Open or WPA3 networks are now fully connected - WPA1/2 networks additionally require a successful key exchange.
+            (Event::JOIN, EStatus::SUCCESS, ..) => {
+                self.join_ok = true;
+                true
+            }
+
+            // Key exchange events (PSK_SUP) for secure networks
+            // The status codes for PSK_SUP events seem to have different meanings from other event types
+
+            // Successful key exchange, indicated by a PSK_SUP event with status 6 "UNSOLICITED"
+            // Disregard if auth_ok is false, which can happen in WPA3 networks
+            (Event::PSK_SUP, EStatus::UNSOLICITED, 0, 0, _) => {
+                if self.auth_ok {
+                    self.key_exchange_ok = true;
+                    true
+                } else {
+                    false
+                }
+            }
+            // Ignore PSK_SUP events with reason 14 as they are often sent when the device roams from one AP to another
+            (Event::PSK_SUP, _, _, 14, _) => false,
+            // Other PSK_SUP events indicate key exchange errors
+            (Event::PSK_SUP, ..) => {
+                self.key_exchange_ok = false;
+                true
+            }
+            _ => false,
+        };
+
+        if update_link_status {
+            let secure_network = self.secure_network.load(Relaxed);
+            let link_state = if self.join_ok && (!secure_network || self.key_exchange_ok) {
+                LinkState::Up
+            } else {
+                LinkState::Down
+            };
+
+            self.ch.set_link_state(link_state);
+
+            debug!(
+                "link_ok: {}, secure_network: {}, auth_ok: {}, password_ok: {}, link_state {}",
+                self.join_ok as u8,
+                secure_network as u8,
+                self.auth_ok as u8,
+                self.key_exchange_ok as u8,
+                link_state as u8
+            );
+        }
+
+        if self.events.mask.is_enabled(event_type) {
+            let status = event_packet.msg.status;
+            let reason = event_packet.msg.reason;
+            let event_payload = match event_type {
+                Event::ESCAN_RESULT if status == EStatus::PARTIAL => {
+                    let Some((_, bss_info)) = ScanResults::parse(evt_data) else {
+                        return;
+                    };
+                    let Some(bss_info) = BssInfo::parse(bss_info) else {
+                        return;
+                    };
+                    events::Payload::BssInfo(bss_info.clone())
+                }
+                Event::ESCAN_RESULT => events::Payload::None,
+                _ => events::Payload::None,
+            };
+
+            // this intentionally uses the non-blocking publish immediate
+            // publish() is a deadlock risk in the current design as awaiting here prevents ioctls
+            // The `Runner` always yields when accessing the device, so consumers always have a chance to receive the event
+            // (if they are actively awaiting the queue)
+            self.events
+                .queue
+                .immediate_publisher()
+                .publish_immediate(events::Message::new(
+                    Status {
+                        event_type,
+                        status,
+                        reason,
+                    },
+                    event_payload,
+                ));
         }
     }
 
@@ -1346,7 +1492,8 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         data: &[u8],
         buf: &mut Aligned<A4, [u8; 4 + 2048]>,
     ) {
-        let buf8 = &mut buf[4..];
+        let write_buffer = WriteBuffer::new(buf);
+        let buf8 = write_buffer.buf();
 
         let total_len = SdpcmHeader::SIZE + CdcHeader::SIZE + data.len();
 
@@ -1383,6 +1530,6 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-        let _ = wlan_write(&mut self.bus, buf, total_len).await;
+        let _ = wlan_write(&mut self.bus, &mut write_buffer[..total_len]).await;
     }
 }

@@ -32,3 +32,10 @@ xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "af7342391a7
 [features]
 defmt = ["dep:defmt", "xarxa-driver/defmt"]
 log = ["dep:log"]
+
+# Passthrough features to configure the xarxa packet buffer pool. Drivers that
+# do zero-copy DMA straight into/out of `PacketBuf` storage need these to
+# guarantee sufficient size and alignment of the buffers.
+packet-buf-size-1536 = ["xarxa-driver/packet-buf-size-1536"]
+packet-buf-size-2048 = ["xarxa-driver/packet-buf-size-2048"]
+packet-buf-align-4 = ["xarxa-driver/packet-buf-align-4"]
