@@ -5,7 +5,6 @@ mod types;
 pub mod device;
 pub mod host;
 
-pub use device::*;
 pub use types::*;
 
 pub(crate) const USB_CLASS_HID: u8 = 0x03;

@@ -5,7 +5,6 @@ mod line_coding;
 pub mod device;
 pub mod host;
 
-pub use device::*;
 pub use line_coding::*;
 
 /// This should be used as `device_class` when building the `UsbDevice`.

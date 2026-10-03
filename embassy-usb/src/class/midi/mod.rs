@@ -5,7 +5,6 @@ mod packet;
 pub mod device;
 pub mod host;
 
-pub use device::*;
 pub use packet::*;
 
 /// This should be used as `device_class` when building the `UsbDevice`.

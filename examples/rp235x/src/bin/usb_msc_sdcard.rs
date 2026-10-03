@@ -21,7 +21,7 @@ use embassy_rp::spi::{self, Spi};
 use embassy_rp::time::Hertz;
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_usb::Builder;
-use embassy_usb::class::msc::{BlockDevice as MscBlockDevice, Config as MscConfig, MscClass, State};
+use embassy_usb::class::msc::device::{BlockDevice as MscBlockDevice, Config as MscConfig, MscClass, State};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_sdmmc::sdcard::{DummyCsPin, SdCard};
 use embedded_sdmmc::{Block, BlockDevice as SdBlockDevice, BlockIdx};
