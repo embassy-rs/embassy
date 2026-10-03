@@ -14,7 +14,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_usb::Builder;
-use embassy_usb::class::msc::{BlockDevice, Config as MscConfig, MscClass, State};
+use embassy_usb::class::msc::device::{BlockDevice, Config as MscConfig, MscClass, State};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
