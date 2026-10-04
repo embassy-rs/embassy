@@ -13,8 +13,6 @@ pub mod types;
 use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::mem::ManuallyDrop;
-use core::ptr;
 use core::sync::atomic::{AtomicU8, Ordering};
 use core::task::Poll;
 
@@ -70,6 +68,10 @@ pub(crate) const I24_MIN: i32 = -0x80_0000;
 pub struct Dfsdm<'d, T: Instance, C: ClockOutputMode> {
     _instance_marker: PhantomData<T>,
     _clock_mode: PhantomData<C>,
+    /// Keeps the peripheral clock on while the entry point may still be
+    /// configured. Moved into [`DfsdmCommon`] by
+    /// [`Dfsdm::configure_pins`], which takes over the obligation.
+    _rcc: RccOff<T>,
     peri: Option<Peri<'d, T>>,
     ckout: Option<Flex<'d>>,
 }
@@ -138,6 +140,7 @@ where
         Self {
             _instance_marker: PhantomData,
             _clock_mode: PhantomData,
+            _rcc: RccOff(PhantomData),
             ckout,
             peri: Some(peri),
         }
@@ -184,12 +187,26 @@ where
 
 /// Holds references to the peripheral and the optional clock-output. Disables the RCC of the peripheral when dropped.
 pub struct DfsdmCommon<'d, T: Instance, P: PowerState> {
+    /// Drop glue for the peripheral clock: declared first so it drops before
+    /// the `Peri`/`Flex` fields, matching the previous `Drop` ordering.
+    _rcc: RccOff<T>,
     _peri: Peri<'d, T>,
     _ckout: Option<Flex<'d>>,
     _powerstate_marker: PhantomData<P>,
     datin_slots: [PinSlot<'d>; 8],
     ckin_slots: [PinSlot<'d>; 8],
 }
+
+/// Disables the peripheral clock on drop. A guard field instead of a `Drop`
+/// impl on [`DfsdmCommon`], so the latter stays freely destructurable.
+pub(crate) struct RccOff<T: Instance>(PhantomData<T>);
+
+impl<T: Instance> Drop for RccOff<T> {
+    fn drop(&mut self) {
+        rcc::disable::<T>();
+    }
+}
+
 impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
     pub(crate) fn insert_pin(&mut self, ch: usize, kind: PinKind, flex: Option<Flex<'d>>) {
         if let Some(p) = flex {
@@ -264,44 +281,15 @@ impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
         }
         Ok(())
     }
-
-    fn into_raw_parts(self) -> (Peri<'d, T>, Option<Flex<'d>>, [PinSlot<'d>; 8], [PinSlot<'d>; 8]) {
-        let this = ManuallyDrop::new(self);
-        // SAFETY: `this` is wrapped in `ManuallyDrop`, so its destructor will not
-        // run. We use `ptr::read` to bitwise-move each field out, transferring
-        // ownership to the caller exactly once per field (the source value is
-        // consumed and intentionally never dropped). Since we never drop `this`,
-        // immediately return the extracted values, and nothing between the reads
-        // can unwind, no double-free, use-after-free or leak of `Flex` drop-glue
-        // can occur. (`Peri` is a ghost type carrying no real `&mut`, so copying
-        // it cannot alias.)
-        unsafe {
-            (
-                ptr::read(&this._peri),
-                ptr::read(&this._ckout),
-                ptr::read(&this.datin_slots),
-                ptr::read(&this.ckin_slots),
-            )
-        }
-    }
-}
-
-impl<'d, T, P> Drop for DfsdmCommon<'d, T, P>
-where
-    T: Instance,
-    P: PowerState,
-{
-    fn drop(&mut self) {
-        rcc::disable::<T>();
-    }
 }
 
 impl<'d, T> DfsdmCommon<'d, T, Disabled>
 where
     T: Instance,
 {
-    pub(crate) fn new(peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
+    pub(crate) fn new(rcc: RccOff<T>, peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
         Self {
+            _rcc: rcc,
             _peri: peri,
             _ckout: ckout,
             _powerstate_marker: PhantomData,
@@ -331,8 +319,16 @@ where
     /// Enables the peripheral.
     pub fn enable(self) -> DfsdmCommon<'d, T, Enabled> {
         T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(true));
-        let (_peri, _ckout, datin_slots, ckin_slots) = self.into_raw_parts();
+        let Self {
+            _rcc,
+            _peri,
+            _ckout,
+            datin_slots,
+            ckin_slots,
+            ..
+        } = self;
         DfsdmCommon {
+            _rcc,
             _peri,
             _ckout,
             _powerstate_marker: PhantomData,
@@ -354,8 +350,16 @@ where
     pub fn disable(self) -> DfsdmCommon<'d, T, Disabled> {
         T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(false));
 
-        let (_peri, _ckout, datin_slots, ckin_slots) = self.into_raw_parts();
+        let Self {
+            _rcc,
+            _peri,
+            _ckout,
+            datin_slots,
+            ckin_slots,
+            ..
+        } = self;
         DfsdmCommon {
+            _rcc,
             _peri,
             _ckout,
             _powerstate_marker: PhantomData,
@@ -409,7 +413,7 @@ where
     {
         let out = f(<T::Transceivers as Shape>::selectors::<T>());
 
-        let mut common = DfsdmCommon::new(self.peri.expect("taken once"), self.ckout.take()).enable();
+        let mut common = DfsdmCommon::new(self._rcc, self.peri.expect("taken once"), self.ckout.take()).enable();
         let split = out.split_parts(&mut common);
 
         (common, split)
