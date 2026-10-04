@@ -76,6 +76,11 @@ pub(crate) trait SealedBus {
     }
 }
 
+struct Reception {
+    pub len: usize,
+    pub offset: usize,
+}
+
 #[allow(private_bounds)]
 pub trait Bus: SealedBus {}
 impl<T: SealedBus> Bus for T {}
@@ -1043,7 +1048,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                 }
             };
 
-            let offset_len = match self.bus.bus_type() {
+            let reception = match self.bus.bus_type() {
                 BusType::Spi => {
                     if self.wlan_read(buf, true, 0, len).await.is_err() {
                         debug!("spi wlan_read failed");
@@ -1092,7 +1097,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             };
 
             if let Some(mut packet) = packet
-                && let Some((offset, len)) = offset_len
+                && let Some(Reception { len, offset }) = reception
             {
                 packet.reserve(offset);
                 packet.set_len(len);
@@ -1105,7 +1110,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     }
 
     /// receive and event or ethernet frame; if a frame, return the offset and len of the frame
-    fn rx(&mut self, buf: &mut [u8]) -> Option<(usize, usize)> {
+    fn rx(&mut self, buf: &mut [u8]) -> Option<Reception> {
         let Some((sdpcm_header, payload)) = SdpcmHeader::parse(buf) else {
             return None;
         };
@@ -1305,10 +1310,11 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     return None;
                 };
                 trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
-                let len = packet.len();
-                let offset = packet.as_ptr() as usize - buf.as_ptr() as usize;
 
-                Some((offset, len))
+                Some(Reception {
+                    len: packet.len(),
+                    offset: packet.as_ptr() as usize - buf.as_ptr() as usize,
+                })
             }
             _ => None,
         }
