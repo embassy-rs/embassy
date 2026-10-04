@@ -468,7 +468,6 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
         });
 
         feed_key(key);
-
         process_blocks_padded(data, output);
 
         return Ok(&output[..padded_len]);
@@ -614,8 +613,40 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
 }
 
 impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
-    fn encrypt_padded<'o>(&mut self, _data: &[u8], _output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
-        todo!("Add function body");
+    fn encrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
+        let key = match &self.key {
+            Some(k) => k,
+            None => {
+                return Err(AesError::KeyNeeded);
+            }
+        };
+
+        let iv = match &self.iv {
+            Some(v) => v,
+            None => {
+                return Err(AesError::IvNeeded);
+            }
+        };
+
+        let padded_len = (data.len() / 16 + 1) * 16;
+        if output.len() < padded_len {
+            return Err(AesError::OutputTooSmall);
+        }
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesdecrypt(Aesdecrypt::Encrypt);
+            w.set_streamlast(false);
+        });
+
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        feed_key(key);
+        feed_iv_counter(iv);
+        process_blocks_padded(data, output);
+
+        return Ok(&output[..padded_len]);
     }
 
     fn decrypt_padded<'o>(&mut self, _data: &[u8], _output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
