@@ -6,6 +6,7 @@ use defmt::{error, info};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nxp;
+use embassy_nxp::hashcrypt::KeySize::Bits128;
 use embassy_nxp::hashcrypt::{Aes, AesPadded, GenericDriver, KeySize};
 use embassy_time::Timer;
 use panic_probe as _;
@@ -177,6 +178,65 @@ async fn main(_spawner: Spawner) -> ! {
         Ok(_) => {
             info!("Plain text:  {:02x}", out);
             info!("Cipher text: {:02x}", ct2);
+        }
+        Err(e) => {
+            error!("{}", defmt::Debug2Format(&e));
+        }
+    }
+
+    info!("CBC TESTS");
+    info!("");
+
+    let mut cbc = generic.aes_cbc();
+    // F.2.1 CBC-AES128.Encrypt / F.2.2 CBC-AES128.Decrypt, block 1
+    // Key 2b7e151628aed2a6abf7158809cf4f3c
+    // IV 000102030405060708090a0b0c0d0e0f
+    // Block #1
+    // Plaintext 6bc1bee22e409f96e93d7e117393172a
+    // Input Block 6bc0bce12a459991e134741a7f9e1925
+    // Output Block 7649abac8119b246cee98e9b12e9197d
+    // Ciphertext 7649abac8119b246cee98e9b12e9197d
+
+    let key = [
+        0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
+    ];
+
+    let iv = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    ];
+
+    let pt1 = [
+        0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
+    ];
+
+    let ct1 = [
+        0x76, 0x49, 0xab, 0xac, 0x81, 0x19, 0xb2, 0x46, 0xce, 0xe9, 0x8e, 0x9b, 0x12, 0xe9, 0x19, 0x7d,
+    ];
+
+    cbc.set_key_size(Bits128);
+    cbc.set_key(key.as_slice()).unwrap();
+    cbc.set_iv(&iv);
+    let mut out = [0u8; 16];
+
+    info!("Test 1: F.2.1 CBC-AES128.Encrypt");
+    let result = cbc.encrypt(pt1.as_slice(), out.as_mut_slice());
+    match result {
+        Ok(_) => {
+            info!("Plain text: {:02x}", &pt1);
+            info!("Cipher text: {:02x}", &out);
+        }
+        Err(e) => {
+            error!("{}", defmt::Debug2Format(&e));
+        }
+    }
+
+    info!("Test 2: F.2.1 CBC-AES128.Decrypt");
+    let mut out = [0u8; 16];
+    let result = cbc.decrypt(ct1.as_slice(), out.as_mut_slice());
+    match result {
+        Ok(_) => {
+            info!("Plain text: {:02x}", &out);
+            info!("Cipher text: {:02x}", &ct1);
         }
         Err(e) => {
             error!("{}", defmt::Debug2Format(&e));
