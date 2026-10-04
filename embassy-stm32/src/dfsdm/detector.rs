@@ -74,10 +74,19 @@ impl Default for AnalogWatchdogConfig {
             fastmode: false,
             low_break_signals: BreakSignals::empty(),
             high_break_signals: BreakSignals::empty(),
-            low_threshold: i32::MAX,
-            high_threshold: i32::MIN,
+            // Exact i24 extremes: never trigger in either AWFSEL mode (in
+            // fast mode the hardware compares the top 16 bits, which are
+            // exactly the i16 extremes).
+            low_threshold: I24_MIN,
+            high_threshold: I24_MAX,
         }
     }
+}
+
+/// Encodes a threshold for the 24-bit AWHT/AWLT fields: clamps to the i24
+/// range and re-encodes negatives as 24-bit two's complement.
+fn encode_threshold(threshold: i32) -> u32 {
+    (threshold.clamp(I24_MIN, I24_MAX) as u32) & 0xFF_FFFF
 }
 
 /// Analog watchdog event.
@@ -153,19 +162,30 @@ where
     }
 
     /// Set the high threshold.
+    ///
+    /// Thresholds are on the 24-bit main-filter scale in both AWFSEL modes
+    /// and saturate to the i24 range: `0x7F_FFFF` / `-0x80_0000` (or any
+    /// out-of-range value) mean "never trigger". With fast mode enabled
+    /// (see [`enable_analog_watchdog_fastmode`](Self::enable_analog_watchdog_fastmode))
+    /// the hardware compares only the top 16 threshold bits against the
+    /// watchdog filter output (resolution 256); toggling fast mode does not
+    /// change the meaning of a stored threshold.
     pub fn set_high_threshold(&mut self, threshold: i32) {
         T::regs()
             .flt(M::CHANNEL.index())
             .awhtr()
-            .modify(|w| w.set_awht(threshold as u32));
+            .modify(|w| w.set_awht(encode_threshold(threshold)));
     }
 
     /// Set the low threshold.
+    ///
+    /// See [`set_high_threshold`](Self::set_high_threshold) for the scale,
+    /// saturation and fast-mode semantics.
     pub fn set_low_threshold(&mut self, threshold: i32) {
         T::regs()
             .flt(M::CHANNEL.index())
             .awltr()
-            .modify(|w| w.set_awlt(threshold as u32));
+            .modify(|w| w.set_awlt(encode_threshold(threshold)));
     }
 
     /// Assign break signals to fire on the high threshold.
@@ -198,6 +218,11 @@ where
     /// AWFSEL is per-channel and only meaningful in fast mode, where the
     /// watchdog compares against its own fast filter instead of the main filter
     /// output.
+    ///
+    /// Thresholds are mode-independent (see
+    /// [`set_high_threshold`](Self::set_high_threshold)): toggling this
+    /// changes the comparison source and its resolution, not the meaning of
+    /// already-written thresholds.
     pub fn enable_analog_watchdog_fastmode(&mut self, enabled: bool) {
         T::regs()
             .flt(M::CHANNEL.index())
@@ -292,16 +317,16 @@ where
     pub(crate) fn clear_high(channels: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
-            .awsr()
-            .modify(|w| w.set_awhtf(channels));
+            .awcfr()
+            .write(|w| w.set_clrawhtf(channels));
     }
 
     /// Clears the provided channels' analog watchdog flags
     pub(crate) fn clear_low(channels: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
-            .awsr()
-            .modify(|w| w.set_awltf(channels));
+            .awcfr()
+            .write(|w| w.set_clrawltf(channels));
     }
 }
 

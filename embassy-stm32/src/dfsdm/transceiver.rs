@@ -146,21 +146,20 @@ where
 {
     /// Wait until this transceiver's clock-absence flag clears, indicating it
     /// is synchronized. Only meaningful for externally-clocked serial modes.
+    #[cfg(feature = "time")]
     pub async fn wait_for_sync(&mut self) {
         loop {
             if ClockAbsenceDetector::<T>::try_clear_channel_flag(M::CHANNEL) {
                 break;
             }
-            #[cfg(feature = "time")]
             embassy_time::Timer::after_millis(1).await;
-
-            #[cfg(not(feature = "time"))]
-            {
-                let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
-                let cycles = freq / 1_000; // 1ms
-                cortex_m::asm::delay(cycles as u32);
-            }
         }
+    }
+
+    /// Blocking `wait_for_sync`: polls the clock-absence flag without
+    /// yielding. Available with and without the `time` feature.
+    pub fn blocking_wait_for_sync(&mut self) {
+        while !ClockAbsenceDetector::<T>::try_clear_channel_flag(M::CHANNEL) {}
     }
 }
 
