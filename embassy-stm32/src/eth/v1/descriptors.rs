@@ -1,7 +1,5 @@
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 
-use xarxa_driver::config::PACKET_BUF_SIZE;
-
 mod rx_consts {
     /// Owned by DMA engine
     pub const RXDESC_0_OWN: u32 = 1 << 31;
@@ -191,9 +189,9 @@ impl RDes {
 
     /// Configures the reception buffer address and length and passed descriptor ownership to the DMA
     #[inline(always)]
-    pub(crate) fn set_ready(&self, buf: *mut u8) {
+    pub(crate) fn set_ready(&self, buf: *mut u8, len: usize) {
         self.rdes1
-            .set(self.rdes1.get() | (PACKET_BUF_SIZE as u32) & RXDESC_1_RBS1_MASK);
+            .set(self.rdes1.get() & !RXDESC_1_RBS1_MASK | (len as u32) & RXDESC_1_RBS1_MASK);
         self.rdes2.set(buf as u32);
 
         // "Preceding reads and writes cannot be moved past subsequent writes."
@@ -219,7 +217,7 @@ impl RDes {
         self.rdes1.set(self.rdes1.get() | RXDESC_1_RER);
     }
 
-    pub(crate) fn setup(&self, next: Option<&Self>, buf: *mut u8) {
+    pub(crate) fn setup(&self, next: Option<&Self>) {
         // Defer this initialization to this function, so we can have `RingEntry` on bss.
         self.rdes0.set(0);
         self.rdes1.set(self.rdes1.get() | RXDESC_1_RCH);
@@ -239,8 +237,6 @@ impl RDes {
                 self.set_end_of_ring();
             }
         }
-
-        self.set_ready(buf);
     }
 }
 

@@ -5,7 +5,7 @@ use core::task::Poll;
 use aligned::{A4, Aligned};
 use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
+use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::Duration;
 use sdio::sdio::{CCCR_INT_ENABLE, CCCR_IO_ENABLE, CCCR_IO_READY};
 
@@ -1251,15 +1251,16 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                 };
                 trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
-                match PacketBuf::try_new() {
-                    Some(mut buf) => {
+                match self.ch.try_rx_buf() {
+                    Some(mut buf) if packet.len() <= buf.capacity() => {
                         buf.set_len(packet.len());
                         buf.copy_from_slice(packet);
                         if self.ch.try_rx(buf).is_err() {
                             warn!("failed to push rxd packet to the channel.");
                         }
                     }
-                    None => warn!("packet pool empty, dropping rxd packet."),
+                    Some(_) => warn!("rxd packet too big for the packet buffer, dropping."),
+                    None => warn!("no rx buffer, dropping rxd packet."),
                 }
             }
             _ => {}

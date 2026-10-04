@@ -48,8 +48,10 @@ const MTU: usize = 1514;
 /// ring. A bigger ring allows the hardware to receive more frames while the
 /// CPU is busy doing other things, which may increase performance (especially
 /// for RX), at the cost of pinning more packet buffers. Make sure the packet
-/// pool (the `packet-buf-count-N` feature of `xarxa`) is bigger than
-/// `TX + RX`, with room to spare for the stack and sockets.
+/// pool is bigger than `TX + RX`, with room to spare for the stack and sockets.
+/// The pool's buffers must be 8-byte aligned, and the DMA uses their size
+/// rounded down to a multiple of 8. To receive full 1514-byte frames, use
+/// `StaticPool<1520, N, 8>`.
 /// The v2 driver reserves one descriptor in each ring as a DMA tail guard.
 /// It requires at least two TX/RX descriptors, or three RX descriptors with PTP.
 pub struct PacketQueue<const TX: usize, const RX: usize> {
@@ -132,6 +134,14 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
             caps.checksum.icmpv6 = ChecksumOffload::BOTH;
         }
         caps
+    }
+
+    fn rx_wanted(&mut self) -> usize {
+        self.rx.wanted()
+    }
+
+    fn rx_give(&mut self, buf: PacketBuf) {
+        self.rx.give(buf);
     }
 
     fn receive(&mut self) -> Option<PacketBuf> {

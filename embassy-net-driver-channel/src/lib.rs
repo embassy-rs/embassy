@@ -47,9 +47,13 @@ impl MulticastFilter {
 ///
 /// Holds the inbound and outbound packet queues, `N_RX` and `N_TX` packets long.
 ///
-/// The queues hold [`PacketBuf`]s, which come from the global packet pool, so their
+/// The queues hold [`PacketBuf`]s, which come from the stack's packet pool, so their
 /// size here is a handful of bytes per slot, not a whole packet each.
+///
+/// The stack hands the runner empty buffers to receive into, up to `N_RX` of them,
+/// counting both empty buffers and received packets waiting for the stack.
 pub struct State<const N_RX: usize, const N_TX: usize> {
+    rx_empty: Channel<NoopRawMutex, PacketBuf, N_RX>,
     rx: Channel<NoopRawMutex, PacketBuf, N_RX>,
     tx: Channel<NoopRawMutex, PacketBuf, N_TX>,
     shared: Mutex<NoopRawMutex, RefCell<Shared>>,
@@ -59,9 +63,12 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
     /// Create a new channel state.
     pub const fn new() -> Self {
         Self {
+            rx_empty: Channel::new(),
             rx: Channel::new(),
             tx: Channel::new(),
             shared: Mutex::new(RefCell::new(Shared {
+                rx_queued: 0,
+                rx_capacity: N_RX,
                 link_state: LinkState::Down,
                 waker: WakerRegistration::new(),
                 hardware_address: HardwareAddress::Ip,
@@ -84,6 +91,10 @@ impl<const N_RX: usize, const N_TX: usize> Default for State<N_RX, N_TX> {
 }
 
 struct Shared {
+    /// Buffers in the `rx_empty` and `rx` queues.
+    rx_queued: usize,
+    /// Max value of `rx_queued`, `N_RX`.
+    rx_capacity: usize,
     link_state: LinkState,
     waker: WakerRegistration,
     hardware_address: HardwareAddress,
@@ -100,6 +111,7 @@ struct Shared {
 pub struct Runner<'d> {
     tx_chan: DynamicReceiver<'d, PacketBuf>,
     rx_chan: DynamicSender<'d, PacketBuf>,
+    rx_empty: DynamicReceiver<'d, PacketBuf>,
     shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
@@ -116,6 +128,8 @@ pub struct StateRunner<'d> {
 /// Holds the lower end of the channel for passing inbound packets up the stack.
 pub struct RxRunner<'d> {
     rx_chan: DynamicSender<'d, PacketBuf>,
+    rx_empty: DynamicReceiver<'d, PacketBuf>,
+    shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
 /// TX runner.
@@ -130,7 +144,11 @@ impl<'d> Runner<'d> {
     pub fn split(self) -> (StateRunner<'d>, RxRunner<'d>, TxRunner<'d>) {
         (
             StateRunner { shared: self.shared },
-            RxRunner { rx_chan: self.rx_chan },
+            RxRunner {
+                rx_chan: self.rx_chan,
+                rx_empty: self.rx_empty,
+                shared: self.shared,
+            },
             TxRunner { tx_chan: self.tx_chan },
         )
     }
@@ -139,7 +157,11 @@ impl<'d> Runner<'d> {
     pub fn borrow_split(&mut self) -> (StateRunner<'_>, RxRunner<'_>, TxRunner<'_>) {
         (
             StateRunner { shared: self.shared },
-            RxRunner { rx_chan: self.rx_chan },
+            RxRunner {
+                rx_chan: self.rx_chan,
+                rx_empty: self.rx_empty,
+                shared: self.shared,
+            },
             TxRunner { tx_chan: self.tx_chan },
         )
     }
@@ -169,16 +191,48 @@ impl<'d> Runner<'d> {
         self.rx_chan.poll_ready_to_send(cx)
     }
 
+    /// Wait for an empty buffer from the stack, to receive a packet into.
+    ///
+    /// The buffer has zero length. Its [`capacity`](PacketBuf::capacity) is the
+    /// stack's packet buffer size, which may be smaller than the MTU.
+    ///
+    /// Push it back filled with [`rx`](Self::rx), or drop it to give it back to
+    /// the stack's pool.
+    pub async fn rx_buf(&mut self) -> PacketBuf {
+        core::future::poll_fn(|cx| self.poll_rx_buf(cx)).await
+    }
+
+    /// Get an empty buffer from the stack, if there is one right now.
+    ///
+    /// See [`rx_buf`](Self::rx_buf).
+    pub fn try_rx_buf(&mut self) -> Option<PacketBuf> {
+        let buf = self.rx_empty.try_receive().ok()?;
+        rx_taken(self.shared);
+        Some(buf)
+    }
+
+    /// Poll for an empty buffer from the stack.
+    ///
+    /// See [`rx_buf`](Self::rx_buf).
+    pub fn poll_rx_buf(&mut self, cx: &mut Context<'_>) -> Poll<PacketBuf> {
+        let buf = core::task::ready!(self.rx_empty.poll_receive(cx));
+        rx_taken(self.shared);
+        Poll::Ready(buf)
+    }
+
     /// Push a received packet to the stack, waiting for space in the inbound queue.
     pub async fn rx(&mut self, buf: PacketBuf) {
-        self.rx_chan.send(buf).await
+        self.rx_chan.send(buf).await;
+        rx_pushed(self.shared);
     }
 
     /// Push a received packet to the stack, if the inbound queue has space right now.
     ///
     /// If it doesn't, the buffer is handed back in the `Err` variant.
     pub fn try_rx(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
-        self.rx_chan.try_send(buf).map_err(|TrySendError::Full(buf)| buf)
+        self.rx_chan.try_send(buf).map_err(|TrySendError::Full(buf)| buf)?;
+        rx_pushed(self.shared);
+        Ok(())
     }
 
     /// Wait for a packet the stack wants to transmit.
@@ -269,16 +323,48 @@ impl RxRunner<'_> {
         self.rx_chan.poll_ready_to_send(cx)
     }
 
+    /// Wait for an empty buffer from the stack, to receive a packet into.
+    ///
+    /// The buffer has zero length. Its [`capacity`](PacketBuf::capacity) is the
+    /// stack's packet buffer size, which may be smaller than the MTU.
+    ///
+    /// Push it back filled with [`rx`](Self::rx), or drop it to give it back to
+    /// the stack's pool.
+    pub async fn rx_buf(&mut self) -> PacketBuf {
+        core::future::poll_fn(|cx| self.poll_rx_buf(cx)).await
+    }
+
+    /// Get an empty buffer from the stack, if there is one right now.
+    ///
+    /// See [`rx_buf`](Self::rx_buf).
+    pub fn try_rx_buf(&mut self) -> Option<PacketBuf> {
+        let buf = self.rx_empty.try_receive().ok()?;
+        rx_taken(self.shared);
+        Some(buf)
+    }
+
+    /// Poll for an empty buffer from the stack.
+    ///
+    /// See [`rx_buf`](Self::rx_buf).
+    pub fn poll_rx_buf(&mut self, cx: &mut Context<'_>) -> Poll<PacketBuf> {
+        let buf = core::task::ready!(self.rx_empty.poll_receive(cx));
+        rx_taken(self.shared);
+        Poll::Ready(buf)
+    }
+
     /// Push a received packet to the stack, waiting for space in the inbound queue.
     pub async fn rx(&mut self, buf: PacketBuf) {
-        self.rx_chan.send(buf).await
+        self.rx_chan.send(buf).await;
+        rx_pushed(self.shared);
     }
 
     /// Push a received packet to the stack, if the inbound queue has space right now.
     ///
     /// If it doesn't, the buffer is handed back in the `Err` variant.
     pub fn try_rx(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
-        self.rx_chan.try_send(buf).map_err(|TrySendError::Full(buf)| buf)
+        self.rx_chan.try_send(buf).map_err(|TrySendError::Full(buf)| buf)?;
+        rx_pushed(self.shared);
+        Ok(())
     }
 }
 
@@ -297,6 +383,24 @@ impl TxRunner<'_> {
     pub fn poll_tx(&mut self, cx: &mut Context<'_>) -> Poll<PacketBuf> {
         self.tx_chan.poll_receive(cx)
     }
+}
+
+/// The runner took an empty buffer out of the `rx_empty` queue.
+fn rx_taken(shared: &Mutex<NoopRawMutex, RefCell<Shared>>) {
+    shared.lock(|s| {
+        let s = &mut *s.borrow_mut();
+        // The stack stops giving buffers when the queues are full. Wake it to
+        // give more.
+        if s.rx_queued == s.rx_capacity {
+            s.waker.wake();
+        }
+        s.rx_queued -= 1;
+    })
+}
+
+/// The runner pushed a received packet to the `rx` queue.
+fn rx_pushed(shared: &Mutex<NoopRawMutex, RefCell<Shared>>) {
+    shared.lock(|s| s.borrow_mut().rx_queued += 1)
 }
 
 fn set_link_state(shared: &Mutex<NoopRawMutex, RefCell<Shared>>, state: LinkState) {
@@ -326,11 +430,6 @@ pub fn new<'d, const N_RX: usize, const N_TX: usize>(
     hardware_address: HardwareAddress,
     mtu: usize,
 ) -> (Runner<'d>, Device<'d>) {
-    assert!(
-        mtu <= xarxa_driver::config::PACKET_BUF_SIZE,
-        "MTU is larger than the packet buffer size. Raise it with xarxa's `packet-buf-size-N` features."
-    );
-
     let state = &*state;
     state
         .shared
@@ -344,11 +443,13 @@ pub fn new<'d, const N_RX: usize, const N_TX: usize>(
         Runner {
             tx_chan: state.tx.dyn_receiver(),
             rx_chan: state.rx.dyn_sender(),
+            rx_empty: state.rx_empty.dyn_receiver(),
             shared: &state.shared,
         },
         Device {
             caps,
             shared: &state.shared,
+            rx_empty: state.rx_empty.dyn_sender(),
             rx: state.rx.dyn_receiver(),
             tx: state.tx.dyn_sender(),
             waker: None,
@@ -360,6 +461,7 @@ pub fn new<'d, const N_RX: usize, const N_TX: usize>(
 ///
 /// Holds the shared state and upper end of channels for inbound and outbound packets.
 pub struct Device<'d> {
+    rx_empty: DynamicSender<'d, PacketBuf>,
     rx: DynamicReceiver<'d, PacketBuf>,
     tx: DynamicSender<'d, PacketBuf>,
     shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
@@ -397,8 +499,28 @@ impl driver::Driver for Device<'_> {
         Ok(())
     }
 
+    fn rx_wanted(&mut self) -> usize {
+        self.shared.lock(|s| {
+            let s = s.borrow();
+            s.rx_capacity - s.rx_queued
+        })
+    }
+
+    fn rx_give(&mut self, buf: PacketBuf) {
+        if self.rx_wanted() == 0 {
+            // Not asked for: dropping it gives it back to the pool.
+            return;
+        }
+        // Can't fail: `rx_empty` holds `N_RX` and at most `N_RX` are queued.
+        if self.rx_empty.try_send(buf).is_ok() {
+            self.shared.lock(|s| s.borrow_mut().rx_queued += 1);
+        }
+    }
+
     fn receive(&mut self) -> Option<PacketBuf> {
-        self.rx.try_receive().ok()
+        let buf = self.rx.try_receive().ok()?;
+        self.shared.lock(|s| s.borrow_mut().rx_queued -= 1);
+        Some(buf)
     }
 
     fn can_transmit(&mut self) -> bool {

@@ -12,7 +12,7 @@ use embassy_futures::select::{Either4 as EitherMany, select4 as select_many};
 #[cfg(feature = "bluetooth")]
 use embassy_futures::select::{Either5 as EitherMany, select5 as select_many};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
+use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_hal::digital::OutputPin;
 
@@ -408,15 +408,16 @@ where
         let if_type = self.backend.decode_iface_type(if_type_and_num & 0x0f);
 
         match if_type {
-            Some(InterfaceType::Sta) => match PacketBuf::try_new() {
-                Some(mut buf) => {
+            Some(InterfaceType::Sta) => match self.ch.try_rx_buf() {
+                Some(mut buf) if payload.len() <= buf.capacity() => {
                     buf.set_len(payload.len());
                     buf.copy_from_slice(payload);
                     if self.ch.try_rx(buf).is_err() {
                         warn!("failed to push rxd packet to the channel.");
                     }
                 }
-                None => warn!("packet pool empty, dropping rxd packet."),
+                Some(_) => warn!("rxd packet too big for the packet buffer, dropping."),
+                None => warn!("no rx buffer, dropping rxd packet."),
             },
             Some(InterfaceType::Serial) => {
                 #[cfg(feature = "log")]

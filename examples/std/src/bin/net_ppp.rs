@@ -18,7 +18,7 @@ use embassy_executor::{Executor, Spawner};
 use embassy_net::iface::Iface;
 use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::wire::IpCidr;
-use embassy_net::{Stack, StackStorage};
+use embassy_net::{Stack, StackStorage, StaticPool};
 use embassy_net_ppp::Runner;
 use embedded_io_async::Write;
 use futures::io::BufReader;
@@ -93,7 +93,8 @@ async fn main_task(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, net_runner) = Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, net_runner) = Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the PPP interface to the stack. It gets its addresses from PPP itself,
     // in `ppp_task`.
