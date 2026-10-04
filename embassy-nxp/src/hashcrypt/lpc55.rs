@@ -1,10 +1,4 @@
-<<<<<<< HEAD
 //! Driver for the HASHCRYPT peripheral, mode switch skeleton
-=======
-//! Driver for the HASHCRYPT peripheral, mode switch sckeleton
-use core::u8;
-
->>>>>>> 9604adb6d (feat: add AesCbc.decrypt function body)
 use embassy_hal_internal::Peri;
 use nxp_pac::hashcrypt::vals::{Aesdecrypt, Aeskeysz, Aesmode, Aessecret, Mode};
 use nxp_pac::syscon::vals::HashAesRst::Released;
@@ -243,7 +237,7 @@ impl<'d> GenericHashcrypt<'d> {
             _peri: self,
             key_size: None,
             key: None,
-            _counter: None,
+            counter: None,
         }
     }
 
@@ -707,7 +701,7 @@ pub struct AesCtr<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
     key: Option<Key>,
-    _counter: Option<[u8; 16]>,
+    counter: Option<[u8; 16]>,
 }
 
 impl<'a, 'd> Aes for AesCtr<'a, 'd> {
@@ -721,8 +715,8 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
 }
 
 impl<'a, 'd> AesCtr<'a, 'd> {
-    pub fn set_counter(&mut self, _counter: &[u8; 16]) -> Result<(), AesError> {
-        todo!("Add method body");
+    pub fn set_counter(&mut self, counter: &[u8; 16]) {
+        self.counter = Some(*counter);
     }
 }
 
