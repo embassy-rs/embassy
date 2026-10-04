@@ -40,16 +40,13 @@ pub enum AesError {
     UnalignedLength,
     /// Error triggers when the buffer for the output is too small for the ciphertext or plaintext
     OutputTooSmall,
+    /// Error triggers when function from the AesPadded trait is called on data which is not properly padded or that does not have padding at all
+    InvlidPadding,
 }
 
 fn wait_iv_counter() {
-    let mut tries = 0;
     while !pac::HASHCRYPT.status().read().neediv() {
         cortex_m::asm::nop();
-        tries += 1;
-        if tries > 15 {
-            break;
-        }
     }
 }
 
