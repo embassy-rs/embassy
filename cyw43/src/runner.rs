@@ -18,7 +18,7 @@ use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
-use crate::util::{WriteBuffer, try_until};
+use crate::util::{WriteBuffer, aligned_from, try_until};
 use crate::{Chip, ChipId, Core, WithContext, events};
 
 #[cfg(feature = "firmware-logs")]
@@ -964,36 +964,36 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     /// Handle F2 events while status register is set
     async fn check_status(&mut self, buf: &mut Aligned<A4, [u8; 4 + 2048]>) {
         loop {
-            match self.bus.bus_type() {
+            let mut packet = PacketBuf::try_new();
+            let capacity = packet.as_ref().map(PacketBuf::capacity);
+
+            let mut hwtag_buf: Aligned<A4, [u8; 4]> = Aligned([0; 4]);
+
+            // Probe the pending frame's length, without consuming it.
+            let len = match self.bus.bus_type() {
                 BusType::Spi => {
                     let status = self.bus.read32(FUNC_BUS, SPI_STATUS_REGISTER).await;
                     trace!("check status{}", FormatStatus(status));
 
-                    if status & STATUS_F2_PKT_AVAILABLE != 0 {
-                        let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        if wlan_read(&mut self.bus, buf, true, 0, len as usize).await.is_err() {
-                            debug!("spi wlan_read failed");
-                            break;
-                        }
-                        trace!("rx {:02x}", Bytes(&buf[..(len as usize).min(48)]));
-                        self.rx(&mut buf[..len as usize]);
-                    } else {
+                    if status & STATUS_F2_PKT_AVAILABLE == 0 {
                         break;
                     }
+
+                    ((status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT) as usize
                 }
                 BusType::Sdio => {
-                    if wlan_read(&mut self.bus, buf, true, 0, INITIAL_READ).await.is_err() {
+                    if wlan_read(&mut self.bus, &mut hwtag_buf, true, 0, INITIAL_READ)
+                        .await
+                        .is_err()
+                    {
                         debug!("failed to read sdio hwtag");
                         break;
                     }
-                    let (len, len_inv) = {
-                        let hwtag = [
-                            u16::from_le_bytes(buf[..2].try_into().unwrap()),
-                            u16::from_le_bytes(buf[2..4].try_into().unwrap()),
-                        ];
-
-                        (hwtag[0], hwtag[1])
-                    };
+                    let hwtag = [
+                        u16::from_le_bytes(hwtag_buf[..2].try_into().unwrap()),
+                        u16::from_le_bytes(hwtag_buf[2..4].try_into().unwrap()),
+                    ];
+                    let (len, len_inv) = (hwtag[0], hwtag[1]);
 
                     if (len | len_inv) == 0 || (len ^ len_inv) != 0xFFFF {
                         trace!("hwtag mismatch (hwtag[0] = {}, hwtag[1] = {})", len, len_inv);
@@ -1001,7 +1001,54 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     }
 
                     trace!("pkt ready...");
-                    let len = len as usize;
+                    len as usize
+                }
+            };
+
+            if capacity.is_some_and(|capacity| len > capacity) {
+                // The frame can't fit in a `PacketBuf` (e.g. a jumbo frame received
+                // while xarxa isn't configured for them), so it can never be
+                // delivered. It must still be drained from the chip, or the packet
+                // stays pending in F2 and RX wedges. Read it into the scratch
+                // buffer and discard it.
+                trace!("rx frame too big for packet pool, len {}", len);
+                let drained = match self.bus.bus_type() {
+                    BusType::Spi => wlan_read(&mut self.bus, buf, true, 0, len).await.is_ok(),
+                    BusType::Sdio => {
+                        // The hwtag was already consumed into `hwtag_buf` above.
+                        len <= INITIAL_READ
+                            || wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
+                                .await
+                                .is_ok()
+                    }
+                };
+                if !drained {
+                    debug!("failed to drain oversized rx frame");
+                    break;
+                }
+                continue;
+            }
+
+            let buf = match packet {
+                Some(ref mut buf) => aligned_from(buf.storage_mut()),
+                None => {
+                    warn!("packet pool empty, dropping rxd packet if present.");
+
+                    &mut *buf
+                }
+            };
+
+            let offset_len = match self.bus.bus_type() {
+                BusType::Spi => {
+                    if wlan_read(&mut self.bus, buf, true, 0, len).await.is_err() {
+                        debug!("spi wlan_read failed");
+                        break;
+                    }
+                    trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
+
+                    self.rx(&mut buf[..len])
+                }
+                BusType::Sdio => {
                     if len > INITIAL_READ {
                         if wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
                             .await
@@ -1016,6 +1063,10 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         continue;
                     }
 
+                    // The hwtag was read into `hwtag_buf` above, put it back in
+                    // front of the payload.
+                    buf[..INITIAL_READ].copy_from_slice(&hwtag_buf[..]);
+
                     if len == SdpcmHeader::SIZE {
                         let Some((sdpcm_header, _)) = SdpcmHeader::parse(&mut buf[..len]) else {
                             debug!("failed to parse sdpcm header");
@@ -1023,18 +1074,34 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         };
 
                         self.update_credit(sdpcm_header);
+
+                        None
                     } else if len > SdpcmHeader::SIZE {
                         trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
-                        self.rx(&mut buf[..len]);
+                        self.rx(&mut buf[..len])
+                    } else {
+                        None
                     }
+                }
+            };
+
+            if let Some(mut packet) = packet
+                && let Some((offset, len)) = offset_len
+            {
+                packet.reserve(offset);
+                packet.set_len(len);
+
+                if self.ch.try_rx(packet).is_err() {
+                    warn!("failed to push rxd packet to the channel.");
                 }
             }
         }
     }
 
-    fn rx(&mut self, packet: &mut [u8]) {
-        let Some((sdpcm_header, payload)) = SdpcmHeader::parse(packet) else {
-            return;
+    /// receive and event or ethernet frame; if a frame, return the offset and len of the frame
+    fn rx(&mut self, buf: &mut [u8]) -> Option<(usize, usize)> {
+        let Some((sdpcm_header, payload)) = SdpcmHeader::parse(buf) else {
+            return None;
         };
 
         self.update_credit(sdpcm_header);
@@ -1044,7 +1111,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         match channel {
             CHANNEL_TYPE_CONTROL => {
                 let Some((cdc_header, response)) = CdcHeader::parse(payload) else {
-                    return;
+                    return None;
                 };
                 trace!("    {:?}", cdc_header);
 
@@ -1060,16 +1127,18 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         self.ioctl_state.ioctl_done(response);
                     }
                 }
+
+                None
             }
             CHANNEL_TYPE_EVENT => {
                 let Some((_, bdc_packet)) = BdcHeader::parse(payload) else {
                     warn!("BDC event, incomplete header");
-                    return;
+                    return None;
                 };
 
                 let Some((event_packet, evt_data)) = EventPacket::parse(bdc_packet) else {
                     warn!("BDC event, incomplete data");
-                    return;
+                    return None;
                 };
 
                 const ETH_P_LINK_CTL: u16 = 0x886c; // HPNA, wlan link local tunnel, according to linux if_ether.h
@@ -1078,7 +1147,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         "unexpected ethernet type 0x{:04x}, expected Broadcom ether type 0x{:04x}",
                         event_packet.eth.ether_type, ETH_P_LINK_CTL
                     );
-                    return;
+                    return None;
                 }
                 const BROADCOM_OUI: &[u8] = &[0x00, 0x10, 0x18];
                 if event_packet.hdr.oui != BROADCOM_OUI {
@@ -1087,18 +1156,18 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         Bytes(&event_packet.hdr.oui),
                         Bytes(BROADCOM_OUI)
                     );
-                    return;
+                    return None;
                 }
                 const BCMILCP_SUBTYPE_VENDOR_LONG: u16 = 32769;
                 if event_packet.hdr.subtype != BCMILCP_SUBTYPE_VENDOR_LONG {
                     warn!("unexpected subtype {}", event_packet.hdr.subtype);
-                    return;
+                    return None;
                 }
 
                 const BCMILCP_BCM_SUBTYPE_EVENT: u16 = 1;
                 if event_packet.hdr.user_subtype != BCMILCP_BCM_SUBTYPE_EVENT {
                     warn!("unexpected user_subtype {}", event_packet.hdr.subtype);
-                    return;
+                    return None;
                 }
 
                 let event_type = Event::from(event_packet.msg.event_type as u8);
@@ -1195,10 +1264,10 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     let event_payload = match event_type {
                         Event::ESCAN_RESULT if status == EStatus::PARTIAL => {
                             let Some((_, bss_info)) = ScanResults::parse(evt_data) else {
-                                return;
+                                return None;
                             };
                             let Some(bss_info) = BssInfo::parse(bss_info) else {
-                                return;
+                                return None;
                             };
                             events::Payload::BssInfo(bss_info.clone())
                         }
@@ -1222,25 +1291,20 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                             event_payload,
                         ));
                 }
+
+                None
             }
             CHANNEL_TYPE_DATA => {
                 let Some((_, packet)) = BdcHeader::parse(payload) else {
-                    return;
+                    return None;
                 };
                 trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
+                let len = packet.len();
+                let offset = packet.as_ptr() as usize - buf.as_ptr() as usize;
 
-                match PacketBuf::try_new() {
-                    Some(mut buf) => {
-                        buf.set_len(packet.len());
-                        buf.copy_from_slice(packet);
-                        if self.ch.try_rx(buf).is_err() {
-                            warn!("failed to push rxd packet to the channel.");
-                        }
-                    }
-                    None => warn!("packet pool empty, dropping rxd packet."),
-                }
+                Some((offset, len))
             }
-            _ => {}
+            _ => None,
         }
     }
 
