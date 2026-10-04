@@ -4,6 +4,7 @@ use heapless::Vec;
 use heapless::index_map::FnvIndexMap;
 
 use super::codes::*;
+pub use crate::class::uac::terminal_type::TerminalType;
 use crate::host::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, INTERFACE_ASSOCIATION};
 use crate::host::descriptor::{
     ConfigurationDescriptorChain, DescriptorError, DescriptorVisitor, EndpointDescriptor, ExtendableDescriptor,
@@ -714,11 +715,11 @@ impl TerminalDescriptor {
     }
 
     /// Returns the terminal type for this descriptor.
-    pub fn terminal_type(&self) -> TerminalType {
-        match self {
+    pub fn terminal_type(&self) -> Result<TerminalType, u16> {
+        TerminalType::try_from(match self {
             Self::Input(desc) => desc.terminal_type,
             Self::Output(desc) => desc.terminal_type,
-        }
+        })
     }
 
     /// Returns the clock source ID associated with this terminal.
@@ -738,218 +739,14 @@ impl TerminalDescriptor {
     }
 }
 
-/// Enumeration of terminal types as defined by the USB Audio Class specification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum TerminalType {
-    /// Unknown terminal type with raw value.
-    Unknown(u16),
-
-    // USB Terminal Types
-    /// USB undefined terminal.
-    UsbUndefined,
-    /// USB streaming terminal.
-    UsbStreaming,
-    /// USB vendor-specific terminal.
-    UsbVendorSpecific,
-
-    // Input Terminal Types
-    /// Input undefined terminal.
-    InputUndefined,
-    /// Microphone terminal.
-    Microphone,
-    /// Desktop microphone terminal.
-    DesktopMicrophone,
-    /// Personal microphone terminal.
-    PersonalMicrophone,
-    /// Omni-directional microphone terminal.
-    OmniMicrophone,
-    /// Microphone array terminal.
-    MicrophoneArray,
-    /// Processing microphone array terminal.
-    ProcessingMicrophoneArray,
-
-    // Output Terminal Types
-    /// Output undefined terminal.
-    OutputUndefined,
-    /// Speaker terminal.
-    Speaker,
-    /// Headphones terminal.
-    Headphones,
-    /// Head-mounted display audio terminal.
-    HeadMountedDisplay,
-    /// Desktop speaker terminal.
-    DesktopSpeaker,
-    /// Room speaker terminal.
-    RoomSpeaker,
-    /// Communication speaker terminal.
-    CommunicationSpeaker,
-    /// Low frequency effects speaker terminal.
-    LowFrequencyEffectsSpeaker,
-
-    // Bi-directional Terminal Types
-    /// Bi-directional undefined terminal.
-    BiDirectionalUndefined,
-    /// Handset terminal.
-    Handset,
-    /// Headset terminal.
-    Headset,
-    /// Speakerphone terminal.
-    SpeakerPhone,
-    /// Echo suppressing speakerphone terminal.
-    EchoSuppressing,
-    /// Echo canceling speakerphone terminal.
-    EchoCanceling,
-
-    // Telephony Terminal Types
-    /// Telephony undefined terminal.
-    TelephonyUndefined,
-    /// Phone line terminal.
-    PhoneLine,
-    /// Telephone terminal.
-    Telephone,
-    /// Down line phone terminal.
-    DownLinePhone,
-
-    // External Terminal Types
-    /// External undefined terminal.
-    ExternalUndefined,
-    /// Analog connector terminal.
-    AnalogConnector,
-    /// Digital audio interface terminal.
-    DigitalAudioInterface,
-    /// Line connector terminal.
-    LineConnector,
-    /// Legacy audio connector terminal.
-    LegacyAudioConnector,
-    /// SPDIF interface terminal.
-    SpdifInterface,
-    /// DA 1394 stream terminal.
-    Da1394Stream,
-    /// DVD audio stream terminal.
-    DvdAudioStream,
-    /// AVC stream terminal.
-    AvcStream,
-}
-
-impl From<u16> for TerminalType {
-    fn from(terminal_type: u16) -> TerminalType {
-        use TerminalType::*;
-
-        use crate::class::uac::host::codes::terminal_type::*;
-
-        match terminal_type {
-            usb::UNDEFINED => UsbUndefined,
-            usb::STREAMING => UsbStreaming,
-            usb::VENDOR_SPECIFIC => UsbVendorSpecific,
-
-            input::UNDEFINED => InputUndefined,
-            input::MICROPHONE => Microphone,
-            input::DESKTOP_MICROPHONE => DesktopMicrophone,
-            input::PERSONAL_MICROPHONE => PersonalMicrophone,
-            input::OMNI_DIRECTIONAL_MICROPHONE => OmniMicrophone,
-            input::MICROPHONE_ARRAY => MicrophoneArray,
-            input::PROCESSING_MICROPHONE_ARRAY => ProcessingMicrophoneArray,
-
-            output::UNDEFINED => OutputUndefined,
-            output::SPEAKER => Speaker,
-            output::HEADPHONES => Headphones,
-            output::HEAD_MOUNTED_DISPLAY_AUDIO => HeadMountedDisplay,
-            output::DESKTOP_SPEAKER => DesktopSpeaker,
-            output::ROOM_SPEAKER => RoomSpeaker,
-            output::COMMUNICATION_SPEAKER => CommunicationSpeaker,
-            output::LOW_FREQUENCY_EFFECTS_SPEAKER => LowFrequencyEffectsSpeaker,
-
-            bidirectional::UNDEFINED => BiDirectionalUndefined,
-            bidirectional::HANDSET => Handset,
-            bidirectional::HEADSET => Headset,
-            bidirectional::SPEAKERPHONE_NO_ECHO => SpeakerPhone,
-            bidirectional::ECHO_SUPPRESSING_SPEAKERPHONE => EchoSuppressing,
-            bidirectional::ECHO_CANCELING_SPEAKERPHONE => EchoCanceling,
-
-            telephony::UNDEFINED => TelephonyUndefined,
-            telephony::PHONE_LINE => PhoneLine,
-            telephony::TELEPHONE => Telephone,
-            telephony::DOWN_LINE_PHONE => DownLinePhone,
-
-            external::UNDEFINED => ExternalUndefined,
-            external::ANALOG_CONNECTOR => AnalogConnector,
-            external::DIGITAL_AUDIO_INTERFACE => DigitalAudioInterface,
-            external::LINE_CONNECTOR => LineConnector,
-            external::LEGACY_AUDIO_CONNECTOR => LegacyAudioConnector,
-            external::SPDIF_INTERFACE => SpdifInterface,
-            external::DA_STREAM_1394 => Da1394Stream,
-            external::DV_STREAM_SOUNDTRACK_1394 => DvdAudioStream,
-            external::ADAT_LIGHTPIPE => AvcStream,
-
-            _ => Unknown(terminal_type),
-        }
-    }
-}
-
-impl From<TerminalType> for u16 {
-    fn from(terminal_type: TerminalType) -> u16 {
-        use TerminalType::*;
-
-        use crate::class::uac::host::codes::terminal_type::*;
-
-        match terminal_type {
-            UsbUndefined => usb::UNDEFINED,
-            UsbStreaming => usb::STREAMING,
-            UsbVendorSpecific => usb::VENDOR_SPECIFIC,
-
-            InputUndefined => input::UNDEFINED,
-            Microphone => input::MICROPHONE,
-            DesktopMicrophone => input::DESKTOP_MICROPHONE,
-            PersonalMicrophone => input::PERSONAL_MICROPHONE,
-            OmniMicrophone => input::OMNI_DIRECTIONAL_MICROPHONE,
-            MicrophoneArray => input::MICROPHONE_ARRAY,
-            ProcessingMicrophoneArray => input::PROCESSING_MICROPHONE_ARRAY,
-
-            OutputUndefined => output::UNDEFINED,
-            Speaker => output::SPEAKER,
-            Headphones => output::HEADPHONES,
-            HeadMountedDisplay => output::HEAD_MOUNTED_DISPLAY_AUDIO,
-            DesktopSpeaker => output::DESKTOP_SPEAKER,
-            RoomSpeaker => output::ROOM_SPEAKER,
-            CommunicationSpeaker => output::COMMUNICATION_SPEAKER,
-            LowFrequencyEffectsSpeaker => output::LOW_FREQUENCY_EFFECTS_SPEAKER,
-
-            BiDirectionalUndefined => bidirectional::UNDEFINED,
-            Handset => bidirectional::HANDSET,
-            Headset => bidirectional::HEADSET,
-            SpeakerPhone => bidirectional::SPEAKERPHONE_NO_ECHO,
-            EchoSuppressing => bidirectional::ECHO_SUPPRESSING_SPEAKERPHONE,
-            EchoCanceling => bidirectional::ECHO_CANCELING_SPEAKERPHONE,
-
-            TelephonyUndefined => telephony::UNDEFINED,
-            PhoneLine => telephony::PHONE_LINE,
-            Telephone => telephony::TELEPHONE,
-            DownLinePhone => telephony::DOWN_LINE_PHONE,
-
-            ExternalUndefined => external::UNDEFINED,
-            AnalogConnector => external::ANALOG_CONNECTOR,
-            DigitalAudioInterface => external::DIGITAL_AUDIO_INTERFACE,
-            LineConnector => external::LINE_CONNECTOR,
-            LegacyAudioConnector => external::LEGACY_AUDIO_CONNECTOR,
-            SpdifInterface => external::SPDIF_INTERFACE,
-            Da1394Stream => external::DA_STREAM_1394,
-            DvdAudioStream => external::DV_STREAM_SOUNDTRACK_1394,
-            AvcStream => external::ADAT_LIGHTPIPE,
-
-            Unknown(terminal_type) => terminal_type,
-        }
-    }
-}
-
 /// Input terminal descriptor for audio input sources. (USB Audio Devices 2.0 §4.7.2.4)
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct InputTerminalDescriptor {
     /// Unique identifier for this input terminal.
     pub terminal_id: u8,
-    /// Type of this input terminal.
-    pub terminal_type: TerminalType,
+    /// Raw `wTerminalType` of this input terminal; decode with [`TerminalType::try_from`].
+    pub terminal_type: u16,
     /// Associated terminal ID.
     pub associated_terminal_id: u8,
     /// Clock source ID associated with this terminal.
@@ -980,7 +777,7 @@ impl USBDescriptor for InputTerminalDescriptor {
         Self::match_bytes(bytes)?;
         Ok(Self {
             terminal_id: bytes[3],
-            terminal_type: TerminalType::from(u16::from_le_bytes([bytes[4], bytes[5]])),
+            terminal_type: u16::from_le_bytes([bytes[4], bytes[5]]),
             associated_terminal_id: bytes[6],
             clock_source_id: bytes[7],
             num_channels: bytes[8],
@@ -996,7 +793,7 @@ impl WritableDescriptor for InputTerminalDescriptor {
     fn write_to_bytes(&self, bytes: &mut [u8]) -> Result<usize, Self::Error> {
         Self::prepare_bytes(bytes, Self::MIN_LEN)?;
         bytes[3] = self.terminal_id;
-        [bytes[4], bytes[5]] = u16::from(self.terminal_type).to_le_bytes();
+        [bytes[4], bytes[5]] = self.terminal_type.to_le_bytes();
         bytes[6] = self.associated_terminal_id;
         bytes[7] = self.clock_source_id;
         bytes[8] = self.num_channels;
@@ -1014,8 +811,8 @@ impl WritableDescriptor for InputTerminalDescriptor {
 pub struct OutputTerminalDescriptor {
     /// Unique identifier for this output terminal.
     pub terminal_id: u8,
-    /// Type of this output terminal.
-    pub terminal_type: TerminalType,
+    /// Raw `wTerminalType` of this output terminal; decode with [`TerminalType::try_from`].
+    pub terminal_type: u16,
     /// Associated terminal ID.
     pub associated_terminal_id: u8,
     /// Source unit or terminal ID.
@@ -1042,7 +839,7 @@ impl USBDescriptor for OutputTerminalDescriptor {
         Self::match_bytes(bytes)?;
         Ok(Self {
             terminal_id: bytes[3],
-            terminal_type: TerminalType::from(u16::from_le_bytes([bytes[4], bytes[5]])),
+            terminal_type: u16::from_le_bytes([bytes[4], bytes[5]]),
             associated_terminal_id: bytes[6],
             source_id: bytes[7],
             clock_source_id: bytes[8],
@@ -1056,7 +853,7 @@ impl WritableDescriptor for OutputTerminalDescriptor {
     fn write_to_bytes(&self, bytes: &mut [u8]) -> Result<usize, Self::Error> {
         Self::prepare_bytes(bytes, Self::MIN_LEN)?;
         bytes[3] = self.terminal_id;
-        [bytes[4], bytes[5]] = u16::from(self.terminal_type).to_le_bytes();
+        [bytes[4], bytes[5]] = self.terminal_type.to_le_bytes();
         bytes[6] = self.associated_terminal_id;
         bytes[7] = self.source_id;
         bytes[8] = self.clock_source_id;
@@ -1623,7 +1420,7 @@ mod test {
                 2,
                 TerminalDescriptor::Input(InputTerminalDescriptor {
                     terminal_id: 2,
-                    terminal_type: TerminalType::UsbStreaming,
+                    terminal_type: TerminalType::UsbStreaming as u16,
                     associated_terminal_id: 0,
                     clock_source_id: 40,
                     num_channels: 16,
@@ -1639,7 +1436,7 @@ mod test {
                 20,
                 TerminalDescriptor::Output(OutputTerminalDescriptor {
                     terminal_id: 20,
-                    terminal_type: TerminalType::Speaker,
+                    terminal_type: TerminalType::OutSpeaker as u16,
                     associated_terminal_id: 0,
                     source_id: 10,
                     clock_source_id: 40,
@@ -1653,7 +1450,7 @@ mod test {
                 1,
                 TerminalDescriptor::Input(InputTerminalDescriptor {
                     terminal_id: 1,
-                    terminal_type: TerminalType::Microphone,
+                    terminal_type: TerminalType::InMicrophone as u16,
                     associated_terminal_id: 0,
                     clock_source_id: 40,
                     num_channels: 16,
@@ -1669,7 +1466,7 @@ mod test {
                 22,
                 TerminalDescriptor::Output(OutputTerminalDescriptor {
                     terminal_id: 22,
-                    terminal_type: TerminalType::UsbStreaming,
+                    terminal_type: TerminalType::UsbStreaming as u16,
                     associated_terminal_id: 0,
                     source_id: 11,
                     clock_source_id: 40,
@@ -1936,18 +1733,10 @@ mod test {
     }
 
     #[test]
-    fn rountrip_terminal_type() {
-        for value in 0..=u16::MAX {
-            let terminal_type = TerminalType::from(value);
-            assert_eq!(u16::from(terminal_type), value);
-        }
-    }
-
-    #[test]
     fn roundtrip_input_terminal_descriptor() {
         let descriptor = InputTerminalDescriptor {
             terminal_id: 0x11,
-            terminal_type: TerminalType::Microphone,
+            terminal_type: TerminalType::InMicrophone as u16,
             associated_terminal_id: 0x33,
             clock_source_id: 0x44,
             num_channels: 0x55,
@@ -1968,7 +1757,7 @@ mod test {
     fn roudtrip_output_terminal_descriptor() {
         let descriptor = OutputTerminalDescriptor {
             terminal_id: 0x11,
-            terminal_type: TerminalType::Speaker,
+            terminal_type: TerminalType::OutSpeaker as u16,
             associated_terminal_id: 0x33,
             source_id: 0x44,
             clock_source_id: 0x55,
@@ -1987,7 +1776,7 @@ mod test {
     fn roundtrip_terminal_descriptor_input() {
         let descriptor = TerminalDescriptor::Input(InputTerminalDescriptor {
             terminal_id: 0x11,
-            terminal_type: TerminalType::Microphone,
+            terminal_type: TerminalType::InMicrophone as u16,
             associated_terminal_id: 0x33,
             clock_source_id: 0x44,
             num_channels: 0x55,
@@ -2007,7 +1796,7 @@ mod test {
     fn roundtrip_terminal_descriptor_output() {
         let descriptor = TerminalDescriptor::Output(OutputTerminalDescriptor {
             terminal_id: 0x11,
-            terminal_type: TerminalType::Speaker,
+            terminal_type: TerminalType::OutSpeaker as u16,
             associated_terminal_id: 0x33,
             source_id: 0x44,
             clock_source_id: 0x55,
