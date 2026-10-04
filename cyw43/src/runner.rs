@@ -80,40 +80,6 @@ pub(crate) trait SealedBus {
 pub trait Bus: SealedBus {}
 impl<T: SealedBus> Bus for T {}
 
-async fn wake_bus(bus: &mut impl Bus) -> crate::Result<()> {
-    if matches!(bus.bus_type(), BusType::Sdio) {
-        bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_HT_AVAIL_REQ)
-            .await;
-
-        try_until(
-            async || bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_HT_AVAIL_REQ << 3 != 0,
-            Duration::from_millis(5),
-        )
-        .await
-        .ctx("timeout while requesting HT clock before SDIO access")?;
-    }
-
-    Ok(())
-}
-
-async fn wlan_read(
-    bus: &mut impl Bus,
-    buf: &mut Aligned<A4, [u8]>,
-    wake: bool,
-    start: usize,
-    len: usize,
-) -> crate::Result<()> {
-    if wake {
-        wake_bus(bus).await?;
-    }
-    bus.wlan_read(&mut buf[start..][..len]).await.ctx("wlan_read failed")
-}
-
-async fn wlan_write(bus: &mut impl Bus, buf: &mut WriteBuffer) -> crate::Result<()> {
-    wake_bus(bus).await?;
-    bus.wlan_write(buf).await.ctx("wlan_write failed")
-}
-
 /// Driver communicating with the WiFi chip.
 pub struct Runner<'a, BUS: Bus, CHIP: Chip> {
     ch: ch::Runner<'a>,
@@ -758,6 +724,47 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         }
     }
 
+    async fn wake_bus(&mut self) -> crate::Result<()> {
+        if matches!(self.bus.bus_type(), BusType::Sdio) {
+            self.bus
+                .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_HT_AVAIL_REQ)
+                .await;
+
+            try_until(
+                async || {
+                    self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_HT_AVAIL_REQ << 3
+                        != 0
+                },
+                Duration::from_millis(5),
+            )
+            .await
+            .ctx("timeout while requesting HT clock before SDIO access")?;
+        }
+
+        Ok(())
+    }
+
+    async fn wlan_read(
+        &mut self,
+        buf: &mut Aligned<A4, [u8]>,
+        wake: bool,
+        start: usize,
+        len: usize,
+    ) -> crate::Result<()> {
+        if wake {
+            self.wake_bus().await?;
+        }
+        self.bus
+            .wlan_read(&mut buf[start..][..len])
+            .await
+            .ctx("wlan_read failed")
+    }
+
+    async fn wlan_write(&mut self, buf: &mut WriteBuffer) -> crate::Result<()> {
+        self.wake_bus().await?;
+        self.bus.wlan_write(buf).await.ctx("wlan_write failed")
+    }
+
     /// Run the CYW43 event handling loop.
     pub async fn run(mut self) -> ! {
         let mut buf = Aligned([0u8; 4 + 2048]);
@@ -859,7 +866,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-                        let _ = wlan_write(&mut self.bus, &mut write_buffer[..total_len]).await;
+                        let _ = self.wlan_write(&mut write_buffer[..total_len]).await;
                         drop(packet);
                         self.check_status(&mut buf).await;
                     }
@@ -982,10 +989,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     ((status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT) as usize
                 }
                 BusType::Sdio => {
-                    if wlan_read(&mut self.bus, &mut hwtag_buf, true, 0, INITIAL_READ)
-                        .await
-                        .is_err()
-                    {
+                    if self.wlan_read(&mut hwtag_buf, true, 0, INITIAL_READ).await.is_err() {
                         debug!("failed to read sdio hwtag");
                         break;
                     }
@@ -1013,11 +1017,12 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                 // buffer and discard it.
                 trace!("rx frame too big for packet pool, len {}", len);
                 let drained = match self.bus.bus_type() {
-                    BusType::Spi => wlan_read(&mut self.bus, buf, true, 0, len).await.is_ok(),
+                    BusType::Spi => self.wlan_read(buf, true, 0, len).await.is_ok(),
                     BusType::Sdio => {
                         // The hwtag was already consumed into `hwtag_buf` above.
                         len <= INITIAL_READ
-                            || wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
+                            || self
+                                .wlan_read(buf, false, INITIAL_READ, len - INITIAL_READ)
                                 .await
                                 .is_ok()
                     }
@@ -1040,7 +1045,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
             let offset_len = match self.bus.bus_type() {
                 BusType::Spi => {
-                    if wlan_read(&mut self.bus, buf, true, 0, len).await.is_err() {
+                    if self.wlan_read(buf, true, 0, len).await.is_err() {
                         debug!("spi wlan_read failed");
                         break;
                     }
@@ -1050,7 +1055,8 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                 }
                 BusType::Sdio => {
                     if len > INITIAL_READ {
-                        if wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
+                        if self
+                            .wlan_read(buf, false, INITIAL_READ, len - INITIAL_READ)
                             .await
                             .is_err()
                         {
@@ -1426,6 +1432,6 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-        let _ = wlan_write(&mut self.bus, &mut write_buffer[..total_len]).await;
+        let _ = self.wlan_write(&mut write_buffer[..total_len]).await;
     }
 }
