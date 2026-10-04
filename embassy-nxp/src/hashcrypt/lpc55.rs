@@ -143,6 +143,7 @@ fn process_blocks_ctr(data: &[u8], output: &mut [u8]) {
     let has_tail = !tail.is_empty();
     let mut offset = 0;
 
+    // process the 16 byte blocks
     for (i, block) in blocks.enumerate() {
         let block: &[u8; 16] = block.try_into().unwrap();
         let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
@@ -152,6 +153,7 @@ fn process_blocks_ctr(data: &[u8], output: &mut [u8]) {
         offset += 16;
     }
 
+    // if the tail exist, pad with 0
     if has_tail {
         let mut in_blocks = [0u8; 16];
         in_blocks[..tail.len()].copy_from_slice(tail);
@@ -261,6 +263,7 @@ impl<'d> GenericHashcrypt<'d> {
             w.set_msw1st_out(true);
             w.set_swapdat(true);
             w.set_swapkey(true);
+            w.set_aesctrpos(0);
         });
         AesCtr {
             _peri: self,
@@ -734,8 +737,48 @@ pub struct AesCtr<'a, 'd> {
 }
 
 impl<'a, 'd> Aes for AesCtr<'a, 'd> {
-    fn encrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
-        todo!("Add encrypt method for CTR")
+    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+        let key = match &self.key {
+            Some(k) => k,
+            None => {
+                return Err(AesError::KeyNeeded);
+            }
+        };
+
+        let counter = match &self.counter {
+            Some(t) => t,
+            None => {
+                return Err(AesError::CounterNeeded);
+            }
+        };
+
+        if data.len() != output.len() {
+            return Err(AesError::LengthMismatch);
+        }
+
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesdecrypt(Aesdecrypt::Encrypt);
+            w.set_streamlast(false);
+        });
+
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        feed_key(key);
+        feed_iv_counter(counter);
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesctrpos(0);
+        });
+
+        process_blocks_ctr(data, output);
+
+        return Ok(());
     }
 
     fn decrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
