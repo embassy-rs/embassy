@@ -76,6 +76,16 @@ where
     M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
+    /// Drop glue for DFEN=0: a guard field instead of a `Drop` impl so `Filter`
+    /// stays freely destructurable.
+    ///
+    /// # Note
+    /// `Filter` intentionally has public fields for disjoint borrows of its
+    /// halves. Because it has no `Drop`, a struct-update pattern that discards
+    /// this field (`Filter { regular, .. }`) disables the filter early while the
+    /// extracted halves stay usable. Prefer [`Filter::disable`] or letting the
+    /// whole `Filter` drop.
+    _guard: FilterGuard<T, M>,
     common: &'a DfsdmCommon<'d, T, Enabled>,
     /// Regular-conversion half.
     pub regular: FilterRegular<'a, 'd, 'tr, T, M, D>,
@@ -85,6 +95,23 @@ where
     pub awd: AnalogWatchdog<'a, 'd, T, M>,
     /// Extremes detector.
     pub extremes: ExtremesDetector<'a, 'd, T, M>,
+}
+
+/// Sets DFEN=0 on drop. A guard field instead of a `Drop` impl on [`Filter`],
+/// so the latter stays freely destructurable.
+pub(crate) struct FilterGuard<T, M>(PhantomData<(T, M)>)
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>;
+
+impl<T, M> Drop for FilterGuard<T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    fn drop(&mut self) {
+        FilterRegs::<T, M>::set_enabled(false);
+    }
 }
 
 /// Regular-conversion half of a filter.
@@ -171,6 +198,7 @@ where
         [(); N]: NonEmpty,
     {
         let filter = Filter {
+            _guard: FilterGuard(PhantomData),
             common: self.common,
             regular: FilterRegular::new(self.common, regular),
             injected: FilterInjected::new(self.common, injected),
@@ -272,17 +300,6 @@ where
     }
 }
 
-impl<'tr, 'ti, 'a, 'd, T, M, D> Drop for Filter<'tr, 'ti, 'a, 'd, T, M, D>
-where
-    T: Instance + FilterInterrupt<M>,
-    M: FilterMarker + InstanceEvents<T>,
-    D: DmaMode,
-{
-    fn drop(&mut self) {
-        FilterRegs::<T, M>::set_enabled(false);
-    }
-}
-
 impl<'tr, 'ti, 'a, 'd, T, M, D> Filter<'tr, 'ti, 'a, 'd, T, M, D>
 where
     T: Instance + FilterInterrupt<M>,
@@ -328,29 +345,14 @@ where
         self,
         transceiver: &'new_reg dyn TransceiverTrait<T, Enabled>,
     ) -> Filter<'new_reg, 'ti, 'a, 'd, T, M, D> {
-        FilterRegular::<'a, 'd, 'ti, T, M, D>::set_transceiver(transceiver.index());
-
-        let this = ManuallyDrop::new(self);
-        // SAFETY: `this` is wrapped in `ManuallyDrop` to prevent the destructor from
-        // running. We extract each field with `ptr::read`, which performs a bitwise
-        // move without invoking drop. The original `Filter` is never dropped and all
-        // extracted fields are moved into the new `Filter`, maintaining ownership
-        // invariants. Skipping the original `Filter`'s Drop is intentional: it would
-        // clear DFEN, but the returned `Filter` re-acquires that teardown obligation.
-        let common = unsafe { ptr::read(&this.common) };
-        let injected = unsafe { ptr::read(&this.injected) };
-        let awd = unsafe { ptr::read(&this.awd) };
-        let extremes = unsafe { ptr::read(&this.extremes) };
+        FilterRegular::<'a, 'd, 'tr, T, M, D>::set_transceiver(transceiver.index());
 
         Filter {
-            common,
             regular: FilterRegular {
                 _common: PhantomData,
                 regular: transceiver,
             },
-            injected,
-            awd,
-            extremes,
+            ..self
         }
     }
 
@@ -370,27 +372,12 @@ where
         let (slots, filterword) = FilterInjected::<'a, 'd, 'ti, T, M, D>::build_slots(transceivers);
         FilterInjected::<'a, 'd, 'ti, T, M, D>::set_channels(filterword);
 
-        let this = ManuallyDrop::new(self);
-        // SAFETY: `this` is wrapped in `ManuallyDrop` to prevent the destructor from
-        // running. We extract each field with `ptr::read`, which performs a bitwise
-        // move without invoking drop. The original `Filter` is never dropped and all
-        // extracted fields are moved into the new `Filter`, maintaining ownership
-        // invariants. Skipping the original `Filter`'s Drop is intentional: it would
-        // clear DFEN, but the returned `Filter` re-acquires that teardown obligation.
-        let common = unsafe { ptr::read(&this.common) };
-        let regular = unsafe { ptr::read(&this.regular) };
-        let awd = unsafe { ptr::read(&this.awd) };
-        let extremes = unsafe { ptr::read(&this.extremes) };
-
         Filter {
-            common,
-            regular,
             injected: FilterInjected {
                 injected: slots,
                 _common: PhantomData,
             },
-            awd,
-            extremes,
+            ..self
         }
     }
 }
