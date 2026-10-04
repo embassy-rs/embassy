@@ -10,7 +10,7 @@ pub mod speaker;
 pub mod source;
 
 mod class_codes;
-pub mod terminal_type;
+pub use super::terminal_type;
 
 /// The maximum supported audio channel index (corresponds to `Top`).
 /// FIXME: Use `core::mem::variant_count(...)` when stabilized.
