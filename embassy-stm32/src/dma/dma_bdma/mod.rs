@@ -631,6 +631,10 @@ impl<'d> Channel<'d> {
                 state.complete_count.store(0, Ordering::Release);
                 self.clear_irqs();
 
+                // Ensure the channel is disabled and wait for the EN bit to clear
+                ch.cr().write(|w| w.set_en(false));
+                while ch.cr().read().en() {}
+
                 ch.par().write_value(peri_addr as u32);
                 ch.mar().write_value(mem_addr as u32);
                 ch.ndtr().write(|w| w.set_ndt(mem_len as u16));
