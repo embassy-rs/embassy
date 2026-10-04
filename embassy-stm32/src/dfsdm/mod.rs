@@ -42,8 +42,6 @@ pub enum Error {
     Overrun,
     /// Internal peripheral error.
     PeripheralError,
-    /// Neighbor pin unavailable.
-    NeighborPinUnavailable,
     /// No data available yet.
     NotReady,
     /// Invalid filter parameters: FOSR/IOSR out of range, or the resulting
@@ -207,6 +205,15 @@ impl<T: Instance> Drop for RccOff<T> {
     }
 }
 
+/// Kinds a pin-set consumes on its channel: `(Datin, Ckin)` flags.
+///
+/// Shared by the builder (to disclaim reservations it does not keep) and the
+/// transceiver drop guard (to release the ones it does), so the two sets can
+/// never drift apart.
+pub(crate) fn pinset_kinds<S: PinSet>() -> (bool, bool) {
+    (S::HAS_DATA, S::HAS_CLK)
+}
+
 impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
     pub(crate) fn insert_pin(&mut self, ch: usize, kind: PinKind, flex: Option<Flex<'d>>) {
         if let Some(p) = flex {
@@ -217,7 +224,12 @@ impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
             critical_section::with(|cs| {
                 *slot.inner.borrow_ref_mut(cs) = Some(p);
             });
-            slot.rc.store(1, Ordering::Relaxed);
+            // Two potential users per slot: this channel's own transceiver and
+            // its predecessor's (CHINSEL=1 takes the next channel's pins, and
+            // `NextChannel` wraps). Both reservations are minted up front;
+            // whichever user does not take one disclaims it at build time, and
+            // the other releases it at transceiver drop.
+            slot.rc.store(2, Ordering::Relaxed);
         }
     }
 
@@ -225,23 +237,6 @@ impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
         match kind {
             PinKind::Datin => &self.datin_slots[ch],
             PinKind::Ckin => &self.ckin_slots[ch],
-        }
-    }
-
-    pub(crate) fn acquire_pin(&self, ch: usize, kind: PinKind) -> Result<(), Error> {
-        let slot = self.get_slot(ch, kind);
-        loop {
-            let val = slot.rc.load(Ordering::Acquire);
-            if val == 0 {
-                return Err(Error::NeighborPinUnavailable);
-            }
-            if slot
-                .rc
-                .compare_exchange(val, val + 1, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                return Ok(());
-            }
         }
     }
 
@@ -267,19 +262,15 @@ impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
         }
     }
 
-    pub(crate) fn acquire_pins<S: PinSet>(&self, ch: usize) -> Result<(), Error> {
-        if S::HAS_DATA {
-            self.acquire_pin(ch, PinKind::Datin)?;
+    /// Releases the reservations `S` holds on `ch`, if any.
+    pub(crate) fn release_pinset<S: PinSet>(&self, ch: usize) {
+        let (data, clk) = pinset_kinds::<S>();
+        if data {
+            self.release_pin(ch, PinKind::Datin);
         }
-        if S::HAS_CLK
-            && let Err(e) = self.acquire_pin(ch, PinKind::Ckin)
-        {
-            if S::HAS_DATA {
-                self.release_pin(ch, PinKind::Datin);
-            }
-            return Err(e);
+        if clk {
+            self.release_pin(ch, PinKind::Ckin);
         }
-        Ok(())
     }
 }
 

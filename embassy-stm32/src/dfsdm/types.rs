@@ -587,8 +587,9 @@ impl_trait! {
 // deliberately excluded
 
 /// Which transceiver's serial pins this transceiver's interface consumes
-/// (CFGR1.CHINSEL). Pins are borrowed from that transceiver's slot, so
-/// acquire/release live there too (see `Drop`).
+/// (CFGR1.CHINSEL). Pins are borrowed from that transceiver's slot; the
+/// reservation is released by the transceiver's drop guard (see
+/// [`ChannelGuard`]).
 pub trait PinSource: sealed::Sealed {
     /// Consume the next transceiver's pins instead of this transceiver's own.
     const FROM_NEIGHBOR: bool;
