@@ -14,8 +14,9 @@ use interrupt::typelevel::Interrupt;
 // The nonsecure lock/listen flow used here is compatible with the common
 // semaphore interface and remains usable across WBA52/54/55/65 families.
 use crate::Peri;
-use crate::atomic::AtomicModify;
+use crate::atomic::{ActiveInterrupt, InterruptRegister};
 use crate::cpu::CoreId;
+use crate::pac::common::{Reg, RW};
 use crate::peripherals::HSEM;
 use crate::rcc::RccPeripheral;
 use crate::{interrupt, pac};
@@ -73,34 +74,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for HardwareSemaph
                 T::state().waker_for(n).wake();
             }
         });
-    }
-}
-
-struct ActiveInterrupt<T: Instance> {
-    core: CoreId,
-    index: u8,
-    _marker: PhantomData<T>,
-}
-
-impl<T: Instance> ActiveInterrupt<T> {
-    pub fn new(core: CoreId, index: u8) -> Self {
-        T::regs()
-            .ier(core.to_index().into())
-            .set_bits(|w| w.set_ise(index.into(), true));
-
-        Self {
-            core,
-            index,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<T: Instance> Drop for ActiveInterrupt<T> {
-    fn drop(&mut self) {
-        T::regs()
-            .ier(self.core.to_index().into())
-            .clear_bits(|w| w.set_ise(self.index.into(), false));
     }
 }
 
@@ -248,12 +221,14 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
 
     /// Clear interrupts for this semaphore and return an active interrupt
     #[inline]
-    fn clear_and_enable_interupt(&self, core: CoreId) -> ActiveInterrupt<T> {
+    fn clear_and_enable_interupt(&self, core: CoreId) -> ActiveInterrupt<Reg<pac::hsem::regs::Ier, RW>, pac::hsem::regs::Ier> {
         T::regs()
             .icr(core.to_index().into())
             .write(|w| w.set_isc(self.index.into(), true));
 
-        ActiveInterrupt::new(core, self.index)
+        T::regs()
+            .ier(core.to_index().into())
+            .enable_interrupts(|w| w.set_ise(self.index.into(), true))
     }
 
     #[cfg(all(stm32wb, feature = "low-power"))]
