@@ -523,8 +523,45 @@ pub struct AesCbc<'a, 'd> {
 }
 
 impl<'a, 'd> Aes for AesCbc<'a, 'd> {
-    fn encrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
-        todo!("Add encrypt method for CBC")
+    fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+        let key = match &self.key {
+            Some(k) => k,
+            None => {
+                return Err(AesError::KeyNeeded);
+            }
+        };
+
+        let iv = match &self.iv {
+            Some(v) => v,
+            None => {
+                return Err(AesError::IvNeeded);
+            }
+        };
+        if data.is_empty() {
+            return Ok(());
+        }
+        if data.len() % 16 != 0 {
+            return Err(AesError::UnalignedLength);
+        }
+
+        if data.len() != output.len() {
+            return Err(AesError::LengthMismatch);
+        }
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesdecrypt(Aesdecrypt::Encrypt);
+            w.set_streamlast(false);
+        });
+
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        feed_key(key);
+        feed_iv_counter(iv);
+        process_blocks(data, output);
+
+        return Ok(());
     }
 
     fn decrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
