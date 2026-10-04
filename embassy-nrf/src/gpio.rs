@@ -499,6 +499,29 @@ impl<'d> Flex<'d> {
         });
     }
 
+    /// Is the pin configured as an input?
+    ///
+    /// This is true after [`Self::set_as_input()`] or [`Self::set_as_input_output()`].
+    #[inline]
+    pub fn is_input(&self) -> bool {
+        self.pin.conf().read().input() == vals::Input::Connect
+    }
+
+    /// Is the pin configured as an output?
+    ///
+    /// This is true after [`Self::set_as_output()`] or [`Self::set_as_input_output()`].
+    #[inline]
+    pub fn is_output(&self) -> bool {
+        self.pin.conf().read().dir() == vals::Dir::Output
+    }
+
+    /// Is the pin disconnected?
+    #[inline]
+    pub fn is_disconnected(&self) -> bool {
+        let conf = self.pin.conf().read();
+        conf.input() == vals::Input::Disconnect && conf.dir() == vals::Dir::Input
+    }
+
     /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
