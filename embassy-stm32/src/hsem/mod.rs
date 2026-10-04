@@ -16,7 +16,7 @@ use interrupt::typelevel::Interrupt;
 use crate::Peri;
 use crate::atomic::{ActiveInterrupt, InterruptRegister};
 use crate::cpu::CoreId;
-use crate::pac::common::{Reg, RW};
+use crate::pac::common::{RW, Reg};
 use crate::peripherals::HSEM;
 use crate::rcc::RccPeripheral;
 use crate::{interrupt, pac};
@@ -221,7 +221,10 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
 
     /// Clear interrupts for this semaphore and return an active interrupt
     #[inline]
-    fn clear_and_enable_interupt(&self, core: CoreId) -> ActiveInterrupt<Reg<pac::hsem::regs::Ier, RW>, pac::hsem::regs::Ier> {
+    fn clear_and_enable_interupt(
+        &self,
+        core: CoreId,
+    ) -> ActiveInterrupt<Reg<pac::hsem::regs::Ier, RW>, pac::hsem::regs::Ier> {
         T::regs()
             .icr(core.to_index().into())
             .write(|w| w.set_isc(self.index.into(), true));
