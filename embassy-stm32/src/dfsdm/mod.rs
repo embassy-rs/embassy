@@ -56,6 +56,12 @@ pub enum Error {
     InvalidConfig,
 }
 
+/// 24-bit signed data range shared by filter results (`RDATAR`/`JDATAR`),
+/// analog watchdog thresholds (`AWHT`/`AWLT`) and the extremes detector
+/// (`EXMAX`/`EXMIN`): literal RM-stated extremes.
+pub(crate) const I24_MAX: i32 = 0x7F_FFFF;
+pub(crate) const I24_MIN: i32 = -0x80_0000;
+
 // =============================================================================
 // Entrypoint to creating a DFSDM driver instance.
 // =============================================================================

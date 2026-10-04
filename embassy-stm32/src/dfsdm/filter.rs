@@ -551,6 +551,11 @@ where
     /// Reading the result clears the corresponding data register.
     pub fn try_get_result(&mut self) -> Result<ResultRegular, Error> {
         if self.get_and_clear_overrun() {
+            // Drain the sample left over by the overrun so it is not served
+            // out of order by a later read.
+            if self.end_of_conversion() {
+                let _ = self.get_result_unchecked();
+            }
             return Err(Error::Overrun);
         } else if self.end_of_conversion() {
             return Ok(self.get_result_unchecked());
@@ -759,6 +764,11 @@ where
     /// Reading the result clears the corresponding data register.
     pub fn try_get_result(&mut self) -> Result<ResultInjected, Error> {
         if self.get_and_clear_overrun() {
+            // Drain the sample left over by the overrun so it is not served
+            // out of order by a later read.
+            if self.end_of_conversion() {
+                let _ = self.get_result_unchecked();
+            }
             return Err(Error::Overrun);
         } else if self.end_of_conversion() {
             return Ok(self.get_result_unchecked());

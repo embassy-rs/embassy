@@ -649,10 +649,10 @@ impl FilterParameters {
     /// the given `width`.
     ///
     /// Returns [`Error::InvalidFilterParameters`] if `iosr` is outside
-    /// `1..=256`, the filter order's FOSR is invalid, or the resulting gain
-    /// exceeds the ceiling for `width`.
+    /// `1..=256`, the filter order's FOSR is outside `1..=1024`, or the
+    /// resulting gain exceeds the ceiling for `width`.
     pub fn try_new_for_width(order: FilterOrder, iosr: u16, width: InputWidth) -> Result<Self, Error> {
-        if (1..=256).contains(&iosr) && order.fosr() > 0 {
+        if (1..=256).contains(&iosr) && (1..=1024).contains(&order.fosr()) {
             let params = Self { order, iosr, width };
             if params.total_gain_checked().is_some() {
                 return Ok(params);
@@ -678,10 +678,10 @@ impl FilterParameters {
     /// method.
     ///
     /// Returns [`Error::InvalidFilterParameters`] if `iosr` is outside
-    /// `1..=256`, the filter order's FOSR is invalid, or the gain
+    /// `1..=256`, the filter order's FOSR is outside `1..=1024`, or the gain
     /// computation itself overflows `u128`.
     pub fn new_ignore_gain_ceiling(order: FilterOrder, iosr: u16) -> Result<Self, Error> {
-        if (1..=256).contains(&iosr) && order.fosr() > 0 && order.valid() {
+        if (1..=256).contains(&iosr) && (1..=1024).contains(&order.fosr()) && order.valid() {
             Ok(Self {
                 order,
                 iosr,
@@ -751,11 +751,16 @@ impl FilterParameters {
             .expect("FilterParameters: gain computation overflowed u128 for a validated instance")
     }
 
-    /// Recommended right-shift to achieve i24-fullscale results
+    /// Recommended right-shift to achieve i24-fullscale results.
+    ///
+    /// Assumes a full-scale input for the configured input width: +/-1 for
+    /// serial inputs, +/-2^15 for parallel inputs.
     pub fn recommended_shift(&self) -> u8 {
-        let gain = self.total_gain_wide();
-
-        gain.next_power_of_two().ilog2().saturating_sub(23) as u8
+        // Exponent arithmetic: shift = log2(gain) + (width bits - 1) - 23,
+        // computed without materializing the (possibly huge) product.
+        let gain_exp = self.total_gain_wide().next_power_of_two().ilog2();
+        let exp = gain_exp + self.width.bits() - 1;
+        exp.saturating_sub(23) as u8
     }
 }
 
