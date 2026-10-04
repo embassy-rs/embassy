@@ -42,7 +42,7 @@ pub enum AesError {
     OutputTooSmall,
 }
 
-fn _wait_iv_counter() {
+fn wait_iv_counter() {
     let mut tries = 0;
     while !pac::HASHCRYPT.status().read().neediv() {
         cortex_m::asm::nop();
@@ -55,7 +55,7 @@ fn _wait_iv_counter() {
 
 fn _feed_iv_counter(words: &[u8; 16]) {
     wait_data();
-    _wait_iv_counter();
+    wait_iv_counter();
 
     for chunk in words.chunks_exact(4) {
         feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
@@ -216,7 +216,7 @@ impl<'d> GenericHashcrypt<'d> {
             _peri: self,
             key_size: None,
             key: None,
-            _iv: None,
+            iv: None,
         }
     }
 
@@ -519,7 +519,7 @@ pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
     key: Option<Key>,
-    _iv: Option<[u8; 16]>,
+    iv: Option<[u8; 16]>,
 }
 
 impl<'a, 'd> Aes for AesCbc<'a, 'd> {
@@ -543,8 +543,8 @@ impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
 }
 
 impl<'a, 'd> AesCbc<'a, 'd> {
-    pub fn set_iv(&mut self, _iv: &[u8; 16]) -> Result<(), AesError> {
-        todo!("Add method body");
+    pub fn set_iv(&mut self, iv: &[u8; 16]) {
+        self.iv = Some(*iv);
     }
 }
 pub struct AesCtr<'a, 'd> {
