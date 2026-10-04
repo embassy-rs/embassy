@@ -84,6 +84,8 @@ pub(crate) struct DescriptorWriter<'a> {
     num_endpoints_mark: Option<usize>,
 }
 
+pub(crate) struct DescriptorMark(usize);
+
 impl<'a> DescriptorWriter<'a> {
     pub(crate) fn new(buf: &'a mut [u8]) -> Self {
         DescriptorWriter {
@@ -101,6 +103,14 @@ impl<'a> DescriptorWriter<'a> {
     /// Gets the current position in the buffer, i.e. the number of bytes written so far.
     pub const fn position(&self) -> usize {
         self.position
+    }
+
+    pub(crate) const fn mark(&self) -> DescriptorMark {
+        DescriptorMark(self.position)
+    }
+
+    pub(crate) fn patch<R>(&mut self, mark: DescriptorMark, patch: impl FnOnce(&mut [u8]) -> R) -> R {
+        patch(&mut self.buf[mark.0..self.position])
     }
 
     /// Writes an arbitrary (usually class-specific) descriptor with optional extra fields.

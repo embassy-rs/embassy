@@ -1,6 +1,6 @@
 # embassy-usb
 
-Async USB device stack for embedded devices in Rust.
+Async USB device and host stack for embedded devices in Rust.
 
 ## Features
 
@@ -14,6 +14,10 @@ Async USB device stack for embedded devices in Rust.
     - Ethernet (CDC NCM)
     - Human Interface Devices (HID)
     - MIDI
+    - Mass Storage (MSC)
+
+The [`host`](https://docs.embassy.dev/embassy-usb/git/default/host/index.html) module provides USB host enumeration,
+descriptor parsing, and class drivers for devices including HID, CDC ACM, mass storage, MIDI, and USB Audio Class.
 
 ## Adding support for new hardware
 

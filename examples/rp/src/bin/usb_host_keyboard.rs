@@ -6,8 +6,8 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
-use embassy_usb_host::class::hid::HidHost;
-use embassy_usb_host::{BusRoute, BusState};
+use embassy_usb::class::hid::host::HidHost;
+use embassy_usb::host::{BusRoute, BusState};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -21,7 +21,7 @@ async fn main(_spawner: Spawner) {
     let driver = embassy_rp::usb::host::Driver::new(p.USB, Irqs);
 
     static BUS_STATE: BusState = BusState::new();
-    let (mut bus_ctrl, bus) = embassy_usb_host::bus(driver, &BUS_STATE);
+    let (mut bus_ctrl, bus) = embassy_usb::host::bus(driver, &BUS_STATE);
 
     info!("USB host initialized, waiting for device...");
 

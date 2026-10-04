@@ -98,11 +98,15 @@ fn judge(expected: Expected, accepted: bool) -> CaseResult {
 
 /// Deterministic xorshift generator, registered as the global [`embassy_crypto::driver::Rng`]:
 /// the suites need arbitrary values, not secure ones.
+#[cfg(feature = "rng")]
 struct TestRng;
 
+#[cfg(feature = "rng")]
 static RNG_LO: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0x7F4A_7C15);
+#[cfg(feature = "rng")]
 static RNG_HI: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0x9E37_79B9);
 
+#[cfg(feature = "rng")]
 impl embassy_crypto::driver::Rng for TestRng {
     fn fill_bytes(buf: &mut [u8]) {
         use core::sync::atomic::Ordering;
@@ -118,6 +122,7 @@ impl embassy_crypto::driver::Rng for TestRng {
     }
 }
 
+#[cfg(feature = "rng")]
 embassy_crypto::rng_impl!(TestRng);
 
 /// The message all generated vectors are computed over.
