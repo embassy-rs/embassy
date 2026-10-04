@@ -628,9 +628,10 @@ impl<'a> ConfigurationDescriptorChain<'a> {
                 descriptor_type::ENDPOINT => {
                     let ep = EndpointDescriptor::try_from_bytes(bytes).map_err(|_| VisitError::BadDescriptor)?;
                     if let Some(iface) = current_iface.as_ref()
-                        && !visitor.on_endpoint(iface, &ep) {
-                            return Ok(());
-                        }
+                        && !visitor.on_endpoint(iface, &ep)
+                    {
+                        return Ok(());
+                    }
                 }
                 _ => {
                     if !visitor

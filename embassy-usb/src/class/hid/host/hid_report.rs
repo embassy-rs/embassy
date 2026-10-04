@@ -514,7 +514,6 @@ struct LocalState {
     has_usage_range: bool,
 }
 
-
 // ── HID descriptor item iterator ──────────────────────────────────────────────
 
 struct Item {

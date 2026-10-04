@@ -200,13 +200,14 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
             )?);
         }
         if streaming_interface.num_endpoints > 1
-            && let Some(feedback_endpoint) = output_interface.feedback_endpoint_descriptor {
-                feedback_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::In>(
-                    enum_info.device_address,
-                    &feedback_endpoint.into(),
-                    enum_info.split(),
-                )?);
-            }
+            && let Some(feedback_endpoint) = output_interface.feedback_endpoint_descriptor
+        {
+            feedback_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::In>(
+                enum_info.device_address,
+                &feedback_endpoint.into(),
+                enum_info.split(),
+            )?);
+        }
 
         Ok(Self {
             interface_collection,
@@ -774,8 +775,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacOut<'d, A> {
                 bytes_to_send -= num_bytes;
 
                 // Send the data
-                self
-                    .output_channel
+                self.output_channel
                     .request_out(data, true)
                     .await
                     .map_err(RequestError::RequestFailed)?;

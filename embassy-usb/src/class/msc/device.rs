@@ -489,12 +489,12 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         // phase with a ZLP before the CSW is sent (prevents host reading CSW as data).
         if let Ok(r) = &result
             && r.status != CSW_STATUS_PASSED
-                && cbw.direction_in()
-                && r.residue == cbw.data_transfer_length
-                && cbw.data_transfer_length > 0
-            {
-                let _ = self.write_ep.write(&[]).await;
-            }
+            && cbw.direction_in()
+            && r.residue == cbw.data_transfer_length
+            && cbw.data_transfer_length > 0
+        {
+            let _ = self.write_ep.write(&[]).await;
+        }
 
         result
     }
@@ -936,7 +936,8 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         // If transfer completed with fewer bytes than expected by the host, and the
         // length transferred is a multiple of max_packet_size (including 0), send a ZLP
         // to terminate the USB transfer.
-        if (transfer_len as u32) < cbw.data_transfer_length && transfer_len.is_multiple_of(self.config.max_packet_size as usize)
+        if (transfer_len as u32) < cbw.data_transfer_length
+            && transfer_len.is_multiple_of(self.config.max_packet_size as usize)
         {
             self.write_ep.write(&[]).await?;
         }
