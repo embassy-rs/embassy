@@ -781,8 +781,48 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
         return Ok(());
     }
 
-    fn decrypt(&mut self, _data: &[u8], _output: &mut [u8]) -> Result<(), AesError> {
-        todo!("Add decrypt method for CTR");
+    fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError> {
+        let key = match &self.key {
+            Some(k) => k,
+            None => {
+                return Err(AesError::KeyNeeded);
+            }
+        };
+
+        let counter = match &self.counter {
+            Some(t) => t,
+            None => {
+                return Err(AesError::CounterNeeded);
+            }
+        };
+
+        if data.len() != output.len() {
+            return Err(AesError::LengthMismatch);
+        }
+
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesdecrypt(Aesdecrypt::Decrypt);
+            w.set_streamlast(false);
+        });
+
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        feed_key(key);
+        feed_iv_counter(counter);
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesctrpos(0);
+        });
+
+        process_blocks_ctr(data, output);
+
+        return Ok(());
     }
 }
 
