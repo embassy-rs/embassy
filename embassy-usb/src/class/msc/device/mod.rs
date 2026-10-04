@@ -14,6 +14,9 @@ use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::InterfaceNumber;
 use crate::{Builder, Handler};
 
+mod block_device;
+pub use block_device::*;
+
 /// This should be used as `device_class` when building a pure MSC device.
 pub const USB_CLASS_MSC: u8 = 0x08;
 
