@@ -917,20 +917,23 @@ impl RxMode {
                 }
             }
             RxMode::FdBuffered(buf) => {
-                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
+                let regs = T::registers();
+                regs.regs.ir().write(|w| w.set_rfn(fifonr, true));
                 loop {
-                    match self.try_read_fd::<T>(ns_per_timer_tick) {
-                        Some(Ok(envelope)) => {
-                            let _ = buf.rx_sender.try_send(Ok(envelope));
-                        }
-                        Some(Err(err)) => {
+                    let mut frame = FdFrame::empty();
+                    let Some(ts) = regs
+                        .read_fd_into(0, &mut frame)
+                        .or_else(|| regs.read_fd_into(1, &mut frame))
+                    else {
+                        if let Some(err) = regs.curr_error() {
                             // bus error states can persist; emit once and return to avoid
                             // spinning forever in interrupt context when no frames are available
                             let _ = buf.rx_sender.try_send(Err(err));
-                            break;
                         }
-                        None => break,
-                    }
+                        break;
+                    };
+                    let ts = regs.calc_timestamp(ns_per_timer_tick, ts);
+                    let _ = buf.rx_sender.try_send(Ok(FdEnvelope { ts, frame }));
                 }
             }
         }
@@ -944,18 +947,6 @@ impl RxMode {
         } else if let Some((frame, ts)) = T::registers().read(1) {
             let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok(Envelope { ts, frame }))
-        } else {
-            T::registers().curr_error().map(Err)
-        }
-    }
-
-    fn try_read_fd<T: Instance>(&self, ns_per_timer_tick: u64) -> Option<Result<FdEnvelope, BusError>> {
-        if let Some((frame, ts)) = T::registers().read(0) {
-            let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok(FdEnvelope { ts, frame }))
-        } else if let Some((frame, ts)) = T::registers().read(1) {
-            let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok(FdEnvelope { ts, frame }))
         } else {
             T::registers().curr_error().map(Err)
         }
