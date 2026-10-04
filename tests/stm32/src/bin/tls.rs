@@ -57,9 +57,22 @@ async fn main(spawner: Spawner) {
     embassy_crypto::rng_fill_bytes(&mut seed);
     let seed = u64::from_le_bytes(seed);
 
-    // Unique MAC id (eth.rs uses 1..=6) so eth and tls tests can run
-    // concurrently on different boards on the same LAN.
-    let mac_addr = [0x00, 7, 0xDE, 0xAD, 0xBE, 0xEF];
+    // Ensure different boards get different MAC
+    // so running tests concurrently doesn't break (they're all in the same LAN)
+    #[cfg(feature = "stm32f429zi")]
+    let n = 1;
+    #[cfg(feature = "stm32h755zi")]
+    let n = 2;
+    #[cfg(feature = "stm32h563zi")]
+    let n = 3;
+    #[cfg(feature = "stm32f767zi")]
+    let n = 4;
+    #[cfg(feature = "stm32f207zg")]
+    let n = 5;
+    #[cfg(feature = "stm32h753zi")]
+    let n = 6;
+
+    let mac_addr = [0x00, n, 0xDE, 0xAD, 0xBE, 0xEF];
 
     const PACKET_QUEUE_SIZE: usize = 4;
     static PACKETS: StaticCell<PacketQueue<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>> = StaticCell::new();
