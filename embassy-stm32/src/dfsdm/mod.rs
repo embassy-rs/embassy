@@ -40,8 +40,6 @@ use crate::{Peri, interrupt, rcc};
 pub enum Error {
     /// Overrun error: the hardware generated data faster than we could read it.
     Overrun,
-    /// Internal peripheral error.
-    PeripheralError,
     /// No data available yet.
     NotReady,
     /// Invalid filter parameters: FOSR/IOSR out of range, or the resulting

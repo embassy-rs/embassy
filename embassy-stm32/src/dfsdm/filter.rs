@@ -508,7 +508,9 @@ where
                     FilterRegs::<T, M>::set_regular_overrun_interrupt(true);
                     Poll::Pending
                 }
-                Err(_) => unreachable!("Other errors invalid"),
+                Err(Error::InvalidFilterParameters | Error::InvalidConfig) => {
+                    unreachable!("try_get_result cannot produce config errors")
+                }
             }
         })
         .await
@@ -724,7 +726,9 @@ where
                     FilterRegs::<T, M>::set_injected_overrun_interrupt(true);
                     Poll::Pending
                 }
-                Err(_) => unreachable!("Other errors invalid"),
+                Err(Error::InvalidFilterParameters | Error::InvalidConfig) => {
+                    unreachable!("try_get_result cannot produce config errors")
+                }
             }
         })
         .await

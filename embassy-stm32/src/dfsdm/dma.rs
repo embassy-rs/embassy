@@ -157,23 +157,21 @@ where
         Ok(self.ring_buf.read_latest(buf))
     }
 
-    /// Asynchronously read `buf.len()` samples. `buf.len()` must equal half of
-    /// [`capacity`](Self::capacity), or this panics. Starts the DMA if needed;
-    /// returns [`Error::Overrun`] if the buffer overran.
+    /// Asynchronously read `buf.len()` samples, starting the DMA if needed.
+    /// Returns [`Error::Overrun`] if the buffer overran.
     ///
     /// `buf` receives raw `u32` data-register words; decode each with
     /// [`ResultRegular::from_word`] or [`ResultInjected::from_word`].
+    ///
+    /// Any `buf` length is accepted. The DMA only raises an interrupt at the
+    /// buffer half and full points, so unless `buf.len()` is a multiple of
+    /// half the ring, the final sample may arrive up to half a ring late; that
+    /// is a wake granularity / latency effect, not a correctness constraint.
     ///
     /// # Note
     /// Like [`FilterRegular::read`], this hangs forever if the filter is
     /// starved; see that method for the layered starvation detection.
     pub async fn read(&mut self, buf: &mut [u32]) -> Result<usize, Error> {
-        assert_eq!(
-            self.ring_buf.capacity() / 2,
-            buf.len(),
-            "Buffer size must be half the size of the ring buffer"
-        );
-
         self.autostart()?;
 
         self.ring_buf.read_exact(buf).await.map_err(remap_dma_error)
@@ -181,18 +179,11 @@ where
 
     /// Blocking counterpart of [`read`](Self::read): waits until at least one
     /// sample is available, then returns whatever is currently ready (at most
-    /// `buf.len()`, which must equal half of
-    /// [`capacity`](Self::capacity)). Returns [`Error::Overrun`] if the buffer
-    /// overran.
+    /// `buf.len()`). Any `buf` length is accepted. Returns [`Error::Overrun`]
+    /// if the buffer overran.
     ///
     /// Like [`read`](Self::read), this never returns if the filter is starved.
     pub fn blocking_read(&mut self, buf: &mut [u32]) -> Result<usize, Error> {
-        assert_eq!(
-            self.ring_buf.capacity() / 2,
-            buf.len(),
-            "Buffer size must be half the size of the ring buffer"
-        );
-
         self.autostart()?;
 
         loop {

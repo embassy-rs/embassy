@@ -123,9 +123,10 @@ async fn main(_spawner: Spawner) {
     });
 
     // Comparison.
-    // `blocking_read` spins until data is ready; the async `read` is the twin
-    // with the same half-capacity contract. Both return `Err(Error::Overrun)`
-    // when the DMA overran, which resets the ring and drops samples.
+    // `blocking_read` returns as soon as some samples are ready; the async
+    // `read` awaits exactly `buf.len()`. Both accept any buffer length and
+    // return `Err(Error::Overrun)` when the DMA overran, which resets the ring
+    // and drops samples.
     let mut result = [0u32; N_OUT];
     loop {
         match ring.blocking_read(&mut result) {
