@@ -169,7 +169,7 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
     pub async fn write_bytes(&mut self, data: &[u8]) {
         unsafe {
             self.sm.set_enable(false);
-            self.sm.set_y(u32::MAX as u32);
+            self.sm.set_y(u32::MAX);
             self.sm.set_enable(true);
         }
         let (rx, tx) = self.sm.rx_tx();
@@ -200,7 +200,7 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
         embassy_time::Timer::after(pullup_time).await;
 
         // Signal that delay has completed
-        tx.wait_push(0 as u32).await;
+        tx.wait_push(0_u32).await;
         // Wait until it's back at 0 low, open drain
         let _ = rx.wait_pull().await;
     }
@@ -209,7 +209,7 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
     pub async fn read_bytes(&mut self, data: &mut [u8]) {
         unsafe {
             self.sm.set_enable(false);
-            self.sm.set_y(u32::MAX as u32);
+            self.sm.set_y(u32::MAX);
             self.sm.set_enable(true);
         };
         let (rx, tx) = self.sm.rx_tx();
@@ -326,6 +326,12 @@ pub struct PioOneWireSearch {
     last_rom: u64,
     last_discrepancy: u8,
     finished: bool,
+}
+
+impl Default for PioOneWireSearch {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PioOneWireSearch {
