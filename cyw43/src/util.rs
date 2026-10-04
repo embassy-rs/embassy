@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use core::{mem, ptr, slice};
+use core::{mem, ops, ptr, slice};
 
 use aligned::{A4, Aligned};
 use embassy_time::{Duration, Ticker};
@@ -80,4 +80,45 @@ pub(crate) async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Dur
     }
 
     Err(crate::Error)
+}
+
+/// Buffer with space for a cmd
+pub struct WriteBuffer {
+    buf: Aligned<A4, [u8]>,
+}
+
+impl WriteBuffer {
+    pub fn new(buf: &mut Aligned<A4, [u8]>) -> &mut Self {
+        unsafe { &mut *(buf as *mut Aligned<A4, [u8]> as *mut Self) }
+    }
+
+    pub fn cmd(&mut self) -> &mut [u8] {
+        &mut self.buf[..4]
+    }
+
+    pub fn buf(&mut self) -> &mut [u8] {
+        &mut self.buf[4..]
+    }
+
+    pub fn cmd_buf(&self) -> &Aligned<A4, [u8]> {
+        &self.buf
+    }
+}
+
+impl ops::Index<ops::RangeTo<usize>> for WriteBuffer {
+    type Output = Self;
+
+    fn index(&self, mut range: ops::RangeTo<usize>) -> &Self::Output {
+        range.end += 4;
+
+        unsafe { &*(&self.buf[range] as *const Aligned<A4, [u8]> as *const [u8] as *const WriteBuffer) }
+    }
+}
+
+impl ops::IndexMut<ops::RangeTo<usize>> for WriteBuffer {
+    fn index_mut(&mut self, mut range: ops::RangeTo<usize>) -> &mut Self::Output {
+        range.end += 4;
+
+        unsafe { &mut *(&mut self.buf[range] as *mut Aligned<A4, [u8]> as *mut [u8] as *mut WriteBuffer) }
+    }
 }
