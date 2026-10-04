@@ -184,7 +184,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
             length: 0,
         };
         control_channel
-            .control_out(&packet.to_bytes(), &mut [])
+            .control_out(&packet.to_bytes(), &[])
             .await
             .map_err(|e| RegisterError::HostError(HostError::PipeError(e)))?;
         debug!(
@@ -199,14 +199,14 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 enum_info.split(),
             )?);
         }
-        if streaming_interface.num_endpoints > 1 {
-            if let Some(feedback_endpoint) = output_interface.feedback_endpoint_descriptor {
-                feedback_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::In>(
-                    enum_info.device_address,
-                    &feedback_endpoint.into(),
-                    enum_info.split(),
-                )?);
-            }
+        if streaming_interface.num_endpoints > 1
+            && let Some(feedback_endpoint) = output_interface.feedback_endpoint_descriptor
+        {
+            feedback_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::In>(
+                enum_info.device_address,
+                &feedback_endpoint.into(),
+                enum_info.split(),
+            )?);
         }
 
         Ok(Self {
@@ -336,7 +336,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         self.control_channel
             .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
-            .map_err(|e| RequestError::RequestFailed(e))?;
+            .map_err(RequestError::RequestFailed)?;
 
         Ok(u16::from_le_bytes([buf[2], buf[3]]))
     }
@@ -370,7 +370,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         self.control_channel
             .control_in(&packet.to_bytes(), length_buf.as_mut_slice())
             .await
-            .map_err(|e| RequestError::RequestFailed(e))?;
+            .map_err(RequestError::RequestFailed)?;
 
         if length_buf[1] != 0x03 {
             return Err(RequestError::InvalidResponse);
@@ -398,7 +398,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         self.control_channel
             .control_in(&packet.to_bytes(), &mut buf.as_mut_slice()[..total_length as usize])
             .await
-            .map_err(|e| RequestError::RequestFailed(e))?;
+            .map_err(RequestError::RequestFailed)?;
 
         // Rest of the string parsing code...
         let mut buf = &buf.as_mut_slice()[2..total_length as usize];
@@ -442,7 +442,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 recipient: Recipient::Interface,
             },
             request: codes::request_code::CUR,
-            value: (channel as u16) << 8 | control_selector as u16,
+            value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
             length: 1,
         };
@@ -452,7 +452,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         self.control_channel
             .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
-            .map_err(|e| RequestError::RequestFailed(e))?;
+            .map_err(RequestError::RequestFailed)?;
 
         Ok(buf[0])
     }
@@ -490,7 +490,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         self.control_channel
             .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
-            .map_err(|e| RequestError::RequestFailed(e))?;
+            .map_err(RequestError::RequestFailed)?;
 
         Ok(u16::from_le_bytes([buf[0], buf[1]]))
     }
@@ -528,7 +528,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         self.control_channel
             .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
-            .map_err(|e| RequestError::RequestFailed(e))?;
+            .map_err(RequestError::RequestFailed)?;
 
         Ok(u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]))
     }
@@ -566,7 +566,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         self.control_channel
             .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
-            .map_err(|e| RequestError::RequestFailed(e))?;
+            .map_err(RequestError::RequestFailed)?;
 
         let layout = Layout1ParameterBlock::try_from_bytes(buf.as_slice()).ok_or(RequestError::InvalidResponse)?;
 
@@ -606,7 +606,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         self.control_channel
             .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
-            .map_err(|e| RequestError::RequestFailed(e))?;
+            .map_err(RequestError::RequestFailed)?;
 
         let layout = Layout2ParameterBlock::try_from_bytes(buf.as_slice()).ok_or(RequestError::InvalidResponse)?;
 
@@ -646,7 +646,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         self.control_channel
             .control_in(&packet.to_bytes(), buf.as_mut_slice())
             .await
-            .map_err(|e| RequestError::RequestFailed(e))?;
+            .map_err(RequestError::RequestFailed)?;
 
         let layout = Layout3ParameterBlock::try_from_bytes(buf.as_slice()).ok_or(RequestError::InvalidResponse)?;
 
@@ -726,7 +726,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacOut<'d, A> {
         self.output_channel
             .request_out(data, true)
             .await
-            .map_err(|e| RequestError::RequestFailed(e))?;
+            .map_err(RequestError::RequestFailed)?;
 
         debug!(
             "[UAC] Lock request sent, starting stream with sampling frequency: {} samples/microframe",
@@ -775,11 +775,10 @@ impl<'d, A: UsbHostAllocator<'d>> UacOut<'d, A> {
                 bytes_to_send -= num_bytes;
 
                 // Send the data
-                let _len = self
-                    .output_channel
+                self.output_channel
                     .request_out(data, true)
                     .await
-                    .map_err(|e| RequestError::RequestFailed(e))?;
+                    .map_err(RequestError::RequestFailed)?;
             }
 
             self.num_frames += num_microframes_elapsed;
@@ -801,8 +800,8 @@ impl<'d, A: UsbHostAllocator<'d>> UacOut<'d, A> {
             .unwrap()
             .request_in(feedback_buffer.as_mut_slice())
             .await
-            .map_err(|e| RequestError::RequestFailed(e))?;
-        if let Some(samples_per_microframe) = parse_feedback(self.speed, &feedback_buffer.as_slice()) {
+            .map_err(RequestError::RequestFailed)?;
+        if let Some(samples_per_microframe) = parse_feedback(self.speed, feedback_buffer.as_slice()) {
             self.samples_per_microframe = samples_per_microframe;
             trace!("[UAC] Samples per microframe: {}", self.samples_per_microframe);
         }

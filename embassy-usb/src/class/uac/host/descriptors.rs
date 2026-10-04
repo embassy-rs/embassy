@@ -182,12 +182,11 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
         }
         match raw[1] {
             INTERFACE_ASSOCIATION => {
-                if self.iad.is_none() {
-                    if let Ok(iad) = InterfaceAssociationDescriptor::try_from_bytes(raw) {
-                        if iad.is_audio_association() {
-                            self.iad = Some(iad);
-                        }
-                    }
+                if self.iad.is_none()
+                    && let Ok(iad) = InterfaceAssociationDescriptor::try_from_bytes(raw)
+                    && iad.is_audio_association()
+                {
+                    self.iad = Some(iad);
                 }
             }
             CS_INTERFACE => {
@@ -229,10 +228,10 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
                 }
             }
             CS_ENDPOINT => {
-                if let Some(si) = self.streaming.last_mut() {
-                    if let Ok(audio_ep) = AudioEndpointDescriptor::try_from_bytes(raw) {
-                        si.audio_endpoint_descriptor = Some(audio_ep);
-                    }
+                if let Some(si) = self.streaming.last_mut()
+                    && let Ok(audio_ep) = AudioEndpointDescriptor::try_from_bytes(raw)
+                {
+                    si.audio_endpoint_descriptor = Some(audio_ep);
                 }
             }
             _ => {}

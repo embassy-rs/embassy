@@ -436,18 +436,16 @@ impl AudioSourceControlHandler {
                 }
             }
             // Return MIN/MAX/RES
-            GET_MIN | GET_MAX | GET_RES => {
-                if control_selector == VOLUME_CONTROL && channel < 3 {
-                    let value = match req.request {
-                        GET_MIN => -12750i16, // Minimum: -50 dB
-                        GET_MAX => 0i16,      // Maximum: 0 dB
-                        GET_RES => 256i16,    // Resolution: 1 dB
-                        _ => unreachable!(),
-                    };
+            GET_MIN | GET_MAX | GET_RES if control_selector == VOLUME_CONTROL && channel < 3 => {
+                let value = match req.request {
+                    GET_MIN => -12750i16, // Minimum: -50 dB
+                    GET_MAX => 0i16,      // Maximum: 0 dB
+                    GET_RES => 256i16,    // Resolution: 1 dB
+                    _ => unreachable!(),
+                };
 
-                    data[0..2].copy_from_slice(&value.to_le_bytes());
-                    return Some(InResponse::Accepted(&data[0..2]));
-                }
+                data[0..2].copy_from_slice(&value.to_le_bytes());
+                return Some(InResponse::Accepted(&data[0..2]));
             }
             _ => {}
         }

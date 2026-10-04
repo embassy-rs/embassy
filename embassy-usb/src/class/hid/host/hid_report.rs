@@ -202,7 +202,7 @@ fn extract_bits(data: &[u8], bit_offset: usize, bit_count: usize) -> Option<u32>
         return None;
     }
     let byte_start = bit_offset / 8;
-    let byte_end = (bit_offset + bit_count + 7) / 8;
+    let byte_end = (bit_offset + bit_count).div_ceil(8);
     if byte_end > data.len() {
         return None;
     }
@@ -504,6 +504,7 @@ impl Default for GlobalState {
     }
 }
 
+#[derive(Default)]
 struct LocalState {
     /// Packed usages: high 16 bits = page (0 ⇒ use global page), low 16 bits = usage.
     usages: [u32; 16],
@@ -511,18 +512,6 @@ struct LocalState {
     usage_min: u16,
     usage_max: u16,
     has_usage_range: bool,
-}
-
-impl Default for LocalState {
-    fn default() -> Self {
-        Self {
-            usages: [0; 16],
-            usage_count: 0,
-            usage_min: 0,
-            usage_max: 0,
-            has_usage_range: false,
-        }
-    }
 }
 
 // ── HID descriptor item iterator ──────────────────────────────────────────────
