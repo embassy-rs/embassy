@@ -38,8 +38,3 @@ debug = 2
 build = [
     { target = "thumbv7m-none-eabi", artifact-dir = "out/examples/efm32gg" },
 ]
-
-# The metapac that silabs-data generates locally. It exports the chip cfgs
-# through `links` metadata.
-[patch.crates-io]
-silabs-metapac = { path = "../../../silabs-data/build/silabs-metapac" }
