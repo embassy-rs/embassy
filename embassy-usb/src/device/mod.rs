@@ -1,10 +1,11 @@
 #![no_std]
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(async_fn_in_trait)]
-#![doc = include_str!("../README.md")]
+#![doc = include_str!("../../README.md")]
 #![warn(missing_docs)]
 
 // This mod MUST go first, so that the others see its macros.
+#[path = "../fmt.rs"]
 pub(crate) mod fmt;
 
 /// Get max value in const context.
@@ -23,14 +24,19 @@ macro_rules! const_max {
 pub use embassy_usb_driver as driver;
 
 mod builder;
+#[path = "../class/mod.rs"]
 pub mod class;
+#[path = "../control.rs"]
 pub mod control;
+#[path = "../descriptor.rs"]
 pub mod descriptor;
 mod descriptor_reader;
 pub mod msos;
+#[path = "../types.rs"]
 pub mod types;
 
 /// USB host support.
+#[path = "../host/mod.rs"]
 pub mod host;
 
 mod config {
