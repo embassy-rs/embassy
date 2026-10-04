@@ -243,6 +243,39 @@ async fn main(_spawner: Spawner) -> ! {
         }
     }
 
+    info!("Test3: Encrypting an aritrary length message");
+    // resut the same key and iv as the NIST tests
+
+    let pt2 = b"hello world! this is my plaintext.";
+    let ct2 = [
+        0xbb, 0xdc, 0x0c, 0x6b, 0x15, 0x31, 0x7b, 0x60, 0x3c, 0x5b, 0xed, 0x2e, 0x77, 0x30, 0x5d, 0x9e, 0xf4, 0xc7,
+        0xa9, 0x71, 0xe2, 0xd5, 0x3a, 0xbd, 0xfc, 0x9a, 0x7e, 0xff, 0x92, 0x0b, 0xc7, 0xd6, 0x3b, 0x7c, 0x5a, 0x5b,
+        0xb8, 0x5d, 0xc4, 0x9d, 0x72, 0xb8, 0x10, 0x66, 0x3f, 0x42, 0x0e, 0xf1,
+    ];
+    let mut out = [0u8; 48];
+    let result = cbc.encrypt_padded(pt2, out.as_mut_slice());
+    match result {
+        Ok(c) => {
+            info!("Plain text: {:02x}", pt2);
+            info!("Cipher text: {:02x}", &c);
+        }
+        Err(e) => {
+            error!("{}", defmt::Debug2Format(&e));
+        }
+    }
+
+    info!("Test4: Decrypting a padded ciphertext");
+    let mut out = [0u8; 48];
+    let result = cbc.decrypt_padded(ct2.as_slice(), out.as_mut_slice());
+    match result {
+        Ok(p) => {
+            info!("Plain text: {:02x}", &p);
+            info!("Cipher text: {:02x}", ct2);
+        }
+        Err(e) => {
+            error!("{}", defmt::Debug2Format(&e));
+        }
+    }
     loop {
         Timer::after_millis(100).await;
     }
