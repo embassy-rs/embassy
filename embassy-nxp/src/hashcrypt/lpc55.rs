@@ -133,6 +133,35 @@ fn read_digest(count: usize, out: &mut [u8]) {
         // to explicitly handle that case
     }
 }
+<<<<<<< HEAD
+=======
+
+fn process_blocks_ctr(data: &[u8], output: &mut [u8]) {
+    let blocks = data.chunks_exact(16);
+    let tail = blocks.remainder();
+    let nr_blocks = data.len() / 16;
+    let has_tail = !tail.is_empty();
+    let mut offset = 0;
+
+    for (i, block) in blocks.enumerate() {
+        let block: &[u8; 16] = block.try_into().unwrap();
+        let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
+        let last = !has_tail && i + 1 == nr_blocks;
+
+        process_block(block, out, last);
+        offset += 16;
+    }
+
+    if has_tail {
+        let mut in_blocks = [0u8; 16];
+        in_blocks[..tail.len()].copy_from_slice(tail);
+        let mut out_blocks = [0u8; 16];
+        process_block(&in_blocks, &mut out_blocks, true);
+        output[offset..offset + tail.len()].copy_from_slice(&out_blocks[..tail.len()]);
+    }
+}
+
+>>>>>>> fb15cc3b7 (feat: add helper function: process_blocks_ctr)
 // Generic driver type
 pub struct GenericHashcrypt<'d> {
     _peri: Peri<'d, HASHCRYPT>,
