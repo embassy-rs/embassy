@@ -540,15 +540,17 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
                 return Err(AesError::IvNeeded);
             }
         };
-        if data.is_empty() {
-            return Ok(());
-        }
+
         if data.len() % 16 != 0 {
             return Err(AesError::UnalignedLength);
         }
 
         if data.len() != output.len() {
             return Err(AesError::LengthMismatch);
+        }
+
+        if data.is_empty() {
+            return Ok(());
         }
 
         pac::HASHCRYPT.cryptcfg().modify(|w| {
@@ -581,15 +583,17 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
                 return Err(AesError::IvNeeded);
             }
         };
-        if data.is_empty() {
-            return Ok(());
-        }
+
         if data.len() % 16 != 0 {
             return Err(AesError::UnalignedLength);
         }
 
         if data.len() != output.len() {
             return Err(AesError::LengthMismatch);
+        }
+
+        if data.is_empty() {
+            return Ok(());
         }
 
         pac::HASHCRYPT.cryptcfg().modify(|w| {
