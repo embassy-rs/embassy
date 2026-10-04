@@ -30,8 +30,7 @@
 //! }).await?;
 //! ```
 
-#[allow(missing_docs)]
-pub mod codes;
+pub use super::uac2_codes as codes;
 pub mod descriptors;
 
 use core::future::{Future, poll_fn};
