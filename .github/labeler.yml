@@ -1,0 +1,99 @@
+e-boot:
+  - changed-files:
+    - any-glob-to-any-file:
+      - embassy-boot/**
+      - embassy-boot-nrf/**
+      - embassy-boot-rp/**
+      - embassy-boot-stm32/**
+
+e-crypto:
+  - changed-files:
+    - any-glob-to-any-file:
+      - embassy-crypto/**
+      - embassy-crypto-rand/**
+      - embassy-crypto-rustcrypto/**
+      - embassy-crypto-test/**
+
+e-cyw43:
+  - changed-files:
+    - any-glob-to-any-file:
+      - cyw43/**
+      - cyw43-pio/**
+
+e-executor:
+  - changed-files:
+    - any-glob-to-any-file:
+      - embassy-executor/**
+      - embassy-executor-macros/**
+      - embassy-executor-timer-queue/**
+
+e-futures:
+  - changed-files:
+    - any-glob-to-any-file: 'embassy-futures/**'
+
+e-mcxa:
+  - changed-files:
+    - any-glob-to-any-file: 'embassy-mcxa/**'
+
+e-mspm0:
+  - changed-files:
+    - any-glob-to-any-file: 'embassy-mspm0/**'
+
+e-net:
+  - changed-files:
+    - any-glob-to-any-file:
+      - embassy-net/**
+      - embassy-net-adin1110/**
+      - embassy-net-driver-channel/**
+      - embassy-net-enc28j60/**
+      - embassy-net-nrf91/**
+      - embassy-net-pp/**
+      - embassy-net-tuntap/**
+      - embassy-net-wiznet/**
+
+e-net-esp-hosted:
+  - changed-files:
+    - any-glob-to-any-file: 'embassy-net-esp-hosted/**'
+
+e-nrf:
+  - changed-files:
+    - any-glob-to-any-file: 'embassy-nrf/**'
+
+e-nxp:
+  - changed-files:
+    - any-glob-to-any-file: 'embassy-nxp/**'
+
+e-rp:
+  - changed-files:
+    - any-glob-to-any-file: 'embassy-rp/**'
+
+e-stm32:
+  - changed-files:
+    - any-glob-to-any-file:
+      - embassy-stm32/**
+      - embassy-stm32-neochrom/**
+      - embassy-stm32-wpan/**
+
+e-sync:
+  - changed-files:
+    - any-glob-to-any-file: 'embassy-sync/**'
+
+e-time:
+  - changed-files:
+    - any-glob-to-any-file:
+      - embassy-time/**
+      - embassy-time-driver/**
+      - embassy-time-queue-utils/**
+
+e-usb:
+  - changed-files:
+    - any-glob-to-any-file:
+      - embassy-usb/**
+      - embassy-usb-dfu/**
+      - embassy-usb-driver/**
+      - embassy-usb-logger/**
+      - embassy-usb-synopsys-otg/**
+
+e-usb-host:
+  - changed-files:
+    - any-glob-to-any-file: 'embassy-usb-host/**'
