@@ -420,12 +420,11 @@ impl HubInterrupt<'_> {
     fn take_hub_change(&mut self) -> bool {
         let mut hub_change = false;
         // The hub is in idx 0 bit 0.
-        if let Some(b) = self.0.get_mut(0) {
-            if *b & 1 != 0 {
+        if let Some(b) = self.0.get_mut(0)
+            && *b & 1 != 0 {
                 *b &= !1;
                 hub_change = true;
             }
-        }
         hub_change
     }
     /// Returns the 0-based port number of the first port that has a status change, consuming it.

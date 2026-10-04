@@ -627,11 +627,10 @@ impl<'a> ConfigurationDescriptorChain<'a> {
                 }
                 descriptor_type::ENDPOINT => {
                     let ep = EndpointDescriptor::try_from_bytes(bytes).map_err(|_| VisitError::BadDescriptor)?;
-                    if let Some(iface) = current_iface.as_ref() {
-                        if !visitor.on_endpoint(iface, &ep) {
+                    if let Some(iface) = current_iface.as_ref()
+                        && !visitor.on_endpoint(iface, &ep) {
                             return Ok(());
                         }
-                    }
                 }
                 _ => {
                     if !visitor
@@ -1136,7 +1135,7 @@ impl StringDescriptor {
             }
         }
         let mut string = String::new();
-        for c_result in char::decode_utf16(utf16.into_iter()) {
+        for c_result in char::decode_utf16(utf16) {
             let c = c_result.unwrap_or(char::REPLACEMENT_CHARACTER);
             let result = string.push(c);
             debug_assert!(result.is_ok(), "must fit");

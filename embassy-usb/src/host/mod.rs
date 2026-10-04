@@ -117,7 +117,7 @@ impl BusState {
     ///
     /// No-op if the address is out of range or was not marked as in use.
     pub fn free_address(&self, addr: u8) {
-        if addr >= 1 && addr <= 127 {
+        if (1..=127).contains(&addr) {
             self.addr_bitmap.lock(|b| {
                 let mut b = b.borrow_mut();
                 let word = (addr / usize::BITS as u8) as usize;
