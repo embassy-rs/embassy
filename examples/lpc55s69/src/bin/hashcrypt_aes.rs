@@ -143,8 +143,17 @@ async fn main(_spawner: Spawner) -> ! {
 
     ecb.set_key(&key).unwrap();
 
+    // Block #2
+    // Plaintext ae2d8a571e03ac9c9eb76fac45af8e51
+    // Input Block ae2d8a571e03ac9c9eb76fac45af8e51
+    // Output Block f5d3d58503b9699de785895a96fdbaaf
+    // Ciphertext f5d3d58503b9699de785895a96fdbaaf
     let pt2: [u8; 16] = [
         0xAE, 0x2D, 0x8A, 0x57, 0x1E, 0x03, 0xAC, 0x9C, 0x9E, 0xB7, 0x6F, 0xAC, 0x45, 0xAF, 0x8E, 0x51,
+    ];
+
+    let ct2 = [
+        0xf5, 0xd3, 0xd5, 0x85, 0x03, 0xb9, 0x69, 0x9d, 0xe7, 0x85, 0x89, 0x5a, 0x96, 0xfd, 0xba, 0xaf,
     ];
 
     let mut out = [0u8; 16];
@@ -153,6 +162,21 @@ async fn main(_spawner: Spawner) -> ! {
         Ok(_) => {
             info!("Plain text:  {:02x}", pt2);
             info!("Cipher text: {:02x}", out);
+        }
+        Err(e) => {
+            error!("{}", defmt::Debug2Format(&e));
+        }
+    }
+
+    ecb.set_key(&key).unwrap();
+    info!("Test7: Decrypt unpadded block");
+
+    let mut out = [0u8; 16];
+    let result = ecb.decrypt(ct2.as_slice(), out.as_mut_slice());
+    match result {
+        Ok(_) => {
+            info!("Plain text:  {:02x}", out);
+            info!("Cipher text: {:02x}", ct2);
         }
         Err(e) => {
             error!("{}", defmt::Debug2Format(&e));
