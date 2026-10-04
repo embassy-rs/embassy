@@ -1,5 +1,6 @@
 use heapless::Vec;
 
+use super::{Handler, Inner, Interface, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START, UsbDevice, UsbDeviceState};
 use crate::config::MAX_HANDLER_COUNT;
 use crate::descriptor::{
     self, BosWriter, DescriptorWriter, SynchronizationType, UsageType, rewrite_config_descriptor_for_high_speed,
@@ -7,7 +8,6 @@ use crate::descriptor::{
 use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointInfo, EndpointType};
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Handler, Inner, Interface, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START, UsbDevice, UsbDeviceState};
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

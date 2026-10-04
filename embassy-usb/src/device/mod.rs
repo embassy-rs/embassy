@@ -1,60 +1,20 @@
-#![no_std]
-#![allow(unsafe_op_in_unsafe_fn)]
-#![allow(async_fn_in_trait)]
-#![doc = include_str!("../../README.md")]
-#![warn(missing_docs)]
-
-// This mod MUST go first, so that the others see its macros.
-#[path = "../fmt.rs"]
-pub(crate) mod fmt;
-
-/// Get max value in const context.
-macro_rules! const_max {
-    ($first:expr $(, $next:expr)* $(,)?) => {{
-        let mut max = $first;
-        $(
-            if max < $next {
-                max = $next;
-            }
-        )*
-        max
-    }};
-}
-
-pub use embassy_usb_driver as driver;
+//! USB device stack.
 
 mod builder;
-#[path = "../class/mod.rs"]
-pub mod class;
-#[path = "../control.rs"]
-pub mod control;
-#[path = "../descriptor.rs"]
-pub mod descriptor;
 mod descriptor_reader;
 pub mod msos;
-#[path = "../types.rs"]
-pub mod types;
-
-/// USB host support.
-#[path = "../host/mod.rs"]
-pub mod host;
-
-mod config {
-    #![allow(unused)]
-    include!(concat!(env!("OUT_DIR"), "/config.rs"));
-}
 
 use embassy_futures::select::{Either, select};
 use heapless::Vec;
 
-pub use crate::builder::{
+pub use self::builder::{
     Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder, UsbDeviceSpeed, UsbVersion,
 };
+use self::descriptor_reader::foreach_endpoint;
 use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{descriptor_type, lang_id};
-use crate::descriptor_reader::foreach_endpoint;
-use crate::driver::{Bus, ControlPipe, Direction, Driver, EndpointAddress, Event};
+use crate::driver::{self, Bus, ControlPipe, Direction, Driver, EndpointAddress, Event};
 use crate::types::{InterfaceNumber, StringIndex};
 
 /// The global state of the USB device.
