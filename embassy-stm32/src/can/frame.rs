@@ -369,8 +369,15 @@ pub struct FdFrame {
 impl FdFrame {
     /// Create a new CAN classic Frame
     pub fn new(can_header: Header, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
-        let data = FdData::new(raw_data)?;
-        Ok(FdFrame { can_header, data })
+        if !FdData::is_valid_len(raw_data.len()) {
+            return Err(FrameCreateError::InvalidDataLength);
+        }
+        let mut frame = FdFrame {
+            can_header,
+            data: FdData::empty(),
+        };
+        frame.data.bytes[..raw_data.len()].copy_from_slice(raw_data);
+        Ok(frame)
     }
 
     /// Create new extended frame
