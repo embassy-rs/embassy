@@ -649,8 +649,52 @@ impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
         return Ok(&output[..padded_len]);
     }
 
-    fn decrypt_padded<'o>(&mut self, _data: &[u8], _output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
-        todo!("Add function body");
+    fn decrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
+        let key = match &self.key {
+            Some(k) => k,
+            None => return Err(AesError::KeyNeeded),
+        };
+
+        let iv = match &self.iv {
+            Some(v) => v,
+            None => {
+                return Err(AesError::IvNeeded);
+            }
+        };
+
+        if data.len() == 0 || data.len() % 16 != 0 {
+            return Err(AesError::UnalignedLength);
+        }
+        if output.len() < data.len() {
+            return Err(AesError::OutputTooSmall);
+        }
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_aesdecrypt(Aesdecrypt::Decrypt);
+            w.set_streamlast(false);
+        });
+
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        feed_key(key);
+        feed_iv_counter(iv);
+        process_blocks(data, output);
+
+        let len = data.len();
+        let n = output[len - 1] as usize;
+
+        if n == 0 || n > 16 {
+            return Err(AesError::InvlidPadding);
+        }
+        for i in (len - n)..len {
+            if output[i] != n as u8 {
+                return Err(AesError::InvlidPadding);
+            }
+        }
+
+        return Ok(&output[..len - n]);
     }
 }
 
