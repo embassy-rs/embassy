@@ -385,7 +385,7 @@ where
 /// Regular conversion result.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ResultRegular {
+pub struct RegularResult {
     /// Sign-extended 24-bit sample.
     pub data: i32,
     /// Transceiver the sample came from.
@@ -394,14 +394,14 @@ pub struct ResultRegular {
     pub pending: bool,
 }
 
-impl ResultRegular {
+impl RegularResult {
     /// Decode a raw `u32` RDATAR word, e.g. read from a DMA ring buffer.
     ///
     /// The word layout is `RDATA[23:8]` (24-bit data), `RPEND` (bit 4) and
     /// `RDATACH[2:0]` (channel).
     pub fn from_word(word: u32) -> Self {
         let reg = crate::pac::dfsdm::regs::Rdatar(word);
-        ResultRegular {
+        RegularResult {
             data: sign_extend_24(reg.rdata()),
             channel: reg.rdatach(),
             pending: reg.rpend(),
@@ -412,21 +412,21 @@ impl ResultRegular {
 /// Injected conversion result.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ResultInjected {
+pub struct InjectedResult {
     /// Sign-extended 24-bit sample.
     pub data: i32,
     /// Transceiver the sample came from.
     pub channel: u8,
 }
 
-impl ResultInjected {
+impl InjectedResult {
     /// Decode a raw `u32` JDATAR word, e.g. read from a DMA ring buffer.
     ///
     /// The word layout is `JDATA[23:8]` (24-bit data) and `JDATACH[2:0]`
     /// (channel).
     pub fn from_word(word: u32) -> Self {
         let reg = crate::pac::dfsdm::regs::Jdatar(word);
-        ResultInjected {
+        InjectedResult {
             data: sign_extend_24(reg.jdata()),
             channel: reg.jdatach(),
         }
@@ -476,7 +476,7 @@ where
     /// # Note
     /// The request is ignored while a regular conversion is in progress (RCIP).
     /// An injected conversion preempts a running regular conversion, which is
-    /// restarted and flagged via [`ResultRegular::pending`].
+    /// restarted and flagged via [`RegularResult::pending`].
     pub fn start_conversion(&mut self) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rswstart(true));
     }
@@ -486,7 +486,7 @@ where
     /// Does not start a conversion: the conversion must already be running,
     /// started by an external trigger, or started via
     /// [`start_and_read`](Self::start_and_read). Resolves with the next
-    /// [`ResultRegular`] once a conversion completes.
+    /// [`RegularResult`] once a conversion completes.
     ///
     /// # Note
     /// A starved filter hangs forever: if the assigned transceiver produces no
@@ -499,7 +499,7 @@ where
     /// - [`ClockAbsenceDetector`] flags a missing or failed source clock;
     /// - [`Error::Overrun`] is returned when data *is* arriving, faster than it
     ///   is read.
-    pub async fn read(&mut self) -> Result<ResultRegular, Error> {
+    pub async fn read(&mut self) -> Result<RegularResult, Error> {
         poll_fn(|cx| {
             FilterRegs::<T, M>::set_regular_end_of_conversion_interrupt(false);
             FilterRegs::<T, M>::set_regular_overrun_interrupt(false);
@@ -525,24 +525,24 @@ where
     /// Equivalent to [`start_conversion`](Self::start_conversion) followed by
     /// [`read`](Self::read): the read future waits for the conversion it just
     /// launched.
-    pub async fn start_and_read(&mut self) -> Result<ResultRegular, Error> {
+    pub async fn start_and_read(&mut self) -> Result<RegularResult, Error> {
         self.start_conversion();
         self.read().await
     }
 
     /// Attempts to read the current regular conversion result.
     ///
-    /// Returns [`ResultRegular`] if `REOCF` is set, [`Error::Overrun`] if an
+    /// Returns [`RegularResult`] if `REOCF` is set, [`Error::Overrun`] if an
     /// overrun occurred, or [`Error::NotReady`] if no conversion result is
     /// available.
     ///
     /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
     ///
-    /// [`ResultRegular::pending`] is set if the regular conversion was delayed
+    /// [`RegularResult::pending`] is set if the regular conversion was delayed
     /// by an injected conversion.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_get_result(&mut self) -> Result<ResultRegular, Error> {
+    pub fn try_get_result(&mut self) -> Result<RegularResult, Error> {
         if self.get_and_clear_overrun() {
             // Drain the sample left over by the overrun so it is not served
             // out of order by a later read.
@@ -561,7 +561,7 @@ where
     ///
     /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
     ///
-    /// [`ResultRegular::pending`] is set if the regular conversion was delayed
+    /// [`RegularResult::pending`] is set if the regular conversion was delayed
     /// by an injected conversion.
     ///
     /// The returned data is only valid if `REOCF` was set before reading.
@@ -569,9 +569,9 @@ where
     /// # Note
     /// This path does not check or clear the overrun flag; use
     /// [`try_get_result`](Self::try_get_result) to propagate overruns.
-    pub fn get_result_unchecked(&mut self) -> ResultRegular {
+    pub fn get_result_unchecked(&mut self) -> RegularResult {
         let word = T::regs().flt(M::CHANNEL.index()).rdatar().read().0;
-        ResultRegular::from_word(word)
+        RegularResult::from_word(word)
     }
 
     /// Returns whether a regular conversion result is available.
@@ -700,7 +700,7 @@ where
     /// # Note
     /// The request is ignored while an injected conversion is in progress
     /// (JCIP). An injected conversion preempts a running regular conversion
-    /// (flagged via [`ResultRegular::pending`]).
+    /// (flagged via [`RegularResult::pending`]).
     pub fn start_conversion(&mut self) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jswstart(true));
     }
@@ -710,13 +710,13 @@ where
     /// Does not start a conversion: the conversion must already be running,
     /// started by an external trigger, or started via
     /// [`start_and_read`](Self::start_and_read). Resolves with the next
-    /// [`ResultInjected`] once a conversion completes.
+    /// [`InjectedResult`] once a conversion completes.
     ///
     /// # Note
     /// Like [`FilterRegular::read`], this hangs forever if the filter is
     /// starved (no data produced, or no trigger); see that method for the
     /// layered starvation detection.
-    pub async fn read(&mut self) -> Result<ResultInjected, Error> {
+    pub async fn read(&mut self) -> Result<InjectedResult, Error> {
         poll_fn(|cx| {
             FilterRegs::<T, M>::set_injected_end_of_conversion_interrupt(false);
             FilterRegs::<T, M>::set_injected_overrun_interrupt(false);
@@ -743,21 +743,21 @@ where
     /// Equivalent to [`start_conversion`](Self::start_conversion) followed by
     /// [`read`](Self::read): the read future waits for the conversion it just
     /// launched.
-    pub async fn start_and_read(&mut self) -> Result<ResultInjected, Error> {
+    pub async fn start_and_read(&mut self) -> Result<InjectedResult, Error> {
         self.start_conversion();
         self.read().await
     }
 
     /// Attempts to read the current injected conversion result.
     ///
-    /// Returns [`ResultInjected`] if `JEOCF` is set, [`Error::Overrun`] if an
+    /// Returns [`InjectedResult`] if `JEOCF` is set, [`Error::Overrun`] if an
     /// overrun occurred, or [`Error::NotReady`] if no conversion result is
     /// available.
     ///
     /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_get_result(&mut self) -> Result<ResultInjected, Error> {
+    pub fn try_get_result(&mut self) -> Result<InjectedResult, Error> {
         if self.get_and_clear_overrun() {
             // Drain the sample left over by the overrun so it is not served
             // out of order by a later read.
@@ -781,9 +781,9 @@ where
     /// # Note
     /// This path does not check or clear the overrun flag; use
     /// [`try_get_result`](Self::try_get_result) to propagate overruns.
-    pub fn get_result_unchecked(&mut self) -> ResultInjected {
+    pub fn get_result_unchecked(&mut self) -> InjectedResult {
         let word = T::regs().flt(M::CHANNEL.index()).jdatar().read().0;
-        ResultInjected::from_word(word)
+        InjectedResult::from_word(word)
     }
 
     /// Returns whether an injected conversion result is available.

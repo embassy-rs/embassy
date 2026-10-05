@@ -335,7 +335,7 @@ where
 /// Extremes result.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ResultExtreme {
+pub struct ExtremeResult {
     /// Sign-extended 24-bit extreme value.
     pub data: i32,
     /// Transceiver it came from.
@@ -383,9 +383,9 @@ where
     /// Reads the extremes detector maximum value and its corresponding channel.
     /// Reading this resets the register value to `0x800000` and clears the
     /// channel field.
-    pub fn read_maxima(&mut self) -> ResultExtreme {
+    pub fn read_maxima(&mut self) -> ExtremeResult {
         let exmax = T::regs().flt(M::CHANNEL.index()).exmax().read();
-        ResultExtreme {
+        ExtremeResult {
             channel: exmax.exmaxch(),
             data: sign_extend_24(exmax.exmax()),
         }
@@ -394,9 +394,9 @@ where
     /// Reads the extremes detector minimum value and its corresponding channel.
     /// Reading this resets the register value to `0x7FFFFF` and clears the
     /// channel field.
-    pub fn read_minima(&mut self) -> ResultExtreme {
+    pub fn read_minima(&mut self) -> ExtremeResult {
         let exmin = T::regs().flt(M::CHANNEL.index()).exmin().read();
-        ResultExtreme {
+        ExtremeResult {
             channel: exmin.exminch(),
             data: sign_extend_24(exmin.exmin()),
         }

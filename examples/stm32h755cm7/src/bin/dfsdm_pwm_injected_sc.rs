@@ -15,7 +15,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::dfsdm::config::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{Detectors, FilterConfig, Flt0, ResultInjected, ShortCircuitAssignment};
+use embassy_stm32::dfsdm::{Detectors, FilterConfig, Flt0, InjectedResult, ShortCircuitAssignment};
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
@@ -142,7 +142,7 @@ async fn main(_spawner: Spawner) {
     loop {
         match select(flt0.injected.read(), short_circuit.wait_for_event()).await {
             Either::First(result) => {
-                let ResultInjected { data, .. } = result.expect("Error");
+                let InjectedResult { data, .. } = result.expect("Error");
                 let ready_at = Instant::now();
 
                 let duty = dsp.process(data, pwm_ld2.max_duty_cycle());

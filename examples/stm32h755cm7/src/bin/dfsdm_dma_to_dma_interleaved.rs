@@ -12,7 +12,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config::{DataRightShift, FilterOrder, FilterParameters};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0, ResultRegular};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, RegularResult};
 use embassy_stm32::dma::{self, Channel, TransferOptions};
 use embassy_stm32::peripherals::{self, DFSDM1};
 use embassy_stm32::{SharedData, bind_interrupts, dfsdm};
@@ -128,7 +128,7 @@ async fn main(_spawner: Spawner) {
 
     let mut all_ok = true;
     for k in 0..N_OUT {
-        let d = ResultRegular::from_word(result[k]);
+        let d = RegularResult::from_word(result[k]);
         all_ok &= d.data == manual[k];
         info!("out {}: dfsdm = {}, manual = {}", k, d.data, manual[k]);
     }

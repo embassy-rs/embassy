@@ -15,7 +15,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::dfsdm::config::{DataRightShift, FilterOrder, FilterParameters};
-use embassy_stm32::dfsdm::{Error, FilterConfig, Flt0, ResultRegular};
+use embassy_stm32::dfsdm::{Error, FilterConfig, Flt0, RegularResult};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::{SharedData, bind_interrupts, dfsdm};
 use panic_probe as _;
@@ -108,7 +108,7 @@ async fn main(_spawner: Spawner) {
 
     loop {
         match flt0.regular.read().await {
-            Ok(ResultRegular { data, .. }) => {
+            Ok(RegularResult { data, .. }) => {
                 // `data` is the sum of IOSR samples; divide to get the average.
                 info!("vrefint: {}", data / IOSR as i32);
             }

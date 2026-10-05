@@ -18,8 +18,8 @@ use crate::rcc::WakeGuard;
 /// in scan mode: it identifies which transceiver produced each word. The buffer
 /// is 32-bit words only.
 ///
-/// Decode each word with [`ResultRegular::from_word`] or
-/// [`ResultInjected::from_word`]; use [`FilterRegular::read`] for
+/// Decode each word with [`RegularResult::from_word`] or
+/// [`InjectedResult::from_word`]; use [`FilterRegular::read`] for
 /// already-decoded, sign-extended results.
 ///
 /// # Note
@@ -149,7 +149,7 @@ where
     /// returns the number of samples written into `buf`.
     ///
     /// `buf` receives raw `u32` data-register words; decode each with
-    /// [`ResultRegular::from_word`] or [`ResultInjected::from_word`].
+    /// [`RegularResult::from_word`] or [`InjectedResult::from_word`].
     pub fn read_latest(&mut self, buf: &mut [u32]) -> Result<usize, Error> {
         self.autostart()?;
 
@@ -160,7 +160,7 @@ where
     /// Returns [`Error::Overrun`] if the buffer overran.
     ///
     /// `buf` receives raw `u32` data-register words; decode each with
-    /// [`ResultRegular::from_word`] or [`ResultInjected::from_word`].
+    /// [`RegularResult::from_word`] or [`InjectedResult::from_word`].
     ///
     /// Any `buf` length is accepted. The DMA only raises an interrupt at the
     /// buffer half and full points, so unless `buf.len()` is a multiple of

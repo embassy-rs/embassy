@@ -18,7 +18,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode, TriggerEdge};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0, InjectedTrigger, ResultInjected};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, InjectedResult, InjectedTrigger};
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
@@ -146,7 +146,7 @@ async fn main(_spawner: Spawner) {
     let mut wait_start = Instant::now();
 
     loop {
-        let ResultInjected { data, .. } = flt0.injected.read().await.expect("Error");
+        let InjectedResult { data, .. } = flt0.injected.read().await.expect("Error");
         let ready_at = Instant::now();
 
         let duty = dsp.process(data, pwm_ld2.max_duty_cycle());

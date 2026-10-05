@@ -12,7 +12,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config::{CkoutDivider, DataRightShift, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0, ResultRegular};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, RegularResult};
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
@@ -136,7 +136,7 @@ async fn main(_spawner: Spawner) {
     println!("Go?");
     loop {
         match flt0.regular.start_and_read().await {
-            Ok(ResultRegular { data, .. }) => println!("There we go! {}", data),
+            Ok(RegularResult { data, .. }) => println!("There we go! {}", data),
             Err(e) => warn!("read error: {}", e),
         }
     }

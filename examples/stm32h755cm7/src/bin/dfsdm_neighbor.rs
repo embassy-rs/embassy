@@ -14,7 +14,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0, ResultRegular};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, RegularResult};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
@@ -117,7 +117,7 @@ async fn main(_spawner: Spawner) {
     let mut polls = 0u32;
     while polls < 200_000 {
         polls += 1;
-        if let Ok(ResultRegular { data, .. }) = flt0.regular.try_get_result() {
+        if let Ok(RegularResult { data, .. }) = flt0.regular.try_get_result() {
             flt0.regular.start_conversion();
             count += 1;
             if count % 25 == 0 {

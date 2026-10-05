@@ -13,7 +13,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config::{DataRightShift, FilterOrder, FilterParameters};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0, Flt1, ResultRegular};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, Flt1, RegularResult};
 use embassy_stm32::dma::{self, Channel, TransferOptions};
 use embassy_stm32::peripherals::{self, DFSDM1};
 use embassy_stm32::{SharedData, bind_interrupts, dfsdm};
@@ -158,8 +158,8 @@ async fn main(_spawner: Spawner) {
 
     let mut all_ok = true;
     for k in 0..N_OUT {
-        let e = ResultRegular::from_word(result_even[k]);
-        let o = ResultRegular::from_word(result_odd[k]);
+        let e = RegularResult::from_word(result_even[k]);
+        let o = RegularResult::from_word(result_odd[k]);
         all_ok &= e.data == manual_even[k] && o.data == manual_odd[k];
         info!(
             "out {}: even dfsdm {} vs manual {}, odd dfsdm {} vs manual {}",
