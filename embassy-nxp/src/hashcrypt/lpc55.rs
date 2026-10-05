@@ -98,12 +98,12 @@ fn read_digest(count: usize, out: &mut [u8]) {
 }
 
 // Generic driver type
-pub struct GenericDriver<'d> {
+pub struct GenericHashcrypt<'d> {
     _peri: Peri<'d, HASHCRYPT>,
 }
 
 // mode switching implementation of generic driver
-impl<'d> GenericDriver<'d> {
+impl<'d> GenericHashcrypt<'d> {
     pub fn new(peri: Peri<'d, HASHCRYPT>) -> Self {
         pac::SYSCON.ahbclkctrl2().modify(|w| {
             w.set_hash_aes(true);
@@ -195,7 +195,7 @@ pub trait Aes {
 
 // Specific driver types
 pub struct Sha1<'a, 'd> {
-    _peri: &'a mut GenericDriver<'d>,
+    _peri: &'a mut GenericHashcrypt<'d>,
 }
 
 impl<'a, 'd> Digest for Sha1<'a, 'd> {
@@ -207,7 +207,7 @@ impl<'a, 'd> Digest for Sha1<'a, 'd> {
 }
 
 pub struct Sha256<'a, 'd> {
-    _peri: &'a mut GenericDriver<'d>,
+    _peri: &'a mut GenericHashcrypt<'d>,
 }
 
 impl<'a, 'd> Digest for Sha256<'a, 'd> {
@@ -218,7 +218,7 @@ impl<'a, 'd> Digest for Sha256<'a, 'd> {
 }
 
 pub struct AesEcb<'a, 'd> {
-    _peri: &'a mut GenericDriver<'d>,
+    _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
     key: Option<Key>,
 }
@@ -237,7 +237,7 @@ impl<'a, 'd> AesEcb<'a, 'd> {
     // Does not require anything passed the default aes methods
 }
 pub struct AesCbc<'a, 'd> {
-    _peri: &'a mut GenericDriver<'d>,
+    _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
     key: Option<Key>,
 }
@@ -256,7 +256,7 @@ impl<'a, 'd> AesCbc<'a, 'd> {
     }
 }
 pub struct AesCtr<'a, 'd> {
-    _peri: &'a mut GenericDriver<'d>,
+    _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
     key: Option<Key>,
 }
