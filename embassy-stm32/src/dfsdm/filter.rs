@@ -255,7 +255,7 @@ where
     /// conversion request. Disabling it while a continuous conversion is in
     /// progress stops the conversion immediately.
     fn set_continuous(enabled: bool) {
-        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rcont(enabled));
+        RegularRegs::<T, M>::set_continuous(enabled);
     }
 
     /// Configures the trigger for injected conversions.
@@ -498,15 +498,15 @@ where
     ///   is read.
     pub async fn read(&mut self) -> Result<RegularResult, Error> {
         poll_fn(|cx| {
-            FilterRegs::<T, M>::set_regular_end_of_conversion_interrupt(false);
-            FilterRegs::<T, M>::set_regular_overrun_interrupt(false);
+            RegularRegs::<T, M>::set_eoc_interrupt(false);
+            RegularRegs::<T, M>::set_overrun_interrupt(false);
             T::state().regular_waker.register(cx.waker());
             match self.try_read() {
                 Ok(result) => Poll::Ready(Ok(result)),
                 Err(Error::Overrun) => Poll::Ready(Err(Error::Overrun)),
                 Err(Error::NotReady) => {
-                    FilterRegs::<T, M>::set_regular_end_of_conversion_interrupt(true);
-                    FilterRegs::<T, M>::set_regular_overrun_interrupt(true);
+                    RegularRegs::<T, M>::set_eoc_interrupt(true);
+                    RegularRegs::<T, M>::set_overrun_interrupt(true);
                     Poll::Pending
                 }
                 Err(Error::InvalidFilterParameters | Error::InvalidConfig) => {
@@ -573,22 +573,22 @@ where
 
     /// Returns whether a regular conversion result is available.
     pub fn end_of_conversion(&self) -> bool {
-        FilterRegs::<T, M>::end_of_regular_conversion()
+        RegularRegs::<T, M>::end_of_conversion()
     }
 
     /// Whether the regular overrun flag is set.
     pub fn overrun(&self) -> bool {
-        FilterRegs::<T, M>::regular_overrun()
+        RegularRegs::<T, M>::overrun()
     }
 
     /// Clear the regular overrun flag.
     pub fn clear_overrun(&self) {
-        FilterRegs::<T, M>::clear_regular_overrun();
+        RegularRegs::<T, M>::clear_overrun();
     }
 
     /// Returns whether a regular conversion is currently in progress or pending.
     pub fn conversion_in_progress(&self) -> bool {
-        FilterRegs::<T, M>::regular_conversion_in_progress()
+        RegularRegs::<T, M>::conversion_in_progress()
     }
 
     /// Enables or disables continuous conversion mode.
@@ -601,12 +601,12 @@ where
     /// Writing CR1 while continuous mode is enabled (RCONT=1) mid-conversion
     /// restarts the conversion.
     pub fn set_continuous(&mut self, enabled: bool) {
-        FilterDisabled::<T, M>::set_continuous(enabled);
+        RegularRegs::<T, M>::set_continuous(enabled);
     }
 
     fn get_and_clear_overrun(&mut self) -> bool {
-        let overrun = FilterRegs::<T, M>::regular_overrun();
-        FilterRegs::<T, M>::clear_regular_overrun();
+        let overrun = RegularRegs::<T, M>::overrun();
+        RegularRegs::<T, M>::clear_overrun();
         overrun
     }
 }
@@ -715,16 +715,16 @@ where
     /// layered starvation detection.
     pub async fn read(&mut self) -> Result<InjectedResult, Error> {
         poll_fn(|cx| {
-            FilterRegs::<T, M>::set_injected_end_of_conversion_interrupt(false);
-            FilterRegs::<T, M>::set_injected_overrun_interrupt(false);
+            InjectedRegs::<T, M>::set_eoc_interrupt(false);
+            InjectedRegs::<T, M>::set_overrun_interrupt(false);
 
             T::state().injected_waker.register(cx.waker());
             match self.try_read() {
                 Ok(result) => Poll::Ready(Ok(result)),
                 Err(Error::Overrun) => Poll::Ready(Err(Error::Overrun)),
                 Err(Error::NotReady) => {
-                    FilterRegs::<T, M>::set_injected_end_of_conversion_interrupt(true);
-                    FilterRegs::<T, M>::set_injected_overrun_interrupt(true);
+                    InjectedRegs::<T, M>::set_eoc_interrupt(true);
+                    InjectedRegs::<T, M>::set_overrun_interrupt(true);
                     Poll::Pending
                 }
                 Err(Error::InvalidFilterParameters | Error::InvalidConfig) => {
@@ -785,27 +785,27 @@ where
 
     /// Returns whether an injected conversion result is available.
     pub fn end_of_conversion(&self) -> bool {
-        FilterRegs::<T, M>::end_of_injected_conversion()
+        InjectedRegs::<T, M>::end_of_conversion()
     }
 
     /// Whether the injected overrun flag is set.
     pub fn overrun(&self) -> bool {
-        FilterRegs::<T, M>::injected_overrun()
+        InjectedRegs::<T, M>::overrun()
     }
 
     /// Clear the injected overrun flag.
     pub fn clear_overrun(&self) {
-        FilterRegs::<T, M>::clear_injected_overun()
+        InjectedRegs::<T, M>::clear_overrun()
     }
 
     /// Returns whether an injected conversion is currently in progress or pending.
     pub fn conversion_in_progress(&self) -> bool {
-        FilterRegs::<T, M>::injected_conversion_in_progress()
+        InjectedRegs::<T, M>::conversion_in_progress()
     }
 
     fn get_and_clear_overrun(&mut self) -> bool {
-        let overrun = FilterRegs::<T, M>::injected_overrun();
-        FilterRegs::<T, M>::clear_injected_overun();
+        let overrun = InjectedRegs::<T, M>::overrun();
+        InjectedRegs::<T, M>::clear_overrun();
         overrun
     }
 }
@@ -874,6 +874,7 @@ where
     }
 }
 
+/// Whole-filter register access: DFEN is not regular- or injected-specific.
 pub(crate) struct FilterRegs<T, M>(PhantomData<(T, M)>);
 
 impl<T, M> FilterRegs<T, M>
@@ -885,19 +886,47 @@ where
     pub(crate) fn set_enabled(enabled: bool) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(enabled));
     }
+}
+
+/// Regular-conversion register access.
+pub(crate) struct RegularRegs<T, M>(PhantomData<(T, M)>);
+
+impl<T, M> RegularRegs<T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    /// Enables or disables continuous conversion mode.
+    ///
+    /// When enabled, the regular transceiver is converted repeatedly after each
+    /// conversion request. Disabling it while a continuous conversion is in
+    /// progress stops the conversion immediately.
+    pub(crate) fn set_continuous(enabled: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rcont(enabled));
+    }
 
     /// Returns whether a regular conversion result is available.
-    pub(crate) fn end_of_regular_conversion() -> bool {
+    pub(crate) fn end_of_conversion() -> bool {
         T::regs().flt(M::CHANNEL.index()).isr().read().reocf()
     }
 
-    /// Returns whether an injected conversion result is available.
-    pub(crate) fn end_of_injected_conversion() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().jeocf()
+    /// Returns whether a regular conversion is in progress.
+    pub(crate) fn conversion_in_progress() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().rcip()
+    }
+
+    /// Returns whether the regular overrun flag is set.
+    pub(crate) fn overrun() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().rovrf()
+    }
+
+    /// Clears the regular overrun flag.
+    pub(crate) fn clear_overrun() {
+        T::regs().flt(M::CHANNEL.index()).icr().modify(|w| w.set_clrrovrf(true));
     }
 
     /// Enables or disables regular end-of-conversion interrupts.
-    pub(crate) fn set_regular_end_of_conversion_interrupt(enabled: bool) {
+    pub(crate) fn set_eoc_interrupt(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs()
@@ -907,8 +936,48 @@ where
         });
     }
 
+    /// Enables or disables regular overrun interrupts.
+    pub(crate) fn set_overrun_interrupt(enabled: bool) {
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
+        critical_section::with(|_cs| {
+            T::regs()
+                .flt(M::CHANNEL.index())
+                .cr2()
+                .modify(|w| w.set_rovrie(enabled));
+        });
+    }
+}
+
+/// Injected-conversion register access.
+pub(crate) struct InjectedRegs<T, M>(PhantomData<(T, M)>);
+
+impl<T, M> InjectedRegs<T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    /// Returns whether an injected conversion result is available.
+    pub(crate) fn end_of_conversion() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jeocf()
+    }
+
+    /// Returns whether an injected conversion is in progress.
+    pub(crate) fn conversion_in_progress() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jcip()
+    }
+
+    /// Returns whether the injected overrun flag is set.
+    pub(crate) fn overrun() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jovrf()
+    }
+
+    /// Clears the injected overrun flag.
+    pub(crate) fn clear_overrun() {
+        T::regs().flt(M::CHANNEL.index()).icr().modify(|w| w.set_clrjovrf(true));
+    }
+
     /// Enables or disables injected end-of-conversion interrupts.
-    pub(crate) fn set_injected_end_of_conversion_interrupt(enabled: bool) {
+    pub(crate) fn set_eoc_interrupt(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs()
@@ -918,27 +987,8 @@ where
         });
     }
 
-    pub(crate) fn regular_conversion_in_progress() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().rcip()
-    }
-
-    pub(crate) fn injected_conversion_in_progress() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().jcip()
-    }
-
-    /// Enables or disables regular overrun interrupts.
-    pub(crate) fn set_regular_overrun_interrupt(enabled: bool) {
-        // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
-        critical_section::with(|_cs| {
-            T::regs()
-                .flt(M::CHANNEL.index())
-                .cr2()
-                .modify(|w| w.set_rovrie(enabled));
-        });
-    }
-
     /// Enables or disables injected overrun interrupts.
-    pub(crate) fn set_injected_overrun_interrupt(enabled: bool) {
+    pub(crate) fn set_overrun_interrupt(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs()
@@ -946,22 +996,6 @@ where
                 .cr2()
                 .modify(|w| w.set_jovrie(enabled));
         });
-    }
-
-    pub(crate) fn regular_overrun() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().rovrf()
-    }
-
-    pub(crate) fn injected_overrun() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().jovrf()
-    }
-
-    pub(crate) fn clear_regular_overrun() {
-        T::regs().flt(M::CHANNEL.index()).icr().modify(|w| w.set_clrrovrf(true));
-    }
-
-    pub(crate) fn clear_injected_overun() {
-        T::regs().flt(M::CHANNEL.index()).icr().modify(|w| w.set_clrjovrf(true));
     }
 }
 
@@ -998,14 +1032,14 @@ where
 {
     unsafe fn on_interrupt() {
         // Per-filter common logic
-        if FilterRegs::<T, F>::end_of_injected_conversion() || FilterRegs::<T, F>::injected_overrun() {
-            FilterRegs::<T, F>::set_injected_end_of_conversion_interrupt(false);
-            FilterRegs::<T, F>::set_injected_overrun_interrupt(false);
+        if InjectedRegs::<T, F>::end_of_conversion() || InjectedRegs::<T, F>::overrun() {
+            InjectedRegs::<T, F>::set_eoc_interrupt(false);
+            InjectedRegs::<T, F>::set_overrun_interrupt(false);
             <T as FilterInterrupt<F>>::state().injected_waker.wake();
         }
-        if FilterRegs::<T, F>::end_of_regular_conversion() || FilterRegs::<T, F>::regular_overrun() {
-            FilterRegs::<T, F>::set_regular_end_of_conversion_interrupt(false);
-            FilterRegs::<T, F>::set_regular_overrun_interrupt(false);
+        if RegularRegs::<T, F>::end_of_conversion() || RegularRegs::<T, F>::overrun() {
+            RegularRegs::<T, F>::set_eoc_interrupt(false);
+            RegularRegs::<T, F>::set_overrun_interrupt(false);
             <T as FilterInterrupt<F>>::state().regular_waker.wake();
         }
         if AnalogWatchdog::<T, F>::triggered() {
