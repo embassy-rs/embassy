@@ -52,17 +52,18 @@ async fn main(_spawner: Spawner) {
         )
     });
 
-    let channel4 = split
-        .ch4
-        .build_spi_int(&common, InternalSpiMode::SpiRising)
-        .set_data_right_shift(DataRightShift::new(0))
-        .enable();
+    let (channel4, filters) = split.build(&common, |tb| {
+        tb.ch4
+            .build_spi_int(&common, InternalSpiMode::SpiRising)
+            .set_data_right_shift(DataRightShift::new(0))
+            .enable()
+    });
 
     let flt_cfg = FilterConfig {
         filter_params: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 128 }, 6).expect("inside bounds"),
         ..Default::default()
     };
-    let mut flt0 = split
+    let mut flt0 = filters
         .flt0
         .build(&common, Irqs)
         .enable_no_dma(&channel4, [&channel4], &flt_cfg);

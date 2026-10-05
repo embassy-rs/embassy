@@ -88,11 +88,12 @@ async fn main(_spawner: Spawner) {
         core::array::from_fn(|i| (samples[2 * i] as u32) | ((samples[2 * i + 1] as u32) << 16));
 
     // Setup.
-    let ch = split
-        .ch0
-        .build_parallel_interleaved(&common)
-        .set_data_right_shift(DataRightShift::new(0))
-        .enable();
+    let (ch, filters) = split.build(&common, |tb| {
+        tb.ch0
+            .build_parallel_interleaved(&common)
+            .set_data_right_shift(DataRightShift::new(0))
+            .enable()
+    });
 
     let flt_cfg = FilterConfig {
         filter_params: FilterParameters::try_new(FilterOrder::Disabled, IOSR).expect("inside bounds"),
@@ -101,7 +102,7 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    let mut flt0 = split.flt0.build(&common, Irqs).enable_reg_dma(&ch, [&ch], &flt_cfg);
+    let mut flt0 = filters.flt0.build(&common, Irqs).enable_reg_dma(&ch, [&ch], &flt_cfg);
 
     let mut buffer = [0u32; 2 * N_OUT];
     let mut ring = flt0.regular.ring_buffered(p.DMA1_CH0, Irqs, &mut buffer);

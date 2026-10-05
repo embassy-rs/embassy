@@ -92,11 +92,12 @@ async fn main(_spawner: Spawner) {
     let source: [u32; TOTAL] = core::array::from_fn(|i| (even[i] as u32) | ((odd[i] as u32) << 16));
 
     // Setup.
-    let pair = split
-        .ch0
-        .build_parallel_dual(&common, split.ch1)
-        .set_data_right_shift([DataRightShift::new(0); 2])
-        .enable();
+    let (pair, filters) = split.build(&common, |tb| {
+        tb.ch0
+            .build_parallel_dual(&common, tb.ch1)
+            .set_data_right_shift([DataRightShift::new(0); 2])
+            .enable()
+    });
 
     let filter_params = FilterParameters::try_new(FilterOrder::Disabled, IOSR).expect("inside bounds");
     let flt_cfg0 = FilterConfig::<DFSDM1, Flt0> {
@@ -112,11 +113,11 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    let mut flt0 = split
+    let mut flt0 = filters
         .flt0
         .build(&common, Irqs)
         .enable_reg_dma(&pair.even, [&pair.even], &flt_cfg0);
-    let mut flt1 = split
+    let mut flt1 = filters
         .flt1
         .build(&common, Irqs)
         .enable_reg_dma(&pair.odd, [&pair.odd], &flt_cfg1);

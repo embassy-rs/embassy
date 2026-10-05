@@ -87,18 +87,19 @@ async fn main(_spawner: Spawner) {
         )
     });
 
-    let ch = split
-        .ch2
-        .build_parallel_adc(&common)
-        .set_data_right_shift(DataRightShift::new(0))
-        .enable();
+    let (ch, filters) = split.build(&common, |tb| {
+        tb.ch2
+            .build_parallel_adc(&common)
+            .set_data_right_shift(DataRightShift::new(0))
+            .enable()
+    });
 
     let flt_cfg = FilterConfig {
         filter_params: FilterParameters::try_new(FilterOrder::Disabled, IOSR).expect("inside bounds"),
         enable_continuous_regular: true,
         ..Default::default()
     };
-    let mut flt0 = split.flt0.build(&common, Irqs).enable_no_dma(&ch, [&ch], &flt_cfg);
+    let mut flt0 = filters.flt0.build(&common, Irqs).enable_no_dma(&ch, [&ch], &flt_cfg);
 
     // Start the ADC converting continuously, routed to the DFSDM; each EOC
     // feeds one DFSDM sample.

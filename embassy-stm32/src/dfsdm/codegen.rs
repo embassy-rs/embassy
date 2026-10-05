@@ -290,6 +290,25 @@ fn gen_split(ch: u8, flt_n: u8) -> TokenStream {
         })
         .collect();
 
+    // The split struct's own fields are private: it can only be consumed through
+    // `build`, so the sweep cannot be skipped.
+    let split_channels: Vec<_> = (0..ch)
+        .map(|i| {
+            let c = &ch_idents[i];
+            let t = &tcv_idents[i];
+            let own = &s[i];
+            let neighbor = &s[(i + 1) % ch];
+            quote! { #c: crate::dfsdm::TransceiverBuilder<T, crate::dfsdm::#t, C, #own, #neighbor>, }
+        })
+        .collect();
+    let split_filters: Vec<_> = (0..flt_count)
+        .map(|i| {
+            let f = &flt_idents[i];
+            let m = &flt_markers[i];
+            quote! { #f: crate::dfsdm::FilterBuilder<T, crate::dfsdm::#m>, }
+        })
+        .collect();
+
     let builders_struct = quote! {
         /// One [`crate::dfsdm::TransceiverBuilder`] per transceiver, handed to the
         /// closure of [`#name::build`]. Build the channels you use; leave the rest,
@@ -378,20 +397,17 @@ fn gen_split(ch: u8, flt_n: u8) -> TokenStream {
     };
 
     quote! {
-        /// One [`crate::dfsdm::TransceiverBuilder`] per transceiver, one
-        /// [`crate::dfsdm::FilterBuilder`] per filter, and the shared
-        /// [`crate::dfsdm::DetectorsBuilder`].
+        /// Produced by [`crate::dfsdm::Dfsdm::configure_pins`]. Its fields are
+        /// private; consume it through [`#name::build`] so the pin sweep runs.
         pub struct #name<T, C, #(#s),*>
         where
             T: crate::dfsdm::Instance + crate::dfsdm::#ready,
             C: crate::dfsdm::ClockOutputMode,
             #(#s: crate::dfsdm::PinSet,)*
         {
-            /// Builds the instance-level [`crate::dfsdm::ShortCircuitDetector`] and
-            /// [`crate::dfsdm::ClockAbsenceDetector`].
-            pub detectors: crate::dfsdm::DetectorsBuilder<T>,
-            #(#struct_channels)*
-            #(#struct_filters)*
+            detectors: crate::dfsdm::DetectorsBuilder<T>,
+            #(#split_channels)*
+            #(#split_filters)*
         }
 
         #builders_struct

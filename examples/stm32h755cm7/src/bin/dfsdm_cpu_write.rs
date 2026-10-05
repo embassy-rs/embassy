@@ -84,11 +84,12 @@ async fn main(_spawner: Spawner) {
     let samples: [u16; TOTAL] = core::array::from_fn(|i| lcg(i as u32));
 
     // Setup.
-    let ch = split
-        .ch0
-        .build_parallel_standard(&common)
-        .set_data_right_shift(DataRightShift::new(0))
-        .enable();
+    let (ch, filters) = split.build(&common, |tb| {
+        tb.ch0
+            .build_parallel_standard(&common)
+            .set_data_right_shift(DataRightShift::new(0))
+            .enable()
+    });
 
     let flt_cfg = FilterConfig {
         filter_params: FilterParameters::try_new(FilterOrder::Disabled, IOSR).expect("inside bounds"),
@@ -97,7 +98,7 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    let mut flt0 = split.flt0.build(&common, Irqs).enable_no_dma(&ch, [&ch], &flt_cfg);
+    let mut flt0 = filters.flt0.build(&common, Irqs).enable_no_dma(&ch, [&ch], &flt_cfg);
     flt0.regular.start_conversion();
 
     // Manual integration.
