@@ -279,13 +279,22 @@ impl PinSet for DataClk {
     }
 }
 
+pub(crate) trait SealedHasData {}
+
 /// Pin sets that include a DATIN pin.
-pub trait HasData: PinSet {}
+#[allow(private_bounds)]
+pub trait HasData: PinSet + SealedHasData {}
+impl SealedHasData for DataOnly {}
+impl SealedHasData for DataClk {}
 impl HasData for DataOnly {}
 impl HasData for DataClk {}
 
+pub(crate) trait SealedHasDataAndClk {}
+
 /// Pin sets that include a DATIN and a CKIN pin.
-pub trait HasDataAndClk: PinSet {}
+#[allow(private_bounds)]
+pub trait HasDataAndClk: PinSet + SealedHasDataAndClk {}
+impl SealedHasDataAndClk for DataClk {}
 impl HasDataAndClk for DataClk {}
 
 // =============================================================================
@@ -309,6 +318,8 @@ pub struct DckCfg<'d, T: Instance, M: TransceiverMarker> {
     pub(crate) _m: PhantomData<(T, M)>,
 }
 
+pub(crate) trait SealedChannelCfg {}
+
 /// Accepted by one `configure_pins` slot. `Presence` is the type-level pin
 /// state that flows into the split.
 #[diagnostic::on_unimplemented(
@@ -316,7 +327,8 @@ pub struct DckCfg<'d, T: Instance, M: TransceiverMarker> {
     label = "this token doesn't belong to transceiver `{M}`",
     note = "return the token from the matching `creator.chN` selector - a token for one transceiver can't be reused on another"
 )]
-pub trait ChannelCfg<'d, T: Instance, M: TransceiverMarker> {
+#[allow(private_bounds)]
+pub trait ChannelCfg<'d, T: Instance, M: TransceiverMarker>: SealedChannelCfg {
     /// Pin presence of the declaring transceiver.
     type Presence: PinSet;
     /// Consume the token, yielding its pins in storage form
@@ -328,6 +340,10 @@ pub trait ChannelCfg<'d, T: Instance, M: TransceiverMarker> {
         <Self::Presence as PinSet>::Ckin<'d>,
     );
 }
+
+impl SealedChannelCfg for NoPinsCfg {}
+impl<'d, T: Instance, M: TransceiverMarker> SealedChannelCfg for DatinCfg<'d, T, M> {}
+impl<'d, T: Instance, M: TransceiverMarker> SealedChannelCfg for DckCfg<'d, T, M> {}
 
 // NoPinsCfg is valid at ANY position:
 impl<'d, T: Instance, M: TransceiverMarker> ChannelCfg<'d, T, M> for NoPinsCfg {
@@ -440,6 +456,8 @@ define_indexed_channels!(
 // Trigger types
 // =============================================================================
 
+pub(crate) trait SealedTriggerSource<T: Instance, M: FilterMarker> {}
+
 /// A trigger source that can drive filter `M` on instance `T`.
 ///
 /// Implemented by `build.rs` for each (instance, filter, source) combination the
@@ -450,7 +468,8 @@ define_indexed_channels!(
     label = "invalid trigger selection",
     note = "check the TRM for valid trigger signals for this variant/filter combination"
 )]
-pub trait TriggerSource<T: Instance, M: FilterMarker> {
+#[allow(private_bounds)]
+pub trait TriggerSource<T: Instance, M: FilterMarker>: SealedTriggerSource<T, M> {
     /// JEXTSEL register value for this (instance, filter, source) combination.
     fn jextsel(&self) -> u8;
 }
@@ -713,8 +732,11 @@ impl DmaMode for InjDma {
     const INJ_ENABLED: bool = true;
 }
 
+pub(crate) trait SealedFilterDma {}
+
 /// DMA half of a filter, erased over the concrete half type.
-pub trait FilterDma<T, M>
+#[allow(private_bounds)]
+pub trait FilterDma<T, M>: SealedFilterDma
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
@@ -776,12 +798,18 @@ where
 // NonEmpty
 // =============================================================================
 
+pub(crate) trait SealedNonEmpty {}
+
 /// Marker trait to enforce that a const generic `N` is greater than 0.
-pub trait NonEmpty {}
+#[allow(private_bounds)]
+pub trait NonEmpty: SealedNonEmpty {}
 // Only implement `NonEmpty` for arrays of unit type `()`
 // with lengths 1 through 8.
 macro_rules! impl_non_empty {
-    ($($n:expr),+) => { $( impl NonEmpty for [(); $n] {} )+ };
+    ($($n:expr),+) => { $(
+        impl SealedNonEmpty for [(); $n] {}
+        impl NonEmpty for [(); $n] {}
+    )+ };
 }
 impl_non_empty!(1, 2, 3, 4, 5, 6, 7, 8);
 

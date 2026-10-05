@@ -823,6 +823,13 @@ where
     }
 }
 
+impl<'a, 'd, 't, T, M> SealedFilterDma for FilterRegular<'a, 'd, 't, T, M, RegDma>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+}
+
 impl<'a, 'd, 't, T, M> FilterDma<T, M> for FilterRegular<'a, 'd, 't, T, M, RegDma>
 where
     T: Instance + FilterInterrupt<M>,
@@ -839,6 +846,13 @@ where
     fn get_and_clear_overrun(&mut self) -> bool {
         FilterRegular::get_and_clear_overrun(self)
     }
+}
+
+impl<'a, 'd, 't, T, M> SealedFilterDma for FilterInjected<'a, 'd, 't, T, M, InjDma>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
 }
 
 impl<'a, 'd, 't, T, M> FilterDma<T, M> for FilterInjected<'a, 'd, 't, T, M, InjDma>
@@ -955,6 +969,8 @@ where
 // =============================================================================
 
 // Implement properly only for Flt0 as Flt0 Handles instance-level events
+impl SealedInstanceEvents for Flt0 {}
+
 impl<T> InstanceEvents<T> for Flt0
 where
     T: Instance + FilterInterrupt<Flt0>,
@@ -1057,18 +1073,24 @@ where
 // Interrupthandler
 // =============================================================================
 
+pub(crate) trait SealedFilterInterrupt<F: FilterMarker> {}
+
 /// Per-filter interrupt binding: maps a filter marker to its interrupt type
 /// and state.
-pub trait FilterInterrupt<F: FilterMarker> {
+#[allow(private_bounds)]
+pub trait FilterInterrupt<F: FilterMarker>: SealedFilterInterrupt<F> {
     /// Interrupt type for this filter.
     type Interrupt: interrupt::typelevel::Interrupt;
 
     /// Filter-interrupt state.
     fn state() -> &'static State;
 }
+pub(crate) trait SealedInstanceEvents {}
+
 /// Instance-level interrupt handling for a filter marker. [`Flt0`] performs the
 /// real handling; the other markers yield no-ops.
-pub trait InstanceEvents<T: Instance> {
+#[allow(private_bounds)]
+pub trait InstanceEvents<T: Instance>: SealedInstanceEvents {
     /// Handles the instance-level events.
     ///
     /// # Safety
@@ -1081,6 +1103,7 @@ pub trait InstanceEvents<T: Instance> {
 macro_rules! impl_noop_instance_events {
     ($($flt:ident),*) => {
         $(
+            impl SealedInstanceEvents for $flt {}
             impl<T: Instance> InstanceEvents<T> for $flt {
                 #[inline(always)]
                 unsafe fn handle_instance_events() {}
@@ -1182,6 +1205,7 @@ impl InstanceState {
 // Implement single IRQ for a single filter
 macro_rules! impl_dfsdm_filter_irq {
     ($inst:ident, $filter:ty, $irq:ident) => {
+        impl SealedFilterInterrupt<$filter> for crate::peripherals::$inst {}
         impl FilterInterrupt<$filter> for crate::peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
 

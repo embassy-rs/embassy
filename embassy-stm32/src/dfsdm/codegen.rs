@@ -187,6 +187,9 @@ pub fn gen_trigger_source(inst: &str, block: &str, source: &Ident, idx: u8) -> T
         // 5-bit JEXTSEL: the signal number *is* the JEXTSEL value, and every
         // source can drive every filter.
         quote! {
+            impl<M: crate::dfsdm::FilterMarker> crate::dfsdm::SealedTriggerSource<crate::peripherals::#inst, M>
+                for crate::triggers::#source {
+            }
             impl<M: crate::dfsdm::FilterMarker> crate::dfsdm::TriggerSource<crate::peripherals::#inst, M>
                 for crate::triggers::#source {
                 fn jextsel(&self) -> u8 { #idx }
@@ -200,6 +203,9 @@ pub fn gen_trigger_source(inst: &str, block: &str, source: &Ident, idx: u8) -> T
             .map(|&(flt, _, jextsel)| {
                 let flt = format_ident!("Flt{}", flt);
                 quote! {
+                    impl crate::dfsdm::SealedTriggerSource<crate::peripherals::#inst, crate::dfsdm::#flt>
+                        for crate::triggers::#source {
+                    }
                     impl crate::dfsdm::TriggerSource<crate::peripherals::#inst, crate::dfsdm::#flt>
                         for crate::triggers::#source {
                         fn jextsel(&self) -> u8 { #jextsel }
@@ -240,6 +246,7 @@ fn gen_split(ch: u8, flt_n: u8) -> TokenStream {
     let name = format_ident!("DfsdmSplit{}Ch{}Flt", ch, flt_count);
     let ready = format_ident!("Flt{}Ready", flt_count);
     let tcv_trait = format_ident!("Tcv{}SplitBuild", ch);
+    let sealed_tcv_trait = format_ident!("SealedTcv{}SplitBuild", ch);
     let tcv_cap = format_ident!("{}", tcv(ch as u8));
     let flt_cap = format_ident!("{}", flt(flt_count as u8));
 
@@ -305,6 +312,8 @@ fn gen_split(ch: u8, flt_n: u8) -> TokenStream {
             #(#struct_channels)*
             #(#struct_filters)*
         }
+
+        impl crate::dfsdm::#sealed_tcv_trait for crate::dfsdm::capability::#flt_cap {}
 
         impl<T, C, #(#s),*> crate::dfsdm::#tcv_trait<T, C, #(#s),*> for crate::dfsdm::capability::#flt_cap
         where
@@ -409,6 +418,12 @@ fn gen_tuple(ch: u8) -> TokenStream {
     });
 
     quote! {
+        impl<#(#c),*> crate::dfsdm::SealedChannelCfgTuple for (#(#c),*)
+        where
+            #(#c: crate::dfsdm::SealedChannelCfg,)*
+        {
+        }
+
         impl<'d, T, C, #(#c),*> crate::dfsdm::ChannelCfgTuple<'d, T, C> for (#(#c),*)
         where
             T: crate::dfsdm::Instance<Transceivers = crate::dfsdm::capability::#tcv_cap>,
