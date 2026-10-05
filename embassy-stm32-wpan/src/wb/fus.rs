@@ -80,8 +80,8 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
     /// request if the two commands do not both arrive while it is listening.
     pub async fn start_upgrade(&mut self, sys: &mut Sys<'_>) -> Result<(), ()> {
         for attempt in 1..=3 {
-            #[cfg(feature = "defmt")]
-            defmt::info!("requesting reboot into FUS (attempt {})", attempt);
+            info!("requesting reboot into FUS (attempt {})", attempt);
+
             sys.shci_c2_fus_get_state().await?;
             sys.shci_c2_fus_get_state().await?;
 
@@ -91,8 +91,7 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
             }
         }
 
-        #[cfg(feature = "defmt")]
-        defmt::error!("FUS did not reboot into FUS mode");
+        error!("FUS did not reboot into FUS mode");
         Err(())
     }
 
@@ -135,8 +134,7 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
                         // the next boot with a (possibly erased) download area.
                         self.set_upgrade_status(UpgradeStatus::Complete);
 
-                        #[cfg(feature = "defmt")]
-                        defmt::info!("requesting FUS firmware upgrade");
+                        info!("requesting FUS firmware upgrade");
                         sys.shci_c2_fus_fwupgrade(0, 0).await?;
                     } else {
                         // FUS is idle and the upgrade is complete: start the wireless stack.
@@ -150,8 +148,7 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
                 }
                 // FUS upgrade, wireless stack upgrade, or service ongoing
                 0x10..=0x3F => {
-                    #[cfg(feature = "defmt")]
-                    defmt::trace!("FUS operation ongoing (state 0x{:02x})", state.state());
+                    trace!("FUS operation ongoing (state 0x{:02x})", state.state());
                     Timer::after(Duration::from_secs(1)).await;
                 }
                 // FUS_STATE_ERROR_STATE_NOT_RUNNING: the wireless stack is running
@@ -171,18 +168,17 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
                     error_code => {
                         fwupgrade_retries += 1;
                         if fwupgrade_retries > 5 {
-                            #[cfg(feature = "defmt")]
-                            defmt::error!("FUS reported error: {:?}", error_code);
+                            error!("FUS reported error: {:?}", error_code);
                             return Err(());
                         }
-                        #[cfg(feature = "defmt")]
-                        defmt::warn!("FUS reported error: {:?}; retrying fwupgrade", error_code);
+
+                        warn!("FUS reported error: {:?}; retrying fwupgrade", error_code);
                         sys.shci_c2_fus_fwupgrade(0, 0).await?;
                     }
                 },
                 state => {
-                    #[cfg(feature = "defmt")]
-                    defmt::error!("unexpected FUS state 0x{:02x}", state);
+                    error!("unexpected FUS state 0x{:02x}", state);
+
                     return Err(());
                 }
             }
