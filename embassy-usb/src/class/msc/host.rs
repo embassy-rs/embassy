@@ -40,48 +40,20 @@ use embassy_sync::mutex::Mutex;
 use embassy_usb_driver::host::{PipeError, SplitInfo, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
+use super::bot::{
+    CBW_FLAG_IN, CBW_LEN, CBW_SIGNATURE, CSW_LEN, CSW_SIGNATURE, CSW_STATUS_FAILED, CSW_STATUS_PASSED,
+    CSW_STATUS_PHASE_ERROR,
+};
+use super::scsi::*;
+use super::{BOT_REQ_GET_MAX_LUN, BOT_REQ_RESET, USB_CLASS_MSC, USB_PROTOCOL_BULK_ONLY, USB_SUBCLASS_SCSI_TRANSPARENT};
+pub use super::{SenseData, SenseKey};
 use crate::host::control::{ControlType, Recipient, RequestType, SetupPacket};
 use crate::host::descriptor::ConfigurationDescriptorChain;
 use crate::host::handler::EnumerationInfo;
 
-// MSC BBB r1.0 §4.
-const CLASS_MSC: u8 = 0x08;
-const SUBCLASS_SCSI: u8 = 0x06;
-const PROTOCOL_BBB: u8 = 0x50;
-
-// Class-specific requests (MSC BBB r1.0 §3).
-const REQ_GET_MAX_LUN: u8 = 0xFE;
-const REQ_BULK_ONLY_RESET: u8 = 0xFF;
-
 // Standard endpoint requests for stall recovery (USB 2.0 §9.4).
 const REQ_CLEAR_FEATURE: u8 = 0x01;
 const FEATURE_ENDPOINT_HALT: u16 = 0x0000;
-
-// CBW / CSW (MSC BBB r1.0 §5).
-const CBW_SIGNATURE: u32 = 0x43425355; // "USBC"
-const CSW_SIGNATURE: u32 = 0x53425355; // "USBS"
-const CBW_LEN: usize = 31;
-const CSW_LEN: usize = 13;
-const CBW_FLAG_IN: u8 = 0x80;
-
-// CSW status values.
-const CSW_PASSED: u8 = 0x00;
-const CSW_FAILED: u8 = 0x01;
-const CSW_PHASE_ERROR: u8 = 0x02;
-
-// SCSI opcodes (SPC-3 / SBC-3).
-const SCSI_TEST_UNIT_READY: u8 = 0x00;
-const SCSI_REQUEST_SENSE: u8 = 0x03;
-const SCSI_INQUIRY: u8 = 0x12;
-const SCSI_PREVENT_ALLOW_REMOVAL: u8 = 0x1E;
-const SCSI_READ_CAPACITY_10: u8 = 0x25;
-const SCSI_READ_10: u8 = 0x28;
-const SCSI_WRITE_10: u8 = 0x2A;
-const SCSI_SYNCHRONIZE_CACHE_10: u8 = 0x35;
-const SCSI_READ_16: u8 = 0x88;
-const SCSI_WRITE_16: u8 = 0x8A;
-const SCSI_SERVICE_ACTION_IN_16: u8 = 0x9E;
-const SCSI_SA_READ_CAPACITY_16: u8 = 0x10;
 
 /// MSC host driver error.
 #[derive(Debug)]
@@ -246,79 +218,6 @@ pub struct InquiryData<'a> {
     pub revision: &'a [u8],
 }
 
-/// SCSI sense key (SPC-3 §4.5.6, Table 27).
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum SenseKey {
-    /// `0x0` — no error.
-    NoSense = 0x0,
-    /// `0x1` — command succeeded with automatic recovery.
-    RecoveredError = 0x1,
-    /// `0x2` — the medium is not ready.
-    NotReady = 0x2,
-    /// `0x3` — unrecoverable medium error.
-    MediumError = 0x3,
-    /// `0x4` — non-medium hardware error.
-    HardwareError = 0x4,
-    /// `0x5` — illegal CDB or parameter.
-    IllegalRequest = 0x5,
-    /// `0x6` — reset, medium change, or parameter change.
-    UnitAttention = 0x6,
-    /// `0x7` — write-protected medium.
-    DataProtect = 0x7,
-    /// `0x8` — blank medium on a device that expected data.
-    BlankCheck = 0x8,
-    /// `0x9` — vendor-specific.
-    VendorSpecific = 0x9,
-    /// `0xA` — COPY/COMPARE aborted.
-    CopyAborted = 0xA,
-    /// `0xB` — target aborted the command.
-    AbortedCommand = 0xB,
-    /// `0xD` — volume overflow on a sequential device.
-    VolumeOverflow = 0xD,
-    /// `0xE` — data did not match expected values.
-    Miscompare = 0xE,
-    /// Any reserved sense key value.
-    Reserved = 0xF,
-}
-
-impl SenseKey {
-    fn from_bits(b: u8) -> Self {
-        match b & 0x0F {
-            0x0 => Self::NoSense,
-            0x1 => Self::RecoveredError,
-            0x2 => Self::NotReady,
-            0x3 => Self::MediumError,
-            0x4 => Self::HardwareError,
-            0x5 => Self::IllegalRequest,
-            0x6 => Self::UnitAttention,
-            0x7 => Self::DataProtect,
-            0x8 => Self::BlankCheck,
-            0x9 => Self::VendorSpecific,
-            0xA => Self::CopyAborted,
-            0xB => Self::AbortedCommand,
-            0xD => Self::VolumeOverflow,
-            0xE => Self::Miscompare,
-            _ => Self::Reserved,
-        }
-    }
-}
-
-/// Decoded fixed-format sense data (SPC-3 §4.5.3).
-///
-/// Use the raw REQUEST SENSE response if more detail is needed.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct SenseData {
-    /// Sense key (byte 2, bits 0..3).
-    pub key: SenseKey,
-    /// Additional Sense Code (byte 12).
-    pub asc: u8,
-    /// Additional Sense Code Qualifier (byte 13).
-    pub ascq: u8,
-}
-
 /// Block-device capacity derived from `READ CAPACITY(10)` or `(16)`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -354,9 +253,9 @@ pub fn find_msc(config_desc: &[u8]) -> Option<MscInfo> {
     let cfg = ConfigurationDescriptorChain::try_from_slice(config_desc).ok()?;
 
     for iface in cfg.iter_interface() {
-        if iface.interface_class != CLASS_MSC
-            || iface.interface_subclass != SUBCLASS_SCSI
-            || iface.interface_protocol != PROTOCOL_BBB
+        if iface.interface_class != USB_CLASS_MSC
+            || iface.interface_subclass != USB_SUBCLASS_SCSI_TRANSPARENT
+            || iface.interface_protocol != USB_PROTOCOL_BULK_ONLY
             || iface.alternate_setting != 0
         {
             continue;
@@ -428,7 +327,7 @@ where
     }
 
     async fn mass_storage_reset(&mut self) -> Result<(), MscError> {
-        let setup = SetupPacket::class_interface_out(REQ_BULK_ONLY_RESET, 0, self.interface as u16, 0);
+        let setup = SetupPacket::class_interface_out(BOT_REQ_RESET, 0, self.interface as u16, 0);
         self.ctrl.control_out(&setup.to_bytes(), &[]).await?;
         self.clear_halt_in().await?;
         self.clear_halt_out().await?;
@@ -459,7 +358,7 @@ async fn get_max_lun<P>(ctrl: &mut P, interface: u8) -> Result<u8, MscError>
 where
     P: UsbPipe<pipe::Control, pipe::InOut>,
 {
-    let setup = SetupPacket::class_interface_in(REQ_GET_MAX_LUN, 0, interface as u16, 1);
+    let setup = SetupPacket::class_interface_in(BOT_REQ_GET_MAX_LUN, 0, interface as u16, 1);
     let mut buf = [0u8; 1];
     // Many devices stall GET_MAX_LUN — treat that as "single LUN".
     match ctrl.control_in(&setup.to_bytes(), &mut buf).await {
@@ -557,9 +456,9 @@ where
     }
 
     match status {
-        CSW_PASSED => Ok(CommandOutcome::Ok { residue }),
-        CSW_FAILED => Ok(CommandOutcome::Failed { residue }),
-        CSW_PHASE_ERROR => {
+        CSW_STATUS_PASSED => Ok(CommandOutcome::Ok { residue }),
+        CSW_STATUS_FAILED => Ok(CommandOutcome::Failed { residue }),
+        CSW_STATUS_PHASE_ERROR => {
             t.mass_storage_reset().await?;
             Err(MscError::PhaseError)
         }
@@ -942,7 +841,7 @@ where
 
     /// Enable or disable medium removal by the user.
     pub async fn prevent_medium_removal(&mut self, prevent: bool) -> Result<(), MscError> {
-        let cdb = [SCSI_PREVENT_ALLOW_REMOVAL, 0, 0, 0, prevent as u8, 0];
+        let cdb = [SCSI_PREVENT_ALLOW_MEDIUM_REMOVAL, 0, 0, 0, prevent as u8, 0];
         self.run(&cdb, DataDir::None).await?;
         Ok(())
     }

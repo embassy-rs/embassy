@@ -1,10 +1,9 @@
 //! Utilities for writing USB descriptors.
 use embassy_usb_driver::EndpointType;
 
-use crate::CONFIGURATION_VALUE;
-use crate::builder::Config;
 use crate::driver::EndpointInfo;
 use crate::types::{InterfaceNumber, StringIndex};
+use crate::{CONFIGURATION_VALUE, Config};
 
 /// Standard descriptor types
 #[allow(missing_docs)]

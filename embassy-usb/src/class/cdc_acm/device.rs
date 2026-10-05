@@ -2,24 +2,21 @@
 
 use core::cell::{Cell, RefCell};
 use core::future::{Future, poll_fn};
-use core::mem::{self, MaybeUninit};
+use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::waitqueue::WakerRegistration;
 
+use super::{
+    CDC_PROTOCOL_NONE, CDC_SUBCLASS_ACM, LineCoding, REQ_GET_LINE_CODING, REQ_SET_CONTROL_LINE_STATE,
+    REQ_SET_LINE_CODING, USB_CLASS_CDC, USB_CLASS_CDC_DATA,
+};
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::InterfaceNumber;
 use crate::{Builder, Handler};
-
-/// This should be used as `device_class` when building the `UsbDevice`.
-pub const USB_CLASS_CDC: u8 = 0x02;
-
-const USB_CLASS_CDC_DATA: u8 = 0x0a;
-const CDC_SUBCLASS_ACM: u8 = 0x02;
-const CDC_PROTOCOL_NONE: u8 = 0x00;
 
 const CS_INTERFACE: u8 = 0x24;
 const CDC_TYPE_HEADER: u8 = 0x00;
@@ -29,9 +26,6 @@ const CDC_TYPE_UNION: u8 = 0x06;
 const REQ_SEND_ENCAPSULATED_COMMAND: u8 = 0x00;
 #[allow(unused)]
 const REQ_GET_ENCAPSULATED_COMMAND: u8 = 0x01;
-const REQ_SET_LINE_CODING: u8 = 0x20;
-const REQ_GET_LINE_CODING: u8 = 0x21;
-const REQ_SET_CONTROL_LINE_STATE: u8 = 0x22;
 
 /// CDC ACM error.
 #[derive(Clone, Debug)]
@@ -125,12 +119,7 @@ impl ControlShared {
         ControlShared {
             dtr: AtomicBool::new(false),
             rts: AtomicBool::new(false),
-            line_coding: CriticalSectionMutex::new(Cell::new(LineCoding {
-                stop_bits: StopBits::One,
-                data_bits: 8,
-                parity_type: ParityType::None,
-                data_rate: 8_000,
-            })),
+            line_coding: CriticalSectionMutex::new(Cell::new(LineCoding::DEFAULT)),
             waker: RefCell::new(WakerRegistration::new()),
             changed: AtomicBool::new(false),
         }
@@ -180,12 +169,7 @@ impl<'d> Handler for Control<'d> {
                 Some(OutResponse::Accepted)
             }
             REQ_SET_LINE_CODING if data.len() >= 7 => {
-                let coding = LineCoding {
-                    data_rate: u32::from_le_bytes(data[0..4].try_into().unwrap()),
-                    stop_bits: data[4].into(),
-                    parity_type: data[5].into(),
-                    data_bits: data[6],
-                };
+                let coding = LineCoding::from_bytes(data[0..7].try_into().unwrap());
                 let shared = self.shared();
                 shared.line_coding.lock(|x| x.set(coding));
                 debug!("Set line coding to: {:?}", coding);
@@ -226,10 +210,7 @@ impl<'d> Handler for Control<'d> {
                 debug!("Sending line coding");
                 let coding = self.shared().line_coding.lock(Cell::get);
                 assert!(buf.len() >= 7);
-                buf[0..4].copy_from_slice(&coding.data_rate.to_le_bytes());
-                buf[4] = coding.stop_bits as u8;
-                buf[5] = coding.parity_type as u8;
-                buf[6] = coding.data_bits;
+                buf[0..7].copy_from_slice(&coding.to_bytes());
                 Some(InResponse::Accepted(&buf[0..7]))
             }
             _ => Some(InResponse::Rejected),
@@ -606,101 +587,5 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
         }
         self.start = 0;
         Ok(self.read_from_buffer(buf))
-    }
-}
-
-/// Number of stop bits for LineCoding
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum StopBits {
-    /// 1 stop bit
-    One = 0,
-
-    /// 1.5 stop bits
-    OnePointFive = 1,
-
-    /// 2 stop bits
-    Two = 2,
-}
-
-impl From<u8> for StopBits {
-    fn from(value: u8) -> Self {
-        if value <= 2 {
-            unsafe { mem::transmute::<u8, StopBits>(value) }
-        } else {
-            StopBits::One
-        }
-    }
-}
-
-/// Parity for LineCoding
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ParityType {
-    /// No parity bit.
-    None = 0,
-    /// Parity bit is 1 if the amount of `1` bits in the data byte is odd.
-    Odd = 1,
-    /// Parity bit is 1 if the amount of `1` bits in the data byte is even.
-    Even = 2,
-    /// Parity bit is always 1
-    Mark = 3,
-    /// Parity bit is always 0
-    Space = 4,
-}
-
-impl From<u8> for ParityType {
-    fn from(value: u8) -> Self {
-        if value <= 4 {
-            unsafe { mem::transmute::<u8, ParityType>(value) }
-        } else {
-            ParityType::None
-        }
-    }
-}
-
-/// Line coding parameters
-///
-/// This is provided by the host for specifying the standard UART parameters such as baud rate. Can
-/// be ignored if you don't plan to interface with a physical UART.
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct LineCoding {
-    stop_bits: StopBits,
-    data_bits: u8,
-    parity_type: ParityType,
-    data_rate: u32,
-}
-
-impl LineCoding {
-    /// Gets the number of stop bits for UART communication.
-    pub fn stop_bits(&self) -> StopBits {
-        self.stop_bits
-    }
-
-    /// Gets the number of data bits for UART communication.
-    pub const fn data_bits(&self) -> u8 {
-        self.data_bits
-    }
-
-    /// Gets the parity type for UART communication.
-    pub const fn parity_type(&self) -> ParityType {
-        self.parity_type
-    }
-
-    /// Gets the data rate in bits per second for UART communication.
-    pub const fn data_rate(&self) -> u32 {
-        self.data_rate
-    }
-}
-
-impl Default for LineCoding {
-    fn default() -> Self {
-        LineCoding {
-            stop_bits: StopBits::One,
-            data_bits: 8,
-            parity_type: ParityType::None,
-            data_rate: 8_000,
-        }
     }
 }

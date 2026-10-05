@@ -3,22 +3,21 @@
 use embassy_usb_driver::EndpointType;
 use heapless::Vec;
 
-use super::{USB_CLASS_AUDIO, USB_MIDI_1_PROTOCOL, USB_SUBCLASS_MIDI_STREAMING};
+use crate::class::midi::{
+    MAX_MIDI_JACKS, MIDI_IN_JACK_LEN, MIDI_IN_JACK_SUBTYPE, MIDI_OUT_JACK_BASE_LEN, MIDI_OUT_JACK_SUBTYPE, MS_GENERAL,
+    MS_GENERAL_BASE_LEN, MS_HEADER_LEN, MS_HEADER_SUBTYPE, MidiJackType, PROTOCOL_NONE, USB_AUDIO_CLASS,
+    USB_MIDISTREAMING_SUBCLASS,
+};
 use crate::host::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, ENDPOINT};
 use crate::host::descriptor::{
     ConfigurationDescriptorChain, DeviceDescriptor, EndpointDescriptor, InterfaceDescriptorChain,
     RawDescriptorIterator, USBDescriptor,
 };
 
-const MS_HEADER: u8 = 0x01;
-const MIDI_IN_JACK: u8 = 0x02;
-const MIDI_OUT_JACK: u8 = 0x03;
-const MS_GENERAL: u8 = 0x01;
-
 /// Maximum MIDIStreaming interfaces described by one configuration.
 pub const MAX_MIDI_INTERFACES: usize = 8;
-/// Maximum jacks or cables described by one MIDIStreaming interface.
-pub const MAX_MIDI_JACKS: usize = 16;
+/// Maximum IN or OUT jacks per MIDIStreaming interface, including embedded and external jacks.
+pub const MAX_MIDI_INTERFACE_JACKS: usize = 2 * MAX_MIDI_JACKS;
 /// Maximum physical bulk endpoints described by one MIDIStreaming interface.
 pub const MAX_MIDI_ENDPOINTS: usize = 4;
 /// Maximum input pins feeding one MIDI OUT jack.
@@ -47,7 +46,7 @@ pub struct MidiStreamingHeader {
 impl MidiStreamingHeader {
     /// Parse a class-specific MIDIStreaming header descriptor.
     pub fn try_from_bytes(raw: &[u8]) -> Result<Self, MidiDescriptorError> {
-        check_descriptor_exact(raw, CS_INTERFACE, MS_HEADER, 7)?;
+        check_descriptor_exact(raw, CS_INTERFACE, MS_HEADER_SUBTYPE, MS_HEADER_LEN)?;
         Ok(Self {
             midi_version: u16::from_le_bytes([raw[3], raw[4]]),
             total_length: u16::from_le_bytes([raw[5], raw[6]]),
@@ -55,24 +54,8 @@ impl MidiStreamingHeader {
     }
 }
 
-/// Whether a MIDI jack is inside the USB device or connected externally.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum MidiJackType {
-    /// Jack connected to a USB endpoint.
-    Embedded,
-    /// Jack representing a physical or otherwise external MIDI connection.
-    External,
-}
-
-impl MidiJackType {
-    fn try_from_byte(value: u8) -> Result<Self, MidiDescriptorError> {
-        match value {
-            0x01 => Ok(Self::Embedded),
-            0x02 => Ok(Self::External),
-            _ => Err(MidiDescriptorError::InvalidDescriptor),
-        }
-    }
+fn jack_type(value: u8) -> Result<MidiJackType, MidiDescriptorError> {
+    MidiJackType::try_from(value).map_err(|_| MidiDescriptorError::InvalidDescriptor)
 }
 
 /// MIDI IN jack descriptor.
@@ -90,9 +73,9 @@ pub struct MidiInJack {
 impl MidiInJack {
     /// Parse a class-specific MIDI IN jack descriptor.
     pub fn try_from_bytes(raw: &[u8]) -> Result<Self, MidiDescriptorError> {
-        check_descriptor_exact(raw, CS_INTERFACE, MIDI_IN_JACK, 6)?;
+        check_descriptor_exact(raw, CS_INTERFACE, MIDI_IN_JACK_SUBTYPE, MIDI_IN_JACK_LEN)?;
         Ok(Self {
-            jack_type: MidiJackType::try_from_byte(raw[3])?,
+            jack_type: jack_type(raw[3])?,
             jack_id: raw[4],
             string_index: raw[5],
         })
@@ -126,9 +109,9 @@ pub struct MidiOutJack {
 impl MidiOutJack {
     /// Parse a class-specific MIDI OUT jack descriptor.
     pub fn try_from_bytes(raw: &[u8]) -> Result<Self, MidiDescriptorError> {
-        check_descriptor(raw, CS_INTERFACE, MIDI_OUT_JACK, 7)?;
+        check_descriptor(raw, CS_INTERFACE, MIDI_OUT_JACK_SUBTYPE, MIDI_OUT_JACK_BASE_LEN)?;
         let source_count = raw[5] as usize;
-        let expected_len = 7usize
+        let expected_len = (MIDI_OUT_JACK_BASE_LEN as usize)
             .checked_add(
                 source_count
                     .checked_mul(2)
@@ -150,7 +133,7 @@ impl MidiOutJack {
         }
 
         Ok(Self {
-            jack_type: MidiJackType::try_from_byte(raw[3])?,
+            jack_type: jack_type(raw[3])?,
             jack_id: raw[4],
             sources,
             string_index: raw[expected_len - 1],
@@ -169,8 +152,8 @@ pub struct MidiEndpointJackAssociations {
 impl MidiEndpointJackAssociations {
     /// Parse a class-specific MIDIStreaming endpoint descriptor.
     pub fn try_from_bytes(raw: &[u8]) -> Result<Self, MidiDescriptorError> {
-        check_descriptor(raw, CS_ENDPOINT, MS_GENERAL, 4)?;
-        let expected_len = 4usize
+        check_descriptor(raw, CS_ENDPOINT, MS_GENERAL, MS_GENERAL_BASE_LEN)?;
+        let expected_len = (MS_GENERAL_BASE_LEN as usize)
             .checked_add(raw[3] as usize)
             .ok_or(MidiDescriptorError::InvalidDescriptor)?;
         if raw.len() != expected_len {
@@ -227,9 +210,15 @@ impl Iterator for MidiDescriptorIterator<'_> {
                 return Some(Err(MidiDescriptorError::InvalidDescriptor));
             }
             let descriptor = match (raw[1], raw.get(2).copied()) {
-                (CS_INTERFACE, Some(MS_HEADER)) => MidiStreamingHeader::try_from_bytes(raw).map(MidiDescriptor::Header),
-                (CS_INTERFACE, Some(MIDI_IN_JACK)) => MidiInJack::try_from_bytes(raw).map(MidiDescriptor::InJack),
-                (CS_INTERFACE, Some(MIDI_OUT_JACK)) => MidiOutJack::try_from_bytes(raw).map(MidiDescriptor::OutJack),
+                (CS_INTERFACE, Some(MS_HEADER_SUBTYPE)) => {
+                    MidiStreamingHeader::try_from_bytes(raw).map(MidiDescriptor::Header)
+                }
+                (CS_INTERFACE, Some(MIDI_IN_JACK_SUBTYPE)) => {
+                    MidiInJack::try_from_bytes(raw).map(MidiDescriptor::InJack)
+                }
+                (CS_INTERFACE, Some(MIDI_OUT_JACK_SUBTYPE)) => {
+                    MidiOutJack::try_from_bytes(raw).map(MidiDescriptor::OutJack)
+                }
                 (ENDPOINT, _) => EndpointDescriptor::try_from_bytes(raw)
                     .map(MidiDescriptor::Endpoint)
                     .map_err(|_| MidiDescriptorError::InvalidDescriptor),
@@ -274,9 +263,9 @@ pub struct MidiStreamingInterface {
     /// Class-specific streaming header, when supplied by the device.
     pub header: Option<MidiStreamingHeader>,
     /// MIDI IN jacks declared by this interface.
-    pub in_jacks: Vec<MidiInJack, MAX_MIDI_JACKS>,
+    pub in_jacks: Vec<MidiInJack, MAX_MIDI_INTERFACE_JACKS>,
     /// MIDI OUT jacks declared by this interface.
-    pub out_jacks: Vec<MidiOutJack, MAX_MIDI_JACKS>,
+    pub out_jacks: Vec<MidiOutJack, MAX_MIDI_INTERFACE_JACKS>,
     /// Physical bulk endpoints and their ordered cable associations.
     pub endpoints: Vec<MidiEndpointDescriptor, MAX_MIDI_ENDPOINTS>,
 }
@@ -374,9 +363,9 @@ pub fn parse_midi_interfaces_for_device(
 }
 
 fn is_midi_streaming_interface(interface: &InterfaceDescriptorChain<'_>) -> bool {
-    interface.interface_class == USB_CLASS_AUDIO
-        && interface.interface_subclass == USB_SUBCLASS_MIDI_STREAMING
-        && interface.interface_protocol == USB_MIDI_1_PROTOCOL
+    interface.interface_class == USB_AUDIO_CLASS
+        && interface.interface_subclass == USB_MIDISTREAMING_SUBCLASS
+        && interface.interface_protocol == PROTOCOL_NONE
 }
 
 fn is_legacy_yamaha_midi_interface(device: &DeviceDescriptor, interface: &InterfaceDescriptorChain<'_>) -> bool {
@@ -386,8 +375,8 @@ fn is_legacy_yamaha_midi_interface(device: &DeviceDescriptor, interface: &Interf
         && interface.interface_protocol == 0xff
 }
 
-fn check_descriptor(raw: &[u8], descriptor_type: u8, subtype: u8, min_len: usize) -> Result<(), MidiDescriptorError> {
-    if raw.len() < min_len || raw[0] as usize != raw.len() || raw[1] != descriptor_type || raw[2] != subtype {
+fn check_descriptor(raw: &[u8], descriptor_type: u8, subtype: u8, min_len: u8) -> Result<(), MidiDescriptorError> {
+    if raw.len() < min_len as usize || raw[0] as usize != raw.len() || raw[1] != descriptor_type || raw[2] != subtype {
         return Err(MidiDescriptorError::InvalidDescriptor);
     }
     Ok(())
@@ -397,10 +386,10 @@ fn check_descriptor_exact(
     raw: &[u8],
     descriptor_type: u8,
     subtype: u8,
-    expected_len: usize,
+    expected_len: u8,
 ) -> Result<(), MidiDescriptorError> {
     check_descriptor(raw, descriptor_type, subtype, expected_len)?;
-    if raw.len() != expected_len {
+    if raw.len() != expected_len as usize {
         return Err(MidiDescriptorError::InvalidDescriptor);
     }
     Ok(())
@@ -575,6 +564,58 @@ mod tests {
         let raw = [21, 37, 1, 17, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
         assert_eq!(
             MidiEndpointJackAssociations::try_from_bytes(&raw),
+            Err(MidiDescriptorError::Capacity)
+        );
+    }
+
+    /// A MIDIStreaming interface declaring `jacks` IN jacks and `jacks` OUT jacks.
+    fn config_with_jacks(jacks: u8) -> Vec<u8, 1024> {
+        let mut config = Vec::new();
+        config
+            .extend_from_slice(&[9, 2, 0, 0, 1, 1, 0, 0x80, 50, 9, 4, 0, 0, 0, 1, 3, 0, 0])
+            .unwrap();
+        let header = config.len();
+        config
+            .extend_from_slice(&[MS_HEADER_LEN, CS_INTERFACE, MS_HEADER_SUBTYPE, 0x00, 0x01, 0, 0])
+            .unwrap();
+        for id in 1..=jacks {
+            let jack_type = if id % 2 == 1 {
+                MidiJackType::Embedded
+            } else {
+                MidiJackType::External
+            } as u8;
+            config
+                .extend_from_slice(&[MIDI_IN_JACK_LEN, CS_INTERFACE, MIDI_IN_JACK_SUBTYPE, jack_type, id, 0])
+                .unwrap();
+            config
+                .extend_from_slice(&[
+                    MIDI_OUT_JACK_BASE_LEN + 2,
+                    CS_INTERFACE,
+                    MIDI_OUT_JACK_SUBTYPE,
+                    jack_type,
+                    0x80 | id,
+                    1,
+                    id,
+                    1,
+                    0,
+                ])
+                .unwrap();
+        }
+        let ms_len = (config.len() - header) as u16;
+        config[header + 5..header + 7].copy_from_slice(&ms_len.to_le_bytes());
+        let total = config.len() as u16;
+        config[2..4].copy_from_slice(&total.to_le_bytes());
+        config
+    }
+
+    #[test]
+    fn parses_full_cable_use_in_both_directions() {
+        let interfaces = parse_midi_interfaces(&config_with_jacks(32)).unwrap();
+        assert_eq!(interfaces[0].in_jacks.len(), 32);
+        assert_eq!(interfaces[0].out_jacks.len(), 32);
+
+        assert_eq!(
+            parse_midi_interfaces(&config_with_jacks(33)),
             Err(MidiDescriptorError::Capacity)
         );
     }

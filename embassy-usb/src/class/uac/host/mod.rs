@@ -30,8 +30,7 @@
 //! }).await?;
 //! ```
 
-#[allow(missing_docs)]
-pub mod codes;
+use super::uac2_codes;
 pub mod descriptors;
 
 use core::future::{Future, poll_fn};
@@ -151,7 +150,8 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         debug!("[UAC] Input Terminal: {:#?}", input_terminal);
 
         // Check to see that the format is PCM
-        if output_interface.class_descriptor.format != codes::format_type::Format::Type1(codes::format_type::Type1::PCM)
+        if output_interface.class_descriptor.format
+            != uac2_codes::format_type::Format::Type1(uac2_codes::format_type::Type1::PCM)
         {
             error!(
                 "[UAC] Only PCM format is supported, got {:?}",
@@ -303,7 +303,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
     /// Returns the sampling frequency in Hz, or an error if the request fails.
     pub async fn get_sampling_freq(&mut self, terminal_id: u8) -> Result<u32, RequestError> {
         self.get_curr_entity3(
-            codes::control_selector::clock_source::SAMPLING_FREQ_CONTROL,
+            uac2_codes::control_selector::clock_source::SAMPLING_FREQ_CONTROL,
             0,
             terminal_id,
             0,
@@ -441,7 +441,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },
-            request: codes::request_code::CUR,
+            request: uac2_codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
             length: 1,
@@ -479,7 +479,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },
-            request: codes::request_code::CUR,
+            request: uac2_codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
             length: 2,
@@ -517,7 +517,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },
-            request: codes::request_code::CUR,
+            request: uac2_codes::request_code::CUR,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
             length: 4,
@@ -555,7 +555,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },
-            request: codes::request_code::RANGE,
+            request: uac2_codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
             length: size_of::<Layout1ParameterBlock>() as u16,
@@ -595,7 +595,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },
-            request: codes::request_code::RANGE,
+            request: uac2_codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
             length: size_of::<Layout2ParameterBlock>() as u16,
@@ -635,7 +635,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 control_type: ControlType::Class,
                 recipient: Recipient::Interface,
             },
-            request: codes::request_code::RANGE,
+            request: uac2_codes::request_code::RANGE,
             value: (channel as u16) << 8 | control_selector,
             index: (entity as u16) << 8 | interface as u16,
             length: size_of::<Layout3ParameterBlock>() as u16,

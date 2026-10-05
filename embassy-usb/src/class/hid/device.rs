@@ -7,70 +7,33 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(feature = "usbd-hid")]
 use usbd_hid::descriptor::AsInputReport;
 
+use super::{
+    HID_DESC_TYPE_HID, HID_DESC_TYPE_REPORT, HID_REQ_GET_IDLE, HID_REQ_GET_PROTOCOL, HID_REQ_GET_REPORT,
+    HID_REQ_SET_IDLE, HID_REQ_SET_PROTOCOL, HID_REQ_SET_REPORT, HidBootProtocol, HidProtocolMode, HidSubclass,
+    ReportId, USB_CLASS_HID,
+};
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::InterfaceNumber;
 use crate::{Builder, Handler};
 
-const USB_CLASS_HID: u8 = 0x03;
-
-// HID
-const HID_DESC_DESCTYPE_HID: u8 = 0x21;
-const HID_DESC_DESCTYPE_HID_REPORT: u8 = 0x22;
 const HID_DESC_SPEC_1_10: [u8; 2] = [0x10, 0x01];
 const HID_DESC_COUNTRY_UNSPEC: u8 = 0x00;
 
-const HID_REQ_SET_IDLE: u8 = 0x0a;
-const HID_REQ_GET_IDLE: u8 = 0x02;
-const HID_REQ_GET_REPORT: u8 = 0x01;
-const HID_REQ_SET_REPORT: u8 = 0x09;
-const HID_REQ_GET_PROTOCOL: u8 = 0x03;
-const HID_REQ_SET_PROTOCOL: u8 = 0x0b;
-
-/// Get/Set Protocol mapping
-/// See (7.2.5 and 7.2.6): <https://www.usb.org/sites/default/files/hid1_11.pdf>
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum HidProtocolMode {
-    /// Hid Boot Protocol Mode
-    Boot = 0,
-    /// Hid Report Protocol Mode
-    Report = 1,
-}
-
-impl From<u8> for HidProtocolMode {
-    fn from(mode: u8) -> HidProtocolMode {
-        if mode == HidProtocolMode::Boot as u8 {
-            HidProtocolMode::Boot
-        } else {
-            HidProtocolMode::Report
-        }
-    }
-}
-
-/// USB HID interface subclass values.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum HidSubclass {
-    /// No subclass, standard HID device.
-    No = 0,
-    /// Boot interface subclass, supports BIOS boot protocol.
-    Boot = 1,
-}
-
-/// USB HID protocol values.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum HidBootProtocol {
-    /// No boot protocol.
-    None = 0,
-    /// Keyboard boot protocol.
-    Keyboard = 1,
-    /// Mouse boot protocol.
-    Mouse = 2,
+/// HID class descriptor (HID 1.11 §6.2.1) announcing one report descriptor of `report_len` bytes.
+const fn hid_descriptor(report_len: usize) -> [u8; 9] {
+    [
+        9,
+        HID_DESC_TYPE_HID,
+        HID_DESC_SPEC_1_10[0],
+        HID_DESC_SPEC_1_10[1],
+        HID_DESC_COUNTRY_UNSPEC,
+        // Number of class descriptors that follow.
+        1,
+        HID_DESC_TYPE_REPORT,
+        report_len as u8,
+        (report_len >> 8) as u8,
+    ]
 }
 
 /// Configuration for the HID class.
@@ -96,29 +59,6 @@ pub struct Config<'d> {
 
     /// The HID boot protocol of this interface
     pub hid_boot_protocol: HidBootProtocol,
-}
-
-/// Report ID
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ReportId {
-    /// IN report
-    In(u8),
-    /// OUT report
-    Out(u8),
-    /// Feature report
-    Feature(u8),
-}
-
-impl ReportId {
-    const fn try_from(value: u16) -> Result<Self, ()> {
-        match value >> 8 {
-            1 => Ok(ReportId::In(value as u8)),
-            2 => Ok(ReportId::Out(value as u8)),
-            3 => Ok(ReportId::Feature(value as u8)),
-            _ => Err(()),
-        }
-    }
 }
 
 /// Internal state for USB HID.
@@ -168,24 +108,8 @@ fn build<'d, D: Driver<'d>>(
         None,
     );
 
-    // HID descriptor
-    alt.descriptor(
-        HID_DESC_DESCTYPE_HID,
-        &[
-            // HID Class spec version
-            HID_DESC_SPEC_1_10[0],
-            HID_DESC_SPEC_1_10[1],
-            // Country code not supported
-            HID_DESC_COUNTRY_UNSPEC,
-            // Number of following descriptors
-            1,
-            // We have a HID report descriptor the host should read
-            HID_DESC_DESCTYPE_HID_REPORT,
-            // HID report descriptor size,
-            (len & 0xFF) as u8,
-            (len >> 8 & 0xFF) as u8,
-        ],
-    );
+    // `descriptor` adds bLength and bDescriptorType, so skip those bytes here.
+    alt.descriptor(HID_DESC_TYPE_HID, &hid_descriptor(len)[2..]);
 
     let ep_in = alt.endpoint_interrupt_in(None, config.max_packet_size, config.poll_ms);
     let ep_out = if with_out_endpoint {
@@ -494,24 +418,7 @@ impl<'d> Control<'d> {
             report_descriptor,
             request_handler,
             out_report_offset,
-            hid_descriptor: [
-                // Length of buf inclusive of size prefix
-                9,
-                // Descriptor type
-                HID_DESC_DESCTYPE_HID,
-                // HID Class spec version
-                HID_DESC_SPEC_1_10[0],
-                HID_DESC_SPEC_1_10[1],
-                // Country code not supported
-                HID_DESC_COUNTRY_UNSPEC,
-                // Number of following descriptors
-                1,
-                // We have a HID report descriptor the host should read
-                HID_DESC_DESCTYPE_HID_REPORT,
-                // HID report descriptor size,
-                (report_descriptor.len() & 0xFF) as u8,
-                (report_descriptor.len() >> 8 & 0xFF) as u8,
-            ],
+            hid_descriptor: hid_descriptor(report_descriptor.len()),
         }
     }
 }
@@ -570,8 +477,8 @@ impl<'d> Handler for Control<'d> {
         match (req.request_type, req.recipient) {
             (RequestType::Standard, Recipient::Interface) => match req.request {
                 Request::GET_DESCRIPTOR => match (req.value >> 8) as u8 {
-                    HID_DESC_DESCTYPE_HID_REPORT => Some(InResponse::Accepted(self.report_descriptor)),
-                    HID_DESC_DESCTYPE_HID => Some(InResponse::Accepted(&self.hid_descriptor)),
+                    HID_DESC_TYPE_REPORT => Some(InResponse::Accepted(self.report_descriptor)),
+                    HID_DESC_TYPE_HID => Some(InResponse::Accepted(&self.hid_descriptor)),
                     _ => Some(InResponse::Rejected),
                 },
 

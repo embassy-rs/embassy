@@ -89,7 +89,7 @@ impl MidiPacket {
     /// The event slice can be longer than expected, additional bytes are ignored.
     /// The expected (and used) event length is returned in the result tuple as second member.
     pub fn try_encode(cable_number: u8, event: &[u8]) -> Result<(Self, usize), MidiPacketError> {
-        if cable_number >= MAX_MIDI_JACKS {
+        if cable_number as usize >= MAX_MIDI_JACKS {
             return Err(MidiPacketError::InvalidCableNumber);
         }
 
@@ -201,14 +201,19 @@ pub struct MidiPacketReader<'a> {
 impl<'a> MidiPacketReader<'a> {
     /// Creates a reader over a non-empty transfer containing complete packets.
     pub fn new(data: &'a [u8]) -> Result<Self, MidiPacketError> {
-        if data.is_empty() || !data.len().is_multiple_of(MIDI_PACKET_SIZE) {
-            return Err(MidiPacketError::InvalidPacketLength);
-        }
-
+        check_transfer_len(data.len())?;
         Ok(Self {
             chunks: data.chunks_exact(MIDI_PACKET_SIZE),
         })
     }
+}
+
+/// Checks that a transfer is non-empty and holds only complete packets.
+pub(crate) fn check_transfer_len(len: usize) -> Result<(), MidiPacketError> {
+    if len == 0 || !len.is_multiple_of(MIDI_PACKET_SIZE) {
+        return Err(MidiPacketError::InvalidPacketLength);
+    }
+    Ok(())
 }
 
 impl Iterator for MidiPacketReader<'_> {
