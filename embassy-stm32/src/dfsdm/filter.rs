@@ -677,9 +677,13 @@ where
     {
         let filterword = filterword_of(&transceivers);
 
+        // Slots are keyed by channel index, not by argument order: the injected
+        // scan visits selected channels in ascending channel order regardless of
+        // how the caller ordered them, so the argument order carries no meaning.
+        // Keying by index also makes duplicate channels idempotent.
         let mut slots: [Option<&'tcv dyn TransceiverTrait<T, Enabled>>; 8] = [None; 8];
-        for (i, tcv) in transceivers.iter().enumerate() {
-            slots[i] = Some(*tcv);
+        for tcv in transceivers {
+            slots[tcv.index()] = Some(tcv);
         }
 
         (slots, filterword)
