@@ -15,7 +15,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::dfsdm::config::{DataRightShift, FilterOrder, FilterParameters};
-use embassy_stm32::dfsdm::{Error, FilterConfig, Flt0, ResultRegular};
+use embassy_stm32::dfsdm::{Error, FilterConfig, Flt0, RegularResult};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::{SharedData, bind_interrupts, dfsdm};
 use panic_probe as _;
@@ -87,18 +87,19 @@ async fn main(_spawner: Spawner) {
         )
     });
 
-    let ch = split
-        .ch2
-        .build_parallel_adc(&common)
-        .set_data_right_shift(DataRightShift::new(0))
-        .enable();
+    let (ch, filters) = split.build(&common, |tb| {
+        tb.ch2
+            .build_parallel_adc(&common)
+            .set_data_right_shift(DataRightShift::new(0))
+            .enable()
+    });
 
     let flt_cfg = FilterConfig {
         filter_params: FilterParameters::try_new(FilterOrder::Disabled, IOSR).expect("inside bounds"),
         enable_continuous_regular: true,
         ..Default::default()
     };
-    let mut flt0 = split.flt0.build(&common, Irqs).enable_no_dma(&ch, [&ch], &flt_cfg);
+    let mut flt0 = filters.flt0.build(&common, Irqs).enable_no_dma(&ch, [&ch], &flt_cfg);
 
     // Start the ADC converting continuously, routed to the DFSDM; each EOC
     // feeds one DFSDM sample.
@@ -108,7 +109,7 @@ async fn main(_spawner: Spawner) {
 
     loop {
         match flt0.regular.read().await {
-            Ok(ResultRegular { data, .. }) => {
+            Ok(RegularResult { data, .. }) => {
                 // `data` is the sum of IOSR samples; divide to get the average.
                 info!("vrefint: {}", data / IOSR as i32);
             }

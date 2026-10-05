@@ -90,6 +90,8 @@ fn encode_threshold(threshold: i32) -> u32 {
 }
 
 /// Analog watchdog event.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AnalogWatchdogEvent {
     /// High threshold exceeded
     HighThreshold {
@@ -131,22 +133,22 @@ where
     /// Wait for an analog watchdog event.
     pub async fn wait_for_event(&mut self) -> AnalogWatchdogEvent {
         poll_fn(|cx| {
-            Self::set_interrupt_enable(false);
+            Self::set_irq(false);
             T::state().watchdog_waker.register(cx.waker());
 
-            let high = Self::high_channels();
-            let low = Self::low_channels();
+            let high = Self::flags_high_raw();
+            let low = Self::flags_low_raw();
 
             if high != 0 {
-                Self::clear_high(high);
+                Self::clear_high_raw(high);
                 return Poll::Ready(AnalogWatchdogEvent::HighThreshold { transceivers: high });
             }
             if low != 0 {
-                Self::clear_low(low);
+                Self::clear_low_raw(low);
                 return Poll::Ready(AnalogWatchdogEvent::LowThreshold { transceivers: low });
             }
 
-            Self::set_interrupt_enable(true);
+            Self::set_irq(true);
             Poll::Pending
         })
         .await
@@ -154,9 +156,9 @@ where
 
     /// Apply a full configuration.
     pub fn configure(&mut self, config: AnalogWatchdogConfig) {
-        self.enable_analog_watchdog_fastmode(config.fastmode);
-        self.assign_low_to_break_signals(config.low_break_signals);
-        self.assign_high_to_break_signals(config.high_break_signals);
+        self.enable_fastmode(config.fastmode);
+        self.assign_low_breaks(config.low_break_signals);
+        self.assign_high_breaks(config.high_break_signals);
         self.set_low_threshold(config.low_threshold);
         self.set_high_threshold(config.high_threshold);
     }
@@ -166,7 +168,7 @@ where
     /// Thresholds are on the 24-bit main-filter scale in both AWFSEL modes
     /// and saturate to the i24 range: `0x7F_FFFF` / `-0x80_0000` (or any
     /// out-of-range value) mean "never trigger". With fast mode enabled
-    /// (see [`enable_analog_watchdog_fastmode`](Self::enable_analog_watchdog_fastmode))
+    /// (see [`enable_fastmode`](Self::enable_fastmode))
     /// the hardware compares only the top 16 threshold bits against the
     /// watchdog filter output (resolution 256); toggling fast mode does not
     /// change the meaning of a stored threshold.
@@ -193,7 +195,7 @@ where
     /// # Note
     /// This routes a watchdog event to a DFSDM break wire (BKAWH); the
     /// receiving timer must separately map that wire to a break input (BRK).
-    pub fn assign_high_to_break_signals(&mut self, break_signals: config::BreakSignals) {
+    pub fn assign_high_breaks(&mut self, break_signals: config::BreakSignals) {
         T::regs()
             .flt(M::CHANNEL.index())
             .awhtr()
@@ -205,7 +207,7 @@ where
     /// # Note
     /// This routes a watchdog event to a DFSDM break wire (BKAWL); the
     /// receiving timer must separately map that wire to a break input (BRK).
-    pub fn assign_low_to_break_signals(&mut self, break_signals: config::BreakSignals) {
+    pub fn assign_low_breaks(&mut self, break_signals: config::BreakSignals) {
         T::regs()
             .flt(M::CHANNEL.index())
             .awltr()
@@ -223,7 +225,7 @@ where
     /// [`set_high_threshold`](Self::set_high_threshold)): toggling this
     /// changes the comparison source and its resolution, not the meaning of
     /// already-written thresholds.
-    pub fn enable_analog_watchdog_fastmode(&mut self, enabled: bool) {
+    pub fn enable_fastmode(&mut self, enabled: bool) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr1()
@@ -236,9 +238,8 @@ where
         // No borrow lifetime here as watchdog events are not awaited when the transceiver is off.
         // They're "errors", not results that waiting for might stall your program.
         transceivers: [&dyn TransceiverTrait<T, Enabled>; N],
-    ) where
-        [(); N]: NonEmpty,
-    {
+    ) {
+        const { core::assert!(N > 0, "at least one element is required") };
         let filterword = filterword_of(&transceivers);
 
         // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW - same cs discipline.
@@ -251,47 +252,47 @@ where
     }
 
     /// Whether the low-threshold flag is set for `channel`.
-    pub fn channel_flag_low(&self, channel: TransceiverChannel) -> bool {
+    pub fn flag_low(&self, channel: TransceiverChannel) -> bool {
         self.flags_low().get_bit(channel.index())
     }
 
     /// Whether the high-threshold flag is set for `channel`.
-    pub fn channel_flag_high(&self, channel: TransceiverChannel) -> bool {
+    pub fn flag_high(&self, channel: TransceiverChannel) -> bool {
         self.flags_high().get_bit(channel.index())
     }
 
     /// Low-threshold flag bitmap.
     pub fn flags_low(&self) -> u8 {
-        Self::low_channels()
+        Self::flags_low_raw()
     }
 
     /// High-threshold flag bitmap.
     pub fn flags_high(&self) -> u8 {
-        Self::high_channels()
+        Self::flags_high_raw()
     }
 
     /// Clear the low-threshold flag for `channel`.
-    pub fn clear_channel_flags_low(&mut self, channel: TransceiverChannel) {
-        Self::clear_low(1 << channel.index());
+    pub fn clear_flag_low(&mut self, channel: TransceiverChannel) {
+        Self::clear_low_raw(1 << channel.index());
     }
 
     /// Clear the high-threshold flag for `channel`.
-    pub fn clear_channel_flags_high(&mut self, channel: TransceiverChannel) {
-        Self::clear_high(1 << channel.index());
+    pub fn clear_flag_high(&mut self, channel: TransceiverChannel) {
+        Self::clear_high_raw(1 << channel.index());
     }
 
     /// Clear all low-threshold flags.
     pub fn clear_flags_low(&mut self) {
-        Self::clear_low(0xFF);
+        Self::clear_low_raw(0xFF);
     }
 
     /// Clear all high-threshold flags.
     pub fn clear_flags_high(&mut self) {
-        Self::clear_high(0xFF);
+        Self::clear_high_raw(0xFF);
     }
 
     /// Enables or disables analog watchdog interrupts.
-    pub(crate) fn set_interrupt_enable(enabled: bool) {
+    pub(crate) fn set_irq(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs().flt(M::CHANNEL.index()).cr2().modify(|w| w.set_awdie(enabled));
@@ -304,17 +305,17 @@ where
     }
 
     /// Returns bitmap of channels who triggered the high threshold
-    pub(crate) fn high_channels() -> u8 {
+    pub(crate) fn flags_high_raw() -> u8 {
         T::regs().flt(M::CHANNEL.index()).awsr().read().awhtf()
     }
 
     /// Returns bitmap of channels who triggered the low threshold
-    pub(crate) fn low_channels() -> u8 {
+    pub(crate) fn flags_low_raw() -> u8 {
         T::regs().flt(M::CHANNEL.index()).awsr().read().awltf()
     }
 
     /// Clears the provided channels' analog watchdog flags
-    pub(crate) fn clear_high(channels: u8) {
+    pub(crate) fn clear_high_raw(channels: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .awcfr()
@@ -322,7 +323,7 @@ where
     }
 
     /// Clears the provided channels' analog watchdog flags
-    pub(crate) fn clear_low(channels: u8) {
+    pub(crate) fn clear_low_raw(channels: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .awcfr()
@@ -331,7 +332,9 @@ where
 }
 
 /// Extremes result.
-pub struct ResultExtreme {
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ExtremeResult {
     /// Sign-extended 24-bit extreme value.
     pub data: i32,
     /// Transceiver it came from.
@@ -362,9 +365,8 @@ where
         // No borrow lifetime here as watchdog events are not awaited when the transceiver is off.
         // They're "errors", not results that waiting for might stall your program.
         transceivers: [&dyn TransceiverTrait<T, Enabled>; N],
-    ) where
-        [(); N]: NonEmpty,
-    {
+    ) {
+        const { core::assert!(N > 0, "at least one element is required") };
         let filterword = filterword_of(&transceivers);
 
         // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW - same cs discipline.
@@ -379,9 +381,9 @@ where
     /// Reads the extremes detector maximum value and its corresponding channel.
     /// Reading this resets the register value to `0x800000` and clears the
     /// channel field.
-    pub fn read_maxima(&mut self) -> ResultExtreme {
+    pub fn read_maxima(&mut self) -> ExtremeResult {
         let exmax = T::regs().flt(M::CHANNEL.index()).exmax().read();
-        ResultExtreme {
+        ExtremeResult {
             channel: exmax.exmaxch(),
             data: sign_extend_24(exmax.exmax()),
         }
@@ -390,9 +392,9 @@ where
     /// Reads the extremes detector minimum value and its corresponding channel.
     /// Reading this resets the register value to `0x7FFFFF` and clears the
     /// channel field.
-    pub fn read_minima(&mut self) -> ResultExtreme {
+    pub fn read_minima(&mut self) -> ExtremeResult {
         let exmin = T::regs().flt(M::CHANNEL.index()).exmin().read();
-        ResultExtreme {
+        ExtremeResult {
             channel: exmin.exminch(),
             data: sign_extend_24(exmin.exmin()),
         }
@@ -463,16 +465,16 @@ where
     /// Wait for a short-circuit-detector event
     pub async fn wait_for_event(&mut self) -> u8 {
         poll_fn(|cx| {
-            Self::set_interrupt_enable(false);
+            Self::set_irq(false);
             T::instance_state().short_circuit_waker.register(cx.waker());
 
-            let channels = Self::channel_flags_masked();
+            let channels = Self::flags_masked();
             if channels != 0 {
-                Self::clear_channels(channels);
+                Self::clear_raw(channels);
                 return Poll::Ready(channels);
             }
 
-            Self::set_interrupt_enable(true);
+            Self::set_irq(true);
             Poll::Pending
         })
         .await
@@ -484,24 +486,20 @@ where
     T: Instance,
 {
     /// Assigns the transceivers to the short-circuit-detector (overwrites assignments)
-    pub fn assign_transceivers<const N: usize>(&mut self, assignments: [ShortCircuitAssignment<T>; N])
-    where
-        [(); N]: NonEmpty,
-    {
+    pub fn assign_thresholds<const N: usize>(&mut self, assignments: [ShortCircuitAssignment<T>; N]) {
+        const { core::assert!(N > 0, "at least one element is required") };
         for assignment in assignments {
             self.set_threshold(assignment.transceiver, assignment.threshold);
         }
         let tcv: [&dyn TransceiverTrait<T, Enabled>; N] = assignments.map(|a| a.transceiver);
 
-        Self::set_channels(filterword_of(&tcv));
+        Self::set_armed(filterword_of(&tcv));
     }
 
     /// Unassigns the transceivers from the short-circuit-detector
-    pub fn unassign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N])
-    where
-        [(); N]: NonEmpty,
-    {
-        Self::set_channels(Self::channel_word() & !filterword_of(&transceivers));
+    pub fn unassign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N]) {
+        const { core::assert!(N > 0, "at least one element is required") };
+        Self::set_armed(Self::hw_armed_mask() & !filterword_of(&transceivers));
     }
 
     /// Assign break-signals for short-circuit-event of transceiver
@@ -509,11 +507,7 @@ where
     /// # Note
     /// This routes a short-circuit event to a DFSDM break wire (BKSCD); the
     /// receiving timer must separately map that wire to a break input (BRK).
-    pub fn assign_break_signals(
-        &mut self,
-        transceiver: &dyn TransceiverTrait<T, Enabled>,
-        signals: config::BreakSignals,
-    ) {
+    pub fn assign_breaks(&mut self, transceiver: &dyn TransceiverTrait<T, Enabled>, signals: config::BreakSignals) {
         T::regs()
             .ch(transceiver.index())
             .awscdr()
@@ -529,18 +523,18 @@ where
     }
 
     /// Whether the short-circuit flag is set for `channel`.
-    pub fn channel_flag(&self, channel: TransceiverChannel) -> bool {
+    pub fn flag(&self, channel: TransceiverChannel) -> bool {
         self.flags().get_bit(channel.index())
     }
 
     /// Clear the short-circuit flag for `channel`.
-    pub fn clear_channel_flags(&mut self, channel: TransceiverChannel) {
-        Self::clear_channels(1 << channel.index());
+    pub fn clear_flag(&mut self, channel: TransceiverChannel) {
+        Self::clear_raw(1 << channel.index());
     }
 
     /// Short-circuit flag bitmap.
     pub fn flags(&self) -> u8 {
-        Self::channel_flags_masked()
+        Self::flags_masked()
     }
 
     /// Clear all pending detector flags for currently armed channels.
@@ -549,17 +543,17 @@ where
     /// before waiting for events.
     pub fn clear_flags(&mut self) {
         let armed = T::instance_state().short_circuit_armed.load(Ordering::Relaxed);
-        Self::clear_channels(armed);
+        Self::clear_raw(armed);
     }
 
-    pub(crate) fn drop_transceiver(channel: TransceiverChannel) {
+    pub(crate) fn unarm_channel(channel: TransceiverChannel) {
         let ch = channel.index();
-        Self::set_channels(*Self::channel_word().set_bit(ch, false));
+        Self::set_armed(*Self::hw_armed_mask().set_bit(ch, false));
     }
 
     /// Aggregate CFGR1 bit-word for one detector kind, over the channels this
     /// instance actually has.
-    fn channel_word() -> u8 {
+    fn hw_armed_mask() -> u8 {
         let count = <T::Transceivers as capability::TransceiverCount>::COUNT;
         (0..count).fold(0u8, |mut acc, y| {
             acc.set_bit(y as usize, T::regs().ch(y as usize).cfgr1().read().scden());
@@ -568,7 +562,7 @@ where
     }
 
     /// Authority: make the registers match `mask` exactly, then refresh the armed cache.
-    fn set_channels(mask: u8) {
+    fn set_armed(mask: u8) {
         let mask = mask & channel_count_mask::<T>();
         for y in 0..<T::Transceivers as capability::TransceiverCount>::COUNT {
             let want = mask.get_bit(y as usize);
@@ -578,7 +572,7 @@ where
     }
 
     /// Enables or disables short-circuit detector interrupts.
-    pub(crate) fn set_interrupt_enable(enabled: bool) {
+    pub(crate) fn set_irq(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
@@ -586,17 +580,17 @@ where
     }
 
     /// Returns bitmap of channels who triggered the short-circuit-detector
-    pub(crate) fn channel_flags() -> u8 {
+    pub(crate) fn flags_raw() -> u8 {
         T::regs().flt(0).isr().read().scdf()
     }
 
     /// Returns bitmap of channels who triggered the short-circuit-detector and are armed
-    pub(crate) fn channel_flags_masked() -> u8 {
-        Self::channel_flags() & T::instance_state().short_circuit_armed.load(Ordering::Relaxed)
+    pub(crate) fn flags_masked() -> u8 {
+        Self::flags_raw() & T::instance_state().short_circuit_armed.load(Ordering::Relaxed)
     }
 
     /// Clears the provided channel flags in the short-circuit-detector
-    pub(crate) fn clear_channels(channels: u8) {
+    pub(crate) fn clear_raw(channels: u8) {
         T::regs().flt(0).icr().modify(|w| w.set_clrscdf(channels));
     }
 }
@@ -621,17 +615,17 @@ where
     /// Wait for a clock-absence-detector event
     pub async fn wait_for_event(&mut self) -> u8 {
         poll_fn(|cx| {
-            Self::set_interrupt_enable(false);
+            Self::set_irq(false);
             T::instance_state().clock_absence_waker.register(cx.waker());
 
-            let channels = Self::channel_flags_masked();
+            let channels = Self::flags_masked();
 
             if channels != 0 {
-                Self::clear_channels(channels);
+                Self::clear_raw(channels);
                 return Poll::Ready(channels);
             }
 
-            Self::set_interrupt_enable(true);
+            Self::set_irq(true);
             Poll::Pending
         })
         .await
@@ -643,29 +637,25 @@ where
     T: Instance,
 {
     /// Assigns the transceivers to the clock-absence-detector (overwrites assignments)
-    pub fn assign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N])
-    where
-        [(); N]: NonEmpty,
-    {
-        Self::set_channels(filterword_of(&transceivers));
+    pub fn assign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N]) {
+        const { core::assert!(N > 0, "at least one element is required") };
+        Self::set_armed(filterword_of(&transceivers));
     }
 
     /// Unassigns the transceivers from the clock-absence-detector
-    pub fn unassign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N])
-    where
-        [(); N]: NonEmpty,
-    {
-        Self::set_channels(Self::channel_word() & !filterword_of(&transceivers));
+    pub fn unassign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N]) {
+        const { core::assert!(N > 0, "at least one element is required") };
+        Self::set_armed(Self::hw_armed_mask() & !filterword_of(&transceivers));
     }
 
     /// Whether the clock-absence flag is set for `channel`.
-    pub fn channel_flag(&self, channel: TransceiverChannel) -> bool {
+    pub fn flag(&self, channel: TransceiverChannel) -> bool {
         self.flags().get_bit(channel.index())
     }
 
     /// Clear the clock-absence flag for `channel`.
-    pub fn clear_channel_flags(&mut self, channel: TransceiverChannel) {
-        Self::clear_channels(1 << channel.index());
+    pub fn clear_flag(&mut self, channel: TransceiverChannel) {
+        Self::clear_raw(1 << channel.index());
     }
 
     /// Clock-absence flag bitmap.
@@ -676,7 +666,7 @@ where
     /// Call [`clear_flags`](Self::clear_flags) after assigning transceivers to
     /// drop startup residue.
     pub fn flags(&self) -> u8 {
-        Self::channel_flags_masked()
+        Self::flags_masked()
     }
 
     /// Clear all pending detector flags for currently armed channels.
@@ -685,17 +675,17 @@ where
     /// before waiting for events.
     pub fn clear_flags(&mut self) {
         let armed = T::instance_state().clock_absence_armed.load(Ordering::Relaxed);
-        Self::clear_channels(armed);
+        Self::clear_raw(armed);
     }
 
-    pub(crate) fn drop_transceiver(channel: TransceiverChannel) {
+    pub(crate) fn unarm_channel(channel: TransceiverChannel) {
         let ch = channel.index();
-        Self::set_channels(*Self::channel_word().set_bit(ch, false));
+        Self::set_armed(*Self::hw_armed_mask().set_bit(ch, false));
     }
 
     /// Aggregate CFGR1 bit-word for one detector kind, over the channels this
     /// instance actually has.
-    fn channel_word() -> u8 {
+    fn hw_armed_mask() -> u8 {
         let count = <T::Transceivers as capability::TransceiverCount>::COUNT;
 
         (0..count).fold(0u8, |mut acc, y| {
@@ -705,7 +695,7 @@ where
     }
 
     /// Authority: make the registers match `mask` exactly, then refresh the armed cache.
-    fn set_channels(mask: u8) {
+    fn set_armed(mask: u8) {
         let mask = mask & channel_count_mask::<T>();
         for y in 0..<T::Transceivers as capability::TransceiverCount>::COUNT {
             let want = mask.get_bit(y as usize);
@@ -715,7 +705,7 @@ where
     }
 
     /// Enables or disables clock absence interrupts.
-    pub(crate) fn set_interrupt_enable(enabled: bool) {
+    pub(crate) fn set_irq(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
@@ -723,23 +713,23 @@ where
     }
 
     /// Returns bitmap of channels who triggered the clock-absence-detector
-    pub(crate) fn channel_flags() -> u8 {
+    pub(crate) fn flags_raw() -> u8 {
         T::regs().flt(0).isr().read().ckabf()
     }
 
     /// Returns bitmap of channels who triggered the clock-absence-detector and are armed
-    pub(crate) fn channel_flags_masked() -> u8 {
-        Self::channel_flags() & T::instance_state().clock_absence_armed.load(Ordering::Relaxed)
+    pub(crate) fn flags_masked() -> u8 {
+        Self::flags_raw() & T::instance_state().clock_absence_armed.load(Ordering::Relaxed)
     }
 
     /// Try to clear the repective channels flag
-    pub(crate) fn try_clear_channel_flag(channel: TransceiverChannel) -> bool {
-        Self::clear_channels(1 << channel.index());
-        !Self::channel_flags().get_bit(channel.index())
+    pub(crate) fn try_clear_flag(channel: TransceiverChannel) -> bool {
+        Self::clear_raw(1 << channel.index());
+        !Self::flags_raw().get_bit(channel.index())
     }
 
     /// Clears the provided channel flags in the clock-absence-detector
-    pub(crate) fn clear_channels(channels: u8) {
+    pub(crate) fn clear_raw(channels: u8) {
         T::regs().flt(0).icr().modify(|w| w.set_clrckabf(channels));
     }
 }

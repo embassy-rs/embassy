@@ -1,5 +1,5 @@
-//! Transceiver driver, its pin reference-counting storage, single-use pin
-//! selectors, and the pin-trait associations.
+//! Transceiver driver, its pin-slot storage, single-use pin selectors, and the
+//! pin-trait associations.
 
 use super::*;
 
@@ -16,17 +16,33 @@ pub enum PinKind {
     Ckin,
 }
 
-/// Reference-counted storage for one pin of one transceiver.
+/// State of one pin slot: the pin handle plus which consumers require it present.
+#[derive(Default)]
+pub(crate) struct PinSlotInner<'d> {
+    pub(crate) flex: Option<Flex<'d>>,
+    /// The channel's own transceiver requires the pin.
+    pub(crate) owner: bool,
+    /// The predecessor's neighbor transceiver requires the pin.
+    pub(crate) neighbor: bool,
+}
+
+/// Storage for one pin of one transceiver.
+///
+/// A pin has 0, 1 or 2 consumers: the channel's own transceiver (`owner`) and its
+/// predecessor's neighbor transceiver (`neighbor`). The two flags track which of
+/// them require the pin present; the `Flex` is dropped once neither does.
 pub struct PinSlot<'d> {
-    pub(crate) inner: critical_section::Mutex<RefCell<Option<Flex<'d>>>>,
-    pub(crate) rc: AtomicU8,
+    pub(crate) inner: RefCell<PinSlotInner<'d>>,
 }
 
 impl<'d> PinSlot<'d> {
     pub(crate) const fn new() -> Self {
         Self {
-            inner: critical_section::Mutex::new(RefCell::new(None)),
-            rc: AtomicU8::new(0),
+            inner: RefCell::new(PinSlotInner {
+                flex: None,
+                owner: false,
+                neighbor: false,
+            }),
         }
     }
 }
@@ -107,21 +123,15 @@ where
     PS: PinSource,
 {
     fn drop(&mut self) {
-        // Release the reservations this transceiver kept: its pinset `S` on
-        // the channel the pins belong to (the successor's when they came from
-        // the neighbour). The reservations it did not keep were already
-        // disclaimed at build time.
-        let ch = if PS::FROM_NEIGHBOR {
-            <M::Next as TransceiverMarker>::CHANNEL.index()
-        } else {
-            M::CHANNEL.index()
-        };
-        self.common.release_pinset::<S>(ch);
+        // Release the requirement this transceiver held: its pinset `S` on the
+        // channel the pins belong to (the successor's when they came from the
+        // neighbour). A pin nobody else requires deconfigures here.
+        self.common.release::<M, S, PS>();
 
         // Disabling deactivates the detector flags, so drop them from the
         // cached armed mask too.
-        ShortCircuitDetector::<T>::drop_transceiver(M::CHANNEL);
-        ClockAbsenceDetector::<T>::drop_transceiver(M::CHANNEL);
+        ShortCircuitDetector::<T>::unarm_channel(M::CHANNEL);
+        ClockAbsenceDetector::<T>::unarm_channel(M::CHANNEL);
 
         T::regs().ch(M::CHANNEL.index()).cfgr1().modify(|w| w.set_chen(false));
     }
@@ -184,7 +194,7 @@ where
     #[cfg(feature = "time")]
     pub async fn wait_for_sync(&mut self) {
         loop {
-            if ClockAbsenceDetector::<T>::try_clear_channel_flag(M::CHANNEL) {
+            if ClockAbsenceDetector::<T>::try_clear_flag(M::CHANNEL) {
                 break;
             }
             embassy_time::Timer::after_millis(1).await;
@@ -194,7 +204,7 @@ where
     /// Blocking `wait_for_sync`: polls the clock-absence flag without
     /// yielding. Available with and without the `time` feature.
     pub fn blocking_wait_for_sync(&mut self) {
-        while !ClockAbsenceDetector::<T>::try_clear_channel_flag(M::CHANNEL) {}
+        while !ClockAbsenceDetector::<T>::try_clear_flag(M::CHANNEL) {}
     }
 }
 
@@ -246,8 +256,8 @@ where
     ///
     /// # Note
     /// The valid watchdog OSR range depends on this order; set
-    /// [`select_awd_filter_osr`](Self::select_awd_filter_osr) accordingly.
-    pub fn select_awd_filter_order(self, filter_order: config::AwdFilterOrder) -> Self {
+    /// [`set_awd_osr`](Self::set_awd_osr) accordingly.
+    pub fn set_awd_order(self, filter_order: config::AwdFilterOrder) -> Self {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
@@ -259,8 +269,8 @@ where
     ///
     /// # Note
     /// The valid OSR range depends on the order set via
-    /// [`select_awd_filter_order`](Self::select_awd_filter_order).
-    pub fn select_awd_filter_osr(self, osr: config::AwdFilterOsr) -> Self {
+    /// [`set_awd_order`](Self::set_awd_order).
+    pub fn set_awd_osr(self, osr: config::AwdFilterOsr) -> Self {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
@@ -356,7 +366,7 @@ where
 
     /// Read the analog watchdog data for this transceiver, converted by the
     /// watchdog filter (continuously, with limited resolution).
-    pub fn awd_filter_data(&self) -> u16 {
+    pub fn awd_data(&self) -> u16 {
         T::regs().ch(M::CHANNEL.index()).wdatr().read().wdata()
     }
 }
@@ -381,11 +391,6 @@ where
     /// To skip more than 63 pulses, issue repeated writes; the peripheral
     /// doesn't track a cumulative count across writes, so the caller must.
     pub fn skip_pulses(&mut self, skips: config::PulsesToSkip) {
-        self.set_pulseskips(skips);
-    }
-
-    /// Sets the number of serial-clock pulses to skip (PLSSKP).
-    fn set_pulseskips(&mut self, skips: config::PulsesToSkip) {
         T::regs()
             .ch(M::CHANNEL.index())
             .dlyr()
@@ -425,22 +430,22 @@ where
     }
 
     /// Set the analog watchdog filter order for both channels (`[0]` = even, `[1]` = odd).
-    pub fn select_awd_filter_order(self, orders: [config::AwdFilterOrder; 2]) -> Self {
+    pub fn set_awd_order(self, orders: [config::AwdFilterOrder; 2]) -> Self {
         let [even, odd] = orders;
         let ParallelPairDisabled { even: e, odd: o } = self;
         ParallelPairDisabled {
-            even: e.select_awd_filter_order(even),
-            odd: o.select_awd_filter_order(odd),
+            even: e.set_awd_order(even),
+            odd: o.set_awd_order(odd),
         }
     }
 
     /// Set the analog watchdog filter OSR for both channels (`[0]` = even, `[1]` = odd).
-    pub fn select_awd_filter_osr(self, osrs: [config::AwdFilterOsr; 2]) -> Self {
+    pub fn set_awd_osr(self, osrs: [config::AwdFilterOsr; 2]) -> Self {
         let [even, odd] = osrs;
         let ParallelPairDisabled { even: e, odd: o } = self;
         ParallelPairDisabled {
-            even: e.select_awd_filter_osr(even),
-            odd: o.select_awd_filter_osr(odd),
+            even: e.set_awd_osr(even),
+            odd: o.set_awd_osr(odd),
         }
     }
 
@@ -465,6 +470,12 @@ where
 }
 
 /// An enabled dual-mode parallel-input pair.
+///
+/// The halves belong together: the odd transceiver is fed from the even
+/// one's `INDAT1` auto-copy. `#[non_exhaustive]` blocks external
+/// construction and destructuring while keeping field access and split
+/// borrows.
+#[non_exhaustive]
 pub struct ParallelPair<'a, 'd, T, M, S, MN, SN>
 where
     T: Instance,
@@ -567,12 +578,10 @@ where
     where
         T: capability::AdcInput,
     {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::InternalAdc);
-        // This mode uses no pins: disclaim both reservations the builder
-        // minted, so the declared pins deconfigure now.
-        self.disclaim_own(common);
-        self.disclaim_neighbor(common);
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::InternalAdc);
+        // This mode uses no pins: claim nothing, so declared pins deconfigure at
+        // the gate's sweep.
         Transceiver::new(common)
     }
 
@@ -586,11 +595,9 @@ where
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
     ) -> Transceiver<'a, 'd, T, M, NoPins, ParallelStandard, OwnPins, Disabled> {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::InternalRegisterWrite);
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(config::DataPackingMode::Standard);
-        self.disclaim_own(common);
-        self.disclaim_neighbor(common);
         Transceiver::new(common)
     }
 
@@ -604,11 +611,9 @@ where
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
     ) -> Transceiver<'a, 'd, T, M, NoPins, ParallelInterleaved, OwnPins, Disabled> {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::InternalRegisterWrite);
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(config::DataPackingMode::Interleaved);
-        self.disclaim_own(common);
-        self.disclaim_neighbor(common);
         Transceiver::new(common)
     }
 
@@ -633,17 +638,13 @@ where
         MN: TransceiverMarker + NextChannelForInstance<T>,
         SNN: PinSet,
     {
-        self.select_channel_input(config::ChannelInput::Same);
-        neighbor.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::InternalRegisterWrite);
-        neighbor.select_data_mux_input(config::InputDataMux::InternalRegisterWrite);
+        self.set_channel_input(config::ChannelInput::Same);
+        neighbor.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::InternalRegisterWrite);
+        neighbor.set_data_mux(config::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(config::DataPackingMode::Dual);
         neighbor.set_data_packing_mode(config::DataPackingMode::Standard);
-        // No pins are used by either half: disclaim all four reservations.
-        self.disclaim_own(common);
-        self.disclaim_neighbor(common);
-        neighbor.disclaim_own(common);
-        neighbor.disclaim_neighbor(common);
+        // No pins are used by either half: claim nothing.
         ParallelPairDisabled {
             even: Transceiver::new(common),
             odd: Transceiver::new(common),
@@ -662,12 +663,11 @@ where
     where
         S: HasData,
     {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
-        // The transceiver keeps its own DATIN reservation; disclaim the
-        // successor-slot reservation minted for the neighbour build.
-        self.disclaim_neighbor(common);
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
+        // The transceiver requires its own DATIN pin.
+        common.claim::<M, S, OwnPins>();
         Transceiver::new(common)
     }
 
@@ -680,19 +680,12 @@ where
     where
         SN: HasData,
     {
-        let next_ch = <M::Next as TransceiverMarker>::CHANNEL.index();
-        // The transceiver will release its own (neighbour-slot) DATIN
-        // reservation on drop. Disclaim the channel's own slot, and the
-        // successor's CKIN if the neighbour declares one but this mode
-        // does not use it.
-        self.disclaim_own(common);
-        if SN::HAS_CLK {
-            common.release_pin(next_ch, PinKind::Ckin);
-        }
-
-        self.select_channel_input(config::ChannelInput::Neighbor);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
+        self.set_channel_input(config::ChannelInput::Neighbor);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
+        // Borrows the neighbour's DATIN only; a declared CKIN this mode does not
+        // use is dropped by the gate's sweep.
+        common.claim::<M, DataOnly, NeighborPins>();
         Transceiver::new(common)
     }
 
@@ -707,11 +700,11 @@ where
     where
         S: HasDataAndClk,
     {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
-        self.select_spi_clock(config::SpiClockSelect::ExternalCkin);
-        self.disclaim_neighbor(common);
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
+        self.set_spi_clock(config::SpiClockSelect::ExternalCkin);
+        common.claim::<M, S, OwnPins>();
         Transceiver::new(common)
     }
 
@@ -724,14 +717,11 @@ where
     where
         SN: HasDataAndClk,
     {
-        // The transceiver will release both of the neighbour slot's
-        // reservations on drop. Disclaim the channel's own slot.
-        self.disclaim_own(common);
-
-        self.select_channel_input(config::ChannelInput::Neighbor);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
-        self.select_spi_clock(config::SpiClockSelect::ExternalCkin);
+        self.set_channel_input(config::ChannelInput::Neighbor);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
+        self.set_spi_clock(config::SpiClockSelect::ExternalCkin);
+        common.claim::<M, DataClk, NeighborPins>();
         Transceiver::new(common)
     }
 
@@ -753,28 +743,28 @@ where
             .modify(|w| w.set_datpack(mode as u8));
     }
 
-    fn select_data_mux_input(&mut self, input: config::InputDataMux) {
+    fn set_data_mux(&mut self, input: config::InputDataMux) {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr1()
             .modify(|w| w.set_datmpx(input as u8));
     }
 
-    fn select_channel_input(&mut self, source: config::ChannelInput) {
+    fn set_channel_input(&mut self, source: config::ChannelInput) {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr1()
             .modify(|w| w.set_chinsel(source.into()));
     }
 
-    fn select_spi_clock(&mut self, source: config::SpiClockSelect) {
+    fn set_spi_clock(&mut self, source: config::SpiClockSelect) {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr1()
             .modify(|w| w.set_spicksel(source as u8));
     }
 
-    fn select_serial_interface_type(&mut self, if_type: config::SerialInterfaceType) {
+    fn set_serial_interface(&mut self, if_type: config::SerialInterfaceType) {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr1()
@@ -800,11 +790,11 @@ where
     where
         S: HasData,
     {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
-        self.select_spi_clock(mode.into());
-        self.disclaim_neighbor(common);
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
+        self.set_spi_clock(mode.into());
+        common.claim::<M, S, OwnPins>();
         Transceiver::new(common)
     }
 
@@ -817,19 +807,11 @@ where
     where
         SN: HasData,
     {
-        let next_ch = <M::Next as TransceiverMarker>::CHANNEL.index();
-        // The transceiver will release its own (neighbour-slot) DATIN
-        // reservation on drop. Disclaim the channel's own slot, and the
-        // successor's CKIN if declared but unused by this mode.
-        self.disclaim_own(common);
-        if SN::HAS_CLK {
-            common.release_pin(next_ch, PinKind::Ckin);
-        }
-
-        self.select_channel_input(config::ChannelInput::Neighbor);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
-        self.select_spi_clock(mode.into());
+        self.set_channel_input(config::ChannelInput::Neighbor);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
+        self.set_spi_clock(mode.into());
+        common.claim::<M, DataOnly, NeighborPins>();
         Transceiver::new(common)
     }
 }
@@ -842,16 +824,6 @@ where
     S: PinSet,
     SN: PinSet,
 {
-    /// Disclaims the reservations this builder minted on its own channel's
-    /// slots (the ones not taken by this build's transceiver).
-    fn disclaim_own(&self, common: &DfsdmCommon<'_, T, Enabled>) {
-        common.release_pinset::<S>(M::CHANNEL.index());
-    }
-
-    /// Disclaims the reservations this builder minted on its successor's slots.
-    fn disclaim_neighbor(&self, common: &DfsdmCommon<'_, T, Enabled>) {
-        common.release_pinset::<SN>(<M::Next as TransceiverMarker>::CHANNEL.index());
-    }
 }
 
 // =============================================================================

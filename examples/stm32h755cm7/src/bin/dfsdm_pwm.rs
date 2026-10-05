@@ -3,7 +3,7 @@
 
 //! PDM mic -> DFSDM -> beat detection -> LED PWM (polling).
 //!
-//! Polls regular conversion results with `try_get_result()` (no interrupt
+//! Polls regular conversion results with `try_read()` (no interrupt
 //! waker), runs each sample through the beat-detection DSP
 //! (`dsp::LevelDsp`) and drives the LED on PB14 (TIM12).
 
@@ -13,7 +13,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0, ResultRegular};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, RegularResult};
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
@@ -110,17 +110,18 @@ async fn main(_spawner: Spawner) {
     let filter_params =
         FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 100 }, 50).expect("This is inside the bounds");
 
-    let channel_mic = split
-        .ch1
-        .build_spi_int(&common, InternalSpiMode::SpiRising)
-        .set_data_right_shift(filter_params.recommended_shift().try_into().unwrap())
-        .enable();
+    let (channel_mic, filters) = split.build(&common, |tb| {
+        tb.ch1
+            .build_spi_int(&common, InternalSpiMode::SpiRising)
+            .set_data_right_shift(filter_params.recommended_shift().try_into().unwrap())
+            .enable()
+    });
 
     let flt_cfg = FilterConfig {
         filter_params,
         ..Default::default()
     };
-    let mut flt0 = split
+    let mut flt0 = filters
         .flt0
         .build(&common, Irqs)
         .enable_no_dma(&channel_mic, [&channel_mic], &flt_cfg);
@@ -131,7 +132,7 @@ async fn main(_spawner: Spawner) {
 
     flt0.regular.start_conversion();
     loop {
-        if let Ok(ResultRegular { data, .. }) = flt0.regular.try_get_result() {
+        if let Ok(RegularResult { data, .. }) = flt0.regular.try_read() {
             flt0.regular.start_conversion();
             let ready_at = Instant::now();
 

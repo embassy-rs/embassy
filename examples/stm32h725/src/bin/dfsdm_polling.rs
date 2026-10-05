@@ -11,7 +11,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config::{CkoutDivider, DataRightShift, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0, ResultRegular};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, RegularResult};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::{bind_interrupts, dfsdm};
 use embassy_time::Timer;
@@ -52,17 +52,18 @@ async fn main(_spawner: Spawner) {
         )
     });
 
-    let channel4 = split
-        .ch4
-        .build_spi_int(&common, InternalSpiMode::SpiRising)
-        .set_data_right_shift(DataRightShift::new(0))
-        .enable();
+    let (channel4, filters) = split.build(&common, |tb| {
+        tb.ch4
+            .build_spi_int(&common, InternalSpiMode::SpiRising)
+            .set_data_right_shift(DataRightShift::new(0))
+            .enable()
+    });
 
     let flt_cfg = FilterConfig {
         filter_params: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 128 }, 6).expect("inside bounds"),
         ..Default::default()
     };
-    let mut flt0 = split
+    let mut flt0 = filters
         .flt0
         .build(&common, Irqs)
         .enable_no_dma(&channel4, [&channel4], &flt_cfg);
@@ -70,7 +71,7 @@ async fn main(_spawner: Spawner) {
     flt0.regular.start_conversion();
 
     loop {
-        if let Ok(ResultRegular { data, channel, pending }) = flt0.regular.try_get_result() {
+        if let Ok(RegularResult { data, channel, pending }) = flt0.regular.try_read() {
             // AMC from 10% = -1V, 90% = 1V; outputs from -1 to 1; -1 = 0%, 1 = 100%.
             let normalized = (data as f32) / ((128_i32.pow(3) * 6_i32) as f32);
 

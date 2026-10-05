@@ -1,4 +1,9 @@
 //! Digital Filter and Sigma-Delta Modulator (DFSDM)
+//!
+//! One core owns a DFSDM instance. The driver takes no cross-core lock, so
+//! sharing an instance across cores needs external synchronization (an HSEM,
+//! for example): the CR1/CR2/CFGR1 read-modify-writes, the per-instance
+//! armed caches and the RCC disable on drop all race otherwise.
 
 #![macro_use]
 
@@ -40,8 +45,6 @@ use crate::{Peri, interrupt, rcc};
 pub enum Error {
     /// Overrun error: the hardware generated data faster than we could read it.
     Overrun,
-    /// Internal peripheral error.
-    PeripheralError,
     /// No data available yet.
     NotReady,
     /// Invalid filter parameters: FOSR/IOSR out of range, or the resulting
@@ -72,21 +75,6 @@ pub struct Dfsdm<'d, T: Instance, C: ClockOutputMode> {
     _rcc: RccOff<T>,
     peri: Option<Peri<'d, T>>,
     ckout: Option<Flex<'d>>,
-}
-
-impl<'d, T, C> Dfsdm<'d, T, C>
-where
-    T: Instance,
-    C: ClockOutputMode,
-{
-}
-
-#[allow(private_bounds)]
-impl<'d, T, C> Dfsdm<'d, T, C>
-where
-    C: ClockOutputMode,
-    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>,
-{
 }
 
 impl<'d, T> Dfsdm<'d, T, OutputEnabled>
@@ -131,8 +119,6 @@ where
     C: ClockOutputMode,
 {
     fn new_inner(peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
-        let _ = peri;
-
         rcc::enable_and_reset::<T>();
 
         Self {
@@ -221,15 +207,7 @@ impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
                 PinKind::Datin => &mut self.datin_slots[ch],
                 PinKind::Ckin => &mut self.ckin_slots[ch],
             };
-            critical_section::with(|cs| {
-                *slot.inner.borrow_ref_mut(cs) = Some(p);
-            });
-            // Two potential users per slot: this channel's own transceiver and
-            // its predecessor's (CHINSEL=1 takes the next channel's pins, and
-            // `NextChannel` wraps). Both reservations are minted up front;
-            // whichever user does not take one disclaims it at build time, and
-            // the other releases it at transceiver drop.
-            slot.rc.store(2, Ordering::Relaxed);
+            slot.inner.borrow_mut().flex = Some(p);
         }
     }
 
@@ -240,36 +218,73 @@ impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
         }
     }
 
-    pub(crate) fn release_pin(&self, ch: usize, kind: PinKind) {
+    /// Sets or clears one consumer's requirement on a slot; drops the `Flex` once
+    /// neither consumer requires it.
+    fn set_flag(&self, ch: usize, kind: PinKind, owner: bool, held: bool) {
         let slot = self.get_slot(ch, kind);
-        loop {
-            let val = slot.rc.load(Ordering::Acquire);
-            if val == 0 {
-                return; // Prevent underflow
-            }
-            if slot
-                .rc
-                .compare_exchange(val, val - 1, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                if val - 1 == 0 {
-                    critical_section::with(|cs| {
-                        let _ = slot.inner.borrow_ref_mut(cs).take();
-                    });
-                }
-                return;
-            }
+        let mut inner = slot.inner.borrow_mut();
+        if owner {
+            inner.owner = held;
+        } else {
+            inner.neighbor = held;
+        }
+        if !inner.owner && !inner.neighbor {
+            inner.flex = None;
         }
     }
 
-    /// Releases the reservations `S` holds on `ch`, if any.
-    pub(crate) fn release_pinset<S: PinSet>(&self, ch: usize) {
+    /// Records that `M`'s transceiver requires its pinset `S` present, on the
+    /// channel the pins belong to (the successor's when they came from the
+    /// neighbour).
+    pub(crate) fn claim<M, S, PS>(&self)
+    where
+        M: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        PS: PinSource,
+    {
+        self.set_pinset_flag::<M, S, PS>(true);
+    }
+
+    /// Releases `M`'s transceiver's requirement on its pinset `S`.
+    pub(crate) fn release<M, S, PS>(&self)
+    where
+        M: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        PS: PinSource,
+    {
+        self.set_pinset_flag::<M, S, PS>(false);
+    }
+
+    fn set_pinset_flag<M, S, PS>(&self, held: bool)
+    where
+        M: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        PS: PinSource,
+    {
+        let ch = if PS::FROM_NEIGHBOR {
+            <M::Next as TransceiverMarker>::CHANNEL.index()
+        } else {
+            M::CHANNEL.index()
+        };
+        let owner = !PS::FROM_NEIGHBOR;
         let (data, clk) = pinset_kinds::<S>();
         if data {
-            self.release_pin(ch, PinKind::Datin);
+            self.set_flag(ch, PinKind::Datin, owner, held);
         }
         if clk {
-            self.release_pin(ch, PinKind::Ckin);
+            self.set_flag(ch, PinKind::Ckin, owner, held);
+        }
+    }
+
+    /// Drops every pin no consumer required. Called once all transceivers are
+    /// built, so a pin that was declared but never used is deconfigured now
+    /// instead of lingering until the driver drops.
+    pub(crate) fn sweep(&self) {
+        for slot in self.datin_slots.iter().chain(self.ckin_slots.iter()) {
+            let mut inner = slot.inner.borrow_mut();
+            if !inner.owner && !inner.neighbor {
+                inner.flex = None;
+            }
         }
     }
 }

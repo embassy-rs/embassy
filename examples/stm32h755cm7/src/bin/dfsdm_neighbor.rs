@@ -14,7 +14,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0, ResultRegular};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, RegularResult};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
@@ -86,24 +86,25 @@ async fn main(_spawner: Spawner) {
     });
 
     // Channel 1 reads channel 2's DATIN pin (CHINSEL=1, next channel).
-    let channel_mic = split
-        .ch1
-        .build_spi_int_neighbor(&common, InternalSpiMode::SpiRising)
-        .set_data_right_shift(
-            FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 100 }, 50)
-                .expect("inside bounds")
-                .recommended_shift()
-                .try_into()
-                .unwrap(),
-        )
-        .enable();
+    let (channel_mic, filters) = split.build(&common, |tb| {
+        tb.ch1
+            .build_spi_int_neighbor(&common, InternalSpiMode::SpiRising)
+            .set_data_right_shift(
+                FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 100 }, 50)
+                    .expect("inside bounds")
+                    .recommended_shift()
+                    .try_into()
+                    .unwrap(),
+            )
+            .enable()
+    });
 
     let flt_cfg = FilterConfig {
         filter_params: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 100 }, 50).expect("inside bounds"),
         ..Default::default()
     };
 
-    let mut flt0 = split
+    let mut flt0 = filters
         .flt0
         .build(&common, Irqs)
         .enable_no_dma(&channel_mic, [&channel_mic], &flt_cfg);
@@ -117,7 +118,7 @@ async fn main(_spawner: Spawner) {
     let mut polls = 0u32;
     while polls < 200_000 {
         polls += 1;
-        if let Ok(ResultRegular { data, .. }) = flt0.regular.try_get_result() {
+        if let Ok(RegularResult { data, .. }) = flt0.regular.try_read() {
             flt0.regular.start_conversion();
             count += 1;
             if count % 25 == 0 {
