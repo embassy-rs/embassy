@@ -179,11 +179,7 @@ impl ShciFusState {
 
     /// Error code of the last FUS operation; only valid when [`Self::state`] is `0xFF`.
     pub fn error_code(&self) -> Option<ShciFusGetStateErrorCode> {
-        if self.0 == 0xFF {
-            self.1.try_into().ok()
-        } else {
-            None
-        }
+        if self.0 == 0xFF { self.1.try_into().ok() } else { None }
     }
 
     /// Whether an upgrade or service operation is in progress.

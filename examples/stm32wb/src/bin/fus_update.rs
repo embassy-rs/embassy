@@ -36,14 +36,14 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::bind_interrupts;
-use embassy_stm32::flash::{Flash, FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
+use embassy_stm32::flash::{FLASH_BASE, FLASH_SIZE, Flash, WRITE_SIZE};
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32::pac;
 use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::rtc::{AnyRtc, Rtc};
+use embassy_stm32::{bind_interrupts, pac};
+use embassy_stm32_wpan::TlMbox;
+use embassy_stm32_wpan::fus::FirmwareUpgrader;
 use embassy_stm32_wpan::shci::SchiSysEventReady;
-use embassy_stm32_wpan::{TlMbox, fus::FirmwareUpgrader};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -78,9 +78,7 @@ unsafe extern "C" {
 
 /// End of the application image in flash (end of `.rodata` plus the `.data` init image).
 fn app_flash_end() -> u32 {
-    unsafe {
-        &__sidata as *const u8 as u32 + ((&__edata as *const u8).offset_from(&__sdata as *const u8)) as u32
-    }
+    unsafe { &__sidata as *const u8 as u32 + ((&__edata as *const u8).offset_from(&__sdata as *const u8)) as u32 }
 }
 
 fn decode_version(version: u32) -> (u8, u8, u8) {
@@ -114,12 +112,19 @@ fn stage_image(flash: &mut Flash<'_, embassy_stm32::flash::Blocking>, image: &[u
         "not enough free flash between the application and the secure boundary (build with --release)"
     );
 
-    info!("erasing download area 0x{:08x}..0x{:08x} (SFSA=0x{:02x})", download_base, top, sfsa);
-    flash.blocking_erase(download_base - FLASH_BASE as u32, top - FLASH_BASE as u32).unwrap();
+    info!(
+        "erasing download area 0x{:08x}..0x{:08x} (SFSA=0x{:02x})",
+        download_base, top, sfsa
+    );
+    flash
+        .blocking_erase(download_base - FLASH_BASE as u32, top - FLASH_BASE as u32)
+        .unwrap();
 
     info!("staging {} bytes at 0x{:08x}", size, addr);
     let full_len = image.len() / WRITE_SIZE * WRITE_SIZE;
-    flash.blocking_write(addr - FLASH_BASE as u32, &image[..full_len]).unwrap();
+    flash
+        .blocking_write(addr - FLASH_BASE as u32, &image[..full_len])
+        .unwrap();
     if full_len < image.len() {
         let mut tail = [0xFFu8; 16];
         tail[..image.len() - full_len].copy_from_slice(&image[full_len..]);
@@ -158,7 +163,10 @@ async fn main(_spawner: Spawner) {
         .or_else(|| mbox.sys.wireless_fw_info().map(|info| info.version));
     let fus_version = fus_raw.map(decode_version);
     let stack_version = stack_raw.map(decode_version);
-    info!("CPU2 ready: {:?}  FUS version: {:?}  wireless stack: {:?}", ready, fus_version, stack_version);
+    info!(
+        "CPU2 ready: {:?}  FUS version: {:?}  wireless stack: {:?}",
+        ready, fus_version, stack_version
+    );
 
     // Diagnostics: raw versions + boot counter, readable over SWD at
     // 0x40002894.. even when RTT is not attached.

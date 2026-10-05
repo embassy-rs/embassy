@@ -88,7 +88,11 @@ impl<'a> Sys<'a> {
             Some(self.fus_info().unwrap().fus_version)
         } else {
             let fus_info = unsafe { TL_DEVICE_INFO_TABLE.as_ptr().read_volatile().fus_info_table };
-            if fus_info.version != 0 { Some(fus_info.version) } else { None }
+            if fus_info.version != 0 {
+                Some(fus_info.version)
+            } else {
+                None
+            }
         }
     }
 
