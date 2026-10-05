@@ -712,13 +712,15 @@ impl<'d, W: word::Word> Sai<'d, W> {
 
     /// Start the SAI driver.
     ///
-    /// Only receivers can be started. Transmitters are started on the first writing operation.
-    pub fn start(&mut self) -> Result<(), Error> {
-        match self.ring_buffer {
-            RingBuffer::Writable(_) => Err(Error::NotAReceiver),
-            RingBuffer::Readable(ref mut rb) => {
+    /// Starts the ring buffer for both directions. Transmitters must fill the ring buffer with
+    /// [[`Self::write`]] before starting.
+    pub fn start(&mut self) {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(rb) => {
                 rb.start();
-                Ok(())
+            }
+            RingBuffer::Readable(rb) => {
+                rb.start();
             }
         }
     }
