@@ -154,10 +154,8 @@ where
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
         config: &FilterConfig<T, M>,
-    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, NoDma>
-    where
-        [(); N]: NonEmpty,
-    {
+    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, NoDma> {
+        const { core::assert!(N > 0, "at least one element is required") };
         self.enable_inner(regular, injected, config)
     }
 
@@ -167,10 +165,8 @@ where
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
         config: &FilterConfig<T, M>,
-    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, RegDma>
-    where
-        [(); N]: NonEmpty,
-    {
+    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, RegDma> {
+        const { core::assert!(N > 0, "at least one element is required") };
         self.enable_inner(regular, injected, config)
     }
 
@@ -180,10 +176,8 @@ where
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
         config: &FilterConfig<T, M>,
-    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, InjDma>
-    where
-        [(); N]: NonEmpty,
-    {
+    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, InjDma> {
+        const { core::assert!(N > 0, "at least one element is required") };
         self.enable_inner(regular, injected, config)
     }
 
@@ -195,8 +189,8 @@ where
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, D>
     where
         D: DmaMode,
-        [(); N]: NonEmpty,
     {
+        const { core::assert!(N > 0, "at least one element is required") };
         let filter = Filter {
             _guard: FilterGuard(PhantomData),
             common: self.common,
@@ -362,10 +356,8 @@ where
     pub fn replace_injected<'new_inj, const N: usize>(
         self,
         transceivers: [&'new_inj dyn TransceiverTrait<T, Enabled>; N],
-    ) -> Filter<'tr, 'new_inj, 'a, 'd, T, M, D>
-    where
-        [(); N]: NonEmpty,
-    {
+    ) -> Filter<'tr, 'new_inj, 'a, 'd, T, M, D> {
+        const { core::assert!(N > 0, "at least one element is required") };
         let (slots, filterword) = FilterInjected::<'a, 'd, 'ti, T, M, D>::build_slots(transceivers);
         FilterInjected::<'a, 'd, 'ti, T, M, D>::set_channel_group(filterword);
 
@@ -634,10 +626,8 @@ where
     pub(crate) fn new<const N: usize>(
         _common: &'a DfsdmCommon<'d, T, Enabled>,
         transceivers: [&'t dyn TransceiverTrait<T, Enabled>; N],
-    ) -> Self
-    where
-        [(); N]: NonEmpty,
-    {
+    ) -> Self {
+        const { core::assert!(N > 0, "at least one element is required") };
         let (slots, filterword) = Self::build_slots(transceivers);
         Self::set_channel_group(filterword);
 
@@ -658,10 +648,8 @@ where
     /// # Note
     /// Unlike the regular channel select, the injected select (JCHGR) takes
     /// effect immediately and resets any injected scan in progress.
-    pub fn assign_transceivers<const N: usize>(&mut self, transceivers: [&'t dyn TransceiverTrait<T, Enabled>; N])
-    where
-        [(); N]: NonEmpty,
-    {
+    pub fn assign_transceivers<const N: usize>(&mut self, transceivers: [&'t dyn TransceiverTrait<T, Enabled>; N]) {
+        const { core::assert!(N > 0, "at least one element is required") };
         let (slots, filterword) = Self::build_slots(transceivers);
         Self::set_channel_group(filterword);
         self.injected = slots;
@@ -671,10 +659,8 @@ where
     /// from a caller-provided transceiver array of any lifetime.
     fn build_slots<'tcv, const N: usize>(
         transceivers: [&'tcv dyn TransceiverTrait<T, Enabled>; N],
-    ) -> ([Option<&'tcv dyn TransceiverTrait<T, Enabled>>; 8], u8)
-    where
-        [(); N]: NonEmpty,
-    {
+    ) -> ([Option<&'tcv dyn TransceiverTrait<T, Enabled>>; 8], u8) {
+        const { core::assert!(N > 0, "at least one element is required") };
         let filterword = filterword_of(&transceivers);
 
         // Slots are keyed by channel index, not by argument order: the injected

@@ -238,9 +238,8 @@ where
         // No borrow lifetime here as watchdog events are not awaited when the transceiver is off.
         // They're "errors", not results that waiting for might stall your program.
         transceivers: [&dyn TransceiverTrait<T, Enabled>; N],
-    ) where
-        [(); N]: NonEmpty,
-    {
+    ) {
+        const { core::assert!(N > 0, "at least one element is required") };
         let filterword = filterword_of(&transceivers);
 
         // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW - same cs discipline.
@@ -366,9 +365,8 @@ where
         // No borrow lifetime here as watchdog events are not awaited when the transceiver is off.
         // They're "errors", not results that waiting for might stall your program.
         transceivers: [&dyn TransceiverTrait<T, Enabled>; N],
-    ) where
-        [(); N]: NonEmpty,
-    {
+    ) {
+        const { core::assert!(N > 0, "at least one element is required") };
         let filterword = filterword_of(&transceivers);
 
         // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW - same cs discipline.
@@ -488,10 +486,8 @@ where
     T: Instance,
 {
     /// Assigns the transceivers to the short-circuit-detector (overwrites assignments)
-    pub fn assign_thresholds<const N: usize>(&mut self, assignments: [ShortCircuitAssignment<T>; N])
-    where
-        [(); N]: NonEmpty,
-    {
+    pub fn assign_thresholds<const N: usize>(&mut self, assignments: [ShortCircuitAssignment<T>; N]) {
+        const { core::assert!(N > 0, "at least one element is required") };
         for assignment in assignments {
             self.set_threshold(assignment.transceiver, assignment.threshold);
         }
@@ -501,10 +497,8 @@ where
     }
 
     /// Unassigns the transceivers from the short-circuit-detector
-    pub fn unassign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N])
-    where
-        [(); N]: NonEmpty,
-    {
+    pub fn unassign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N]) {
+        const { core::assert!(N > 0, "at least one element is required") };
         Self::set_armed(Self::hw_armed_mask() & !filterword_of(&transceivers));
     }
 
@@ -643,18 +637,14 @@ where
     T: Instance,
 {
     /// Assigns the transceivers to the clock-absence-detector (overwrites assignments)
-    pub fn assign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N])
-    where
-        [(); N]: NonEmpty,
-    {
+    pub fn assign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N]) {
+        const { core::assert!(N > 0, "at least one element is required") };
         Self::set_armed(filterword_of(&transceivers));
     }
 
     /// Unassigns the transceivers from the clock-absence-detector
-    pub fn unassign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N])
-    where
-        [(); N]: NonEmpty,
-    {
+    pub fn unassign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N]) {
+        const { core::assert!(N > 0, "at least one element is required") };
         Self::set_armed(Self::hw_armed_mask() & !filterword_of(&transceivers));
     }
 

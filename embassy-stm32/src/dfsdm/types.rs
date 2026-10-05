@@ -814,25 +814,6 @@ where
     }
 }
 
-// =============================================================================
-// NonEmpty
-// =============================================================================
-
-pub(crate) trait SealedNonEmpty {}
-
-/// Marker trait to enforce that a const generic `N` is greater than 0.
-#[allow(private_bounds)]
-pub trait NonEmpty: SealedNonEmpty {}
-// Only implement `NonEmpty` for arrays of unit type `()`
-// with lengths 1 through 8.
-macro_rules! impl_non_empty {
-    ($($n:expr),+) => { $(
-        impl SealedNonEmpty for [(); $n] {}
-        impl NonEmpty for [(); $n] {}
-    )+ };
-}
-impl_non_empty!(1, 2, 3, 4, 5, 6, 7, 8);
-
 /// Snapshot of the DFSDM version/ID register cluster @0x7F0 (RM0475 29.9 / RM0436/RM0441/RM0442).
 /// Present only on instances whose silicon carries the HWID cluster; see `capability::HasHwid`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
