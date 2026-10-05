@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) -> ! {
     // Creates an instance of a generic driver that lives for as long as the program does which
     // holds the HASHCRYPT peripheral and passes a mutable reference to itself to
     // whichever specific driver instance is created at a time
-    let mut generic = hashcrypt::GenericDriver::new(p.HASHCRYPT);
+    let mut generic = hashcrypt::GenericHashcrypt::new(p.HASHCRYPT);
 
     let msg1 = "abc";
     let msg2 = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
