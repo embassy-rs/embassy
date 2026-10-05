@@ -713,7 +713,7 @@ impl<'d, W: word::Word> Sai<'d, W> {
     /// Start the SAI driver.
     ///
     /// Starts the ring buffer for both directions. Transmitters must fill the ring buffer with
-    /// [[`Self::write`]] before starting.
+    /// [`Self::write`] before starting.
     pub fn start(&mut self) {
         match &mut self.ring_buffer {
             RingBuffer::Writable(rb) => {
