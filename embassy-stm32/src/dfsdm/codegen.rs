@@ -95,6 +95,9 @@ pub const SHAPES: &[(u8, u8)] = &[(2, 1), (4, 2), (4, 4), (8, 4), (8, 6), (8, 8)
 // On 3-bit-JEXTSEL parts the `DFSDM1_JTRGn` channel number is *not* the
 // register value; the valid channels are compressed into 0..7 per filter.
 // Each row is `(filter index, jtrg channel number, jextsel)`.
+//
+// Hand-transcribed and verified against RM0410 Table 110, RM0402 Table 86
+// and RM0430 Table 89.
 pub const DFSDM_TRG3_JEXTSEL: &[(u8, u8, u8)] = &[
     (0, 0, 0),
     (0, 1, 1),

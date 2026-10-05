@@ -1,4 +1,9 @@
 //! Digital Filter and Sigma-Delta Modulator (DFSDM)
+//!
+//! One core owns a DFSDM instance. The driver takes no cross-core lock, so
+//! sharing an instance across cores needs external synchronization (an HSEM,
+//! for example): the CR1/CR2/CFGR1 read-modify-writes, the per-instance
+//! armed caches and the RCC disable on drop all race otherwise.
 
 #![macro_use]
 
