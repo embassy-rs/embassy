@@ -5,12 +5,14 @@ use embedded_io::Write;
 
 #[cfg(feature = "wb-ble")]
 use crate::shci::ShciBleInitCmdParam;
-use crate::shci::{SchiCommandStatus, SchiFromPacket, SchiSysEventReady, ShciFusGetStateErrorCode, ShciOpcode};
+use crate::shci::{
+    SchiCommandStatus, SchiFromPacket, SchiSysEventReady, ShciFusGetStateErrorCode, ShciFusState, ShciOpcode,
+};
 use crate::sub::mm;
 use crate::wb::cmd::{CmdSerialStub, VolatileWriter};
 use crate::wb::consts::TlPacketType;
 use crate::wb::evt::EvtBox;
-use crate::wb::tables::{SysTable, WirelessFwInfoTable};
+use crate::wb::tables::{FusDeviceInfoTable, SysTable, WirelessFwInfoTable};
 use crate::wb::unsafe_linked_list::LinkedListNode;
 use crate::wb::{SYS_CMD_BUF, SYSTEM_EVT_QUEUE, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
 
@@ -46,12 +48,48 @@ impl<'a> Sys<'a> {
         }
     }
 
+    /// True when CPU2 is running the FUS (rather than the wireless firmware).
+    ///
+    /// The FUS rewrites the device info table handed over via the reference table with
+    /// its own layout, marked by [`FUS_DEVICE_INFO_TABLE_VALIDITY_KEYWORD`].
+    pub fn fus_running(&self) -> bool {
+        let table = unsafe { (TL_DEVICE_INFO_TABLE.as_ptr() as *const FusDeviceInfoTable).read_volatile() };
+        table.is_valid()
+    }
+
+    /// Returns the device info table as rewritten by the running FUS.
+    pub fn fus_info(&self) -> Option<FusDeviceInfoTable> {
+        let table = unsafe { (TL_DEVICE_INFO_TABLE.as_ptr() as *const FusDeviceInfoTable).read_volatile() };
+        if table.is_valid() { Some(table) } else { None }
+    }
+
     /// Returns CPU2 wireless firmware information (if present).
+    ///
+    /// The information is only valid while the wireless firmware is running on CPU2; when
+    /// the FUS is running it rewrites the table (see [`Self::fus_info`]).
     pub fn wireless_fw_info(&self) -> Option<WirelessFwInfoTable> {
+        if self.fus_running() {
+            return None;
+        }
+
         let info = unsafe { TL_DEVICE_INFO_TABLE.as_mut_ptr().read_volatile().wireless_fw_info_table };
 
         // Zero version indicates that CPU2 wasn't active and didn't fill the information table
         if info.version != 0 { Some(info) } else { None }
+    }
+
+    /// Returns the FUS version, if CPU2 is running (either FUS or the wireless stack).
+    ///
+    /// The FUS version lives in the FUS info table, whose location depends on which
+    /// firmware runs on CPU2 (see ST's `SHCI_GetWirelessFwInfo` in `shci.c`, and AN5185,
+    /// "FUS versioning and identification").
+    pub fn fus_version(&self) -> Option<u32> {
+        if self.fus_running() {
+            Some(self.fus_info().unwrap().fus_version)
+        } else {
+            let fus_info = unsafe { TL_DEVICE_INFO_TABLE.as_ptr().read_volatile().fus_info_table };
+            if fus_info.version != 0 { Some(fus_info.version) } else { None }
+        }
     }
 
     pub async fn write(&mut self, opcode: ShciOpcode, payload: &[u8]) {
@@ -104,6 +142,14 @@ impl<'a> Sys<'a> {
         self.write_and_get_response(ShciOpcode::BleInit, param.payload()).await
     }
 
+    /// `SHCI_C2_FUS_GetState`, returning the raw FUS state value and last error code.
+    ///
+    /// Unlike [`Self::shci_c2_fus_getstate`], this also reports the "ongoing" and
+    /// "not running" states, which are needed to track an upgrade in progress.
+    pub async fn shci_c2_fus_get_state(&mut self) -> Result<ShciFusState, ()> {
+        self.write_and_get_response(ShciOpcode::FusGetState, &[]).await
+    }
+
     pub async fn shci_c2_fus_getstate(&mut self) -> Result<ShciFusGetStateErrorCode, ()> {
         self.write_and_get_response(ShciOpcode::FusGetState, &[]).await
     }
@@ -130,7 +176,12 @@ impl<'a> Sys<'a> {
     }
 
     pub async fn read_ready(&mut self) -> Result<SchiSysEventReady, ()> {
-        self.read().await.payload()[0].try_into()
+        // ST's `SHCI_C2_Ready_Evt_t` is `{ sub_evt_code: u16 (0x9200), ready_code: u8 }`,
+        // so the ready code sits at payload[2], after the sub-event code.
+        match self.read().await.payload() {
+            [0x00, 0x92, code, ..] => (*code).try_into(),
+            _ => Err(()),
+        }
     }
 
     /// `HW_IPCC_SYS_EvtNot`
