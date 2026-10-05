@@ -72,20 +72,6 @@ pub struct Dfsdm<'d, T: Instance, C: ClockOutputMode> {
     ckout: Option<Flex<'d>>,
 }
 
-impl<'d, T, C> Dfsdm<'d, T, C>
-where
-    T: Instance,
-    C: ClockOutputMode,
-{
-}
-
-impl<'d, T, C> Dfsdm<'d, T, C>
-where
-    C: ClockOutputMode,
-    T: Instance<Transceivers = capability::TcvCnt8, Filters = capability::FltCnt8>,
-{
-}
-
 impl<'d, T> Dfsdm<'d, T, OutputEnabled>
 where
     T: Instance,
@@ -128,8 +114,6 @@ where
     C: ClockOutputMode,
 {
     fn new_inner(peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
-        let _ = peri;
-
         rcc::enable_and_reset::<T>();
 
         Self {

@@ -268,13 +268,10 @@ where
             InjectedTrigger::Enabled { jextsel, edge, _m } => (*jextsel, *edge as u8),
         };
 
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr1()
-            .modify(|w: &mut stm32_metapac::dfsdm::regs::Cr1| {
-                w.set_jextsel(jextsel);
-                w.set_jexten(jexten);
-            });
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| {
+            w.set_jextsel(jextsel);
+            w.set_jexten(jexten);
+        });
     }
 
     /// Enables or disables synchronization for regular conversions.
@@ -1121,7 +1118,7 @@ impl_noop_instance_events!(Flt1, Flt2, Flt3, Flt4, Flt5, Flt6, Flt7);
 
 // Ready bundles: one per filter-count capability, bundling the
 // `FilterInterrupt<FltN>` chain for all filters the shape has. The chain
-// matches the unconditional `foreach_interrupt!` binding in associations.rs.
+// matches the unconditional `foreach_interrupt!` binding below.
 macro_rules! define_dfsdm_ready {
     ($name:ident, [$($flt:ident),+ $(,)?]) => {
         /// IRQ readiness bundle: all the `FilterInterrupt`s a filter-count

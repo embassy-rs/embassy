@@ -62,11 +62,6 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 
     /// Shared instance-level state.
     fn instance_state() -> &'static InstanceState;
-    // type Split<C: ClockOutputMode>;
-
-    // fn split<C: ClockOutputMode>(dfsdm: Dfsdm<Self, C>) -> Self::Split<C>
-    // where
-    //     Self: Sized;
 }
 
 /// Type-level capability tags for a DFSDM instance shape.

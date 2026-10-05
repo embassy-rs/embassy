@@ -460,6 +460,12 @@ where
 }
 
 /// An enabled dual-mode parallel-input pair.
+///
+/// The halves belong together: the odd transceiver is fed from the even
+/// one's `INDAT1` auto-copy. `#[non_exhaustive]` blocks external
+/// construction and destructuring while keeping field access and split
+/// borrows.
+#[non_exhaustive]
 pub struct ParallelPair<'a, 'd, T, M, S, MN, SN>
 where
     T: Instance,
