@@ -131,7 +131,7 @@ async fn main(_spawner: Spawner) {
         mut short_circuit,
         clock_absence: _,
     } = split.detectors.build(&common, Irqs);
-    short_circuit.assign_transceivers([ShortCircuitAssignment::new(&channel_mic, 12)]);
+    short_circuit.assign_thresholds([ShortCircuitAssignment::new(&channel_mic, 12)]);
     short_circuit.clear_flags();
 
     let mut dsp = LevelDsp::new();

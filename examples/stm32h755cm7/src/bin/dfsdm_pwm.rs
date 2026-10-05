@@ -3,7 +3,7 @@
 
 //! PDM mic -> DFSDM -> beat detection -> LED PWM (polling).
 //!
-//! Polls regular conversion results with `try_get_result()` (no interrupt
+//! Polls regular conversion results with `try_read()` (no interrupt
 //! waker), runs each sample through the beat-detection DSP
 //! (`dsp::LevelDsp`) and drives the LED on PB14 (TIM12).
 
@@ -131,7 +131,7 @@ async fn main(_spawner: Spawner) {
 
     flt0.regular.start_conversion();
     loop {
-        if let Ok(RegularResult { data, .. }) = flt0.regular.try_get_result() {
+        if let Ok(RegularResult { data, .. }) = flt0.regular.try_read() {
             flt0.regular.start_conversion();
             let ready_at = Instant::now();
 

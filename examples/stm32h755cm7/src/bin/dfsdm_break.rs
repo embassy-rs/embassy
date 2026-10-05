@@ -107,8 +107,8 @@ async fn main(_spawner: Spawner) {
         mut short_circuit,
         clock_absence: _,
     } = split.detectors.build(&common, Irqs);
-    short_circuit.assign_transceivers([ShortCircuitAssignment::new(&channel_mic, 12)]);
-    short_circuit.assign_break_signals(&channel_mic, BreakSignals::BREAK0);
+    short_circuit.assign_thresholds([ShortCircuitAssignment::new(&channel_mic, 12)]);
+    short_circuit.assign_breaks(&channel_mic, BreakSignals::BREAK0);
 
     // TIM1: free-running counter, break routed from DFSDM1_BREAK0.
     let tim1 = Timer::new(p.TIM1);

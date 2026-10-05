@@ -158,7 +158,7 @@ where
     where
         [(); N]: NonEmpty,
     {
-        self.enable_int(regular, injected, config)
+        self.enable_inner(regular, injected, config)
     }
 
     /// Enable the filter and set the regular-conversion DMA request flag (RDMAEN).
@@ -171,7 +171,7 @@ where
     where
         [(); N]: NonEmpty,
     {
-        self.enable_int(regular, injected, config)
+        self.enable_inner(regular, injected, config)
     }
 
     /// Enable the filter and set the injected-conversion DMA request flag (JDMAEN).
@@ -184,10 +184,10 @@ where
     where
         [(); N]: NonEmpty,
     {
-        self.enable_int(regular, injected, config)
+        self.enable_inner(regular, injected, config)
     }
 
-    fn enable_int<'tr, 'ti, const N: usize, D>(
+    fn enable_inner<'tr, 'ti, const N: usize, D>(
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
@@ -220,7 +220,7 @@ where
     }
 
     fn configure(config: &FilterConfig<T, M>) {
-        Self::set_filter_parameters(config.filter_params);
+        Self::set_parameters(config.filter_params);
         Self::set_continuous(config.enable_continuous_regular);
         Self::set_fastmode(config.enable_fast_regular);
         Self::set_regular_synchronization(config.enable_regular_sync);
@@ -230,7 +230,7 @@ where
     }
 
     /// Writes the filter order, FOSR and IOSR into the filter registers.
-    fn set_filter_parameters(params: config::FilterParameters) {
+    fn set_parameters(params: config::FilterParameters) {
         let (order, fosr, iosr) = params.register_values();
         T::regs().flt(M::CHANNEL.index()).fcr().modify(|w| {
             w.set_ford(order);
@@ -341,7 +341,7 @@ where
     /// rather than mutating in place. This is pure borrow-checker bookkeeping,
     /// not a hardware requirement - see [`FilterRegular::assign_transceiver`]
     /// for the in-place alternative when the lifetime doesn't need to change.
-    pub fn replace_regular_transceiver<'new_reg>(
+    pub fn replace_regular<'new_reg>(
         self,
         transceiver: &'new_reg dyn TransceiverTrait<T, Enabled>,
     ) -> Filter<'new_reg, 'ti, 'a, 'd, T, M, D> {
@@ -362,7 +362,7 @@ where
     /// rather than mutating in place. This is pure borrow-checker bookkeeping,
     /// not a hardware requirement - see [`FilterInjected::assign_transceivers`]
     /// for the in-place alternative when the lifetime doesn't need to change.
-    pub fn replace_injected_transceivers<'new_inj, const N: usize>(
+    pub fn replace_injected<'new_inj, const N: usize>(
         self,
         transceivers: [&'new_inj dyn TransceiverTrait<T, Enabled>; N],
     ) -> Filter<'tr, 'new_inj, 'a, 'd, T, M, D>
@@ -370,7 +370,7 @@ where
         [(); N]: NonEmpty,
     {
         let (slots, filterword) = FilterInjected::<'a, 'd, 'ti, T, M, D>::build_slots(transceivers);
-        FilterInjected::<'a, 'd, 'ti, T, M, D>::set_channels(filterword);
+        FilterInjected::<'a, 'd, 'ti, T, M, D>::set_channel_group(filterword);
 
         Filter {
             injected: FilterInjected {
@@ -454,7 +454,7 @@ where
     ///
     /// The new transceiver must live at least as long as the previous one
     /// (`'t`), since this does not change the `Filter`'s lifetime parameter.
-    /// Use [`Filter::replace_regular_transceiver`] if you need to assign a
+    /// Use [`Filter::replace_regular`] if you need to assign a
     /// transceiver with a shorter/different lifetime and get the old one back
     /// for further mutation.
     ///
@@ -504,7 +504,7 @@ where
             FilterRegs::<T, M>::set_regular_end_of_conversion_interrupt(false);
             FilterRegs::<T, M>::set_regular_overrun_interrupt(false);
             T::state().regular_waker.register(cx.waker());
-            match self.try_get_result() {
+            match self.try_read() {
                 Ok(result) => Poll::Ready(Ok(result)),
                 Err(Error::Overrun) => Poll::Ready(Err(Error::Overrun)),
                 Err(Error::NotReady) => {
@@ -513,7 +513,7 @@ where
                     Poll::Pending
                 }
                 Err(Error::InvalidFilterParameters | Error::InvalidConfig) => {
-                    unreachable!("try_get_result cannot produce config errors")
+                    unreachable!("try_read cannot produce config errors")
                 }
             }
         })
@@ -542,16 +542,16 @@ where
     /// by an injected conversion.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_get_result(&mut self) -> Result<RegularResult, Error> {
+    pub fn try_read(&mut self) -> Result<RegularResult, Error> {
         if self.get_and_clear_overrun() {
             // Drain the sample left over by the overrun so it is not served
             // out of order by a later read.
             if self.end_of_conversion() {
-                let _ = self.get_result_unchecked();
+                let _ = self.read_unchecked();
             }
             return Err(Error::Overrun);
         } else if self.end_of_conversion() {
-            return Ok(self.get_result_unchecked());
+            return Ok(self.read_unchecked());
         }
         Err(Error::NotReady)
     }
@@ -568,8 +568,8 @@ where
     ///
     /// # Note
     /// This path does not check or clear the overrun flag; use
-    /// [`try_get_result`](Self::try_get_result) to propagate overruns.
-    pub fn get_result_unchecked(&mut self) -> RegularResult {
+    /// [`try_read`](Self::try_read) to propagate overruns.
+    pub fn read_unchecked(&mut self) -> RegularResult {
         let word = T::regs().flt(M::CHANNEL.index()).rdatar().read().0;
         RegularResult::from_word(word)
     }
@@ -642,7 +642,7 @@ where
         [(); N]: NonEmpty,
     {
         let (slots, filterword) = Self::build_slots(transceivers);
-        Self::set_channels(filterword);
+        Self::set_channel_group(filterword);
 
         Self {
             _common: PhantomData,
@@ -654,7 +654,7 @@ where
     ///
     /// The new transceiver must live at least as long as the previous one
     /// (`'t`), since this does not change the `FilterInjected`'s lifetime parameter.
-    /// Use [`Filter::replace_injected_transceivers`] if you need to assign a
+    /// Use [`Filter::replace_injected`] if you need to assign a
     /// transceiver with a shorter/different lifetime and get the old one back
     /// for further mutation.
     ///
@@ -666,7 +666,7 @@ where
         [(); N]: NonEmpty,
     {
         let (slots, filterword) = Self::build_slots(transceivers);
-        Self::set_channels(filterword);
+        Self::set_channel_group(filterword);
         self.injected = slots;
     }
 
@@ -688,7 +688,7 @@ where
         (slots, filterword)
     }
 
-    fn set_channels(channels: u8) {
+    fn set_channel_group(channels: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .jchgr()
@@ -722,7 +722,7 @@ where
             FilterRegs::<T, M>::set_injected_overrun_interrupt(false);
 
             T::state().injected_waker.register(cx.waker());
-            match self.try_get_result() {
+            match self.try_read() {
                 Ok(result) => Poll::Ready(Ok(result)),
                 Err(Error::Overrun) => Poll::Ready(Err(Error::Overrun)),
                 Err(Error::NotReady) => {
@@ -731,7 +731,7 @@ where
                     Poll::Pending
                 }
                 Err(Error::InvalidFilterParameters | Error::InvalidConfig) => {
-                    unreachable!("try_get_result cannot produce config errors")
+                    unreachable!("try_read cannot produce config errors")
                 }
             }
         })
@@ -757,16 +757,16 @@ where
     /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_get_result(&mut self) -> Result<InjectedResult, Error> {
+    pub fn try_read(&mut self) -> Result<InjectedResult, Error> {
         if self.get_and_clear_overrun() {
             // Drain the sample left over by the overrun so it is not served
             // out of order by a later read.
             if self.end_of_conversion() {
-                let _ = self.get_result_unchecked();
+                let _ = self.read_unchecked();
             }
             return Err(Error::Overrun);
         } else if self.end_of_conversion() {
-            return Ok(self.get_result_unchecked());
+            return Ok(self.read_unchecked());
         }
         Err(Error::NotReady)
     }
@@ -780,8 +780,8 @@ where
     ///
     /// # Note
     /// This path does not check or clear the overrun flag; use
-    /// [`try_get_result`](Self::try_get_result) to propagate overruns.
-    pub fn get_result_unchecked(&mut self) -> InjectedResult {
+    /// [`try_read`](Self::try_read) to propagate overruns.
+    pub fn read_unchecked(&mut self) -> InjectedResult {
         let word = T::regs().flt(M::CHANNEL.index()).jdatar().read().0;
         InjectedResult::from_word(word)
     }
@@ -980,12 +980,12 @@ where
     T: Instance + FilterInterrupt<Flt0>,
 {
     unsafe fn handle_instance_events() {
-        if ShortCircuitDetector::<T>::channel_flags_masked() != 0u8 {
-            ShortCircuitDetector::<T>::set_interrupt_enable(false);
+        if ShortCircuitDetector::<T>::flags_masked() != 0u8 {
+            ShortCircuitDetector::<T>::set_irq(false);
             T::instance_state().short_circuit_waker.wake();
         }
-        if ClockAbsenceDetector::<T>::channel_flags_masked() != 0u8 {
-            ClockAbsenceDetector::<T>::set_interrupt_enable(false);
+        if ClockAbsenceDetector::<T>::flags_masked() != 0u8 {
+            ClockAbsenceDetector::<T>::set_irq(false);
             T::instance_state().clock_absence_waker.wake();
         }
     }
@@ -1012,7 +1012,7 @@ where
             <T as FilterInterrupt<F>>::state().regular_waker.wake();
         }
         if AnalogWatchdog::<T, F>::triggered() {
-            AnalogWatchdog::<T, F>::set_interrupt_enable(false);
+            AnalogWatchdog::<T, F>::set_irq(false);
             <T as FilterInterrupt<F>>::state().watchdog_waker.wake();
         }
 

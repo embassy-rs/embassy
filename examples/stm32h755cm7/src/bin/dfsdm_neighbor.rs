@@ -117,7 +117,7 @@ async fn main(_spawner: Spawner) {
     let mut polls = 0u32;
     while polls < 200_000 {
         polls += 1;
-        if let Ok(RegularResult { data, .. }) = flt0.regular.try_get_result() {
+        if let Ok(RegularResult { data, .. }) = flt0.regular.try_read() {
             flt0.regular.start_conversion();
             count += 1;
             if count % 25 == 0 {

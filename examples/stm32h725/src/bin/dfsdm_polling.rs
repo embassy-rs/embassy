@@ -70,7 +70,7 @@ async fn main(_spawner: Spawner) {
     flt0.regular.start_conversion();
 
     loop {
-        if let Ok(RegularResult { data, channel, pending }) = flt0.regular.try_get_result() {
+        if let Ok(RegularResult { data, channel, pending }) = flt0.regular.try_read() {
             // AMC from 10% = -1V, 90% = 1V; outputs from -1 to 1; -1 = 0%, 1 = 100%.
             let normalized = (data as f32) / ((128_i32.pow(3) * 6_i32) as f32);
 

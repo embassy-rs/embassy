@@ -126,7 +126,7 @@ async fn main(_spawner: Spawner) {
     // TIM1 TRGO (update event) launches each injected conversion.
     let flt_cfg = FilterConfig {
         filter_params,
-        trigger: InjectedTrigger::from(TIM1_TRGO, TriggerEdge::Rising),
+        trigger: InjectedTrigger::new(TIM1_TRGO, TriggerEdge::Rising),
         ..Default::default()
     };
     let mut flt0 = split

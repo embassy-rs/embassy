@@ -120,8 +120,8 @@ where
 
         // Disabling deactivates the detector flags, so drop them from the
         // cached armed mask too.
-        ShortCircuitDetector::<T>::drop_transceiver(M::CHANNEL);
-        ClockAbsenceDetector::<T>::drop_transceiver(M::CHANNEL);
+        ShortCircuitDetector::<T>::unarm_channel(M::CHANNEL);
+        ClockAbsenceDetector::<T>::unarm_channel(M::CHANNEL);
 
         T::regs().ch(M::CHANNEL.index()).cfgr1().modify(|w| w.set_chen(false));
     }
@@ -184,7 +184,7 @@ where
     #[cfg(feature = "time")]
     pub async fn wait_for_sync(&mut self) {
         loop {
-            if ClockAbsenceDetector::<T>::try_clear_channel_flag(M::CHANNEL) {
+            if ClockAbsenceDetector::<T>::try_clear_flag(M::CHANNEL) {
                 break;
             }
             embassy_time::Timer::after_millis(1).await;
@@ -194,7 +194,7 @@ where
     /// Blocking `wait_for_sync`: polls the clock-absence flag without
     /// yielding. Available with and without the `time` feature.
     pub fn blocking_wait_for_sync(&mut self) {
-        while !ClockAbsenceDetector::<T>::try_clear_channel_flag(M::CHANNEL) {}
+        while !ClockAbsenceDetector::<T>::try_clear_flag(M::CHANNEL) {}
     }
 }
 
@@ -246,8 +246,8 @@ where
     ///
     /// # Note
     /// The valid watchdog OSR range depends on this order; set
-    /// [`select_awd_filter_osr`](Self::select_awd_filter_osr) accordingly.
-    pub fn select_awd_filter_order(self, filter_order: config::AwdFilterOrder) -> Self {
+    /// [`set_awd_osr`](Self::set_awd_osr) accordingly.
+    pub fn set_awd_order(self, filter_order: config::AwdFilterOrder) -> Self {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
@@ -259,8 +259,8 @@ where
     ///
     /// # Note
     /// The valid OSR range depends on the order set via
-    /// [`select_awd_filter_order`](Self::select_awd_filter_order).
-    pub fn select_awd_filter_osr(self, osr: config::AwdFilterOsr) -> Self {
+    /// [`set_awd_order`](Self::set_awd_order).
+    pub fn set_awd_osr(self, osr: config::AwdFilterOsr) -> Self {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
@@ -356,7 +356,7 @@ where
 
     /// Read the analog watchdog data for this transceiver, converted by the
     /// watchdog filter (continuously, with limited resolution).
-    pub fn awd_filter_data(&self) -> u16 {
+    pub fn awd_data(&self) -> u16 {
         T::regs().ch(M::CHANNEL.index()).wdatr().read().wdata()
     }
 }
@@ -381,11 +381,6 @@ where
     /// To skip more than 63 pulses, issue repeated writes; the peripheral
     /// doesn't track a cumulative count across writes, so the caller must.
     pub fn skip_pulses(&mut self, skips: config::PulsesToSkip) {
-        self.set_pulseskips(skips);
-    }
-
-    /// Sets the number of serial-clock pulses to skip (PLSSKP).
-    fn set_pulseskips(&mut self, skips: config::PulsesToSkip) {
         T::regs()
             .ch(M::CHANNEL.index())
             .dlyr()
@@ -425,22 +420,22 @@ where
     }
 
     /// Set the analog watchdog filter order for both channels (`[0]` = even, `[1]` = odd).
-    pub fn select_awd_filter_order(self, orders: [config::AwdFilterOrder; 2]) -> Self {
+    pub fn set_awd_order(self, orders: [config::AwdFilterOrder; 2]) -> Self {
         let [even, odd] = orders;
         let ParallelPairDisabled { even: e, odd: o } = self;
         ParallelPairDisabled {
-            even: e.select_awd_filter_order(even),
-            odd: o.select_awd_filter_order(odd),
+            even: e.set_awd_order(even),
+            odd: o.set_awd_order(odd),
         }
     }
 
     /// Set the analog watchdog filter OSR for both channels (`[0]` = even, `[1]` = odd).
-    pub fn select_awd_filter_osr(self, osrs: [config::AwdFilterOsr; 2]) -> Self {
+    pub fn set_awd_osr(self, osrs: [config::AwdFilterOsr; 2]) -> Self {
         let [even, odd] = osrs;
         let ParallelPairDisabled { even: e, odd: o } = self;
         ParallelPairDisabled {
-            even: e.select_awd_filter_osr(even),
-            odd: o.select_awd_filter_osr(odd),
+            even: e.set_awd_osr(even),
+            odd: o.set_awd_osr(odd),
         }
     }
 
@@ -567,8 +562,8 @@ where
     where
         T: capability::AdcInput,
     {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::InternalAdc);
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::InternalAdc);
         // This mode uses no pins: disclaim both reservations the builder
         // minted, so the declared pins deconfigure now.
         self.disclaim_own(common);
@@ -586,8 +581,8 @@ where
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
     ) -> Transceiver<'a, 'd, T, M, NoPins, ParallelStandard, OwnPins, Disabled> {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::InternalRegisterWrite);
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(config::DataPackingMode::Standard);
         self.disclaim_own(common);
         self.disclaim_neighbor(common);
@@ -604,8 +599,8 @@ where
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
     ) -> Transceiver<'a, 'd, T, M, NoPins, ParallelInterleaved, OwnPins, Disabled> {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::InternalRegisterWrite);
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(config::DataPackingMode::Interleaved);
         self.disclaim_own(common);
         self.disclaim_neighbor(common);
@@ -633,10 +628,10 @@ where
         MN: TransceiverMarker + NextChannelForInstance<T>,
         SNN: PinSet,
     {
-        self.select_channel_input(config::ChannelInput::Same);
-        neighbor.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::InternalRegisterWrite);
-        neighbor.select_data_mux_input(config::InputDataMux::InternalRegisterWrite);
+        self.set_channel_input(config::ChannelInput::Same);
+        neighbor.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::InternalRegisterWrite);
+        neighbor.set_data_mux(config::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(config::DataPackingMode::Dual);
         neighbor.set_data_packing_mode(config::DataPackingMode::Standard);
         // No pins are used by either half: disclaim all four reservations.
@@ -662,9 +657,9 @@ where
     where
         S: HasData,
     {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
         // The transceiver keeps its own DATIN reservation; disclaim the
         // successor-slot reservation minted for the neighbour build.
         self.disclaim_neighbor(common);
@@ -690,9 +685,9 @@ where
             common.release_pin(next_ch, PinKind::Ckin);
         }
 
-        self.select_channel_input(config::ChannelInput::Neighbor);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
+        self.set_channel_input(config::ChannelInput::Neighbor);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
         Transceiver::new(common)
     }
 
@@ -707,10 +702,10 @@ where
     where
         S: HasDataAndClk,
     {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
-        self.select_spi_clock(config::SpiClockSelect::ExternalCkin);
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
+        self.set_spi_clock(config::SpiClockSelect::ExternalCkin);
         self.disclaim_neighbor(common);
         Transceiver::new(common)
     }
@@ -728,10 +723,10 @@ where
         // reservations on drop. Disclaim the channel's own slot.
         self.disclaim_own(common);
 
-        self.select_channel_input(config::ChannelInput::Neighbor);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
-        self.select_spi_clock(config::SpiClockSelect::ExternalCkin);
+        self.set_channel_input(config::ChannelInput::Neighbor);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
+        self.set_spi_clock(config::SpiClockSelect::ExternalCkin);
         Transceiver::new(common)
     }
 
@@ -753,28 +748,28 @@ where
             .modify(|w| w.set_datpack(mode as u8));
     }
 
-    fn select_data_mux_input(&mut self, input: config::InputDataMux) {
+    fn set_data_mux(&mut self, input: config::InputDataMux) {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr1()
             .modify(|w| w.set_datmpx(input as u8));
     }
 
-    fn select_channel_input(&mut self, source: config::ChannelInput) {
+    fn set_channel_input(&mut self, source: config::ChannelInput) {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr1()
             .modify(|w| w.set_chinsel(source.into()));
     }
 
-    fn select_spi_clock(&mut self, source: config::SpiClockSelect) {
+    fn set_spi_clock(&mut self, source: config::SpiClockSelect) {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr1()
             .modify(|w| w.set_spicksel(source as u8));
     }
 
-    fn select_serial_interface_type(&mut self, if_type: config::SerialInterfaceType) {
+    fn set_serial_interface(&mut self, if_type: config::SerialInterfaceType) {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr1()
@@ -800,10 +795,10 @@ where
     where
         S: HasData,
     {
-        self.select_channel_input(config::ChannelInput::Same);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
-        self.select_spi_clock(mode.into());
+        self.set_channel_input(config::ChannelInput::Same);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
+        self.set_spi_clock(mode.into());
         self.disclaim_neighbor(common);
         Transceiver::new(common)
     }
@@ -826,10 +821,10 @@ where
             common.release_pin(next_ch, PinKind::Ckin);
         }
 
-        self.select_channel_input(config::ChannelInput::Neighbor);
-        self.select_data_mux_input(config::InputDataMux::ExternalSerial);
-        self.select_serial_interface_type(mode.into());
-        self.select_spi_clock(mode.into());
+        self.set_channel_input(config::ChannelInput::Neighbor);
+        self.set_data_mux(config::InputDataMux::ExternalSerial);
+        self.set_serial_interface(mode.into());
+        self.set_spi_clock(mode.into());
         Transceiver::new(common)
     }
 }

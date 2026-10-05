@@ -48,7 +48,7 @@ where
         irq: impl Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],
     ) -> RingBufferedFilter<'e, T, M, RegDma> {
-        let mut buf = RingBufferedFilter::<T, M, RegDma>::new_int(self, dma, irq, dma_buf);
+        let mut buf = RingBufferedFilter::<T, M, RegDma>::new_inner(self, dma, irq, dma_buf);
         buf.ring_buf.set_alignment(1);
         buf
     }
@@ -66,14 +66,14 @@ where
         irq: impl Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],
     ) -> RingBufferedFilter<'e, T, M, InjDma> {
-        let alignment = self.popcnt();
-        let mut buf = RingBufferedFilter::<T, M, InjDma>::new_int(self, dma, irq, dma_buf);
+        let alignment = self.assigned_count();
+        let mut buf = RingBufferedFilter::<T, M, InjDma>::new_inner(self, dma, irq, dma_buf);
         buf.ring_buf.set_alignment(alignment);
         buf
     }
 
     /// Returns number of assigned transceivers in the injected group.
-    fn popcnt(&self) -> usize {
+    fn assigned_count(&self) -> usize {
         let bitmask = T::regs().flt(M::CHANNEL.index()).jchgr().read().jchg();
         bitmask.count_ones() as usize
     }
@@ -84,7 +84,7 @@ where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
 {
-    fn new_int<D: Dma<T, M>, DMODE: DmaMode>(
+    fn new_inner<D: Dma<T, M>, DMODE: DmaMode>(
         filter: &'e mut dyn FilterDma<T, M>,
         dma: Peri<'e, D>,
         irq: impl Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,

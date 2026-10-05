@@ -115,7 +115,7 @@ async fn main(_spawner: Spawner) {
         clock_absence: _,
     } = split.detectors.build(&common, Irqs);
 
-    short_circuit.assign_transceivers([ShortCircuitAssignment::new(&channel_mic, 12)]);
+    short_circuit.assign_thresholds([ShortCircuitAssignment::new(&channel_mic, 12)]);
     loop {
         _flt0.regular.start_conversion();
         let event = short_circuit.wait_for_event().await;

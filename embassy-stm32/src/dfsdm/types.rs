@@ -517,7 +517,7 @@ pub enum InjectedTrigger<T: Instance, M: FilterMarker> {
 
 impl<T: Instance, M: FilterMarker> InjectedTrigger<T, M> {
     /// Enable the injected trigger from `trigger` on the given edge.
-    pub fn from<TR: TriggerSource<T, M>>(trigger: TR, edge: config::TriggerEdge) -> Self {
+    pub fn new<TR: TriggerSource<T, M>>(trigger: TR, edge: config::TriggerEdge) -> Self {
         Self::Enabled {
             jextsel: trigger.jextsel(),
             edge,

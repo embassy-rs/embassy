@@ -117,7 +117,7 @@ async fn main(_spawner: Spawner) {
         }
 
         let data = loop {
-            if let Ok(r) = flt0.regular.try_get_result() {
+            if let Ok(r) = flt0.regular.try_read() {
                 break r.data;
             }
         };
