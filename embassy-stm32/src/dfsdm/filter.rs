@@ -383,6 +383,8 @@ where
 }
 
 /// Regular conversion result.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResultRegular {
     /// Sign-extended 24-bit sample.
     pub data: i32,
@@ -408,6 +410,8 @@ impl ResultRegular {
 }
 
 /// Injected conversion result.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResultInjected {
     /// Sign-extended 24-bit sample.
     pub data: i32,

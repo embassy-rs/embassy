@@ -90,6 +90,8 @@ fn encode_threshold(threshold: i32) -> u32 {
 }
 
 /// Analog watchdog event.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AnalogWatchdogEvent {
     /// High threshold exceeded
     HighThreshold {
@@ -331,6 +333,8 @@ where
 }
 
 /// Extremes result.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResultExtreme {
     /// Sign-extended 24-bit extreme value.
     pub data: i32,

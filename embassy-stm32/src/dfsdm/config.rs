@@ -129,14 +129,14 @@ impl CkoutDivider {
 }
 
 impl TryFrom<u16> for CkoutDivider {
-    type Error = ();
+    type Error = Error;
 
     /// Try to create from the actual divider value (2..=256).
     fn try_from(divider: u16) -> Result<Self, Self::Error> {
         if (2..=256).contains(&divider) {
             Ok(Self((divider - 1) as u8))
         } else {
-            Err(())
+            Err(Error::InvalidConfig)
         }
     }
 }
@@ -172,14 +172,14 @@ impl AwdFilterOsr {
 }
 
 impl TryFrom<u16> for AwdFilterOsr {
-    type Error = ();
+    type Error = Error;
 
     /// Try to create from the actual OSR value (2..=32).
     fn try_from(divider: u16) -> Result<Self, Self::Error> {
         if (2..=32).contains(&divider) {
             Ok(Self((divider - 1) as u8))
         } else {
-            Err(())
+            Err(Error::InvalidConfig)
         }
     }
 }
@@ -332,9 +332,13 @@ impl DataRightShift {
 }
 
 impl TryFrom<u8> for DataRightShift {
-    type Error = ();
+    type Error = Error;
     fn try_from(shift: u8) -> Result<Self, Self::Error> {
-        if shift <= 31 { Ok(Self(shift)) } else { Err(()) }
+        if shift <= 31 {
+            Ok(Self(shift))
+        } else {
+            Err(Error::InvalidConfig)
+        }
     }
 }
 
@@ -364,9 +368,13 @@ impl PulsesToSkip {
 }
 
 impl TryFrom<u8> for PulsesToSkip {
-    type Error = ();
+    type Error = Error;
     fn try_from(pulses: u8) -> Result<Self, Self::Error> {
-        if pulses <= 63 { Ok(Self(pulses)) } else { Err(()) }
+        if pulses <= 63 {
+            Ok(Self(pulses))
+        } else {
+            Err(Error::InvalidConfig)
+        }
     }
 }
 
