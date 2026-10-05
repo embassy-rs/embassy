@@ -21,6 +21,7 @@ pub enum KeySize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AesError {
     /// Error triggers when `.set_key` is called without `set_key_size`
     KeySizeNeeded,
@@ -133,8 +134,6 @@ fn read_digest(count: usize, out: &mut [u8]) {
         // to explicitly handle that case
     }
 }
-<<<<<<< HEAD
-=======
 
 fn process_blocks_ctr(data: &[u8], output: &mut [u8]) {
     let blocks = data.chunks_exact(16);
@@ -163,7 +162,6 @@ fn process_blocks_ctr(data: &[u8], output: &mut [u8]) {
     }
 }
 
->>>>>>> fb15cc3b7 (feat: add helper function: process_blocks_ctr)
 // Generic driver type
 pub struct GenericHashcrypt<'d> {
     _peri: Peri<'d, HASHCRYPT>,
