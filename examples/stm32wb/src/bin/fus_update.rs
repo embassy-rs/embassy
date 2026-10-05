@@ -53,10 +53,10 @@ bind_interrupts!(struct Irqs {
 
 // ST-signed coprocessor binaries from the STM32CubeWB package
 // (Projects/STM32WB_Copro_Wireless_Binaries/STM32WB5x). See firmware/README.md.
-const FUS_FW_0_5_3: &[u8] = include_bytes!("../../firmware/stm32wb5x_FUS_fw_for_fus_0_5_3.bin");
-const FUS_FW_1_2_0: &[u8] = include_bytes!("../../firmware/stm32wb5x_FUS_fw_1_2_0.bin");
-const FUS_FW_V2: &[u8] = include_bytes!("../../firmware/stm32wb5x_FUS_fw.bin");
-const STACK_FW: &[u8] = include_bytes!("../../firmware/stm32wb5x_BLE_Mac_802_15_4_fw.bin");
+const FUS_FW_0_5_3: &[u8] = &[]; // include_bytes!("../../firmware/stm32wb5x_FUS_fw_for_fus_0_5_3.bin");
+const FUS_FW_1_2_0: &[u8] = &[]; // include_bytes!("../../firmware/stm32wb5x_FUS_fw_1_2_0.bin");
+const FUS_FW_V2: &[u8] = &[]; // include_bytes!("../../firmware/stm32wb5x_FUS_fw.bin");
+const STACK_FW: &[u8] = &[]; // include_bytes!("../../firmware/stm32wb5x_BLE_Mac_802_15_4_fw.bin");
 
 /// Version of `stm32wb5x_BLE_Mac_802_15_4_fw.bin` above; installation is skipped when
 /// the running wireless stack already reports this version or newer.
