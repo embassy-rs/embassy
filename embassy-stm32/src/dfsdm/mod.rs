@@ -79,11 +79,10 @@ where
 {
 }
 
-#[allow(private_bounds)]
 impl<'d, T, C> Dfsdm<'d, T, C>
 where
     C: ClockOutputMode,
-    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>,
+    T: Instance<Transceivers = capability::TcvCnt8, Filters = capability::FltCnt8>,
 {
 }
 

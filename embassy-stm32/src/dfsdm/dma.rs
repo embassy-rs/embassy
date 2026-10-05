@@ -79,7 +79,6 @@ where
     }
 }
 
-#[allow(private_bounds)]
 impl<'e, T, M, DM: DmaMode> RingBufferedFilter<'e, T, M, DM>
 where
     T: Instance + FilterInterrupt<M>,

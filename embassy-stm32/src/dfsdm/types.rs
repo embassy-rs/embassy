@@ -54,7 +54,7 @@ pub(crate) trait SealedInstance: crate::rcc::RccPeripheral {
 
 /// A DFSDM peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Number of transceivers on this instance.
     type Transceivers: capability::TransceiverCount;
     /// Number of filters on this instance.
@@ -70,69 +70,94 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
 }
 
 /// Type-level capability tags for a DFSDM instance shape.
-pub(crate) mod capability {
+#[doc(hidden)]
+pub mod capability {
     /// Two transceivers.
-    pub struct Tcv2;
+    pub struct TcvCnt2;
     /// Four transceivers.
-    pub struct Tcv4;
+    pub struct TcvCnt4;
     /// Eight transceivers.
-    pub struct Tcv8;
+    pub struct TcvCnt8;
 
     /// One filter.
-    pub struct Flt1;
+    pub struct FltCnt1;
     /// Two filters.
-    pub struct Flt2;
+    pub struct FltCnt2;
     /// Four filters.
-    pub struct Flt4;
+    pub struct FltCnt4;
     /// Six filters.
-    pub struct Flt6;
+    pub struct FltCnt6;
     /// Eight filters.
-    pub struct Flt8;
+    pub struct FltCnt8;
+
+    pub(crate) trait SealedHasDelay {}
 
     /// Has a per-transceiver pulse-skipper block (DLY).
-    pub trait HasDelay {}
+    #[allow(private_bounds)]
+    pub trait HasDelay: SealedHasDelay {}
+
+    pub(crate) trait SealedHasHwid {}
 
     /// Has the HWID hardware-information-register block.
-    pub trait HasHwid {}
+    #[allow(private_bounds)]
+    pub trait HasHwid: SealedHasHwid {}
+
+    pub(crate) trait SealedAdcInput {}
 
     /// Accepts a parallel ADC input path (DATMPX = 1).
     ///
     /// The ADC must also be configured to route its results to the DFSDM; use
     /// [`crate::adc::Adc::start_dfsdm`].
-    pub trait AdcInput {}
+    #[allow(private_bounds)]
+    pub trait AdcInput: SealedAdcInput {}
+
+    pub(crate) trait SealedTransceiverCount {}
 
     /// Transceiver count of a shape.
-    pub trait TransceiverCount: super::Shape {
+    #[allow(private_bounds)]
+    pub trait TransceiverCount: super::Shape + SealedTransceiverCount {
         /// Number of transceivers.
         const COUNT: u8;
     }
-    impl TransceiverCount for Tcv2 {
+    impl SealedTransceiverCount for TcvCnt2 {}
+    impl SealedTransceiverCount for TcvCnt4 {}
+    impl SealedTransceiverCount for TcvCnt8 {}
+    impl TransceiverCount for TcvCnt2 {
         const COUNT: u8 = 2;
     }
-    impl TransceiverCount for Tcv4 {
+    impl TransceiverCount for TcvCnt4 {
         const COUNT: u8 = 4;
     }
-    impl TransceiverCount for Tcv8 {
+    impl TransceiverCount for TcvCnt8 {
         const COUNT: u8 = 8;
     }
+
+    pub(crate) trait SealedFilterCount {}
+
     /// Filter count of a shape.
-    pub trait FilterCount {
+    #[allow(private_bounds)]
+    pub trait FilterCount: SealedFilterCount {
         /// Number of filters.
         const COUNT: u8;
     }
-    impl FilterCount for Flt1 {
+    impl SealedFilterCount for FltCnt1 {}
+    impl SealedFilterCount for FltCnt2 {}
+    impl SealedFilterCount for FltCnt4 {}
+    impl SealedFilterCount for FltCnt6 {}
+    impl SealedFilterCount for FltCnt8 {}
+    impl FilterCount for FltCnt1 {
         const COUNT: u8 = 1;
     }
-    impl FilterCount for Flt2 {
+    impl FilterCount for FltCnt2 {
         const COUNT: u8 = 2;
     }
-    impl FilterCount for Flt4 {
+    impl FilterCount for FltCnt4 {
         const COUNT: u8 = 4;
     }
-    impl FilterCount for Flt6 {
+    impl FilterCount for FltCnt6 {
         const COUNT: u8 = 6;
     }
-    impl FilterCount for Flt8 {
+    impl FilterCount for FltCnt8 {
         const COUNT: u8 = 8;
     }
 }
@@ -148,9 +173,9 @@ pub trait Shape: SealedShape {
     fn selectors<T: Instance>() -> Self::Selectors<T>;
 }
 
-impl SealedShape for capability::Tcv2 {}
-impl SealedShape for capability::Tcv4 {}
-impl SealedShape for capability::Tcv8 {}
+impl SealedShape for capability::TcvCnt2 {}
+impl SealedShape for capability::TcvCnt4 {}
+impl SealedShape for capability::TcvCnt8 {}
 
 pub(crate) trait SealedClockOutputMode {}
 
@@ -666,13 +691,13 @@ macro_rules! impl_next_channel {
 }
 
 // For 2-channel instances: wraps 1 -> 0
-impl_next_channel!(capability::Tcv2,
+impl_next_channel!(capability::TcvCnt2,
     Tcv0 => Tcv1,
     Tcv1 => Tcv0,
 );
 
 // For 4-channel instances: wraps 3 -> 0
-impl_next_channel!(capability::Tcv4,
+impl_next_channel!(capability::TcvCnt4,
     Tcv0 => Tcv1,
     Tcv1 => Tcv2,
     Tcv2 => Tcv3,
@@ -680,7 +705,7 @@ impl_next_channel!(capability::Tcv4,
 );
 
 // For 8-channel instances: wraps 7 -> 0
-impl_next_channel!(capability::Tcv8,
+impl_next_channel!(capability::TcvCnt8,
     Tcv0 => Tcv1,
     Tcv1 => Tcv2,
     Tcv2 => Tcv3,

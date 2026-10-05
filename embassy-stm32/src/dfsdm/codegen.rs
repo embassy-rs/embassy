@@ -68,9 +68,9 @@ pub fn parse(block: &str) -> Option<Shape> {
 /// Channel count -> transceiver capability ident.
 pub fn tcv(ch: u8) -> &'static str {
     match ch {
-        2 => "Tcv2",
-        4 => "Tcv4",
-        8 => "Tcv8",
+        2 => "TcvCnt2",
+        4 => "TcvCnt4",
+        8 => "TcvCnt8",
         _ => unreachable!("invalid DFSDM channel count: {}", ch),
     }
 }
@@ -78,11 +78,11 @@ pub fn tcv(ch: u8) -> &'static str {
 /// Filter count -> filter capability ident.
 pub fn flt(f: u8) -> &'static str {
     match f {
-        1 => "Flt1",
-        2 => "Flt2",
-        4 => "Flt4",
-        6 => "Flt6",
-        8 => "Flt8",
+        1 => "FltCnt1",
+        2 => "FltCnt2",
+        4 => "FltCnt4",
+        6 => "FltCnt6",
+        8 => "FltCnt8",
         _ => unreachable!("invalid DFSDM filter count: {}", f),
     }
 }
@@ -161,13 +161,22 @@ pub fn gen_instance(inst: &str, block: &str) -> TokenStream {
     };
 
     if shape.dly {
-        ts.extend(quote! { impl crate::dfsdm::capability::HasDelay for crate::peripherals::#inst {} });
+        ts.extend(quote! {
+            impl crate::dfsdm::capability::SealedHasDelay for crate::peripherals::#inst {}
+            impl crate::dfsdm::capability::HasDelay for crate::peripherals::#inst {}
+        });
     }
     if shape.hwid {
-        ts.extend(quote! { impl crate::dfsdm::capability::HasHwid for crate::peripherals::#inst {} });
+        ts.extend(quote! {
+            impl crate::dfsdm::capability::SealedHasHwid for crate::peripherals::#inst {}
+            impl crate::dfsdm::capability::HasHwid for crate::peripherals::#inst {}
+        });
     }
     if shape.adc {
-        ts.extend(quote! { impl crate::dfsdm::capability::AdcInput for crate::peripherals::#inst {} });
+        ts.extend(quote! {
+            impl crate::dfsdm::capability::SealedAdcInput for crate::peripherals::#inst {}
+            impl crate::dfsdm::capability::AdcInput for crate::peripherals::#inst {}
+        });
     }
 
     ts
