@@ -129,6 +129,22 @@ fn calc_prescs(freq: Hertz) -> Result<(u8, u8), ConfigError> {
     Ok(((presc * 2) as u8, (postdiv - 1) as u8))
 }
 
+pub(crate) fn configure_pins(pins: &[Option<&Peri<'_, AnyPin>>]) {
+    for pin in pins.iter().flatten() {
+        pin.gpio().ctrl().write(|w| w.set_funcsel(1));
+        pin.pad_ctrl().write(|w| {
+            #[cfg(feature = "_rp235x")]
+            w.set_iso(false);
+            w.set_schmitt(true);
+            w.set_slewfast(false);
+            w.set_ie(true);
+            w.set_od(false);
+            w.set_pue(false);
+            w.set_pde(false);
+        });
+    }
+}
+
 impl<'d, M: Mode> Spi<'d, M> {
     fn new_inner<T: Instance>(
         _spi: Peri<'d, T>,
@@ -140,9 +156,12 @@ impl<'d, M: Mode> Spi<'d, M> {
         rx_dma: Option<Channel<'d, mode::Async>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::apply_config(T::info(), &config)?;
-
         let p = T::info().regs;
+
+        // disable (to ensure setting of spi master)
+        p.cr1().write(|w| w.set_sse(false));
+
+        Self::apply_config(T::info(), &config)?;
 
         // Always enable DREQ signals -- harmless if DMA is not listening
         p.dmacr().write(|reg| {
@@ -153,58 +172,8 @@ impl<'d, M: Mode> Spi<'d, M> {
         // finally, enable.
         p.cr1().write(|w| w.set_sse(true));
 
-        if let Some(pin) = &clk {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_schmitt(true);
-                w.set_slewfast(false);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(false);
-                w.set_pde(false);
-            });
-        }
-        if let Some(pin) = &mosi {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_schmitt(true);
-                w.set_slewfast(false);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(false);
-                w.set_pde(false);
-            });
-        }
-        if let Some(pin) = &miso {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_schmitt(true);
-                w.set_slewfast(false);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(false);
-                w.set_pde(false);
-            });
-        }
-        if let Some(pin) = &cs {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_schmitt(true);
-                w.set_slewfast(false);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(false);
-                w.set_pde(false);
-            });
-        }
+        configure_pins(&[clk.as_ref(), mosi.as_ref(), miso.as_ref(), cs.as_ref()]);
+
         Ok(Self {
             info: T::info(),
             tx_dma,
@@ -585,13 +554,13 @@ impl<'d> Spi<'d, Async> {
     }
 }
 
-struct Info {
-    regs: pac::spi::Spi,
-    tx_dreq: pac::dma::vals::TreqSel,
-    rx_dreq: pac::dma::vals::TreqSel,
+pub(crate) struct Info {
+    pub(crate) regs: pac::spi::Spi,
+    pub(crate) tx_dreq: pac::dma::vals::TreqSel,
+    pub(crate) rx_dreq: pac::dma::vals::TreqSel,
 }
 
-trait SealedInstance {
+pub(crate) trait SealedInstance {
     fn info() -> &'static Info;
 }
 
