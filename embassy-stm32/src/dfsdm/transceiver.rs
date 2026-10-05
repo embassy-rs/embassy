@@ -1,5 +1,5 @@
-//! Transceiver driver, its pin reference-counting storage, single-use pin
-//! selectors, and the pin-trait associations.
+//! Transceiver driver, its pin-slot storage, single-use pin selectors, and the
+//! pin-trait associations.
 
 use super::*;
 
@@ -16,17 +16,33 @@ pub enum PinKind {
     Ckin,
 }
 
-/// Reference-counted storage for one pin of one transceiver.
+/// State of one pin slot: the pin handle plus which consumers require it present.
+#[derive(Default)]
+pub(crate) struct PinSlotInner<'d> {
+    pub(crate) flex: Option<Flex<'d>>,
+    /// The channel's own transceiver requires the pin.
+    pub(crate) owner: bool,
+    /// The predecessor's neighbor transceiver requires the pin.
+    pub(crate) neighbor: bool,
+}
+
+/// Storage for one pin of one transceiver.
+///
+/// A pin has 0, 1 or 2 consumers: the channel's own transceiver (`owner`) and its
+/// predecessor's neighbor transceiver (`neighbor`). The two flags track which of
+/// them require the pin present; the `Flex` is dropped once neither does.
 pub struct PinSlot<'d> {
-    pub(crate) inner: critical_section::Mutex<RefCell<Option<Flex<'d>>>>,
-    pub(crate) rc: AtomicU8,
+    pub(crate) inner: RefCell<PinSlotInner<'d>>,
 }
 
 impl<'d> PinSlot<'d> {
     pub(crate) const fn new() -> Self {
         Self {
-            inner: critical_section::Mutex::new(RefCell::new(None)),
-            rc: AtomicU8::new(0),
+            inner: RefCell::new(PinSlotInner {
+                flex: None,
+                owner: false,
+                neighbor: false,
+            }),
         }
     }
 }
@@ -107,16 +123,10 @@ where
     PS: PinSource,
 {
     fn drop(&mut self) {
-        // Release the reservations this transceiver kept: its pinset `S` on
-        // the channel the pins belong to (the successor's when they came from
-        // the neighbour). The reservations it did not keep were already
-        // disclaimed at build time.
-        let ch = if PS::FROM_NEIGHBOR {
-            <M::Next as TransceiverMarker>::CHANNEL.index()
-        } else {
-            M::CHANNEL.index()
-        };
-        self.common.release_pinset::<S>(ch);
+        // Release the requirement this transceiver held: its pinset `S` on the
+        // channel the pins belong to (the successor's when they came from the
+        // neighbour). A pin nobody else requires deconfigures here.
+        self.common.release::<M, S, PS>();
 
         // Disabling deactivates the detector flags, so drop them from the
         // cached armed mask too.
@@ -570,10 +580,8 @@ where
     {
         self.set_channel_input(config::ChannelInput::Same);
         self.set_data_mux(config::InputDataMux::InternalAdc);
-        // This mode uses no pins: disclaim both reservations the builder
-        // minted, so the declared pins deconfigure now.
-        self.disclaim_own(common);
-        self.disclaim_neighbor(common);
+        // This mode uses no pins: claim nothing, so declared pins deconfigure at
+        // the gate's sweep.
         Transceiver::new(common)
     }
 
@@ -590,8 +598,6 @@ where
         self.set_channel_input(config::ChannelInput::Same);
         self.set_data_mux(config::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(config::DataPackingMode::Standard);
-        self.disclaim_own(common);
-        self.disclaim_neighbor(common);
         Transceiver::new(common)
     }
 
@@ -608,8 +614,6 @@ where
         self.set_channel_input(config::ChannelInput::Same);
         self.set_data_mux(config::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(config::DataPackingMode::Interleaved);
-        self.disclaim_own(common);
-        self.disclaim_neighbor(common);
         Transceiver::new(common)
     }
 
@@ -640,11 +644,7 @@ where
         neighbor.set_data_mux(config::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(config::DataPackingMode::Dual);
         neighbor.set_data_packing_mode(config::DataPackingMode::Standard);
-        // No pins are used by either half: disclaim all four reservations.
-        self.disclaim_own(common);
-        self.disclaim_neighbor(common);
-        neighbor.disclaim_own(common);
-        neighbor.disclaim_neighbor(common);
+        // No pins are used by either half: claim nothing.
         ParallelPairDisabled {
             even: Transceiver::new(common),
             odd: Transceiver::new(common),
@@ -666,9 +666,8 @@ where
         self.set_channel_input(config::ChannelInput::Same);
         self.set_data_mux(config::InputDataMux::ExternalSerial);
         self.set_serial_interface(mode.into());
-        // The transceiver keeps its own DATIN reservation; disclaim the
-        // successor-slot reservation minted for the neighbour build.
-        self.disclaim_neighbor(common);
+        // The transceiver requires its own DATIN pin.
+        common.claim::<M, S, OwnPins>();
         Transceiver::new(common)
     }
 
@@ -681,19 +680,12 @@ where
     where
         SN: HasData,
     {
-        let next_ch = <M::Next as TransceiverMarker>::CHANNEL.index();
-        // The transceiver will release its own (neighbour-slot) DATIN
-        // reservation on drop. Disclaim the channel's own slot, and the
-        // successor's CKIN if the neighbour declares one but this mode
-        // does not use it.
-        self.disclaim_own(common);
-        if SN::HAS_CLK {
-            common.release_pin(next_ch, PinKind::Ckin);
-        }
-
         self.set_channel_input(config::ChannelInput::Neighbor);
         self.set_data_mux(config::InputDataMux::ExternalSerial);
         self.set_serial_interface(mode.into());
+        // Borrows the neighbour's DATIN only; a declared CKIN this mode does not
+        // use is dropped by the gate's sweep.
+        common.claim::<M, DataOnly, NeighborPins>();
         Transceiver::new(common)
     }
 
@@ -712,7 +704,7 @@ where
         self.set_data_mux(config::InputDataMux::ExternalSerial);
         self.set_serial_interface(mode.into());
         self.set_spi_clock(config::SpiClockSelect::ExternalCkin);
-        self.disclaim_neighbor(common);
+        common.claim::<M, S, OwnPins>();
         Transceiver::new(common)
     }
 
@@ -725,14 +717,11 @@ where
     where
         SN: HasDataAndClk,
     {
-        // The transceiver will release both of the neighbour slot's
-        // reservations on drop. Disclaim the channel's own slot.
-        self.disclaim_own(common);
-
         self.set_channel_input(config::ChannelInput::Neighbor);
         self.set_data_mux(config::InputDataMux::ExternalSerial);
         self.set_serial_interface(mode.into());
         self.set_spi_clock(config::SpiClockSelect::ExternalCkin);
+        common.claim::<M, DataClk, NeighborPins>();
         Transceiver::new(common)
     }
 
@@ -805,7 +794,7 @@ where
         self.set_data_mux(config::InputDataMux::ExternalSerial);
         self.set_serial_interface(mode.into());
         self.set_spi_clock(mode.into());
-        self.disclaim_neighbor(common);
+        common.claim::<M, S, OwnPins>();
         Transceiver::new(common)
     }
 
@@ -818,19 +807,11 @@ where
     where
         SN: HasData,
     {
-        let next_ch = <M::Next as TransceiverMarker>::CHANNEL.index();
-        // The transceiver will release its own (neighbour-slot) DATIN
-        // reservation on drop. Disclaim the channel's own slot, and the
-        // successor's CKIN if declared but unused by this mode.
-        self.disclaim_own(common);
-        if SN::HAS_CLK {
-            common.release_pin(next_ch, PinKind::Ckin);
-        }
-
         self.set_channel_input(config::ChannelInput::Neighbor);
         self.set_data_mux(config::InputDataMux::ExternalSerial);
         self.set_serial_interface(mode.into());
         self.set_spi_clock(mode.into());
+        common.claim::<M, DataOnly, NeighborPins>();
         Transceiver::new(common)
     }
 }
@@ -843,16 +824,6 @@ where
     S: PinSet,
     SN: PinSet,
 {
-    /// Disclaims the reservations this builder minted on its own channel's
-    /// slots (the ones not taken by this build's transceiver).
-    fn disclaim_own(&self, common: &DfsdmCommon<'_, T, Enabled>) {
-        common.release_pinset::<S>(M::CHANNEL.index());
-    }
-
-    /// Disclaims the reservations this builder minted on its successor's slots.
-    fn disclaim_neighbor(&self, common: &DfsdmCommon<'_, T, Enabled>) {
-        common.release_pinset::<SN>(<M::Next as TransceiverMarker>::CHANNEL.index());
-    }
 }
 
 // =============================================================================
