@@ -16,7 +16,7 @@ name = "usb_msc_sdcard"
 required-features = ["rp235xb"]
 
 [dependencies]
-embassy-embedded-hal = { version = "0.6.0", path = "../../embassy-embedded-hal", features = ["defmt"] }
+embassy-embedded-hal = { version = "0.6.1", path = "../../embassy-embedded-hal", features = ["defmt"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
