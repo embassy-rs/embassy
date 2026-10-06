@@ -255,7 +255,15 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
                     return Err(Error::TooManyAttempts);
                 }
 
-                stage_image(flash, image);
+                // When this boot only deletes the old stack (type change), staging now
+                // is wasted: the delete reclaims the download area. `boot` performs the
+                // delete; the next boot sees no stack and stages normally.
+                let replace = running_stack.is_some()
+                    && stack_type != StackType::None
+                    && running_type.map_or(true, |t| t != stack_type);
+                if !replace {
+                    stage_image(flash, image);
+                }
 
                 self.set_upgrade_status(UpgradeStatus::Pending);
 
@@ -359,13 +367,47 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
                             info!("deleting installed wireless stack (type change)");
                             sys.shci_c2_fus_fwdelete().await.map_err(|_| Error::Command)?;
 
-                            // The FUS finishes the delete before responding; reset so the
-                            // next boot installs into the reclaimed area.
+                            // The FUS acknowledges the command before applying it, so
+                            // resetting right away would abort the delete. Wait until the
+                            // stack is actually gone from the FUS device info table.
+                            let mut timeout = 0;
+                            loop {
+                                Timer::after(Duration::from_millis(100)).await;
+                                if let Some(info) = sys.fus_info() {
+                                    if info.wireless_stack_version == 0 {
+                                        break;
+                                    }
+                                }
+                                timeout += 1;
+                                if timeout >= 50 {
+                                    error!("FUS did not delete the wireless stack");
+                                    return Err(Error::Fus);
+                                }
+                            }
+
+                            // The FUS reclaimed the deleted stack's flash; reset so the
+                            // next boot stages into the new download area.
                             SCB::sys_reset();
                         }
 
-                        info!("requesting FUS firmware upgrade");
-                        sys.shci_c2_fus_fwupgrade(0, 0).await.map_err(|_| Error::Command)?;
+                        // The FUS may refuse the upgrade briefly after a delete (it is
+                        // still reclaiming the deleted stack's flash internally), so
+                        // retry a few times before giving up.
+                        let mut retries = 0;
+                        loop {
+                            info!("requesting FUS firmware upgrade");
+                            match sys.shci_c2_fus_fwupgrade(0, 0).await {
+                                Ok(_) => break,
+                                Err(_) => {
+                                    retries += 1;
+                                    if retries >= 5 {
+                                        error!("FUS refused the firmware upgrade");
+                                        return Err(Error::Fus);
+                                    }
+                                    Timer::after(Duration::from_secs(1)).await;
+                                }
+                            }
+                        }
                     } else {
                         // FUS is idle and the upgrade is complete: start the wireless stack.
                         sys.shci_c2_fus_startws().await.map_err(|_| Error::Command)?;
