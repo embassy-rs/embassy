@@ -77,6 +77,7 @@ mod thread {
                     break;
                 }
 
+                crate::trace_idle();
                 self.signaler.wait();
             }
         }

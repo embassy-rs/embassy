@@ -1,6 +1,7 @@
 //! GAP types and constants
 
 // Re-export HCI types for convenience
+use stm32wb_hci::BdAddrType;
 pub use stm32wb_hci::host::OwnAddressType;
 
 use crate::bluetooth::error::BleError;
@@ -43,6 +44,13 @@ pub struct AdvParams {
     /// Advertising filter policy
     pub filter_policy: AdvFilterPolicy,
 
+    /// Peer address for directed advertising.
+    ///
+    /// Required for [`AdvType::ConnectableDirectedHighDuty`] and
+    /// [`AdvType::ConnectableDirectedLowDuty`]; ignored for undirected
+    /// advertising.
+    pub peer_addr: Option<BdAddrType>,
+
     /// Advertising channel map (bit 0: channel 37, bit 1: channel 38, bit 2: channel 39)
     /// Default: 0x07 (all channels)
     pub channel_map: u8,
@@ -61,6 +69,7 @@ impl Default for AdvParams {
             // Matches the default address type configured in `GapInitParams`.
             own_addr_type: OwnAddressType::Random,
             filter_policy: AdvFilterPolicy::All,
+            peer_addr: None,
             channel_map: 0x07, // All channels
             privacy_undirected: false,
         }

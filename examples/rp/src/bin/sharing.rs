@@ -24,14 +24,14 @@ use embassy_rp::executor::{Executor, InterruptExecutor};
 use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_rp::peripherals::{DMA_CH0, UART0};
 use embassy_rp::uart::{self, InterruptHandler, UartTx};
-use embassy_rp::{bind_interrupts, dma, interrupt};
+use embassy_rp::{bind_interrupts, dma, interrupt, mode};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::{blocking_mutex, mutex};
 use embassy_time::{Duration, Ticker};
 use panic_probe as _;
 use static_cell::{ConstStaticCell, StaticCell};
 
-type UartAsyncMutex = mutex::Mutex<CriticalSectionRawMutex, UartTx<'static, uart::Async>>;
+type UartAsyncMutex = mutex::Mutex<CriticalSectionRawMutex, UartTx<'static, mode::Async>>;
 
 struct MyType {
     inner: u32,

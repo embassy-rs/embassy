@@ -136,7 +136,10 @@ SECTIONS
     __edata = .; /* RAM: By setting __sdata=__edata cortex-m-rt has to copy 0 bytes as .data is already in RAM */
 
     *(.data .data.*);
-    . = ALIGN(4); /* 4-byte align the end (VMA) of this section */
+    /* 8-byte align the end of this section: the whole segment must be a
+       multiple of the ECC word of ECC-protected SRAMs (e.g. STM32H7RS AXI
+       SRAM), or the loader leaves the trailing partial word unwritten. */
+    . = ALIGN(8);
   } > RAM
   /* Allow sections from user `memory.x` injected using `INSERT AFTER .data` to
    * use the .data loading mechanism by pushing __edata. Note: do not change

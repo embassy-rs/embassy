@@ -130,6 +130,7 @@ mod thread {
             loop {
                 unsafe {
                     self.inner.poll();
+                    embassy_executor::trace_idle();
                     asm!("wfe");
                 };
             }

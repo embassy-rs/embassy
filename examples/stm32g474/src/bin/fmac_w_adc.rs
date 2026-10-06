@@ -41,7 +41,7 @@ async fn main(_spawner: Spawner) {
     let mut p = embassy_stm32::init(config);
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC1, Default::default());
+    let mut adc = Adc::new_blocking(p.ADC1, Default::default());
 
     let mut temperature = adc.enable_temperature();
 
@@ -66,7 +66,7 @@ async fn main(_spawner: Spawner) {
         &feedforward_weights,
         fmac::Gain::X1,
     );
-    let trigger = RegularAdcTrigger::from(triggers::HRTIM_ADC_TRG1, Exten::RisingEdge).unwrap();
+    let trigger = RegularAdcTrigger::from(triggers::HRTIM_ADC_TRG1, Exten::RisingEdge);
 
     let mut from_adc = fmac::FromAdc::new(
         &mut fmac,

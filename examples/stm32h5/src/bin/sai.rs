@@ -68,8 +68,8 @@ async fn main(_spawner: Spawner) {
         p.PE4, // FS_A — LRCLK
         p.PE2, // MCLK_A — master clock
         p.GPDMA1_CH1,
-        &mut write_buffer,
         Irqs,
+        &mut write_buffer,
         sai_config,
     );
 
@@ -94,6 +94,11 @@ async fn main(_spawner: Spawner) {
     }
 
     info!("Test signal buffer prepared, starting playback loop");
+
+    // The SAI driver's `write` does not start the ring buffer automatically. The ring must
+    // be filled and started explicitly.
+    sai_a.write(&test_data).await.ok();
+    sai_a.start();
 
     loop {
         if let Err(e) = sai_a.write(&test_data).await {

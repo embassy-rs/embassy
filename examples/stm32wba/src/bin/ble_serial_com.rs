@@ -29,11 +29,7 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::aes::{self, Aes};
-use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
-use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc::{self};
-use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::usart::{self, BufferedUart, BufferedUartRx, BufferedUartTx, Config as UartConfig};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_stm32_wpan::bluetooth::HCI;
@@ -47,7 +43,6 @@ use embassy_stm32_wpan::bluetooth::gatt::{
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embedded_io_async::{Read, Write};
 use panic_probe as _;
 use static_cell::StaticCell;
 use stm32wb_hci::Event;
@@ -55,9 +50,6 @@ use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
 
 // Interrupt bindings
 bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<peripherals::RNG>;
-    AES => aes::InterruptHandler<AesPeriph>;
-    PKA => pka::InterruptHandler<PkaPeriph>;
     USART1 => usart::BufferedInterruptHandler<peripherals::USART1>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
@@ -165,14 +157,9 @@ async fn main(spawner: Spawner) {
     info!("Based on ST BLE_SerialCom_Peripheral");
 
     // Initialize hardware peripherals required by BLE stack
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Pka::new(p.PKA, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        8
-    );
+    let (platform, runtime) = new_platform!(8);
 
-    info!("Hardware peripherals initialized (RNG, AES, PKA)");
+    info!("BLE platform initialized");
 
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
@@ -187,7 +174,7 @@ async fn main(spawner: Spawner) {
     let tx_buf = TX_BUF.init([0u8; 256]);
     let rx_buf = RX_BUF.init([0u8; 256]);
 
-    let uart = BufferedUart::new(p.USART1, p.PA8, p.PB12, tx_buf, rx_buf, Irqs, uart_config)
+    let uart = BufferedUart::new(p.USART1, p.PB12, p.PA8, Irqs, tx_buf, rx_buf, uart_config)
         .expect("Failed to initialize USART1");
 
     let (uart_tx, uart_rx) = uart.split();

@@ -368,6 +368,9 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 regs.sie_status().write(|w| {
                     w.set_bus_reset(true);
                     w.set_setup_rec(true);
+                    // clear a suspend latched before the reset, else the next poll reports a
+                    // spurious Suspend and embassy-usb waits for a resume that never comes.
+                    w.set_suspended(true);
                 });
                 regs.buff_status().write(|w| w.0 = 0xFFFF_FFFF);
                 regs.addr_endp().write(|w| w.set_address(0));
@@ -421,7 +424,30 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             T::dpram().ep_out_buffer_control(n)
         };
 
-        ctrl.modify(|w| w.set_stall(stalled));
+        match (stalled, ep_addr.direction()) {
+            // write, not modify: clears AVAILABLE so an in-flight packet can't complete instead of stalling.
+            (true, _) => ctrl.write(|w| w.set_stall(true)),
+
+            // the control pipe resets EP0's toggle on every SETUP, so only drop the stall.
+            (false, _) if n == 0 => ctrl.modify(|w| w.set_stall(false)),
+
+            // clearing a halt resets the toggle to DATA0 (USB 2.0 §9.4.5), but PID is flipped before use.
+            (false, Direction::In) => ctrl.write(|w| w.set_pid(0, true)),
+
+            // same, plus re-arm the buffer that stalling un-armed.
+            (false, Direction::Out) => {
+                ctrl.write(|w| {
+                    w.set_pid(0, false);
+                    w.set_length(0, self.ep_out[n].max_packet_size);
+                });
+                cortex_m::asm::delay(12);
+                ctrl.write(|w| {
+                    w.set_pid(0, false);
+                    w.set_length(0, self.ep_out[n].max_packet_size);
+                    w.set_available(0, true);
+                });
+            }
+        }
 
         let wakers = if ep_addr.is_in() { &EP_IN_WAKERS } else { &EP_OUT_WAKERS };
         wakers[n].wake();
@@ -477,7 +503,21 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     async fn disable(&mut self) {}
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-        Err(Unsupported)
+        // SIE_CTRL.RESUME ("Device: Remote wakeup. Device can initiate its own
+        // resume after suspend") is self-clearing per the RP2040 datasheet
+        // (pico-sdk: USB_SIE_CTRL_RESUME access type "SC"): the controller
+        // drives the resume signaling on the bus by itself, so a single write
+        // is sufficient.
+        //
+        // This returns once signaling is initiated rather than waiting for it
+        // to finish. That is safe because a full-speed device only transmits
+        // in response to host tokens: endpoints armed while the bus is still
+        // resuming simply wait until the host restarts polling. Callers must
+        // only invoke this while suspended with remote wakeup enabled by the
+        // host, which `embassy-usb`'s `UsbDevice::remote_wakeup` guarantees;
+        // calling it in any other bus state is unsupported.
+        T::regs().sie_ctrl().modify(|w| w.set_resume(true));
+        Ok(())
     }
 }
 
@@ -531,7 +571,8 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         let val = poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let val = T::dpram().ep_out_buffer_control(index).read();
-            if val.available(0) {
+            // stay parked while stalled, otherwise the re-arm below would clear the stall.
+            if val.available(0) || val.stall() {
                 Poll::Pending
             } else {
                 Poll::Ready(val)
@@ -575,7 +616,8 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         let val = poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let val = T::dpram().ep_in_buffer_control(index).read();
-            if val.available(0) {
+            // stay parked while stalled, otherwise the write below would clear the stall.
+            if val.available(0) || val.stall() {
                 Poll::Pending
             } else {
                 Poll::Ready(val)
@@ -609,6 +651,24 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
 pub struct ControlPipe<'d, T: Instance> {
     _phantom: PhantomData<&'d mut T>,
     max_packet_size: u16,
+}
+
+/// Tells if the transfer in progress can no longer complete, because the host abandoned it with a
+/// new SETUP or reset the bus. Without this the stage waits forever, wedging the whole USB task.
+fn control_aborted<T: Instance>() -> bool {
+    // on_interrupt masks setup_req when it fires, and only setup() re-arms it.
+    T::regs().inte().write_set(|w| w.set_setup_req(true));
+    let status = T::regs().sie_status().read();
+    // embassy-usb holds the bus across a control transfer, so it can't spot a reset itself.
+    // leave both flags set, setup() consumes setup_rec and Bus::poll consumes bus_reset.
+    status.setup_rec() || status.bus_reset()
+}
+
+/// Wake on the transfer completing, a new SETUP, or a bus reset.
+fn register_ep0_wakers(cx: &mut core::task::Context) {
+    EP_IN_WAKERS[0].register(cx.waker());
+    EP_OUT_WAKERS[0].register(cx.waker());
+    BUS_WAKER.register(cx.waker());
 }
 
 impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
@@ -664,15 +724,19 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         trace!("control: data_out len={} first={} last={}", buf.len(), first, last);
         let val = poll_fn(|cx| {
-            EP_OUT_WAKERS[0].register(cx.waker());
+            register_ep0_wakers(cx);
+            if control_aborted::<T>() {
+                trace!("control: data_out aborted");
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
             let val = T::dpram().ep_out_buffer_control(0).read();
             if val.available(0) {
                 Poll::Pending
             } else {
-                Poll::Ready(val)
+                Poll::Ready(Ok(val))
             }
         })
-        .await;
+        .await?;
 
         let rx_len = val.length(0) as _;
         trace!("control data_out DONE, rx_len = {}", rx_len);
@@ -709,15 +773,19 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         });
 
         poll_fn(|cx| {
-            EP_IN_WAKERS[0].register(cx.waker());
+            register_ep0_wakers(cx);
+            if control_aborted::<T>() {
+                trace!("control: data_in aborted");
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
             let bufcontrol = T::dpram().ep_in_buffer_control(0);
             if bufcontrol.read().available(0) {
                 Poll::Pending
             } else {
-                Poll::Ready(())
+                Poll::Ready(Ok(()))
             }
         })
-        .await;
+        .await?;
         trace!("control: data_in DONE");
 
         if last {
@@ -758,7 +826,12 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         // wait for completion before returning, needed so
         // set_address() doesn't happen early.
         poll_fn(|cx| {
-            EP_IN_WAKERS[0].register(cx.waker());
+            register_ep0_wakers(cx);
+            // accept has no error channel, returning early is enough.
+            if control_aborted::<T>() {
+                trace!("control: accept aborted");
+                return Poll::Ready(());
+            }
             if bufcontrol.read().available(0) {
                 Poll::Pending
             } else {

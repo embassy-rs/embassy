@@ -125,9 +125,10 @@ async fn main(_spawner: Spawner) {
     info!("usb: initializing usb stack");
     let usb_driver = Stm32UsbDriver::new_hs(
         p.USB_OTG_HS.reborrow(),
-        Irqs,
-        p.PD6.reborrow(), // HS_DM
-        p.PD7.reborrow(), // HS_DP
+        p.PD6.reborrow(),
+        // HS_DM
+        p.PD7.reborrow(),
+        Irqs, // HS_DP
         ep_out,
         drv_cfg,
     );

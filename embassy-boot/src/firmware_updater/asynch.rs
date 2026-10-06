@@ -145,7 +145,10 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
         }
     }
 
-    /// Verify the update in DFU with any digest.
+    /// Compute a digest of the update in the DFU partition.
+    ///
+    /// See [`super::BlockingFirmwareUpdater::hash`] for buffer requirements,
+    /// errors, and panics.
     pub async fn hash<D: Digest>(
         &mut self,
         update_len: u32,
@@ -174,7 +177,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
     }
 
     /// Mark to trigger firmware swap on next boot.
-    #[cfg(not(feature = "_verify"))]
+    ///
+    /// With signature support enabled, verify first or use a verifying bootloader.
     pub async fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.state.mark_updated().await
     }

@@ -316,6 +316,44 @@ fn impl_dma_channel(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
     }
 }
 
+fn impl_i2c(cfgs: &mut common::CfgSet, impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
+    cfgs.declare_all(&["has_i2c_sda_pins", "has_i2c_scl_pins"]);
+
+    let instance = Ident::new(peripheral.name, Span::call_site());
+    let flexcomm = Ident::new(
+        peripheral.flexcomm.expect("LPC55 must specify FLEXCOMM instance"),
+        Span::call_site(),
+    );
+    let number = Literal::u8_unsuffixed(peripheral.name.strip_prefix("I2C").unwrap().parse::<u8>().unwrap());
+
+    impls.push(quote! {
+        impl_i2c_instance!(#instance, #flexcomm, #number);
+    });
+
+    for signal in peripheral.signals {
+        let r#macro = match signal.name {
+            "SCL" => {
+                cfgs.enable("has_i2c_scl_pins");
+                format_ident!("impl_i2c_scl_pin")
+            }
+            "SDA" => {
+                cfgs.enable("has_i2c_sda_pins");
+                format_ident!("impl_i2c_sda_pin")
+            }
+            _ => unreachable!(),
+        };
+
+        for pin in signal.pins {
+            let alt = format_ident!("Alt{}", pin.alt);
+            let pin = format_ident!("{}", pin.pin);
+
+            impls.push(quote! {
+                #r#macro!(#pin, #instance, #alt);
+            });
+        }
+    }
+}
+
 fn impl_usart(cfgs: &mut common::CfgSet, impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
     cfgs.declare_all(&[
         "has_usart_txd_pins",
@@ -475,6 +513,10 @@ fn impl_peripherals(cfgs: &mut common::CfgSet, _singletons: &[Singleton]) -> Tok
 
         if peripheral.name.starts_with("DMA") {
             impl_dma_channel(&mut impls, peripheral);
+        }
+
+        if peripheral.name.starts_with("I2C") {
+            impl_i2c(cfgs, &mut impls, peripheral);
         }
 
         if peripheral.name.starts_with("USART") {

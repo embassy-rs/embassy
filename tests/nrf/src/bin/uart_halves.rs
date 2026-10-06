@@ -22,14 +22,14 @@ async fn main(_spawner: Spawner) {
 
     let mut tx = UarteTx::new(
         peri!(p, UART0).reborrow(),
-        irqs!(UART0),
         peri!(p, PIN_A).reborrow(),
+        irqs!(UART0),
         config.clone(),
     );
     let mut rx = UarteRx::new(
         peri!(p, UART1).reborrow(),
-        irqs!(UART1),
         peri!(p, PIN_B).reborrow(),
+        irqs!(UART1),
         config.clone(),
     );
 

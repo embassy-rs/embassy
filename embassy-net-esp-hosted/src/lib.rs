@@ -178,7 +178,7 @@ pub struct HostedResources<'a, I, OUT> {
 ///
 /// Returns a device handle for interfacing with embassy-net, a control handle for
 /// interacting with the driver, and a runner for communicating with the WiFi device.
-pub async fn new<'a, I, OUT>(state: &'a mut State, iface: I, reset: OUT) -> HostedResources<'a, I, OUT>
+pub fn new<'a, I, OUT>(state: &'a mut State, iface: I, reset: OUT) -> HostedResources<'a, I, OUT>
 where
     I: Interface,
     OUT: OutputPin,
@@ -228,28 +228,35 @@ pub struct Runner<'a, I, OUT> {
     bt: bluetooth::BtRunner<'a>,
 }
 
+/// Heartbeat from ESP32 have stopped
+#[allow(unused)]
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct HeartbeatStopped;
+
 impl<'a, I, OUT> Runner<'a, I, OUT>
 where
     I: Interface,
     OUT: OutputPin,
 {
     /// Run the packet processing.
-    pub async fn run(mut self) -> ! {
-        debug!("resetting...");
-        self.reset.set_low().unwrap();
-        Timer::after_millis(100).await;
-        self.reset.set_high().unwrap();
-        Timer::after_millis(1000).await;
-
-        self.iface.init(true).await;
-        self.shared.interface_ready();
-
+    pub async fn run(&mut self) -> Result<(), HeartbeatStopped> {
         let mut buffer = Aligned([0u8; MAX_BUFFER_SIZE]);
 
+        self.shared.reboot();
         loop {
             if let ioctl::ControlState::Reboot = self.shared.state() {
+                self.state_ch.set_link_state(LinkState::Down);
+
+                debug!("resetting...");
+                self.reset.set_low().unwrap();
+                Timer::after_millis(100).await;
+                self.reset.set_high().unwrap();
+                Timer::after_millis(1000).await;
+
+                self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP;
                 self.backend = Backend::default();
-                self.iface.init(false).await;
+                self.iface.init(true).await;
                 self.shared.interface_ready();
             }
 
@@ -321,7 +328,8 @@ where
                         self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP;
                         continue;
                     }
-                    panic!("heartbeat from esp32 stopped")
+                    error!("Heartbeat from ESP32 stopped");
+                    return Err(HeartbeatStopped);
                 }
 
                 // Bluetooth HCI packet queued by the host stack.

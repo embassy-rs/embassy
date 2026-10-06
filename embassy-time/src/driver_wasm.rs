@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 use wasm_bindgen::prelude::*;
-use wasm_timer::Instant as StdInstant;
+use web_time::Instant as StdInstant;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

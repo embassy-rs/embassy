@@ -5,7 +5,7 @@ use defmt::*;
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, SampleTime};
+use embassy_stm32::adc::{Adc, Config, SampleTime};
 use embassy_time::Timer;
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -38,14 +38,14 @@ async fn async_main(_spawner: Spawner) {
         use embassy_stm32::mode::Blocking;
         use embassy_stm32::usart::Uart;
         let config = embassy_stm32::usart::Config::default();
-        let uart = Uart::new_blocking(p.LPUART1, p.PC0, p.PC1, config).expect("failed to configure UART!");
+        let uart = Uart::new_blocking(p.LPUART1, p.PC1, p.PC0, config).expect("failed to configure UART!");
         static SERIAL: StaticCell<Uart<'static, Blocking>> = StaticCell::new();
         defmt_serial::defmt_serial(SERIAL.init(uart));
     }
 
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC1);
+    let mut adc = Adc::new_blocking(p.ADC1, Config::default());
     let mut pin = p.PA10;
 
     let mut vrefint = adc.enable_vrefint();

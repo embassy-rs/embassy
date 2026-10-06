@@ -111,11 +111,12 @@ impl Default for Config {
 }
 
 /// Error
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Operation address was out of bounds.
+    #[error("out of bounds")]
     OutOfBounds,
     // TODO add "not in data memory" error and check for it
 }
@@ -150,13 +151,13 @@ impl<'d> Qspi<'d> {
     /// Create a new QSPI driver.
     pub fn new<T: Instance>(
         _qspi: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: Peri<'d, impl GpioPin>,
         csn: Peri<'d, impl GpioPin>,
         io0: Peri<'d, impl GpioPin>,
         io1: Peri<'d, impl GpioPin>,
         io2: Peri<'d, impl GpioPin>,
         io3: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         let r = T::regs();

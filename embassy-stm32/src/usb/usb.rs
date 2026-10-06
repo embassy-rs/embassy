@@ -296,25 +296,25 @@ impl<'d, T: Instance> Driver<'d, T> {
     #[cfg(not(stm32l1))]
     pub fn new_with_sof(
         _usb: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dp: Peri<'d, impl DpPin<T>>,
         dm: Peri<'d, impl DmPin<T>>,
         sof: Peri<'d, impl SofPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         {
             use crate::gpio::{AfType, OutputType, Speed};
             set_as_af!(sof, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
 
-        Self::new(_usb, _irq, dp, dm)
+        Self::new(_usb, dp, dm, _irq)
     }
 
     /// Create a new USB driver.
     pub fn new(
         _usb: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dp: Peri<'d, impl DpPin<T>>,
         dm: Peri<'d, impl DmPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         super::common_init::<T>();
 

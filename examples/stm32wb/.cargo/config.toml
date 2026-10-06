@@ -9,3 +9,5 @@ target = "thumbv7em-none-eabihf"
 
 [env]
 DEFMT_LOG = "trace"
+# Bigger RTT buffer so boot-time logs survive until the debugger attaches.
+DEFMT_RTT_BUFFER_SIZE = "8192"

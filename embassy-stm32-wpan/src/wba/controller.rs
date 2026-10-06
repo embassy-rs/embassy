@@ -88,20 +88,21 @@ impl Default for ChannelPacket {
     }
 }
 
-pub struct Controller<'d, T: Runtime> {
-    _runtime: &'d mut T,
+pub struct Controller<'d> {
+    _runtime: &'d mut Runtime,
     receiver: zerocopy_channel::Receiver<'static, CriticalSectionRawMutex, ChannelPacket>,
     cmd_buf: ([u8; 255], usize),
 }
 
-impl<'d, T: Runtime> Controller<'d, T> {
+impl<'d> Controller<'d> {
     /// Create a new BLE instance
     ///
-    /// Requires hardware peripheral instances for RNG, AES, and PKA.
-    /// These are stored in statics so the BLE stack's `extern "C"` callbacks can access them.
+    /// Requires the shared [`Platform`] and an `embassy-crypto` driver
+    /// registered for each operation the BLE stack uses: RNG, AES-128 (ECB,
+    /// CMAC, CCM) and P-256 arithmetic.
     pub async fn new(
         platform: &'static Platform,
-        runtime: &'d mut T,
+        runtime: &'d mut Runtime,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, ()> {
@@ -114,12 +115,6 @@ impl<'d, T: Runtime> Controller<'d, T> {
 
             receiver
         };
-
-        trace!("Waiting for rng to fill...");
-        // Wait for the rng buffer to fill
-        platform.wait_rng_ready().await;
-
-        trace!("Waiting for rng to fill...done!");
 
         // Set-up sequencer stack
         util_seq::seq_resume();
@@ -158,11 +153,50 @@ impl<'d, T: Runtime> Controller<'d, T> {
         // Wake the runner
         platform.start_run_ble();
 
-        Ok(Self {
+        #[allow(unused_mut)]
+        let mut this = Self {
             receiver,
             cmd_buf: ([0u8; 255], 0),
             _runtime: runtime,
-        })
+        };
+
+        // Link-Layer-Only has no host to program the identity address; the full
+        // stack does it later in `gap_init`. Mirrors Zephyr's
+        // `bt_hci_stm32wba_setup` (HCI vendor command ACI_HAL_WRITE_CONFIG_DATA,
+        // 0xFC0C). Without this the controller reports a junk identity address
+        // (observed 00:00:00:00:00:40) and bonded peers key their bond to it.
+        #[cfg(feature = "ble-stack-llo")]
+        this.set_public_bd_addr();
+
+        Ok(this)
+    }
+
+    /// Program the public device address (ST OUI 00:80:E1 + low UID bytes).
+    #[cfg(feature = "ble-stack-llo")]
+    fn set_public_bd_addr(&mut self) {
+        let uid = embassy_stm32::uid::uid();
+        let bd_addr = [uid[0], uid[1], uid[2], 0xE1, 0x80, 0x00];
+
+        {
+            let buf = &mut self.cmd_buf.0;
+            buf[0] = 0x01; // H4 command packet indicator
+            buf[1] = 0x0C; // ACI_HAL_WRITE_CONFIG_DATA (0xFC0C), little-endian
+            buf[2] = 0xFC;
+            buf[3] = 0x08; // parameter length
+            buf[4] = 0x00; // CONFIG_DATA_PUBADDR_OFFSET
+            buf[5] = 0x06; // value length
+            buf[6..12].copy_from_slice(&bd_addr);
+        }
+
+        self.cmd_buf.1 = unsafe { BleStack_Request(self.cmd_buf.0.as_mut_ptr()) }.into();
+        if self.cmd_buf.1 == 0 {
+            error!("set_public_bd_addr: no response to ACI_HAL_WRITE_CONFIG_DATA");
+        } else {
+            info!(
+                "public BD address {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X} (status 0x{:02X})",
+                bd_addr[5], bd_addr[4], bd_addr[3], bd_addr[2], bd_addr[1], bd_addr[0], self.cmd_buf.0[6]
+            );
+        }
     }
 
     fn exec<R>(&mut self, f: impl FnOnce(&mut [u8; 255]) -> R) -> R {
@@ -188,14 +222,14 @@ impl<'d, T: Runtime> Controller<'d, T> {
 const ERR: bt_hci::cmd::Error<embedded_io::ErrorKind> = bt_hci::cmd::Error::Io(embedded_io::ErrorKind::InvalidData);
 
 #[cfg(feature = "bt-hci")]
-pub struct ControllerAdapter<'d, T: Runtime> {
-    controller: NoopMutex<RefCell<Controller<'d, T>>>,
+pub struct ControllerAdapter<'d> {
+    controller: NoopMutex<RefCell<Controller<'d>>>,
     pending_evt: AtomicBool,
 }
 
 #[cfg(feature = "bt-hci")]
-impl<'d, T: Runtime> ControllerAdapter<'d, T> {
-    pub const fn new(controller: Controller<'d, T>) -> Self {
+impl<'d> ControllerAdapter<'d> {
+    pub const fn new(controller: Controller<'d>) -> Self {
         Self {
             controller: NoopMutex::const_new(NoopRawMutex::new(), RefCell::new(controller)),
             pending_evt: AtomicBool::new(false),
@@ -204,12 +238,12 @@ impl<'d, T: Runtime> ControllerAdapter<'d, T> {
 }
 
 #[cfg(feature = "bt-hci")]
-impl<'d, T: Runtime> embedded_io::ErrorType for ControllerAdapter<'d, T> {
+impl<'d> embedded_io::ErrorType for ControllerAdapter<'d> {
     type Error = embedded_io::ErrorKind;
 }
 
 #[cfg(feature = "bt-hci")]
-impl<'d, T: Runtime> bt_hci::controller::Controller for ControllerAdapter<'d, T> {
+impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
     // Received packets borrow the controller's own event slots, not a caller buffer.
     type Buffer<'a> = ();
 
@@ -278,7 +312,7 @@ impl<'d, T: Runtime> bt_hci::controller::Controller for ControllerAdapter<'d, T>
 }
 
 #[cfg(feature = "bt-hci")]
-impl<'d, T: Runtime, C> bt_hci::controller::ControllerCmdSync<C> for ControllerAdapter<'d, T>
+impl<'d, C> bt_hci::controller::ControllerCmdSync<C> for ControllerAdapter<'d>
 where
     C: bt_hci::cmd::SyncCmd,
 {
@@ -303,7 +337,7 @@ where
 }
 
 #[cfg(feature = "bt-hci")]
-impl<'d, T: Runtime, C> bt_hci::controller::ControllerCmdAsync<C> for ControllerAdapter<'d, T>
+impl<'d, C> bt_hci::controller::ControllerCmdAsync<C> for ControllerAdapter<'d>
 where
     C: bt_hci::cmd::AsyncCmd,
 {
@@ -327,7 +361,7 @@ where
     }
 }
 
-impl<'d, T: Runtime> Drop for Controller<'d, T> {
+impl<'d> Drop for Controller<'d> {
     fn drop(&mut self) {
         // Zero host stack buffers and reset the one-time LL init guard so
         // init_ble_stack() → BleStack_Init() can run cleanly on next Ble::new().

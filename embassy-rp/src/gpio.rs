@@ -149,8 +149,8 @@ impl<'d> Input<'d> {
 
     /// Returns current pin level
     #[inline]
-    pub fn get_level(&self) -> Level {
-        self.pin.get_level()
+    pub fn level(&self) -> Level {
+        self.pin.level()
     }
 
     /// Configure the input logic inversion of this pin.
@@ -435,8 +435,8 @@ impl<'d> Output<'d> {
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
-        self.pin.get_output_level()
+    pub fn output_level(&self) -> Level {
+        self.pin.output_level()
     }
 
     /// Toggle pin output
@@ -527,12 +527,12 @@ impl<'d> OutputOpenDrain<'d> {
     /// Is the output level low?
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        self.pin.is_set_as_output()
+        self.pin.is_output()
     }
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn output_level(&self) -> Level {
         self.is_set_high().into()
     }
 
@@ -556,7 +556,7 @@ impl<'d> OutputOpenDrain<'d> {
 
     /// Returns current pin level
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn level(&self) -> Level {
         self.is_high().into()
     }
 
@@ -698,9 +698,9 @@ impl<'d> Flex<'d> {
         self.pin.sio_oe().value_set().write_value(self.bit())
     }
 
-    /// Set as output pin.
+    /// Is the pin in output mode?
     #[inline]
-    fn is_set_as_output(&self) -> bool {
+    pub fn is_output(&self) -> bool {
         (self.pin.sio_oe().value().read() & self.bit()) != 0
     }
 
@@ -760,7 +760,7 @@ impl<'d> Flex<'d> {
 
     /// Returns current pin level
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn level(&self) -> Level {
         self.is_high().into()
     }
 
@@ -799,7 +799,7 @@ impl<'d> Flex<'d> {
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn output_level(&self) -> Level {
         self.is_set_high().into()
     }
 

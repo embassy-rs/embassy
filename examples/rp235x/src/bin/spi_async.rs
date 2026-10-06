@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     let mosi = p.PIN_11;
     let clk = p.PIN_10;
 
-    let mut spi = Spi::new(p.SPI1, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, Config::default());
+    let mut spi = Spi::new(p.SPI1, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, Config::default()).unwrap();
 
     loop {
         let tx_buf = [1_u8, 2, 3, 4, 5, 6];

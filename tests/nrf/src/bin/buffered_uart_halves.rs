@@ -31,21 +31,11 @@ async fn main(_spawner: Spawner) {
             peri!(p, UART1).reborrow(),
             peri!(p, PIN_A).reborrow(),
             irqs!(UART1_BUFFERED),
-            config.clone(),
             &mut tx_buffer,
+            config.clone(),
         );
 
-        let mut rx = BufferedUarteRx::new(
-            peri!(p, UART0).reborrow(),
-            p.TIMER0.reborrow(),
-            p.PPI_CH0.reborrow(),
-            p.PPI_CH1.reborrow(),
-            p.PPI_GROUP0.reborrow(),
-            irqs!(UART0_BUFFERED),
-            peri!(p, PIN_B).reborrow(),
-            config.clone(),
-            &mut rx_buffer,
-        );
+        let mut rx = buffered_uarte_rx_new!(p, peri!(p, PIN_B).reborrow(), config.clone(), &mut rx_buffer);
 
         let tx_fut = async {
             info!("tx initialized!");

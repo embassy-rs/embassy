@@ -146,7 +146,7 @@ impl<'d> Dts<'d> {
     /// use embassy_stm32::dts::Dts;
     ///
     /// bind_interrupts!(struct Irqs {
-    ///     DTS => temp::InterruptHandler;
+    ///     DTS => dts::InterruptHandler;
     /// });
     ///
     /// # async {

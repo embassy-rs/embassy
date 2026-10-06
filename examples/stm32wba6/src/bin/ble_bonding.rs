@@ -45,10 +45,6 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::aes::{self, Aes};
-use embassy_stm32::peripherals::{AES, PKA, RNG};
-use embassy_stm32::pka::{self, Pka};
-use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
@@ -67,9 +63,6 @@ use stm32wb_hci::event::{Encryption, EncryptionChange};
 use stm32wb_hci::vendor::event::{GapPairingComplete, GapPairingStatus, VendorEvent};
 
 bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<RNG>;
-    AES => aes::InterruptHandler<AES>;
-    PKA => pka::InterruptHandler<PKA>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
 });
@@ -91,7 +84,7 @@ async fn main(spawner: Spawner) {
     let mut config = Config::default();
     config.rcc = rcc::Config::new_wpan();
 
-    let p = embassy_stm32::init(config);
+    let _p = embassy_stm32::init(config);
 
     info!("Embassy STM32WBA6 BLE Pairing Code Example");
 
@@ -106,12 +99,7 @@ async fn main(spawner: Spawner) {
         }
     }
 
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Pka::new(p.PKA, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        8
-    );
+    let (platform, runtime) = new_platform!(8);
 
     spawner.spawn(ble_runner_task(platform).expect("ble runner"));
 
@@ -169,7 +157,7 @@ async fn main(spawner: Spawner) {
     // the bond's IRK made it into the LL resolving list — if `peer_rpa` here matches the
     // identity address (instead of being a valid RPA), the LL has `peer_irk = 0` and will
     // silently drop incoming CONNECT_INDs from a bonded RPA-using peer like iOS.
-    security.log_resolving_list_diagnostics();
+    security.log_resolving_list_diagnostics(None);
 
     // ── GATT ──────────────────────────────────────────────────────────────────
     //
@@ -354,6 +342,7 @@ fn make_adv_params() -> AdvParams {
         // 0x02 = resolvable private address when controller privacy is enabled.
         own_addr_type: OwnAddressType::PrivateFallbackPublic,
         filter_policy: AdvFilterPolicy::All,
+        peer_addr: None,
         channel_map: 0x07,
         // Use set_discoverable + le_set_advertise_enable (undirected path can hang centrals).
         privacy_undirected: false,

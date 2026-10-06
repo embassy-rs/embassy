@@ -4,19 +4,16 @@
 //! Prefer using [`Stack::dns_query`](crate::Stack::dns_query) directly if you're
 //! not using `embedded-nal-async`.
 
-use heapless::Vec;
 pub(crate) use xarxa::dns::{GetQueryResultError, StartQueryError};
-pub use xarxa::wire::{DnsType as DnsQueryType, IpAddress};
-
-use crate::Stack;
+pub use xarxa::wire::{DnsType as DnsQueryType, IpAddr};
 
 /// Errors returned by DnsClient.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// Invalid name
+    /// The name is empty, or has an empty or too long label.
     InvalidName,
-    /// Name too long
+    /// The name is longer than [`DNS_MAX_NAME_SIZE`](crate::config::DNS_MAX_NAME_SIZE) in wire format.
     NameTooLong,
     /// Name lookup failed
     Failed,
@@ -43,15 +40,17 @@ impl From<StartQueryError> for Error {
 /// This exists only for compatibility with crates that use `embedded-nal-async`.
 /// Prefer using [`Stack::dns_query`](crate::Stack::dns_query) directly if you're
 /// not using `embedded-nal-async`.
+#[cfg(feature = "embedded-nal")]
 pub struct DnsClient<'d> {
-    stack: Stack<'d>,
+    stack: crate::Stack<'d>,
 }
 
+#[cfg(feature = "embedded-nal")]
 impl<'d> DnsClient<'d> {
     /// Create a new DNS socket using the provided stack.
     ///
     /// NOTE: If using DHCP, make sure it has reconfigured the stack to ensure the DNS servers are updated.
-    pub fn new(stack: Stack<'d>) -> Self {
+    pub fn new(stack: crate::Stack<'d>) -> Self {
         Self { stack }
     }
 
@@ -60,11 +59,12 @@ impl<'d> DnsClient<'d> {
         &self,
         name: &str,
         qtype: DnsQueryType,
-    ) -> Result<Vec<IpAddress, { xarxa::config::DNS_MAX_RESULT_COUNT }>, Error> {
+    ) -> Result<heapless::Vec<IpAddr, { xarxa::config::DNS_MAX_RESULT_COUNT }>, Error> {
         self.stack.dns_query(name, qtype).await
     }
 }
 
+#[cfg(feature = "embedded-nal")]
 impl<'d> embedded_nal_async::Dns for DnsClient<'d> {
     type Error = Error;
 
@@ -73,8 +73,6 @@ impl<'d> embedded_nal_async::Dns for DnsClient<'d> {
         host: &str,
         addr_type: embedded_nal_async::AddrType,
     ) -> Result<core::net::IpAddr, Self::Error> {
-        use core::net::IpAddr;
-
         use embedded_nal_async::AddrType;
 
         let (qtype, secondary_qtype) = match addr_type {
@@ -100,9 +98,9 @@ impl<'d> embedded_nal_async::Dns for DnsClient<'d> {
         if let Some(first) = addrs.get(0) {
             Ok(match first {
                 #[cfg(feature = "ipv4")]
-                IpAddress::Ipv4(addr) => IpAddr::V4(*addr),
+                IpAddr::V4(addr) => core::net::IpAddr::V4(*addr),
                 #[cfg(feature = "ipv6")]
-                IpAddress::Ipv6(addr) => IpAddr::V6(*addr),
+                IpAddr::V6(addr) => core::net::IpAddr::V6(*addr),
             })
         } else {
             Err(Error::Failed)

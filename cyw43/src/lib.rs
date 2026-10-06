@@ -1,5 +1,5 @@
 #![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_main)]
 #![allow(async_fn_in_trait)]
 #![allow(unsafe_op_in_unsafe_fn)]
 #![deny(unused_must_use)]
@@ -33,9 +33,7 @@ use embedded_hal_1::digital::OutputPin;
 use events::Events;
 use ioctl::IoctlState;
 
-pub use crate::control::{
-    AddMulticastAddressError, ApAuth, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
-};
+pub use crate::control::{ApAuth, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner};
 pub use crate::runner::Runner;
 pub use crate::sdio::SdioBus;
 pub use crate::spi::{SpiBus, SpiBusCyw43};

@@ -13,8 +13,9 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
+use embassy_net::iface::dhcpv4_server::DhcpServerConfig;
 use embassy_net::tcp::{TcpListener, TcpSocket};
-use embassy_net::wire::{IpCidr, Ipv4Address};
+use embassy_net::wire::{IpCidr, Ipv4Addr};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
@@ -95,9 +96,11 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(net_device)));
     // Static address, we're the access point.
-    unwrap!(iface.add_ip_addr(IpCidr::new(Ipv4Address::new(169, 254, 1, 1).into(), 16)));
+    unwrap!(iface.add_ip_addr(IpCidr::new(Ipv4Addr::new(10, 0, 0, 1).into(), 24)));
+    let dhcp_config = DhcpServerConfig::new(Ipv4Addr::new(10, 0, 0, 100), Ipv4Addr::new(10, 0, 0, 199));
+    unwrap!(iface.set_dhcpv4_server(Some(dhcp_config)));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
@@ -132,7 +135,7 @@ async fn main(spawner: Spawner) {
             continue;
         }
 
-        info!("Received connection from {:?}", socket.remote_endpoint());
+        info!("Received connection from {:?}", socket.remote_addr());
         control.gpio_set(0, true).await;
 
         loop {

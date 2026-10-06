@@ -120,7 +120,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         ..Default::default()
     };
 
-    let mut touch_controller = tsc::Tsc::new_async(context.TSC, pin_groups, config, Irqs).unwrap();
+    let mut touch_controller = tsc::Tsc::new_async(context.TSC, Irqs, pin_groups, config).unwrap();
 
     // ---------- setting up acquisition banks ----------
     // sensor0 and sensor1 belong to different TSC-groups, therefore we can acquire and

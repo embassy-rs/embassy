@@ -18,7 +18,7 @@ async fn main(_spawner: Spawner) {
     config.parity = uarte::Parity::Excluded;
     config.baudrate = uarte::Baudrate::Baud115200;
 
-    let mut uart = uarte::Uarte::new(p.SERIAL0, p.P0_26, p.P0_27, Irqs, config);
+    let mut uart = uarte::Uarte::new(p.SERIAL0, p.P0_27, p.P0_26, Irqs, config);
 
     info!("uarte initialized!");
 

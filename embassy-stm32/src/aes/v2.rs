@@ -1,12 +1,14 @@
-//! Driver shell for the `aes_v2` hardware revision (STM32G0, G4, L5, U0, WL).
+//! Driver shell for the `aes_v1` (STM32L0, L1, L4, F423), `aes_v2`
+//! (STM32G0, G4, L5, U0, WL) and `aes_f7` (STM32F72x, F73x) hardware revisions.
 //!
 //! The cipher types and the GCM/CCM state machine live in [`super::common`];
 //! this module provides the [`Aes`] driver, instance wiring, and constructors.
+//! `aes_v1` has no GCM/CCM phases, so the AAD entry points do not exist there.
 //!
 //! A blocking API is always available. An interrupt-driven async API is also
-//! offered on parts whose AES engine has a dedicated interrupt vector (L5, WL),
-//! gated on [`InterruptableInstance`]; on parts where the engine shares its
-//! vector or has none (U0, G0, G4) only the blocking API compiles in.
+//! offered on parts whose AES engine has a dedicated interrupt vector (L4, L5,
+//! WL), gated on [`InterruptableInstance`]; on parts where the engine shares its
+//! vector or has none (L0, U0, G0, G4) only the blocking API compiles in.
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -15,9 +17,9 @@ use core::task::Poll;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::common::{
-    self, Cipher, CipherAuthenticated, CipherSized, Context, Direction, Error, IVSized, SealedInstance,
-};
+#[cfg(not(aes_v1))]
+use super::common::CipherAuthenticated;
+use super::common::{self, Cipher, CipherSized, Context, Direction, Error, IVSized, SealedInstance};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, pac, peripherals, rcc};
 
@@ -79,6 +81,7 @@ impl<'d, T: Instance> Aes<'d, T> {
     /// Process authenticated additional data (AAD) for GCM/CCM modes.
     /// Must be called after `start` and before `payload_blocking`.
     /// Set `last` to true for the final AAD block.
+    #[cfg(not(aes_v1))]
     pub fn aad_blocking<'c, C, const TAG_SIZE: usize>(
         &mut self,
         ctx: &mut Context<'c, C>,
@@ -113,6 +116,55 @@ impl<'d, T: Instance> Aes<'d, T> {
     where
         C: Cipher<'c>,
     {
+        common::op_finish(T::regs(), ctx)
+    }
+}
+
+#[cfg(any(
+    feature = "embassy-crypto-aes128-ecb",
+    feature = "embassy-crypto-aes128-cbc",
+    feature = "embassy-crypto-aes128-ctr",
+    feature = "embassy-crypto-aes128-gcm",
+    feature = "embassy-crypto-aes128-ccm",
+    feature = "embassy-crypto-aes128-cmac",
+    feature = "embassy-crypto-aes256-ecb",
+    feature = "embassy-crypto-aes256-cbc",
+    feature = "embassy-crypto-aes256-ctr",
+    feature = "embassy-crypto-aes256-gcm",
+    feature = "embassy-crypto-aes256-ccm",
+    feature = "embassy-crypto-aes256-cmac",
+))]
+impl<'d, 'c, T: Instance, C> crate::crypto::BlockingCipherOps<'c, C> for Aes<'d, T>
+where
+    C: Cipher<'c> + CipherSized + IVSized + 'c,
+{
+    type Context = Context<'c, C>;
+
+    fn start(&mut self, cipher: &'c C, dir: Direction) -> Result<Self::Context, Error> {
+        Ok(common::op_start(T::regs(), cipher, dir))
+    }
+
+    fn aad(&mut self, ctx: &mut Self::Context, aad: &[u8], last: bool) -> Result<(), Error>
+    where
+        C: crate::crypto::CipherAuthenticated<16>,
+    {
+        // `aes_v1` has no GCM/CCM phases, so this never runs there.
+        #[cfg(not(aes_v1))]
+        {
+            common::op_aad::<C, 16>(T::regs(), ctx, aad, last)
+        }
+        #[cfg(aes_v1)]
+        {
+            let _ = (ctx, aad, last);
+            unreachable!()
+        }
+    }
+
+    fn payload(&mut self, ctx: &mut Self::Context, input: &[u8], output: &mut [u8], last: bool) -> Result<(), Error> {
+        common::op_payload(T::regs(), ctx, input, output, last)
+    }
+
+    fn finish(&mut self, ctx: Self::Context) -> Result<Option<[u8; 16]>, Error> {
         common::op_finish(T::regs(), ctx)
     }
 }
@@ -183,6 +235,7 @@ impl<'d, T: InterruptableInstance> Aes<'d, T> {
         let is_gcm_ccm = common::setup(p, cipher, dir);
 
         p.cr().modify(|w| w.set_en(true));
+        #[cfg(not(aes_v1))]
         if is_gcm_ccm {
             wait_ccf(p).await;
             common::clear_ccf(p);
@@ -194,6 +247,7 @@ impl<'d, T: InterruptableInstance> Aes<'d, T> {
     /// Processes authenticated additional data (AAD) for GCM/CCM modes.
     /// Must be called after [`start_async`](Aes::start_async) and before
     /// [`payload_async`](Aes::payload_async). Set `last` to true for the final block.
+    #[cfg(not(aes_v1))]
     pub async fn aad_async<'c, C, const TAG_SIZE: usize>(
         &mut self,
         ctx: &mut Context<'c, C>,
@@ -311,7 +365,7 @@ impl<'d, T: InterruptableInstance> Aes<'d, T> {
             let mut partial_block = [0u8; 16];
             partial_block[..remaining].copy_from_slice(&input[processed..]);
 
-            common::set_final_npblb(p, ctx, remaining);
+            common::set_final_npblb(p, ctx, remaining)?;
 
             common::write_block(p, &partial_block)?;
             self.read_block_async(&mut partial_block).await?;
@@ -334,6 +388,9 @@ impl<'d, T: InterruptableInstance> Aes<'d, T> {
     {
         let p = T::regs();
 
+        #[cfg(aes_v1)]
+        let _ = &ctx;
+        #[cfg(not(aes_v1))]
         if ctx.is_gcm_ccm {
             common::begin_final(p, &ctx);
 
@@ -345,11 +402,11 @@ impl<'d, T: InterruptableInstance> Aes<'d, T> {
             common::clear_ccf(p);
             p.cr().modify(|w| w.set_en(false));
 
-            Ok(Some(tag))
-        } else {
-            p.cr().modify(|w| w.set_en(false));
-            Ok(None)
+            return Ok(Some(tag));
         }
+
+        p.cr().modify(|w| w.set_en(false));
+        Ok(None)
     }
 
     /// Reads a 16-byte block from the AES peripheral, awaiting completion.

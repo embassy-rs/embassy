@@ -61,7 +61,7 @@ async fn main(spawner: Spawner) {
 
     // Obtain two independent channels (p.DAC1 can only be consumed once, though!)
     let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new_triggered(
-        p.DAC1, p.DMA1_CH3, p.DMA1_CH4, TIM6_TRGO, TIM7_TRGO, Irqs, p.PA4, p.PA5,
+        p.DAC1, p.DMA1_CH3, p.DMA1_CH4, TIM6_TRGO, TIM7_TRGO, p.PA4, p.PA5, Irqs,
     )
     .split();
 

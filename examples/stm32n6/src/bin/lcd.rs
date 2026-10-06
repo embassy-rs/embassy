@@ -58,8 +58,8 @@ bind_interrupts!(struct Irqs {
 //   fb1 lives at AXISRAM3 start; 750 KB straddles one bank boundary into AXISRAM4
 //        (unavoidable — no single bank except AXISRAM2 is big enough).
 // AXISRAM5..6 stays free; that's where a third buffer would go for triple buffering.
-const FB0_BASE: usize = 0x3410_0000;
-const FB1_BASE: usize = 0x3420_0000;
+const FB0_BASE: usize = 0x3420_0000; // AXISRAM3..4
+const FB1_BASE: usize = 0x342E_0000; // AXISRAM5..6
 const FB_PIXELS: usize = WIDTH as usize * HEIGHT as usize;
 
 const BG: Rgb565 = Rgb565::new(2, 4, 6);
@@ -212,8 +212,16 @@ async fn main(_spawner: Spawner) {
     config.rcc.cpu = CpuClk::Ic1;
     config.rcc.sys = SysClk::Ic2;
 
-    // PLL4 bypass → HSI 64 MHz. IC16 = 32 MHz drives the LTDC pixel clock.
-    config.rcc.pll4 = Some(Pll::Bypass { source: Pllsel::Hsi });
+    // PLL4: HSI 64 MHz / 4 * 25 / 4 / 2 = 50 MHz. IC16 / 2 gives the
+    // 25 MHz LTDC pixel clock used by the STM32CubeN6 board support package.
+    config.rcc.pll4 = Some(Pll::Oscillator {
+        source: Pllsel::Hsi,
+        divm: Plldivm::Div4,
+        fractional: 0,
+        divn: 25,
+        divp1: Pllpdiv::Div4,
+        divp2: Pllpdiv::Div2,
+    });
     config.rcc.ic16 = Some(IcConfig {
         source: Icsel::Pll4,
         divider: Icint::Div2,
@@ -221,6 +229,9 @@ async fn main(_spawner: Spawner) {
     config.rcc.mux.ltdcsel = Ltdcsel::Ic16;
 
     let p = embassy_stm32::init(config);
+    // The STM32N6 boot ROM can jump to SRAM applications with PRIMASK set.
+    // Timers and LTDC vblank waits need interrupts enabled explicitly.
+    unsafe { cortex_m::interrupt::enable() };
     info!("stm32n6 lcd example starting");
 
     enable_all_sram();
@@ -231,13 +242,14 @@ async fn main(_spawner: Spawner) {
 
     // Full 24-bit RGB888 LTDC pin mapping from UM3300 §8.3.
     let mut ltdc = Ltdc::<_, ltdc::Rgb888>::new_with_pins(
-        p.LTDC, Irqs, p.PB13, // CLK
+        p.LTDC, p.PB13, // CLK
         p.PB14, // HSYNC
         p.PE11, // VSYNC
         p.PG13, // DE
         p.PG15, p.PA7, p.PB2, p.PG6, p.PH3, p.PH6, p.PA8, p.PA2, // B0..B7
         p.PG12, p.PG1, p.PA1, p.PA0, p.PB15, p.PB12, p.PB11, p.PG8, // G0..G7
         p.PG0, p.PD9, p.PD15, p.PB4, p.PH4, p.PA15, p.PG11, p.PD8, // R0..R7
+        Irqs,
     );
     ltdc.init(&LTDC_CONFIG);
 

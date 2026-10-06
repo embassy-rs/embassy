@@ -19,7 +19,7 @@ bind_interrupts!(struct Irqs {
 async fn main(_p: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let config = Config::default();
-    let mut pdm = Pdm::new(p.PDM, Irqs, p.P0_01, p.P0_00, config);
+    let mut pdm = Pdm::new(p.PDM, p.P0_01, p.P0_00, Irqs, config);
 
     loop {
         for gain in [I7F1::from_num(-20), I7F1::from_num(0), I7F1::from_num(20)] {

@@ -12,7 +12,7 @@ arm-gic = "0.7.1"
 critical-section = "1.2.0"
 defmt = "1.0.1"
 defmt-semihosting = "0.3"
-embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-ar", "executor-thread", "defmt"] }
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-aarch32", "executor-thread", "defmt"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "tick-hz-62_500_000"] }

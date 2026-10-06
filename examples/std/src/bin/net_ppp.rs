@@ -62,7 +62,7 @@ async fn ppp_task(iface: Iface<'static>, mut runner: Runner<'static>, port: Seri
             };
             let mut dns_servers = Vec::<_, 3>::new();
             for s in ipv4.dns_servers.iter().flatten() {
-                let _ = dns_servers.push(embassy_net::wire::IpAddress::Ipv4(*s));
+                let _ = dns_servers.push(embassy_net::wire::IpAddr::V4(*s));
             }
             iface.set_ip_addrs([IpCidr::new(addr.into(), 0)]).unwrap();
             iface.stack().set_dns_servers(&dns_servers);
@@ -98,7 +98,7 @@ async fn main_task(spawner: Spawner) {
     // Add the PPP interface to the stack. It gets its addresses from PPP itself,
     // in `ppp_task`.
     static DEVICE: StaticCell<embassy_net_ppp::Device<'static>> = StaticCell::new();
-    let iface = stack.add_iface(DEVICE.init(device)).unwrap();
+    let iface = stack.add_iface_borrowed(DEVICE.init(device)).unwrap();
 
     // Launch network task
     spawner.spawn(net_task(net_runner).unwrap());
@@ -128,7 +128,7 @@ async fn main_task(spawner: Spawner) {
             continue;
         }
 
-        info!("Received connection from {:?}", socket.remote_endpoint());
+        info!("Received connection from {:?}", socket.remote_addr());
 
         loop {
             let n = match socket.read(&mut buf).await {

@@ -138,7 +138,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     pub fn set_duty_cycle_fraction(&mut self, num: u32, denom: u32) {
         assert!(denom != 0);
         assert!(num <= denom);
-        let duty = u32::from(num) * u32::from(self.max_duty_cycle()) / u32::from(denom);
+        let duty = num * self.max_duty_cycle() / denom;
 
         // This is safe because we know that `num <= denom`, so `duty <= self.max_duty_cycle()` (u16)
         #[allow(clippy::cast_possible_truncation)]
@@ -611,7 +611,7 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
-        assert!(duty <= self.max_duty_cycle() as u32);
+        assert!(duty <= self.max_duty_cycle());
         self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 

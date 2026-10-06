@@ -223,6 +223,28 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
+    /// Get hardware address
+    ///
+    /// Use after `init` method successful execution
+    ///
+    /// This method may be used to update interface hardware address if you have initialized
+    /// network stack before this device
+    ///
+    /// ```rust,no_run
+    /// use embassy_net::wire::HardwareAddress;
+    /// iface.set_hardware_addr(HardwareAddress::from_driver(ctl.hardware_address()).unwrap());
+    /// ```
+    pub fn hardware_address(&self) -> HardwareAddress {
+        self.state_ch.get_hardware_address()
+    }
+
+    /// Reset ESP and initialzation state
+    ///
+    /// `init` should be executed again after reset
+    pub fn reset(&self) {
+        self.shared().reboot();
+    }
+
     /// Get the current status.
     pub async fn get_status(&mut self) -> Result<Status, Error> {
         self.backend.get_status(&mut self.ioctl).await
@@ -295,7 +317,7 @@ impl<'a> Control<'a> {
     /// NOTE: Will reset the wifi adapter after 5 seconds.
     pub async fn ota_end(&mut self) -> Result<(), Error> {
         self.backend.ota_end(&mut self.ioctl).await?;
-        self.shared().ota_done();
+        self.shared().reboot();
         // Wait for re-init
         self.init().await
     }

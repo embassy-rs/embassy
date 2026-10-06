@@ -15,8 +15,9 @@ pub use embedded_hal_02::spi::{Phase, Polarity};
 use futures_util::future::{Either, select};
 
 use crate::Peri;
-use crate::atomic::{AtomicClear, AtomicDecrement, AtomicModify};
+use crate::atomic::{AtomicClear, AtomicDecrement, AtomicIncrement, AtomicModify};
 use crate::dma::ChannelAndRequest;
+use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
@@ -495,16 +496,16 @@ impl<'d, M: PeriMode> SetConfig for UartTx<'d, M> {
 /// `embedded_io::Read` requires guarantees that this struct cannot provide:
 ///
 /// - Any data received between calls to [`UartRx::read`] or [`UartRx::blocking_read`]
-/// will be thrown away, as `UartRx` is unbuffered.
-/// Users of `embedded_io::Read` are likely to not expect this behavior
-/// (for instance if they read multiple small chunks in a row).
+///   will be thrown away, as `UartRx` is unbuffered.
+///   Users of `embedded_io::Read` are likely to not expect this behavior
+///   (for instance if they read multiple small chunks in a row).
 /// - [`UartRx::read`] and [`UartRx::blocking_read`] only return once the entire buffer has been
-/// filled, whereas `embedded_io::Read` requires us to fill the buffer with what we already
-/// received, and only block/wait until the first byte arrived.
-/// <br />
-/// While [`UartRx::read_until_idle`] does return early, it will still eagerly wait for data until
-/// the buffer is full or no data has been transmitted in a while,
-/// which may not be what users of `embedded_io::Read` expect.
+///   filled, whereas `embedded_io::Read` requires us to fill the buffer with what we already
+///   received, and only block/wait until the first byte arrived.
+///   <br />
+///   While [`UartRx::read_until_idle`] does return early, it will still eagerly wait for data until
+///   the buffer is full or no data has been transmitted in a while,
+///   which may not be what users of `embedded_io::Read` expect.
 ///
 /// [`UartRx::into_ring_buffered`] can be called to equip `UartRx` with a buffer,
 /// that it can then use to store data received between calls to `read`,
@@ -622,8 +623,7 @@ impl<'d> UartTx<'d, Async> {
         )
     }
 
-    /// Initiate an asynchronous UART write
-    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+    async fn write_helper<W: UsartWord>(&mut self, buffer: &[W]) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
         let r = self.info.regs;
@@ -645,7 +645,7 @@ impl<'d> UartTx<'d, Async> {
         });
         // If we don't assign future to a variable, the data register pointer
         // is held across an await and makes the future non-Send.
-        let transfer = unsafe { ch.write(buffer, tdr(r), Default::default()) };
+        let transfer = unsafe { ch.write(buffer, W::tdr_ptr(r), Default::default()) };
         transfer.await;
 
         if half_duplex {
@@ -658,7 +658,7 @@ impl<'d> UartTx<'d, Async> {
             // first so the last byte(s) have actually left the shift register
             // before RE comes back, otherwise the tail of this transmission
             // gets read back as incoming data.
-            flush(&self.info, &self.state).await?;
+            flush(self.info, self.state).await?;
             r.cr1().modify(|reg| {
                 reg.set_re(true);
                 reg.set_te(false);
@@ -668,11 +668,24 @@ impl<'d> UartTx<'d, Async> {
         Ok(())
     }
 
+    /// Initiate an asynchronous UART write
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.write_helper(buffer).await
+    }
+
+    /// Initiate an asynchronous UART write of 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the peripheral
+    /// transmits only the low-order bits of each word.
+    pub async fn write_u16(&mut self, buffer: &[u16]) -> Result<(), Error> {
+        self.write_helper(buffer).await
+    }
+
     /// Wait until transmission complete
     pub async fn flush(&mut self) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
-        flush(&self.info, &self.state).await
+        flush(self.info, self.state).await
     }
 }
 
@@ -815,22 +828,7 @@ impl<'d, M: PeriMode> UartTx<'d, M> {
         reconfigure(self.info, self.kernel_clock, config)
     }
 
-    /// Write a single u8 if there is tx empty, otherwise return WouldBlock
-    pub(crate) fn nb_write(&mut self, byte: u8) -> Result<(), nb::Error<Error>> {
-        let r = self.info.regs;
-        let sr = sr(r).read();
-        if sr.txe() {
-            unsafe {
-                tdr(r).write_volatile(byte);
-            }
-            Ok(())
-        } else {
-            Err(nb::Error::WouldBlock)
-        }
-    }
-
-    /// Perform a blocking UART write
-    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+    fn blocking_write_helper<W: UsartWord>(&mut self, buffer: &[W]) -> Result<(), Error> {
         let r = self.info.regs;
         let half_duplex = r.cr3().read().hdsel();
 
@@ -841,7 +839,7 @@ impl<'d, M: PeriMode> UartTx<'d, M> {
 
         for &b in buffer {
             while !sr(r).read().txe() {}
-            unsafe { tdr(r).write_volatile(b) };
+            unsafe { W::tdr_ptr(r).write_volatile(b) };
         }
 
         if half_duplex {
@@ -855,6 +853,19 @@ impl<'d, M: PeriMode> UartTx<'d, M> {
         }
 
         Ok(())
+    }
+
+    /// Perform a blocking UART write
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.blocking_write_helper(buffer)
+    }
+
+    /// Perform a blocking UART write of 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the peripheral
+    /// transmits only the low-order bits of each word.
+    pub fn blocking_write_u16(&mut self, buffer: &[u16]) -> Result<(), Error> {
+        self.blocking_write_helper(buffer)
     }
 
     /// Block until transmission complete
@@ -1042,6 +1053,18 @@ impl<'d> UartRx<'d, Async> {
         Ok(())
     }
 
+    /// Initiate an asynchronous UART read of 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub async fn read_u16(&mut self, buffer: &mut [u16]) -> Result<(), Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
+        self.inner_read(buffer, false).await?;
+
+        Ok(())
+    }
+
     /// Initiate an asynchronous read with idle line detection enabled.
     ///
     /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
@@ -1052,9 +1075,24 @@ impl<'d> UartRx<'d, Async> {
         self.inner_read(buffer, true).await
     }
 
-    async fn inner_read_run(
+    /// Initiate an asynchronous read of 16 bit words with idle line detection enabled.
+    ///
+    /// Returns the number of words received.
+    ///
+    /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
+    /// as if you had called [`read_u16(buffer)`](Self::read_u16) instead!
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub async fn read_until_idle_u16(&mut self, buffer: &mut [u16]) -> Result<usize, Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
+        self.inner_read(buffer, true).await
+    }
+
+    async fn inner_read_run<W: UsartWord>(
         &mut self,
-        buffer: &mut [u8],
+        buffer: &mut [W],
         enable_idle_line_detection: bool,
     ) -> Result<ReadCompletionEvent, Error> {
         let r = self.info.regs;
@@ -1062,7 +1100,7 @@ impl<'d> UartRx<'d, Async> {
         // Call flush for Half-Duplex mode if some bytes were written and flush was not called.
         // It prevents reading of bytes which have just been written.
         if r.cr3().read().hdsel() && r.cr1().read().te() {
-            flush(&self.info, &self.state).await?;
+            flush(self.info, self.state).await?;
 
             // Disable Transmitter and enable Receiver after flush
             r.cr1().set_bits(|reg| {
@@ -1100,7 +1138,7 @@ impl<'d> UartRx<'d, Async> {
         // Start USART DMA
         // will not do anything yet because DMAR is not yet set
         // future which will complete when DMA Read request completes
-        let transfer = unsafe { ch.read(rdr(r), buffer, Default::default()) };
+        let transfer = unsafe { ch.read(W::rdr_ptr(r), buffer, Default::default()) };
 
         // clear ORE flag just before enabling DMA Rx Request: can be mandatory for the second transfer
         if !self.detect_previous_overrun {
@@ -1246,7 +1284,11 @@ impl<'d> UartRx<'d, Async> {
         r
     }
 
-    async fn inner_read(&mut self, buffer: &mut [u8], enable_idle_line_detection: bool) -> Result<usize, Error> {
+    async fn inner_read<W: UsartWord>(
+        &mut self,
+        buffer: &mut [W],
+        enable_idle_line_detection: bool,
+    ) -> Result<usize, Error> {
         if buffer.is_empty() {
             return Ok(0);
         } else if buffer.len() > 0xFFFF {
@@ -1394,7 +1436,7 @@ impl<'d, M: PeriMode> UartRx<'d, M> {
         configure(
             info,
             self.kernel_clock,
-            &config,
+            config,
             self._ck.is_some(),
             true,
             false,
@@ -1469,18 +1511,7 @@ impl<'d, M: PeriMode> UartRx<'d, M> {
         Ok(sr.rxne())
     }
 
-    /// Read a single u8 if there is one available, otherwise return WouldBlock
-    pub(crate) fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
-        let r = self.info.regs;
-        if self.check_rx_flags()? {
-            Ok(unsafe { rdr(r).read_volatile() })
-        } else {
-            Err(nb::Error::WouldBlock)
-        }
-    }
-
-    /// Perform a blocking read into `buffer`
-    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+    fn blocking_read_helper<W: UsartWord>(&mut self, buffer: &mut [W]) -> Result<(), Error> {
         let r = self.info.regs;
 
         // Call flush for Half-Duplex mode if some bytes were written and flush was not called.
@@ -1500,14 +1531,72 @@ impl<'d, M: PeriMode> UartRx<'d, M> {
 
         for b in buffer {
             while !self.check_rx_flags()? {}
-            unsafe { *b = rdr(r).read_volatile() }
+            unsafe { *b = W::rdr_ptr(r).read_volatile() }
         }
         Ok(())
+    }
+
+    /// Perform a blocking read into `buffer`
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.blocking_read_helper(buffer)
+    }
+
+    /// Perform a blocking read of 16 bit words into `buffer`
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub fn blocking_read_u16(&mut self, buffer: &mut [u16]) -> Result<(), Error> {
+        self.blocking_read_helper(buffer)
     }
 
     /// Set baudrate
     pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
         set_baudrate(self.info, self.kernel_clock, baudrate)
+    }
+}
+
+impl<'d, M: PeriMode> UartTx<'d, M> {
+    /// Borrow the transmitter, yielding an owned half valid for the borrow.
+    ///
+    /// The pins stay with `self`; the borrowed half only needs the register
+    /// block, the shared state and the DMA channel.
+    fn reborrow(&mut self) -> UartTx<'_, M> {
+        self.state.tx_rx_refcount.increment();
+        UartTx {
+            info: self.info,
+            state: self.state,
+            kernel_clock: self.kernel_clock,
+            _ck: None,
+            _tx: None,
+            cts: None,
+            _de: None,
+            tx_dma: self.tx_dma.as_mut().map(|dma| dma.reborrow()),
+            duplex: self.duplex,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<'d, M: PeriMode> UartRx<'d, M> {
+    /// Borrow the receiver, yielding an owned half valid for the borrow.
+    ///
+    /// The pins stay with `self`; the borrowed half only needs the register
+    /// block, the shared state and the DMA channel.
+    fn reborrow(&mut self) -> UartRx<'_, M> {
+        self.state.tx_rx_refcount.increment();
+        UartRx {
+            info: self.info,
+            state: self.state,
+            kernel_clock: self.kernel_clock,
+            _ck: None,
+            rx: None,
+            rts: None,
+            rx_dma: self.rx_dma.as_mut().map(|dma| dma.reborrow()),
+            detect_previous_overrun: self.detect_previous_overrun,
+            #[cfg(any(usart_v1, usart_v2))]
+            buffered_sr: self.buffered_sr,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -1533,8 +1622,8 @@ impl<'d> Uart<'d, Async> {
     /// Create a new bidirectional UART
     pub fn new<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
@@ -1562,8 +1651,8 @@ impl<'d> Uart<'d, Async> {
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
     pub fn new_with_rtscts<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
@@ -1594,8 +1683,8 @@ impl<'d> Uart<'d, Async> {
     /// Create a new bidirectional UART with a driver-enable pin
     pub fn new_with_de<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         de: Peri<'d, if_afio!(impl DePin<T, A>)>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
@@ -1713,8 +1802,8 @@ impl<'d> Uart<'d, Async> {
     pub fn new_master<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
@@ -1743,8 +1832,8 @@ impl<'d> Uart<'d, Async> {
     pub fn new_master_with_rtscts<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
@@ -1776,8 +1865,8 @@ impl<'d> Uart<'d, Async> {
     pub fn new_master_with_de<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         de: Peri<'d, if_afio!(impl DePin<T, A>)>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
@@ -1808,8 +1897,8 @@ impl<'d> Uart<'d, Async> {
     pub fn new_slave<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
@@ -1838,8 +1927,8 @@ impl<'d> Uart<'d, Async> {
     pub fn new_slave_with_rtscts<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
@@ -1870,6 +1959,14 @@ impl<'d> Uart<'d, Async> {
         self.tx.write(buffer).await
     }
 
+    /// Perform an asynchronous write of 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the peripheral
+    /// transmits only the low-order bits of each word.
+    pub async fn write_u16(&mut self, buffer: &[u16]) -> Result<(), Error> {
+        self.tx.write_u16(buffer).await
+    }
+
     /// Wait until transmission complete
     pub async fn flush(&mut self) -> Result<(), Error> {
         self.tx.flush().await
@@ -1880,6 +1977,14 @@ impl<'d> Uart<'d, Async> {
         self.rx.read(buffer).await
     }
 
+    /// Perform an asynchronous read into `buffer` using 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub async fn read_u16(&mut self, buffer: &mut [u16]) -> Result<(), Error> {
+        self.rx.read_u16(buffer).await
+    }
+
     /// Perform an an asynchronous read with idle line detection enabled.
     ///
     /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
@@ -1887,14 +1992,25 @@ impl<'d> Uart<'d, Async> {
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         self.rx.read_until_idle(buffer).await
     }
+
+    /// Perform an asynchronous read with idle line detection enabled using 16 bit words.
+    ///
+    /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
+    /// as if you had called [`read_u16(buffer)`](Self::read_u16) instead!
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub async fn read_until_idle_u16(&mut self, buffer: &mut [u16]) -> Result<usize, Error> {
+        self.rx.read_until_idle_u16(buffer).await
+    }
 }
 
 impl<'d> Uart<'d, Blocking> {
     /// Create a new blocking bidirectional UART.
     pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -1916,8 +2032,8 @@ impl<'d> Uart<'d, Blocking> {
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
     pub fn new_blocking_with_rtscts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         config: Config,
@@ -1942,8 +2058,8 @@ impl<'d> Uart<'d, Blocking> {
     /// Create a new bidirectional UART with a driver-enable pin
     pub fn new_blocking_with_de<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         de: Peri<'d, if_afio!(impl DePin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -2042,8 +2158,8 @@ impl<'d> Uart<'d, Blocking> {
     pub fn new_blocking_master<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -2066,8 +2182,8 @@ impl<'d> Uart<'d, Blocking> {
     pub fn new_blocking_master_with_rtscts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         config: Config,
@@ -2093,8 +2209,8 @@ impl<'d> Uart<'d, Blocking> {
     pub fn new_blocking_master_with_de<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         de: Peri<'d, if_afio!(impl DePin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -2119,8 +2235,8 @@ impl<'d> Uart<'d, Blocking> {
     pub fn new_blocking_slave<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -2143,8 +2259,8 @@ impl<'d> Uart<'d, Blocking> {
     pub fn new_blocking_slave_with_rtscts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         config: Config,
@@ -2263,19 +2379,30 @@ impl<'d, M: PeriMode> Uart<'d, M> {
         self.tx.blocking_write(buffer)
     }
 
+    /// Perform a blocking write of 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the peripheral
+    /// transmits only the low-order bits of each word.
+    pub fn blocking_write_u16(&mut self, buffer: &[u16]) -> Result<(), Error> {
+        self.tx.blocking_write_u16(buffer)
+    }
+
     /// Block until transmission complete
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         self.tx.blocking_flush()
     }
 
-    /// Read a single `u8` or return `WouldBlock`
-    pub(crate) fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
-        self.rx.nb_read()
-    }
-
     /// Perform a blocking read into `buffer`
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
+    }
+
+    /// Perform a blocking read of 16 bit words into `buffer`
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub fn blocking_read_u16(&mut self, buffer: &mut [u16]) -> Result<(), Error> {
+        self.rx.blocking_read_u16(buffer)
     }
 
     /// Split the Uart into a transmitter and receiver, which is
@@ -2288,8 +2415,8 @@ impl<'d, M: PeriMode> Uart<'d, M> {
     /// Split the Uart into a transmitter and receiver by mutable reference,
     /// which is particularly useful when having two tasks correlating to
     /// transmitting and receiving.
-    pub fn split_ref(&mut self) -> (&mut UartTx<'d, M>, &mut UartRx<'d, M>) {
-        (&mut self.tx, &mut self.rx)
+    pub fn split_ref(&mut self) -> (UartTx<'_, M>, UartRx<'_, M>) {
+        (self.tx.reborrow(), self.rx.reborrow())
     }
 
     /// Send break character
@@ -2664,13 +2791,6 @@ fn configure(
     Ok(())
 }
 
-impl<'d, M: PeriMode> embedded_hal_02::serial::Read<u8> for UartRx<'d, M> {
-    type Error = Error;
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        self.nb_read()
-    }
-}
-
 impl<'d, M: PeriMode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, M> {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -2681,13 +2801,6 @@ impl<'d, M: PeriMode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d
     }
 }
 
-impl<'d, M: PeriMode> embedded_hal_02::serial::Read<u8> for Uart<'d, M> {
-    type Error = Error;
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        self.nb_read()
-    }
-}
-
 impl<'d, M: PeriMode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, M> {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -2695,62 +2808,6 @@ impl<'d, M: PeriMode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, 
     }
     fn bflush(&mut self) -> Result<(), Self::Error> {
         self.blocking_flush()
-    }
-}
-
-impl embedded_hal_nb::serial::Error for Error {
-    fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
-        match *self {
-            Self::Framing => embedded_hal_nb::serial::ErrorKind::FrameFormat,
-            Self::Noise => embedded_hal_nb::serial::ErrorKind::Noise,
-            Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
-            Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
-            Self::BufferTooLong => embedded_hal_nb::serial::ErrorKind::Other,
-        }
-    }
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::ErrorType for Uart<'d, M> {
-    type Error = Error;
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::ErrorType for UartTx<'d, M> {
-    type Error = Error;
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::ErrorType for UartRx<'d, M> {
-    type Error = Error;
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::Read for UartRx<'d, M> {
-    fn read(&mut self) -> nb::Result<u8, Self::Error> {
-        self.nb_read()
-    }
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::Write for UartTx<'d, M> {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.nb_write(char)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.blocking_flush().map_err(nb::Error::Other)
-    }
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::Read for Uart<'d, M> {
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        self.nb_read()
-    }
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::Write for Uart<'d, M> {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.blocking_write(&[char]).map_err(nb::Error::Other)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.blocking_flush().map_err(nb::Error::Other)
     }
 }
 
@@ -2819,6 +2876,47 @@ mod buffered;
 
 mod ringbuffered;
 pub use ringbuffered::RingBufferedUartRx;
+
+pub(crate) trait SealedUsartWord {
+    /// Transmit data register, accessed at this word's width.
+    fn tdr_ptr(r: Regs) -> *mut Self;
+
+    /// Receive data register, accessed at this word's width.
+    fn rdr_ptr(r: Regs) -> *mut Self;
+}
+
+/// The word sizes the USART data register can carry.
+///
+/// Selects the width used to access the data register, so that a 9 bit frame is
+/// read and written as a `u16` while an 8 bit frame stays a `u8`.
+///
+/// Implemented for `u8` and `u16`; this trait is sealed.
+#[allow(private_bounds)]
+pub trait UsartWord: Word + SealedUsartWord {}
+
+impl SealedUsartWord for u8 {
+    fn tdr_ptr(r: Regs) -> *mut u8 {
+        tdr(r)
+    }
+
+    fn rdr_ptr(r: Regs) -> *mut u8 {
+        rdr(r)
+    }
+}
+
+impl UsartWord for u8 {}
+
+impl SealedUsartWord for u16 {
+    fn tdr_ptr(r: Regs) -> *mut u16 {
+        tdr(r).cast()
+    }
+
+    fn rdr_ptr(r: Regs) -> *mut u16 {
+        rdr(r).cast()
+    }
+}
+
+impl UsartWord for u16 {}
 
 #[cfg(any(usart_v1, usart_v2))]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {

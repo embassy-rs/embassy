@@ -15,11 +15,12 @@ categories = [
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "packet-log", "ipv4", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["dns", "medium-ethernet", "packet-log", "ipv4", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "multicast", "ipv4", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dns", "medium-ethernet", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-options", "dns", "medium-ethernet", "hostname", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-options", "dns", "medium-ethernet", "slaac", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4-server", "dns", "medium-ethernet", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "ipv6", "slaac", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ieee802154", "ipv6", "tcp", "udp"]},
@@ -27,18 +28,18 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "ipv4", "ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ip", "ipv4", "ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ip", "ipv4", "ipv6", "tcp", "udp"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "ipv4", "ipv6", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "ipv4", "ipv6", "tcp", "udp", "packetmeta-id", "packetmeta-timestamp"]},
+    {target = "thumbv7em-none-eabi", features = ["log", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "ipv4", "ipv6", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "embedded-nal"]},
+    {target = "thumbv7em-none-eabi", features = ["alloc", "defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "ipv4", "ipv6", "tcp", "udp", "packetmeta-id", "packetmeta-timestamp"]},
 ]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = ["defmt", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "hostname", "dns", "dhcpv4", "dhcpv4-options", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp"]
+features = ["defmt", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "hostname", "dns", "dhcpv4", "dhcpv4-options", "dhcpv4-server", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp", "embedded-nal"]
 target = "thumbv7em-none-eabi"
 
 [package.metadata.docs.rs]
-features = ["defmt", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "hostname", "dns", "dhcpv4", "dhcpv4-options", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp"]
+features = ["defmt", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "hostname", "dns", "dhcpv4", "dhcpv4-options", "dhcpv4-server", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp", "embedded-nal"]
 
 [features]
 ## Enable APIs that use the heap.
@@ -81,6 +82,8 @@ tcp-listener = ["tcp", "xarxa/tcp-listener"]
 dhcpv4 = ["ipv4", "medium-ethernet", "xarxa/dhcpv4"]
 ## Allow reading received DHCP options.
 dhcpv4-options = ["dhcpv4", "xarxa/dhcpv4-options"]
+## DHCPv4 server, built into the interface. Needs `ipv4` and `medium-ethernet`.
+dhcpv4-server = ["ipv4", "medium-ethernet", "xarxa/dhcpv4-server"]
 ## Give the stack a hostname, with `Stack::set_hostname`. If set, it is sent
 ## to the DHCP server in outgoing DHCP messages.
 hostname = ["xarxa/hostname"]
@@ -89,6 +92,8 @@ hostname = ["xarxa/hostname"]
 slaac = ["ipv6", "xarxa/slaac"]
 ## DNS client.
 dns = ["udp", "xarxa/dns"]
+## Implement the `embedded-nal-async` traits, with `tcp::client::TcpClient` and `dns::DnsClient`.
+embedded-nal = ["dep:embedded-nal-async"]
 ## Resolve `.local` names with multicast DNS in the DNS client.
 mdns = ["dns", "xarxa/mdns"]
 ## Join IP multicast groups, with IGMP (IPv4) and MLD (IPv6) membership reports.
@@ -122,6 +127,10 @@ packetmeta-id = ["xarxa/packetmeta-id"]
 ## `Driver::poll_tx_timestamp`.
 packetmeta-timestamp = ["packetmeta-id", "xarxa/packetmeta-timestamp"]
 
+#! ### Serialization
+## Support (de)serializing some types using `serde`.
+serde = ["xarxa/serde"]
+
 #! ### Logging
 ## Log with the `log` crate.
 log = ["dep:log", "xarxa/log"]
@@ -136,13 +145,13 @@ packet-log = ["xarxa/packet-log"]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "324376018b2f7e5f1c70bb0070d92306afea32e3", default-features = false, features = ["async"] }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "324376018b2f7e5f1c70bb0070d92306afea32e3", default-features = false, features = ["async"] }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "af7342391a78692312cff94a826e9ea52dfea72f", default-features = false, features = ["async"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "af7342391a78692312cff94a826e9ea52dfea72f", default-features = false, features = ["async"] }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embedded-io-async = { version = "0.7.0" }
 
 heapless = { version = "0.9", default-features = false }
-embedded-nal-async = "0.9.0"
-document-features = "0.2.7"
+embedded-nal-async = { version = "0.9.0", optional = true }
+document-features = "0.2.12"

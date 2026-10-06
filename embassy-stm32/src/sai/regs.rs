@@ -48,7 +48,7 @@ pub(crate) fn configure_cr2(ch: Ch, config: &Config) {
         w.set_comp(config.companding.comp());
         w.set_cpl(config.complement_format.cpl());
         w.set_muteval(config.mute_value.muteval());
-        w.set_mutecnt(config.mute_detection_counter.0 as u8);
+        w.set_mutecnt(config.mute_detection_counter.0);
         w.set_tris(config.is_high_impedance_on_inactive_slot);
     });
 }
@@ -71,7 +71,7 @@ pub(crate) fn configure_frcr(ch: Ch, config: &Config) {
         w.set_fsoff(config.frame_sync_offset.fsoff());
         w.set_fspol(config.frame_sync_polarity.fspol());
         w.set_fsdef(config.frame_sync_definition.fsdef());
-        w.set_fsall(config.frame_sync_active_level_length.0 as u8 - 1);
+        w.set_fsall(config.frame_sync_active_level_length.0 - 1);
         w.set_frl((config.frame_length - 1).try_into().unwrap());
     });
 }
@@ -90,10 +90,10 @@ pub(crate) fn configure_frcr(ch: Ch, config: &Config) {
 #[cfg(not(sai_n6))]
 pub(crate) fn configure_slotr(ch: Ch, config: &Config) {
     ch.slotr().modify(|w| {
-        w.set_nbslot(config.slot_count.0 as u8 - 1);
-        w.set_fboff(config.first_bit_offset.0 as u8);
+        w.set_nbslot(config.slot_count.0 - 1);
+        w.set_fboff(config.first_bit_offset.0);
         w.set_slotsz(config.slot_size.slotsz());
-        w.set_sloten(super::vals::Sloten::from_bits(config.slot_enable as u16));
+        w.set_sloten(super::vals::Sloten::from_bits(config.slot_enable));
     });
 }
 

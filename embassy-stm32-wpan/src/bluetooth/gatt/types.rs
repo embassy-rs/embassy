@@ -12,6 +12,12 @@ pub struct ServiceHandle(pub u16);
 #[repr(transparent)]
 pub struct CharacteristicHandle(pub u16);
 
+/// Characteristic descriptor handle (returned by add_descriptor)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(transparent)]
+pub struct DescriptorHandle(pub u16);
+
 /// UUID type
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +98,8 @@ impl SecurityPermissions {
     pub const AUTHEN_WRITE: Self = Self(0x08);
     pub const AUTHOR_WRITE: Self = Self(0x10);
     pub const ENCRY_WRITE: Self = Self(0x20);
+    pub const SC_READ: Self = Self(0x40);
+    pub const SC_WRITE: Self = Self(0x80);
 
     /// Create empty permissions
     pub const fn empty() -> Self {
@@ -113,6 +121,43 @@ impl core::ops::BitOr for SecurityPermissions {
 }
 
 impl core::ops::BitOrAssign for SecurityPermissions {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+
+/// Attribute access permissions (used by characteristic descriptors).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct AttributeAccess(pub u8);
+
+impl AttributeAccess {
+    pub const NONE: Self = Self(0x00);
+    pub const READ: Self = Self(0x01);
+    pub const WRITE: Self = Self(0x02);
+    pub const WRITE_WITHOUT_RESPONSE: Self = Self(0x04);
+    pub const SIGNED_WRITE: Self = Self(0x08);
+
+    /// Create empty access permissions
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    /// Combine permissions using bitwise OR
+    pub const fn or(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for AttributeAccess {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for AttributeAccess {
     fn bitor_assign(&mut self, rhs: Self) {
         self.0 |= rhs.0;
     }

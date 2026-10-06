@@ -78,12 +78,10 @@
 
 pub mod cache;
 pub mod ecloader;
-/// Raw ATON register map. Exposed as an intentional low-level route
-/// for advanced users that need to compose their own streaming-engine
-/// helpers on top of the epoch-controller-oriented driver (e.g. a
-/// hardware-DMA transpose). Names mirror the ATON reference-manual naming;
-/// no stability guarantees are made about this module.
-pub mod regs;
+/// CPU-side software epochs for the tail of a network (softmax, dequantization,
+/// argmax). Requires the `npu-nn` feature.
+#[cfg(feature = "npu-nn")]
+pub mod epoch;
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -95,6 +93,11 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::{Peri, interrupt, pac};
+
+const BUSIF_COUNT: usize = 2;
+const STRENG_COUNT: usize = 10;
+const INT_STRENG_EVT_MASK: u32 = 0x0000_03FF;
+const INT_ECTRL_EVT: u32 = 1 << 28;
 
 /// Interrupt handler for ATON interrupt line 0 (NVIC `NPU0`).
 ///
@@ -113,39 +116,70 @@ static ERRORS: AtomicU32 = AtomicU32::new(0);
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let irqs = regs::read(regs::INTCTRL_INTREG);
+        let irqs = pac::NPU.intctrl().intreg().read();
 
-        // Everything except the end-of-blob event and streaming-engine
-        // completion events is an error condition for this execution model.
-        let errors = irqs & !(regs::INT_ECTRL_EVT | regs::INT_STRENG_EVT_MASK);
+        // Debug snapshot, read before anything below can clear it: which
+        // blob section was executing and how far into it, at the moment of
+        // the fault. `Error::EpochController`'s single bit doesn't otherwise
+        // say *why* the epoch controller stopped.
+        let ectrl_ctrl = pac::NPU.epochctrl().ctrl().read();
+        let ectrl_label = pac::NPU.epochctrl().label().read();
+        let ectrl_bc = pac::NPU.epochctrl().bc().read();
 
         // Acknowledge interrupt *sources* first; the interrupt controller
         // latch is cleared afterwards, otherwise it re-latches immediately.
-        if irqs & (regs::INT_ECTRL_EVT | regs::INT_ECTRL_ERR | regs::INT_ECTRL_NOACK) != 0 {
-            let v = regs::read(regs::EPOCHCTRL_IRQ);
-            regs::write(regs::EPOCHCTRL_IRQ, v);
+        let mut ectrl_irq = None;
+        if irqs.ectrl_evt() || irqs.ectrl_err() || irqs.ectrl_noack() {
+            let v = pac::NPU.epochctrl().irq().read();
+            ectrl_irq = Some(v);
+            pac::NPU.epochctrl().irq().write_value(v);
         }
-        let streng =
-            (irqs & regs::INT_STRENG_EVT_MASK) | ((irqs & regs::INT_STRENG_ERR_MASK) >> regs::INT_STRENG_ERR_SHIFT);
-        for i in 0..regs::STRENG_NUM {
+        let streng = irqs.streng_evt() | irqs.streng_err();
+        let mut streng_irq = [0u32; STRENG_COUNT];
+        for i in 0..STRENG_COUNT {
             if streng & (1 << i) != 0 {
-                let v = regs::read(regs::streng_irq(i));
-                regs::write(regs::streng_irq(i), v);
+                let v = pac::NPU.streng(i).irq().read();
+                streng_irq[i] = v.0;
+                pac::NPU.streng(i).irq().write_value(v);
+            }
+        }
+        let mut busif_err = [0u32; BUSIF_COUNT];
+        if irqs.busif_err() != 0 {
+            for (i, slot) in busif_err.iter_mut().enumerate() {
+                if irqs.busif_err() & (1 << i) != 0 {
+                    *slot = pac::NPU.busif(i).err().read().0;
+                }
             }
         }
 
-        if errors != 0 {
+        // Everything except the end-of-blob event and streaming-engine
+        // completion events is an error condition for this execution model.
+        let raw_errors = irqs.0 & !(INT_ECTRL_EVT | INT_STRENG_EVT_MASK);
+        if raw_errors != 0 {
             // Mask line 0 completely to guard against interrupt storms from
             // sources that stay asserted; `run_epoch_blob` restores the mask.
-            regs::write(regs::intctrl_intormsk(0), 0xFFFF_FFFF);
-            ERRORS.fetch_or(errors, Ordering::Relaxed);
+            pac::NPU
+                .intctrl()
+                .intormsk(0)
+                .write_value(pac::npu::regs::Intstatus(0xFFFF_FFFF));
+            ERRORS.fetch_or(raw_errors, Ordering::Relaxed);
+            error!(
+                "NPU fault: intreg=0x{:08x} ectrl_ctrl={:?} ectrl_irq={:?} label=0x{:08x} bc=0x{:08x} streng_irq={:08x} busif_err={:08x}",
+                irqs.0,
+                ectrl_ctrl,
+                ectrl_irq.map(|v| v.0),
+                ectrl_label.label(),
+                ectrl_bc.count(),
+                streng_irq,
+                busif_err,
+            );
         }
-        if irqs & regs::INT_ECTRL_EVT != 0 {
+        if irqs.ectrl_evt() {
             EVENTS.fetch_or(EVT_EC_DONE, Ordering::Relaxed);
         }
 
         cortex_m::asm::dsb();
-        regs::write(regs::INTCTRL_INTCLR, irqs);
+        pac::NPU.intctrl().intclr().write_value(irqs);
         cortex_m::asm::dsb();
 
         WAKER.wake();
@@ -176,14 +210,15 @@ pub enum Error {
 }
 
 fn decode_errors(bits: u32) -> Error {
-    if bits & regs::INT_ECTRL_ERR != 0 {
+    let s = pac::npu::regs::Intstatus(bits);
+    if s.ectrl_err() {
         Error::EpochController
-    } else if bits & regs::INT_ECTRL_NOACK != 0 {
+    } else if s.ectrl_noack() {
         Error::EpochControllerNoAck
-    } else if bits & regs::INT_STRENG_ERR_MASK != 0 {
-        Error::StreamingEngine(((bits & regs::INT_STRENG_ERR_MASK) >> regs::INT_STRENG_ERR_SHIFT) as u16)
-    } else if bits & regs::INT_BUSIF_ERR_MASK != 0 {
-        Error::BusInterface(((bits & regs::INT_BUSIF_ERR_MASK) >> regs::INT_BUSIF_ERR_SHIFT) as u8)
+    } else if s.streng_err() != 0 {
+        Error::StreamingEngine(s.streng_err())
+    } else if s.busif_err() != 0 {
+        Error::BusInterface(s.busif_err())
     } else {
         Error::Fault(bits)
     }
@@ -257,29 +292,44 @@ impl<'d, T: Instance> Npu<'d, T> {
         // ATON global init (LL_ATON_Init): clear the clock-controller
         // pipeline, then enable it and ungate all unit clocks. Per-unit
         // dynamic clock gating (BGATES) is not used — all gates stay open.
-        regs::modify(regs::CLKCTRL_CTRL, |v| v | regs::CLKCTRL_CTRL_CLR);
-        regs::write(regs::CLKCTRL_CTRL, regs::CLKCTRL_CTRL_EN);
-        regs::write(regs::CLKCTRL_AGATES0, 0xFFFF_FFFF);
-        regs::write(regs::CLKCTRL_AGATES1, 0xFFFF_FFFF);
-        regs::write(regs::CLKCTRL_BGATES, 0xFFFF_FFFF);
+        pac::NPU.clkctrl().ctrl().modify(|w| w.set_clr(true));
+        pac::NPU.clkctrl().ctrl().write(|w| w.set_en(true));
+        pac::NPU
+            .clkctrl()
+            .agates0()
+            .write_value(pac::npu::regs::Agates(0xFFFF_FFFF));
+        pac::NPU
+            .clkctrl()
+            .agates1()
+            .write_value(pac::npu::regs::Agates(0xFFFF_FFFF));
+        pac::NPU
+            .clkctrl()
+            .bgates()
+            .write_value(pac::npu::regs::Bgates(0xFFFF_FFFF));
 
         // Enable the bus interfaces.
-        for i in 0..regs::BUSIF_NUM {
-            regs::write(regs::busif_ctrl(i), regs::BUSIF_CTRL_EN);
+        for i in 0..BUSIF_COUNT {
+            pac::NPU.busif(i).ctrl().write(|w| w.set_en(true));
         }
 
         // Interrupt controller: disable + clear pipeline + reset config...
-        regs::write(regs::INTCTRL_CTRL, regs::INTCTRL_CTRL_CLR);
-        while regs::read(regs::INTCTRL_CTRL) & regs::INTCTRL_CTRL_CLR != 0 {}
-        regs::write(regs::INTCTRL_CTRL, regs::INTCTRL_CTRL_CONFCLR);
-        while regs::read(regs::INTCTRL_CTRL) & regs::INTCTRL_CTRL_CONFCLR != 0 {}
+        pac::NPU.intctrl().ctrl().write(|w| w.set_clr(true));
+        while pac::NPU.intctrl().ctrl().read().clr() {}
+        pac::NPU.intctrl().ctrl().write(|w| w.set_confclr(true));
+        while pac::NPU.intctrl().ctrl().read().confclr() {}
 
         // ...then route to line 0: OR-mask blocks the (polled) streaming
         // engine completion events and passes every other event and error;
         // the AND-mask group stays disabled (all ones).
-        regs::write(regs::intctrl_intormsk(0), regs::INT_STRENG_EVT_MASK);
-        regs::write(regs::intctrl_intandmsk(0), 0xFFFF_FFFF);
-        regs::modify(regs::INTCTRL_CTRL, |v| v | regs::INTCTRL_CTRL_EN);
+        pac::NPU
+            .intctrl()
+            .intormsk(0)
+            .write_value(pac::npu::regs::Intstatus(INT_STRENG_EVT_MASK));
+        pac::NPU
+            .intctrl()
+            .intandmsk(0)
+            .write_value(pac::npu::regs::Intstatus(0xFFFF_FFFF));
+        pac::NPU.intctrl().ctrl().modify(|w| w.set_en(true));
 
         EVENTS.store(0, Ordering::Relaxed);
         ERRORS.store(0, Ordering::Relaxed);
@@ -314,15 +364,24 @@ impl<'d, T: Instance> Npu<'d, T> {
         // Unmask the epoch for line 0: keep streaming-engine completion
         // events blocked, let the epoch-controller event and all errors
         // through (mirrors __LL_ATON_RT_SetWaitMask for blob epochs).
-        regs::write(regs::intctrl_intandmsk(0), !regs::INT_STRENG_EVT_MASK);
+        pac::NPU
+            .intctrl()
+            .intandmsk(0)
+            .write_value(pac::npu::regs::Intstatus(!INT_STRENG_EVT_MASK));
 
         // Make sure blob memory writes are visible before the EC fetches it.
         cortex_m::asm::dsb();
 
         // Configure and start the epoch controller (LL_EpochCtrl_Init).
-        regs::write(regs::EPOCHCTRL_CTRL, 0); // step mode off
-        regs::write(regs::EPOCHCTRL_ADDR, blob.as_ptr() as u32);
-        regs::modify(regs::EPOCHCTRL_CTRL, |v| v | regs::EPOCHCTRL_CTRL_EN);
+        pac::NPU
+            .epochctrl()
+            .ctrl()
+            .write_value(pac::npu::regs::EpochctrlCtrl(0)); // step mode off
+        pac::NPU
+            .epochctrl()
+            .addr()
+            .write_value(pac::npu::regs::EpochctrlAddr(blob.as_ptr() as u32));
+        pac::NPU.epochctrl().ctrl().modify(|w| w.set_en(true));
 
         let res = poll_fn(|cx| {
             WAKER.register(cx.waker());
@@ -343,22 +402,22 @@ impl<'d, T: Instance> Npu<'d, T> {
         // unit is reported instead of blocking the entire executor forever.
         const TEARDOWN_SPIN_LIMIT: u32 = 1_000_000;
         let mut teardown_error = None;
-        regs::write(regs::EPOCHCTRL_CTRL, regs::EPOCHCTRL_CTRL_CLR);
+        pac::NPU.epochctrl().ctrl().write(|w| w.set_clr(true));
         let mut spins = 0;
-        while regs::read(regs::EPOCHCTRL_CTRL) & regs::EPOCHCTRL_CTRL_CLR != 0 {
+        while pac::NPU.epochctrl().ctrl().read().clr() {
             spins += 1;
             if spins == TEARDOWN_SPIN_LIMIT {
-                teardown_error = Some(Error::EpochControllerTeardown(regs::read(regs::EPOCHCTRL_CTRL)));
+                teardown_error = Some(Error::EpochControllerTeardown(pac::NPU.epochctrl().ctrl().read().0));
                 break;
             }
         }
         if teardown_error.is_none() {
-            regs::write(regs::EPOCHCTRL_CTRL, regs::EPOCHCTRL_CTRL_CONFCLR);
+            pac::NPU.epochctrl().ctrl().write(|w| w.set_confclr(true));
             spins = 0;
-            while regs::read(regs::EPOCHCTRL_CTRL) & regs::EPOCHCTRL_CTRL_CONFCLR != 0 {
+            while pac::NPU.epochctrl().ctrl().read().confclr() {
                 spins += 1;
                 if spins == TEARDOWN_SPIN_LIMIT {
-                    teardown_error = Some(Error::EpochControllerTeardown(regs::read(regs::EPOCHCTRL_CTRL)));
+                    teardown_error = Some(Error::EpochControllerTeardown(pac::NPU.epochctrl().ctrl().read().0));
                     break;
                 }
             }
@@ -366,8 +425,14 @@ impl<'d, T: Instance> Npu<'d, T> {
 
         // Re-mask the epoch event and restore the OR-mask (the IRQ handler
         // fully masks the line after an error).
-        regs::write(regs::intctrl_intandmsk(0), 0xFFFF_FFFF);
-        regs::write(regs::intctrl_intormsk(0), regs::INT_STRENG_EVT_MASK);
+        pac::NPU
+            .intctrl()
+            .intandmsk(0)
+            .write_value(pac::npu::regs::Intstatus(0xFFFF_FFFF));
+        pac::NPU
+            .intctrl()
+            .intormsk(0)
+            .write_value(pac::npu::regs::Intstatus(INT_STRENG_EVT_MASK));
 
         teardown_error.map_or(res, Err)
     }
@@ -399,14 +464,14 @@ impl<'d, T: Instance> Drop for Npu<'d, T> {
         T::Interrupt::disable();
 
         // LL_ATON_DeInit: interrupt controller, bus interfaces, clocks.
-        regs::write(regs::INTCTRL_CTRL, 0);
-        for i in 0..regs::BUSIF_NUM {
-            regs::write(regs::busif_ctrl(i), 0);
+        pac::NPU.intctrl().ctrl().write_value(pac::npu::regs::IntctrlCtrl(0));
+        for i in 0..BUSIF_COUNT {
+            pac::NPU.busif(i).ctrl().write_value(pac::npu::regs::BusifCtrl(0));
         }
-        regs::write(regs::CLKCTRL_AGATES0, 0);
-        regs::write(regs::CLKCTRL_AGATES1, 0);
-        regs::write(regs::CLKCTRL_BGATES, 0);
-        regs::write(regs::CLKCTRL_CTRL, 0);
+        pac::NPU.clkctrl().agates0().write_value(pac::npu::regs::Agates(0));
+        pac::NPU.clkctrl().agates1().write_value(pac::npu::regs::Agates(0));
+        pac::NPU.clkctrl().bgates().write_value(pac::npu::regs::Bgates(0));
+        pac::NPU.clkctrl().ctrl().write_value(pac::npu::regs::ClkctrlCtrl(0));
 
         // Gate the NPU kernel clock.
         pac::RCC.ahb5encr().write(|w| w.set_npuenc(true));

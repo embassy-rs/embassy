@@ -53,7 +53,7 @@ impl BackupMemory {
         assert!(address + dst.len() <= self.size());
         let p = unsafe { self.as_ptr().add(address) };
 
-        for (i, b) in dst.into_iter().enumerate() {
+        for (i, b) in dst.iter_mut().enumerate() {
             // SAFETY: Single byte writes are safe to perform into the backup sram
             unsafe {
                 *b = p.add(i).read_volatile();
@@ -68,7 +68,7 @@ impl BackupMemory {
         assert!(address + src.len() <= self.size());
         let p = unsafe { self.as_ptr().add(address) };
 
-        for (i, &b) in src.into_iter().enumerate() {
+        for (i, &b) in src.iter().enumerate() {
             // SAFETY: Single byte writes are safe to perform into the backup sram
             unsafe {
                 p.add(i).write_volatile(b);

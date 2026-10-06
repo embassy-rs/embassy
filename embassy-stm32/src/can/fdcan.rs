@@ -59,21 +59,15 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
                 TxMode::NonBuffered(waker) => waker.wake(),
                 TxMode::ClassicBuffered(buf) => {
                     if !T::registers().tx_queue_is_full() {
-                        match buf.tx_receiver.try_receive() {
-                            Ok(frame) => {
-                                _ = T::registers().write(&frame);
-                            }
-                            Err(_) => {}
+                        if let Ok(frame) = buf.tx_receiver.try_receive() {
+                            _ = T::registers().write(&frame, None);
                         }
                     }
                 }
                 TxMode::FdBuffered(buf) => {
                     if !T::registers().tx_queue_is_full() {
-                        match buf.tx_receiver.try_receive() {
-                            Ok(frame) => {
-                                _ = T::registers().write(&frame);
-                            }
-                            Err(_) => {}
+                        if let Ok(frame) = buf.tx_receiver.try_receive() {
+                            _ = T::registers().write(&frame, None);
                         }
                     }
                 }
@@ -153,13 +147,17 @@ fn calc_ns_per_timer_tick(
     info: &'static Info,
     freq: crate::time::Hertz,
     mode: crate::can::fd::config::FrameTransmissionConfig,
+    timestamp_source: TimestampSource,
 ) -> u64 {
-    match mode {
+    match (timestamp_source, mode) {
+        // No counter, or TIM3 running at the embassy tick rate rather than the kernel clock:
+        // `calc_timestamp` either has nothing to scale or handles TIM3 itself.
+        (TimestampSource::None, _) | (TimestampSource::FromTIM3, _) => 0,
         // Use timestamp from Rx FIFO to adjust timestamp reported to user
-        crate::can::fd::config::FrameTransmissionConfig::ClassicCanOnly => {
+        (_, crate::can::fd::config::FrameTransmissionConfig::ClassicCanOnly) => {
             let prescale: u64 = ({ info.regs.regs.nbtp().read().nbrp() } + 1) as u64
                 * ({ info.regs.regs.tscc().read().tcp() } + 1) as u64;
-            1_000_000_000 as u64 / (freq.0 as u64 * prescale)
+            1_000_000_000_u64 / (freq.0 as u64 * prescale)
         }
         // For VBR this is too hard because the FDCAN timer switches clock rate you need to configure to use
         // timer3 instead which is too hard to do from this module.
@@ -225,7 +223,7 @@ impl<'d> CanConfigurator<'d> {
 
     /// Get configuration
     pub fn config(&self) -> crate::can::fd::config::FdCanConfig {
-        return self.config;
+        self.config
     }
 
     /// Set configuration
@@ -275,6 +273,7 @@ impl<'d> CanConfigurator<'d> {
             &self.info,
             self.properties.kernel_input_clock(),
             self.config.frame_transmit,
+            self.config.timestamp_source,
         );
         self.info.state.lock(|s| {
             let mut state = s.borrow_mut();
@@ -349,7 +348,7 @@ impl<'d> Can<'d> {
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
     pub async fn write(&mut self, frame: &Frame) -> Option<Frame> {
-        TxMode::write(&self.info, frame).await
+        TxMode::write(&self.info, frame, None).await
     }
 
     /// Blocking write frame.
@@ -357,7 +356,7 @@ impl<'d> Can<'d> {
     /// If the TX queue is full, this will wait until there is space.
     pub fn blocking_write(&mut self, frame: &Frame) -> Option<Frame> {
         loop {
-            match self.info.regs.write(frame) {
+            match self.info.regs.write(frame, None) {
                 Ok(dropped) => return dropped,
                 Err(nb::Error::WouldBlock) => continue,
                 Err(nb::Error::Other(_)) => unreachable!(), // Infallible
@@ -396,7 +395,7 @@ impl<'d> Can<'d> {
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
     pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
-        TxMode::write_fd(&self.info, frame).await
+        TxMode::write_fd(&self.info, frame, None).await
     }
 
     /// Blocking write FD frame.
@@ -404,12 +403,32 @@ impl<'d> Can<'d> {
     /// If the TX queue is full, this will wait until there is space.
     pub fn blocking_write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
         loop {
-            match self.info.regs.write(frame) {
+            match self.info.regs.write(frame, None) {
                 Ok(dropped) => return dropped,
                 Err(nb::Error::WouldBlock) => continue,
                 Err(nb::Error::Other(_)) => unreachable!(), // Infallible
             }
         }
+    }
+
+    /// Like [`Self::write`], but stores a TX event carrying `marker` once the frame
+    /// has been sent. Read it back with [`Self::dequeue_tx_event`].
+    pub async fn write_marked(&mut self, frame: &Frame, marker: u8) -> Option<Frame> {
+        TxMode::write(&self.info, frame, Some(marker)).await
+    }
+
+    /// Like [`Self::write_fd`], but stores a TX event carrying `marker` once the
+    /// frame has been sent. Read it back with [`Self::dequeue_tx_event`].
+    pub async fn write_fd_marked(&mut self, frame: &FdFrame, marker: u8) -> Option<FdFrame> {
+        TxMode::write_fd(&self.info, frame, Some(marker)).await
+    }
+
+    /// Pops the oldest TX event: the frame id, its marker and the start-of-frame
+    /// timestamp.
+    pub fn dequeue_tx_event(&mut self) -> Option<(embedded_can::Id, u8, Timestamp)> {
+        let (id, marker, ts_raw) = self.info.regs.tx_event()?;
+        let ns_per_timer_tick = self.info.state.lock(|s| s.borrow().ns_per_timer_tick);
+        Some((id, marker, self.info.regs.calc_timestamp(ns_per_timer_tick, ts_raw)))
     }
 
     /// Returns the next received message frame
@@ -800,7 +819,7 @@ impl<'c, 'd> CanTx<'d> {
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
     pub async fn write(&mut self, frame: &Frame) -> Option<Frame> {
-        TxMode::write(&self.info, frame).await
+        TxMode::write(&self.info, frame, None).await
     }
 
     /// Blocking write frame.
@@ -808,7 +827,7 @@ impl<'c, 'd> CanTx<'d> {
     /// If the TX queue is full, this will wait until there is space.
     pub fn blocking_write(&mut self, frame: &Frame) -> Option<Frame> {
         loop {
-            match self.info.regs.write(frame) {
+            match self.info.regs.write(frame, None) {
                 Ok(dropped) => return dropped,
                 Err(nb::Error::WouldBlock) => continue,
                 Err(nb::Error::Other(_)) => unreachable!(), // Infallible
@@ -821,7 +840,7 @@ impl<'c, 'd> CanTx<'d> {
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
     pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
-        TxMode::write_fd(&self.info, frame).await
+        TxMode::write_fd(&self.info, frame, None).await
     }
 
     /// Blocking write FD frame.
@@ -829,12 +848,32 @@ impl<'c, 'd> CanTx<'d> {
     /// If the TX queue is full, this will wait until there is space.
     pub fn blocking_write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
         loop {
-            match self.info.regs.write(frame) {
+            match self.info.regs.write(frame, None) {
                 Ok(dropped) => return dropped,
                 Err(nb::Error::WouldBlock) => continue,
                 Err(nb::Error::Other(_)) => unreachable!(), // Infallible
             }
         }
+    }
+
+    /// Like [`Self::write`], but stores a TX event carrying `marker` once the frame
+    /// has been sent. Read it back with [`Self::dequeue_tx_event`].
+    pub async fn write_marked(&mut self, frame: &Frame, marker: u8) -> Option<Frame> {
+        TxMode::write(&self.info, frame, Some(marker)).await
+    }
+
+    /// Like [`Self::write_fd`], but stores a TX event carrying `marker` once the
+    /// frame has been sent. Read it back with [`Self::dequeue_tx_event`].
+    pub async fn write_fd_marked(&mut self, frame: &FdFrame, marker: u8) -> Option<FdFrame> {
+        TxMode::write_fd(&self.info, frame, Some(marker)).await
+    }
+
+    /// Pops the oldest TX event: the frame id, its marker and the start-of-frame
+    /// timestamp.
+    pub fn dequeue_tx_event(&mut self) -> Option<(embedded_can::Id, u8, Timestamp)> {
+        let (id, marker, ts_raw) = self.info.regs.tx_event()?;
+        let ns_per_timer_tick = self.info.state.lock(|s| s.borrow().ns_per_timer_tick);
+        Some((id, marker, self.info.regs.calc_timestamp(ns_per_timer_tick, ts_raw)))
     }
 }
 
@@ -878,20 +917,23 @@ impl RxMode {
                 }
             }
             RxMode::FdBuffered(buf) => {
-                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
+                let regs = T::registers();
+                regs.regs.ir().write(|w| w.set_rfn(fifonr, true));
                 loop {
-                    match self.try_read_fd::<T>(ns_per_timer_tick) {
-                        Some(Ok(envelope)) => {
-                            let _ = buf.rx_sender.try_send(Ok(envelope));
-                        }
-                        Some(Err(err)) => {
+                    let mut frame = FdFrame::empty();
+                    let Some(ts) = regs
+                        .read_fd_into(0, &mut frame)
+                        .or_else(|| regs.read_fd_into(1, &mut frame))
+                    else {
+                        if let Some(err) = regs.curr_error() {
                             // bus error states can persist; emit once and return to avoid
                             // spinning forever in interrupt context when no frames are available
                             let _ = buf.rx_sender.try_send(Err(err));
-                            break;
                         }
-                        None => break,
-                    }
+                        break;
+                    };
+                    let ts = regs.calc_timestamp(ns_per_timer_tick, ts);
+                    let _ = buf.rx_sender.try_send(Ok(FdEnvelope { ts, frame }));
                 }
             }
         }
@@ -905,26 +947,8 @@ impl RxMode {
         } else if let Some((frame, ts)) = T::registers().read(1) {
             let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok(Envelope { ts, frame }))
-        } else if let Some(err) = T::registers().curr_error() {
-            // TODO: this is probably wrong
-            Some(Err(err))
         } else {
-            None
-        }
-    }
-
-    fn try_read_fd<T: Instance>(&self, ns_per_timer_tick: u64) -> Option<Result<FdEnvelope, BusError>> {
-        if let Some((frame, ts)) = T::registers().read(0) {
-            let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok(FdEnvelope { ts, frame }))
-        } else if let Some((frame, ts)) = T::registers().read(1) {
-            let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok(FdEnvelope { ts, frame }))
-        } else if let Some(err) = T::registers().curr_error() {
-            // TODO: this is probably wrong
-            Some(Err(err))
-        } else {
-            None
+            T::registers().curr_error().map(Err)
         }
     }
 
@@ -935,11 +959,8 @@ impl RxMode {
         } else if let Some((msg, ts)) = info.regs.read(1) {
             let ts = info.regs.calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok((msg, ts)))
-        } else if let Some(err) = info.regs.curr_error() {
-            // TODO: this is probably wrong
-            Some(Err(err))
         } else {
-            None
+            info.regs.curr_error().map(Err)
         }
     }
 
@@ -996,13 +1017,17 @@ impl TxMode {
     /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
-    async fn write_generic<F: embedded_can::Frame + CanHeader>(info: &'static Info, frame: &F) -> Option<F> {
+    async fn write_generic<F: embedded_can::Frame + CanHeader>(
+        info: &'static Info,
+        frame: &F,
+        marker: Option<u8>,
+    ) -> Option<F> {
         poll_fn(|cx| {
             info.state.lock(|s| {
                 s.borrow_mut().tx_mode.register(cx.waker());
             });
 
-            if let Ok(dropped) = info.regs.write(frame) {
+            if let Ok(dropped) = info.regs.write(frame, marker) {
                 return Poll::Ready(dropped);
             }
 
@@ -1017,16 +1042,16 @@ impl TxMode {
     /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
-    async fn write(info: &'static Info, frame: &Frame) -> Option<Frame> {
-        TxMode::write_generic::<_>(info, frame).await
+    async fn write(info: &'static Info, frame: &Frame, marker: Option<u8>) -> Option<Frame> {
+        TxMode::write_generic::<_>(info, frame, marker).await
     }
 
     /// Queues the message to be sent but exerts backpressure.  If a lower-priority
     /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
-    async fn write_fd(info: &'static Info, frame: &FdFrame) -> Option<FdFrame> {
-        TxMode::write_generic::<_>(info, frame).await
+    async fn write_fd(info: &'static Info, frame: &FdFrame, marker: Option<u8>) -> Option<FdFrame> {
+        TxMode::write_generic::<_>(info, frame, marker).await
     }
 }
 
@@ -1152,7 +1177,7 @@ impl Info {
                 RefCountOp::NotifySenderDestroyed => {
                     mut_state.sender_instance_count -= 1;
                     if 0 == mut_state.sender_instance_count {
-                        (*mut_state).tx_mode = TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+                        mut_state.tx_mode = TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
                     }
                 }
                 RefCountOp::NotifyReceiverCreated => {
@@ -1161,7 +1186,7 @@ impl Info {
                 RefCountOp::NotifyReceiverDestroyed => {
                     mut_state.receiver_instance_count -= 1;
                     if 0 == mut_state.receiver_instance_count {
-                        (*mut_state).rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+                        mut_state.rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
                     }
                 }
             }

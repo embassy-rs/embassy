@@ -59,7 +59,7 @@ mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Create a time driver for `std` environments.
 std = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Create a time driver for WASM.
-wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
+wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:web-time", "tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Provides a time driver using the ARM CMSDK timer.
 cmsdk = [
   "dep:derive-mmio",
@@ -463,7 +463,7 @@ document-features = "0.2.7"
 # WASM dependencies
 wasm-bindgen = { version = "0.2.81", optional = true }
 js-sys = { version = "0.3", optional = true }
-wasm-timer = { version = "0.2.5", optional = true }
+web-time = { version = "1.1.0", default-features = false, optional = true }
 
 # ARM CMSDK dependencies
 derive-mmio = { version = "0.6", optional = true }

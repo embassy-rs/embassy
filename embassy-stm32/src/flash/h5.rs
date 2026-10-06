@@ -62,9 +62,8 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
         write_volatile(address as *mut u32, u32::from_le_bytes(unwrap!(val.try_into())));
         address += val.len() as u32;
 
-        res = Some(blocking_wait_ready().map_err(|e| {
+        res = Some(blocking_wait_ready().inspect_err(|_| {
             error!("write err");
-            e
         }));
         pac::FLASH.nssr().modify(|w| {
             if w.eop() {
@@ -88,7 +87,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     // pac::FLASH.wrp2r_cur().read().wrpsg()
     // TODO: write protection check
-    if pac::FLASH.nscr().read().lock() == true {
+    if pac::FLASH.nscr().read().lock() {
         error!("flash locked");
     }
 
@@ -114,9 +113,8 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     cortex_m::asm::dsb();
     fence(Ordering::SeqCst);
 
-    let ret: Result<(), Error> = blocking_wait_ready().map_err(|e| {
+    let ret: Result<(), Error> = blocking_wait_ready().inspect_err(|_| {
         error!("erase err");
-        e
     });
 
     pac::FLASH.nscr().modify(|w| w.set_ser(false));

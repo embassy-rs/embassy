@@ -121,7 +121,7 @@ impl Watchdog {
         let mut handles = [const { WatchdogHandle { index: 0 } }; N];
         for i in 0..N {
             handles[i] = unsafe { WatchdogHandle::steal::<T>(i as u8) };
-            handles[i].pet();
+            handles[i].feed();
         }
 
         Ok((this, handles))
@@ -146,12 +146,12 @@ impl Watchdog {
         self.r.intenclr().write(|w| w.set_timeout(true));
     }
 
-    /// Is the watchdog still awaiting pets from any handle?
+    /// Is the watchdog still awaiting feeds from any handle?
     ///
-    /// This reports whether sufficient pets have been received from all
+    /// This reports whether sufficient feeds have been received from all
     /// handles to prevent a reset this time period.
     #[inline(always)]
-    pub fn awaiting_pets(&self) -> bool {
+    pub fn awaiting_feeds(&self) -> bool {
         let enabled = self.r.rren().read().0;
         let status = self.r.reqstatus().read().0;
         (status & enabled) == 0
@@ -180,20 +180,20 @@ impl WatchdogHandle {
         usize::from(self.index % 8)
     }
 
-    /// Pet the watchdog.
+    /// Feed the watchdog.
     ///
-    /// This function pets the given watchdog handle.
+    /// This function feeds the given watchdog handle.
     ///
-    /// NOTE: All active handles must be pet within the time interval to
+    /// NOTE: All active handles must be fed within the time interval to
     /// prevent a reset from occurring.
     #[inline]
-    pub fn pet(&mut self) {
+    pub fn feed(&mut self) {
         let r = self.regs();
         r.rr(self.rr_index()).write(|w| w.set_rr(vals::Rr::Reload));
     }
 
-    /// Has this handle been pet within the current window?
-    pub fn is_pet(&self) -> bool {
+    /// Has this handle been fed within the current window?
+    pub fn is_fed(&self) -> bool {
         let r = self.regs();
         !r.reqstatus().read().rr(self.rr_index())
     }

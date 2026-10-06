@@ -77,19 +77,24 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHand
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 /// NFC error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Rx Error received while waiting for frame
+    #[error("rx error received while waiting for frame")]
     RxError,
     /// Rx buffer was overrun, increase your buffer size to resolve this
+    #[error("rx buffer was overrun")]
     RxOverrun,
     /// Lost field.
+    #[error("lost field: deactivated")]
     Deactivated,
     /// Collision
+    #[error("collision")]
     Collision,
     /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
 }
 

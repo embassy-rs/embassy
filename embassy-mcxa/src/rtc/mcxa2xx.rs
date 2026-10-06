@@ -301,9 +301,34 @@ impl<'a> Rtc<'a> {
     /// # Note
     ///
     /// The datetime is converted to Unix timestamp and written to the time seconds register.
+    /// The time counter is left running, so the time advances from the moment it is set.
     pub fn set_datetime(&self, datetime: DateTime) {
         let seconds = convert_datetime_to_seconds(&datetime);
+
+        // RM 31.3.2: "The time seconds register and time prescaler register can
+        // be written only when SR[TCE] is clear." Without this the writes below
+        // are silently discarded whenever the counter happens to be running.
+        self.stop();
+
+        // RM 31.3.2: "Always write to the prescaler register before writing to
+        // the seconds register, because the seconds register increments on the
+        // falling edge of bit 14 of the prescaler register." Zeroing the
+        // prescaler also guarantees a full second elapses before TSR first
+        // increments, instead of an arbitrary fraction left over from before.
+        self.info.regs().tpr().write(|w| w.0 = 0);
         self.info.regs().tsr().write(|w| w.0 = seconds);
+
+        // RM 31.3.2: "SR[TIF] is set on POR and software reset and is cleared by
+        // initializing the time seconds register", and the prescaler only
+        // increments while TIF and TOF are clear. The TSR write above cleared
+        // TIF, so the counter can now be enabled.
+        //
+        // Starting here is what makes timekeeping actually run: previously the
+        // only caller of start() was wait_for_alarm_unlocked(), so the counter
+        // stayed frozen at the value set here until an alarm was armed, and an
+        // alarm at "now + N" then fired N seconds after arming rather than N
+        // seconds after the time was set.
+        self.start();
     }
 
     /// Get the current date and time

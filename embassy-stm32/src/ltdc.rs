@@ -269,7 +269,6 @@ impl<'d, T: Instance> Ltdc<'d, T, Rgb565> {
     /// Create a new RGB565 LTDC instance
     pub fn new_with_pins(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl ClkPin<T>>,
         hsync: Peri<'d, impl HsyncPin<T>>,
         vsync: Peri<'d, impl VsyncPin<T>>,
@@ -290,6 +289,7 @@ impl<'d, T: Instance> Ltdc<'d, T, Rgb565> {
         r5: Peri<'d, impl R5Pin<T>>,
         r6: Peri<'d, impl R6Pin<T>>,
         r7: Peri<'d, impl R7Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         Self::setup_clocks();
         let pins = [
@@ -327,7 +327,6 @@ impl<'d, T: Instance> Ltdc<'d, T, Rgb666> {
     /// Create a new RGB666 LTDC instance
     pub fn new_with_pins(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl ClkPin<T>>,
         hsync: Peri<'d, impl HsyncPin<T>>,
         vsync: Peri<'d, impl VsyncPin<T>>,
@@ -350,6 +349,7 @@ impl<'d, T: Instance> Ltdc<'d, T, Rgb666> {
         r5: Peri<'d, impl R5Pin<T>>,
         r6: Peri<'d, impl R6Pin<T>>,
         r7: Peri<'d, impl R7Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         Self::setup_clocks();
         let pins = [
@@ -390,7 +390,6 @@ impl<'d, T: Instance> Ltdc<'d, T, Rgb888> {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_pins(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl ClkPin<T>>,
         hsync: Peri<'d, impl HsyncPin<T>>,
         vsync: Peri<'d, impl VsyncPin<T>>,
@@ -419,6 +418,7 @@ impl<'d, T: Instance> Ltdc<'d, T, Rgb888> {
         r5: Peri<'d, impl R5Pin<T>>,
         r6: Peri<'d, impl R6Pin<T>>,
         r7: Peri<'d, impl R7Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         Self::setup_clocks();
         let pins = [

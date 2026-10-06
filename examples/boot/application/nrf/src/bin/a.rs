@@ -74,7 +74,11 @@ async fn main(_spawner: Spawner) {
     let nvmc = Mutex::new(BlockingAsync::new(nvmc));
 
     let config = FirmwareUpdaterConfig::from_linkerfile(&nvmc, &nvmc);
+
+    #[cfg(feature = "nrf54")]
     let mut magic = [0; 16];
+    #[cfg(not(feature = "nrf54"))]
+    let mut magic = [0; 4];
     let mut updater = FirmwareUpdater::new(config, &mut magic);
     let state = updater.get_state().await.unwrap();
     if state == State::Revert {

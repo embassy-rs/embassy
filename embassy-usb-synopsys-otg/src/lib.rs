@@ -486,6 +486,16 @@ pub struct Config {
     /// voltage divider. See ST application note AN4879 and the reference manual for more details.
     pub vbus_detection: bool,
 
+    /// Override the VBUS detection.
+    ///
+    /// Allows for software controlled VBUS detection when 'vbus_detection' is disabled. Connect a
+    /// voltage shifted VBUS to any digital input and manually set the USB configuration bits.
+    ///
+    /// Enable the VBUS valid override with 'vbvaloven' and control the value with 'vbvaloval'.
+    /// Enable the A-peripheral session valid override with 'avaloen' and control the value with 'avaloval'.
+    /// Enable the B-peripheral session valid override with 'bvaloen' and control the value with 'bvaloval'.
+    pub vbus_valid_override: bool,
+
     /// Enable transceiver delay.
     ///
     /// Some ULPI PHYs like the Microchip USB334x series require a delay between the ULPI register write that initiates
@@ -499,6 +509,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             vbus_detection: false,
+            vbus_valid_override: false,
             xcvrdly: false,
         }
     }
@@ -1018,13 +1029,17 @@ where
         if phy_type == PhyType::InternalHighSpeed {
             r.gccfg_v3().modify(|w| {
                 w.set_vbvaloven(!self.config.vbus_detection);
-                w.set_vbvaloval(!self.config.vbus_detection);
+                if !self.config.vbus_valid_override {
+                    w.set_vbvaloval(!self.config.vbus_detection);
+                }
                 w.set_vbden(self.config.vbus_detection);
             });
         } else {
             r.gotgctl().modify(|w| {
                 w.set_bvaloen(!self.config.vbus_detection);
-                w.set_bvaloval(!self.config.vbus_detection);
+                if !self.config.vbus_valid_override {
+                    w.set_bvaloval(!self.config.vbus_detection);
+                }
             });
             r.gccfg_v3().modify(|w| {
                 w.set_vbden(self.config.vbus_detection);
@@ -1277,7 +1292,7 @@ where
             if !self.inited {
                 self.init_device();
                 // If no vbus detection, just return a single PowerDetected event at startup.
-                if !self.config.vbus_detection {
+                if !self.config.vbus_detection && !self.config.vbus_valid_override {
                     return Poll::Ready(Event::PowerDetected);
                 }
             }
@@ -1294,7 +1309,7 @@ where
                 regs.gintsts().write(|w| w.set_srqint(true)); // clear
                 self.restore_irqs();
 
-                if self.config.vbus_detection {
+                if self.config.vbus_detection || self.config.vbus_valid_override {
                     return Poll::Ready(Event::PowerDetected);
                 }
             }
@@ -1306,7 +1321,7 @@ where
 
                 if otgints.sedet() {
                     trace!("vbus removed");
-                    if self.config.vbus_detection {
+                    if self.config.vbus_detection || self.config.vbus_valid_override {
                         self.disable_all_endpoints();
                         return Poll::Ready(Event::PowerRemoved);
                     }

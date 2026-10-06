@@ -8,7 +8,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
 use embassy_net::udp::UdpSocket;
-use embassy_net::wire::{IpCidr, Ipv6Cidr};
+use embassy_net::wire::{IpCidr, Ipv6Cidr, ListenSocketAddr};
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::RNG;
@@ -50,20 +50,8 @@ async fn main(spawner: Spawner) {
         How to make this work:
 
         - Obtain a NUCLEO-STM32WB55 from your preferred supplier.
-        - Download and Install STM32CubeProgrammer.
-        - Download stm32wb5x_FUS_fw.bin, stm32wb5x_BLE_Mac_802_15_4_fw.bin, and Release_Notes.html from
-          gh:STMicroelectronics/STM32CubeWB@2234d97/Projects/STM32WB_Copro_Wireless_Binaries/STM32WB5x
-        - Open STM32CubeProgrammer
-        - On the right-hand pane, click "firmware upgrade" to upgrade the st-link firmware.
-        - Once complete, click connect to connect to the device.
-        - On the left hand pane, click the RSS signal icon to open "Firmware Upgrade Services".
-        - In the Release_Notes.html, find the memory address that corresponds to your device for the stm32wb5x_FUS_fw.bin file
-        - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
-        - Once complete, in the Release_Notes.html, find the memory address that corresponds to your device for the
-          stm32wb5x_BLE_Mac_802_15_4_fw.bin file. It should not be the same memory address.
-        - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
-        - Select "Start Wireless Stack".
-        - Disconnect from the device.
+        - Run the `fus_update` example: it installs the FUS and the wireless stack on its own,
+          no external tool needed.
         - Run this example.
 
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.
@@ -101,7 +89,7 @@ async fn main(spawner: Spawner) {
     // Generate random seed.
     // let mut rng = Rng::new(p.RNG, Irqs);
     let seed = [0; 8];
-    // let _ = rng.async_fill_bytes(&mut seed).await;
+    // let _ = rng.fill_bytes(&mut seed).await;
     let seed = u64::from_le_bytes(seed);
 
     info!("seed generated");
@@ -113,8 +101,8 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(driver)));
-    unwrap!(iface.add_ip_addr(IpCidr::Ipv6(Ipv6Cidr::new(ipv6_addr, 104))));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(driver)));
+    unwrap!(iface.add_ip_addr(IpCidr::V6(Ipv6Cidr::new(ipv6_addr, 104))));
 
     // wpan runner
     spawner.spawn(unwrap!(run_mac(mac_runner)));
@@ -139,12 +127,12 @@ async fn main(spawner: Spawner) {
 
     let mut socket = unwrap!(UdpSocket::new(stack));
 
-    let remote_endpoint = (Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc00a, 0x2fb), 8000);
+    let remote_addr = (Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc00a, 0x2fb), 8000);
 
     let send_buf = [0u8; 20];
 
-    socket.bind((ipv6_addr, 8000)).unwrap();
-    socket.send_to(&send_buf, remote_endpoint).await.unwrap();
+    socket.bind((ipv6_addr, 8000), ListenSocketAddr::UNSPECIFIED).unwrap();
+    socket.send_to(&send_buf, remote_addr).await.unwrap();
 
     Timer::after(Duration::from_secs(2)).await;
 

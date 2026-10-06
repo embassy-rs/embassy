@@ -210,7 +210,13 @@ fn setup_clkout(mux: Mux, div: Div4) {
         w.set_div(div.into_bits());
     });
 
-    while mrcc.mrcc_clkout_clkdiv().read().unstab() == ClkdivUnstab::On {}
+    // Wait for the divider to report a stable output.
+    //
+    // UNSTAB reads 0b while the divider clock is stable and 1b while it is not
+    // (MCXA2xx RM Rev 2 14.5.2.81, MCXA5xx RM Rev 1 22.5.2.112), so the loop
+    // must spin while the field reads `Off`. Comparing against `On` spun while
+    // the clock was already stable instead.
+    while mrcc.mrcc_clkout_clkdiv().read().unstab() == ClkdivUnstab::Off {}
 }
 
 /// Stop the

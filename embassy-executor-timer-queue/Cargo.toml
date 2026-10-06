@@ -15,7 +15,7 @@ categories = [
 ]
 
 [dependencies]
-unitrait = "1"
+unitrait = { git = "https://github.com/embassy-rs/unitrait", rev = "bb96601b3d293fa27d1ca2891f6ea148e534e433" }
 
 [features]
 #! ### Timer Queue Item Size

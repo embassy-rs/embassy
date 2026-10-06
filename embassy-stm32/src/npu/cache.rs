@@ -4,11 +4,8 @@
 //!
 //! - **CACHEAXI** ("NPU cache"): a write-back cache on the NPU's AXI masters,
 //!   used for weights/activations in external memory. The peripheral base is
-//!   exposed by `stm32-metapac` (as `pac::CACHEAXI`, an opaque `*mut ()`),
-//!   but its register block is not currently modelled in `stm32-data` — so
-//!   the individual registers are still accessed here through a minimal
-//!   hand-written map (offsets from RM0486 / the STM32N6 CMSIS device
-//!   header). Clock and reset still go through `pac::RCC`.
+//!   modelled in `stm32-metapac` as `pac::CACHEAXI`. Clock and reset go
+//!   through `pac::RCC`.
 //! - **The Cortex-M55 data cache**: when input/output buffers live in
 //!   MCU-cacheable memory, the CPU cache must be cleaned before the NPU reads
 //!   and invalidated before the CPU reads back results. The generated network
@@ -20,61 +17,33 @@
 
 use crate::pac;
 
-/// CACHEAXI register base (non-secure alias):
-/// `AHB5PERIPH_BASE_NS (0x4802_0000) + 0x000B_FC00`.
-const CACHEAXI_BASE: u32 = 0x480D_FC00;
-
-const CR1: u32 = CACHEAXI_BASE + 0x000;
-const SR: u32 = CACHEAXI_BASE + 0x004;
-const FCR: u32 = CACHEAXI_BASE + 0x00C;
-const CR2: u32 = CACHEAXI_BASE + 0x100;
-const CMDRSADDRR: u32 = CACHEAXI_BASE + 0x104;
-const CMDREADDRR: u32 = CACHEAXI_BASE + 0x108;
-
-const CR1_EN: u32 = 1 << 0;
-const CR1_CACHEINV: u32 = 1 << 1;
-const SR_BUSYF: u32 = 1 << 0;
-const SR_BSYENDF: u32 = 1 << 1;
-const SR_BUSYCMDF: u32 = 1 << 3;
-const SR_CMDENDF: u32 = 1 << 4;
-const FCR_CBSYENDF: u32 = 1 << 1;
-const FCR_CERRF: u32 = 1 << 2;
-const FCR_CCMDENDF: u32 = 1 << 4;
-const CR2_STARTCMD: u32 = 1 << 0;
-const CMD_CLEAN: u32 = 0b01 << 1;
-const CMD_CLEAN_INVALIDATE: u32 = 0b11 << 1;
-const CR1_RHITMEN: u32 = 1 << 16;
-const CR1_RMISSMEN: u32 = 1 << 17;
-const RHMONR: u32 = CACHEAXI_BASE + 0x010;
-const RMMONR: u32 = CACHEAXI_BASE + 0x014;
-
 /// Raw `(CR1, SR)` state for one-time bring-up diagnostics.
 pub fn npu_cache_debug_state() -> (u32, u32) {
-    (read(CR1), read(SR))
+    (pac::CACHEAXI.cr1().read().0, pac::CACHEAXI.sr().read().0)
 }
 
 /// Reset and start the CACHEAXI read hit/miss monitors.
 pub fn npu_cache_monitor_reset() {
-    const MONITORS: u32 = CR1_RHITMEN | CR1_RMISSMEN;
     // ST's HAL resets a monitor by pulsing its enable mask shifted by two.
-    write(CR1, read(CR1) | (MONITORS << 2));
-    write(CR1, read(CR1) & !(MONITORS << 2));
-    write(CR1, read(CR1) | MONITORS);
+    let cr1 = pac::CACHEAXI.cr1().read();
+    pac::CACHEAXI.cr1().write_value(pac::cacheaxi::regs::Cr1(
+        cr1.0 | ((1 << 18) | (1 << 19)), // RHITMRST | RMISSMRST
+    ));
+    pac::CACHEAXI
+        .cr1()
+        .write_value(pac::cacheaxi::regs::Cr1(cr1.0 & !((1 << 18) | (1 << 19))));
+    pac::CACHEAXI.cr1().modify(|w| {
+        w.set_rhitmen(true);
+        w.set_rmissmen(true);
+    });
 }
 
 /// Return cumulative CACHEAXI `(read_hits, read_misses)` monitor values.
 pub fn npu_cache_read_counters() -> (u32, u32) {
-    (read(RHMONR), read(RMMONR))
-}
-
-#[inline(always)]
-fn read(addr: u32) -> u32 {
-    unsafe { core::ptr::read_volatile(addr as *const u32) }
-}
-
-#[inline(always)]
-fn write(addr: u32, val: u32) {
-    unsafe { core::ptr::write_volatile(addr as *mut u32, val) }
+    (
+        pac::CACHEAXI.rhmonr().read().rhitmon(),
+        pac::CACHEAXI.rmmonr().read().rmissmon(),
+    )
 }
 
 /// Enable the NPU cache (CACHEAXI): switches on its RCC clock, pulses its
@@ -97,37 +66,49 @@ pub fn npu_cache_enable() {
     cortex_m::asm::isb();
 
     // The first enable attempt commonly observes BUSYF; wait it out.
-    while read(SR) & SR_BUSYF != 0 {}
-    write(CR1, read(CR1) | CR1_EN);
+    while pac::CACHEAXI.sr().read().busyf() {}
+    pac::CACHEAXI.cr1().modify(|w| w.set_en(true));
 }
 
 /// Disable the NPU cache and gate its clock.
 pub fn npu_cache_disable() {
-    write(CR1, read(CR1) & !CR1_EN);
+    pac::CACHEAXI.cr1().modify(|w| w.set_en(false));
     pac::RCC.ahb5encr().write(|w| w.set_npucacheenc(true));
 }
 
 /// Invalidate the entire NPU cache. Blocks until done.
 pub fn npu_cache_invalidate() {
-    while read(SR) & (SR_BUSYF | SR_BUSYCMDF) != 0 {}
-    write(FCR, FCR_CBSYENDF);
-    write(CR1, read(CR1) | CR1_CACHEINV);
-    while read(SR) & SR_BSYENDF == 0 {}
-    write(FCR, FCR_CBSYENDF);
+    while pac::CACHEAXI.sr().read().busyf() || pac::CACHEAXI.sr().read().busycmdf() {}
+    pac::CACHEAXI.fcr().write(|w| w.set_cbsyendf(true));
+    pac::CACHEAXI.cr1().modify(|w| w.set_cacheinv(true));
+    while !pac::CACHEAXI.sr().read().bsyendf() {}
+    pac::CACHEAXI.fcr().write(|w| w.set_cbsyendf(true));
 }
 
-fn npu_cache_command(cmd: u32, start: u32, len: u32) {
+const CMD_CLEAN: u8 = 0b01;
+const CMD_CLEAN_INVALIDATE: u8 = 0b11;
+
+fn npu_cache_command(cmd: u8, start: u32, len: u32) {
     if len == 0 {
         return;
     }
-    while read(SR) & (SR_BUSYF | SR_BUSYCMDF) != 0 {}
-    write(FCR, FCR_CBSYENDF | FCR_CCMDENDF | FCR_CERRF);
-    write(CMDRSADDRR, start);
-    write(CMDREADDRR, start + len - 1);
-    write(CR2, cmd);
-    write(CR2, cmd | CR2_STARTCMD);
-    while read(SR) & SR_CMDENDF == 0 {}
-    write(FCR, FCR_CCMDENDF);
+    while pac::CACHEAXI.sr().read().busyf() || pac::CACHEAXI.sr().read().busycmdf() {}
+    pac::CACHEAXI.fcr().write(|w| {
+        w.set_cbsyendf(true);
+        w.set_ccmdendf(true);
+        w.set_cerrf(true);
+    });
+    pac::CACHEAXI.cmdrsaddrr().write(|w| w.set_cmdstartaddr(start >> 6));
+    pac::CACHEAXI
+        .cmdreaddrr()
+        .write(|w| w.set_cmdendaddr((start + len - 1) >> 6));
+    pac::CACHEAXI.cr2().write(|w| w.set_cachecmd(cmd));
+    pac::CACHEAXI.cr2().write(|w| {
+        w.set_cachecmd(cmd);
+        w.set_startcmd(true);
+    });
+    while !pac::CACHEAXI.sr().read().cmdendf() {}
+    pac::CACHEAXI.fcr().write(|w| w.set_ccmdendf(true));
 }
 
 /// Write back (clean) an address range from the NPU cache to memory.
@@ -164,7 +145,7 @@ fn mcu_cache_op(op_reg: u32, start: u32, len: u32) {
     let mut addr = start & !(DCACHE_LINE - 1);
     let end = start.wrapping_add(len);
     while addr < end {
-        write(op_reg, addr);
+        unsafe { core::ptr::write_volatile(op_reg as *mut u32, addr) };
         addr += DCACHE_LINE;
     }
     cortex_m::asm::dsb();

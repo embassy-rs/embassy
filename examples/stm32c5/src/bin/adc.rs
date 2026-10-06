@@ -5,7 +5,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::adc::{Adc, AdcConfig, SampleTime};
+use embassy_stm32::adc::{Adc, Config as AdcConfig, SampleTime};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -23,8 +23,8 @@ async fn main(_spawner: Spawner) {
 
     let adc1_config = AdcConfig::default();
     let adc2_config = AdcConfig::default();
-    let mut adc1 = Adc::new_with_config(p.ADC1, adc1_config);
-    let mut adc2 = Adc::new_with_config(p.ADC2, adc2_config);
+    let mut adc1 = Adc::new_blocking(p.ADC1, adc1_config);
+    let mut adc2 = Adc::new_blocking(p.ADC2, adc2_config);
 
     let mut vrefint_channel = adc1.enable_vrefint();
 

@@ -65,6 +65,7 @@ mod thread {
                     avr_device::interrupt::disable();
                     if !SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
                         avr_device::interrupt::enable();
+                        crate::trace_idle();
                         avr_device::asm::sleep();
                     } else {
                         avr_device::interrupt::enable();

@@ -9,8 +9,8 @@ use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, bind_interrupts, dma, pac, peripherals, usb};
 use embassy_time::Timer;
-use embassy_usb_host::class::hid::HidHost;
-use embassy_usb_host::{BusRoute, BusState};
+use embassy_usb::class::hid::host::HidHost;
+use embassy_usb::host::{BusRoute, BusState};
 use panic_probe as _;
 
 pub use crate::pac::rcc::vals::Mcosel;
@@ -76,11 +76,11 @@ async fn main(_spawner: Spawner) {
     debug!("TCPP03-M20 reg 1: {:02X}", read_buf[0]);
 
     // Create the USB host driver
-    let mut usbhost = usb::UsbHost::new(p.USB, Irqs, p.PA12, p.PA11);
+    let mut usbhost = usb::UsbHost::new(p.USB, p.PA12, p.PA11, Irqs);
     usbhost.start();
 
     static BUS_STATE: BusState = BusState::new();
-    let (mut bus_ctrl, bus) = embassy_usb_host::bus(usbhost, &BUS_STATE);
+    let (mut bus_ctrl, bus) = embassy_usb::host::bus(usbhost, &BUS_STATE);
     info!("USB host initialized, waiting for device...");
 
     loop {

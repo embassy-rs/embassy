@@ -6,8 +6,7 @@ use embassy_hal_internal::PeripheralType;
 
 use crate::dflt::{Acqmod, Cckdir, Ccken, Cicmod, Ckgmod, Datsrc, Rxfifo};
 pub use crate::dflt::{ClockConfig, FilterConfig, SitfConfig, sample_from_dma_word, samples_from_dma_words};
-use crate::dma::ringbuffer::Error as RingbufferError;
-use crate::dma::{Channel, ReadableRingBuffer, TransferOptions};
+use crate::dma::{Channel, ReadableRingBuffer, RingBufferError, TransferOptions};
 use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::adf::Adf as Regs;
@@ -31,12 +30,14 @@ impl Filter for Flt0 {}
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// DMA ring buffer error.
-    Ringbuffer(RingbufferError),
+    Overrun,
 }
 
-impl From<RingbufferError> for Error {
-    fn from(err: RingbufferError) -> Self {
-        Self::Ringbuffer(err)
+impl From<RingBufferError> for Error {
+    fn from(e: RingBufferError) -> Self {
+        match e {
+            RingBufferError::Overrun => Self::Overrun,
+        }
     }
 }
 
@@ -81,13 +82,13 @@ impl<'d, T: Instance> Adf<'d, T> {
     /// `cck` drives the PDM bit clock and `sdi` receives the PDM data stream.
     pub fn new<D>(
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         config: Config,
         cck: Peri<'d, impl CckPin<T>>,
         sdi: Peri<'d, impl SdiPin<T>>,
         dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         dma_buf: &'d mut [u32],
     ) -> Self
     where

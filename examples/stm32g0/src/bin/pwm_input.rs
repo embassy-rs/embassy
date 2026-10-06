@@ -34,7 +34,7 @@ async fn blinky(led: Peri<'static, peripherals::PB1>) {
 }
 
 bind_interrupts!(struct Irqs {
-    TIM2 => timer::CaptureCompareInterruptHandler<peripherals::TIM2>;
+    TIM3_TIM4 => timer::CaptureCompareInterruptHandler<peripherals::TIM3>;
 });
 
 #[embassy_executor::main]
@@ -48,7 +48,7 @@ async fn main(spawner: Spawner) {
     pwm.ch1().set_duty_cycle_fraction(1, 4);
     pwm.ch1().enable();
 
-    let mut pwm_input = PwmInput::new_ch1(p.TIM2, p.PA0, Irqs, Pull::None, khz(1000));
+    let mut pwm_input = PwmInput::new_ch1(p.TIM3, p.PA6, Irqs, Pull::None, khz(1000));
     pwm_input.enable();
 
     loop {

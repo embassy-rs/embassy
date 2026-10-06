@@ -15,6 +15,7 @@ use crate::dma::{Channel, ChannelInstance};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::interrupt::{Interrupt, InterruptExt};
+use crate::mode::{Async, Blocking, Mode};
 use crate::pac::io::vals::{Inover, Outover};
 use crate::{RegExt, dma, interrupt, mode, pac, peripherals};
 
@@ -160,12 +161,37 @@ pub struct UartTx<'d, M: Mode> {
     phantom: PhantomData<M>,
 }
 
+impl<'d, M: Mode> UartTx<'d, M> {
+    fn reborrow(&mut self) -> UartTx<'_, M> {
+        UartTx {
+            info: self.info,
+            tx_dma: self.tx_dma.as_mut().map(|dma| dma.reborrow()),
+            phantom: PhantomData,
+        }
+    }
+}
+
 /// UART RX driver.
 pub struct UartRx<'d, M: Mode> {
     info: &'static Info,
     dma_state: &'static DmaState,
     rx_dma: Option<dma::Channel<'d, mode::Async>>,
+    /// True for a handle produced by `split_ref`, which borrows the peripheral rather than
+    /// owning it and so must not tear it down when it goes out of scope.
+    is_borrowed: bool,
     phantom: PhantomData<M>,
+}
+
+impl<'d, M: Mode> UartRx<'d, M> {
+    fn reborrow(&mut self) -> UartRx<'_, M> {
+        UartRx {
+            info: self.info,
+            dma_state: self.dma_state,
+            rx_dma: self.rx_dma.as_mut().map(|dma| dma.reborrow()),
+            is_borrowed: true,
+            phantom: PhantomData,
+        }
+    }
 }
 
 impl<'d, M: Mode> UartTx<'d, M> {
@@ -240,12 +266,14 @@ impl<'d> UartTx<'d, Blocking> {
         self,
         _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
-    ) -> BufferedUartTx {
+    ) -> BufferedUartTx<'d> {
         buffered::init_buffers(T::info(), T::buffered_state(), Some(tx_buffer), None);
 
         BufferedUartTx {
             info: T::info(),
             state: T::buffered_state(),
+            is_borrowed: false,
+            _phantom: PhantomData,
         }
     }
 }
@@ -301,6 +329,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
             info,
             dma_state,
             rx_dma,
+            is_borrowed: false,
             phantom: PhantomData,
         }
     }
@@ -344,6 +373,10 @@ impl<'d, M: Mode> UartRx<'d, M> {
 
 impl<'d, M: Mode> Drop for UartRx<'d, M> {
     fn drop(&mut self) {
+        if self.is_borrowed {
+            return;
+        }
+
         if self.rx_dma.is_some() {
             self.info.interrupt.disable();
             // clear dma flags. irq handlers use these to disambiguate among themselves.
@@ -369,12 +402,14 @@ impl<'d> UartRx<'d, Blocking> {
         self,
         _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx_buffer: &'d mut [u8],
-    ) -> BufferedUartRx {
+    ) -> BufferedUartRx<'d> {
         buffered::init_buffers(T::info(), T::buffered_state(), None, Some(rx_buffer));
 
         BufferedUartRx {
             info: T::info(),
             state: T::buffered_state(),
+            is_borrowed: false,
+            _phantom: PhantomData,
         }
     }
 }
@@ -407,10 +442,10 @@ impl<'d> UartRx<'d, Async> {
     pub fn new<T: Instance, RxDma: ChannelInstance>(
         _uart: Peri<'d, T>,
         rx: Peri<'d, impl RxPin<T>>,
+        rx_dma: Peri<'d, RxDma>,
         irq: impl Binding<T::Interrupt, InterruptHandler<T>>
         + crate::interrupt::typelevel::Binding<RxDma::Interrupt, crate::dma::InterruptHandler<RxDma>>
         + 'd,
-        rx_dma: Peri<'d, RxDma>,
         config: Config,
     ) -> Self {
         Uart::<Async>::init(T::info(), None, Some(rx.into()), None, None, config);
@@ -760,7 +795,7 @@ impl<'d> Uart<'d, Blocking> {
     }
 
     /// Create a new UART with hardware flow control (RTS/CTS)
-    pub fn new_with_rtscts_blocking<T: Instance>(
+    pub fn new_blocking_with_rtscts<T: Instance>(
         uart: Peri<'d, T>,
         tx: Peri<'d, impl TxPin<T>>,
         rx: Peri<'d, impl RxPin<T>>,
@@ -788,17 +823,21 @@ impl<'d> Uart<'d, Blocking> {
         _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
-    ) -> BufferedUart {
+    ) -> BufferedUart<'d> {
         buffered::init_buffers(T::info(), T::buffered_state(), Some(tx_buffer), Some(rx_buffer));
 
         BufferedUart {
             rx: BufferedUartRx {
                 info: T::info(),
                 state: T::buffered_state(),
+                is_borrowed: false,
+                _phantom: PhantomData,
             },
             tx: BufferedUartTx {
                 info: T::info(),
                 state: T::buffered_state(),
+                is_borrowed: false,
+                _phantom: PhantomData,
             },
         }
     }
@@ -810,12 +849,12 @@ impl<'d> Uart<'d, Async> {
         uart: Peri<'d, T>,
         tx: Peri<'d, impl TxPin<T>>,
         rx: Peri<'d, impl RxPin<T>>,
+        tx_dma: Peri<'d, TxDma>,
+        rx_dma: Peri<'d, RxDma>,
         irq: impl Binding<T::Interrupt, InterruptHandler<T>>
         + Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
         + Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
         + 'd,
-        tx_dma: Peri<'d, TxDma>,
-        rx_dma: Peri<'d, RxDma>,
         config: Config,
     ) -> Self {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
@@ -840,12 +879,12 @@ impl<'d> Uart<'d, Async> {
         rx: Peri<'d, impl RxPin<T>>,
         rts: Peri<'d, impl RtsPin<T>>,
         cts: Peri<'d, impl CtsPin<T>>,
+        tx_dma: Peri<'d, TxDma>,
+        rx_dma: Peri<'d, RxDma>,
         irq: impl Binding<T::Interrupt, InterruptHandler<T>>
         + Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
         + Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
         + 'd,
-        tx_dma: Peri<'d, TxDma>,
-        rx_dma: Peri<'d, RxDma>,
         config: Config,
     ) -> Self {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
@@ -974,21 +1013,7 @@ impl<'d, M: Mode> Uart<'d, M> {
             });
         }
 
-        Self::set_baudrate_inner(info, config.baudrate);
-
-        let (pen, eps) = match config.parity {
-            Parity::ParityNone => (false, false),
-            Parity::ParityOdd => (true, false),
-            Parity::ParityEven => (true, true),
-        };
-
-        r.uartlcr_h().write(|w| {
-            w.set_wlen(config.data_bits.bits());
-            w.set_stp2(config.stop_bits == StopBits::STOP2);
-            w.set_pen(pen);
-            w.set_eps(eps);
-            w.set_fen(true);
-        });
+        Self::set_config_inner(info, config);
 
         r.uartifls().write(|w| {
             w.set_rxiflsel(0b100);
@@ -1063,6 +1088,14 @@ impl<'d, M: Mode> Uart<'d, M> {
     }
 
     fn set_baudrate_inner(info: &Info, baudrate: u32) {
+        Self::set_baudrate_nowait(info, baudrate);
+
+        // wait for tx to clear before returning
+        Self::lcr_modify(info, |_| {});
+    }
+
+    /// Set the baudrate without waiting for the tx to clear
+    fn set_baudrate_nowait(info: &Info, baudrate: u32) {
         let r = info.regs;
 
         let clk_base = crate::clocks::clk_peri_freq();
@@ -1082,8 +1115,28 @@ impl<'d, M: Mode> Uart<'d, M> {
         // Load PL011's baud divisor registers
         r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
         r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
+    }
 
-        Self::lcr_modify(info, |_| {});
+    /// Set the configuration at runtime (ignores pin inversions)
+    pub fn set_config(&mut self, config: Config) {
+        Self::set_config_inner(self.tx.info, config);
+    }
+
+    fn set_config_inner(info: &Info, config: Config) {
+        Self::set_baudrate_nowait(info, config.baudrate);
+        let (pen, eps) = match config.parity {
+            Parity::ParityNone => (false, false),
+            Parity::ParityOdd => (true, false),
+            Parity::ParityEven => (true, true),
+        };
+
+        Self::lcr_modify(info, |w| {
+            w.set_wlen(config.data_bits.bits());
+            w.set_stp2(config.stop_bits == StopBits::STOP2);
+            w.set_pen(pen);
+            w.set_eps(eps);
+            w.set_fen(true);
+        })
     }
 }
 
@@ -1122,8 +1175,8 @@ impl<'d, M: Mode> Uart<'d, M> {
     /// Split the Uart into a transmitter and receiver by mutable reference,
     /// which is particularly useful when having two tasks correlating to
     /// transmitting and receiving.
-    pub fn split_ref(&mut self) -> (&mut UartTx<'d, M>, &mut UartRx<'d, M>) {
-        (&mut self.tx, &mut self.rx)
+    pub fn split_ref(&mut self) -> (UartTx<'_, M>, UartRx<'_, M>) {
+        (self.tx.reborrow(), self.rx.reborrow())
     }
 }
 
@@ -1157,52 +1210,6 @@ impl<'d> Uart<'d, Async> {
     }
 }
 
-impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for UartRx<'d, M> {
-    type Error = Error;
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        let r = self.info.regs;
-        if r.uartfr().read().rxfe() {
-            return Err(nb::Error::WouldBlock);
-        }
-
-        let dr = r.uartdr().read();
-
-        if dr.oe() {
-            Err(nb::Error::Other(Error::Overrun))
-        } else if dr.be() {
-            Err(nb::Error::Other(Error::Break))
-        } else if dr.pe() {
-            Err(nb::Error::Other(Error::Parity))
-        } else if dr.fe() {
-            Err(nb::Error::Other(Error::Framing))
-        } else {
-            Ok(dr.data())
-        }
-    }
-}
-
-impl<'d, M: Mode> embedded_hal_02::serial::Write<u8> for UartTx<'d, M> {
-    type Error = Error;
-
-    fn write(&mut self, word: u8) -> Result<(), nb::Error<Self::Error>> {
-        let r = self.info.regs;
-        if r.uartfr().read().txff() {
-            return Err(nb::Error::WouldBlock);
-        }
-
-        r.uartdr().write(|w| w.set_data(word));
-        Ok(())
-    }
-
-    fn flush(&mut self) -> Result<(), nb::Error<Self::Error>> {
-        let r = self.info.regs;
-        if !r.uartfr().read().txfe() {
-            return Err(nb::Error::WouldBlock);
-        }
-        Ok(())
-    }
-}
-
 impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, M> {
     type Error = Error;
 
@@ -1212,26 +1219,6 @@ impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, M>
 
     fn bflush(&mut self) -> Result<(), Self::Error> {
         self.blocking_flush()
-    }
-}
-
-impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for Uart<'d, M> {
-    type Error = Error;
-
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        embedded_hal_02::serial::Read::read(&mut self.rx)
-    }
-}
-
-impl<'d, M: Mode> embedded_hal_02::serial::Write<u8> for Uart<'d, M> {
-    type Error = Error;
-
-    fn write(&mut self, word: u8) -> Result<(), nb::Error<Self::Error>> {
-        embedded_hal_02::serial::Write::write(&mut self.tx, word)
-    }
-
-    fn flush(&mut self) -> Result<(), nb::Error<Self::Error>> {
-        embedded_hal_02::serial::Write::flush(&mut self.tx)
     }
 }
 
@@ -1247,62 +1234,6 @@ impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, M> {
     }
 }
 
-impl embedded_hal_nb::serial::Error for Error {
-    fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
-        match *self {
-            Self::Framing => embedded_hal_nb::serial::ErrorKind::FrameFormat,
-            Self::Break => embedded_hal_nb::serial::ErrorKind::Other,
-            Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
-            Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
-        }
-    }
-}
-
-impl<'d, M: Mode> embedded_hal_nb::serial::ErrorType for UartRx<'d, M> {
-    type Error = Error;
-}
-
-impl<'d, M: Mode> embedded_hal_nb::serial::ErrorType for UartTx<'d, M> {
-    type Error = Error;
-}
-
-impl<'d, M: Mode> embedded_hal_nb::serial::ErrorType for Uart<'d, M> {
-    type Error = Error;
-}
-
-impl<'d, M: Mode> embedded_hal_nb::serial::Read for UartRx<'d, M> {
-    fn read(&mut self) -> nb::Result<u8, Self::Error> {
-        let r = self.info.regs;
-        if r.uartfr().read().rxfe() {
-            return Err(nb::Error::WouldBlock);
-        }
-
-        let dr = r.uartdr().read();
-
-        if dr.oe() {
-            Err(nb::Error::Other(Error::Overrun))
-        } else if dr.be() {
-            Err(nb::Error::Other(Error::Break))
-        } else if dr.pe() {
-            Err(nb::Error::Other(Error::Parity))
-        } else if dr.fe() {
-            Err(nb::Error::Other(Error::Framing))
-        } else {
-            Ok(dr.data())
-        }
-    }
-}
-
-impl<'d, M: Mode> embedded_hal_nb::serial::Write for UartTx<'d, M> {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.blocking_write(&[char]).map_err(nb::Error::Other)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.blocking_flush().map_err(nb::Error::Other)
-    }
-}
-
 impl<'d> embedded_io::ErrorType for UartTx<'d, Blocking> {
     type Error = Error;
 }
@@ -1314,22 +1245,6 @@ impl<'d> embedded_io::Write for UartTx<'d, Blocking> {
 
     fn flush(&mut self) -> Result<(), Self::Error> {
         self.blocking_flush()
-    }
-}
-
-impl<'d, M: Mode> embedded_hal_nb::serial::Read for Uart<'d, M> {
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        embedded_hal_02::serial::Read::read(&mut self.rx)
-    }
-}
-
-impl<'d, M: Mode> embedded_hal_nb::serial::Write for Uart<'d, M> {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.blocking_write(&[char]).map_err(nb::Error::Other)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.blocking_flush().map_err(nb::Error::Other)
     }
 }
 
@@ -1354,8 +1269,6 @@ struct Info {
     interrupt: Interrupt,
 }
 
-trait SealedMode {}
-
 trait SealedInstance {
     fn info() -> &'static Info;
 
@@ -1363,25 +1276,6 @@ trait SealedInstance {
 
     fn dma_state() -> &'static DmaState;
 }
-
-/// UART mode.
-#[allow(private_bounds)]
-pub trait Mode: SealedMode {}
-
-macro_rules! impl_mode {
-    ($name:ident) => {
-        impl SealedMode for $name {}
-        impl Mode for $name {}
-    };
-}
-
-/// Blocking mode.
-pub struct Blocking;
-/// Async mode.
-pub struct Async;
-
-impl_mode!(Blocking);
-impl_mode!(Async);
 
 /// UART instance.
 #[allow(private_bounds)]

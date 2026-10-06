@@ -19,13 +19,9 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
-use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc::Config as RccConfig;
-use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, exti, interrupt};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
@@ -53,9 +49,6 @@ const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
 // --------------------------------
 
 bind_interrupts!(struct Irqs {
-    RNG    => rng::InterruptHandler<RNG>;
-    AES    => aes::InterruptHandler<AesPeriph>;
-    PKA    => pka::InterruptHandler<PkaPeriph>;
     EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
     RADIO  => HighInterruptHandler;
     HASH   => LowInterruptHandler;
@@ -79,12 +72,7 @@ async fn main(spawner: Spawner) {
     let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
 
     // Initialize hardware peripherals required by BLE stack
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Pka::new(p.PKA, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        8
-    );
+    let (platform, runtime) = new_platform!(8);
 
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));

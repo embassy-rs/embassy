@@ -260,7 +260,7 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
 
-        if !sr_busy(sr) {
+        if !sr.bsy() {
             if sr.optchangeerr() {
                 error!("optchangeerr");
                 return Err(Error::Prog);
@@ -336,6 +336,10 @@ pub fn perform_bank_swap() {
 
 fn sr_busy(sr: Sr) -> bool {
     // Flash is ready only when BSY, DBNE, and WBNE are all cleared.
+    //
+    // The exception being during a write operation where WBNE will
+    // be set until the entire WRITE_SIZE is written.
+    //
     // See RM0522, "Monitoring ongoing write operations".
     sr.bsy() || sr.dbne() || sr.wbne() == vals::Wbne::B0x1
 }

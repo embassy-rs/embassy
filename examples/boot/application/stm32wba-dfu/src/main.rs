@@ -77,7 +77,7 @@ async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::usb::Config::default();
     config.vbus_detection = false;
 
-    let driver = Driver::new_hs(p.USB_OTG_HS, Irqs, p.PD6, p.PD7, &mut ep_out_buffer, config);
+    let driver = Driver::new_hs(p.USB_OTG_HS, p.PD6, p.PD7, Irqs, &mut ep_out_buffer, config);
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Embassy");
     config.product = Some("USB-DFU Runtime example");

@@ -12,6 +12,8 @@ pub use generic_spi::GenericSpi;
 
 #[cfg(feature = "tc6")]
 mod tc6;
+#[cfg(feature = "packetmeta-id")]
+pub use tc6::{PACKET_ID_ALL_PORTS, PACKET_ID_DEFAULT_PORT, PACKET_ID_PORT_MASK, PACKET_ID_PORT1, PACKET_ID_PORT2};
 #[cfg(feature = "tc6")]
 pub use tc6::{Tc6, TxPort};
 

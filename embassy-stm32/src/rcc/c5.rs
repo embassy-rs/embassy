@@ -77,16 +77,23 @@ impl Default for Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    // Turn on clock sources. Keep hsidiv3(the default)
-    // on for now since that will be used during init
-    RCC.cr().modify(|w| {
-        w.set_hsion(config.hsi);
-        w.set_hsidiv3on(true);
+    // Ensure flash remains safe for every possible incoming clock configuration.
+    const MAX_FLASH_LATENCY: u8 = 4;
+    const MAX_FLASH_WRHIGHFREQ: u8 = 0b10;
+
+    FLASH.acr().modify(|w| {
+        w.set_wrhighfreq(MAX_FLASH_WRHIGHFREQ);
+        w.set_latency(MAX_FLASH_LATENCY);
     });
 
+    while FLASH.acr().read().latency() != MAX_FLASH_LATENCY || FLASH.acr().read().wrhighfreq() != MAX_FLASH_WRHIGHFREQ {
+    }
+
+    // Enable the safe fallback clock without disabling the current clock.
+    RCC.cr().modify(|w| w.set_hsidiv3on(true));
     while !RCC.cr().read().hsidiv3rdy() {}
 
-    // Use the HSI/3 clock as system clock during the actual clock setup
+    // Switch to the safe fallback before modifying other clock sources.
     RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsidiv3));
     while RCC.cfgr().read().sws() != Sysclk::Hsidiv3 {}
 
@@ -94,13 +101,8 @@ pub(crate) unsafe fn init(config: Config) {
     let hsi = config.hsi.then_some(HSI_FREQ);
     let hsi_div3 = config.hsi_div3.then_some(Hertz(HSI_FREQ.0 / 3));
 
-    // Turn set the clock sources per the config
-    RCC.cr().modify(|w| {
-        w.set_hsion(config.hsi);
-        w.set_hsidiv3on(config.hsi_div3);
-    });
-
     if config.hsi {
+        RCC.cr().modify(|w| w.set_hsion(true));
         while !RCC.cr().read().hsirdy() {}
     }
     if config.hsi_div3 {
@@ -114,6 +116,20 @@ pub(crate) unsafe fn init(config: Config) {
             None
         }
         Some(hse) => {
+            let valid_range = match hse.mode {
+                HseMode::Oscillator => &max::HSE_OSC,
+                HseMode::Bypass => &max::HSE_BYP_ANALOG,
+                HseMode::BypassDigital => &max::HSE_BYP_DIGITAL,
+            };
+
+            assert!(
+                valid_range.contains(&hse.freq),
+                "HSE frequency is outside the supported range"
+            );
+
+            RCC.cr().modify(|w| w.set_hseon(false));
+            while RCC.cr().read().hserdy() {}
+
             RCC.cr().modify(|w| {
                 w.set_hsebyp(hse.mode != HseMode::Oscillator);
                 w.set_hseext(match hse.mode {
@@ -157,8 +173,6 @@ pub(crate) unsafe fn init(config: Config) {
     let adc_dac = adc_dac / config.adcdac_pre;
     assert!(max::ADC_DAC.contains(&adc_dac));
 
-    flash_setup(hclk);
-
     //let rtc = config.ls.init();
 
     RCC.cfgr2().modify(|w| w.set_hpre(config.ahb_pre));
@@ -172,6 +186,22 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.cfgr().modify(|w| w.set_sw(config.sys));
     while RCC.cfgr().read().sws() != config.sys {}
+
+    // The final HCLK is now active, so latency can be relaxed
+    flash_setup(hclk);
+
+    RCC.cr().modify(|w| {
+        w.set_hsion(config.hsi);
+        w.set_hsidiv3on(config.hsi_div3);
+    });
+
+    if !config.hsi {
+        while RCC.cr().read().hsirdy() {}
+    }
+
+    if !config.hsi_div3 {
+        while RCC.cr().read().hsidiv3rdy() {}
+    }
 
     RCC.ccipr2().modify(|w| {
         w.set_adcdacpre(config.adcdac_pre);
@@ -220,7 +250,7 @@ fn flash_setup(hclk: Hertz) {
 
     debug!("flash: latency={} wrhighfreq={}", latency, wrhighfreq);
 
-    FLASH.acr().write(|w| {
+    FLASH.acr().modify(|w| {
         w.set_wrhighfreq(wrhighfreq);
         w.set_latency(latency);
     });
@@ -232,11 +262,11 @@ mod max {
 
     use crate::time::Hertz;
 
-    // pub(crate) const HSE_OSC: RangeInclusive<Hertz> = Hertz(4_000_000)..=Hertz(50_000_000);
-    // pub(crate) const HSE_BYP_ANALOG: RangeInclusive<Hertz> = Hertz(4_000_000)..=Hertz(50_000_000);
-    // pub(crate) const HSE_BYP_DIGITAL: RangeInclusive<Hertz> = Hertz(0)..=Hertz(50_000_000);
+    pub(crate) const HSE_OSC: RangeInclusive<Hertz> = Hertz(4_000_000)..=Hertz(50_000_000);
+    pub(crate) const HSE_BYP_ANALOG: RangeInclusive<Hertz> = Hertz(4_000_000)..=Hertz(50_000_000);
+    pub(crate) const HSE_BYP_DIGITAL: RangeInclusive<Hertz> = Hertz(1)..=Hertz(50_000_000);
     pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(144_000_000);
     pub(crate) const PCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(144_000_000);
     pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(144_000_000);
-    pub(crate) const ADC_DAC: RangeInclusive<Hertz> = Hertz(8)..=Hertz(36_000_000);
+    pub(crate) const ADC_DAC: RangeInclusive<Hertz> = Hertz(8_000_000)..=Hertz(36_000_000);
 }

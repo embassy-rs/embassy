@@ -1,6 +1,5 @@
 //! GPDMA ring buffer implementation.
 //!
-//! FIXME: Add request_pause functionality?
 //! FIXME: Stop the DMA, if a user does not queue new transfers (chain of linked-list items ends automatically).
 use core::future::poll_fn;
 use core::sync::atomic::{Ordering, fence};
@@ -9,9 +8,9 @@ use core::task::Waker;
 use super::{Channel, STATE, TransferOptions};
 use crate::_generated::ringbuffer_table;
 use crate::dma::gpdma::linked_list::{LinearItem, RunMode, Table};
-use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
+use crate::dma::ringbuffer::{DmaCtrl, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
-use crate::dma::{Dir, Request};
+use crate::dma::{Dir, Request, RingBufferError};
 use crate::rcc::WakeGuard;
 
 /// DmaCtrl implementation for GPDMA linked-list ring buffers.
@@ -89,7 +88,9 @@ pub struct ReadableRingBuffer<'a, W: Word> {
 }
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
-    /// Create a new ring buffer.
+    /// Create a new empty ring buffer.
+    ///
+    /// You must call [`start`](Self::start) after creating ring buffer for it to work.
     ///
     /// Transfer options are applied to the individual linked list items.
     /// Half-transfer and transfer-complete IRQs are always enabled (same as BDMA ring
@@ -136,9 +137,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     ///
-    /// You must call this after creating it for it to work.
-    ///
-    /// It starts the channel and makes it run, even if earlier it was suspended (paused).
+    /// You must call this after creating ring buffer for it to work.
     pub fn start(&mut self) {
         self.channel.request_resume(); // clear SUSP if previously paused
     }
@@ -160,8 +159,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
     /// The length remaining is the capacity, ring_buf.sync_len(), less the elements remaining after the read
     /// Error is returned if the portion to be read was overwritten by the DMA controller.
-    pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), Error> {
-        self.ringbuf.read(&mut DmaCtrlImpl::new(self.channel.reborrow()), buf)
+    pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), RingBufferError> {
+        Ok(self.ringbuf.read(&mut DmaCtrlImpl::new(self.channel.reborrow()), buf)?)
     }
 
     /// Read an exact number of elements from the ringbuffer.
@@ -175,14 +174,15 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// ring buffer was created with a buffer of size 'N':
     /// - If M equals N/2 or N/2 divides evenly into M, this function will return every N/2 elements read on the DMA source.
     /// - Otherwise, this function may need up to N/2 extra elements to arrive before returning.
-    pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, Error> {
-        self.ringbuf
+    pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, RingBufferError> {
+        Ok(self
+            .ringbuf
             .read_exact(&mut DmaCtrlImpl::new(self.channel.reborrow()), buffer)
-            .await
+            .await?)
     }
 
     /// The current length of the ringbuffer
-    pub fn len(&mut self) -> Result<usize, Error> {
+    pub fn len(&mut self) -> Result<usize, RingBufferError> {
         Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl::new(self.channel.reborrow()))?)
     }
 
@@ -209,27 +209,12 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         DmaCtrlImpl::new(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// Stop the ring buffer operation.
+    /// To resume the transfer, call [`start`](Self::start).
     ///
-    /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_pause(&mut self) {
+    pub fn stop(&mut self) {
         self.channel.request_pause()
-    }
-
-    /// Request the transfer to resume after having been paused.
-    pub fn request_resume(&mut self) {
-        self.channel.request_resume()
-    }
-
-    /// Request the DMA to reset.
-    ///
-    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
-    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
-    ///
-    /// Additionally reset causes the channel to unsuspend (resume).
-    pub fn request_reset(&mut self) {
-        self.channel.request_reset();
     }
 
     /// Return whether this transfer is still running.
@@ -240,6 +225,9 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         self.channel.is_running()
     }
 
+    /// Warning:
+    /// This function is legacy and on GPDMA has no effect except waiting.
+    ///
     /// Stop the DMA transfer and await until the buffer is full.
     ///
     /// This disables the DMA transfer's circular mode so that the transfer
@@ -247,7 +235,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// This is designed to be used with streaming input data such as the
     /// I2S/SAI or ADC.
-    pub async fn stop(&mut self) {
+    pub async fn disable_circular_and_wait(&mut self) {
         // wait until cr.susp reads as true
         poll_fn(|cx| {
             self.set_waker(cx.waker());
@@ -259,7 +247,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
 impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
     fn drop(&mut self) {
-        self.request_reset();
+        self.channel.request_reset();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
@@ -275,7 +263,9 @@ pub struct WritableRingBuffer<'a, W: Word> {
 }
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
-    /// Create a new ring buffer.
+    /// Create a new ring buffer filled with the given buffer data.
+    ///
+    /// You must call [`start`](Self::start) after creating ring buffer for it to work.
     ///
     /// Transfer options are applied to the individual linked list items.
     /// Half-transfer and transfer-complete IRQs are always enabled (same as BDMA ring
@@ -322,9 +312,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     ///
-    /// You must call this after creating it for it to work.
-    ///
-    /// It starts the channel and makes it run, even if earlier it was suspended (paused).
+    /// You must call this after creating ring buffer for it to work.
     pub fn start(&mut self) {
         self.channel.request_resume(); // clear SUSP if previously paused
     }
@@ -334,34 +322,32 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         self.ringbuf.reset(&mut DmaCtrlImpl::new(self.channel.reborrow()));
     }
 
-    /// Write elements directly to the raw buffer.
-    /// This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ringbuf.write_immediate(buf)
-    }
-
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
-    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ringbuf.write(&mut DmaCtrlImpl::new(self.channel.reborrow()), buf)
+    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), RingBufferError> {
+        Ok(self
+            .ringbuf
+            .write(&mut DmaCtrlImpl::new(self.channel.reborrow()), buf)?)
     }
 
     /// Write an exact number of elements to the ringbuffer.
-    pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, Error> {
-        self.ringbuf
+    pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, RingBufferError> {
+        Ok(self
+            .ringbuf
             .write_exact(&mut DmaCtrlImpl::new(self.channel.reborrow()), buffer)
-            .await
+            .await?)
     }
 
     /// Wait for any ring buffer write error.
-    pub async fn wait_write_error(&mut self) -> Result<usize, Error> {
-        self.ringbuf
+    pub async fn wait_write_error(&mut self) -> Result<usize, RingBufferError> {
+        Ok(self
+            .ringbuf
             .wait_write_error(&mut DmaCtrlImpl::new(self.channel.reborrow()))
-            .await
+            .await?)
     }
 
-    /// The current length of the ringbuffer
-    pub fn len(&mut self) -> Result<usize, Error> {
+    /// The free capacity of the ring buffer.
+    pub fn len(&mut self) -> Result<usize, RingBufferError> {
         Ok(self.ringbuf.sync_len(&mut DmaCtrlImpl::new(self.channel.reborrow()))?)
     }
 
@@ -382,26 +368,12 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         DmaCtrlImpl::new(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request the DMA to suspend.
-    ///
-    /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
+    /// Stop the ring buffer operation.
+    /// To resume the transfer, call [`start`](Self::start).
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_pause(&mut self) {
+    pub fn stop(&mut self) {
         self.channel.request_pause()
-    }
-
-    /// Request the DMA to resume transfers after being suspended.
-    pub fn request_resume(&mut self) {
-        self.channel.request_resume()
-    }
-
-    /// Request the DMA to reset.
-    ///
-    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
-    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
-    pub fn request_reset(&mut self) {
-        self.channel.request_reset();
     }
 
     /// Return whether DMA is still running.
@@ -412,6 +384,9 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         self.channel.is_running()
     }
 
+    /// Warning:
+    /// This function is legacy and on GPDMA has no effect except waiting.
+    ///
     /// Stop the DMA transfer and await until the buffer is full.
     ///
     /// This disables the DMA transfer's circular mode so that the transfer
@@ -421,7 +396,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// I2S/SAI or ADC.
     ///
     /// When using the UART, you probably want `request_stop()`.
-    pub async fn stop(&mut self) {
+    pub async fn disable_circular_and_wait(&mut self) {
         // wait until cr.susp reads as true
         poll_fn(|cx| {
             self.set_waker(cx.waker());
@@ -433,7 +408,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
 impl<'a, W: Word> Drop for WritableRingBuffer<'a, W> {
     fn drop(&mut self) {
-        self.request_reset();
+        self.channel.request_reset();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."

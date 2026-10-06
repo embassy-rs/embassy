@@ -47,11 +47,11 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
     pub fn new(
         pio: &mut Common<'d, T>,
         mut sm: StateMachine<'d, T, SM>,
-        irq: Irq<'d, T, SM>,
         pin0: Peri<'d, impl PioPin>,
         pin1: Peri<'d, impl PioPin>,
         pin2: Peri<'d, impl PioPin>,
         pin3: Peri<'d, impl PioPin>,
+        irq: Irq<'d, T, SM>,
         program: &PioStepperProgram<'d, T>,
     ) -> Self {
         let pin0 = pio.make_pio_pin(pin0);

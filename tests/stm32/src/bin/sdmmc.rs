@@ -53,13 +53,13 @@ async fn main(_spawner: Spawner) {
         let mut s = Sdmmc::new_4bit(
             sdmmc.reborrow(),
             dma.reborrow(),
-            Irqs,
             clk.reborrow(),
             cmd.reborrow(),
             d0.reborrow(),
             d1.reborrow(),
             d2.reborrow(),
             d3.reborrow(),
+            Irqs,
             Default::default(),
         );
 
@@ -148,10 +148,10 @@ async fn main(_spawner: Spawner) {
         let mut s = Sdmmc::new_1bit(
             sdmmc.reborrow(),
             dma.reborrow(),
-            Irqs,
             clk.reborrow(),
             cmd.reborrow(),
             d0.reborrow(),
+            Irqs,
             Default::default(),
         );
 
