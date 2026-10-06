@@ -24,11 +24,11 @@ build = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-v$VERSION/embassy-time/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time/src/"
-features = ["defmt", "std"]
+features = ["defmt", "std", "mock-driver"]
 target = "x86_64-unknown-linux-gnu"
 
 [package.metadata.docs.rs]
-features = ["defmt", "std"]
+features = ["defmt", "std", "mock-driver"]
 
 [features]
 ## Enable defmt
