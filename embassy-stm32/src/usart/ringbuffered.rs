@@ -220,12 +220,13 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
     fn start_dma_or_check_errors(&mut self) -> Result<(), Error> {
         let r = self.info.regs;
 
-        if check_idle_and_errors(r)?.1 {
-            self.state.tc_flag.store(true, Ordering::Release);
-            self.state.tx_waker.wake();
-        }
+        let status = check_idle_and_errors(r);
         if !r.cr3().read().dmar() {
             self.start();
+        }
+        if status?.1 {
+            self.state.tc_flag.store(true, Ordering::Release);
+            self.state.tx_waker.wake();
         }
         Ok(())
     }
