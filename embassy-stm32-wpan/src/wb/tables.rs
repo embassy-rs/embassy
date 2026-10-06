@@ -17,10 +17,10 @@ pub struct SafeBootInfoTable {
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
-pub struct RssInfoTable {
+pub struct FusInfoTable {
     pub version: u32,
     pub memory_size: u32,
-    pub rss_info: u32,
+    pub fus_info: u32,
 }
 
 /**
@@ -42,8 +42,8 @@ pub struct RssInfoTable {
 pub struct WirelessFwInfoTable {
     pub version: u32,
     pub memory_size: u32,
-    pub thread_info: u32,
-    pub ble_info: u32,
+    pub info_stack: u32,
+    pub reserved: u32,
 }
 
 impl WirelessFwInfoTable {
@@ -79,13 +79,50 @@ impl WirelessFwInfoTable {
         let memory_size = self.memory_size;
         (memory_size.clone().get_bits(16..23) & 0xff) as u8
     }
+
+    /// Type of the installed wireless stack (see ST's `INFO_STACK_TYPE_*` constants).
+    pub fn stack_type(&self) -> u32 {
+        self.info_stack
+    }
+}
+
+/// Marker written by the FUS into the first word of the device info table when it is
+/// running on CPU2. In that case the table does not have the [`DeviceInfoTable`] layout;
+/// it is a [`FusDeviceInfoTable`] instead (see ST's `mbox_def.h`).
+pub const FUS_DEVICE_INFO_TABLE_VALIDITY_KEYWORD: u32 = 0xA94656B9;
+
+/// Device info table as rewritten by the FUS while it is running on CPU2.
+///
+/// The FUS writes this over the device info table handed to it via the reference table.
+/// It reports both the FUS itself and the wireless stack installed in flash (if any).
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct FusDeviceInfoTable {
+    pub device_info_table_state: u32,
+    pub state_flags: u32,
+    pub safe_boot_version: u32,
+    pub fus_version: u32,
+    pub fus_memory_size: u32,
+    pub wireless_stack_version: u32,
+    pub wireless_stack_memory_size: u32,
+    pub wireless_firmware_ble_info: u32,
+    pub wireless_firmware_thread_info: u32,
+    pub reserved2: u32,
+    pub uid64: u64,
+    pub device_id: u16,
+}
+
+impl FusDeviceInfoTable {
+    pub fn is_valid(&self) -> bool {
+        self.device_info_table_state == FUS_DEVICE_INFO_TABLE_VALIDITY_KEYWORD
+    }
 }
 
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct DeviceInfoTable {
     pub safe_boot_info_table: SafeBootInfoTable,
-    pub rss_info_table: RssInfoTable,
+    pub fus_info_table: FusInfoTable,
     pub wireless_fw_info_table: WirelessFwInfoTable,
 }
 
