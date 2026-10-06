@@ -12,9 +12,8 @@ use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::usb::{self, Driver};
 use embassy_nrf::{Peri, bind_interrupts, peripherals};
 use embassy_time::Timer;
-use embassy_usb::class::hid::{
-    HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State,
-};
+use embassy_usb::class::hid::device::{HidReaderWriter, RequestHandler, State};
+use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, ReportId};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler, UsbDeviceSpeed};
 use panic_probe as _;
@@ -69,7 +68,7 @@ async fn main(_spawner: Spawner) {
     );
     builder.handler(&mut device_handler);
 
-    let config = embassy_usb::class::hid::Config {
+    let config = embassy_usb::class::hid::device::Config {
         report_descriptor: MouseReport::desc(),
         request_handler: Some(&mut control_handler),
         poll_ms: 60,

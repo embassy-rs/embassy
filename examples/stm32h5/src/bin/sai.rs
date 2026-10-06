@@ -95,6 +95,11 @@ async fn main(_spawner: Spawner) {
 
     info!("Test signal buffer prepared, starting playback loop");
 
+    // The SAI driver's `write` does not start the ring buffer automatically. The ring must
+    // be filled and started explicitly.
+    sai_a.write(&test_data).await.ok();
+    sai_a.start();
+
     loop {
         if let Err(e) = sai_a.write(&test_data).await {
             info!("SAI write error: {:?}", e);

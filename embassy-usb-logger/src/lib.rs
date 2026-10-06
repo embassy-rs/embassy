@@ -7,7 +7,7 @@ use core::future::Future;
 
 use embassy_futures::join::join;
 use embassy_sync::pipe::Pipe;
-use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::{Driver, EndpointError};
 use embassy_usb::{Builder, Config};
 use log::{Metadata, Record};

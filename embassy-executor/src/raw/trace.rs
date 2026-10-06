@@ -7,8 +7,8 @@
 //! ends, and is re-spawned, it MAY or MAY NOT have the same ID. While a task is active, the id will not change.
 //! For executors, the same applies, but the IDs will be stable for practical embedded programs.
 //!
-//! Callbacks can be used by enabling the `trace` feature, implementing the `Trace`
-//! trait, and registering the implementation with the `embassy_executor::trace_impl!` macro.
+//! Callbacks can be used by enabling the `trace` feature, implementing the [`Trace`]
+//! trait, and registering the implementation with the [`trace_impl!`](crate::trace_impl) macro.
 //! All callbacks must be implemented.
 //!
 //! ## Task Tracing lifecycle
@@ -32,16 +32,16 @@
 //!   └──────────────────────┘
 //! ```
 //!
-//! 1. A task is spawned, `task_new` is called
-//! 2. A task is enqueued for the first time, `task_ready_begin` is called
-//! 3. A task is polled, `task_exec_begin` is called
-//! 4. WHILE a task is polled, the task is re-awoken, and `task_ready_begin` is
+//! 1. A task is spawned, [`task_new`](Trace::task_new) is called
+//! 2. A task is enqueued for the first time, [`task_ready_begin`](Trace::task_ready_begin) is called
+//! 3. A task is polled, [`task_exec_begin`](Trace::task_exec_begin) is called
+//! 4. WHILE a task is polled, the task is re-awoken, and [`task_ready_begin`](Trace::task_ready_begin) is
 //!      called. The task does not IMMEDIATELY move state, until polling is complete and the
-//!      RUNNING state is existed. `task_exec_end` is called when polling is
+//!      RUNNING state is exited. [`task_exec_end`](Trace::task_exec_end) is called when polling is
 //!      complete, marking the transition to WAITING
-//! 5. Polling is complete, `task_exec_end` is called
-//! 6. The task has completed, and `task_end` is called
-//! 7. A task is awoken, `task_ready_begin` is called
+//! 5. Polling is complete, [`task_exec_end`](Trace::task_exec_end) is called
+//! 6. The task has completed, and [`task_end`](Trace::task_end) is called
+//! 7. A task is awoken, [`task_ready_begin`](Trace::task_ready_begin) is called
 //!
 //! ## Executor Tracing lifecycle
 //!
@@ -61,21 +61,21 @@
 //! ```
 //!
 //! 1. The executor is started (no associated trace)
-//! 2. A task on this executor is awoken. `task_ready_begin` is called
-//!      when this occurs, and `poll_start` is called when the executor
+//! 2. A task on this executor is awoken. [`task_ready_begin`](Trace::task_ready_begin) is called
+//!      when this occurs, and [`poll_start`](Trace::poll_start) is called when the executor
 //!      actually begins running
-//! 3. The executor has decided a task to poll. `task_exec_begin` is called
-//! 4. The executor finishes polling the task. `task_exec_end` is called
-//! 5. The executor has finished polling tasks. `executor_idle` is called
+//! 3. The executor has decided a task to poll. [`task_exec_begin`](Trace::task_exec_begin) is called
+//! 4. The executor finishes polling the task. [`task_exec_end`](Trace::task_exec_end) is called
+//! 5. The executor has finished polling tasks. [`executor_idle`](Trace::executor_idle) is called
 //!
 //! ## Idle
 //!
-//! `executor_idle` only means that a single executor has run out of work. With
+//! [`executor_idle`](Trace::executor_idle) only means that a single executor has run out of work. With
 //! multiple executors (e.g. a thread-mode executor plus one or more interrupt
 //! executors), an interrupt executor going idle returns to the preempted
 //! lower-priority context, which keeps running. The current thread/core is only
 //! idle when its thread-mode executor reaches its sleep site, at which point
-//! `idle` is called. In multi-core chips, or when using threads under std or an
+//! [`idle`](Trace::idle) is called. In multi-core chips, or when using threads under std or an
 //! RTOS, this does not mean the entire system is idle.
 
 use crate::ExecutorId;
@@ -85,45 +85,45 @@ unitrait::unitrait! {
     /// Executor trace hooks.
     ///
     /// Implement this trait and register the implementation with the
-    /// `embassy_executor::trace_impl!` macro to receive callbacks on task and executor
+    /// [`trace_impl!`](crate::trace_impl) macro to receive callbacks on task and executor
     /// lifecycle events. All callbacks must be implemented.
     ///
-    /// See the [module documentation](super) for the task and executor tracing lifecycles.
+    /// See the [module documentation](crate::raw::trace) for the task and executor tracing lifecycles.
     #[symbol_prefix = "_embassy_trace_v2"]
     pub trait Trace {
         /// This callback is called when the executor begins polling. This will always
-        /// be paired with a later call to `executor_idle`.
+        /// be paired with a later call to [`executor_idle`](Self::executor_idle).
         ///
         /// This marks the EXECUTOR state transition from IDLE -> SCHEDULING.
         fn poll_start(executor: ExecutorId);
 
         /// This callback is called AFTER a task is initialized/allocated, and BEFORE
         /// it is enqueued to run for the first time. If the task ends (and does not
-        /// loop "forever"), there will be a matching call to `task_end`.
+        /// loop "forever"), there will be a matching call to [`task_end`](Self::task_end).
         ///
         /// Tasks start life in the SPAWNED state.
         fn task_new(executor: ExecutorId, task: TaskRef);
 
         /// This callback is called AFTER a task is destructed/freed. This will always
-        /// have a prior matching call to `task_new`.
+        /// have a prior matching call to [`task_new`](Self::task_new).
         fn task_end(executor: ExecutorId, task: TaskRef);
 
         /// This callback is called AFTER a task has been dequeued from the runqueue,
         /// and BEFORE the task is polled. There will always be a matching call to
-        /// `task_exec_end`.
+        /// [`task_exec_end`](Self::task_exec_end).
         ///
         /// This marks the TASK state transition from WAITING -> RUNNING
         /// This marks the EXECUTOR state transition from SCHEDULING -> POLLING
         fn task_exec_begin(executor: ExecutorId, task: TaskRef);
 
         /// This callback is called AFTER a task has completed polling. There will
-        /// always be a matching call to `task_exec_begin`.
+        /// always be a matching call to [`task_exec_begin`](Self::task_exec_begin).
         ///
         /// This marks the TASK state transition from either:
-        /// * RUNNING -> IDLE - if there were no `task_ready_begin` events
-        ///     for this task since the last `task_exec_begin` for THIS task
-        /// * RUNNING -> WAITING - if there WAS a `task_ready_begin` event
-        ///     for this task since the last `task_exec_begin` for THIS task
+        /// * RUNNING -> IDLE - if there were no [`task_ready_begin`](Self::task_ready_begin) events
+        ///     for this task since the last [`task_exec_begin`](Self::task_exec_begin) for THIS task
+        /// * RUNNING -> WAITING - if there WAS a [`task_ready_begin`](Self::task_ready_begin) event
+        ///     for this task since the last [`task_exec_begin`](Self::task_exec_begin) for THIS task
         ///
         /// This marks the EXECUTOR state transition from POLLING -> SCHEDULING
         fn task_exec_end(executor: ExecutorId, task: TaskRef);
@@ -143,7 +143,7 @@ unitrait::unitrait! {
 
         /// This callback is called AFTER all dequeued tasks in a single call to poll
         /// have been processed. This will always be paired with a call to
-        /// `poll_start`.
+        /// [`poll_start`](Self::poll_start).
         ///
         /// This marks the EXECUTOR state transition from SCHEDULING -> IDLE
         fn executor_idle(executor: ExecutorId);
@@ -151,7 +151,7 @@ unitrait::unitrait! {
         /// This callback is called right before the thread-mode executor puts the
         /// current thread/core to sleep (e.g. `wfe`/`wfi`).
         ///
-        /// Unlike `executor_idle`, this is never called by interrupt executors,
+        /// Unlike [`executor_idle`](Self::executor_idle), this is never called by interrupt executors,
         /// since they return to a preempted context after polling and the system
         /// keeps running.
         ///

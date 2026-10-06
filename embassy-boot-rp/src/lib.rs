@@ -16,7 +16,7 @@ use embassy_rp::watchdog::Watchdog;
 use embassy_time::Duration;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
-/// A bootloader for RP2040 devices.
+/// A bootloader for RP2040, RP235x devices.
 pub struct BootLoader<const BUFFER_SIZE: usize = ERASE_SIZE> {
     /// The reported state of the bootloader after preparing for boot
     pub state: State,

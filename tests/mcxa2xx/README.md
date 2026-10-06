@@ -4,6 +4,7 @@
 - [x] GPIO + interrupts
 - [x] I2C controller + target
 - [x] Uart
+- [x] LPUART BBQueue continuous DMA RX
 - [x] ADC
 - [x] I3C
 - [x] CRC

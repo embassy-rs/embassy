@@ -41,6 +41,10 @@ Crypto:
 
 CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
+- fix: stm32/fdcan: apply `FdCanConfig::timestamp_source`. It was ignored and the timestamp counter always ran from the kernel clock, and `TimestampPrescaler` wrote the prescaler value instead of `TCP = prescaler - 1`.
+- fix: stm32/fdcan: the TX buffer element kept only 7 of the 8 message marker bits.
+- feat: stm32/fdcan: with `TimestampSource::FromTIM3` and TIM3 as the embassy time driver, RX and TX event timestamps are the exact start-of-frame instants.
+- feat: stm32/fdcan: `write_marked` / `write_fd_marked` store a TX event with a message marker; `dequeue_tx_event` reads the id, marker and timestamp back from the TX event FIFO.
 
 Ethernet:
 - fix: stm32/eth v2: place a memory barrier before handing a descriptor to the DMA, so the buffer address and the frame contents are visible to it first.
@@ -48,6 +52,7 @@ Ethernet:
 USB:
 - fix: OTG_FS on STM32F1 uses 4 endpoints and 320 FIFO words.
 - fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
+- fix: OTG_HS on STM32N6 no longer hangs the bus while bringing up the USB HS PHY: USBPHYC is now programmed with the OTG core clocked and the USBPHYC block out of reset, as in ST's own example.
 
 DMA:
 - fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
@@ -225,6 +230,7 @@ STM32N6:
 - feat: stm32n6: add LTDC support
 - feat: stm32n6: rewrite RISAF access from raw pointer to PAC
 - feat: stm32n6: implement ClockCalculations for IC1 and IC2
+- feat: stm32/npu: add `npu::epoch` software epochs (softmax, dequantization, argmax) behind the new `npu-nn` feature, backed by `embedded-nn`
 
 STM32H7RS:
 - feat: stm32h7rs: add SYSCFG control for internal flash config

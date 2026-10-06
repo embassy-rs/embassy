@@ -88,17 +88,18 @@ async fn main(_spawner: Spawner) {
         )
     });
 
-    let channel_mic = split
-        .ch1
-        .build_spi_int(&common, InternalSpiMode::SpiRising)
-        .set_data_right_shift(DataRightShift::new(0))
-        .enable();
+    let (channel_mic, filters) = split.build(&common, |tb| {
+        tb.ch1
+            .build_spi_int(&common, InternalSpiMode::SpiRising)
+            .set_data_right_shift(DataRightShift::new(0))
+            .enable()
+    });
 
     let flt_cfg = FilterConfig {
         filter_params: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 100 }, 50).expect("inside bounds"),
         ..Default::default()
     };
-    let mut _flt0 = split
+    let mut _flt0 = filters
         .flt0
         .build(&common, Irqs)
         .enable_no_dma(&channel_mic, [&channel_mic], &flt_cfg);
@@ -106,9 +107,9 @@ async fn main(_spawner: Spawner) {
     let Detectors {
         mut short_circuit,
         clock_absence: _,
-    } = split.detectors.build(&common, Irqs);
-    short_circuit.assign_transceivers([ShortCircuitAssignment::new(&channel_mic, 12)]);
-    short_circuit.assign_break_signals(&channel_mic, BreakSignals::BREAK0);
+    } = filters.detectors.build(&common, Irqs);
+    short_circuit.assign_thresholds([ShortCircuitAssignment::new(&channel_mic, 12)]);
+    short_circuit.assign_breaks(&channel_mic, BreakSignals::BREAK0);
 
     // TIM1: free-running counter, break routed from DFSDM1_BREAK0.
     let tim1 = Timer::new(p.TIM1);

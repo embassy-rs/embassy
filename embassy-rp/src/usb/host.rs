@@ -949,6 +949,17 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         T::regs().sie_ctrl().modify(|w| {
             w.set_start_trans(true);
         });
+        // A pipe that queued for EPX asked for a yield before this transaction
+        // started, and taking EPX cleared that request. Ask again now that the
+        // transaction runs, or this one keeps EPX through every NAK and the
+        // queued pipe waits until something else polls it.
+        #[cfg(feature = "_rp235x")]
+        {
+            let slot = self.epx_slot();
+            if T::host_state().with_arbiter(|a| a.waiting & !(1 << slot) != 0) {
+                arm_epx_yield::<T>();
+            }
+        }
 
         trace!("CHANNEL {} WAIT TRANSACTION", self.index);
         let res = poll_fn(|cx| {
@@ -1011,9 +1022,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 w.set_buffer_address(self.buf.addr);
                 w.set_enable(true);
             });
-
-            // FIXME: What is this for?
-            regs.sie_ctrl().modify(|w| w.set_sof_sync(true));
 
             self.addr_endp_host().write(|w| {
                 w.set_address(self.dev_addr);

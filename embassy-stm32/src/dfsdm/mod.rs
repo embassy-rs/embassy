@@ -1,4 +1,9 @@
 //! Digital Filter and Sigma-Delta Modulator (DFSDM)
+//!
+//! One core owns a DFSDM instance. The driver takes no cross-core lock, so
+//! sharing an instance across cores needs external synchronization (an HSEM,
+//! for example): the CR1/CR2/CFGR1 read-modify-writes, the per-instance
+//! armed caches and the RCC disable on drop all race otherwise.
 
 #![macro_use]
 
@@ -13,8 +18,6 @@ pub mod types;
 use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::mem::ManuallyDrop;
-use core::ptr;
 use core::sync::atomic::{AtomicU8, Ordering};
 use core::task::Poll;
 
@@ -42,10 +45,6 @@ use crate::{Peri, interrupt, rcc};
 pub enum Error {
     /// Overrun error: the hardware generated data faster than we could read it.
     Overrun,
-    /// Internal peripheral error.
-    PeripheralError,
-    /// Neighbor pin unavailable.
-    NeighborPinUnavailable,
     /// No data available yet.
     NotReady,
     /// Invalid filter parameters: FOSR/IOSR out of range, or the resulting
@@ -56,6 +55,12 @@ pub enum Error {
     InvalidConfig,
 }
 
+/// 24-bit signed data range shared by filter results (`RDATAR`/`JDATAR`),
+/// analog watchdog thresholds (`AWHT`/`AWLT`) and the extremes detector
+/// (`EXMAX`/`EXMIN`): literal RM-stated extremes.
+pub(crate) const I24_MAX: i32 = 0x7F_FFFF;
+pub(crate) const I24_MIN: i32 = -0x80_0000;
+
 // =============================================================================
 // Entrypoint to creating a DFSDM driver instance.
 // =============================================================================
@@ -64,23 +69,12 @@ pub enum Error {
 pub struct Dfsdm<'d, T: Instance, C: ClockOutputMode> {
     _instance_marker: PhantomData<T>,
     _clock_mode: PhantomData<C>,
+    /// Keeps the peripheral clock on while the entry point may still be
+    /// configured. Moved into [`DfsdmCommon`] by
+    /// [`Dfsdm::configure_pins`], which takes over the obligation.
+    _rcc: RccOff<T>,
     peri: Option<Peri<'d, T>>,
     ckout: Option<Flex<'d>>,
-}
-
-impl<'d, T, C> Dfsdm<'d, T, C>
-where
-    T: Instance,
-    C: ClockOutputMode,
-{
-}
-
-#[allow(private_bounds)]
-impl<'d, T, C> Dfsdm<'d, T, C>
-where
-    C: ClockOutputMode,
-    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>,
-{
 }
 
 impl<'d, T> Dfsdm<'d, T, OutputEnabled>
@@ -125,13 +119,12 @@ where
     C: ClockOutputMode,
 {
     fn new_inner(peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
-        let _ = peri;
-
         rcc::enable_and_reset::<T>();
 
         Self {
             _instance_marker: PhantomData,
             _clock_mode: PhantomData,
+            _rcc: RccOff(PhantomData),
             ckout,
             peri: Some(peri),
         }
@@ -178,12 +171,35 @@ where
 
 /// Holds references to the peripheral and the optional clock-output. Disables the RCC of the peripheral when dropped.
 pub struct DfsdmCommon<'d, T: Instance, P: PowerState> {
+    /// Drop glue for the peripheral clock: declared first so it drops before
+    /// the `Peri`/`Flex` fields, matching the previous `Drop` ordering.
+    _rcc: RccOff<T>,
     _peri: Peri<'d, T>,
     _ckout: Option<Flex<'d>>,
     _powerstate_marker: PhantomData<P>,
     datin_slots: [PinSlot<'d>; 8],
     ckin_slots: [PinSlot<'d>; 8],
 }
+
+/// Disables the peripheral clock on drop. A guard field instead of a `Drop`
+/// impl on [`DfsdmCommon`], so the latter stays freely destructurable.
+pub(crate) struct RccOff<T: Instance>(PhantomData<T>);
+
+impl<T: Instance> Drop for RccOff<T> {
+    fn drop(&mut self) {
+        rcc::disable::<T>();
+    }
+}
+
+/// Kinds a pin-set consumes on its channel: `(Datin, Ckin)` flags.
+///
+/// Shared by the builder (to disclaim reservations it does not keep) and the
+/// transceiver drop guard (to release the ones it does), so the two sets can
+/// never drift apart.
+pub(crate) fn pinset_kinds<S: PinSet>() -> (bool, bool) {
+    (S::HAS_DATA, S::HAS_CLK)
+}
+
 impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
     pub(crate) fn insert_pin(&mut self, ch: usize, kind: PinKind, flex: Option<Flex<'d>>) {
         if let Some(p) = flex {
@@ -191,10 +207,7 @@ impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
                 PinKind::Datin => &mut self.datin_slots[ch],
                 PinKind::Ckin => &mut self.ckin_slots[ch],
             };
-            critical_section::with(|cs| {
-                *slot.inner.borrow_ref_mut(cs) = Some(p);
-            });
-            slot.rc.store(1, Ordering::Relaxed);
+            slot.inner.borrow_mut().flex = Some(p);
         }
     }
 
@@ -205,88 +218,74 @@ impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
         }
     }
 
-    pub(crate) fn acquire_pin(&self, ch: usize, kind: PinKind) -> Result<(), Error> {
+    /// Sets or clears one consumer's requirement on a slot; drops the `Flex` once
+    /// neither consumer requires it.
+    fn set_flag(&self, ch: usize, kind: PinKind, owner: bool, held: bool) {
         let slot = self.get_slot(ch, kind);
-        loop {
-            let val = slot.rc.load(Ordering::Acquire);
-            if val == 0 {
-                return Err(Error::NeighborPinUnavailable);
-            }
-            if slot
-                .rc
-                .compare_exchange(val, val + 1, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                return Ok(());
-            }
+        let mut inner = slot.inner.borrow_mut();
+        if owner {
+            inner.owner = held;
+        } else {
+            inner.neighbor = held;
+        }
+        if !inner.owner && !inner.neighbor {
+            inner.flex = None;
         }
     }
 
-    pub(crate) fn release_pin(&self, ch: usize, kind: PinKind) {
-        let slot = self.get_slot(ch, kind);
-        loop {
-            let val = slot.rc.load(Ordering::Acquire);
-            if val == 0 {
-                return; // Prevent underflow
-            }
-            if slot
-                .rc
-                .compare_exchange(val, val - 1, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                if val - 1 == 0 {
-                    critical_section::with(|cs| {
-                        let _ = slot.inner.borrow_ref_mut(cs).take();
-                    });
-                }
-                return;
-            }
+    /// Records that `M`'s transceiver requires its pinset `S` present, on the
+    /// channel the pins belong to (the successor's when they came from the
+    /// neighbour).
+    pub(crate) fn claim<M, S, PS>(&self)
+    where
+        M: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        PS: PinSource,
+    {
+        self.set_pinset_flag::<M, S, PS>(true);
+    }
+
+    /// Releases `M`'s transceiver's requirement on its pinset `S`.
+    pub(crate) fn release<M, S, PS>(&self)
+    where
+        M: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        PS: PinSource,
+    {
+        self.set_pinset_flag::<M, S, PS>(false);
+    }
+
+    fn set_pinset_flag<M, S, PS>(&self, held: bool)
+    where
+        M: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        PS: PinSource,
+    {
+        let ch = if PS::FROM_NEIGHBOR {
+            <M::Next as TransceiverMarker>::CHANNEL.index()
+        } else {
+            M::CHANNEL.index()
+        };
+        let owner = !PS::FROM_NEIGHBOR;
+        let (data, clk) = pinset_kinds::<S>();
+        if data {
+            self.set_flag(ch, PinKind::Datin, owner, held);
+        }
+        if clk {
+            self.set_flag(ch, PinKind::Ckin, owner, held);
         }
     }
 
-    pub(crate) fn acquire_pins<S: PinSet>(&self, ch: usize) -> Result<(), Error> {
-        if S::HAS_DATA {
-            self.acquire_pin(ch, PinKind::Datin)?;
-        }
-        if S::HAS_CLK
-            && let Err(e) = self.acquire_pin(ch, PinKind::Ckin)
-        {
-            if S::HAS_DATA {
-                self.release_pin(ch, PinKind::Datin);
+    /// Drops every pin no consumer required. Called once all transceivers are
+    /// built, so a pin that was declared but never used is deconfigured now
+    /// instead of lingering until the driver drops.
+    pub(crate) fn sweep(&self) {
+        for slot in self.datin_slots.iter().chain(self.ckin_slots.iter()) {
+            let mut inner = slot.inner.borrow_mut();
+            if !inner.owner && !inner.neighbor {
+                inner.flex = None;
             }
-            return Err(e);
         }
-        Ok(())
-    }
-
-    fn into_raw_parts(self) -> (Peri<'d, T>, Option<Flex<'d>>, [PinSlot<'d>; 8], [PinSlot<'d>; 8]) {
-        let this = ManuallyDrop::new(self);
-        // SAFETY: `this` is wrapped in `ManuallyDrop`, so its destructor will not
-        // run. We use `ptr::read` to bitwise-move each field out, transferring
-        // ownership to the caller exactly once per field (the source value is
-        // consumed and intentionally never dropped). Since we never drop `this`,
-        // immediately return the extracted values, and nothing between the reads
-        // can unwind, no double-free, use-after-free or leak of `Flex` drop-glue
-        // can occur. (`Peri` is a ghost type carrying no real `&mut`, so copying
-        // it cannot alias.)
-        unsafe {
-            (
-                ptr::read(&this._peri),
-                ptr::read(&this._ckout),
-                ptr::read(&this.datin_slots),
-                ptr::read(&this.ckin_slots),
-            )
-        }
-    }
-}
-
-impl<'d, T, P> Drop for DfsdmCommon<'d, T, P>
-where
-    T: Instance,
-    P: PowerState,
-{
-    fn drop(&mut self) {
-        rcc::disable::<T>();
     }
 }
 
@@ -294,8 +293,9 @@ impl<'d, T> DfsdmCommon<'d, T, Disabled>
 where
     T: Instance,
 {
-    pub(crate) fn new(peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
+    pub(crate) fn new(rcc: RccOff<T>, peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
         Self {
+            _rcc: rcc,
             _peri: peri,
             _ckout: ckout,
             _powerstate_marker: PhantomData,
@@ -325,8 +325,16 @@ where
     /// Enables the peripheral.
     pub fn enable(self) -> DfsdmCommon<'d, T, Enabled> {
         T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(true));
-        let (_peri, _ckout, datin_slots, ckin_slots) = self.into_raw_parts();
+        let Self {
+            _rcc,
+            _peri,
+            _ckout,
+            datin_slots,
+            ckin_slots,
+            ..
+        } = self;
         DfsdmCommon {
+            _rcc,
             _peri,
             _ckout,
             _powerstate_marker: PhantomData,
@@ -348,8 +356,16 @@ where
     pub fn disable(self) -> DfsdmCommon<'d, T, Disabled> {
         T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(false));
 
-        let (_peri, _ckout, datin_slots, ckin_slots) = self.into_raw_parts();
+        let Self {
+            _rcc,
+            _peri,
+            _ckout,
+            datin_slots,
+            ckin_slots,
+            ..
+        } = self;
         DfsdmCommon {
+            _rcc,
             _peri,
             _ckout,
             _powerstate_marker: PhantomData,
@@ -403,7 +419,7 @@ where
     {
         let out = f(<T::Transceivers as Shape>::selectors::<T>());
 
-        let mut common = DfsdmCommon::new(self.peri.expect("taken once"), self.ckout.take()).enable();
+        let mut common = DfsdmCommon::new(self._rcc, self.peri.expect("taken once"), self.ckout.take()).enable();
         let split = out.split_parts(&mut common);
 
         (common, split)

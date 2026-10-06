@@ -315,6 +315,21 @@ impl<'d> CsPinType<'d> {
         }
     }
 
+    /// Returns true if the NSS pin is currently at its active (selected) level.
+    pub fn is_active(&self, polarity: SlaveSelectPolarity) -> bool {
+        let high = match self {
+            #[cfg(feature = "exti")]
+            Self::Exti(exti) => exti.is_high(),
+            Self::Flex(flex) => flex.is_high(),
+            Self::None => false,
+        };
+        match polarity {
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            SlaveSelectPolarity::ActiveHigh => high,
+            SlaveSelectPolarity::ActiveLow => !high,
+        }
+    }
+
     pub const fn is_none(&self) -> bool {
         matches!(self, Self::None)
     }
@@ -1561,16 +1576,22 @@ impl<'d> Spi<'d, Async, Slave> {
 
         let regs = self.info.regs;
 
-        // Cycle SPE (off, then on again once DMA is armed) for every transfer.
-        // Empirically on spi_v4+ a full-duplex slave transfer only works when the
-        // peripheral is restarted here: otherwise the RX DMA is never triggered
-        // (received frames pile up in the RX FIFO until the deselect, and the
-        // transfer returns garbage). The slave must also be armed while NSS is
-        // still deasserted: the transaction is captured from the NSS falling
-        // edge, which the EXTI wait then tracks for early deselect.
-        regs.cr1().modify(|w| {
-            w.set_spe(false);
-        });
+        // Cycle SPE (off, then on again once DMA is armed) for every transfer,
+        // unless the slave is already selected: restarting the peripheral while
+        // NSS is asserted latches an end-of-transaction and the slave then
+        // silently ignores the whole transaction (see `slave_abort` below).
+        // Empirically on spi_v4+ a restart is also required when not selected:
+        // otherwise the RX DMA is never triggered (received frames pile up in
+        // the RX FIFO until the deselect, and the transfer returns garbage).
+        // The slave must also be armed while NSS is still deasserted: the
+        // transaction is captured from the NSS falling edge, which the EXTI
+        // wait then tracks for early deselect.
+        let selected = self.nss.is_active(SlaveSelectPolarity::from_regs(regs));
+        if !selected {
+            regs.cr1().modify(|w| {
+                w.set_spe(false);
+            });
+        }
 
         self.set_word_size(W::CONFIG);
 
@@ -1658,13 +1679,20 @@ impl<'d> Spi<'d, Async, Slave> {
         for chunk in data.chunks_mut(u16::MAX as usize) {
             let regs = self.info.regs;
 
-            #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-            regs.cr1().modify(|w| {
-                w.set_spe(false);
-            });
+            // Cycle SPE for every transfer, like `slave_transfer_inner`: on
+            // spi_v4+ the RX DMA is never triggered without the restart. Never
+            // restart while selected, though: the slave would ignore the
+            // ongoing transaction entirely.
+            let selected = self.nss.is_active(SlaveSelectPolarity::from_regs(regs));
+            if !selected {
+                regs.cr1().modify(|w| {
+                    w.set_spe(false);
+                });
+            }
 
             self.set_word_size(W::CONFIG);
 
+            // spi_v4 clears the rxfifo on SPE=0.
             #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
             flush_rx_fifo(regs);
 
@@ -1690,6 +1718,10 @@ impl<'d> Spi<'d, Async, Slave> {
 
             regs.cr1().modify(|w| {
                 w.set_spe(true);
+            });
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            regs.cr1().modify(|w| {
+                w.set_cstart(true);
             });
 
             let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
@@ -1749,14 +1781,21 @@ impl<'d> Spi<'d, Async, Slave> {
         for chunk in data.chunks(u16::MAX as usize) {
             let regs = self.info.regs;
 
-            #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-            regs.cr1().modify(|w| {
-                w.set_spe(false);
-            });
+            // Cycle SPE for every transfer, like `slave_transfer_inner`: on
+            // spi_v4+ the transfer never starts without the restart. Never
+            // restart while selected, though: the slave would ignore the
+            // ongoing transaction entirely.
+            let selected = self.nss.is_active(SlaveSelectPolarity::from_regs(regs));
+            if !selected {
+                regs.cr1().modify(|w| {
+                    w.set_spe(false);
+                });
+            }
 
             self.set_word_size(W::CONFIG);
 
             let n = chunk.len();
+
             let tx_dst = regs.tx_ptr();
             let mut tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(chunk, tx_dst, Default::default()) };
 
@@ -1768,25 +1807,34 @@ impl<'d> Spi<'d, Async, Slave> {
             regs.cr1().modify(|w| {
                 w.set_spe(true);
             });
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            regs.cr1().modify(|w| {
+                w.set_cstart(true);
+            });
 
-            let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
-            let mut deselect_count = None;
-            match select(&mut tx_f, nss_fut).await {
+            let mut nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
+            match select(&mut tx_f, nss_fut.as_mut()).await {
                 Either::Left(((), _)) => {
-                    finish_dma(regs);
+                    // The TX DMA is done, which only means every byte reached the
+                    // TX FIFO. The frames are clocked out by the external master,
+                    // which may be another task on this executor: busy-waiting for
+                    // TXC here would starve it and deadlock. Wait for the deselect
+                    // edge instead, then count what was actually sent.
+                    nss_fut.await;
                 }
-                Either::Right(((), _)) => {
-                    deselect_count = Some(n - tx_f.get_remaining_transfers() as usize);
-                }
+                Either::Right(((), _)) => {}
             }
 
-            if let Some(sent) = deselect_count {
-                drop(tx_f);
-                slave_abort(regs);
-                total += sent;
-                return Ok(total);
-            }
-            total += n;
+            // The transaction is over (deselected). Count the bytes the DMA
+            // moved into the TX FIFO. Note this can over-report on early
+            // deselect: frames still sitting in the TX FIFO when NSS goes
+            // inactive are never clocked out, and the FIFO level is not
+            // readable to subtract them.
+            let sent = n - tx_f.get_remaining_transfers() as usize;
+            drop(tx_f);
+            slave_abort(regs);
+            total += sent;
+            return Ok(total);
         }
 
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
