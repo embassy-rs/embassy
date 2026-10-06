@@ -25,7 +25,8 @@
 
     - FUS < V1.2.0:  install the matching intermediate FUS binary (V0.5.3 or V1.x)
     - FUS == V1.2.0: install the latest FUS V2
-    - FUS >= V2.0:   install stm32wb5x_BLE_Mac_802_15_4_fw.bin (BLE + MAC combo stack)
+    - FUS >= V2.0:   install stm32wb5x_BLE_Mac_802_15_4_fw.bin (BLE + MAC combo stack,
+                     replacing any stack of a different type)
 
     Binaries that are commented out below are passed as `None`; if the upgrade path
     needs one of them, `request_upgrade` returns `Error::MissingImage` and tells you
@@ -45,7 +46,7 @@ use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHand
 use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::rtc::{AnyRtc, Rtc};
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::fus::FirmwareUpgrader;
+use embassy_stm32_wpan::fus::{FirmwareUpgrader, StackType};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -63,6 +64,10 @@ const STACK_FW: &[u8] = &[]; // include_bytes!("../../firmware/stm32wb5x_BLE_Mac
 /// Version of `stm32wb5x_BLE_Mac_802_15_4_fw.bin` above; installation is skipped when
 /// the running wireless stack already reports this version or newer.
 const STACK_VERSION: (u8, u8, u8) = (1, 24, 0);
+
+/// Wireless stack type of `stm32wb5x_BLE_Mac_802_15_4_fw.bin` above; a stack of a
+/// different type is replaced even when its version is current.
+const STACK_TYPE: StackType = StackType::BleMacStatic;
 
 fn decode_version(version: u32) -> (u8, u8, u8) {
     ((version >> 24) as u8, (version >> 16) as u8, (version >> 8) as u8)
@@ -119,6 +124,7 @@ async fn main(_spawner: Spawner) {
             img(FUS_FW_V2),
             img(STACK_FW),
             STACK_VERSION,
+            STACK_TYPE,
         )
         .await
         .unwrap();
