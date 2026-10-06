@@ -53,13 +53,15 @@ impl<'a> Sys<'a> {
     /// The FUS rewrites the device info table handed over via the reference table with
     /// its own layout, marked by [`FUS_DEVICE_INFO_TABLE_VALIDITY_KEYWORD`].
     pub fn fus_running(&self) -> bool {
-        let table = unsafe { (TL_DEVICE_INFO_TABLE.as_ptr() as *const FusDeviceInfoTable).read_volatile() };
+        // The FUS places its table at TL_DEVICE_INFO_TABLE, which is only
+        // 4-byte aligned, so the whole struct must be read unaligned.
+        let table = unsafe { (TL_DEVICE_INFO_TABLE.as_ptr() as *const FusDeviceInfoTable).read_unaligned() };
         table.is_valid()
     }
 
     /// Returns the device info table as rewritten by the running FUS.
     pub fn fus_info(&self) -> Option<FusDeviceInfoTable> {
-        let table = unsafe { (TL_DEVICE_INFO_TABLE.as_ptr() as *const FusDeviceInfoTable).read_volatile() };
+        let table = unsafe { (TL_DEVICE_INFO_TABLE.as_ptr() as *const FusDeviceInfoTable).read_unaligned() };
         if table.is_valid() { Some(table) } else { None }
     }
 
