@@ -7,6 +7,7 @@ use embassy_time::{Duration, Timer};
 
 use crate::shci::{SchiSysEventReady, ShciFusGetStateErrorCode};
 use crate::sub::sys::Sys;
+pub use crate::wb::tables::StackType;
 
 #[derive(Clone, Copy, PartialEq)]
 enum UpgradeStatus {
@@ -162,13 +163,16 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
     /// Each `Option` carries one ST-signed coprocessor binary (normally embedded with
     /// `include_bytes!`): the FUS images used as stepping stones (`fus_0_5_3`,
     /// `fus_1_2_0`, `fus_v2`) and the wireless stack (`stack_fw`, of which `stack_version`
-    /// is the version it installs). Pass `None` for binaries you do not have; the
-    /// upgrader then gets as far as the supplied set allows:
+    /// is the version it installs and `stack_type` its [`StackType`]). Pass `None` for
+    /// binaries you do not have; the upgrader then gets as far as the supplied set
+    /// allows:
     ///
     /// - FUS < V1.2.0: install the matching intermediate FUS binary (V0.5.3 or V1.x)
     /// - FUS == V1.2.0: install the latest FUS V2
-    /// - FUS >= V2.0: install `stack_fw`, unless the running wireless stack already
-    ///   reports `stack_version` or newer
+    /// - FUS >= V2.0: install `stack_fw` when no wireless stack is installed, when the
+    ///   installed stack has a different type than `stack_type`, or when it is older
+    ///   than `stack_version`. Pass [`StackType::None`] as `stack_type` to accept any
+    ///   installed stack type (version comparison only).
     ///
     /// If the next step needs a binary that was not supplied, any pending request is
     /// cancelled and [`Error::MissingImage`] is returned. Otherwise the image is staged
@@ -188,17 +192,23 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
         fus_v2: Option<&[u8]>,
         stack_fw: Option<&[u8]>,
         stack_version: (u8, u8, u8),
+        stack_type: StackType,
     ) -> Result<(), Error> {
         let fus_version = sys.fus_version().map(decode_version);
         // The FUS reports the installed wireless stack version even while it (and not
-        // the stack) is running, so take the stack version from whichever table is present.
+        // the stack) is running, so take the stack version from whichever table is
+        // present. The stack type is only reported by the running wireless stack.
+        let running_type = sys.wireless_fw_info().map(|info| info.stack_type());
         let running_stack = sys
             .fus_info()
             .map(|fus| fus.wireless_stack_version)
             .filter(|v| *v != 0)
             .or_else(|| sys.wireless_fw_info().map(|info| info.version))
             .map(decode_version);
-        info!("FUS version: {:?}  wireless stack: {:?}", fus_version, running_stack);
+        info!(
+            "FUS version: {:?}  wireless stack: {:?} ({:?})",
+            fus_version, running_stack, running_type
+        );
 
         // Pick the next image to install; `None` means there is nothing to install.
         let image = match (fus_version, running_stack) {
@@ -208,9 +218,17 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
             (Some(fus), _) if fus < (1, 2, 0) => fus_1_2_0.map(Some).ok_or(Error::MissingImage("fus_1_2_0")),
             // FUS V1.2.0 is the stepping stone to the latest FUS V2.
             (Some((1, 2, 0)), _) => fus_v2.map(Some).ok_or(Error::MissingImage("fus_v2")),
-            // FUS V2: install the wireless stack unless it is already up to date.
-            (Some(_), Some(stack)) if stack >= stack_version => Ok(None),
-            (Some(_), _) => stack_fw.map(Some).ok_or(Error::MissingImage("stack_fw")),
+            // FUS V2: install the wireless stack when none is installed, when the
+            // installed stack has a different type than requested, or when it is older
+            // than the supplied stack binary.
+            (Some(_), _) => {
+                let type_matches = stack_type == StackType::None || running_type == Some(stack_type);
+                if type_matches && running_stack.is_some_and(|v| v >= stack_version) {
+                    Ok(None)
+                } else {
+                    stack_fw.map(Some).ok_or(Error::MissingImage("stack_fw"))
+                }
+            }
             // No FUS version yet (first boot of a virgin chip): let `boot` initialize FUS.
             (None, _) => Ok(None),
         };
@@ -235,7 +253,15 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
                     return Err(Error::TooManyAttempts);
                 }
 
-                stage_image(flash, image);
+                // When this boot only deletes the old stack (type change), staging now
+                // is wasted: the delete reclaims the download area. `boot` performs the
+                // delete; the next boot sees no stack and stages normally.
+                let replace = running_stack.is_some()
+                    && stack_type != StackType::None
+                    && running_type.map_or(true, |t| t != stack_type);
+                if !replace {
+                    stage_image(flash, image);
+                }
 
                 self.set_upgrade_status(UpgradeStatus::Pending);
 
@@ -252,7 +278,7 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
 
         // FUS is (or will be after the reset) running: request the upgrade and
         // track it until the new wireless stack runs.
-        self.boot(ready, sys).await
+        self.boot(ready, sys, stack_type).await
     }
 
     /// Start the upgrade of firmware; must be called while the wireless stack is running,
@@ -282,10 +308,22 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
 
     /// Called on boot to drive the FUS upgrade process, or to start the wireless stack.
     ///
+    /// `stack_type` is the type of the wireless stack being installed; pass
+    /// [`StackType::None`] to never delete the installed stack first. The FUS refuses
+    /// `FUS_FW_UPGRADE` while another wireless stack is installed, so when the types
+    /// differ the old stack is deleted first (`FUS_FW_DELETE`, AN5185). The installed
+    /// stack's type is only readable while it runs, so whenever the FUS itself is
+    /// running, any installed stack is deleted conservatively.
+    ///
     /// Returns `Ok(())` once the wireless stack is running (upgrade completed, or nothing
     /// to do). Resets the system as required by the FUS state machine; otherwise loops
     /// forever, so it never returns `Err` on transient states.
-    pub async fn boot(&mut self, ready_event: SchiSysEventReady, sys: &mut Sys<'_>) -> Result<(), Error> {
+    pub async fn boot(
+        &mut self,
+        ready_event: SchiSysEventReady,
+        sys: &mut Sys<'_>,
+        stack_type: StackType,
+    ) -> Result<(), Error> {
         let firmware_started = ready_event == SchiSysEventReady::WirelessFwRunning
             && (sys
                 .wireless_fw_info()
@@ -303,6 +341,16 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
         }
 
         let upgrade_pending = self.get_upgrade_status() == UpgradeStatus::Pending;
+        // The FUS refuses FUS_FW_UPGRADE while another wireless stack is installed, so
+        // a type change goes through FUS_FW_DELETE first (AN5185). The installed stack's
+        // type is only readable while it runs; when the FUS itself is running, any
+        // installed stack is deleted conservatively.
+        let delete_first = stack_type != StackType::None
+            && sys.fus_info().is_some_and(|info| info.wireless_stack_version != 0)
+            && (ready_event != SchiSysEventReady::WirelessFwRunning
+                || sys
+                    .wireless_fw_info()
+                    .is_some_and(|info| info.stack_type() != stack_type));
         // FUS keeps reporting the last operation's error until a new operation is
         // requested; a failed request is retried a bounded number of times so a
         // genuinely bad image still fails (the caller's runaway guard then applies).
@@ -320,8 +368,51 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
                         // the next boot with a (possibly erased) download area.
                         self.set_upgrade_status(UpgradeStatus::Complete);
 
-                        info!("requesting FUS firmware upgrade");
-                        sys.shci_c2_fus_fwupgrade(0, 0).await.map_err(|_| Error::Command)?;
+                        if delete_first {
+                            info!("deleting installed wireless stack (type change)");
+                            sys.shci_c2_fus_fwdelete().await.map_err(|_| Error::Command)?;
+
+                            // The FUS acknowledges the command before applying it, so
+                            // resetting right away would abort the delete. Wait until the
+                            // stack is actually gone from the FUS device info table.
+                            let mut timeout = 0;
+                            loop {
+                                Timer::after(Duration::from_millis(100)).await;
+                                if let Some(info) = sys.fus_info() {
+                                    if info.wireless_stack_version == 0 {
+                                        break;
+                                    }
+                                }
+                                timeout += 1;
+                                if timeout >= 50 {
+                                    error!("FUS did not delete the wireless stack");
+                                    return Err(Error::Fus);
+                                }
+                            }
+
+                            // The FUS reclaimed the deleted stack's flash; reset so the
+                            // next boot stages into the new download area.
+                            SCB::sys_reset();
+                        }
+
+                        // The FUS may refuse the upgrade briefly after a delete (it is
+                        // still reclaiming the deleted stack's flash internally), so
+                        // retry a few times before giving up.
+                        let mut retries = 0;
+                        loop {
+                            info!("requesting FUS firmware upgrade");
+                            match sys.shci_c2_fus_fwupgrade(0, 0).await {
+                                Ok(_) => break,
+                                Err(_) => {
+                                    retries += 1;
+                                    if retries >= 5 {
+                                        error!("FUS refused the firmware upgrade");
+                                        return Err(Error::Fus);
+                                    }
+                                    Timer::after(Duration::from_secs(1)).await;
+                                }
+                            }
+                        }
                     } else {
                         // FUS is idle and the upgrade is complete: start the wireless stack.
                         sys.shci_c2_fus_startws().await.map_err(|_| Error::Command)?;

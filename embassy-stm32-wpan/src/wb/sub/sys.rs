@@ -181,6 +181,16 @@ impl<'a> Sys<'a> {
             .await
     }
 
+    /// Send a request to CPU2 to delete the wireless stack.
+    ///
+    /// Required before [`Self::shci_c2_fus_fwupgrade`] when the installed stack has a
+    /// different type than the one being installed: the FUS refuses the upgrade
+    /// while another wireless stack is present (see AN5185). The device must be
+    /// reset after the delete completes.
+    pub async fn shci_c2_fus_fwdelete(&mut self) -> Result<SchiCommandStatus, ()> {
+        self.write_and_get_response(ShciOpcode::FusFirmwareDelete, &[]).await
+    }
+
     pub async fn read_ready(&mut self) -> Result<SchiSysEventReady, ()> {
         // ST's `SHCI_C2_Ready_Evt_t` is `{ sub_evt_code: u16 (0x9200), ready_code: u8 }`,
         // so the ready code sits at payload[2], after the sub-event code.
