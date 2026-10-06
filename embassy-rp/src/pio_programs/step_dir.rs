@@ -14,20 +14,15 @@ use crate::{Peri, clocks};
 const DEFAULT_FREQUENCY_HZ: u32 = 100;
 
 /// Configure the STEP pulse timing (cycles per pulse).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StepPulseTiming {
     /// 34 cycles high + 34 cycles low + 2 jump cycles = 68 total.
+    #[default]
     Cycles68,
     /// 66 cycles high + 66 cycles low + 2 jump cycles = 132 total.
     Cycles132,
     /// 130 cycles high + 130 cycles low + 2 jump cycles = 260 total.
     Cycles260,
-}
-
-impl Default for StepPulseTiming {
-    fn default() -> Self {
-        StepPulseTiming::Cycles68
-    }
 }
 
 impl StepPulseTiming {
@@ -197,8 +192,8 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
 
     fn calc_min_frequency(cycles_per_pulse: u32) -> u32 {
         let max_clkdiv_int: u32 = 0xffff;
-        let min_pio_hz = (clocks::clk_sys_freq() + max_clkdiv_int - 1) / max_clkdiv_int;
-        (min_pio_hz + cycles_per_pulse - 1) / cycles_per_pulse
+        let min_pio_hz = clocks::clk_sys_freq().div_ceil(max_clkdiv_int);
+        min_pio_hz.div_ceil(cycles_per_pulse)
     }
 
     /// Set output pulse frequency in Hz.

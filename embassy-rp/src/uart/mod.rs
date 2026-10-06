@@ -243,7 +243,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
         let divx64 = (((regs.uartibrd().read().baud_divint() as u32) << 6)
             + regs.uartfbrd().read().baud_divfrac() as u32) as u64;
         let div_clk = clk_peri_freq() as u64 * 64;
-        let wait_usecs = (1_000_000 * bits as u64 * divx64 * 16 + div_clk - 1) / div_clk;
+        let wait_usecs = (1_000_000 * bits as u64 * divx64 * 16).div_ceil(div_clk);
 
         self.blocking_flush().unwrap();
         while self.busy() {}
@@ -302,7 +302,7 @@ impl<'d> UartTx<'d, Async> {
             self.tx_dma.as_mut().unwrap().write(
                 buffer,
                 self.info.regs.uartdr().as_ptr() as *mut _,
-                self.info.tx_dreq.into(),
+                self.info.tx_dreq,
                 false,
             )
         };
@@ -466,10 +466,11 @@ impl<'d> UartRx<'d, Async> {
 
         // then drain the fifo. we need to read at most 32 bytes. errors that apply
         // to fifo bytes will be reported directly.
-        let buffer = match {
+        let res = {
             let limit = buffer.len().min(32);
             self.drain_fifo(&mut buffer[0..limit])
-        } {
+        };
+        let buffer = match res {
             Ok(len) if len < buffer.len() => &mut buffer[len..],
             Ok(_) => return Ok(()),
             Err((_i, e)) => return Err(e),
@@ -494,7 +495,7 @@ impl<'d> UartRx<'d, Async> {
             self.rx_dma.as_mut().unwrap().read(
                 self.info.regs.uartdr().as_ptr() as *const _,
                 buffer,
-                self.info.rx_dreq.into(),
+                self.info.rx_dreq,
                 false,
             )
         };
@@ -621,10 +622,11 @@ impl<'d> UartRx<'d, Async> {
 
         // then drain the fifo. we need to read at most 32 bytes. errors that apply
         // to fifo bytes will be reported directly.
-        let mut sbuffer = match {
+        let res = {
             let limit = buffer.len().min(32);
             self.drain_fifo(&mut buffer[0..limit])
-        } {
+        };
+        let mut sbuffer = match res {
             // Drained fifo, still some room left!
             Ok(len) if len < buffer.len() => &mut buffer[len..],
             // Drained (some/all of the fifo), no room left
@@ -662,7 +664,7 @@ impl<'d> UartRx<'d, Async> {
                 self.rx_dma.as_mut().unwrap().read(
                     self.info.regs.uartdr().as_ptr() as *const _,
                     sbuffer,
-                    self.info.rx_dreq.into(),
+                    self.info.rx_dreq,
                     false,
                 )
             };
@@ -873,6 +875,7 @@ impl<'d> Uart<'d, Async> {
     }
 
     /// Create a new DMA enabled UART with hardware flow control (RTS/CTS)
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_rtscts<T: Instance, TxDma: ChannelInstance, RxDma: ChannelInstance>(
         uart: Peri<'d, T>,
         tx: Peri<'d, impl TxPin<T>>,
@@ -904,6 +907,7 @@ impl<'d> Uart<'d, Async> {
 }
 
 impl<'d, M: Mode> Uart<'d, M> {
+    #[allow(clippy::too_many_arguments)]
     fn new_inner<T: Instance>(
         _uart: Peri<'d, T>,
         mut tx: Peri<'d, AnyPin>,
@@ -942,7 +946,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         if let Some(pin) = &tx {
             let funcsel = {
                 let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
-                if (pin_number % 4) == 0 { 2 } else { 11 }
+                if pin_number.is_multiple_of(4) { 2 } else { 11 }
             };
             pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(funcsel);
@@ -961,7 +965,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         if let Some(pin) = &rx {
             let funcsel = {
                 let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
-                if ((pin_number - 1) % 4) == 0 { 2 } else { 11 }
+                if (pin_number - 1).is_multiple_of(4) { 2 } else { 11 }
             };
             pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(funcsel);
@@ -1102,7 +1106,7 @@ impl<'d, M: Mode> Uart<'d, M> {
 
         let baud_rate_div = (8 * clk_base) / baudrate;
         let mut baud_ibrd = baud_rate_div >> 7;
-        let mut baud_fbrd = ((baud_rate_div & 0x7f) + 1) / 2;
+        let mut baud_fbrd = (baud_rate_div & 0x7f).div_ceil(2);
 
         if baud_ibrd == 0 {
             baud_ibrd = 1;
@@ -1194,16 +1198,16 @@ impl<'d> Uart<'d, Async> {
     /// Read until the buffer is full or a line break occurs.
     ///
     /// See [`UartRx::read_to_break()`] for more details
-    pub async fn read_to_break<'a>(&mut self, buf: &'a mut [u8]) -> Result<usize, ReadToBreakError> {
+    pub async fn read_to_break(&mut self, buf: &mut [u8]) -> Result<usize, ReadToBreakError> {
         self.rx.read_to_break(buf).await
     }
 
     /// Read until the buffer is full or a line break occurs after at least `min_count` bytes have been read.
     ///
     /// See [`UartRx::read_to_break_with_count()`] for more details
-    pub async fn read_to_break_with_count<'a>(
+    pub async fn read_to_break_with_count(
         &mut self,
-        buf: &'a mut [u8],
+        buf: &mut [u8],
         min_count: usize,
     ) -> Result<usize, ReadToBreakError> {
         self.rx.read_to_break_with_count(buf, min_count).await

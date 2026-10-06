@@ -280,6 +280,12 @@ pub struct HostState {
     arbiter: critical_section::Mutex<RefCell<EpxArbiter>>,
 }
 
+impl Default for HostState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HostState {
     /// Run `f` with the arbiter locked.
     fn with_arbiter<R>(&self, f: impl FnOnce(&mut EpxArbiter) -> R) -> R {
@@ -531,7 +537,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         if ep_info.ep_type == EndpointType::Interrupt {
             assert!(index > 0 && index < EP_COUNT);
         } else {
-            assert!(index >= EP_COUNT && index < EP_COUNT + EPX_MAX_PIPES);
+            assert!((EP_COUNT..EP_COUNT + EPX_MAX_PIPES).contains(&index));
         }
 
         Self {
@@ -962,7 +968,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         }
 
         trace!("CHANNEL {} WAIT TRANSACTION", self.index);
-        let res = poll_fn(|cx| {
+        poll_fn(|cx| {
             self.waker().register(cx.waker());
 
             if let Some(error) = T::host_state().take_epx_error(self.epx_slot()) {
@@ -990,9 +996,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             }
             Poll::Pending
         })
-        .await;
-
-        res
+        .await
     }
 
     /// Mark this channel as currently used and configure endpoint type
@@ -1259,13 +1263,13 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             pid
         };
 
-        let chunk = if data.len() > 0 {
+        let chunk = if !data.is_empty() {
             data.chunks(self.max_packet_size as _).next().unwrap()
         } else {
             &[]
         };
 
-        self.buf.write(&chunk);
+        self.buf.write(chunk);
 
         self.write_buffer_control(|w| {
             w.set_available(0, true);
@@ -1294,7 +1298,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     /// Clear buffer interrupt bit
     fn clear_sie_status(&self) {
         if Self::is_interrupt() {
-            T::regs().buff_status().write_clear(|w| w.0 = 0b11 << self.index * 2);
+            T::regs().buff_status().write_clear(|w| w.0 = 0b11 << (self.index * 2));
         } else {
             T::regs().buff_status().write_clear(|w| w.0 = 0b11);
         }
@@ -1365,7 +1369,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     /// Read over EPX until the caller's buffer fills or the device sends a short packet.
     async fn epx_read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
         let mut count: usize = 0;
-        let res = loop {
+        loop {
             trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
             let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
             let rx_len = self.transfer_in_packet(packet_len as u16, self.pid).await?;
@@ -1386,15 +1390,13 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             if count == buf.len() || rx_len < self.max_packet_size as usize {
                 break Ok(count);
             }
-        };
-
-        res
+        }
     }
 
     /// Write over EPX until the caller's buffer is drained.
     async fn epx_write(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError> {
         let mut count = 0;
-        let res = loop {
+        loop {
             trace!("CHANNEL {} START WRITE", self.index);
             let packet = self.transfer_out_packet(&buf[count..], self.pid).await?;
             self.advance_pid();
@@ -1412,9 +1414,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 }
                 break Ok(());
             }
-        };
-
-        res
+        }
     }
 
     /// Send SETUP packet
@@ -1708,10 +1708,7 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
     }
 
     async fn wait_for_device_event(&mut self) -> DeviceEvent {
-        let is_connected = |status: u8| match status {
-            0b01 | 0b10 => true,
-            _ => false,
-        };
+        let is_connected = |status: u8| matches!(status, 0b01 | 0b10);
 
         let was = self.connected;
 
@@ -1768,6 +1765,7 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
 
 /// Service the RP235x stop-on-NAK interrupt, handing EPX to whoever is queued.
 /// Returns `true` when it consumed the interrupt; RP2040 has no such interrupt.
+#[allow(clippy::extra_unused_type_parameters)]
 fn on_nak_stop<T: SealedHostInstance>() -> bool {
     #[cfg(feature = "_rp235x")]
     {
@@ -1890,11 +1888,11 @@ impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for Inte
                     T::host_state().wake_current_epx();
                 }
 
-                for n in 1..EP_COUNT {
+                for (n, waker) in EP_IN_WAKERS.iter().enumerate().take(EP_COUNT).skip(1) {
                     if status & (0b11 << (n * 2)) != 0 {
                         regs.buff_status().write_clear(|w| w.0 = 0b11 << (n * 2));
                         trace!("USB IRQ: Interrupt EP {}", n);
-                        EP_IN_WAKERS[n].wake();
+                        waker.wake();
                     }
                 }
                 "^^^"

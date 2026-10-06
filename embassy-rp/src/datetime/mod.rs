@@ -7,6 +7,7 @@
 
 #[cfg_attr(feature = "chrono", path = "datetime_chrono.rs")]
 #[cfg_attr(not(feature = "chrono"), path = "datetime_no_deps.rs")]
+#[allow(clippy::module_inception)]
 mod datetime;
 
 pub(crate) mod epoch;

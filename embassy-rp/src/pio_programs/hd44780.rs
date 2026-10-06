@@ -107,6 +107,7 @@ pub struct PioHD44780<'l, P: Instance, const S: usize> {
 
 impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
     /// Configure the given state machine to first init, then write data to, a HD44780 display.
+    #[allow(clippy::too_many_arguments)]
     pub async fn new<D: dma::ChannelInstance>(
         common: &mut Common<'l, P>,
         mut sm: StateMachine<'l, P, S>,

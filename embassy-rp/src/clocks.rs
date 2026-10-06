@@ -63,6 +63,7 @@
 //! // Set other parameters as needed...
 //! ```
 
+#[allow(unused_imports)]
 use core::arch::asm;
 use core::marker::PhantomData;
 #[cfg(feature = "rp2040")]
@@ -72,6 +73,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use pac::clocks::vals::*;
 
 use crate::gpio::{AnyPin, SealedPin};
+#[allow(unused_imports)]
 use crate::pac::common::{RW, Reg};
 use crate::{Peri, pac, reset};
 
@@ -475,6 +477,7 @@ impl ClockConfig {
     /// To date the only officially documented core voltages (see Datasheet section 2.15.3.1. Instances) are:
     /// - Up to 133MHz: V1_10 (default)
     /// - Above 133MHz: V1_15, but in the context of the datasheet covering reaching up to 200Mhz
+    ///
     /// That way all other frequencies below 133MHz or above 200MHz are not explicitly documented and not covered here.
     /// In case You want to go below 133MHz or above 200MHz and want a different voltage, You will have to set that manually and with caution.
     ///
@@ -519,6 +522,7 @@ impl ClockConfig {
             };
         }
         #[cfg(feature = "_rp235x")]
+        #[allow(clippy::match_single_binding)]
         {
             config.core_voltage = match hz {
                 // There is no official support for running the chip on other core voltages and/or other clock speeds than the defaults.
@@ -562,6 +566,7 @@ impl ClockConfig {
     /// );
     /// ```
     #[cfg(feature = "rp2040")]
+    #[allow(clippy::field_reassign_with_default)]
     pub fn manual_pll(xosc_hz: u32, pll_config: PllConfig, core_voltage: CoreVoltage) -> Self {
         // Validate PLL parameters
         assert!(pll_config.is_valid(xosc_hz), "Invalid PLL parameters");
@@ -709,7 +714,7 @@ impl PllConfig {
         let ref_freq = input_hz / self.refdiv as u32;
 
         // Check reference frequency range
-        if ref_freq < 5_000_000 || ref_freq > 800_000_000 {
+        if !(5_000_000..=800_000_000).contains(&ref_freq) {
             return false;
         }
 
@@ -925,7 +930,7 @@ fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
                 let out_freq = vco_freq / (post_div1 * post_div2);
 
                 // Check if we get the exact target frequency without remainder
-                if out_freq == target_hz as u64 && (vco_freq % (post_div1 * post_div2) == 0) {
+                if out_freq == target_hz as u64 && vco_freq.is_multiple_of(post_div1 * post_div2) {
                     return Some(PllConfig {
                         refdiv: PLL_SYS_REFDIV,
                         fbdiv: fbdiv as u16,
@@ -951,11 +956,7 @@ fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
         for post_div1 in (1..=7).rev() {
             for post_div2 in (1..=post_div1).rev() {
                 let out_freq = (vco_freq / (post_div1 * post_div2) as u64) as u32;
-                let diff = if out_freq > target_hz {
-                    out_freq - target_hz
-                } else {
-                    target_hz - out_freq
-                };
+                let diff = out_freq.abs_diff(target_hz);
 
                 // If this is closer to the target, save it
                 if diff < min_diff {
@@ -1069,7 +1070,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             }
 
             // Wait for the voltage to stabilize. Use the provided delay or default based on voltage
-            let settling_time_us = config.voltage_stabilization_delay_us.unwrap_or_else(|| {
+            let settling_time_us = config.voltage_stabilization_delay_us.unwrap_or({
                 match voltage {
                     CoreVoltage::V1_15 => 1000,                                           // 1ms for 1.15V
                     CoreVoltage::V1_20 | CoreVoltage::V1_25 | CoreVoltage::V1_30 => 2000, // 2ms for higher voltages
@@ -1132,7 +1133,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         use ClkRefCtrlAuxsrc as Aux;
         use ClkRefCtrlSrc as Src;
         let div = config.ref_clk.div as u32;
-        assert!(div >= 1 && div <= 4);
+        assert!((1..=4).contains(&div));
         match config.ref_clk.src {
             RefClkSrc::Xosc => (Src::XoscClksrc, Aux::ClksrcPllUsb, xosc_freq / div),
             RefClkSrc::Rosc => (Src::RoscClksrcPh, Aux::ClksrcPllUsb, rosc_freq / div),
@@ -1509,7 +1510,7 @@ fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result
     assert!(config.refdiv >= 1 && config.refdiv <= 63);
 
     // Reference frequency (REF_FREQ) must be between 5MHz and 800MHz
-    assert!(ref_freq >= 5_000_000 && ref_freq <= 800_000_000);
+    assert!((5_000_000..=800_000_000).contains(&ref_freq));
 
     // Calculate VCO frequency
     let vco_freq = ref_freq.saturating_mul(config.fbdiv as u32);
@@ -1897,7 +1898,7 @@ impl rand_core_10::TryCryptoRng for RoscRng {}
 /// and can only be exited through resets, dormant-wake GPIO interrupts,
 /// and RTC interrupts. If RTC is clocked from an internal clock source
 /// it will be stopped and not function as a wakeup source.
-#[cfg(all(target_arch = "arm"))]
+#[cfg(target_arch = "arm")]
 pub fn dormant_sleep() {
     struct Set<T: Copy, F: Fn()>(Reg<T, RW>, T, F);
 
