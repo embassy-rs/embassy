@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- added: `Config::configure_uicr_pins` (nRF52, nRF5340 application core). Set it to `false` to stop `init` from writing UICR.PSELRESET and UICR.NFCPINS, for example when a bootloader owns UICR.
 - added: inherent `read_ready` method on `BufferedUarte` and `BufferedUarteRx`.
 - bugfix: buffered_uarte: `BufferedUarteRx::read_ready` no longer returns `true` when no data has been received, and returns overrun errors, like `BufferedUarte::read_ready`.
 - bugfix: enforce each peripheral's own EasyDMA `MAXCNT` limit in uarte, buffered_uarte, spim, spis, twim, twis, i2s, pdm, pwm and saadc instead of the chip-wide `DMA_SIZE`.

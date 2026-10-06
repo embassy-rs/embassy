@@ -401,7 +401,9 @@ pub mod config {
         Disallowed,
         /// APPROTECT is not configured (neither to enable it or disable it).
         /// This can be useful if you're already doing it by other means and
-        /// you don't want embassy-nrf to touch UICR.
+        /// you don't want embassy-nrf to touch UICR.APPROTECT. The pin
+        /// function registers are controlled separately by
+        /// `Config::configure_uicr_pins` (nRF52, nRF5340 application core).
         NotConfigured,
     }
 
@@ -641,6 +643,16 @@ pub mod config {
         /// one of the other variants once debugging is no longer required
         /// to save power.
         pub debug: Debug,
+        /// Program the UICR pin function registers (`PSELRESET` on nRF52,
+        /// `NFCPINS`) to match the `reset-pin-as-gpio` and `nfc-pins-as-gpio`
+        /// features. Defaults to `true`.
+        ///
+        /// Set it to `false` when something else owns UICR, for example a
+        /// bootloader or a production programming step. `init` then never
+        /// writes these registers and only logs a warning if they don't match
+        /// the features. Note that a UICR write can only be undone by erasing UICR.
+        #[cfg(any(feature = "_nrf52", all(feature = "_nrf5340-app", feature = "_s")))]
+        pub configure_uicr_pins: bool,
         /// Clock speed configuration.
         #[cfg(feature = "_nrf54l")]
         pub clock_speed: ClockSpeed,
@@ -687,6 +699,8 @@ pub mod config {
                 debug: Debug::NotConfigured,
                 #[cfg(not(feature = "_ns"))]
                 debug: Debug::Allowed,
+                #[cfg(any(feature = "_nrf52", all(feature = "_nrf5340-app", feature = "_s")))]
+                configure_uicr_pins: true,
                 #[cfg(feature = "_nrf54l")]
                 clock_speed: ClockSpeed::CK64,
                 #[cfg(all(feature = "_nrf54l", feature = "_s"))]
@@ -791,6 +805,12 @@ pub unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> Wri
     });
 
     WriteResult::Written
+}
+
+/// Returns `true` if the masked UICR value differs from `value`. Never writes.
+#[cfg(any(feature = "_nrf52", all(feature = "_nrf5340-app", feature = "_s")))]
+unsafe fn uicr_differs(address: *mut u32, value: u32, mask: u32) -> bool {
+    address.read_volatile() & mask != value & mask
 }
 
 /// Initialize the `embassy-nrf` HAL with the provided configuration.
@@ -1062,21 +1082,27 @@ pub fn init(config: config::Config) -> Peripherals {
         } else {
             chip::RESET_PIN
         };
-        let res1 = uicr_write(consts::UICR_PSELRESET1, value);
-        let res2 = uicr_write(consts::UICR_PSELRESET2, value);
-        needs_reset |= res1 == WriteResult::Written || res2 == WriteResult::Written;
-        if res1 == WriteResult::Failed || res2 == WriteResult::Failed {
-            #[cfg(not(feature = "reset-pin-as-gpio"))]
+        if config.configure_uicr_pins {
+            let res1 = uicr_write(consts::UICR_PSELRESET1, value);
+            let res2 = uicr_write(consts::UICR_PSELRESET2, value);
+            needs_reset |= res1 == WriteResult::Written || res2 == WriteResult::Written;
+            if res1 == WriteResult::Failed || res2 == WriteResult::Failed {
+                #[cfg(not(feature = "reset-pin-as-gpio"))]
+                warn!(
+                    "You have requested enabling chip reset functionality on the reset pin, by not enabling the Cargo feature `reset-pin-as-gpio`.\n\
+                    However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
+                    To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
+                );
+                #[cfg(feature = "reset-pin-as-gpio")]
+                warn!(
+                    "You have requested using the reset pin as GPIO, by enabling the Cargo feature `reset-pin-as-gpio`.\n\
+                    However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
+                    To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
+                );
+            }
+        } else if uicr_differs(consts::UICR_PSELRESET1, value, !0) || uicr_differs(consts::UICR_PSELRESET2, value, !0) {
             warn!(
-                "You have requested enabling chip reset functionality on the reset pin, by not enabling the Cargo feature `reset-pin-as-gpio`.\n\
-                However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
-                To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
-            );
-            #[cfg(feature = "reset-pin-as-gpio")]
-            warn!(
-                "You have requested using the reset pin as GPIO, by enabling the Cargo feature `reset-pin-as-gpio`.\n\
-                However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
-                To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
+                "UICR.PSELRESET does not match the `reset-pin-as-gpio` feature. Left unchanged because `configure_uicr_pins` is false."
             );
         }
     }
@@ -1084,15 +1110,21 @@ pub fn init(config: config::Config) -> Peripherals {
     #[cfg(any(feature = "_nrf52", all(feature = "_nrf5340-app", feature = "_s")))]
     unsafe {
         let value = if cfg!(feature = "nfc-pins-as-gpio") { 0 } else { 1 };
-        let res = uicr_write_masked(consts::UICR_NFCPINS, value, 1);
-        needs_reset |= res == WriteResult::Written;
-        if res == WriteResult::Failed {
-            // with nfc-pins-as-gpio, this can never fail because we're writing all zero bits.
-            #[cfg(not(feature = "nfc-pins-as-gpio"))]
+        if config.configure_uicr_pins {
+            let res = uicr_write_masked(consts::UICR_NFCPINS, value, 1);
+            needs_reset |= res == WriteResult::Written;
+            if res == WriteResult::Failed {
+                // with nfc-pins-as-gpio, this can never fail because we're writing all zero bits.
+                #[cfg(not(feature = "nfc-pins-as-gpio"))]
+                warn!(
+                    "You have requested to use P0.09 and P0.10 pins for NFC, by not enabling the Cargo feature `nfc-pins-as-gpio`.\n\
+                    However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
+                    To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
+                );
+            }
+        } else if uicr_differs(consts::UICR_NFCPINS, value, 1) {
             warn!(
-                "You have requested to use P0.09 and P0.10 pins for NFC, by not enabling the Cargo feature `nfc-pins-as-gpio`.\n\
-                However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
-                To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
+                "UICR.NFCPINS does not match the `nfc-pins-as-gpio` feature. Left unchanged because `configure_uicr_pins` is false."
             );
         }
     }
