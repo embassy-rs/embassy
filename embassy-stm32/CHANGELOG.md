@@ -77,6 +77,7 @@ I2C:
 - fix: stm32/i2cv2: handle a master RESTART during async slave `respond_to_read` instead of stalling until the transaction times out
 - fix: stm32/i2cv2: re-enable TCIE after starting a DMA write group, so an async `transaction()` whose write group is not the first group completes instead of hanging until it times out
 - fix: stm32/i2cv2: program `CR2.SADD` without the 7-bit left shift when addressing a 10-bit target, which was putting every `Address::TenBit` on the bus one bit too far left and so addressing a different device
+- fix: stm32/i2cv2: wait asynchronously for STOPF and clear it before a DMA master write returns; disable STOPIE on cancellation.
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
