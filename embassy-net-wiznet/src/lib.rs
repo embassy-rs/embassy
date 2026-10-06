@@ -114,6 +114,11 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, 
             }
         }
     }
+
+    /// Turns the chip off, requiring a reset to turn it on again, decreases power consumption
+    pub async fn off(mut self) -> Result<(), SPI::Error> {
+        self.mac.power_down().await
+    }
 }
 
 /// Create a Wiznet ethernet chip driver for [`embassy-net`](https://crates.io/crates/embassy-net).

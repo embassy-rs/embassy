@@ -262,6 +262,11 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
         Ok(frame.len())
     }
 
+    pub async fn power_down(&mut self) -> Result<(), SPI::Error> {
+        // 1 1 0 Power Down mode
+        self.bus_write(C::COMMON_PHY_CFG, &[0x0C]).await
+    }
+
     pub async fn is_link_up(&mut self) -> bool {
         let mut link = [0];
         self.bus_read(C::COMMON_PHY_CFG, &mut link).await.ok();
