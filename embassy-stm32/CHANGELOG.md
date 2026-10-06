@@ -14,6 +14,7 @@ Flash:
 
 Align to API guidelines:
 - change: stm32/gpio: rename `get_level()` to `level()` and `get_output_level()` to `output_level()` on `Input`, `Output`, `OutputOpenDrain`, `Flex` and `ExtiInput`. `lpgpio::LpGpio::get_level()` is now `level()`.
+- add: stm32/gpio: `Flex::set_as_disconnected`, `Flex::is_input`, `Flex::is_output` and `Flex::is_disconnected`.
 - change: stm32/rng: `Rng` is now `Rng<'d, M: Mode>` with the instance type erased. Added `Rng::new_blocking` and `Rng::new_blocking_with_config`. The async `async_fill_bytes` is now `fill_bytes`; the blocking `fill_bytes`, `next_u32` and `next_u64` are now `blocking_fill_bytes`, `blocking_next_u32` and `blocking_next_u64`.
 - change: stm32/usart: `Uart` and `BufferedUart` constructors take pins as `tx, rx` instead of `rx, tx`.
 - change: stm32/usart: `BufferedUart::new` takes the interrupt binding before the buffers.

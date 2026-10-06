@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - All drivers now use the shared `embassy_rp::mode::{Mode, Blocking, Async}` instead of per-module copies.
 - Add `embassy_rp::time::Hertz`.
 - GPIO: rename `get_level` to `level` and `get_output_level` to `output_level`.
+- GPIO: add `Flex::set_as_disconnected`, `Flex::is_input` and `Flex::is_disconnected`.
+- GPIO: `Flex::new` leaves the pin disconnected, with the input buffer and output driver off. `set_as_input` and `set_as_output` turn the input buffer on; `set_pull` no longer does.
 - SPI: `Config::frequency` is now `Hertz`.
 - SPI: add `ConfigError`; constructors, `set_config` and `set_frequency` now return `Result`.
 - SPI: rename `flush` to `blocking_flush`.
