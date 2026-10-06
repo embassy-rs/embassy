@@ -13,8 +13,8 @@ use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler as UsbInterruptHandler};
-use embassy_usb::class::gud::{
-    self, Config as GudConfig, ConnectorState, GudClass, GudConnector, GudEvent, PixelFormat, State,
+use embassy_usb::class::gud::device::{
+    self as gud, Config as GudConfig, ConnectorState, GudClass, GudConnector, GudEvent, PixelFormat, State,
 };
 use panic_probe as _;
 use static_cell::StaticCell;
