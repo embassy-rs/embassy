@@ -43,7 +43,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::flash::Flash;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32::rcc::Config as RccConfig;
+use embassy_stm32::rcc::{Config as RccConfig, StopMode, WakeGuard};
 use embassy_stm32::rtc::{AnyRtc, Rtc};
 use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::fus::{FirmwareUpgrader, StackType};
@@ -80,12 +80,17 @@ const STACK_FW: &[u8] = include_bytes!("../../firmware/stm32wb5x_BLE_HCILayer_fw
 #[cfg(not(any(feature = "fw_hci", feature = "fw_mac_ble")))]
 const STACK_FW: &[u8] = &[];
 
-/// Version of `stm32wb5x_BLE_Mac_802_15_4_fw.bin` above; installation is skipped when
-/// the running wireless stack already reports this version or newer.
+/// Version of the stack binary selected above; installation is skipped when
+/// the running wireless stack already reports this version or newer. (Both
+/// `stm32wb5x_BLE_Mac_802_15_4_fw.bin` and `stm32wb5x_BLE_HCILayer_fw.bin` are
+/// V1.24.0 at the downloaded revision.)
 const STACK_VERSION: (u8, u8, u8) = (1, 24, 0);
 
-/// Wireless stack type of `stm32wb5x_BLE_Mac_802_15_4_fw.bin` above; a stack of a
-/// different type is replaced even when its version is current.
+/// Wireless stack type of `STACK_FW` above; a stack of a different type is
+/// replaced even when its version is current.
+#[cfg(feature = "fw_hci")]
+const STACK_TYPE: StackType = StackType::BleHci;
+#[cfg(not(feature = "fw_hci"))]
 const STACK_TYPE: StackType = StackType::BleMacStatic;
 
 fn decode_version(version: u32) -> (u8, u8, u8) {
@@ -104,6 +109,8 @@ async fn main(_spawner: Spawner) {
     config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
     info!("STM32WB55 FUS OTA");
+
+    let _guard = WakeGuard::new(StopMode::Stop1);
 
     let (rtc, _time_provider) = Rtc::new(p.RTC);
     rtc.write_backup_register(19, rtc.read_backup_register(19).unwrap_or(0) + 1);
