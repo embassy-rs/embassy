@@ -55,11 +55,6 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
         self.ring_buf.clear()
     }
 
-    /// Write elements directly to the raw buffer. This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ring_buf.write_immediate(buf)
-    }
-
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
     pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
@@ -91,19 +86,12 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
         self.ring_buf.set_waker(waker)
     }
 
-    /// Request the DMA to reset. The configuration for this channel will not be preserved.
-    ///
-    /// This doesn't immediately stop the transfer, you have to wait until is_running returns false.
-    pub fn request_reset(&mut self) {
-        self.ring_buf.request_reset()
-    }
-
     /// Request the transfer to pause, keeping the existing configuration for this channel.
     /// To restart the transfer, call [`start`](Self::start) again.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until is_running returns false.
     pub fn request_pause(&mut self) {
-        self.ring_buf.request_pause()
+        self.ring_buf.stop()
     }
 
     /// Return whether DMA is still running.
@@ -119,7 +107,7 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
     ///
     /// This is designed to be used with streaming output data such as the I2S/SAI or DAC.
     pub async fn stop(&mut self) {
-        self.ring_buf.stop().await
+        self.ring_buf.disable_circular_and_wait().await
     }
 
     /// Enable the given channel.

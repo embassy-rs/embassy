@@ -276,8 +276,6 @@ impl<'d> DacChannel<'d, Async> {
     ///
     /// Each element of `dma_buf` holds one 8-bit sample in bits [7:0].
     /// The DMA runs in circular mode so output is uninterrupted between writes.
-    /// Use [`RingBufferedDacChannel::write_immediate`] to pre-fill the buffer before
-    /// calling [`RingBufferedDacChannel::start`].
     pub fn into_ring_buffered<W: Word>(self, dma_buf: &'d mut [W]) -> RingBufferedDacChannel<'d, W> {
         let info = self.info;
         let state = self.state;

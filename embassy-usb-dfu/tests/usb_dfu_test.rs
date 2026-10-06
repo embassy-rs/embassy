@@ -4,7 +4,7 @@ use core::convert::Infallible;
 use dfu_core::DfuIo;
 use embassy_boot::{BlockingFirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_usb::Handler;
-use embassy_usb::class::dfu::dfu_mode::Handler as DfuModeHandler;
+use embassy_usb::class::dfu::device::dfu_mode::Handler as DfuModeHandler;
 use embassy_usb::control::{InResponse, OutResponse, Recipient, Request as ControlRequest, RequestType};
 use embassy_usb::driver::Direction;
 use embassy_usb_dfu::consts::DfuAttributes;

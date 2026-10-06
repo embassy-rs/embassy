@@ -527,7 +527,7 @@ impl<'d, W: Word> I2S<'d, W> {
 
         let tx_f = async {
             if let Some(tx_ring_buffer) = &mut self.tx_ring_buffer {
-                tx_ring_buffer.stop().await;
+                tx_ring_buffer.disable_circular_and_wait().await;
 
                 set_txdmaen(regs_tx, false);
             }
@@ -535,7 +535,7 @@ impl<'d, W: Word> I2S<'d, W> {
 
         let rx_f = async {
             if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
-                rx_ring_buffer.stop().await;
+                rx_ring_buffer.disable_circular_and_wait().await;
 
                 set_rxdmaen(regs_rx, false);
             }
@@ -614,15 +614,6 @@ impl<'d, W: Word> I2S<'d, W> {
     /// reset time — use it to compute frame-alignment padding without NDTR timing uncertainty.
     pub fn tx_write_pos(&self) -> Option<usize> {
         self.tx_ring_buffer.as_ref().map(|rb| rb.write_pos())
-    }
-
-    /// Write data directly to the raw I2S ringbuffer.
-    /// This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, data: &[W]) -> Result<(usize, usize), Error> {
-        match &mut self.tx_ring_buffer {
-            Some(ring) => Ok(ring.write_immediate(data)?),
-            _ => Err(Error::NotATransmitter),
-        }
     }
 
     fn regs_tx(&self) -> Regs {

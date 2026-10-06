@@ -14,6 +14,7 @@ Flash:
 
 Align to API guidelines:
 - change: stm32/gpio: rename `get_level()` to `level()` and `get_output_level()` to `output_level()` on `Input`, `Output`, `OutputOpenDrain`, `Flex` and `ExtiInput`. `lpgpio::LpGpio::get_level()` is now `level()`.
+- add: stm32/gpio: `Flex::set_as_disconnected`, `Flex::is_input`, `Flex::is_output` and `Flex::is_disconnected`.
 - change: stm32/rng: `Rng` is now `Rng<'d, M: Mode>` with the instance type erased. Added `Rng::new_blocking` and `Rng::new_blocking_with_config`. The async `async_fill_bytes` is now `fill_bytes`; the blocking `fill_bytes`, `next_u32` and `next_u64` are now `blocking_fill_bytes`, `blocking_next_u32` and `blocking_next_u64`.
 - change: stm32/usart: `Uart` and `BufferedUart` constructors take pins as `tx, rx` instead of `rx, tx`.
 - change: stm32/usart: `BufferedUart::new` takes the interrupt binding before the buffers.
@@ -41,6 +42,10 @@ Crypto:
 
 CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
+- fix: stm32/fdcan: apply `FdCanConfig::timestamp_source`. It was ignored and the timestamp counter always ran from the kernel clock, and `TimestampPrescaler` wrote the prescaler value instead of `TCP = prescaler - 1`.
+- fix: stm32/fdcan: the TX buffer element kept only 7 of the 8 message marker bits.
+- feat: stm32/fdcan: with `TimestampSource::FromTIM3` and TIM3 as the embassy time driver, RX and TX event timestamps are the exact start-of-frame instants.
+- feat: stm32/fdcan: `write_marked` / `write_fd_marked` store a TX event with a message marker; `dequeue_tx_event` reads the id, marker and timestamp back from the TX event FIFO.
 
 Ethernet:
 - fix: stm32/eth v2: place a memory barrier before handing a descriptor to the DMA, so the buffer address and the frame contents are visible to it first.
@@ -48,6 +53,7 @@ Ethernet:
 USB:
 - fix: OTG_FS on STM32F1 uses 4 endpoints and 320 FIFO words.
 - fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
+- fix: OTG_HS on STM32N6 no longer hangs the bus while bringing up the USB HS PHY: USBPHYC is now programmed with the OTG core clocked and the USBPHYC block out of reset, as in ST's own example.
 
 DMA:
 - fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
@@ -72,6 +78,7 @@ I2C:
 - fix: stm32/i2cv2: handle a master RESTART during async slave `respond_to_read` instead of stalling until the transaction times out
 - fix: stm32/i2cv2: re-enable TCIE after starting a DMA write group, so an async `transaction()` whose write group is not the first group completes instead of hanging until it times out
 - fix: stm32/i2cv2: program `CR2.SADD` without the 7-bit left shift when addressing a 10-bit target, which was putting every `Address::TenBit` on the bus one bit too far left and so addressing a different device
+- fix: stm32/i2cv2: wait asynchronously for STOPF and clear it before a DMA master write returns; disable STOPIE on cancellation.
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
@@ -225,6 +232,7 @@ STM32N6:
 - feat: stm32n6: add LTDC support
 - feat: stm32n6: rewrite RISAF access from raw pointer to PAC
 - feat: stm32n6: implement ClockCalculations for IC1 and IC2
+- feat: stm32/npu: add `npu::epoch` software epochs (softmax, dequantization, argmax) behind the new `npu-nn` feature, backed by `embedded-nn`
 
 STM32H7RS:
 - feat: stm32h7rs: add SYSCFG control for internal flash config

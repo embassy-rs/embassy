@@ -15,7 +15,6 @@ embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["de
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt", "udp", "ipv6", "medium-ieee802154", "icmp-ping-reply"], optional = true }
 embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
-embassy-usb-host = { version = "0.1.0", path = "../../embassy-usb-host", features = ["defmt"] }
 embassy-usb-driver = { version = "0.2.2", path = "../../embassy-usb-driver", features = ["defmt"] }
 embedded-sdmmc = "0.9.0"
 embedded-hal-bus = "0.3.0"
@@ -30,7 +29,7 @@ embedded-io-async = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 static_cell = "2"
-stm32wb-hci = { git = "https://github.com/embassy-rs/stm32wb-hci", branch = "dev" }
+stm32wb-hci = { git = "https://github.com/oueslatighaith/stm32wb-hci", branch = "master" }
 
 [features]
 default = ["ble"]

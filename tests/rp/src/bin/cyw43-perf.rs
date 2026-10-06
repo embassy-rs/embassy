@@ -13,7 +13,7 @@ use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, rom_data};
-use embassy_time::{Duration, with_timeout};
+use embassy_time::{Duration, Timer, with_timeout};
 use panic_probe as _;
 use static_cell::StaticCell;
 
@@ -97,7 +97,15 @@ async fn main(spawner: Spawner) {
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
-    let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
+    let (net_device, mut control, mut runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
+
+    // init must be repeatable: embassy-rs/embassy#6948
+    for i in 0..10 {
+        if runner.init(fw, nvram, None).await.is_err() {
+            panic!("re-init {} failed", i);
+        }
+    }
+
     spawner.spawn(unwrap!(wifi_task(runner)));
 
     control.init(clm).await;
@@ -135,14 +143,23 @@ async fn main(spawner: Spawner) {
         panic!("scan found no networks");
     }
 
-    // Connecting depends on the AP, so failing or hanging here skips perf test
-    let join = control.join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()));
-    let connected = with_timeout(Duration::from_secs(10), join)
-        .await
-        .is_ok_and(|r| r.is_ok())
-        && with_timeout(Duration::from_secs(10), iface.wait_config_up())
+    // Connecting depends on the AP, so retry a few times before skipping perf.
+    let mut connected = false;
+    for attempt in 1..=3 {
+        let join = control.join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()));
+        connected = with_timeout(Duration::from_secs(10), join)
             .await
-            .is_ok();
+            .is_ok_and(|r| r.is_ok())
+            && with_timeout(Duration::from_secs(10), iface.wait_config_up())
+                .await
+                .is_ok();
+        if connected {
+            break;
+        }
+        warn!("connect attempt {}/3 failed, retrying", attempt);
+        control.leave().await;
+        Timer::after_secs(2).await;
+    }
 
     if connected {
         perf_client::run(

@@ -49,7 +49,7 @@ use crate::iface::{AddIfaceError, Iface};
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 pub use crate::neighbor::{Neighbor, NeighborCache, NeighborState};
 use crate::route::Routes;
-use crate::time::{instant_from_xarxa, instant_to_xarxa};
+use crate::time::{duration_from_xarxa, now_to_xarxa};
 
 /// Error returned by `try_*` socket methods.
 ///
@@ -594,13 +594,14 @@ impl Inner<'_> {
             );
         }
 
-        let now = instant_to_xarxa(Instant::now());
+        let now = Instant::now();
+        let xnow = now_to_xarxa(now);
         #[allow(unused_mut)]
-        let mut deadline = self.stack.poll(now);
+        let mut deadline = self.stack.poll(xnow);
 
         #[cfg(feature = "dns")]
         {
-            deadline = deadline.min(self.dns.poll(&mut self.stack));
+            deadline = deadline.min(self.dns.poll(&mut self.stack, xnow));
         }
 
         // An interface's generation is bumped whenever its addresses or routes
@@ -613,10 +614,10 @@ impl Inner<'_> {
             self.update_dns_servers();
         }
 
-        if deadline <= now {
+        if deadline <= xnow {
             cx.waker().wake_by_ref();
-        } else if deadline != xarxa::time::Instant::MAX {
-            let t = pin!(Timer::at(instant_from_xarxa(deadline)));
+        } else {
+            let t = pin!(Timer::at(now + duration_from_xarxa(deadline.duration_since(xnow))));
             if t.poll(cx).is_ready() {
                 cx.waker().wake_by_ref();
             }
