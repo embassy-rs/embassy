@@ -4,7 +4,7 @@
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 runner = "teleprobe client run -s"
-#runner = "teleprobe local run --chip STM32H7S3L8Hx --elf"
+#runner = "teleprobe local run --chip STM32H7S3L8Hx"
 
 rustflags = [
   # Code-size optimizations.
@@ -24,4 +24,4 @@ target = "thumbv7em-none-eabi"
 #target = "thumbv8m.main-none-eabihf"
 
 [env]
-DEFMT_LOG = "trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,xarxa=info"
+DEFMT_LOG = "trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,xarxa=info,embedded_tls=info"

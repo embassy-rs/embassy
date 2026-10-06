@@ -32,3 +32,16 @@ xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "93228f1ec64
 [features]
 defmt = ["dep:defmt", "xarxa-driver/defmt"]
 log = ["dep:log"]
+
+## Passthroughs for the `xarxa-driver` packet pool config. The pool is a global
+## singleton shared by the whole app, so enabling these anywhere affects all
+## `xarxa_driver::PacketBuf`s.
+##
+## `packet-buf-align-4` is required by drivers that DMA directly into
+## `PacketBuf::storage_mut()` (e.g. cyw43 zero-copy RX).
+##
+## `packet-buf-driver-headroom-64` adds 64 bytes of driver-private space to
+## every buffer, so a full-size SDPCM frame fits in a buffer of the default
+## `packet-buf-size-1514`.
+packet-buf-align-4 = ["xarxa-driver/packet-buf-align-4"]
+packet-buf-driver-headroom-64 = ["xarxa-driver/packet-buf-driver-headroom-64"]

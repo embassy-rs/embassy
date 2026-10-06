@@ -712,13 +712,15 @@ impl<'d, W: word::Word> Sai<'d, W> {
 
     /// Start the SAI driver.
     ///
-    /// Only receivers can be started. Transmitters are started on the first writing operation.
-    pub fn start(&mut self) -> Result<(), Error> {
-        match self.ring_buffer {
-            RingBuffer::Writable(_) => Err(Error::NotAReceiver),
-            RingBuffer::Readable(ref mut rb) => {
+    /// Starts the ring buffer for both directions. Transmitters must fill the ring buffer with
+    /// [`Self::write`] before starting.
+    pub fn start(&mut self) {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(rb) => {
                 rb.start();
-                Ok(())
+            }
+            RingBuffer::Readable(rb) => {
+                rb.start();
             }
         }
     }
@@ -769,8 +771,8 @@ impl<'d, W: word::Word> Sai<'d, W> {
 
     /// Write data to the SAI ringbuffer.
     ///
-    /// The first write starts the DMA after filling the ring buffer with the provided data.
-    /// This ensures that the DMA does not run before data is available in the ring buffer.
+    /// This function does not start ring buffer automatically,
+    /// it must be started manually using [`start`](Self::start).
     ///
     /// This appends the data to the buffer and returns immediately. The
     /// data will be transmitted in the background.
@@ -779,12 +781,7 @@ impl<'d, W: word::Word> Sai<'d, W> {
     pub async fn write(&mut self, data: &[W]) -> Result<(), Error> {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => {
-                if buffer.is_running() {
-                    buffer.write_exact(data).await?;
-                } else {
-                    buffer.write_immediate(data)?;
-                    buffer.start();
-                }
+                buffer.write_exact(data).await?;
                 Ok(())
             }
             _ => Err(Error::NotATransmitter),

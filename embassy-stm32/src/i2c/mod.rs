@@ -7,7 +7,6 @@ mod _version;
 
 mod config;
 
-use core::future::Future;
 use core::iter;
 use core::marker::PhantomData;
 
@@ -15,7 +14,7 @@ pub use config::*;
 use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
-use embassy_time::{Duration, Instant};
+use embassy_time::Duration;
 use mode::MasterMode;
 pub use mode::{Master, MultiMaster};
 
@@ -26,7 +25,14 @@ use crate::mode::{Async, Blocking, Mode};
 use crate::pac::i2c::I2c as Regs;
 use crate::rcc::SealedRccPeripheral;
 use crate::time::Hertz;
+use crate::wait::{Timeout, TimeoutError};
 use crate::{interrupt, peripherals};
+
+impl From<TimeoutError> for Error {
+    fn from(_: TimeoutError) -> Self {
+        Error::Timeout
+    }
+}
 
 /// I2C error.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -256,45 +262,14 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
 
 impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     fn timeout(&self) -> Timeout {
-        Timeout {
-            #[cfg(feature = "time")]
-            deadline: Instant::now() + self.timeout,
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-struct Timeout {
-    #[cfg(feature = "time")]
-    deadline: Instant,
-}
-
-#[allow(dead_code)]
-impl Timeout {
-    #[inline]
-    fn check(self) -> Result<(), Error> {
-        #[cfg(feature = "time")]
-        if Instant::now() > self.deadline {
-            return Err(Error::Timeout);
-        }
-
-        Ok(())
-    }
-
-    #[inline]
-    fn with<R>(self, fut: impl Future<Output = Result<R, Error>>) -> impl Future<Output = Result<R, Error>> {
         #[cfg(feature = "time")]
         {
-            use futures_util::FutureExt;
-
-            embassy_futures::select::select(embassy_time::Timer::at(self.deadline), fut).map(|r| match r {
-                embassy_futures::select::Either::First(_) => Err(Error::Timeout),
-                embassy_futures::select::Either::Second(r) => r,
-            })
+            Timeout::new(self.timeout)
         }
-
         #[cfg(not(feature = "time"))]
-        fut
+        {
+            Timeout::new()
+        }
     }
 }
 

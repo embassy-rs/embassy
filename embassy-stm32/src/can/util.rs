@@ -89,7 +89,7 @@ pub fn calc_can_timings(
     let mut bs2 = bs1_bs2_sum - bs1;
     core::assert!(bs1_bs2_sum > bs1);
 
-    let sample_point_permill = 1000 * ((1 + bs1) / (1 + bs1 + bs2)) as u16;
+    let sample_point_permill = (1000 * (1 + bs1) as u16) / (1 + bs1 + bs2) as u16;
     if sample_point_permill > MAX_SAMPLE_POINT_PERMILL {
         // Nope, too far; now rounding to zero
         bs1 = (7 * bs1_bs2_sum - 1) / 8;

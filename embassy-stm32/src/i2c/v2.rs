@@ -959,6 +959,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     w.set_txdmaen(false);
                 }
                 w.set_tcie(false);
+                w.set_stopie(false);
                 w.set_nackie(false);
                 w.set_errie(false);
             });
@@ -1051,6 +1052,20 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         if last_slice & send_stop {
             self.master_stop();
+            poll_fn(|cx| {
+                self.state.waker.register(cx.waker());
+
+                let regs = self.info.regs;
+                if regs.isr().read().stopf() {
+                    regs.icr().modify(|w| w.set_stopcf(true));
+                    return Poll::Ready(());
+                }
+
+                // The interrupt handler disables STOPIE when it wakes us.
+                regs.cr1().modify(|w| w.set_stopie(true));
+                Poll::Pending
+            })
+            .await;
         }
 
         drop(on_drop);

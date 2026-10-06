@@ -164,6 +164,9 @@ pub struct Frame {
 impl Frame {
     /// Create a new CAN classic Frame
     pub fn new(can_header: Header, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
+        if can_header.len() as usize > raw_data.len() {
+            return Err(FrameCreateError::NotEnoughData);
+        }
         let data = ClassicData::new(raw_data)?;
         Ok(Frame { can_header, data })
     }
@@ -369,8 +372,18 @@ pub struct FdFrame {
 impl FdFrame {
     /// Create a new CAN classic Frame
     pub fn new(can_header: Header, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
-        let data = FdData::new(raw_data)?;
-        Ok(FdFrame { can_header, data })
+        if !FdData::is_valid_len(raw_data.len()) {
+            return Err(FrameCreateError::InvalidDataLength);
+        }
+        if can_header.len() as usize > raw_data.len() {
+            return Err(FrameCreateError::NotEnoughData);
+        }
+        let mut frame = FdFrame {
+            can_header,
+            data: FdData::empty(),
+        };
+        frame.data.bytes[..raw_data.len()].copy_from_slice(raw_data);
+        Ok(frame)
     }
 
     /// Create new extended frame
@@ -418,6 +431,26 @@ impl FdFrame {
     /// Get mutable reference to data
     pub fn data_mut(&mut self) -> &mut [u8] {
         &mut self.data.raw_mut()[..self.can_header.len as usize]
+    }
+
+    #[cfg(any(can_fdcan_v1, can_fdcan_v2))]
+    pub(crate) const fn empty() -> Self {
+        FdFrame {
+            can_header: Header {
+                id: embedded_can::Id::Standard(embedded_can::StandardId::ZERO),
+                len: 0,
+                flags: 0,
+            },
+            data: FdData::empty(),
+        }
+    }
+
+    #[cfg(any(can_fdcan_v1, can_fdcan_v2))]
+    pub(crate) fn set_from_words(&mut self, header: Header, words: impl Iterator<Item = u32>) {
+        self.can_header = header;
+        for (dst, word) in self.data.bytes.chunks_exact_mut(4).zip(words) {
+            dst.copy_from_slice(&word.to_le_bytes());
+        }
     }
 }
 

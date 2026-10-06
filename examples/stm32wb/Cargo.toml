@@ -32,31 +32,35 @@ thread = ["embassy-stm32-wpan/wb-thread"]
 mac = ["embassy-stm32-wpan/wb-mac", "dep:embassy-net"]
 ble = ["embassy-stm32-wpan/wb-ble", "embassy-stm32-wpan/wb-hci"]
 
-[[bin]] 
+fw_fus = []
+fw_mac_ble = []
+fw_hci = []
+
+[[bin]]
 name = "tl_mbox_ble"
 required-features = ["ble"]
 
-[[bin]] 
+[[bin]]
 name = "tl_mbox_mac"
 required-features = ["mac"]
 
-[[bin]] 
+[[bin]]
 name = "mac_ffd"
 required-features = ["mac"]
 
-[[bin]] 
+[[bin]]
 name = "mac_rfd"
 required-features = ["mac"]
 
-[[bin]] 
+[[bin]]
 name = "mac_ffd_net"
 required-features = ["mac"]
 
-[[bin]] 
+[[bin]]
 name = "eddystone_beacon"
 required-features = ["ble"]
 
-[[bin]] 
+[[bin]]
 name = "gatt_server"
 required-features = ["ble"]
 

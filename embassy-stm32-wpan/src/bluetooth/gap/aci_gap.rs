@@ -113,8 +113,7 @@ pub fn set_discoverable(
     local_name: Option<&[u8]>,
     service_uuid_bytes: Option<&[u8]>,
 ) -> Result<(), BleError> {
-    #[cfg(feature = "defmt")]
-    defmt::trace!("set_discoverable: preparing to call ACI_GAP_SET_DISCOVERABLE");
+    trace!("set_discoverable: preparing to call ACI_GAP_SET_DISCOVERABLE");
 
     unsafe {
         let (name_ptr, name_len) = match local_name {
@@ -127,12 +126,9 @@ pub fn set_discoverable(
             None => (core::ptr::null(), 0),
         };
 
-        #[cfg(feature = "defmt")]
-        defmt::trace!(
+        trace!(
             "set_discoverable: calling ACI_GAP_SET_DISCOVERABLE (type={}, int_min={}, int_max={})",
-            adv_type,
-            interval_min,
-            interval_max
+            adv_type, interval_min, interval_max
         );
 
         let status = aci_gap_set_discoverable(
@@ -149,16 +145,13 @@ pub fn set_discoverable(
             0, // slave_conn_interval_max (use default)
         );
 
-        #[cfg(feature = "defmt")]
-        defmt::trace!("set_discoverable: ACI_GAP_SET_DISCOVERABLE returned: 0x{:02X}", status);
+        trace!("set_discoverable: ACI_GAP_SET_DISCOVERABLE returned: 0x{:02X}", status);
 
         if status == BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::info!("aci_gap_set_discoverable succeeded");
+            info!("aci_gap_set_discoverable succeeded");
             Ok(())
         } else {
-            #[cfg(feature = "defmt")]
-            defmt::error!("aci_gap_set_discoverable failed: 0x{:02X}", status);
+            error!("aci_gap_set_discoverable failed: 0x{:02X}", status);
             Err(BleError::CommandFailed(Status::from_u8(status)))
         }
     }
@@ -194,12 +187,10 @@ pub fn set_direct_connectable(
         );
 
         if status == BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::info!("aci_gap_set_direct_connectable succeeded");
+            info!("aci_gap_set_direct_connectable succeeded");
             Ok(())
         } else {
-            #[cfg(feature = "defmt")]
-            defmt::error!("aci_gap_set_direct_connectable failed: 0x{:02X}", status);
+            error!("aci_gap_set_direct_connectable failed: 0x{:02X}", status);
             Err(BleError::CommandFailed(Status::from_u8(status)))
         }
     }
@@ -296,12 +287,10 @@ pub fn set_undirected_connectable(
     unsafe {
         let status = aci_gap_set_undirected_connectable(interval_min, interval_max, own_address_type, filter_policy);
         if status == BLE_STATUS_SUCCESS {
-            #[cfg(feature = "defmt")]
-            defmt::info!("aci_gap_set_undirected_connectable succeeded");
+            info!("aci_gap_set_undirected_connectable succeeded");
             Ok(())
         } else {
-            #[cfg(feature = "defmt")]
-            defmt::error!("aci_gap_set_undirected_connectable failed: 0x{:02X}", status);
+            error!("aci_gap_set_undirected_connectable failed: 0x{:02X}", status);
             Err(BleError::CommandFailed(Status::from_u8(status)))
         }
     }

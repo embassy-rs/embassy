@@ -40,7 +40,7 @@ rm -rf out/tests/nrf52840-dk
 rm -rf out/tests/nrf52833-dk
 rm -rf out/tests/nrf5340-dk
 rm -rf out/tests/nrf51422-dk
- 
+
 # disabled because these boards are not on the shelf
 rm -rf out/tests/mspm0g3507
 
@@ -52,6 +52,9 @@ rm -rf out/tests/stm32wba65ri
 rm -rf out/tests/stm32l152re
 rm -rf out/tests/stm32f207zg
 rm -rf out/tests/nrf9160-dk
+
+# disabled until wired
+rm -f out/tests/stm32f446re/pwm_ringbuffered
 
 # unstable, I think it's running out of RAM?
 rm -f out/tests/stm32f207zg/eth
