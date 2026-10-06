@@ -207,9 +207,7 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
             .map(decode_version);
         info!(
             "FUS version: {:?}  wireless stack: {:?} ({:?})",
-            fus_version,
-            running_stack,
-            running_type
+            fus_version, running_stack, running_type
         );
 
         // Pick the next image to install; `None` means there is nothing to install.
@@ -320,7 +318,12 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
     /// Returns `Ok(())` once the wireless stack is running (upgrade completed, or nothing
     /// to do). Resets the system as required by the FUS state machine; otherwise loops
     /// forever, so it never returns `Err` on transient states.
-    pub async fn boot(&mut self, ready_event: SchiSysEventReady, sys: &mut Sys<'_>, stack_type: StackType) -> Result<(), Error> {
+    pub async fn boot(
+        &mut self,
+        ready_event: SchiSysEventReady,
+        sys: &mut Sys<'_>,
+        stack_type: StackType,
+    ) -> Result<(), Error> {
         let firmware_started = ready_event == SchiSysEventReady::WirelessFwRunning
             && (sys
                 .wireless_fw_info()
@@ -345,7 +348,9 @@ impl<T: AnyRtc> FirmwareUpgrader<T> {
         let delete_first = stack_type != StackType::None
             && sys.fus_info().is_some_and(|info| info.wireless_stack_version != 0)
             && (ready_event != SchiSysEventReady::WirelessFwRunning
-                || sys.wireless_fw_info().is_some_and(|info| info.stack_type() != stack_type));
+                || sys
+                    .wireless_fw_info()
+                    .is_some_and(|info| info.stack_type() != stack_type));
         // FUS keeps reporting the last operation's error until a new operation is
         // requested; a failed request is retried a bounded number of times so a
         // genuinely bad image still fails (the caller's runaway guard then applies).
