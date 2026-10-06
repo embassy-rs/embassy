@@ -44,6 +44,11 @@ CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
 - fix: stm32/fdcan: apply `FdCanConfig::timestamp_source`. It was ignored and the timestamp counter always ran from the kernel clock, and `TimestampPrescaler` wrote the prescaler value instead of `TCP = prescaler - 1`.
 - fix: stm32/fdcan: the TX buffer element kept only 7 of the 8 message marker bits.
+- fix: stm32/fdcan: `Can::flush` shifted the mailbox index into a bit mask before reading `TXBRP.TRP`, which expects a buffer index. It waited on the wrong mailbox for index 0 or 1 and panicked for index 2 or 3.
+- fix: stm32/fdcan: `set_fd_data_bitrate` computed the transceiver delay compensation offset in `u8` and could overflow. It is now computed in `u32`, and a secondary sample point that does not fit the 7-bit `TDCR.TDCO` field is refused rather than silently placed somewhere else.
+- fix: stm32/fdcan: `DataBitTiming` clamped `tdc_offset` and `tdc_filter_window_length` to 63. Both `TDCR.TDCO` and `TDCR.TDCF` are 7 bits wide, so the valid range actually is 0 to 127.
+- fix: stm32/can: `calc_can_timings` compared an always-zero sample point against `MAX_SAMPLE_POINT_PERMILL`, so the round-to-zero fallback never ran. Timings with 11 or 12 quanta per bit now keep the sample point below 90% instead of overshooting it. Affects bxCAN and FDCAN.
+- fix: stm32/can: `Frame::new` and `FdFrame::new` return `FrameCreateError::NotEnoughData` when the header length exceeds the supplied payload, instead of building a frame whose `data()` panics out of bounds.
 - feat: stm32/fdcan: with `TimestampSource::FromTIM3` and TIM3 as the embassy time driver, RX and TX event timestamps are the exact start-of-frame instants.
 - feat: stm32/fdcan: `write_marked` / `write_fd_marked` store a TX event with a message marker; `dequeue_tx_event` reads the id, marker and timestamp back from the TX event FIFO.
 
