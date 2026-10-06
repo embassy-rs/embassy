@@ -4,6 +4,7 @@ pub mod ccid {
     pub mod host;
 }
 pub mod cdc_acm;
+#[cfg(feature = "network")]
 pub mod cdc_ncm {
     //! CDC NCM (Ethernet over USB) class.
     pub mod device;
