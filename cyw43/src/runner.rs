@@ -5,7 +5,7 @@ use core::task::Poll;
 use aligned::{A4, Aligned};
 use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::LinkState;
+use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
 use embassy_time::Duration;
 use sdio::sdio::{CCCR_INT_ENABLE, CCCR_IO_ENABLE, CCCR_IO_READY};
 
@@ -976,7 +976,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     /// Handle F2 events while status register is set
     async fn check_status(&mut self, buf: &mut Aligned<A4, [u8; 4 + 2048]>) {
         loop {
-            let mut packet = PacketBuf::try_new();
+            let mut packet = self.ch.try_rx_buf();
             let capacity = packet.as_ref().map(PacketBuf::capacity);
 
             let mut hwtag_buf: Aligned<A4, [u8; 4]> = Aligned([0; 4]);
