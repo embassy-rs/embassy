@@ -164,6 +164,9 @@ pub struct Frame {
 impl Frame {
     /// Create a new CAN classic Frame
     pub fn new(can_header: Header, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
+        if can_header.len() as usize > raw_data.len() {
+            return Err(FrameCreateError::NotEnoughData);
+        }
         let data = ClassicData::new(raw_data)?;
         Ok(Frame { can_header, data })
     }
@@ -371,6 +374,9 @@ impl FdFrame {
     pub fn new(can_header: Header, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if !FdData::is_valid_len(raw_data.len()) {
             return Err(FrameCreateError::InvalidDataLength);
+        }
+        if can_header.len() as usize > raw_data.len() {
+            return Err(FrameCreateError::NotEnoughData);
         }
         let mut frame = FdFrame {
             can_header,
