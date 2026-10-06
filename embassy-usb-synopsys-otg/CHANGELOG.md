@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- Added: `Config::bulk_out_transfer_bytes`. When set, bulk OUT endpoints are armed for a transfer of several packets, so the core no longer NAKs the host between packets. `EndpointOut::read_transfer` returns such a transfer in one go; `EndpointOut::read` still returns one packet at a time. The default (0) keeps one packet per transfer.
 - **Breaking:** Add `tx_fifo_count` to `OtgInstance`. This is the number of TX FIFOs. If there is no free TX FIFO, allocation of an IN endpoint fails. The TX FIFO number is not the endpoint number.
 - Changed: `embassy-time` is now an optional feature for device mode. Remote wakeup is now supported via `embassy-time`.
 - Changed: The driver can be configured with any `embassy_sync` raw mutex implementation.

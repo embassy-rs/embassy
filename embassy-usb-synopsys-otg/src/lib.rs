@@ -9,6 +9,7 @@
 
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;
+mod out_transfer;
 
 use core::cell::UnsafeCell;
 use core::future::poll_fn;
@@ -26,6 +27,7 @@ use embassy_usb_driver::{
 };
 
 use crate::fmt::Bytes;
+use crate::out_transfer::{Chunk, OutTransfer};
 
 pub mod otg_v1;
 
@@ -80,11 +82,34 @@ where
             vals::Pktstsd::OUT_DATA_RX => {
                 trace!("OUT_DATA_RX ep={} len={}", ep_num, len);
 
-                if state.ep_states[ep_num].out_size.load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
-                    // SAFETY: Buffer size is allocated to be equal to endpoint's maximum packet size
-                    // We trust the peripheral to not exceed its configured MPSIZ
-                    let buf =
-                        unsafe { core::slice::from_raw_parts_mut(*state.ep_states[ep_num].out_buffer.get(), len) };
+                let ep_state = &state.ep_states[ep_num];
+                let pending = ep_state.out_size.load(Ordering::Acquire) != EP_OUT_BUFFER_EMPTY;
+
+                // Where the packet goes: the start of the endpoint's buffer, or, for a
+                // multi-packet endpoint, after the packets of the transfer received so far.
+                let multi = state
+                    .ep_alloc_get(Direction::Out, ep_num)
+                    .is_some_and(|ep| ep.multi_packet());
+                let dest = if multi {
+                    // SAFETY: only the interrupt handler uses `out_xfer` while the endpoint is in use.
+                    let xfer = unsafe { &mut *ep_state.out_xfer.get() };
+                    if pending {
+                        Err(())
+                    } else {
+                        xfer.packet(len as u16).map_err(|_| ())
+                    }
+                } else if pending {
+                    Err(())
+                } else {
+                    Ok(0)
+                };
+
+                if let Ok(at) = dest {
+                    // SAFETY: The buffer is allocated to hold a whole transfer, and `OutTransfer`
+                    // checked that this packet fits. A single-packet endpoint's buffer is as large
+                    // as its maximum packet size. We trust the peripheral to not exceed the
+                    // programmed transfer size.
+                    let buf = unsafe { core::slice::from_raw_parts_mut((*ep_state.out_buffer.get()).add(at), len) };
 
                     let mut chunks = buf.chunks_exact_mut(4);
                     for chunk in &mut chunks {
@@ -98,8 +123,11 @@ where
                         rem.copy_from_slice(&data.to_ne_bytes()[0..rem.len()]);
                     }
 
-                    state.ep_states[ep_num].out_size.store(len as u16, Ordering::Release);
-                    state.ep_states[ep_num].out_waker.wake();
+                    // A multi-packet endpoint is completed by OUT_DATA_DONE.
+                    if !multi {
+                        ep_state.out_size.store(len as u16, Ordering::Release);
+                        ep_state.out_waker.wake();
+                    }
                 } else {
                     error!("ep_out buffer overflow index={}", ep_num);
 
@@ -112,6 +140,27 @@ where
             }
             vals::Pktstsd::OUT_DATA_DONE => {
                 trace!("OUT_DATA_DONE ep={}", ep_num);
+
+                // The core completed a multi-packet transfer: `PKTCNT` reached zero, or a short
+                // packet arrived. Hand the received data to the reader.
+                let ep_state = &state.ep_states[ep_num];
+                if state
+                    .ep_alloc_get(Direction::Out, ep_num)
+                    .is_some_and(|ep| ep.multi_packet())
+                    && ep_state.out_size.load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY
+                {
+                    // SAFETY: only the interrupt handler uses `out_xfer` while the endpoint is in use.
+                    let xfer = unsafe { &mut *ep_state.out_xfer.get() };
+                    match xfer.done() {
+                        Ok(Chunk { len, short }) => {
+                            ep_state.out_short.store(short, Ordering::Relaxed);
+                            ep_state.out_packet.store(0, Ordering::Relaxed);
+                            ep_state.out_size.store(len, Ordering::Release);
+                        }
+                        Err(_) => ep_state.out_size.store(EP_OUT_TRANSFER_DROPPED, Ordering::Release),
+                    }
+                    ep_state.out_waker.wake();
+                }
             }
             vals::Pktstsd::SETUP_DATA_DONE => {
                 trace!("SETUP_DATA_DONE ep={}", ep_num);
@@ -267,6 +316,9 @@ impl PhyType {
 /// Indicates that [State::ep_out_buffers] is empty.
 const EP_OUT_BUFFER_EMPTY: u16 = u16::MAX;
 
+/// `out_size` value of a multi-packet endpoint whose transfer overflowed its buffer and was dropped.
+const EP_OUT_TRANSFER_DROPPED: u16 = u16::MAX - 1;
+
 struct EpState {
     in_waker: AtomicWaker,
     out_waker: AtomicWaker,
@@ -274,6 +326,15 @@ struct EpState {
     /// Buffers are ready when associated [State::ep_out_size] != [EP_OUT_BUFFER_EMPTY].
     out_buffer: UnsafeCell<*mut u8>,
     out_size: AtomicU16,
+    /// Multi-packet endpoints only: the transfer in progress. Used by the interrupt handler, and
+    /// by the code that resets the endpoint inside the mutex (the interrupt cannot run then).
+    out_xfer: UnsafeCell<OutTransfer>,
+    /// Multi-packet endpoints only: the transfer in `out_buffer` ended with a short packet.
+    /// Written before `out_size` is (Release).
+    out_short: AtomicBool,
+    /// Multi-packet endpoints only: number of packets of the transfer in `out_buffer` that
+    /// [`EndpointOut::read`](embassy_usb_driver::EndpointOut::read) has returned so far.
+    out_packet: AtomicU16,
     // Written once during endpoint allocation (before Driver::start), read-only afterward.
     in_alloc: UnsafeCell<Option<EndpointData>>,
     out_alloc: UnsafeCell<Option<EndpointData>>,
@@ -282,6 +343,17 @@ struct EpState {
     /// unreadable without VBUS power — such a read hangs the whole chip.
     in_enabled: AtomicBool,
     out_enabled: AtomicBool,
+}
+
+impl EpState {
+    /// The OUT transfer of this endpoint. A single packet if it was not allocated as multi-packet.
+    fn out_transfer(&self) -> OutTransfer {
+        // SAFETY: written only during endpoint allocation, before the USB stack starts.
+        match unsafe { (*self.out_alloc.get()).as_ref() } {
+            Some(ep) => ep.out_transfer(),
+            None => OutTransfer::new(64, 64),
+        }
+    }
 }
 
 // SAFETY: `out_buffer` access is synchronized via `out_size`. `in_alloc`/`out_alloc` are written
@@ -301,6 +373,20 @@ struct EndpointData {
     max_packet_size: u16,
     fifo_size_words: u16,
     tx_fifo: u8,
+    /// Bytes of an OUT transfer. Equal to `max_packet_size` for one packet per transfer.
+    out_transfer_bytes: u16,
+}
+
+impl EndpointData {
+    /// The OUT transfer of this endpoint.
+    fn out_transfer(&self) -> OutTransfer {
+        OutTransfer::new(self.max_packet_size, self.out_transfer_bytes)
+    }
+
+    /// An OUT endpoint that receives more than one packet per transfer.
+    fn multi_packet(&self) -> bool {
+        self.out_transfer_bytes > self.max_packet_size
+    }
 }
 
 /// Type-erased borrow of [`State`] passed to [`OtgInstance`], [`Driver`](crate::Driver), [`Bus`](crate::Bus),
@@ -444,6 +530,9 @@ where
                     out_waker: AtomicWaker::new(),
                     out_buffer: UnsafeCell::new(0 as _),
                     out_size: AtomicU16::new(EP_OUT_BUFFER_EMPTY),
+                    out_xfer: UnsafeCell::new(OutTransfer::new(64, 64)),
+                    out_short: AtomicBool::new(false),
+                    out_packet: AtomicU16::new(0),
                     in_alloc: UnsafeCell::new(None),
                     out_alloc: UnsafeCell::new(None),
                     in_enabled: AtomicBool::new(false),
@@ -503,6 +592,31 @@ pub struct Config {
     /// enumerates in FS mode. Some USB Link IP like those in the STM32H7 series support adding this delay to work with
     /// the affected PHYs.
     pub xcvrdly: bool,
+
+    /// Bytes a bulk OUT endpoint receives per transfer, in device mode.
+    ///
+    /// By default, 0, an OUT endpoint is armed for one packet at a time and the core NAKs the
+    /// host until software has taken the packet and armed the endpoint again. This limits
+    /// the OUT throughput of bulk endpoints, in particular at full speed.
+    ///
+    /// If this is larger than the maximum packet size of a bulk OUT endpoint, the endpoint is
+    /// armed for a transfer of up to this many bytes, rounded down to a whole number of packets
+    /// (at most 1023 packets). The core accepts the packets of the transfer without NAKs and the
+    /// interrupt handler collects them in the endpoint's buffer. The transfer ends with a short
+    /// packet, or when it reaches this size. The endpoint is armed again once the received data
+    /// has been read, so the host is still NAKed while nothing is reading from the endpoint.
+    ///
+    /// The setting applies to all bulk OUT endpoints other than endpoint 0, and each of them takes
+    /// this many bytes from `ep_out_buffer`, which must be large enough for all of them or the
+    /// allocation of the endpoint fails. It is best set to the size of the buffer that the USB
+    /// class reads into with [`EndpointOut::read_transfer`](embassy_usb_driver::EndpointOut::read_transfer),
+    /// which then needs one wake-up per transfer rather than per packet. For example, CDC-NCM
+    /// reads transfers of up to 2048 bytes.
+    ///
+    /// [`EndpointOut::read`](embassy_usb_driver::EndpointOut::read) still returns a single packet
+    /// at a time, so it works with any class, but then the endpoint is armed only once the
+    /// whole transfer has been read, which is not faster than the default.
+    pub bulk_out_transfer_bytes: u16,
 }
 
 impl Default for Config {
@@ -511,6 +625,7 @@ impl Default for Config {
             vbus_detection: false,
             vbus_valid_override: false,
             xcvrdly: false,
+            bulk_out_transfer_bytes: 0,
         }
     }
 }
@@ -570,13 +685,6 @@ where
             D::dir()
         );
 
-        if D::dir() == Direction::Out {
-            if self.ep_out_buffer_offset + max_packet_size as usize > self.ep_out_buffer.len() {
-                error!("Not enough endpoint out buffer capacity");
-                return Err(EndpointAllocError);
-            }
-        };
-
         let fifo_size_words = match D::dir() {
             Direction::Out => (max_packet_size + 3) / 4,
             // INEPTXFD requires minimum size of 16 words
@@ -626,6 +734,23 @@ where
             }
         };
 
+        // Bytes of an OUT transfer, and so of the endpoint's buffer. Only bulk endpoints other than
+        // EP0 receive more than a packet per transfer.
+        let out_transfer_bytes = if dir == Direction::Out && index != 0 && ep_type == EndpointType::Bulk {
+            OutTransfer::new(
+                max_packet_size,
+                self.config.bulk_out_transfer_bytes.max(max_packet_size),
+            )
+            .size()
+        } else {
+            max_packet_size
+        };
+
+        if dir == Direction::Out && self.ep_out_buffer_offset + out_transfer_bytes as usize > self.ep_out_buffer.len() {
+            error!("Not enough endpoint out buffer capacity");
+            return Err(EndpointAllocError);
+        }
+
         let tx_fifo = if dir == Direction::In {
             match st.alloc_tx_fifo(index, tx_fifo_count) {
                 Some(fifo) => fifo,
@@ -647,6 +772,7 @@ where
                     max_packet_size,
                     fifo_size_words,
                     tx_fifo,
+                    out_transfer_bytes,
                 },
             );
         };
@@ -659,7 +785,9 @@ where
             unsafe {
                 *ep_state.out_buffer.get() = self.ep_out_buffer.as_mut_ptr().offset(self.ep_out_buffer_offset as _);
             }
-            self.ep_out_buffer_offset += max_packet_size as usize;
+            self.ep_out_buffer_offset += out_transfer_bytes as usize;
+            // SAFETY: the endpoint is not in use yet.
+            unsafe { *ep_state.out_xfer.get() = OutTransfer::new(max_packet_size, out_transfer_bytes) };
         }
 
         Ok(Endpoint {
@@ -1184,6 +1312,12 @@ where
         for index in 0..st.endpoint_count() {
             if let Some(ep) = st.ep_alloc_get(Direction::Out, index) {
                 st.mutex.lock(|| {
+                    if ep.multi_packet() {
+                        // Discard the part of a transfer received before the reset.
+                        // SAFETY: the interrupt handler cannot run inside the mutex.
+                        unsafe { &mut *st.ep_states[index].out_xfer.get() }.reset();
+                    }
+
                     regs.doepctl(index).write(|w| {
                         if index == 0 {
                             w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
@@ -1195,11 +1329,12 @@ where
                     });
 
                     regs.doeptsiz(index).modify(|w| {
-                        w.set_xfrsiz(ep.max_packet_size as _);
+                        let (xfrsiz, pktcnt) = ep.out_transfer().arm();
+                        w.set_xfrsiz(xfrsiz);
                         if index == 0 {
                             w.set_rxdpid_stupcnt(3);
                         } else {
-                            w.set_pktcnt(1);
+                            w.set_pktcnt(pktcnt);
                         }
                     });
 
@@ -1503,13 +1638,26 @@ where
                         }
                     });
 
+                    // A transfer that was cut short by the disable (reset, alternate setting
+                    // change) must not leave data behind that would be joined to the next one.
+                    if st
+                        .ep_alloc_get(Direction::Out, ep_addr.index())
+                        .is_some_and(|ep| ep.multi_packet())
+                    {
+                        let ep_state = &st.ep_states[ep_addr.index()];
+                        // SAFETY: the interrupt handler cannot run inside the mutex.
+                        unsafe { &mut *ep_state.out_xfer.get() }.reset();
+                        ep_state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
+                    }
+
                     // When re-enabling a non-EP0 OUT endpoint, prime it to receive a packet.
                     // Without this, the endpoint stays idle after reconnect and silently drops data.
                     if enabled && ep_addr.index() != 0 {
                         if let Some(ep) = st.ep_alloc_get(Direction::Out, ep_addr.index()) {
                             regs.doeptsiz(ep_addr.index()).modify(|w| {
-                                w.set_xfrsiz(ep.max_packet_size as _);
-                                w.set_pktcnt(1);
+                                let (xfrsiz, pktcnt) = ep.out_transfer().arm();
+                                w.set_xfrsiz(xfrsiz);
+                                w.set_pktcnt(pktcnt);
                             });
                             regs.doepctl(ep_addr.index()).modify(|w| {
                                 w.set_cnak(true);
@@ -1683,6 +1831,117 @@ where
     }
 }
 
+impl<'d, M> Endpoint<'d, Out, M>
+where
+    M: RawMutex + Copy,
+{
+    /// Allow the core to receive the next transfer.
+    fn rearm(&mut self) {
+        let index = self.info.addr.index();
+        self.mutex.lock(|| {
+            // Receive 1 packet, or the packets of 1 transfer for a multi-packet endpoint
+            let (xfrsiz, pktcnt) = self.state.out_transfer().arm();
+            self.regs.doeptsiz(index).modify(|w| {
+                w.set_xfrsiz(xfrsiz);
+                w.set_pktcnt(pktcnt);
+            });
+
+            if self.info.ep_type == EndpointType::Isochronous {
+                // Isochronous endpoints must set the correct even/odd frame bit to
+                // correspond with the next frame's number.
+                let frame_number = self.regs.dsts().read().fnsof();
+                let frame_is_odd = frame_number & 0x01 == 1;
+
+                self.regs.doepctl(index).modify(|r| {
+                    if frame_is_odd {
+                        r.set_sd0pid_sevnfrm(true);
+                    } else {
+                        r.set_soddfrm(true);
+                    }
+                });
+            }
+
+            // Re-enable and clear NAK to receive more data. Newer DWC2
+            // cores (e.g. nRF54LM20A) clear EPENA after each transfer
+            // and NAK everything until it is set again.
+            self.regs.doepctl(index).modify(|w| {
+                w.set_epena(true);
+                w.set_cnak(true);
+            });
+        });
+    }
+
+    /// Read from a multi-packet endpoint.
+    ///
+    /// With `whole` false, returns the next packet of the received transfer. With `whole` true,
+    /// returns what is left of the received transfer, and whether a short packet ended it.
+    ///
+    /// The endpoint is armed again when the whole transfer has been returned.
+    async fn read_multi(&mut self, buf: &mut [u8], whole: bool) -> Result<(usize, bool), EndpointError> {
+        trace!("read multi start len={} whole={}", buf.len(), whole);
+
+        poll_fn(|cx| {
+            self.state.out_waker.register(cx.waker());
+
+            if !self.state.out_enabled.load(Ordering::Acquire) {
+                trace!("read ep={:?} error disabled", self.info.addr);
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
+
+            let len = self.state.out_size.load(Ordering::Acquire);
+            if len == EP_OUT_BUFFER_EMPTY {
+                return Poll::Pending;
+            }
+
+            if len == EP_OUT_TRANSFER_DROPPED {
+                // The transfer did not fit the buffer, there is no data.
+                self.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
+                self.rearm();
+                return Poll::Ready(Err(EndpointError::BufferOverflow));
+            }
+
+            let mps = self.info.max_packet_size;
+            let chunk = Chunk {
+                len,
+                short: self.state.out_short.load(Ordering::Relaxed),
+            };
+            let packet = self.state.out_packet.load(Ordering::Relaxed);
+            let packets = chunk.packets(mps);
+            let range = if whole {
+                // What is left of the transfer
+                chunk.packet_range(mps, packet).start..usize::from(len)
+            } else {
+                chunk.packet_range(mps, packet)
+            };
+            let last = whole || packet + 1 >= packets;
+            trace!("read ep={:?} done range={:?} last={}", self.info.addr, range, last);
+
+            let result = if range.len() > buf.len() {
+                Err(EndpointError::BufferOverflow)
+            } else {
+                // SAFETY: exclusive access ensured by `out_size` atomic variable
+                let data = unsafe { core::slice::from_raw_parts(*self.state.out_buffer.get(), usize::from(len)) };
+                buf[..range.len()].copy_from_slice(&data[range.clone()]);
+                Ok((range.len(), chunk.short))
+            };
+
+            // Like for a single packet, a packet that does not fit the buffer stays available.
+            // The rest of a transfer that does not fit is discarded, as the caller has no use for
+            // part of it.
+            if result.is_ok() && !last {
+                self.state.out_packet.store(packet + 1, Ordering::Relaxed);
+            } else if result.is_ok() || whole {
+                // Release buffer
+                self.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
+                self.rearm();
+            }
+
+            Poll::Ready(result)
+        })
+        .await
+    }
+}
+
 impl<'d, M> embassy_usb_driver::EndpointOut for Endpoint<'d, Out, M>
 where
     M: RawMutex + Copy,
@@ -1690,8 +1949,11 @@ where
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         trace!("read start len={}", buf.len());
 
+        if self.state.out_transfer().size() > self.info.max_packet_size {
+            return self.read_multi(buf, false).await.map(|(n, _)| n);
+        }
+
         poll_fn(|cx| {
-            let index = self.info.addr.index();
             self.state.out_waker.register(cx.waker());
 
             if !self.state.out_enabled.load(Ordering::Acquire) {
@@ -1714,36 +1976,7 @@ where
                 // Release buffer
                 self.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
 
-                self.mutex.lock(|| {
-                    // Receive 1 packet
-                    self.regs.doeptsiz(index).modify(|w| {
-                        w.set_xfrsiz(self.info.max_packet_size as _);
-                        w.set_pktcnt(1);
-                    });
-
-                    if self.info.ep_type == EndpointType::Isochronous {
-                        // Isochronous endpoints must set the correct even/odd frame bit to
-                        // correspond with the next frame's number.
-                        let frame_number = self.regs.dsts().read().fnsof();
-                        let frame_is_odd = frame_number & 0x01 == 1;
-
-                        self.regs.doepctl(index).modify(|r| {
-                            if frame_is_odd {
-                                r.set_sd0pid_sevnfrm(true);
-                            } else {
-                                r.set_soddfrm(true);
-                            }
-                        });
-                    }
-
-                    // Re-enable and clear NAK to receive more data. Newer DWC2
-                    // cores (e.g. nRF54LM20A) clear EPENA after each transfer
-                    // and NAK everything until it is set again.
-                    self.regs.doepctl(index).modify(|w| {
-                        w.set_epena(true);
-                        w.set_cnak(true);
-                    });
-                });
+                self.rearm();
 
                 Poll::Ready(Ok(len as usize))
             } else {
@@ -1751,6 +1984,31 @@ where
             }
         })
         .await
+    }
+
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        if self.state.out_transfer().size() <= self.info.max_packet_size {
+            // One packet per transfer: read packet by packet.
+            let mut n = 0;
+            loop {
+                let i = self.read(&mut buf[n..]).await?;
+                n += i;
+                if i < self.info.max_packet_size as usize || n == buf.len() {
+                    return Ok(n);
+                }
+            }
+        }
+
+        // The core received up to a whole transfer without NAKs. It ends with a short packet or
+        // when it reaches the maximum size, in which case the data continues in the next one.
+        let mut n = 0;
+        loop {
+            let (i, short) = self.read_multi(&mut buf[n..], true).await?;
+            n += i;
+            if short || n == buf.len() {
+                return Ok(n);
+            }
+        }
     }
 }
 
