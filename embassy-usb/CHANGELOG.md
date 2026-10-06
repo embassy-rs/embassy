@@ -27,7 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add USB Mass Storage Class (MSC) implementation (Bulk-Only Transport + SCSI transparent commands)
 - `MSC`: Add `SectorCache`, optimizing read-erase-write cycles in large block devices (flash), and `BlockDeviceAdapter` for `block_device_driver::BlockDevice` (feature `block-device-driver`)
 - `GUD`: Add Generic USB Display support.
-- `CDC-NCM`: Added network feature for targets not requiring it
 
 ## 0.6.0 - 2026-03-10
 
