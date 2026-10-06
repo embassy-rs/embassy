@@ -20,6 +20,10 @@ pub mod gip {
     //! Xbox Gaming Input Protocol (GIP) class.
     pub mod host;
 }
+pub mod gud {
+    //! GUD (Generic USB Display) class.
+    pub mod device;
+}
 pub mod hid;
 pub mod hub {
     //! USB hub class.
