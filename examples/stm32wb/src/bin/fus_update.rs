@@ -39,11 +39,11 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_stm32::bind_interrupts;
 use embassy_stm32::flash::Flash;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::rtc::{AnyRtc, Rtc};
-use embassy_stm32::bind_interrupts;
 use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::fus::FirmwareUpgrader;
 use panic_probe as _;
