@@ -167,7 +167,7 @@ pub trait Digest {
     // the update method is identical between sha1 and sha2 and so, it will be implemented
     // by a macro similar to the key related functions for AES
 
-    #[doc = "Returns the digest of the message streamed via `update`"]
+    /// Returns the digest of the message streamed via `update`
     fn finalise(&mut self) -> Self::Output;
 }
 
