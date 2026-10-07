@@ -112,8 +112,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
     ///
     /// Mark to trigger firmware swap on next boot if verify succeeds.
     ///
-    /// If the "ed25519-salty" feature is set (or another similar feature) then the signature is expected to have
-    /// been generated from a SHA-512 digest of the firmware bytes.
+    /// The signature is expected to have been generated
+    /// from the firmware bytes using a digest of the provided type.
     ///
     /// If no signature feature is set then this method will always return a
     /// signature error.
