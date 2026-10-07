@@ -24,11 +24,16 @@ pub enum KeySize {
 pub enum AesError {
     /// Error triggers when .set_key is called without set_key_size
     KeySizeNeeded,
-    KeyNeeded,     // trigers when .encryp)/.decrypt or set_iv/set_counter are called before set_key()
-    IvNeeded,      // triggers when .encrypt/.decrypt for cbc are called without set_iv
-    CounterNeeded, // triggers when .encrypt/.decrypt for ctr are called without set_counter
-    WrongKeySize, // triggered set_key is called with a parameter that does not respect the size astablished by set_key_size
-    DeviceError,  // Reserved functiones were ussed
+    /// Error trigers when .encryp/.decrypt or set_iv/set_counter are called before set_key()
+    KeyNeeded,
+    /// Error triggers when .encrypt/.decrypt for cbc are called without set_iv
+    IvNeeded,
+    /// Error triggers when .encrypt/.decrypt for ctr are called without set_counter
+    CounterNeeded,
+    /// Error triggered set_key is called with a parameter that does not respect the size astablished by set_key_size
+    WrongKeySize,
+    /// Error triggers when reserved functiones were ussed
+    DeviceError,
 }
 
 fn wait_data() {
@@ -160,7 +165,6 @@ impl<'d> GenericHashcrypt<'d> {
             key: None,
         }
     }
-    // rename to generic driver or _driver
 }
 
 pub trait Digest {
@@ -173,27 +177,22 @@ pub trait Digest {
 }
 
 pub trait Aes {
+    /// Encrypt `data` into `output`.
+    ///
+    /// `data` and `output` must have the same length. Except in CTR mode, the length must be
+    /// a multiple of 16 bytes; for arbitrary-length messages in ECB and CBC, see [`AesPadded`].
     fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
-    // Universal encrypt confuguration via register calls
-    // Chop user provided data into words, feed 4 words at the time to indata()
-    // Every 4 words, poll digest and apend it to ouptut
-    // If the final part of the message is less than 4 words, padd with 0s
-    // Before feeding last 4 words, flip STREAMEDLAST to true
-    // Check that data.len = output.len
-    // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
 
+    /// Decrypt `data` into `output`.
+    ///
+    /// `data` and `output` must have the same length. Except in CTR mode, the length must be
+    /// a multiple of 16 bytes; for PKCS#7-padded ciphertext in ECB and CBC, see [`AesPadded`].
     fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
-    // Universal decrypt confuguration using register calls
-    // Chop user provided data into words, feed 4 words at the time to indata()
-    // Every 4 words, poll digest and apend it to ouptut
-    // If the final part of the message is less than 4 words, padd with 0s
-    // Before feeding last 4 words, flip STREAMEDLAST to true
-    // Check that data.len = output.len
-    // Flip STREAMEDLAST back to false in case the user wants to decrypt another message using the same key
 
-    // to handle messages that are not divisible in 4 blocks, add pading with 0, keep track of the size of
-    // the paddind, all padding will produce garbage ouput which will need to be trimmed from the last block
-    // of the digest
+    // Arbitrary-length messages: ECB and CBC will get an `AesPadded` trait using PKCS#7
+    // padding, which pads every message (aligned ones get a full extra block) so the
+    // padding can be removed on decryption. CTR is a streaming mode, so a short final
+    // block is zero-padded internally and the extra output bytes are discarded.
 }
 
 // Specific driver types
@@ -280,7 +279,7 @@ impl<'a, 'd> AesCtr<'a, 'd> {
     }
 }
 
-// TODO: add with impl_sha! macro once it's introduced in the SHA PR
+// TODO: add update with impl_sha! macro once it's introduced in the SHA PR
 
 macro_rules! impl_aes {
     ($ty:ident) => {
