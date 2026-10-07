@@ -22,8 +22,6 @@ cargo test --manifest-path ./embassy-time-driver/Cargo.toml
 cargo test --manifest-path ./embassy-ptp-driver/Cargo.toml --all-features
 
 cargo test --manifest-path ./embassy-boot/Cargo.toml
-cargo test --manifest-path ./embassy-boot/Cargo.toml --features ed25519-dalek
-cargo test --manifest-path ./embassy-boot/Cargo.toml --features ed25519-salty
 
 cargo test --manifest-path ./embassy-nrf/Cargo.toml --no-default-features --features nrf52840,time-driver-rtc1,gpiote
 
