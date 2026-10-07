@@ -35,6 +35,7 @@ pub struct HubHandler<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> {
     desc: HubDescriptor,
     device_address: u8,
     device_lut: [Option<NonZeroU8>; MAX_PORTS],
+    fast_reconnect_port: Option<u8>,
     route: BusRoute,
 }
 
@@ -122,6 +123,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             desc,
             device_address: enum_info.device_address,
             device_lut: [None; MAX_PORTS],
+            fast_reconnect_port: None,
             route: enum_info.route,
         };
 
@@ -139,7 +141,16 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             // 1 hub + maximum of 255 ports (USB 2.0 Spec 11.12.3 and 11.23.2.1)
             let mut buf = [0u8; (1 + 255) / u8::BITS as usize];
             let slice = &mut buf[..(self.desc.port_num as usize / 8) + 1];
-            self.interrupt_channel.request_in(slice).await?;
+            // Fast path - device disconnected and reconnected between polls
+            match self.fast_reconnect_port.take() {
+                Some(port) => {
+                    // Forge a status change for the port, avoiding polling interrupt ep
+                    slice[(port as usize + 1) / 8] |= 1 << ((port as usize + 1) % 8)
+                }
+                None => {
+                    self.interrupt_channel.request_in(slice).await?;
+                }
+            }
 
             let mut hub_changes = HubInterrupt(slice);
             if hub_changes.take_hub_change() {
@@ -199,8 +210,18 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
 
                 if change.contains(PortStatusChange::CONNECT) {
                     change.toggle(PortStatusChange::CONNECT);
+                    let connected = status.contains(PortStatus::CONNECTED);
+                    if connected && let Some(address) = self.device_lut.get_mut(port as usize).and_then(|v| v.take()) {
+                        // The device disconnected and reconnected between two polls.
+                        // Report removal and prime fast path to report reconnect on next poll.
+                        self.fast_reconnect_port = Some(port);
+                        return Ok(HandlerEvent::HandlerEvent(HubEvent::DeviceRemoved {
+                            address: Some(address),
+                            port,
+                        }));
+                    }
                     self.port_feature(false, PortFeature::ChangeConnection, port, 0).await?;
-                    match status.contains(PortStatus::CONNECTED) {
+                    match connected {
                         true => {
                             let speed: Speed = status.into();
                             debug!(
@@ -368,6 +389,10 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
         }
 
         Ok((info, config_len))
+    }
+
+    pub async fn set_port_power(&mut self, port: u8, on: bool) -> Result<(), HostError> {
+        self.port_feature(on, PortFeature::Power, port, 0).await
     }
 
     async fn port_feature(&mut self, set: bool, feature: PortFeature, port: u8, selector: u8) -> Result<(), HostError> {
