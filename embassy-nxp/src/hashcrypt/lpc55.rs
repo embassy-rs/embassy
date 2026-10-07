@@ -22,7 +22,8 @@ pub enum KeySize {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AesError {
-    KeySizeNeeded, //triggeres when .set_key is called without set_key_size
+    /// Error triggers when .set_key is called without set_key_size
+    KeySizeNeeded,
     KeyNeeded,     // trigers when .encryp)/.decrypt or set_iv/set_counter are called before set_key()
     IvNeeded,      // triggers when .encrypt/.decrypt for cbc are called without set_iv
     CounterNeeded, // triggers when .encrypt/.decrypt for ctr are called without set_counter
