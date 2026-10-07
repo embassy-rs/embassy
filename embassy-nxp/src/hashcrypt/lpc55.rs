@@ -341,10 +341,6 @@ macro_rules! impl_aes {
                         _ => unreachable!(),
                     });
 
-                    match &self.key {
-                        Some(key) => feed_key(key),
-                        None => {}
-                    }
                     return Ok(());
                 } else {
                     return Err(AesError::WrongKeySize);
