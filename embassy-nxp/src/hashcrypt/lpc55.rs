@@ -8,7 +8,7 @@ use crate::pac;
 use crate::peripherals::HASHCRYPT;
 
 #[derive(Debug, Clone, PartialEq)]
-enum Key {
+pub(crate) enum Key {
     Key128([u8; 16]),
     Key192([u8; 24]),
     Key256([u8; 32]),
@@ -36,81 +36,13 @@ pub enum AesError {
     DeviceError,
 }
 
-fn wait_data() {
-    let mut trys = 0;
-    while !pac::HASHCRYPT.status().read().waiting() {
-        cortex_m::asm::nop();
-        trys += 1;
-        if trys > 25 {
-            break;
-        }
-    }
-}
-
-fn wait_key() {
-    let mut tries = 0;
-    while !pac::HASHCRYPT.status().read().needkey() {
-        cortex_m::asm::nop();
-        tries += 1;
-        if tries > 25 {
-            break;
-        }
-    }
-}
-
-fn feed_word(word: u32) {
-    pac::HASHCRYPT.indata().write(|w| {
-        w.set_data(word);
-    });
-}
-
-fn feed_key(key: &Key) {
-    wait_data();
-    wait_key();
-
-    match key {
-        Key128(bytes) => {
-            for chunk in bytes.chunks_exact(4) {
-                feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
-            }
-        }
-        Key192(bytes) => {
-            for chunk in bytes.chunks_exact(4) {
-                feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
-            }
-        }
-        Key256(bytes) => {
-            for chunk in bytes.chunks_exact(4) {
-                feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
-            }
-        }
-    }
-}
-#[allow(dead_code)] // Used by the SHA and AES modes; remove once a caller exists.
-fn read_digest(count: usize, out: &mut [u8]) {
-    loop {
-        let status = pac::HASHCRYPT.status().read().digest();
-        // Block until the DIGEST status flag signals the output registers hold a
-        // complete result, then read `count` words out of DIGEST0..n.
-        if status {
-            for i in 0..count {
-                let word = pac::HASHCRYPT.digest0(i).read().digest();
-                out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
-            }
-            break;
-        }
-        // If status is false, then that means there is no digest ready to be read, and since there is
-        // no more incoming data, then that means we just need to keep waiting and so there is no need
-        // to explicitly handle that case
-    }
-}
-
 // Generic driver type
 pub struct GenericHashcrypt<'d> {
     _peri: Peri<'d, HASHCRYPT>,
 }
 
 // mode switching implementation of generic driver
+#[allow(dead_code)]
 impl<'d> GenericHashcrypt<'d> {
     pub fn new(peri: Peri<'d, HASHCRYPT>) -> Self {
         pac::SYSCON.ahbclkctrl2().modify(|w| {
@@ -163,6 +95,75 @@ impl<'d> GenericHashcrypt<'d> {
             _peri: self,
             key_size: None,
             key: None,
+        }
+    }
+
+    pub(crate) fn wait_data() {
+        let mut trys = 0;
+        while !pac::HASHCRYPT.status().read().waiting() {
+            cortex_m::asm::nop();
+            trys += 1;
+            if trys > 25 {
+                break;
+            }
+        }
+    }
+
+    pub(crate) fn wait_key() {
+        let mut tries = 0;
+        while !pac::HASHCRYPT.status().read().needkey() {
+            cortex_m::asm::nop();
+            tries += 1;
+            if tries > 25 {
+                break;
+            }
+        }
+    }
+
+    pub(crate) fn feed_word(word: u32) {
+        pac::HASHCRYPT.indata().write(|w| {
+            w.set_data(word);
+        });
+    }
+
+    pub(crate) fn feed_key(key: &Key) {
+        Self::wait_data();
+        Self::wait_key();
+
+        match key {
+            Key128(bytes) => {
+                for chunk in bytes.chunks_exact(4) {
+                    Self::feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
+                }
+            }
+            Key192(bytes) => {
+                for chunk in bytes.chunks_exact(4) {
+                    Self::feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
+                }
+            }
+            Key256(bytes) => {
+                for chunk in bytes.chunks_exact(4) {
+                    Self::feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
+                }
+            }
+        }
+    }
+
+    pub(crate) fn read_digest(count: usize, out: &mut [u8]) {
+        loop {
+            let status = pac::HASHCRYPT.status().read().digest();
+            // Block until the DIGEST status flag signals the output registers hold a
+            // complete result, then read `count` words out of DIGEST0..n.
+            if status {
+                for i in 0..count {
+                    let word = pac::HASHCRYPT.digest0(i).read().digest();
+                    out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
+                }
+                break;
+            }
+            // If status is false, then that means there is no digest ready to be read, and since there is
+            // no more incoming data, then that means we just need to keep waiting and so there is no need
+            // to explicitly handle that case
         }
     }
 }
@@ -280,7 +281,6 @@ impl<'a, 'd> AesCtr<'a, 'd> {
 }
 
 // TODO: add update with impl_sha! macro once it's introduced in the SHA PR
-
 macro_rules! impl_aes {
     ($ty:ident) => {
         impl<'a, 'd> $ty<'a, 'd> {
