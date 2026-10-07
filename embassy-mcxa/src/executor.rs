@@ -153,24 +153,35 @@ impl Executor {
                     // completely BEFORE yielding control flow back to interrupts.
                     embassy_executor::trace_idle();
                     debug_lo();
-                    let do_wfe_sleep = critical_section::with(|cs| {
-                        let did_deep_sleep = crate::clocks::deep_sleep_if_possible(&cs);
-                        if did_deep_sleep {
+                    let result = critical_section::with(|cs| {
+                        let result = crate::clocks::deep_sleep_if_possible(&cs);
+                        if matches!(result, Ok(Some(_))) {
                             debug_hi();
                         }
-                        !did_deep_sleep
+                        result
                     });
-
-                    // Did we succeed at deep sleeping?
-                    if do_wfe_sleep {
-                        // Nope, WFE. We don't need a critical section here because we don't
-                        // need to wait for clocks to resume before we service interrupts.
-                        do_wfe();
-                        debug_hi();
-                        crate::perf_counters::incr_wfe_sleeps();
-                    } else {
-                        // Yep!
-                        crate::perf_counters::incr_deep_sleeps();
+                    cortex_m::asm::isb();
+                    match result {
+                        Ok(Some(status)) => {
+                            if status.core_clock_was_gated() {
+                                crate::perf_counters::incr_deep_sleeps();
+                            }
+                            // WFE may have consumed a task event without sleeping.
+                            // Poll again rather than waiting on an already-consumed event.
+                        }
+                        Ok(None) => {
+                            do_wfe();
+                            debug_hi();
+                            crate::perf_counters::incr_wfe_sleeps();
+                        }
+                        Err(error) => {
+                            debug_hi();
+                            #[cfg(feature = "defmt")]
+                            defmt::error!("Deep Sleep entry/recovery failed: {:?}", error);
+                            #[cfg(not(feature = "defmt"))]
+                            let _ = error;
+                            // Do not execute WFE under a rejected CMC configuration.
+                        }
                     }
                 }
             },

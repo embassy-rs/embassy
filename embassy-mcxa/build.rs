@@ -49,6 +49,7 @@ fn main() {
         generate_instance_calls(),
         generate_gpio_pin_impls(),
         generate_adc_pin_impls(),
+        generate_wuu_pin_impls(),
         generate_clkout_impls(),
         generate_lpi2c_pin_impls(),
         generate_i3c_pin_impls(),
@@ -285,6 +286,39 @@ fn generate_adc_pin_impls() -> TokenStream {
                 generated.extend(quote! {
                     #feature_gate
                     crate::impl_adc_pin!(#pin_name, #adc_name, #channel);
+                });
+            }
+        }
+    }
+
+    generated
+}
+
+fn generate_wuu_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    for wuu in METADATA
+        .peripherals
+        .iter()
+        .filter(|p| p.driver_name.eq_ignore_ascii_case("mcxa/WUU"))
+    {
+        for signal in wuu.signals {
+            let Some(index) = signal
+                .name
+                .strip_prefix("IN")
+                .and_then(|value| value.parse::<usize>().ok())
+            else {
+                continue;
+            };
+            let index = proc_macro2::Literal::usize_unsuffixed(index);
+
+            for pin in signal.pins {
+                let pin_name = format_ident!("{}", pin.pin);
+                let feature_gate = pin_feature_gate(pin.pin);
+
+                generated.extend(quote! {
+                    #feature_gate
+                    crate::impl_wuu_pin!(#pin_name, #index);
                 });
             }
         }

@@ -20,9 +20,11 @@ please do one of the following:
 
 ### Recovering from a too-sleepy firmware
 
-If you have an example that is configured to the DeepSleep state, it will sever
-the debugger connection once it enters deep sleep. This can mean it will be hard
-to re-flash since the debugging core is disabled.
+By default, gated sleep modes disable CMC debug operation and can sever the
+debugger connection. Set `config.clock_cfg.vdd_power.debug_in_sleep = true`
+before HAL initialization to request debug retention independently of sleep
+depth. This can increase power consumption and does not guarantee debug access
+if required domains are powered down or debug authorization prevents it.
 
 To recover from this state, you can use the ISP mode, which triggers the ROM
 bootloader:
@@ -36,6 +38,31 @@ bootloader:
 
 You probably want to recover the device by flashing a simple example like the
 `blinky` example which doesn't attempt to go to deep sleep.
+
+### Explicit sleep entry and recovery
+
+`clocks::go_to_sleep()` and `clocks::go_to_deep_sleep()` return
+`Result<(), PowerModeError>`. Their `_with_status` variants return `SleepStatus`,
+captured before clock and idle-mode recovery. Handle configuration/recovery
+errors explicitly instead of attempting another WFE under a rejected setting.
+
+Hold a `critical_section::with` critical section through entry and recovery,
+then execute `cortex_m::asm::isb()` after the closure returns. Entry saves the
+SCR sleep-control bits, enables `SLEEPDEEP` and `SEVONPEND`, and restores those
+bits before returning. Recovery selects Active/Sleep for the power domain and
+restores the idle clock policy configured by `CoreSleep`.
+Clock initialization enables `SEVONPEND` for all idle policies so interrupt
+events are not missed between masking interrupts and the explicit entry call.
+
+Sleep and Deep Sleep use WFE to preserve Embassy's SEV-based wakeups. A pending
+event may make WFE return without sleeping; this is not an error.
+`deep_sleep_if_possible()` returns `Ok(None)` when wake guards inhibit entry,
+or `Ok(Some(status))` after an entry attempt. Poll runnable work again after an
+attempt rather than immediately waiting a second time.
+
+`SleepStatus::core_clock_was_gated()` reports CMC's clock-gated indication, not
+proof that a particular power-domain mode was reached. The HAL supports Sleep
+and Deep Sleep entry only; Power Down entry APIs are not provided.
 
 ## The `Cargo.toml` file
 

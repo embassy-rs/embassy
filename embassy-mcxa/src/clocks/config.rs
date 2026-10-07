@@ -233,7 +233,8 @@ pub enum CoreSleep {
     ///
     /// Enabling this mode has potential danger to soft-lock the system!
     ///
-    /// * This mode WILL detach the debugging/RTT/defmt session if active upon first sleep.
+    /// * Debugging is disabled during sleep by default. Set
+    ///   [`VddPowerConfig::debug_in_sleep`] to request debug retention.
     /// * This mode WILL also require ISP mode recovery in order to re-flash if the core becomes
     ///   "stuck" in sleep.
     WfeGated,
@@ -250,19 +251,12 @@ pub enum CoreSleep {
     /// Enable either the `executor-platform` feature to use embassy-mcxa's executor
     /// or `external-deep-sleep-executor` when providing that behavior externally.
     ///
-    /// ## TODO
-    ///
-    /// For now, this REQUIRES calling unsafe `okay_but_actually_enable_deep_sleep()`
-    /// otherwise we'd ALWAYS go to deep sleep on every WFE. We need to implement a
-    /// custom executor that does proper go-to-deepsleep and come-back-from-deepsleep
-    /// before un-chickening this. If the method isn't called, we just set to `WfeGated`
-    /// instead.
-    ///
     /// ## WARNING
     ///
     /// Enabling this mode has potential danger to soft-lock the system!
     ///
-    /// * This mode WILL detach the debugging/RTT/defmt session if active upon first sleep.
+    /// * Debugging is disabled during sleep by default. Set
+    ///   [`VddPowerConfig::debug_in_sleep`] to request debug retention.
     /// * This mode WILL also require ISP mode recovery in order to re-flash if the core becomes
     ///   "stuck" in sleep.
     DeepSleep,
@@ -280,6 +274,13 @@ pub struct VddPowerConfig {
     pub core_sleep: CoreSleep,
     /// Internal flash clock gating settings
     pub flash_sleep: FlashSleep,
+    /// Keep CMC debug operation enabled while the core sleeps.
+    ///
+    /// Clears `DBGCTL.SOD` independently of the sleep depth. Defaults to `false`
+    /// for gated modes; `WfeUngated` always keeps debug enabled. Retention can
+    /// increase power consumption and does not bypass debug authorization or
+    /// guarantee access when other required domains are powered down.
+    pub debug_in_sleep: bool,
 }
 
 // Main Clock
@@ -700,6 +701,7 @@ impl Default for ClocksConfig {
                 },
                 core_sleep: CoreSleep::WfeUngated,
                 flash_sleep: FlashSleep::Never,
+                debug_in_sleep: false,
             },
             main_clock: MainClockConfig {
                 source: MainClockSource::FircHfRoot,

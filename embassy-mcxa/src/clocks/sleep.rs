@@ -1,4 +1,10 @@
-//! Deep sleep entry, exit, and clock recovery.
+//! Checked CMC sleep entry, exit, and clock recovery.
+//!
+//! Entry follows the NXP CMC configuration, readback, and barrier sequence.
+//! Sleep and Deep Sleep retain WFE event wakeups.
+//! The caller holds a critical section through clock and idle-mode recovery.
+//! SCR sleep control is saved per call and restored before returning, and
+//! status is captured before recovery modifies the CMC/SPC registers.
 
 use core::cell::Ref;
 use core::ops::Deref;
@@ -7,6 +13,7 @@ use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
 
 use super::CLOCKS;
+use super::config::CoreSleep;
 use super::types::{Clocks, PoweredClock};
 use crate::pac;
 use crate::pac::cmc::Ckmode;
@@ -15,12 +22,74 @@ use crate::pac::scg::Fircvld;
 use crate::pac::scg::{Sircvld, SpllLock};
 use crate::pac::spc::{PdLpReq, SpcLpReq};
 
-const ALLOW_ALL_LOW_POWER_MODES: u32 = 0x0f;
+const LOW_POWER_MODE_MASK: u32 = 0x0f;
+const ALLOW_DEEP_SLEEP: u32 = 0x01;
+const SLEEPDEEP: u32 = 1 << 2;
+const SEVONPEND: u32 = 1 << 4;
+const SLEEP_CONTROL_MASK: u32 = SLEEPDEEP | SEVONPEND;
+
+/// Power mode entry error.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PowerModeError {
+    /// Clock initialization has not completed.
+    ClockNotInitialized,
+    /// CKCTRL is locked with an incompatible clocking mode.
+    ClockControlLocked,
+    /// PMPROT is locked without allowing the requested power mode.
+    PowerModeProtectionLocked,
+    /// The CMC rejected a requested power mode configuration.
+    ConfigurationRejected,
+    /// The configured idle mode could not be restored.
+    RecoveryRejected,
+}
+
+/// Power-state registers captured immediately after the sleep instruction returns.
+///
+/// A requested mode and `CKSTAT.VALID` do not prove the power domain reached
+/// that mode. In particular, WFE can consume an event without gating the core.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SleepStatus {
+    /// MAIN domain mode requested before executing WFE.
+    pub requested_main_mode: u32,
+    /// CMC clock status before recovery clears it.
+    pub ckstat: u32,
+    /// MAIN domain mode observed immediately after wake.
+    pub wake_main_mode: u32,
+    /// SPC power-domain status before recovery clears it.
+    pub pd_status0: u32,
+    /// SPC status before recovery clears it.
+    pub spc_sc: u32,
+}
+
+impl SleepStatus {
+    /// Whether CMC recorded core clock gating during this entry attempt.
+    pub fn core_clock_was_gated(&self) -> bool {
+        pac::cmc::Ckstat(self.ckstat).valid()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PowerMode {
+    Sleep,
+    DeepSleep,
+}
+
+impl PowerMode {
+    fn configuration(self) -> (Ckmode, u32, u8) {
+        match self {
+            Self::Sleep => (Ckmode::Ckmode0001, 0, 0),
+            Self::DeepSleep => (Ckmode::Ckmode1111, ALLOW_DEEP_SLEEP, 1),
+        }
+    }
+}
 
 /// Attempt to go to deep sleep if possible.
 ///
-/// If we successfully went and returned from deep sleep, this function returns a `true`.
-/// If we were unsuccessful due to active `WaitGuard`s, this function returns a `false`.
+/// Returns `Ok(None)` when active `WakeGuard`s inhibit entry. `Ok(Some(status))`
+/// means the WFE entry sequence ran, including when an event prevented sleep.
+/// After any attempted entry, the executor must poll runnable work again.
 ///
 /// ## SAFETY
 ///
@@ -28,246 +97,200 @@ const ALLOW_ALL_LOW_POWER_MODES: u32 = 0x0f;
 /// sleep, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
 /// have been called and returned successfully, with a `CoreSleep` configuration
 /// set to DeepSleep (or lower).
-pub unsafe fn deep_sleep_if_possible(cs: &CriticalSection) -> bool {
+/// Hold the critical section through recovery and execute ISB after restoring
+/// the caller's interrupt mask.
+pub unsafe fn deep_sleep_if_possible(cs: &CriticalSection) -> Result<Option<SleepStatus>, PowerModeError> {
     let inhibit = crate::clocks::active_wake_guards(cs);
     if inhibit {
-        return false;
+        return Ok(None);
     }
 
     // SAFETY: this function has the same clock-initialization and critical-section
     // requirements as go_to_deep_sleep.
-    unsafe { go_to_deep_sleep(cs) };
-
-    true
+    unsafe { go_to_deep_sleep_with_status(cs) }.map(Some)
 }
 
-pub unsafe fn go_to_deep_sleep(cs: &CriticalSection) {
-    unsafe {
-        setup_deep_sleep();
-        enter_low_power_mode();
-        recover_deep_sleep(cs);
-    }
-}
-
-pub unsafe fn go_to_sleep(cs: &CriticalSection) {
-    unsafe {
-        setup_sleep();
-        enter_low_power_mode();
-        recover_sleep(cs);
-    }
-}
-
-pub unsafe fn go_to_power_down(cs: &CriticalSection) {
-    unsafe {
-        setup_power_down();
-        enter_low_power_mode();
-        recover_power_down(cs);
-    }
-}
-
-/// Enter Deep Power Down.
+/// Enter Deep Sleep, preserving event wakeups and restoring the configured idle mode.
 ///
-/// This function does not return because waking from Deep Power Down resets the
-/// core. Wake sources and any required external-domain isolation must be
-/// configured before calling this function.
+/// # Safety
 ///
-/// ## Safety
-///
-/// The caller must ensure all peripherals are ready for Deep Power Down,
-/// `crate::clocks::init()` completed successfully, and the supplied critical
-/// section remains held during entry.
-pub unsafe fn go_to_deep_power_down(_cs: &CriticalSection) -> ! {
-    unsafe {
-        setup_deep_power_down();
-    }
-
-    // SAFETY: SCB is a zero-sized singleton register handle. The caller holds
-    // the critical section required by this entry routine.
-    let mut scb: SCB = unsafe { core::mem::transmute(()) };
-    scb.set_sleepdeep();
-
-    // A successful wake from Deep Power Down resets the core. If WFE returns
-    // without entering the mode, retry rather than continuing with lost state.
-    loop {
-        cortex_m::asm::dsb();
-        cortex_m::asm::wfe();
-        cortex_m::asm::isb();
-    }
+/// Clock initialization must have completed and peripherals must be quiescent.
+/// The caller must hold the critical section through entry and recovery, then
+/// execute ISB after restoring its interrupt mask.
+pub unsafe fn go_to_deep_sleep(cs: &CriticalSection) -> Result<(), PowerModeError> {
+    // SAFETY: this wrapper has the same contract as the status-returning routine.
+    unsafe { go_to_deep_sleep_with_status(cs) }.map(|_| ())
 }
 
-/// Enter the CMC mode selected by the setup routine.
+/// Enter Deep Sleep and capture the hardware result before recovery.
 ///
-/// `SEVONPEND` is enabled during clock initialization, so `WFE` wakes when an
-/// interrupt becomes pending even while the caller's critical section masks
-/// interrupt handling.
-unsafe fn enter_low_power_mode() {
-    // SAFETY: SCB is a zero-sized singleton register handle. The caller holds
-    // the critical section required by the public entry routines.
-    let mut scb: SCB = unsafe { core::mem::transmute(()) };
+/// # Safety
+///
+/// The caller must satisfy the requirements of [`go_to_deep_sleep`].
+pub unsafe fn go_to_deep_sleep_with_status(cs: &CriticalSection) -> Result<SleepStatus, PowerModeError> {
+    // SAFETY: the caller holds the critical section through clock recovery.
+    unsafe { enter_power_mode(cs, PowerMode::DeepSleep) }
+}
 
-    scb.set_sleepdeep();
+/// Enter core-clock-gated Sleep and restore the configured idle mode.
+///
+/// # Safety
+///
+/// Clock initialization must have completed. The caller must hold the critical
+/// section through entry and recovery, then execute ISB after restoring its
+/// interrupt mask.
+pub unsafe fn go_to_sleep(cs: &CriticalSection) -> Result<(), PowerModeError> {
+    // SAFETY: this wrapper has the same contract as the status-returning routine.
+    unsafe { go_to_sleep_with_status(cs) }.map(|_| ())
+}
+
+/// Enter Sleep and capture the hardware result before recovery.
+///
+/// # Safety
+///
+/// The caller must satisfy the requirements of [`go_to_sleep`].
+pub unsafe fn go_to_sleep_with_status(cs: &CriticalSection) -> Result<SleepStatus, PowerModeError> {
+    // SAFETY: the caller holds the critical section through idle-mode recovery.
+    unsafe { enter_power_mode(cs, PowerMode::Sleep) }
+}
+
+unsafe fn enter_power_mode(cs: &CriticalSection, mode: PowerMode) -> Result<SleepStatus, PowerModeError> {
+    // Synchronize the caller's interrupt masking before configuring low power.
+    cortex_m::asm::isb();
+    let idle_mode = {
+        let clocks = CLOCKS.borrow_ref(*cs);
+        let clocks = clocks.as_ref().ok_or(PowerModeError::ClockNotInitialized)?;
+        idle_clock_mode(clocks.core_sleep)
+    };
+    let cmc = pac::CMC;
+    let (clock_mode, protection, low_power_mode) = mode.configuration();
+    validate_power_mode(
+        cmc.ckctrl().read(),
+        cmc.pmprot().read(),
+        clock_mode,
+        idle_mode,
+        protection,
+    )?;
+    if let Err(error) = prepare_power_mode(cmc, clock_mode, protection, low_power_mode) {
+        restore_idle_mode(cmc, idle_mode)?;
+        return Err(error);
+    }
+
+    // SAFETY: SCB is an MMIO-only zero-sized handle. The caller masks interrupts
+    // and restores the affected SCR bits before returning.
+    let scb: SCB = unsafe { core::mem::transmute(()) };
+    let saved_scr = scb.scr.read();
+    // SAFETY: only the architectural SLEEPDEEP/SEVONPEND bits are changed.
+    unsafe { scb.scr.modify(sleep_control_for_entry) };
+    let requested_main_mode = cmc.pmctrlmain().read().0;
+    clear_previous_clock_status();
+    clear_spc_low_power_status();
     cortex_m::asm::dsb();
     cortex_m::asm::wfe();
     cortex_m::asm::isb();
-    scb.clear_sleepdeep();
-}
 
-/// Prepare the system for deep sleep
-///
-/// ## SAFETY
-///
-/// Care must be taken that we have ensured that the system is ready to go to deep
-/// sleep, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
-/// have been called and returned successfully.
-unsafe fn setup_deep_sleep() {
-    let cmc = nxp_pac::CMC;
-
-    // To configure for Deep Sleep Low-Power mode entry:
-    //
-    // Write Fh to Clock Control (CKCTRL)
-    cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode1111));
-    // Allow all low-power modes in Power Mode Protection (PMPROT)
-    cmc.pmprot()
-        .modify(|w| w.0 = (w.0 & !ALLOW_ALL_LOW_POWER_MODES) | ALLOW_ALL_LOW_POWER_MODES);
-    // Write 1h to Global Power Mode Control (GPMCTRL)
-    cmc.gpmctrl().modify(|w| w.set_lpmode(0b0001));
-
-    // From the C SDK:
-    //
-    // Before executing the sleep instruction read back the last register to
-    // ensure all registers writes have completed.
-    let _ = cmc.gpmctrl().read();
-}
-
-/// Prepare the system for sleep
-///
-/// ## SAFETY
-///
-/// Care must be taken that we have ensured that the system is ready to go to
-/// sleep, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
-/// have been called and returned successfully.
-unsafe fn setup_sleep() {
-    let cmc = nxp_pac::CMC;
-
-    // To configure for Sleep Low-Power mode entry:
-    //
-    // Write 1h to Clock Control (CKCTRL)
-    cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode0001));
-    // Allow all low-power modes in Power Mode Protection (PMPROT)
-    cmc.pmprot()
-        .modify(|w| w.0 = (w.0 & !ALLOW_ALL_LOW_POWER_MODES) | ALLOW_ALL_LOW_POWER_MODES);
-    // Write 0h to Global Power Mode Control (GPMCTRL)
-    cmc.gpmctrl().modify(|w| w.set_lpmode(0b0000));
-
-    // From the C SDK:
-    //
-    // Before executing the sleep instruction read back the last register to
-    // ensure all registers writes have completed.
-    let _ = cmc.gpmctrl().read();
-}
-
-/// Prepare the system for power down
-///
-/// ## SAFETY
-///
-/// Care must be taken that we have ensured that the system is ready to go to
-/// Power Down, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
-/// have been called and returned successfully.
-unsafe fn setup_power_down() {
-    let cmc = nxp_pac::CMC;
-
-    // To configure for Power Down Low-Power mode entry:
-    //
-    // Write Fh to Clock Control (CKCTRL)
-    cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode1111));
-    // Allow all low-power modes in Power Mode Protection (PMPROT)
-    cmc.pmprot()
-        .modify(|w| w.0 = (w.0 & !ALLOW_ALL_LOW_POWER_MODES) | ALLOW_ALL_LOW_POWER_MODES);
-    // Write 3h to Global Power Mode Control (GPMCTRL)
-    cmc.gpmctrl().modify(|w| w.set_lpmode(0b0011));
-
-    // From the C SDK:
-    //
-    // Before executing the sleep instruction read back the last register to
-    // ensure all registers writes have completed.
-    let _ = cmc.gpmctrl().read();
-}
-
-/// Prepare the system for Deep Power Down.
-///
-/// ## Safety
-///
-/// The caller must ensure the system and wake sources are configured for a
-/// reset-on-wake Deep Power Down transition.
-unsafe fn setup_deep_power_down() {
-    let cmc = nxp_pac::CMC;
-
-    // Gate all system clocks and request Deep Power Down for the power domain.
-    cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode1111));
-    cmc.pmprot()
-        .modify(|w| w.0 = (w.0 & !ALLOW_ALL_LOW_POWER_MODES) | ALLOW_ALL_LOW_POWER_MODES);
-    cmc.gpmctrl().modify(|w| w.set_lpmode(0b1111));
-
-    // Ensure all register writes complete before executing WFE.
-    let _ = cmc.gpmctrl().read();
-}
-
-/// Start back up after deep sleep returns
-///
-/// ## SAFETY
-///
-/// Care must be taken that we have ensured that the system is ready to go to deep
-/// sleep, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
-/// have been called and returned successfully, with a `CoreSleep` configuration
-/// set to DeepSleep (or lower).
-unsafe fn recover_deep_sleep(cs: &CriticalSection) {
-    let cmc = nxp_pac::CMC;
-
-    // Restart any necessary clocks
-    unsafe {
-        restart_active_only_clocks(cs);
+    let status = SleepStatus {
+        requested_main_mode,
+        ckstat: cmc.ckstat().read().0,
+        wake_main_mode: cmc.pmctrlmain().read().0,
+        pd_status0: pac::SPC0.pd_status0().read().0,
+        spc_sc: pac::SPC0.sc().read().0,
+    };
+    if mode != PowerMode::Sleep {
+        // SAFETY: recovery is performed in the same critical section as entry.
+        unsafe { restart_active_only_clocks(cs) };
     }
-    clear_low_power_status(cs);
+    clear_spc_low_power_status();
+    let recovery = restore_idle_mode(cmc, idle_mode);
+    // SAFETY: restore only our SCR changes, preserving unrelated control bits.
+    unsafe { scb.scr.modify(|current| restore_sleep_control(current, saved_scr)) };
+    cortex_m::asm::isb();
+    recovery?;
 
-    // Re-raise the sleep level to WFE sleep in the off chance that the
-    // user decides to call `wfe` on their own accord, and to avoid having
-    // to re-set if we chill in WFE sleep mostly
-    cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode0001));
+    Ok(status)
 }
 
-/// Restore the normal light-sleep configuration after waking from Sleep.
-///
-/// ## Safety
-///
-/// This must be called in the same critical section used to enter Sleep.
-unsafe fn recover_sleep(cs: &CriticalSection) {
-    let cmc = nxp_pac::CMC;
-    clear_low_power_status(cs);
-    cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode0001));
+fn idle_clock_mode(core_sleep: CoreSleep) -> Ckmode {
+    match core_sleep {
+        CoreSleep::WfeUngated => Ckmode::Ckmode0000,
+        CoreSleep::WfeGated | CoreSleep::DeepSleep => Ckmode::Ckmode0001,
+    }
 }
 
-/// Restore active-only clocks after waking from Power Down.
-///
-/// ## Safety
-///
-/// This must be called in the same critical section used to enter Power Down.
-unsafe fn recover_power_down(cs: &CriticalSection) {
-    // SAFETY: Power Down uses the same active-clock gating and recovery
-    // requirements as Deep Sleep.
-    unsafe { recover_deep_sleep(cs) };
+fn sleep_control_for_entry(scr: u32) -> u32 {
+    scr | SLEEP_CONTROL_MASK
 }
 
-/// Clear the low-power request and clock-gated flags latched by the CMC/SPC.
-fn clear_low_power_status(_cs: &CriticalSection) {
-    let cmc = nxp_pac::CMC;
-    if !cmc.ckstat().read().valid() {
-        return;
+fn restore_sleep_control(current: u32, saved: u32) -> u32 {
+    (current & !SLEEP_CONTROL_MASK) | (saved & SLEEP_CONTROL_MASK)
+}
+
+fn validate_power_mode(
+    ckctrl: pac::cmc::Ckctrl,
+    pmprot: pac::cmc::Pmprot,
+    clock_mode: Ckmode,
+    idle_mode: Ckmode,
+    protection: u32,
+) -> Result<(), PowerModeError> {
+    // A locked deep configuration is also rejected if it prevents idle recovery.
+    if ckctrl.lock() && (ckctrl.ckmode() != clock_mode || ckctrl.ckmode() != idle_mode) {
+        return Err(PowerModeError::ClockControlLocked);
+    }
+    if pmprot.lock() && pmprot.0 & protection != protection {
+        return Err(PowerModeError::PowerModeProtectionLocked);
+    }
+    Ok(())
+}
+
+fn prepare_power_mode(
+    cmc: pac::cmc::Cmc,
+    clock_mode: Ckmode,
+    protection: u32,
+    low_power_mode: u8,
+) -> Result<(), PowerModeError> {
+    cmc.ckctrl().modify(|w| w.set_ckmode(clock_mode));
+    if cmc.ckctrl().read().ckmode() != clock_mode {
+        return Err(PowerModeError::ConfigurationRejected);
+    }
+    if protection != 0 {
+        if !cmc.pmprot().read().lock() {
+            cmc.pmprot().modify(|w| w.0 = (w.0 & !LOW_POWER_MODE_MASK) | protection);
+        }
+        if cmc.pmprot().read().0 & protection != protection {
+            return Err(PowerModeError::ConfigurationRejected);
+        }
+    }
+    cmc.gpmctrl().write(|w| w.set_lpmode(low_power_mode));
+    // Readback completes the broadcast write; PMCTRLMAIN verifies its effect.
+    let _ = cmc.gpmctrl().read();
+    if cmc.pmctrlmain().read().lpmode().to_bits() != low_power_mode {
+        return Err(PowerModeError::ConfigurationRejected);
     }
 
-    let spc = nxp_pac::SPC0;
+    Ok(())
+}
+
+fn restore_idle_mode(cmc: pac::cmc::Cmc, idle_mode: Ckmode) -> Result<(), PowerModeError> {
+    cmc.gpmctrl().write(|w| w.set_lpmode(0));
+    let _ = cmc.gpmctrl().read();
+    cmc.ckctrl().modify(|w| w.set_ckmode(idle_mode));
+    if cmc.pmctrlmain().read().lpmode().to_bits() != 0 || cmc.ckctrl().read().ckmode() != idle_mode {
+        return Err(PowerModeError::RecoveryRejected);
+    }
+    Ok(())
+}
+
+/// Clear SPC request flags independently of CMC wake status.
+fn clear_spc_low_power_status() {
+    let spc = pac::SPC0;
     spc.pd_status0().modify(|w| w.set_pd_lp_req(PdLpReq::ReqYes));
     spc.sc().modify(|w| w.set_spc_lp_req(SpcLpReq::LowPower));
-    cmc.ckstat().modify(|w| w.set_valid(true));
+}
+
+/// Clear the previous CMC result immediately before a new entry attempt.
+fn clear_previous_clock_status() {
+    // CKSTAT.VALID is write-one-to-clear.
+    pac::CMC.ckstat().modify(|w| w.set_valid(true));
 }
 
 /// Perform any actions necessary to re-initialize clocks after returning to active
@@ -319,5 +342,121 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
         && !matches!(spll.power, PoweredClock::AlwaysEnabled)
     {
         while scg.spllcsr().read().spll_lock() != SpllLock::EnabledAndValid {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mode_encodings_match_cmc_reference() {
+        assert_eq!(PowerMode::Sleep.configuration(), (Ckmode::Ckmode0001, 0, 0));
+        assert_eq!(PowerMode::DeepSleep.configuration(), (Ckmode::Ckmode1111, 1, 1));
+    }
+
+    #[test]
+    fn idle_policy_preserves_ungated_and_gated_modes() {
+        assert_eq!(idle_clock_mode(CoreSleep::WfeUngated), Ckmode::Ckmode0000);
+        assert_eq!(idle_clock_mode(CoreSleep::WfeGated), Ckmode::Ckmode0001);
+        assert_eq!(idle_clock_mode(CoreSleep::DeepSleep), Ckmode::Ckmode0001);
+    }
+
+    #[test]
+    fn debug_retention_is_opt_in_by_default() {
+        assert!(!super::super::config::ClocksConfig::default().vdd_power.debug_in_sleep);
+    }
+
+    #[test]
+    fn entry_enables_sleep_and_interrupt_event_wakeups() {
+        let sleep_on_exit = 1 << 1;
+        assert_eq!(
+            sleep_control_for_entry(sleep_on_exit),
+            sleep_on_exit | SLEEPDEEP | SEVONPEND
+        );
+    }
+
+    #[test]
+    fn recovery_restores_sleep_bits_and_preserves_other_scr_bits() {
+        let unrelated = (1 << 1) | (1 << 8);
+        for saved in [0, SLEEPDEEP, SEVONPEND, SLEEP_CONTROL_MASK] {
+            assert_eq!(
+                restore_sleep_control(unrelated | SLEEP_CONTROL_MASK, saved),
+                unrelated | saved
+            );
+        }
+    }
+
+    #[test]
+    fn locked_clock_mode_must_allow_entry_and_recovery() {
+        let mut ckctrl = pac::cmc::Ckctrl::default();
+        ckctrl.set_ckmode(Ckmode::Ckmode1111);
+        ckctrl.set_lock(true);
+        assert_eq!(
+            validate_power_mode(
+                ckctrl,
+                pac::cmc::Pmprot::default(),
+                Ckmode::Ckmode1111,
+                Ckmode::Ckmode0001,
+                ALLOW_DEEP_SLEEP,
+            ),
+            Err(PowerModeError::ClockControlLocked)
+        );
+    }
+
+    #[test]
+    fn locked_sleep_configuration_can_be_reused() {
+        let mut ckctrl = pac::cmc::Ckctrl::default();
+        ckctrl.set_ckmode(Ckmode::Ckmode0001);
+        ckctrl.set_lock(true);
+        let mut pmprot = pac::cmc::Pmprot::default();
+        pmprot.set_lock(true);
+        assert_eq!(
+            validate_power_mode(ckctrl, pmprot, Ckmode::Ckmode0001, Ckmode::Ckmode0001, 0),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn locked_protection_must_allow_requested_mode() {
+        let mut pmprot = pac::cmc::Pmprot::default();
+        pmprot.set_lock(true);
+        assert_eq!(
+            validate_power_mode(
+                pac::cmc::Ckctrl::default(),
+                pmprot,
+                Ckmode::Ckmode1111,
+                Ckmode::Ckmode0001,
+                ALLOW_DEEP_SLEEP,
+            ),
+            Err(PowerModeError::PowerModeProtectionLocked)
+        );
+        pmprot.0 |= ALLOW_DEEP_SLEEP;
+        assert_eq!(
+            validate_power_mode(
+                pac::cmc::Ckctrl::default(),
+                pmprot,
+                Ckmode::Ckmode1111,
+                Ckmode::Ckmode0001,
+                ALLOW_DEEP_SLEEP,
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn requested_power_mode_does_not_imply_clock_gating() {
+        let mut status = SleepStatus {
+            requested_main_mode: 1,
+            ckstat: 0,
+            wake_main_mode: 1,
+            pd_status0: 0,
+            spc_sc: 0,
+        };
+        assert!(!status.core_clock_was_gated());
+        let mut ckstat = pac::cmc::Ckstat::default();
+        ckstat.set_valid(true);
+        status.ckstat = ckstat.0;
+        assert!(status.core_clock_was_gated());
     }
 }

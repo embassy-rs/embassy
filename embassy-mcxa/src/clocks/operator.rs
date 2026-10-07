@@ -1517,9 +1517,6 @@ impl ClockOperator<'_> {
                 // Do not gate
                 self.cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode0000));
 
-                // Debug is enabled when core sleeps
-                self.cmc.dbgctl().modify(|w| w.set_sod(false));
-
                 // Don't allow the core to be gated to avoid killing the debugging session
                 scb.clear_sleepdeep();
             }
@@ -1527,10 +1524,7 @@ impl ClockOperator<'_> {
                 // Allow automatic gating of the core when in LIGHT sleep
                 self.cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode0001));
 
-                // Debug is disabled when core sleeps
-                self.cmc.dbgctl().modify(|w| w.set_sod(true));
-
-                // Allow the core to be gated - this WILL kill the debugging session!
+                // Allow the core to be gated.
                 scb.set_sleepdeep();
             }
             CoreSleep::DeepSleep => {
@@ -1546,20 +1540,17 @@ impl ClockOperator<'_> {
                 // appropriate
                 self.cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode0001));
 
-                // Debug is disabled when core sleeps
-                self.cmc.dbgctl().modify(|w| w.set_sod(true));
-
-                // Allow the core to be gated - this WILL kill the debugging session!
+                // Allow the core to be gated.
                 scb.set_sleepdeep();
-
-                // Enable sevonpend, to allow us to wake from WFE sleep with interrupts disabled
-                unsafe {
-                    // TODO: wait for https://github.com/rust-embedded/cortex-m/commit/1be630fdd06990bd14251eabe4cca9307bde549d
-                    // to be released, until then, manual version of SCB.set_sevonpend();
-                    scb.scr.modify(|w| w | (1 << 4));
-                }
             }
         }
+        // Enable before any caller masks interrupts; enabling only at entry can
+        // miss a pending interrupt's event during the critical-section setup.
+        // SAFETY: SEVONPEND is an architectural SCR bit.
+        unsafe { scb.scr.modify(|w| w | (1 << 4)) };
+        let disable_sleep_debug =
+            !matches!(self.config.vdd_power.core_sleep, CoreSleep::WfeUngated) && !self.config.vdd_power.debug_in_sleep;
+        self.cmc.dbgctl().modify(|w| w.set_sod(disable_sleep_debug));
         self.clocks.core_sleep = self.config.vdd_power.core_sleep;
 
         // Allow automatic gating of the flash memory
