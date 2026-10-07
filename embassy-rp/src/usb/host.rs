@@ -55,6 +55,11 @@ const NAK_POLL_DELAY_YIELD: u16 = 300;
 #[cfg(feature = "rp2040")]
 const NAK_POLL_DELAY_NORMAL: u16 = 16;
 
+/// Consecutive attempts of one EPX transaction that the device leaves without any
+/// answer before the transfer fails with [`PipeError::Timeout`]: the error count of
+/// three that OHCI and EHCI keep per transfer.
+const NO_RESPONSE_RETRIES: u8 = 3;
+
 /// Bits reserved per EPX pipe in [`EpxArbiter::error`].
 const EPX_ERROR_BITS: usize = 4;
 /// Mask of one pipe's error field.
@@ -685,6 +690,8 @@ enum TransactionStatus {
     Complete,
     /// EPX was taken away at a NAK boundary; the caller should retry.
     NakYield,
+    /// The device did not answer (RX timeout); the caller may retry.
+    NoResponse,
     /// The software response budget expired.
     Timeout,
 }
@@ -933,17 +940,23 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         self.wait_available().await;
     }
 
-    // FIXME: RX Timeout with LS device on hub
     /// Start transaction and wait it to be complete
     async fn wait_transaction(&self) -> Result<TransactionStatus, PipeError> {
         assert!(!Self::is_interrupt());
         let regs = T::regs();
 
+        // A device that does not answer raises RX_TIMEOUT, and the controller retries
+        // the token for as long as it is left to: without it the transaction never
+        // ends. Low-speed devices behind a hub (PRE) raise none on their own, on
+        // RP2040 as on RP2350.
+        // Left over from an earlier transaction.
+        regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
+
         // Enable error and cplt interrupts
         regs.inte().modify(|w| {
             w.set_trans_complete(true);
             w.set_stall(true);
-            w.set_error_rx_timeout(false);
+            w.set_error_rx_timeout(true);
             w.set_error_rx_overflow(true);
             w.set_error_crc(true);
             w.set_error_bit_stuff(true);
@@ -993,6 +1006,10 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             if stat.rx_overflow() {
                 regs.sie_status().write_clear(|w| w.set_rx_overflow(true));
                 return Poll::Ready(Err(PipeError::BufferOverflow));
+            }
+            if stat.rx_timeout() {
+                regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
+                return Poll::Ready(Ok(TransactionStatus::NoResponse));
             }
             Poll::Pending
         })
@@ -1311,6 +1328,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             .control_timeout_us
             .map(|us| embassy_time::Instant::now() + embassy_time::Duration::from_micros(us));
 
+        let mut no_response = 0;
         loop {
             self.wait_ready_for_transaction().await;
             self.set_current();
@@ -1339,7 +1357,19 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 TransactionStatus::NakYield if E::ep_type() == EndpointType::Isochronous => {
                     return Err(PipeError::Canceled);
                 }
-                TransactionStatus::NakYield => {}
+                // A NAK is an answer: the silent attempts start over.
+                TransactionStatus::NakYield => no_response = 0,
+                TransactionStatus::NoResponse if E::ep_type() == EndpointType::Isochronous => {
+                    return Err(PipeError::Timeout);
+                }
+                // Retried like a NAK, EPX handed over in between; the guard stops the
+                // transaction, which the controller would otherwise retry for good.
+                TransactionStatus::NoResponse => {
+                    no_response += 1;
+                    if no_response >= NO_RESPONSE_RETRIES {
+                        return Err(PipeError::Timeout);
+                    }
+                }
                 TransactionStatus::Timeout => {
                     guard.disarm();
                     return Err(PipeError::Timeout);
