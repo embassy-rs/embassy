@@ -3,9 +3,9 @@ mod blocking;
 
 pub use asynch::{FirmwareState, FirmwareUpdater};
 pub use blocking::{BlockingFirmwareState, BlockingFirmwareUpdater};
-#[cfg(feature = "_verify")]
-pub(crate) use blocking::{VerificationError, verify};
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
+
+use crate::verification::VerificationError;
 
 /// Firmware updater flash configuration holding the two flashes used by the updater
 ///
@@ -24,8 +24,8 @@ pub struct FirmwareUpdaterConfig<DFU, STATE> {
 pub enum FirmwareUpdaterError {
     /// Error from flash.
     Flash(NorFlashErrorKind),
-    /// Signature errors.
-    Signature(signature::Error),
+    /// Crypto errors.
+    Verification(VerificationError),
     /// Bad state.
     BadState,
 }
@@ -35,7 +35,9 @@ impl defmt::Format for FirmwareUpdaterError {
     fn format(&self, fmt: defmt::Formatter) {
         match self {
             FirmwareUpdaterError::Flash(_) => defmt::write!(fmt, "FirmwareUpdaterError::Flash(_)"),
-            FirmwareUpdaterError::Signature(_) => defmt::write!(fmt, "FirmwareUpdaterError::Signature(_)"),
+            FirmwareUpdaterError::VerificationError(e) => {
+                defmt::write!(fmt, "FirmwareUpdaterError::VerificationError({})", e)
+            }
             FirmwareUpdaterError::BadState => defmt::write!(fmt, "FirmwareUpdaterError::BadState"),
         }
     }
@@ -47,5 +49,11 @@ where
 {
     fn from(error: E) -> Self {
         FirmwareUpdaterError::Flash(error.kind())
+    }
+}
+
+impl From<VerificationError> for FirmwareUpdaterError {
+    fn from(error: VerificationError) -> Self {
+        FirmwareUpdaterError::Verification(error)
     }
 }

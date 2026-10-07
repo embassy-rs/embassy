@@ -1,13 +1,12 @@
-use digest::Digest;
 #[cfg(target_os = "none")]
 use embassy_embedded_hal::flash::partition::BlockingPartition;
 #[cfg(target_os = "none")]
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-#[cfg(feature = "_verify")]
-use embedded_storage::nor_flash::NorFlashErrorKind;
-use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+use embedded_storage::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
+use crate::verification::blocking::{hash, verify};
+use crate::verification::{Digest, VerifyingKey};
 use crate::{BOOT_MAGIC, DFU_DETACH_MAGIC, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, State};
 
 /// Blocking FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
@@ -118,8 +117,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
     ///
     /// If no signature feature is set then this method will always return a
     /// signature error.
-    #[cfg(feature = "_verify")]
-    pub fn verify_and_mark_updated(
+    pub fn verify_and_mark_updated<D: Digest, V: VerifyingKey>(
         &mut self,
         _public_key: &[u8; 32],
         _signature: &[u8; 64],
@@ -129,10 +127,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
 
         self.state.verify_booted()?;
 
-        verify(&mut self.dfu, _public_key, _signature, _update_len, &mut [0; 64]).map_err(|error| match error {
-            VerificationError::Flash(error) => FirmwareUpdaterError::Flash(error),
-            VerificationError::Signature(error) => FirmwareUpdaterError::Signature(error),
-        })?;
+        verify::<_, D, V>(&mut self.dfu, _public_key, _signature, _update_len, &mut [0; 64])?;
         self.state.mark_updated()
     }
 
@@ -155,7 +150,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
         chunk_buf: &mut [u8],
         output: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
-        hash::<_, D>(&mut self.dfu, update_len, chunk_buf, output).map_err(FirmwareUpdaterError::from)
+        Ok(hash::<_, D>(&mut self.dfu, update_len, chunk_buf, output)?)
     }
 
     /// Read a slice of data from the DFU storage peripheral, starting the read
@@ -357,99 +352,16 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
     }
 }
 
-#[cfg(feature = "_verify")]
-pub(crate) enum VerificationError {
-    Flash(NorFlashErrorKind),
-    Signature(signature::Error),
-}
-
-#[cfg(feature = "_verify")]
-pub(crate) fn verify<DFU: ReadNorFlash>(
-    dfu: &mut DFU,
-    _public_key: &[u8; 32],
-    _signature: &[u8; 64],
-    _update_len: u32,
-    _chunk_buf: &mut [u8],
-) -> Result<(), VerificationError> {
-    #[cfg(feature = "ed25519-dalek")]
-    {
-        use ed25519_dalek::{Signature, SignatureError, Verifier, VerifyingKey};
-        use embedded_storage::nor_flash::NorFlashError;
-
-        use crate::digest_adapters::ed25519_dalek::Sha512;
-
-        let into_signature_error = |e: SignatureError| VerificationError::Signature(e.into());
-
-        let public_key = VerifyingKey::from_bytes(_public_key).map_err(into_signature_error)?;
-        let signature = Signature::from_bytes(_signature);
-
-        let mut message = [0; 64];
-        hash::<_, Sha512>(dfu, _update_len, _chunk_buf, &mut message)
-            .map_err(|error| VerificationError::Flash(error.kind()))?;
-
-        public_key.verify(&message, &signature).map_err(into_signature_error)?;
-        return Ok(());
-    }
-    #[cfg(feature = "ed25519-salty")]
-    {
-        use embedded_storage::nor_flash::NorFlashError;
-        use salty::{PublicKey, Signature};
-
-        use crate::digest_adapters::salty::Sha512;
-        use crate::fmt::Bytes;
-
-        fn into_signature_error<E>(_: E) -> VerificationError {
-            VerificationError::Signature(signature::Error::default())
-        }
-
-        let public_key = PublicKey::try_from(_public_key).map_err(into_signature_error)?;
-        let signature = Signature::try_from(_signature).map_err(into_signature_error)?;
-
-        let mut message = [0; 64];
-        hash::<_, Sha512>(dfu, _update_len, _chunk_buf, &mut message)
-            .map_err(|error| VerificationError::Flash(error.kind()))?;
-
-        let r = public_key.verify(&message, &signature);
-        trace!(
-            "Verifying with public key {}, signature {} and message {} yields ok: {}",
-            Bytes(&public_key.to_bytes()),
-            Bytes(&signature.to_bytes()),
-            Bytes(&message),
-            r.is_ok()
-        );
-        r.map_err(into_signature_error)?;
-        return Ok(());
-    }
-    #[cfg(not(any(feature = "ed25519-dalek", feature = "ed25519-salty")))]
-    {
-        Err(VerificationError::Signature(signature::Error::new()))
-    }
-}
-
-fn hash<DFU: ReadNorFlash, D: Digest>(
-    dfu: &mut DFU,
-    update_len: u32,
-    chunk_buf: &mut [u8],
-    output: &mut [u8],
-) -> Result<(), DFU::Error> {
-    let mut digest = D::new();
-    for offset in (0..update_len).step_by(chunk_buf.len()) {
-        dfu.read(offset, chunk_buf)?;
-        let len = chunk_buf.len().min((update_len - offset) as _);
-        digest.update(&chunk_buf[..len]);
-    }
-    output.copy_from_slice(digest.finalize().as_slice());
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use core::cell::RefCell;
 
+    use embassy_crypto::Sha1;
+    use embassy_crypto_rand as _;
+    use embassy_crypto_rustcrypto as _;
     use embassy_embedded_hal::flash::partition::BlockingPartition;
     use embassy_sync::blocking_mutex::Mutex;
     use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-    use sha1::{Digest, Sha1};
 
     use super::*;
     use crate::mem_flash::MemFlash;
@@ -473,7 +385,7 @@ mod tests {
             .hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)
             .unwrap();
 
-        assert_eq!(Sha1::digest(update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash);
     }
 
     #[test]
@@ -499,7 +411,7 @@ mod tests {
             .hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)
             .unwrap();
 
-        assert_eq!(Sha1::digest(update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash);
     }
 
     #[test]
@@ -525,7 +437,7 @@ mod tests {
             .hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)
             .unwrap();
 
-        assert_eq!(Sha1::digest(update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash);
     }
 
     #[test]
@@ -551,6 +463,6 @@ mod tests {
             .hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)
             .unwrap();
 
-        assert_eq!(Sha1::digest(update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash);
     }
 }
