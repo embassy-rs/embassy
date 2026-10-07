@@ -224,6 +224,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                         // The device disconnected and reconnected between two polls.
                         // Report removal and prime fast path to report reconnect on next poll.
                         self.fast_reconnect_port = Some(port);
+                        self.bus.free_address(address.get());
                         return Ok(HandlerEvent::HandlerEvent(HubEvent::DeviceRemoved {
                             address: Some(address),
                             port,
@@ -243,11 +244,11 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                         }
                         false => {
                             debug!("HUB {}: Device disconnected from port {}", self.device_address, port);
-                            let device_ref = self.device_lut.get_mut(port as usize);
-                            return Ok(HandlerEvent::HandlerEvent(HubEvent::DeviceRemoved {
-                                address: device_ref.and_then(|v| v.take()),
-                                port,
-                            }));
+                            let address = self.device_lut.get_mut(port as usize).and_then(|v| v.take());
+                            if let Some(address) = address {
+                                self.bus.free_address(address.get());
+                            }
+                            return Ok(HandlerEvent::HandlerEvent(HubEvent::DeviceRemoved { address, port }));
                         }
                     }
                 }
@@ -390,6 +391,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
         };
 
         let (info, config_len) = self.bus.enumerate(route, config_buffer).await?;
+        self.bus.state().set_parent(info.device_address, self.device_address);
 
         // Store the device address in the LUT for later retrieval on disconnect.
         // A hub may report more ports than MAX_PORTS; devices on the excess
