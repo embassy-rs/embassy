@@ -52,7 +52,7 @@ fn firmware_error_to_status(e: FirmwareUpdaterError) -> Status {
             NorFlashErrorKind::OutOfBounds => Status::ErrAddress,
             _ => Status::ErrUnknown,
         },
-        FirmwareUpdaterError::Signature(_) => Status::ErrVerify,
+        FirmwareUpdaterError::Verification(_) => Status::ErrVerify,
         FirmwareUpdaterError::BadState => Status::ErrUnknown,
     }
 }
@@ -103,7 +103,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> df
                     .verify_and_mark_updated::<embassy_crypto::Sha512, embassy_crypto::ed25519::VerifyingKey>(
                         self.public_key,
                         &signature,
-                        update_len
+                        update_len,
                     )
             })
         };
