@@ -470,6 +470,9 @@ impl<'a> Control<'a> {
             Err(JoinError::NetworkNotFound) => debug!("JOIN failed: network not found"),
             Err(JoinError::AuthenticationFailure) => debug!("JOIN failed: authentication failure"),
         };
+        if result.is_err() {
+            self.leave().await;
+        }
 
         result
     }
@@ -915,14 +918,14 @@ impl Drop for Scanner<'_> {
 }
 
 #[cfg(test)]
-mod tests {
+mod psk_event_tests {
     use core::future::Future;
     use core::pin::pin;
     use core::task::{Context, Poll, Waker};
 
     use super::*;
 
-    fn replay_psk_events(events: &[(u32, u32)]) -> Poll<Result<(), JoinError>> {
+    fn replay_psk_events(events: &[(u32, u32)], expect_cleanup: bool) -> Poll<Result<(), JoinError>> {
         let mut state = crate::State::new();
         let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
 
@@ -948,6 +951,7 @@ mod tests {
         state.ioctl_state.ioctl_done(&[]);
         assert!(join.as_mut().poll(&mut cx).is_pending());
 
+        let mut result = Poll::Pending;
         for &(status, reason) in events {
             state
                 .net
@@ -963,28 +967,44 @@ mod tests {
                     events::Payload::None,
                 ));
 
-            let result = join.as_mut().poll(&mut cx);
+            result = join.as_mut().poll(&mut cx);
 
             if result.is_ready() {
-                return result;
+                break;
             }
         }
 
-        Poll::Pending
+        if expect_cleanup {
+            assert!(result.is_pending(), "join returned before association cleanup");
+            {
+                let mut pending = pin!(state.ioctl_state.wait_pending());
+                let Poll::Ready(request) = pending.as_mut().poll(&mut cx) else {
+                    panic!("failed association did not request disassociation");
+                };
+                assert!(matches!(request.cmd, Ioctl::Disassoc));
+            }
+            assert!(join.as_mut().poll(&mut cx).is_pending(), "join did not await cleanup");
+            state.ioctl_state.ioctl_done(&[]);
+            return join.as_mut().poll(&mut cx);
+        }
+        result
     }
 
     #[test]
-    fn m1_timeout_fails_join() {
+    fn m1_timeout_cleans_up_before_failing_join() {
         assert!(matches!(
-            replay_psk_events(&[(4, 15)]),
+            replay_psk_events(&[(4, 15)], true),
             Poll::Ready(Err(JoinError::AuthenticationFailure))
         ));
     }
 
     #[test]
     fn waiting_for_m1_without_an_error_allows_join_to_complete() {
-        assert!(replay_psk_events(&[(4, 0)]).is_pending());
+        assert!(replay_psk_events(&[(4, 0)], false).is_pending());
 
-        assert!(matches!(replay_psk_events(&[(4, 0), (6, 0)]), Poll::Ready(Ok(()))));
+        assert!(matches!(
+            replay_psk_events(&[(4, 0), (6, 0)], false),
+            Poll::Ready(Ok(()))
+        ));
     }
 }
