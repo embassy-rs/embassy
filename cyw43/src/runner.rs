@@ -1020,7 +1020,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                 // delivered. It must still be drained from the chip, or the packet
                 // stays pending in F2 and RX wedges. Read it into the scratch
                 // buffer and discard it.
-                trace!("rx frame too big for packet pool, len {}", len);
+                warn!("rx frame too big for packet pool, len {}", len);
                 let drained = match self.bus.bus_type() {
                     BusType::Spi => self.wlan_read(buf, true, 0, len).await.is_ok(),
                     BusType::Sdio => {

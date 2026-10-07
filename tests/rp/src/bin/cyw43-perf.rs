@@ -118,7 +118,7 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    static POOL: StaticPool = StaticPool::new();
+    static POOL: StaticPool<1578, 16, 4> = StaticPool::new();
     let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
