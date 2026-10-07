@@ -976,7 +976,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     /// Handle F2 events while status register is set
     async fn check_status(&mut self, buf: &mut Aligned<A4, [u8; 4 + 2048]>) {
         loop {
-            let mut packet = PacketBuf::try_new();
+            let mut packet = self.ch.try_rx_buf();
             let capacity = packet.as_ref().map(PacketBuf::capacity);
 
             let mut hwtag_buf: Aligned<A4, [u8; 4]> = Aligned([0; 4]);
@@ -1020,7 +1020,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                 // delivered. It must still be drained from the chip, or the packet
                 // stays pending in F2 and RX wedges. Read it into the scratch
                 // buffer and discard it.
-                trace!("rx frame too big for packet pool, len {}", len);
+                warn!("rx frame too big for packet pool, len {}", len);
                 let drained = match self.bus.bus_type() {
                     BusType::Spi => self.wlan_read(buf, true, 0, len).await.is_ok(),
                     BusType::Sdio => {

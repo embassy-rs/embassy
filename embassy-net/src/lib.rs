@@ -38,11 +38,13 @@ use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
+#[cfg(feature = "alloc")]
+pub use xarxa::AllocPool;
 use xarxa::driver::{Driver, LinkState};
 #[cfg(feature = "hostname")]
 use xarxa::error::HostnameTooLong;
 use xarxa::iface::IfaceHandle;
-pub use xarxa::{config, error, wire};
+pub use xarxa::{Align, Pool, StaticPool, ValidAlign, config, error, wire};
 pub use xarxa_driver as driver;
 
 use crate::iface::{AddIfaceError, Iface};
@@ -75,7 +77,7 @@ pub enum TryError<T> {
 ///
 /// Socket storage is not here either: the stack has a fixed number of socket
 /// slots per type, set by the `*-socket-count-N` features of `xarxa`, and the
-/// packet buffers come from a global pool sized by `packet-buf-count-N`.
+/// packet buffers come from the [`Pool`] passed to [`Stack::new`].
 pub struct StackStorage<'d> {
     inner: MaybeUninit<RefCell<Inner<'d>>>,
 }
@@ -142,15 +144,18 @@ pub struct Stack<'d> {
 impl<'d> Stack<'d> {
     /// Create a network stack.
     ///
+    /// Every packet buffer of the stack and its drivers comes from `pool`, usually
+    /// a [`StaticPool`] in a `static`.
+    ///
     /// `random_seed` seeds the stack's PRNG, which picks TCP initial sequence
     /// numbers and ephemeral ports. This should be random, or at least different
     /// at every boot.
     ///
     /// The stack starts out with no interfaces: add them with
     /// [`add_iface_borrowed`](Self::add_iface_borrowed).
-    pub fn new(storage: &'d mut StackStorage<'d>, random_seed: u64) -> (Self, Runner<'d>) {
+    pub fn new(storage: &'d mut StackStorage<'d>, pool: &'static impl Pool, random_seed: u64) -> (Self, Runner<'d>) {
         #[allow(unused_mut)]
-        let mut stack = xarxa::Stack::new(random_seed);
+        let mut stack = xarxa::Stack::new(pool, random_seed);
 
         #[cfg(feature = "dns")]
         // The stack is brand new, so its UDP socket table can only be full if it

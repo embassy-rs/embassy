@@ -8,7 +8,7 @@ use common::*;
 use defmt_rtt as _;
 use embassy_crypto as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
+use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
 #[cfg(feature = "stop")]
@@ -98,7 +98,14 @@ async fn main(spawner: Spawner) {
     );
 
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    // F2 runs out of RAM
+    #[cfg(feature = "stm32f207zg")]
+    const POOL_COUNT: usize = 4;
+    #[cfg(not(feature = "stm32f207zg"))]
+    const POOL_COUNT: usize = 16;
+    // The ethernet DMA needs 8-byte aligned buffers, sized in multiples of 8.
+    static POOL: StaticPool<1520, POOL_COUNT, 8> = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     static ETH: StaticCell<Device> = StaticCell::new();
     let eth = unwrap!(stack.add_iface_borrowed(ETH.init(device)));

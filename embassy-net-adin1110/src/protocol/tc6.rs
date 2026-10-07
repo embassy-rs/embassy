@@ -1316,8 +1316,15 @@ mod tests {
     }
 
     #[cfg(feature = "packetmeta-id")]
+    fn new_buf() -> PacketBuf {
+        use xarxa::Pool;
+        static POOL: xarxa::StaticPool<1514, 64> = xarxa::StaticPool::new();
+        POOL.alloc().unwrap()
+    }
+
+    #[cfg(feature = "packetmeta-id")]
     fn packet_with_id(frame: &[u8], id: u32) -> PacketBuf {
-        let mut buf = PacketBuf::try_new().unwrap();
+        let mut buf = new_buf();
         buf.set_len(frame.len());
         buf.copy_from_slice(frame);
         buf.meta_mut().id = id;
@@ -1369,7 +1376,7 @@ mod tests {
             let (mut tc6, mut spi) = harness(&expectations);
             tc6.rca = 1;
 
-            let mut buf = PacketBuf::try_new().unwrap();
+            let mut buf = new_buf();
             buf.set_len(MTU);
             let n = tc6.receive_packet(&mut buf).await.expect("receive_packet");
             assert_eq!(buf.meta().id, id);

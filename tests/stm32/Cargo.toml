@@ -12,7 +12,7 @@ stm32c071rb = ["embassy-stm32/stm32c071rb", "not-stop", "cm0", "not-gpdma", "adc
 stm32f100rd = ["embassy-stm32/stm32f100rd", "not-stop", "spi-v1", "not-gpdma", "afio", "afio-value-line", "adc"]
 stm32f103c8 = ["embassy-stm32/stm32f103c8", "not-stop", "spi-v1", "not-gpdma", "afio", "adc"]
 stm32f107vc = ["embassy-stm32/stm32f107vc", "not-stop", "spi-v1", "not-gpdma", "afio", "afio-connectivity-line", "adc"]
-stm32f207zg = ["embassy-stm32/stm32f207zg", "not-stop", "spi-v1", "chrono", "not-gpdma", "eth", "rng", "xarxa-driver/packet-buf-count-4", "xarxa/tcp-socket-count-2", "xarxa/udp-socket-count-2", "adc"]
+stm32f207zg = ["embassy-stm32/stm32f207zg", "not-stop", "spi-v1", "chrono", "not-gpdma", "eth", "rng", "xarxa/tcp-socket-count-2", "xarxa/udp-socket-count-2", "adc"]
 stm32f303ze = ["embassy-stm32/stm32f303ze", "not-stop", "chrono", "not-gpdma", "adc"]
 stm32f429zi = ["embassy-stm32/stm32f429zi", "fake-stop", "spi-v1", "chrono", "eth", "can", "not-gpdma", "dac", "rng", "i2s_f4", "adc"]
 stm32f446re = ["embassy-stm32/stm32f446re", "fake-stop", "spi-v1", "chrono", "can", "not-gpdma", "dac", "sdmmc", "adc", "pwm"]
@@ -133,8 +133,7 @@ embassy-crypto-test = { version = "0.1.0", path = "../../embassy-crypto-test", f
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt"] }
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "af7342391a78692312cff94a826e9ea52dfea72f", default-features = false }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "af7342391a78692312cff94a826e9ea52dfea72f" }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "93228f1ec64720122016be52be4671e413fa92a9", default-features = false }
 mcu-crypto-asm = { git = "https://github.com/kokroo/mcu-crypto-asm", rev = "20201d1aa07d525553c73a1280165813ada2b2e4", features = ["embassy-crypto-p256-arith", "embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa", "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa"], optional = true }
 # Same crate, software AES-128-GCM only; a separate instance (via a shim
 # crate, since Cargo forbids two names for one package) so chips without a
