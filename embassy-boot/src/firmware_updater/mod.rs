@@ -35,9 +35,7 @@ impl defmt::Format for FirmwareUpdaterError {
     fn format(&self, fmt: defmt::Formatter) {
         match self {
             FirmwareUpdaterError::Flash(_) => defmt::write!(fmt, "FirmwareUpdaterError::Flash(_)"),
-            FirmwareUpdaterError::VerificationError(e) => {
-                defmt::write!(fmt, "FirmwareUpdaterError::VerificationError({})", e)
-            }
+            FirmwareUpdaterError::Verification(_) => defmt::write!(fmt, "FirmwareUpdaterError::Verification(_)"),
             FirmwareUpdaterError::BadState => defmt::write!(fmt, "FirmwareUpdaterError::BadState"),
         }
     }
