@@ -7,18 +7,20 @@ use crate::hashcrypt::inner::Key::{Key128, Key192, Key256};
 use crate::pac;
 use crate::peripherals::HASHCRYPT;
 
+#[derive(Debug, Clone, PartialEq)]
 enum Key {
     Key128([u8; 16]),
     Key192([u8; 24]),
     Key256([u8; 32]),
 }
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeySize {
     Bits128,
     Bits192,
     Bits256,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AesError {
     KeySizeNeeded, //triggeres when .set_key is called without set_key_size
     KeyNeeded,     // trigers when .encryp)/.decrypt or set_iv/set_counter are called before set_key()
