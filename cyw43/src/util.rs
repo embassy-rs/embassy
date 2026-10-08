@@ -82,15 +82,6 @@ pub(crate) async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Dur
     Err(crate::Error)
 }
 
-/// Create an aligned buffer from a slice
-///
-/// Panics if the slice does not have the required alignment
-pub(crate) fn aligned_from<A: Alignment>(buf: &mut [u8]) -> &mut Aligned<A, [u8]> {
-    core::assert!((buf.as_ptr() as usize).is_multiple_of(mem::align_of::<Aligned<A, u8>>()));
-
-    unsafe { mem::transmute(buf) }
-}
-
 /// Buffer with space for a cmd
 pub struct WriteBuffer {
     buf: Aligned<A4, [u8]>,

@@ -96,7 +96,7 @@ impl SdpcmHeader {
     pub fn parse(packet: &mut [u8]) -> Option<(&mut Self, &mut [u8])> {
         let packet_len = packet.len();
         if packet_len < Self::SIZE {
-            warn!("packet too short, len={}", packet.len());
+            debug!("packet too short, len={}", packet.len());
             return None;
         }
         let (sdpcm_header, sdpcm_packet) = packet.split_at_mut(Self::SIZE);
@@ -247,7 +247,7 @@ impl EventHeader {
 // #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C, packed(2))]
 pub struct EventMessage {
-    /// version   
+    /// version
     pub version: u16,
     /// see flags below
     pub flags: u16,
