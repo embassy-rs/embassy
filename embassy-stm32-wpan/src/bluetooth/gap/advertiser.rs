@@ -4,10 +4,8 @@
 //! `Ble::stop_advertising()`, and related methods in `ble.rs`.
 //! State management (is_advertising flag, LL enable/disable) lives in `ble.rs`.
 
-use stm32wb_hci::BdAddrType;
-
 use super::aci_gap::{ADV_DIRECT_IND, ADV_DIRECT_IND_LOW_DUTY, ADV_IND, ADV_NONCONN_IND, ADV_SCAN_IND};
-use super::types::{AdvData, AdvParams, AdvType};
+use super::types::{AdvData, AdvParams, AdvType, BdAddrType};
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::hci::CommandSender;
 
@@ -123,10 +121,7 @@ pub(crate) fn configure(
 /// Split a peer address into `(address_type, address_bytes)` where the address
 /// type is 0x00 for public and 0x01 for random.
 fn split_addr(addr: &BdAddrType) -> (u8, [u8; 6]) {
-    match addr {
-        BdAddrType::Public(a) => (0x00, a.0),
-        BdAddrType::Random(a) => (0x01, a.0),
-    }
+    (addr.kind(), addr.bytes())
 }
 
 /// Remove advertising configuration from the host stack.

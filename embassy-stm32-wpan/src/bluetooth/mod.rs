@@ -7,24 +7,28 @@ pub mod gatt;
 pub mod hci;
 pub mod security;
 
-use bt_hci::FromHciBytes;
-use bt_hci::param::{EventMask, LeEventMask};
+use bt_hci::cmd::controller_baseband::{Reset, SetEventMask};
+use bt_hci::cmd::info::ReadLocalVersionInformation;
+use bt_hci::cmd::le::LeSetEventMask;
+use bt_hci::controller::{Controller as _, ControllerCmdSync};
+use bt_hci::event::le::{
+    LeConnectionComplete, LeConnectionUpdateComplete, LeDataLengthChange, LeEnhancedConnectionComplete, LeEvent,
+    LePhyUpdateComplete, LeRemoteConnectionParameterRequest,
+};
+use bt_hci::event::{DisconnectionComplete, Event, EventKind, EventPacket};
+use bt_hci::param::{BdAddr, ConnHandle, EventMask, LeEventMask, PhyKind};
+use bt_hci::{ControllerToHostPacket, FromHciBytes};
 use embassy_futures::yield_now;
 use embassy_stm32::interrupt;
-use stm32wb_hci::event::{
-    DisconnectionComplete, LeConnectionComplete, LeConnectionUpdateComplete, LeDataLengthChangeEvent,
-    LeEnhancedConnectionComplete, LePhyUpdateComplete, LeRemoteConnectionParameterRequest,
-};
-use stm32wb_hci::host::HostHci;
-use stm32wb_hci::host::uart::Packet;
-use stm32wb_hci::{BdAddr, BdAddrType, ConnectionHandle, Event, Status};
+pub use stm32wb_hci::event::BleEvent;
 
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::gap::connection::{
-    Connection, ConnectionInitParams, ConnectionManager, DisconnectReason, GapEvent, LePhy, MAX_CONNECTIONS,
+    Connection, ConnectionInitParams, ConnectionInterval, ConnectionManager, DisconnectReason, GapEvent, LePhy,
+    MAX_CONNECTIONS,
 };
 use crate::bluetooth::gap::scanner::{ScanParams, ScanProcedure, Scanner};
-use crate::bluetooth::gap::types::{AdvData, AdvParams};
+use crate::bluetooth::gap::types::{AdvData, AdvParams, BdAddrType};
 use crate::bluetooth::gap_init::{GapInitParams, GapRole, init_gap_and_hal};
 use crate::bluetooth::gatt::server::init_gatt_layer;
 use crate::bluetooth::gatt::{
@@ -74,9 +78,13 @@ impl Mode for Test {}
 /// ble.start_advertising(AdvParams::default(), adv_data, None).await.unwrap();
 ///
 /// // Event loop
+/// let mut event_buf = EventBuffer::new();
 /// loop {
-///     let event = ble.read_event().await;
+///     let event = ble.read_event(&mut event_buf).await;
 ///     // Handle BLE events
+///     if let Some(gap_event) = ble.process_event(&event) {
+///         // ...
+///     }
 /// }
 /// ```
 ///
@@ -166,19 +174,20 @@ impl<'d> HCI<'d, Normal> {
         info!("Ble::init: BLE stack initialized, sending HCI reset");
 
         // 1. Reset BLE controller
-        self.controller.reset().await?;
+        self.controller.exec(&Reset::new()).await?;
 
         // 2. Read local version information
-        let version = self.controller.read_local_version_information().await?;
+        let version = self.controller.exec(&ReadLocalVersionInformation::new()).await?;
 
+        let (hci_version, hci_subversion, lmp_version, company_identifier) = (
+            version.hci_version,
+            version.hci_subversion,
+            version.lmp_version,
+            version.company_identifier,
+        );
         info!(
-            "BLE Controller: HCI Version {}.{}, Revision: 0x{:04X}, LMP Version: {}.{}, Manufacturer: 0x{:04X}",
-            version.hci_version >> 4,
-            version.hci_version & 0x0F,
-            version.hci_revision,
-            version.lmp_version >> 4,
-            version.lmp_version & 0x0F,
-            version.manufacturer_name
+            "BLE Controller: HCI Version {:?}, Revision: 0x{:04X}, LMP Version: {:?}, Manufacturer: 0x{:04X}",
+            hci_version, hci_subversion, lmp_version, company_identifier
         );
 
         // 3. Set event mask (enable all events)
@@ -187,16 +196,22 @@ impl<'d> HCI<'d, Normal> {
 
         info!("Calling set_event_mask...");
         let event_mask = EventMask::from_hci_bytes(&[0xFF; 8]).expect("valid event mask").0;
-        if let Err(e) = self.controller.set_event_mask(event_mask.into()).await {
-            warn!("set_event_mask failed: {:?} (may be handled internally)", e);
+        if let Err(e) = self.controller.exec(&SetEventMask::new(event_mask)).await {
+            warn!(
+                "set_event_mask failed: {:?} (may be handled internally)",
+                BleError::from(e)
+            );
         } else {
             info!("set_event_mask OK");
         }
 
         info!("Calling le_set_event_mask...");
         let le_event_mask = LeEventMask::from_hci_bytes(&[0xFF; 8]).expect("valid LE event mask").0;
-        if let Err(e) = self.controller.le_set_event_mask(le_event_mask.into()).await {
-            warn!("le_set_event_mask failed: {:?} (may be handled internally)", e);
+        if let Err(e) = self.controller.exec(&LeSetEventMask::new(le_event_mask)).await {
+            warn!(
+                "le_set_event_mask failed: {:?} (may be handled internally)",
+                BleError::from(e)
+            );
         } else {
             info!("le_set_event_mask OK");
         }
@@ -346,7 +361,8 @@ impl<'d> HCI<'d, Normal> {
     ///
     /// - `address`: 6-byte random address
     pub fn set_random_address(&self, address: BdAddr) -> Result<(), BleError> {
-        self.cmd_sender.le_set_random_address(&address.0)
+        self.cmd_sender
+            .le_set_random_address(&BdAddrType::Random(address).bytes())
     }
 
     /// Get a reference to the command sender
@@ -445,12 +461,12 @@ impl<'d> HCI<'d, Normal> {
     }
 
     /// Get a connection by handle
-    pub fn get_connection(&self, handle: ConnectionHandle) -> Option<&Connection> {
+    pub fn get_connection(&self, handle: ConnHandle) -> Option<&Connection> {
         self.connections.get_by_handle(handle)
     }
 
     /// Get a mutable connection by handle
-    pub fn get_connection_mut(&mut self, handle: ConnectionHandle) -> Option<&mut Connection> {
+    pub fn get_connection_mut(&mut self, handle: ConnHandle) -> Option<&mut Connection> {
         self.connections.get_by_handle_mut(handle)
     }
 
@@ -460,8 +476,8 @@ impl<'d> HCI<'d, Normal> {
     ///
     /// - `handle`: Connection handle to disconnect
     /// - `reason`: Reason for disconnection
-    pub fn disconnect(&self, handle: ConnectionHandle, reason: DisconnectReason) -> Result<(), BleError> {
-        self.cmd_sender.disconnect(handle.0, reason.as_u8())
+    pub fn disconnect(&self, handle: ConnHandle, reason: DisconnectReason) -> Result<(), BleError> {
+        self.cmd_sender.disconnect(handle.raw(), reason.as_u8())
     }
 
     /// Initiate a connection to a peripheral device (Central role)
@@ -504,14 +520,14 @@ impl<'d> HCI<'d, Normal> {
     /// - `supervision_timeout`: Supervision timeout (units of 10ms)
     pub fn update_connection_params(
         &self,
-        handle: ConnectionHandle,
+        handle: ConnHandle,
         interval_min: u16,
         interval_max: u16,
         latency: u16,
         supervision_timeout: u16,
     ) -> Result<(), BleError> {
         self.cmd_sender.le_connection_update(
-            handle.0,
+            handle.raw(),
             interval_min,
             interval_max,
             latency,
@@ -541,7 +557,7 @@ impl<'d> HCI<'d, Normal> {
     /// - `timeout_multiplier`: Supervision timeout (units of 10ms)
     pub fn request_connection_params(
         &self,
-        handle: ConnectionHandle,
+        handle: ConnHandle,
         interval_min: u16,
         interval_max: u16,
         latency: u16,
@@ -549,7 +565,7 @@ impl<'d> HCI<'d, Normal> {
     ) -> Result<(), BleError> {
         unsafe {
             let status = stm32_bindings::ble::aci_l2cap_connection_parameter_update_req(
-                handle.0,
+                handle.raw(),
                 interval_min,
                 interval_max,
                 latency,
@@ -570,8 +586,8 @@ impl<'d> HCI<'d, Normal> {
     /// # Returns
     ///
     /// Tuple of (tx_phy, rx_phy)
-    pub fn read_phy(&self, handle: ConnectionHandle) -> Result<(LePhy, LePhy), BleError> {
-        let (tx, rx) = self.cmd_sender.le_read_phy(handle.0)?;
+    pub fn read_phy(&self, handle: ConnHandle) -> Result<(LePhy, LePhy), BleError> {
+        let (tx, rx) = self.cmd_sender.le_read_phy(handle.raw())?;
         Ok((LePhy::from_u8(tx), LePhy::from_u8(rx)))
     }
 
@@ -601,20 +617,20 @@ impl<'d> HCI<'d, Normal> {
     /// - `antenna_ids`: Antenna switching pattern IDs (2–75 elements)
     pub fn le_set_connection_cte_transmit_parameters(
         &self,
-        handle: ConnectionHandle,
+        handle: ConnHandle,
         cte_types: u8,
         antenna_ids: &[u8],
     ) -> Result<(), BleError> {
         self.cmd_sender
-            .le_set_connection_cte_transmit_parameters(handle.0, cte_types, antenna_ids)
+            .le_set_connection_cte_transmit_parameters(handle.raw(), cte_types, antenna_ids)
     }
 
     /// Enable or disable CTE response for a connection (peripheral/tag side).
     ///
     /// BT spec 7.8.86 `HCI_LE_Connection_CTE_Response_Enable`. Call
     /// `le_set_connection_cte_transmit_parameters` before enabling.
-    pub fn le_connection_cte_response_enable(&self, handle: ConnectionHandle, enable: bool) -> Result<(), BleError> {
-        self.cmd_sender.le_connection_cte_response_enable(handle.0, enable)
+    pub fn le_connection_cte_response_enable(&self, handle: ConnHandle, enable: bool) -> Result<(), BleError> {
+        self.cmd_sender.le_connection_cte_response_enable(handle.raw(), enable)
     }
 
     /// Set CTE receive (IQ sampling) parameters for a connection (central/locator side).
@@ -623,13 +639,17 @@ impl<'d> HCI<'d, Normal> {
     /// - `antenna_ids`: Antenna switching pattern (2–75 elements; ignored if sampling disabled)
     pub fn le_set_connection_cte_receive_parameters(
         &self,
-        handle: ConnectionHandle,
+        handle: ConnHandle,
         sampling_enable: bool,
         slot_durations: u8,
         antenna_ids: &[u8],
     ) -> Result<(), BleError> {
-        self.cmd_sender
-            .le_set_connection_cte_receive_parameters(handle.0, sampling_enable, slot_durations, antenna_ids)
+        self.cmd_sender.le_set_connection_cte_receive_parameters(
+            handle.raw(),
+            sampling_enable,
+            slot_durations,
+            antenna_ids,
+        )
     }
 
     /// Enable or disable CTE requests for a connection (central/locator side).
@@ -639,14 +659,14 @@ impl<'d> HCI<'d, Normal> {
     /// - `requested_cte_type`: 0x00=AoA, 0x01=AoD 1μs, 0x02=AoD 2μs
     pub fn le_connection_cte_request_enable(
         &self,
-        handle: ConnectionHandle,
+        handle: ConnHandle,
         enable: bool,
         request_interval: u16,
         requested_cte_length: u8,
         requested_cte_type: u8,
     ) -> Result<(), BleError> {
         self.cmd_sender.le_connection_cte_request_enable(
-            handle.0,
+            handle.raw(),
             enable,
             request_interval,
             requested_cte_length,
@@ -671,103 +691,88 @@ impl<'d> HCI<'d, Normal> {
     ///
     /// - `Some(GapEvent)` if this was a connection-related event
     /// - `None` if not a connection event
-    pub fn process_event(&mut self, event: &stm32wb_hci::Event) -> Option<GapEvent> {
+    pub fn process_event(&mut self, event: &BleEvent<'_>) -> Option<GapEvent> {
+        let BleEvent::Core(event) = event else {
+            return None;
+        };
         match event {
-            Event::LeConnectionComplete(LeConnectionComplete {
+            Event::Le(LeEvent::LeConnectionComplete(LeConnectionComplete {
                 status,
-                conn_handle,
+                handle,
                 role,
-                peer_bd_addr,
+                peer_addr_kind,
+                peer_addr,
                 conn_interval,
-                central_clock_accuracy,
-            }) => {
-                let _ = central_clock_accuracy;
-
-                if matches!(status, Status::Success) {
-                    let conn = Connection::new(*conn_handle, *role, *peer_bd_addr, *conn_interval);
-
-                    if let Some(stored_conn) = self.connections.allocate(conn.clone()) {
-                        // Read PHY after connection
-                        if let Ok((tx_phy, rx_phy)) = self.cmd_sender.le_read_phy(conn_handle.0) {
-                            stored_conn.update_phy(tx_phy.try_into().unwrap(), rx_phy.try_into().unwrap());
-                        }
-                    }
-                    // LL stops advertising automatically on connection
-                    self.is_advertising = false;
-                    Some(GapEvent::Connected(conn))
+                peripheral_latency,
+                supervision_timeout,
+                central_clock_accuracy: _,
+            })) => {
+                if status.to_result().is_ok() {
+                    let interval = ConnectionInterval::new(*conn_interval, *peripheral_latency, *supervision_timeout);
+                    let peer_address = BdAddrType::new(*peer_addr_kind, *peer_addr);
+                    let conn = Connection::new(*handle, *role, peer_address, interval);
+                    self.on_connected(conn)
                 } else {
                     None
                 }
             }
-            Event::LeEnhancedConnectionComplete(LeEnhancedConnectionComplete {
+            Event::Le(LeEvent::LeEnhancedConnectionComplete(LeEnhancedConnectionComplete {
                 status,
-                conn_handle,
+                handle,
                 role,
-                peer_bd_addr,
-                local_resolvable_private_address,
-                peer_resolvable_private_address,
+                peer_addr_kind,
+                peer_addr,
+                local_resolvable_private_addr,
+                peer_resolvable_private_addr,
                 conn_interval,
-                central_clock_accuracy,
-            }) => {
-                let _ = central_clock_accuracy;
-
-                if matches!(status, Status::Success) {
-                    let peer_address = BdAddrType::from(*peer_bd_addr);
+                peripheral_latency,
+                supervision_timeout,
+                central_clock_accuracy: _,
+            })) => {
+                if status.to_result().is_ok() {
+                    let interval = ConnectionInterval::new(*conn_interval, *peripheral_latency, *supervision_timeout);
+                    let peer_address = BdAddrType::new(*peer_addr_kind, *peer_addr);
                     let conn = Connection::new_enhanced(
-                        *conn_handle,
+                        *handle,
                         *role,
                         peer_address,
-                        *local_resolvable_private_address,
-                        *peer_resolvable_private_address,
-                        *conn_interval,
+                        *local_resolvable_private_addr,
+                        *peer_resolvable_private_addr,
+                        interval,
                     );
-
-                    if let Some(stored_conn) = self.connections.allocate(conn.clone()) {
-                        // Read PHY after connection
-                        if let Ok((tx_phy, rx_phy)) = self.cmd_sender.le_read_phy(conn_handle.0) {
-                            stored_conn.update_phy(tx_phy.try_into().unwrap(), rx_phy.try_into().unwrap());
-                        }
-                    }
-                    // LL stops advertising automatically on connection
-                    self.is_advertising = false;
-                    Some(GapEvent::Connected(conn))
+                    self.on_connected(conn)
                 } else {
                     None
                 }
             }
-            Event::DisconnectionComplete(DisconnectionComplete {
-                status,
-                conn_handle,
-                reason,
-            }) => {
-                if matches!(status, Status::Success) {
-                    self.connections.remove(*conn_handle);
+            Event::DisconnectionComplete(DisconnectionComplete { status, handle, reason }) => {
+                if status.to_result().is_ok() {
+                    self.connections.remove(*handle);
 
                     Some(GapEvent::Disconnected {
-                        handle: *conn_handle,
-                        reason: DisconnectReason::from(u8::from(*reason)),
+                        handle: *handle,
+                        reason: DisconnectReason::from(reason.into_inner()),
                     })
                 } else {
                     None
                 }
             }
-            Event::LeRemoteConnectionParameterRequest(LeRemoteConnectionParameterRequest {
-                conn_handle,
-                conn_interval,
-            }) => {
+            Event::Le(LeEvent::LeRemoteConnectionParameterRequest(LeRemoteConnectionParameterRequest {
+                handle,
+                interval_min,
+                interval_max,
+                max_latency,
+                timeout,
+            })) => {
                 // When this event is unmasked the controller waits for a host reply. Accept the
                 // requested parameters so pairing is not blocked (Android sends this immediately
                 // after connect).
-                let (interval_min, interval_max) = conn_interval.interval();
-                let min = (interval_min.as_micros() / 1_250) as u16;
-                let max = (interval_max.as_micros() / 1_250) as u16;
-                let timeout = (conn_interval.supervision_timeout().as_micros() / 10_000) as u16;
                 match self.cmd_sender.le_remote_connection_parameter_request_reply(
-                    conn_handle.0,
-                    min,
-                    max,
-                    conn_interval.conn_latency(),
-                    timeout,
+                    handle.raw(),
+                    interval_min.as_u16(),
+                    interval_max.as_u16(),
+                    *max_latency,
+                    timeout.as_u16(),
                     0,
                     0,
                 ) {
@@ -776,35 +781,38 @@ impl<'d> HCI<'d, Normal> {
                 }
                 None
             }
-            Event::LeConnectionUpdateComplete(LeConnectionUpdateComplete {
+            Event::Le(LeEvent::LeConnectionUpdateComplete(LeConnectionUpdateComplete {
                 status,
-                conn_handle,
+                handle,
                 conn_interval,
-            }) => {
-                if matches!(status, Status::Success) {
-                    if let Some(conn) = self.connections.get_by_handle_mut(*conn_handle) {
-                        conn.update_interval(*conn_interval);
+                peripheral_latency,
+                supervision_timeout,
+            })) => {
+                if status.to_result().is_ok() {
+                    let interval = ConnectionInterval::new(*conn_interval, *peripheral_latency, *supervision_timeout);
+                    if let Some(conn) = self.connections.get_by_handle_mut(*handle) {
+                        conn.update_interval(interval);
                     }
                     Some(GapEvent::ConnectionParamsUpdated {
-                        handle: *conn_handle,
-                        interval: *conn_interval,
+                        handle: *handle,
+                        interval,
                     })
                 } else {
                     None
                 }
             }
-            Event::LePhyUpdateComplete(LePhyUpdateComplete {
-                conn_handle,
+            Event::Le(LeEvent::LePhyUpdateComplete(LePhyUpdateComplete {
                 status,
+                handle,
                 tx_phy,
                 rx_phy,
-            }) => {
-                if matches!(status, Status::Success) {
-                    if let Some(conn) = self.connections.get_by_handle_mut(*conn_handle) {
+            })) => {
+                if status.to_result().is_ok() {
+                    if let Some(conn) = self.connections.get_by_handle_mut(*handle) {
                         conn.update_phy(*tx_phy, *rx_phy);
                     }
                     Some(GapEvent::PhyUpdated {
-                        handle: *conn_handle,
+                        handle: *handle,
                         tx_phy: *tx_phy,
                         rx_phy: *rx_phy,
                     })
@@ -812,14 +820,14 @@ impl<'d> HCI<'d, Normal> {
                     None
                 }
             }
-            Event::LeDataLengthChangeEvent(LeDataLengthChangeEvent {
-                conn_handle,
-                max_rx_octets,
-                max_rx_time,
+            Event::Le(LeEvent::LeDataLengthChange(LeDataLengthChange {
+                handle,
                 max_tx_octets,
                 max_tx_time,
-            }) => Some(GapEvent::DataLengthChanged {
-                handle: *conn_handle,
+                max_rx_octets,
+                max_rx_time,
+            })) => Some(GapEvent::DataLengthChanged {
+                handle: *handle,
                 max_tx_octets: *max_tx_octets,
                 max_tx_time: *max_tx_time,
                 max_rx_octets: *max_rx_octets,
@@ -829,18 +837,30 @@ impl<'d> HCI<'d, Normal> {
         }
     }
 
+    fn on_connected(&mut self, conn: Connection) -> Option<GapEvent> {
+        if let Some(stored_conn) = self.connections.allocate(conn.clone()) {
+            // Read PHY after connection
+            if let Ok((tx_phy, rx_phy)) = self.cmd_sender.le_read_phy(conn.handle.raw()) {
+                stored_conn.update_phy(phy_kind(tx_phy), phy_kind(rx_phy));
+            }
+        }
+        // LL stops advertising automatically on connection
+        self.is_advertising = false;
+        Some(GapEvent::Connected(conn))
+    }
+
     /// Convert a raw HCI event into a high-level GATT event when applicable.
-    pub fn process_gatt_event(&self, event: &stm32wb_hci::Event) -> Option<GattEvent> {
+    pub fn process_gatt_event(&self, event: &BleEvent<'_>) -> Option<GattEvent> {
         match event {
-            Event::Vendor(v) => from_vendor_event(v),
+            BleEvent::Vendor(v) => from_vendor_event(v),
             _ => None,
         }
     }
 
     /// Convert a raw HCI event into one or more high-level GATT client events.
-    pub fn process_gatt_client_events(&self, event: &stm32wb_hci::Event) -> heapless::Vec<GattClientEvent, 16> {
+    pub fn process_gatt_client_events(&self, event: &BleEvent<'_>) -> heapless::Vec<GattClientEvent, 16> {
         match event {
-            Event::Vendor(v) => client_events_from_vendor_event(v),
+            BleEvent::Vendor(v) => client_events_from_vendor_event(v),
             _ => heapless::Vec::new(),
         }
     }
@@ -848,18 +868,23 @@ impl<'d> HCI<'d, Normal> {
     /// Return the first terminal GATT client event for a procedure, if any.
     ///
     /// Useful for "start procedure + pump events until terminal" patterns.
-    pub fn process_gatt_client_terminal_event(&self, event: &stm32wb_hci::Event) -> Option<GattClientEvent> {
+    pub fn process_gatt_client_terminal_event(&self, event: &BleEvent<'_>) -> Option<GattClientEvent> {
         let events = self.process_gatt_client_events(event);
         events.into_iter().find(|e| e.is_terminal())
     }
 
     /// Convert a raw HCI event into a high-level security event when applicable.
-    pub fn process_security_event(&self, event: &stm32wb_hci::Event) -> Option<SecurityEvent> {
+    pub fn process_security_event(&self, event: &BleEvent<'_>) -> Option<SecurityEvent> {
         match event {
-            Event::Vendor(v) => security_from_vendor_event(v),
+            BleEvent::Vendor(v) => security_from_vendor_event(v),
             _ => None,
         }
     }
+}
+
+/// Decode a PHY as reported by `HCI_LE_Read_PHY`.
+fn phy_kind(raw: u8) -> PhyKind {
+    PhyKind::from_hci_bytes_complete(&[raw]).unwrap_or_default()
 }
 
 impl<'d> HCI<'d, Test> {
@@ -993,7 +1018,7 @@ impl<'d, M: Mode> HCI<'d, M> {
         // Terminate all active connections cleanly
         for conn in self.connections.iter() {
             // 0x16 = "local host terminated connection"
-            let _ = self.cmd_sender.disconnect(conn.handle.0, 0x16);
+            let _ = self.cmd_sender.disconnect(conn.handle.raw(), 0x16);
         }
 
         // Reset the HCI controller — this resets the radio hardware to its
@@ -1007,12 +1032,13 @@ impl<'d, M: Mode> HCI<'d, M> {
 
     /// Read the next BLE event
     ///
-    /// This function blocks until an event is available.
-    /// Events include connection complete, disconnection, etc.
+    /// This function blocks until an event is available, copies it into `buf`
+    /// and decodes it. Events include connection complete, disconnection, etc.
+    /// Packets that are not events, or that fail to decode, are logged and
+    /// skipped.
     ///
-    /// # Returns
-    ///
-    /// The next BLE event from the controller.
+    /// The returned event borrows `buf`, not `self`, so it can be passed to
+    /// [`Self::process_event`] and the other `process_*` methods.
     ///
     /// # Note
     ///
@@ -1020,21 +1046,62 @@ impl<'d, M: Mode> HCI<'d, M> {
     /// processed automatically by the stack for operations like advertising
     /// and scanning. This is provided for applications that need to handle
     /// raw events (e.g., for connection management).
-    pub async fn read_event(&mut self) -> stm32wb_hci::Event {
-        use stm32wb_hci::host::uart::UartHci;
-
+    pub async fn read_event<'b>(&mut self, buf: &'b mut EventBuffer) -> BleEvent<'b> {
         loop {
-            match self.controller.read_packet().await {
-                Ok(Packet::Event(event)) => return event,
-                // Anything that fails to parse used to be dropped here without a
-                // trace, which hides the failures that matter most: an unparsable
-                // LE Enhanced Connection Complete means the link is up in the
-                // controller but the application never learns about it, so the
-                // peer sits at "connecting" until it times out with nothing
-                // logged on this side.
-                Err(_) => error!("HCI packet dropped: read or parse failed"),
+            let mut rx = ();
+            match self.controller.read(&mut rx).await {
+                Ok(ControllerToHostPacket::Event(EventPacket { kind, data })) => {
+                    // Decode in place first so that a packet that fails to decode
+                    // does not overwrite the caller's buffer.
+                    if BleEvent::from_packet(EventPacket { kind, data }).is_err() {
+                        // An unparsable LE Enhanced Connection Complete means the link is up
+                        // in the controller but the application never learns about it, so
+                        // the peer sits at "connecting" until it times out: log it.
+                        error!("HCI event dropped: decode failed ({:?})", kind);
+                        continue;
+                    }
+                    buf.kind = kind;
+                    buf.len = data.len();
+                    buf.data[..buf.len].copy_from_slice(data);
+                    break;
+                }
+                Ok(_) => debug!("HCI packet ignored: not an event"),
+                Err(_) => error!("HCI packet dropped: read failed"),
             }
         }
+        buf.event().expect("event decoded above")
+    }
+}
+
+/// Storage for an HCI event read with [`HCI::read_event`]
+pub struct EventBuffer {
+    kind: EventKind,
+    len: usize,
+    data: [u8; 255],
+}
+
+impl EventBuffer {
+    /// Create an empty buffer
+    pub const fn new() -> Self {
+        Self {
+            kind: EventKind::Vendor,
+            len: 0,
+            data: [0; 255],
+        }
+    }
+
+    /// Decode the event held in the buffer
+    pub fn event(&self) -> Result<BleEvent<'_>, bt_hci::FromHciBytesError> {
+        BleEvent::from_packet(EventPacket {
+            kind: self.kind,
+            data: &self.data[..self.len],
+        })
+    }
+}
+
+impl Default for EventBuffer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

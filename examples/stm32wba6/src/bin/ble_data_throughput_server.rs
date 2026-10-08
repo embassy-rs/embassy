@@ -35,17 +35,17 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
     CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType,
     Uuid, is_cccd_handle, is_value_handle,
 };
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::Instant;
 use panic_probe as _;
-use stm32wb_hci::Event;
-use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
+use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -220,6 +220,7 @@ async fn main(spawner: Spawner) {
     // When TX notifications are enabled, notifications are sent in a tight burst.
     // `gatt.notify()` fails (returns Err) when the stack TX buffer is full; in that
     // case we fall through to `read_event()` and wait for the stack to drain.
+    let mut event_buf = EventBuffer::new();
     loop {
         // Burst-send while connected and the client has subscribed
         if state.tx_notifications_enabled {
@@ -263,14 +264,14 @@ async fn main(spawner: Spawner) {
         }
 
         // Wait for the next HCI event
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
 
         // ── GAP events ────────────────────────────────────────────────────────
         if let Some(gap_event) = ble.process_event(&event) {
             match gap_event {
                 GapEvent::Connected(conn) => {
-                    info!("Connected: 0x{:04X}", conn.handle.0);
-                    let handle = conn.handle.0;
+                    info!("Connected: 0x{:04X}", conn.handle.raw());
+                    let handle = conn.handle.raw();
                     state.conn_handle = Some(handle);
                     state.tx_notifications_enabled = false;
                     state.through_notifications_enabled = false;
@@ -291,7 +292,7 @@ async fn main(spawner: Spawner) {
                 GapEvent::Disconnected { handle, reason } => {
                     info!(
                         "Disconnected: 0x{:04X}, reason 0x{:02X} ({})",
-                        handle.0,
+                        handle.raw(),
                         reason.as_u8(),
                         Display2Format(&reason)
                     );
@@ -303,7 +304,7 @@ async fn main(spawner: Spawner) {
                         .expect("Failed to restart advertising");
                 }
                 GapEvent::PhyUpdated { handle, tx_phy, rx_phy } => {
-                    info!("PHY updated on 0x{:04X}: TX={:?} RX={:?}", handle.0, tx_phy, rx_phy);
+                    info!("PHY updated on 0x{:04X}: TX={:?} RX={:?}", handle.raw(), tx_phy, rx_phy);
                 }
                 GapEvent::DataLengthChanged {
                     handle,
@@ -313,7 +314,9 @@ async fn main(spawner: Spawner) {
                 } => {
                     info!(
                         "Data length on 0x{:04X}: TX={} RX={}",
-                        handle.0, max_tx_octets, max_rx_octets
+                        handle.raw(),
+                        max_tx_octets,
+                        max_rx_octets
                     );
                 }
                 _ => {}
@@ -322,9 +325,9 @@ async fn main(spawner: Spawner) {
 
         // ── GATT events ───────────────────────────────────────────────────────
         match &event {
-            Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
-                if is_cccd_handle(state.tx_char_handle.0, attr.attr_handle.0) {
-                    let cccd = CccdValue::from_bytes(attr.data());
+            BleEvent::Vendor(AciEvent::GattAttributeModified(attr)) => {
+                if is_cccd_handle(state.tx_char_handle.0, attr.attr_handle) {
+                    let cccd = CccdValue::from_bytes(attr.attr_data);
                     state.tx_notifications_enabled = cccd.notifications;
                     info!(
                         "TX notifications {}",
@@ -333,24 +336,24 @@ async fn main(spawner: Spawner) {
                     if cccd.notifications {
                         state.window_start = None; // reset measurement window
                     }
-                } else if is_cccd_handle(state.through_char_handle.0, attr.attr_handle.0) {
-                    let cccd = CccdValue::from_bytes(attr.data());
+                } else if is_cccd_handle(state.through_char_handle.0, attr.attr_handle) {
+                    let cccd = CccdValue::from_bytes(attr.attr_data);
                     state.through_notifications_enabled = cccd.notifications;
                     info!(
                         "THROUGH notifications {}",
                         if cccd.notifications { "ENABLED" } else { "DISABLED" }
                     );
-                } else if is_value_handle(state.rx_char_handle.0, attr.attr_handle.0) {
-                    state.rx_bytes += attr.data().len() as u32;
-                    debug!("RX {} bytes (window total {} B)", attr.data().len(), state.rx_bytes);
+                } else if is_value_handle(state.rx_char_handle.0, attr.attr_handle) {
+                    state.rx_bytes += attr.attr_data.len() as u32;
+                    debug!("RX {} bytes (window total {} B)", attr.attr_data.len(), state.rx_bytes);
                 }
             }
-            Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
-                conn_handle,
+            BleEvent::Vendor(AciEvent::AttExchangeMtuResp(AttExchangeMtuRespEvent {
+                connection_handle: conn_handle,
                 server_rx_mtu,
             })) => {
                 if let Some(conn) = ble.get_connection_mut(*conn_handle) {
-                    conn.update_mtu(*server_rx_mtu as u16);
+                    conn.update_mtu(*server_rx_mtu);
                 }
                 info!("MTU exchanged: {} bytes", server_rx_mtu);
             }
