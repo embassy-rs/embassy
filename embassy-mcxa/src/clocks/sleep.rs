@@ -5,9 +5,9 @@
 //! The caller holds a critical section through clock and idle-mode recovery.
 //! SCR sleep control is saved per call and restored before returning, and
 //! status is captured before recovery modifies the CMC/SPC registers.
-
-use core::cell::Ref;
-use core::ops::Deref;
+//! MCXA2xx entry/recovery follows MCXAP144M240F61RM Rev. 2 sections 18.3.3,
+//! 18.6, 22.3.1, and 25.7. Active-only SPLL is stopped explicitly on MCXA2xx;
+//! when it supplies the CPU, SIRC carries execution until SPLL is locked again.
 
 use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
@@ -18,7 +18,7 @@ use super::types::{Clocks, PoweredClock};
 use crate::pac;
 use crate::pac::cmc::Ckmode;
 #[cfg(feature = "mcxa2xx")]
-use crate::pac::scg::Fircvld;
+use crate::pac::scg::{Fircacc, Fircvld, Rccr, Scs, Sirccsr, SirccsrLk, Sircerr, Spllcsr, SpllcsrLk, Spllerr};
 use crate::pac::scg::{Sircvld, SpllLock};
 use crate::pac::spc::{PdLpReq, SpcLpReq};
 
@@ -38,7 +38,7 @@ pub enum PowerModeError {
     ClockControlLocked,
     /// PMPROT is locked without allowing the requested power mode.
     PowerModeProtectionLocked,
-    /// The CMC rejected a requested power mode configuration.
+    /// A requested CMC or clock-source configuration was rejected.
     ConfigurationRejected,
     /// The configured idle mode could not be restored.
     RecoveryRejected,
@@ -157,12 +157,12 @@ pub unsafe fn go_to_sleep_with_status(cs: &CriticalSection) -> Result<SleepStatu
 unsafe fn enter_power_mode(cs: &CriticalSection, mode: PowerMode) -> Result<SleepStatus, PowerModeError> {
     // Synchronize the caller's interrupt masking before configuring low power.
     cortex_m::asm::isb();
-    let idle_mode = {
-        let clocks = CLOCKS.borrow_ref(*cs);
-        let clocks = clocks.as_ref().ok_or(PowerModeError::ClockNotInitialized)?;
-        idle_clock_mode(clocks.core_sleep)
-    };
+    let clock_state = CLOCKS.borrow_ref(*cs);
+    let clocks = clock_state.as_ref().ok_or(PowerModeError::ClockNotInitialized)?;
+    let idle_mode = idle_clock_mode(clocks.core_sleep);
     let cmc = pac::CMC;
+    let spc = pac::SPC0;
+    let scg = pac::SCG0;
     let (clock_mode, protection, low_power_mode) = mode.configuration();
     validate_power_mode(
         cmc.ckctrl().read(),
@@ -176,6 +176,21 @@ unsafe fn enter_power_mode(cs: &CriticalSection, mode: PowerMode) -> Result<Slee
         return Err(error);
     }
 
+    #[cfg(feature = "mcxa2xx")]
+    let pll_state = if mode == PowerMode::DeepSleep {
+        // SAFETY: peripherals are quiescent and the caller masks interrupts
+        // throughout the temporary CPU clock switch and PLL restart.
+        match unsafe { suspend_active_only_pll(scg, clocks) } {
+            Ok(state) => state,
+            Err(error) => {
+                restore_idle_mode(cmc, idle_mode)?;
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
+
     // SAFETY: SCB is an MMIO-only zero-sized handle. The caller masks interrupts
     // and restores the affected SCR bits before returning.
     let scb: SCB = unsafe { core::mem::transmute(()) };
@@ -183,8 +198,8 @@ unsafe fn enter_power_mode(cs: &CriticalSection, mode: PowerMode) -> Result<Slee
     // SAFETY: only the architectural SLEEPDEEP/SEVONPEND bits are changed.
     unsafe { scb.scr.modify(sleep_control_for_entry) };
     let requested_main_mode = cmc.pmctrlmain().read().0;
-    clear_previous_clock_status();
-    clear_spc_low_power_status();
+    clear_previous_clock_status(cmc);
+    clear_spc_low_power_status(spc);
     cortex_m::asm::dsb();
     cortex_m::asm::wfe();
     cortex_m::asm::isb();
@@ -193,14 +208,22 @@ unsafe fn enter_power_mode(cs: &CriticalSection, mode: PowerMode) -> Result<Slee
         requested_main_mode,
         ckstat: cmc.ckstat().read().0,
         wake_main_mode: cmc.pmctrlmain().read().0,
-        pd_status0: pac::SPC0.pd_status0().read().0,
-        spc_sc: pac::SPC0.sc().read().0,
+        pd_status0: spc.pd_status0().read().0,
+        spc_sc: spc.sc().read().0,
     };
     if mode != PowerMode::Sleep {
         // SAFETY: recovery is performed in the same critical section as entry.
-        unsafe { restart_active_only_clocks(cs) };
+        #[cfg(feature = "mcxa2xx")]
+        unsafe {
+            restart_active_only_clocks(scg, clocks, pll_state.as_ref())
+        };
+        // SAFETY: recovery is performed in the same critical section as entry.
+        #[cfg(feature = "mcxa5xx")]
+        unsafe {
+            restart_active_only_clocks(scg, clocks)
+        };
     }
-    clear_spc_low_power_status();
+    clear_spc_low_power_status(spc);
     let recovery = restore_idle_mode(cmc, idle_mode);
     // SAFETY: restore only our SCR changes, preserving unrelated control bits.
     unsafe { scb.scr.modify(|current| restore_sleep_control(current, saved_scr)) };
@@ -281,16 +304,138 @@ fn restore_idle_mode(cmc: pac::cmc::Cmc, idle_mode: Ckmode) -> Result<(), PowerM
 }
 
 /// Clear SPC request flags independently of CMC wake status.
-fn clear_spc_low_power_status() {
-    let spc = pac::SPC0;
-    spc.pd_status0().modify(|w| w.set_pd_lp_req(PdLpReq::ReqYes));
-    spc.sc().modify(|w| w.set_spc_lp_req(SpcLpReq::LowPower));
+fn clear_spc_low_power_status(spc: pac::spc::Spc) {
+    // Direct W1C writes must not echo unrelated flags such as ISO_CLR or BUSY.
+    spc.pd_status0().write(|w| w.set_pd_lp_req(PdLpReq::ReqYes));
+    spc.sc().write(|w| w.set_spc_lp_req(SpcLpReq::LowPower));
+    let _ = spc.sc().read();
 }
 
 /// Clear the previous CMC result immediately before a new entry attempt.
-fn clear_previous_clock_status() {
+fn clear_previous_clock_status(cmc: pac::cmc::Cmc) {
     // CKSTAT.VALID is write-one-to-clear.
-    pac::CMC.ckstat().modify(|w| w.set_valid(true));
+    cmc.ckstat().write(|w| w.set_valid(true));
+}
+
+#[cfg(feature = "mcxa2xx")]
+struct PllStopState {
+    control: Spllcsr,
+    cpu_clock: Option<Rccr>,
+    sirc_control: Option<Sirccsr>,
+}
+
+#[cfg(feature = "mcxa2xx")]
+fn set_sirc_peripheral_gate(scg: pac::scg::Scg, enabled: bool, lock: SirccsrLk) {
+    scg.sirccsr().modify(|w| {
+        w.set_lk(SirccsrLk::WriteEnabled);
+        w.set_sircerr(Sircerr::ErrorNotDetected);
+    });
+    scg.sirccsr().modify(|w| {
+        w.set_sirc_clk_periph_en(enabled);
+        w.set_lk(lock);
+        w.set_sircerr(Sircerr::ErrorNotDetected);
+    });
+}
+
+#[cfg(feature = "mcxa2xx")]
+fn pll_control_for_stop(mut control: Spllcsr) -> Spllcsr {
+    control.set_spllpwren(false);
+    control.set_spllclken(false);
+    control.set_spllcm(false);
+    control.set_spllerr(Spllerr::DisabledOrNoError);
+    control
+}
+
+#[cfg(feature = "mcxa2xx")]
+fn pll_control_for_start(mut control: Spllcsr) -> Spllcsr {
+    control.set_lk(SpllcsrLk::WriteEnabled);
+    control.set_spllcm(false);
+    control.set_spllerr(Spllerr::DisabledOrNoError);
+    control
+}
+
+/// MCXA2xx requires SPLLPWREN to be cleared before Deep Sleep when SPLLSTEN is zero.
+///
+/// # Safety
+///
+/// The caller must mask interrupts and quiesce clock consumers until recovery.
+#[cfg(feature = "mcxa2xx")]
+unsafe fn suspend_active_only_pll(scg: pac::scg::Scg, clocks: &Clocks) -> Result<Option<PllStopState>, PowerModeError> {
+    let Some(pll) = clocks.pll1_clk.as_ref() else {
+        return Ok(None);
+    };
+    if pll.power == PoweredClock::AlwaysEnabled {
+        return Ok(None);
+    }
+
+    let control = scg.spllcsr().read();
+    if !control.spllpwren() || !control.spllclken() || control.spllerr() == Spllerr::EnabledAndError {
+        return Err(PowerModeError::ConfigurationRejected);
+    }
+    let rccr = scg.rccr().read();
+    let mut sirc_control = None;
+    let cpu_clock = if rccr.scs() == Scs::Spll {
+        let sirc = scg.sirccsr().read();
+        if !sirc.sirc_clk_periph_en() {
+            set_sirc_peripheral_gate(scg, true, sirc.lk());
+            sirc_control = Some(sirc);
+        }
+        while scg.sirccsr().read().sircvld() != Sircvld::EnabledAndValid {}
+        scg.rccr().modify(|w| w.set_scs(Scs::Sirc));
+        while scg.csr().read().scs() != Scs::Sirc {}
+        Some(rccr)
+    } else {
+        None
+    };
+
+    scg.spllcsr().modify(|w| {
+        w.set_lk(SpllcsrLk::WriteEnabled);
+        w.set_spllerr(Spllerr::DisabledOrNoError);
+    });
+    scg.spllcsr().write_value(pll_control_for_stop(control));
+    let state = PllStopState {
+        control,
+        cpu_clock,
+        sirc_control,
+    };
+    let stopped = scg.spllcsr().read();
+    if stopped.spllpwren() || stopped.spllclken() || stopped.spllcm() {
+        // SAFETY: no sleep instruction ran; restore the original clocks before
+        // returning a rejected configuration to the caller.
+        unsafe { resume_active_only_pll(scg, &state) };
+        return Err(PowerModeError::ConfigurationRejected);
+    }
+
+    Ok(Some(state))
+}
+
+/// Restart MCXA2xx SPLL only after its analog LDO and reference clocks are ready.
+///
+/// # Safety
+///
+/// The caller must still hold the entry critical section.
+#[cfg(feature = "mcxa2xx")]
+unsafe fn resume_active_only_pll(scg: pac::scg::Scg, state: &PllStopState) {
+    while !scg.ldocsr().read().vout_ok() {}
+    scg.spllcsr().modify(|w| {
+        w.set_lk(SpllcsrLk::WriteEnabled);
+        w.set_spllerr(Spllerr::DisabledOrNoError);
+    });
+    scg.spllcsr().write_value(pll_control_for_start(state.control));
+    while scg.spllcsr().read().spll_lock() != SpllLock::EnabledAndValid {}
+    scg.spllcsr().modify(|w| {
+        w.set_spllcm(state.control.spllcm());
+        w.set_lk(state.control.lk());
+        w.set_spllerr(Spllerr::DisabledOrNoError);
+    });
+
+    if let Some(rccr) = state.cpu_clock {
+        scg.rccr().write_value(rccr);
+        while scg.csr().read().scs() != rccr.scs() {}
+    }
+    if let Some(sirc) = state.sirc_control {
+        set_sirc_peripheral_gate(scg, sirc.sirc_clk_periph_en(), sirc.lk());
+    }
 }
 
 /// Perform any actions necessary to re-initialize clocks after returning to active
@@ -299,14 +444,11 @@ fn clear_previous_clock_status() {
 /// ## Safety
 ///
 /// This should only be called in a critical section, immediately after waking up.
-unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
-    let bref: Ref<'_, Option<Clocks>> = CLOCKS.borrow_ref(*_cs);
-    let dref: &Option<Clocks> = bref.deref();
-    let Some(clocks) = dref else {
-        return;
-    };
-    let scg = pac::SCG0;
-
+unsafe fn restart_active_only_clocks(
+    scg: pac::scg::Scg,
+    clocks: &Clocks,
+    #[cfg(feature = "mcxa2xx")] pll_state: Option<&PllStopState>,
+) {
     // TODO: Restart clock monitors if necessary? Needs to be re-enabled
     // AFTER FRO12M has been started, and probably after clocks are
     // valid again.
@@ -326,7 +468,12 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     if let Some(frohf) = clocks.fro_hf_root.as_ref()
         && !matches!(frohf.power, PoweredClock::AlwaysEnabled)
     {
-        while scg.firccsr().read().fircvld() != Fircvld::EnabledAndValid {}
+        loop {
+            let csr = scg.firccsr().read();
+            if csr.fircvld() == Fircvld::EnabledAndValid && csr.fircacc() == Fircacc::EnabledAndValid {
+                break;
+            }
+        }
     }
 
     // Ensure SOSC is up and running
@@ -337,7 +484,13 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
         while !scg.sosccsr().read().soscvld() {}
     }
 
-    // Ensure SPLL is up and running
+    #[cfg(feature = "mcxa2xx")]
+    if let Some(state) = pll_state {
+        // SAFETY: references and LDO recover before restoring the CPU's PLL source.
+        unsafe { resume_active_only_pll(scg, state) };
+    }
+
+    // Ensure SPLL is up and running.
     if let Some(spll) = clocks.pll1_clk.as_ref()
         && !matches!(spll.power, PoweredClock::AlwaysEnabled)
     {
@@ -348,6 +501,47 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spc_acknowledges_only_low_power_request_flags() {
+        #[repr(C)]
+        struct Registers {
+            padding: [u32; 4],
+            status: pac::spc::Sc,
+            padding_to_domain: [u32; 7],
+            domain: pac::spc::PdStatus0,
+        }
+        let mut registers = Registers {
+            padding: [0; 4],
+            status: pac::spc::Sc(0x0001_0013),
+            padding_to_domain: [0; 7],
+            domain: pac::spc::PdStatus0(u32::MAX),
+        };
+        assert_eq!(core::mem::offset_of!(Registers, domain), 0x30);
+        // SAFETY: the isolated, aligned RAM block covers every accessed register.
+        let spc = unsafe { pac::spc::Spc::from_ptr((&raw mut registers).cast()) };
+        clear_spc_low_power_status(spc);
+        assert_eq!(registers.status.0, 1 << 1);
+        assert_eq!(registers.domain.0, 1 << 4);
+    }
+
+    #[test]
+    fn cmc_acknowledges_only_clock_status_valid() {
+        #[repr(C)]
+        struct Registers {
+            padding: [u32; 5],
+            status: pac::cmc::Ckstat,
+        }
+        let mut registers = Registers {
+            padding: [0; 5],
+            status: pac::cmc::Ckstat(u32::MAX),
+        };
+        assert_eq!(core::mem::offset_of!(Registers, status), 0x14);
+        // SAFETY: the isolated, aligned RAM block covers CKSTAT.
+        let cmc = unsafe { pac::cmc::Cmc::from_ptr((&raw mut registers).cast()) };
+        clear_previous_clock_status(cmc);
+        assert_eq!(registers.status.0, 1 << 31);
+    }
 
     #[test]
     fn mode_encodings_match_cmc_reference() {
@@ -458,5 +652,176 @@ mod tests {
         ckstat.set_valid(true);
         status.ckstat = ckstat.0;
         assert!(status.core_clock_was_gated());
+    }
+
+    #[cfg(feature = "mcxa2xx")]
+    mod pll {
+        use super::*;
+        use crate::clocks::Clock;
+        use crate::pac::scg::{Csr, Ldocsr, Sirccsr};
+
+        /// Register-write model with preloaded hardware acknowledgements.
+        /// Analog startup timing and live CPU clock switching require board tests.
+        #[repr(C)]
+        struct Registers {
+            padding: [u32; 4],
+            status: Csr,
+            run_clock: Rccr,
+            padding_to_sirc: [u32; 122],
+            sirc: Sirccsr,
+            padding_to_pll: [u32; 255],
+            pll: Spllcsr,
+            padding_to_ldo: [u32; 127],
+            ldo: Ldocsr,
+        }
+
+        impl Registers {
+            fn new(source: Scs) -> Self {
+                let mut registers = Self {
+                    padding: [0; 4],
+                    status: Csr::default(),
+                    run_clock: Rccr::default(),
+                    padding_to_sirc: [0; 122],
+                    sirc: Sirccsr::default(),
+                    padding_to_pll: [0; 255],
+                    pll: Spllcsr::default(),
+                    padding_to_ldo: [0; 127],
+                    ldo: Ldocsr::default(),
+                };
+                registers.status.set_scs(Scs::Sirc);
+                registers.run_clock.set_scs(source);
+                registers.sirc.set_sircvld(Sircvld::EnabledAndValid);
+                registers.pll.set_spllpwren(true);
+                registers.pll.set_spllclken(true);
+                registers.pll.set_spllcm(true);
+                registers.pll.set_lk(SpllcsrLk::WriteDisabled);
+                registers.pll.set_spll_lock(SpllLock::EnabledAndValid);
+                registers.ldo.set_vout_ok(true);
+                registers
+            }
+
+            fn scg(&mut self) -> pac::scg::Scg {
+                assert_eq!(core::mem::offset_of!(Self, sirc), 0x200);
+                assert_eq!(core::mem::offset_of!(Self, pll), 0x600);
+                assert_eq!(core::mem::offset_of!(Self, ldo), 0x800);
+                // SAFETY: the aligned RAM model covers all accessed SCG registers.
+                unsafe { pac::scg::Scg::from_ptr((self as *mut Self).cast()) }
+            }
+        }
+
+        fn active_only_clocks() -> Clocks {
+            let mut clocks = Clocks::default();
+            clocks.pll1_clk = Some(Clock {
+                frequency: 48_000_000,
+                power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            });
+            clocks
+        }
+
+        #[test]
+        fn stop_and_start_preserve_control_policy_without_acknowledging_errors() {
+            let mut control = Spllcsr::default();
+            control.set_spllpwren(true);
+            control.set_spllclken(true);
+            control.set_spllcm(true);
+            control.set_lk(SpllcsrLk::WriteDisabled);
+            control.set_spllerr(Spllerr::EnabledAndError);
+
+            let stopped = pll_control_for_stop(control);
+            assert!(!stopped.spllpwren());
+            assert!(!stopped.spllclken());
+            assert!(!stopped.spllcm());
+            assert_eq!(stopped.lk(), control.lk());
+            assert_eq!(stopped.spllerr(), Spllerr::DisabledOrNoError);
+
+            let restarted = pll_control_for_start(control);
+            assert!(restarted.spllpwren());
+            assert!(restarted.spllclken());
+            assert!(!restarted.spllcm());
+            assert_eq!(restarted.lk(), SpllcsrLk::WriteEnabled);
+            assert_eq!(restarted.spllerr(), Spllerr::DisabledOrNoError);
+        }
+
+        #[test]
+        fn cpu_pll_uses_sirc_until_recovery() -> Result<(), PowerModeError> {
+            let mut registers = Registers::new(Scs::Spll);
+            registers.sirc.set_lk(SirccsrLk::WriteDisabled);
+            let scg = registers.scg();
+            // SAFETY: there are no concurrent users of this isolated RAM model.
+            let state = unsafe { suspend_active_only_pll(scg, &active_only_clocks()) }?
+                .ok_or(PowerModeError::ConfigurationRejected)?;
+            assert_eq!(registers.run_clock.scs(), Scs::Sirc);
+            assert!(registers.sirc.sirc_clk_periph_en());
+            assert!(!registers.pll.spllpwren());
+            assert!(!registers.pll.spllclken());
+            assert!(!registers.pll.spllcm());
+
+            registers.status.set_scs(Scs::Spll);
+            // SAFETY: ready/lock feedback is preloaded in the isolated RAM model.
+            unsafe { resume_active_only_pll(scg, &state) };
+            assert_eq!(registers.run_clock.scs(), Scs::Spll);
+            assert!(registers.pll.spllpwren());
+            assert!(registers.pll.spllclken());
+            assert!(registers.pll.spllcm());
+            assert_eq!(registers.pll.lk(), SpllcsrLk::WriteDisabled);
+            assert!(!registers.sirc.sirc_clk_periph_en());
+            assert_eq!(registers.sirc.lk(), SirccsrLk::WriteDisabled);
+            Ok(())
+        }
+
+        #[test]
+        fn peripheral_pll_does_not_change_cpu_source() -> Result<(), PowerModeError> {
+            let mut registers = Registers::new(Scs::Firc);
+            let scg = registers.scg();
+            // SAFETY: there are no concurrent users of this isolated RAM model.
+            let state = unsafe { suspend_active_only_pll(scg, &active_only_clocks()) }?
+                .ok_or(PowerModeError::ConfigurationRejected)?;
+            assert!(state.cpu_clock.is_none());
+            assert_eq!(registers.run_clock.scs(), Scs::Firc);
+            assert!(!registers.pll.spllpwren());
+            // SAFETY: ready/lock feedback is preloaded in the isolated RAM model.
+            unsafe { resume_active_only_pll(scg, &state) };
+            assert_eq!(registers.run_clock.scs(), Scs::Firc);
+            assert!(registers.pll.spllpwren());
+            Ok(())
+        }
+
+        #[test]
+        fn retained_pll_is_not_stopped() -> Result<(), PowerModeError> {
+            let mut registers = Registers::new(Scs::Spll);
+            let scg = registers.scg();
+            let original = registers.pll;
+            let mut clocks = active_only_clocks();
+            if let Some(pll) = clocks.pll1_clk.as_mut() {
+                pll.power = PoweredClock::AlwaysEnabled;
+            }
+            // SAFETY: there are no concurrent users of this isolated RAM model.
+            assert!(unsafe { suspend_active_only_pll(scg, &clocks) }?.is_none());
+            assert_eq!(registers.pll, original);
+            assert_eq!(registers.run_clock.scs(), Scs::Spll);
+            Ok(())
+        }
+
+        #[test]
+        fn absent_pll_is_not_touched() -> Result<(), PowerModeError> {
+            let mut registers = Registers::new(Scs::Firc);
+            let scg = registers.scg();
+            let original = registers.pll;
+            // SAFETY: there are no concurrent users of this isolated RAM model.
+            assert!(unsafe { suspend_active_only_pll(scg, &Clocks::default()) }?.is_none());
+            assert_eq!(registers.pll, original);
+            Ok(())
+        }
+
+        #[test]
+        fn disabled_pll_is_rejected_before_changing_cpu_source() {
+            let mut registers = Registers::new(Scs::Spll);
+            registers.pll.set_spllpwren(false);
+            let scg = registers.scg();
+            // SAFETY: there are no concurrent users of this isolated RAM model.
+            let result = unsafe { suspend_active_only_pll(scg, &active_only_clocks()) };
+            assert!(matches!(result, Err(PowerModeError::ConfigurationRejected)));
+            assert_eq!(registers.run_clock.scs(), Scs::Spll);
+        }
     }
 }

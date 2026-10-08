@@ -511,7 +511,7 @@ fn power_mode_error_message(error: hal::clocks::PowerModeError) -> &'static str 
         hal::clocks::PowerModeError::PowerModeProtectionLocked => {
             "PMPROT is locked without permitting the requested mode"
         }
-        hal::clocks::PowerModeError::ConfigurationRejected => "CMC rejected the requested configuration",
+        hal::clocks::PowerModeError::ConfigurationRejected => "clock/power configuration rejected",
         hal::clocks::PowerModeError::RecoveryRejected => "CMC rejected idle-mode recovery",
     }
 }

@@ -64,6 +64,46 @@ attempt rather than immediately waiting a second time.
 proof that a particular power-domain mode was reached. The HAL supports Sleep
 and Deep Sleep entry only; Power Down entry APIs are not provided.
 
+### MCXA2xx compatibility
+
+The shared sequence is checked against **MCXAP144M240F61RM Rev. 2
+(2025-11-17)**, which includes MCXA256, the PAC selected by `mcxa2xx`.
+Sections 18.3.3, 18.6 and 18.7 specify the same CMC encodings used on MCXA5xx:
+
+| Mode | CKCTRL.CKMODE | PMPROT permission | PMCTRLMAIN.LPMODE |
+| --- | --- | --- | --- |
+| Sleep | `0x1` | None required | `0x0` |
+| Deep Sleep | `0xF` | `0x1` | `0x1` |
+
+CKMODE greater than zero requires `SCR.SLEEPDEEP`. WFE is supported as well as
+WFI; the executor retains WFE so pending task events cannot be lost.
+CMC/SPC write-one-to-clear acknowledgements write only their intended flag,
+without clearing unrelated isolation or busy status.
+
+Section 22.3.1 (page 859) requires an active-only SPLL to be powered off before
+Deep Sleep and powered on after `LDOCSR.VOUT_OK` returns. On MCXA2xx the HAL
+temporarily switches a PLL-clocked CPU to SIRC, saves PLL control policy,
+disables PLL output/power and monitoring, and restores them after reference
+clocks and the LDO are ready. It waits for PLL lock before restoring the CPU
+source and monitor policy. A disabled SIRC output is enabled temporarily and
+its gate/lock policy is restored afterward. An already-retained PLL is left running. MCXA5xx
+does not use this family-specific sequence.
+
+MCXA2xx recovery waits for FIRC validity and accuracy before reusing it as a
+PLL reference. VBAT only supports FRO16K on this family (section 24.1.2):
+output zero feeds VDD_BAT/system consumers and output one feeds CORE_MAIN.
+The MCXA5xx-only OSC32K and VBAT LDO configuration is not executed on MCXA2xx.
+FRO16K enable and gate settings are checked against hardware before publishing
+the clock descriptors. An incompatible enable state retained behind the VBAT
+lock is reported as a configuration error; it requires a VBAT power-on reset
+rather than silently claiming that the requested clock is running.
+
+For debug retention, section 18.3.3.4 says `DBGCTL.SOD=0` plus an asserted
+debugger power request keeps the core clock running. Therefore connected-debugger
+tests can deliberately prevent clock gating; current measurements and live
+sleep/wakeup validation must account for that. Register-model tests cover
+software requests, not analog settling time or live CPU clock transitions.
+
 ## The `Cargo.toml` file
 
 This section describes the notable components of the `Cargo.toml` package
