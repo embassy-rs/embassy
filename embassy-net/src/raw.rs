@@ -541,16 +541,18 @@ impl<'d> RawSocket<'d> {
         max_size: usize,
         f: impl FnOnce(&mut [u8]) -> (usize, R),
     ) -> Result<R, SendError> {
+        if !self.is_open() {
+            return Err(SendError::InvalidState);
+        }
         let mut buf = poll_fn(|cx| match self.try_alloc() {
-            Ok(buf) => Poll::Ready(Ok(buf)),
-            Err(TryError::WouldBlock) => {
+            Some(buf) => Poll::Ready(buf),
+            None => {
                 // Yield to let other tasks release buffers.
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            Err(TryError::Other(err)) => Poll::Ready(Err(err)),
         })
-        .await?;
+        .await;
         if max_size > buf.tailroom() {
             return Err(SendError::BufferFull);
         }
@@ -584,14 +586,10 @@ impl<'d> RawSocket<'d> {
 
     /// Allocate an empty packet buffer with headroom for this socket.
     ///
-    /// Set the payload length with [`PacketBuf::set_len`] before writing.
-    ///
-    /// # Errors
-    /// - `WouldBlock`: if every packet buffer is in use.
-    /// - `Other(InvalidState)`: if the socket is not bound.
-    /// - `Other(Unaddressable)`: if Ethernet mode has no interface to send on.
-    pub fn try_alloc(&self) -> Result<PacketBuf, TryError<SendError>> {
-        self.with(|s| (s.alloc().map_err(Into::into), NoWake))
+    /// Allocation works before binding. Returns `None` if every packet buffer
+    /// is in use. Set the payload length with [`PacketBuf::set_len`] before writing.
+    pub fn try_alloc(&self) -> Option<PacketBuf> {
+        self.with(|s| (s.alloc(), NoWake))
     }
 }
 

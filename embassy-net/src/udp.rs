@@ -812,13 +812,10 @@ impl<'d> UdpSocket<'d> {
 
     /// Allocate an empty UDP payload buffer with headroom for the headers.
     ///
-    /// Set the payload length with [`PacketBuf::set_len`] before writing.
-    ///
-    /// # Errors
-    /// - `WouldBlock`: if every packet buffer is in use.
-    /// - `Other(InvalidState)`: if the socket is not bound.
-    pub fn try_alloc(&self) -> Result<PacketBuf, TryError<SendError>> {
-        self.with(|s| (s.alloc().map_err(Into::into), NoWake))
+    /// Allocation works before binding. Returns `None` if every packet buffer
+    /// is in use. Set the payload length with [`PacketBuf::set_len`] before writing.
+    pub fn try_alloc(&self) -> Option<PacketBuf> {
+        self.with(|s| (s.alloc(), NoWake))
     }
 }
 
