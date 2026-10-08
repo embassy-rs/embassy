@@ -262,7 +262,7 @@ impl<'a, 'd> Digest for Sha1<'a, 'd> {
         // Now we can prepare the 8 word digest
 
         let mut digest: [u8; 20] = [0u8; 20];
-        read_digest(5, &mut digest);
+        GenericHashcrypt::read_digest(5, &mut digest);
 
         // Reset the HASHCRYPT peripheral, so it's ready for a new hash. When finalize() is called again,
         // all the registers including the length of the message that was previously hashed are reset, so that
