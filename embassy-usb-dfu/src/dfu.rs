@@ -52,7 +52,7 @@ fn firmware_error_to_status(e: FirmwareUpdaterError) -> Status {
             NorFlashErrorKind::OutOfBounds => Status::ErrAddress,
             _ => Status::ErrUnknown,
         },
-        FirmwareUpdaterError::Verification(_) => Status::ErrVerify,
+        FirmwareUpdaterError::Signature(_) => Status::ErrVerify,
         FirmwareUpdaterError::BadState => Status::ErrUnknown,
     }
 }

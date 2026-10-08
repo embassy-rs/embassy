@@ -24,8 +24,8 @@ pub struct FirmwareUpdaterConfig<DFU, STATE> {
 pub enum FirmwareUpdaterError {
     /// Error from flash.
     Flash(NorFlashErrorKind),
-    /// Crypto errors.
-    Verification(VerificationError),
+    /// Signature errors.
+    Signature(embassy_crypto::Error),
     /// Bad state.
     BadState,
 }
@@ -35,7 +35,7 @@ impl defmt::Format for FirmwareUpdaterError {
     fn format(&self, fmt: defmt::Formatter) {
         match self {
             FirmwareUpdaterError::Flash(_) => defmt::write!(fmt, "FirmwareUpdaterError::Flash(_)"),
-            FirmwareUpdaterError::Verification(_) => defmt::write!(fmt, "FirmwareUpdaterError::Verification(_)"),
+            FirmwareUpdaterError::Signature(_) => defmt::write!(fmt, "FirmwareUpdaterError::Signature(_)"),
             FirmwareUpdaterError::BadState => defmt::write!(fmt, "FirmwareUpdaterError::BadState"),
         }
     }
@@ -52,6 +52,9 @@ where
 
 impl From<VerificationError> for FirmwareUpdaterError {
     fn from(error: VerificationError) -> Self {
-        FirmwareUpdaterError::Verification(error)
+        match error {
+            VerificationError::Flash(e) => FirmwareUpdaterError::Flash(e),
+            VerificationError::Signature(e) => FirmwareUpdaterError::Signature(e),
+        }
     }
 }
