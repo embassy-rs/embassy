@@ -7,13 +7,13 @@ use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::{panic, *};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
+use embassy_net::{StackStorage, StaticPool};
 use embassy_rp::dma::{self, Channel};
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, rom_data};
-use embassy_time::{Duration, with_timeout};
+use embassy_time::{Duration, Timer, with_timeout};
 use panic_probe as _;
 use static_cell::StaticCell;
 
@@ -118,7 +118,8 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool<1578, 16, 4> = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();
@@ -143,14 +144,23 @@ async fn main(spawner: Spawner) {
         panic!("scan found no networks");
     }
 
-    // Connecting depends on the AP, so failing or hanging here skips perf test
-    let join = control.join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()));
-    let connected = with_timeout(Duration::from_secs(10), join)
-        .await
-        .is_ok_and(|r| r.is_ok())
-        && with_timeout(Duration::from_secs(10), iface.wait_config_up())
+    // Connecting depends on the AP, so retry a few times before skipping perf.
+    let mut connected = false;
+    for attempt in 1..=3 {
+        let join = control.join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()));
+        connected = with_timeout(Duration::from_secs(10), join)
             .await
-            .is_ok();
+            .is_ok_and(|r| r.is_ok())
+            && with_timeout(Duration::from_secs(10), iface.wait_config_up())
+                .await
+                .is_ok();
+        if connected {
+            break;
+        }
+        warn!("connect attempt {}/3 failed, retrying", attempt);
+        control.leave().await;
+        Timer::after_secs(2).await;
+    }
 
     if connected {
         perf_client::run(

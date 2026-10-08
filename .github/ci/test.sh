@@ -41,5 +41,5 @@ cargo test --manifest-path ./embassy-net-adin1110/Cargo.toml --no-default-featur
 cargo test --manifest-path ./embassy-crypto-rustcrypto/Cargo.toml --features all
 cargo test --manifest-path ./embassy-crypto-rand/Cargo.toml
 cargo test --manifest-path ./embassy-usb-dfu/Cargo.toml --features dfu
-cargo test --manifest-path ./embassy-usb-host/Cargo.toml
+cargo test --manifest-path ./embassy-usb/Cargo.toml --features block-device-driver
 cargo test --manifest-path ./embassy-net/Cargo.toml --features tcp,dhcpv4,medium-ethernet,ipv6

@@ -959,6 +959,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     w.set_txdmaen(false);
                 }
                 w.set_tcie(false);
+                w.set_stopie(false);
                 w.set_nackie(false);
                 w.set_errie(false);
             });
@@ -1051,6 +1052,20 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         if last_slice & send_stop {
             self.master_stop();
+            poll_fn(|cx| {
+                self.state.waker.register(cx.waker());
+
+                let regs = self.info.regs;
+                if regs.isr().read().stopf() {
+                    regs.icr().modify(|w| w.set_stopcf(true));
+                    return Poll::Ready(());
+                }
+
+                // The interrupt handler disables STOPIE when it wakes us.
+                regs.cr1().modify(|w| w.set_stopie(true));
+                Poll::Pending
+            })
+            .await;
         }
 
         drop(on_drop);
@@ -1624,15 +1639,14 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     }
 
     fn configure_oa1(&mut self, oa1: Address) {
+        self.info.regs.oar1().write(|reg| reg.set_oa1en(false));
         match oa1 {
             Address::SevenBit(addr) => self.info.regs.oar1().write(|reg| {
-                reg.set_oa1en(false);
                 reg.set_oa1((addr << 1) as u16);
                 reg.set_oa1mode(Addmode::Bit7);
                 reg.set_oa1en(true);
             }),
             Address::TenBit(addr) => self.info.regs.oar1().write(|reg| {
-                reg.set_oa1en(false);
                 reg.set_oa1(addr);
                 reg.set_oa1mode(Addmode::Bit10);
                 reg.set_oa1en(true);
@@ -1641,8 +1655,8 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     }
 
     fn configure_oa2(&mut self, oa2: OA2) {
+        self.info.regs.oar2().write(|reg| reg.set_oa2en(false));
         self.info.regs.oar2().write(|reg| {
-            reg.set_oa2en(false);
             reg.set_oa2msk(oa2.mask.into());
             reg.set_oa2(oa2.addr);
             reg.set_oa2en(true);

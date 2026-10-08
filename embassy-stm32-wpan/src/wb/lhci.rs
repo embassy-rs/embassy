@@ -3,7 +3,7 @@ use core::ptr;
 use crate::wb::cmd::CmdPacket;
 use crate::wb::consts::{TL_EVT_HEADER_SIZE, TlPacketType};
 use crate::wb::evt::{CcEvt, EvtPacket, EvtSerial};
-use crate::wb::tables::{DeviceInfoTable, RssInfoTable, SafeBootInfoTable, TL_DEVICE_INFO_TABLE, WirelessFwInfoTable};
+use crate::wb::tables::{DeviceInfoTable, FusInfoTable, SafeBootInfoTable, TL_DEVICE_INFO_TABLE, WirelessFwInfoTable};
 
 const TL_BLEEVT_CC_OPCODE: u8 = 0x0e;
 const LHCI_OPCODE_C1_DEVICE_INF: u16 = 0xfd62;
@@ -27,7 +27,7 @@ pub struct LhciC1DeviceInformationCcrp {
     pub uid96_2: u32,
 
     pub safe_boot_info_table: SafeBootInfoTable,
-    pub rss_info_table: RssInfoTable,
+    pub fus_info_table: FusInfoTable,
     pub wireless_fw_info_table: WirelessFwInfoTable,
 
     pub app_fw_inf: u32,
@@ -37,7 +37,7 @@ impl Default for LhciC1DeviceInformationCcrp {
     fn default() -> Self {
         let DeviceInfoTable {
             safe_boot_info_table,
-            rss_info_table,
+            fus_info_table,
             wireless_fw_info_table,
         } = unsafe { ptr::read_volatile(TL_DEVICE_INFO_TABLE.as_ptr()) };
 
@@ -72,7 +72,7 @@ impl Default for LhciC1DeviceInformationCcrp {
             uid96_1,
             uid96_2,
             safe_boot_info_table,
-            rss_info_table,
+            fus_info_table,
             wireless_fw_info_table,
             app_fw_inf: (1 << 8), // 0.0.1
         }

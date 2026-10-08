@@ -51,9 +51,25 @@ embedded-gui = { version="0.2.7", default-features = false, features = ["rich-wi
 nalgebra = { version = "0.35", default-features = false, features = ["libm"] }
 
 [features]
-default = ["stub-gpu2d"]
+default = ["stub-gpu2d", "board-dk"]
 stub-gpu2d = ["embassy-stm32-neochrom/stub-gpu2d"]
 
+
+# Selects the board wiring used by `npu_mobilenet` (see the example's header).
+board-dk = []
+board-nucleo = []
+
+# Imports a real ST Edge AI Neural-ART network so `npu_mobilenet` can run true
+# NPU microcode. Requires `STM32N6_GETTINGSTARTED_MODEL_DIR` to point at the
+# `Model/<board>` directory of ST's public GettingStarted-ImageClassification
+# repository; see build.rs. Also pulls in the `embedded-nn` software epochs that
+# finish the network on the CPU (`embassy_stm32::npu::epoch`).
+npu-model = ["embassy-stm32/npu-nn"]
+
+[[bin]]
+name = "npu_mobilenet"
+path = "src/bin/npu_mobilenet.rs"
+required-features = ["npu-model"]
 
 # cargo build/run
 [profile.dev]

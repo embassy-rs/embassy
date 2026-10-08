@@ -5,7 +5,7 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, panic};
+use defmt::{info, panic, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
@@ -13,7 +13,8 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::uid::uid_hex;
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
-use embassy_usb::class::midi::{MidiClass, MidiClassConfig, MidiClassState};
+use embassy_usb::class::midi::device::{MidiClass, MidiClassConfig, MidiClassState};
+use embassy_usb::class::midi::{MidiPacketReader, MidiPacketWriter};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 use panic_probe as _;
@@ -107,10 +108,32 @@ impl From<EndpointError> for Disconnected {
 
 async fn midi_echo<'d, T: Instance + 'd>(class: &mut MidiClass<'d, Driver<'d, T>>) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
-    loop {
+    let mut output = [0; 64];
+    'transfer: loop {
         let n = class.read_packet(&mut buf).await?;
         let data = &buf[..n];
         info!("data: {:x}", data);
-        class.write_packet(data).await?;
+
+        let packets = match MidiPacketReader::new(data) {
+            Ok(packets) => packets,
+            Err(error) => {
+                warn!("invalid MIDI transfer: {:?}", error);
+                continue 'transfer;
+            }
+        };
+
+        let mut writer = MidiPacketWriter::new(&mut output);
+        for packet in packets {
+            let (cable_no, event) = packet.decode();
+            info!("packet: {:x}", packet);
+            info!("cable_no: {:x}", cable_no);
+            info!("event: {:x}", event);
+            if let Err(error) = writer.write(packet) {
+                warn!("MIDI transfer buffer overflow: {:?}", error);
+                continue 'transfer;
+            }
+        }
+
+        class.write_packet(writer.into_buf()).await?;
     }
 }

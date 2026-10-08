@@ -1,9 +1,9 @@
 //! DFU bootloader part of DFU logic
 use embassy_boot::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterError};
-use embassy_usb::class::dfu::consts::{DfuAttributes, Status};
+use embassy_usb::class::dfu::device::consts::{DfuAttributes, Status};
 /// Re-export DfuState from embassy-usb for convenience.
-pub use embassy_usb::class::dfu::dfu_mode::DfuState as UsbDfuState;
-use embassy_usb::class::dfu::dfu_mode::{self, DfuState};
+pub use embassy_usb::class::dfu::device::dfu_mode::DfuState as UsbDfuState;
+use embassy_usb::class::dfu::device::dfu_mode::{self, DfuState};
 use embassy_usb::driver::Driver;
 use embassy_usb::{Builder, FunctionBuilder};
 use embedded_storage::nor_flash::{NorFlash, NorFlashErrorKind};
@@ -12,7 +12,7 @@ use crate::Reset;
 
 /// Internal handler for USB DFU firmware updates.
 ///
-/// This implements the `embassy_usb::class::dfu::dfu_mode::Handler` trait,
+/// This implements the `embassy_usb::class::dfu::device::dfu_mode::Handler` trait,
 /// providing the firmware write logic using `BlockingFirmwareUpdater`.
 pub struct FirmwareHandler<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> {
     updater: BlockingFirmwareUpdater<'d, DFU, STATE>,

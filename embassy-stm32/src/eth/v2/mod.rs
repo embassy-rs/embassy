@@ -521,7 +521,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_rxpbl(1); // 32 ?
             #[cfg(eth_v2a)]
             w.set_rxpbl(32);
-            w.set_rbsz(xarxa_driver::config::PACKET_BUF_SIZE as u16);
         });
 
         let mut this = Self {

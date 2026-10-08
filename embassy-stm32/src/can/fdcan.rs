@@ -249,8 +249,14 @@ impl<'d> CanConfigurator<'d> {
         let bit_timing = unwrap!(util::calc_can_timings(self.properties.kernel_input_clock(), bitrate));
         // Note, used existing calculation for normal(non-VBR) bitrate, appears to work for 250k/1M
         let tdc_offset = if transceiver_delay_compensation {
-            // sets at the end of tseg1
-            (1 + u8::from(bit_timing.seg1)) * u16::from(bit_timing.prescaler) as u8
+            // The secondary sample point sits at the end of tseg1, and TDCO
+            // carries seven bits of minimum time quanta.
+            let offset = (1 + u32::from(u8::from(bit_timing.seg1))) * u32::from(u16::from(bit_timing.prescaler));
+            assert!(
+                offset <= 0x7F,
+                "transceiver delay compensation needs a data bitrate whose sample point fits TDCO"
+            );
+            offset as u8
         } else {
             0
         };
@@ -330,10 +336,9 @@ impl<'d> Can<'d> {
                 s.borrow_mut().tx_mode.register(cx.waker());
             });
 
-            if idx > 3 {
+            if idx >= crate::can::fd::message_ram::TX_FIFO_MAX as usize {
                 panic!("Bad mailbox");
             }
-            let idx = 1 << idx;
             if !self.info.regs.regs.txbrp().read().trp(idx) {
                 return Poll::Ready(());
             }
@@ -917,20 +922,23 @@ impl RxMode {
                 }
             }
             RxMode::FdBuffered(buf) => {
-                T::registers().regs.ir().write(|w| w.set_rfn(fifonr, true));
+                let regs = T::registers();
+                regs.regs.ir().write(|w| w.set_rfn(fifonr, true));
                 loop {
-                    match self.try_read_fd::<T>(ns_per_timer_tick) {
-                        Some(Ok(envelope)) => {
-                            let _ = buf.rx_sender.try_send(Ok(envelope));
-                        }
-                        Some(Err(err)) => {
+                    let mut frame = FdFrame::empty();
+                    let Some(ts) = regs
+                        .read_fd_into(0, &mut frame)
+                        .or_else(|| regs.read_fd_into(1, &mut frame))
+                    else {
+                        if let Some(err) = regs.curr_error() {
                             // bus error states can persist; emit once and return to avoid
                             // spinning forever in interrupt context when no frames are available
                             let _ = buf.rx_sender.try_send(Err(err));
-                            break;
                         }
-                        None => break,
-                    }
+                        break;
+                    };
+                    let ts = regs.calc_timestamp(ns_per_timer_tick, ts);
+                    let _ = buf.rx_sender.try_send(Ok(FdEnvelope { ts, frame }));
                 }
             }
         }
@@ -944,18 +952,6 @@ impl RxMode {
         } else if let Some((frame, ts)) = T::registers().read(1) {
             let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok(Envelope { ts, frame }))
-        } else {
-            T::registers().curr_error().map(Err)
-        }
-    }
-
-    fn try_read_fd<T: Instance>(&self, ns_per_timer_tick: u64) -> Option<Result<FdEnvelope, BusError>> {
-        if let Some((frame, ts)) = T::registers().read(0) {
-            let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok(FdEnvelope { ts, frame }))
-        } else if let Some((frame, ts)) = T::registers().read(1) {
-            let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok(FdEnvelope { ts, frame }))
         } else {
             T::registers().curr_error().map(Err)
         }

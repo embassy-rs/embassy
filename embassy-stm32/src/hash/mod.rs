@@ -1056,7 +1056,12 @@ impl<'d> SealedSuspendablePeripheral for Hash<'d, HASH, Blocking> {
     type InternalState = (Option<u32>, u32);
 
     fn resume(state: Self::InternalState) -> Self {
-        critical_section::with(rcc::enable_and_reset_with_cs_no_refcount::<HASH>);
+        // Re-enable the clock without resetting: the peripheral context is
+        // saved/restored through CSR registers by the driver, and the clock
+        // is never gated on suspend, so a reset here only clobbers live state
+        // (forcing a full CSR restore) and stalls the bus matrix if the core
+        // is mid-digest. Measured: ~90-230k cycles per call on H7.
+        critical_section::with(rcc::enable_with_cs_no_refcount::<HASH>);
 
         Self {
             _peripheral: unsafe { core::mem::transmute(()) },

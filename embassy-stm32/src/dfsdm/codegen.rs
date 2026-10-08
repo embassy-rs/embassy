@@ -68,9 +68,9 @@ pub fn parse(block: &str) -> Option<Shape> {
 /// Channel count -> transceiver capability ident.
 pub fn tcv(ch: u8) -> &'static str {
     match ch {
-        2 => "Tcv2",
-        4 => "Tcv4",
-        8 => "Tcv8",
+        2 => "TcvCnt2",
+        4 => "TcvCnt4",
+        8 => "TcvCnt8",
         _ => unreachable!("invalid DFSDM channel count: {}", ch),
     }
 }
@@ -78,11 +78,11 @@ pub fn tcv(ch: u8) -> &'static str {
 /// Filter count -> filter capability ident.
 pub fn flt(f: u8) -> &'static str {
     match f {
-        1 => "Flt1",
-        2 => "Flt2",
-        4 => "Flt4",
-        6 => "Flt6",
-        8 => "Flt8",
+        1 => "FltCnt1",
+        2 => "FltCnt2",
+        4 => "FltCnt4",
+        6 => "FltCnt6",
+        8 => "FltCnt8",
         _ => unreachable!("invalid DFSDM filter count: {}", f),
     }
 }
@@ -95,6 +95,9 @@ pub const SHAPES: &[(u8, u8)] = &[(2, 1), (4, 2), (4, 4), (8, 4), (8, 6), (8, 8)
 // On 3-bit-JEXTSEL parts the `DFSDM1_JTRGn` channel number is *not* the
 // register value; the valid channels are compressed into 0..7 per filter.
 // Each row is `(filter index, jtrg channel number, jextsel)`.
+//
+// Hand-transcribed and verified against RM0410 Table 110, RM0402 Table 86
+// and RM0430 Table 89.
 pub const DFSDM_TRG3_JEXTSEL: &[(u8, u8, u8)] = &[
     (0, 0, 0),
     (0, 1, 1),
@@ -161,13 +164,22 @@ pub fn gen_instance(inst: &str, block: &str) -> TokenStream {
     };
 
     if shape.dly {
-        ts.extend(quote! { impl crate::dfsdm::capability::HasDelay for crate::peripherals::#inst {} });
+        ts.extend(quote! {
+            impl crate::dfsdm::capability::SealedHasDelay for crate::peripherals::#inst {}
+            impl crate::dfsdm::capability::HasDelay for crate::peripherals::#inst {}
+        });
     }
     if shape.hwid {
-        ts.extend(quote! { impl crate::dfsdm::capability::HasHwid for crate::peripherals::#inst {} });
+        ts.extend(quote! {
+            impl crate::dfsdm::capability::SealedHasHwid for crate::peripherals::#inst {}
+            impl crate::dfsdm::capability::HasHwid for crate::peripherals::#inst {}
+        });
     }
     if shape.adc {
-        ts.extend(quote! { impl crate::dfsdm::capability::AdcInput for crate::peripherals::#inst {} });
+        ts.extend(quote! {
+            impl crate::dfsdm::capability::SealedAdcInput for crate::peripherals::#inst {}
+            impl crate::dfsdm::capability::AdcInput for crate::peripherals::#inst {}
+        });
     }
 
     ts
@@ -187,6 +199,9 @@ pub fn gen_trigger_source(inst: &str, block: &str, source: &Ident, idx: u8) -> T
         // 5-bit JEXTSEL: the signal number *is* the JEXTSEL value, and every
         // source can drive every filter.
         quote! {
+            impl<M: crate::dfsdm::FilterMarker> crate::dfsdm::SealedTriggerSource<crate::peripherals::#inst, M>
+                for crate::triggers::#source {
+            }
             impl<M: crate::dfsdm::FilterMarker> crate::dfsdm::TriggerSource<crate::peripherals::#inst, M>
                 for crate::triggers::#source {
                 fn jextsel(&self) -> u8 { #idx }
@@ -200,6 +215,9 @@ pub fn gen_trigger_source(inst: &str, block: &str, source: &Ident, idx: u8) -> T
             .map(|&(flt, _, jextsel)| {
                 let flt = format_ident!("Flt{}", flt);
                 quote! {
+                    impl crate::dfsdm::SealedTriggerSource<crate::peripherals::#inst, crate::dfsdm::#flt>
+                        for crate::triggers::#source {
+                    }
                     impl crate::dfsdm::TriggerSource<crate::peripherals::#inst, crate::dfsdm::#flt>
                         for crate::triggers::#source {
                         fn jextsel(&self) -> u8 { #jextsel }
@@ -240,6 +258,7 @@ fn gen_split(ch: u8, flt_n: u8) -> TokenStream {
     let name = format_ident!("DfsdmSplit{}Ch{}Flt", ch, flt_count);
     let ready = format_ident!("Flt{}Ready", flt_count);
     let tcv_trait = format_ident!("Tcv{}SplitBuild", ch);
+    let sealed_tcv_trait = format_ident!("SealedTcv{}SplitBuild", ch);
     let tcv_cap = format_ident!("{}", tcv(ch as u8));
     let flt_cap = format_ident!("{}", flt(flt_count as u8));
 
@@ -249,20 +268,78 @@ fn gen_split(ch: u8, flt_n: u8) -> TokenStream {
     let flt_idents: Vec<Ident> = (0..flt_count).map(|i| format_ident!("flt{}", i)).collect();
     let flt_markers: Vec<Ident> = (0..flt_count).map(|i| format_ident!("Flt{}", i)).collect();
 
-    let struct_channels = (0..ch).map(|i| {
-        let c = &ch_idents[i];
-        let t = &tcv_idents[i];
-        let own = &s[i];
-        let neighbor = &s[(i + 1) % ch];
-        let doc = format!("Builder for [`crate::dfsdm::Transceiver`] {}.", i);
-        quote! { #[doc = #doc] pub #c: crate::dfsdm::TransceiverBuilder<T, crate::dfsdm::#t, C, #own, #neighbor>, }
-    });
-    let struct_filters = (0..flt_count).map(|i| {
-        let f = &flt_idents[i];
-        let m = &flt_markers[i];
-        let doc = format!("Builder for [`crate::dfsdm::Filter`] {}.", i);
-        quote! { #[doc = #doc] pub #f: crate::dfsdm::FilterBuilder<T, crate::dfsdm::#m>, }
-    });
+    let builders_name = format_ident!("{}Builders", name);
+    let filters_name = format_ident!("{}Filters", name);
+
+    let struct_channels: Vec<_> = (0..ch)
+        .map(|i| {
+            let c = &ch_idents[i];
+            let t = &tcv_idents[i];
+            let own = &s[i];
+            let neighbor = &s[(i + 1) % ch];
+            let doc = format!("Builder for [`crate::dfsdm::Transceiver`] {}.", i);
+            quote! { #[doc = #doc] pub #c: crate::dfsdm::TransceiverBuilder<T, crate::dfsdm::#t, C, #own, #neighbor>, }
+        })
+        .collect();
+    let struct_filters: Vec<_> = (0..flt_count)
+        .map(|i| {
+            let f = &flt_idents[i];
+            let m = &flt_markers[i];
+            let doc = format!("Builder for [`crate::dfsdm::Filter`] {}.", i);
+            quote! { #[doc = #doc] pub #f: crate::dfsdm::FilterBuilder<T, crate::dfsdm::#m>, }
+        })
+        .collect();
+
+    // The split struct's own fields are private: it can only be consumed through
+    // `build`, so the sweep cannot be skipped.
+    let split_channels: Vec<_> = (0..ch)
+        .map(|i| {
+            let c = &ch_idents[i];
+            let t = &tcv_idents[i];
+            let own = &s[i];
+            let neighbor = &s[(i + 1) % ch];
+            quote! { #c: crate::dfsdm::TransceiverBuilder<T, crate::dfsdm::#t, C, #own, #neighbor>, }
+        })
+        .collect();
+    let split_filters: Vec<_> = (0..flt_count)
+        .map(|i| {
+            let f = &flt_idents[i];
+            let m = &flt_markers[i];
+            quote! { #f: crate::dfsdm::FilterBuilder<T, crate::dfsdm::#m>, }
+        })
+        .collect();
+
+    let builders_struct = quote! {
+        /// One [`crate::dfsdm::TransceiverBuilder`] per transceiver, handed to the
+        /// closure of [`#name::build`]. Build the channels you use; leave the rest,
+        /// and their pins deconfigure at the sweep. `#[non_exhaustive]` so callers
+        /// can consume fields but cannot construct or exhaustively destructure it.
+        #[non_exhaustive]
+        pub struct #builders_name<T, C, #(#s),*>
+        where
+            T: crate::dfsdm::Instance + crate::dfsdm::#ready,
+            C: crate::dfsdm::ClockOutputMode,
+            #(#s: crate::dfsdm::PinSet,)*
+        {
+            #(#struct_channels)*
+        }
+    };
+
+    let filters_struct = quote! {
+        /// The filter builders and detectors left after [`#name::build`] built the
+        /// transceivers. `#[non_exhaustive]`, so callers consume fields but cannot
+        /// construct it.
+        #[non_exhaustive]
+        pub struct #filters_name<T>
+        where
+            T: crate::dfsdm::Instance + crate::dfsdm::#ready,
+        {
+            #(#struct_filters)*
+            /// Builds the instance-level [`crate::dfsdm::ShortCircuitDetector`] and
+            /// [`crate::dfsdm::ClockAbsenceDetector`].
+            pub detectors: crate::dfsdm::DetectorsBuilder<T>,
+        }
+    };
 
     let build_args = (0..ch).map(|i| {
         let c = &ch_idents[i];
@@ -289,22 +366,55 @@ fn gen_split(ch: u8, flt_n: u8) -> TokenStream {
         quote! { #f: crate::dfsdm::FilterBuilder::new(), }
     });
 
+    let build_impl = quote! {
+        impl<T, C, #(#s),*> #name<T, C, #(#s),*>
+        where
+            T: crate::dfsdm::Instance + crate::dfsdm::#ready,
+            C: crate::dfsdm::ClockOutputMode,
+            #(#s: crate::dfsdm::PinSet,)*
+        {
+            /// Builds the transceivers inside `f`, then deconfigures every pin no
+            /// transceiver required.
+            pub fn build<'a, 'd, F, R>(
+                self,
+                common: &'a crate::dfsdm::DfsdmCommon<'d, T, crate::dfsdm::Enabled>,
+                f: F,
+            ) -> (R, #filters_name<T>)
+            where
+                F: FnOnce(#builders_name<T, C, #(#s),*>) -> R,
+            {
+                let Self {
+                    detectors,
+                    #(#ch_idents,)*
+                    #(#flt_idents,)*
+                } = self;
+                let builders = #builders_name { #(#ch_idents,)* };
+                let r = f(builders);
+                common.sweep();
+                (r, #filters_name { #(#flt_idents,)* detectors })
+            }
+        }
+    };
+
     quote! {
-        /// One [`crate::dfsdm::TransceiverBuilder`] per transceiver, one
-        /// [`crate::dfsdm::FilterBuilder`] per filter, and the shared
-        /// [`crate::dfsdm::DetectorsBuilder`].
+        /// Produced by [`crate::dfsdm::Dfsdm::configure_pins`]. Its fields are
+        /// private; consume it through [`#name::build`] so the pin sweep runs.
         pub struct #name<T, C, #(#s),*>
         where
             T: crate::dfsdm::Instance + crate::dfsdm::#ready,
             C: crate::dfsdm::ClockOutputMode,
             #(#s: crate::dfsdm::PinSet,)*
         {
-            /// Builds the instance-level [`crate::dfsdm::ShortCircuitDetector`] and
-            /// [`crate::dfsdm::ClockAbsenceDetector`].
-            pub detectors: crate::dfsdm::DetectorsBuilder<T>,
-            #(#struct_channels)*
-            #(#struct_filters)*
+            detectors: crate::dfsdm::DetectorsBuilder<T>,
+            #(#split_channels)*
+            #(#split_filters)*
         }
+
+        #builders_struct
+
+        #filters_struct
+
+        impl crate::dfsdm::#sealed_tcv_trait for crate::dfsdm::capability::#flt_cap {}
 
         impl<T, C, #(#s),*> crate::dfsdm::#tcv_trait<T, C, #(#s),*> for crate::dfsdm::capability::#flt_cap
         where
@@ -329,6 +439,8 @@ fn gen_split(ch: u8, flt_n: u8) -> TokenStream {
                 }
             }
         }
+
+        #build_impl
     }
 }
 
@@ -409,6 +521,12 @@ fn gen_tuple(ch: u8) -> TokenStream {
     });
 
     quote! {
+        impl<#(#c),*> crate::dfsdm::SealedChannelCfgTuple for (#(#c),*)
+        where
+            #(#c: crate::dfsdm::SealedChannelCfg,)*
+        {
+        }
+
         impl<'d, T, C, #(#c),*> crate::dfsdm::ChannelCfgTuple<'d, T, C> for (#(#c),*)
         where
             T: crate::dfsdm::Instance<Transceivers = crate::dfsdm::capability::#tcv_cap>,

@@ -1,6 +1,5 @@
 //! GPDMA ring buffer implementation.
 //!
-//! FIXME: Add request_pause functionality?
 //! FIXME: Stop the DMA, if a user does not queue new transfers (chain of linked-list items ends automatically).
 use core::future::poll_fn;
 use core::sync::atomic::{Ordering, fence};
@@ -91,6 +90,8 @@ pub struct ReadableRingBuffer<'a, W: Word> {
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new empty ring buffer.
     ///
+    /// You must call [`start`](Self::start) after creating ring buffer for it to work.
+    ///
     /// Transfer options are applied to the individual linked list items.
     /// Half-transfer and transfer-complete IRQs are always enabled (same as BDMA ring
     /// buffers) so async `read_exact` / `write_exact` can wake at half-buffer boundaries.
@@ -136,9 +137,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     ///
-    /// You must call this after creating it for it to work.
-    ///
-    /// It starts the channel and makes it run, even if earlier it was suspended (paused).
+    /// You must call this after creating ring buffer for it to work.
     pub fn start(&mut self) {
         self.channel.request_resume(); // clear SUSP if previously paused
     }
@@ -210,17 +209,12 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         DmaCtrlImpl::new(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// Stop the ring buffer operation.
+    /// To resume the transfer, call [`start`](Self::start).
     ///
-    /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_pause(&mut self) {
+    pub fn stop(&mut self) {
         self.channel.request_pause()
-    }
-
-    /// Request the transfer to resume after having been paused.
-    pub fn request_resume(&mut self) {
-        self.channel.request_resume()
     }
 
     /// Return whether this transfer is still running.
@@ -271,6 +265,8 @@ pub struct WritableRingBuffer<'a, W: Word> {
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer filled with the given buffer data.
     ///
+    /// You must call [`start`](Self::start) after creating ring buffer for it to work.
+    ///
     /// Transfer options are applied to the individual linked list items.
     /// Half-transfer and transfer-complete IRQs are always enabled (same as BDMA ring
     /// buffers) so async `read_exact` / `write_exact` can wake at half-buffer boundaries.
@@ -316,9 +312,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     ///
-    /// You must call this after creating it for it to work.
-    ///
-    /// It starts the channel and makes it run, even if earlier it was suspended (paused).
+    /// You must call this after creating ring buffer for it to work.
     pub fn start(&mut self) {
         self.channel.request_resume(); // clear SUSP if previously paused
     }
@@ -326,12 +320,6 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
         self.ringbuf.reset(&mut DmaCtrlImpl::new(self.channel.reborrow()));
-    }
-
-    /// Write elements directly to the raw buffer.
-    /// This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), RingBufferError> {
-        Ok(self.ringbuf.write_immediate(buf)?)
     }
 
     /// Write elements from the ring buffer
@@ -380,18 +368,12 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         DmaCtrlImpl::new(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request the DMA to suspend.
-    ///
-    /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
+    /// Stop the ring buffer operation.
+    /// To resume the transfer, call [`start`](Self::start).
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_pause(&mut self) {
+    pub fn stop(&mut self) {
         self.channel.request_pause()
-    }
-
-    /// Request the DMA to resume transfers after being suspended.
-    pub fn request_resume(&mut self) {
-        self.channel.request_resume()
     }
 
     /// Return whether DMA is still running.

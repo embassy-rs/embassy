@@ -55,7 +55,7 @@ x25519-dalek = { version = "2", default-features = false, features = ["static_se
 ed25519-dalek = { version = "2", default-features = false, features = ["zeroize"], optional = true }
 
 [dev-dependencies]
-embassy-crypto-test = { version = "0.1.0", path = "../embassy-crypto-test" }
+embassy-crypto-test = { version = "0.1.0", path = "../embassy-crypto-test", features = [ "rng" ] }
 
 [features]
 ## Register every driver this crate can provide.

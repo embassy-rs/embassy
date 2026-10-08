@@ -42,8 +42,7 @@ pub(crate) fn init_gatt_layer() -> Result<(), BleError> {
         if status == BLE_STATUS_SUCCESS {
             Ok(())
         } else {
-            #[cfg(feature = "defmt")]
-            defmt::error!("aci_gatt_init failed: 0x{:02X}", status);
+            error!("aci_gatt_init failed: 0x{:02X}", status);
             Err(BleError::CommandFailed(hci::types::Status::from_u8(status)))
         }
     }

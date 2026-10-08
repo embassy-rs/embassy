@@ -12,15 +12,15 @@ stm32c071rb = ["embassy-stm32/stm32c071rb", "not-stop", "cm0", "not-gpdma", "adc
 stm32f100rd = ["embassy-stm32/stm32f100rd", "not-stop", "spi-v1", "not-gpdma", "afio", "afio-value-line", "adc"]
 stm32f103c8 = ["embassy-stm32/stm32f103c8", "not-stop", "spi-v1", "not-gpdma", "afio", "adc"]
 stm32f107vc = ["embassy-stm32/stm32f107vc", "not-stop", "spi-v1", "not-gpdma", "afio", "afio-connectivity-line", "adc"]
-stm32f207zg = ["embassy-stm32/stm32f207zg", "not-stop", "spi-v1", "chrono", "not-gpdma", "eth", "rng", "xarxa-driver/packet-buf-count-4", "xarxa/tcp-socket-count-2", "xarxa/udp-socket-count-2", "adc"]
+stm32f207zg = ["embassy-stm32/stm32f207zg", "not-stop", "spi-v1", "chrono", "not-gpdma", "eth", "rng", "xarxa/tcp-socket-count-2", "xarxa/udp-socket-count-2", "adc"]
 stm32f303ze = ["embassy-stm32/stm32f303ze", "not-stop", "chrono", "not-gpdma", "adc"]
 stm32f429zi = ["embassy-stm32/stm32f429zi", "fake-stop", "spi-v1", "chrono", "eth", "can", "not-gpdma", "dac", "rng", "i2s_f4", "adc"]
-stm32f446re = ["embassy-stm32/stm32f446re", "fake-stop", "spi-v1", "chrono", "can", "not-gpdma", "dac", "sdmmc", "adc"]
+stm32f446re = ["embassy-stm32/stm32f446re", "fake-stop", "spi-v1", "chrono", "can", "not-gpdma", "dac", "sdmmc", "adc", "pwm"]
 stm32f767zi = ["embassy-stm32/stm32f767zi", "not-stop", "chrono", "not-gpdma", "eth", "rng", "single-bank", "adc"]
 stm32g071rb = ["embassy-stm32/stm32g071rb", "not-stop", "cm0", "not-gpdma", "dac", "ucpd", "adc"]
 stm32g491re = ["embassy-stm32/stm32g491re", "fake-stop", "chrono", "not-gpdma", "rng", "fdcan", "cordic", "adc"]
-stm32h563zi = ["embassy-stm32/stm32h563zi", "stop", "spi-v345", "chrono", "eth", "rng", "fdcan", "hash-v34", "cordic", "adc"]
-stm32h753zi = ["embassy-stm32/stm32h753zi", "not-stop", "spi-v345", "chrono", "not-gpdma", "eth", "rng", "fdcan", "hash", "cryp", "adc"]
+stm32h563zi = ["embassy-stm32/stm32h563zi", "stop", "spi-v345", "chrono", "eth", "tls-sw", "rng", "fdcan", "hash-v34", "cordic", "adc"]
+stm32h753zi = ["embassy-stm32/stm32h753zi", "not-stop", "spi-v345", "chrono", "not-gpdma", "eth", "tls-hw", "rng", "fdcan", "hash", "cryp", "adc"]
 stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "not-stop", "spi-v345", "chrono", "not-gpdma", "eth", "dac", "rng", "fdcan", "hash", "cryp", "adc"]
 stm32h7a3zi = ["embassy-stm32/stm32h7a3zi", "not-stop", "spi-v345", "not-gpdma", "rng", "fdcan", "adc"]
 stm32l073rz = ["embassy-stm32/stm32l073rz", "not-stop", "cm0", "not-gpdma", "rng", "eeprom", "adc"]
@@ -70,7 +70,8 @@ saes = []
 saes-full = ["saes"]
 hash = ["embassy-stm32/embassy-crypto-sha1", "embassy-stm32/embassy-crypto-sha256", "embassy-stm32/embassy-crypto-hmac-sha256"]
 hash-v34 = ["hash"]
-# The RNG driver is not enabled: `embassy-crypto-test` registers its own.
+# The RNG driver comes from the `rng` feature below; `embassy-crypto-test`
+# does not register its TestRng for this package.
 pka = [
     "embassy-stm32/embassy-crypto-p256-arith",
     "embassy-stm32/embassy-crypto-p256-ecdh",
@@ -80,7 +81,17 @@ pka = [
     "embassy-stm32/embassy-crypto-p384-ecdsa",
 ]
 eth = []
-rng = []
+# TLS on the h563 (no AES/CRYP/SAES peripheral): SHA-1/SHA-256/HMAC-SHA-256 and
+# the RNG are hardware (HASH/RNG peripherals, `hash-v34` chip feature); AES-128-GCM
+# and P-256/P-384 come from mcu-crypto-asm.
+tls = ["eth", "perf-client/tls", "rng", "dep:embedded-tls"]
+# AES-128-GCM from mcu-crypto-asm software/asm (chips without a crypto peripheral).
+tls-sw = ["tls", "dep:mcu-crypto-asm", "dep:mcu-crypto-sw-aes"]
+# AES-128-GCM from the CRYP peripheral (e.g. h753zi/h755zi).
+tls-hw = ["tls", "dep:mcu-crypto-asm", "aes"]
+# tls_bench: use a 16 KB TCP TX ring instead of 4 KB.
+tx-ring-16k = []
+rng = ["embassy-stm32/embassy-crypto-rng"]
 sdmmc = []
 fake-stop = ["stop", "embassy-stm32/low-power-debug-with-sleep"]
 stop = ["embassy-stm32/low-power", "embassy-stm32/executor-thread"]
@@ -88,6 +99,7 @@ not-stop = ["embassy-executor/platform-cortex-m", "embassy-executor/executor-thr
 chrono = ["embassy-stm32/chrono", "dep:chrono"]
 can = []
 fdcan = []
+pwm = []
 ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wb-ble", "embassy-stm32-wpan/wb-hci", "dep:stm32wb-hci"]
 mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wb-mac"]
 embassy-stm32-wpan = []
@@ -121,8 +133,14 @@ embassy-crypto-test = { version = "0.1.0", path = "../../embassy-crypto-test", f
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt"] }
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "af7342391a78692312cff94a826e9ea52dfea72f", default-features = false }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "af7342391a78692312cff94a826e9ea52dfea72f" }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "93228f1ec64720122016be52be4671e413fa92a9", default-features = false }
+mcu-crypto-asm = { git = "https://github.com/kokroo/mcu-crypto-asm", rev = "20201d1aa07d525553c73a1280165813ada2b2e4", features = ["embassy-crypto-p256-arith", "embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa", "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa"], optional = true }
+# Same crate, software AES-128-GCM only; a separate instance (via a shim
+# crate, since Cargo forbids two names for one package) so chips without a
+# crypto peripheral can take AES-GCM from software without duplicate driver
+# registration clashing with a hardware driver.
+mcu-crypto-sw-aes = { path = "../mcu-crypto-sw-aes", optional = true }
+embedded-tls = { version = "0.19", default-features = false, features = ["defmt"], optional = true }
 
 defmt = "1.1.1"
 defmt-rtt = "1.3.0"
@@ -155,13 +173,18 @@ aes-gcm = { version = "0.11.0", default-features = false, features = ["aes"] }
 num-traits = { version="0.2", default-features = false,features = ["libm"], optional = true}
 heapless = "0.9.3"
 
+[patch.crates-io]
+embedded-tls = { git = "https://github.com/embassy-rs/embedded-tls" }
+
+[patch."https://github.com/embassy-rs/embassy"]
+embassy-crypto = { path = "../../embassy-crypto" }
+
 # BEGIN TESTS
 # Generated by gen_test.py. DO NOT EDIT.
 [[bin]]
 name = "adc"
 path = "src/bin/adc.rs"
 required-features = [ "adc",]
-
 
 [[bin]]
 name = "afio"
@@ -259,6 +282,11 @@ path = "src/bin/i2s_dma.rs"
 required-features = [ "i2s_f4",]
 
 [[bin]]
+name = "pwm_ringbuffered"
+path = "src/bin/pwm_ringbuffered.rs"
+required-features = [ "pwm",]
+
+[[bin]]
 name = "rng"
 path = "src/bin/rng.rs"
 required-features = [ "rng",]
@@ -297,6 +325,11 @@ required-features = [ "stop", "chrono",]
 name = "timer"
 path = "src/bin/timer.rs"
 required-features = []
+
+[[bin]]
+name = "tls"
+path = "src/bin/tls.rs"
+required-features = [ "eth", "tls",]
 
 [[bin]]
 name = "ucpd"

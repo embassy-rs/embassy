@@ -5,7 +5,7 @@ mod fmt;
 
 /// Re-export DFU constants from embassy-usb.
 pub mod consts {
-    pub use embassy_usb::class::dfu::consts::*;
+    pub use embassy_usb::class::dfu::device::consts::*;
 }
 
 #[cfg(feature = "dfu")]
