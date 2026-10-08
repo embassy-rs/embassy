@@ -551,7 +551,8 @@ impl<'d> UdpSocket<'d> {
 
     /// Send an owned UDP payload, adding the UDP, IP, and link headers.
     ///
-    /// The buffer contains only the payload, without a UDP header.
+    /// The buffer contains only the payload, without a UDP header. Use
+    /// [`try_alloc`](Self::try_alloc) to allocate a buffer with suitable headroom.
     /// `remote` selects addresses and replaces the buffer's packet metadata,
     /// as in [`send_to_with`](Self::send_to_with).
     ///
@@ -807,6 +808,17 @@ impl<'d> UdpSocket<'d> {
     /// [RFC 1122 § 3.2.1.7]: https://tools.ietf.org/html/rfc1122#section-3.2.1.7
     pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) -> Result<(), InvalidHopLimit> {
         self.with(|s| (s.set_hop_limit(hop_limit), NoWake))
+    }
+
+    /// Allocate an empty UDP payload buffer with headroom for the headers.
+    ///
+    /// Set the payload length with [`PacketBuf::set_len`] before writing.
+    ///
+    /// # Errors
+    /// - `WouldBlock`: if every packet buffer is in use.
+    /// - `Other(InvalidState)`: if the socket is not bound.
+    pub fn try_alloc(&self) -> Result<PacketBuf, TryError<SendError>> {
+        self.with(|s| (s.alloc().map_err(Into::into), NoWake))
     }
 }
 

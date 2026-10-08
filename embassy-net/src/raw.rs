@@ -420,7 +420,8 @@ impl<'d> RawSocket<'d> {
     /// Send an owned packet, preserving its packet metadata.
     ///
     /// The buffer contains a complete Ethernet frame or IP packet, according to
-    /// the socket's mode, as in [`send_with`](Self::send_with).
+    /// the socket's mode, as in [`send_with`](Self::send_with). Use
+    /// [`try_alloc`](Self::try_alloc) to allocate a buffer with suitable headroom.
     ///
     /// Errors also return the buffer unchanged.
     ///
@@ -572,6 +573,18 @@ impl<'d> RawSocket<'d> {
             s.close();
             ((), wake_if(freed))
         })
+    }
+
+    /// Allocate an empty packet buffer with headroom for this socket.
+    ///
+    /// Set the payload length with [`PacketBuf::set_len`] before writing.
+    ///
+    /// # Errors
+    /// - `WouldBlock`: if every packet buffer is in use.
+    /// - `Other(InvalidState)`: if the socket is not bound.
+    /// - `Other(Unaddressable)`: if Ethernet mode has no interface to send on.
+    pub fn try_alloc(&self) -> Result<PacketBuf, TryError<SendError>> {
+        self.with(|s| (s.alloc().map_err(Into::into), NoWake))
     }
 }
 
