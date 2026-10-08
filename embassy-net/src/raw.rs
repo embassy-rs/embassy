@@ -541,19 +541,26 @@ impl<'d> RawSocket<'d> {
         max_size: usize,
         f: impl FnOnce(&mut [u8]) -> (usize, R),
     ) -> Result<R, SendError> {
-        let mut f = Some(f);
-        poll_fn(move |cx| {
-            self.poll_send(cx, |s| {
-                let mut ret = None;
-                s.send_with(max_size, |buf| {
-                    let (size, r) = unwrap!(f.take())(buf);
-                    ret = Some(r);
-                    size
-                })
-                .map(|()| unwrap!(ret))
-            })
+        let mut buf = poll_fn(|cx| match self.try_alloc() {
+            Ok(buf) => Poll::Ready(Ok(buf)),
+            Err(TryError::WouldBlock) => {
+                // Yield to let other tasks release buffers.
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            Err(TryError::Other(err)) => Poll::Ready(Err(err)),
         })
-        .await
+        .await?;
+        if max_size > buf.tailroom() {
+            return Err(SendError::BufferFull);
+        }
+        buf.set_len(max_size);
+        let (size, ret) = f(&mut buf);
+        assert!(size <= max_size);
+        buf.set_len(size);
+
+        self.send_packet(buf).await.map_err(|(err, _)| err)?;
+        Ok(ret)
     }
 
     /// Check whether the socket is open (bound to a mode).
