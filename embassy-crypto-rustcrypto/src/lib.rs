@@ -47,8 +47,6 @@ mod ccm;
     feature = "embassy-crypto-p384-arith",
     feature = "embassy-crypto-p384-ecdh",
     feature = "embassy-crypto-p384-ecdsa",
-    feature = "embassy-crypto-p256-decompress",
-    feature = "embassy-crypto-p384-decompress",
 ))]
 mod ec;
 

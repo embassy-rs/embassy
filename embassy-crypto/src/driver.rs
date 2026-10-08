@@ -1274,6 +1274,14 @@ unitrait::unitrait! {
         /// The affine coordinates of `p`, or `None` for the identity.
         fn point_to_affine(p: &Self::Point) -> Option<P256Point>;
 
+        /// The point with X coordinate `x` whose Y coordinate is odd iff
+        /// `y_is_odd`, as in a compressed SEC1 encoding.
+        ///
+        /// `x` is public and untrusted, so this may be variable-time. Returns
+        /// `None` if `x` is not less than the field prime, or not the X
+        /// coordinate of a point on the curve.
+        fn point_decompress(x: &[u8; 32], y_is_odd: bool) -> Option<P256Point>;
+
         /// Whether `p` is the identity.
         fn point_is_identity(p: &Self::Point) -> bool;
 
@@ -1336,33 +1344,6 @@ unitrait::unitrait! {
 
     /// Register the global [`P256Ecdh`] implementation.
     macro p256_ecdh_impl(path = $crate::driver);
-}
-
-unitrait::unitrait! {
-    /// P-256 (secp256r1) point decompression driver, for compressed SEC1
-    /// encodings (`0x02 || x` or `0x03 || x`).
-    ///
-    /// Compression needs no driver: it only reads the parity of `y`.
-    ///
-    /// ## Contract
-    ///
-    /// - Only public data is handled, so this may be variable-time.
-    #[symbol_prefix = "_embassy_crypto_p256_decompress"]
-    pub trait P256Decompress {
-        /// The point with X coordinate `x` whose Y coordinate is odd iff
-        /// `y_is_odd`.
-        ///
-        /// `x` is untrusted: if it is not less than the field prime, or not the
-        /// X coordinate of a point on the curve, this returns
-        /// [`Error::InvalidKey`].
-        fn decompress(x: &[u8; 32], y_is_odd: bool) -> Result<P256Point, Error>;
-    }
-
-    /// The global [`P256Decompress`] implementation.
-    pub(crate) struct P256DecompressImpl;
-
-    /// Register the global [`P256Decompress`] implementation.
-    macro p256_decompress_impl(path = $crate::driver);
 }
 
 unitrait::unitrait! {
@@ -1491,6 +1472,14 @@ unitrait::unitrait! {
         /// The affine coordinates of `p`, or `None` for the identity.
         fn point_to_affine(p: &Self::Point) -> Option<P384Point>;
 
+        /// The point with X coordinate `x` whose Y coordinate is odd iff
+        /// `y_is_odd`, as in a compressed SEC1 encoding.
+        ///
+        /// `x` is public and untrusted, so this may be variable-time. Returns
+        /// `None` if `x` is not less than the field prime, or not the X
+        /// coordinate of a point on the curve.
+        fn point_decompress(x: &[u8; 48], y_is_odd: bool) -> Option<P384Point>;
+
         /// Whether `p` is the identity.
         fn point_is_identity(p: &Self::Point) -> bool;
 
@@ -1553,33 +1542,6 @@ unitrait::unitrait! {
 
     /// Register the global [`P384Ecdh`] implementation.
     macro p384_ecdh_impl(path = $crate::driver);
-}
-
-unitrait::unitrait! {
-    /// P-384 (secp384r1) point decompression driver, for compressed SEC1
-    /// encodings (`0x02 || x` or `0x03 || x`).
-    ///
-    /// Compression needs no driver: it only reads the parity of `y`.
-    ///
-    /// ## Contract
-    ///
-    /// - Only public data is handled, so this may be variable-time.
-    #[symbol_prefix = "_embassy_crypto_p384_decompress"]
-    pub trait P384Decompress {
-        /// The point with X coordinate `x` whose Y coordinate is odd iff
-        /// `y_is_odd`.
-        ///
-        /// `x` is untrusted: if it is not less than the field prime, or not the
-        /// X coordinate of a point on the curve, this returns
-        /// [`Error::InvalidKey`].
-        fn decompress(x: &[u8; 48], y_is_odd: bool) -> Result<P384Point, Error>;
-    }
-
-    /// The global [`P384Decompress`] implementation.
-    pub(crate) struct P384DecompressImpl;
-
-    /// Register the global [`P384Decompress`] implementation.
-    macro p384_decompress_impl(path = $crate::driver);
 }
 
 unitrait::unitrait! {

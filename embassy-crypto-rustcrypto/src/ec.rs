@@ -5,7 +5,6 @@ macro_rules! curve_drivers {
         arith = ($arith_feature:literal, $arith_trait:ident, $arith_register:ident),
         ecdh = ($ecdh_feature:literal, $ecdh_trait:ident, $ecdh_register:ident),
         ecdsa = ($ecdsa_feature:literal, $ecdsa_trait:ident, $ecdsa_register:ident),
-        decompress = ($decompress_feature:literal, $decompress_trait:ident, $decompress_register:ident),
     ) => {
         mod $curve {
             #![allow(dead_code)]
@@ -57,8 +56,10 @@ macro_rules! curve_drivers {
             mod arith {
                 use elliptic_curve::group::Group;
                 use elliptic_curve::ops::LinearCombination;
+                use elliptic_curve::point::{AffineCoordinates, DecompressPoint};
+                use elliptic_curve::subtle::Choice;
                 use embassy_crypto::driver::{$dpoint, $dscalar};
-                use $curve::{ProjectivePoint, Scalar};
+                use $curve::{AffinePoint, FieldBytes, ProjectivePoint, Scalar};
 
                 use super::{point, point_bytes, scalar, scalar_bytes};
 
@@ -106,6 +107,17 @@ macro_rules! curve_drivers {
 
                     fn point_to_affine(p: &ProjectivePoint) -> Option<$dpoint> {
                         point_bytes(p)
+                    }
+
+                    fn point_decompress(x: &[u8; $n], y_is_odd: bool) -> Option<$dpoint> {
+                        let p = Option::<AffinePoint>::from(AffinePoint::decompress(
+                            &FieldBytes::from(*x),
+                            Choice::from(y_is_odd as u8),
+                        ))?;
+                        Some($dpoint {
+                            x: p.x().into(),
+                            y: p.y().into(),
+                        })
                     }
 
                     fn point_is_identity(p: &ProjectivePoint) -> bool {
@@ -239,33 +251,6 @@ macro_rules! curve_drivers {
 
                 embassy_crypto::$ecdsa_register!(Driver);
             }
-
-            #[cfg(feature = $decompress_feature)]
-            mod decompress {
-                use elliptic_curve::point::{AffineCoordinates, DecompressPoint};
-                use elliptic_curve::subtle::Choice;
-                use embassy_crypto::Error;
-                use embassy_crypto::driver::$dpoint;
-                use $curve::{AffinePoint, FieldBytes};
-
-                struct Driver;
-
-                impl embassy_crypto::driver::$decompress_trait for Driver {
-                    fn decompress(x: &[u8; $n], y_is_odd: bool) -> Result<$dpoint, Error> {
-                        let p = Option::<AffinePoint>::from(AffinePoint::decompress(
-                            &FieldBytes::from(*x),
-                            Choice::from(y_is_odd as u8),
-                        ))
-                        .ok_or(Error::InvalidKey)?;
-                        Ok($dpoint {
-                            x: p.x().into(),
-                            y: p.y().into(),
-                        })
-                    }
-                }
-
-                embassy_crypto::$decompress_register!(Driver);
-            }
         }
     };
 }
@@ -273,8 +258,7 @@ macro_rules! curve_drivers {
 #[cfg(any(
     feature = "embassy-crypto-p256-arith",
     feature = "embassy-crypto-p256-ecdh",
-    feature = "embassy-crypto-p256-ecdsa",
-    feature = "embassy-crypto-p256-decompress"
+    feature = "embassy-crypto-p256-ecdsa"
 ))]
 curve_drivers!(
     p256,
@@ -286,14 +270,12 @@ curve_drivers!(
     arith = ("embassy-crypto-p256-arith", P256Arith, p256_arith_impl),
     ecdh = ("embassy-crypto-p256-ecdh", P256Ecdh, p256_ecdh_impl),
     ecdsa = ("embassy-crypto-p256-ecdsa", P256Ecdsa, p256_ecdsa_impl),
-    decompress = ("embassy-crypto-p256-decompress", P256Decompress, p256_decompress_impl),
 );
 
 #[cfg(any(
     feature = "embassy-crypto-p384-arith",
     feature = "embassy-crypto-p384-ecdh",
-    feature = "embassy-crypto-p384-ecdsa",
-    feature = "embassy-crypto-p384-decompress"
+    feature = "embassy-crypto-p384-ecdsa"
 ))]
 curve_drivers!(
     p384,
@@ -305,5 +287,4 @@ curve_drivers!(
     arith = ("embassy-crypto-p384-arith", P384Arith, p384_arith_impl),
     ecdh = ("embassy-crypto-p384-ecdh", P384Ecdh, p384_ecdh_impl),
     ecdsa = ("embassy-crypto-p384-ecdsa", P384Ecdsa, p384_ecdsa_impl),
-    decompress = ("embassy-crypto-p384-decompress", P384Decompress, p384_decompress_impl),
 );

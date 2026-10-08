@@ -17,7 +17,6 @@ macro_rules! curve_api {
         arith_point = $apoint:ident,
         ecdh = $ecdh:ident,
         ecdsa = $ecdsa:ident,
-        decompress = $decompress:ident,
     ) => {
         use crate::driver::{self, RngImpl, $dpoint, $dscalar, $dsig};
         use crate::{Error, ct};
@@ -49,7 +48,7 @@ macro_rules! curve_api {
             };
             let mut x = [0u8; $n];
             x.copy_from_slice(&bytes[1..]);
-            driver::$decompress::decompress(&x, y_is_odd)
+            driver::$arith::point_decompress(&x, y_is_odd).ok_or(Error::InvalidKey)
         }
 
         fn compress(p: &$dpoint) -> [u8; $n + 1] {
@@ -189,7 +188,7 @@ macro_rules! curve_api {
             /// Parse a compressed SEC1 encoding (`0x02 || x` or `0x03 || x`),
             /// checking that the point is on the curve.
             pub fn from_sec1_compressed(bytes: &[u8; $n + 1]) -> Result<Self, Error> {
-                Self::from_affine(&decompress(bytes)?)
+                decompress(bytes).map(|p| Self(driver::$arith::point_from_affine_unchecked(&p)))
             }
 
             /// Import an affine point, checking that it is on the curve.

@@ -68,8 +68,8 @@ all = [
     "embassy-crypto-aes128-gcm", "embassy-crypto-aes128-ccm", "embassy-crypto-aes128-cmac",
     "embassy-crypto-aes256-ecb", "embassy-crypto-aes256-cbc", "embassy-crypto-aes256-ctr",
     "embassy-crypto-aes256-gcm", "embassy-crypto-aes256-ccm", "embassy-crypto-aes256-cmac",
-    "embassy-crypto-p256-arith", "embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa", "embassy-crypto-p256-decompress",
-    "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa", "embassy-crypto-p384-decompress",
+    "embassy-crypto-p256-arith", "embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa",
+    "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa",
     "embassy-crypto-chacha8", "embassy-crypto-chacha12", "embassy-crypto-chacha20",
     "embassy-crypto-chacha8-poly1305", "embassy-crypto-chacha12-poly1305", "embassy-crypto-chacha20-poly1305",
     "embassy-crypto-x25519", "embassy-crypto-ed25519",
@@ -113,10 +113,8 @@ embassy-crypto-chacha20-poly1305 = ["dep:chacha20poly1305", "dep:aead"]
 embassy-crypto-p256-arith = ["dep:p256", "dep:elliptic-curve"]
 embassy-crypto-p256-ecdh = ["dep:p256", "dep:elliptic-curve"]
 embassy-crypto-p256-ecdsa = ["dep:p256", "dep:elliptic-curve", "dep:ecdsa"]
-embassy-crypto-p256-decompress = ["dep:p256", "dep:elliptic-curve"]
 embassy-crypto-p384-arith = ["dep:p384", "dep:elliptic-curve"]
 embassy-crypto-p384-ecdh = ["dep:p384", "dep:elliptic-curve"]
 embassy-crypto-p384-ecdsa = ["dep:p384", "dep:elliptic-curve", "dep:ecdsa"]
-embassy-crypto-p384-decompress = ["dep:p384", "dep:elliptic-curve"]
 embassy-crypto-x25519 = ["dep:x25519-dalek"]
 embassy-crypto-ed25519 = ["dep:ed25519-dalek"]

@@ -6,7 +6,7 @@
 //! - [`SecretKey`], [`PublicKey`] and [`SharedSecret`]: ECDH, via [`driver::P384Ecdh`].
 //! - [`SigningKey`], [`VerifyingKey`] and [`Signature`]: ECDSA over SHA-384
 //!   digests, via [`driver::P384Ecdsa`].
-//! - Compressed SEC1 encodings are decoded via [`driver::P384Decompress`].
+//! - Compressed SEC1 encodings are decoded via [`driver::P384Arith`].
 //!
 //! See [`p256`](crate::p256) for an example; the API is identical.
 
@@ -34,5 +34,4 @@ crate::ec::curve_api! {
     arith_point = P384ArithImplPoint,
     ecdh = P384EcdhImpl,
     ecdsa = P384EcdsaImpl,
-    decompress = P384DecompressImpl,
 }
