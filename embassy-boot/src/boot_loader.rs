@@ -7,7 +7,7 @@ use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
 use crate::verification::blocking::verify;
 use crate::verification::{Digest, VerificationError, VerifyingKey};
-use crate::{AlignedBuffer, DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC, State};
+use crate::{DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC, State};
 
 /// Errors returned by bootloader
 #[derive(PartialEq, Eq, Debug)]
@@ -176,13 +176,14 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     /// Call this before [`Self::prepare_boot`] on every boot; successful
     /// verification is not recorded separately from swap progress.
     ///
-    /// `aligned_buf` must satisfy [`Self::read_state`]'s buffer requirements and
+    /// `aligned_buf` and `signature_buf` must satisfy [`Self::read_state`]'s buffer requirements and
     /// the [hashing requirements](crate::BlockingFirmwareUpdater::hash).
-    /// The 64-byte signature at `signature_offset` must be readable from DFU.
+    /// The signature at `signature_offset` must be readable from DFU.
     pub fn verify_update<D: Digest, V: VerifyingKey>(
         &mut self,
         aligned_buf: &mut [u8],
-        public_key: &[u8; 32],
+        signature_buf: &mut [u8],
+        public_key: &[u8],
         update_len: u32,
         signature_offset: u32,
     ) -> Result<State, BootError> {
@@ -190,9 +191,8 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         if state != State::Swap || self.current_progress(aligned_buf)? != 0 {
             return Ok(state);
         }
-        let mut signature = AlignedBuffer([0; 64]);
-        self.dfu.read(signature_offset, signature.as_mut())?;
-        match verify::<_, D, V>(&mut self.dfu, public_key, &signature.0, update_len, aligned_buf) {
+        self.dfu.read(signature_offset, signature_buf)?;
+        match verify::<_, D, V>(&mut self.dfu, public_key, signature_buf, update_len, aligned_buf) {
             Ok(()) => Ok(State::Swap),
             Err(VerificationError::Flash(error)) => Err(BootError::Flash(error)),
             Err(VerificationError::Signature(_)) => {
@@ -510,6 +510,7 @@ mod verification_tests {
     use embassy_crypto_rustcrypto as _;
 
     use super::*;
+    use crate::AlignedBuffer;
     use crate::mem_flash::MemFlash;
 
     type Loader = BootLoader<MemFlash<96, 16, 4>, MemFlash<112, 16, 4, 4>, MemFlash<128, 128, 4>>;
@@ -537,20 +538,21 @@ mod verification_tests {
         let (mut boot, key) = pending();
         boot.dfu.mem[32..96].fill(0);
         let staged = boot.dfu.mem;
-        let mut buf = [0; 4];
+        let mut cbuf = AlignedBuffer([0; 4]);
+        let mut sbuf = AlignedBuffer([0; 64]);
         assert_eq!(
-            boot.verify_update::<Sha512, VerifyingKey>(&mut buf, &key, 32, 32),
+            boot.verify_update::<Sha512, VerifyingKey>(cbuf.as_mut(), sbuf.as_mut(), &key, 32, 32),
             Ok(State::Revert)
         );
         assert_eq!(boot.active.mem, [0x55; 96]);
         assert_eq!(boot.dfu.mem, staged);
-        assert_eq!(boot.read_state(&mut buf), Ok(State::Revert));
+        assert_eq!(boot.read_state(cbuf.as_mut()), Ok(State::Revert));
         boot.dfu.pending_read_successes = Some(0);
         assert_eq!(
-            boot.verify_update::<Sha512, VerifyingKey>(&mut buf, &key, 32, 32),
+            boot.verify_update::<Sha512, VerifyingKey>(cbuf.as_mut(), sbuf.as_mut(), &key, 32, 32),
             Ok(State::Revert)
         );
-        assert_eq!(boot.prepare_boot(&mut buf), Ok(State::Revert));
+        assert_eq!(boot.prepare_boot(cbuf.as_mut()), Ok(State::Revert));
         assert_eq!(boot.active.mem, [0x55; 96]);
     }
 
@@ -560,29 +562,32 @@ mod verification_tests {
         for reads in [0, 1] {
             let (mut boot, key) = pending();
             let staged = boot.dfu.mem;
-            let mut buf = [0; 4];
+            let mut cbuf = AlignedBuffer([0; 4]);
+            let mut sbuf = AlignedBuffer([0; 64]);
             boot.dfu.pending_read_successes = Some(reads);
             assert_eq!(
-                boot.verify_update::<Sha512, VerifyingKey>(&mut buf, &key, 32, 32),
+                boot.verify_update::<Sha512, VerifyingKey>(cbuf.as_mut(), sbuf.as_mut(), &key, 32, 32),
                 Err(BootError::Flash(NorFlashErrorKind::Other))
             );
-            assert_eq!(boot.read_state(&mut buf), Ok(State::Swap));
+            assert_eq!(boot.read_state(cbuf.as_mut()), Ok(State::Swap));
             assert_eq!(boot.active.mem, [0x55; 96]);
             assert_eq!(boot.dfu.mem, staged);
         }
         let (mut boot, key) = pending();
         boot.dfu.mem[32..96].fill(0);
-        let mut buf = [0; 4];
+
+        let mut cbuf = AlignedBuffer([0; 4]);
+        let mut sbuf = AlignedBuffer([0; 64]);
         // Reset after erasing the state but before recording Revert.
         boot.state.pending_write_successes = Some(0);
         assert!(
-            boot.verify_update::<Sha512, VerifyingKey>(&mut buf, &key, 32, 32)
+            boot.verify_update::<Sha512, VerifyingKey>(cbuf.as_mut(), sbuf.as_mut(), &key, 32, 32)
                 .is_err()
         );
         boot.state.pending_write_successes = None;
         boot.dfu.pending_read_successes = Some(0);
         assert_eq!(
-            boot.verify_update::<Sha512, VerifyingKey>(&mut buf, &key, 32, 32),
+            boot.verify_update::<Sha512, VerifyingKey>(cbuf.as_mut(), sbuf.as_mut(), &key, 32, 32),
             Ok(State::Boot)
         );
         assert_eq!(boot.active.mem, [0x55; 96]);
@@ -600,46 +605,47 @@ mod verification_tests {
                     1 => boot.dfu.pending_write_successes = Some(writes),
                     _ => boot.state.pending_write_successes = Some(writes),
                 }
-                let mut buf = [0; 4];
+                let mut cbuf = AlignedBuffer([0; 4]);
+                let mut sbuf = AlignedBuffer([0; 64]);
                 assert_eq!(
-                    boot.verify_update::<Sha512, VerifyingKey>(&mut buf, &key, 32, 32),
+                    boot.verify_update::<Sha512, VerifyingKey>(cbuf.as_mut(), sbuf.as_mut(), &key, 32, 32),
                     Ok(State::Swap)
                 );
                 assert_eq!(boot.active.mem, [0x55; 96]);
                 assert_eq!(&boot.dfu.mem[..96], &candidate);
-                let result = boot.prepare_boot(&mut buf);
+                let result = boot.prepare_boot(cbuf.as_mut());
                 boot.active.pending_write_successes = None;
                 boot.dfu.pending_write_successes = None;
                 boot.state.pending_write_successes = None;
                 if result.is_err() {
-                    let unstarted = boot.current_progress(&mut buf).unwrap() == 0;
+                    let unstarted = boot.current_progress(cbuf.as_mut()).unwrap() == 0;
                     if unstarted {
                         assert_eq!(&boot.dfu.mem[..96], &candidate);
                         // The candidate must be verified again at zero progress.
                         assert_eq!(
-                            boot.verify_update::<Sha512, VerifyingKey>(&mut buf, &wrong_key, 32, 32),
+                            boot.verify_update::<Sha512, VerifyingKey>(cbuf.as_mut(), sbuf.as_mut(), &wrong_key, 32, 32),
                             Ok(State::Revert)
                         );
-                        assert_eq!(boot.prepare_boot(&mut buf), Ok(State::Revert));
+                        assert_eq!(boot.prepare_boot(cbuf.as_mut()), Ok(State::Revert));
                         assert_eq!(boot.active.mem, [0x55; 96]);
                         continue;
                     }
                     // A different key must not recheck already authenticated copying.
                     assert_eq!(
-                        boot.verify_update::<Sha512, VerifyingKey>(&mut buf, &wrong_key, 32, 32),
+                        boot.verify_update::<Sha512, VerifyingKey>(cbuf.as_mut(), sbuf.as_mut(), &wrong_key, 32, 32),
                         Ok(State::Swap)
                     );
-                    assert_eq!(boot.prepare_boot(&mut buf), Ok(State::Swap));
+                    assert_eq!(boot.prepare_boot(cbuf.as_mut()), Ok(State::Swap));
                 }
                 assert_eq!(boot.active.mem, candidate);
                 // Rollback must not try to authenticate the mixed DFU contents.
                 assert_eq!(
-                    boot.verify_update::<Sha512, VerifyingKey>(&mut buf, &wrong_key, 32, 32),
+                    boot.verify_update::<Sha512, VerifyingKey>(cbuf.as_mut(), sbuf.as_mut(), &wrong_key, 32, 32),
                     Ok(State::Swap)
                 );
                 assert_eq!(boot.active.mem, candidate);
-                boot.prepare_boot(&mut buf).unwrap();
-                assert_eq!(boot.read_state(&mut buf), Ok(State::Revert));
+                boot.prepare_boot(cbuf.as_mut()).unwrap();
+                assert_eq!(boot.read_state(cbuf.as_mut()), Ok(State::Revert));
                 assert_eq!(boot.active.mem, [0x55; 96]);
             }
         }

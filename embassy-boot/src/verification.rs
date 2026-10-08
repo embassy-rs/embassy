@@ -70,7 +70,7 @@ macro_rules! impl_signature_p {
         impl VerifyingKey for embassy_crypto::$t::VerifyingKey {
             type Signature = embassy_crypto::$t::Signature;
             fn from_bytes(b: &[u8]) -> Result<embassy_crypto::$t::VerifyingKey, embassy_crypto::Error> {
-                embassy_crypto::$t::VerifyingKey::from_bytes(b.try_into().map_err(|_| embassy_crypto::Error::InvalidKey)?)
+                embassy_crypto::$t::VerifyingKey::from_sec1(b.try_into().map_err(|_| embassy_crypto::Error::InvalidKey)?)
             }
             fn verify(&self, msg: &[u8], signature: &Self::Signature) -> Result<(), embassy_crypto::Error> {
                 embassy_crypto::$t::VerifyingKey::verify_prehash(self, msg.try_into().map_err(|_| embassy_crypto::Error::InvalidInput)?, signature)
@@ -104,24 +104,21 @@ macro_rules! verification_funcs {
     ($flash: path $(, $async: tt, $await: tt)?) => {
         pub(crate) $( $async )? fn verify<DFU: $flash, D: Digest, V: VerifyingKey>(
             dfu: &mut DFU,
-            public_key: &[u8; 32],
-            signature: &[u8; 64],
+            public_key: &[u8],
+            signature: &[u8],
             update_len: u32,
             chunk_buf: &mut [u8],
         ) -> Result<(), VerificationError> {
-            {
-                let public_key = V::from_bytes(public_key)
-                    .map_err(|error| super::VerificationError::Signature(error))?;
-                let signature = V::Signature::from_bytes(signature)
-                    .map_err(|error| super::VerificationError::Signature(error))?;
+            let public_key = V::from_bytes(public_key)
+                .map_err(|error| VerificationError::Signature(error))?;
+            let signature = V::Signature::from_bytes(signature)
+                .map_err(|error| VerificationError::Signature(error))?;
 
-                let message = hash::<_, D>(dfu, update_len, chunk_buf) $(.$await)?
-                    .map_err(|error| super::VerificationError::Flash(error.kind()))?;
+            let message = hash::<_, D>(dfu, update_len, chunk_buf) $(.$await)?
+                .map_err(|error| VerificationError::Flash(error.kind()))?;
 
-                public_key.verify(message.as_ref(), &signature)
-                    .map_err(|error| super::VerificationError::Signature(error))?;
-                return Ok(());
-            }
+            public_key.verify(message.as_ref(), &signature)
+                .map_err(|error| VerificationError::Signature(error))
         }
 
         pub(crate) $( $async )? fn hash<DFU: $flash, D: super::Digest>(

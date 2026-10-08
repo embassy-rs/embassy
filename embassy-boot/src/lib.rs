@@ -358,6 +358,7 @@ mod tests {
                 &public_key.to_bytes(),
                 &signature.to_bytes(),
                 firmware_len as u32,
+                &mut [0; 64],
             ))
             .is_ok()
         );
