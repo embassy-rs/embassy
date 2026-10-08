@@ -104,9 +104,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
         &mut self,
         update_len: u32,
         chunk_buf: &mut [u8],
-        output: &mut [u8],
-    ) -> Result<(), FirmwareUpdaterError> {
-        Ok(hash::<_, D>(&mut self.dfu, update_len, chunk_buf, output).await?)
+    ) -> Result<D::Output, FirmwareUpdaterError> {
+        Ok(hash::<_, D>(&mut self.dfu, update_len, chunk_buf).await?)
     }
 
     /// Read a slice of data from the DFU storage peripheral, starting the read
@@ -354,10 +353,9 @@ mod tests {
         let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig { dfu, state }, &mut aligned);
         block_on(updater.write_firmware(0, to_write.as_slice())).unwrap();
         let mut chunk_buf = [0; 2];
-        let mut hash = [0; 20];
-        block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)).unwrap();
+        let hash = block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf)).unwrap();
 
-        assert_eq!(Sha1::digest(&update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash.as_ref());
     }
 
     #[test]
@@ -378,10 +376,9 @@ mod tests {
             offset += chunk.len();
         }
         let mut chunk_buf = [0; 2];
-        let mut hash = [0; 20];
-        block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)).unwrap();
+        let hash = block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf)).unwrap();
 
-        assert_eq!(Sha1::digest(&update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash.as_ref());
     }
 
     #[test]
@@ -402,10 +399,9 @@ mod tests {
             offset += chunk.len();
         }
         let mut chunk_buf = [0; 2];
-        let mut hash = [0; 20];
-        block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)).unwrap();
+        let hash = block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf)).unwrap();
 
-        assert_eq!(Sha1::digest(&update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash.as_ref());
     }
 
     #[test]
@@ -426,9 +422,8 @@ mod tests {
             offset += chunk.len();
         }
         let mut chunk_buf = [0; 2];
-        let mut hash = [0; 20];
-        block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)).unwrap();
+        let hash = block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf)).unwrap();
 
-        assert_eq!(Sha1::digest(&update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash.as_ref());
     }
 }

@@ -26,7 +26,7 @@ pub trait Digest {
 }
 
 macro_rules! impl_digest {
-    ($($t:ident,)*) => {$(
+    ($($t:ident),*) => {$(
         impl Digest for embassy_crypto::$t {
             const OUTPUT_SIZE: usize = <embassy_crypto::$t>::OUTPUT_SIZE;
             type Output = [u8; Self::OUTPUT_SIZE];
@@ -43,7 +43,7 @@ macro_rules! impl_digest {
     )*};
 }
 
-impl_digest!(Sha1, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256,);
+impl_digest!(Sha1, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256);
 
 pub trait Signature {
     fn from_bytes(bytes: &[u8]) -> Result<Self, embassy_crypto::Error>
@@ -60,27 +60,8 @@ pub trait VerifyingKey {
     fn verify(&self, message: &[u8], pkey: &Self::Signature) -> Result<(), embassy_crypto::Error>;
 }
 
-macro_rules! impl_signature_ed {
-    ($($t:ident,)*) => {$(
-        impl Signature for embassy_crypto::$t::Signature {
-            fn from_bytes(b: &[u8]) -> Result<embassy_crypto::$t::Signature, embassy_crypto::Error>  {
-                Ok(embassy_crypto::$t::Signature::from_bytes(b.try_into().map_err(|_| embassy_crypto::Error::InvalidSignature)?))
-            }
-        }
-        impl VerifyingKey for embassy_crypto::$t::VerifyingKey {
-            type Signature = embassy_crypto::$t::Signature;
-            fn from_bytes(b: &[u8]) -> Result<embassy_crypto::$t::VerifyingKey, embassy_crypto::Error> {
-                Ok(embassy_crypto::$t::VerifyingKey::from_bytes(b.try_into().map_err(|_| embassy_crypto::Error::InvalidKey)?))
-            }
-            fn verify(&self, msg: &[u8], signature: &Self::Signature) -> Result<(), embassy_crypto::Error> {
-                embassy_crypto::$t::VerifyingKey::verify(self, msg, signature)
-            }
-        }
-    )*};
-}
-
 macro_rules! impl_signature_p {
-    ($($t:ident,)*) => {$(
+    ($($t:ident),*) => {$(
         impl Signature for embassy_crypto::$t::Signature {
             fn from_bytes(b: &[u8]) -> Result<embassy_crypto::$t::Signature, embassy_crypto::Error>  {
                 embassy_crypto::$t::Signature::from_bytes(b.try_into().map_err(|_| embassy_crypto::Error::InvalidSignature)?)
@@ -98,30 +79,46 @@ macro_rules! impl_signature_p {
     )*};
 }
 
-impl_signature_ed!(ed25519,);
+impl_signature_p!(p256, p384);
 
-impl_signature_p!(p256, p384,);
+impl Signature for embassy_crypto::ed25519::Signature {
+    fn from_bytes(b: &[u8]) -> Result<embassy_crypto::ed25519::Signature, embassy_crypto::Error> {
+        Ok(embassy_crypto::ed25519::Signature::from_bytes(
+            b.try_into().map_err(|_| embassy_crypto::Error::InvalidSignature)?,
+        ))
+    }
+}
+impl VerifyingKey for embassy_crypto::ed25519::VerifyingKey {
+    type Signature = embassy_crypto::ed25519::Signature;
+    fn from_bytes(b: &[u8]) -> Result<embassy_crypto::ed25519::VerifyingKey, embassy_crypto::Error> {
+        Ok(embassy_crypto::ed25519::VerifyingKey::from_bytes(
+            b.try_into().map_err(|_| embassy_crypto::Error::InvalidKey)?,
+        ))
+    }
+    fn verify(&self, msg: &[u8], signature: &Self::Signature) -> Result<(), embassy_crypto::Error> {
+        embassy_crypto::ed25519::VerifyingKey::verify(self, msg, signature)
+    }
+}
 
 macro_rules! verification_funcs {
     ($flash: path $(, $async: tt, $await: tt)?) => {
         pub(crate) $( $async )? fn verify<DFU: $flash, D: Digest, V: VerifyingKey>(
             dfu: &mut DFU,
-            _public_key: &[u8; 32],
-            _signature: &[u8; 64],
-            _update_len: u32,
-            _chunk_buf: &mut [u8],
+            public_key: &[u8; 32],
+            signature: &[u8; 64],
+            update_len: u32,
+            chunk_buf: &mut [u8],
         ) -> Result<(), VerificationError> {
             {
-                let public_key = V::from_bytes(_public_key)
+                let public_key = V::from_bytes(public_key)
                     .map_err(|error| super::VerificationError::Signature(error))?;
-                let signature = V::Signature::from_bytes(_signature)
+                let signature = V::Signature::from_bytes(signature)
                     .map_err(|error| super::VerificationError::Signature(error))?;
 
-                let mut message = [0; 64];
-                hash::<_, D>(dfu, _update_len, _chunk_buf, &mut message) $(.$await)?
+                let message = hash::<_, D>(dfu, update_len, chunk_buf) $(.$await)?
                     .map_err(|error| super::VerificationError::Flash(error.kind()))?;
 
-                public_key.verify(&message, &signature)
+                public_key.verify(message.as_ref(), &signature)
                     .map_err(|error| super::VerificationError::Signature(error))?;
                 return Ok(());
             }
@@ -131,16 +128,14 @@ macro_rules! verification_funcs {
             dfu: &mut DFU,
             update_len: u32,
             chunk_buf: &mut [u8],
-            output: &mut [u8],
-        ) -> Result<(), DFU::Error> {
+        ) -> Result<D::Output, DFU::Error> {
             let mut digest = D::new();
             for offset in (0..update_len).step_by(chunk_buf.len()) {
                 dfu.read(offset, chunk_buf) $(.$await)? ?;
                 let len = chunk_buf.len().min((update_len - offset) as _);
                 digest.update(&chunk_buf[..len]);
             }
-            output.copy_from_slice(digest.finalize().as_ref());
-            Ok(())
+            Ok(digest.finalize())
         }
     };
 }
