@@ -655,6 +655,7 @@ impl<'d> Channel<'d> {
                             w.set_pinc(true);
                         }
                     }
+                    w.set_mem2mem(dir == Dir::MemoryToMemory);
                     w.set_dir(dir.into());
                     w.set_teie(true);
                     w.set_tcie(options.complete_transfer_ir);
