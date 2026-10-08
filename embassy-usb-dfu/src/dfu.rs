@@ -104,6 +104,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> df
                         self.public_key,
                         &signature,
                         update_len,
+                        self.buf.as_mut(),
                     )
             })
         };

@@ -79,12 +79,15 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
     ///
     /// The signature is expected to have been generated
     /// from the firmware bytes using a digest of the provided type.
+    ///
+    /// See [`super::BlockingFirmwareUpdater::verify_and_mark_updated`]
+    /// for buffer requirements, errors, and panics.
     pub async fn verify_and_mark_updated<D: Digest, V: VerifyingKey>(
         &mut self,
         public_key: &[u8],
         signature: &[u8],
-        update_len: u32,
         chunk_buf: &mut [u8],
+        update_len: u32,
     ) -> Result<(), FirmwareUpdaterError> {
         assert!(update_len <= self.dfu.capacity() as u32);
 

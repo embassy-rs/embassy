@@ -114,12 +114,24 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
     ///
     /// The signature is expected to have been generated
     /// from the firmware bytes using a digest of the provided type.
+    ///
+    /// # Buffer requirements
+    ///
+    /// `chunk_buf` must be nonempty and satisfy the flash's buffer alignment
+    /// requirements. Reads start at zero and use full chunks, so its length must
+    /// be a multiple of `DFU::READ_SIZE` and DFU must be readable through
+    /// `update_len` rounded up to that length. Only `0..update_len` is hashed.
+    /// Flash read failures are returned as errors.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `chunk_buf` is empty or `update_len` exceeds dfu capacity.
     pub fn verify_and_mark_updated<D: Digest, V: VerifyingKey>(
         &mut self,
         public_key: &[u8],
         signature: &[u8],
-        update_len: u32,
         chunk_buf: &mut [u8],
+        update_len: u32,
     ) -> Result<(), FirmwareUpdaterError> {
         assert!(update_len <= self.dfu.capacity() as u32);
 
@@ -141,7 +153,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
     ///
     /// # Panics
     ///
-    /// Panics if `chunk_buf` is empty or `output` does not match the digest size.
+    /// Panics if `chunk_buf` is empty.
     pub fn hash<D: Digest>(
         &mut self,
         update_len: u32,

@@ -169,16 +169,20 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     /// Verify the update in the DFU partition without copying either image.
     ///
     /// On `Swap` with zero copy progress, verify the signature at `signature_offset`
-    /// over the SHA-512 digest of DFU bytes `0..update_len`.
+    /// over the digest of DFU bytes `0..update_len`.
     ///
     /// An invalid signature records and returns `Revert`. Other states and swaps
     /// with recorded progress are left unchanged. Flash errors are returned.
     /// Call this before [`Self::prepare_boot`] on every boot; successful
     /// verification is not recorded separately from swap progress.
     ///
-    /// `aligned_buf` and `signature_buf` must satisfy [`Self::read_state`]'s buffer requirements and
-    /// the [hashing requirements](crate::BlockingFirmwareUpdater::hash).
+    /// The `signature_buf` is used to hold the signature, and should be of exactly the same
+    /// length as the signature from the provided algorithm.
+    /// Furthermore it should satisfy the flashes buffer alignment requirements.
     /// The signature at `signature_offset` must be readable from DFU.
+    ///
+    /// `aligned_buf` must satisfy [`Self::read_state`]'s buffer requirements and
+    /// the [hashing requirements](crate::BlockingFirmwareUpdater::hash).
     pub fn verify_update<D: Digest, V: VerifyingKey>(
         &mut self,
         aligned_buf: &mut [u8],
@@ -623,7 +627,13 @@ mod verification_tests {
                         assert_eq!(&boot.dfu.mem[..96], &candidate);
                         // The candidate must be verified again at zero progress.
                         assert_eq!(
-                            boot.verify_update::<Sha512, VerifyingKey>(cbuf.as_mut(), sbuf.as_mut(), &wrong_key, 32, 32),
+                            boot.verify_update::<Sha512, VerifyingKey>(
+                                cbuf.as_mut(),
+                                sbuf.as_mut(),
+                                &wrong_key,
+                                32,
+                                32
+                            ),
                             Ok(State::Revert)
                         );
                         assert_eq!(boot.prepare_boot(cbuf.as_mut()), Ok(State::Revert));
