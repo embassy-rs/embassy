@@ -46,12 +46,14 @@ macro_rules! impl_digest {
 impl_digest!(Sha1, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256);
 
 pub trait Signature {
+    const SIGNATURE_SIZE: usize;
     fn from_bytes(bytes: &[u8]) -> Result<Self, embassy_crypto::Error>
     where
         Self: Sized;
 }
 
 pub trait VerifyingKey {
+    const KEY_SIZE: usize;
     type Signature: Signature;
 
     fn from_bytes(bytes: &[u8]) -> Result<Self, embassy_crypto::Error>
@@ -61,13 +63,15 @@ pub trait VerifyingKey {
 }
 
 macro_rules! impl_signature_p {
-    ($($t:ident),*) => {$(
+    ($(($t:ident, $n: literal)),*) => {$(
         impl Signature for embassy_crypto::$t::Signature {
+            const SIGNATURE_SIZE: usize = 2 * $n;
             fn from_bytes(b: &[u8]) -> Result<embassy_crypto::$t::Signature, embassy_crypto::Error>  {
                 embassy_crypto::$t::Signature::from_bytes(b.try_into().map_err(|_| embassy_crypto::Error::InvalidSignature)?)
             }
         }
         impl VerifyingKey for embassy_crypto::$t::VerifyingKey {
+            const KEY_SIZE: usize = 2 * $n + 1;
             type Signature = embassy_crypto::$t::Signature;
             fn from_bytes(b: &[u8]) -> Result<embassy_crypto::$t::VerifyingKey, embassy_crypto::Error> {
                 embassy_crypto::$t::VerifyingKey::from_sec1(b.try_into().map_err(|_| embassy_crypto::Error::InvalidKey)?)
@@ -79,9 +83,10 @@ macro_rules! impl_signature_p {
     )*};
 }
 
-impl_signature_p!(p256, p384);
+impl_signature_p!((p256, 32), (p384, 48));
 
 impl Signature for embassy_crypto::ed25519::Signature {
+    const SIGNATURE_SIZE: usize = 64;
     fn from_bytes(b: &[u8]) -> Result<embassy_crypto::ed25519::Signature, embassy_crypto::Error> {
         Ok(embassy_crypto::ed25519::Signature::from_bytes(
             b.try_into().map_err(|_| embassy_crypto::Error::InvalidSignature)?,
@@ -89,6 +94,7 @@ impl Signature for embassy_crypto::ed25519::Signature {
     }
 }
 impl VerifyingKey for embassy_crypto::ed25519::VerifyingKey {
+    const KEY_SIZE: usize = 32;
     type Signature = embassy_crypto::ed25519::Signature;
     fn from_bytes(b: &[u8]) -> Result<embassy_crypto::ed25519::VerifyingKey, embassy_crypto::Error> {
         Ok(embassy_crypto::ed25519::VerifyingKey::from_bytes(
