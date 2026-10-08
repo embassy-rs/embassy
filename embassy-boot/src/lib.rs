@@ -357,8 +357,8 @@ mod tests {
             block_on(updater.verify_and_mark_updated::<Sha512, VerifyingKey>(
                 &public_key.to_bytes(),
                 &signature.to_bytes(),
-                firmware_len as u32,
                 &mut [0; 64],
+                firmware_len as u32,
             ))
             .is_ok()
         );

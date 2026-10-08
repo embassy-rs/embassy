@@ -103,8 +103,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> df
                     .verify_and_mark_updated::<embassy_crypto::Sha512, embassy_crypto::ed25519::VerifyingKey>(
                         self.public_key,
                         &signature,
-                        update_len,
                         self.buf.as_mut(),
+                        update_len,
                     )
             })
         };
