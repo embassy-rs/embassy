@@ -1,4 +1,5 @@
 //! Driver for the HASHCRYPT peripheral, mode switch skeleton
+use embassy_futures::block_on;
 use embassy_hal_internal::Peri;
 use nxp_pac::hashcrypt::vals::{Aesdecrypt, Aeskeysz, Aesmode, Aessecret, Mode};
 use nxp_pac::syscon::vals::HashAesRst::Released;
@@ -257,11 +258,9 @@ impl<'d> GenericHashcrypt<'d> {
         let mut offset = 0;
         let mut blocks = data.chunks_exact(16);
         for block in &mut blocks {
-            for word in block.chunks_exact(4) {
-                Self::feed_word(u32::from_le_bytes(word.try_into().unwrap()));
-            }
-
-            Self::read_digest(4, &mut output[offset..offset + 16]);
+            let block: [u8; 16] = block.try_into().unwrap();
+            let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
+            Self::process_block(&block, out, false);
             offset += 16;
         }
 
@@ -272,14 +271,8 @@ impl<'d> GenericHashcrypt<'d> {
         final_block[..tail.len()].copy_from_slice(tail);
         final_block[tail.len()..].fill(pad);
 
-        pac::HASHCRYPT.cryptcfg().modify(|w| {
-            w.set_streamlast(true);
-        });
-
-        for chunks in final_block.chunks_exact(4) {
-            Self::feed_word(u32::from_le_bytes(chunks.try_into().unwrap()));
-        }
-        Self::read_digest(4, &mut output[offset..offset + 16]);
+        let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
+        Self::process_block(&final_block, out, true);
     }
 
     pub(crate) fn process_blocks_ctr(data: &[u8], output: &mut [u8]) {
