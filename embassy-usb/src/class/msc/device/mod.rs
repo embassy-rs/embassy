@@ -1000,9 +1000,9 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
 ///
 /// LoEj and Start are ignored unless the power condition field is zero.
 fn is_eject(cb: &[u8; 16]) -> bool {
-    let power_condition = cb[4] >> 4;
-    let load_eject = cb[4] & 0x02 != 0;
-    let start = cb[4] & 0x01 != 0;
+    let power_condition = cb[4] & SSU_POWER_CONDITION_MASK;
+    let load_eject = cb[4] & SSU_LOEJ != 0;
+    let start = cb[4] & SSU_START != 0;
     power_condition == 0 && load_eject && !start
 }
 
