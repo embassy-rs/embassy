@@ -6,8 +6,9 @@
 
 pub mod speaker;
 
-///Audio `source` module
 pub mod source;
+
+mod function;
 
 /// The maximum supported audio channel index (corresponds to `Top`).
 /// FIXME: Use `core::mem::variant_count(...)` when stabilized.
@@ -17,6 +18,16 @@ const MAX_AUDIO_CHANNEL_INDEX: usize = 12;
 ///
 /// Includes all twelve channels from `Channel`, plus the Master channel.
 const MAX_AUDIO_CHANNEL_COUNT: usize = MAX_AUDIO_CHANNEL_INDEX + 1;
+
+/// The volume of an audio channel.
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Volume {
+    /// The channel is muted.
+    Muted,
+    /// The channel volume in dB, with the master volume applied.
+    DeciBel(f32),
+}
 
 /// USB Audio Channel
 #[derive(Debug, Clone, Copy, PartialEq)]
