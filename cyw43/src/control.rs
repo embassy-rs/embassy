@@ -34,6 +34,7 @@ pub struct Control<'a> {
     events: &'a Events,
     ioctl_state: &'a IoctlState,
     secure_network: &'a AtomicBool,
+    started_join: bool,
 }
 
 /// WiFi scan type.
@@ -199,6 +200,7 @@ impl<'a> Control<'a> {
             events: event_sub,
             ioctl_state,
             secure_network,
+            started_join: false,
         }
     }
 
@@ -343,6 +345,11 @@ impl<'a> Control<'a> {
     pub async fn join(&mut self, ssid: &str, options: JoinOptions<'_>) -> Result<(), JoinError> {
         validate_join_options(&options)?;
 
+        if self.started_join {
+            self.leave().await;
+        }
+        self.started_join = true;
+
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
         if options.auth == JoinAuth::Open {
@@ -415,7 +422,11 @@ impl<'a> Control<'a> {
 
         let secure_network = options.auth != JoinAuth::Open;
         self.secure_network.store(secure_network, Relaxed);
-        self.wait_for_join(i, secure_network).await
+        let result = self.wait_for_join(i, secure_network).await;
+        if result.is_ok() {
+            self.started_join = false;
+        }
+        result
     }
 
     async fn wait_for_join(&mut self, i: SsidInfo, secure_network: bool) -> Result<(), JoinError> {
@@ -819,6 +830,7 @@ impl<'a> Control<'a> {
     /// Leave the wifi, with which we are currently associated.
     pub async fn leave(&mut self) {
         self.ioctl(IoctlType::Set, Ioctl::Disassoc, 0, &mut []).await;
+        self.started_join = false;
         info!("Disassociated")
     }
 
@@ -915,12 +927,65 @@ impl Drop for Scanner<'_> {
 }
 
 #[cfg(test)]
-mod tests {
+mod psk_event_tests {
     use core::future::Future;
     use core::pin::pin;
     use core::task::{Context, Poll, Waker};
 
     use super::*;
+
+    fn pending_ioctl(ioctl: &IoctlState, cx: &mut Context<'_>) -> crate::ioctl::PendingIoctl {
+        let mut pending = pin!(ioctl.wait_pending());
+        let Poll::Ready(request) = pending.as_mut().poll(cx) else {
+            panic!("expected a pending ioctl");
+        };
+        request
+    }
+
+    fn poll_to_join_events(
+        mut join: core::pin::Pin<&mut impl Future<Output = Result<(), JoinError>>>,
+        ioctl: &IoctlState,
+        cx: &mut Context<'_>,
+    ) {
+        loop {
+            assert!(join.as_mut().poll(cx).is_pending());
+            let request = pending_ioctl(ioctl, cx);
+            assert!(!matches!(request.cmd, Ioctl::Disassoc));
+            ioctl.ioctl_done(&[]);
+            if matches!(request.cmd, Ioctl::SetSsid) {
+                assert!(join.as_mut().poll(cx).is_pending());
+                return;
+            }
+        }
+    }
+
+    fn publish_event(events: &Events, event_type: Event, status: u32, reason: u32) {
+        events
+            .queue
+            .immediate_publisher()
+            .publish_immediate(events::Message::new(
+                events::Status {
+                    event_type,
+                    status,
+                    reason,
+                },
+                events::Payload::None,
+            ));
+    }
+
+    fn assert_cleanup_before_configuration(
+        mut join: core::pin::Pin<&mut impl Future<Output = Result<(), JoinError>>>,
+        ioctl: &IoctlState,
+        cx: &mut Context<'_>,
+    ) {
+        assert!(join.as_mut().poll(cx).is_pending());
+        assert!(matches!(pending_ioctl(ioctl, cx).cmd, Ioctl::Disassoc));
+        assert!(join.as_mut().poll(cx).is_pending());
+        assert!(pin!(ioctl.wait_pending()).as_mut().poll(cx).is_pending());
+        ioctl.ioctl_done(&[]);
+        assert!(join.as_mut().poll(cx).is_pending());
+        assert!(matches!(pending_ioctl(ioctl, cx).cmd, Ioctl::SetVar));
+    }
 
     fn replay_psk_events(events: &[(u32, u32)]) -> Poll<Result<(), JoinError>> {
         let mut state = crate::State::new();
@@ -948,6 +1013,7 @@ mod tests {
         state.ioctl_state.ioctl_done(&[]);
         assert!(join.as_mut().poll(&mut cx).is_pending());
 
+        let mut result = Poll::Pending;
         for &(status, reason) in events {
             state
                 .net
@@ -963,14 +1029,14 @@ mod tests {
                     events::Payload::None,
                 ));
 
-            let result = join.as_mut().poll(&mut cx);
+            result = join.as_mut().poll(&mut cx);
 
             if result.is_ready() {
-                return result;
+                break;
             }
         }
 
-        Poll::Pending
+        result
     }
 
     #[test]
@@ -986,5 +1052,145 @@ mod tests {
         assert!(replay_psk_events(&[(4, 0)]).is_pending());
 
         assert!(matches!(replay_psk_events(&[(4, 0), (6, 0)]), Poll::Ready(Ok(()))));
+    }
+
+    #[test]
+    fn cancelled_join_is_cleaned_up_before_retry() {
+        // Cover cancellation before sending configuration, after sending it,
+        // and while waiting for association events.
+        for phase in 0..3 {
+            let mut state = crate::State::new();
+            let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
+            let mut control = Control::new(
+                runner.state_runner(),
+                &state.net.events,
+                &state.ioctl_state,
+                &state.net.secure_network,
+            );
+            let mut cx = Context::from_waker(Waker::noop());
+
+            {
+                let mut join = pin!(control.join("test", JoinOptions::new_open()));
+                if phase == 2 {
+                    poll_to_join_events(join.as_mut(), &state.ioctl_state, &mut cx);
+                } else {
+                    assert!(join.as_mut().poll(&mut cx).is_pending());
+                    if phase == 1 {
+                        pending_ioctl(&state.ioctl_state, &mut cx);
+                    }
+                }
+            }
+
+            // Cancelling retry-entry cleanup must not lose the cleanup obligation.
+            {
+                let mut retry = pin!(control.join("test", JoinOptions::new_open()));
+                assert!(retry.as_mut().poll(&mut cx).is_pending());
+                assert!(matches!(
+                    pending_ioctl(&state.ioctl_state, &mut cx).cmd,
+                    Ioctl::Disassoc
+                ));
+            }
+            let mut retry = pin!(control.join("test", JoinOptions::new_open()));
+            assert_cleanup_before_configuration(retry.as_mut(), &state.ioctl_state, &mut cx);
+        }
+    }
+
+    #[test]
+    fn failed_join_is_cleaned_up_on_retry() {
+        for status in [EStatus::NO_NETWORKS, EStatus::FAIL] {
+            let mut state = crate::State::new();
+            let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
+            let mut control = Control::new(
+                runner.state_runner(),
+                &state.net.events,
+                &state.ioctl_state,
+                &state.net.secure_network,
+            );
+            let mut cx = Context::from_waker(Waker::noop());
+
+            {
+                let mut join = pin!(control.join("test", JoinOptions::new_open()));
+                poll_to_join_events(join.as_mut(), &state.ioctl_state, &mut cx);
+                publish_event(&state.net.events, Event::SET_SSID, status as u32, 0);
+                match (status, join.as_mut().poll(&mut cx)) {
+                    (EStatus::NO_NETWORKS, Poll::Ready(Err(JoinError::NetworkNotFound))) => {}
+                    (EStatus::FAIL, Poll::Ready(Err(JoinError::JoinFailure(code)))) => {
+                        assert_eq!(code, EStatus::FAIL as u8);
+                    }
+                    _ => panic!("join did not return its original failure"),
+                }
+                assert!(state.ioctl_state.is_idle());
+            }
+            let mut retry = pin!(control.join("test", JoinOptions::new_open()));
+            assert_cleanup_before_configuration(retry.as_mut(), &state.ioctl_state, &mut cx);
+        }
+    }
+
+    #[test]
+    fn successful_join_does_not_require_retry_cleanup() {
+        let mut state = crate::State::new();
+        let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
+        let mut control = Control::new(
+            runner.state_runner(),
+            &state.net.events,
+            &state.ioctl_state,
+            &state.net.secure_network,
+        );
+        let mut cx = Context::from_waker(Waker::noop());
+        {
+            let mut join = pin!(control.join("test", JoinOptions::new_open()));
+            poll_to_join_events(join.as_mut(), &state.ioctl_state, &mut cx);
+            publish_event(&state.net.events, Event::SET_SSID, EStatus::SUCCESS as u32, 0);
+            assert!(matches!(join.as_mut().poll(&mut cx), Poll::Ready(Ok(()))));
+        }
+        let mut join = pin!(control.join("test", JoinOptions::new_open()));
+        assert!(join.as_mut().poll(&mut cx).is_pending());
+        assert!(matches!(pending_ioctl(&state.ioctl_state, &mut cx).cmd, Ioctl::SetVar));
+    }
+
+    #[test]
+    fn explicit_leave_clears_cleanup_only_after_completion() {
+        let mut state = crate::State::new();
+        let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
+        let mut control = Control::new(
+            runner.state_runner(),
+            &state.net.events,
+            &state.ioctl_state,
+            &state.net.secure_network,
+        );
+        let mut cx = Context::from_waker(Waker::noop());
+        {
+            let mut join = pin!(control.join("test", JoinOptions::new_open()));
+            assert!(join.as_mut().poll(&mut cx).is_pending());
+        }
+        {
+            let mut leave = pin!(control.leave());
+            assert!(leave.as_mut().poll(&mut cx).is_pending());
+            assert!(matches!(
+                pending_ioctl(&state.ioctl_state, &mut cx).cmd,
+                Ioctl::Disassoc
+            ));
+        }
+        {
+            let mut retry = pin!(control.join("test", JoinOptions::new_open()));
+            assert!(retry.as_mut().poll(&mut cx).is_pending());
+            assert!(matches!(
+                pending_ioctl(&state.ioctl_state, &mut cx).cmd,
+                Ioctl::Disassoc
+            ));
+        }
+        {
+            let mut leave = pin!(control.leave());
+            assert!(leave.as_mut().poll(&mut cx).is_pending());
+            assert!(matches!(
+                pending_ioctl(&state.ioctl_state, &mut cx).cmd,
+                Ioctl::Disassoc
+            ));
+            state.ioctl_state.ioctl_done(&[]);
+            assert!(leave.as_mut().poll(&mut cx).is_ready());
+        }
+        let mut join = pin!(control.join("test", JoinOptions::new_open()));
+        assert!(join.as_mut().poll(&mut cx).is_pending());
+        assert!(matches!(pending_ioctl(&state.ioctl_state, &mut cx).cmd, Ioctl::SetVar));
     }
 }
