@@ -750,11 +750,6 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
 
         GenericHashcrypt::feed_key(key);
         GenericHashcrypt::feed_iv_counter(counter);
-
-        pac::HASHCRYPT.cryptcfg().modify(|w| {
-            w.set_aesctrpos(0);
-        });
-
         GenericHashcrypt::process_blocks_ctr(data, output);
 
         return Ok(());
@@ -794,11 +789,6 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
 
         GenericHashcrypt::feed_key(key);
         GenericHashcrypt::feed_iv_counter(counter);
-
-        pac::HASHCRYPT.cryptcfg().modify(|w| {
-            w.set_aesctrpos(0);
-        });
-
         GenericHashcrypt::process_blocks_ctr(data, output);
 
         return Ok(());
