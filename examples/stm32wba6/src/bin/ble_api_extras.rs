@@ -22,17 +22,16 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
-use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
+use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, BdAddr, BdAddrType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
     AttributeAccess, CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid,
 };
 use embassy_stm32_wpan::bluetooth::hci::RadioActivityMask;
 use embassy_stm32_wpan::bluetooth::security::{IoCapability, PasskeyInputType, SecurityEvent, SecurityParams};
+use embassy_stm32_wpan::bluetooth::{EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
-use stm32wb_hci::{BdAddr, BdAddrType};
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -147,7 +146,7 @@ async fn main(spawner: Spawner) {
             interval_max: 0x0006,
             adv_type: AdvType::ConnectableDirectedHighDuty,
             own_addr_type: OwnAddressType::Public,
-            peer_addr: Some(BdAddrType::Public(BdAddr([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]))),
+            peer_addr: Some(BdAddrType::Public(BdAddr::new([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]))),
             ..AdvParams::default()
         };
         ble.start_advertising(directed, AdvData::new(), None)
@@ -157,12 +156,13 @@ async fn main(spawner: Spawner) {
     }
 
     // -- Event loop ----------------------------------------------------------
+    let mut event_buf = EventBuffer::new();
     loop {
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
 
         if let Some(gap) = ble.process_event(&event) {
             if let GapEvent::Connected(conn) = gap {
-                info!("connected: handle=0x{:04X}", conn.handle.0);
+                info!("connected: handle=0x{:04X}", conn.handle.raw());
                 match ble.read_rssi() {
                     Ok(Some(dbm)) => info!("last packet RSSI: {} dBm", dbm),
                     _ => warn!("RSSI not available"),

@@ -44,6 +44,7 @@ pub struct PioStepper<'d, T: Instance, const SM: usize> {
 
 impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
     /// Configure a state machine to drive a stepper
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pio: &mut Common<'d, T>,
         mut sm: StateMachine<'d, T, SM>,

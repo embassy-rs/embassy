@@ -37,6 +37,87 @@ pub struct FusInfoTable {
  * \[16:23\] = SRAM2b ( Number of 1k sector)
  * \[24:31\] = SRAM2a ( Number of 1k sector)
  */
+/// Type of a wireless stack, as reported in the `info_stack` word of the wireless
+/// firmware info table (ST's `INFO_STACK_TYPE_*` constants in `shci.h`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum StackType {
+    /// No wireless stack installed.
+    None,
+    BleFull,
+    BleHci,
+    BleLight,
+    BleBeacon,
+    BleBasic,
+    BleFullExtAdv,
+    BleHciExtAdv,
+    ThreadFtd,
+    ThreadMtd,
+    ZigbeeFfd,
+    ZigbeeRfd,
+    /// MAC 802.15.4 only (`stm32wb5x_Mac_802_15_4_fw.bin`).
+    Mac,
+    BleThreadFtdStatic,
+    BleThreadFtdDynamic,
+    BleThreadLightDynamic,
+    LldTests802154,
+    PhyValid802154,
+    PhyValidBle,
+    LldTestsBle,
+    RlvBle,
+    Rlv802154,
+    BleZigbeeFfdStatic,
+    BleZigbeeRfdStatic,
+    BleZigbeeFfdDynamic,
+    BleZigbeeRfdDynamic,
+    Rlv,
+    /// BLE + MAC 802.15.4 combo (`stm32wb5x_BLE_Mac_802_15_4_fw.bin`).
+    BleMacStatic,
+    NvmBackup,
+    NvmRestore,
+    /// Any other value in the `INFO_STACK_TYPE_MASK` range.
+    Other(u8),
+}
+
+impl StackType {
+    /// Decode the `info_stack` word of the wireless firmware info table.
+    pub fn from_info_stack(info_stack: u32) -> Self {
+        match (info_stack & 0xff) as u8 {
+            0x00 => Self::None,
+            0x01 => Self::BleFull,
+            0x02 => Self::BleHci,
+            0x03 => Self::BleLight,
+            0x04 => Self::BleBeacon,
+            0x05 => Self::BleBasic,
+            0x06 => Self::BleFullExtAdv,
+            0x07 => Self::BleHciExtAdv,
+            0x10 => Self::ThreadFtd,
+            0x11 => Self::ThreadMtd,
+            0x30 => Self::ZigbeeFfd,
+            0x31 => Self::ZigbeeRfd,
+            0x40 => Self::Mac,
+            0x50 => Self::BleThreadFtdStatic,
+            0x51 => Self::BleThreadFtdDynamic,
+            0x52 => Self::BleThreadLightDynamic,
+            0x60 => Self::LldTests802154,
+            0x61 => Self::PhyValid802154,
+            0x62 => Self::PhyValidBle,
+            0x63 => Self::LldTestsBle,
+            0x64 => Self::RlvBle,
+            0x65 => Self::Rlv802154,
+            0x70 => Self::BleZigbeeFfdStatic,
+            0x71 => Self::BleZigbeeRfdStatic,
+            0x78 => Self::BleZigbeeFfdDynamic,
+            0x79 => Self::BleZigbeeRfdDynamic,
+            0x80 => Self::Rlv,
+            0x90 => Self::BleMacStatic,
+            0xF0 => Self::NvmBackup,
+            0xF1 => Self::NvmRestore,
+            other => Self::Other(other),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct WirelessFwInfoTable {
@@ -80,9 +161,9 @@ impl WirelessFwInfoTable {
         (memory_size.clone().get_bits(16..23) & 0xff) as u8
     }
 
-    /// Type of the installed wireless stack (see ST's `INFO_STACK_TYPE_*` constants).
-    pub fn stack_type(&self) -> u32 {
-        self.info_stack
+    /// Type of the installed wireless stack (ST's `INFO_STACK_TYPE_*` constants).
+    pub fn stack_type(&self) -> StackType {
+        StackType::from_info_stack(self.info_stack)
     }
 }
 

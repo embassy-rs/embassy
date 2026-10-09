@@ -2,7 +2,7 @@
 
 use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
+use embassy_net_driver_channel::driver::LinkState;
 use embassy_usb_driver::Driver;
 
 use super::{CdcNcmClass, Receiver, Sender};
@@ -54,14 +54,8 @@ impl<'d, D: Driver<'d>> Runner<'d, D> {
                 state_chan.set_link_state(LinkState::Up);
 
                 loop {
-                    rx_chan.rx_ready().await;
-                    let Some(mut p) = PacketBuf::try_new() else {
-                        warn!("packet pool empty, can't receive");
-                        // Back off, so we don't spin until the stack frees a buffer.
-                        embassy_time::Timer::after_millis(1).await;
-                        continue;
-                    };
-                    p.set_len(self.mtu);
+                    let mut p = rx_chan.rx_buf().await;
+                    p.set_len(self.mtu.min(p.capacity()));
                     match self.rx_usb.read_packet(&mut p).await {
                         Ok(n) => {
                             p.set_len(n);

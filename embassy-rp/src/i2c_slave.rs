@@ -330,14 +330,14 @@ impl<'d, M: Mode> I2cSlave<'d, M> {
         let stat = p.ic_raw_intr_stat().read();
         trace!("rs:{:013b}", stat.0);
 
-        if stat.tx_abrt() {
-            if let Err(abort_reason) = self.read_and_clear_abort_reason() {
-                if let Error::Abort(AbortReason::TxNotEmpty(bytes)) = abort_reason {
-                    p.ic_clr_intr().read();
-                    return Poll::Ready(Ok(ReadStatus::LeftoverBytes(bytes)));
-                } else {
-                    return Poll::Ready(Err(abort_reason));
-                }
+        if stat.tx_abrt()
+            && let Err(abort_reason) = self.read_and_clear_abort_reason()
+        {
+            if let Error::Abort(AbortReason::TxNotEmpty(bytes)) = abort_reason {
+                p.ic_clr_intr().read();
+                return Poll::Ready(Ok(ReadStatus::LeftoverBytes(bytes)));
+            } else {
+                return Poll::Ready(Err(abort_reason));
             }
         }
 

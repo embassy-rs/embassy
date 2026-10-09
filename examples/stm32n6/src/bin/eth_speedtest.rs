@@ -24,9 +24,9 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_net::StackStorage;
 use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::wire::{IpCidr, Ipv4Addr, Ipv4Cidr};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH_SMA, ETH1};
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk};
@@ -237,7 +237,9 @@ async fn main(spawner: Spawner) -> ! {
     static STACK: StaticCell<StackStorage> = StaticCell::new();
     // Fixed seed: this is a local test, no need for entropy.
     let seed = 0x0123_4567_89ab_cdef;
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    // The ethernet DMA needs 8-byte aligned buffers, sized in multiples of 8.
+    static POOL: StaticPool<1520, 16, 8> = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();

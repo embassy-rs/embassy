@@ -952,6 +952,8 @@ pub fn config() -> Config {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul50,
+            #[cfg(feature = "stm32h753zi")]
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: Some(PllDiv::Div8), // SPI1 cksel defaults to pll1_q
             divr: None,
@@ -960,6 +962,8 @@ pub fn config() -> Config {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul50,
+            #[cfg(feature = "stm32h753zi")]
+            fracn: None,
             divp: Some(PllDiv::Div8), // 100mhz
             divq: None,
             divr: None,

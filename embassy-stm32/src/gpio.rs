@@ -154,6 +154,17 @@ impl<'d> Flex<'d> {
         self.pin.set_as_analog();
     }
 
+    /// Put the pin into disconnected mode.
+    ///
+    /// This is the same as analog mode. The internal weak pull-up and pull-down resistors will be
+    /// disabled.
+    #[inline]
+    pub fn set_as_disconnected(&mut self) {
+        critical_section::with(|_| {
+            self.pin.set_as_disconnected();
+        });
+    }
+
     /// Put the pin into AF mode, unchecked.
     ///
     /// This puts the pin into the AF mode, with the requested number and AF type. This is
@@ -167,6 +178,69 @@ impl<'d> Flex<'d> {
                 af_type,
             );
         });
+    }
+
+    /// Is the pin configured as an input?
+    ///
+    /// This is true after [`Self::set_as_input()`] or [`Self::set_as_input_output()`].
+    #[inline]
+    pub fn is_input(&self) -> bool {
+        let r = self.pin.block();
+        let n = self.pin.pin() as usize;
+
+        #[cfg(gpio_v1)]
+        return {
+            let cr = r.cr(n / 8).read();
+            match cr.mode(n % 8) {
+                vals::Mode::Input => cr.cnf_in(n % 8) != vals::CnfIn::Analog,
+                _ => cr.cnf_out(n % 8) == vals::CnfOut::OpenDrain,
+            }
+        };
+
+        #[cfg(gpio_v2)]
+        return match r.moder().read().moder(n) {
+            vals::Moder::Input => true,
+            vals::Moder::Output => r.otyper().read().ot(n) == vals::Ot::OpenDrain,
+            _ => false,
+        };
+    }
+
+    /// Is the pin configured as an output?
+    ///
+    /// This is true after [`Self::set_as_output()`] or [`Self::set_as_input_output()`].
+    #[inline]
+    pub fn is_output(&self) -> bool {
+        let r = self.pin.block();
+        let n = self.pin.pin() as usize;
+
+        #[cfg(gpio_v1)]
+        return {
+            let cr = r.cr(n / 8).read();
+            cr.mode(n % 8) != vals::Mode::Input
+                && matches!(cr.cnf_out(n % 8), vals::CnfOut::PushPull | vals::CnfOut::OpenDrain)
+        };
+
+        #[cfg(gpio_v2)]
+        return r.moder().read().moder(n) == vals::Moder::Output;
+    }
+
+    /// Is the pin disconnected?
+    ///
+    /// This is true after [`Self::set_as_disconnected()`] or [`Self::set_as_analog()`], since a
+    /// disconnected pin is in analog mode.
+    #[inline]
+    pub fn is_disconnected(&self) -> bool {
+        let r = self.pin.block();
+        let n = self.pin.pin() as usize;
+
+        #[cfg(gpio_v1)]
+        return {
+            let cr = r.cr(n / 8).read();
+            cr.mode(n % 8) == vals::Mode::Input && cr.cnf_in(n % 8) == vals::CnfIn::Analog
+        };
+
+        #[cfg(gpio_v2)]
+        return r.moder().read().moder(n) == vals::Moder::Analog;
     }
 
     /// Get whether the pin input level is high.
@@ -243,9 +317,7 @@ impl<'d> Drop for Flex<'d> {
     #[inline]
     fn drop(&mut self) {
         trace!("gpio: dropping {}", self.pin);
-        critical_section::with(|_| {
-            self.pin.set_as_disconnected();
-        });
+        self.set_as_disconnected();
     }
 }
 

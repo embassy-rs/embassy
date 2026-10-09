@@ -217,15 +217,16 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
 
     /// (Re-)start DMA and Uart if it is not running (has not been started yet or has failed), and
     /// check for errors in status register. Error flags are checked/cleared first.
-    fn start_dma_or_check_errors(&mut self) -> Result<(), Error> {
+    fn start_dma_and_check_errors(&mut self) -> Result<(), Error> {
         let r = self.info.regs;
 
-        if check_idle_and_errors(r)?.1 {
-            self.state.tc_flag.store(true, Ordering::Release);
-            self.state.tx_waker.wake();
-        }
+        let status = check_idle_and_errors(r);
         if !r.cr3().read().dmar() {
             self.start();
+        }
+        if status?.1 {
+            self.state.tc_flag.store(true, Ordering::Release);
+            self.state.tx_waker.wake();
         }
         Ok(())
     }
@@ -242,7 +243,7 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
     /// It must be started again by calling `start_uart()` or by
     /// calling a read function again.
     pub async fn read(&mut self, buf: &mut [W]) -> Result<usize, Error> {
-        self.start_dma_or_check_errors()?;
+        self.start_dma_and_check_errors()?;
 
         // In half-duplex mode, we need to disable the Transmitter and enable the Receiver
         // since they can't operate simultaneously on the shared line

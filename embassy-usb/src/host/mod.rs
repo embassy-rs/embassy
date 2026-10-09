@@ -80,15 +80,19 @@ impl core::error::Error for EnumerationError {}
 ///
 /// Addresses greater than 127 are not issued because their behavior is not specified (USB 2.0 §9.4.6).
 pub struct BusState {
-    addr_bitmap: BlockingMutex<CriticalSectionRawMutex, RefCell<[usize; 127usize.div_ceil(usize::BITS as usize)]>>,
+    /// Per address, `None` when free, else the hub it hangs off (`0` for the root port).
+    devices: BlockingMutex<CriticalSectionRawMutex, RefCell<[Option<u8>; ADDRESS_COUNT as usize]>>,
     enum_lock: AsyncMutex<CriticalSectionRawMutex, ()>,
 }
+
+/// Number of USB device addresses, 0 to 127. Address 0 is the default address (USB 2.0 §9.4.6).
+const ADDRESS_COUNT: u8 = 128;
 
 impl BusState {
     /// Create new, empty bus state.
     pub const fn new() -> Self {
         Self {
-            addr_bitmap: BlockingMutex::new(RefCell::new([0usize; _])),
+            devices: BlockingMutex::new(RefCell::new([None; ADDRESS_COUNT as usize])),
             enum_lock: AsyncMutex::new(()),
         }
     }
@@ -99,32 +103,50 @@ impl BusState {
     /// Returns `None` when every address in the 1–127 range is already
     /// taken.
     fn alloc_address(&self) -> Option<u8> {
-        self.addr_bitmap.lock(|b| {
-            let mut b = b.borrow_mut();
-            for addr in 1u8..=127 {
-                let word = (addr / usize::BITS as u8) as usize;
-                let bit = addr % usize::BITS as u8;
-                if b[word] & (1usize << bit) == 0 {
-                    b[word] |= 1usize << bit;
-                    return Some(addr);
-                }
-            }
-            None
+        self.devices.lock(|d| {
+            let mut d = d.borrow_mut();
+            let addr = (1..ADDRESS_COUNT).find(|&addr| d[addr as usize].is_none())?;
+            d[addr as usize] = Some(0);
+            Some(addr)
         })
     }
 
-    /// Release a previously allocated device address.
+    /// Record that device `addr` hangs off hub `hub`.
+    pub(crate) fn set_parent(&self, addr: u8, hub: u8) {
+        self.devices.lock(|d| {
+            if let Some(slot @ Some(_)) = d.borrow_mut().get_mut(addr as usize)
+                && hub < ADDRESS_COUNT
+            {
+                *slot = Some(hub);
+            }
+        });
+    }
+
+    /// Release a previously allocated device address, and the devices behind it.
     ///
     /// No-op if the address is out of range or was not marked as in use.
     pub fn free_address(&self, addr: u8) {
-        if (1..=127).contains(&addr) {
-            self.addr_bitmap.lock(|b| {
-                let mut b = b.borrow_mut();
-                let word = (addr / usize::BITS as u8) as usize;
-                let bit = addr % usize::BITS as u8;
-                b[word] &= !(1usize << bit);
-            });
-        }
+        self.devices.lock(|d| {
+            let mut d = d.borrow_mut();
+            if d.get(addr as usize).copied().flatten().is_none() {
+                return;
+            }
+            d[addr as usize] = None;
+            let mut removed = 1u128 << addr;
+
+            // Free all child devices behind addr.
+            while let Some(child) =
+                (1..ADDRESS_COUNT).find(|&a| d[a as usize].is_some_and(|hub| removed & (1u128 << hub) != 0))
+            {
+                d[child as usize] = None;
+                removed |= 1u128 << child;
+            }
+        });
+    }
+
+    /// Release every address.
+    pub(crate) fn free_all(&self) {
+        self.devices.lock(|d| *d.borrow_mut() = [None; ADDRESS_COUNT as usize]);
     }
 }
 
@@ -192,6 +214,7 @@ impl Drop for AddressGuard<'_> {
 /// constructor.
 pub struct BusController<'d, C: UsbHostController<'d>> {
     driver: C,
+    state: &'d BusState,
     _phantom: PhantomData<&'d ()>,
 }
 
@@ -210,8 +233,14 @@ impl<'d, C: UsbHostController<'d>> BusController<'d, C> {
     ///
     /// On attach, the implementation drives a bus reset to completion
     /// before returning and reports the speed the device settled on.
+    ///
+    /// On detach, every device address is freed.
     pub async fn wait_for_device_event(&mut self) -> DeviceEvent {
-        self.driver.wait_for_device_event().await
+        let event = self.driver.wait_for_device_event().await;
+        if event == DeviceEvent::Disconnected {
+            self.state.free_all();
+        }
+        event
     }
 
     /// Wait for a device to connect on the root port.
@@ -221,7 +250,7 @@ impl<'d, C: UsbHostController<'d>> BusController<'d, C> {
     /// events are silently absorbed.
     pub async fn wait_for_connection(&mut self) -> Speed {
         loop {
-            match self.driver.wait_for_device_event().await {
+            match self.wait_for_device_event().await {
                 DeviceEvent::Connected(speed) => {
                     info!("USB device connected, speed: {:?}", speed);
                     return speed;
@@ -256,8 +285,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
 
     /// Release a previously allocated device address.
     ///
-    /// Equivalent to `self.state().free_address(addr)`. Must be called
-    /// by application code when a device is removed.
+    /// Also releases its descendants.
     pub fn free_address(&self, addr: u8) {
         self.state.free_address(addr);
     }
@@ -469,8 +497,56 @@ pub fn bus<'d, C: UsbHostController<'d>>(
     (
         BusController {
             driver,
+            state,
             _phantom: PhantomData,
         },
         BusHandle { alloc, state },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn freeing_a_hub_frees_the_devices_behind_it() {
+        let state = BusState::new();
+        let hub = state.alloc_address().unwrap();
+        let child = state.alloc_address().unwrap();
+        let grandchild = state.alloc_address().unwrap();
+        let other = state.alloc_address().unwrap();
+        state.set_parent(child, hub);
+        state.set_parent(grandchild, child);
+
+        state.free_address(hub);
+
+        // The unrelated device keeps its address, and the freed ones are free again.
+        assert_eq!(state.alloc_address(), Some(hub));
+        assert_eq!(state.alloc_address(), Some(child));
+        assert_eq!(state.alloc_address(), Some(grandchild));
+        assert_eq!(state.alloc_address(), Some(other + 1));
+    }
+
+    #[test]
+    fn freeing_an_unused_address_does_nothing() {
+        let state = BusState::new();
+        let addr = state.alloc_address().unwrap();
+
+        state.free_address(0);
+        state.free_address(addr + 1);
+        state.free_address(200);
+
+        assert_eq!(state.alloc_address(), Some(addr + 1));
+    }
+
+    #[test]
+    fn free_all_frees_every_address() {
+        let state = BusState::new();
+        state.alloc_address().unwrap();
+        state.alloc_address().unwrap();
+
+        state.free_all();
+
+        assert_eq!(state.alloc_address(), Some(1));
+    }
 }

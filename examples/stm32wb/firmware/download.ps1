@@ -12,7 +12,8 @@ $Files = @(
     'stm32wb5x_FUS_fw.bin',
     'stm32wb5x_FUS_fw_1_2_0.bin',
     'stm32wb5x_FUS_fw_for_fus_0_5_3.bin',
-    'stm32wb5x_BLE_Mac_802_15_4_fw.bin'
+    'stm32wb5x_BLE_Mac_802_15_4_fw.bin',
+    'stm32wb5x_BLE_HCILayer_fw.bin'
 )
 foreach ($f in $Files) {
     Write-Host "Downloading $f"

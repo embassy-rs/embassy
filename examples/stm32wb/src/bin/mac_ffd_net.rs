@@ -6,9 +6,9 @@ use core::net::Ipv6Addr;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::udp::UdpSocket;
 use embassy_net::wire::{IpCidr, Ipv6Cidr, ListenSocketAddr};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::RNG;
@@ -97,7 +97,8 @@ async fn main(spawner: Spawner) {
     // Init network stack
     let ipv6_addr = Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc00a, 0x2ff);
 
-    let (stack, eth_runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, eth_runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();

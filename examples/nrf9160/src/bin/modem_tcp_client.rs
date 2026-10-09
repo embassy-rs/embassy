@@ -10,9 +10,9 @@ use core::str::FromStr;
 use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::iface::Iface;
 use embassy_net::wire::{IpCidr, Ipv4Cidr};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_net_nrf91::context::Status;
 use embassy_net_nrf91::{Runner, State, TraceBuffer, TraceReader, context};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
@@ -143,7 +143,8 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<embassy_net_nrf91::NetDriver<'static>> = StaticCell::new();
