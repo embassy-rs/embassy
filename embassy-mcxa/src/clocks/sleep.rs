@@ -29,14 +29,12 @@ use super::CLOCKS;
 use super::config::CoreSleep;
 use super::types::{Clocks, PoweredClock};
 use crate::pac;
-use crate::pac::cmc::Ckmode;
+use crate::pac::cmc::{Ckmode, PmctrlmainLpmode, PmprotLpmode};
 use crate::pac::scg::{
     Fircacc, Firccsr, Fircvld, Rccr, Scs, Sirccsr, SirccsrLk, Sircerr, Sircvld, SpllLock, Spllcsr, SpllcsrLk, Spllerr,
 };
 use crate::pac::spc::{PdLpReq, SpcLpReq};
 
-const LOW_POWER_MODE_MASK: u32 = 0x0f;
-const ALLOW_DEEP_SLEEP: u32 = 0x01;
 const SLEEPDEEP: u32 = 1 << 2;
 const SEVONPEND: u32 = 1 << 4;
 const SLEEP_CONTROL_MASK: u32 = SLEEPDEEP | SEVONPEND;
@@ -90,10 +88,12 @@ enum PowerMode {
 }
 
 impl PowerMode {
-    fn configuration(self) -> (Ckmode, u32, u8) {
+    fn configuration(self) -> (Ckmode, PmprotLpmode, PmctrlmainLpmode) {
         match self {
-            Self::Sleep => (Ckmode::Ckmode0001, 0, 0),
-            Self::DeepSleep => (Ckmode::Ckmode1111, ALLOW_DEEP_SLEEP, 1),
+            Self::Sleep => (Ckmode::Ckmode0001, PmprotLpmode::Disabled, PmctrlmainLpmode::Lpmode0000),
+            // Both reference manuals encode Deep Sleep as 1. The pinned PAC
+            // labels Lpmode0001 as Sleep and Lpmode0011 as Deep Sleep.
+            Self::DeepSleep => (Ckmode::Ckmode1111, PmprotLpmode::En, PmctrlmainLpmode::Lpmode0001),
         }
     }
 }
@@ -257,13 +257,13 @@ fn validate_power_mode(
     pmprot: pac::cmc::Pmprot,
     clock_mode: Ckmode,
     idle_mode: Ckmode,
-    protection: u32,
+    protection: PmprotLpmode,
 ) -> Result<(), PowerModeError> {
     // A locked deep configuration is also rejected if it prevents idle recovery.
     if ckctrl.lock() && (ckctrl.ckmode() != clock_mode || ckctrl.ckmode() != idle_mode) {
         return Err(PowerModeError::ClockControlLocked);
     }
-    if pmprot.lock() && pmprot.0 & protection != protection {
+    if pmprot.lock() && pmprot.lpmode().to_bits() & protection.to_bits() != protection.to_bits() {
         return Err(PowerModeError::PowerModeProtectionLocked);
     }
     Ok(())
@@ -272,25 +272,25 @@ fn validate_power_mode(
 fn prepare_power_mode(
     cmc: pac::cmc::Cmc,
     clock_mode: Ckmode,
-    protection: u32,
-    low_power_mode: u8,
+    protection: PmprotLpmode,
+    low_power_mode: PmctrlmainLpmode,
 ) -> Result<(), PowerModeError> {
     cmc.ckctrl().modify(|w| w.set_ckmode(clock_mode));
     if cmc.ckctrl().read().ckmode() != clock_mode {
         return Err(PowerModeError::ConfigurationRejected);
     }
-    if protection != 0 {
+    if protection != PmprotLpmode::Disabled {
         if !cmc.pmprot().read().lock() {
-            cmc.pmprot().modify(|w| w.0 = (w.0 & !LOW_POWER_MODE_MASK) | protection);
+            cmc.pmprot().modify(|w| w.set_lpmode(protection));
         }
-        if cmc.pmprot().read().0 & protection != protection {
+        if cmc.pmprot().read().lpmode().to_bits() & protection.to_bits() != protection.to_bits() {
             return Err(PowerModeError::ConfigurationRejected);
         }
     }
-    cmc.gpmctrl().write(|w| w.set_lpmode(low_power_mode));
+    cmc.gpmctrl().write(|w| w.set_lpmode(low_power_mode.to_bits()));
     // Readback completes the broadcast write; PMCTRLMAIN verifies its effect.
     let _ = cmc.gpmctrl().read();
-    if cmc.pmctrlmain().read().lpmode().to_bits() != low_power_mode {
+    if cmc.pmctrlmain().read().lpmode() != low_power_mode {
         return Err(PowerModeError::ConfigurationRejected);
     }
 
@@ -298,10 +298,11 @@ fn prepare_power_mode(
 }
 
 fn restore_idle_mode(cmc: pac::cmc::Cmc, idle_mode: Ckmode) -> Result<(), PowerModeError> {
-    cmc.gpmctrl().write(|w| w.set_lpmode(0));
+    cmc.gpmctrl()
+        .write(|w| w.set_lpmode(PmctrlmainLpmode::Lpmode0000.to_bits()));
     let _ = cmc.gpmctrl().read();
     cmc.ckctrl().modify(|w| w.set_ckmode(idle_mode));
-    if cmc.pmctrlmain().read().lpmode().to_bits() != 0 || cmc.ckctrl().read().ckmode() != idle_mode {
+    if cmc.pmctrlmain().read().lpmode() != PmctrlmainLpmode::Lpmode0000 || cmc.ckctrl().read().ckmode() != idle_mode {
         return Err(PowerModeError::RecoveryRejected);
     }
     Ok(())
@@ -536,8 +537,15 @@ mod tests {
 
     #[test]
     fn mode_encodings_match_cmc_reference() {
-        assert_eq!(PowerMode::Sleep.configuration(), (Ckmode::Ckmode0001, 0, 0));
-        assert_eq!(PowerMode::DeepSleep.configuration(), (Ckmode::Ckmode1111, 1, 1));
+        let (clock_mode, protection, low_power_mode) = PowerMode::Sleep.configuration();
+        assert_eq!(clock_mode, Ckmode::Ckmode0001);
+        assert_eq!(protection.to_bits(), 0);
+        assert_eq!(low_power_mode.to_bits(), 0);
+
+        let (clock_mode, protection, low_power_mode) = PowerMode::DeepSleep.configuration();
+        assert_eq!(clock_mode, Ckmode::Ckmode1111);
+        assert_eq!(protection.to_bits(), 1);
+        assert_eq!(low_power_mode.to_bits(), 1);
     }
 
     #[test]
@@ -583,7 +591,7 @@ mod tests {
                 pac::cmc::Pmprot::default(),
                 Ckmode::Ckmode1111,
                 Ckmode::Ckmode0001,
-                ALLOW_DEEP_SLEEP,
+                PmprotLpmode::En,
             ),
             Err(PowerModeError::ClockControlLocked)
         );
@@ -597,7 +605,13 @@ mod tests {
         let mut pmprot = pac::cmc::Pmprot::default();
         pmprot.set_lock(true);
         assert_eq!(
-            validate_power_mode(ckctrl, pmprot, Ckmode::Ckmode0001, Ckmode::Ckmode0001, 0),
+            validate_power_mode(
+                ckctrl,
+                pmprot,
+                Ckmode::Ckmode0001,
+                Ckmode::Ckmode0001,
+                PmprotLpmode::Disabled,
+            ),
             Ok(())
         );
     }
@@ -612,21 +626,142 @@ mod tests {
                 pmprot,
                 Ckmode::Ckmode1111,
                 Ckmode::Ckmode0001,
-                ALLOW_DEEP_SLEEP,
+                PmprotLpmode::En,
             ),
             Err(PowerModeError::PowerModeProtectionLocked)
         );
-        pmprot.0 |= ALLOW_DEEP_SLEEP;
+        pmprot.set_lpmode(PmprotLpmode::En);
         assert_eq!(
             validate_power_mode(
                 pac::cmc::Ckctrl::default(),
                 pmprot,
                 Ckmode::Ckmode1111,
                 Ckmode::Ckmode0001,
-                ALLOW_DEEP_SLEEP,
+                PmprotLpmode::En,
             ),
             Ok(())
         );
+    }
+
+    #[test]
+    fn locked_protection_accepts_other_permissions_alongside_deep_sleep() {
+        let mut pmprot = pac::cmc::Pmprot::default();
+        pmprot.set_lock(true);
+        pmprot.set_lpmode(PmprotLpmode::En2);
+
+        assert_eq!(
+            validate_power_mode(
+                pac::cmc::Ckctrl::default(),
+                pmprot,
+                Ckmode::Ckmode1111,
+                Ckmode::Ckmode0001,
+                PmprotLpmode::En,
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn locked_protection_rejects_permissions_without_deep_sleep() {
+        let mut pmprot = pac::cmc::Pmprot::default();
+        pmprot.set_lock(true);
+        pmprot.set_lpmode(PmprotLpmode::En1);
+
+        assert_eq!(
+            validate_power_mode(
+                pac::cmc::Ckctrl::default(),
+                pmprot,
+                Ckmode::Ckmode1111,
+                Ckmode::Ckmode0001,
+                PmprotLpmode::En,
+            ),
+            Err(PowerModeError::PowerModeProtectionLocked)
+        );
+    }
+
+    mod cmc_power_mode {
+        use super::*;
+
+        /// Register-write model with the expected MAIN readback preloaded.
+        #[repr(C)]
+        struct Registers {
+            padding: [u32; 4],
+            clock_control: pac::cmc::Ckctrl,
+            clock_status: pac::cmc::Ckstat,
+            protection: pac::cmc::Pmprot,
+            global_mode: pac::cmc::Gpmctrl,
+            main_mode: pac::cmc::Pmctrlmain,
+        }
+
+        impl Registers {
+            fn new(main_mode: PmctrlmainLpmode) -> Self {
+                let mut registers = Self {
+                    padding: [0; 4],
+                    clock_control: pac::cmc::Ckctrl::default(),
+                    clock_status: pac::cmc::Ckstat::default(),
+                    protection: pac::cmc::Pmprot::default(),
+                    global_mode: pac::cmc::Gpmctrl::default(),
+                    main_mode: pac::cmc::Pmctrlmain::default(),
+                };
+                registers.main_mode.set_lpmode(main_mode);
+                registers
+            }
+
+            fn cmc(&mut self) -> pac::cmc::Cmc {
+                assert_eq!(core::mem::offset_of!(Self, clock_control), 0x10);
+                assert_eq!(core::mem::offset_of!(Self, protection), 0x18);
+                assert_eq!(core::mem::offset_of!(Self, global_mode), 0x1c);
+                assert_eq!(core::mem::offset_of!(Self, main_mode), 0x20);
+                // SAFETY: the aligned RAM model covers every accessed CMC register.
+                unsafe { pac::cmc::Cmc::from_ptr((self as *mut Self).cast()) }
+            }
+        }
+
+        #[test]
+        fn deep_sleep_updates_only_the_protection_field() -> Result<(), PowerModeError> {
+            let mut registers = Registers::new(PmctrlmainLpmode::Lpmode0001);
+            registers.protection = pac::cmc::Pmprot(0x0001_000f);
+            let cmc = registers.cmc();
+            let (clock_mode, protection, low_power_mode) = PowerMode::DeepSleep.configuration();
+
+            prepare_power_mode(cmc, clock_mode, protection, low_power_mode)?;
+
+            assert_eq!(registers.protection.0, 0x0001_0001);
+            assert_eq!(registers.clock_control.ckmode(), Ckmode::Ckmode1111);
+            assert_eq!(registers.global_mode.lpmode(), 1);
+            Ok(())
+        }
+
+        #[test]
+        fn sleep_preserves_existing_protection() -> Result<(), PowerModeError> {
+            let mut registers = Registers::new(PmctrlmainLpmode::Lpmode0000);
+            registers.protection.set_lpmode(PmprotLpmode::En2);
+            registers.protection.set_lock(true);
+            let original = registers.protection;
+            let cmc = registers.cmc();
+            let (clock_mode, protection, low_power_mode) = PowerMode::Sleep.configuration();
+
+            prepare_power_mode(cmc, clock_mode, protection, low_power_mode)?;
+
+            assert_eq!(registers.protection, original);
+            assert_eq!(registers.clock_control.ckmode(), Ckmode::Ckmode0001);
+            assert_eq!(registers.global_mode.lpmode(), 0);
+            Ok(())
+        }
+
+        #[test]
+        fn recovery_restores_active_power_mode() -> Result<(), PowerModeError> {
+            let mut registers = Registers::new(PmctrlmainLpmode::Lpmode0000);
+            registers.clock_control.set_ckmode(Ckmode::Ckmode1111);
+            registers.global_mode.set_lpmode(PmctrlmainLpmode::Lpmode0001.to_bits());
+            let cmc = registers.cmc();
+
+            restore_idle_mode(cmc, Ckmode::Ckmode0001)?;
+
+            assert_eq!(registers.clock_control.ckmode(), Ckmode::Ckmode0001);
+            assert_eq!(registers.global_mode.lpmode(), 0);
+            Ok(())
+        }
     }
 
     #[test]
