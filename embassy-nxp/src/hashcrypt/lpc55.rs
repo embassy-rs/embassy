@@ -45,123 +45,6 @@ pub enum AesError {
     InvlidPadding,
 }
 
-fn wait_iv_counter() {
-    while !pac::HASHCRYPT.status().read().neediv() {
-        cortex_m::asm::nop();
-    }
-}
-
-fn _feed_iv_counter(words: &[u8; 16]) {
-    wait_data();
-    wait_iv_counter();
-
-    for chunk in words.chunks_exact(4) {
-        feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
-    }
-}
-
-fn process_block(input: &[u8; 16], output: &mut [u8; 16], last: bool) {
-    if last {
-        pac::HASHCRYPT.cryptcfg().modify(|w| {
-            w.set_streamlast(true);
-        });
-    }
-
-    for word in input.chunks_exact(4) {
-        feed_word(u32::from_le_bytes(word.try_into().unwrap()));
-    }
-
-    read_digest(4, output);
-}
-
-fn process_blocks(data: &[u8], output: &mut [u8]) {
-    let nr_blocks = data.len() / 16;
-    let mut offset = 0;
-
-    for (i, block) in data.chunks_exact(16).enumerate() {
-        let block: &[u8; 16] = block.try_into().unwrap();
-        let last = if nr_blocks == i + 1 { true } else { false };
-        let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
-        process_block(block, out, last);
-        offset += 16
-    }
-}
-
-fn process_blocks_padded(data: &[u8], output: &mut [u8]) {
-    let mut offset = 0;
-    let mut blocks = data.chunks_exact(16);
-    for block in &mut blocks {
-        for word in block.chunks_exact(4) {
-            feed_word(u32::from_le_bytes(word.try_into().unwrap()));
-        }
-
-        read_digest(4, &mut output[offset..offset + 16]);
-        offset += 16;
-    }
-
-    let tail = blocks.remainder();
-    let pad = (16 - tail.len()) as u8;
-
-    let mut final_block = [0u8; 16];
-    final_block[..tail.len()].copy_from_slice(tail);
-    final_block[tail.len()..].fill(pad);
-
-    pac::HASHCRYPT.cryptcfg().modify(|w| {
-        w.set_streamlast(true);
-    });
-
-    for chunks in final_block.chunks_exact(4) {
-        feed_word(u32::from_le_bytes(chunks.try_into().unwrap()));
-    }
-    read_digest(4, &mut output[offset..offset + 16]);
-}
-
-// Used by the SHA and AES modes;
-fn read_digest(count: usize, out: &mut [u8]) {
-    loop {
-        let status = pac::HASHCRYPT.status().read().digest();
-        // Block until the DIGEST status flag signals the output registers hold a
-        // complete result, then read `count` words out of DIGEST0..n.
-        if status {
-            for i in 0..count {
-                let word = pac::HASHCRYPT.digest0(i).read().digest();
-                out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
-            }
-            break;
-        }
-        // If status is false, then that means there is no digest ready to be read, and since there is
-        // no more incoming data, then that means we just need to keep waiting and so there is no need
-        // to explicitly handle that case
-    }
-}
-
-fn process_blocks_ctr(data: &[u8], output: &mut [u8]) {
-    let blocks = data.chunks_exact(16);
-    let tail = blocks.remainder();
-    let nr_blocks = data.len() / 16;
-    let has_tail = !tail.is_empty();
-    let mut offset = 0;
-
-    // process the 16 byte blocks
-    for (i, block) in blocks.enumerate() {
-        let block: &[u8; 16] = block.try_into().unwrap();
-        let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
-        let last = !has_tail && i + 1 == nr_blocks;
-
-        process_block(block, out, last);
-        offset += 16;
-    }
-
-    // if the tail exist, pad with 0
-    if has_tail {
-        let mut in_blocks = [0u8; 16];
-        in_blocks[..tail.len()].copy_from_slice(tail);
-        let mut out_blocks = [0u8; 16];
-        process_block(&in_blocks, &mut out_blocks, true);
-        output[offset..offset + tail.len()].copy_from_slice(&out_blocks[..tail.len()]);
-    }
-}
-
 // Generic driver type
 pub struct GenericHashcrypt<'d> {
     _peri: Peri<'d, HASHCRYPT>,
@@ -327,6 +210,104 @@ impl<'d> GenericHashcrypt<'d> {
             }
         }
     }
+
+    pub(crate) fn wait_iv_counter() {
+        while !pac::HASHCRYPT.status().read().neediv() {
+            cortex_m::asm::nop();
+        }
+    }
+
+    pub(crate) fn feed_iv_counter(words: &[u8; 16]) {
+        Self::wait_data();
+        Self::wait_iv_counter();
+
+        for chunk in words.chunks_exact(4) {
+            Self::feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
+        }
+    }
+
+    pub(crate) fn process_block(input: &[u8; 16], output: &mut [u8; 16], last: bool) {
+        if last {
+            pac::HASHCRYPT.cryptcfg().modify(|w| {
+                w.set_streamlast(true);
+            });
+        }
+
+        for word in input.chunks_exact(4) {
+            Self::feed_word(u32::from_le_bytes(word.try_into().unwrap()));
+        }
+
+        Self::read_digest(4, output);
+    }
+
+    pub(crate) fn process_blocks(data: &[u8], output: &mut [u8]) {
+        let nr_blocks = data.len() / 16;
+        let mut offset = 0;
+
+        for (i, block) in data.chunks_exact(16).enumerate() {
+            let block: &[u8; 16] = block.try_into().unwrap();
+            let last = if nr_blocks == i + 1 { true } else { false };
+            let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
+            Self::process_block(block, out, last);
+            offset += 16
+        }
+    }
+
+    pub(crate) fn process_blocks_padded(data: &[u8], output: &mut [u8]) {
+        let mut offset = 0;
+        let mut blocks = data.chunks_exact(16);
+        for block in &mut blocks {
+            for word in block.chunks_exact(4) {
+                Self::feed_word(u32::from_le_bytes(word.try_into().unwrap()));
+            }
+
+            Self::read_digest(4, &mut output[offset..offset + 16]);
+            offset += 16;
+        }
+
+        let tail = blocks.remainder();
+        let pad = (16 - tail.len()) as u8;
+
+        let mut final_block = [0u8; 16];
+        final_block[..tail.len()].copy_from_slice(tail);
+        final_block[tail.len()..].fill(pad);
+
+        pac::HASHCRYPT.cryptcfg().modify(|w| {
+            w.set_streamlast(true);
+        });
+
+        for chunks in final_block.chunks_exact(4) {
+            Self::feed_word(u32::from_le_bytes(chunks.try_into().unwrap()));
+        }
+        Self::read_digest(4, &mut output[offset..offset + 16]);
+    }
+
+    pub(crate) fn process_blocks_ctr(data: &[u8], output: &mut [u8]) {
+        let blocks = data.chunks_exact(16);
+        let tail = blocks.remainder();
+        let nr_blocks = data.len() / 16;
+        let has_tail = !tail.is_empty();
+        let mut offset = 0;
+
+        // process the 16 byte blocks
+        for (i, block) in blocks.enumerate() {
+            let block: &[u8; 16] = block.try_into().unwrap();
+            let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
+            let last = !has_tail && i + 1 == nr_blocks;
+
+            Self::process_block(block, out, last);
+            offset += 16;
+        }
+
+        // if the tail exist, pad with 0
+        if has_tail {
+            let mut in_blocks = [0u8; 16];
+            in_blocks[..tail.len()].copy_from_slice(tail);
+            let mut out_blocks = [0u8; 16];
+            Self::process_block(&in_blocks, &mut out_blocks, true);
+            output[offset..offset + tail.len()].copy_from_slice(&out_blocks[..tail.len()]);
+        }
+    }
 }
 
 pub trait Digest {
@@ -430,8 +411,8 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
             w.set_new_hash(true);
         });
 
-        feed_key(key);
-        process_blocks(data, output);
+        GenericHashcrypt::feed_key(key);
+        GenericHashcrypt::process_blocks(data, output);
 
         return Ok(());
     }
@@ -463,8 +444,8 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
             w.set_new_hash(true);
         });
 
-        feed_key(key);
-        process_blocks(data, output);
+        GenericHashcrypt::feed_key(key);
+        GenericHashcrypt::process_blocks(data, output);
 
         return Ok(());
     }
@@ -491,8 +472,8 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
             w.set_new_hash(true);
         });
 
-        feed_key(key);
-        process_blocks_padded(data, output);
+        GenericHashcrypt::feed_key(key);
+        GenericHashcrypt::process_blocks_padded(data, output);
 
         return Ok(&output[..padded_len]);
     }
@@ -519,8 +500,8 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
             w.set_new_hash(true);
         });
 
-        feed_key(key);
-        process_blocks(data, output);
+        GenericHashcrypt::feed_key(key);
+        GenericHashcrypt::process_blocks(data, output);
 
         let len = data.len();
         let n = output[len - 1] as usize;
@@ -585,9 +566,9 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
             w.set_new_hash(true);
         });
 
-        feed_key(key);
-        feed_iv_counter(iv);
-        process_blocks(data, output);
+        GenericHashcrypt::feed_key(key);
+        GenericHashcrypt::feed_iv_counter(iv);
+        GenericHashcrypt::process_blocks(data, output);
 
         return Ok(());
     }
@@ -628,9 +609,9 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
             w.set_new_hash(true);
         });
 
-        feed_key(key);
-        feed_iv_counter(iv);
-        process_blocks(data, output);
+        GenericHashcrypt::feed_key(key);
+        GenericHashcrypt::feed_iv_counter(iv);
+        GenericHashcrypt::process_blocks(data, output);
 
         return Ok(());
     }
@@ -666,9 +647,9 @@ impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
             w.set_new_hash(true);
         });
 
-        feed_key(key);
-        feed_iv_counter(iv);
-        process_blocks_padded(data, output);
+        GenericHashcrypt::feed_key(key);
+        GenericHashcrypt::feed_iv_counter(iv);
+        GenericHashcrypt::process_blocks_padded(data, output);
 
         return Ok(&output[..padded_len]);
     }
@@ -702,9 +683,9 @@ impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
             w.set_new_hash(true);
         });
 
-        feed_key(key);
-        feed_iv_counter(iv);
-        process_blocks(data, output);
+        GenericHashcrypt::feed_key(key);
+        GenericHashcrypt::feed_iv_counter(iv);
+        GenericHashcrypt::process_blocks(data, output);
 
         let len = data.len();
         let n = output[len - 1] as usize;
@@ -767,14 +748,14 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
             w.set_new_hash(true);
         });
 
-        feed_key(key);
-        feed_iv_counter(counter);
+        GenericHashcrypt::feed_key(key);
+        GenericHashcrypt::feed_iv_counter(counter);
 
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesctrpos(0);
         });
 
-        process_blocks_ctr(data, output);
+        GenericHashcrypt::process_blocks_ctr(data, output);
 
         return Ok(());
     }
@@ -811,14 +792,14 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
             w.set_new_hash(true);
         });
 
-        feed_key(key);
-        feed_iv_counter(counter);
+        GenericHashcrypt::feed_key(key);
+        GenericHashcrypt::feed_iv_counter(counter);
 
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesctrpos(0);
         });
 
-        process_blocks_ctr(data, output);
+        GenericHashcrypt::process_blocks_ctr(data, output);
 
         return Ok(());
     }
