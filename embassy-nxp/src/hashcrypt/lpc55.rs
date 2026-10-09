@@ -261,7 +261,7 @@ impl<'a, 'd> Digest for Sha1<'a, 'd> {
     type Output = [u8; 20];
 
     fn finalise(&mut self) -> Self::Output {
-        pad_drain_final(&mut self.buffer, self.buffer_len, self.total_len);
+        GenericHashcrypt::pad_drain_final(&mut self.buffer, self.buffer_len, self.total_len);
         // Now we can prepare the 8 word digest
 
         let mut digest: [u8; 20] = [0u8; 20];
@@ -405,7 +405,7 @@ macro_rules! impl_sha {
                     // Once the buffer is full, we drain it in to the FIFO via .indata().set_data()
                     if self.buffer_len == 64 {
                         // buffer is full, so we drain the message streamed so far into the FIFO
-                        drain_buffer(&self.buffer);
+                        GenericHashcrypt::drain_buffer(&self.buffer);
                         // Once the 16 word FIFO is full (see [drain_buffer]), hashing begins automatically, and we are free to start
                         // overwriting the buffer so we can fill it once more with the incoming data
 
