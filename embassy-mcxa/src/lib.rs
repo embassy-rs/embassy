@@ -6,6 +6,10 @@
 // Allow functions with too many args - we have a lot of HAL constructors like this for now
 #![allow(clippy::too_many_arguments)]
 
+// Keep the executor's global timer-queue provider linked in host tests.
+#[cfg(all(test, not(target_os = "none")))]
+extern crate embassy_executor as _;
+
 #[cfg(all(feature = "executor-platform", feature = "external-deep-sleep-executor"))]
 compile_error!("embassy-mcxa executor-platform and external-deep-sleep-executor are mutually exclusive");
 

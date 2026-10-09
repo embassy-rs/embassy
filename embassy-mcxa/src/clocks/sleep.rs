@@ -1,3 +1,13 @@
+//! Sleep and deep sleep management for the MCXA2xx and MCXA5xx series
+//! This file contains code to manage sleep and deep sleep entry and exit.
+//! This file supports the custom executor in embassy-mcxa/src/executor and
+//! a user supplied custom executor.
+//! The API calls with the name go_to_* are available for the custom executor
+//! and do ignore the wake guards.
+//! NOTE BENE:
+//!   When using a custom executor, it is the users responsibility to manage
+//! wake guards correctly.
+
 //! Checked CMC sleep entry, exit, and clock recovery.
 //!
 //! Entry follows the NXP CMC configuration, readback, and barrier sequence.
@@ -5,9 +15,12 @@
 //! The caller holds a critical section through clock and idle-mode recovery.
 //! SCR sleep control is saved per call and restored before returning, and
 //! status is captured before recovery modifies the CMC/SPC registers.
-//! MCXA2xx entry/recovery follows MCXAP144M240F61RM Rev. 2 sections 18.3.3,
-//! 18.6, 22.3.1, and 25.7. Active-only SPLL is stopped explicitly on MCXA2xx;
-//! when it supplies the CPU, SIRC carries execution until SPLL is locked again.
+//! Entry/recovery follows MCXAP144M240F61RM Rev. 2 sections 18.3.3, 18.6,
+//! 22.3.1, and 25.7 for MCXA2xx, and MCXAP172M240F70RM Rev. 1 sections
+//! 26.3.3, 26.6, 29.3.1, and 32.7 for MCXA5xx. Both families require an
+//! active-only SPLL to be stopped explicitly; when it supplies the CPU, SIRC
+//! carries execution until the reference clocks and SPLL are ready again.
+//! Active-only FIRC recovery waits for both valid and accurate output.
 
 use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
@@ -17,9 +30,9 @@ use super::config::CoreSleep;
 use super::types::{Clocks, PoweredClock};
 use crate::pac;
 use crate::pac::cmc::Ckmode;
-#[cfg(feature = "mcxa2xx")]
-use crate::pac::scg::{Fircacc, Fircvld, Rccr, Scs, Sirccsr, SirccsrLk, Sircerr, Spllcsr, SpllcsrLk, Spllerr};
-use crate::pac::scg::{Sircvld, SpllLock};
+use crate::pac::scg::{
+    Fircacc, Firccsr, Fircvld, Rccr, Scs, Sirccsr, SirccsrLk, Sircerr, Sircvld, SpllLock, Spllcsr, SpllcsrLk, Spllerr,
+};
 use crate::pac::spc::{PdLpReq, SpcLpReq};
 
 const LOW_POWER_MODE_MASK: u32 = 0x0f;
@@ -176,7 +189,6 @@ unsafe fn enter_power_mode(cs: &CriticalSection, mode: PowerMode) -> Result<Slee
         return Err(error);
     }
 
-    #[cfg(feature = "mcxa2xx")]
     let pll_state = if mode == PowerMode::DeepSleep {
         // SAFETY: peripherals are quiescent and the caller masks interrupts
         // throughout the temporary CPU clock switch and PLL restart.
@@ -213,15 +225,7 @@ unsafe fn enter_power_mode(cs: &CriticalSection, mode: PowerMode) -> Result<Slee
     };
     if mode != PowerMode::Sleep {
         // SAFETY: recovery is performed in the same critical section as entry.
-        #[cfg(feature = "mcxa2xx")]
-        unsafe {
-            restart_active_only_clocks(scg, clocks, pll_state.as_ref())
-        };
-        // SAFETY: recovery is performed in the same critical section as entry.
-        #[cfg(feature = "mcxa5xx")]
-        unsafe {
-            restart_active_only_clocks(scg, clocks)
-        };
+        unsafe { restart_active_only_clocks(scg, clocks, pll_state.as_ref()) };
     }
     clear_spc_low_power_status(spc);
     let recovery = restore_idle_mode(cmc, idle_mode);
@@ -317,14 +321,12 @@ fn clear_previous_clock_status(cmc: pac::cmc::Cmc) {
     cmc.ckstat().write(|w| w.set_valid(true));
 }
 
-#[cfg(feature = "mcxa2xx")]
 struct PllStopState {
     control: Spllcsr,
     cpu_clock: Option<Rccr>,
     sirc_control: Option<Sirccsr>,
 }
 
-#[cfg(feature = "mcxa2xx")]
 fn set_sirc_peripheral_gate(scg: pac::scg::Scg, enabled: bool, lock: SirccsrLk) {
     scg.sirccsr().modify(|w| {
         w.set_lk(SirccsrLk::WriteEnabled);
@@ -337,7 +339,6 @@ fn set_sirc_peripheral_gate(scg: pac::scg::Scg, enabled: bool, lock: SirccsrLk) 
     });
 }
 
-#[cfg(feature = "mcxa2xx")]
 fn pll_control_for_stop(mut control: Spllcsr) -> Spllcsr {
     control.set_spllpwren(false);
     control.set_spllclken(false);
@@ -346,7 +347,6 @@ fn pll_control_for_stop(mut control: Spllcsr) -> Spllcsr {
     control
 }
 
-#[cfg(feature = "mcxa2xx")]
 fn pll_control_for_start(mut control: Spllcsr) -> Spllcsr {
     control.set_lk(SpllcsrLk::WriteEnabled);
     control.set_spllcm(false);
@@ -354,12 +354,11 @@ fn pll_control_for_start(mut control: Spllcsr) -> Spllcsr {
     control
 }
 
-/// MCXA2xx requires SPLLPWREN to be cleared before Deep Sleep when SPLLSTEN is zero.
+/// Both families require SPLLPWREN to be cleared before Deep Sleep when SPLLSTEN is zero.
 ///
 /// # Safety
 ///
 /// The caller must mask interrupts and quiesce clock consumers until recovery.
-#[cfg(feature = "mcxa2xx")]
 unsafe fn suspend_active_only_pll(scg: pac::scg::Scg, clocks: &Clocks) -> Result<Option<PllStopState>, PowerModeError> {
     let Some(pll) = clocks.pll1_clk.as_ref() else {
         return Ok(None);
@@ -409,12 +408,11 @@ unsafe fn suspend_active_only_pll(scg: pac::scg::Scg, clocks: &Clocks) -> Result
     Ok(Some(state))
 }
 
-/// Restart MCXA2xx SPLL only after its analog LDO and reference clocks are ready.
+/// Restart SPLL only after its analog LDO and reference clocks are ready.
 ///
 /// # Safety
 ///
 /// The caller must still hold the entry critical section.
-#[cfg(feature = "mcxa2xx")]
 unsafe fn resume_active_only_pll(scg: pac::scg::Scg, state: &PllStopState) {
     while !scg.ldocsr().read().vout_ok() {}
     scg.spllcsr().modify(|w| {
@@ -444,11 +442,7 @@ unsafe fn resume_active_only_pll(scg: pac::scg::Scg, state: &PllStopState) {
 /// ## Safety
 ///
 /// This should only be called in a critical section, immediately after waking up.
-unsafe fn restart_active_only_clocks(
-    scg: pac::scg::Scg,
-    clocks: &Clocks,
-    #[cfg(feature = "mcxa2xx")] pll_state: Option<&PllStopState>,
-) {
+unsafe fn restart_active_only_clocks(scg: pac::scg::Scg, clocks: &Clocks, pll_state: Option<&PllStopState>) {
     // TODO: Restart clock monitors if necessary? Needs to be re-enabled
     // AFTER FRO12M has been started, and probably after clocks are
     // valid again.
@@ -463,17 +457,11 @@ unsafe fn restart_active_only_clocks(
         while scg.sirccsr().read().sircvld() != Sircvld::EnabledAndValid {}
     }
 
-    // Ensure FRO45M is up and running
-    #[cfg(feature = "mcxa2xx")]
+    // Ensure FIRC is valid and accurate before restarting its consumers.
     if let Some(frohf) = clocks.fro_hf_root.as_ref()
         && !matches!(frohf.power, PoweredClock::AlwaysEnabled)
     {
-        loop {
-            let csr = scg.firccsr().read();
-            if csr.fircvld() == Fircvld::EnabledAndValid && csr.fircacc() == Fircacc::EnabledAndValid {
-                break;
-            }
-        }
+        while !firc_ready(scg.firccsr().read()) {}
     }
 
     // Ensure SOSC is up and running
@@ -484,7 +472,6 @@ unsafe fn restart_active_only_clocks(
         while !scg.sosccsr().read().soscvld() {}
     }
 
-    #[cfg(feature = "mcxa2xx")]
     if let Some(state) = pll_state {
         // SAFETY: references and LDO recover before restoring the CPU's PLL source.
         unsafe { resume_active_only_pll(scg, state) };
@@ -496,6 +483,10 @@ unsafe fn restart_active_only_clocks(
     {
         while scg.spllcsr().read().spll_lock() != SpllLock::EnabledAndValid {}
     }
+}
+
+fn firc_ready(control: Firccsr) -> bool {
+    control.fircvld() == Fircvld::EnabledAndValid && control.fircacc() == Fircacc::EnabledAndValid
 }
 
 #[cfg(test)]
@@ -654,7 +645,38 @@ mod tests {
         assert!(status.core_clock_was_gated());
     }
 
-    #[cfg(feature = "mcxa2xx")]
+    mod firc_ready {
+        use super::super::firc_ready;
+        use super::*;
+
+        #[test]
+        fn disabled_output_is_not_ready() {
+            assert!(!firc_ready(Firccsr::default()));
+        }
+
+        #[test]
+        fn valid_output_must_also_be_accurate() {
+            let mut control = Firccsr::default();
+            control.set_fircvld(Fircvld::EnabledAndValid);
+            assert!(!firc_ready(control));
+        }
+
+        #[test]
+        fn accurate_output_must_also_be_valid() {
+            let mut control = Firccsr::default();
+            control.set_fircacc(Fircacc::EnabledAndValid);
+            assert!(!firc_ready(control));
+        }
+
+        #[test]
+        fn valid_and_accurate_output_is_ready() {
+            let mut control = Firccsr::default();
+            control.set_fircvld(Fircvld::EnabledAndValid);
+            control.set_fircacc(Fircacc::EnabledAndValid);
+            assert!(firc_ready(control));
+        }
+    }
+
     mod pll {
         use super::*;
         use crate::clocks::Clock;
@@ -669,7 +691,9 @@ mod tests {
             run_clock: Rccr,
             padding_to_sirc: [u32; 122],
             sirc: Sirccsr,
-            padding_to_pll: [u32; 255],
+            padding_to_firc: [u32; 63],
+            firc: Firccsr,
+            padding_to_pll: [u32; 191],
             pll: Spllcsr,
             padding_to_ldo: [u32; 127],
             ldo: Ldocsr,
@@ -683,7 +707,9 @@ mod tests {
                     run_clock: Rccr::default(),
                     padding_to_sirc: [0; 122],
                     sirc: Sirccsr::default(),
-                    padding_to_pll: [0; 255],
+                    padding_to_firc: [0; 63],
+                    firc: Firccsr::default(),
+                    padding_to_pll: [0; 191],
                     pll: Spllcsr::default(),
                     padding_to_ldo: [0; 127],
                     ldo: Ldocsr::default(),
@@ -691,6 +717,8 @@ mod tests {
                 registers.status.set_scs(Scs::Sirc);
                 registers.run_clock.set_scs(source);
                 registers.sirc.set_sircvld(Sircvld::EnabledAndValid);
+                registers.firc.set_fircvld(Fircvld::EnabledAndValid);
+                registers.firc.set_fircacc(Fircacc::EnabledAndValid);
                 registers.pll.set_spllpwren(true);
                 registers.pll.set_spllclken(true);
                 registers.pll.set_spllcm(true);
@@ -702,6 +730,7 @@ mod tests {
 
             fn scg(&mut self) -> pac::scg::Scg {
                 assert_eq!(core::mem::offset_of!(Self, sirc), 0x200);
+                assert_eq!(core::mem::offset_of!(Self, firc), 0x300);
                 assert_eq!(core::mem::offset_of!(Self, pll), 0x600);
                 assert_eq!(core::mem::offset_of!(Self, ldo), 0x800);
                 // SAFETY: the aligned RAM model covers all accessed SCG registers.
@@ -766,6 +795,59 @@ mod tests {
             assert_eq!(registers.pll.lk(), SpllcsrLk::WriteDisabled);
             assert!(!registers.sirc.sirc_clk_periph_en());
             assert_eq!(registers.sirc.lk(), SirccsrLk::WriteDisabled);
+            Ok(())
+        }
+
+        #[test]
+        fn clock_recovery_restores_cpu_pll_after_active_only_firc() -> Result<(), PowerModeError> {
+            let mut registers = Registers::new(Scs::Spll);
+            let scg = registers.scg();
+            let mut clocks = active_only_clocks();
+            #[cfg(feature = "mcxa2xx")]
+            let frequency = 45_000_000;
+            #[cfg(feature = "mcxa5xx")]
+            let frequency = 48_000_000;
+            clocks.fro_hf_root = Some(Clock {
+                frequency,
+                power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            });
+
+            // SAFETY: there are no concurrent users of this isolated RAM model.
+            let state =
+                unsafe { suspend_active_only_pll(scg, &clocks) }?.ok_or(PowerModeError::ConfigurationRejected)?;
+            registers.status.set_scs(Scs::Spll);
+            // SAFETY: FIRC validity, accuracy, and PLL/LDO feedback are preloaded
+            // in the isolated RAM model before full clock recovery.
+            unsafe { restart_active_only_clocks(scg, &clocks, Some(&state)) };
+
+            assert_eq!(registers.run_clock.scs(), Scs::Spll);
+            assert!(registers.pll.spllpwren());
+            assert!(registers.pll.spllclken());
+            assert!(registers.pll.spllcm());
+            assert_eq!(registers.pll.lk(), SpllcsrLk::WriteDisabled);
+            assert!(!registers.sirc.sirc_clk_periph_en());
+            Ok(())
+        }
+
+        #[cfg(feature = "mcxa5xx")]
+        #[test]
+        fn pll_divide_by_two_setting_survives_stop_and_restart() -> Result<(), PowerModeError> {
+            // MCXA5xx SPLLCSR bit 4 has no accessor in the pinned PAC.
+            const SPLL_DIV2_EN: u32 = 1 << 4;
+            let mut registers = Registers::new(Scs::Firc);
+            registers.pll.0 |= SPLL_DIV2_EN;
+            let scg = registers.scg();
+            // SAFETY: there are no concurrent users of this isolated RAM model.
+            let state = unsafe { suspend_active_only_pll(scg, &active_only_clocks()) }?
+                .ok_or(PowerModeError::ConfigurationRejected)?;
+            assert_eq!(registers.pll.0 & SPLL_DIV2_EN, SPLL_DIV2_EN);
+
+            // SAFETY: ready/lock feedback is preloaded in the isolated RAM model.
+            unsafe { resume_active_only_pll(scg, &state) };
+
+            assert_eq!(registers.pll.0 & SPLL_DIV2_EN, SPLL_DIV2_EN);
+            assert!(registers.pll.spllpwren());
+            assert!(registers.pll.spllclken());
             Ok(())
         }
 

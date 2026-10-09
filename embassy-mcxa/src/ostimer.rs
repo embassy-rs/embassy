@@ -145,6 +145,7 @@ impl OsTimer {
         true
     }
 
+    #[cfg(all(target_os = "none", target_arch = "arm"))]
     fn trigger_alarm(&self, cs: CriticalSection) {
         let mut next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
         while !self.set_alarm(cs, next) {
@@ -152,6 +153,7 @@ impl OsTimer {
         }
     }
 
+    #[cfg(all(target_os = "none", target_arch = "arm"))]
     fn on_interrupt(&self) {
         crate::perf_counters::incr_interrupt_ostimer();
         critical_section::with(|cs| {
@@ -198,6 +200,7 @@ impl Driver for OsTimer {
 }
 
 #[allow(non_snake_case)]
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 #[interrupt]
 fn OS_EVENT() {
     DRIVER.on_interrupt()

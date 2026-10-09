@@ -29,9 +29,7 @@ flavors = [
 
 [dependencies]
 bbqueue = { version = "0.7.0", features = ["disable-cache-padding"] }
-cortex-m = { version = "0.7", features = ["critical-section-single-core", "inline-asm"] }
-# If you would like "device" to be an optional feature, please open an issue.
-cortex-m-rt = { version = "0.7", features = ["device"] }
+cortex-m = "0.7"
 critical-section = "1.2.0"
 defmt = { version = "1.0", optional = true }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal" }
@@ -60,7 +58,7 @@ grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "2bfe368b9ad974d03a41279bddb1ef05705ae9d8", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "2bfe368b9ad974d03a41279bddb1ef05705ae9d8" }
 paste = "1.0.15"
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
@@ -170,7 +168,19 @@ mcxa2xx = ["nxp-pac/mcxa256"]
 mcxa5xx = ["nxp-pac/mcxa577"]
 
 [dev-dependencies]
-embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"] }
 embedded-storage = "0.3.1"
 panic-halt = "1.0.0"
 static_cell = "2.1.1"
+
+[target.'cfg(all(target_os = "none", target_arch = "arm"))'.dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core", "inline-asm"] }
+# If you would like "device" to be an optional feature, please open an issue.
+cortex-m-rt = { version = "0.7", features = ["device"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "2bfe368b9ad974d03a41279bddb1ef05705ae9d8", features = ["rt"] }
+
+[target.'cfg(all(target_os = "none", target_arch = "arm"))'.dev-dependencies]
+embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"] }
+
+[target.'cfg(not(target_os = "none"))'.dev-dependencies]
+critical-section = { version = "1.2.0", features = ["std"] }
+embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-std", "executor-thread"] }
