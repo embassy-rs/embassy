@@ -564,6 +564,7 @@ impl<'d> Channel<'d> {
                 assert!(ndtr > 0 && ndtr <= 0xFFFF);
 
                 if ch.cr().read().en() {
+                    warn!("DMA channel is still enabled after previous transfer. Make sure that transfer was dropped.");
                     ch.cr().modify(|w| w.set_en(false));
                     while ch.cr().read().en() {}
                 }
@@ -637,6 +638,7 @@ impl<'d> Channel<'d> {
                 self.clear_irqs();
 
                 if ch.cr().read().en() {
+                    warn!("DMA channel is still enabled after previous transfer. Make sure that transfer was dropped.");
                     ch.cr().modify(|w| w.set_en(false));
                     while ch.cr().read().en() {}
                 }
@@ -693,6 +695,7 @@ impl<'d> Channel<'d> {
                 self.clear_irqs();
 
                 if ch.cr().read().en() {
+                    warn!("DMA channel is still enabled after previous transfer. Make sure that transfer was dropped.");
                     ch.cr().modify(|w| w.set_en(false));
                     while ch.cr().read().en() {}
                 }
