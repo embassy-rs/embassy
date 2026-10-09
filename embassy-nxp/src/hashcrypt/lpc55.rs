@@ -293,11 +293,11 @@ pub struct Sha256<'a, 'd> {
 impl<'a, 'd> Digest for Sha256<'a, 'd> {
     type Output = [u8; 32];
     fn finalise(&mut self) -> Self::Output {
-        pad_drain_final(&mut self.buffer, self.buffer_len, self.total_len);
+        GenericHashcrypt::pad_drain_final(&mut self.buffer, self.buffer_len, self.total_len);
         // Now we can prepare the 8 word digest
 
         let mut digest: [u8; 32] = [0u8; 32];
-        read_digest(8, &mut digest);
+        GenericHashcrypt::read_digest(8, &mut digest);
 
         // Reset the HASHCRYPT peripheral, so it's ready for a new hash. When finalize() is called again,
         // all the registers including the length of the message that was previously hashed are reset, so that
@@ -332,11 +332,7 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> AesEcb<'a, 'd> {
-<<<<<<< HEAD
-    // Does not require anything past the default aes methods
-=======
     // Does not require anything past the default AES methods
->>>>>>> 0201b479f (fix typos and inconsistencies in coments)
 }
 pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
