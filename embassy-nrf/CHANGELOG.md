@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added: `embedded_io::Write` for `Uarte` and `UarteTx`.
 - added: `Spim::set_config`, `Spis::set_config` and `Twim::set_config` inherent methods.
 - bugfix: twis: apply `scl_pullup` instead of `sda_pullup` to the SCL pin.
+- added: `radio::ieee802154::Radio::send_no_cca` to transmit without CCA, as needed for ACK frames.
 
 ## 0.11.0 - 2026-06-16
 
