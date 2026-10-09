@@ -302,30 +302,26 @@ impl<'d> Control<'d> {
             }
         };
 
-        // The parameter block holds one entry per addressed channel, the
-        // master first for 0xFF [UAC 5.2.2.4].
-        let entry_size = match control_unit {
-            MUTE_CONTROL => 1,
-            VOLUME_CONTROL => 2,
+        // Only advertised controls have entries in a 0xFF block [UAC 5.2.2.4].
+        let (control, entry_size) = match control_unit {
+            MUTE_CONTROL => (FeatureUnitControls::MUTE, 1),
+            VOLUME_CONTROL => (FeatureUnitControls::VOLUME, 2),
             _ => return Some(OutResponse::Rejected),
         };
-        if data.len() < channels.clone().count() * entry_size {
+        let channels = channels.filter(|&channel| self.shared.controls(channel as u8).contains(control));
+        let channel_count = channels.clone().count();
+        if channel_count == 0 || data.len() != channel_count * entry_size {
             return Some(OutResponse::Rejected);
         }
 
         let accepted = self.shared.audio_settings.lock(|x| {
             let mut audio_settings = x.get();
-            // Entries apply where the descriptor advertises the control; a
-            // request addressing only unadvertised controls is rejected.
-            let mut any_advertised = false;
-            for (entry, channel) in channels.clone().enumerate() {
-                let controls = self.shared.controls(channel as u8);
+            for (entry, channel) in channels.enumerate() {
                 match control_unit {
-                    MUTE_CONTROL if controls.contains(FeatureUnitControls::MUTE) => {
+                    MUTE_CONTROL => {
                         audio_settings.muted[channel] = data[entry] != 0;
-                        any_advertised = true;
                     }
-                    VOLUME_CONTROL if controls.contains(FeatureUnitControls::VOLUME) => {
+                    VOLUME_CONTROL => {
                         let volume = i16::from_le_bytes([data[2 * entry], data[2 * entry + 1]]);
                         // CUR lies within the advertised range [UAC 5.2.2.4.2],
                         // except silence, which is always accepted.
@@ -336,15 +332,12 @@ impl<'d> Control<'d> {
                             return false;
                         }
                         audio_settings.volume_8q8_db[channel] = volume;
-                        any_advertised = true;
                     }
                     _ => {}
                 }
             }
-            if any_advertised {
-                x.set(audio_settings);
-            }
-            any_advertised
+            x.set(audio_settings);
+            true
         });
         if !accepted {
             return Some(OutResponse::Rejected);
@@ -415,20 +408,19 @@ impl<'d> Control<'d> {
                 return Some(InResponse::Rejected);
             }
         };
+        let control = match control_unit {
+            MUTE_CONTROL => FeatureUnitControls::MUTE,
+            VOLUME_CONTROL => FeatureUnitControls::VOLUME,
+            _ => return Some(InResponse::Rejected),
+        };
+        let channels = channels.filter(|&channel| self.shared.controls(channel as u8).contains(control));
         let channel_count = channels.clone().count();
-        // At least one addressed channel must advertise the control
-        // [UAC 5.2.1]; in a 0xFF block, the others report their fixed default.
-        let supports_mute = channels
-            .clone()
-            .any(|channel| self.shared.controls(channel as u8).contains(FeatureUnitControls::MUTE));
-        let supports_volume = channels.clone().any(|channel| {
-            self.shared
-                .controls(channel as u8)
-                .contains(FeatureUnitControls::VOLUME)
-        });
+        if channel_count == 0 {
+            return Some(InResponse::Rejected);
+        }
 
         match (req.request, control_unit) {
-            (GET_CUR, MUTE_CONTROL) if supports_mute && buf.len() >= channel_count => {
+            (GET_CUR, MUTE_CONTROL) if buf.len() >= channel_count => {
                 let audio_settings = self.shared.audio_settings.lock(|x| x.get());
                 for (entry, channel) in channels.enumerate() {
                     buf[entry] = audio_settings.muted[channel].into();
@@ -436,7 +428,7 @@ impl<'d> Control<'d> {
                 debug!("Got channel {} mute state.", channel_index);
                 Some(InResponse::Accepted(&buf[..channel_count]))
             }
-            (GET_CUR, VOLUME_CONTROL) if supports_volume && buf.len() >= 2 * channel_count => {
+            (GET_CUR, VOLUME_CONTROL) if buf.len() >= 2 * channel_count => {
                 let audio_settings = self.shared.audio_settings.lock(|x| x.get());
                 for (entry, channel) in channels.enumerate() {
                     buf[2 * entry..2 * entry + 2].copy_from_slice(&audio_settings.volume_8q8_db[channel].to_le_bytes());
@@ -444,7 +436,7 @@ impl<'d> Control<'d> {
                 debug!("Got channel {} volume.", channel_index);
                 Some(InResponse::Accepted(&buf[..2 * channel_count]))
             }
-            (GET_MIN | GET_MAX | GET_RES, VOLUME_CONTROL) if supports_volume && buf.len() >= 2 * channel_count => {
+            (GET_MIN | GET_MAX | GET_RES, VOLUME_CONTROL) if buf.len() >= 2 * channel_count => {
                 let value = match req.request {
                     GET_MIN => MIN_VOLUME_DB * VOLUME_STEPS_PER_DB,
                     GET_MAX => MAX_VOLUME_DB * VOLUME_STEPS_PER_DB,
