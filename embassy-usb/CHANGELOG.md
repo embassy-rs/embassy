@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MSC`: Add `SectorCache`, optimizing read-erase-write cycles in large block devices (flash), and `BlockDeviceAdapter` for `block_device_driver::BlockDevice` (feature `block-device-driver`)
 - `GUD`: Add Generic USB Display support.
 - USB host: debounce hub port connections and cleanup addresses after hub removal
+- USB host: call `UsbHostAllocator::device_removed` for each address freed on device removal
 
 ## 0.6.0 - 2026-03-10
 
