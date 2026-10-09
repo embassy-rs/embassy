@@ -23,7 +23,7 @@ pub enum KeySize {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AesError {
-    /// Error triggers when `.set_key` is called without `set_key_size`
+    /// Error triggers when `set_key` is called without `set_key_size`
     KeySizeNeeded,
     /// Error triggers when encrypt/decrypt is called before `set_key`
     KeyNeeded,
@@ -35,14 +35,14 @@ pub enum AesError {
     WrongKeySize,
     /// Error triggers when the key-size register holds a reserved value
     DeviceError,
-    /// Error triggers when encrypr/decrypt are called with data and output of different lengths
+    /// Error triggers when encrypt/decrypt are called with data and output of different lengths
     LengthMismatch,
-    /// Error triggers when, in ecb and cbc mode, in an encrypt or decrypt call, the length of the data is not dividible by 16
+    /// Error triggers when, in ECB and CBC mode, in an encrypt or decrypt call, the length of the data is not divisible by 16
     UnalignedLength,
     /// Error triggers when the buffer for the output is too small for the ciphertext or plaintext
     OutputTooSmall,
     /// Error triggers when function from the AesPadded trait is called on data which is not properly padded or that does not have padding at all
-    InvlidPadding,
+    InvalidPadding,
 }
 
 // Generic driver type
@@ -247,7 +247,7 @@ impl<'d> GenericHashcrypt<'d> {
             let last = if nr_blocks == i + 1 { true } else { false };
             let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
             Self::process_block(block, out, last);
-            offset += 16
+            offset += 16;
         }
     }
 
@@ -388,7 +388,7 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
             return Err(AesError::LengthMismatch);
         }
 
-        if data.is_empty() == true {
+        if data.is_empty() {
             return Ok(());
         }
 
@@ -421,7 +421,7 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
             return Err(AesError::LengthMismatch);
         }
 
-        if data.is_empty() == true {
+        if data.is_empty() {
             return Ok(());
         }
 
@@ -497,11 +497,11 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
         let n = output[len - 1] as usize;
 
         if n == 0 || n > 16 {
-            return Err(AesError::InvlidPadding);
+            return Err(AesError::InvalidPadding);
         }
         for i in (len - n)..len {
             if output[i] != n as u8 {
-                return Err(AesError::InvlidPadding);
+                return Err(AesError::InvalidPadding);
             }
         }
 
@@ -681,11 +681,11 @@ impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
         let n = output[len - 1] as usize;
 
         if n == 0 || n > 16 {
-            return Err(AesError::InvlidPadding);
+            return Err(AesError::InvalidPadding);
         }
         for i in (len - n)..len {
             if output[i] != n as u8 {
-                return Err(AesError::InvlidPadding);
+                return Err(AesError::InvalidPadding);
             }
         }
 
