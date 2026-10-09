@@ -27,6 +27,31 @@
 //! in the `embassy_stm32::executor` module, and is enabled by the `executor-thread` or `executor-interrupt` features. This stm32-specific
 //! executor is the preferred way to lower power consumption if you're using `async`, instead of calling `sleep()` directly.
 
+// Fail loudly on families that have no low-power implementation.
+//
+// This is a stopgap, not an endorsement of the split: the families listed below are simply the
+// ones for which `platform::enter_stop` below actually programs PWR. On any other family,
+// enabling `low-power` would still set `SLEEPDEEP` and execute `WFI`, but with PWR left at its
+// reset value. The consequences are silent and severe:
+//
+//   * the mode actually entered is whatever `PWR` defaults to, not the mode `rcc::get_stop_mode()`
+//     reports to callers and tests;
+//   * the wake-up flags are not cleared before entry, so entry can be silently ignored;
+//   * `platform::exit_stop` has no branch for these families, so the system clock is not restored
+//     after wake-up.
+//
+// Negative list `not(any(...))` rather than an explicit deny-list so that a newly added family
+// fails here until it is implemented deliberately. See `docs/low-power/00-hardware-survey.md`
+// §6.1 for the full analysis.
+#[cfg(not(any(
+    stm32f4, stm32g4, stm32l0, stm32l4, stm32l5, stm32u0, stm32u3, stm32u5, stm32h5, stm32wb, stm32wba, stm32wl
+)))]
+compile_error!(
+    "the `low-power` feature is not implemented for this STM32 family. \
+     Implemented families: f4, g4, l0, l4, l5, u0, u3, u5, h5, wb, wba, wl. \
+     See embassy-stm32/src/low_power.rs and docs/low-power/00-hardware-survey.md."
+);
+
 use core::mem;
 use core::sync::atomic::{Ordering, compiler_fence};
 
@@ -170,6 +195,24 @@ mod platform {
             w.set_lpds(true);
         });
 
+        #[cfg(stm32g4)]
+        {
+            // G4's stop modes are numbered the opposite way round from the L4/U5 families, and
+            // there is no Stop 2 at all: RM0440 §6.3.6/§6.3.7 define "Stop 0" as the main
+            // regulator staying on (fastest wake, higher current) and "Stop 1" as the main
+            // regulator being off with only the low-power regulator running (lowest current,
+            // slower wake). Table 41 in the RM uses a single merged "Stop 0/1" column, i.e. the
+            // two modes have *identical* peripheral availability and wake-up sources - the only
+            // difference is regulator current versus latency.
+            //
+            // Therefore every stop request maps to LPMS = 0b001 (G4 "Stop 1"), the lowest-current
+            // stop available: there is nothing to gain from the shallower G4 "Stop 0" here.
+            // LPMS = 0b011 is Standby and 0b1xx is Shutdown; neither is ever entered from here
+            // because both lose program state (see `rcc::get_stop_mode`).
+            crate::pac::PWR.cr1().modify(|w| w.set_lpms(0b001));
+            let _ = stop_mode;
+        }
+
         #[cfg(stm32wb)]
         drop(mutex);
 
@@ -195,6 +238,20 @@ mod platform {
 
         #[cfg(stm32l0)]
         crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
+
+        #[cfg(stm32g4)]
+        // G4 keeps its wake-up flags (WUF1..WUF5) in PWR_SR1 and the standby flag (SBF) there
+        // too; both are cleared by writing ones to PWR_SCR. A stale flag left over from a
+        // previous wake must not survive into the next entry. Writes are used rather than
+        // `modify` so we don't depend on the read-back value of a write-one-to-clear register.
+        crate::pac::PWR.scr().write(|w| {
+            w.set_cwuf1(true);
+            w.set_cwuf2(true);
+            w.set_cwuf3(true);
+            w.set_cwuf4(true);
+            w.set_cwuf5(true);
+            w.set_csbf(true);
+        });
     }
 
     /// Exit stop mode, reinitializing timer and rcc if required
@@ -223,7 +280,7 @@ mod platform {
             crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
         }
 
-        #[cfg(any(stm32wl, stm32wb, stm32wba, stm32f4))]
+        #[cfg(any(stm32wl, stm32wb, stm32wba, stm32f4, stm32g4))]
         {
             // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
             #[cfg(stm32wl5x)]
@@ -236,7 +293,7 @@ mod platform {
             let es = crate::pac::PWR.sr().read();
 
             // we need to re-initialize RCC if *BOTH* cores have been in some STOP mode!
-            #[cfg(any(stm32wl, stm32wba, stm32f4))]
+            #[cfg(any(stm32wl, stm32wba, stm32f4, stm32g4))]
             let re_initialize_rcc = {
                 #[cfg(stm32wl5x)]
                 {
@@ -251,7 +308,12 @@ mod platform {
                 {
                     es.stopf()
                 }
-                #[cfg(stm32f4)]
+                // F4 and G4 always need it: neither has STOPWUCK (RM0440 Table 40 lists HSI16 as
+                // the only wake-up system clock for Stop 0/1), so exiting Stop always lands us on
+                // HSI16 rather than the configured PLL. `reinit_saved` re-runs the full clock
+                // init, which also re-inits the time driver so the timer's prescaler matches the
+                // restored clock.
+                #[cfg(any(stm32f4, stm32g4))]
                 {
                     true
                 }
@@ -273,7 +335,7 @@ mod platform {
                 }
             };
 
-            #[cfg(any(stm32wl, stm32wba, stm32f4))]
+            #[cfg(any(stm32wl, stm32wba, stm32f4, stm32g4))]
             if re_initialize_rcc {
                 // when we wake from any stop mode we need to re-initialize the rcc
                 crate::rcc::reinit_saved(_cs);
