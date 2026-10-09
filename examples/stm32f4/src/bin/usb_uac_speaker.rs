@@ -13,7 +13,7 @@ use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::signal::Signal;
 use embassy_sync::zerocopy_channel;
 use embassy_usb::class::uac::device as uac1;
-use embassy_usb::class::uac::device::speaker::{self, Speaker};
+use embassy_usb::class::uac::device::speaker::{self, FeatureUnitControls, Speaker};
 use embassy_usb::driver::EndpointError;
 use heapless::Vec;
 use micromath::F32Ext;
@@ -50,6 +50,13 @@ pub const USB_FRAME_SIZE: usize = SAMPLE_SIZE_PER_S.div_ceil(1000);
 
 // Select front left and right audio channels.
 pub const AUDIO_CHANNELS: [uac1::Channel; INPUT_CHANNEL_COUNT] = [uac1::Channel::LeftFront, uac1::Channel::RightFront];
+
+// Master has no controls; left and right support mute and volume.
+const FEATURE_UNIT_CONTROLS: [FeatureUnitControls; INPUT_CHANNEL_COUNT + 1] = [
+    FeatureUnitControls::empty(),
+    FeatureUnitControls::MUTE.union(FeatureUnitControls::VOLUME),
+    FeatureUnitControls::MUTE.union(FeatureUnitControls::VOLUME),
+];
 
 // Factor of two as a margin for feedback (this is an excessive amount)
 pub const USB_MAX_PACKET_SIZE: usize = 2 * USB_FRAME_SIZE;
@@ -330,11 +337,14 @@ async fn main(spawner: Spawner) {
     } = Speaker::new(
         &mut builder,
         state,
-        USB_MAX_PACKET_SIZE as u16,
-        uac1::SampleWidth::Width4Byte,
-        &[SAMPLE_RATE_HZ],
-        &AUDIO_CHANNELS,
-        FEEDBACK_REFRESH_PERIOD,
+        speaker::Config {
+            sample_rates_hz: &[SAMPLE_RATE_HZ],
+            sample_width: SAMPLE_WIDTH,
+            channels: &AUDIO_CHANNELS,
+            feature_unit: &FEATURE_UNIT_CONTROLS,
+            max_packet_size: USB_MAX_PACKET_SIZE as u16,
+            feedback_refresh_period: FEEDBACK_REFRESH_PERIOD,
+        },
     );
 
     // Create the USB device

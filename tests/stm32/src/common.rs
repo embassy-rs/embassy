@@ -234,6 +234,7 @@ define_peris!(
     CAN = CAN1, CAN_RX = PA11, CAN_TX = PA12,
     ADC = ADC1, ADC_PIN = PA4, ADC_DMA = DMA2_CH0,
     TIM = TIM1, TIM_DMA = DMA2_CH5, TIM_PWM_PIN = PA8, TIM_PWM_PIN_IN = PC0,
+    MEM2MEM_DMA = DMA2_CH0,
     @irq UART = {
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
@@ -251,12 +252,16 @@ define_peris!(
     @irq TIM = {
         DMA2_STREAM5 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH5>;
     },
+    @irq MEM2MEM_DMA = {
+        DMA2_STREAM0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH0>;
+    },
 );
 #[cfg(feature = "stm32wb55rg")]
 define_peris!(
     UART = LPUART1, UART_TX = PA2, UART_RX = PA3, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
     ADC = ADC1, ADC_PIN = PC0, ADC_DMA = DMA1_CH1,
+    MEM2MEM_BDMA = DMA2_CH1,
     @irq UART = {
         LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::LPUART1>;
@@ -269,6 +274,9 @@ define_peris!(
     @irq ADC_IRQ = {
         ADC1 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
     },
+    @irq MEM2MEM_DMA = {
+        DMA2_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH1>;
+    },
 );
 #[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi"))]
 define_peris!(
@@ -278,6 +286,9 @@ define_peris!(
     DAC = DAC1, DAC_PIN = PA4, DAC_ADC = ADC1,
     // The internal channels are on ADC3.
     ADC = ADC3, ADC_PIN = PC0, ADC_DMA = DMA1_CH0,
+    MEM2MEM_DMA = DMA2_CH1,
+    MEM2MEM_BDMA = BDMA_CH0,
+    MEM2MEM_MDMA = MDMA_CH0,
     @irq UART = {
         CRYP => embassy_stm32::cryp::InterruptHandler<embassy_stm32::peripherals::CRYP>;
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
@@ -290,6 +301,11 @@ define_peris!(
     },
     @irq ADC_IRQ = {
         ADC3 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC3>;
+    },
+    @irq MEM2MEM_DMA = {
+        DMA2_STREAM1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH1>;
+        BDMA_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::BDMA_CH0>;
+        MDMA => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::MDMA_CH0>;
     },
 );
 #[cfg(feature = "stm32h7a3zi")]

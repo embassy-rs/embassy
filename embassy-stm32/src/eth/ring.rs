@@ -79,7 +79,7 @@ pub(crate) struct RDesRing<'a> {
     buffers: &'a mut [Option<PacketBuf>],
     /// Next descriptor to receive from.
     index: usize,
-    /// Next empty slot to give a buffer to.
+    /// Next slot to check for a missing buffer.
     fill: usize,
     /// Number of empty slots.
     empty: usize,
@@ -166,13 +166,18 @@ impl<'a> RDesRing<'a> {
             dma_ch0!(ETH.ethernet_dma(), dmac_rx_cr).modify(|w| w.set_rbsz(size as u16));
         }
 
-        let i = self.fill;
+        let i = loop {
+            let i = self.fill;
+            self.fill = if i + 1 == self.buffers.len() { 0 } else { i + 1 };
+            if self.buffers[i].is_none() {
+                break i;
+            }
+        };
         #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
         self.descriptors[i].set_ready(storage.as_mut_ptr(), size);
         #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
         self.descriptors[i].set_ready(storage.as_mut_ptr());
         self.buffers[i] = Some(buf);
-        self.fill = (i + 1) % self.descriptors.len();
         self.empty -= 1;
         self.rearmed(i);
     }

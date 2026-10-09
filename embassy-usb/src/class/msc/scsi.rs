@@ -18,6 +18,11 @@ pub(crate) const SCSI_WRITE_16: u8 = 0x8a;
 pub(crate) const SCSI_SERVICE_ACTION_IN_16: u8 = 0x9e;
 pub(crate) const SCSI_SA_READ_CAPACITY_16: u8 = 0x10;
 
+// START STOP UNIT CDB byte 4 (SBC-3 §5.25).
+pub(crate) const SSU_START: u8 = 0x01;
+pub(crate) const SSU_LOEJ: u8 = 0x02;
+pub(crate) const SSU_POWER_CONDITION_MASK: u8 = 0xf0;
+
 // Additional sense codes.
 pub(crate) const ASC_WRITE_ERROR: u8 = 0x0c;
 pub(crate) const ASC_UNRECOVERED_READ_ERROR: u8 = 0x11;
