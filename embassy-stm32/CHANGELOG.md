@@ -59,6 +59,7 @@ Ethernet:
 - fix: stm32/eth v2: place a memory barrier before handing a descriptor to the DMA, so the buffer address and the frame contents are visible to it first.
 
 USB:
+- perf: copy packet memory a word at a time instead of calling `memcpy` for every word.
 - fix: OTG_FS on STM32F1 uses 4 endpoints and 320 FIFO words.
 - fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
 - fix: OTG_HS on STM32N6 no longer hangs the bus while bringing up the USB HS PHY: USBPHYC is now programmed with the OTG core clocked and the USBPHYC block out of reset, as in ST's own example.
