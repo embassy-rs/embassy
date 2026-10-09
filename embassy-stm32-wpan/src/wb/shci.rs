@@ -1,7 +1,6 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::{mem, ptr, slice};
 
-use crate::wb::PacketHeader;
 use crate::wb::cmd::CmdPacket;
 use crate::wb::consts::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
 use crate::wb::evt::{CcEvt, EvtStub};
@@ -24,8 +23,10 @@ trait ShciFromEventSerial: TryFrom<u8, Error = ()> {}
 
 impl<T: ShciFromEventSerial> SealedSchiFromPacket for T {
     unsafe fn from_packet(cmd_buf: *const CmdPacket) -> Result<Self, ()> {
-        let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
-        let p_evt_payload = p_cmd_serial.add(size_of::<EvtStub>());
+        // The command complete of a system command does not have the `PacketHeader`:
+        // the response buffer starts directly with the `EvtSerial` field
+        // (kind, evt_code, payload_len), followed by the `CcEvt` (num_cmd, cmd_code, payload).
+        let p_evt_payload = (cmd_buf as *mut u8).add(size_of::<EvtStub>());
 
         compiler_fence(Ordering::Acquire);
         let cc_evt = ptr::read_unaligned(p_evt_payload as *const CcEvt);
@@ -152,6 +153,55 @@ impl TryFrom<u8> for ShciFusGetStateErrorCode {
             0xFF => Ok(Self::FusStateErrorErrUnknown),
             _ => Err(()),
         }
+    }
+}
+
+/// Raw response to `FUS_GET_STATE`: the current FUS state value and the error code
+/// of the last operation (only meaningful when the state value is `0xFF`, i.e.
+/// [`ShciFusGetStateErrorCode::FusStateErrorErrUnknown`]).
+///
+/// State values (see AN5185, "FUS state values"):
+/// - `0x00`: idle
+/// - `0x10..=0x1F`: wireless stack upgrade ongoing
+/// - `0x20..=0x2F`: FUS upgrade ongoing
+/// - `0x30..=0x3F`: service ongoing
+/// - `0xFE`: FUS not running (the wireless stack is running)
+/// - `0xFF`: error, see [`Self::error_code`]
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ShciFusState(pub u8, pub u8);
+
+impl ShciFusState {
+    /// Current FUS state value.
+    pub fn state(&self) -> u8 {
+        self.0
+    }
+
+    /// Error code of the last FUS operation; only valid when [`Self::state`] is `0xFF`.
+    pub fn error_code(&self) -> Option<ShciFusGetStateErrorCode> {
+        if self.0 == 0xFF { self.1.try_into().ok() } else { None }
+    }
+
+    /// Whether an upgrade or service operation is in progress.
+    pub fn is_ongoing(&self) -> bool {
+        matches!(self.0, 0x10..=0x3F)
+    }
+}
+
+impl SealedSchiFromPacket for ShciFusState {
+    unsafe fn from_packet(cmd_buf: *const CmdPacket) -> Result<Self, ()> {
+        // Same framing as `ShciFromEventSerial` above: no `PacketHeader`, the buffer
+        // starts with the `EvtSerial` field and the `CcEvt` payload holds the state.
+        let p_evt_payload = (cmd_buf as *mut u8).add(size_of::<EvtStub>());
+
+        compiler_fence(Ordering::Acquire);
+        let cc_evt = ptr::read_unaligned(p_evt_payload as *const CcEvt);
+        let state = cc_evt.payload[0];
+        // The error code byte only follows the state byte when the state is 0xFF,
+        // but the buffer is large enough to always read it.
+        let error_code = ptr::read_unaligned(p_evt_payload.add(size_of::<CcEvt>()));
+
+        Ok(Self(state, error_code))
     }
 }
 

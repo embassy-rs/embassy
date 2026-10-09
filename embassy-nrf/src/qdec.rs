@@ -65,9 +65,9 @@ impl<'d> Qdec<'d> {
     /// Create a new QDEC.
     pub fn new<T: Instance>(
         qdec: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         a: Peri<'d, impl GpioPin>,
         b: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(qdec, a.into(), b.into(), None, config)
@@ -76,10 +76,10 @@ impl<'d> Qdec<'d> {
     /// Create a new QDEC, with a pin for LED output.
     pub fn new_with_led<T: Instance>(
         qdec: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         a: Peri<'d, impl GpioPin>,
         b: Peri<'d, impl GpioPin>,
         led: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(qdec, a.into(), b.into(), Some(led.into()), config)
@@ -177,7 +177,7 @@ impl<'d> Qdec<'d> {
     /// # async {
     /// # let p: embassy_nrf::Peripherals = todo!();
     /// let config = qdec::Config::default();
-    /// let mut q = Qdec::new(p.QDEC, Irqs, p.P0_31, p.P0_30, config);
+    /// let mut q = Qdec::new(p.QDEC, p.P0_31, p.P0_30, Irqs, config);
     /// let delta = q.read().await;
     /// # };
     /// ```

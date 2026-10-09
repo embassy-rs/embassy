@@ -1,0 +1,18 @@
+[package]
+name = "mcu-crypto-sw-aes"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Shim around `mcu-crypto-asm`: enables only its software AES-128-GCM
+# embassy-crypto driver, so chips without a crypto peripheral can take
+# AES-128-GCM from software while the main `mcu-crypto-asm` dependency
+# (which registers P-256/P-384) does not also register AES-GCM and clash
+# with a hardware driver on chips that have one. A separate crate (rather
+# than a renamed dependency) because Cargo forbids depending on the same
+# package twice under different names.
+
+[dependencies]
+# mcu-crypto-asm = { git = "https://github.com/kokroo/mcu-crypto-asm", rev = "20201d1aa07d525553c73a1280165813ada2b2e4", features = ["embassy-crypto-aes128-gcm"] }
+embassy-crypto-rustcrypto = { version = "0.1.0", path = "../../embassy-crypto-rustcrypto", features = ["embassy-crypto-aes128-gcm"] }

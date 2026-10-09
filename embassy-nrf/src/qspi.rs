@@ -151,13 +151,13 @@ impl<'d> Qspi<'d> {
     /// Create a new QSPI driver.
     pub fn new<T: Instance>(
         _qspi: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: Peri<'d, impl GpioPin>,
         csn: Peri<'d, impl GpioPin>,
         io0: Peri<'d, impl GpioPin>,
         io1: Peri<'d, impl GpioPin>,
         io2: Peri<'d, impl GpioPin>,
         io3: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         let r = T::regs();

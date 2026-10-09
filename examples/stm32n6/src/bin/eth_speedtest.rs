@@ -24,9 +24,9 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_net::StackStorage;
 use embassy_net::tcp::{TcpListener, TcpSocket};
-use embassy_net::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
+use embassy_net::wire::{IpCidr, Ipv4Addr, Ipv4Cidr};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH_SMA, ETH1};
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk};
@@ -49,8 +49,8 @@ const DURATION: Duration = Duration::from_secs(10);
 const CHUNK: usize = 4096;
 
 // Static address for the board, /24. PC is the gateway / peer at .1.
-const LOCAL_IP: Ipv4Address = Ipv4Address::new(192, 168, 137, 2);
-const GATEWAY: Ipv4Address = Ipv4Address::new(192, 168, 137, 1);
+const LOCAL_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 137, 2);
+const GATEWAY: Ipv4Addr = Ipv4Addr::new(192, 168, 137, 1);
 
 fn rcc_config() -> Config {
     let mut config = Config::default();
@@ -214,7 +214,6 @@ async fn main(spawner: Spawner) -> ! {
     let device = Ethernet::new_rgmii(
         &mut packets.0,
         p.ETH1,
-        Irqs,
         p.PF0,  // RGMII_GTX_CLK
         p.PF11, // RGMII_TX_CTL
         p.PF12, // RGMII_TXD0
@@ -232,17 +231,20 @@ async fn main(spawner: Spawner) -> ! {
         p.ETH_SMA,
         p.PD12, // MDIO
         p.PD1,  // MDC
+        Irqs,
     );
 
     static STACK: StaticCell<StackStorage> = StaticCell::new();
     // Fixed seed: this is a local test, no need for entropy.
     let seed = 0x0123_4567_89ab_cdef;
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    // The ethernet DMA needs 8-byte aligned buffers, sized in multiples of 8.
+    static POOL: StaticPool<1520, 16, 8> = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    unwrap!(iface.add_ip_addr(IpCidr::Ipv4(Ipv4Cidr::new(LOCAL_IP, 24))));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
+    unwrap!(iface.add_ip_addr(IpCidr::V4(Ipv4Cidr::new(LOCAL_IP, 24))));
     unwrap!(stack.routes().add_default_ipv4_route(GATEWAY, iface.handle()));
 
     spawner.spawn(unwrap!(net_task(runner)));

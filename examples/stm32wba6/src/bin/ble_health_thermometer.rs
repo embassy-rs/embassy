@@ -32,27 +32,20 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_stm32::aes::{self, Aes};
-use embassy_stm32::peripherals::{AES, PKA, RNG};
-use embassy_stm32::pka::{self, Pka};
-use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
     CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType,
     Uuid, is_cccd_handle,
 };
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::{Duration, Ticker};
 use panic_probe as _;
-use stm32wb_hci::Event;
-use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
+use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
 
 bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<RNG>;
-    AES => aes::InterruptHandler<AES>;
-    PKA => pka::InterruptHandler<PKA>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
 });
@@ -126,16 +119,11 @@ fn next_temperature(current: i16, direction: &mut i16) -> i16 {
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
     config.rcc = rcc::Config::new_wpan();
-    let p = embassy_stm32::init(config);
+    let _p = embassy_stm32::init(config);
 
     info!("Embassy STM32WBA6 BLE Health Thermometer Example");
 
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Pka::new(p.PKA, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        8
-    );
+    let (platform, runtime) = new_platform!(8);
 
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 
@@ -239,15 +227,16 @@ async fn main(spawner: Spawner) {
     let mut ticker = Ticker::every(Duration::from_secs(1));
     let mut tick_count: u32 = 0;
 
+    let mut event_buf = EventBuffer::new();
     loop {
-        match select(ble.read_event(), ticker.next()).await {
+        match select(ble.read_event(&mut event_buf), ticker.next()).await {
             Either::First(event) => {
                 // ── GAP events ────────────────────────────────────────────────
                 if let Some(gap_event) = ble.process_event(&event) {
                     match gap_event {
                         GapEvent::Connected(conn) => {
-                            info!("Connected: 0x{:04X}", conn.handle.0);
-                            state.conn_handle = Some(conn.handle.0);
+                            info!("Connected: 0x{:04X}", conn.handle.raw());
+                            state.conn_handle = Some(conn.handle.raw());
                             state.indications_enabled = false;
                             state.interm_notifications_enabled = false;
                             state.indication_pending = false;
@@ -255,7 +244,7 @@ async fn main(spawner: Spawner) {
                         GapEvent::Disconnected { handle, reason } => {
                             info!(
                                 "Disconnected: 0x{:04X}, reason 0x{:02X} ({})",
-                                handle.0,
+                                handle.raw(),
                                 reason.as_u8(),
                                 Display2Format(&reason)
                             );
@@ -273,10 +262,10 @@ async fn main(spawner: Spawner) {
 
                 // ── GATT events ───────────────────────────────────────────────
                 match &event {
-                    Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
+                    BleEvent::Vendor(AciEvent::GattAttributeModified(attr)) => {
                         // CCCD write for Temperature Measurement (INDICATE)
-                        if is_cccd_handle(state.temm_char_handle.0, attr.attr_handle.0) {
-                            let cccd = CccdValue::from_bytes(attr.data());
+                        if is_cccd_handle(state.temm_char_handle.0, attr.attr_handle) {
+                            let cccd = CccdValue::from_bytes(attr.attr_data);
                             state.indications_enabled = cccd.indications;
                             info!(
                                 "TEMM indications {}",
@@ -284,8 +273,8 @@ async fn main(spawner: Spawner) {
                             );
                         }
                         // CCCD write for Intermediate Temperature (NOTIFY)
-                        else if is_cccd_handle(state.interm_char_handle.0, attr.attr_handle.0) {
-                            let cccd = CccdValue::from_bytes(attr.data());
+                        else if is_cccd_handle(state.interm_char_handle.0, attr.attr_handle) {
+                            let cccd = CccdValue::from_bytes(attr.attr_data);
                             state.interm_notifications_enabled = cccd.notifications;
                             info!(
                                 "INT notifications {}",
@@ -295,17 +284,17 @@ async fn main(spawner: Spawner) {
                     }
 
                     // Indication confirmed — safe to send the next one
-                    Event::Vendor(VendorEvent::GattServerConfirmation(_conn_handle)) => {
+                    BleEvent::Vendor(AciEvent::GattServerConfirmation(_conn_handle)) => {
                         debug!("Indication confirmed");
                         state.indication_pending = false;
                     }
 
-                    Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
-                        conn_handle,
+                    BleEvent::Vendor(AciEvent::AttExchangeMtuResp(AttExchangeMtuRespEvent {
+                        connection_handle: conn_handle,
                         server_rx_mtu,
                     })) => {
                         if let Some(conn) = ble.get_connection_mut(*conn_handle) {
-                            conn.update_mtu(*server_rx_mtu as u16);
+                            conn.update_mtu(*server_rx_mtu);
                         }
                     }
 

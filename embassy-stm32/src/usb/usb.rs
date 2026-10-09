@@ -251,27 +251,34 @@ struct EndpointBuffer<T: Instance> {
 }
 
 impl<T: Instance> EndpointBuffer<T> {
+    // Whole words use fixed-size conversions. A copy with a runtime length per
+    // word would call memcpy, which dominated the per-packet CPU time.
     fn read(&mut self, buf: &mut [u8]) {
         assert!(buf.len() <= self.len as usize);
-        for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
-            let val = USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).read();
-            let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
-            buf[i * USBRAM_ALIGN..][..n].copy_from_slice(&val.to_le_bytes()[..n]);
+        let mem = |i| USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).read().to_le_bytes();
+        let (words, tail) = buf.as_chunks_mut::<USBRAM_ALIGN>();
+        let len = words.len();
+        words.iter_mut().enumerate().for_each(|(i, word)| *word = mem(i));
+        if !tail.is_empty() {
+            tail.copy_from_slice(&mem(len)[..tail.len()]);
         }
     }
 
     fn write(&mut self, buf: &[u8]) {
         assert!(buf.len() <= self.len as usize);
-        for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
-            let mut val = [0u8; USBRAM_ALIGN];
-            let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
-            val[..n].copy_from_slice(&buf[i * USBRAM_ALIGN..][..n]);
-
+        let mem = |i, val: [u8; USBRAM_ALIGN]| {
             #[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
             let val = u16::from_le_bytes(val);
             #[cfg(any(usbram_32_2048, usbram_32_1024))]
             let val = u32::from_le_bytes(val);
             USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).write_value(val);
+        };
+        let (words, tail) = buf.as_chunks::<USBRAM_ALIGN>();
+        words.iter().enumerate().for_each(|(i, &word)| mem(i, word));
+        if !tail.is_empty() {
+            let mut val = [0; USBRAM_ALIGN];
+            val[..tail.len()].copy_from_slice(tail);
+            mem(words.len(), val);
         }
     }
 }
@@ -296,25 +303,25 @@ impl<'d, T: Instance> Driver<'d, T> {
     #[cfg(not(stm32l1))]
     pub fn new_with_sof(
         _usb: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dp: Peri<'d, impl DpPin<T>>,
         dm: Peri<'d, impl DmPin<T>>,
         sof: Peri<'d, impl SofPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         {
             use crate::gpio::{AfType, OutputType, Speed};
             set_as_af!(sof, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
 
-        Self::new(_usb, _irq, dp, dm)
+        Self::new(_usb, dp, dm, _irq)
     }
 
     /// Create a new USB driver.
     pub fn new(
         _usb: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dp: Peri<'d, impl DpPin<T>>,
         dm: Peri<'d, impl DmPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         super::common_init::<T>();
 

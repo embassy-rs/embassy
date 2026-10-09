@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add `BootLoader::verify_update` to authenticate unstarted swaps and report rejected candidates as `Revert`.
+- Allow `mark_updated` even with crypto enabled so USB DFU does not double-verify by calling `verify_and_mark_updated`.
+
 ## 0.7.0 - 2026-03-10
 
 - Fixed documentation and assertion of STATE partition size requirements

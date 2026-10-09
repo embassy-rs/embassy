@@ -176,7 +176,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         // ep mem addrs must be 64-byte aligned, so there's no point in trying
         // to allocate smaller chunks to save memory.
-        let len = (max_packet_size + 63) / 64 * 64;
+        let len = max_packet_size.div_ceil(64) * 64;
 
         let addr = self.ep_mem_free;
         if addr + len > EP_MEMORY_SIZE as u16 {
@@ -677,35 +677,33 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     }
 
     async fn setup(&mut self) -> [u8; 8] {
-        loop {
-            trace!("SETUP read waiting");
+        trace!("SETUP read waiting");
+        let regs = T::regs();
+        regs.inte().write_set(|w| w.set_setup_req(true));
+
+        poll_fn(|cx| {
+            EP_OUT_WAKERS[0].register(cx.waker());
             let regs = T::regs();
-            regs.inte().write_set(|w| w.set_setup_req(true));
+            if regs.sie_status().read().setup_rec() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
 
-            poll_fn(|cx| {
-                EP_OUT_WAKERS[0].register(cx.waker());
-                let regs = T::regs();
-                if regs.sie_status().read().setup_rec() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
+        let mut buf = [0; 8];
+        EndpointBuffer::<T>::new(0, 8).read(&mut buf);
 
-            let mut buf = [0; 8];
-            EndpointBuffer::<T>::new(0, 8).read(&mut buf);
+        let regs = T::regs();
+        regs.sie_status().write(|w| w.set_setup_rec(true));
 
-            let regs = T::regs();
-            regs.sie_status().write(|w| w.set_setup_rec(true));
+        // set PID to 0, so (after toggling) first DATA is PID 1
+        T::dpram().ep_in_buffer_control(0).write(|w| w.set_pid(0, false));
+        T::dpram().ep_out_buffer_control(0).write(|w| w.set_pid(0, false));
 
-            // set PID to 0, so (after toggling) first DATA is PID 1
-            T::dpram().ep_in_buffer_control(0).write(|w| w.set_pid(0, false));
-            T::dpram().ep_out_buffer_control(0).write(|w| w.set_pid(0, false));
-
-            trace!("SETUP read ok");
-            return buf;
-        }
+        trace!("SETUP read ok");
+        buf
     }
 
     async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError> {

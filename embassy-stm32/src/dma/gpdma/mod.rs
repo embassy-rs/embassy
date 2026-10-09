@@ -607,10 +607,6 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
         }
     }
 
-    if sr.suspf() {
-        // Disable all xxIEs to prevent the irq from firing again.
-        ch.cr().write(|_| {});
-    }
     state.waker.wake();
 }
 
@@ -773,7 +769,6 @@ impl<'d> Channel<'d> {
             w.set_tcie(options.complete_transfer_ir);
             w.set_useie(true);
             w.set_dteie(true);
-            w.set_suspie(true);
         });
 
         let state = &STATE[self.channel as usize];
@@ -856,7 +851,6 @@ impl<'d> Channel<'d> {
             w.set_useie(true);
             w.set_uleie(true);
             w.set_dteie(true);
-            w.set_suspie(true);
         });
 
         let state = &STATE[self.channel as usize];

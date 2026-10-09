@@ -121,14 +121,8 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
     /// Calculate total bytes in a group of operations
     #[inline]
-    fn total_operation_bytes(operations: &[Operation<'_>]) -> usize {
-        operations
-            .iter()
-            .map(|op| match op {
-                Operation::Write(buf) => buf.len(),
-                Operation::Read(buf) => buf.len(),
-            })
-            .sum()
+    fn total_operation_bytes<O: TransactionOp>(operations: &[O]) -> usize {
+        operations.iter().map(|op| op.len()).sum()
     }
 
     pub(crate) fn init(&mut self, config: Config) {
@@ -137,7 +131,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             reg.set_anfoff(false);
         });
 
-        let timings = Timings::new(self.kernel_clock, config.frequency.into());
+        let timings = Timings::new(self.kernel_clock, config.frequency);
 
         self.info.regs.timingr().write(|reg| {
             reg.set_presc(timings.prescale);
@@ -310,7 +304,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             self.info.regs.icr().modify(|reg| reg.set_ovrcf(true));
             return Err(Error::Overrun);
         }
-        return Ok(());
+        Ok(())
     }
 
     fn wait_txis(&self, timeout: Timeout) -> Result<(), Error> {
@@ -617,6 +611,14 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         addr: impl Into<Address>,
         operations: &mut [Operation<'_>],
     ) -> Result<(), Error> {
+        self.blocking_transaction_inner(addr, operations)
+    }
+
+    pub(crate) fn blocking_transaction_inner<O: TransactionOp>(
+        &mut self,
+        addr: impl Into<Address>,
+        operations: &mut [O],
+    ) -> Result<(), Error> {
         let address = addr.into();
         let timeout = self.timeout();
 
@@ -626,11 +628,11 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         while op_idx < operations.len() {
             // Determine the type of current group and find all consecutive operations of same type
-            let is_read = matches!(operations[op_idx], Operation::Read(_));
+            let is_read = operations[op_idx].is_read();
             let group_start = op_idx;
 
             // Find end of this group (consecutive operations of same type)
-            while op_idx < operations.len() && matches!(operations[op_idx], Operation::Read(_)) == is_read {
+            while op_idx < operations.len() && operations[op_idx].is_read() == is_read {
                 op_idx += 1;
             }
             let group_end = op_idx;
@@ -661,10 +663,10 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(())
     }
 
-    fn execute_write_group(
+    fn execute_write_group<O: TransactionOp>(
         &mut self,
         address: Address,
-        operations: &[Operation<'_>],
+        operations: &[O],
         is_first_group: bool,
         is_last_group: bool,
         timeout: Timeout,
@@ -689,7 +691,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         let mut first_chunk = true;
 
         for operation in operations {
-            if let Operation::Write(buffer) = operation {
+            if let Some(buffer) = operation.write_buf() {
                 for chunk in buffer.chunks(255) {
                     let chunk_len = chunk.len();
                     total_remaining -= chunk_len;
@@ -737,10 +739,10 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(())
     }
 
-    fn execute_read_group(
+    fn execute_read_group<O: TransactionOp>(
         &mut self,
         address: Address,
-        operations: &mut [Operation<'_>],
+        operations: &mut [O],
         is_first_group: bool,
         is_last_group: bool,
         timeout: Timeout,
@@ -771,7 +773,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         let mut first_chunk = true;
 
         for operation in operations {
-            if let Operation::Read(buffer) = operation {
+            if let Some(buffer) = operation.read_buf() {
                 for chunk in buffer.chunks_mut(255) {
                     let chunk_len = chunk.len();
                     total_remaining -= chunk_len;
@@ -862,35 +864,35 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             };
             let last_chunk_idx = total_chunks.saturating_sub(1);
 
-            if idx != 0 {
-                if let Err(err) = Self::reload(
+            if idx != 0
+                && let Err(err) = Self::reload(
                     self.info,
                     slice_len.min(255),
                     (idx != last_slice_index) || (slice_len > 255),
                     Stop::Software,
                     timeout,
-                ) {
-                    if err != Error::Nack {
-                        self.master_stop();
-                    }
-                    return Err(err);
+                )
+            {
+                if err != Error::Nack {
+                    self.master_stop();
                 }
+                return Err(err);
             }
 
             for (number, chunk) in slice.chunks(255).enumerate() {
-                if number != 0 {
-                    if let Err(err) = Self::reload(
+                if number != 0
+                    && let Err(err) = Self::reload(
                         self.info,
                         chunk.len(),
                         (number != last_chunk_idx) || (idx != last_slice_index),
                         Stop::Software,
                         timeout,
-                    ) {
-                        if err != Error::Nack {
-                            self.master_stop();
-                        }
-                        return Err(err);
+                    )
+                {
+                    if err != Error::Nack {
+                        self.master_stop();
                     }
+                    return Err(err);
                 }
 
                 for byte in chunk {
@@ -957,6 +959,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     w.set_txdmaen(false);
                 }
                 w.set_tcie(false);
+                w.set_stopie(false);
                 w.set_nackie(false);
                 w.set_errie(false);
             });
@@ -1049,6 +1052,20 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         if last_slice & send_stop {
             self.master_stop();
+            poll_fn(|cx| {
+                self.state.waker.register(cx.waker());
+
+                let regs = self.info.regs;
+                if regs.isr().read().stopf() {
+                    regs.icr().modify(|w| w.set_stopcf(true));
+                    return Poll::Ready(());
+                }
+
+                // The interrupt handler disables STOPIE when it wakes us.
+                regs.cr1().modify(|w| w.set_stopie(true));
+                Poll::Pending
+            })
+            .await;
         }
 
         drop(on_drop);
@@ -1347,10 +1364,10 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         // Collect all write buffers
         let mut write_buffers: heapless::Vec<&[u8], 16> = heapless::Vec::new();
         for operation in operations {
-            if let Operation::Write(buffer) = operation {
-                if !buffer.is_empty() {
-                    let _ = write_buffers.push(buffer);
-                }
+            if let Operation::Write(buffer) = operation
+                && !buffer.is_empty()
+            {
+                let _ = write_buffers.push(buffer);
             }
         }
 
@@ -1622,15 +1639,14 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     }
 
     fn configure_oa1(&mut self, oa1: Address) {
+        self.info.regs.oar1().write(|reg| reg.set_oa1en(false));
         match oa1 {
             Address::SevenBit(addr) => self.info.regs.oar1().write(|reg| {
-                reg.set_oa1en(false);
                 reg.set_oa1((addr << 1) as u16);
                 reg.set_oa1mode(Addmode::Bit7);
                 reg.set_oa1en(true);
             }),
             Address::TenBit(addr) => self.info.regs.oar1().write(|reg| {
-                reg.set_oa1en(false);
                 reg.set_oa1(addr);
                 reg.set_oa1mode(Addmode::Bit10);
                 reg.set_oa1en(true);
@@ -1639,8 +1655,8 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     }
 
     fn configure_oa2(&mut self, oa2: OA2) {
+        self.info.regs.oar2().write(|reg| reg.set_oa2en(false));
         self.info.regs.oar2().write(|reg| {
-            reg.set_oa2en(false);
             reg.set_oa2msk(oa2.mask.into());
             reg.set_oa2(oa2.addr);
             reg.set_oa2en(true);
@@ -2344,7 +2360,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 });
                 if remaining_len > 0 {
                     dma_transfer.request_pause();
-                    Poll::Ready(Ok(SendStatus::LeftoverBytes(remaining_len as usize)))
+                    Poll::Ready(Ok(SendStatus::LeftoverBytes(remaining_len)))
                 } else {
                     Poll::Ready(Ok(SendStatus::Done))
                 }

@@ -405,9 +405,9 @@ impl<'d, T: Instance> Tsc<'d, T, Async> {
     /// Create a Tsc instance that can be awaited for completion
     pub fn new_async(
         peri: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         pin_groups: PinGroups<'d, T>,
         config: Config,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Result<Self, GroupError> {
         Self::new_inner(peri, pin_groups, config)
     }

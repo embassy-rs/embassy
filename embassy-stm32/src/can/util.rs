@@ -56,7 +56,7 @@ pub fn calc_can_timings(
 
     // Searching for such prescaler value so that the number of quanta per bit is highest.
     let mut bs1_bs2_sum = max_quanta_per_bit - 1;
-    while (prescaler_bs % (1 + bs1_bs2_sum) as u32) != 0 {
+    while !prescaler_bs.is_multiple_of((1 + bs1_bs2_sum) as u32) {
         if bs1_bs2_sum <= 2 {
             return Err(TimingCalcError::NoSolution { bs1_bs2_sum }); // No solution
         }
@@ -64,7 +64,7 @@ pub fn calc_can_timings(
     }
 
     let prescaler = prescaler_bs / (1 + bs1_bs2_sum) as u32;
-    if (prescaler < 1) || (prescaler > 1024) {
+    if !(1..=1024).contains(&prescaler) {
         return Err(TimingCalcError::InvalidPrescaler { prescaler }); // No solution
     }
 
@@ -89,7 +89,7 @@ pub fn calc_can_timings(
     let mut bs2 = bs1_bs2_sum - bs1;
     core::assert!(bs1_bs2_sum > bs1);
 
-    let sample_point_permill = 1000 * ((1 + bs1) / (1 + bs1 + bs2)) as u16;
+    let sample_point_permill = (1000 * (1 + bs1) as u16) / (1 + bs1 + bs2) as u16;
     if sample_point_permill > MAX_SAMPLE_POINT_PERMILL {
         // Nope, too far; now rounding to zero
         bs1 = (7 * bs1_bs2_sum - 1) / 8;
@@ -97,7 +97,7 @@ pub fn calc_can_timings(
     }
 
     // Check is BS1 and BS2 are in range
-    if (bs1 < 1) || (bs1 > BS1_MAX) || (bs2 < 1) || (bs2 > BS2_MAX) {
+    if !(1..=BS1_MAX).contains(&bs1) || !(1..=BS2_MAX).contains(&bs2) {
         return Err(TimingCalcError::BSNotInRange { bs1, bs2 });
     }
 

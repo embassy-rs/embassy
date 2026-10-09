@@ -17,10 +17,10 @@ pub struct SafeBootInfoTable {
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
-pub struct RssInfoTable {
+pub struct FusInfoTable {
     pub version: u32,
     pub memory_size: u32,
-    pub rss_info: u32,
+    pub fus_info: u32,
 }
 
 /**
@@ -37,13 +37,94 @@ pub struct RssInfoTable {
  * \[16:23\] = SRAM2b ( Number of 1k sector)
  * \[24:31\] = SRAM2a ( Number of 1k sector)
  */
+/// Type of a wireless stack, as reported in the `info_stack` word of the wireless
+/// firmware info table (ST's `INFO_STACK_TYPE_*` constants in `shci.h`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum StackType {
+    /// No wireless stack installed.
+    None,
+    BleFull,
+    BleHci,
+    BleLight,
+    BleBeacon,
+    BleBasic,
+    BleFullExtAdv,
+    BleHciExtAdv,
+    ThreadFtd,
+    ThreadMtd,
+    ZigbeeFfd,
+    ZigbeeRfd,
+    /// MAC 802.15.4 only (`stm32wb5x_Mac_802_15_4_fw.bin`).
+    Mac,
+    BleThreadFtdStatic,
+    BleThreadFtdDynamic,
+    BleThreadLightDynamic,
+    LldTests802154,
+    PhyValid802154,
+    PhyValidBle,
+    LldTestsBle,
+    RlvBle,
+    Rlv802154,
+    BleZigbeeFfdStatic,
+    BleZigbeeRfdStatic,
+    BleZigbeeFfdDynamic,
+    BleZigbeeRfdDynamic,
+    Rlv,
+    /// BLE + MAC 802.15.4 combo (`stm32wb5x_BLE_Mac_802_15_4_fw.bin`).
+    BleMacStatic,
+    NvmBackup,
+    NvmRestore,
+    /// Any other value in the `INFO_STACK_TYPE_MASK` range.
+    Other(u8),
+}
+
+impl StackType {
+    /// Decode the `info_stack` word of the wireless firmware info table.
+    pub fn from_info_stack(info_stack: u32) -> Self {
+        match (info_stack & 0xff) as u8 {
+            0x00 => Self::None,
+            0x01 => Self::BleFull,
+            0x02 => Self::BleHci,
+            0x03 => Self::BleLight,
+            0x04 => Self::BleBeacon,
+            0x05 => Self::BleBasic,
+            0x06 => Self::BleFullExtAdv,
+            0x07 => Self::BleHciExtAdv,
+            0x10 => Self::ThreadFtd,
+            0x11 => Self::ThreadMtd,
+            0x30 => Self::ZigbeeFfd,
+            0x31 => Self::ZigbeeRfd,
+            0x40 => Self::Mac,
+            0x50 => Self::BleThreadFtdStatic,
+            0x51 => Self::BleThreadFtdDynamic,
+            0x52 => Self::BleThreadLightDynamic,
+            0x60 => Self::LldTests802154,
+            0x61 => Self::PhyValid802154,
+            0x62 => Self::PhyValidBle,
+            0x63 => Self::LldTestsBle,
+            0x64 => Self::RlvBle,
+            0x65 => Self::Rlv802154,
+            0x70 => Self::BleZigbeeFfdStatic,
+            0x71 => Self::BleZigbeeRfdStatic,
+            0x78 => Self::BleZigbeeFfdDynamic,
+            0x79 => Self::BleZigbeeRfdDynamic,
+            0x80 => Self::Rlv,
+            0x90 => Self::BleMacStatic,
+            0xF0 => Self::NvmBackup,
+            0xF1 => Self::NvmRestore,
+            other => Self::Other(other),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct WirelessFwInfoTable {
     pub version: u32,
     pub memory_size: u32,
-    pub thread_info: u32,
-    pub ble_info: u32,
+    pub info_stack: u32,
+    pub reserved: u32,
 }
 
 impl WirelessFwInfoTable {
@@ -79,13 +160,50 @@ impl WirelessFwInfoTable {
         let memory_size = self.memory_size;
         (memory_size.clone().get_bits(16..23) & 0xff) as u8
     }
+
+    /// Type of the installed wireless stack (ST's `INFO_STACK_TYPE_*` constants).
+    pub fn stack_type(&self) -> StackType {
+        StackType::from_info_stack(self.info_stack)
+    }
+}
+
+/// Marker written by the FUS into the first word of the device info table when it is
+/// running on CPU2. In that case the table does not have the [`DeviceInfoTable`] layout;
+/// it is a [`FusDeviceInfoTable`] instead (see ST's `mbox_def.h`).
+pub const FUS_DEVICE_INFO_TABLE_VALIDITY_KEYWORD: u32 = 0xA94656B9;
+
+/// Device info table as rewritten by the FUS while it is running on CPU2.
+///
+/// The FUS writes this over the device info table handed to it via the reference table.
+/// It reports both the FUS itself and the wireless stack installed in flash (if any).
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct FusDeviceInfoTable {
+    pub device_info_table_state: u32,
+    pub state_flags: u32,
+    pub safe_boot_version: u32,
+    pub fus_version: u32,
+    pub fus_memory_size: u32,
+    pub wireless_stack_version: u32,
+    pub wireless_stack_memory_size: u32,
+    pub wireless_firmware_ble_info: u32,
+    pub wireless_firmware_thread_info: u32,
+    pub reserved2: u32,
+    pub uid64: u64,
+    pub device_id: u16,
+}
+
+impl FusDeviceInfoTable {
+    pub fn is_valid(&self) -> bool {
+        self.device_info_table_state == FUS_DEVICE_INFO_TABLE_VALIDITY_KEYWORD
+    }
 }
 
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct DeviceInfoTable {
     pub safe_boot_info_table: SafeBootInfoTable,
-    pub rss_info_table: RssInfoTable,
+    pub fus_info_table: FusInfoTable,
     pub wireless_fw_info_table: WirelessFwInfoTable,
 }
 

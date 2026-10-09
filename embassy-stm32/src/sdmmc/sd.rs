@@ -520,7 +520,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
         };
         self.info.ocr = ocr;
         self.info.cid = self.sdmmc.get_cid()?.into();
-        self.info.rca = 1u16.into();
+        self.info.rca = 1u16;
 
         self.sdmmc
             .cmd(emmc_cmd::assign_relative_address(self.info.rca), true, false)?;
@@ -617,7 +617,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
         let buffer = unsafe {
             core::slice::from_raw_parts_mut(
                 blocks.as_mut_ptr() as *mut u32,
-                blocks.len() * size_of::<DataBlock>() / size_of::<u32>(),
+                core::mem::size_of_val(blocks) / size_of::<u32>(),
             )
         };
 
@@ -699,7 +699,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
         let buffer = unsafe {
             core::slice::from_raw_parts(
                 blocks.as_ptr() as *const u32,
-                blocks.len() * size_of::<DataBlock>() / size_of::<u32>(),
+                core::mem::size_of_val(blocks) / size_of::<u32>(),
             )
         };
         // Always read 1 block of 512 bytes
@@ -805,7 +805,7 @@ impl Addressable for Card {
 
     /// Size in bytes
     fn size(&self) -> u64 {
-        u64::from(self.csd.block_count()) * 512
+        self.csd.block_count() * 512
     }
 
     fn supports_cmd23(&self) -> bool {

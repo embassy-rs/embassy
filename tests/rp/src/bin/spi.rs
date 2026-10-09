@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner) {
     let mosi = p.PIN_3;
     let miso = p.PIN_4;
 
-    let mut spi = Spi::new_blocking(p.SPI0, clk, mosi, miso, Config::default());
+    let mut spi = Spi::new_blocking(p.SPI0, clk, mosi, miso, Config::default()).unwrap();
 
     let tx_buf = [1_u8, 2, 3, 4, 5, 6];
     let mut rx_buf = [0_u8; 6];

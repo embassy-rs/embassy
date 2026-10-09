@@ -15,30 +15,24 @@
 #![no_std]
 #![no_main]
 
+use bt_hci::event::Event;
+use bt_hci::event::le::LeEvent;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::aes::{self, Aes};
-use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
-use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc::{self};
-use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{ParsedAdvData, ScanParams, ScanType};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams, GapRole};
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
-use stm32wb_hci::Event;
 
 // ---- Test configuration ----
 const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
 
 bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
-    AES => aes::InterruptHandler<AesPeriph>;
-    PKA => pka::InterruptHandler<PkaPeriph>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
 });
@@ -54,19 +48,14 @@ async fn main(spawner: Spawner) {
     let mut config = Config::default();
     config.rcc = rcc::Config::new_wpan();
 
-    let p = embassy_stm32::init(config);
+    let _p = embassy_stm32::init(config);
 
     info!("Embassy STM32WBA BLE Scanner Example");
 
     // Initialize hardware peripherals required by BLE stack
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Pka::new(p.PKA, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        8
-    );
+    let (platform, runtime) = new_platform!(8);
 
-    info!("Hardware peripherals initialized (RNG, AES, PKA)");
+    info!("BLE platform initialized");
 
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
@@ -107,27 +96,28 @@ async fn main(spawner: Spawner) {
     let mut device_count = 0u32;
 
     // Main event loop - process advertising reports
+    let mut event_buf = EventBuffer::new();
     loop {
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
 
         // Check for advertising reports
-        if let Event::LeAdvertisingReport(reports) = &event {
-            for report in reports.iter() {
+        if let BleEvent::Core(Event::Le(LeEvent::LeAdvertisingReport(adv))) = &event {
+            for report in adv.reports.iter().flatten() {
                 device_count += 1;
 
                 // Parse the advertising data
-                let parsed = ParsedAdvData::parse(&report.data);
+                let parsed = ParsedAdvData::parse(report.data);
 
                 info!("--- Device #{} ---", device_count);
 
                 // Display device address
-                info!("  Address: {}", report.address);
+                info!("  Address: {}", report.addr);
 
                 // Display RSSI
                 info!("  RSSI: {} dBm", report.rssi);
 
                 // Display event type
-                info!("  Type: {}", report.event_type);
+                info!("  Type: {}", report.event_kind);
 
                 // Display parsed name if available
                 if let Some(name) = parsed.name {

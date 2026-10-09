@@ -1,8 +1,10 @@
 #![no_std]
 #![no_main]
 
-use core::time::Duration;
-
+use bt_hci::cmd::controller_baseband::Reset;
+use bt_hci::cmd::le::LeSetScanResponseData;
+use bt_hci::controller::{Controller, ControllerCmdSync};
+use bt_hci::event::{Event, EventKind, EventPacket};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -17,21 +19,22 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Sender};
 use panic_probe as _;
 use static_cell::StaticCell;
-use stm32wb_hci::host::uart::{Packet, UartHci};
-use stm32wb_hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
-use stm32wb_hci::types::AdvertisingType;
-use stm32wb_hci::vendor::command::gap::{
-    AddressType, AuthenticationRequirements, DiscoverableParameters, GapCommands, IoCapability, LocalName, Pin, Role,
-    SecureConnectionSupport,
+use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::durations::{AdvInterval, PreferredConnInterval};
+use stm32wb_hci::aci::flags::{CharProperties, GattEventMask, Role, SecurityPermissions};
+use stm32wb_hci::aci::gap::{GapInit, GapSetAuthenticationRequirement, GapSetDiscoverable, GapSetIoCapability};
+use stm32wb_hci::aci::gatt::{
+    GattAddChar, GattAddService, GattInit, GattPermitRead, GattPermitWrite, GattUpdateCharValue,
 };
-use stm32wb_hci::vendor::command::gatt::{
-    AddCharacteristicParameters, AddServiceParameters, CharacteristicEvent, CharacteristicPermission,
-    CharacteristicProperty, EncryptionKeySize, GattCommands, ServiceType, UpdateCharacteristicValueParameters, Uuid,
-    WriteResponseParameters,
+use stm32wb_hci::aci::hal::{HalSetTxPowerLevel, HalWriteConfigData};
+use stm32wb_hci::aci::ranges::{AttAppError, EncKeySize, PaLevel, Passkey};
+use stm32wb_hci::aci::values::{
+    AddressType, AdvertisingType, ConfigDataOffset, IoCapability, OwnAddressType, PermitStatus, Privacy, ScSupport,
+    ServiceType, UseFixedPin,
 };
-use stm32wb_hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
-use stm32wb_hci::vendor::event::{self, AttributeHandle, VendorEvent};
-use stm32wb_hci::{BdAddr, Event};
+use stm32wb_hci::adv_data::{AdvData, local_name_structure};
+use stm32wb_hci::event::BleEvent;
+use stm32wb_hci::wire::Uuid;
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;
@@ -46,27 +49,15 @@ async fn main(spawner: Spawner) {
         How to make this work:
 
         - Obtain a NUCLEO-STM32WB55 from your preferred supplier.
-        - Download and Install STM32CubeProgrammer.
-        - Download stm32wb5x_FUS_fw.bin, stm32wb5x_BLE_Mac_802_15_4_fw.bin, and Release_Notes.html from
-          gh:STMicroelectronics/STM32CubeWB@2234d97/Projects/STM32WB_Copro_Wireless_Binaries/STM32WB5x
-        - Open STM32CubeProgrammer
-        - On the right-hand pane, click "firmware upgrade" to upgrade the st-link firmware.
-        - Once complete, click connect to connect to the device.
-        - On the left hand pane, click the RSS signal icon to open "Firmware Upgrade Services".
-        - In the Release_Notes.html, find the memory address that corresponds to your device for the stm32wb5x_FUS_fw.bin file
-        - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
-        - Once complete, in the Release_Notes.html, find the memory address that corresponds to your device for the
-          stm32wb5x_BLE_Mac_802_15_4_fw.bin file. It should not be the same memory address.
-        - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
-        - Select "Start Wireless Stack".
-        - Disconnect from the device.
+        - Run the `fus_update` example: it installs the FUS and the wireless stack on its own,
+          no external tool needed.
         - Run this example.
 
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.
     */
 
-    static PACKET_CHANNEL: static_cell::StaticCell<Channel<CriticalSectionRawMutex, Packet, 3>> = StaticCell::new();
-    static CONTROLLER: static_cell::StaticCell<ControllerAdapter<'static>> = StaticCell::new();
+    static EVENT_CHANNEL: StaticCell<Channel<CriticalSectionRawMutex, OwnedEvent, 3>> = StaticCell::new();
+    static CONTROLLER: StaticCell<ControllerAdapter<'static>> = StaticCell::new();
 
     let mut config = embassy_stm32::Config::default();
     config.rcc = RccConfig::new_wpan();
@@ -81,158 +72,215 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
 
-    let pkt_channel = PACKET_CHANNEL.init(Channel::new());
+    let event_channel = EVENT_CHANNEL.init(Channel::new());
     let ble = CONTROLLER.init(ControllerAdapter::new(ble));
-    let pkt_sender = pkt_channel.sender();
-    let pkt_receiver = pkt_channel.receiver();
+    let event_sender = event_channel.sender();
+    let event_receiver = event_channel.receiver();
 
     spawner.spawn(run_mm_queue(mm).unwrap());
-    spawner.spawn(receive_packets(ble, pkt_sender).unwrap());
+    // Events must be read for commands to complete.
+    spawner.spawn(receive_events(ble, event_sender).unwrap());
 
     info!("resetting BLE...");
-    let response = ble.reset().await;
+    let response = ble.exec(&Reset::new()).await;
     defmt::debug!("{}", response);
 
     info!("config public address...");
-    let response = ble
-        .write_config_data(&ConfigData::public_address(get_bd_addr()).build())
-        .await;
+    let address = get_bd_addr();
+    let command = unwrap!(HalWriteConfigData::entry(ConfigDataOffset::PublicAddress, &address));
+    let response = ble.exec(&command).await;
     defmt::debug!("{}", response);
 
     info!("config random address...");
-    let response = ble
-        .write_config_data(&ConfigData::random_address(get_random_addr()).build())
-        .await;
+    let address = get_random_addr();
+    let command = unwrap!(HalWriteConfigData::entry(
+        ConfigDataOffset::StaticRandomAddress,
+        &address
+    ));
+    let response = ble.exec(&command).await;
     defmt::debug!("{}", response);
 
     info!("config identity root...");
-    let response = ble
-        .write_config_data(&ConfigData::identity_root(&get_irk()).build())
-        .await;
+    let command = unwrap!(HalWriteConfigData::entry(ConfigDataOffset::IdentityRoot, &BLE_CFG_IRK));
+    let response = ble.exec(&command).await;
     defmt::debug!("{}", response);
 
     info!("config encryption root...");
-    let response = ble
-        .write_config_data(&ConfigData::encryption_root(&get_erk()).build())
-        .await;
+    let command = unwrap!(HalWriteConfigData::entry(
+        ConfigDataOffset::EncryptionRoot,
+        &BLE_CFG_ERK
+    ));
+    let response = ble.exec(&command).await;
     defmt::debug!("{}", response);
 
     info!("config tx power level...");
-    let response = ble.set_tx_power_level(PowerLevel::ZerodBm).await;
+    // PA level 0x19 is 0 dBm.
+    let response = ble
+        .exec(&HalSetTxPowerLevel::new(false, unwrap!(PaLevel::new(0x19))))
+        .await;
     defmt::debug!("{}", response);
 
     info!("GATT init...");
-    let response = ble.init_gatt().await;
+    let response = ble.exec(&GattInit::new()).await;
     defmt::debug!("{}", response);
 
     info!("GAP init...");
-    let response = ble.init_gap(Role::PERIPHERAL, false, BLE_GAP_DEVICE_NAME_LENGTH).await;
+    let response = ble
+        .exec(&GapInit::new(
+            Role::PERIPHERAL,
+            Privacy::Disabled,
+            BLE_GAP_DEVICE_NAME_LENGTH,
+        ))
+        .await;
     defmt::debug!("{}", response);
 
     info!("set IO capabilities...");
-    let response = ble.set_io_capability(IoCapability::DisplayConfirm).await;
+    let response = ble.exec(&GapSetIoCapability::new(IoCapability::DisplayYesNo)).await;
     defmt::debug!("{}", response);
 
     info!("set authentication requirements...");
     let response = ble
-        .set_authentication_requirement(&AuthenticationRequirements {
-            bonding_required: false,
-            keypress_notification_support: false,
-            mitm_protection_required: false,
-            encryption_key_size_range: (8, 16),
-            fixed_pin: Pin::Requested,
-            identity_address_type: AddressType::Public,
-            secure_connection_support: SecureConnectionSupport::Optional,
-        })
+        .exec(&GapSetAuthenticationRequirement::new(
+            false, // bonding
+            false, // MITM protection
+            ScSupport::Optional,
+            false, // keypress notifications
+            8,
+            16,
+            UseFixedPin::No,
+            Passkey::MIN,
+            AddressType::Public,
+        ))
         .await;
     defmt::debug!("{}", response);
 
     info!("set scan response data...");
-    let response = ble.le_set_scan_response_data(b"TXTX").await;
+    let scan_rsp = unwrap!(AdvData::<31>::new().complete_local_name(b"TXTX"));
+    let mut data = [0; 31];
+    data[..scan_rsp.as_bytes().len()].copy_from_slice(scan_rsp.as_bytes());
+    let response = ble
+        .exec(&LeSetScanResponseData::new(scan_rsp.as_bytes().len() as u8, data))
+        .await;
     defmt::debug!("{}", response);
 
     defmt::info!("initializing services and characteristics...");
-    let ble_context = init_gatt_services(&ble).await;
+    let ble_context = init_gatt_services(ble).await;
     defmt::info!("{}", ble_context);
 
     let mut ble_context = ble_context.unwrap();
 
-    let discovery_params = DiscoverableParameters {
-        advertising_type: AdvertisingType::ConnectableUndirected,
-        advertising_interval: Some((Duration::from_millis(100), Duration::from_millis(100))),
-        address_type: OwnAddressType::Public,
-        filter_policy: AdvertisingFilterPolicy::AllowConnectionAndScan,
-        local_name: Some(LocalName::Complete(b"TXTX")),
-        advertising_data: &[],
-        conn_interval: (None, None),
-    };
+    let local_name = unwrap!(local_name_structure::<8>(b"TXTX", true));
+    let interval = unwrap!(AdvInterval::from_millis(100));
+    let set_discoverable = unwrap!(GapSetDiscoverable::try_new(
+        AdvertisingType::ConnectableUndirected,
+        interval,
+        interval,
+        OwnAddressType::Public,
+        0, // no filter accept list
+        local_name.as_bytes(),
+        &[],
+        PreferredConnInterval::OMITTED,
+        PreferredConnInterval::OMITTED,
+    ));
 
     info!("set discoverable...");
-    let response = ble.set_discoverable(&discovery_params).await;
+    let response = ble.exec(&set_discoverable).await;
     defmt::debug!("{}", response);
 
     loop {
-        let response = pkt_receiver.receive().await;
-        defmt::debug!("{}", response);
-
-        #[allow(irrefutable_let_patterns)]
-        if let Packet::Event(event) = response {
-            match event {
-                Event::LeConnectionComplete(_) => {
-                    defmt::info!("connected");
-                }
-                Event::DisconnectionComplete(_) => {
-                    defmt::info!("disconnected");
-                    ble_context.is_subscribed = false;
-                    ble.set_discoverable(&discovery_params).await.unwrap();
-                }
-                Event::Vendor(vendor_event) => match vendor_event {
-                    VendorEvent::AttReadPermitRequest(read_req) => {
-                        defmt::info!("read request received {}, allowing", read_req);
-                        ble.allow_read(read_req.conn_handle).await.unwrap();
-                    }
-                    VendorEvent::AttWritePermitRequest(write_req) => {
-                        defmt::info!("write request received {}, allowing", write_req);
-                        ble.write_response(&WriteResponseParameters {
-                            conn_handle: write_req.conn_handle,
-                            attribute_handle: write_req.attribute_handle,
-                            status: Ok(()),
-                            value: write_req.value(),
-                        })
-                        .await
-                        .unwrap()
-                    }
-                    VendorEvent::GattAttributeModified(attribute) => {
-                        defmt::info!("{}", ble_context);
-                        if attribute.attr_handle.0 == ble_context.chars.notify.0 + 2 {
-                            if attribute.data()[0] == 0x01 {
-                                defmt::info!("subscribed");
-                                ble_context.is_subscribed = true;
-                            } else {
-                                defmt::info!("unsubscribed");
-                                ble_context.is_subscribed = false;
-                            }
-                        }
-                    }
-                    _ => {}
-                },
-                _ => {}
+        let event = event_receiver.receive().await;
+        let event = match event.decode() {
+            Ok(event) => event,
+            Err(e) => {
+                defmt::warn!("undecodable event: {}", e);
+                continue;
             }
+        };
+        defmt::debug!("{}", event);
+
+        match event {
+            BleEvent::Core(Event::Le(bt_hci::event::le::LeEvent::LeConnectionComplete(_))) => {
+                defmt::info!("connected");
+            }
+            BleEvent::Core(Event::DisconnectionComplete(_)) => {
+                defmt::info!("disconnected");
+                ble_context.is_subscribed = false;
+                ble.exec(&set_discoverable).await.unwrap();
+            }
+            BleEvent::Vendor(AciEvent::GattReadPermitReq(read_req)) => {
+                defmt::info!("read request received {}, allowing", read_req);
+                ble.exec(&GattPermitRead::new(
+                    read_req.connection_handle,
+                    PermitStatus::Allowed,
+                    AttAppError::MIN,
+                    read_req.attribute_handle,
+                ))
+                .await
+                .unwrap();
+            }
+            BleEvent::Vendor(AciEvent::GattWritePermitReq(write_req)) => {
+                defmt::info!("write request received {}, allowing", write_req);
+                let response = unwrap!(GattPermitWrite::try_new(
+                    write_req.connection_handle,
+                    write_req.attribute_handle,
+                    PermitStatus::Allowed,
+                    0,
+                    write_req.data,
+                ));
+                ble.exec(&response).await.unwrap()
+            }
+            BleEvent::Vendor(AciEvent::GattAttributeModified(attribute)) => {
+                defmt::info!("{}", ble_context);
+                if attribute.attr_handle == ble_context.chars.notify + 2 {
+                    if attribute.attr_data[0] == 0x01 {
+                        defmt::info!("subscribed");
+                        ble_context.is_subscribed = true;
+                    } else {
+                        defmt::info!("unsubscribed");
+                        ble_context.is_subscribed = false;
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
 
+/// An HCI event, copied out of the controller's buffer to cross the channel.
+pub struct OwnedEvent {
+    kind: EventKind,
+    data: heapless::Vec<u8, 255>,
+}
+
+impl OwnedEvent {
+    fn decode(&self) -> Result<BleEvent<'_>, bt_hci::FromHciBytesError> {
+        BleEvent::from_packet(EventPacket {
+            kind: self.kind,
+            data: &self.data,
+        })
+    }
+}
+
 #[embassy_executor::task]
-async fn receive_packets(
+async fn receive_events(
     controller: &'static ControllerAdapter<'static>,
-    pkt_sender: Sender<'static, CriticalSectionRawMutex, Packet, 3>,
+    event_sender: Sender<'static, CriticalSectionRawMutex, OwnedEvent, 3>,
 ) {
     loop {
-        let response = controller.read_packet().await;
-        defmt::debug!("{}", response);
-
-        if let Ok(packet) = response {
-            pkt_sender.send(packet).await;
+        let mut buf = unwrap!(controller.alloc_buf());
+        match controller.read(&mut buf).await {
+            Ok(bt_hci::ControllerToHostPacket::Event(packet)) => {
+                let mut data = heapless::Vec::new();
+                unwrap!(data.extend_from_slice(packet.data));
+                event_sender
+                    .send(OwnedEvent {
+                        kind: packet.kind,
+                        data,
+                    })
+                    .await;
+            }
+            Ok(packet) => defmt::debug!("{}", packet),
+            Err(e) => defmt::warn!("read failed: {}", e),
         }
     }
 }
@@ -242,7 +290,7 @@ async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
     memory_manager.run_queue().await;
 }
 
-fn get_bd_addr() -> BdAddr {
+fn get_bd_addr() -> [u8; 6] {
     let mut bytes = [0u8; 6];
 
     let lhci_info = LhciC1DeviceInformationCcrp::new();
@@ -253,10 +301,10 @@ fn get_bd_addr() -> BdAddr {
     bytes[4] = (lhci_info.st_company_id & 0xff) as u8;
     bytes[5] = (lhci_info.st_company_id >> 8 & 0xff) as u8;
 
-    BdAddr(bytes)
+    bytes
 }
 
-fn get_random_addr() -> BdAddr {
+fn get_random_addr() -> [u8; 6] {
     let mut bytes = [0u8; 6];
 
     let lhci_info = LhciC1DeviceInformationCcrp::new();
@@ -267,7 +315,7 @@ fn get_random_addr() -> BdAddr {
     bytes[4] = 0x6E;
     bytes[5] = 0xED;
 
-    BdAddr(bytes)
+    bytes
 }
 
 const BLE_CFG_IRK: [u8; 16] = [
@@ -277,26 +325,18 @@ const BLE_CFG_ERK: [u8; 16] = [
     0xfe, 0xdc, 0xba, 0x09, 0x87, 0x65, 0x43, 0x21, 0xfe, 0xdc, 0xba, 0x09, 0x87, 0x65, 0x43, 0x21,
 ];
 
-fn get_irk() -> EncryptionKey {
-    EncryptionKey(BLE_CFG_IRK)
-}
-
-fn get_erk() -> EncryptionKey {
-    EncryptionKey(BLE_CFG_ERK)
-}
-
 #[derive(defmt::Format)]
 pub struct BleContext {
-    pub service_handle: AttributeHandle,
+    pub service_handle: u16,
     pub chars: CharHandles,
     pub is_subscribed: bool,
 }
 
 #[derive(defmt::Format)]
 pub struct CharHandles {
-    pub read: AttributeHandle,
-    pub write: AttributeHandle,
-    pub notify: AttributeHandle,
+    pub read: u16,
+    pub write: u16,
+    pub notify: u16,
 }
 
 pub async fn init_gatt_services<'a>(controller: &ControllerAdapter<'a>) -> Result<BleContext, ()> {
@@ -306,7 +346,7 @@ pub async fn init_gatt_services<'a>(controller: &ControllerAdapter<'a>) -> Resul
         controller,
         service_handle,
         Uuid::Uuid16(0x501),
-        CharacteristicProperty::READ,
+        CharProperties::READ,
         Some(b"Hello from embassy!"),
     )
     .await?;
@@ -315,7 +355,7 @@ pub async fn init_gatt_services<'a>(controller: &ControllerAdapter<'a>) -> Resul
         controller,
         service_handle,
         Uuid::Uuid16(0x502),
-        CharacteristicProperty::WRITE_WITHOUT_RESPONSE | CharacteristicProperty::WRITE | CharacteristicProperty::READ,
+        CharProperties::WRITE_WITHOUT_RESPONSE | CharProperties::WRITE | CharProperties::READ,
         None,
     )
     .await?;
@@ -324,7 +364,7 @@ pub async fn init_gatt_services<'a>(controller: &ControllerAdapter<'a>) -> Resul
         controller,
         service_handle,
         Uuid::Uuid16(0x503),
-        CharacteristicProperty::NOTIFY | CharacteristicProperty::READ,
+        CharProperties::NOTIFY | CharProperties::READ,
         None,
     )
     .await?;
@@ -336,59 +376,46 @@ pub async fn init_gatt_services<'a>(controller: &ControllerAdapter<'a>) -> Resul
     })
 }
 
-async fn gatt_add_service<'a>(controller: &ControllerAdapter<'a>, uuid: Uuid) -> Result<AttributeHandle, ()> {
+async fn gatt_add_service<'a>(controller: &ControllerAdapter<'a>, uuid: Uuid) -> Result<u16, ()> {
     let response = controller
-        .add_service(&AddServiceParameters {
-            uuid,
-            service_type: ServiceType::Primary,
-            max_attribute_records: 8,
-        })
+        .exec(&GattAddService::new(uuid, ServiceType::Primary, 8))
         .await;
     defmt::debug!("{}", response);
 
-    if let Ok(event::command::GattService { service_handle }) = response {
-        Ok(service_handle)
-    } else {
-        Err(())
-    }
+    response.map(|r| r.service_handle).map_err(|_| ())
 }
 
 async fn gatt_add_char<'a>(
     controller: &ControllerAdapter<'a>,
-    service_handle: AttributeHandle,
+    service_handle: u16,
     characteristic_uuid: Uuid,
-    characteristic_properties: CharacteristicProperty,
+    characteristic_properties: CharProperties,
     default_value: Option<&[u8]>,
-) -> Result<AttributeHandle, ()> {
+) -> Result<u16, ()> {
     let response = controller
-        .add_characteristic(&AddCharacteristicParameters {
+        .exec(&GattAddChar::new(
             service_handle,
             characteristic_uuid,
+            32,
             characteristic_properties,
-            characteristic_value_len: 32,
-            security_permissions: CharacteristicPermission::empty(),
-            gatt_event_mask: CharacteristicEvent::all(),
-            encryption_key_size: EncryptionKeySize::with_value(7).unwrap(),
-            is_variable: true,
-        })
+            SecurityPermissions::empty(),
+            GattEventMask::all(),
+            unwrap!(EncKeySize::new(7)),
+            true,
+        ))
         .await;
     defmt::debug!("{}", response);
 
-    if let Ok(event::command::GattCharacteristic { characteristic_handle }) = response {
-        if let Some(value) = default_value {
-            let response = controller
-                .update_characteristic_value(&UpdateCharacteristicValueParameters {
-                    service_handle,
-                    characteristic_handle,
-                    offset: 0,
-                    value,
-                })
-                .await;
-
-            defmt::debug!("{}", response);
-        }
-        Ok(characteristic_handle)
-    } else {
-        Err(())
+    let characteristic_handle = response.map_err(|_| ())?.char_handle;
+    if let Some(value) = default_value {
+        let command = unwrap!(GattUpdateCharValue::try_new(
+            service_handle,
+            characteristic_handle,
+            0,
+            value
+        ));
+        let response = controller.exec(&command).await;
+        defmt::debug!("{}", response);
     }
+    Ok(characteristic_handle)
 }

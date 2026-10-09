@@ -508,8 +508,12 @@ embassy_hal_internal::peripherals! {
     GPIOTE30_CH3,
 
     // CRACEN
-    #[cfg(feature = "_s")]
-    CRACEN,
+    #[cfg(all(feature = "_s", not(feature = "embassy-crypto-rng")))]
+    CRYPTO_RNG,
+    #[cfg(all(feature = "_s", not(feature = "_embassy-crypto-symmetric")))]
+    CRYPTO_SYMMETRIC,
+    #[cfg(all(feature = "_s", not(feature = "_embassy-crypto-pka")))]
+    CRYPTO_PKA,
 
     #[cfg(feature = "_s")]
     // RRAMC
@@ -797,9 +801,6 @@ impl_saadc_input!(P1_06, 1, 6); // AIN4
 impl_saadc_input!(P1_05, 1, 5); // AIN5
 impl_saadc_input!(P1_04, 1, 4); // AIN6
 impl_saadc_input!(P1_03, 1, 3); // AIN7
-
-#[cfg(feature = "_s")]
-impl_cracen!(CRACEN, CRACEN, CRACEN);
 
 #[cfg(feature = "_s")]
 impl_vpr!(VPR, VPR00, VPR00);

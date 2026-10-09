@@ -27,7 +27,7 @@ async fn main(_spawner: Spawner) {
 
     info!("uarte initialized!");
 
-    let (mut rx, mut tx) = u.split();
+    let (mut tx, mut rx) = u.split();
 
     let mut buf = [0; 500];
     for (j, b) in buf.iter_mut().enumerate() {

@@ -53,8 +53,8 @@ async fn main(spawner: Spawner) {
         p.PB15,
         p.PB12,
         p.DMA1_CH3,
-        Some(p.EXTI12),
         Irqs,
+        Some(p.EXTI12),
         spi_config,
     );
 

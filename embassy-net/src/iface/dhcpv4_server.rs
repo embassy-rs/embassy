@@ -10,7 +10,10 @@
 //! its subnet provides the subnet mask sent to clients. The pool must be inside
 //! that subnet.
 //!
-//! Only Ethernet interfaces are supported.
+//! Only Ethernet interfaces are supported. Requests relayed by a DHCP relay
+//! agent are ignored, and offered addresses are not probed with ICMP before
+//! being handed out (a client that detects a conflict declines the address,
+//! which takes it out of the pool for a while).
 //!
 //! [`Iface::set_dhcpv4_server`]: super::Iface::set_dhcpv4_server
 //! [`Iface::dhcpv4_server_leases`]: super::Iface::dhcpv4_server_leases
@@ -22,7 +25,7 @@ pub use xarxa::iface::dhcpv4_server::*;
 
 use crate::config::DHCP_MAX_DNS_SERVER_COUNT;
 use crate::time::{duration_to_xarxa, instant_from_xarxa};
-use crate::wire::{DhcpOption, EthernetAddress, Ipv4Address};
+use crate::wire::{DhcpOption, EthernetAddress, Ipv4Addr};
 
 /// Configuration of the DHCP server, passed to [`Iface::set_dhcpv4_server`].
 ///
@@ -34,15 +37,15 @@ use crate::wire::{DhcpOption, EthernetAddress, Ipv4Address};
 #[non_exhaustive]
 pub struct DhcpServerConfig {
     /// First address of the pool leases are taken from.
-    pub pool_start: Ipv4Address,
+    pub pool_start: Ipv4Addr,
     /// Last address of the pool, inclusive.
-    pub pool_end: Ipv4Address,
+    pub pool_end: Ipv4Addr,
     /// How long a lease lasts. Clients asking for a shorter lease get it.
     pub lease_duration: Duration,
     /// The default gateway sent to clients, if any.
-    pub gateway: Option<Ipv4Address>,
+    pub gateway: Option<Ipv4Addr>,
     /// The DNS servers sent to clients. Empty sends none.
-    pub dns_servers: Vec<Ipv4Address, DHCP_MAX_DNS_SERVER_COUNT>,
+    pub dns_servers: Vec<Ipv4Addr, DHCP_MAX_DNS_SERVER_COUNT>,
     /// Extra options added to every OFFER and ACK.
     pub outgoing_options: &'static [DhcpOption<'static>],
 }
@@ -50,7 +53,7 @@ pub struct DhcpServerConfig {
 impl DhcpServerConfig {
     /// A configuration leasing addresses from `pool_start` to `pool_end`
     /// (inclusive) for one hour, with no gateway and no DNS servers.
-    pub fn new(pool_start: Ipv4Address, pool_end: Ipv4Address) -> Self {
+    pub fn new(pool_start: Ipv4Addr, pool_end: Ipv4Addr) -> Self {
         Self {
             pool_start,
             pool_end,
@@ -71,6 +74,38 @@ impl DhcpServerConfig {
     }
 }
 
+/// The state of one [`DhcpServerLease`].
+///
+/// An offered, bound or declined lease holds its address until `expires_at`.
+/// Once a poll finds that time has passed, an offered or bound lease becomes
+/// `Expired`, and a declined one is removed from the table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum DhcpServerLeaseState {
+    /// The address was offered and the client has not requested it yet.
+    Offered {
+        /// When the offer lapses.
+        expires_at: Instant,
+    },
+    /// The client holds the address.
+    Bound {
+        /// When the lease ends.
+        expires_at: Instant,
+    },
+    /// The client reported the address as in use by someone else. The address
+    /// is kept out of the pool until the hold ends.
+    Declined {
+        /// When the hold ends.
+        expires_at: Instant,
+    },
+    /// The client released the address, or chose another server. Kept as a
+    /// record so a returning client gets the same address.
+    Released,
+    /// The offer lapsed, or the lease ended. Kept as a record so a returning
+    /// client gets the same address.
+    Expired,
+}
+
 /// One entry of the DHCP server's lease table.
 ///
 /// Read them with [`Iface::dhcpv4_server_leases`].
@@ -86,7 +121,7 @@ impl DhcpServerLease {
     }
 
     /// The leased address.
-    pub fn address(&self) -> Ipv4Address {
+    pub fn address(&self) -> Ipv4Addr {
         self.0.address()
     }
 
@@ -101,19 +136,24 @@ impl DhcpServerLease {
         self.0.client_id()
     }
 
-    /// The state of the lease.
+    /// The state of the lease, with when it ends if it holds its address.
     pub fn state(&self) -> DhcpServerLeaseState {
-        self.0.state()
-    }
-
-    /// When the lease stops holding its address.
-    ///
-    /// For an offered lease this is when the unanswered offer lapses, for a
-    /// bound one the end of the lease, and for a declined one the end of the
-    /// hold that keeps the address out of the pool. A released lease is already
-    /// past it. Past this time the entry is only a record: the address is free,
-    /// and the entry makes a returning client get it again.
-    pub fn expires_at(&self) -> Instant {
-        instant_from_xarxa(self.0.expires_at())
+        match self.0.state() {
+            xarxa::iface::dhcpv4_server::DhcpServerLeaseState::Offered { expires_at } => {
+                DhcpServerLeaseState::Offered {
+                    expires_at: instant_from_xarxa(expires_at),
+                }
+            }
+            xarxa::iface::dhcpv4_server::DhcpServerLeaseState::Bound { expires_at } => DhcpServerLeaseState::Bound {
+                expires_at: instant_from_xarxa(expires_at),
+            },
+            xarxa::iface::dhcpv4_server::DhcpServerLeaseState::Declined { expires_at } => {
+                DhcpServerLeaseState::Declined {
+                    expires_at: instant_from_xarxa(expires_at),
+                }
+            }
+            xarxa::iface::dhcpv4_server::DhcpServerLeaseState::Released => DhcpServerLeaseState::Released,
+            xarxa::iface::dhcpv4_server::DhcpServerLeaseState::Expired => DhcpServerLeaseState::Expired,
+        }
     }
 }

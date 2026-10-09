@@ -7,7 +7,7 @@ mod common;
 use common::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
+use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
 #[cfg(feature = "stop")]
@@ -49,7 +49,7 @@ async fn main(spawner: Spawner) {
     // Generate random seed.
     let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
-    rng.fill_bytes(&mut seed);
+    rng.blocking_fill_bytes(&mut seed);
     let seed = u64::from_le_bytes(seed);
 
     // Ensure different boards get different MAC
@@ -80,7 +80,6 @@ async fn main(spawner: Spawner) {
     let device = Ethernet::new(
         PACKETS.init(PacketQueue::<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>::new()),
         p.ETH,
-        Irqs,
         p.PA1,
         p.PA7,
         p.PC4,
@@ -95,20 +94,28 @@ async fn main(spawner: Spawner) {
         p.ETH_SMA,
         p.PA2,
         p.PC1,
+        Irqs,
     );
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    // F2 runs out of RAM
+    #[cfg(feature = "stm32f207zg")]
+    const POOL_COUNT: usize = 4;
+    #[cfg(not(feature = "stm32f207zg"))]
+    const POOL_COUNT: usize = 16;
+    // The ethernet DMA needs 8-byte aligned buffers, sized in multiples of 8.
+    static POOL: StaticPool<1520, POOL_COUNT, 8> = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the ethernet interface to the stack.
     static ETH: StaticCell<Device> = StaticCell::new();
-    let eth = unwrap!(stack.add_iface(ETH.init(device)));
+    let eth = unwrap!(stack.add_iface_borrowed(ETH.init(device)));
 
     // Get an address over DHCP.
-    eth.set_dhcpv4(Some(Default::default()));
-    //eth.add_ip_addr(IpCidr::new(Ipv4Address::new(10, 42, 0, 61).into(), 24)).unwrap();
-    //stack.routes().add_default_ipv4_route(Ipv4Address::new(10, 42, 0, 1), eth.handle()).unwrap();
+    unwrap!(eth.set_dhcpv4(Some(Default::default())));
+    //eth.add_ip_addr(IpCidr::new(Ipv4Addr::new(10, 42, 0, 61).into(), 24)).unwrap();
+    //stack.routes().add_default_ipv4_route(Ipv4Addr::new(10, 42, 0, 1), eth.handle()).unwrap();
 
     #[cfg(feature = "stop")]
     let _guard = WakeGuard::new(StopMode::Stop1);

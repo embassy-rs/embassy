@@ -23,7 +23,7 @@ async fn main(_s: Spawner) {
     let mut watchdog = Watchdog::new(p.WATCHDOG);
     watchdog.stop();
 
-    let flash = Flash::<_, _, FLASH_SIZE>::new_blocking(p.FLASH);
+    let flash = Flash::<_, FLASH_SIZE>::new_blocking(p.FLASH);
     let flash = Mutex::new(RefCell::new(flash));
 
     let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);

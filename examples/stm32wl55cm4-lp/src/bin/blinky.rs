@@ -36,7 +36,7 @@ async fn async_main(_spawner: Spawner) {
         use embassy_stm32::usart::Uart;
         use static_cell::StaticCell;
         let config = embassy_stm32::usart::Config::default();
-        let uart = Uart::new_blocking(p.LPUART1, p.PA3, p.PA2, config).expect("failed to configure UART!");
+        let uart = Uart::new_blocking(p.LPUART1, p.PA2, p.PA3, config).expect("failed to configure UART!");
         static SERIAL: StaticCell<Uart<'static, Blocking>> = StaticCell::new();
         defmt_serial::defmt_serial(SERIAL.init(uart));
     }

@@ -12,35 +12,35 @@ use crate::pac;
 /// Configuration struct for one lane of the interpolator
 #[derive(Debug, Clone, Copy)]
 pub struct LaneCtrl {
-    /// Bit 22 - Only present on INTERP1 on each core. If CLAMP mode is enabled:  
-    /// - LANE0 result is shifted and masked ACCUM0, clamped by a lower bound of  
-    /// BASE0 and an upper bound of BASE1.  
+    /// Bit 22 - Only present on INTERP1 on each core. If CLAMP mode is enabled:
+    /// - LANE0 result is shifted and masked ACCUM0, clamped by a lower bound of
+    ///   BASE0 and an upper bound of BASE1.
     /// - Signedness of these comparisons is determined by LANE0_CTRL_SIGNED
     pub clamp: bool,
     /// Bit 21 - Only present on INTERP0 on each core. If BLEND mode is enabled:
     /// - LANE1 result is a linear interpolation between BASE0 and BASE1, controlled
-    /// by the 8 LSBs of lane 1 shift and mask value (a fractional number between
-    /// 0 and 255/256ths)
+    ///   by the 8 LSBs of lane 1 shift and mask value (a fractional number between
+    ///   0 and 255/256ths)
     /// - LANE0 result does not have BASE0 added (yields only
-    /// the 8 LSBs of lane 1 shift+mask value)
+    ///   the 8 LSBs of lane 1 shift+mask value)
     /// - FULL result does not have lane 1 shift+mask value added (BASE2 + lane 0 shift+mask)
-    /// LANE1 SIGNED flag controls whether the interpolation is signed or unsigned.
+    ///   LANE1 SIGNED flag controls whether the interpolation is signed or unsigned.
     pub blend: bool,
-    /// Bits 19:20 - ORed into bits 29:28 of the lane result presented to the processor on the bus.  
-    /// No effect on the internal 32-bit datapath. Handy for using a lane to generate sequence  
+    /// Bits 19:20 - ORed into bits 29:28 of the lane result presented to the processor on the bus.
+    /// No effect on the internal 32-bit datapath. Handy for using a lane to generate sequence
     /// of pointers into flash or SRAM.
     pub force_msb: u8,
     /// Bit 18 - If 1, mask + shift is bypassed for LANE0 result. This does not affect FULL result.
     pub add_raw: bool,
     /// Bit 17 - If 1, feed the opposite lane's result into this lane's accumulator on POP.
     pub cross_result: bool,
-    /// Bit 16 - If 1, feed the opposite lane's accumulator into this lane's shift + mask hardware.  
+    /// Bit 16 - If 1, feed the opposite lane's accumulator into this lane's shift + mask hardware.
     /// Takes effect even if ADD_RAW is set (the CROSS_INPUT mux is before the shift+mask bypass)
     pub cross_input: bool,
-    /// Bit 15 - If SIGNED is set, the shifted and masked accumulator value is sign-extended to 32 bits  
+    /// Bit 15 - If SIGNED is set, the shifted and masked accumulator value is sign-extended to 32 bits
     /// before adding to BASE0, and LANE0 PEEK/POP appear extended to 32 bits when read by processor.
     pub signed: bool,
-    /// Bits 10:14 - The most-significant bit allowed to pass by the mask (inclusive)  
+    /// Bits 10:14 - The most-significant bit allowed to pass by the mask (inclusive)
     /// Setting MSB < LSB may cause chip to turn inside-out
     pub mask_msb: u8,
     /// Bits 5:9 - The least-significant bit allowed to pass by the mask (inclusive)

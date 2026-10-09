@@ -29,14 +29,9 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::aes::{self, Aes};
-use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
-use embassy_stm32::pka::{self, Pka};
 use embassy_stm32::rcc::{self};
-use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::usart::{self, BufferedUart, BufferedUartRx, BufferedUartTx, Config as UartConfig};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
@@ -44,20 +39,17 @@ use embassy_stm32_wpan::bluetooth::gatt::{
     CHAR_VALUE_HANDLE_OFFSET, CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions,
     ServiceHandle, ServiceType, Uuid, is_cccd_handle, is_value_handle,
 };
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embedded_io_async::{Read, Write};
 use panic_probe as _;
 use static_cell::StaticCell;
-use stm32wb_hci::Event;
-use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
+use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
 
 // Interrupt bindings
 bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<peripherals::RNG>;
-    AES => aes::InterruptHandler<AesPeriph>;
-    PKA => pka::InterruptHandler<PkaPeriph>;
     USART1 => usart::BufferedInterruptHandler<peripherals::USART1>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
@@ -165,14 +157,9 @@ async fn main(spawner: Spawner) {
     info!("Based on ST BLE_SerialCom_Peripheral");
 
     // Initialize hardware peripherals required by BLE stack
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Pka::new(p.PKA, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        8
-    );
+    let (platform, runtime) = new_platform!(8);
 
-    info!("Hardware peripherals initialized (RNG, AES, PKA)");
+    info!("BLE platform initialized");
 
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
@@ -187,7 +174,7 @@ async fn main(spawner: Spawner) {
     let tx_buf = TX_BUF.init([0u8; 256]);
     let rx_buf = RX_BUF.init([0u8; 256]);
 
-    let uart = BufferedUart::new(p.USART1, p.PA8, p.PB12, tx_buf, rx_buf, Irqs, uart_config)
+    let uart = BufferedUart::new(p.USART1, p.PB12, p.PA8, Irqs, tx_buf, rx_buf, uart_config)
         .expect("Failed to initialize USART1");
 
     let (uart_tx, uart_rx) = uart.split();
@@ -307,6 +294,7 @@ async fn main(spawner: Spawner) {
     info!("===========================================");
 
     // Main event loop
+    let mut event_buf = EventBuffer::new();
     loop {
         // Check for UART data to send via BLE (non-blocking)
         if state.tx_notifications_enabled {
@@ -325,20 +313,20 @@ async fn main(spawner: Spawner) {
         }
 
         // Wait for BLE event
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
 
         // Process GAP events (connections)
         if let Some(gap_event) = ble.process_event(&event) {
             match gap_event {
                 GapEvent::Connected(conn) => {
-                    info!("Connected: handle 0x{:04X}", conn.handle.0);
-                    state.current_conn_handle = Some(conn.handle.0);
+                    info!("Connected: handle 0x{:04X}", conn.handle.raw());
+                    state.current_conn_handle = Some(conn.handle.raw());
                     state.tx_notifications_enabled = false; // Reset on new connection
                 }
                 GapEvent::Disconnected { handle, reason } => {
                     info!(
                         "Disconnected: handle 0x{:04X}, reason 0x{:02X} ({})",
-                        handle.0,
+                        handle.raw(),
                         reason.as_u8(),
                         Display2Format(&reason)
                     );
@@ -357,10 +345,10 @@ async fn main(spawner: Spawner) {
 
         // Process GATT events
         match &event {
-            Event::Vendor(VendorEvent::GattAttributeModified(attribute)) => {
+            BleEvent::Vendor(AciEvent::GattAttributeModified(attribute)) => {
                 // Check if this is a CCCD write (notification enable/disable) for TX char
-                if is_cccd_handle(state.tx_char_handle.0, attribute.attr_handle.0) {
-                    let cccd = CccdValue::from_bytes(attribute.data());
+                if is_cccd_handle(state.tx_char_handle.0, attribute.attr_handle) {
+                    let cccd = CccdValue::from_bytes(attribute.attr_data);
                     state.tx_notifications_enabled = cccd.notifications;
                     info!(
                         "TX notifications {}",
@@ -368,16 +356,16 @@ async fn main(spawner: Spawner) {
                     );
                 }
                 // Check if this is a write to RX characteristic (data from BLE client)
-                else if is_value_handle(state.rx_char_handle.0, attribute.attr_handle.0) {
+                else if is_value_handle(state.rx_char_handle.0, attribute.attr_handle) {
                     debug!(
                         "Received {} bytes via BLE from conn 0x{:04X}",
-                        attribute.data().len(),
-                        attribute.conn_handle.0
+                        attribute.attr_data.len(),
+                        attribute.connection_handle.raw()
                     );
 
                     // Forward to UART
                     let mut uart_data: heapless::Vec<u8, MAX_DATA_LEN> = heapless::Vec::new();
-                    let _ = uart_data.extend_from_slice(attribute.data());
+                    let _ = uart_data.extend_from_slice(attribute.attr_data);
 
                     if BLE_TO_UART.try_send(uart_data).is_err() {
                         warn!("BLE->UART channel full, dropping data");
@@ -385,17 +373,17 @@ async fn main(spawner: Spawner) {
                 }
             }
 
-            Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
-                conn_handle,
+            BleEvent::Vendor(AciEvent::AttExchangeMtuResp(AttExchangeMtuRespEvent {
+                connection_handle: conn_handle,
                 server_rx_mtu,
             })) => {
-                info!("MTU exchanged: conn 0x{:04X}, MTU={}", conn_handle.0, server_rx_mtu);
+                info!("MTU exchanged: conn 0x{:04X}, MTU={}", conn_handle.raw(), server_rx_mtu);
                 if let Some(conn) = ble.get_connection_mut(*conn_handle) {
-                    conn.update_mtu(*server_rx_mtu as u16);
+                    conn.update_mtu(*server_rx_mtu);
                 }
             }
 
-            Event::Vendor(VendorEvent::GattNotificationComplete(attr_handle)) => {
+            BleEvent::Vendor(AciEvent::GattNotificationComplete(attr_handle)) => {
                 debug!("Notification complete: attr 0x{:04X}", attr_handle);
             }
 

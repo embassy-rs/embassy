@@ -4,13 +4,13 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::tcp::{TcpListener, TcpSocket};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, rng, usb};
-use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
-use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
+use embassy_usb::class::cdc_ncm::device::embassy_net::{Device, Runner, State as NetState};
+use embassy_usb::class::cdc_ncm::device::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
 use embedded_io_async::Write;
 use panic_probe as _;
@@ -62,7 +62,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
-    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, p.PA12, p.PA11, Irqs);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -105,16 +105,17 @@ async fn main(spawner: Spawner) {
 
     // Generate random seed
     let mut rng = Rng::new(p.RNG, Irqs);
-    let seed = rng.next_u64();
+    let seed = rng.blocking_next_u64();
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    iface.set_dhcpv4(Some(Default::default()));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
@@ -143,7 +144,7 @@ async fn main(spawner: Spawner) {
             continue;
         }
 
-        info!("Received connection from {:?}", socket.remote_endpoint());
+        info!("Received connection from {:?}", socket.remote_addr());
 
         loop {
             let n = match socket.read(&mut buf).await {

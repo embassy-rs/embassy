@@ -1,10 +1,71 @@
 //! GAP types and constants
 
-// Re-export HCI types for convenience
-pub use stm32wb_hci::host::OwnAddressType;
+use bt_hci::param::AddrKind;
+pub use bt_hci::param::BdAddr;
 
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::hci::AdvFilterPolicy;
+
+/// A Bluetooth device address together with its type
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum BdAddrType {
+    /// Public device address
+    Public(BdAddr),
+    /// Random device address
+    Random(BdAddr),
+}
+
+impl BdAddrType {
+    /// Build from an HCI address type and address.
+    ///
+    /// Resolved identity addresses (types 0x02 and 0x03) map to their public or
+    /// random identity.
+    pub fn new(kind: AddrKind, addr: BdAddr) -> Self {
+        if kind == AddrKind::PUBLIC || kind == AddrKind::RESOLVABLE_PRIVATE_OR_PUBLIC {
+            Self::Public(addr)
+        } else {
+            Self::Random(addr)
+        }
+    }
+
+    /// The address, without its type
+    pub fn addr(&self) -> BdAddr {
+        match self {
+            Self::Public(a) | Self::Random(a) => *a,
+        }
+    }
+
+    /// The HCI address type: 0x00 for public, 0x01 for random
+    pub fn kind(&self) -> u8 {
+        match self {
+            Self::Public(_) => 0x00,
+            Self::Random(_) => 0x01,
+        }
+    }
+
+    /// The address bytes, least significant byte first
+    pub fn bytes(&self) -> [u8; 6] {
+        let mut bytes = [0; 6];
+        bytes.copy_from_slice(self.addr().raw());
+        bytes
+    }
+}
+
+/// Own address type used for advertising, scanning and initiating
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum OwnAddressType {
+    /// Public device address
+    Public = 0x00,
+    /// Random device address
+    Random = 0x01,
+    /// Resolvable private address, falling back to the public address
+    PrivateFallbackPublic = 0x02,
+    /// Resolvable private address, falling back to the random address
+    PrivateFallbackRandom = 0x03,
+}
 
 /// Advertising type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +104,13 @@ pub struct AdvParams {
     /// Advertising filter policy
     pub filter_policy: AdvFilterPolicy,
 
+    /// Peer address for directed advertising.
+    ///
+    /// Required for [`AdvType::ConnectableDirectedHighDuty`] and
+    /// [`AdvType::ConnectableDirectedLowDuty`]; ignored for undirected
+    /// advertising.
+    pub peer_addr: Option<BdAddrType>,
+
     /// Advertising channel map (bit 0: channel 37, bit 1: channel 38, bit 2: channel 39)
     /// Default: 0x07 (all channels)
     pub channel_map: u8,
@@ -61,6 +129,7 @@ impl Default for AdvParams {
             // Matches the default address type configured in `GapInitParams`.
             own_addr_type: OwnAddressType::Random,
             filter_policy: AdvFilterPolicy::All,
+            peer_addr: None,
             channel_map: 0x07, // All channels
             privacy_undirected: false,
         }

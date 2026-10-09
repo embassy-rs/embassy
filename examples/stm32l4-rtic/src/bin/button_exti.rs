@@ -96,7 +96,7 @@ mod app {
         // clear the interrupt flag
         button.clear_pending();
 
-        let l = button.get_level();
+        let l = button.level();
         info!("button3 triggered, {}", l);
 
         ctx.shared.led2.lock(|led| led.toggle());

@@ -30,12 +30,12 @@ async fn main(_spawner: Spawner) {
 
     let mut button = Input::new(p.P0_11, Pull::Up);
 
-    info!("Watchdog started, press button 1 to pet it or I'll reset in 3 seconds!");
+    info!("Watchdog started, press button 1 to feed it or I'll reset in 3 seconds!");
 
     loop {
         button.wait_for_high().await;
         button.wait_for_low().await;
-        info!("Button pressed, petting watchdog!");
-        handle.pet();
+        info!("Button pressed, feeding watchdog!");
+        handle.feed();
     }
 }

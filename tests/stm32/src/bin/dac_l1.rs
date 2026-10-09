@@ -31,13 +31,13 @@ async fn main(_spawner: Spawner) {
     // Initialize the board and obtain a Peripherals instance
     let p: embassy_stm32::Peripherals = init();
 
-    let adc = peri!(p, ADC);
+    let adc = peri!(p, DAC_ADC);
     let dac = peri!(p, DAC);
     let dac_pin = peri!(p, DAC_PIN);
     let mut adc_pin = unsafe { core::ptr::read(&dac_pin) };
 
     let mut dac = DacChannel::new_blocking(dac, dac_pin);
-    let mut adc = Adc::new(adc, Irqs);
+    let mut adc = Adc::new(adc, Irqs, Default::default());
 
     #[cfg(feature = "stm32h755zi")]
     let normalization_factor = 256;
@@ -52,7 +52,7 @@ async fn main(_spawner: Spawner) {
     dac.set(0);
     // Now wait a little to obtain a stable value
     Timer::after_millis(30).await;
-    let offset = adc.irq_read(&mut adc_pin, SampleTime::from_bits(0)).await;
+    let offset = adc.read(&mut adc_pin, SampleTime::from_bits(0)).await;
 
     for v in 0..=255 {
         // First set the DAC output value
@@ -64,7 +64,7 @@ async fn main(_spawner: Spawner) {
 
         // Need to steal the peripherals here because PA4 is obviously in use already
         let measured = adc
-            .irq_read(
+            .read(
                 &mut unsafe { embassy_stm32::Peripherals::steal() }.PA4,
                 SampleTime::from_bits(0),
             )

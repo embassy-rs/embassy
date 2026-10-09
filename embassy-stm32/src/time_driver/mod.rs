@@ -38,6 +38,6 @@ pub(crate) trait LPTimeDriver {
 }
 
 #[cfg_attr(feature = "_lp-time-driver", path = "lptim.rs")]
-#[cfg_attr(not(feature = "_lp-time-driver"), path = "gp16.rs")]
+#[cfg_attr(not(feature = "_lp-time-driver"), path = "tim.rs")]
 mod driver;
 pub(crate) use driver::*;

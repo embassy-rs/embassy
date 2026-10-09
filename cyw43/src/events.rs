@@ -310,6 +310,7 @@ impl Events {
 pub struct Status {
     pub event_type: Event,
     pub status: u32,
+    pub reason: u32,
 }
 
 #[derive(Clone)]

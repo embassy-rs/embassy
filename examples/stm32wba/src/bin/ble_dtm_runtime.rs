@@ -19,24 +19,19 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
-use embassy_stm32::pka::{self, Pka};
-use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, exti, interrupt, rcc};
+use embassy_stm32_wpan::bluetooth::gap::connection::LeConnRole;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
-use embassy_stm32_wpan::bluetooth::{HCI, Normal, Test};
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI, Normal, Test};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::Timer;
 use panic_probe as _;
-use stm32wb_hci::Event;
-use stm32wb_hci::event::ConnectionRole;
 
 // ---- DTM test configuration ----
 #[allow(dead_code)]
@@ -52,9 +47,6 @@ const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
 // --------------------------------
 
 bind_interrupts!(struct Irqs {
-    RNG    => rng::InterruptHandler<RNG>;
-    AES    => aes::InterruptHandler<AesPeriph>;
-    PKA    => pka::InterruptHandler<PkaPeriph>;
     EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
     RADIO  => HighInterruptHandler;
     HASH   => LowInterruptHandler;
@@ -78,14 +70,9 @@ async fn main(spawner: Spawner) {
     let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
 
     // Initialize hardware peripherals required by BLE stack
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Pka::new(p.PKA, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        8
-    );
+    let (platform, runtime) = new_platform!(8);
 
-    info!("Hardware peripherals initialized (RNG, AES, PKA)");
+    info!("BLE platform initialized");
 
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
@@ -149,8 +136,9 @@ async fn main(spawner: Spawner) {
     // DTM packet interval is 625 µs per Vol 6, Part F, Section 4.1.6.
     let expected: u32 = DTM_TEST_DURATION_SECS as u32 * 1_000_000 / 625;
 
+    let mut event_buf = EventBuffer::new();
     loop {
-        match select(ble.read_event(), button.wait_for_falling_edge()).await {
+        match select(ble.read_event(&mut event_buf), button.wait_for_falling_edge()).await {
             Either::First(event) => {
                 handle_ble_event(&mut ble, &event, &adv_params, &adv_data).await;
             }
@@ -215,17 +203,17 @@ async fn main(spawner: Spawner) {
     }
 }
 
-async fn handle_ble_event(ble: &mut HCI<'_, Normal>, event: &Event, adv_params: &AdvParams, adv_data: &AdvData) {
+async fn handle_ble_event(ble: &mut HCI<'_, Normal>, event: &BleEvent<'_>, adv_params: &AdvParams, adv_data: &AdvData) {
     if let Some(gap_event) = ble.process_event(event) {
         match gap_event {
             GapEvent::Connected(conn) => {
                 info!("=== CONNECTION ESTABLISHED ===");
-                info!("  Handle: 0x{:04X}", conn.handle.0);
+                info!("  Handle: 0x{:04X}", conn.handle.raw());
                 info!(
                     "  Role: {}",
                     match conn.role {
-                        ConnectionRole::Central => "Central",
-                        ConnectionRole::Peripheral => "Peripheral",
+                        LeConnRole::Central => "Central",
+                        LeConnRole::Peripheral => "Peripheral",
                     }
                 );
                 info!("  Peer Address: {}", conn.peer_address);
@@ -237,7 +225,7 @@ async fn handle_ble_event(ble: &mut HCI<'_, Normal>, event: &Event, adv_params: 
 
             GapEvent::Disconnected { handle, reason } => {
                 info!("=== DISCONNECTION ===");
-                info!("  Handle: 0x{:04X}", handle.0);
+                info!("  Handle: 0x{:04X}", handle.raw());
                 info!("  Reason: 0x{:02X} ({})", reason.as_u8(), Display2Format(&reason));
                 info!("  Active connections: {}", ble.connections().count());
 
@@ -248,7 +236,7 @@ async fn handle_ble_event(ble: &mut HCI<'_, Normal>, event: &Event, adv_params: 
 
             GapEvent::ConnectionParamsUpdated { handle, interval } => {
                 info!("=== CONNECTION PARAMS UPDATED ===");
-                info!("  Handle: 0x{:04X}", handle.0);
+                info!("  Handle: 0x{:04X}", handle.raw());
                 info!("  New Interval: {} ", interval.interval());
                 info!("  New Latency: {}", interval.conn_latency());
                 info!("  New Timeout: {}", interval.supervision_timeout(),);
@@ -256,7 +244,7 @@ async fn handle_ble_event(ble: &mut HCI<'_, Normal>, event: &Event, adv_params: 
 
             GapEvent::PhyUpdated { handle, tx_phy, rx_phy } => {
                 info!("=== PHY UPDATED ===");
-                info!("  Handle: 0x{:04X}", handle.0);
+                info!("  Handle: 0x{:04X}", handle.raw());
                 info!("  TX PHY: {:?}", tx_phy);
                 info!("  RX PHY: {:?}", rx_phy);
             }
@@ -268,7 +256,7 @@ async fn handle_ble_event(ble: &mut HCI<'_, Normal>, event: &Event, adv_params: 
                 ..
             } => {
                 info!("=== DATA LENGTH CHANGED ===");
-                info!("  Handle: 0x{:04X}", handle.0);
+                info!("  Handle: 0x{:04X}", handle.raw());
                 info!("  Max TX: {} bytes", max_tx_octets);
                 info!("  Max RX: {} bytes", max_rx_octets);
             }

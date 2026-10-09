@@ -156,3 +156,67 @@ pub enum DtmRxPhy {
     /// LE Coded PHY
     LeCoded = 0x03,
 }
+
+/// Bitmask of radio activities reported through
+/// `ACI_HAL_END_OF_RADIO_ACTIVITY_EVENT`.
+///
+/// Set with [`CommandSender::set_radio_activity_mask`](super::command::CommandSender::set_radio_activity_mask).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(transparent)]
+pub struct RadioActivityMask(pub u16);
+
+impl RadioActivityMask {
+    /// No activities reported.
+    pub const NONE: Self = Self(0x0000);
+    /// Idle.
+    pub const IDLE: Self = Self(0x0001);
+    /// Advertising.
+    pub const ADVERTISING: Self = Self(0x0002);
+    /// Peripheral connection.
+    pub const PERIPHERAL_CONNECTION: Self = Self(0x0004);
+    /// Scanning.
+    pub const SCANNING: Self = Self(0x0008);
+    /// Central connection.
+    pub const CENTRAL_CONNECTION: Self = Self(0x0020);
+    /// TX test mode.
+    pub const TX_TEST: Self = Self(0x0040);
+    /// RX test mode.
+    pub const RX_TEST: Self = Self(0x0080);
+    /// Periodic advertising.
+    pub const PERIODIC_ADVERTISING: Self = Self(0x0200);
+    /// Periodic sync.
+    pub const PERIODIC_SYNC: Self = Self(0x0400);
+    /// ISO broadcast.
+    pub const ISO_BROADCAST: Self = Self(0x0800);
+    /// ISO sync.
+    pub const ISO_SYNC: Self = Self(0x1000);
+    /// ISO peripheral connection.
+    pub const ISO_PERIPHERAL_CONNECTION: Self = Self(0x2000);
+    /// ISO central connection.
+    pub const ISO_CENTRAL_CONNECTION: Self = Self(0x4000);
+
+    /// Create an empty mask.
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    /// Combine two masks.
+    pub const fn or(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for RadioActivityMask {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for RadioActivityMask {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}

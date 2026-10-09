@@ -2,7 +2,8 @@
 
 #![macro_use]
 
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::convert::Infallible;
+use core::sync::atomic::{AtomicU8, AtomicU16, Ordering, compiler_fence};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
@@ -10,19 +11,9 @@ use crate::gpio::{AnyPin, DISCONNECTED, Level, OutputDrive, Pin as GpioPin, Psel
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::pwm::vals;
 use crate::ppi::{Event, Task};
+use crate::time::Hertz;
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac};
-
-/// SimplePwm is the traditional pwm interface you're probably used to, allowing
-/// to simply set a duty cycle across up to four channels.
-pub struct SimplePwm<'d> {
-    r: pac::pwm::Pwm,
-    duty: [DutyCycle; 4],
-    ch0: Option<Peri<'d, AnyPin>>,
-    ch1: Option<Peri<'d, AnyPin>>,
-    ch2: Option<Peri<'d, AnyPin>>,
-    ch3: Option<Peri<'d, AnyPin>>,
-}
 
 /// SequencePwm allows you to offload the updating of a sequence of duty cycles
 /// to up to four channels, as well as repeat that sequence n times.
@@ -714,9 +705,86 @@ impl defmt::Format for DutyCycle {
     }
 }
 
+/// SimplePwm is the traditional pwm interface you're probably used to, allowing
+/// to simply set a duty cycle across up to four channels.
+///
+/// Per-channel handles implementing [`embedded_hal_1::pwm::SetDutyCycle`] can be obtained with
+/// [`ch0`](Self::ch0)..[`ch3`](Self::ch3) (borrowed) or [`split`](Self::split) (owned).
+pub struct SimplePwm<'d> {
+    r: pac::pwm::Pwm,
+    state: &'static State,
+    ch0: Option<Peri<'d, AnyPin>>,
+    ch1: Option<Peri<'d, AnyPin>>,
+    ch2: Option<Peri<'d, AnyPin>>,
+    ch3: Option<Peri<'d, AnyPin>>,
+}
+
+/// A single channel of a [`SimplePwm`].
+///
+/// Obtained with [`SimplePwm::ch0`]..[`SimplePwm::ch3`] (borrowing the PWM) or
+/// [`SimplePwm::split`] (owning the channel's pin), so channels can be handed to different tasks.
+pub struct SimplePwmChannel<'d> {
+    r: pac::pwm::Pwm,
+    state: &'static State,
+    index: usize,
+    /// The channel's pin, owned only by channels obtained via [`SimplePwm::split`].
+    pin: Option<Peri<'d, AnyPin>>,
+    /// Whether this channel owns its share of the PWM and must tear it down on drop.
+    is_owned: bool,
+}
+
+/// Per-instance PWM state.
+///
+/// The duty cycle buffer read by EasyDMA has to live in RAM and be shared between the
+/// `SimplePwm` and its channel handles, so it lives here rather than in the driver struct.
+pub(crate) struct State {
+    duty: [AtomicU16; 4],
+    /// Number of live owners (either the `SimplePwm`, or the channels it was split into).
+    refcount: AtomicU8,
+}
+
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            duty: [const { AtomicU16::new(0) }; 4],
+            refcount: AtomicU8::new(0),
+        }
+    }
+}
+
+/// Load the duty cycles from `state` into the PWM.
+fn sync_duty_cycles_to_peripheral(r: pac::pwm::Pwm, state: &'static State) {
+    // reload ptr in case it was changed
+    r.dma().seq(0).ptr().write_value(state.duty.as_ptr() as u32);
+
+    // defensive before seqstart
+    compiler_fence(Ordering::SeqCst);
+
+    r.events_seqend(0).write_value(0);
+
+    // tasks_seqstart() doesn't exist in all svds so write its bit instead
+    r.tasks_dma().seq(0).start().write_value(1);
+
+    // defensive wait until waveform is loaded after seqstart so set_duty
+    // can't be called again while dma is still reading
+    if r.enable().read().enable() {
+        while r.events_seqend(0).read() == 0 {}
+    }
+}
+
+fn disconnect_pin(r: pac::pwm::Pwm, pin: &Option<Peri<'_, AnyPin>>, psel: usize) {
+    if let Some(pin) = pin {
+        r.psel().out(psel).write_value(DISCONNECTED);
+        // put the pin into high z
+        pin.conf().write(|w| {
+            w.set_input(gpiovals::Input::Disconnect);
+        });
+    }
+}
+
 impl<'d> SimplePwm<'d> {
     /// Create a new 1-channel PWM
-    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: &SimpleConfig) -> Self {
+    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: SimpleConfig) -> Self {
         Self::new_inner(pwm, Some(ch0.into()), None, None, None, config)
     }
 
@@ -725,7 +793,7 @@ impl<'d> SimplePwm<'d> {
         pwm: Peri<'d, T>,
         ch0: Peri<'d, impl GpioPin>,
         ch1: Peri<'d, impl GpioPin>,
-        config: &SimpleConfig,
+        config: SimpleConfig,
     ) -> Self {
         Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), None, None, config)
     }
@@ -736,7 +804,7 @@ impl<'d> SimplePwm<'d> {
         ch0: Peri<'d, impl GpioPin>,
         ch1: Peri<'d, impl GpioPin>,
         ch2: Peri<'d, impl GpioPin>,
-        config: &SimpleConfig,
+        config: SimpleConfig,
     ) -> Self {
         Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), Some(ch2.into()), None, config)
     }
@@ -748,7 +816,7 @@ impl<'d> SimplePwm<'d> {
         ch1: Peri<'d, impl GpioPin>,
         ch2: Peri<'d, impl GpioPin>,
         ch3: Peri<'d, impl GpioPin>,
-        config: &SimpleConfig,
+        config: SimpleConfig,
     ) -> Self {
         Self::new_inner(
             pwm,
@@ -766,9 +834,10 @@ impl<'d> SimplePwm<'d> {
         ch1: Option<Peri<'d, AnyPin>>,
         ch2: Option<Peri<'d, AnyPin>>,
         ch3: Option<Peri<'d, AnyPin>>,
-        config: &SimpleConfig,
+        config: SimpleConfig,
     ) -> Self {
         let r = T::regs();
+        let state = T::state();
 
         let channels = [
             (&ch0, config.ch0_drive, config.ch0_idle_level),
@@ -791,13 +860,19 @@ impl<'d> SimplePwm<'d> {
             r.psel().out(i).write_value(pin.psel_bits());
         }
 
+        // Reset the shared state, this may be the second time the driver is created.
+        for duty in &state.duty {
+            duty.store(DutyCycle::normal(0).raw, Ordering::Relaxed);
+        }
+        state.refcount.store(1, Ordering::Relaxed);
+
         let pwm = Self {
             r,
+            state,
             ch0,
             ch1,
             ch2,
             ch3,
-            duty: [const { DutyCycle::normal(0) }; 4],
         };
 
         // Disable all interrupts
@@ -807,7 +882,7 @@ impl<'d> SimplePwm<'d> {
         // Enable
         r.enable().write(|w| w.set_enable(true));
 
-        r.dma().seq(0).ptr().write_value((pwm.duty).as_ptr() as u32);
+        r.dma().seq(0).ptr().write_value(state.duty.as_ptr() as u32);
         r.dma().seq(0).maxcnt().write(|w| w.0 = 4 * CNT_UNIT);
         pwmseq(r, 0).refresh().write(|w| w.0 = 0);
         pwmseq(r, 0).enddelay().write(|w| w.0 = 0);
@@ -828,6 +903,71 @@ impl<'d> SimplePwm<'d> {
         pwm
     }
 
+    fn channel(&mut self, index: usize) -> SimplePwmChannel<'_> {
+        SimplePwmChannel {
+            r: self.r,
+            state: self.state,
+            index,
+            pin: None,
+            is_owned: false,
+        }
+    }
+
+    /// Borrow channel 0.
+    pub fn ch0(&mut self) -> SimplePwmChannel<'_> {
+        self.channel(0)
+    }
+
+    /// Borrow channel 1.
+    pub fn ch1(&mut self) -> SimplePwmChannel<'_> {
+        self.channel(1)
+    }
+
+    /// Borrow channel 2.
+    pub fn ch2(&mut self) -> SimplePwmChannel<'_> {
+        self.channel(2)
+    }
+
+    /// Borrow channel 3.
+    pub fn ch3(&mut self) -> SimplePwmChannel<'_> {
+        self.channel(3)
+    }
+
+    /// Split the PWM into its channels, consuming the driver.
+    ///
+    /// A channel is returned for every pin the PWM was created with. The PWM is disabled
+    /// once all the returned channels have been dropped.
+    #[allow(clippy::type_complexity)]
+    pub fn split(
+        mut self,
+    ) -> (
+        Option<SimplePwmChannel<'d>>,
+        Option<SimplePwmChannel<'d>>,
+        Option<SimplePwmChannel<'d>>,
+        Option<SimplePwmChannel<'d>>,
+    ) {
+        let r = self.r;
+        let state = self.state;
+        let pins = [self.ch0.take(), self.ch1.take(), self.ch2.take(), self.ch3.take()];
+        // The channels take over ownership of the PWM, so `Drop` must not run for `self`.
+        core::mem::forget(self);
+
+        let count = pins.iter().filter(|p| p.is_some()).count();
+        state.refcount.store(count as u8, Ordering::Relaxed);
+
+        let channel = |index: usize, pin: Option<Peri<'d, AnyPin>>| {
+            pin.map(|pin| SimplePwmChannel {
+                r,
+                state,
+                index,
+                pin: Some(pin),
+                is_owned: true,
+            })
+        };
+        let [ch0, ch1, ch2, ch3] = pins;
+        (channel(0, ch0), channel(1, ch1), channel(2, ch2), channel(3, ch3))
+    }
+
     /// Returns the enable state of the pwm counter
     #[inline(always)]
     pub fn is_enabled(&self) -> bool {
@@ -836,25 +976,21 @@ impl<'d> SimplePwm<'d> {
 
     /// Enables the PWM generator.
     #[inline(always)]
-    pub fn enable(&self) {
+    pub fn enable(&mut self) {
         self.r.enable().write(|w| w.set_enable(true));
     }
 
     /// Disables the PWM generator. Does NOT clear the last duty cycle from the pin.
     #[inline(always)]
-    pub fn disable(&self) {
+    pub fn disable(&mut self) {
         self.r.enable().write(|w| w.set_enable(false));
     }
 
-    /// Returns the current duty of the channel.
-    pub fn duty(&self, channel: usize) -> DutyCycle {
-        self.duty[channel]
-    }
-
-    /// Sets duty cycle (15 bit) and polarity for a PWM channel.
-    pub fn set_duty(&mut self, channel: usize, duty: DutyCycle) {
-        self.duty[channel] = duty;
-        self.sync_duty_cyles_to_peripheral();
+    /// Returns the current duty cycles of all channels.
+    pub fn duties(&self) -> [DutyCycle; 4] {
+        self.state.duty.each_ref().map(|d| DutyCycle {
+            raw: d.load(Ordering::Relaxed),
+        })
     }
 
     /// Sets the duty cycle (15 bit) and polarity for all PWM channels.
@@ -862,36 +998,18 @@ impl<'d> SimplePwm<'d> {
     /// You can safely set the duty cycle of disabled PWM channels.
     ///
     /// When using this function, a single DMA transfer sets all the duty cycles.
-    /// If you call [`Self::set_duty()`] multiple times,
+    /// If you call [`SimplePwmChannel::set_duty()`] multiple times,
     /// each duty cycle will be set by a separate DMA transfer.
     pub fn set_all_duties(&mut self, duty: [DutyCycle; 4]) {
-        self.duty = duty;
-        self.sync_duty_cyles_to_peripheral();
-    }
-
-    /// Transfer the duty cycles from `self` to the peripheral.
-    fn sync_duty_cyles_to_peripheral(&self) {
-        // reload ptr in case self was moved
-        self.r.dma().seq(0).ptr().write_value((self.duty).as_ptr() as u32);
-
-        // defensive before seqstart
-        compiler_fence(Ordering::SeqCst);
-
-        self.r.events_seqend(0).write_value(0);
-
-        // tasks_seqstart() doesn't exist in all svds so write its bit instead
-        self.r.tasks_dma().seq(0).start().write_value(1);
-
-        // defensive wait until waveform is loaded after seqstart so set_duty
-        // can't be called again while dma is still reading
-        if self.is_enabled() {
-            while self.r.events_seqend(0).read() == 0 {}
+        for (d, duty) in self.state.duty.iter().zip(duty) {
+            d.store(duty.raw, Ordering::Relaxed);
         }
+        sync_duty_cycles_to_peripheral(self.r, self.state);
     }
 
     /// Sets the PWM clock prescaler.
     #[inline(always)]
-    pub fn set_prescaler(&self, div: Prescaler) {
+    pub fn set_prescaler(&mut self, div: Prescaler) {
         self.r
             .prescaler()
             .write(|w| w.set_prescaler(vals::Prescaler::from_bits(div as u8)));
@@ -915,7 +1033,7 @@ impl<'d> SimplePwm<'d> {
 
     /// Sets the maximum duty cycle value.
     #[inline(always)]
-    pub fn set_max_duty(&self, duty: u16) {
+    pub fn set_max_duty(&mut self, duty: u16) {
         self.r.countertop().write(|w| w.set_countertop(duty.min(32767u16)));
     }
 
@@ -925,25 +1043,29 @@ impl<'d> SimplePwm<'d> {
         self.r.countertop().read().countertop()
     }
 
-    /// Sets the PWM output frequency.
+    /// Sets the PWM output frequency, by adjusting the maximum duty cycle value.
+    ///
+    /// The current prescaler limits the range of reachable frequencies: with `Div1`
+    /// the lowest is about 489 Hz, with `Div128` about 3.8 Hz. Set the prescaler first
+    /// for low frequencies.
     #[inline(always)]
-    pub fn set_period(&self, freq: u32) {
+    pub fn set_frequency(&mut self, freq: Hertz) {
         let clk = PWM_CLK_HZ >> (self.prescaler() as u8);
-        let duty = clk / freq;
+        let duty = clk / freq.0;
         self.set_max_duty(duty.min(32767) as u16);
     }
 
     /// Returns the PWM output frequency.
     #[inline(always)]
-    pub fn period(&self) -> u32 {
+    pub fn frequency(&self) -> Hertz {
         let clk = PWM_CLK_HZ >> (self.prescaler() as u8);
         let max_duty = self.max_duty() as u32;
-        clk / max_duty
+        Hertz(clk / max_duty)
     }
 
     /// Sets the PWM-Channel0 output drive strength
     #[inline(always)]
-    pub fn set_ch0_drive(&self, drive: OutputDrive) {
+    pub fn set_ch0_drive(&mut self, drive: OutputDrive) {
         if let Some(pin) = &self.ch0 {
             pin.conf().modify(|w| convert_drive(w, drive));
         }
@@ -951,7 +1073,7 @@ impl<'d> SimplePwm<'d> {
 
     /// Sets the PWM-Channel1 output drive strength
     #[inline(always)]
-    pub fn set_ch1_drive(&self, drive: OutputDrive) {
+    pub fn set_ch1_drive(&mut self, drive: OutputDrive) {
         if let Some(pin) = &self.ch1 {
             pin.conf().modify(|w| convert_drive(w, drive));
         }
@@ -959,7 +1081,7 @@ impl<'d> SimplePwm<'d> {
 
     /// Sets the PWM-Channel2 output drive strength
     #[inline(always)]
-    pub fn set_ch2_drive(&self, drive: OutputDrive) {
+    pub fn set_ch2_drive(&mut self, drive: OutputDrive) {
         if let Some(pin) = &self.ch2 {
             pin.conf().modify(|w| convert_drive(w, drive));
         }
@@ -967,7 +1089,7 @@ impl<'d> SimplePwm<'d> {
 
     /// Sets the PWM-Channel3 output drive strength
     #[inline(always)]
-    pub fn set_ch3_drive(&self, drive: OutputDrive) {
+    pub fn set_ch3_drive(&mut self, drive: OutputDrive) {
         if let Some(pin) = &self.ch3 {
             pin.conf().modify(|w| convert_drive(w, drive));
         }
@@ -976,28 +1098,84 @@ impl<'d> SimplePwm<'d> {
 
 impl<'a> Drop for SimplePwm<'a> {
     fn drop(&mut self) {
-        let r = &self.r;
+        let r = self.r;
 
         self.disable();
 
-        let disconnect_pin = |pin: &mut Option<Peri<'a, AnyPin>>, psel: usize| {
-            if let Some(pin) = pin {
-                r.psel().out(psel).write_value(DISCONNECTED);
-                // put the pin into high z
-                pin.conf().write(|w| {
-                    w.set_input(gpiovals::Input::Disconnect);
-                });
-            }
-        };
-        disconnect_pin(&mut self.ch0, 0);
-        disconnect_pin(&mut self.ch1, 1);
-        disconnect_pin(&mut self.ch2, 2);
-        disconnect_pin(&mut self.ch3, 3);
+        disconnect_pin(r, &self.ch0, 0);
+        disconnect_pin(r, &self.ch1, 1);
+        disconnect_pin(r, &self.ch2, 2);
+        disconnect_pin(r, &self.ch3, 3);
+    }
+}
+
+impl<'d> SimplePwmChannel<'d> {
+    /// Returns the current duty cycle of the channel.
+    pub fn duty(&self) -> DutyCycle {
+        DutyCycle {
+            raw: self.state.duty[self.index].load(Ordering::Relaxed),
+        }
+    }
+
+    /// Sets the duty cycle (15 bit) and polarity of the channel.
+    pub fn set_duty(&mut self, duty: DutyCycle) {
+        self.state.duty[self.index].store(duty.raw, Ordering::Relaxed);
+        sync_duty_cycles_to_peripheral(self.r, self.state);
+    }
+
+    /// Returns the maximum duty cycle value.
+    pub fn max_duty_cycle(&self) -> u16 {
+        self.r.countertop().read().countertop()
+    }
+
+    /// Sets the output drive strength of the channel's pin.
+    ///
+    /// Does nothing for a channel obtained via [`SimplePwm::ch0`]..[`SimplePwm::ch3`] whose
+    /// pin is still owned by the [`SimplePwm`]; use [`SimplePwm::set_ch0_drive`] etc. instead.
+    pub fn set_drive(&mut self, drive: OutputDrive) {
+        if let Some(pin) = &self.pin {
+            pin.conf().modify(|w| convert_drive(w, drive));
+        }
+    }
+}
+
+impl<'d> Drop for SimplePwmChannel<'d> {
+    fn drop(&mut self) {
+        if !self.is_owned {
+            return;
+        }
+
+        disconnect_pin(self.r, &self.pin, self.index);
+
+        if self.state.refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
+            // Last owner: disable the PWM.
+            self.r.enable().write(|w| w.set_enable(false));
+        }
+    }
+}
+
+impl<'d> embedded_hal_1::pwm::ErrorType for SimplePwmChannel<'d> {
+    type Error = Infallible;
+}
+
+impl<'d> embedded_hal_1::pwm::SetDutyCycle for SimplePwmChannel<'d> {
+    fn max_duty_cycle(&self) -> u16 {
+        self.max_duty_cycle()
+    }
+
+    /// Sets the duty cycle, as the number of counter ticks the output is high per period.
+    ///
+    /// This uses the [`DutyCycle::inverted`] polarity so that `0` is fully off and
+    /// [`max_duty_cycle`](Self::max_duty_cycle) is fully on.
+    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        self.set_duty(DutyCycle::inverted(duty.min(self.max_duty_cycle())));
+        Ok(())
     }
 }
 
 pub(crate) trait SealedInstance {
     fn regs() -> pac::pwm::Pwm;
+    fn state() -> &'static State;
 }
 
 /// PWM peripheral instance.
@@ -1012,6 +1190,10 @@ macro_rules! impl_pwm {
         impl crate::pwm::SealedInstance for peripherals::$type {
             fn regs() -> pac::pwm::Pwm {
                 pac::$pac_type
+            }
+            fn state() -> &'static crate::pwm::State {
+                static STATE: crate::pwm::State = crate::pwm::State::new();
+                &STATE
             }
         }
         impl crate::pwm::Instance for peripherals::$type {

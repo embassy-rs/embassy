@@ -4,14 +4,14 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::tcp::{TcpListener, TcpSocket};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
-use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
+use embassy_usb::class::cdc_ncm::device::embassy_net::{Device, Runner, State as NetState};
+use embassy_usb::class::cdc_ncm::device::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
 use embedded_io_async::Write;
 use panic_probe as _;
@@ -84,7 +84,7 @@ async fn main(spawner: Spawner) {
     // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
     config.vbus_detection = false;
 
-    let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, ep_out_buffer, config);
+    let driver = Driver::new_fs(p.USB_OTG_FS, p.PA12, p.PA11, Irqs, ep_out_buffer, config);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -128,17 +128,18 @@ async fn main(spawner: Spawner) {
     // Generate random seed
     let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
-    unwrap!(rng.async_fill_bytes(&mut seed).await);
+    unwrap!(rng.fill_bytes(&mut seed).await);
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    iface.set_dhcpv4(Some(Default::default()));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
@@ -167,7 +168,7 @@ async fn main(spawner: Spawner) {
             continue;
         }
 
-        info!("Received connection from {:?}", socket.remote_endpoint());
+        info!("Received connection from {:?}", socket.remote_addr());
 
         loop {
             let n = match socket.read(&mut buf).await {

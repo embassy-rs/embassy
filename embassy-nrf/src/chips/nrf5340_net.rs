@@ -76,6 +76,7 @@ embassy_hal_internal::peripherals! {
     SAADC,
 
     // RNG
+    #[cfg(any(not(feature = "embassy-crypto-rng"), feature = "_cryptocell"))]
     RNG,
 
     // PWM
@@ -221,6 +222,7 @@ impl_rtc!(RTC0, RTC0, RTC0);
 #[cfg(not(feature = "time-driver-rtc1"))]
 impl_rtc!(RTC1, RTC1, RTC1);
 
+#[cfg(any(not(feature = "embassy-crypto-rng"), feature = "_cryptocell"))]
 impl_rng!(RNG, RNG, RNG);
 
 impl_pin!(P0_00, 0, 0);

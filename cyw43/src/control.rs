@@ -18,6 +18,8 @@ use crate::{PowerManagementMode, countries, events};
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum JoinError {
+    /// The passphrase is invalid for the selected authentication mode.
+    InvalidPassphrase,
     /// Network not found.
     NetworkNotFound,
     /// Failure to join network. Contains the status code from the SET_SSID event.
@@ -32,6 +34,7 @@ pub struct Control<'a> {
     events: &'a Events,
     ioctl_state: &'a IoctlState,
     secure_network: &'a AtomicBool,
+    started_join: bool,
 }
 
 /// WiFi scan type.
@@ -120,13 +123,14 @@ pub struct JoinOptions<'a> {
     pub cipher_tkip: bool,
     /// Enable AES encryption. Default true.
     pub cipher_aes: bool,
-    /// Passphrase. Default empty.
+    /// Passphrase. Must contain between 8 and 64 bytes for an encrypted network.
+    /// Default empty.
     pub passphrase: &'a [u8],
     /// If false, `passphrase` is the human-readable passphrase string.
     /// If true, `passphrase` is the result of applying the PBKDF2 hash to the
     /// passphrase string. This makes it possible to avoid storing unhashed passwords.
     ///
-    /// This is not compatible with WPA3.
+    /// Pre-hashed passphrases must contain exactly 32 bytes and are not compatible with WPA3.
     /// Default false.
     pub passphrase_is_prehashed: bool,
 }
@@ -166,6 +170,24 @@ impl<'a> Default for JoinOptions<'a> {
     }
 }
 
+fn validate_join_options(options: &JoinOptions<'_>) -> Result<(), JoinError> {
+    if options.auth == JoinAuth::Open {
+        return Ok(());
+    }
+
+    let valid = if options.passphrase_is_prehashed {
+        matches!(options.auth, JoinAuth::Wpa | JoinAuth::Wpa2) && options.passphrase.len() == 32
+    } else {
+        (MIN_PSK_LEN..=MAX_PSK_LEN).contains(&options.passphrase.len())
+    };
+
+    if valid {
+        Ok(())
+    } else {
+        Err(JoinError::InvalidPassphrase)
+    }
+}
+
 impl<'a> Control<'a> {
     pub(crate) fn new(
         state_ch: ch::StateRunner<'a>,
@@ -178,6 +200,7 @@ impl<'a> Control<'a> {
             events: event_sub,
             ioctl_state,
             secure_network,
+            started_join: false,
         }
     }
 
@@ -320,6 +343,13 @@ impl<'a> Control<'a> {
 
     /// Join a network with the provided SSID using the specified options.
     pub async fn join(&mut self, ssid: &str, options: JoinOptions<'_>) -> Result<(), JoinError> {
+        validate_join_options(&options)?;
+
+        if self.started_join {
+            self.leave().await;
+        }
+        self.started_join = true;
+
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
         if options.auth == JoinAuth::Open {
@@ -392,7 +422,11 @@ impl<'a> Control<'a> {
 
         let secure_network = options.auth != JoinAuth::Open;
         self.secure_network.store(secure_network, Relaxed);
-        self.wait_for_join(i, secure_network).await
+        let result = self.wait_for_join(i, secure_network).await;
+        if result.is_ok() {
+            self.started_join = false;
+        }
+        result
     }
 
     async fn wait_for_join(&mut self, i: SsidInfo, secure_network: bool) -> Result<(), JoinError> {
@@ -427,8 +461,9 @@ impl<'a> Control<'a> {
                 (Event::SET_SSID, status, _) if status != EStatus::SUCCESS => {
                     break Err(JoinError::JoinFailure(status as u8));
                 }
-                // Ignore PSK_SUP "ABORT" which is sometimes sent before successful join
-                (Event::PSK_SUP, EStatus::ABORT, true) => {}
+                // PSK_SUP status 4 means waiting for M1, not the generic ABORT status.
+                // Ignore it only without a failure reason; reason 15 is a handshake timeout.
+                (Event::PSK_SUP, _, true) if msg.header.status == 4 && msg.header.reason == 0 => {}
                 // Event PSK_SUP with status 6 "UNSOLICITED" indicates success for secure networks
                 (Event::PSK_SUP, EStatus::UNSOLICITED, true) => break Ok(()),
                 // Events indicating authentication failure, possibly due to incorrect password
@@ -441,6 +476,7 @@ impl<'a> Control<'a> {
 
         match result {
             Ok(()) => debug!("JOINED"),
+            Err(JoinError::InvalidPassphrase) => debug!("JOIN failed: invalid passphrase"),
             Err(JoinError::JoinFailure(status)) => debug!("JOIN failed: status={}", status),
             Err(JoinError::NetworkNotFound) => debug!("JOIN failed: network not found"),
             Err(JoinError::AuthenticationFailure) => debug!("JOIN failed: authentication failure"),
@@ -794,6 +830,7 @@ impl<'a> Control<'a> {
     /// Leave the wifi, with which we are currently associated.
     pub async fn leave(&mut self) {
         self.ioctl(IoctlType::Set, Ioctl::Disassoc, 0, &mut []).await;
+        self.started_join = false;
         info!("Disassociated")
     }
 
@@ -802,6 +839,61 @@ impl<'a> Control<'a> {
         let mut mac_addr = [0; 6];
         assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
         mac_addr
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_join_passphrase() {
+        let too_short = [0; MIN_PSK_LEN - 1];
+        assert!(matches!(
+            validate_join_options(&JoinOptions::new(&too_short)),
+            Err(JoinError::InvalidPassphrase)
+        ));
+
+        let minimum = [0; MIN_PSK_LEN];
+        assert!(validate_join_options(&JoinOptions::new(&minimum)).is_ok());
+
+        let maximum = [0; MAX_PSK_LEN];
+        assert!(validate_join_options(&JoinOptions::new(&maximum)).is_ok());
+
+        let too_long = [0; MAX_PSK_LEN + 1];
+        assert!(matches!(
+            validate_join_options(&JoinOptions::new(&too_long)),
+            Err(JoinError::InvalidPassphrase)
+        ));
+    }
+
+    #[test]
+    fn validate_join_prehashed_passphrase() {
+        let passphrase = [0; 32];
+        let mut options = JoinOptions::new(&passphrase);
+        options.auth = JoinAuth::Wpa2;
+        options.passphrase_is_prehashed = true;
+        assert!(validate_join_options(&options).is_ok());
+
+        options.auth = JoinAuth::Wpa3;
+        assert!(matches!(
+            validate_join_options(&options),
+            Err(JoinError::InvalidPassphrase)
+        ));
+
+        let invalid_passphrase = [0; 31];
+        options.auth = JoinAuth::Wpa2;
+        options.passphrase = &invalid_passphrase;
+        assert!(matches!(
+            validate_join_options(&options),
+            Err(JoinError::InvalidPassphrase)
+        ));
+    }
+
+    #[test]
+    fn validate_join_open_network_ignores_passphrase() {
+        let options = JoinOptions::new_open();
+        assert!(validate_join_options(&options).is_ok());
     }
 }
 
@@ -831,5 +923,274 @@ impl Scanner<'_> {
 impl Drop for Scanner<'_> {
     fn drop(&mut self) {
         self.events.mask.disable_all();
+    }
+}
+
+#[cfg(test)]
+mod psk_event_tests {
+    use core::future::Future;
+    use core::pin::pin;
+    use core::task::{Context, Poll, Waker};
+
+    use super::*;
+
+    fn pending_ioctl(ioctl: &IoctlState, cx: &mut Context<'_>) -> crate::ioctl::PendingIoctl {
+        let mut pending = pin!(ioctl.wait_pending());
+        let Poll::Ready(request) = pending.as_mut().poll(cx) else {
+            panic!("expected a pending ioctl");
+        };
+        request
+    }
+
+    fn poll_to_join_events(
+        mut join: core::pin::Pin<&mut impl Future<Output = Result<(), JoinError>>>,
+        ioctl: &IoctlState,
+        cx: &mut Context<'_>,
+    ) {
+        loop {
+            assert!(join.as_mut().poll(cx).is_pending());
+            let request = pending_ioctl(ioctl, cx);
+            assert!(!matches!(request.cmd, Ioctl::Disassoc));
+            ioctl.ioctl_done(&[]);
+            if matches!(request.cmd, Ioctl::SetSsid) {
+                assert!(join.as_mut().poll(cx).is_pending());
+                return;
+            }
+        }
+    }
+
+    fn publish_event(events: &Events, event_type: Event, status: u32, reason: u32) {
+        events
+            .queue
+            .immediate_publisher()
+            .publish_immediate(events::Message::new(
+                events::Status {
+                    event_type,
+                    status,
+                    reason,
+                },
+                events::Payload::None,
+            ));
+    }
+
+    fn assert_cleanup_before_configuration(
+        mut join: core::pin::Pin<&mut impl Future<Output = Result<(), JoinError>>>,
+        ioctl: &IoctlState,
+        cx: &mut Context<'_>,
+    ) {
+        assert!(join.as_mut().poll(cx).is_pending());
+        assert!(matches!(pending_ioctl(ioctl, cx).cmd, Ioctl::Disassoc));
+        assert!(join.as_mut().poll(cx).is_pending());
+        assert!(pin!(ioctl.wait_pending()).as_mut().poll(cx).is_pending());
+        ioctl.ioctl_done(&[]);
+        assert!(join.as_mut().poll(cx).is_pending());
+        assert!(matches!(pending_ioctl(ioctl, cx).cmd, Ioctl::SetVar));
+    }
+
+    fn replay_psk_events(events: &[(u32, u32)]) -> Poll<Result<(), JoinError>> {
+        let mut state = crate::State::new();
+        let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
+
+        let mut control = Control::new(
+            runner.state_runner(),
+            &state.net.events,
+            &state.ioctl_state,
+            &state.net.secure_network,
+        );
+
+        let mut join = pin!(control.wait_for_join(SsidInfo { len: 0, ssid: [0; 32] }, true));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(join.as_mut().poll(&mut cx).is_pending());
+
+        // Complete SetSsid as the radio runner would, then drive the real join
+        // future through its event queue without an application timeout.
+        {
+            let mut pending = pin!(state.ioctl_state.wait_pending());
+
+            assert!(pending.as_mut().poll(&mut cx).is_ready());
+        }
+
+        state.ioctl_state.ioctl_done(&[]);
+        assert!(join.as_mut().poll(&mut cx).is_pending());
+
+        let mut result = Poll::Pending;
+        for &(status, reason) in events {
+            state
+                .net
+                .events
+                .queue
+                .immediate_publisher()
+                .publish_immediate(events::Message::new(
+                    events::Status {
+                        event_type: Event::PSK_SUP,
+                        status,
+                        reason,
+                    },
+                    events::Payload::None,
+                ));
+
+            result = join.as_mut().poll(&mut cx);
+
+            if result.is_ready() {
+                break;
+            }
+        }
+
+        result
+    }
+
+    #[test]
+    fn m1_timeout_fails_join() {
+        assert!(matches!(
+            replay_psk_events(&[(4, 15)]),
+            Poll::Ready(Err(JoinError::AuthenticationFailure))
+        ));
+    }
+
+    #[test]
+    fn waiting_for_m1_without_an_error_allows_join_to_complete() {
+        assert!(replay_psk_events(&[(4, 0)]).is_pending());
+
+        assert!(matches!(replay_psk_events(&[(4, 0), (6, 0)]), Poll::Ready(Ok(()))));
+    }
+
+    #[test]
+    fn cancelled_join_is_cleaned_up_before_retry() {
+        // Cover cancellation before sending configuration, after sending it,
+        // and while waiting for association events.
+        for phase in 0..3 {
+            let mut state = crate::State::new();
+            let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
+            let mut control = Control::new(
+                runner.state_runner(),
+                &state.net.events,
+                &state.ioctl_state,
+                &state.net.secure_network,
+            );
+            let mut cx = Context::from_waker(Waker::noop());
+
+            {
+                let mut join = pin!(control.join("test", JoinOptions::new_open()));
+                if phase == 2 {
+                    poll_to_join_events(join.as_mut(), &state.ioctl_state, &mut cx);
+                } else {
+                    assert!(join.as_mut().poll(&mut cx).is_pending());
+                    if phase == 1 {
+                        pending_ioctl(&state.ioctl_state, &mut cx);
+                    }
+                }
+            }
+
+            // Cancelling retry-entry cleanup must not lose the cleanup obligation.
+            {
+                let mut retry = pin!(control.join("test", JoinOptions::new_open()));
+                assert!(retry.as_mut().poll(&mut cx).is_pending());
+                assert!(matches!(
+                    pending_ioctl(&state.ioctl_state, &mut cx).cmd,
+                    Ioctl::Disassoc
+                ));
+            }
+            let mut retry = pin!(control.join("test", JoinOptions::new_open()));
+            assert_cleanup_before_configuration(retry.as_mut(), &state.ioctl_state, &mut cx);
+        }
+    }
+
+    #[test]
+    fn failed_join_is_cleaned_up_on_retry() {
+        for status in [EStatus::NO_NETWORKS, EStatus::FAIL] {
+            let mut state = crate::State::new();
+            let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
+            let mut control = Control::new(
+                runner.state_runner(),
+                &state.net.events,
+                &state.ioctl_state,
+                &state.net.secure_network,
+            );
+            let mut cx = Context::from_waker(Waker::noop());
+
+            {
+                let mut join = pin!(control.join("test", JoinOptions::new_open()));
+                poll_to_join_events(join.as_mut(), &state.ioctl_state, &mut cx);
+                publish_event(&state.net.events, Event::SET_SSID, status as u32, 0);
+                match (status, join.as_mut().poll(&mut cx)) {
+                    (EStatus::NO_NETWORKS, Poll::Ready(Err(JoinError::NetworkNotFound))) => {}
+                    (EStatus::FAIL, Poll::Ready(Err(JoinError::JoinFailure(code)))) => {
+                        assert_eq!(code, EStatus::FAIL as u8);
+                    }
+                    _ => panic!("join did not return its original failure"),
+                }
+                assert!(state.ioctl_state.is_idle());
+            }
+            let mut retry = pin!(control.join("test", JoinOptions::new_open()));
+            assert_cleanup_before_configuration(retry.as_mut(), &state.ioctl_state, &mut cx);
+        }
+    }
+
+    #[test]
+    fn successful_join_does_not_require_retry_cleanup() {
+        let mut state = crate::State::new();
+        let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
+        let mut control = Control::new(
+            runner.state_runner(),
+            &state.net.events,
+            &state.ioctl_state,
+            &state.net.secure_network,
+        );
+        let mut cx = Context::from_waker(Waker::noop());
+        {
+            let mut join = pin!(control.join("test", JoinOptions::new_open()));
+            poll_to_join_events(join.as_mut(), &state.ioctl_state, &mut cx);
+            publish_event(&state.net.events, Event::SET_SSID, EStatus::SUCCESS as u32, 0);
+            assert!(matches!(join.as_mut().poll(&mut cx), Poll::Ready(Ok(()))));
+        }
+        let mut join = pin!(control.join("test", JoinOptions::new_open()));
+        assert!(join.as_mut().poll(&mut cx).is_pending());
+        assert!(matches!(pending_ioctl(&state.ioctl_state, &mut cx).cmd, Ioctl::SetVar));
+    }
+
+    #[test]
+    fn explicit_leave_clears_cleanup_only_after_completion() {
+        let mut state = crate::State::new();
+        let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
+        let mut control = Control::new(
+            runner.state_runner(),
+            &state.net.events,
+            &state.ioctl_state,
+            &state.net.secure_network,
+        );
+        let mut cx = Context::from_waker(Waker::noop());
+        {
+            let mut join = pin!(control.join("test", JoinOptions::new_open()));
+            assert!(join.as_mut().poll(&mut cx).is_pending());
+        }
+        {
+            let mut leave = pin!(control.leave());
+            assert!(leave.as_mut().poll(&mut cx).is_pending());
+            assert!(matches!(
+                pending_ioctl(&state.ioctl_state, &mut cx).cmd,
+                Ioctl::Disassoc
+            ));
+        }
+        {
+            let mut retry = pin!(control.join("test", JoinOptions::new_open()));
+            assert!(retry.as_mut().poll(&mut cx).is_pending());
+            assert!(matches!(
+                pending_ioctl(&state.ioctl_state, &mut cx).cmd,
+                Ioctl::Disassoc
+            ));
+        }
+        {
+            let mut leave = pin!(control.leave());
+            assert!(leave.as_mut().poll(&mut cx).is_pending());
+            assert!(matches!(
+                pending_ioctl(&state.ioctl_state, &mut cx).cmd,
+                Ioctl::Disassoc
+            ));
+            state.ioctl_state.ioctl_done(&[]);
+            assert!(leave.as_mut().poll(&mut cx).is_ready());
+        }
+        let mut join = pin!(control.join("test", JoinOptions::new_open()));
+        assert!(join.as_mut().poll(&mut cx).is_pending());
+        assert!(matches!(pending_ioctl(&state.ioctl_state, &mut cx).cmd, Ioctl::SetVar));
     }
 }

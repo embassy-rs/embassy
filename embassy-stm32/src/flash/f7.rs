@@ -32,7 +32,7 @@ pub(crate) unsafe fn enable_blocking_write() {
 }
 
 pub(crate) unsafe fn disable_blocking_write() {
-    pac::FLASH.cr().write(|w| w.set_pg(false));
+    pac::FLASH.cr().modify(|w| w.set_pg(false));
 }
 
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
@@ -48,8 +48,14 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     blocking_wait_ready()
 }
 
-pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_erase_sector(
+    sector: &FlashSector,
+    parallelism: Option<super::EraseParallelism>,
+) -> Result<(), Error> {
     pac::FLASH.cr().modify(|w| {
+        if let Some(parallelism) = parallelism {
+            w.set_psize(parallelism.psize());
+        }
         w.set_ser(true);
         w.set_snb(sector.snb())
     });

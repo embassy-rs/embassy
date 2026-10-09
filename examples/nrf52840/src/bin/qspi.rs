@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner) {
     config.write_page_size = qspi::WritePageSize::_256bytes;
 
     let mut q = qspi::Qspi::new(
-        p.QSPI, Irqs, p.P0_19, p.P0_17, p.P0_20, p.P0_21, p.P0_22, p.P0_23, config,
+        p.QSPI, p.P0_19, p.P0_17, p.P0_20, p.P0_21, p.P0_22, p.P0_23, Irqs, config,
     );
 
     let mut id = [1; 3];

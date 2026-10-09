@@ -154,6 +154,17 @@ impl<'d> Flex<'d> {
         self.pin.set_as_analog();
     }
 
+    /// Put the pin into disconnected mode.
+    ///
+    /// This is the same as analog mode. The internal weak pull-up and pull-down resistors will be
+    /// disabled.
+    #[inline]
+    pub fn set_as_disconnected(&mut self) {
+        critical_section::with(|_| {
+            self.pin.set_as_disconnected();
+        });
+    }
+
     /// Put the pin into AF mode, unchecked.
     ///
     /// This puts the pin into the AF mode, with the requested number and AF type. This is
@@ -167,6 +178,69 @@ impl<'d> Flex<'d> {
                 af_type,
             );
         });
+    }
+
+    /// Is the pin configured as an input?
+    ///
+    /// This is true after [`Self::set_as_input()`] or [`Self::set_as_input_output()`].
+    #[inline]
+    pub fn is_input(&self) -> bool {
+        let r = self.pin.block();
+        let n = self.pin.pin() as usize;
+
+        #[cfg(gpio_v1)]
+        return {
+            let cr = r.cr(n / 8).read();
+            match cr.mode(n % 8) {
+                vals::Mode::Input => cr.cnf_in(n % 8) != vals::CnfIn::Analog,
+                _ => cr.cnf_out(n % 8) == vals::CnfOut::OpenDrain,
+            }
+        };
+
+        #[cfg(gpio_v2)]
+        return match r.moder().read().moder(n) {
+            vals::Moder::Input => true,
+            vals::Moder::Output => r.otyper().read().ot(n) == vals::Ot::OpenDrain,
+            _ => false,
+        };
+    }
+
+    /// Is the pin configured as an output?
+    ///
+    /// This is true after [`Self::set_as_output()`] or [`Self::set_as_input_output()`].
+    #[inline]
+    pub fn is_output(&self) -> bool {
+        let r = self.pin.block();
+        let n = self.pin.pin() as usize;
+
+        #[cfg(gpio_v1)]
+        return {
+            let cr = r.cr(n / 8).read();
+            cr.mode(n % 8) != vals::Mode::Input
+                && matches!(cr.cnf_out(n % 8), vals::CnfOut::PushPull | vals::CnfOut::OpenDrain)
+        };
+
+        #[cfg(gpio_v2)]
+        return r.moder().read().moder(n) == vals::Moder::Output;
+    }
+
+    /// Is the pin disconnected?
+    ///
+    /// This is true after [`Self::set_as_disconnected()`] or [`Self::set_as_analog()`], since a
+    /// disconnected pin is in analog mode.
+    #[inline]
+    pub fn is_disconnected(&self) -> bool {
+        let r = self.pin.block();
+        let n = self.pin.pin() as usize;
+
+        #[cfg(gpio_v1)]
+        return {
+            let cr = r.cr(n / 8).read();
+            cr.mode(n % 8) == vals::Mode::Input && cr.cnf_in(n % 8) == vals::CnfIn::Analog
+        };
+
+        #[cfg(gpio_v2)]
+        return r.moder().read().moder(n) == vals::Moder::Analog;
     }
 
     /// Get whether the pin input level is high.
@@ -184,7 +258,7 @@ impl<'d> Flex<'d> {
 
     /// Get the current pin input level.
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn level(&self) -> Level {
         self.is_high().into()
     }
 
@@ -203,7 +277,7 @@ impl<'d> Flex<'d> {
 
     /// Get the current output level.
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn output_level(&self) -> Level {
         self.is_set_high().into()
     }
 
@@ -243,9 +317,7 @@ impl<'d> Drop for Flex<'d> {
     #[inline]
     fn drop(&mut self) {
         trace!("gpio: dropping {}", self.pin);
-        critical_section::with(|_| {
-            self.pin.set_as_disconnected();
-        });
+        self.set_as_disconnected();
     }
 }
 
@@ -354,8 +426,8 @@ impl<'d> Input<'d> {
 
     /// Get the current pin input level.
     #[inline]
-    pub fn get_level(&self) -> Level {
-        self.pin.get_level()
+    pub fn level(&self) -> Level {
+        self.pin.level()
     }
 }
 
@@ -441,8 +513,8 @@ impl<'d> Output<'d> {
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
-        self.pin.get_output_level()
+    pub fn output_level(&self) -> Level {
+        self.pin.output_level()
     }
 
     /// Toggle pin output
@@ -502,8 +574,8 @@ impl<'d> OutputOpenDrain<'d> {
 
     /// Get the current pin input level.
     #[inline]
-    pub fn get_level(&self) -> Level {
-        self.pin.get_level()
+    pub fn level(&self) -> Level {
+        self.pin.level()
     }
 
     /// Set the output as high.
@@ -538,8 +610,8 @@ impl<'d> OutputOpenDrain<'d> {
 
     /// Get the current output level.
     #[inline]
-    pub fn get_output_level(&self) -> Level {
-        self.pin.get_output_level()
+    pub fn output_level(&self) -> Level {
+        self.pin.output_level()
     }
 
     /// Toggle pin output
@@ -1170,12 +1242,14 @@ impl<'d> embedded_hal_1::digital::ErrorType for Output<'d> {
 impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
     #[inline]
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     #[inline]
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 
@@ -1211,12 +1285,14 @@ impl<'d> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d> {
 impl<'d> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d> {
     #[inline]
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     #[inline]
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 
@@ -1248,12 +1324,14 @@ impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
 impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
     #[inline]
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     #[inline]
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 

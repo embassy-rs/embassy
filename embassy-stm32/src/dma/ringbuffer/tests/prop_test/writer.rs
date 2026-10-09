@@ -16,7 +16,7 @@ impl ReferenceStateMachine for WriterSM {
     type Transition = WriterTransition;
 
     fn init_state() -> BoxedStrategy<Self::State> {
-        strategy::Just(Status::new(CAP)).boxed()
+        strategy::Just(Status::new(0)).boxed()
     }
 
     fn transitions(_state: &Self::State) -> BoxedStrategy<Self::Transition> {
@@ -30,7 +30,7 @@ impl ReferenceStateMachine for WriterSM {
 
     fn apply(status: Self::State, transition: &Self::Transition) -> Self::State {
         match (status, transition) {
-            (_, WriterTransition::Reset) => Status::Available(CAP),
+            (_, WriterTransition::Reset) => Status::Available(0),
             (Status::Available(x), WriterTransition::Read(y)) => {
                 if x < *y {
                     Status::Failed
@@ -40,7 +40,7 @@ impl ReferenceStateMachine for WriterSM {
             }
             (Status::Failed, WriterTransition::Read(_)) => Status::Failed,
             (Status::Available(x), WriterTransition::WriteUpTo(y)) => Status::Available((x + *y).min(CAP)),
-            (Status::Failed, WriterTransition::WriteUpTo(_)) => Status::Available(CAP),
+            (Status::Failed, WriterTransition::WriteUpTo(_)) => Status::Available(0),
         }
     }
 }

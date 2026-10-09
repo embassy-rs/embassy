@@ -10,7 +10,7 @@ use embassy_stm32::gpio::Pull;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals, usb};
 use embassy_usb::Builder;
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use panic_probe as _;
 use stm32_metapac as pac;
@@ -58,7 +58,7 @@ async fn main(_spawner: Spawner) {
     // If the board does not support vbus_detection, the valid signal can be overridden with a
     // digital input. Enable vbus_valid_override and set the vbvaloval and bvaloval bits.
     config.vbus_valid_override = true;
-    let driver = Driver::new_hs(p.USB_OTG_HS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer, config);
+    let driver = Driver::new_hs(p.USB_OTG_HS, p.PA12, p.PA11, Irqs, &mut ep_out_buffer, config);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);

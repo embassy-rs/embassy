@@ -168,6 +168,7 @@ impl Config {
     }
 
     /// Create a custom memory configuration.
+    #[allow(clippy::too_many_arguments)]
     pub fn custom(
         clock_hz: u32,
         max_mem_freq: u32,
@@ -322,6 +323,7 @@ impl<'d> Psram<'d> {
         #[allow(unused_assignments)]
         let mut eid: u32 = 0;
 
+        #[allow(unused_variables)]
         let qmi_base = qmi.as_ptr() as usize;
 
         #[cfg(target_arch = "arm")]
@@ -451,7 +453,7 @@ impl<'d> Psram<'d> {
         let clock_hz = config.clock_hz;
         let max_psram_freq = config.max_mem_freq;
 
-        let mut divisor: u32 = (clock_hz + max_psram_freq - 1) / max_psram_freq;
+        let mut divisor: u32 = clock_hz.div_ceil(max_psram_freq);
         if divisor == 1 && clock_hz > 100_000_000 {
             divisor = 2;
         }
@@ -464,8 +466,8 @@ impl<'d> Psram<'d> {
         // - Min deselect must be >= 18ns. The value is given in system clock cycles - ceil(divisor / 2).
         let clock_period_fs: u64 = 1_000_000_000_000_000_u64 / u64::from(clock_hz);
         let max_select: u8 = (((config.max_select_us as u64 * 1_000_000_000) / clock_period_fs) / 64) as u8;
-        let min_deselect: u32 = ((config.min_deselect_ns as u64 * 1_000_000 + (clock_period_fs - 1)) / clock_period_fs
-            - u64::from(divisor + 1) / 2) as u32;
+        let min_deselect: u32 =
+            ((config.min_deselect_ns as u64 * 1_000_000).div_ceil(clock_period_fs) - u64::from(divisor + 1) / 2) as u32;
 
         crate::multicore::pause_core1();
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
@@ -617,6 +619,7 @@ impl<'d> Psram<'d> {
 
     #[unsafe(link_section = ".data.ram_func")]
     #[inline(never)]
+    #[allow(unused_variables)]
     unsafe fn direct_csr_send_init_command(config: &Config, init_cmd: u8) {
         #[cfg(target_arch = "arm")]
         core::arch::asm!(

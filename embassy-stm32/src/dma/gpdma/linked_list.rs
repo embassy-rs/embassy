@@ -342,8 +342,8 @@ impl<T: LinkedListItem, const N: usize> Table<T, N> {
 
         let items = match direction {
             Dir::MemoryToPeripheral => [
-                T::new_write(request, &mut buffer[..half_len], peri_addr, config),
-                T::new_write(request, &mut buffer[half_len..], peri_addr, config),
+                T::new_write(request, &buffer[..half_len], peri_addr, config),
+                T::new_write(request, &buffer[half_len..], peri_addr, config),
             ],
             Dir::PeripheralToMemory => [
                 T::new_read(request, peri_addr, &mut buffer[..half_len], config),
@@ -375,7 +375,7 @@ impl<T: LinkedListItem, const N: usize> Table<T, N> {
     pub fn transfer_count(&self) -> usize {
         let mut count = 0;
         for item in self.items {
-            count += item.transfer_count() as usize
+            count += item.transfer_count()
         }
 
         count

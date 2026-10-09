@@ -22,9 +22,9 @@ cp memory-bl.x ../../bootloader/nrf/memory.x
 # Flash bootloader
 cargo flash --manifest-path ../../bootloader/nrf/Cargo.toml --features embassy-nrf/nrf52840 --target thumbv7em-none-eabi --release --chip nRF52840_xxAA
 # Build 'b'
-cargo build --release --bin b --features embassy-nrf/nrf52840,time-driver-rtc1
+cargo build --release --bin b --features embassy-nrf/nrf52840,embassy-nrf/time-driver-rtc1
 # Generate binary for 'b'
-cargo objcopy --release --bin b --features embassy-nrf/nrf52840 --target thumbv7em-none-eabi -- -O binary b.bin
+cargo objcopy --release --bin b --features embassy-nrf/nrf52840,embassy-nrf/time-driver-rtc1 --target thumbv7em-none-eabi -- -O binary b.bin
 ```
 
 # Flash `a` (which includes b.bin)

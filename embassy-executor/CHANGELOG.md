@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the `rtos-trace` feature.
 - Added `idle` trace callback (`_embassy_trace_v2_idle`), called by thread-mode executors right before sleeping.
 - Added `embassy_executor::trace_idle()` for custom thread-mode executors to emit the `idle` trace callback.
+- Added a `portable-atomic` feature for more targets without atomics.
 
 ## 0.10.0 - 2026-03-10
 

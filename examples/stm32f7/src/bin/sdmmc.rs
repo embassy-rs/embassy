@@ -45,13 +45,13 @@ async fn main(_spawner: Spawner) {
     let mut sdmmc = Sdmmc::new_4bit(
         p.SDMMC1,
         p.DMA2_CH3,
-        Irqs,
         p.PC12,
         p.PD2,
         p.PC8,
         p.PC9,
         p.PC10,
         p.PC11,
+        Irqs,
         Default::default(),
     );
 

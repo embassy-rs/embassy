@@ -115,17 +115,24 @@ fn parse_wav_header(buf: &[u8]) -> Option<WavInfo> {
     })
 }
 
-async fn write_samples(sai_tx: &mut Sai<'static, u16>, samples: &[u16]) {
+async fn write_samples(sai_tx: &mut Sai<'static, u16>, started: &mut bool, samples: &[u16]) {
     if samples.is_empty() {
         return;
     }
-    if let Err(e) = sai_tx.write(samples).await {
-        warn!("SAI write error: {:?}", defmt::Debug2Format(&e));
+    // The SAI driver's `write` does not start the ring buffer; the first (whole-admitted)
+    // block fills it before `start`, after which writes append behind the playhead.
+    if !*started {
+        sai_tx.write(samples).await.ok();
+        sai_tx.start();
+        *started = true;
+    } else if let Err(e) = sai_tx.write(samples).await {
+        warn!("SAI write error: {:?}", e);
     }
 }
 
 async fn play_pcm<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
     sai_tx: &mut Sai<'static, u16>,
+    started: &mut bool,
     volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     file: RawFile,
 ) where
@@ -158,12 +165,13 @@ async fn play_pcm<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX
             i += 2;
         }
 
-        write_samples(sai_tx, &out[..count]).await;
+        write_samples(sai_tx, started, &out[..count]).await;
     }
 }
 
 async fn play_wav<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
     sai_tx: &mut Sai<'static, u16>,
+    started: &mut bool,
     volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     file: RawFile,
 ) where
@@ -227,7 +235,7 @@ async fn play_wav<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX
             count += 1;
             i += 2;
         }
-        write_samples(sai_tx, &out[..count]).await;
+        write_samples(sai_tx, started, &out[..count]).await;
     }
 
     loop {
@@ -252,7 +260,7 @@ async fn play_wav<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX
             i += 2;
         }
 
-        write_samples(sai_tx, &out[..count]).await;
+        write_samples(sai_tx, started, &out[..count]).await;
     }
 }
 
@@ -263,7 +271,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
@@ -306,7 +314,11 @@ async fn main(spawner: Spawner) {
     sai_cfg.fifo_threshold = sai::FifoThreshold::Quarter;
     sai_cfg.master_clock_divider = sai::MasterClockDivider::Div4;
 
-    let mut sai_tx = Sai::new_asynchronous(sai_a, p.PA7, p.PB14, p.PA8, p.GPDMA1_CH2, sai_dma_buf, Irqs, sai_cfg);
+    let mut sai_tx = Sai::new_asynchronous(sai_a, p.PA7, p.PB14, p.PA8, p.GPDMA1_CH2, Irqs, sai_dma_buf, sai_cfg);
+
+    // Tracks whether the SAI ring has been filled and started (its `write` does not
+    // start the ring buffer automatically).
+    let mut started = false;
 
     let _max98357a_sd = Output::new(p.PA1, Level::High, Speed::Low);
 
@@ -376,12 +388,10 @@ async fn main(spawner: Spawner) {
 
     let raw_file = file;
     if name.extension() == b"PCM" {
-        play_pcm(&mut sai_tx, vol_mgr, raw_file).await;
+        play_pcm(&mut sai_tx, &mut started, vol_mgr, raw_file).await;
     } else {
-        play_wav(&mut sai_tx, vol_mgr, raw_file).await;
+        play_wav(&mut sai_tx, &mut started, vol_mgr, raw_file).await;
     }
 
     let _ = vol_mgr.close_file(file);
-
-    let _ = spawner;
 }

@@ -90,7 +90,7 @@ define_peris!(
 
 #[cfg(feature = "nrf52840")]
 define_peris!(
-    RNG = CC_RNG,
+    RNG = CRYPTO_RNG,
     PIN_A = P1_02, PIN_B = P1_03,
     PIN_X = P1_04,
     UART0 = UARTE0,
@@ -107,7 +107,7 @@ define_peris!(
 
 #[cfg(feature = "nrf5340")]
 define_peris!(
-    RNG = CC_RNG,
+    RNG = CRYPTO_RNG,
     PIN_A = P1_08, PIN_B = P1_09,
     PIN_X = P1_10,
     UART0 = SERIAL0,
@@ -124,7 +124,7 @@ define_peris!(
 
 #[cfg(feature = "nrf9160")]
 define_peris!(
-    RNG = CC_RNG,
+    RNG = CRYPTO_RNG,
     PIN_A = P0_00, PIN_B = P0_01,
     PIN_X = P0_02,
     UART0 = SERIAL0,
@@ -142,7 +142,7 @@ define_peris!(
 // PIN_A and PIN_B must be wired together on the board.
 #[cfg(feature = "nrf54l15")]
 define_peris!(
-    RNG = CRACEN,
+    RNG = CRYPTO_RNG,
     PIN_A = P1_11, PIN_B = P1_12,
     PIN_X = P1_13,
     UART0 = SERIAL21,
@@ -165,16 +165,16 @@ macro_rules! buffered_uarte_new {
     ($p:ident, $config:expr, $rx_buffer:expr, $tx_buffer:expr) => {
         BufferedUarte::new(
             peri!($p, UART0).reborrow(),
+            peri!($p, PIN_B).reborrow(),
+            peri!($p, PIN_A).reborrow(),
             $p.TIMER0.reborrow(),
             $p.PPI_CH0.reborrow(),
             $p.PPI_CH1.reborrow(),
             $p.PPI_GROUP0.reborrow(),
-            peri!($p, PIN_A).reborrow(),
-            peri!($p, PIN_B).reborrow(),
             irqs!(UART0_BUFFERED),
-            $config,
-            $rx_buffer,
             $tx_buffer,
+            $rx_buffer,
+            $config,
         )
     };
 }
@@ -185,12 +185,12 @@ macro_rules! buffered_uarte_new {
     ($p:ident, $config:expr, $rx_buffer:expr, $tx_buffer:expr) => {
         BufferedUarte::new(
             peri!($p, UART0).reborrow(),
-            peri!($p, PIN_A).reborrow(),
             peri!($p, PIN_B).reborrow(),
+            peri!($p, PIN_A).reborrow(),
             irqs!(UART0_BUFFERED),
-            $config,
-            $rx_buffer,
             $tx_buffer,
+            $rx_buffer,
+            $config,
         )
     };
 }
@@ -201,14 +201,14 @@ macro_rules! buffered_uarte_rx_new {
     ($p:ident, $rxd:expr, $config:expr, $rx_buffer:expr) => {
         BufferedUarteRx::new(
             peri!($p, UART0).reborrow(),
+            $rxd,
             $p.TIMER0.reborrow(),
             $p.PPI_CH0.reborrow(),
             $p.PPI_CH1.reborrow(),
             $p.PPI_GROUP0.reborrow(),
             irqs!(UART0_BUFFERED),
-            $rxd,
-            $config,
             $rx_buffer,
+            $config,
         )
     };
 }
@@ -219,10 +219,10 @@ macro_rules! buffered_uarte_rx_new {
     ($p:ident, $rxd:expr, $config:expr, $rx_buffer:expr) => {
         BufferedUarteRx::new(
             peri!($p, UART0).reborrow(),
-            irqs!(UART0_BUFFERED),
             $rxd,
-            $config,
+            irqs!(UART0_BUFFERED),
             $rx_buffer,
+            $config,
         )
     };
 }

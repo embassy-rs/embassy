@@ -4,9 +4,9 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::wire::Ipv4Address;
+use embassy_net::wire::Ipv4Addr;
+use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH_SMA, ETH1};
 use embassy_stm32::rcc::mux::Clksel;
@@ -49,7 +49,7 @@ async fn main(spawner: Spawner) -> ! {
     // Generate random seed.
     let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [42; 8];
-    rng.fill_bytes(&mut seed);
+    rng.blocking_fill_bytes(&mut seed);
     let seed = u64::from_le_bytes(seed);
 
     let mac_addr = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
@@ -58,7 +58,6 @@ async fn main(spawner: Spawner) -> ! {
     let device = Ethernet::new(
         PACKETS.init(PacketQueue::<4, 4>::new()),
         p.ETH1,
-        Irqs,
         p.PA1,
         p.PD1,
         p.PC4,
@@ -70,16 +69,19 @@ async fn main(spawner: Spawner) -> ! {
         p.ETH_SMA,
         p.PE12,
         p.PC1,
+        Irqs,
     );
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    // The ethernet DMA needs 8-byte aligned buffers, sized in multiples of 8.
+    static POOL: StaticPool<1520, 16, 8> = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    iface.set_dhcpv4(Some(Default::default()));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
@@ -98,9 +100,9 @@ async fn main(spawner: Spawner) -> ! {
 
         socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 
-        let remote_endpoint = (Ipv4Address::new(10, 42, 0, 1), 8000);
+        let remote_addr = (Ipv4Addr::new(10, 42, 0, 1), 8000);
         info!("connecting...");
-        let r = socket.connect(remote_endpoint).await;
+        let r = socket.connect(remote_addr).await;
         if let Err(e) = r {
             info!("connect error: {:?}", e);
             Timer::after_secs(3).await;

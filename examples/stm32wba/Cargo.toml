@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba55cg", "time-driver-any", "memory-x", "exti", "unstable-pac"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba55cg", "time-driver-any", "memory-x", "exti", "unstable-pac", "embassy-crypto-aes128-ecb", "embassy-crypto-aes128-ccm", "embassy-crypto-p256-arith", "embassy-crypto-aes128-cmac", "embassy-crypto-rng"]  }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba55cg", "ble-stack-basic", "linklayer-ble-basic"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
@@ -24,12 +24,14 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 static_cell = "2"
 embedded-io-async = "0.7.0"
-stm32wb-hci = "0.19.0"
+# Release and stack profile features are selected by embassy-stm32-wpan.
+stm32wb-hci = { version = "0.20.0", default-features = false, optional = true }
+bt-hci = { version = "0.11.0", optional = true }
 
 [features]
 default = ["ble"]
 mac = ["embassy-stm32-wpan/wba-mac", "dep:embassy-net"]
-ble = ["embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/wb-hci"]
+ble = ["embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/wb-hci", "dep:stm32wb-hci", "dep:bt-hci"]
 
 [[bin]]
 name = "mac_ffd"

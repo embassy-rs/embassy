@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 # Change stm32wb55rg to your chip name in both dependencies, if necessary.
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wb55rg", "time-driver-any", "memory-x", "exti", "low-power", "executor-thread"]  }
-embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wb55rg"] }
+embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wb55rg", "wb-fw-1-24-0", "wb-stack-full"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
@@ -23,40 +23,47 @@ embedded-hal = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 static_cell = "2"
-stm32wb-hci = "0.19.0"
+# The wireless binary is selected by embassy-stm32-wpan's `wb-fw-*` and `wb-stack-*` features: the
+# BLE + MAC 802.15.4 binary (see firmware/README.md) carries the full BLE stack.
+stm32wb-hci = { version = "0.20.0", default-features = false, features = ["defmt"], optional = true }
+bt-hci = { version = "0.11.0", features = ["defmt"], optional = true }
 embassy-futures = "0.1.2"
 
 [features]
 default = ["ble", "mac"]
 thread = ["embassy-stm32-wpan/wb-thread"]
 mac = ["embassy-stm32-wpan/wb-mac", "dep:embassy-net"]
-ble = ["embassy-stm32-wpan/wb-ble", "embassy-stm32-wpan/wb-hci"]
+ble = ["embassy-stm32-wpan/wb-ble", "embassy-stm32-wpan/wb-hci", "dep:stm32wb-hci", "dep:bt-hci"]
 
-[[bin]] 
+fw_fus = []
+fw_mac_ble = []
+fw_hci = []
+
+[[bin]]
 name = "tl_mbox_ble"
 required-features = ["ble"]
 
-[[bin]] 
+[[bin]]
 name = "tl_mbox_mac"
 required-features = ["mac"]
 
-[[bin]] 
+[[bin]]
 name = "mac_ffd"
 required-features = ["mac"]
 
-[[bin]] 
+[[bin]]
 name = "mac_rfd"
 required-features = ["mac"]
 
-[[bin]] 
+[[bin]]
 name = "mac_ffd_net"
 required-features = ["mac"]
 
-[[bin]] 
+[[bin]]
 name = "eddystone_beacon"
 required-features = ["ble"]
 
-[[bin]] 
+[[bin]]
 name = "gatt_server"
 required-features = ["ble"]
 

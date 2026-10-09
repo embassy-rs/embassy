@@ -15,7 +15,7 @@ categories = [
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "packet-log", "ipv4", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["dns", "medium-ethernet", "packet-log", "ipv4", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "multicast", "ipv4", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dns", "medium-ethernet", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-options", "dns", "medium-ethernet", "hostname", "tcp", "udp"]},
@@ -28,8 +28,8 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "ipv4", "ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ip", "ipv4", "ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ip", "ipv4", "ipv6", "tcp", "udp"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "ipv4", "ipv6", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "embedded-nal"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "ipv4", "ipv6", "tcp", "udp", "packetmeta-id", "packetmeta-timestamp"]},
+    {target = "thumbv7em-none-eabi", features = ["log", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "ipv4", "ipv6", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "embedded-nal"]},
+    {target = "thumbv7em-none-eabi", features = ["alloc", "defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "ipv4", "ipv6", "tcp", "udp", "packetmeta-id", "packetmeta-timestamp"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -127,6 +127,10 @@ packetmeta-id = ["xarxa/packetmeta-id"]
 ## `Driver::poll_tx_timestamp`.
 packetmeta-timestamp = ["packetmeta-id", "xarxa/packetmeta-timestamp"]
 
+#! ### Serialization
+## Support (de)serializing some types using `serde`.
+serde = ["xarxa/serde"]
+
 #! ### Logging
 ## Log with the `log` crate.
 log = ["dep:log", "xarxa/log"]
@@ -141,8 +145,8 @@ packet-log = ["xarxa/packet-log"]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", default-features = false, features = ["async"] }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", default-features = false, features = ["async"] }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "93228f1ec64720122016be52be4671e413fa92a9", default-features = false, features = ["async"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "93228f1ec64720122016be52be4671e413fa92a9", default-features = false, features = ["async"] }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }

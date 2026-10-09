@@ -24,10 +24,10 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use panic_probe as _;
 use static_cell::StaticCell;
 
-static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs, Blocking>>>> =
+static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<'static, AdcRegs, Blocking>>>> =
     CriticalSectionMutex::new(RefCell::new(None));
 
-// static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs, Async>>>> =
+// static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<'static, AdcRegs, Async>>>> =
 //     CriticalSectionMutex::new(RefCell::new(None));
 
 bind_interrupts!(struct Irqs {
@@ -83,7 +83,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     pwm.set_mms2(Mms2::Update);
 
     // Configure regular conversions with DMA
-    let mut adc1 = Adc::new(p.ADC1, Default::default());
+    let mut adc1 = Adc::new_blocking(p.ADC1, Default::default());
 
     let vrefint = adc1.enable_vrefint();
 
@@ -110,7 +110,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         &mut readings,
         Irqs,
         regular_sequence,
-        RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
+        Some(RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge)),
         injected_sequence,
         InjectedAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
         Blocking,

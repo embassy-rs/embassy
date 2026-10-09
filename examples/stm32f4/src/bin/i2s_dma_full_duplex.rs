@@ -83,8 +83,8 @@ async fn main(_spawner: Spawner) {
         p.DMA1_CH7,
         &mut tx_dma_buffer,
         p.DMA1_CH0,
-        &mut rx_dma_buffer,
         Irqs,
+        &mut rx_dma_buffer,
         i2s_config,
     );
     i2s.start();

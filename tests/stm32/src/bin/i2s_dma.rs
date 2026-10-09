@@ -78,8 +78,8 @@ async fn main(_spawner: Spawner) {
         p.PA15, // ws
         p.PB3,  // ck
         p.DMA1_CH7,
-        &mut dma_buffer,
         Irqs,
+        &mut dma_buffer,
         i2s_config,
     );
 

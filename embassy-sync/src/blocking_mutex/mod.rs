@@ -105,6 +105,13 @@ impl<R, T> Mutex<R, T> {
 /// This mutex is safe to share between different executors and interrupts.
 pub type CriticalSectionMutex<T> = Mutex<raw::CriticalSectionRawMutex, T>;
 
+/// A mutex that panics if locked from multiple contexts.
+///
+/// # Safety
+///
+/// This mutex is safe to share between different executors and interrupts.
+pub type PanicMutex<T> = Mutex<raw::PanicRawMutex, T>;
+
 /// A mutex that allows borrowing data in the context of a single executor.
 ///
 /// # Safety

@@ -4,6 +4,15 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+//! ## Tracing
+//!
+//! The `trace` feature enables hooks which report task and executor lifecycle events, for
+//! example to measure the run time of tasks.
+#![cfg_attr(
+    feature = "trace",
+    doc = "Implement [`raw::trace::Trace`] and register it with [`trace_impl!`]. See the [`raw::trace`] module for the lifecycles."
+)]
+
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 

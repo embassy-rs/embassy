@@ -31,8 +31,8 @@ async fn main(_spawner: Spawner) {
             peri!(p, UART1).reborrow(),
             peri!(p, PIN_A).reborrow(),
             irqs!(UART1_BUFFERED),
-            config.clone(),
             &mut tx_buffer,
+            config.clone(),
         );
 
         let mut rx = buffered_uarte_rx_new!(p, peri!(p, PIN_B).reborrow(), config.clone(), &mut rx_buffer);

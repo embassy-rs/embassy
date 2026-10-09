@@ -1,25 +1,33 @@
-//! IP routing table.
+//! IP routing.
 //!
-//! The table is stack-wide, shared by every
-//! interface; get a handle to it with [`Stack::routes`].
+//! [`Routes`] is the routing table, accessed with [`Stack::routes`].
+//!
+//! Routes are keyed by a CIDR. On lookup most specific CIDR wins. Each route contains:
+//! - via
+//! - outgoing interface
+//! - optional expiry time.
+//!
+//! On-link destinations (in the same network as one of the stack's addresses) do
+//! not consult the table: the next hop is the destination itself.
+//!
+//! [`Stack::routes`]: crate::Stack::routes
 
 use embassy_time::Instant;
-use xarxa::Full;
-pub use xarxa::route::RouteOrigin;
-use xarxa::wire::{IpAddress, IpCidr};
+pub use xarxa::route::{RouteError, RouteOrigin};
+use xarxa::wire::{IpAddr, IpCidr};
 #[cfg(feature = "ipv4")]
-use xarxa::wire::{Ipv4Address, Ipv4Cidr};
+use xarxa::wire::{Ipv4Addr, Ipv4Cidr};
 #[cfg(feature = "ipv6")]
-use xarxa::wire::{Ipv6Address, Ipv6Cidr};
+use xarxa::wire::{Ipv6Addr, Ipv6Cidr};
 
-use crate::Stack;
 use crate::iface::IfaceHandle;
 use crate::time::{instant_from_xarxa, instant_to_xarxa};
+use crate::{NoWake, Stack};
 
 #[cfg(feature = "ipv4")]
-const IPV4_DEFAULT: IpCidr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(0, 0, 0, 0), 0));
+const IPV4_DEFAULT: IpCidr = IpCidr::V4(Ipv4Cidr::new(Ipv4Addr::new(0, 0, 0, 0), 0));
 #[cfg(feature = "ipv6")]
-const IPV6_DEFAULT: IpCidr = IpCidr::Ipv6(Ipv6Cidr::new(Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 0), 0));
+const IPV6_DEFAULT: IpCidr = IpCidr::V6(Ipv6Cidr::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0));
 
 /// A prefix of addresses that should be routed via a router, out of an interface.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -28,7 +36,7 @@ pub struct Route {
     /// The prefix this route covers.
     pub cidr: IpCidr,
     /// The router packets for the prefix are sent to.
-    pub via_router: IpAddress,
+    pub via_router: IpAddr,
     /// The interface this route goes out of.
     pub iface: IfaceHandle,
     /// Where the route came from.
@@ -42,7 +50,7 @@ pub struct Route {
 impl Route {
     /// Returns a route to 0.0.0.0/0 via the `gateway`, out of `iface`, with no expiry.
     #[cfg(feature = "ipv4")]
-    pub fn new_ipv4_gateway(gateway: Ipv4Address, iface: IfaceHandle) -> Route {
+    pub fn new_ipv4_gateway(gateway: Ipv4Addr, iface: IfaceHandle) -> Route {
         Route {
             cidr: IPV4_DEFAULT,
             via_router: gateway.into(),
@@ -55,7 +63,7 @@ impl Route {
 
     /// Returns a route to ::/0 via the `gateway`, out of `iface`, with no expiry.
     #[cfg(feature = "ipv6")]
-    pub fn new_ipv6_gateway(gateway: Ipv6Address, iface: IfaceHandle) -> Route {
+    pub fn new_ipv6_gateway(gateway: Ipv6Addr, iface: IfaceHandle) -> Route {
         Route {
             cidr: IPV6_DEFAULT,
             via_router: gateway.into(),
@@ -101,7 +109,7 @@ impl Route {
     }
 }
 
-/// The stack's routing table, returned by [`Stack::routes`].
+/// A routing table, returned by [`Stack::routes`].
 #[derive(Copy, Clone)]
 pub struct Routes<'d> {
     stack: Stack<'d>,
@@ -112,99 +120,115 @@ impl<'d> Routes<'d> {
         Self { stack }
     }
 
-    /// Add a route to the table.
+    /// Add a route.
     ///
-    /// Errors:
-    /// - `Full` if the table has no room for another route.
-    pub fn add(&self, route: Route) -> Result<(), Full> {
-        self.stack.with_mut(|i| i.stack.routes_mut().add(route.to_xarxa()))
+    /// # Errors
+    /// - `NotUnicast`: if `via_router` is not a unicast address.
+    /// - `Full`: if the table has no room. Only possible without the `alloc`
+    ///   feature, where the limit is [`ROUTE_COUNT`](crate::config::ROUTE_COUNT).
+    pub fn add(&self, route: Route) -> Result<(), RouteError> {
+        self.stack
+            .with(|i| (i.stack.routes_mut().add(route.to_xarxa()), NoWake))
     }
 
-    /// Remove the route at `index`, returning it.
+    /// Remove the route at `index` and return it.
     ///
     /// # Panics
     /// Panics if `index` is out of bounds.
     pub fn remove(&self, index: usize) -> Route {
-        Route::from_xarxa(self.stack.with_mut(|i| i.stack.routes_mut().remove(index)))
+        Route::from_xarxa(self.stack.with(|i| (i.stack.routes_mut().remove(index), NoWake)))
     }
 
-    /// Keep only the routes `f` returns `true` for.
+    /// Keep only the routes for which `f` returns true.
     pub fn retain(&self, mut f: impl FnMut(&Route) -> bool) {
         self.stack
-            .with_mut(|i| i.stack.routes_mut().retain(|r| f(&Route::from_xarxa(*r))))
+            .with(|i| (i.stack.routes_mut().retain(|r| f(&Route::from_xarxa(*r))), NoWake))
     }
 
-    /// Remove every route.
+    /// Remove all routes.
     pub fn clear(&self) {
-        self.stack.with_mut(|i| i.stack.routes_mut().clear())
+        self.stack.with(|i| (i.stack.routes_mut().clear(), NoWake))
     }
 
-    /// Iterate over the routes in the table.
+    /// Iterate over the routes.
     pub fn iter(&self) -> impl Iterator<Item = Route> + 'd {
         let stack = self.stack;
-        (0..self.len())
-            .filter_map(move |n| stack.with(|i| i.stack.routes().iter().nth(n).copied().map(Route::from_xarxa)))
+        (0..self.len()).filter_map(move |n| {
+            stack.with(|i| (i.stack.routes().iter().nth(n).copied().map(Route::from_xarxa), NoWake))
+        })
     }
 
-    /// The number of routes in the table.
+    /// Number of routes.
     pub fn len(&self) -> usize {
-        self.stack.with(|i| i.stack.routes().len())
+        self.stack.with(|i| (i.stack.routes().len(), NoWake))
     }
 
-    /// Whether the table is empty.
+    /// Whether there are no routes.
     pub fn is_empty(&self) -> bool {
-        self.stack.with(|i| i.stack.routes().is_empty())
+        self.stack.with(|i| (i.stack.routes().is_empty(), NoWake))
     }
 
-    /// Set the default IPv4 route, via `gateway` out of `iface`.
+    /// Add a default ipv4 gateway (ie. "ip route add 0.0.0.0/0 via `gateway` dev `iface`").
     ///
-    /// Replaces the existing default IPv4 route, which is returned.
+    /// Returns the previous default route, if any. On error the previous
+    /// default route is kept.
+    ///
+    /// # Errors
+    /// - `NotUnicast`: if `gateway` is not a unicast address.
+    /// - `Full`: if the table has no room. Only possible without the `alloc`
+    ///   feature, where the limit is [`ROUTE_COUNT`](crate::config::ROUTE_COUNT).
     #[cfg(feature = "ipv4")]
-    pub fn add_default_ipv4_route(&self, gateway: Ipv4Address, iface: IfaceHandle) -> Result<Option<Route>, Full> {
+    pub fn add_default_ipv4_route(&self, gateway: Ipv4Addr, iface: IfaceHandle) -> Result<Option<Route>, RouteError> {
         self.stack
-            .with_mut(|i| i.stack.routes_mut().add_default_ipv4_route(gateway, iface))
+            .with(|i| (i.stack.routes_mut().add_default_ipv4_route(gateway, iface), NoWake))
             .map(|r| r.map(Route::from_xarxa))
     }
 
-    /// Set the default IPv6 route, via `gateway` out of `iface`.
+    /// Add a default ipv6 gateway (ie. "ip -6 route add ::/0 via `gateway` dev `iface`").
     ///
-    /// Replaces the existing default IPv6 route, which is returned.
+    /// Returns the previous default route, if any. On error the previous
+    /// default route is kept.
+    ///
+    /// # Errors
+    /// - `NotUnicast`: if `gateway` is not a unicast address.
+    /// - `Full`: if the table has no room. Only possible without the `alloc`
+    ///   feature, where the limit is [`ROUTE_COUNT`](crate::config::ROUTE_COUNT).
     #[cfg(feature = "ipv6")]
-    pub fn add_default_ipv6_route(&self, gateway: Ipv6Address, iface: IfaceHandle) -> Result<Option<Route>, Full> {
+    pub fn add_default_ipv6_route(&self, gateway: Ipv6Addr, iface: IfaceHandle) -> Result<Option<Route>, RouteError> {
         self.stack
-            .with_mut(|i| i.stack.routes_mut().add_default_ipv6_route(gateway, iface))
+            .with(|i| (i.stack.routes_mut().add_default_ipv6_route(gateway, iface), NoWake))
             .map(|r| r.map(Route::from_xarxa))
     }
 
-    /// The default IPv4 route, if there is one.
+    /// Returns the ipv4 default route if there is one in the route table.
     #[cfg(feature = "ipv4")]
-    pub fn get_default_ipv4_route(&self) -> Option<Route> {
+    pub fn default_ipv4_route(&self) -> Option<Route> {
         self.stack
-            .with(|i| i.stack.routes().get_default_ipv4_route())
+            .with(|i| (i.stack.routes().default_ipv4_route(), NoWake))
             .map(Route::from_xarxa)
     }
 
-    /// The default IPv6 route, if there is one.
+    /// Returns the ipv6 default route if there is one in the route table.
     #[cfg(feature = "ipv6")]
-    pub fn get_default_ipv6_route(&self) -> Option<Route> {
+    pub fn default_ipv6_route(&self) -> Option<Route> {
         self.stack
-            .with(|i| i.stack.routes().get_default_ipv6_route())
+            .with(|i| (i.stack.routes().default_ipv6_route(), NoWake))
             .map(Route::from_xarxa)
     }
 
-    /// Remove the default IPv4 route, returning it.
+    /// Remove the default ipv4 gateway, returning it if it existed.
     #[cfg(feature = "ipv4")]
     pub fn remove_default_ipv4_route(&self) -> Option<Route> {
         self.stack
-            .with_mut(|i| i.stack.routes_mut().remove_default_ipv4_route())
+            .with(|i| (i.stack.routes_mut().remove_default_ipv4_route(), NoWake))
             .map(Route::from_xarxa)
     }
 
-    /// Remove the default IPv6 route, returning it.
+    /// Remove the default ipv6 gateway, returning it if it existed.
     #[cfg(feature = "ipv6")]
     pub fn remove_default_ipv6_route(&self) -> Option<Route> {
         self.stack
-            .with_mut(|i| i.stack.routes_mut().remove_default_ipv6_route())
+            .with(|i| (i.stack.routes_mut().remove_default_ipv6_route(), NoWake))
             .map(Route::from_xarxa)
     }
 }

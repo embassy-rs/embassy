@@ -28,27 +28,20 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_stm32::aes::{self, Aes};
-use embassy_stm32::peripherals::{AES, PKA, RNG};
-use embassy_stm32::pka::{self, Pka};
-use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
     CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType, Uuid,
     is_cccd_handle, is_value_handle,
 };
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::{Duration, Ticker};
 use panic_probe as _;
-use stm32wb_hci::Event;
-use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
+use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
 
 bind_interrupts!(struct Irqs {
-    RNG => rng::InterruptHandler<RNG>;
-    AES => aes::InterruptHandler<AES>;
-    PKA => pka::InterruptHandler<PKA>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
 });
@@ -108,16 +101,11 @@ fn next_heart_rate(current: u8, direction: &mut i8) -> u8 {
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
     config.rcc = rcc::Config::new_wpan();
-    let p = embassy_stm32::init(config);
+    let _p = embassy_stm32::init(config);
 
     info!("Embassy STM32WBA6 BLE Heart Rate Profile Example");
 
-    let (platform, runtime) = new_platform!(
-        Rng::new(p.RNG, Irqs),
-        Pka::new(p.PKA, Irqs),
-        Aes::new_blocking(p.AES, Irqs),
-        8
-    );
+    let (platform, runtime) = new_platform!(8);
 
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 
@@ -216,21 +204,22 @@ async fn main(spawner: Spawner) {
     // ── Main loop: send HR notifications every 1 s ───────────────────────────
     let mut ticker = Ticker::every(Duration::from_secs(1));
 
+    let mut event_buf = EventBuffer::new();
     loop {
-        match select(ble.read_event(), ticker.next()).await {
+        match select(ble.read_event(&mut event_buf), ticker.next()).await {
             Either::First(event) => {
                 // ── GAP events ────────────────────────────────────────────────
                 if let Some(gap_event) = ble.process_event(&event) {
                     match gap_event {
                         GapEvent::Connected(conn) => {
-                            info!("Connected: 0x{:04X}", conn.handle.0);
-                            state.conn_handle = Some(conn.handle.0);
+                            info!("Connected: 0x{:04X}", conn.handle.raw());
+                            state.conn_handle = Some(conn.handle.raw());
                             state.notifications_enabled = false;
                         }
                         GapEvent::Disconnected { handle, reason } => {
                             info!(
                                 "Disconnected: 0x{:04X}, reason 0x{:02X} ({})",
-                                handle.0,
+                                handle.raw(),
                                 reason.as_u8(),
                                 Display2Format(&reason)
                             );
@@ -246,28 +235,28 @@ async fn main(spawner: Spawner) {
 
                 // ── GATT events ───────────────────────────────────────────────
                 match &event {
-                    Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
+                    BleEvent::Vendor(AciEvent::GattAttributeModified(attr)) => {
                         // CCCD write → enable/disable notifications
-                        if is_cccd_handle(state.hrm_char_handle.0, attr.attr_handle.0) {
-                            let enabled = attr.data().first().copied().unwrap_or(0) & 0x01 != 0;
+                        if is_cccd_handle(state.hrm_char_handle.0, attr.attr_handle) {
+                            let enabled = attr.attr_data.first().copied().unwrap_or(0) & 0x01 != 0;
                             state.notifications_enabled = enabled;
                             info!("HR notifications {}", if enabled { "ENABLED" } else { "DISABLED" });
                         }
                         // HRCP write → validate and handle reset command
-                        else if is_value_handle(state.hrcp_char_handle.0, attr.attr_handle.0) {
-                            if attr.data().first().copied() == Some(HRCP_RESET_ENERGY_EXPENDED) {
+                        else if is_value_handle(state.hrcp_char_handle.0, attr.attr_handle) {
+                            if attr.attr_data.first().copied() == Some(HRCP_RESET_ENERGY_EXPENDED) {
                                 info!("Energy expended reset");
                             } else {
-                                info!("Unknown HRCP command: {:?}", attr.data());
+                                info!("Unknown HRCP command: {:?}", attr.attr_data);
                             }
                         }
                     }
-                    Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
-                        conn_handle,
+                    BleEvent::Vendor(AciEvent::AttExchangeMtuResp(AttExchangeMtuRespEvent {
+                        connection_handle: conn_handle,
                         server_rx_mtu,
                     })) => {
                         if let Some(conn) = ble.get_connection_mut(*conn_handle) {
-                            conn.update_mtu(*server_rx_mtu as u16);
+                            conn.update_mtu(*server_rx_mtu);
                         }
                     }
                     _ => {}

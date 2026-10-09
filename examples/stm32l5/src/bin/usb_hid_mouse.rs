@@ -11,9 +11,8 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_time::Timer;
 use embassy_usb::Builder;
-use embassy_usb::class::hid::{
-    HidBootProtocol, HidProtocolMode, HidSubclass, HidWriter, ReportId, RequestHandler, State,
-};
+use embassy_usb::class::hid::device::{HidWriter, RequestHandler, State};
+use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, ReportId};
 use embassy_usb::control::OutResponse;
 use panic_probe as _;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
@@ -46,7 +45,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
-    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, p.PA12, p.PA11, Irqs);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -79,7 +78,7 @@ async fn main(_spawner: Spawner) {
     );
 
     // Create classes on the builder.
-    let config = embassy_usb::class::hid::Config {
+    let config = embassy_usb::class::hid::device::Config {
         report_descriptor: MouseReport::desc(),
         request_handler: Some(&mut request_handler),
         poll_ms: 60,

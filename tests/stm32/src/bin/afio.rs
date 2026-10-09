@@ -64,8 +64,8 @@ async fn main(_spawner: Spawner) {
         afio_registers_set_remap();
         Uart::new_blocking_with_rtscts(
             p.USART3.reborrow(),
-            p.PB11.reborrow(),
             p.PB10.reborrow(),
+            p.PB11.reborrow(),
             p.PB14.reborrow(),
             p.PB13.reborrow(),
             Default::default(),
@@ -78,8 +78,8 @@ async fn main(_spawner: Spawner) {
         afio_registers_set_remap();
         Uart::new_blocking(
             p.USART3.reborrow(),
-            p.PB11.reborrow(),
             p.PB10.reborrow(),
+            p.PB11.reborrow(),
             Default::default(),
         )
         .unwrap();
@@ -156,8 +156,8 @@ async fn main(_spawner: Spawner) {
         afio_registers_set_remap();
         Uart::new(
             p.USART3.reborrow(),
-            p.PB11.reborrow(),
             p.PB10.reborrow(),
+            p.PB11.reborrow(),
             p.DMA1_CH2.reborrow(),
             p.DMA1_CH3.reborrow(),
             Irqs,
@@ -171,8 +171,8 @@ async fn main(_spawner: Spawner) {
         afio_registers_set_remap();
         Uart::new_with_rtscts(
             p.USART3.reborrow(),
-            p.PB11.reborrow(),
             p.PB10.reborrow(),
+            p.PB11.reborrow(),
             p.PB14.reborrow(),
             p.PB13.reborrow(),
             p.DMA1_CH2.reborrow(),
@@ -363,8 +363,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new_blocking_with_rtscts(
                 p.USART3.reborrow(),
-                p.PC11.reborrow(),
                 p.PC10.reborrow(),
+                p.PC11.reborrow(),
                 p.PB14.reborrow(),
                 p.PB13.reborrow(),
                 Default::default(),
@@ -377,8 +377,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new_blocking(
                 p.USART3.reborrow(),
-                p.PC11.reborrow(),
                 p.PC10.reborrow(),
+                p.PC11.reborrow(),
                 Default::default(),
             )
             .unwrap();
@@ -455,8 +455,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new(
                 p.USART3.reborrow(),
-                p.PC11.reborrow(),
                 p.PC10.reborrow(),
+                p.PC11.reborrow(),
                 p.DMA1_CH2.reborrow(),
                 p.DMA1_CH3.reborrow(),
                 Irqs,
@@ -470,8 +470,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new_with_rtscts(
                 p.USART3.reborrow(),
-                p.PC11.reborrow(),
                 p.PC10.reborrow(),
+                p.PC11.reborrow(),
                 p.PB14.reborrow(),
                 p.PB13.reborrow(),
                 p.DMA1_CH2.reborrow(),
@@ -487,8 +487,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new_blocking_with_rtscts(
                 p.USART3.reborrow(),
-                p.PD9.reborrow(),
                 p.PD8.reborrow(),
+                p.PD9.reborrow(),
                 p.PD12.reborrow(),
                 p.PD11.reborrow(),
                 Default::default(),
@@ -501,8 +501,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new_blocking(
                 p.USART3.reborrow(),
-                p.PD9.reborrow(),
                 p.PD8.reborrow(),
+                p.PD9.reborrow(),
                 Default::default(),
             )
             .unwrap();
@@ -579,8 +579,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new(
                 p.USART3.reborrow(),
-                p.PD9.reborrow(),
                 p.PD8.reborrow(),
+                p.PD9.reborrow(),
                 p.DMA1_CH2.reborrow(),
                 p.DMA1_CH3.reborrow(),
                 Irqs,
@@ -594,8 +594,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new_with_rtscts(
                 p.USART3.reborrow(),
-                p.PD9.reborrow(),
                 p.PD8.reborrow(),
+                p.PD9.reborrow(),
                 p.PD12.reborrow(),
                 p.PD11.reborrow(),
                 p.DMA1_CH2.reborrow(),
@@ -701,8 +701,8 @@ mod connectivity_line {
                 p.PB3.reborrow(),
                 p.PC7.reborrow(),
                 p.DMA2_CH2.reborrow(),
-                &mut [0u16; 0],
                 Irqs,
+                &mut [0u16; 0],
                 Default::default(),
             );
             defmt::assert_eq!(AFIO.mapr().read().spi3_remap(), false);
@@ -716,8 +716,8 @@ mod connectivity_line {
                 p.PA15.reborrow(),
                 p.PB3.reborrow(),
                 p.DMA2_CH2.reborrow(),
-                &mut [0u16; 0],
                 Irqs,
+                &mut [0u16; 0],
                 Default::default(),
             );
             defmt::assert_eq!(AFIO.mapr().read().spi3_remap(), false);
@@ -732,8 +732,8 @@ mod connectivity_line {
                 p.PB3.reborrow(),
                 p.PC7.reborrow(),
                 p.DMA2_CH1.reborrow(),
-                &mut [0u16; 0],
                 Irqs,
+                &mut [0u16; 0],
                 Default::default(),
             );
             defmt::assert_eq!(AFIO.mapr().read().spi3_remap(), true);
@@ -748,8 +748,8 @@ mod connectivity_line {
                 p.PC10.reborrow(),
                 p.PC7.reborrow(),
                 p.DMA2_CH2.reborrow(),
-                &mut [0u16; 0],
                 Irqs,
+                &mut [0u16; 0],
                 Default::default(),
             );
             defmt::assert_eq!(AFIO.mapr().read().spi3_remap(), true);
@@ -763,8 +763,8 @@ mod connectivity_line {
                 p.PA4.reborrow(),
                 p.PC10.reborrow(),
                 p.DMA2_CH2.reborrow(),
-                &mut [0u16; 0],
                 Irqs,
+                &mut [0u16; 0],
                 Default::default(),
             );
             defmt::assert_eq!(AFIO.mapr().read().spi3_remap(), true);
@@ -779,8 +779,8 @@ mod connectivity_line {
                 p.PC10.reborrow(),
                 p.PC7.reborrow(),
                 p.DMA2_CH1.reborrow(),
-                &mut [0u16; 0],
                 Irqs,
+                &mut [0u16; 0],
                 Default::default(),
             );
             defmt::assert_eq!(AFIO.mapr().read().spi3_remap(), true);
@@ -807,7 +807,6 @@ mod connectivity_line {
             Ethernet::new(
                 &mut PacketQueue::<1, 1>::new(),
                 p.ETH.reborrow(),
-                Irqs,
                 p.PA1.reborrow(),
                 p.PA7.reborrow(),
                 p.PC4.reborrow(),
@@ -819,6 +818,7 @@ mod connectivity_line {
                 p.ETH_SMA.reborrow(),
                 p.PA2.reborrow(),
                 p.PC1.reborrow(),
+                Irqs,
             );
             defmt::assert_eq!(AFIO.mapr().read().eth_remap(), false);
         }
@@ -828,7 +828,6 @@ mod connectivity_line {
             Ethernet::new_mii(
                 &mut PacketQueue::<1, 1>::new(),
                 p.ETH.reborrow(),
-                Irqs,
                 p.PA1.reborrow(),
                 p.PC3.reborrow(),
                 p.PA7.reborrow(),
@@ -845,6 +844,7 @@ mod connectivity_line {
                 p.ETH_SMA.reborrow(),
                 p.PA2.reborrow(),
                 p.PC1.reborrow(),
+                Irqs,
             );
             defmt::assert_eq!(AFIO.mapr().read().eth_remap(), false);
         }
@@ -854,7 +854,6 @@ mod connectivity_line {
             Ethernet::new(
                 &mut PacketQueue::<1, 1>::new(),
                 p.ETH.reborrow(),
-                Irqs,
                 p.PA1.reborrow(),
                 p.PD8.reborrow(),
                 p.PD9.reborrow(),
@@ -866,6 +865,7 @@ mod connectivity_line {
                 p.ETH_SMA.reborrow(),
                 p.PA2.reborrow(),
                 p.PC1.reborrow(),
+                Irqs,
             );
             defmt::assert_eq!(AFIO.mapr().read().eth_remap(), true);
         }
@@ -875,7 +875,6 @@ mod connectivity_line {
             Ethernet::new_mii(
                 &mut PacketQueue::<1, 1>::new(),
                 p.ETH.reborrow(),
-                Irqs,
                 p.PA1.reborrow(),
                 p.PC3.reborrow(),
                 p.PD8.reborrow(),
@@ -892,6 +891,7 @@ mod connectivity_line {
                 p.ETH_SMA.reborrow(),
                 p.PA2.reborrow(),
                 p.PC1.reborrow(),
+                Irqs,
             );
             defmt::assert_eq!(AFIO.mapr().read().eth_remap(), true);
         }
@@ -922,8 +922,8 @@ mod connectivity_line {
             afio_registers_set_remap();
             Uart::new_blocking_with_rtscts(
                 p.USART2.reborrow(),
-                p.PA3.reborrow(),
                 p.PA2.reborrow(),
+                p.PA3.reborrow(),
                 p.PA1.reborrow(),
                 p.PA0.reborrow(),
                 Default::default(),
@@ -936,8 +936,8 @@ mod connectivity_line {
             afio_registers_set_remap();
             Uart::new_blocking(
                 p.USART2.reborrow(),
-                p.PA3.reborrow(),
                 p.PA2.reborrow(),
+                p.PA3.reborrow(),
                 Default::default(),
             )
             .unwrap();
@@ -960,8 +960,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new_blocking_with_rtscts(
                 p.USART2.reborrow(),
-                p.PD6.reborrow(),
                 p.PD5.reborrow(),
+                p.PD6.reborrow(),
                 p.PD4.reborrow(),
                 p.PD3.reborrow(),
                 Default::default(),
@@ -974,8 +974,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new_blocking(
                 p.USART2.reborrow(),
-                p.PD6.reborrow(),
                 p.PD5.reborrow(),
+                p.PD6.reborrow(),
                 Default::default(),
             )
             .unwrap();
@@ -1000,8 +1000,8 @@ mod connectivity_line {
             afio_registers_set_remap();
             Uart::new_blocking_with_rtscts(
                 p.USART1.reborrow(),
-                p.PA10.reborrow(),
                 p.PA9.reborrow(),
+                p.PA10.reborrow(),
                 p.PA12.reborrow(),
                 p.PA11.reborrow(),
                 Default::default(),
@@ -1014,8 +1014,8 @@ mod connectivity_line {
             afio_registers_set_remap();
             Uart::new_blocking(
                 p.USART1.reborrow(),
-                p.PA10.reborrow(),
                 p.PA9.reborrow(),
+                p.PA10.reborrow(),
                 Default::default(),
             )
             .unwrap();
@@ -1038,8 +1038,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new_blocking_with_rtscts(
                 p.USART1.reborrow(),
-                p.PB7.reborrow(),
                 p.PB6.reborrow(),
+                p.PB7.reborrow(),
                 p.PA12.reborrow(),
                 p.PA11.reborrow(),
                 Default::default(),
@@ -1052,8 +1052,8 @@ mod connectivity_line {
             reset_afio_registers();
             Uart::new_blocking(
                 p.USART1.reborrow(),
-                p.PB7.reborrow(),
                 p.PB6.reborrow(),
+                p.PB7.reborrow(),
                 Default::default(),
             )
             .unwrap();

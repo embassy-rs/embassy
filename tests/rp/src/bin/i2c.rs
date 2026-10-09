@@ -12,9 +12,9 @@ use embassy_executor::Spawner;
 use embassy_rp::clocks::{PllConfig, XoscConfig};
 use embassy_rp::config::Config as rpConfig;
 use embassy_rp::peripherals::{I2C0, I2C1};
-use embassy_rp::{bind_interrupts, i2c, i2c_slave};
+use embassy_rp::time::Hertz;
+use embassy_rp::{bind_interrupts, i2c, i2c_slave, mode};
 use embedded_hal_1::i2c::Operation;
-use embedded_hal_async::i2c::I2c;
 use panic_probe as _;
 
 use crate::i2c::AbortReason;
@@ -27,7 +27,7 @@ bind_interrupts!(struct Irqs {
 const DEV_ADDR: u8 = 0x42;
 
 #[embassy_executor::task]
-async fn device_task(mut dev: i2c_slave::I2cSlave<'static>) -> ! {
+async fn device_task(mut dev: i2c_slave::I2cSlave<'static, mode::Async>) -> ! {
     info!("Device start");
 
     let mut count = 0xD0;
@@ -104,12 +104,12 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static>) -> ! {
     }
 }
 
-async fn controller_task(con: &mut i2c::I2c<'static, i2c::Async>) {
+async fn controller_task(con: &mut i2c::I2c<'static, mode::Async>) {
     info!("Controller start");
 
     {
         let buf = [0xCA, 0x11];
-        con.write(0u16, &buf).await.unwrap();
+        con.write(0u8, &buf).await.unwrap();
         info!("Controler general call write");
         embassy_futures::yield_now().await;
     }
@@ -213,12 +213,12 @@ async fn controller_task(con: &mut i2c::I2c<'static, i2c::Async>) {
 
         let c_sda = p.PIN_21;
         let c_scl = p.PIN_20;
-        let mut controller = i2c::I2c::new_async(p.I2C0, c_sda, c_scl, Irqs, Default::default());
+        let mut controller = i2c::I2c::new(p.I2C0, c_sda, c_scl, Irqs, Default::default());
 
         for freq in [1000, 100_000, 400_000, 1_000_000] {
             info!("testing at {}hz", freq);
             let mut config = i2c::Config::default();
-            config.frequency = freq;
+            config.frequency = Hertz(freq);
             controller.set_config(&config).unwrap();
             controller_task(&mut controller).await;
         }

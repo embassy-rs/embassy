@@ -38,7 +38,7 @@ async fn main(_spawner: Spawner) {
     let prg = PioStepDirProgram::new_with_timing(&mut common, StepPulseTiming::Cycles68);
 
     // create the stepper driver, specifying the pins for STEP and DIR, and the program to use
-    let mut stepper = PioStepDir::new(&mut common, sm0, irq0, p.PIN_4, p.PIN_5, &prg);
+    let mut stepper = PioStepDir::new(&mut common, sm0, p.PIN_4, p.PIN_5, irq0, &prg);
 
     // you must set the frequency at which the stepper will run
     // zero, too high and too low a frequency will return an error

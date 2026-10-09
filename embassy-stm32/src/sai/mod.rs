@@ -10,7 +10,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 
 use crate::atomic::AtomicDecrement;
 pub use crate::dma::word;
-use crate::dma::{self, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer, ringbuffer};
+use crate::dma::{self, Channel, ReadableRingBuffer, Request, RingBufferError, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::pac::sai::Sai as Regs;
 pub use crate::sai::vals::Mckdiv as MasterClockDivider;
@@ -28,15 +28,11 @@ pub enum Error {
     Overrun,
 }
 
-impl From<ringbuffer::Error> for Error {
-    fn from(#[allow(unused)] err: ringbuffer::Error) -> Self {
-        #[cfg(feature = "defmt")]
-        {
-            if err == ringbuffer::Error::DmaUnsynced {
-                defmt::error!("Ringbuffer broken invariants detected!");
-            }
+impl From<RingBufferError> for Error {
+    fn from(e: RingBufferError) -> Self {
+        match e {
+            RingBufferError::Overrun => Self::Overrun,
         }
-        Self::Overrun
     }
 }
 
@@ -444,7 +440,7 @@ impl Default for Config {
 impl Config {
     /// Create a new config with all default values.
     pub fn new() -> Self {
-        return Default::default();
+        Default::default()
     }
 }
 
@@ -577,14 +573,14 @@ impl<'d, W: word::Word> Sai<'d, W> {
         fs: Peri<'d, impl FsPin<T, S>>,
         mclk: Peri<'d, impl MclkPin<T, S>>,
         dma: Peri<'d, D>,
-        dma_buf: &'d mut [W],
         _irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
+        dma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         let (_sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
         set_as_af!(mclk, ck_af_type);
 
-        Self::new_asynchronous(peri, sck, sd, fs, dma, dma_buf, _irq, config)
+        Self::new_asynchronous(peri, sck, sd, fs, dma, _irq, dma_buf, config)
     }
 
     /// Create a new SAI driver in asynchronous mode without MCLK.
@@ -596,8 +592,8 @@ impl<'d, W: word::Word> Sai<'d, W> {
         sd: Peri<'d, impl SdPin<T, S>>,
         fs: Peri<'d, impl FsPin<T, S>>,
         dma: Peri<'d, D>,
-        dma_buf: &'d mut [W],
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
+        dma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         let peri = peri.take();
@@ -626,8 +622,8 @@ impl<'d, W: word::Word> Sai<'d, W> {
         peri: SubBlock<'d, T, S>,
         sd: Peri<'d, impl SdPin<T, S>>,
         dma: Peri<'d, D>,
-        dma_buf: &'d mut [W],
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
+        dma_buf: &'d mut [W],
         mut config: Config,
     ) -> Self {
         update_synchronous_config(&mut config);
@@ -698,7 +694,7 @@ impl<'d, W: word::Word> Sai<'d, W> {
 
         ch.cr1().modify(|w| w.set_saien(true));
 
-        if ch.cr1().read().saien() == false {
+        if !ch.cr1().read().saien() {
             panic!("SAI failed to enable. Check that config is valid (frame length, slot count, etc)");
         }
 
@@ -716,13 +712,15 @@ impl<'d, W: word::Word> Sai<'d, W> {
 
     /// Start the SAI driver.
     ///
-    /// Only receivers can be started. Transmitters are started on the first writing operation.
-    pub fn start(&mut self) -> Result<(), Error> {
-        match self.ring_buffer {
-            RingBuffer::Writable(_) => Err(Error::NotAReceiver),
-            RingBuffer::Readable(ref mut rb) => {
+    /// Starts the ring buffer for both directions. Transmitters must fill the ring buffer with
+    /// [`Self::write`] before starting.
+    pub fn start(&mut self) {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(rb) => {
                 rb.start();
-                Ok(())
+            }
+            RingBuffer::Readable(rb) => {
+                rb.start();
             }
         }
     }
@@ -767,14 +765,14 @@ impl<'d, W: word::Word> Sai<'d, W> {
                 buffer.wait_write_error().await?;
                 Ok(())
             }
-            _ => return Err(Error::NotATransmitter),
+            _ => Err(Error::NotATransmitter),
         }
     }
 
     /// Write data to the SAI ringbuffer.
     ///
-    /// The first write starts the DMA after filling the ring buffer with the provided data.
-    /// This ensures that the DMA does not run before data is available in the ring buffer.
+    /// This function does not start ring buffer automatically,
+    /// it must be started manually using [`start`](Self::start).
     ///
     /// This appends the data to the buffer and returns immediately. The
     /// data will be transmitted in the background.
@@ -783,15 +781,10 @@ impl<'d, W: word::Word> Sai<'d, W> {
     pub async fn write(&mut self, data: &[W]) -> Result<(), Error> {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => {
-                if buffer.is_running() {
-                    buffer.write_exact(data).await?;
-                } else {
-                    buffer.write_immediate(data)?;
-                    buffer.start();
-                }
+                buffer.write_exact(data).await?;
                 Ok(())
             }
-            _ => return Err(Error::NotATransmitter),
+            _ => Err(Error::NotATransmitter),
         }
     }
 

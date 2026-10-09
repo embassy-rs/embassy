@@ -11,15 +11,17 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::raw::{IpProtocol, IpVersion, RawSocket};
 use embassy_net::wire::{IPV4_HEADER_LEN, Icmpv4Message, Icmpv4Packet, Ipv4Packet};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::mode::Async;
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1};
-use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
+use embassy_rp::spi::{Config as SpiConfig, Spi};
+use embassy_rp::time::Hertz;
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::{Delay, Instant, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -48,9 +50,9 @@ async fn main(spawner: Spawner) {
     let mut rng = RoscRng;
 
     let mut spi_cfg = SpiConfig::default();
-    spi_cfg.frequency = 50_000_000;
+    spi_cfg.frequency = Hertz(50_000_000);
     let (miso, mosi, clk) = (p.PIN_16, p.PIN_19, p.PIN_18);
-    let spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, spi_cfg);
+    let spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, spi_cfg).unwrap();
     let cs = Output::new(p.PIN_17, Level::High);
     let w5500_int = Input::new(p.PIN_21, Pull::Up);
     let w5500_reset = Output::new(p.PIN_20, Level::High);
@@ -74,12 +76,13 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    iface.set_dhcpv4(Some(Default::default()));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
@@ -91,7 +94,7 @@ async fn main(spawner: Spawner) {
     info!("IP address: {:?}", local_addr);
 
     // Then we can use it! A raw socket receives whole IPv4 packets carrying ICMP.
-    let socket = unwrap!(RawSocket::new(stack, Some(IpVersion::Ipv4), Some(IpProtocol::Icmp)));
+    let socket = unwrap!(RawSocket::new(stack, Some(IpVersion::V4), Some(IpProtocol::Icmp)));
 
     // Identifier used to recognize our own echo replies.
     let ident = 42;

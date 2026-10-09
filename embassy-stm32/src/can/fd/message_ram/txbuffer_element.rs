@@ -133,7 +133,7 @@ impl<'a> ID_W<'a> {
     #[inline(always)]
     #[allow(dead_code)]
     pub unsafe fn bits(self, value: u32) -> &'a mut W {
-        self.w.bits[0] = (self.w.bits[0] & !(0x1FFFFFFF)) | ((value as u32) & 0x1FFFFFFF);
+        self.w.bits[0] = (self.w.bits[0] & !(0x1FFFFFFF)) | (value & 0x1FFFFFFF);
         self.w
     }
 }
@@ -284,7 +284,7 @@ impl<'a> MM_W<'a> {
     #[doc = r"Writes raw bits to the field"]
     #[inline(always)]
     pub unsafe fn bits(self, value: u8) -> &'a mut W {
-        self.w.bits[1] = (self.w.bits[1] & !(0x7F << 24)) | (((value as u32) & 0x7F) << 24);
+        self.w.bits[1] = (self.w.bits[1] & !(0xFF << 24)) | (((value as u32) & 0xFF) << 24);
         self.w
     }
 
@@ -297,7 +297,7 @@ impl R {
     #[doc = "Byte 0 - Bits 0:28 - ID"]
     #[inline(always)]
     pub fn id(&self) -> ID_R {
-        ID_R::new(((self.bits[0]) & 0x1FFFFFFF) as u32)
+        ID_R::new(((self.bits[0]) & 0x1FFFFFFF))
     }
     #[doc = "Byte 0 - Bit 29 - RTR"]
     #[inline(always)]

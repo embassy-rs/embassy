@@ -115,8 +115,7 @@ impl Shared {
         }
     }
 
-    // ota
-    pub fn ota_done(&self) {
+    pub fn reboot(&self) {
         let mut this = self.0.borrow_mut();
         this.state = ControlState::Reboot;
     }

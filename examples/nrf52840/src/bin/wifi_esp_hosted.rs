@@ -4,10 +4,11 @@
 use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::tcp::{TcpListener, TcpSocket};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_net_esp_hosted as hosted;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::mode::Async;
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::{self, Spim};
 use embassy_nrf::{bind_interrupts, peripherals};
@@ -28,13 +29,13 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::task]
 async fn wifi_task(
-    runner: hosted::Runner<
+    mut runner: hosted::Runner<
         'static,
-        SpiInterface<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Input<'static>>,
+        SpiInterface<ExclusiveDevice<Spim<'static, Async>, Output<'static>, Delay>, Input<'static>>,
         Output<'static>,
     >,
-) -> ! {
-    runner.run().await
+) {
+    runner.run().await.expect("heartbeat stopped");
 }
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
@@ -58,7 +59,7 @@ async fn main(spawner: Spawner) {
     let mut config = spim::Config::default();
     config.frequency = spim::Frequency::M32;
     config.mode = spim::MODE_2; // !!!
-    let spi = spim::Spim::new(p.SPI3, Irqs, sck, miso, mosi, config);
+    let spi = spim::Spim::new(p.SPI3, sck, mosi, miso, Irqs, config);
     let spi = ExclusiveDevice::new(spi, cs, Delay);
 
     let iface = SpiInterface::new(spi, handshake, ready);
@@ -68,7 +69,7 @@ async fn main(spawner: Spawner) {
         net_device,
         mut control,
         runner,
-    } = embassy_net_esp_hosted::new(ESP_STATE.init(embassy_net_esp_hosted::State::new()), iface, reset).await;
+    } = embassy_net_esp_hosted::new(ESP_STATE.init(embassy_net_esp_hosted::State::new()), iface, reset);
 
     spawner.spawn(unwrap!(wifi_task(runner)));
 
@@ -83,12 +84,13 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<hosted::NetDriver<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)));
-    iface.set_dhcpv4(Some(Default::default()));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(net_device)));
+    unwrap!(iface.set_dhcpv4(Some(Default::default())));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
@@ -117,7 +119,7 @@ async fn main(spawner: Spawner) {
             continue;
         }
 
-        info!("Received connection from {:?}", socket.remote_endpoint());
+        info!("Received connection from {:?}", socket.remote_addr());
 
         loop {
             let n = match socket.read(&mut buf).await {

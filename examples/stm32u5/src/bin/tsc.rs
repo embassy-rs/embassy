@@ -55,7 +55,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         ..Default::default()
     };
 
-    let mut touch_controller = tsc::Tsc::new_async(context.TSC, pin_groups, config, Irqs).unwrap();
+    let mut touch_controller = tsc::Tsc::new_async(context.TSC, Irqs, pin_groups, config).unwrap();
 
     let acquisition_bank = touch_controller.create_acquisition_bank(AcquisitionBankPins {
         g2_pin: Some(sensor0),

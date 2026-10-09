@@ -16,7 +16,7 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let config = qdec::Config::default();
-    let mut rotary_enc = Qdec::new(p.QDEC, Irqs, p.P0_31, p.P0_30, config);
+    let mut rotary_enc = Qdec::new(p.QDEC, p.P0_31, p.P0_30, Irqs, config);
 
     info!("Turn rotary encoder!");
     let mut value = 0;

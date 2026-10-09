@@ -20,6 +20,39 @@ fn regs() -> pac::icache::Icache {
     pac::ICACHE
 }
 
+/// Enable the ICACHE without taking the [`Icache`] driver.
+///
+/// For callers that only reach the register block, such as an interrupt handler servicing a
+/// hardware cache-coherency handshake.
+pub fn enable_global() {
+    regs().cr().modify(|w| w.set_en(true));
+}
+
+/// Disable the ICACHE without taking the [`Icache`] driver.
+///
+/// Disabling automatically triggers a full cache invalidation; this waits for `EN` to read back as
+/// cleared, but not for that invalidation to finish. See [`Icache::disable()`].
+pub fn disable_global() {
+    regs().fcr().write(|w| w.set_cbsyendf(true));
+    regs().cr().modify(|w| w.set_en(false));
+    while regs().cr().read().en() {}
+}
+
+/// Invalidate the entire ICACHE without taking the [`Icache`] driver, blocking until the
+/// operation completes. See [`Icache::invalidate()`].
+pub fn invalidate_global() {
+    if !regs().sr().read().busyf() {
+        regs().cr().modify(|w| w.set_cacheinv(true));
+    }
+    while regs().sr().read().busyf() {}
+    regs().fcr().write(|w| w.set_cbsyendf(true));
+}
+
+/// Whether the ICACHE is currently enabled, without taking the [`Icache`] driver.
+pub fn is_enabled_global() -> bool {
+    regs().cr().read().en()
+}
+
 /// Cache set-associativity.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -78,7 +111,7 @@ impl<'d> Icache<'d> {
     /// This always succeeds even if a cache maintenance operation is ongoing: the cache is
     /// bypassed until it completes.
     pub fn enable(&mut self) {
-        regs().cr().modify(|w| w.set_en(true));
+        enable_global();
     }
 
     /// Disable the cache.
@@ -87,11 +120,7 @@ impl<'d> Icache<'d> {
     /// back as cleared, but not for that invalidation to finish (call [`Self::invalidate()`]
     /// afterwards if you need that guarantee).
     pub fn disable(&mut self) {
-        // Clear any stale BSYENDF left over from a previous operation before disabling, since
-        // disabling starts an automatic invalidation of its own.
-        regs().fcr().write(|w| w.set_cbsyendf(true));
-        regs().cr().modify(|w| w.set_en(false));
-        while regs().cr().read().en() {}
+        disable_global();
     }
 
     /// Returns whether the cache is currently enabled.
@@ -115,11 +144,7 @@ impl<'d> Icache<'d> {
     ///
     /// Can be called whether the cache is enabled or disabled.
     pub fn invalidate(&mut self) {
-        if !regs().sr().read().busyf() {
-            regs().cr().modify(|w| w.set_cacheinv(true));
-        }
-        while regs().sr().read().busyf() {}
-        regs().fcr().write(|w| w.set_cbsyendf(true));
+        invalidate_global();
     }
 
     /// Start the given performance counter(s). Use [`Self::reset_monitors()`] first if you want

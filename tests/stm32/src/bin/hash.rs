@@ -231,7 +231,8 @@ fn test_boundary_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
 }
 
 // This uses sha512, so only supported on hash_v3 and up
-#[cfg(feature = "hash-v34")]
+// The HASH of the STM32H503 has no SHA-384/512.
+#[cfg(all(feature = "hash-v34", not(feature = "stm32h503rb")))]
 fn test_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
     let in1 = b"4BPuGudaDK";
     let in2 = b"cfFIGf0XSNhFBQ5LaIqzjnRKDRkoWweJI06HLUcicIUGjpuDNfOTQNSrRxDoveDPlazeZtt06SIYO5CvHvsJ98XSfO9yJEMHoDpDAmNQtwZOPlKmdiagRXsJ7w7IjdKpQH6I2t";
@@ -284,7 +285,8 @@ async fn main(_spawner: Spawner) {
     test_dinis_stall_regression(&mut hw_hasher);
     test_boundary_sizes(&mut hw_hasher);
 
-    #[cfg(feature = "hash-v34")]
+    // The HASH of the STM32H503 has no SHA-384/512.
+    #[cfg(all(feature = "hash-v34", not(feature = "stm32h503rb")))]
     test_sizes(&mut hw_hasher);
 
     info!("Test OK");

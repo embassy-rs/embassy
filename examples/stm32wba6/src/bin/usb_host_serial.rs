@@ -9,8 +9,9 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::usb::HostDriver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb_host::class::cdc_acm::{CdcAcmHost, LineCoding};
-use embassy_usb_host::{BusRoute, BusState};
+use embassy_usb::class::cdc_acm::host::CdcAcmHost;
+use embassy_usb::class::cdc_acm::{LineCoding, ParityType, StopBits};
+use embassy_usb::host::{BusRoute, BusState};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -40,10 +41,10 @@ async fn main(_spawner: Spawner) {
     info!("Initializing USB host...");
 
     // Create the host driver (HS mode, internal PHY)
-    let driver = HostDriver::new_hs_host(p.USB_OTG_HS, Irqs, p.PD6, p.PD7);
+    let driver = HostDriver::new_hs_host(p.USB_OTG_HS, p.PD6, p.PD7, Irqs);
 
     static BUS_STATE: BusState = BusState::new();
-    let (mut bus_ctrl, bus) = embassy_usb_host::bus(driver, &BUS_STATE);
+    let (mut bus_ctrl, bus) = embassy_usb::host::bus(driver, &BUS_STATE);
     info!("USB host initialized, waiting for device...");
 
     loop {
@@ -78,7 +79,7 @@ async fn main(_spawner: Spawner) {
         };
 
         // Configure serial: 115200 8N1
-        let coding = LineCoding::default();
+        let coding = LineCoding::new(115_200, StopBits::One, ParityType::None, 8);
         if let Err(e) = cdc.set_line_coding(&coding).await {
             error!("SET_LINE_CODING failed: {:?}", e);
             continue;

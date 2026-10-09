@@ -1,3 +1,4 @@
+use core::mem;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
 use crate::pac::common::{Read, Reg, Write};
@@ -15,6 +16,7 @@ pub trait AtomicModify<T: Sized> {
 }
 
 impl<T: Copy, A: Read + Write> AtomicModify<T> for Reg<T, A> {
+    #[inline]
     fn set_bits(&self, f: impl FnOnce(&mut T)) {
         unsafe {
             #[cfg(target_has_atomic = "32")]
@@ -46,6 +48,7 @@ impl<T: Copy, A: Read + Write> AtomicModify<T> for Reg<T, A> {
         }
     }
 
+    #[inline]
     fn clear_bits(&self, f: impl FnOnce(&mut T)) {
         unsafe {
             #[cfg(target_has_atomic = "32")]
@@ -129,6 +132,23 @@ pub trait AtomicIncrement<T> {
     fn increment(&self) -> T;
 }
 
+impl AtomicIncrement<u8> for AtomicU8 {
+    #[cfg(not(target_has_atomic = "8"))]
+    fn increment(&self) -> u8 {
+        critical_section::with(|_| {
+            let refcount = self.load(Ordering::Relaxed);
+            self.store(refcount.wrapping_add(1), Ordering::Relaxed);
+
+            refcount
+        })
+    }
+
+    #[cfg(target_has_atomic = "8")]
+    fn increment(&self) -> u8 {
+        self.fetch_add(1, Ordering::Acquire)
+    }
+}
+
 impl AtomicIncrement<u32> for AtomicU32 {
     #[cfg(not(target_has_atomic = "32"))]
     fn increment(&self) -> u32 {
@@ -143,5 +163,56 @@ impl AtomicIncrement<u32> for AtomicU32 {
     #[cfg(target_has_atomic = "32")]
     fn increment(&self) -> u32 {
         self.fetch_add(1, Ordering::Acquire)
+    }
+}
+
+#[allow(dead_code)]
+pub struct ActiveInterrupt<R: AtomicModify<T> + Copy, T: Sized + Copy> {
+    ptr: R,
+    reg: T,
+}
+
+impl<'a, R: AtomicModify<T> + Copy, T: Sized + Copy> Drop for ActiveInterrupt<R, T> {
+    fn drop(&mut self) {
+        self.ptr.clear_bits(|w| *w = self.reg);
+    }
+}
+
+#[allow(dead_code)]
+pub trait InterruptRegister<T: Sized + Copy> {
+    /// Atomically enable interrupts and return a guard that disables them
+    ///
+    /// Call `set_xxx(true)` inside the closure
+    fn enable_interrupts<'a>(&'a self, f: impl FnOnce(&mut T)) -> ActiveInterrupt<Self, T>
+    where
+        Self: Sized + Copy + AtomicModify<T>;
+}
+
+impl<T: Sized + Copy, A: Read + Write> InterruptRegister<T> for Reg<T, A> {
+    #[inline]
+    fn enable_interrupts<'a>(&'a self, f: impl FnOnce(&mut T)) -> ActiveInterrupt<Self, T>
+    where
+        Self: Sized + AtomicModify<T>,
+    {
+        let (t, u): (T, T) = unsafe {
+            let mut t: T = mem::zeroed();
+            let mut u: T = mem::zeroed();
+
+            let mut v = u32::MIN;
+
+            core::assert_eq!(size_of::<u32>(), size_of::<T>());
+            core::assert_eq!(align_of::<u32>(), align_of::<T>());
+
+            f(&mut *(&raw mut v as *mut T));
+
+            *(&raw mut t as *mut u32) = v;
+            *(&raw mut u as *mut u32) = !v;
+
+            (t, u)
+        };
+
+        self.set_bits(|w| *w = t);
+
+        ActiveInterrupt { ptr: *self, reg: u }
     }
 }

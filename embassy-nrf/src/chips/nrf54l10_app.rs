@@ -196,9 +196,9 @@ pub mod pac {
 
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
-// 1.5 MB NVM
+// 1012 kB NVM
 #[allow(unused)]
-pub const FLASH_SIZE: usize = 1524 * 1024;
+pub const FLASH_SIZE: usize = 1012 * 1024;
 
 embassy_hal_internal::peripherals! {
     // PPI
@@ -465,8 +465,12 @@ embassy_hal_internal::peripherals! {
     GPIOTE30_CH3,
 
     // CRACEN
-    #[cfg(feature = "_s")]
-    CRACEN,
+    #[cfg(all(feature = "_s", not(feature = "embassy-crypto-rng")))]
+    CRYPTO_RNG,
+    #[cfg(all(feature = "_s", not(feature = "_embassy-crypto-symmetric")))]
+    CRYPTO_SYMMETRIC,
+    #[cfg(all(feature = "_s", not(feature = "_embassy-crypto-pka")))]
+    CRYPTO_PKA,
 
     #[cfg(feature = "_s")]
     // RRAMC
@@ -690,9 +694,6 @@ impl_saadc_input!(P1_11, 1, 11);
 impl_saadc_input!(P1_12, 1, 12);
 impl_saadc_input!(P1_13, 1, 13);
 impl_saadc_input!(P1_14, 1, 14);
-
-#[cfg(feature = "_s")]
-impl_cracen!(CRACEN, CRACEN, CRACEN);
 
 #[cfg(feature = "_s")]
 impl_vpr!(VPR, VPR00, VPR00);

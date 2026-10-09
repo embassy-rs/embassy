@@ -23,13 +23,13 @@ impl<'a> Debouncer<'a> {
 
     pub async fn debounce(&mut self) -> Level {
         loop {
-            let l1 = self.input.get_level();
+            let l1 = self.input.level();
 
             self.input.wait_for_any_edge().await;
 
             Timer::after(self.debounce).await;
 
-            let l2 = self.input.get_level();
+            let l2 = self.input.level();
             if l1 != l2 {
                 break l2;
             }

@@ -45,9 +45,13 @@ pub struct PioI2sIn<'d, P: Instance, const S: usize> {
 
 impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
     /// Configure a state machine to act as both the controller (provider of SCK and WS) and receiver (of SD) for an I2S signal
+    #[allow(clippy::too_many_arguments)]
     pub fn new<D: dma::ChannelInstance>(
         common: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
+        data_pin: Peri<'d, impl PioPin>,
+        bit_clock_pin: Peri<'d, impl PioPin>,
+        lr_clock_pin: Peri<'d, impl PioPin>,
         dma: Peri<'d, D>,
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         // Whether or not to use the MCU's internal pull-down resistor, as the
@@ -55,9 +59,6 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
         // opt to just use an external pull down resistor to meet requirements of common
         // I2S microphones such as the INMP441
         data_pulldown: bool,
-        data_pin: Peri<'d, impl PioPin>,
-        bit_clock_pin: Peri<'d, impl PioPin>,
-        lr_clock_pin: Peri<'d, impl PioPin>,
         sample_rate: u32,
         bit_depth: u32,
         channels: u32,
@@ -163,6 +164,7 @@ pub struct PioI2sOut<'d, P: Instance, const S: usize> {
 
 impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
     /// Configure a state machine to output I2S
+    #[allow(clippy::too_many_arguments)]
     pub fn new<D: dma::ChannelInstance>(
         common: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,

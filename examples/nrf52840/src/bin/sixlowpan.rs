@@ -6,9 +6,9 @@ use core::net::Ipv6Addr;
 use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::udp::{UdpMetadata, UdpSocket};
-use embassy_net::wire::{IpAddress, IpCidr, IpEndpoint, IpListenEndpoint, Ipv6Cidr};
+use embassy_net::wire::{IpAddr, IpCidr, Ipv6Cidr, ListenSocketAddr, SocketAddr};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_nrf::config::{Config, HfclkSource};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::{bind_interrupts, embassy_net_802154_driver as net, peripherals, radio};
@@ -59,12 +59,13 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<net::Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
-    unwrap!(iface.add_ip_addr(IpCidr::Ipv6(Ipv6Cidr::new(local, 64))));
+    let iface = unwrap!(stack.add_iface_borrowed(DEVICE.init(device)));
+    unwrap!(iface.add_ip_addr(IpCidr::V6(Ipv6Cidr::new(local, 64))));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
@@ -72,17 +73,20 @@ async fn main(spawner: Spawner) {
     loop {
         let mut socket = unwrap!(UdpSocket::new(stack));
         socket
-            .bind(IpListenEndpoint {
-                addr: Some(IpAddress::Ipv6(local)),
-                port: 1234,
-            })
+            .bind(
+                ListenSocketAddr {
+                    addr: Some(IpAddr::V6(local)),
+                    port: 1234,
+                },
+                ListenSocketAddr::UNSPECIFIED,
+            )
             .unwrap();
         let rep = UdpMetadata {
-            endpoint: IpEndpoint {
-                addr: IpAddress::Ipv6(peer),
+            remote_addr: SocketAddr {
+                addr: IpAddr::V6(peer),
                 port: 1234,
             },
-            local_address: Some(IpAddress::Ipv6(local)),
+            local_addr: Some(IpAddr::V6(local)),
             meta: Default::default(),
         };
 
@@ -91,7 +95,7 @@ async fn main(spawner: Spawner) {
         let mut recv_buf = [0; 12];
         loop {
             delay.delay_ms(2000).await;
-            if socket.may_recv() {
+            if socket.can_recv() {
                 let n = match socket.recv_from(&mut recv_buf).await {
                     Ok((0, _)) => panic!(),
                     Ok((n, _)) => n,

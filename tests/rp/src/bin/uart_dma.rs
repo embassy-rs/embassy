@@ -9,8 +9,9 @@ use defmt::{assert_eq, *};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
+use embassy_rp::mode::Async;
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, UART0};
-use embassy_rp::uart::{Async, Config, Error, InterruptHandler, Parity, Uart, UartRx};
+use embassy_rp::uart::{Config, Error, InterruptHandler, Parity, Uart, UartRx};
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Timer;
 use panic_probe as _;
@@ -70,9 +71,9 @@ async fn main(_spawner: Spawner) {
             uart.reborrow(),
             tx.reborrow(),
             rx.reborrow(),
-            Irqs,
             p.DMA_CH0.reborrow(),
             p.DMA_CH1.reborrow(),
+            Irqs,
             config,
         );
 
@@ -91,9 +92,9 @@ async fn main(_spawner: Spawner) {
             uart.reborrow(),
             tx.reborrow(),
             rx.reborrow(),
-            Irqs,
             p.DMA_CH0.reborrow(),
             p.DMA_CH1.reborrow(),
+            Irqs,
             config,
         );
 
@@ -120,9 +121,9 @@ async fn main(_spawner: Spawner) {
             uart.reborrow(),
             tx.reborrow(),
             rx.reborrow(),
-            Irqs,
             p.DMA_CH0.reborrow(),
             p.DMA_CH1.reborrow(),
+            Irqs,
             config,
         )
         .split();
@@ -163,7 +164,7 @@ async fn main(_spawner: Spawner) {
         let mut config = Config::default();
         config.baudrate = 1000;
         config.parity = Parity::ParityEven;
-        let mut uart = UartRx::new(uart.reborrow(), rx.reborrow(), Irqs, p.DMA_CH0.reborrow(), config);
+        let mut uart = UartRx::new(uart.reborrow(), rx.reborrow(), p.DMA_CH0.reborrow(), Irqs, config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, parity: u32) {
             send(pin, v, Some(parity != 0)).await;
@@ -208,7 +209,7 @@ async fn main(_spawner: Spawner) {
         // choose a very slow baud rate to make tests reliable even with O0
         let mut config = Config::default();
         config.baudrate = 1000;
-        let mut uart = UartRx::new(uart.reborrow(), rx.reborrow(), Irqs, p.DMA_CH0.reborrow(), config);
+        let mut uart = UartRx::new(uart.reborrow(), rx.reborrow(), p.DMA_CH0.reborrow(), Irqs, config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, good: bool) {
             if good {

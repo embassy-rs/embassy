@@ -11,9 +11,11 @@ use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::VddLevel;
 #[cfg(feature = "mcxa5xx")]
 use crate::pac::mrcc::FlexspiClkselMux;
+#[cfg(feature = "mcxa5xx")]
+use crate::pac::mrcc::WwdtClkselMux;
 use crate::pac::mrcc::{
-    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, FlexcanClkselMux,
-    Lpi2cClkselMux, LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
+    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, DacClkselMux, FclkClkselMux,
+    FlexcanClkselMux, Lpi2cClkselMux, LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
 
 #[must_use]
@@ -65,6 +67,53 @@ pub trait SPConfHelper {
 
 /// Copy and paste macro that:
 ///
+/// * Resets and halts the div, and applies the calculated div4 bits
+/// * Releases reset + halt
+/// * Waits for the div to stabilize
+/// * Returns `Ok($freq / $conf.div.into_divisor())`
+///
+/// This is the half of [`apply_div4!`] that does not touch a clocksel mux.
+/// Use it directly for peripherals that have a `CLKDIV` register but no
+/// `CLKSEL` register - MCXA WWDT0 is one - and prefer [`apply_div4!`] for
+/// everything else.
+///
+/// Assumes:
+///
+/// * self is a configuration struct that has fields called:
+///   * `div`, which is a `Div4`
+///   * `power`, which is a `PoweredClock`
+///
+/// usage:
+///
+/// ```rust,ignore
+/// apply_div4_no_sel!(self, clkdiv, freq)
+/// ```
+#[doc(hidden)]
+#[macro_export]
+macro_rules! apply_div4_no_sel {
+    ($conf:ident, $divreg:ident, $freq:ident) => {{
+        // Set up clkdiv
+        $divreg.modify(|w| {
+            w.set_div($conf.div.into_bits());
+            w.set_halt(ClkdivHalt::Off);
+            w.set_reset(ClkdivReset::Off);
+        });
+        $divreg.modify(|w| {
+            w.set_halt(ClkdivHalt::On);
+            w.set_reset(ClkdivReset::On);
+        });
+
+        while $divreg.read().unstab() == ClkdivUnstab::Off {}
+
+        Ok(PreEnableParts {
+            freq: $freq / $conf.div.into_divisor(),
+            wake_guard: WakeGuard::for_power(&$conf.power),
+        })
+    }};
+}
+
+/// Copy and paste macro that:
+///
 /// * Sets the clocksel mux to `$selvar`
 /// * Resets and halts the div, and applies the calculated div4 bits
 /// * Releases reset + halt
@@ -94,23 +143,7 @@ macro_rules! apply_div4 {
         // set clksel
         $selreg.modify(|w| w.set_mux($selvar));
 
-        // Set up clkdiv
-        $divreg.modify(|w| {
-            w.set_div($conf.div.into_bits());
-            w.set_halt(ClkdivHalt::Off);
-            w.set_reset(ClkdivReset::Off);
-        });
-        $divreg.modify(|w| {
-            w.set_halt(ClkdivHalt::On);
-            w.set_reset(ClkdivReset::On);
-        });
-
-        while $divreg.read().unstab() == ClkdivUnstab::Off {}
-
-        Ok(PreEnableParts {
-            freq: $freq / $conf.div.into_divisor(),
-            wake_guard: WakeGuard::for_power(&$conf.power),
-        })
+        $crate::apply_div4_no_sel!($conf, $divreg, $freq)
     }};
 }
 
@@ -207,15 +240,306 @@ impl SPConfHelper for Clk1MConfig {
     }
 }
 
-/// Placeholder configuration for the DAC peripheral.
+//
+// Wwdt
+//
+
+/// Selectable clocks for the WWDT peripheral.
 ///
-/// The DAC HAL driver is not yet implemented, but the PAC metadata
-/// declares the gate config type, so we provide a stub here. Replace
-/// with the real implementation when the DAC driver is added.
-pub struct DacConfig;
+/// Only WWDT1, and only on MCXA5xx, has a source mux; its encodings are
+/// mirrored one-for-one from `MRCC_WWDT1_CLKSEL[MUX]` (MCXA5xx RM Rev 1
+/// 22.5.2.36). WWDT0 has no `CLKSEL` register on either family and is
+/// hardwired to `clk_1m` (MCXA5xx RM Rev 1 28.3.3, Figure 123), so
+/// [`Clk1M`][Self::Clk1M] is the only selection it accepts; asking WWDT0 for
+/// any other source is a [`ClockError::BadConfig`] rather than a silently
+/// ignored request.
+///
+/// Whether a selection is legal also depends on the configured clock tree,
+/// and is decided by validating the resolved frequency against the rating in
+/// 28.3.2 rather than by omitting variants here: `FroHfDiv` is inside that
+/// rating when `fro_hf_div` is divided far enough, and outside it otherwise.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum WwdtClockSel {
+    /// `CLK_16K`, the FRO16K VDD_CORE output (`MUX` = 00b).
+    ///
+    /// Runs through deep sleep unconditionally. Because the WWDT counter is
+    /// 24-bit, this reaches far longer timeouts than `CLK_1M` can.
+    ///
+    /// WWDT1 only.
+    #[cfg(feature = "mcxa5xx")]
+    Clk16kVddCore,
+    /// `FRO_HF_DIV` (`MUX` = 01b).
+    ///
+    /// WWDT1 only.
+    #[cfg(feature = "mcxa5xx")]
+    FroHfDiv,
+    /// `CLK_1M` (`MUX` = 10b).
+    ///
+    /// This is the source WWDT0 is hardwired to. `MUX` = 11b is a second
+    /// encoding of the same source and is not represented separately.
+    Clk1M,
+}
+
+/// Which WWDT instance a given configuration applies to
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum WwdtInstance {
+    /// Instance 0
+    Wwdt0,
+    /// Instance 1
+    #[cfg(feature = "mcxa5xx")]
+    Wwdt1,
+}
+
+/// Top level configuration for `Wwdt` instances.
+pub struct WwdtConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Selected clock-source for this peripheral
+    pub source: WwdtClockSel,
+    /// Pre-divisor, applied to the upstream clock output
+    pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: WwdtInstance,
+}
+
+impl SPConfHelper for WwdtConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let mrcc0 = crate::pac::MRCC0;
+
+        // WWDT0 has a divider - `MRCC_WWDT0_CLKDIV`, at offset 0xD4 on
+        // MCXA2xx and 0x13C on MCXA5xx - but no CLKSEL, so its source is
+        // resolved without touching a mux. WWDT1 has both (MCXA5xx RM Rev 1
+        // 22.5.2.36, 22.5.2.37).
+        let (freq, clkdiv) = match self.instance {
+            WwdtInstance::Wwdt0 => {
+                // WWDT0 has no CLKSEL, so `Clk1M` is the only selection it can
+                // honour. Reject anything else rather than silently ignoring
+                // it. On MCXA2xx the other variants do not exist, so this
+                // match is exhaustive with a single arm.
+                let freq = match self.source {
+                    WwdtClockSel::Clk1M => clocks.ensure_clk_1m_active(&self.power)?,
+                    #[cfg(feature = "mcxa5xx")]
+                    WwdtClockSel::Clk16kVddCore | WwdtClockSel::FroHfDiv => {
+                        return Err(ClockError::BadConfig {
+                            clock: "wwdt0 clk",
+                            reason: "hardwired to clk_1m, no other source selectable",
+                        });
+                    }
+                };
+
+                (freq, mrcc0.mrcc_wwdt0_clkdiv())
+            }
+            #[cfg(feature = "mcxa5xx")]
+            WwdtInstance::Wwdt1 => {
+                let clksel = mrcc0.mrcc_wwdt1_clksel();
+                let clkdiv = mrcc0.mrcc_wwdt1_clkdiv();
+
+                // Mux encodings: MCXA5xx 22.5.2.36. MUX = 11b is a second
+                // encoding of CLK_1M and is not offered separately.
+                let (freq, variant) = match self.source {
+                    WwdtClockSel::Clk16kVddCore => (
+                        clocks.ensure_clk_16k_vdd_core_active(&self.power)?,
+                        WwdtClkselMux::I0Clkroot16k,
+                    ),
+                    WwdtClockSel::FroHfDiv => (
+                        clocks.ensure_fro_hf_div_active(&self.power)?,
+                        WwdtClkselMux::I1ClkrootFircDiv,
+                    ),
+                    WwdtClockSel::Clk1M => (clocks.ensure_clk_1m_active(&self.power)?, WwdtClkselMux::I2Clkroot1m),
+                };
+
+                clksel.modify(|w| w.set_mux(variant));
+
+                (freq, clkdiv)
+            }
+        };
+
+        // Check clock speed is reasonable
+        let div = self.div.into_divisor();
+
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2,
+        // MCXA5xx 28.3.2. The "WWDT0/1 Clock" row is 1 MHz in every run mode,
+        // so unlike most peripherals this does not vary with the power state.
+        let fmax: u32 = 1_000_000;
+
+        // Compare exactly without overflowing: the post-divider frequency
+        // exceeds fmax exactly when `freq > fmax * div`.
+        if (freq as u64) > (fmax as u64) * (div as u64) {
+            return Err(ClockError::BadConfig {
+                clock: "wwdt clk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4_no_sel!(self, clkdiv, freq)
+    }
+}
+
+//
+// Dac
+//
+
+/// Selectable clocks for the DAC peripheral
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum DacClockSel {
+    /// Divided `fro_lf`/`clk_12m`/FRO12M source
+    FroLfDiv,
+    /// Divided `fro_hf`/`FRO180M` source
+    FroHfDiv,
+    /// External Clock Source
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    /// 1MHz clock sourced by a divided `fro_lf`/`clk_12m`
+    Clk1M,
+    /// Internal PLL output, with configurable divisor
+    Pll1ClkDiv,
+    /// No clock/disabled
+    None,
+}
+
+/// Which DAC instance a given configuration applies to
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum DacInstance {
+    /// Instance 0
+    Dac0,
+    /// Instance 1
+    #[cfg(feature = "mcxa5xx")]
+    Dac1,
+}
+
+/// Top level configuration for `Dac` instances.
+pub struct DacConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Selected clock-source for this peripheral
+    pub source: DacClockSel,
+    /// Pre-divisor, applied to the upstream clock output
+    pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: DacInstance,
+}
+
 impl SPConfHelper for DacConfig {
-    fn pre_enable_config(&self, _clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
-        Ok(PreEnableParts::empty())
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let mrcc0 = crate::pac::MRCC0;
+
+        let (clksel, clkdiv) = match self.instance {
+            DacInstance::Dac0 => (mrcc0.mrcc_dac0_clksel(), mrcc0.mrcc_dac0_clkdiv()),
+            #[cfg(feature = "mcxa5xx")]
+            DacInstance::Dac1 => (mrcc0.mrcc_dac1_clksel(), mrcc0.mrcc_dac1_clkdiv()),
+        };
+
+        // Mux encodings: MCXA5xx 22.5.2.89 (DAC0) / 22.5.2.91 (DAC1),
+        // MCXA2xx 14.5.2.66 (DAC0). All three are identical. NOTE that mux
+        // value 2 is `FRO_HF_DIV` (divided) and mux value 6 is `PLL1_CLK_DIV`
+        // (divided) - this differs from the ADC mux, do not copy that one.
+        let (freq, variant) = match self.source {
+            DacClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = DacClkselMux::ClkrootFunc0;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = DacClkselMux::I0ClkrootFunc0;
+
+                (freq, mux)
+            }
+            DacClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = DacClkselMux::ClkrootFunc2;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = DacClkselMux::I2ClkrootFunc2;
+
+                (freq, mux)
+            }
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            DacClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = DacClkselMux::ClkrootFunc3;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = DacClkselMux::I3ClkrootFunc3;
+
+                (freq, mux)
+            }
+            DacClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = DacClkselMux::ClkrootFunc5;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = DacClkselMux::I5ClkrootFunc5;
+
+                (freq, mux)
+            }
+            DacClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+
+                // TODO: fix PAC names for consistency
+                #[cfg(feature = "mcxa2xx")]
+                let mux = DacClkselMux::ClkrootFunc6;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = DacClkselMux::I6ClkrootFunc6;
+
+                (freq, mux)
+            }
+            DacClockSel::None => {
+                clksel.write(|w| w.set_mux(DacClkselMux::_RESERVED_7));
+                // PAC enum names are inverted: `Off` is the asserted (1) state.
+                // HALT=1 stops the divider, RESET=1 holds it in reset, matching
+                // the CLKDIV reset value of 0x4000_0000.
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::Off);
+                    w.set_halt(ClkdivHalt::Off);
+                });
+                return Ok(PreEnableParts::empty());
+            }
+        };
+
+        // Check clock speed is reasonable
+        let div = self.div.into_divisor();
+
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+
+        #[cfg(feature = "mcxa2xx")]
+        let fmax: u32 = match power {
+            VddLevel::MidDriveMode => 24_000_000,
+            VddLevel::OverDriveMode => 60_000_000,
+        };
+
+        #[cfg(feature = "mcxa5xx")]
+        let fmax: u32 = match power {
+            VddLevel::MidDriveMode => 24_000_000,
+            VddLevel::NormalMode | VddLevel::OverDriveMode => 64_000_000,
+        };
+
+        // Compare exactly without overflowing: the post-divider frequency
+        // exceeds fmax exactly when `freq > fmax * div`.
+        if (freq as u64) > (fmax as u64) * (div as u64) {
+            return Err(ClockError::BadConfig {
+                clock: "dac fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }
 
@@ -330,26 +654,27 @@ impl SPConfHelper for AdcConfig {
 
         // Check clock speed is reasonable
         let div = self.div.into_divisor();
-        let expected = freq / div;
-        // 22.3.2 peripheral clock max functional clock limits
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
 
         #[cfg(feature = "mcxa2xx")]
-        let fmax = match power {
+        let fmax: u32 = match power {
             VddLevel::MidDriveMode => 24_000_000,
             VddLevel::OverDriveMode => 64_000_000,
         };
 
         #[cfg(feature = "mcxa5xx")]
-        let fmax = match power {
+        let fmax: u32 = match power {
             VddLevel::MidDriveMode => 24_000_000,
             VddLevel::NormalMode | VddLevel::OverDriveMode => 64_000_000,
         };
 
-        if expected > fmax {
+        // Compare exactly without overflowing: the post-divider frequency
+        // exceeds fmax exactly when `freq > fmax * div`.
+        if (freq as u64) > (fmax as u64) * (div as u64) {
             return Err(ClockError::BadConfig {
                 clock: "adc fclk",
                 reason: "exceeds max rating",
@@ -386,8 +711,9 @@ pub struct OsTimerConfig {
 impl SPConfHelper for OsTimerConfig {
     fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         let mrcc0 = crate::pac::MRCC0;
-        // NOTE: complies with 22.3.2 peripheral clock max functional clock limits
-        // which is 1MHz, and we can only select 1mhz/16khz.
+        // NOTE: complies with the peripheral clock max functional clock limits
+        // (MCXA2xx 21.3.2, MCXA5xx 28.3.2), which is 1MHz, and we can only
+        // select 1mhz/16khz.
         Ok(match self.source {
             OstimerClockSel::Clk16kVddCore => {
                 // TODO: fix PAC names for consistency
@@ -575,28 +901,29 @@ impl SPConfHelper for LpspiConfig {
         };
 
         let div = self.div.into_divisor();
-        let expected = freq / div;
 
-        // 21.3.2 peripheral clock max functional clock limits
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
 
         #[cfg(feature = "mcxa2xx")]
-        let fmax = match power {
-            VddLevel::MidDriveMode => 25_000_000,
-            VddLevel::OverDriveMode => 60_000_000,
+        let fmax: u32 = match power {
+            VddLevel::MidDriveMode => 50_000_000,
+            VddLevel::OverDriveMode => 100_000_000,
         };
 
         #[cfg(feature = "mcxa5xx")]
-        let fmax = match power {
+        let fmax: u32 = match power {
             VddLevel::MidDriveMode => 50_000_000,
             VddLevel::NormalMode => 150_000_000,
             VddLevel::OverDriveMode => 200_000_000,
         };
 
-        if expected > fmax {
+        // Compare exactly without overflowing: the post-divider frequency
+        // exceeds fmax exactly when `freq > fmax * div`.
+        if (freq as u64) > (fmax as u64) * (div as u64) {
             return Err(ClockError::BadConfig {
                 clock: "lpspi fclk",
                 reason: "exceeds max rating",
@@ -617,8 +944,11 @@ impl SPConfHelper for LpspiConfig {
 pub enum FlexspiClockSel {
     /// Gated FRO_HF / FIRC clock.
     FroHf,
-    /// PLL1 clock after its divider.
-    Pll1ClkDiv,
+    /// PLL1 clock, taken *before* `pll1_clk_div`.
+    ///
+    /// NOTE: unlike most peripherals, `MRCC_FLEXSPI0_CLKSEL[MUX] = 110b`
+    /// selects the undivided `PLL1_CLK`, not `PLL1_CLK_DIV`.
+    Pll1Clk,
 }
 
 /// Which instance of the `FlexSPI` peripheral is this?
@@ -656,11 +986,33 @@ impl SPConfHelper for FlexspiConfig {
                 clocks.ensure_fro_hf_active(&self.power)?,
                 FlexspiClkselMux::I1ClkrootFircGated,
             ),
-            FlexspiClockSel::Pll1ClkDiv => (
-                clocks.ensure_pll1_clk_div_active(&self.power)?,
+            FlexspiClockSel::Pll1Clk => (
+                clocks.ensure_pll1_clk_active(&self.power)?,
                 FlexspiClkselMux::I6ClkrootSpll,
             ),
         };
+
+        let div = self.div.into_divisor();
+        // Peripheral clock max functional clock limits: MCXA5xx 28.3.2
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+
+        let fmax: u32 = match power {
+            VddLevel::MidDriveMode => 96_000_000,
+            VddLevel::NormalMode => 240_000_000,
+            VddLevel::OverDriveMode => 320_000_000,
+        };
+
+        // Compare exactly without overflowing: the post-divider frequency
+        // exceeds fmax exactly when `freq > fmax * div`.
+        if (freq as u64) > (fmax as u64) * (div as u64) {
+            return Err(ClockError::BadConfig {
+                clock: "flexspi fclk",
+                reason: "exceeds max rating",
+            });
+        }
 
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }
@@ -724,6 +1076,7 @@ pub struct I3cConfig {
 
 impl SPConfHelper for I3cConfig {
     fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         #[cfg(feature = "mcxa2xx")]
         // Always 25MHz maximum frequency.
         const I3C_FCLK_MAX: u32 = 25_000_000;
@@ -801,7 +1154,11 @@ impl SPConfHelper for I3cConfig {
             }
         };
 
-        if freq > I3C_FCLK_MAX {
+        let div = self.div.into_divisor();
+
+        // Compare exactly without overflowing: the post-divider frequency
+        // exceeds the limit exactly when `freq > limit * div`.
+        if (freq as u64) > (I3C_FCLK_MAX as u64) * (div as u64) {
             return Err(ClockError::BadConfig {
                 clock: "i3c fclk",
                 reason: "exceeds max rating",
@@ -934,26 +1291,27 @@ impl SPConfHelper for Lpi2cConfig {
             }
         };
         let div = self.div.into_divisor();
-        let expected = freq / div;
-        // 22.3.2 peripheral clock max functional clock limits
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
 
         #[cfg(feature = "mcxa2xx")]
-        let fmax = match power {
+        let fmax: u32 = match power {
             VddLevel::MidDriveMode => 25_000_000,
             VddLevel::OverDriveMode => 60_000_000,
         };
 
         #[cfg(feature = "mcxa5xx")]
-        let fmax = match power {
+        let fmax: u32 = match power {
             VddLevel::MidDriveMode => 25_000_000,
             VddLevel::NormalMode | VddLevel::OverDriveMode => 64_000_000,
         };
 
-        if expected > fmax {
+        // Compare exactly without overflowing: the post-divider frequency
+        // exceeds fmax exactly when `freq > fmax * div`.
+        if (freq as u64) > (fmax as u64) * (div as u64) {
             return Err(ClockError::BadConfig {
                 clock: "lpi2c fclk",
                 reason: "exceeds max rating",
@@ -1115,24 +1473,25 @@ impl SPConfHelper for LpuartConfig {
 
         // Check clock speed is reasonable
         let div = self.div.into_divisor();
-        let expected = freq / div;
-        // 22.3.2 peripheral clock max functional clock limits
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
         #[cfg(feature = "mcxa2xx")]
-        let fmax = match power {
+        let fmax: u32 = match power {
             VddLevel::MidDriveMode => 45_000_000,
             VddLevel::OverDriveMode => 180_000_000,
         };
         #[cfg(feature = "mcxa5xx")]
-        let fmax = match power {
+        let fmax: u32 = match power {
             VddLevel::MidDriveMode => 50_000_000,
             VddLevel::NormalMode => 150_000_000,
             VddLevel::OverDriveMode => 200_000_000,
         };
-        if expected > fmax {
+        // Compare exactly without overflowing: the post-divider frequency
+        // exceeds fmax exactly when `freq > fmax * div`.
+        if (freq as u64) > (fmax as u64) * (div as u64) {
             return Err(ClockError::BadConfig {
                 clock: "lpuart fclk",
                 reason: "exceeds max rating",
@@ -1292,26 +1651,27 @@ impl SPConfHelper for CTimerConfig {
         };
 
         let div = self.div.into_divisor();
-        let expected = freq / div;
 
-        // 22.3.2 peripheral clock max functional clock limits
+        // Peripheral clock max functional clock limits: MCXA2xx 21.3.2, MCXA5xx 28.3.2
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
         #[cfg(feature = "mcxa2xx")]
-        let fmax = match power {
-            VddLevel::MidDriveMode => 25_000_000,
-            VddLevel::OverDriveMode => 60_000_000,
+        let fmax: u32 = match power {
+            VddLevel::MidDriveMode => 90_000_000,
+            VddLevel::OverDriveMode => 180_000_000,
         };
         #[cfg(feature = "mcxa5xx")]
-        let fmax = match power {
+        let fmax: u32 = match power {
             VddLevel::MidDriveMode => 50_000_000,
             VddLevel::NormalMode => 150_000_000,
             VddLevel::OverDriveMode => 200_000_000,
         };
 
-        if expected > fmax {
+        // Compare exactly without overflowing: the post-divider frequency
+        // exceeds fmax exactly when `freq > fmax * div`.
+        if (freq as u64) > (fmax as u64) * (div as u64) {
             return Err(ClockError::BadConfig {
                 clock: "ctimer fclk",
                 reason: "exceeds max rating",
@@ -1426,27 +1786,30 @@ impl SPConfHelper for CanConfig {
             }
         };
 
-        // These values for MidDriveMode, NormalMode, and OverDriveMode come from table 21.3.2 on page 845 of the datasheet.
+        // These values for MidDriveMode, NormalMode, and OverDriveMode come from the
+        // peripheral clock max functional clock limits: MCXA2xx 21.3.2 (p. 845),
+        // MCXA5xx 28.3.2 (p. 1273).
         let div = self.div.into_divisor();
-        let expected = freq / div;
         let power = match self.power {
             PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
             PoweredClock::AlwaysEnabled => clocks.lp_power,
         };
 
         #[cfg(feature = "mcxa2xx")]
-        let fmax = match power {
+        let fmax: u32 = match power {
             VddLevel::MidDriveMode => 45_000_000,
             VddLevel::OverDriveMode => 90_000_000,
         };
 
         #[cfg(feature = "mcxa5xx")]
-        let fmax = match power {
-            VddLevel::MidDriveMode => 45_000_000,
-            VddLevel::NormalMode | VddLevel::OverDriveMode => 90_000_000,
+        let fmax: u32 = match power {
+            VddLevel::MidDriveMode => 50_000_000,
+            VddLevel::NormalMode | VddLevel::OverDriveMode => 100_000_000,
         };
 
-        if expected > fmax {
+        // Compare exactly without overflowing: the post-divider frequency
+        // exceeds fmax exactly when `freq > fmax * div`.
+        if (freq as u64) > (fmax as u64) * (div as u64) {
             return Err(ClockError::BadConfig {
                 clock: "flexcan fclk",
                 reason: "exceeds max rating",
