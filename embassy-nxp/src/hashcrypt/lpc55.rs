@@ -1,5 +1,4 @@
 //! Driver for the HASHCRYPT peripheral, mode switch skeleton
-use embassy_futures::block_on;
 use embassy_hal_internal::Peri;
 use nxp_pac::hashcrypt::vals::{Aesdecrypt, Aeskeysz, Aesmode, Aessecret, Mode};
 use nxp_pac::syscon::vals::HashAesRst::Released;
@@ -52,7 +51,6 @@ pub struct GenericHashcrypt<'d> {
 }
 
 // mode switching implementation of generic driver
-#[allow(dead_code)]
 impl<'d> GenericHashcrypt<'d> {
     pub fn new(peri: Peri<'d, HASHCRYPT>) -> Self {
         pac::SYSCON.ahbclkctrl2().modify(|w| {
@@ -181,7 +179,6 @@ impl<'d> GenericHashcrypt<'d> {
 }
 
 // Helper functions for AES modes
-#[allow(dead_code)]
 impl<'d> GenericHashcrypt<'d> {
     pub(crate) fn wait_key() {
         while !pac::HASHCRYPT.status().read().needkey() {
