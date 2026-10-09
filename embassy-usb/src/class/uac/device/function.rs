@@ -270,7 +270,7 @@ impl<'d> Control<'d> {
     ///
     /// Channel 0 is the master. `0xFF` returns all channels, including the master.
     /// Invalid channel numbers return `None`.
-    fn addressed_channels(&self, channel_index: u8) -> Option<RangeInclusive<usize>> {
+    fn addressed_channel_range(&self, channel_index: u8) -> Option<RangeInclusive<usize>> {
         if channel_index == ALL_CHANNELS {
             Some(0..=self.shared.channels.len())
         } else if self.has_channel(channel_index) {
@@ -291,7 +291,7 @@ impl<'d> Control<'d> {
             return None;
         }
 
-        let channels = match self.addressed_channels(channel_index) {
+        let channels = match self.addressed_channel_range(channel_index) {
             Some(channels) if entity_index == FEATURE_UNIT_ID && req.request == SET_CUR => channels,
             _ => {
                 debug!(
@@ -404,7 +404,7 @@ impl<'d> Control<'d> {
             return None;
         }
 
-        let channels = match self.addressed_channels(channel_index) {
+        let channels = match self.addressed_channel_range(channel_index) {
             // Only this function's Feature Unit can be handled at the moment.
             Some(channels) if entity_index == FEATURE_UNIT_ID => channels,
             _ => {
@@ -415,45 +415,45 @@ impl<'d> Control<'d> {
                 return Some(InResponse::Rejected);
             }
         };
-        let count = channels.clone().count();
+        let channel_count = channels.clone().count();
         // At least one addressed channel must advertise the control
         // [UAC 5.2.1]; in a 0xFF block, the others report their fixed default.
-        let mute = channels
+        let supports_mute = channels
             .clone()
             .any(|channel| self.shared.controls(channel as u8).contains(FeatureUnitControls::MUTE));
-        let volume = channels.clone().any(|channel| {
+        let supports_volume = channels.clone().any(|channel| {
             self.shared
                 .controls(channel as u8)
                 .contains(FeatureUnitControls::VOLUME)
         });
 
         match (req.request, control_unit) {
-            (GET_CUR, MUTE_CONTROL) if mute && buf.len() >= count => {
+            (GET_CUR, MUTE_CONTROL) if supports_mute && buf.len() >= channel_count => {
                 let audio_settings = self.shared.audio_settings.lock(|x| x.get());
                 for (entry, channel) in channels.enumerate() {
                     buf[entry] = audio_settings.muted[channel].into();
                 }
                 debug!("Got channel {} mute state.", channel_index);
-                Some(InResponse::Accepted(&buf[..count]))
+                Some(InResponse::Accepted(&buf[..channel_count]))
             }
-            (GET_CUR, VOLUME_CONTROL) if volume && buf.len() >= 2 * count => {
+            (GET_CUR, VOLUME_CONTROL) if supports_volume && buf.len() >= 2 * channel_count => {
                 let audio_settings = self.shared.audio_settings.lock(|x| x.get());
                 for (entry, channel) in channels.enumerate() {
                     buf[2 * entry..2 * entry + 2].copy_from_slice(&audio_settings.volume_8q8_db[channel].to_le_bytes());
                 }
                 debug!("Got channel {} volume.", channel_index);
-                Some(InResponse::Accepted(&buf[..2 * count]))
+                Some(InResponse::Accepted(&buf[..2 * channel_count]))
             }
-            (GET_MIN | GET_MAX | GET_RES, VOLUME_CONTROL) if volume && buf.len() >= 2 * count => {
+            (GET_MIN | GET_MAX | GET_RES, VOLUME_CONTROL) if supports_volume && buf.len() >= 2 * channel_count => {
                 let value = match req.request {
                     GET_MIN => MIN_VOLUME_DB * VOLUME_STEPS_PER_DB,
                     GET_MAX => MAX_VOLUME_DB * VOLUME_STEPS_PER_DB,
                     _ => VOLUME_STEPS_PER_DB,
                 };
-                for entry in 0..count {
+                for entry in 0..channel_count {
                     buf[2 * entry..2 * entry + 2].copy_from_slice(&value.to_le_bytes());
                 }
-                Some(InResponse::Accepted(&buf[..2 * count]))
+                Some(InResponse::Accepted(&buf[..2 * channel_count]))
             }
             _ => Some(InResponse::Rejected),
         }
