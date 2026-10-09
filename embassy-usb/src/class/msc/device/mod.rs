@@ -213,6 +213,17 @@ impl<T: BlockDevice + ?Sized> AsyncBlockDevice for T {
     }
 }
 
+/// Why [`MscClass::run`] returned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum StopReason {
+    /// The host ejected the medium with START STOP UNIT (LoEj = 1, Start = 0).
+    ///
+    /// Pending writes were flushed before the command completed.
+    Ejected,
+}
+
 /// Internal state for the MSC class.
 pub struct State<'a> {
     control: MaybeUninit<Control<'a>>,
@@ -331,11 +342,15 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         self.read_ep.wait_enabled().await;
     }
 
-    /// Runs the MSC BOT state machine forever.
+    /// Runs the MSC BOT state machine until the host ejects the medium.
+    ///
+    /// Disconnects and reconnects are handled internally. When this returns, the
+    /// host has received the status of the eject command but the device is still
+    /// attached: disable the USB device, or call `run` again to keep serving commands.
     ///
     /// `block_buf` is a temporary buffer used for block transfers and must be at
     /// least `block_device.block_size()` and `max_packet_size` bytes long.
-    pub async fn run<B: AsyncBlockDevice>(&mut self, block_device: &mut B, block_buf: &mut [u8]) -> ! {
+    pub async fn run<B: AsyncBlockDevice>(&mut self, block_device: &mut B, block_buf: &mut [u8]) -> StopReason {
         assert!(
             block_buf.len() >= block_device.block_size() as usize
                 && block_buf.len() >= self.config.max_packet_size as usize,
@@ -345,7 +360,10 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             self.wait_connection().await;
             info!("msc: connected");
 
-            let _ = self.run_connected(block_device, block_buf).await;
+            if let Ok(reason) = self.run_connected(block_device, block_buf).await {
+                info!("msc: stopped: {:?}", reason);
+                return reason;
+            }
 
             info!("msc: disconnected");
         }
@@ -355,7 +373,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         &mut self,
         block_device: &mut B,
         block_buf: &mut [u8],
-    ) -> Result<(), EndpointError> {
+    ) -> Result<StopReason, EndpointError> {
         loop {
             let Some(cbw) = self.read_cbw(block_buf).await? else {
                 continue;
@@ -373,6 +391,10 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             let result = self.process_cbw(block_device, block_buf, &cbw).await?;
 
             self.write_csw(cbw.tag, result.residue, result.status).await?;
+
+            if let Some(reason) = result.stop {
+                return Ok(reason);
+            }
         }
     }
 
@@ -442,7 +464,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             SCSI_READ_CAPACITY_10 => self.read_capacity_10(cbw, block_device).await,
             SCSI_READ_10 => self.read_10(cbw, block_device, block_buf).await,
             SCSI_WRITE_10 => self.write_10(cbw, block_device, block_buf).await,
-            SCSI_START_STOP_UNIT => Ok(self.start_stop_unit(cbw)),
+            SCSI_START_STOP_UNIT => self.start_stop_unit(cbw, block_device).await,
             SCSI_PREVENT_ALLOW_MEDIUM_REMOVAL => Ok(self.prevent_allow_medium_removal(cbw)),
             SCSI_SYNCHRONIZE_CACHE_10 => self.synchronize_cache_10(cbw, block_device).await,
             _ => {
@@ -855,14 +877,32 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         Ok(CommandResult::passed(0))
     }
 
-    fn start_stop_unit(&mut self, cbw: &Cbw) -> CommandResult {
+    async fn start_stop_unit<B: AsyncBlockDevice>(
+        &mut self,
+        cbw: &Cbw,
+        block_device: &mut B,
+    ) -> Result<CommandResult, EndpointError> {
         if cbw.data_transfer_length != 0 {
             self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
-            return CommandResult::failed(cbw.data_transfer_length);
+            return Ok(CommandResult::failed(cbw.data_transfer_length));
+        }
+
+        if !is_eject(&cbw.cb) {
+            self.sense = SenseData::NO_SENSE;
+            return Ok(CommandResult::passed(0));
+        }
+
+        if block_device.flush().await.is_err() {
+            warn!("msc: flush before eject failed");
+            self.set_sense(SENSE_KEY_MEDIUM_ERROR, ASC_WRITE_ERROR, ASCQ_NONE);
+            return Ok(CommandResult::failed(0));
         }
 
         self.sense = SenseData::NO_SENSE;
-        CommandResult::passed(0)
+        Ok(CommandResult {
+            stop: Some(StopReason::Ejected),
+            ..CommandResult::passed(0)
+        })
     }
 
     fn prevent_allow_medium_removal(&mut self, cbw: &Cbw) -> CommandResult {
@@ -956,10 +996,21 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     }
 }
 
+/// Whether a START STOP UNIT CDB asks to eject the medium (SBC-3 §5.25).
+///
+/// LoEj and Start are ignored unless the power condition field is zero.
+fn is_eject(cb: &[u8; 16]) -> bool {
+    let power_condition = cb[4] & SSU_POWER_CONDITION_MASK;
+    let load_eject = cb[4] & SSU_LOEJ != 0;
+    let start = cb[4] & SSU_START != 0;
+    power_condition == 0 && load_eject && !start
+}
+
 #[derive(Clone, Copy)]
 struct CommandResult {
     residue: u32,
     status: u8,
+    stop: Option<StopReason>,
 }
 
 impl CommandResult {
@@ -967,6 +1018,7 @@ impl CommandResult {
         Self {
             residue,
             status: CSW_STATUS_PASSED,
+            stop: None,
         }
     }
 
@@ -974,6 +1026,7 @@ impl CommandResult {
         Self {
             residue,
             status: CSW_STATUS_FAILED,
+            stop: None,
         }
     }
 
@@ -981,6 +1034,7 @@ impl CommandResult {
         Self {
             residue,
             status: CSW_STATUS_PHASE_ERROR,
+            stop: None,
         }
     }
 }
@@ -1027,6 +1081,21 @@ mod tests {
         core::assert_eq!(&config.product_id, b"Storage Device  ");
         core::assert_eq!(&config.product_revision_level, b"2.0 ");
         core::assert_eq!(config.serial_number_bytes(), dynamic_serial.as_bytes());
+    }
+
+    #[test]
+    fn decodes_eject() {
+        let cdb = |byte4: u8| {
+            let mut cb = [0u8; 16];
+            cb[0] = SCSI_START_STOP_UNIT;
+            cb[4] = byte4;
+            cb
+        };
+        core::assert!(is_eject(&cdb(0x02)));
+        core::assert!(!is_eject(&cdb(0x03))); // load
+        core::assert!(!is_eject(&cdb(0x00))); // stop
+        core::assert!(!is_eject(&cdb(0x01))); // start
+        core::assert!(!is_eject(&cdb(0x32))); // power condition set, LoEj ignored
     }
 
     struct MockBlockDevice {
