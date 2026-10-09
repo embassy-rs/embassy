@@ -185,6 +185,34 @@ pub trait Driver<'a> {
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError>;
 
+    /// Allocates a double-buffered bulk OUT endpoint.
+    ///
+    /// With double buffering the hardware can receive the next packet while the previous one is
+    /// still being read, which improves throughput. It may use more hardware resources than an
+    /// ordinary endpoint, such as twice the packet memory or the endpoint number in both directions.
+    ///
+    /// Drivers that don't support double buffering allocate an ordinary bulk endpoint, which is
+    /// what the default implementation does.
+    fn alloc_endpoint_bulk_out_double_buffered(
+        &mut self,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+    ) -> Result<Self::EndpointOut, EndpointAllocError> {
+        self.alloc_endpoint_out(EndpointType::Bulk, ep_addr, max_packet_size, 0)
+    }
+
+    /// Allocates a double-buffered bulk IN endpoint.
+    ///
+    /// With double buffering the next packet can be queued while the hardware is still sending the
+    /// previous one. See [`alloc_endpoint_bulk_out_double_buffered`](Self::alloc_endpoint_bulk_out_double_buffered).
+    fn alloc_endpoint_bulk_in_double_buffered(
+        &mut self,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+    ) -> Result<Self::EndpointIn, EndpointAllocError> {
+        self.alloc_endpoint_in(EndpointType::Bulk, ep_addr, max_packet_size, 0)
+    }
+
     /// Start operation of the USB device.
     ///
     /// This returns the `Bus` and `ControlPipe` instances that are used to operate
