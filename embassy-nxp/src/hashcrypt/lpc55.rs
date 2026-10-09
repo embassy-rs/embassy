@@ -1,4 +1,4 @@
-//! Driver for the HASHCRYPT peripheral, mode switch sckeleton
+//! Driver for the HASHCRYPT peripheral, mode switch skeleton
 use embassy_hal_internal::Peri;
 use nxp_pac::hashcrypt::vals::{Aeskeysz, Mode};
 use nxp_pac::syscon::vals::HashAesRst::Released;
@@ -22,17 +22,17 @@ pub enum KeySize {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AesError {
-    /// Error triggers when .set_key is called without set_key_size
+    /// Error triggers when `.set_key` is called without `set_key_size`
     KeySizeNeeded,
-    /// Error trigers when .encryp/.decrypt or set_iv/set_counter are called before set_key()
+    /// Error triggers when encrypt/decrypt is called before `set_key`
     KeyNeeded,
-    /// Error triggers when .encrypt/.decrypt for cbc are called without set_iv
+    /// Error triggers when .encrypt/.decrypt for cbc are called without `set_iv`
     IvNeeded,
-    /// Error triggers when .encrypt/.decrypt for ctr are called without set_counter
+    /// Error triggers when .encrypt/.decrypt for ctr are called without `set_counter`
     CounterNeeded,
-    /// Error triggered set_key is called with a parameter that does not respect the size astablished by set_key_size
+    /// Error triggers when `set_key` is called with a parameter that does not respect the size established by `set_key_size`
     WrongKeySize,
-    /// Error triggers when reserved functiones were ussed
+    /// Error triggers when the key-size register holds a reserved value
     DeviceError,
 }
 
@@ -165,17 +165,19 @@ pub trait Digest {
     fn finalise(&mut self) -> Self::Output;
 }
 
+// TODO: add update with impl_sha! macro once it's introduced in the SHA PR
+
 pub trait Aes {
     /// Encrypt `data` into `output`.
     ///
     /// `data` and `output` must have the same length. Except in CTR mode, the length must be
-    /// a multiple of 16 bytes; for arbitrary-length messages in ECB and CBC, see [`AesPadded`].
+    /// a multiple of 16 bytes;
     fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
 
     /// Decrypt `data` into `output`.
     ///
     /// `data` and `output` must have the same length. Except in CTR mode, the length must be
-    /// a multiple of 16 bytes; for PKCS#7-padded ciphertext in ECB and CBC, see [`AesPadded`].
+    /// a multiple of 16 bytes;
     fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
 
     // Arbitrary-length messages: ECB and CBC will get an `AesPadded` trait using PKCS#7
@@ -204,7 +206,7 @@ pub struct Sha256<'a, 'd> {
 impl<'a, 'd> Digest for Sha256<'a, 'd> {
     type Output = [u8; 32];
     fn finalise(&mut self) -> Self::Output {
-        todo!("Add finalise method for Sha 256");
+        todo!("Add finalise method for SHA-256");
     }
 }
 
@@ -225,7 +227,7 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> AesEcb<'a, 'd> {
-    // Does not require anything passed the default aes methods
+    // Does not require anything past the default aes methods
 }
 pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
@@ -243,7 +245,7 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
 }
 impl<'a, 'd> AesCbc<'a, 'd> {
     pub fn set_iv(&mut self, _iv: &[u8; 16]) -> Result<(), AesError> {
-        todo!("Add method boady");
+        todo!("Add method body");
     }
 }
 pub struct AesCtr<'a, 'd> {
@@ -264,11 +266,10 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
 
 impl<'a, 'd> AesCtr<'a, 'd> {
     pub fn set_counter(&mut self, _counter: &[u8; 16]) -> Result<(), AesError> {
-        todo!("Add method boady");
+        todo!("Add method body");
     }
 }
 
-// TODO: add update with impl_sha! macro once it's introduced in the SHA PR
 macro_rules! impl_aes {
     ($ty:ident) => {
         impl<'a, 'd> $ty<'a, 'd> {
@@ -286,7 +287,7 @@ macro_rules! impl_aes {
                 self.key_size = Some(size);
             }
 
-            pub fn key_size(&mut self) -> Result<u32, AesError> {
+            pub fn key_size(&self) -> Result<u32, AesError> {
                 match pac::HASHCRYPT.cryptcfg().read().aeskeysz() {
                     // Convert from bits to bytes
                     Aeskeysz::Bits128 => return Ok(16),
