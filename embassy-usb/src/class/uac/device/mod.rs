@@ -25,7 +25,7 @@ const MAX_AUDIO_CHANNEL_COUNT: usize = MAX_AUDIO_CHANNEL_INDEX + 1;
 pub enum Volume {
     /// The channel is muted.
     Muted,
-    /// The channel volume in dB. Ranges from -100 (quietest) to 0 (loudest).
+    /// The channel volume in dB, with the master volume applied.
     DeciBel(f32),
 }
 

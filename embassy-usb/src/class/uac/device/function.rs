@@ -40,38 +40,22 @@ const VOLUME_SILENCE_8Q8_DB: i16 = i16::MIN;
 /// Maximum number of supported discrete sample rates.
 const MAX_SAMPLE_RATE_COUNT: usize = 10;
 
-/// Which feature unit controls the host is offered. With neither, no feature unit is described.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct FeatureUnitControls {
-    /// A mute control on the master channel and on each audio channel.
-    pub mute: bool,
-    /// A volume control on the master channel and on each audio channel.
-    pub volume: bool,
+bitflags::bitflags! {
+    /// Supported control flags.
+    /// Combine flags with `|`, for example `Self::MUTE | Self::VOLUME`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct FeatureUnitControls: u16 {
+        /// Allow the host to mute this channel.
+        const MUTE = 1 << 0;
+        /// Allow the host to adjust this channel's volume.
+        const VOLUME = 1 << 1;
+    }
 }
 
-impl FeatureUnitControls {
-    /// Mute and volume.
-    pub const ALL: FeatureUnitControls = FeatureUnitControls {
-        mute: true,
-        volume: true,
-    };
-    /// No feature unit.
-    pub const NONE: FeatureUnitControls = FeatureUnitControls {
-        mute: false,
-        volume: false,
-    };
-
-    /// The bmaControls byte for one channel.
-    pub(super) fn bitmap(&self) -> u8 {
-        let mut controls = FU_CONTROL_UNDEFINED;
-        if self.mute {
-            controls |= MUTE_CONTROL;
-        }
-        if self.volume {
-            controls |= VOLUME_CONTROL;
-        }
-        controls
+#[cfg(feature = "defmt")]
+impl defmt::Format for FeatureUnitControls {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "FeatureUnitControls({=u16:#x})", self.bits());
     }
 }
 
@@ -96,14 +80,14 @@ impl<'d> State<'d> {
         }
     }
 
-    /// Wire the state up — what the host may set, and where — and register
-    /// the handler. Returns the monitor a class hands back.
+    /// Initialize the control state and register the USB control handler.
+    /// Returns a monitor for the application to read settings and await changes.
     pub(super) fn register<'b, D: Driver<'d>>(
         &'d mut self,
         builder: &'b mut Builder<'d, D>,
         channels: &'d [Channel],
         sample_rates_hz: &'d [u32],
-        controls: (FeatureUnitControls, FeatureUnitControls),
+        controls: &'d [FeatureUnitControls],
         control_interface: InterfaceNumber,
         streaming_endpoint_address: u8,
     ) -> ControlMonitor<'d> {
@@ -161,9 +145,8 @@ struct SharedControl<'d> {
     /// Channel assignments.
     channels: &'d [Channel],
 
-    /// The advertised Feature Unit controls on the master channel and on each
-    /// audio channel; requests follow the descriptor [UAC 5.2.1].
-    controls: (FeatureUnitControls, FeatureUnitControls),
+    /// The controls used to build the descriptor.
+    controls: &'d [FeatureUnitControls],
 
     /// The sample rates the stream offers.
     sample_rates_hz: &'d [u32],
@@ -180,7 +163,7 @@ impl<'d> Default for SharedControl<'d> {
         SharedControl {
             audio_settings: CriticalSectionMutex::new(Cell::new(AudioSettings::default())),
             channels: &[],
-            controls: (FeatureUnitControls::NONE, FeatureUnitControls::NONE),
+            controls: &[],
             sample_rates_hz: &[],
             sample_rate_hz: AtomicU32::new(0),
             changed: Signal::new(),
@@ -195,14 +178,12 @@ impl<'d> SharedControl<'d> {
         self.sample_rates_hz.first().copied().unwrap_or(0)
     }
 
-    /// The advertised controls for a logical channel: the master (0) has its
-    /// own set, distinct from the audio channels'.
+    /// Controls for a USB channel number. Missing entries have no controls.
     fn controls(&self, channel_index: u8) -> FeatureUnitControls {
-        if channel_index == 0 {
-            self.controls.0
-        } else {
-            self.controls.1
-        }
+        self.controls
+            .get(channel_index as usize)
+            .copied()
+            .unwrap_or_else(FeatureUnitControls::empty)
     }
 }
 
@@ -235,25 +216,30 @@ impl<'d> ControlMonitor<'d> {
                 .all(|&muted| muted)
     }
 
-    /// Get the effective volume of a channel: [`Volume::Muted`] when muted or
-    /// set to -∞ dB, otherwise the host-set level (default 0 dB). `None` if
-    /// the channel does not exist or advertises no controls.
+    /// Returns the channel volume with the master volume applied.
+    ///
+    /// Returns [`Volume::Muted`] if the master or channel is muted or set to silence (-∞ dB).
+    /// Returns `None` if the channel is absent or neither it nor the master has controls.
     pub fn volume(&self, channel: Channel) -> Option<Volume> {
         let channel_index = self.get_logical_channel(channel)?;
-        let controls = self.shared.controls(channel_index as u8);
-        if !controls.mute && !controls.volume {
+        let controls = self.shared.controls(channel_index as u8) | self.shared.controls(0);
+        if controls.is_empty() {
             return None;
         }
 
         let settings = self.audio_settings();
         // The host silences a channel through the mute control or by setting
         // its volume to silence (-∞ dB) [UAC 5.2.2.4.3.2].
-        if settings.muted[channel_index] || settings.volume_8q8_db[channel_index] == VOLUME_SILENCE_8Q8_DB {
+        if [0, channel_index]
+            .iter()
+            .any(|&channel| settings.muted[channel] || settings.volume_8q8_db[channel] == VOLUME_SILENCE_8Q8_DB)
+        {
             return Some(Volume::Muted);
         }
 
         Some(Volume::DeciBel(
-            (settings.volume_8q8_db[channel_index] as f32) / (VOLUME_STEPS_PER_DB as f32),
+            (settings.volume_8q8_db[0] as f32 + settings.volume_8q8_db[channel_index] as f32)
+                / VOLUME_STEPS_PER_DB as f32,
         ))
     }
 
@@ -280,9 +266,10 @@ impl<'d> Control<'d> {
         channel_index as usize <= self.shared.channels.len()
     }
 
-    /// The logical channels a request's wChannelNumber addresses: one, or —
-    /// for 0xFF — the master and every channel [UAC 5.2.1.2]. `None` for a
-    /// channel the stream does not have.
+    /// Returns the channel range for a USB channel number.
+    ///
+    /// Channel 0 is the master. `0xFF` returns all channels, including the master.
+    /// Invalid channel numbers return `None`.
     fn addressed_channels(&self, channel_index: u8) -> Option<RangeInclusive<usize>> {
         if channel_index == ALL_CHANNELS {
             Some(0..=self.shared.channels.len())
@@ -334,11 +321,11 @@ impl<'d> Control<'d> {
             for (entry, channel) in channels.clone().enumerate() {
                 let controls = self.shared.controls(channel as u8);
                 match control_unit {
-                    MUTE_CONTROL if controls.mute => {
+                    MUTE_CONTROL if controls.contains(FeatureUnitControls::MUTE) => {
                         audio_settings.muted[channel] = data[entry] != 0;
                         any_advertised = true;
                     }
-                    VOLUME_CONTROL if controls.volume => {
+                    VOLUME_CONTROL if controls.contains(FeatureUnitControls::VOLUME) => {
                         let volume = i16::from_le_bytes([data[2 * entry], data[2 * entry + 1]]);
                         // CUR lies within the advertised range [UAC 5.2.2.4.2],
                         // except silence, which is always accepted.
@@ -431,10 +418,14 @@ impl<'d> Control<'d> {
         let count = channels.clone().count();
         // At least one addressed channel must advertise the control
         // [UAC 5.2.1]; in a 0xFF block, the others report their fixed default.
-        let mute = channels.clone().any(|channel| self.shared.controls(channel as u8).mute);
-        let volume = channels
+        let mute = channels
             .clone()
-            .any(|channel| self.shared.controls(channel as u8).volume);
+            .any(|channel| self.shared.controls(channel as u8).contains(FeatureUnitControls::MUTE));
+        let volume = channels.clone().any(|channel| {
+            self.shared
+                .controls(channel as u8)
+                .contains(FeatureUnitControls::VOLUME)
+        });
 
         match (req.request, control_unit) {
             (GET_CUR, MUTE_CONTROL) if mute && buf.len() >= count => {
@@ -554,9 +545,8 @@ pub(super) struct AudioFunction<'a> {
     pub input_terminal: TerminalType,
     /// What the Output Terminal is.
     pub output_terminal: TerminalType,
-    /// The Feature Unit's controls on the master channel and on each
-    /// channel, or `None` for no Feature Unit at all.
-    pub feature_unit: Option<(FeatureUnitControls, FeatureUnitControls)>,
+    /// Controls in descriptor order: master, then audio channels. Empty omits the Feature Unit.
+    pub feature_unit: &'a [FeatureUnitControls],
 }
 
 /// Unit ids, unique within a function.
@@ -583,6 +573,16 @@ impl<'d> AudioFunction<'d> {
         assert!(
             (1..=MAX_AUDIO_CHANNEL_INDEX).contains(&self.channels.len()),
             "between one and twelve channels"
+        );
+        assert!(
+            self.feature_unit.is_empty() || self.feature_unit.len() == self.channels.len() + 1,
+            "feature_unit must be empty or contain the master and every audio channel"
+        );
+        assert!(
+            self.feature_unit
+                .iter()
+                .all(|controls| FeatureUnitControls::all().contains(*controls)),
+            "unsupported Feature Unit controls"
         );
         assert!(
             self.sample_rates_hz.iter().all(|rate| *rate <= MAX_SAMPLE_RATE_HZ),
@@ -647,8 +647,7 @@ impl<'d> AudioFunction<'d> {
             builder,
             self.channels,
             self.sample_rates_hz,
-            self.feature_unit
-                .unwrap_or((FeatureUnitControls::NONE, FeatureUnitControls::NONE)),
+            self.feature_unit,
             control_interface,
             streaming_endpoint.info().addr.into(),
         );
@@ -687,23 +686,21 @@ impl AudioFunction<'_> {
         ];
 
         // Feature Unit Descriptor [UAC 4.3.2.5]
-        let feature_unit = self.feature_unit.map(|(master, per_channel)| {
-            let mut feature_unit: Vec<u8, { 5 + MAX_AUDIO_CHANNEL_COUNT + 1 }> = Vec::new();
+        let mut feature_unit: Vec<u8, { 5 + 2 * MAX_AUDIO_CHANNEL_COUNT }> = Vec::new();
+        if !self.feature_unit.is_empty() {
             feature_unit
                 .extend_from_slice(&[
                     FEATURE_UNIT,    // bDescriptorSubtype (Feature Unit)
                     FEATURE_UNIT_ID, // bUnitID
                     INPUT_UNIT_ID,   // bSourceID
-                    1,               // bControlSize (one byte per control)
-                    master.bitmap(), // Master controls
+                    2,               // bControlSize (two bytes per channel)
                 ])
                 .unwrap();
-            for _channel in self.channels {
-                feature_unit.push(per_channel.bitmap()).unwrap();
+            for controls in self.feature_unit {
+                feature_unit.extend_from_slice(&controls.bits().to_le_bytes()).unwrap();
             }
             feature_unit.push(0x00).unwrap(); // iFeature (none)
-            feature_unit
-        });
+        }
 
         // Output Terminal Descriptor [UAC 4.3.2.2]
         let terminal_type: u16 = self.output_terminal.into();
@@ -714,10 +711,10 @@ impl AudioFunction<'_> {
             (terminal_type >> 8) as u8, // wTerminalType
             0x00,                       // bAssocTerminal (none)
             // bSourceID: the feature unit, or the input terminal directly
-            if self.feature_unit.is_some() {
-                FEATURE_UNIT_ID
-            } else {
+            if self.feature_unit.is_empty() {
                 INPUT_UNIT_ID
+            } else {
+                FEATURE_UNIT_ID
             },
             0x00, // iTerminal (none)
         ];
@@ -738,8 +735,8 @@ impl AudioFunction<'_> {
             |alt| {
                 alt.descriptor(CS_INTERFACE, &header);
                 alt.descriptor(CS_INTERFACE, &input_terminal);
-                if let Some(feature_unit) = &feature_unit {
-                    alt.descriptor(CS_INTERFACE, feature_unit);
+                if !feature_unit.is_empty() {
+                    alt.descriptor(CS_INTERFACE, &feature_unit);
                 }
                 alt.descriptor(CS_INTERFACE, &output_terminal);
             },

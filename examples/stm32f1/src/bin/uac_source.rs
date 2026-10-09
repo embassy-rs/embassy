@@ -9,7 +9,9 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_usb::class::uac::device as uac1;
-use embassy_usb::class::uac::device::source::{AudioSource, Config as SourceConfig, ControlMonitor, State, Stream};
+use embassy_usb::class::uac::device::source::{
+    AudioSource, Config as SourceConfig, ControlMonitor, FeatureUnitControls, State, Stream,
+};
 use embassy_usb::class::uac::terminal_type::TerminalType;
 use embassy_usb::{Builder, UsbVersion};
 use panic_probe as _;
@@ -24,6 +26,13 @@ pub const SAMPLE_WIDTH: uac1::SampleWidth = uac1::SampleWidth::Width2Byte;
 
 /// Device supported sample rates
 static SUPPORTED_SAMPLE_RATES: [u32; 1] = [16_000];
+
+// Master has no controls; left and right support mute.
+const FEATURE_UNIT_CONTROLS: [FeatureUnitControls; 3] = [
+    FeatureUnitControls::empty(),
+    FeatureUnitControls::MUTE,
+    FeatureUnitControls::MUTE,
+];
 
 // Sine wave: 1000 Hz, 1 ms, 16-bit, 2 channels
 // Sample rate: 16000 Hz
@@ -102,7 +111,7 @@ async fn main(spawner: Spawner) {
 
     // USB driver
     debug!("{}", "Create USB driver");
-    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, p.PA12, p.PA11, Irqs);
 
     // USB config for composite audio device
     let mut usb_cfg = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -137,8 +146,8 @@ async fn main(spawner: Spawner) {
         &mut builder,
         STATE.init(State::new()),
         SourceConfig {
-            // Mute-only defaults from `Config::new`, shown as a MiniDisk source.
             input_terminal: TerminalType::MiniDisk,
+            feature_unit: &FEATURE_UNIT_CONTROLS,
             ..SourceConfig::new(
                 &SUPPORTED_SAMPLE_RATES,
                 SAMPLE_WIDTH,

@@ -29,25 +29,24 @@ pub struct Config<'d> {
     /// What the Input Terminal is; the host shows the device by it. Must not
     /// be [`TerminalType::UsbStreaming`] — that is the Output Terminal's role.
     pub input_terminal: TerminalType,
-    /// Which Feature Unit controls the host gets, on each audio channel (the
-    /// master channel advertises none, like the Speaker);
-    /// [`FeatureUnitControls::NONE`] leaves the Feature Unit out of the
-    /// function altogether.
-    pub feature_unit: FeatureUnitControls,
+    /// Controls the USB host can change on each channel.
+    ///
+    /// Use `&[]` to omit the Feature Unit. Otherwise, provide `channels.len() + 1`
+    /// entries: the master first (affects all channels), then one per channel in
+    /// [`Self::channels`] order. Use [`FeatureUnitControls::empty`] for a channel
+    /// with no controls.
+    pub feature_unit: &'d [FeatureUnitControls],
 }
 
 impl<'d> Config<'d> {
-    /// A microphone with a mute control and no volume control: the common case.
+    /// Creates a microphone configuration without a Feature Unit.
     pub const fn new(sample_rates_hz: &'d [u32], sample_width: SampleWidth, channels: &'d [Channel]) -> Self {
         Self {
             sample_rates_hz,
             sample_width,
             channels,
             input_terminal: TerminalType::InMicrophone,
-            feature_unit: FeatureUnitControls {
-                mute: true,
-                volume: false,
-            },
+            feature_unit: &[],
         }
     }
 }
@@ -74,7 +73,9 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
     /// than twelve, channels duplicated or out of `wChannelConfig` bit order,
     /// a sample rate above 24 bits, a packet size above the 1023-byte
     /// full-speed limit, [`TerminalType::UsbStreaming`] as the input
-    /// terminal, or a too-small `control_buf`.
+    /// terminal, a nonempty `feature_unit` without exactly one entry for the
+    /// master and each audio channel, unsupported control bits, or a too-small
+    /// `control_buf`.
     pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
         let Config {
             sample_rates_hz,
@@ -92,11 +93,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
             sample_rates_hz,
             input_terminal,
             output_terminal: TerminalType::UsbStreaming,
-            // The Feature Unit only if any control was asked for, with the
-            // controls on every channel; the master has none of its own,
-            // matching the Speaker.
-            feature_unit: (feature_unit != FeatureUnitControls::NONE)
-                .then_some((FeatureUnitControls::NONE, feature_unit)),
+            feature_unit,
         };
 
         // One millisecond of samples at the fastest rate, plus one frame of
