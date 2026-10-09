@@ -8,6 +8,7 @@ use super::{Channel, GeneralInstance4Channel};
 pub use crate::dma::RingBufferError as Error;
 use crate::dma::WritableRingBuffer;
 use crate::dma::word::Word;
+use crate::gpio::Flex;
 
 /// A PWM channel that uses a DMA ring buffer for continuous waveform generation.
 ///
@@ -28,6 +29,7 @@ pub struct RingBufferedPwmChannel<'d, T: GeneralInstance4Channel, W: Word + Into
     timer: ManuallyDrop<Timer<'d, T>>,
     ring_buf: WritableRingBuffer<'d, W>,
     channel: Channel,
+    _pin: Option<Flex<'d>>, //Must be kept alive to prevent it from being dropped while the Timer channel is using it
 }
 
 impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmChannel<'d, T, W> {
@@ -35,11 +37,13 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
         timer: ManuallyDrop<Timer<'d, T>>,
         channel: Channel,
         ring_buf: WritableRingBuffer<'d, W>,
+        pin: Option<Flex<'d>>,
     ) -> Self {
         Self {
             timer,
             ring_buf,
             channel,
+            _pin: pin,
         }
     }
 
