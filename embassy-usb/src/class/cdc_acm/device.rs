@@ -222,6 +222,23 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Creates a new CdcAcmClass with the provided UsbBus and `max_packet_size` in bytes. For
     /// full-speed devices, `max_packet_size` has to be one of 8, 16, 32 or 64.
     pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, max_packet_size: u16) -> Self {
+        Self::new_inner(builder, state, max_packet_size, false)
+    }
+
+    /// Like [`new`](Self::new), but asks the driver to double-buffer the bulk data endpoints.
+    ///
+    /// This improves throughput on drivers that support it, at the cost of more endpoint
+    /// resources. See [`Driver::alloc_endpoint_bulk_in_double_buffered`].
+    pub fn new_double_buffered(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, max_packet_size: u16) -> Self {
+        Self::new_inner(builder, state, max_packet_size, true)
+    }
+
+    fn new_inner(
+        builder: &mut Builder<'d, D>,
+        state: &'d mut State<'d>,
+        max_packet_size: u16,
+        double_buffered: bool,
+    ) -> Self {
         assert!(builder.control_buf_len() >= 7);
 
         let mut func = builder.function(USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE);
@@ -265,8 +282,17 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         let mut iface = func.interface();
         let data_if = iface.interface_number();
         let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NONE, None);
-        let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
+        let (read_ep, write_ep) = if double_buffered {
+            (
+                alt.endpoint_bulk_out_double_buffered(None, max_packet_size),
+                alt.endpoint_bulk_in_double_buffered(None, max_packet_size),
+            )
+        } else {
+            (
+                alt.endpoint_bulk_out(None, max_packet_size),
+                alt.endpoint_bulk_in(None, max_packet_size),
+            )
+        };
 
         drop(func);
 
