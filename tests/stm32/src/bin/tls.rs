@@ -7,6 +7,8 @@ mod common;
 use common::*;
 use defmt_rtt as _;
 use embassy_crypto as _;
+// use mcu_crypto_asm as _;
+use embassy_crypto_rustcrypto as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
@@ -14,8 +16,6 @@ use embassy_stm32::peripherals::{ETH, ETH_SMA};
 #[cfg(feature = "stop")]
 use embassy_stm32::rcc::{StopMode, WakeGuard};
 use embassy_stm32::{bind_interrupts, eth};
-// use mcu_crypto_asm as _;
-use embassy_crypto_rustcrypto as _;
 #[cfg(feature = "tls-sw")]
 use mcu_crypto_sw_aes as _;
 use panic_probe as _;
