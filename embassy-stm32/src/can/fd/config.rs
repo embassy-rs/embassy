@@ -77,9 +77,9 @@ pub struct DataBitTiming {
     pub sync_jump_width: NonZeroU8,
     /// Transceiver Delay Compensation enabled
     pub transceiver_delay_compensation: bool,
-    /// Transmitter delay compensation offset, valid values are 0 to 63.
+    /// Transmitter delay compensation offset, valid values are 0 to 127.
     pub tdc_offset: u8,
-    /// Transmitter delay compensation filter window length, valid values are 0 to 63.
+    /// Transmitter delay compensation filter window length, valid values are 0 to 127.
     pub tdc_filter_window_length: u8,
 }
 impl DataBitTiming {
@@ -101,11 +101,11 @@ impl DataBitTiming {
     }
     #[inline]
     pub(crate) fn tdco(&self) -> u8 {
-        self.tdc_offset.min(0x3F)
+        self.tdc_offset.min(0x7F)
     }
     #[inline]
     pub(crate) fn tdcf(&self) -> u8 {
-        self.tdc_filter_window_length.min(0x3F)
+        self.tdc_filter_window_length.min(0x7F)
     }
 }
 

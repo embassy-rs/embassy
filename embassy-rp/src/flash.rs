@@ -308,7 +308,7 @@ impl<'d, const FLASH_SIZE: usize> Flash<'d, Async, FLASH_SIZE> {
         if length > self.capacity() || offset > self.capacity() - length {
             return Err(Error::OutOfBounds);
         }
-        if offset % 4 != 0 {
+        if !offset.is_multiple_of(4) {
             return Err(Error::Unaligned);
         }
 
@@ -352,12 +352,12 @@ impl<'d, const FLASH_SIZE: usize> Flash<'d, Async, FLASH_SIZE> {
         use core::mem::MaybeUninit;
 
         // Checked early to simplify address validity checks
-        if bytes.len() % 4 != 0 {
+        if !bytes.len().is_multiple_of(4) {
             return Err(Error::Unaligned);
         }
 
         // If the destination address is already aligned, then we can just DMA directly
-        if (bytes.as_ptr() as u32) % 4 == 0 {
+        if (bytes.as_ptr() as u32).is_multiple_of(4) {
             // Safety: alignment and size have been checked for compatibility
             let buf: &mut [u32] =
                 unsafe { core::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut u32, bytes.len() / 4) };
@@ -635,11 +635,13 @@ pub(crate) mod ram_helpers {
     ///   - interrupts must be disabled
     ///   - 2nd core must be running code from RAM or ROM with interrupts disabled
     ///   - DMA must not access flash memory
+    ///
     /// Length of data must be a multiple of 4096
     /// addr must be aligned to 4096
     #[inline(never)]
     #[unsafe(link_section = ".data.ram_func")]
     #[cfg(feature = "rp2040")]
+    #[allow(unused_variables)]
     unsafe fn write_flash_inner(addr: u32, len: u32, data: Option<&[u8]>, ptrs: *const FlashFunctionPointers) {
         #[cfg(target_arch = "arm")]
         core::arch::asm!(
@@ -700,6 +702,7 @@ pub(crate) mod ram_helpers {
     ///   - interrupts must be disabled
     ///   - 2nd core must be running code from RAM or ROM with interrupts disabled
     ///   - DMA must not access flash memory
+    ///
     /// Length of data must be a multiple of 4096
     /// addr must be aligned to 4096
     #[inline(never)]
@@ -824,6 +827,7 @@ pub(crate) mod ram_helpers {
     #[inline(never)]
     #[unsafe(link_section = ".data.ram_func")]
     #[cfg(feature = "rp2040")]
+    #[allow(unused_variables)]
     unsafe fn read_flash_inner(cmd: FlashCommand, ptrs: *const FlashFunctionPointers) {
         #[cfg(target_arch = "arm")]
         core::arch::asm!(

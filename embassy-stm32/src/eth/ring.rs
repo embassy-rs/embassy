@@ -18,7 +18,6 @@ use xarxa_driver::PacketBuf;
 use xarxa_driver::Timestamp;
 #[cfg(feature = "ptp")]
 use xarxa_driver::TxTimestamp;
-use xarxa_driver::config::PACKET_BUF_SIZE;
 
 use crate::eth::{RDes, RDesInfo, TDes};
 #[cfg(any(eth_v1a, eth_v1b, eth_v1c, eth_v2))]
@@ -61,13 +60,32 @@ type Completion = Option<Timestamp>;
 #[cfg(not(feature = "ptp"))]
 type Completion = ();
 
+/// Alignment of RX buffers, and granularity of their size: the DMA bus width.
+///
+/// That's 4 bytes on most chips, 8 on N6. Use 8 everywhere, so the same pool
+/// works on all of them.
+const BUF_ALIGN: usize = 8;
+
+/// Size of an RX buffer the DMA can use, `len` rounded down to the bus width.
+fn rx_buf_size(len: usize) -> usize {
+    len / BUF_ALIGN * BUF_ALIGN
+}
+
 /// Rx ring of descriptors and packets
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
-    /// One buffer per descriptor, DMA'd into in place. Always `Some` outside of
-    /// `receive`.
+    /// One buffer per descriptor, DMA'd into in place. `None` for the slots whose
+    /// buffer was handed to the stack and not yet replaced by `rx_give`.
     buffers: &'a mut [Option<PacketBuf>],
+    /// Next descriptor to receive from.
     index: usize,
+    /// Next empty slot to give a buffer to.
+    fill: usize,
+    /// Number of empty slots.
+    empty: usize,
+    #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
+    /// Receive buffer size programmed into the DMA, 0 before the first buffer.
+    buf_size: usize,
 }
 
 impl<'a> RDesRing<'a> {
@@ -78,24 +96,18 @@ impl<'a> RDesRing<'a> {
         assert!(descriptors.len() > 2);
         assert!(descriptors.len() == buffers.len());
 
+        // All slots start out empty, owned by the CPU. The stack fills them with
+        // `rx_give` before the first `receive`.
         for i in 0..descriptors.len() {
-            let buf = buffers[i].get_or_insert_with(|| {
-                unwrap!(
-                    PacketBuf::try_new(),
-                    "packet pool exhausted while filling the ethernet RX ring"
-                )
-            });
+            buffers[i] = None;
 
             #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
-            // Chained descriptors: link each entry to the next and hand it to
-            // the DMA. We already have fences in `set_owned`, which is called
-            // in `setup`.
-            descriptors[i].setup(descriptors.get(i + 1), buf.storage_mut().as_mut_ptr());
+            // Chained descriptors: link each entry to the next.
+            descriptors[i].setup(descriptors.get(i + 1));
 
             #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
             {
                 descriptors[i] = RDes::new();
-                descriptors[i].set_ready(buf.storage_mut().as_mut_ptr());
             }
         }
 
@@ -114,10 +126,73 @@ impl<'a> RDesRing<'a> {
             dma_ch0!(dma, dmac_rx_dtpr).write(|w| w.0 = tail);
         }
 
+        let empty = descriptors.len();
         Self {
             descriptors,
             buffers,
             index: 0,
+            fill: 0,
+            empty,
+            #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
+            buf_size: 0,
+        }
+    }
+
+    /// Number of empty slots, waiting for a buffer.
+    pub(crate) fn wanted(&self) -> usize {
+        self.empty
+    }
+
+    /// Give a buffer to the next empty slot and hand it to the DMA.
+    pub(crate) fn give(&mut self, mut buf: PacketBuf) {
+        if self.empty == 0 {
+            // Not asked for: dropping it gives it back to the pool.
+            return;
+        }
+
+        let storage = buf.storage_mut();
+        // The DMA writes the start of a frame to a bus-width-aligned address, the
+        // buffer address rounded down. An unaligned buffer would get the bytes
+        // in front of it overwritten.
+        assert!(
+            storage.as_ptr() as usize % BUF_ALIGN == 0,
+            "ethernet RX buffers must be 8-byte aligned. Use a pool with ALIGN = 8."
+        );
+        let size = rx_buf_size(storage.len());
+
+        #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
+        if size != self.buf_size {
+            self.buf_size = size;
+            dma_ch0!(ETH.ethernet_dma(), dmac_rx_cr).modify(|w| w.set_rbsz(size as u16));
+        }
+
+        let i = self.fill;
+        #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
+        self.descriptors[i].set_ready(storage.as_mut_ptr(), size);
+        #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
+        self.descriptors[i].set_ready(storage.as_mut_ptr());
+        self.buffers[i] = Some(buf);
+        self.fill = (i + 1) % self.descriptors.len();
+        self.empty -= 1;
+        self.rearmed(i);
+    }
+
+    /// Tell the DMA descriptor `i` was handed back to it.
+    #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), allow(unused_variables))]
+    fn rearmed(&self, i: usize) {
+        // "Preceding reads and writes cannot be moved past subsequent writes."
+        fence(Ordering::Release);
+
+        #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
+        ETH.ethernet_dma().dmarpdr().write(|w| w.set_rpd(Rpd::Poll));
+
+        #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
+        // The DMA stops fetching at the tail pointer. Keep the rearmed
+        // descriptor as the tail, releasing the previous guard.
+        // See issue #2129
+        {
+            let tail = &raw const self.descriptors[i] as u32;
+            dma_ch0!(ETH.ethernet_dma(), dmac_rx_dtpr).write(|w| w.0 = tail);
         }
     }
 
@@ -143,9 +218,8 @@ impl<'a> RDesRing<'a> {
 
     /// Take a received packet, if any.
     ///
-    /// The buffer the frame was DMA'd into is handed out, and the descriptor is
-    /// re-armed with a fresh one from the pool. If the pool is empty, the frame
-    /// is dropped and the descriptor keeps its buffer.
+    /// The buffer the frame was DMA'd into is handed out, and its slot stays
+    /// empty until `give` fills it again.
     pub(crate) fn receive(&mut self) -> Option<PacketBuf> {
         #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
         if self.running_state() != RunningState::Running {
@@ -165,17 +239,11 @@ impl<'a> RDesRing<'a> {
         let timestamp = self.timestamp(&info)?;
 
         let len = info.frame_len();
-        if len > PACKET_BUF_SIZE {
+        if len > unwrap!(self.buffers[self.index].as_ref()).capacity() {
             debug!("oversized packet: {}", len);
             self.pop_current();
             return None;
         }
-
-        let Some(fresh) = PacketBuf::try_new() else {
-            warn!("packet pool exhausted, dropping received frame");
-            self.pop_current();
-            return None;
-        };
 
         let mut buf = unwrap!(self.buffers[self.index].take());
         buf.set_len(len);
@@ -184,8 +252,8 @@ impl<'a> RDesRing<'a> {
             buf.meta_mut().timestamp = timestamp;
         }
 
-        self.buffers[self.index] = Some(fresh);
-        self.pop_current();
+        self.index = (self.index + 1) % self.descriptors.len();
+        self.empty += 1;
         Some(buf)
     }
 
@@ -195,6 +263,10 @@ impl<'a> RDesRing<'a> {
     fn fast_forward(&mut self) -> Option<RDesInfo> {
         // We might have to process many packets, in case some have been rx'd but are invalid.
         loop {
+            // An empty slot's descriptor is owned by the CPU, but holds no frame.
+            if self.buffers[self.index].is_none() {
+                return None;
+            }
             let info = self.descriptors[self.index].info();
             if !info.available() {
                 return None;
@@ -236,6 +308,11 @@ impl<'a> RDesRing<'a> {
         }
 
         let next = (self.index + 1) % self.descriptors.len();
+        // An empty slot's descriptor holds stale write-back data. The DMA writes
+        // the context descriptor there once the slot gets a buffer.
+        if self.buffers[next].is_none() {
+            return None;
+        }
         let context = &self.descriptors[next];
         let info = context.info();
         let timestamp = if info.context_available() {
@@ -266,23 +343,12 @@ impl<'a> RDesRing<'a> {
         let descriptor = &mut self.descriptors[self.index];
         debug_assert!(descriptor.info().available());
 
-        let ptr = unwrap!(self.buffers[self.index].as_mut()).storage_mut().as_mut_ptr();
-        descriptor.set_ready(ptr);
-
-        // "Preceding reads and writes cannot be moved past subsequent writes."
-        fence(Ordering::Release);
-
+        let storage = unwrap!(self.buffers[self.index].as_mut()).storage_mut();
         #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
-        ETH.ethernet_dma().dmarpdr().write(|w| w.set_rpd(Rpd::Poll));
-
+        descriptor.set_ready(storage.as_mut_ptr(), rx_buf_size(storage.len()));
         #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
-        // The DMA stops fetching at the tail pointer. Keep the rearmed
-        // descriptor as the tail, releasing the previous guard.
-        // See issue #2129
-        {
-            let tail = &raw const self.descriptors[self.index] as u32;
-            dma_ch0!(ETH.ethernet_dma(), dmac_rx_dtpr).write(|w| w.0 = tail);
-        }
+        descriptor.set_ready(storage.as_mut_ptr());
+        self.rearmed(self.index);
 
         // Increment index.
         self.index = (self.index + 1) % self.descriptors.len();

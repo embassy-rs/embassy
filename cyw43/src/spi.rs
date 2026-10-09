@@ -314,7 +314,13 @@ where
 
             self.backplane_set_window(addr).await;
 
-            let cmd = cmd_word(READ, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
+            let cmd = cmd_word(
+                READ,
+                INC_ADDR,
+                FUNC_BACKPLANE,
+                window_offs | BACKPLANE_ADDRESS_32BIT_FLAG,
+                len as u32,
+            );
 
             // round `buf` to word boundary, add one extra word for the response delay
             self.status = self
@@ -352,7 +358,13 @@ where
 
             self.backplane_set_window(addr).await;
 
-            let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
+            let cmd = cmd_word(
+                WRITE,
+                INC_ADDR,
+                FUNC_BACKPLANE,
+                window_offs | BACKPLANE_ADDRESS_32BIT_FLAG,
+                len as u32,
+            );
             slice32_mut(buf)[0] = cmd;
 
             self.status = self.spi.cmd_write(&slice32_ref(buf)[..len.div_ceil(4) + 1]).await;

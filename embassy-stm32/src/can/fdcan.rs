@@ -249,8 +249,14 @@ impl<'d> CanConfigurator<'d> {
         let bit_timing = unwrap!(util::calc_can_timings(self.properties.kernel_input_clock(), bitrate));
         // Note, used existing calculation for normal(non-VBR) bitrate, appears to work for 250k/1M
         let tdc_offset = if transceiver_delay_compensation {
-            // sets at the end of tseg1
-            (1 + u8::from(bit_timing.seg1)) * u16::from(bit_timing.prescaler) as u8
+            // The secondary sample point sits at the end of tseg1, and TDCO
+            // carries seven bits of minimum time quanta.
+            let offset = (1 + u32::from(u8::from(bit_timing.seg1))) * u32::from(u16::from(bit_timing.prescaler));
+            assert!(
+                offset <= 0x7F,
+                "transceiver delay compensation needs a data bitrate whose sample point fits TDCO"
+            );
+            offset as u8
         } else {
             0
         };
@@ -330,10 +336,9 @@ impl<'d> Can<'d> {
                 s.borrow_mut().tx_mode.register(cx.waker());
             });
 
-            if idx > 3 {
+            if idx >= crate::can::fd::message_ram::TX_FIFO_MAX as usize {
                 panic!("Bad mailbox");
             }
-            let idx = 1 << idx;
             if !self.info.regs.regs.txbrp().read().trp(idx) {
                 return Poll::Ready(());
             }

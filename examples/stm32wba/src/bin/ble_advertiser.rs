@@ -22,11 +22,11 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{self};
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
+use embassy_stm32_wpan::bluetooth::{EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
 
@@ -139,8 +139,9 @@ async fn main(spawner: Spawner) {
     info!("Use a BLE scanner app to discover and connect");
 
     // Main loop - handle BLE events
+    let mut event_buf = EventBuffer::new();
     loop {
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
         info!("BLE Event: {:?}", event);
 
         // In a real application, you would handle connection events,

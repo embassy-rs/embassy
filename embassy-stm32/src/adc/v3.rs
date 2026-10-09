@@ -253,8 +253,18 @@ impl AdcRegs for Regs {
         self.cr().modify(|w| w.set_deeppwd(false));
         #[cfg(not(adc_v3_n6))]
         self.cr().modify(|w| w.set_advregen(true));
-        #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_c5))]
-        while !self.isr().read().ldordy() {}
+
+        // ADC3 on STM32H72x/H73x is a different, 12-bit, ADC that has no voltage regulator (LDO), so it has no
+        // LDORDY flag to wait for.
+        #[cfg(all(adc_v3_h7, any(stm32h72x, stm32h73x)))]
+        let has_ldo = self.as_ptr() != crate::pac::ADC3.as_ptr();
+        #[cfg(not(all(adc_v3_h7, any(stm32h72x, stm32h73x))))]
+        let has_ldo = true;
+
+        if has_ldo {
+            #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_c5))]
+            while !self.isr().read().ldordy() {}
+        }
         block_for_us(20);
 
         // Calibration.
