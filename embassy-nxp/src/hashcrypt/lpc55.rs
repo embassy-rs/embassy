@@ -172,7 +172,7 @@ impl<'d> GenericHashcrypt<'d> {
         }
     }
 }
-// Helper methods for SHA modes
+// Helper functions for SHA modes
 impl<'d> GenericHashcrypt<'d> {
     pub(crate) fn drain_buffer(buffer: &[u8; 64]) {
         let sha = pac::HASHCRYPT.indata();
