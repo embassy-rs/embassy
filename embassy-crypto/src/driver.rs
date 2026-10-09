@@ -1274,6 +1274,14 @@ unitrait::unitrait! {
         /// The affine coordinates of `p`, or `None` for the identity.
         fn point_to_affine(p: &Self::Point) -> Option<P256Point>;
 
+        /// The point with X coordinate `x` whose Y coordinate is odd iff
+        /// `y_is_odd`, as in a compressed SEC1 encoding.
+        ///
+        /// `x` is public and untrusted, so this may be variable-time. Returns
+        /// `None` if `x` is not less than the field prime, or not the X
+        /// coordinate of a point on the curve.
+        fn point_decompress(x: &[u8; 32], y_is_odd: bool) -> Option<P256Point>;
+
         /// Whether `p` is the identity.
         fn point_is_identity(p: &Self::Point) -> bool;
 
@@ -1463,6 +1471,14 @@ unitrait::unitrait! {
 
         /// The affine coordinates of `p`, or `None` for the identity.
         fn point_to_affine(p: &Self::Point) -> Option<P384Point>;
+
+        /// The point with X coordinate `x` whose Y coordinate is odd iff
+        /// `y_is_odd`, as in a compressed SEC1 encoding.
+        ///
+        /// `x` is public and untrusted, so this may be variable-time. Returns
+        /// `None` if `x` is not less than the field prime, or not the X
+        /// coordinate of a point on the curve.
+        fn point_decompress(x: &[u8; 48], y_is_odd: bool) -> Option<P384Point>;
 
         /// Whether `p` is the identity.
         fn point_is_identity(p: &Self::Point) -> bool;

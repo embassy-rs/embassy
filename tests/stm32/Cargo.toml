@@ -86,9 +86,11 @@ eth = []
 # and P-256/P-384 come from mcu-crypto-asm.
 tls = ["eth", "perf-client/tls", "rng", "dep:embedded-tls"]
 # AES-128-GCM from mcu-crypto-asm software/asm (chips without a crypto peripheral).
-tls-sw = ["tls", "dep:mcu-crypto-asm", "dep:mcu-crypto-sw-aes"]
+# tls-sw = ["tls", "dep:mcu-crypto-asm", "dep:mcu-crypto-sw-aes"]
+tls-sw = ["tls", "dep:embassy-crypto-rustcrypto", "dep:mcu-crypto-sw-aes"]
 # AES-128-GCM from the CRYP peripheral (e.g. h753zi/h755zi).
-tls-hw = ["tls", "dep:mcu-crypto-asm", "aes"]
+# tls-hw = ["tls", "dep:mcu-crypto-asm", "aes"]
+tls-hw = ["tls", "dep:embassy-crypto-rustcrypto", "aes"]
 # tls_bench: use a 16 KB TCP TX ring instead of 4 KB.
 tx-ring-16k = []
 rng = ["embassy-stm32/embassy-crypto-rng"]
@@ -100,7 +102,7 @@ chrono = ["embassy-stm32/chrono", "dep:chrono"]
 can = []
 fdcan = []
 pwm = []
-ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wb-ble", "embassy-stm32-wpan/wb-hci", "dep:stm32wb-hci"]
+ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wb-ble", "embassy-stm32-wpan/wb-hci", "embassy-stm32-wpan/wb-fw-1-24-0", "embassy-stm32-wpan/wb-stack-full", "dep:stm32wb-hci", "dep:bt-hci"]
 mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wb-mac"]
 embassy-stm32-wpan = []
 not-gpdma = []
@@ -134,7 +136,8 @@ embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", opt
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
 xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "93228f1ec64720122016be52be4671e413fa92a9", default-features = false }
-mcu-crypto-asm = { git = "https://github.com/kokroo/mcu-crypto-asm", rev = "20201d1aa07d525553c73a1280165813ada2b2e4", features = ["embassy-crypto-p256-arith", "embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa", "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa"], optional = true }
+# mcu-crypto-asm = { git = "https://github.com/kokroo/mcu-crypto-asm", rev = "20201d1aa07d525553c73a1280165813ada2b2e4", features = ["embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa", "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa"], optional = true }
+embassy-crypto-rustcrypto = { version = "0.1.0", path = "../../embassy-crypto-rustcrypto", features = ["embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa", "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa"], optional = true }
 # Same crate, software AES-128-GCM only; a separate instance (via a shim
 # crate, since Cargo forbids two names for one package) so chips without a
 # crypto peripheral can take AES-GCM from software without duplicate driver
@@ -160,7 +163,8 @@ rand_chacha = { version = "0.10.0", default-features = false }
 static_cell = "2"
 portable-atomic = { version = "1.14", features = [] }
 critical-section = "1.2"
-stm32wb-hci = { git = "https://github.com/oueslatighaith/stm32wb-hci", branch = "master", optional = true }
+stm32wb-hci = { version = "0.20.0", default-features = false, optional = true }
+bt-hci = { version = "0.11.0", optional = true }
 sdio = "0.5.0"
 block-device-driver = "0.2.0"
 aligned = "0.4.3"

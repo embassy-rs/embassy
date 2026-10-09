@@ -641,6 +641,54 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         )
     }
 
+    /// Allocate a double-buffered BULK IN endpoint and write its descriptor.
+    ///
+    /// Like [`endpoint_bulk_in`](Self::endpoint_bulk_in), but asks the driver to double-buffer
+    /// the endpoint. Drivers that don't support this allocate an ordinary endpoint. See
+    /// [`Driver::alloc_endpoint_bulk_in_double_buffered`].
+    pub fn endpoint_bulk_in_double_buffered(
+        &mut self,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+    ) -> D::EndpointIn {
+        let ep = self
+            .builder
+            .driver
+            .alloc_endpoint_bulk_in_double_buffered(ep_addr, max_packet_size)
+            .expect("alloc_endpoint_bulk_in_double_buffered failed");
+        self.endpoint_descriptor(
+            ep.info(),
+            SynchronizationType::NoSynchronization,
+            UsageType::DataEndpoint,
+            &[],
+        );
+        ep
+    }
+
+    /// Allocate a double-buffered BULK OUT endpoint and write its descriptor.
+    ///
+    /// Like [`endpoint_bulk_out`](Self::endpoint_bulk_out), but asks the driver to double-buffer
+    /// the endpoint. Drivers that don't support this allocate an ordinary endpoint. See
+    /// [`Driver::alloc_endpoint_bulk_out_double_buffered`].
+    pub fn endpoint_bulk_out_double_buffered(
+        &mut self,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+    ) -> D::EndpointOut {
+        let ep = self
+            .builder
+            .driver
+            .alloc_endpoint_bulk_out_double_buffered(ep_addr, max_packet_size)
+            .expect("alloc_endpoint_bulk_out_double_buffered failed");
+        self.endpoint_descriptor(
+            ep.info(),
+            SynchronizationType::NoSynchronization,
+            UsageType::DataEndpoint,
+            &[],
+        );
+        ep
+    }
+
     /// Allocate a INTERRUPT IN endpoint and write its descriptor.
     ///
     /// Descriptors are written in the order builder functions are called. Note that some

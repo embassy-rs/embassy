@@ -1,8 +1,8 @@
 #![no_std]
 #![no_main]
 
-use core::time::Duration;
-
+use bt_hci::cmd::controller_baseband::Reset;
+use bt_hci::controller::{Controller, ControllerCmdSync};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -15,13 +15,15 @@ use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
 use embassy_stm32_wpan::sub::ble::ControllerAdapter;
 use embassy_stm32_wpan::sub::mm;
 use panic_probe as _;
-use stm32wb_hci::BdAddr;
-use stm32wb_hci::host::uart::UartHci;
-use stm32wb_hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
-use stm32wb_hci::types::AdvertisingType;
-use stm32wb_hci::vendor::command::gap::{AdvertisingDataType, DiscoverableParameters, GapCommands, Role};
-use stm32wb_hci::vendor::command::gatt::GattCommands;
-use stm32wb_hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
+use stm32wb_hci::aci::durations::{AdvInterval, PreferredConnInterval};
+use stm32wb_hci::aci::flags::Role;
+use stm32wb_hci::aci::gap::{GapDeleteAdType, GapInit, GapSetDiscoverable, GapUpdateAdvData};
+use stm32wb_hci::aci::gatt::GattInit;
+use stm32wb_hci::aci::hal::{HalSetTxPowerLevel, HalWriteConfigData};
+use stm32wb_hci::aci::ranges::PaLevel;
+use stm32wb_hci::aci::values::{AdvertisingType, ConfigDataOffset, OwnAddressType, Privacy};
+use stm32wb_hci::adv_data::{AdvData, AdvFlags};
+use stm32wb_hci::event::BleEvent;
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;
@@ -63,102 +65,113 @@ async fn main(spawner: Spawner) {
     join(
         async {
             loop {
-                let pkt = ble.read_packet().await;
-
-                defmt::info!("pkt: {}", pkt);
+                let mut buf = unwrap!(ble.alloc_buf());
+                match ble.read(&mut buf).await {
+                    Ok(bt_hci::ControllerToHostPacket::Event(packet)) => match BleEvent::from_packet(packet) {
+                        Ok(event) => info!("event: {}", event),
+                        Err(e) => error!("undecodable event: {}", e),
+                    },
+                    Ok(packet) => info!("pkt: {}", packet),
+                    Err(e) => error!("read failed: {}", e),
+                }
             }
         },
         async {
             info!("resetting BLE...");
-            let response = ble.reset().await;
+            let response = ble.exec(&Reset::new()).await;
             defmt::info!("{}", response);
 
             info!("config public address...");
-
-            let response = ble
-                .write_config_data(&ConfigData::public_address(get_bd_addr()).build())
-                .await;
+            let address = get_bd_addr();
+            let command = unwrap!(HalWriteConfigData::entry(ConfigDataOffset::PublicAddress, &address));
+            let response = ble.exec(&command).await;
             defmt::info!("{}", response);
 
             info!("config random address...");
-            let response = ble
-                .write_config_data(&ConfigData::random_address(get_random_addr()).build())
-                .await;
+            let address = get_random_addr();
+            let command = unwrap!(HalWriteConfigData::entry(
+                ConfigDataOffset::StaticRandomAddress,
+                &address
+            ));
+            let response = ble.exec(&command).await;
             defmt::info!("{}", response);
 
             info!("config identity root...");
-            let response = ble
-                .write_config_data(&ConfigData::identity_root(&get_irk()).build())
-                .await;
+            let command = unwrap!(HalWriteConfigData::entry(ConfigDataOffset::IdentityRoot, &BLE_CFG_IRK));
+            let response = ble.exec(&command).await;
             defmt::info!("{}", response);
 
             info!("config encryption root...");
-            let response = ble
-                .write_config_data(&ConfigData::encryption_root(&get_erk()).build())
-                .await;
+            let command = unwrap!(HalWriteConfigData::entry(
+                ConfigDataOffset::EncryptionRoot,
+                &BLE_CFG_ERK
+            ));
+            let response = ble.exec(&command).await;
             defmt::info!("{}", response);
 
             info!("config tx power level...");
-            let response = ble.set_tx_power_level(PowerLevel::ZerodBm).await;
+            // PA level 0x19 is 0 dBm.
+            let response = ble
+                .exec(&HalSetTxPowerLevel::new(false, unwrap!(PaLevel::new(0x19))))
+                .await;
             defmt::info!("{}", response);
 
             info!("GATT init...");
-            let response = ble.init_gatt().await;
+            let response = ble.exec(&GattInit::new()).await;
             defmt::info!("{}", response);
 
             info!("GAP init...");
-            let response = ble.init_gap(Role::PERIPHERAL, false, BLE_GAP_DEVICE_NAME_LENGTH).await;
+            let response = ble
+                .exec(&GapInit::new(
+                    Role::PERIPHERAL,
+                    Privacy::Disabled,
+                    BLE_GAP_DEVICE_NAME_LENGTH,
+                ))
+                .await;
             defmt::info!("{}", response);
 
-            // info!("set scan response...");
-            // ble.le_set_scan_response_data(&[]).await.unwrap();
-            // let response = ble.read().await.unwrap();
-            // defmt::info!("{}", response);
-
             info!("set discoverable...");
-            let response = ble
-                .set_discoverable(&DiscoverableParameters {
-                    advertising_type: AdvertisingType::NonConnectableUndirected,
-                    advertising_interval: Some((Duration::from_millis(250), Duration::from_millis(250))),
-                    address_type: OwnAddressType::Public,
-                    filter_policy: AdvertisingFilterPolicy::AllowConnectionAndScan,
-                    local_name: None,
-                    advertising_data: &[],
-                    conn_interval: (None, None),
-                })
-                .await
-                .unwrap();
+            let interval = unwrap!(AdvInterval::from_millis(250));
+            let command = unwrap!(GapSetDiscoverable::try_new(
+                AdvertisingType::NonConnectableUndirected,
+                interval,
+                interval,
+                OwnAddressType::Public,
+                0, // no filter accept list
+                &[],
+                &[],
+                PreferredConnInterval::OMITTED,
+                PreferredConnInterval::OMITTED,
+            ));
+            let response = ble.exec(&command).await;
             defmt::info!("{}", response);
 
             // remove some advertisement to decrease the packet size
             info!("delete tx power ad type...");
-            let response = ble.delete_ad_type(AdvertisingDataType::TxPowerLevel).await;
+            let response = ble.exec(&GapDeleteAdType::new(AD_TYPE_TX_POWER_LEVEL)).await;
             defmt::info!("{}", response);
 
             info!("delete conn interval ad type...");
             let response = ble
-                .delete_ad_type(AdvertisingDataType::PeripheralConnectionInterval)
+                .exec(&GapDeleteAdType::new(AD_TYPE_PERIPHERAL_CONN_INTERVAL_RANGE))
                 .await;
             defmt::info!("{}", response);
 
             info!("update advertising data...");
-            let response = ble.update_advertising_data(&eddystone_advertising_data()).await;
+            let data = unwrap!(eddystone_advertising_data());
+            let response = ble.exec(&unwrap!(GapUpdateAdvData::try_new(data.as_bytes()))).await;
             defmt::info!("{}", response);
 
             info!("update advertising data type...");
-            let response = ble
-                .update_advertising_data(&[3, AdvertisingDataType::UuidCompleteList16 as u8, 0xaa, 0xfe])
-                .await;
+            let data = unwrap!(AdvData::<31>::new().complete_uuid16_list(&[EDDYSTONE_UUID]));
+            let response = ble.exec(&unwrap!(GapUpdateAdvData::try_new(data.as_bytes()))).await;
             defmt::info!("{}", response);
 
             info!("update advertising data flags...");
-            let response = ble
-                .update_advertising_data(&[
-                    2,
-                    AdvertisingDataType::Flags as u8,
-                    (0x02 | 0x04) as u8, // BLE general discoverable, without BR/EDR support
-                ])
-                .await;
+            // BLE general discoverable, without BR/EDR support
+            let data =
+                unwrap!(AdvData::<31>::new().flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED));
+            let response = ble.exec(&unwrap!(GapUpdateAdvData::try_new(data.as_bytes()))).await;
             defmt::info!("{}", response);
 
             // cortex_m::asm::bkpt();
@@ -172,7 +185,7 @@ async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
     memory_manager.run_queue().await;
 }
 
-fn get_bd_addr() -> BdAddr {
+fn get_bd_addr() -> [u8; 6] {
     let mut bytes = [0u8; 6];
 
     let lhci_info = LhciC1DeviceInformationCcrp::new();
@@ -183,10 +196,10 @@ fn get_bd_addr() -> BdAddr {
     bytes[4] = (lhci_info.st_company_id & 0xff) as u8;
     bytes[5] = (lhci_info.st_company_id >> 8 & 0xff) as u8;
 
-    BdAddr(bytes)
+    bytes
 }
 
-fn get_random_addr() -> BdAddr {
+fn get_random_addr() -> [u8; 6] {
     let mut bytes = [0u8; 6];
 
     let lhci_info = LhciC1DeviceInformationCcrp::new();
@@ -197,7 +210,7 @@ fn get_random_addr() -> BdAddr {
     bytes[4] = 0x6E;
     bytes[5] = 0xED;
 
-    BdAddr(bytes)
+    bytes
 }
 
 const BLE_CFG_IRK: [u8; 16] = [
@@ -207,32 +220,18 @@ const BLE_CFG_ERK: [u8; 16] = [
     0xfe, 0xdc, 0xba, 0x09, 0x87, 0x65, 0x43, 0x21, 0xfe, 0xdc, 0xba, 0x09, 0x87, 0x65, 0x43, 0x21,
 ];
 
-fn get_irk() -> EncryptionKey {
-    EncryptionKey(BLE_CFG_IRK)
-}
+const AD_TYPE_TX_POWER_LEVEL: u8 = 0x0A;
+const AD_TYPE_PERIPHERAL_CONN_INTERVAL_RANGE: u8 = 0x12;
+const EDDYSTONE_UUID: u16 = 0xFEAA;
 
-fn get_erk() -> EncryptionKey {
-    EncryptionKey(BLE_CFG_ERK)
-}
-
-fn eddystone_advertising_data() -> [u8; 24] {
+fn eddystone_advertising_data() -> Result<AdvData<31>, stm32wb_hci::wire::TooLong> {
     const EDDYSTONE_URL: &[u8] = b"www.rust-lang.com";
 
-    let mut service_data = [0u8; 24];
-    let url_len = EDDYSTONE_URL.len();
+    let mut frame = [0u8; 3 + EDDYSTONE_URL.len()];
+    frame[0] = 0x10; // URL frame type
+    frame[1] = 22_i8 as u8; // calibrated TX power at 0m
+    frame[2] = 0x03; // eddystone url prefix = https
+    frame[3..].copy_from_slice(EDDYSTONE_URL);
 
-    service_data[0] = 6 + url_len as u8;
-    service_data[1] = AdvertisingDataType::ServiceData as u8;
-
-    // 16-bit eddystone uuid
-    service_data[2] = 0xaa;
-    service_data[3] = 0xFE;
-
-    service_data[4] = 0x10; // URL frame type
-    service_data[5] = 22_i8 as u8; // calibrated TX power at 0m
-    service_data[6] = 0x03; // eddystone url prefix = https
-
-    service_data[7..(7 + url_len)].copy_from_slice(EDDYSTONE_URL);
-
-    service_data
+    AdvData::new().service_data_uuid16(EDDYSTONE_UUID, &frame)
 }
