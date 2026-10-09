@@ -104,16 +104,32 @@ impl<'d> GenericHashcrypt<'d> {
         }
     }
 
-    pub(crate) fn wait_key() {
-        while !pac::HASHCRYPT.status().read().needkey() {
-            cortex_m::asm::nop();
-        }
-    }
-
     pub(crate) fn feed_word(word: u32) {
         pac::HASHCRYPT.indata().write(|w| {
             w.set_data(word);
         });
+    }
+
+    pub(crate) fn read_digest(count: usize, out: &mut [u8]) {
+        // Block until the DIGEST status flag signals the output registers hold a
+        // complete result, then read `count` words out of DIGEST0..n.
+        while !pac::HASHCRYPT.status().read().digest() {
+            cortex_m::asm::nop();
+        }
+        for i in 0..count {
+            let word = pac::HASHCRYPT.digest0(i).read().digest();
+            out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
+        }
+    }
+}
+
+// Helper functions for AES modes
+#[allow(dead_code)]
+impl<'d> GenericHashcrypt<'d> {
+    pub(crate) fn wait_key() {
+        while !pac::HASHCRYPT.status().read().needkey() {
+            cortex_m::asm::nop();
+        }
     }
 
     pub(crate) fn feed_key(key: &Key) {
@@ -136,18 +152,6 @@ impl<'d> GenericHashcrypt<'d> {
                     Self::feed_word(u32::from_le_bytes(chunk.try_into().unwrap()));
                 }
             }
-        }
-    }
-
-    pub(crate) fn read_digest(count: usize, out: &mut [u8]) {
-        // Block until the DIGEST status flag signals the output registers hold a
-        // complete result, then read `count` words out of DIGEST0..n.
-        while !pac::HASHCRYPT.status().read().digest() {
-            cortex_m::asm::nop();
-        }
-        for i in 0..count {
-            let word = pac::HASHCRYPT.digest0(i).read().digest();
-            out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
         }
     }
 }
