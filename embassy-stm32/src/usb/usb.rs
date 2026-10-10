@@ -387,6 +387,24 @@ mod btable {
     }
 }
 
+/// USB erratum "Buffer description table update completes after CTR interrupt triggers"
+/// (STM32H523/533: ES0621 Rev 3 §2.19.1; STM32U3: ES0626 §2.18.1): the CTR interrupt of an OUT
+/// transaction fires slightly before the peripheral has finished writing the packet and its byte
+/// count to USB SRAM. Software must wait 800 ns before reading either (6.4 μs at low speed, which
+/// this device-mode driver does not use).
+///
+/// `cortex_m::asm::delay` blocks for at least the given number of cycles, whereas
+/// `embassy_time::block_for` waits until the tick counter passes one tick, which can take less
+/// than 800 ns.
+fn wait_for_out_packet_memory() {
+    #[cfg(any(stm32h5, stm32u3))]
+    {
+        // 800 ns = 1 s / 1_250_000
+        let sys_hz = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0;
+        cortex_m::asm::delay(sys_hz.div_ceil(1_250_000));
+    }
+}
+
 struct EndpointBuffer<T: Instance> {
     addr: u16,
     len: u16,
@@ -1361,30 +1379,13 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         })
         .await;
 
-        // Errata for STM32H5, 2.20.1:
-        // During OUT transfers, the correct transfer interrupt (CTR) is triggered a little before the last USB SRAM accesses
-        // have completed. If the software responds quickly to the interrupt, the full buffer contents may not be correct.
-        //
-        // Workaround:
-        // Software should ensure that a small delay is included before accessing the SRAM contents. This delay should be
-        // 800 ns in Full Speed mode and 6.4 μs in Low Speed mode.
-        #[cfg(stm32h5)]
-        {
-            #[cfg(feature = "time")]
-            embassy_time::block_for(embassy_time::Duration::from_nanos(800));
-            #[cfg(not(feature = "time"))]
-            {
-                let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
-                let cycles = freq * 800 / 1_000_000;
-                cortex_m::asm::delay(cycles as u32);
-            }
-        }
-
         RX_COMPLETE[index].store(false, Ordering::Relaxed);
 
         if stat == Stat::Disabled {
             return Err(EndpointError::Disabled);
         }
+
+        wait_for_out_packet_memory();
 
         let regs = T::regs();
 
@@ -1513,6 +1514,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             })
             .await;
 
+            wait_for_out_packet_memory();
             let mut buf = [0; 8];
             let rx_len = self.ep_out.read_data(&mut buf);
             if rx_len != Ok(8) {
@@ -1575,6 +1577,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             return Err(EndpointError::Disabled);
         }
 
+        wait_for_out_packet_memory();
         let rx_len = self.ep_out.read_data(buf)?;
 
         regs.epr(0).write(|w| {
