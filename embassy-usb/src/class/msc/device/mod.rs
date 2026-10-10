@@ -438,7 +438,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         block_buf: &mut [u8],
         cbw: &Cbw,
     ) -> Result<CommandResult, EndpointError> {
-        let read_write = ReadWrite::parse(&cbw.cb);
+        let read_write = ReadWrite::parse(&cbw.cb[..cbw.cb_length as usize]);
         let is_write = read_write.is_some_and(|rw| rw.write);
 
         // Drain unexpected OUT data for any non-WRITE command upfront, or any command to an unsupported LUN (BOT Cases 9 & 10)

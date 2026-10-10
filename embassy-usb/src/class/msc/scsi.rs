@@ -140,7 +140,20 @@ pub(crate) struct ReadWrite {
 
 impl ReadWrite {
     /// Decodes `cb` if it holds a READ or WRITE command, else returns `None`.
-    pub fn parse(cb: &[u8; 16]) -> Option<Self> {
+    ///
+    /// `cb` is the command block as long as the host sent it, so a truncated CDB returns `None`.
+    pub fn parse(cb: &[u8]) -> Option<Self> {
+        let cdb_len = match *cb.first()? {
+            SCSI_READ_6 | SCSI_WRITE_6 => 6,
+            SCSI_READ_10 | SCSI_WRITE_10 => 10,
+            SCSI_READ_12 | SCSI_WRITE_12 => 12,
+            SCSI_READ_16 | SCSI_WRITE_16 => 16,
+            _ => return None,
+        };
+        if cb.len() < cdb_len {
+            return None;
+        }
+
         let be32 = |b: &[u8]| u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
         let (lba, blocks) = match cb[0] {
             SCSI_READ_6 | SCSI_WRITE_6 => {
@@ -286,5 +299,14 @@ mod tests {
     fn ignores_other_opcodes() {
         core::assert_eq!(ReadWrite::parse(&cb(&[SCSI_INQUIRY])), None);
         core::assert_eq!(ReadWrite::parse(&cb(&[SCSI_SYNCHRONIZE_CACHE_10])), None);
+        core::assert_eq!(ReadWrite::parse(&[]), None);
+    }
+
+    #[test]
+    fn rejects_truncated_cdb() {
+        let cdb = rw16_cdb(SCSI_READ_16, 1, 1);
+        core::assert_eq!(ReadWrite::parse(&cdb[..10]), None);
+        core::assert!(ReadWrite::parse(&cdb).is_some());
+        core::assert_eq!(ReadWrite::parse(&[SCSI_READ_6, 0, 0, 0, 1]), None);
     }
 }
