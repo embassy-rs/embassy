@@ -2,6 +2,7 @@
 
 Embassy provides HALs for several microcontroller families:
 
+* `embassy-efm32` for the EFM32 (Gecko) microcontrollers from Silicon Labs
 * `embassy-mcxa` for MCX-A microcontrollers from NXP.
 * `embassy-mspm0` for the MSPM0 and MSPS003 microcontrollers from Texas Instruments
 * `embassy-nrf` for the nRF microcontrollers from Nordic Semiconductor
