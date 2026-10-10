@@ -23,9 +23,9 @@ use crate::types::InterfaceNumber;
 use crate::{Builder, Handler};
 
 /// Vendor ID to use for the device so that the Linux GUD driver binds to it.
-pub const GUD_VENDOR_ID: u16 = 0x1209;
-/// Product ID paired with [`GUD_VENDOR_ID`]. See `pid.codes` "GUD".
-pub const GUD_PRODUCT_ID: u16 = 0x4FB3;
+pub const GUD_VENDOR_ID: u16 = 0x1d50;
+/// Product ID paired with [`GUD_VENDOR_ID`].
+pub const GUD_PRODUCT_ID: u16 = 0x614d;
 
 /// GUD protocol version reported in the display descriptor.
 pub const GUD_PROTOCOL_VERSION: u8 = 1;

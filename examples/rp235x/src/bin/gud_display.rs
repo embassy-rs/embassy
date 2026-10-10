@@ -1,7 +1,7 @@
 //! GUD (Generic USB Display) example for the RP2350
 //!
 //! The board enumerates as a 1920x1080 RGB565 display to a Linux host running
-//! the `gud` DRM driver (VID/PID 0x1209/0x4FB3).
+//! the `gud` DRM driver (VID/PID 0x1d50/0x614d).
 
 #![no_std]
 #![no_main]
