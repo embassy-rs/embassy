@@ -5,7 +5,7 @@ use cortex_m as _;
 use defmt::{error, info};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_nxp::hashcrypt::{Aes, AesPadded, GenericDriver, KeySize};
+use embassy_nxp::hashcrypt::{Aes, AesPadded, GenericHashcrypt, KeySize};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -14,7 +14,7 @@ async fn main(_spawner: Spawner) -> ! {
     let p = embassy_nxp::init(Default::default());
     info!("Device started !");
 
-    let mut generic = GenericDriver::new(p.HASHCRYPT);
+    let mut generic = GenericHashcrypt::new(p.HASHCRYPT);
 
     info!("ECB Example");
     // F.1.1 ECB-AES128.Encrypt / F.1.2 ECB-AES128.Decrypt (NIST SP 800-38A)
