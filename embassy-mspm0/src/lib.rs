@@ -16,6 +16,7 @@ pub mod adc;
 pub mod dma;
 #[cfg(feature = "_executor")]
 pub mod executor;
+pub mod factoryregion;
 pub mod gpio;
 // TODO: I2C unicomm
 #[cfg(not(unicomm))]
