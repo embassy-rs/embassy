@@ -11,7 +11,7 @@ use futures_util::future::{Either, select};
 use super::rdr;
 use super::{
     Config, ConfigError, Error, Info, State, UartRx, UsartWord, clear_interrupt_flags, flush, reconfigure,
-    set_baudrate, sr,
+    rx_data_mask, set_baudrate, sr,
 };
 use crate::dma::{ReadableRingBuffer, RingBufferError};
 use crate::gpio::Flex;
@@ -263,6 +263,10 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
             match self.ring_buf.read(buf) {
                 Ok((0, _)) => {}
                 Ok((len, _)) => {
+                    let mask = rx_data_mask(r);
+                    for w in &mut buf[..len] {
+                        *w = w.mask(mask);
+                    }
                     return Ok(len);
                 }
                 Err(_) => {

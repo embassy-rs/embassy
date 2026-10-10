@@ -13,8 +13,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 use super::DePin;
 use super::{
     Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexReadback, Info, Instance, Regs, RtsPin, RxPin, TxPin,
-    clear_interrupt_flags, configure, half_duplex_set_rx_tx_before_write, rdr, reconfigure, send_break, set_baudrate,
-    sr, tdr,
+    clear_interrupt_flags, configure, half_duplex_set_rx_tx_before_write, rdr, reconfigure, rx_data_mask, send_break,
+    set_baudrate, sr, tdr,
 };
 use crate::atomic::AtomicModify;
 use crate::gpio::{AfType, Flex, Pull};
@@ -38,6 +38,7 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     }
 
     // RX
+    let mask = rx_data_mask(r) as u8;
     let sr_val = sr(r).read();
     // On v1 & v2, reading DR clears the rxne, error and idle interrupt
     // flags. Keep this close to the SR read to reduce the chance of a
@@ -45,7 +46,7 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     #[cfg(not(usart_v4))]
     if sr_val.rxne() {
         if let Some(byte) = state.rx_buf.writer().iter().next() {
-            *byte = rdr(r).read_volatile();
+            *byte = rdr(r).read_volatile() & mask;
         } else {
             r.cr1().modify(|w| w.set_rxneie(false));
         }
@@ -75,7 +76,7 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
             let mut rx_iter = rx_writer.iter();
             while sr(r).read().rxne() {
                 if let Some(byte) = rx_iter.next() {
-                    *byte = rdr(r).read_volatile();
+                    *byte = rdr(r).read_volatile() & mask;
                 } else {
                     r.cr3().modify(|w| w.set_rxftie(false));
                     break;
