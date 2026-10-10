@@ -68,6 +68,8 @@ USB:
 - fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
 - fix: OTG_HS on STM32N6 no longer hangs the bus while bringing up the USB HS PHY: USBPHYC is now programmed with the OTG core clocked and the USBPHYC block out of reset, as in ST's own example.
 - feat: support double-buffered bulk endpoints on USB v1 (STM32F1, F3 and L1).
+- fix: `ClearFeature(ENDPOINT_HALT)` on an endpoint that was not halted looped forever and hung the device; on a halted endpoint it left the halt set, and setting a halt while a transfer completed could disable the endpoint. Halt requests now apply only to bulk and interrupt endpoints.
+- fix: reset the data toggle to DATA0 when a halt is cleared and when `SET_CONFIGURATION` or `SET_INTERFACE` enables an endpoint (USB 2.0 §9.4.5, §9.1.1.5).
 
 DMA:
 - fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
