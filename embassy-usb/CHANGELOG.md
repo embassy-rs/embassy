@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `UAC1`: Add audio source
 - `UAC1`: BREAKING: `AudioSource::new(builder, state, config)` replaces the positional arguments and the manual handler registration; `AudioSource` now has `stream` and `control_monitor` (with `muted()`), `Volume` moved to `class::uac::device`. Internally `Speaker` and `AudioSource` share one implementation of the descriptors and control handler
 - `UAC1`: BREAKING: `Speaker::new(builder, state, config)` takes `speaker::Config` and returns `Self` with the parts inside instead of a tuple
-- `UAC1`: Source and speaker configurations default to no Feature Unit. Set `Config::feature_unit` to a slice of `FeatureUnitControls` flags, with one entry for the master and each audio channel, to enable mute or volume controls
+- `UAC1`: Source and speaker configurations default to no Feature Unit. Set `Config::feature_unit` to a vector of `FeatureUnitControls` flags, with one entry for the master and each audio channel, to enable mute or volume controls
 - `CDC-NCM`: Handle `SetEthernetPacketFilter` and advertise it in `bmNetworkCapabilities`, which also works around a macOS bug that intermittently left the data interface disabled
 - `MIDI`: Allow sender-only or receiver-only configuration
 - `MIDI`: Change constructor to take a configuration struct instead of discrete arguments
