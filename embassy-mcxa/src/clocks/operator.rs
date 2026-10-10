@@ -14,9 +14,11 @@ use super::types::{Clock, ClockError, Clocks, PoweredClock};
 use crate::chips::{ClockLimits, clock_limits};
 use crate::pac;
 use crate::pac::cmc::Ckmode;
+#[cfg(not(feature = "sosc-as-gpio"))]
+use crate::pac::scg::{Erefs, Range, SosccsrLk, Soscerr};
 use crate::pac::scg::{
-    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Range, Scs, SirccsrLk, Sircerr, Sircvld,
-    SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+    Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Scs, SirccsrLk, Sircerr, Sircvld, Source, SpllLock,
+    SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
 use crate::pac::spc::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
@@ -392,9 +394,16 @@ impl ClockOperator<'_> {
     pub(super) fn configure_fro16k_clocks(&mut self) -> Result<(), ClockError> {
         // If we have a config: ensure fro16k is enabled. If not: ensure it is disabled.
         let enable = self.config.fro16k.is_some();
-        self.vbat0.froctla().modify(|w| w.set_fro_en(enable));
-
-        // Lock the control register
+        // VBAT locks survive normal MCU resets and cannot be cleared in software.
+        if !self.vbat0.frolcka().read().lock() {
+            self.vbat0.froctla().modify(|w| w.set_fro_en(enable));
+        }
+        if self.vbat0.froctla().read().fro_en() != enable {
+            return Err(ClockError::BadConfig {
+                clock: "fro16k",
+                reason: "enable state rejected; a retained VBAT lock may require a power-on reset",
+            });
+        }
         self.vbat0.frolcka().modify(|w| w.set_lock(true));
 
         // If we're disabled, we're done!
@@ -414,12 +423,26 @@ impl ClockOperator<'_> {
         // Gate 0: clk_16k0 to VSYS domain
         // Gate 1: clk_16k1 to VDD_CORE/CORE_MAIN domain
         // Gate 2: clk_16k2 to VBAT domain (5xx only)
-        self.vbat0.froclke().modify(|w| {
+        self.vbat0.froclke().write(|w| {
             w.set_clke(0, *vsys_domain_active);
             w.set_clke(1, *vdd_core_domain_active);
             #[cfg(feature = "mcxa5xx")]
             w.set_clke(2, *vbat_domain_active);
         });
+        let gates = self.vbat0.froclke().read();
+        if gates.clke(0) != *vsys_domain_active || gates.clke(1) != *vdd_core_domain_active {
+            return Err(ClockError::BadConfig {
+                clock: "fro16k",
+                reason: "clock output gate configuration rejected",
+            });
+        }
+        #[cfg(feature = "mcxa5xx")]
+        if gates.clke(2) != *vbat_domain_active {
+            return Err(ClockError::BadConfig {
+                clock: "fro16k",
+                reason: "VBAT clock output gate configuration rejected",
+            });
+        }
 
         if *vsys_domain_active {
             self.clocks.clk_16k_vsys = Some(Clock {
@@ -1515,9 +1538,6 @@ impl ClockOperator<'_> {
                 // Do not gate
                 self.cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode0000));
 
-                // Debug is enabled when core sleeps
-                self.cmc.dbgctl().modify(|w| w.set_sod(false));
-
                 // Don't allow the core to be gated to avoid killing the debugging session
                 scb.clear_sleepdeep();
             }
@@ -1525,36 +1545,33 @@ impl ClockOperator<'_> {
                 // Allow automatic gating of the core when in LIGHT sleep
                 self.cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode0001));
 
-                // Debug is disabled when core sleeps
-                self.cmc.dbgctl().modify(|w| w.set_sod(true));
-
-                // Allow the core to be gated - this WILL kill the debugging session!
+                // Allow the core to be gated.
                 scb.set_sleepdeep();
             }
             CoreSleep::DeepSleep => {
                 // We can only support deep sleep with a custom executor which properly
                 // handles going to sleep and returning
-                #[cfg(all(not(feature = "executor-platform"), feature = "defmt"))]
+                #[cfg(all(
+                    not(any(feature = "executor-platform", feature = "external-deep-sleep-executor")),
+                    feature = "defmt"
+                ))]
                 defmt::warn!("deep sleep enabled without custom executor");
 
                 // For now, just enable light sleep. The executor will set deep sleep when
                 // appropriate
                 self.cmc.ckctrl().modify(|w| w.set_ckmode(Ckmode::Ckmode0001));
 
-                // Debug is disabled when core sleeps
-                self.cmc.dbgctl().modify(|w| w.set_sod(true));
-
-                // Allow the core to be gated - this WILL kill the debugging session!
+                // Allow the core to be gated.
                 scb.set_sleepdeep();
-
-                // Enable sevonpend, to allow us to wake from WFE sleep with interrupts disabled
-                unsafe {
-                    // TODO: wait for https://github.com/rust-embedded/cortex-m/commit/1be630fdd06990bd14251eabe4cca9307bde549d
-                    // to be released, until then, manual version of SCB.set_sevonpend();
-                    scb.scr.modify(|w| w | (1 << 4));
-                }
             }
         }
+        // Enable before any caller masks interrupts; enabling only at entry can
+        // miss a pending interrupt's event during the critical-section setup.
+        // SAFETY: SEVONPEND is an architectural SCR bit.
+        unsafe { scb.scr.modify(|w| w | (1 << 4)) };
+        let disable_sleep_debug =
+            !matches!(self.config.vdd_power.core_sleep, CoreSleep::WfeUngated) && !self.config.vdd_power.debug_in_sleep;
+        self.cmc.dbgctl().modify(|w| w.set_sod(disable_sleep_debug));
         self.clocks.core_sleep = self.config.vdd_power.core_sleep;
 
         // Allow automatic gating of the flash memory
@@ -1578,6 +1595,115 @@ impl ClockOperator<'_> {
         self.clocks.active_power = self.config.vdd_power.active_mode.level;
         self.clocks.lp_power = self.config.vdd_power.low_power_mode.level;
 
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[repr(C)]
+    struct FroRegisters {
+        padding: [u32; 128],
+        control: pac::vbat::Froctla,
+        padding_to_lock: [u32; 5],
+        lock: pac::vbat::Frolcka,
+        padding_to_gates: u32,
+        gates: pac::vbat::Froclke,
+    }
+
+    impl FroRegisters {
+        fn new(enabled: bool, locked: bool) -> Self {
+            let mut registers = Self {
+                padding: [0; 128],
+                control: pac::vbat::Froctla::default(),
+                padding_to_lock: [0; 5],
+                lock: pac::vbat::Frolcka::default(),
+                padding_to_gates: 0,
+                gates: pac::vbat::Froclke::default(),
+            };
+            registers.control.set_fro_en(enabled);
+            registers.lock.set_lock(locked);
+            registers
+        }
+    }
+
+    fn configure_fro(
+        registers: &mut FroRegisters,
+        config: &ClocksConfig,
+        clocks: &mut Clocks,
+    ) -> Result<(), ClockError> {
+        assert_eq!(core::mem::offset_of!(FroRegisters, control), 0x200);
+        assert_eq!(core::mem::offset_of!(FroRegisters, lock), 0x218);
+        assert_eq!(core::mem::offset_of!(FroRegisters, gates), 0x220);
+        // SAFETY: the aligned RAM model covers every VBAT register used here.
+        let vbat0 = unsafe { pac::vbat::Vbat::from_ptr((registers as *mut FroRegisters).cast()) };
+        let mut operator = ClockOperator {
+            clocks,
+            config,
+            sirc_forced: false,
+            _mrcc0: pac::MRCC0,
+            scg0: pac::SCG0,
+            syscon: pac::SYSCON,
+            vbat0,
+            spc0: pac::SPC0,
+            fmu0: pac::FMU0,
+            cmc: pac::CMC,
+        };
+        operator.configure_fro16k_clocks()
+    }
+
+    #[test]
+    fn unlocked_fro_is_enabled_before_publishing_clocks() -> Result<(), ClockError> {
+        let mut registers = FroRegisters::new(false, false);
+        registers.gates.0 = u32::MAX;
+        let mut clocks = Clocks::default();
+        configure_fro(&mut registers, &ClocksConfig::default(), &mut clocks)?;
+        assert!(registers.control.fro_en());
+        assert!(registers.lock.lock());
+        let expected_gates = if cfg!(feature = "mcxa5xx") { 7 } else { 3 };
+        assert_eq!(registers.gates.0, expected_gates);
+        assert_eq!(clocks.clk_16k_vsys.as_ref().map(|clock| clock.frequency), Some(16_384));
+        assert_eq!(
+            clocks.clk_16k_vdd_core.as_ref().map(|clock| clock.frequency),
+            Some(16_384)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn compatible_retained_fro_lock_is_reused() -> Result<(), ClockError> {
+        let mut registers = FroRegisters::new(true, true);
+        let mut clocks = Clocks::default();
+        configure_fro(&mut registers, &ClocksConfig::default(), &mut clocks)?;
+        assert!(registers.control.fro_en());
+        assert!(registers.lock.lock());
+        assert!(clocks.clk_16k_vsys.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn incompatible_retained_fro_lock_is_rejected_without_clock_descriptors() {
+        let mut registers = FroRegisters::new(false, true);
+        let mut clocks = Clocks::default();
+        let result = configure_fro(&mut registers, &ClocksConfig::default(), &mut clocks);
+        assert!(matches!(result, Err(ClockError::BadConfig { clock: "fro16k", .. })));
+        assert!(!registers.control.fro_en());
+        assert!(clocks.clk_16k_vsys.is_none());
+        assert!(clocks.clk_16k_vdd_core.is_none());
+    }
+
+    #[test]
+    fn unlocked_fro_can_be_disabled() -> Result<(), ClockError> {
+        let mut registers = FroRegisters::new(true, false);
+        let mut config = ClocksConfig::default();
+        config.fro16k = None;
+        let mut clocks = Clocks::default();
+        configure_fro(&mut registers, &config, &mut clocks)?;
+        assert!(!registers.control.fro_en());
+        assert!(registers.lock.lock());
+        assert!(clocks.clk_16k_vsys.is_none());
         Ok(())
     }
 }
