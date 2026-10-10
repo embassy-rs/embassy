@@ -1,7 +1,7 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
@@ -18,7 +18,74 @@ const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
 const EP_MEMORY: *mut u8 = pac::USB_DPRAM.as_ptr() as *mut u8;
 
+/// Update one 16-bit half of an RP USB buffer-control register.
+///
+/// The RP2040 USB controller owns the two halves independently. A 32-bit
+/// read-modify-write can overwrite the state of the other buffer. The fields
+/// in `f` are relative to the selected half, so use buffer index 0 there.
+fn update_buffer_half<T: Instance>(
+    direction: Direction,
+    endpoint: usize,
+    buffer: usize,
+    f: impl FnOnce(&mut pac::usb_dpram::regs::EpBufferControl),
+) {
+    let reg = match direction {
+        Direction::In => T::dpram().ep_in_buffer_control(endpoint),
+        Direction::Out => T::dpram().ep_out_buffer_control(endpoint),
+    };
+    let ptr = reg.as_ptr() as *mut u16;
+    // SAFETY: `endpoint` is valid and `buffer` is 0 or 1; the register has two
+    // independently owned, aligned 16-bit halves. Use the PAC's 16-bit accessor.
+    let half: pac::common::Reg<u16, pac::common::RW> = unsafe { pac::common::Reg::from_ptr(ptr.add(buffer)) };
+    half.modify(|w| {
+        let mut value = pac::usb_dpram::regs::EpBufferControl(*w as u32);
+        f(&mut value);
+        *w = value.0 as u16;
+    });
+}
+
+/// Reset a double-buffered IN endpoint to buffer 0 and DATA0, dropping any
+/// queued packets, and tell its `Endpoint` to reset its buffer selection too.
+fn reset_double_buffered_in<T: Instance>(index: usize) {
+    critical_section::with(|_| {
+        update_buffer_half::<T>(Direction::In, index, 0, |w| {
+            w.0 = 0;
+            w.set_reset(true);
+        });
+        update_buffer_half::<T>(Direction::In, index, 1, |w| w.0 = 0);
+        // No atomic RMW on thumbv6m; serialize with the endpoint's packet handoff.
+        let generation = &EP_IN_RESET_GENERATION[index];
+        generation.store(generation.load(Ordering::Relaxed).wrapping_add(1), Ordering::Release);
+    });
+}
+
+/// Reset OUT to buffer 0/DATA0. Each buffer keeps its PID when re-armed:
+/// buffer 0 receives DATA0 and buffer 1 receives DATA1, in alternation.
+fn reset_double_buffered_out<T: Instance>(index: usize, max_packet_size: u16, armed: bool) {
+    critical_section::with(|_| {
+        for buffer in 0..2 {
+            update_buffer_half::<T>(Direction::Out, index, buffer, |w| {
+                w.0 = 0;
+                w.set_reset(buffer == 0);
+                w.set_pid(0, buffer == 1);
+                w.set_length(0, max_packet_size);
+            });
+        }
+        if armed {
+            cortex_m::asm::delay(12);
+            for buffer in 0..2 {
+                update_buffer_half::<T>(Direction::Out, index, buffer, |w| w.set_available(0, true));
+            }
+        }
+        let generation = &EP_OUT_RESET_GENERATION[index];
+        generation.store(generation.load(Ordering::Relaxed).wrapping_add(1), Ordering::Release);
+    });
+}
+
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
+// Bumped by `reset_double_buffered_{in,out}`, so the endpoint notices the hardware reset.
+static EP_IN_RESET_GENERATION: [AtomicU32; EP_COUNT] = [const { AtomicU32::new(0) }; EP_COUNT];
+static EP_OUT_RESET_GENERATION: [AtomicU32; EP_COUNT] = [const { AtomicU32::new(0) }; EP_COUNT];
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 
@@ -52,6 +119,12 @@ impl<T: Instance> EndpointBuffer<T> {
         mem.copy_from_slice(buf);
         compiler_fence(Ordering::SeqCst);
     }
+
+    /// Hardware buffer `n` of a double-buffered endpoint whose first buffer is `self`.
+    /// The second buffer is always at +64.
+    fn double_buffer_half(&self, n: usize) -> Self {
+        Self::new(self.addr + 64 * n as u16, self.len)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -77,6 +150,8 @@ pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ep_in: [EndpointData; EP_COUNT],
     ep_out: [EndpointData; EP_COUNT],
+    double_in: u16,
+    double_out: u16,
     ep_mem_free: u16, // first free address in EP mem, in bytes.
 }
 
@@ -120,6 +195,8 @@ impl<'d, T: Instance> Driver<'d, T> {
             phantom: PhantomData,
             ep_in: [EndpointData::new(); EP_COUNT],
             ep_out: [EndpointData::new(); EP_COUNT],
+            double_in: 0,
+            double_out: 0,
             ep_mem_free: 0x180, // data buffer region
         }
     }
@@ -130,6 +207,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
+        double_buffered: bool,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
         trace!(
             "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
@@ -174,16 +252,22 @@ impl<'d, T: Instance> Driver<'d, T> {
             return Err(EndpointAllocError);
         }
 
+        if double_buffered && (ep_type != EndpointType::Bulk || !matches!(max_packet_size, 8 | 16 | 32 | 64)) {
+            return Err(EndpointAllocError);
+        }
+
         // ep mem addrs must be 64-byte aligned, so there's no point in trying
-        // to allocate smaller chunks to save memory.
+        // to allocate smaller chunks to save memory. The second buffer of a
+        // double-buffered endpoint is always at +64.
         let len = max_packet_size.div_ceil(64) * 64;
+        let total_len = if double_buffered { 128 } else { len };
 
         let addr = self.ep_mem_free;
-        if addr + len > EP_MEMORY_SIZE as u16 {
+        if addr + total_len > EP_MEMORY_SIZE as u16 {
             warn!("Endpoint memory full");
             return Err(EndpointAllocError);
         }
-        self.ep_mem_free += len;
+        self.ep_mem_free += total_len;
 
         let buf = EndpointBuffer {
             addr,
@@ -196,6 +280,12 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep.ep_type = ep_type;
         ep.used = true;
         ep.max_packet_size = max_packet_size;
+        if double_buffered {
+            match D::dir() {
+                Direction::In => self.double_in |= 1 << index,
+                Direction::Out => self.double_out |= 1 << index,
+            }
+        }
 
         let ep_type_reg = match ep_type {
             EndpointType::Bulk => pac::usb_dpram::vals::EpControlEndpointType::Bulk,
@@ -205,18 +295,30 @@ impl<'d, T: Instance> Driver<'d, T> {
         };
 
         match D::dir() {
-            Direction::Out => T::dpram().ep_out_control(index - 1).write(|w| {
-                w.set_enable(false);
-                w.set_buffer_address(addr);
-                w.set_interrupt_per_buff(true);
-                w.set_endpoint_type(ep_type_reg);
-            }),
-            Direction::In => T::dpram().ep_in_control(index - 1).write(|w| {
-                w.set_enable(false);
-                w.set_buffer_address(addr);
-                w.set_interrupt_per_buff(true);
-                w.set_endpoint_type(ep_type_reg);
-            }),
+            Direction::Out => {
+                T::dpram().ep_out_control(index - 1).write(|w| {
+                    w.set_enable(false);
+                    w.set_buffer_address(addr);
+                    w.set_interrupt_per_buff(true);
+                    w.set_double_buffered(double_buffered);
+                    w.set_endpoint_type(ep_type_reg);
+                });
+                if double_buffered {
+                    reset_double_buffered_out::<T>(index, max_packet_size, false);
+                }
+            }
+            Direction::In => {
+                T::dpram().ep_in_control(index - 1).write(|w| {
+                    w.set_enable(false);
+                    w.set_buffer_address(addr);
+                    w.set_interrupt_per_buff(true);
+                    w.set_double_buffered(double_buffered);
+                    w.set_endpoint_type(ep_type_reg);
+                });
+                if double_buffered {
+                    reset_double_buffered_in::<T>(index);
+                }
+            }
         }
 
         Ok(Endpoint {
@@ -228,6 +330,14 @@ impl<'d, T: Instance> Driver<'d, T> {
                 interval_ms,
             },
             buf,
+            double_buffer: double_buffered.then(|| DoubleBuffer {
+                next_buf: 0,
+                next_pid: false,
+                reset_generation: match D::dir() {
+                    Direction::In => EP_IN_RESET_GENERATION[index].load(Ordering::Relaxed),
+                    Direction::Out => EP_OUT_RESET_GENERATION[index].load(Ordering::Relaxed),
+                },
+            }),
         })
     }
 }
@@ -291,7 +401,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
+        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms, false)
     }
 
     fn alloc_endpoint_out(
@@ -301,7 +411,23 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
+        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms, false)
+    }
+
+    fn alloc_endpoint_bulk_out_double_buffered(
+        &mut self,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+    ) -> Result<Self::EndpointOut, EndpointAllocError> {
+        self.alloc_endpoint(EndpointType::Bulk, ep_addr, max_packet_size, 0, true)
+    }
+
+    fn alloc_endpoint_bulk_in_double_buffered(
+        &mut self,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+    ) -> Result<Self::EndpointIn, EndpointAllocError> {
+        self.alloc_endpoint(EndpointType::Bulk, ep_addr, max_packet_size, 0, true)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -328,6 +454,8 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
                 phantom: PhantomData,
                 inited: false,
                 ep_out: self.ep_out,
+                double_in: self.double_in,
+                double_out: self.double_out,
             },
             ControlPipe {
                 _phantom: PhantomData,
@@ -341,6 +469,8 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ep_out: [EndpointData; EP_COUNT],
+    double_in: u16,
+    double_out: u16,
     inited: bool,
 }
 
@@ -365,6 +495,20 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             }
 
             if siestatus.bus_reset() {
+                critical_section::with(|_| {
+                    // Disable and flush before consuming the reset flag, so a
+                    // preempted packet handoff cannot resume in the old epoch.
+                    for i in 1..EP_COUNT {
+                        if self.double_in & (1 << i) != 0 {
+                            T::dpram().ep_in_control(i - 1).modify(|w| w.set_enable(false));
+                            reset_double_buffered_in::<T>(i);
+                        }
+                        if self.double_out & (1 << i) != 0 {
+                            T::dpram().ep_out_control(i - 1).modify(|w| w.set_enable(false));
+                            reset_double_buffered_out::<T>(i, self.ep_out[i].max_packet_size, false);
+                        }
+                    }
+                });
                 regs.sie_status().write(|w| {
                     w.set_bus_reset(true);
                     w.set_setup_rec(true);
@@ -424,15 +568,30 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             T::dpram().ep_out_buffer_control(n)
         };
 
+        let double_buffered = (if ep_addr.is_in() {
+            self.double_in
+        } else {
+            self.double_out
+        }) & (1 << n)
+            != 0;
+
         match (stalled, ep_addr.direction()) {
+            (true, _) if double_buffered => critical_section::with(|_| ctrl.write(|w| w.set_stall(true))),
             // write, not modify: clears AVAILABLE so an in-flight packet can't complete instead of stalling.
             (true, _) => ctrl.write(|w| w.set_stall(true)),
 
             // the control pipe resets EP0's toggle on every SETUP, so only drop the stall.
             (false, _) if n == 0 => ctrl.modify(|w| w.set_stall(false)),
 
-            // clearing a halt resets the toggle to DATA0 (USB 2.0 §9.4.5), but PID is flipped before use.
+            // clearing a halt resets the toggle to DATA0 (USB 2.0 §9.4.5).
+            (false, Direction::In) if double_buffered => reset_double_buffered_in::<T>(n),
+
+            // same, but PID is flipped before use.
             (false, Direction::In) => ctrl.write(|w| w.set_pid(0, true)),
+
+            (false, Direction::Out) if double_buffered => {
+                reset_double_buffered_out::<T>(n, self.ep_out[n].max_packet_size, true);
+            }
 
             // same, plus re-arm the buffer that stalling un-armed.
             (false, Direction::Out) => {
@@ -473,12 +632,28 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
         let n = ep_addr.index();
         match ep_addr.direction() {
+            Direction::In if self.double_in & (1 << n) != 0 => {
+                critical_section::with(|_| {
+                    T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(false));
+                    reset_double_buffered_in::<T>(n);
+                    T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(enabled));
+                });
+                EP_IN_WAKERS[n].wake();
+            }
             Direction::In => {
                 T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(enabled));
                 T::dpram().ep_in_buffer_control(ep_addr.index()).write(|w| {
                     w.set_pid(0, true); // first packet is DATA0, but PID is flipped before
                 });
                 EP_IN_WAKERS[n].wake();
+            }
+            Direction::Out if self.double_out & (1 << n) != 0 => {
+                critical_section::with(|_| {
+                    T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(false));
+                    reset_double_buffered_out::<T>(n, self.ep_out[n].max_packet_size, enabled);
+                    T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(enabled));
+                });
+                EP_OUT_WAKERS[n].wake();
             }
             Direction::Out => {
                 T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(enabled));
@@ -526,6 +701,17 @@ pub struct Endpoint<'d, T: Instance, D> {
     _phantom: PhantomData<(&'d mut T, D)>,
     info: EndpointInfo,
     buf: EndpointBuffer<T>,
+    double_buffer: Option<DoubleBuffer>,
+}
+
+/// Software state of a double-buffered bulk endpoint.
+struct DoubleBuffer {
+    /// Hardware buffer (0 or 1) that holds the next packet.
+    next_buf: usize,
+    /// DATA PID of the next IN packet.
+    next_pid: bool,
+    /// Last seen value of the endpoint's reset generation.
+    reset_generation: u32,
 }
 
 impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
@@ -564,8 +750,55 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
     }
 }
 
+impl<'d, T: Instance> Endpoint<'d, T, Out> {
+    async fn read_double_buffered(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            EP_OUT_WAKERS[index].register(cx.waker());
+            // Serialize readiness, packet copying and re-arming with reset/clear-halt.
+            critical_section::with(|_| {
+                if T::regs().sie_status().read().bus_reset() || !T::dpram().ep_out_control(index - 1).read().enable() {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                let Some(state) = self.double_buffer.as_mut() else {
+                    unreachable!()
+                };
+                let generation = EP_OUT_RESET_GENERATION[index].load(Ordering::Acquire);
+                if state.reset_generation != generation {
+                    state.reset_generation = generation;
+                    state.next_buf = 0;
+                }
+                let buffer = state.next_buf;
+                let val = T::dpram().ep_out_buffer_control(index).read();
+                if val.stall() || val.available(buffer) || !val.full(buffer) {
+                    return Poll::Pending;
+                }
+                let len = val.length(buffer) as usize;
+                if len > buf.len() {
+                    return Poll::Ready(Err(EndpointError::BufferOverflow)); // retain the packet
+                }
+                self.buf.double_buffer_half(buffer).read(&mut buf[..len]);
+                update_buffer_half::<T>(Direction::Out, index, buffer, |w| {
+                    w.0 = 0;
+                    w.set_pid(0, buffer == 1);
+                    w.set_length(0, self.info.max_packet_size);
+                });
+                cortex_m::asm::delay(12);
+                update_buffer_half::<T>(Direction::Out, index, buffer, |w| w.set_available(0, true));
+                state.next_buf ^= 1;
+                Poll::Ready(Ok(len))
+            })
+        })
+        .await
+    }
+}
+
 impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        if self.double_buffer.is_some() {
+            return self.read_double_buffered(buf).await;
+        }
+
         trace!("READ WAITING, buf.len() = {}", buf.len());
         let index = self.info.addr.index();
         let val = poll_fn(|cx| {
@@ -609,6 +842,9 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         if buf.len() > self.info.max_packet_size as usize {
             return Err(EndpointError::BufferOverflow);
         }
+        if self.double_buffer.is_some() {
+            return self.write_double_buffered(buf).await;
+        }
 
         trace!("WRITE WAITING");
 
@@ -644,6 +880,68 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         trace!("WRITE OK");
 
         Ok(())
+    }
+}
+
+impl<'d, T: Instance> Endpoint<'d, T, In> {
+    async fn write_double_buffered(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+        let index = self.info.addr.index();
+        let buffer_index = poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            if T::regs().sie_status().read().bus_reset() || !T::dpram().ep_in_control(index - 1).read().enable() {
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
+            let Some(state) = self.double_buffer.as_mut() else {
+                unreachable!()
+            };
+            let generation = EP_IN_RESET_GENERATION[index].load(Ordering::Acquire);
+            if state.reset_generation != generation {
+                state.reset_generation = generation;
+                state.next_buf = 0;
+                state.next_pid = false;
+            }
+            let buffer = state.next_buf;
+            let val = T::dpram().ep_in_buffer_control(index).read();
+            // stay parked while stalled, otherwise the write below would clear the stall.
+            if val.available(buffer) || val.stall() {
+                Poll::Pending
+            } else {
+                Poll::Ready(Ok(buffer))
+            }
+        })
+        .await?;
+
+        critical_section::with(|_| {
+            let Some(state) = self.double_buffer.as_mut() else {
+                unreachable!()
+            };
+            if T::regs().sie_status().read().bus_reset()
+                || !T::dpram().ep_in_control(index - 1).read().enable()
+                || EP_IN_RESET_GENERATION[index].load(Ordering::Acquire) != state.reset_generation
+            {
+                return Err(EndpointError::Disabled);
+            }
+            self.buf.double_buffer_half(buffer_index).write(buf);
+
+            let pid = state.next_pid;
+            update_buffer_half::<T>(Direction::In, index, buffer_index, |w| {
+                w.set_pid(0, pid);
+                w.set_length(0, buf.len() as _);
+                w.set_full(0, true);
+            });
+            cortex_m::asm::delay(12);
+            update_buffer_half::<T>(Direction::In, index, buffer_index, |w| {
+                w.set_pid(0, pid);
+                w.set_length(0, buf.len() as _);
+                w.set_full(0, true);
+                w.set_available(0, true);
+            });
+
+            state.next_buf ^= 1;
+            state.next_pid = !state.next_pid;
+            trace!("WRITE OK");
+            Ok(())
+        })
     }
 }
 
