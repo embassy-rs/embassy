@@ -1300,11 +1300,19 @@ impl<'d> UartRx<'d, Async> {
         // wait for DMA to complete or IDLE line detection if requested
         let res = self.inner_read_run(buffer, enable_idle_line_detection).await;
 
-        match res {
-            Ok(ReadCompletionEvent::DmaCompleted) => Ok(buffer_len),
-            Ok(ReadCompletionEvent::Idle(n)) => Ok(n),
-            Err(e) => Err(e),
+        let n = match res {
+            Ok(ReadCompletionEvent::DmaCompleted) => buffer_len,
+            Ok(ReadCompletionEvent::Idle(n)) => n,
+            Err(e) => return Err(e),
+        };
+
+        if let Some(mask) = rx_data_mask(self.info.regs) {
+            for w in &mut buffer[..n] {
+                *w = w.mask(mask);
+            }
         }
+
+        Ok(n)
     }
 }
 
@@ -1529,9 +1537,10 @@ impl<'d, M: PeriMode> UartRx<'d, M> {
             });
         }
 
+        let mask = rx_data_mask(r).unwrap_or(0x1FF);
         for b in buffer {
             while !self.check_rx_flags()? {}
-            unsafe { *b = W::rdr_ptr(r).read_volatile() }
+            unsafe { *b = W::rdr_ptr(r).read_volatile().mask(mask) }
         }
         Ok(())
     }
@@ -2883,6 +2892,9 @@ pub(crate) trait SealedUsartWord {
 
     /// Receive data register, accessed at this word's width.
     fn rdr_ptr(r: Regs) -> *mut Self;
+
+    /// Keep only the bits selected by `mask` (see [`rx_data_mask`]).
+    fn mask(self, mask: u16) -> Self;
 }
 
 /// The word sizes the USART data register can carry.
@@ -2902,6 +2914,10 @@ impl SealedUsartWord for u8 {
     fn rdr_ptr(r: Regs) -> *mut u8 {
         rdr(r)
     }
+
+    fn mask(self, mask: u16) -> u8 {
+        self & mask as u8
+    }
 }
 
 impl UsartWord for u8 {}
@@ -2914,9 +2930,34 @@ impl SealedUsartWord for u16 {
     fn rdr_ptr(r: Regs) -> *mut u16 {
         rdr(r).cast()
     }
+
+    fn mask(self, mask: u16) -> u16 {
+        self & mask
+    }
 }
 
 impl UsartWord for u16 {}
+
+/// Bits of a received word that carry data, or `None` if every received bit is data.
+///
+/// When parity is enabled, the hardware stores the received parity bit in the MSB of the
+/// frame: bit 7 for 7 data bits, bit 8 for 8 data bits. Mask it off so readers only see
+/// the data bits; parity errors are reported through [`Error::Parity`]. Without parity
+/// there is nothing to strip, so callers can skip masking entirely.
+fn rx_data_mask(r: Regs) -> Option<u16> {
+    let cr1 = r.cr1().read();
+    if !cr1.pce() {
+        return None;
+    }
+    #[cfg(any(usart_v3, usart_v4))]
+    if cr1.m1() == vals::M1::Bit7 {
+        return Some(0x3F);
+    }
+    match cr1.m0() {
+        vals::M0::Bit9 => Some(0xFF),
+        _ => Some(0x7F),
+    }
+}
 
 #[cfg(any(usart_v1, usart_v2))]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {

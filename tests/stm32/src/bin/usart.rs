@@ -8,7 +8,7 @@ use defmt::{assert, assert_eq, unreachable};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::mode::Blocking;
-use embassy_stm32::usart::{BufferedUart, Config, ConfigError, Error, Uart};
+use embassy_stm32::usart::{BufferedUart, Config, ConfigError, DataBits, Error, Parity, Uart};
 use embassy_time::{Duration, Instant, block_for};
 use embedded_io_async::Write;
 
@@ -67,6 +67,23 @@ async fn main(_spawner: Spawner) {
         }
 
         assert!(is_ok);
+    }
+
+    // Test that the parity bit is not returned as data with 7 data bits + parity.
+    // The hardware stores the received parity bit in bit 7 of the data register.
+    {
+        let mut config = Config::default();
+        config.data_bits = DataBits::DataBits7;
+        config.parity = Parity::ParityEven;
+        let mut usart = Uart::new_blocking(usart.reborrow(), tx.reborrow(), rx.reborrow(), config).unwrap();
+
+        // 0x01 has an odd number of ones, so its even parity bit is 1.
+        let data = [0x01, 0x03];
+        usart.blocking_write(&data).unwrap();
+
+        let mut buf = [0; 2];
+        usart.blocking_read(&mut buf).unwrap();
+        assert_eq!(buf, data);
     }
 
     // Test error handling with with an overflow error

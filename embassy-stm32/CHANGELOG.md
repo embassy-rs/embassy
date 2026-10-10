@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+USART:
+- fix: stm32/usart: strip the received parity bit from read data when parity is enabled (7 data bits + parity returned the parity bit in bit 7, 8 data bits + parity in bit 8 of `u16` reads).
+
 I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
 
