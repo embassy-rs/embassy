@@ -88,7 +88,8 @@ async fn main(_spawner: Spawner) {
         .vendor_id("Embassy")
         .product_id("RAM Disk")
         .product_revision_level("1.0")
-        .serial_number("12345678");
+        .serial_number("12345678")
+        .double_buffered(true);
 
     let mut msc = MscClass::new(&mut builder, &mut state, msc_config);
     let mut usb = builder.build();
