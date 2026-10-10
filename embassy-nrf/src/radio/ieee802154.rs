@@ -439,6 +439,74 @@ impl<'d> Radio<'d> {
             TransmitResult::ChannelInUse => Err(Error::ChannelInUse),
         }
     }
+
+    /// Sends the given `packet` without performing Clear Channel Assessment (CCA)
+    ///
+    /// The transmission starts as soon as the radio has ramped up, whether or not the channel is
+    /// in use. IEEE 802.15.4 requires this for acknowledgment (ACK) frames; other frames should
+    /// normally be sent with [`try_send`](Self::try_send)
+    ///
+    /// The radio is disabled once the `packet` has been sent. If the returned future is dropped
+    /// before it completes, the transmission is aborted and the radio is disabled
+    ///
+    /// NOTE this method will *not* modify the `packet` argument. The mutable reference is used to
+    /// ensure the `packet` buffer is allocated in RAM, which is required by the RADIO peripheral
+    // NOTE we do NOT check the address of `packet` because the mutable reference ensures it's
+    // allocated in RAM
+    pub async fn send_no_cca(&mut self, packet: &mut Packet) {
+        let s = self.state;
+        let r = self.r;
+
+        self.receive_prepare();
+
+        // Configure shortcuts
+        //
+        // The radio goes through following states when sending a 802.15.4 packet without CCA
+        //
+        // enable TX → ramp up TX → start TX → TX → end (PHYEND) → disabled
+        r.shorts().write(|w| {
+            w.set_txready_start(true);
+            w.set_phyend_disable(true);
+        });
+
+        // Set transmission buffer
+        self.set_buffer(packet.buffer.as_mut());
+
+        self.clear_all_interrupts();
+
+        // the DMA transfer will start at some point after the following write operation so
+        // we place the compiler fence here
+        dma_start_fence();
+        r.tasks_txen().write_value(1);
+
+        let dropper = OnDrop::new(|| {
+            r.shorts().write(|_| {});
+            self.clear_all_interrupts();
+            self.disable();
+            // aborting an ongoing transmission raises PHYEND
+            r.events_phyend().write_value(0);
+            // DMA transfer may have been in progress so synchronize with its memory operations
+            dma_end_fence();
+        });
+
+        core::future::poll_fn(|cx| {
+            s.event_waker.register(cx.waker());
+
+            if r.events_phyend().read() != 0 {
+                r.events_phyend().write_value(0);
+                trace!("TX done poll");
+                return Poll::Ready(());
+            }
+
+            r.intenset().write(|w| w.set_phyend(true));
+
+            Poll::Pending
+        })
+        .await;
+
+        dma_end_fence();
+        dropper.defuse();
+    }
 }
 
 /// An IEEE 802.15.4 packet
