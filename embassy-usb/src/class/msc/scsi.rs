@@ -33,6 +33,10 @@ pub(crate) const RW6_LBA_MSB_MASK: u8 = 0x1f;
 /// Transfer length 0 in READ(6) / WRITE(6) means 256 blocks.
 pub(crate) const RW6_ZERO_LENGTH_BLOCKS: u32 = 256;
 
+// SERVICE ACTION IN(16) CDB (SPC-4).
+/// Byte 1 bits holding the service action.
+pub(crate) const SERVICE_ACTION_MASK: u8 = 0x1f;
+
 // Additional sense codes.
 pub(crate) const ASC_WRITE_ERROR: u8 = 0x0c;
 pub(crate) const ASC_UNRECOVERED_READ_ERROR: u8 = 0x11;

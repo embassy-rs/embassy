@@ -478,6 +478,11 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             SCSI_MODE_SENSE_10 => self.mode_sense_10(cbw, block_device).await,
             SCSI_READ_FORMAT_CAPACITIES => self.read_format_capacities(cbw, block_device).await,
             SCSI_READ_CAPACITY_10 => self.read_capacity_10(cbw, block_device).await,
+            SCSI_SERVICE_ACTION_IN_16
+                if cbw.cb_length >= 16 && cbw.cb[1] & SERVICE_ACTION_MASK == SCSI_SA_READ_CAPACITY_16 =>
+            {
+                self.read_capacity_16(cbw, block_device).await
+            }
             SCSI_START_STOP_UNIT => self.start_stop_unit(cbw, block_device).await,
             SCSI_PREVENT_ALLOW_MEDIUM_REMOVAL => Ok(self.prevent_allow_medium_removal(cbw)),
             SCSI_SYNCHRONIZE_CACHE_10 => self.synchronize_cache_10(cbw, block_device).await,
@@ -719,6 +724,29 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         data[4..8].copy_from_slice(&block_size.to_be_bytes());
 
         let result = self.send_in_data(cbw, &data).await?;
+        self.sense = SenseData::NO_SENSE;
+        Ok(result)
+    }
+
+    async fn read_capacity_16<B: AsyncBlockDevice>(
+        &mut self,
+        cbw: &Cbw,
+        block_device: &B,
+    ) -> Result<CommandResult, EndpointError> {
+        if cbw.data_transfer_length > 0 && !cbw.direction_in() {
+            return Ok(CommandResult::phase_error(cbw.data_transfer_length));
+        }
+
+        let mut data = [0u8; 32];
+        let last_lba = block_device.block_count().saturating_sub(1) as u64;
+        let block_size = block_device.block_size();
+
+        data[0..8].copy_from_slice(&last_lba.to_be_bytes());
+        data[8..12].copy_from_slice(&block_size.to_be_bytes());
+
+        let allocation_len = u32::from_be_bytes([cbw.cb[10], cbw.cb[11], cbw.cb[12], cbw.cb[13]]) as usize;
+        let len = min(data.len(), allocation_len);
+        let result = self.send_in_data(cbw, &data[..len]).await?;
         self.sense = SenseData::NO_SENSE;
         Ok(result)
     }
