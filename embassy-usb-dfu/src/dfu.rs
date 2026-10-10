@@ -20,7 +20,7 @@ pub struct FirmwareHandler<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const
     buf: AlignedBuffer<BLOCK_SIZE>,
     reset: RST,
 
-    #[cfg(feature = "_verify")]
+    #[cfg(feature = "verify")]
     public_key: &'static [u8; 32],
 }
 
@@ -31,7 +31,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize>
     pub fn new(
         updater: BlockingFirmwareUpdater<'d, DFU, STATE>,
         reset: RST,
-        #[cfg(feature = "_verify")] public_key: &'static [u8; 32],
+        #[cfg(feature = "verify")] public_key: &'static [u8; 32],
     ) -> Self {
         Self {
             updater,
@@ -39,7 +39,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize>
             buf: AlignedBuffer([0; BLOCK_SIZE]),
             reset,
 
-            #[cfg(feature = "_verify")]
+            #[cfg(feature = "verify")]
             public_key,
         }
     }
@@ -91,7 +91,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> df
     fn finish(&mut self) -> Result<(), Status> {
         debug!("Receiving final transfer");
 
-        #[cfg(feature = "_verify")]
+        #[cfg(feature = "verify")]
         let update_res: Result<(), FirmwareUpdaterError> = {
             const SIGNATURE_LEN: usize = 64;
 
@@ -100,11 +100,16 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> df
 
             self.updater.read_dfu(update_len, &mut signature).and_then(|_| {
                 self.updater
-                    .verify_and_mark_updated(self.public_key, &signature, update_len)
+                    .verify_and_mark_updated::<embassy_crypto::Sha512, embassy_crypto::ed25519::VerifyingKey>(
+                        self.public_key,
+                        &signature,
+                        self.buf.as_mut(),
+                        update_len,
+                    )
             })
         };
 
-        #[cfg(not(feature = "_verify"))]
+        #[cfg(not(feature = "verify"))]
         let update_res = self.updater.mark_updated();
 
         match update_res {
@@ -136,12 +141,12 @@ pub fn new_state<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZ
     updater: BlockingFirmwareUpdater<'d, DFU, STATE>,
     attrs: DfuAttributes,
     reset: RST,
-    #[cfg(feature = "_verify")] public_key: &'static [u8; 32],
+    #[cfg(feature = "verify")] public_key: &'static [u8; 32],
 ) -> State<'d, DFU, STATE, RST, BLOCK_SIZE> {
     let handler = FirmwareHandler::new(
         updater,
         reset,
-        #[cfg(feature = "_verify")]
+        #[cfg(feature = "verify")]
         public_key,
     );
     DfuState::new(handler, attrs)
