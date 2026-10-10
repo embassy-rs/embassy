@@ -70,6 +70,7 @@ USB:
 - feat: support double-buffered bulk endpoints on USB v1 (STM32F1, F3 and L1).
 - fix: `ClearFeature(ENDPOINT_HALT)` on an endpoint that was not halted looped forever and hung the device; on a halted endpoint it left the halt set, and setting a halt while a transfer completed could disable the endpoint. Halt requests now apply only to bulk and interrupt endpoints.
 - fix: reset the data toggle to DATA0 when a halt is cleared and when `SET_CONFIGURATION` or `SET_INTERFACE` enables an endpoint (USB 2.0 §9.4.5, §9.1.1.5).
+- fix: the USB errata delay before reading a received packet now waits at least 800 ns, counted in CPU cycles, covers EP0 SETUP and control OUT data, and also applies to STM32U3, which has the same erratum. On STM32H5 it could end after less than 800 ns with the `time` feature and busy-waited 800 µs on every packet without it.
 
 DMA:
 - fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
