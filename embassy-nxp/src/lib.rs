@@ -12,6 +12,8 @@ pub mod casper;
 pub mod dma;
 pub mod gpio;
 #[cfg(lpc55)]
+pub mod hashcrypt;
+#[cfg(lpc55)]
 pub mod i2c;
 #[cfg(lpc55)]
 pub mod pint;
