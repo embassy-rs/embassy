@@ -3,6 +3,8 @@
 // Opcodes.
 pub(crate) const SCSI_TEST_UNIT_READY: u8 = 0x00;
 pub(crate) const SCSI_REQUEST_SENSE: u8 = 0x03;
+pub(crate) const SCSI_READ_6: u8 = 0x08;
+pub(crate) const SCSI_WRITE_6: u8 = 0x0a;
 pub(crate) const SCSI_INQUIRY: u8 = 0x12;
 pub(crate) const SCSI_MODE_SENSE_6: u8 = 0x1a;
 pub(crate) const SCSI_START_STOP_UNIT: u8 = 0x1b;
@@ -16,12 +18,20 @@ pub(crate) const SCSI_MODE_SENSE_10: u8 = 0x5a;
 pub(crate) const SCSI_READ_16: u8 = 0x88;
 pub(crate) const SCSI_WRITE_16: u8 = 0x8a;
 pub(crate) const SCSI_SERVICE_ACTION_IN_16: u8 = 0x9e;
+pub(crate) const SCSI_READ_12: u8 = 0xa8;
+pub(crate) const SCSI_WRITE_12: u8 = 0xaa;
 pub(crate) const SCSI_SA_READ_CAPACITY_16: u8 = 0x10;
 
 // START STOP UNIT CDB byte 4 (SBC-3 §5.25).
 pub(crate) const SSU_START: u8 = 0x01;
 pub(crate) const SSU_LOEJ: u8 = 0x02;
 pub(crate) const SSU_POWER_CONDITION_MASK: u8 = 0xf0;
+
+// READ(6) / WRITE(6) CDB (SBC-3).
+/// Byte 1 bits holding the top of the 21-bit LBA.
+pub(crate) const RW6_LBA_MSB_MASK: u8 = 0x1f;
+/// Transfer length 0 in READ(6) / WRITE(6) means 256 blocks.
+pub(crate) const RW6_ZERO_LENGTH_BLOCKS: u32 = 256;
 
 // Additional sense codes.
 pub(crate) const ASC_WRITE_ERROR: u8 = 0x0c;
@@ -117,4 +127,164 @@ impl SenseData {
         asc: 0,
         ascq: 0,
     };
+}
+
+/// A decoded READ or WRITE command (6, 10, 12 or 16 byte CDB).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) struct ReadWrite {
+    pub write: bool,
+    pub lba: u64,
+    pub blocks: u32,
+}
+
+impl ReadWrite {
+    /// Decodes `cb` if it holds a READ or WRITE command, else returns `None`.
+    pub fn parse(cb: &[u8; 16]) -> Option<Self> {
+        let be32 = |b: &[u8]| u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
+        let (lba, blocks) = match cb[0] {
+            SCSI_READ_6 | SCSI_WRITE_6 => {
+                let lba = u32::from_be_bytes([0, cb[1] & RW6_LBA_MSB_MASK, cb[2], cb[3]]);
+                let blocks = match cb[4] {
+                    0 => RW6_ZERO_LENGTH_BLOCKS,
+                    n => n as u32,
+                };
+                (lba as u64, blocks)
+            }
+            SCSI_READ_10 | SCSI_WRITE_10 => (be32(&cb[2..6]) as u64, u16::from_be_bytes([cb[7], cb[8]]) as u32),
+            SCSI_READ_12 | SCSI_WRITE_12 => (be32(&cb[2..6]) as u64, be32(&cb[6..10])),
+            SCSI_READ_16 | SCSI_WRITE_16 => {
+                let lba = (be32(&cb[2..6]) as u64) << 32 | be32(&cb[6..10]) as u64;
+                (lba, be32(&cb[10..14]))
+            }
+            _ => return None,
+        };
+        let write = matches!(cb[0], SCSI_WRITE_6 | SCSI_WRITE_10 | SCSI_WRITE_12 | SCSI_WRITE_16);
+        Some(Self { write, lba, blocks })
+    }
+}
+
+/// Builds a READ(10) or WRITE(10) CDB.
+pub(crate) fn rw10_cdb(op: u8, lba: u32, blocks: u16) -> [u8; 10] {
+    let mut cdb = [0u8; 10];
+    cdb[0] = op;
+    cdb[2..6].copy_from_slice(&lba.to_be_bytes());
+    cdb[7..9].copy_from_slice(&blocks.to_be_bytes());
+    cdb
+}
+
+/// Builds a READ(16) or WRITE(16) CDB.
+pub(crate) fn rw16_cdb(op: u8, lba: u64, blocks: u32) -> [u8; 16] {
+    let mut cdb = [0u8; 16];
+    cdb[0] = op;
+    cdb[2..10].copy_from_slice(&lba.to_be_bytes());
+    cdb[10..14].copy_from_slice(&blocks.to_be_bytes());
+    cdb
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cb(bytes: &[u8]) -> [u8; 16] {
+        let mut cb = [0u8; 16];
+        cb[..bytes.len()].copy_from_slice(bytes);
+        cb
+    }
+
+    #[test]
+    fn rw10_cdb_encoding() {
+        let expected = [0, 0, 0x12, 0x34, 0x56, 0x78, 0, 0x12, 0x34, 0];
+        for op in [SCSI_READ_10, SCSI_WRITE_10] {
+            let mut want = expected;
+            want[0] = op;
+            core::assert_eq!(rw10_cdb(op, 0x1234_5678, 0x1234), want);
+        }
+    }
+
+    #[test]
+    fn rw16_cdb_encoding() {
+        #[rustfmt::skip]
+        let expected = [
+            0, 0,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+            0xDE, 0xAD, 0xBE, 0xEF,
+            0, 0,
+        ];
+        for op in [SCSI_READ_16, SCSI_WRITE_16] {
+            let mut want = expected;
+            want[0] = op;
+            core::assert_eq!(rw16_cdb(op, 0x0123_4567_89AB_CDEF, 0xDEAD_BEEF), want);
+        }
+    }
+
+    #[test]
+    fn parses_what_the_host_builds() {
+        for (op, write) in [(SCSI_READ_10, false), (SCSI_WRITE_10, true)] {
+            let rw = ReadWrite::parse(&cb(&rw10_cdb(op, 0x1234_5678, 0xffff))).unwrap();
+            core::assert_eq!(
+                rw,
+                ReadWrite {
+                    write,
+                    lba: 0x1234_5678,
+                    blocks: 0xffff
+                }
+            );
+        }
+        for (op, write) in [(SCSI_READ_16, false), (SCSI_WRITE_16, true)] {
+            let rw = ReadWrite::parse(&cb(&rw16_cdb(op, 0x0123_4567_89AB_CDEF, 0xDEAD_BEEF))).unwrap();
+            core::assert_eq!(
+                rw,
+                ReadWrite {
+                    write,
+                    lba: 0x0123_4567_89AB_CDEF,
+                    blocks: 0xDEAD_BEEF
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn parses_rw6() {
+        // Bits above the 21-bit LBA in byte 1 are masked off.
+        let rw = ReadWrite::parse(&cb(&[SCSI_WRITE_6, 0xff, 0x34, 0x56, 8, 0])).unwrap();
+        core::assert_eq!(
+            rw,
+            ReadWrite {
+                write: true,
+                lba: 0x1f_3456,
+                blocks: 8
+            }
+        );
+
+        let rw = ReadWrite::parse(&cb(&[SCSI_READ_6, 0, 0, 1, 0, 0])).unwrap();
+        core::assert_eq!(
+            rw,
+            ReadWrite {
+                write: false,
+                lba: 1,
+                blocks: 256
+            }
+        );
+    }
+
+    #[test]
+    fn parses_rw12() {
+        let rw = ReadWrite::parse(&cb(&[SCSI_READ_12, 0, 0, 0, 0x10, 0, 0x00, 0x01, 0x00, 0x00])).unwrap();
+        core::assert_eq!(
+            rw,
+            ReadWrite {
+                write: false,
+                lba: 0x1000,
+                blocks: 0x1_0000
+            }
+        );
+        core::assert!(ReadWrite::parse(&cb(&[SCSI_WRITE_12])).unwrap().write);
+    }
+
+    #[test]
+    fn ignores_other_opcodes() {
+        core::assert_eq!(ReadWrite::parse(&cb(&[SCSI_INQUIRY])), None);
+        core::assert_eq!(ReadWrite::parse(&cb(&[SCSI_SYNCHRONIZE_CACHE_10])), None);
+    }
 }

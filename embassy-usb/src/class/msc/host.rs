@@ -921,10 +921,10 @@ where
             let chunk = &mut buf[offset..offset + bytes];
 
             let residue = if use_10 {
-                let cdb = read10_cdb(cur_lba as u32, n as u16);
+                let cdb = rw10_cdb(SCSI_READ_10, cur_lba as u32, n as u16);
                 run_with_sense_locked(&mut t, self.lun, &cdb, DataDir::In(chunk)).await?
             } else {
-                let cdb = read16_cdb(cur_lba, n);
+                let cdb = rw16_cdb(SCSI_READ_16, cur_lba, n);
                 run_with_sense_locked(&mut t, self.lun, &cdb, DataDir::In(chunk)).await?
             };
             if residue != 0 {
@@ -962,10 +962,10 @@ where
             let chunk = &buf[offset..offset + bytes];
 
             let residue = if use_10 {
-                let cdb = write10_cdb(cur_lba as u32, n as u16);
+                let cdb = rw10_cdb(SCSI_WRITE_10, cur_lba as u32, n as u16);
                 run_with_sense_locked(&mut t, self.lun, &cdb, DataDir::Out(chunk)).await?
             } else {
-                let cdb = write16_cdb(cur_lba, n);
+                let cdb = rw16_cdb(SCSI_WRITE_16, cur_lba, n);
                 run_with_sense_locked(&mut t, self.lun, &cdb, DataDir::Out(chunk)).await?
             };
             if residue != 0 {
@@ -1098,64 +1098,6 @@ fn check_block_args(lba: u64, bytes: usize, cap: &BlockCapacity) -> Result<(usiz
         return Err(MscError::OutOfRange);
     }
     Ok((block_size, total_blocks))
-}
-
-fn read10_cdb(lba: u32, blocks: u16) -> [u8; 10] {
-    let lba = lba.to_be_bytes();
-    let bl = blocks.to_be_bytes();
-    [SCSI_READ_10, 0, lba[0], lba[1], lba[2], lba[3], 0, bl[0], bl[1], 0]
-}
-
-fn write10_cdb(lba: u32, blocks: u16) -> [u8; 10] {
-    let lba = lba.to_be_bytes();
-    let bl = blocks.to_be_bytes();
-    [SCSI_WRITE_10, 0, lba[0], lba[1], lba[2], lba[3], 0, bl[0], bl[1], 0]
-}
-
-fn read16_cdb(lba: u64, blocks: u32) -> [u8; 16] {
-    let lba = lba.to_be_bytes();
-    let bl = blocks.to_be_bytes();
-    [
-        SCSI_READ_16,
-        0,
-        lba[0],
-        lba[1],
-        lba[2],
-        lba[3],
-        lba[4],
-        lba[5],
-        lba[6],
-        lba[7],
-        bl[0],
-        bl[1],
-        bl[2],
-        bl[3],
-        0,
-        0,
-    ]
-}
-
-fn write16_cdb(lba: u64, blocks: u32) -> [u8; 16] {
-    let lba = lba.to_be_bytes();
-    let bl = blocks.to_be_bytes();
-    [
-        SCSI_WRITE_16,
-        0,
-        lba[0],
-        lba[1],
-        lba[2],
-        lba[3],
-        lba[4],
-        lba[5],
-        lba[6],
-        lba[7],
-        bl[0],
-        bl[1],
-        bl[2],
-        bl[3],
-        0,
-        0,
-    ]
 }
 
 #[cfg(test)]
@@ -1315,42 +1257,6 @@ mod tests {
                 check_block_args(lba, bytes, &CAP_1K_512),
                 Err(MscError::OutOfRange)
             ));
-        }
-    }
-
-    // ----------------------------------------------------------------------
-    // CDB encoders
-    // ----------------------------------------------------------------------
-
-    #[test]
-    fn read_write_10_cdb_encoding() {
-        let expected = [0, 0, 0x12, 0x34, 0x56, 0x78, 0, 0x12, 0x34, 0];
-        for (op, cdb) in [
-            (SCSI_READ_10, read10_cdb(0x1234_5678, 0x1234)),
-            (SCSI_WRITE_10, write10_cdb(0x1234_5678, 0x1234)),
-        ] {
-            let mut want = expected;
-            want[0] = op;
-            assert_eq!(cdb, want);
-        }
-    }
-
-    #[test]
-    fn read_write_16_cdb_encoding() {
-        #[rustfmt::skip]
-        let expected = [
-            0, 0,
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-            0xDE, 0xAD, 0xBE, 0xEF,
-            0, 0,
-        ];
-        for (op, cdb) in [
-            (SCSI_READ_16, read16_cdb(0x0123_4567_89AB_CDEF, 0xDEAD_BEEF)),
-            (SCSI_WRITE_16, write16_cdb(0x0123_4567_89AB_CDEF, 0xDEAD_BEEF)),
-        ] {
-            let mut want = expected;
-            want[0] = op;
-            assert_eq!(cdb, want);
         }
     }
 }
