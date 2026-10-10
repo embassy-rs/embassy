@@ -1306,9 +1306,10 @@ impl<'d> UartRx<'d, Async> {
             Err(e) => return Err(e),
         };
 
-        let mask = rx_data_mask(self.info.regs);
-        for w in &mut buffer[..n] {
-            *w = w.mask(mask);
+        if let Some(mask) = rx_data_mask(self.info.regs) {
+            for w in &mut buffer[..n] {
+                *w = w.mask(mask);
+            }
         }
 
         Ok(n)
@@ -1536,7 +1537,7 @@ impl<'d, M: PeriMode> UartRx<'d, M> {
             });
         }
 
-        let mask = rx_data_mask(r);
+        let mask = rx_data_mask(r).unwrap_or(0x1FF);
         for b in buffer {
             while !self.check_rx_flags()? {}
             unsafe { *b = W::rdr_ptr(r).read_volatile().mask(mask) }
@@ -2937,23 +2938,24 @@ impl SealedUsartWord for u16 {
 
 impl UsartWord for u16 {}
 
-/// Bits of a received word that carry data.
+/// Bits of a received word that carry data, or `None` if every received bit is data.
 ///
 /// When parity is enabled, the hardware stores the received parity bit in the MSB of the
 /// frame: bit 7 for 7 data bits, bit 8 for 8 data bits. Mask it off so readers only see
-/// the data bits; parity errors are reported through [`Error::Parity`].
-fn rx_data_mask(r: Regs) -> u16 {
+/// the data bits; parity errors are reported through [`Error::Parity`]. Without parity
+/// there is nothing to strip, so callers can skip masking entirely.
+fn rx_data_mask(r: Regs) -> Option<u16> {
     let cr1 = r.cr1().read();
     if !cr1.pce() {
-        return 0x1FF;
+        return None;
     }
     #[cfg(any(usart_v3, usart_v4))]
     if cr1.m1() == vals::M1::Bit7 {
-        return 0x3F;
+        return Some(0x3F);
     }
     match cr1.m0() {
-        vals::M0::Bit9 => 0xFF,
-        _ => 0x7F,
+        vals::M0::Bit9 => Some(0xFF),
+        _ => Some(0x7F),
     }
 }
 

@@ -263,9 +263,10 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
             match self.ring_buf.read(buf) {
                 Ok((0, _)) => {}
                 Ok((len, _)) => {
-                    let mask = rx_data_mask(r);
-                    for w in &mut buf[..len] {
-                        *w = w.mask(mask);
+                    if let Some(mask) = rx_data_mask(r) {
+                        for w in &mut buf[..len] {
+                            *w = w.mask(mask);
+                        }
                     }
                     return Ok(len);
                 }

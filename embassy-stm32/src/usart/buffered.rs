@@ -38,7 +38,7 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     }
 
     // RX
-    let mask = rx_data_mask(r) as u8;
+    let mask = rx_data_mask(r).unwrap_or(0xFF) as u8;
     let sr_val = sr(r).read();
     // On v1 & v2, reading DR clears the rxne, error and idle interrupt
     // flags. Keep this close to the SR read to reduce the chance of a
