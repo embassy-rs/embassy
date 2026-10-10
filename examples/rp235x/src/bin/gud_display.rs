@@ -113,7 +113,7 @@ async fn main(_spawner: Spawner) {
             supported_rotations: 0,
             connectors,
             // The discard sink has no constraints.
-            validate_mode: |_, _| true,
+            validate_mode_blocking: |_, _| true,
         });
 
         GudClass::new(&mut builder, state, gud_config)

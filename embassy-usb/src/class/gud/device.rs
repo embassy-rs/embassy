@@ -660,7 +660,9 @@ pub struct Config<'d> {
     /// host uses in `wValue` and `SET_STATE_CHECK`.
     pub connectors: &'d [GudConnector<'d>],
     /// Validate a mode for the given connector index during `SET_STATE_CHECK`.
-    pub validate_mode: fn(connector: u8, mode: &DisplayMode) -> bool,
+    // TODO: Support deferred control responses in embassy-usb before making this async,
+    // so SET_STATE_CHECK can await validation before its status stage is accepted or rejected.
+    pub validate_mode_blocking: fn(connector: u8, mode: &DisplayMode) -> bool,
 }
 
 impl Config<'_> {
@@ -1177,7 +1179,7 @@ fn validate_state_check(config: &Config, data: &[u8]) -> Result<DisplayState, u8
     let w = mode.hdisplay as u32;
     let h = mode.vdisplay as u32;
     let in_range = w >= config.min_width && w <= config.max_width && h >= config.min_height && h <= config.max_height;
-    if !in_range || !(config.validate_mode)(connector_idx, &mode) {
+    if !in_range || !(config.validate_mode_blocking)(connector_idx, &mode) {
         return Err(GUD_STATUS_INVALID_PARAMETER);
     }
 
@@ -1489,7 +1491,7 @@ mod tests {
             formats: FORMATS,
             supported_rotations: ROTATION_0 | ROTATION_90,
             connectors,
-            validate_mode: |_, _| true,
+            validate_mode_blocking: |_, _| true,
         }
     }
 
@@ -1602,7 +1604,7 @@ mod tests {
             .unwrap();
         let connectors = [connector(&connector_state); 2];
         let cfg = Config {
-            validate_mode: |connector, requested| connector == 1 && requested.clock == 148501,
+            validate_mode_blocking: |connector, requested| connector == 1 && requested.clock == 148501,
             ..config(&connectors)
         };
         let custom = DisplayMode {
