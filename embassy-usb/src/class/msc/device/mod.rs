@@ -42,6 +42,9 @@ pub struct Config {
     pub serial_number: [u8; 32],
     /// Length of the unit serial number in bytes (0..=32).
     pub serial_number_len: u8,
+    /// Ask the driver to double-buffer the bulk endpoints. See
+    /// [`Driver::alloc_endpoint_bulk_in_double_buffered`].
+    pub double_buffered: bool,
 }
 
 impl Config {
@@ -58,6 +61,7 @@ impl Config {
             product_revision_level: [b' '; 4],
             serial_number: [0u8; 32],
             serial_number_len: 0,
+            double_buffered: false,
         }
     }
 
@@ -92,6 +96,15 @@ impl Config {
     /// Sets the SCSI Product Revision Level (space-padded or truncated to 4 bytes).
     pub fn set_product_revision_level(&mut self, revision: &str) {
         copy_pad_ascii(&mut self.product_revision_level, revision);
+    }
+
+    /// Asks the driver to double-buffer the bulk endpoints.
+    ///
+    /// This improves throughput on drivers that support it, at the cost of more endpoint
+    /// resources. Drivers that don't support it allocate ordinary endpoints.
+    pub fn double_buffered(mut self, double_buffered: bool) -> Self {
+        self.double_buffered = double_buffered;
+        self
     }
 
     /// Sets the Unit Serial Number (up to 32 ASCII characters).
@@ -316,8 +329,17 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             None,
         );
 
-        let read_ep = alt.endpoint_bulk_out(None, config.max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(None, config.max_packet_size);
+        let (read_ep, write_ep) = if config.double_buffered {
+            (
+                alt.endpoint_bulk_out_double_buffered(None, config.max_packet_size),
+                alt.endpoint_bulk_in_double_buffered(None, config.max_packet_size),
+            )
+        } else {
+            (
+                alt.endpoint_bulk_out(None, config.max_packet_size),
+                alt.endpoint_bulk_in(None, config.max_packet_size),
+            )
+        };
 
         drop(func);
 
