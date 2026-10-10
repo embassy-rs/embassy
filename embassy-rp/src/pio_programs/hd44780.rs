@@ -133,8 +133,6 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         let db6 = common.make_pio_pin(db6);
         let db7 = common.make_pio_pin(db7);
 
-        sm.set_pin_dirs(Direction::Out, &[&rs, &rw, &e, &db4, &db5, &db6, &db7]);
-
         let mut cfg = Config::default();
         cfg.use_program(&word_prg.prg, &[&e]);
 
@@ -142,6 +140,7 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         cfg.clock_divider = calculate_pio_clock_divider(1_000_000);
 
         cfg.set_out_pins(&[&db4, &db5, &db6, &db7]);
+        cfg.set_set_pins(&[&rs, &rw]);
         cfg.shift_out = ShiftConfig {
             auto_fill: true,
             direction: ShiftDirection::Left,
@@ -149,6 +148,7 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         };
         cfg.fifo_join = FifoJoin::TxOnly;
         sm.set_config(&cfg);
+        sm.set_pin_dirs(Direction::Out, &[&rs, &rw, &e, &db4, &db5, &db6, &db7]);
 
         sm.set_enable(true);
         // init to 8 bit thrice

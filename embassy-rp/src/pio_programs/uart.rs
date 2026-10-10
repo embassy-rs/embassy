@@ -97,8 +97,6 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
         program: &PioUartTxProgram<'d, PIO>,
     ) -> Self {
         let tx_pin = common.make_pio_pin(tx_pin);
-        sm_tx.set_pins(Level::High, &[&tx_pin]);
-        sm_tx.set_pin_dirs(PioDirection::Out, &[&tx_pin]);
 
         let mut cfg = Config::default();
 
@@ -109,6 +107,8 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
         cfg.fifo_join = FifoJoin::TxOnly;
         cfg.clock_divider = calculate_pio_clock_divider(8 * baud);
         sm_tx.set_config(&cfg);
+        sm_tx.set_pins(Level::High, &[&tx_pin]);
+        sm_tx.set_pin_dirs(PioDirection::Out, &[&tx_pin]);
         sm_tx.set_enable(true);
 
         Self { sm_tx }
@@ -228,15 +228,15 @@ impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
         rx_pin.set_pull(crate::gpio::Pull::Up);
         cfg.set_in_pins(&[&rx_pin]);
         cfg.set_jmp_pin(&rx_pin);
-        sm_rx.set_pins(Level::High, &[&rx_pin]);
 
         cfg.clock_divider = calculate_pio_clock_divider(8 * baud);
         cfg.shift_in.auto_fill = false;
         cfg.shift_in.direction = ShiftDirection::Right;
         cfg.shift_in.threshold = 32;
         cfg.fifo_join = FifoJoin::RxOnly;
-        sm_rx.set_pin_dirs(PioDirection::In, &[&rx_pin]);
         sm_rx.set_config(&cfg);
+        sm_rx.set_pins(Level::High, &[&rx_pin]);
+        sm_rx.set_pin_dirs(PioDirection::In, &[&rx_pin]);
         sm_rx.set_enable(true);
 
         Self { sm_rx }
