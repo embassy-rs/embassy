@@ -934,43 +934,65 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             return;
         }
         // This can race, so do a retry loop.
+        //
+        // Only bulk and interrupt endpoints have a halt feature. EP0 does not implement it
+        // (resetting DTOG_TX would send its status stage as DATA0), and STALL or NAK on an
+        // isochronous endpoint is undefined.
+        //
+        // Clearing the halt feature always resets the data toggle to DATA0, whether or
+        // not the endpoint was halted (USB 2.0 section 9.4.5). Writing 1 to DTOG toggles
+        // it, so writing its current value clears it.
+        //
+        // If disabled, stall does nothing. This is checked once, before the loop: when a
+        // transfer completes between a read and a write below, the STAT toggle can land on
+        // DISABLED, and the next iteration must still move it to the wanted state.
         let reg = T::regs().epr(ep_addr.index() as _);
+        let r = reg.read();
+        let stat = match ep_addr.direction() {
+            Direction::In => r.stat_tx(),
+            Direction::Out => r.stat_rx(),
+        };
+        if !matches!(r.ep_type(), EpType::Bulk | EpType::Interrupt) || stat == Stat::Disabled {
+            return;
+        }
         match ep_addr.direction() {
             Direction::In => {
                 loop {
                     let r = reg.read();
-                    match r.stat_tx() {
-                        Stat::Disabled => break, // if disabled, stall does nothing.
-                        Stat::Stall => break,    // done!
-                        _ => {
-                            let want_stat = match stalled {
-                                false => Stat::Nak,
-                                true => Stat::Stall,
-                            };
-                            let mut w = invariant(r);
-                            w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
-                            reg.write_value(w);
-                        }
+                    let stat = r.stat_tx();
+                    let want_stat = match (stalled, stat) {
+                        (true, _) => Stat::Stall,
+                        (false, Stat::Stall) => Stat::Nak,
+                        (false, stat) => stat,
+                    };
+                    let reset_dtog = !stalled && r.dtog_tx();
+                    if stat == want_stat && !reset_dtog {
+                        break;
                     }
+                    let mut w = invariant(r);
+                    w.set_stat_tx(Stat::from_bits(stat.to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_tx(reset_dtog);
+                    reg.write_value(w);
                 }
                 EP_IN_WAKERS[ep_addr.index()].wake();
             }
             Direction::Out => {
                 loop {
                     let r = reg.read();
-                    match r.stat_rx() {
-                        Stat::Disabled => break, // if disabled, stall does nothing.
-                        Stat::Stall => break,    // done!
-                        _ => {
-                            let want_stat = match stalled {
-                                false => Stat::Valid,
-                                true => Stat::Stall,
-                            };
-                            let mut w = invariant(r);
-                            w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
-                            reg.write_value(w);
-                        }
+                    let stat = r.stat_rx();
+                    let want_stat = match (stalled, stat) {
+                        (true, _) => Stat::Stall,
+                        (false, Stat::Stall) => Stat::Valid,
+                        (false, stat) => stat,
+                    };
+                    let reset_dtog = !stalled && r.dtog_rx();
+                    if stat == want_stat && !reset_dtog {
+                        break;
                     }
+                    let mut w = invariant(r);
+                    w.set_stat_rx(Stat::from_bits(stat.to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_rx(reset_dtog);
+                    reg.write_value(w);
                 }
                 EP_OUT_WAKERS[ep_addr.index()].wake();
             }
@@ -1011,40 +1033,48 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             return;
         }
         // This can race, so do a retry loop.
+        //
+        // Enabling an endpoint (SET_CONFIGURATION, or SET_INTERFACE even when the alternate
+        // setting does not change) resets its data toggle to DATA0 (USB 2.0 section 9.1.1.5).
+        // Writing 1 to DTOG toggles it, so writing its current value clears it.
+        // Isochronous endpoints use DTOG as the buffer selector and are left alone.
         let epr = T::regs().epr(ep_addr.index() as _);
         trace!("EPR before: {:04x}", epr.read().0);
         match ep_addr.direction() {
             Direction::In => {
                 loop {
+                    let r = epr.read();
+                    let iso = r.ep_type() == EpType::Iso;
                     let want_stat = match enabled {
                         false => Stat::Disabled,
-                        true => match epr.read().ep_type() {
-                            EpType::Iso => Stat::Valid,
-                            _ => Stat::Nak,
-                        },
+                        true if iso => Stat::Valid,
+                        true => Stat::Nak,
                     };
-                    let r = epr.read();
-                    if r.stat_tx() == want_stat {
+                    let reset_dtog = enabled && !iso && r.dtog_tx();
+                    if r.stat_tx() == want_stat && !reset_dtog {
                         break;
                     }
                     let mut w = invariant(r);
                     w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_tx(reset_dtog);
                     epr.write_value(w);
                 }
                 EP_IN_WAKERS[ep_addr.index()].wake();
             }
             Direction::Out => {
                 loop {
+                    let r = epr.read();
                     let want_stat = match enabled {
                         false => Stat::Disabled,
                         true => Stat::Valid,
                     };
-                    let r = epr.read();
-                    if r.stat_rx() == want_stat {
+                    let reset_dtog = enabled && r.ep_type() != EpType::Iso && r.dtog_rx();
+                    if r.stat_rx() == want_stat && !reset_dtog {
                         break;
                     }
                     let mut w = invariant(r);
                     w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_rx(reset_dtog);
                     epr.write_value(w);
                 }
                 EP_OUT_WAKERS[ep_addr.index()].wake();
