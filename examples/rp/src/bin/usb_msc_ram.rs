@@ -39,13 +39,13 @@ impl BlockDevice for RamBlockDevice {
         BLOCK_COUNT
     }
 
-    fn read_block(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
+    fn read_blocks(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
         let start = (lba * BLOCK_SIZE) as usize;
         buf.copy_from_slice(&self.data[start..start + buf.len()]);
         Ok(())
     }
 
-    fn write_block(&mut self, lba: u32, buf: &[u8]) -> Result<(), Self::Error> {
+    fn write_blocks(&mut self, lba: u32, buf: &[u8]) -> Result<(), Self::Error> {
         let start = (lba * BLOCK_SIZE) as usize;
         self.data[start..start + buf.len()].copy_from_slice(buf);
         Ok(())
@@ -96,7 +96,7 @@ async fn main(_spawner: Spawner) {
     let mut disk = RamBlockDevice {
         data: [0u8; (BLOCK_SIZE * BLOCK_COUNT) as usize],
     };
-    let mut block_buf = [0u8; BLOCK_SIZE as usize];
+    let mut block_buf = [0u8; 4 * BLOCK_SIZE as usize];
 
     info!("USB MSC example started (ram disk)");
 
