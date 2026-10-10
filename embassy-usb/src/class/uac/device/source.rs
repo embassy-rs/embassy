@@ -5,7 +5,7 @@
 pub use super::Volume;
 use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, State};
-use super::{Channel, SampleWidth};
+use super::{Channel, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
 use crate::Builder;
 use crate::class::uac::terminal_type::TerminalType;
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
@@ -15,7 +15,7 @@ use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
 /// The stream has no synch (feedback) endpoint: an asynchronous source has
 /// none [USB 2.0 5.12.4.2] — the data stream itself carries the rate, and the
 /// host follows it.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Config<'d> {
     /// The supported sample rates in Hz, as discrete values. At least one, at
     /// most ten. The first is the one reported before the host sets any.
@@ -31,11 +31,11 @@ pub struct Config<'d> {
     pub input_terminal: TerminalType,
     /// Controls the USB host can change on each channel.
     ///
-    /// Use `&[]` to omit the Feature Unit. Otherwise, provide `channels.len() + 1`
-    /// entries: the master first (affects all channels), then one per channel in
-    /// [`Self::channels`] order. Use [`FeatureUnitControls::empty`] for a channel
-    /// with no controls.
-    pub feature_unit: &'d [FeatureUnitControls],
+    /// Use `heapless::Vec::new()` to omit the Feature Unit. Otherwise, provide
+    /// `channels.len() + 1` entries: the master first, then each audio channel in
+    /// [`Self::channels`] order. Use [`FeatureUnitControls::empty`] for no controls
+    /// on a channel.
+    pub feature_unit: heapless::Vec<FeatureUnitControls, MAX_AUDIO_CHANNEL_COUNT, u8>,
 }
 
 impl<'d> Config<'d> {
@@ -46,7 +46,7 @@ impl<'d> Config<'d> {
             sample_width,
             channels,
             input_terminal: TerminalType::InMicrophone,
-            feature_unit: &[],
+            feature_unit: heapless::Vec::new(),
         }
     }
 }

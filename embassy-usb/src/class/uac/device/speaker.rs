@@ -13,13 +13,13 @@
 pub use super::Volume;
 use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, Feedback, State};
-use super::{Channel, FeedbackRefresh, SampleWidth};
+use super::{Channel, FeedbackRefresh, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
 use crate::Builder;
 use crate::class::uac::terminal_type::TerminalType;
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointOut, EndpointType};
 
 /// Speaker stream settings and optional host controls.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Config<'d> {
     /// Supported sample rates in Hz: one to ten discrete values.
     /// The first is reported before the host selects a rate.
@@ -31,11 +31,11 @@ pub struct Config<'d> {
     pub channels: &'d [Channel],
     /// Controls the USB host can change on each channel.
     ///
-    /// Use `&[]` to omit the Feature Unit. Otherwise, provide `channels.len() + 1`
-    /// entries: the master first (affects all channels), then one per channel in
-    /// [`Self::channels`] order. Use [`FeatureUnitControls::empty`] for a channel
-    /// with no controls.
-    pub feature_unit: &'d [FeatureUnitControls],
+    /// Use `heapless::Vec::new()` to omit the Feature Unit. Otherwise, provide
+    /// `channels.len() + 1` entries: the master first, then each audio channel in
+    /// [`Self::channels`] order. Use [`FeatureUnitControls::empty`] for no controls
+    /// on a channel.
+    pub feature_unit: heapless::Vec<FeatureUnitControls, MAX_AUDIO_CHANNEL_COUNT, u8>,
     /// Maximum bytes per USB packet. Allow room for sample rate variation,
     /// for example twice the bytes played per (micro)frame.
     pub max_packet_size: u16,
@@ -56,7 +56,7 @@ impl<'d> Config<'d> {
             sample_rates_hz,
             sample_width,
             channels,
-            feature_unit: &[],
+            feature_unit: heapless::Vec::new(),
             max_packet_size,
             feedback_refresh_period,
         }
