@@ -109,6 +109,16 @@ pub fn block_for_us(micros: u64) {
     );
 }
 
+/// Performs a busy-wait delay of at least `nanos` nanoseconds, counted in CPU cycles.
+///
+/// Unlike [`block_for_us`] with the `time` feature, it never ends early: `embassy_time::block_for`
+/// returns at a tick boundary, so it can end up to one tick before the requested time.
+#[allow(dead_code)]
+pub fn block_for_ns(nanos: u32) {
+    let sys_hz = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0;
+    cortex_m::asm::delay((sys_hz as u64 * nanos as u64).div_ceil(1_000_000_000) as u32);
+}
+
 #[cfg(feature = "time")]
 /// Polls `func` until it returns `true` or an error, `Err` from `func` is returned immediately,
 /// yielding to other tasks between polls. Returns `Err(TimeoutError)` if the timeout expires first.
