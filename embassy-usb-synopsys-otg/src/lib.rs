@@ -110,6 +110,17 @@ where
             }
             vals::Pktstsd::OUT_DATA_DONE => {
                 trace!("OUT_DATA_DONE ep={}", ep_num);
+
+                let ep = &state.ep_states[ep_num];
+                // SAFETY: `State::mutex` is held.
+                let completed = state.mutex.lock(|| {
+                    let xfer = unsafe { &mut *ep.out_xfer.get() };
+                    xfer.as_mut().is_some_and(|xfer| xfer.complete())
+                });
+
+                if completed {
+                    ep.out_waker.wake();
+                }
             }
             vals::Pktstsd::SETUP_DATA_DONE => {
                 trace!("SETUP_DATA_DONE ep={}", ep_num);
@@ -306,6 +317,8 @@ struct OutXfer {
     len: usize,
     max_packet_size: usize,
     /// Set when `buf` is full or a short packet ended the transfer.
+    ended: bool,
+    /// Set when the core has also completed the transfer, so the endpoint can be armed again.
     done: bool,
 }
 
@@ -313,7 +326,7 @@ impl OutXfer {
     /// Reads a received packet of `len` bytes from the RX FIFO into `buf`. Returns false, with the
     /// packet still in the FIFO, if it does not belong to this transfer.
     fn receive(&mut self, r: Otg, len: usize) -> bool {
-        if self.done || self.len + len > self.cap {
+        if self.ended || self.len + len > self.cap {
             return false;
         }
 
@@ -323,8 +336,15 @@ impl OutXfer {
         });
         self.len += len;
         // The core ends the transfer after `cap` bytes or on a short packet.
-        self.done = self.len == self.cap || len < self.max_packet_size;
+        self.ended = self.len == self.cap || len < self.max_packet_size;
         true
+    }
+
+    /// Handles the core's transfer completed entry. Returns true if it completes this transfer.
+    /// An entry that arrives before the last packet belongs to the transfer before this one.
+    fn complete(&mut self) -> bool {
+        self.done = self.ended;
+        self.done
     }
 }
 
@@ -1847,6 +1867,7 @@ where
             cap: buf.len(),
             len: 0,
             max_packet_size,
+            ended: false,
             done: false,
         };
         // SAFETY: `State::mutex` is held.
