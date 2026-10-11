@@ -3,12 +3,16 @@
 
 use core::cell::Cell;
 use core::ops::RangeInclusive;
-use core::sync::atomic::{AtomicU32, Ordering};
+#[cfg(target_has_atomic = "32")]
+use core::sync::atomic::AtomicU32;
+use core::sync::atomic::Ordering;
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use heapless::Vec;
+#[cfg(not(target_has_atomic = "32"))]
+use portable_atomic::AtomicU32;
 
 use super::{
     Channel, ChannelConfig, FeedbackRefresh, MAX_AUDIO_CHANNEL_COUNT, MAX_AUDIO_CHANNEL_INDEX, SampleWidth, Volume,

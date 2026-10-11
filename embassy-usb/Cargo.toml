@@ -79,6 +79,9 @@ usbd-hid = { version = "0.10.0", optional = true }
 # for Host
 block-device-driver = { version = "0.2.0", optional = true }
 
+[target.'cfg(not(target_has_atomic = "32"))'.dependencies]
+portable-atomic = "1.5"
+
 [dev-dependencies]
 env_logger = "0.11"
 critical-section = { version = "1.1", features = ["std"] }
