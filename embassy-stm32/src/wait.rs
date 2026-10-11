@@ -136,7 +136,7 @@ pub async fn try_until_result<E: From<TimeoutError>>(
 
     match select(
         async {
-            let mut ticker = Ticker::every(Duration::from_millis(1));
+            let mut ticker = Ticker::every(Duration::from_micros(500));
 
             loop {
                 if func().await? {
@@ -177,7 +177,7 @@ pub async fn try_until_result<E: From<TimeoutError>>(
             return Ok(());
         }
 
-        block_for_us(1_000);
+        block_for_us(500);
         yield_now().await;
     }
 }
