@@ -984,7 +984,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
 
     async fn read_exact_out(&mut self, mut buf: &mut [u8]) -> Result<(), EndpointError> {
         while !buf.is_empty() {
-            let n = self.read_ep.read(buf).await?;
+            let n = self.read_ep.read_transfer(buf).await?;
             if n == 0 {
                 continue;
             }
