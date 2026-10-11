@@ -7,6 +7,7 @@ use core::cell::Cell;
 use core::cmp::min;
 use core::mem::MaybeUninit;
 
+use embassy_futures::join::join;
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 
 use super::bot::{CSW_STATUS_FAILED, CSW_STATUS_PASSED, CSW_STATUS_PHASE_ERROR, Cbw, Csw, encode_csw, parse_cbw};
@@ -376,9 +377,12 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     /// attached: disable the USB device, or call `run` again to keep serving commands.
     ///
     /// `block_buf` is a temporary buffer used for block transfers and must be at
-    /// least `block_device.block_size()` and `max_packet_size` bytes long. Reads
-    /// and writes move up to `block_buf.len() / block_size` blocks per call to
-    /// `block_device`, so a buffer of several blocks speeds up large transfers.
+    /// least `block_device.block_size()` and `max_packet_size` bytes long.
+    ///
+    /// A buffer of two or more blocks is split in two halves, so the USB transfer of
+    /// one half overlaps with `block_device` reading or writing the other. Each call
+    /// to `block_device` moves up to half the buffer, so a buffer of several blocks
+    /// speeds up large transfers.
     pub async fn run<B: AsyncBlockDevice>(&mut self, block_device: &mut B, block_buf: &mut [u8]) -> StopReason {
         assert!(
             block_buf.len() >= block_device.block_size() as usize
@@ -823,16 +827,25 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         let Some(lba) = self.check_read_write(cbw, rw, block_device, block_buf) else {
             return Ok(CommandResult::failed(cbw.data_transfer_length));
         };
+
+        if rw.blocks == 0 {
+            self.sense = SenseData::NO_SENSE;
+            return Ok(CommandResult::passed(0));
+        }
+
         let blocks = rw.blocks;
         let block_size = block_device.block_size() as usize;
+        let (mut front, mut back) = split_chunks(block_buf, block_size);
+        let chunk_blocks = (front.len() / block_size) as u32;
 
-        let chunk_blocks = (block_buf.len() / block_size) as u32;
         let mut residue = cbw.data_transfer_length;
-        let mut done = 0;
-        while done < blocks {
-            let chunk = &mut block_buf[..min(blocks - done, chunk_blocks) as usize * block_size];
-            if block_device.read_blocks(lba + done, chunk).await.is_err() {
-                warn!("msc: read_blocks failed at lba {}", lba + done);
+        let mut chunk_lba = lba;
+        let mut len = min(blocks, chunk_blocks) as usize * block_size;
+        let mut filled = block_device.read_blocks(chunk_lba, &mut front[..len]).await;
+
+        loop {
+            if filled.is_err() {
+                warn!("msc: read_blocks failed at lba {}", chunk_lba);
                 self.set_sense(SENSE_KEY_MEDIUM_ERROR, ASC_UNRECOVERED_READ_ERROR, ASCQ_NONE);
                 if residue < cbw.data_transfer_length {
                     let _ = self.write_ep.write(&[]).await;
@@ -840,9 +853,32 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                 return Ok(CommandResult::failed(residue));
             }
 
-            self.write_ep.write_transfer(chunk, false).await?;
-            residue -= chunk.len() as u32;
-            done += (chunk.len() / block_size) as u32;
+            let next_lba = chunk_lba + (len / block_size) as u32;
+            let next = min(lba + blocks - next_lba, chunk_blocks) as usize * block_size;
+
+            if back.is_empty() {
+                self.write_ep.write_transfer(&front[..len], false).await?;
+                filled = read_chunk(block_device, next_lba, &mut front[..next]).await;
+            } else {
+                // Send this chunk while storage reads the next one.
+                let (sent, read) = join(
+                    self.write_ep.write_transfer(&front[..len], false),
+                    read_chunk(block_device, next_lba, &mut back[..next]),
+                )
+                .await;
+                sent?;
+                filled = read;
+                core::mem::swap(&mut front, &mut back);
+            }
+
+            residue -= len as u32;
+
+            if next == 0 {
+                break;
+            }
+
+            chunk_lba = next_lba;
+            len = next;
         }
 
         self.sense = SenseData::NO_SENSE;
@@ -871,30 +907,73 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             return Ok(CommandResult::failed(cbw.data_transfer_length));
         }
 
+        if rw.blocks == 0 {
+            self.sense = SenseData::NO_SENSE;
+            return Ok(CommandResult::passed(0));
+        }
+
         let blocks = rw.blocks;
         let block_size = block_device.block_size() as usize;
+        let (mut front, mut back) = split_chunks(block_buf, block_size);
+        let chunk_blocks = (front.len() / block_size) as u32;
 
-        let chunk_blocks = (block_buf.len() / block_size) as u32;
-        let mut residue = cbw.data_transfer_length;
-        let mut done = 0;
-        while done < blocks {
-            let len = min(blocks - done, chunk_blocks) as usize * block_size;
-            self.read_exact_out(&mut block_buf[..len]).await?;
+        let mut received = 0;
+        let mut chunk_lba = lba;
+        let mut len = min(blocks, chunk_blocks) as usize * block_size;
 
-            if block_device.write_blocks(lba + done, &block_buf[..len]).await.is_err() {
-                warn!("msc: write_blocks failed at lba {}", lba + done);
-                self.set_sense(SENSE_KEY_MEDIUM_ERROR, ASC_WRITE_ERROR, ASCQ_NONE);
+        read_exact_out(&mut self.read_ep, &mut front[..len]).await?;
 
-                let remaining_to_drain = residue - len as u32;
-                if remaining_to_drain > 0 {
-                    self.discard_out_data(remaining_to_drain, block_buf).await?;
-                }
+        received += len as u32;
 
-                return Ok(CommandResult::failed(residue));
+        let failed = loop {
+            let next_lba = chunk_lba + (len / block_size) as u32;
+            let next = min(lba + blocks - next_lba, chunk_blocks) as usize * block_size;
+
+            let stored = if back.is_empty() {
+                block_device.write_blocks(chunk_lba, &front[..len]).await
+            } else {
+                // Receive the next chunk while storage writes this one.
+                let (got, stored) = join(
+                    read_exact_out(&mut self.read_ep, &mut back[..next]),
+                    block_device.write_blocks(chunk_lba, &front[..len]),
+                )
+                .await;
+
+                got?;
+                received += next as u32;
+
+                stored
+            };
+
+            if stored.is_err() {
+                break Some(chunk_lba);
+            }
+            if next == 0 {
+                break None;
             }
 
-            residue -= len as u32;
-            done += (len / block_size) as u32;
+            if back.is_empty() {
+                read_exact_out(&mut self.read_ep, &mut front[..next]).await?;
+                received += next as u32;
+            } else {
+                core::mem::swap(&mut front, &mut back);
+            }
+
+            chunk_lba = next_lba;
+            len = next;
+        };
+
+        if let Some(failed_lba) = failed {
+            warn!("msc: write_blocks failed at lba {}", failed_lba);
+            self.set_sense(SENSE_KEY_MEDIUM_ERROR, ASC_WRITE_ERROR, ASCQ_NONE);
+
+            let remaining_to_drain = cbw.data_transfer_length - received;
+            if remaining_to_drain > 0 {
+                self.discard_out_data(remaining_to_drain, block_buf).await?;
+            }
+
+            let written = (failed_lba - lba) * block_size as u32;
+            return Ok(CommandResult::failed(cbw.data_transfer_length - written));
         }
 
         if block_device.flush().await.is_err() {
@@ -982,18 +1061,6 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         Ok(CommandResult::passed(residue))
     }
 
-    async fn read_exact_out(&mut self, mut buf: &mut [u8]) -> Result<(), EndpointError> {
-        while !buf.is_empty() {
-            let n = self.read_ep.read_transfer(buf).await?;
-            if n == 0 {
-                continue;
-            }
-            buf = &mut buf[n..];
-        }
-
-        Ok(())
-    }
-
     async fn discard_out_data(&mut self, mut len: u32, scratch: &mut [u8]) -> Result<(), EndpointError> {
         if scratch.is_empty() {
             return Ok(());
@@ -1016,6 +1083,34 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     fn set_sense(&mut self, key: SenseKey, asc: u8, ascq: u8) {
         self.sense = SenseData { key, asc, ascq };
     }
+}
+
+/// Splits `buf` into two chunks of whole blocks so USB transfers can overlap with storage access.
+///
+/// Both chunks are the same size. If `buf` holds a single block, the second chunk is empty.
+fn split_chunks(buf: &mut [u8], block_size: usize) -> (&mut [u8], &mut [u8]) {
+    let blocks = buf.len() / block_size;
+    let back_len = blocks / 2 * block_size;
+    let (front, back) = buf.split_at_mut(blocks.div_ceil(2) * block_size);
+
+    (&mut front[..back_len.max(block_size)], &mut back[..back_len])
+}
+
+async fn read_chunk<B: AsyncBlockDevice>(block_device: &mut B, lba: u32, buf: &mut [u8]) -> Result<(), B::Error> {
+    if buf.is_empty() {
+        return Ok(());
+    }
+
+    block_device.read_blocks(lba, buf).await
+}
+
+async fn read_exact_out(ep: &mut impl EndpointOut, mut buf: &mut [u8]) -> Result<(), EndpointError> {
+    while !buf.is_empty() {
+        let n = ep.read_transfer(buf).await?;
+        buf = &mut buf[n..];
+    }
+
+    Ok(())
 }
 
 /// Whether a START STOP UNIT CDB asks to eject the medium (SBC-3 §5.25).
