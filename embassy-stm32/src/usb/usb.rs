@@ -393,16 +393,11 @@ mod btable {
 /// count to USB SRAM. Software must wait 800 ns before reading either (6.4 μs at low speed, which
 /// this device-mode driver does not use).
 ///
-/// `cortex_m::asm::delay` blocks for at least the given number of cycles, whereas
-/// `embassy_time::block_for` waits until the tick counter passes one tick, which can take less
-/// than 800 ns.
+/// `block_for_ns` counts CPU cycles. `block_for_us` would not do: with the `time` feature it can
+/// return after less than 800 ns.
 fn wait_for_out_packet_memory() {
     #[cfg(any(stm32h5, stm32u3))]
-    {
-        // 800 ns = 1 s / 1_250_000
-        let sys_hz = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0;
-        cortex_m::asm::delay(sys_hz.div_ceil(1_250_000));
-    }
+    crate::wait::block_for_ns(800);
 }
 
 struct EndpointBuffer<T: Instance> {
