@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add set_baudrate() to BufferedUartTx.
 - USB host: debounce root-port connections and fail pending interrupt transfers on disconnect
 - PIO: Fix PIO programs driving pins above 31 on RP235xB, now call `StateMachine::set_config` before `set_pin_dirs` and `set_pins`. These now panic when given a pin outside the PIO's GPIOBASE window, rather than failing silently.
+- UART: add `read_ready` to `Uart` and `UartRx`, reporting whether the RX FIFO holds data.
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes
