@@ -161,10 +161,6 @@ pub struct Frame {
     data: ClassicData,
 }
 
-pub(crate) const fn classic_can_data_len(dlc: u8) -> u8 {
-    if dlc > 8 { 8 } else { dlc }
-}
-
 impl Frame {
     /// Create a new CAN classic Frame
     pub fn new(can_header: Header, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
@@ -544,17 +540,5 @@ mod tests {
         let frame = FdFrame::new_remote(id, 8).unwrap();
         assert!(frame.header().fdcan());
         assert!(frame.header().bit_rate_switching());
-    }
-
-    #[test]
-    fn test_classic_can_dlc_never_exceeds_eight_data_bytes() {
-        for dlc in 0..=15 {
-            let len = classic_can_data_len(dlc);
-            assert_eq!(len, dlc.min(8));
-
-            let header = Header::new(embedded_can::StandardId::new(1).unwrap().into(), len, false);
-            let frame = Frame::new(header, &[0; 8]).unwrap();
-            assert_eq!(frame.data().len(), usize::from(len));
-        }
     }
 }
