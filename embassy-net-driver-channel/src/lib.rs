@@ -502,7 +502,9 @@ impl driver::Driver for Device<'_> {
     fn rx_wanted(&mut self) -> usize {
         self.shared.lock(|s| {
             let s = s.borrow();
-            s.rx_capacity - s.rx_queued
+            // `rx_queued` counts buffers in both the `rx_empty` and `rx` queues, so it
+            // can reach `2 * N_RX`. Saturate so a full `rx` queue can't wrap this.
+            s.rx_capacity.saturating_sub(s.rx_queued)
         })
     }
 
