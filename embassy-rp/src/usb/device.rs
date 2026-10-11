@@ -83,23 +83,26 @@ pub struct Driver<'d, T: Instance> {
 impl<'d, T: Instance> Driver<'d, T> {
     /// Create a new USB driver.
     pub fn new(_usb: Peri<'d, T>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
         let regs = T::regs();
-        unsafe {
-            // zero fill regs
-            let p = regs.as_ptr() as *mut u32;
-            for i in 0..0x9c / 4 {
-                p.add(i).write_volatile(0)
-            }
 
-            // zero fill epmem
+        // Reset the peripheral: zeroing its registers by hand would clear RP235x's `LINESTATE_TUNING`,
+        // whose reset value enables controller fixes (RP2350 datasheet 12.7.2). Keep the interrupt off
+        // until the reset is done, so the handler cannot touch the block while it is held in reset.
+        T::Interrupt::disable();
+        pac::RESETS.reset().write_set(|w| w.set_usbctrl(true));
+        pac::RESETS.reset().write_clear(|w| w.set_usbctrl(true));
+        while !pac::RESETS.reset_done().read().usbctrl() {}
+
+        // DPRAM is outside the peripheral reset, so clear the control area by hand.
+        unsafe {
             let p = EP_MEMORY as *mut u32;
             for i in 0..0x100 / 4 {
                 p.add(i).write_volatile(0)
             }
         }
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         regs.usb_muxing().write(|w| {
             w.set_to_phy(true);
