@@ -81,28 +81,23 @@ where
             vals::Pktstsd::OUT_DATA_RX => {
                 trace!("OUT_DATA_RX ep={} len={}", ep_num, len);
 
-                if state.mutex.lock(|| read_out_xfer(r, &state.ep_states[ep_num], len)) {
-                    state.ep_states[ep_num].out_waker.wake();
-                } else if state.ep_states[ep_num].out_size.load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
+                let ep = &state.ep_states[ep_num];
+                // SAFETY: `State::mutex` is held.
+                let received = state.mutex.lock(|| {
+                    let xfer = unsafe { &mut *ep.out_xfer.get() };
+                    xfer.as_mut().is_some_and(|xfer| xfer.receive(r, len))
+                });
+
+                if received {
+                    ep.out_waker.wake();
+                } else if ep.out_size.load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
                     // SAFETY: Buffer size is allocated to be equal to endpoint's maximum packet size
                     // We trust the peripheral to not exceed its configured MPSIZ
-                    let buf =
-                        unsafe { core::slice::from_raw_parts_mut(*state.ep_states[ep_num].out_buffer.get(), len) };
+                    let buf = unsafe { core::slice::from_raw_parts_mut(*ep.out_buffer.get(), len) };
+                    read_fifo(r, buf);
 
-                    let mut chunks = buf.chunks_exact_mut(4);
-                    for chunk in &mut chunks {
-                        // RX FIFO is shared so always read from fifo(0)
-                        let data = r.fifo(0).read().0;
-                        chunk.copy_from_slice(&data.to_ne_bytes());
-                    }
-                    let rem = chunks.into_remainder();
-                    if !rem.is_empty() {
-                        let data = r.fifo(0).read().0;
-                        rem.copy_from_slice(&data.to_ne_bytes()[0..rem.len()]);
-                    }
-
-                    state.ep_states[ep_num].out_size.store(len as u16, Ordering::Release);
-                    state.ep_states[ep_num].out_waker.wake();
+                    ep.out_size.store(len as u16, Ordering::Release);
+                    ep.out_waker.wake();
                 } else {
                     error!("ep_out buffer overflow index={}", ep_num);
 
@@ -223,29 +218,9 @@ where
     }
 }
 
-/// Copies a received packet into the active [`OutXfer`] of `ep`, if there is one. Returns false,
-/// with the packet still in the RX FIFO, if there is none.
-///
-/// Call with [`State::mutex`] held.
-fn read_out_xfer(r: Otg, ep: &EpState, len: usize) -> bool {
-    // SAFETY: the caller holds `State::mutex`.
-    let xfer = unsafe { &mut *ep.out_xfer.get() };
-    if !xfer.active {
-        return false;
-    }
-
-    let len_words = len.div_ceil(4);
-    if xfer.done || xfer.len + len > xfer.cap {
-        // The endpoint was armed for `cap` bytes, so the core does not accept more.
-        error!("ep_out transfer overflow len={}", len);
-        for _ in 0..len_words {
-            r.fifo(0).read().data();
-        }
-        return true;
-    }
-
-    // SAFETY: `buf[..cap]` stays borrowed by `read_transfer` while `active` is set.
-    let buf = unsafe { core::slice::from_raw_parts_mut(xfer.buf.add(xfer.len), len) };
+/// Reads a received packet from the RX FIFO into `buf`.
+fn read_fifo(r: Otg, buf: &mut [u8]) {
+    // RX FIFO is shared so always read from fifo(0)
     let mut chunks = buf.chunks_exact_mut(4);
     for chunk in &mut chunks {
         chunk.copy_from_slice(&r.fifo(0).read().0.to_ne_bytes());
@@ -254,22 +229,6 @@ fn read_out_xfer(r: Otg, ep: &EpState, len: usize) -> bool {
     if !rem.is_empty() {
         rem.copy_from_slice(&r.fifo(0).read().0.to_ne_bytes()[..rem.len()]);
     }
-
-    xfer.len += len;
-    // The core ends the transfer after `cap` bytes or on a short packet.
-    if xfer.len == xfer.cap || len < xfer.max_packet_size {
-        xfer.done = true;
-    }
-    true
-}
-
-/// Returns the largest number of max-size packets that fits in one transfer, as the transfer
-/// size and packet count widths in GHWCFG3 allow.
-fn max_transfer_packets(regs: Otg, max_packet_size: u16) -> usize {
-    let hwcfg3 = regs.hwcfg3().read();
-    let max_bytes = (1usize << ((hwcfg3 & 0xf) + 11)) - 1;
-    let max_packets = (1usize << (((hwcfg3 >> 4) & 0x7) + 4)) - 1;
-    min(max_packets, max_bytes / usize::from(max_packet_size).max(1))
 }
 
 /// USB PHY type
@@ -334,32 +293,39 @@ struct EpState {
     /// unreadable without VBUS power — such a read hangs the whole chip.
     in_enabled: AtomicBool,
     out_enabled: AtomicBool,
-    /// Multi-packet OUT transfer into the buffer of [`EndpointOut::read_transfer`]. Accessed only
+    /// The OUT transfer of [`EndpointOut::read_transfer`], if one is in progress. Accessed only
     /// with [`State::mutex`] held.
-    out_xfer: UnsafeCell<OutXfer>,
+    out_xfer: UnsafeCell<Option<OutXfer>>,
 }
 
-/// An OUT transfer that [`on_interrupt`] copies straight into the caller's buffer.
+/// A multi-packet OUT transfer, which [`on_interrupt`] receives straight into `buf`.
 struct OutXfer {
     buf: *mut u8,
     /// Size of `buf`, a whole number of max-size packets.
     cap: usize,
     len: usize,
     max_packet_size: usize,
-    active: bool,
     /// Set when `buf` is full or a short packet ended the transfer.
     done: bool,
 }
 
 impl OutXfer {
-    const IDLE: Self = Self {
-        buf: core::ptr::null_mut(),
-        cap: 0,
-        len: 0,
-        max_packet_size: 0,
-        active: false,
-        done: false,
-    };
+    /// Reads a received packet of `len` bytes from the RX FIFO into `buf`. Returns false, with the
+    /// packet still in the FIFO, if it does not belong to this transfer.
+    fn receive(&mut self, r: Otg, len: usize) -> bool {
+        if self.done || self.len + len > self.cap {
+            return false;
+        }
+
+        // SAFETY: `read_transfer` keeps `buf[..cap]` borrowed while the transfer is in progress.
+        read_fifo(r, unsafe {
+            core::slice::from_raw_parts_mut(self.buf.add(self.len), len)
+        });
+        self.len += len;
+        // The core ends the transfer after `cap` bytes or on a short packet.
+        self.done = self.len == self.cap || len < self.max_packet_size;
+        true
+    }
 }
 
 // SAFETY: `out_buffer` access is synchronized via `out_size`, and `out_xfer` access via
@@ -527,7 +493,7 @@ where
                     out_alloc: UnsafeCell::new(None),
                     in_enabled: AtomicBool::new(false),
                     out_enabled: AtomicBool::new(false),
-                    out_xfer: UnsafeCell::new(OutXfer::IDLE),
+                    out_xfer: UnsafeCell::new(None),
                 }
             }; EP_COUNT],
             bus_waker: AtomicWaker::new(),
@@ -1181,26 +1147,23 @@ where
 
             regs.grxfsiz().modify(|w| w.set_rxfd(rx_fifo_size_words));
 
-            // Split the unallocated FIFO space between the bulk IN endpoints, so that
+            // Share the FIFO space that no endpoint uses between the bulk IN endpoints, so that
             // `write_transfer` can queue several packets.
-            let is_bulk_in = |i: usize| {
-                i != 0
-                    && st
-                        .ep_alloc_get(Direction::In, i)
-                        .is_some_and(|ep| ep.ep_type == EndpointType::Bulk)
-            };
-            let bulk_in_count = (0..st.endpoint_count()).filter(|&i| is_bulk_in(i)).count() as u16;
+            let is_bulk_in = |ep: &EndpointData| ep.ep_type == EndpointType::Bulk;
+            let bulk_in_count = (1..st.endpoint_count())
+                .filter_map(|i| st.ep_alloc_get(Direction::In, i))
+                .filter(|ep| is_bulk_in(ep))
+                .count() as u16;
             let spare_words = self.instance.fifo_depth_words - rx_fifo_size_words - st.ep_fifo_size_in();
-            let extra_words_per_bulk_in = spare_words.checked_div(bulk_in_count).unwrap_or(0);
 
             // Configure TX (USB in direction) fifo size for each endpoint
             let mut fifo_top = rx_fifo_size_words;
             for i in 0..st.endpoint_count() {
                 if let Some(ep) = st.ep_alloc_get(Direction::In, i) {
                     let mut fifo_size_words = ep.fifo_size_words;
-                    if is_bulk_in(i) {
+                    if i != 0 && is_bulk_in(ep) {
                         let packet_words = ep.max_packet_size.div_ceil(4);
-                        fifo_size_words += extra_words_per_bulk_in / packet_words * packet_words;
+                        fifo_size_words += spare_words / bulk_in_count / packet_words * packet_words;
                     }
 
                     trace!(
@@ -1781,13 +1744,33 @@ where
     }
 }
 
+impl<'d, D, M> Endpoint<'d, D, M>
+where
+    M: RawMutex + Copy,
+{
+    /// Returns the largest transfer, in whole max-size packets, that the core can do at once.
+    fn max_transfer_len(&self) -> usize {
+        let max_packet_size = usize::from(self.info.max_packet_size);
+        if self.info.ep_type == EndpointType::Isochronous {
+            // One packet per transfer, so that each packet gets its own frame parity.
+            return max_packet_size;
+        }
+
+        // GHWCFG3 gives the width of the transfer size counter, minus 11, and of the packet
+        // counter, minus 4.
+        let hwcfg3 = self.regs.hwcfg3().read();
+        let max_len = (1usize << ((hwcfg3 & 0xf) + 11)) - 1;
+        let max_packets = (1usize << (((hwcfg3 >> 4) & 0x7) + 4)) - 1;
+        min(max_len / max_packet_size, max_packets) * max_packet_size
+    }
+}
+
 impl<'d, M> Endpoint<'d, Out, M>
 where
     M: RawMutex + Copy,
 {
-    /// Reads the packet from `out_buffer`, waiting for it if necessary. If `rearm`, prepares the
-    /// endpoint to receive the next packet; otherwise the endpoint stays idle.
-    async fn read_packet(&mut self, buf: &mut [u8], rearm: bool) -> Result<usize, EndpointError> {
+    /// Waits for a packet and reads it from `out_buffer`. The endpoint is idle afterwards.
+    async fn read_packet(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         trace!("read start len={}", buf.len());
 
         poll_fn(|cx| {
@@ -1812,10 +1795,6 @@ where
 
                 // Release buffer
                 self.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
-
-                if rearm {
-                    self.arm_out(1);
-                }
 
                 Poll::Ready(Ok(len as usize))
             } else {
@@ -1859,43 +1838,33 @@ where
         });
     }
 
-    /// Receives up to `buf.len()` bytes, a whole number of max-size packets, as one transfer. The
-    /// interrupt handler copies each packet straight into `buf`. The endpoint must be idle, and
-    /// stays idle when this returns.
+    /// Receives `buf.len()` bytes, a whole number of max-size packets, straight into `buf`. A short
+    /// packet ends the transfer early. The endpoint must be idle, and is idle afterwards.
     async fn read_packets(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        let packets = buf.len() / usize::from(self.info.max_packet_size);
-        trace!("read_packets ep={:?} packets={}", self.info.addr, packets);
-
-        self.mutex.lock(|| {
-            // SAFETY: `State::mutex` is held.
-            unsafe {
-                *self.state.out_xfer.get() = OutXfer {
-                    buf: buf.as_mut_ptr(),
-                    cap: buf.len(),
-                    len: 0,
-                    max_packet_size: usize::from(self.info.max_packet_size),
-                    active: true,
-                    done: false,
-                }
-            }
-        });
-        // Stops the transfer if this future is dropped, before `buf` is released.
+        let max_packet_size = usize::from(self.info.max_packet_size);
+        let xfer = OutXfer {
+            buf: buf.as_mut_ptr(),
+            cap: buf.len(),
+            len: 0,
+            max_packet_size,
+            done: false,
+        };
+        // SAFETY: `State::mutex` is held.
+        self.mutex.lock(|| unsafe { *self.state.out_xfer.get() = Some(xfer) });
+        // If this future is dropped, stop the transfer before `buf` is released.
         let _guard = OutXferGuard(&*self);
-        self.arm_out(packets as u16);
+        self.arm_out((buf.len() / max_packet_size) as u16);
 
         poll_fn(|cx| {
             self.state.out_waker.register(cx.waker());
 
-            let len = self.mutex.lock(|| {
+            let finished = self.mutex.lock(|| {
                 // SAFETY: `State::mutex` is held.
                 let xfer = unsafe { &mut *self.state.out_xfer.get() };
-                xfer.done.then(|| {
-                    xfer.active = false;
-                    xfer.len
-                })
+                xfer.take_if(|xfer| xfer.done).map(|xfer| xfer.len)
             });
-            if let Some(len) = len {
-                trace!("read_packets ep={:?} done len={}", self.info.addr, len);
+
+            if let Some(len) = finished {
                 Poll::Ready(Ok(len))
             } else if !self.state.out_enabled.load(Ordering::Acquire) {
                 Poll::Ready(Err(EndpointError::Disabled))
@@ -1907,15 +1876,16 @@ where
     }
 }
 
-/// Stops the [`OutXfer`] of an endpoint that did not finish it, so that the interrupt handler no
-/// longer writes to its buffer.
+/// Stops an unfinished [`OutXfer`] when dropped, so that the interrupt handler no longer writes
+/// to its buffer.
 struct OutXferGuard<'a, 'd, M: RawMutex + Copy>(&'a Endpoint<'d, Out, M>);
 
 impl<M: RawMutex + Copy> Drop for OutXferGuard<'_, '_, M> {
     fn drop(&mut self) {
         let ep = self.0;
         // SAFETY: `State::mutex` is held.
-        if !ep.mutex.lock(|| unsafe { (*ep.state.out_xfer.get()).active }) {
+        let unfinished = ep.mutex.lock(|| unsafe { (*ep.state.out_xfer.get()).is_some() });
+        if !unfinished {
             return;
         }
 
@@ -1924,9 +1894,9 @@ impl<M: RawMutex + Copy> Drop for OutXferGuard<'_, '_, M> {
             abort_out_endpoint(ep.regs, index);
         }
         // SAFETY: `State::mutex` is held.
-        ep.mutex.lock(|| unsafe { (*ep.state.out_xfer.get()).active = false });
+        ep.mutex.lock(|| unsafe { *ep.state.out_xfer.get() = None });
 
-        // The data of the stopped transfer is lost. Wait for the next packet like `read` does.
+        // The data of the transfer is lost. Wait for the next packet, like `read` does.
         if ep.state.out_enabled.load(Ordering::Acquire) {
             ep.arm_out(1);
         }
@@ -1938,41 +1908,32 @@ where
     M: RawMutex + Copy,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        self.read_packet(buf, true).await
+        let len = self.read_packet(buf).await?;
+        self.arm_out(1);
+        Ok(len)
     }
 
     async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let max_packet_size = usize::from(self.info.max_packet_size);
-        let max_packets = max_transfer_packets(self.regs, self.info.max_packet_size);
-        if self.info.ep_type == EndpointType::Isochronous || max_packets < 2 {
-            let mut n = 0;
-            loop {
-                let i = self.read(&mut buf[n..]).await?;
-                n += i;
-                if i < max_packet_size || n == buf.len() {
-                    return Ok(n);
-                }
-            }
-        }
 
-        // The endpoint is armed for one packet, by `read` or when it was enabled. Take that
-        // packet, then receive the whole packets that fit in `buf` with multi-packet transfers.
-        let mut n = self.read_packet(buf, false).await?;
-        let mut short = n < max_packet_size;
-        while !short && buf.len() - n >= max_packet_size {
-            let len = min((buf.len() - n) / max_packet_size, max_packets) * max_packet_size;
-            let i = self.read_packets(&mut buf[n..][..len]).await?;
-            n += i;
-            short = i < len;
+        // The endpoint is already armed for one packet, by `read` or when it was enabled.
+        let mut n = self.read_packet(buf).await?;
+        let mut ended = n < max_packet_size;
+
+        // Receive the whole packets that fit in the rest of `buf` as multi-packet transfers.
+        while !ended && buf.len() - n >= max_packet_size {
+            let len = min(buf.len() - n, self.max_transfer_len()) / max_packet_size * max_packet_size;
+            let received = self.read_packets(&mut buf[n..][..len]).await?;
+            ended = received < len;
+            n += received;
         }
         self.arm_out(1);
 
-        if short || n == buf.len() {
-            Ok(n)
-        } else {
-            // Less than a max-size packet of space is left.
-            Ok(n + self.read(&mut buf[n..]).await?)
+        // Less than a max-size packet of space is left.
+        if !ended && n < buf.len() {
+            n += self.read(&mut buf[n..]).await?;
         }
+        Ok(n)
     }
 }
 
@@ -2127,24 +2088,18 @@ where
 
     async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
         let max_packet_size = usize::from(self.info.max_packet_size);
-        let max_packets = max_transfer_packets(self.regs, self.info.max_packet_size);
-        if self.info.ep_type == EndpointType::Isochronous || max_packets < 2 {
-            for chunk in buf.chunks(max_packet_size) {
-                self.write(chunk).await?;
-            }
-        } else {
-            // Send `buf` as multi-packet transfers. The core sends each packet as soon as it is
-            // in the FIFO, so the FIFO is refilled while earlier packets go out.
-            for transfer in buf.chunks(max_packets * max_packet_size) {
-                trace!("write_transfer ep={:?} len={}", self.info.addr, transfer.len());
-                self.wait_in_idle().await?;
-                self.mutex.lock(|| self.start_in_transfer(transfer.len()));
 
-                for packet in transfer.chunks(max_packet_size) {
-                    self.wait_fifo_space(packet.len()).await?;
-                    // ERRATA: see `write`.
-                    self.mutex.lock(|| self.write_fifo(packet));
-                }
+        // The core sends each packet as soon as it is in the FIFO, so the next packets are written
+        // while earlier ones go out.
+        for transfer in buf.chunks(self.max_transfer_len()) {
+            trace!("write_transfer ep={:?} len={}", self.info.addr, transfer.len());
+            self.wait_in_idle().await?;
+            self.mutex.lock(|| self.start_in_transfer(transfer.len()));
+
+            for packet in transfer.chunks(max_packet_size) {
+                self.wait_fifo_space(packet.len()).await?;
+                // ERRATA: see `write`.
+                self.mutex.lock(|| self.write_fifo(packet));
             }
         }
 
