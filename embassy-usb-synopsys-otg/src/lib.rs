@@ -82,6 +82,7 @@ where
                 trace!("OUT_DATA_RX ep={} len={}", ep_num, len);
 
                 let ep = &state.ep_states[ep_num];
+                // A packet of a multi-packet transfer. Its reader is woken by OUT_DATA_DONE.
                 // SAFETY: `State::mutex` is held.
                 let received = state.mutex.lock(|| {
                     let xfer = unsafe { &mut *ep.out_xfer.get() };
@@ -89,8 +90,10 @@ where
                 });
 
                 if received {
-                    ep.out_waker.wake();
-                } else if ep.out_size.load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
+                    continue;
+                }
+
+                if ep.out_size.load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
                     // SAFETY: Buffer size is allocated to be equal to endpoint's maximum packet size
                     // We trust the peripheral to not exceed its configured MPSIZ
                     let buf = unsafe { core::slice::from_raw_parts_mut(*ep.out_buffer.get(), len) };
