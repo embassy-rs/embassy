@@ -6,7 +6,7 @@ use stm32_metapac::can::vals::{Lec, Rtr};
 
 use super::{Mailbox, TransmitStatus};
 use crate::can::enums::BusError;
-use crate::can::frame::{Envelope, Frame, Header};
+use crate::can::frame::{Envelope, Frame, Header, classic_can_data_len};
 
 pub(crate) struct Registers(pub crate::pac::can::Can);
 
@@ -409,7 +409,7 @@ impl Registers {
             unwrap!(embedded_can::ExtendedId::new(id)).into()
         };
         let rdtr = fifo.rdtr().read();
-        let data_len = rdtr.dlc();
+        let data_len = classic_can_data_len(rdtr.dlc());
         let rtr = rir.rtr() == stm32_metapac::can::vals::Rtr::Remote;
 
         #[cfg(not(feature = "time"))]
