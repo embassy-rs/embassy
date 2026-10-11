@@ -15,7 +15,9 @@ use core::marker::PhantomData;
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex as AsyncMutex;
-use embassy_usb_driver::host::{DeviceEvent, HostError, PipeError, UsbHostAllocator, UsbHostController, UsbPipe, pipe};
+use embassy_usb_driver::host::{
+    AddressSet, DeviceEvent, HostError, PipeError, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
+};
 pub use embassy_usb_driver::host::{SplitInfo, SplitSpeed};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
 
@@ -80,9 +82,41 @@ impl core::error::Error for EnumerationError {}
 ///
 /// Addresses greater than 127 are not issued because their behavior is not specified (USB 2.0 §9.4.6).
 pub struct BusState {
-    /// Per address, `None` when free, else the hub it hangs off (`0` for the root port).
-    devices: BlockingMutex<CriticalSectionRawMutex, RefCell<[Option<u8>; ADDRESS_COUNT as usize]>>,
+    devices: BlockingMutex<CriticalSectionRawMutex, RefCell<DeviceState>>,
     enum_lock: AsyncMutex<CriticalSectionRawMutex, ()>,
+}
+
+struct DeviceState {
+    /// Per address, `None` when free, else the hub it hangs off (`0` for the root port).
+    parent: [Option<u8>; ADDRESS_COUNT as usize],
+    /// Addresses remain allocated until their removal has been reported.
+    removing: AddressSet,
+}
+
+impl DeviceState {
+    fn set_parent(&mut self, addr: u8, hub: u8) {
+        if hub < ADDRESS_COUNT && self.parent.get(addr as usize).is_some_and(|parent| parent.is_some()) {
+            self.parent[addr as usize] = Some(hub);
+            if self.removing.contains(hub) {
+                self.removing.insert(addr);
+            }
+        }
+    }
+
+    fn device_tree(&self, addr: u8) -> Option<AddressSet> {
+        if addr != 0 && self.parent.get(addr as usize).copied().flatten().is_none() {
+            return None;
+        }
+
+        let mut addresses = AddressSet::default();
+        addresses.insert(addr);
+        while let Some(child) = (1..ADDRESS_COUNT)
+            .find(|&a| !addresses.contains(a) && self.parent[a as usize].is_some_and(|p| addresses.contains(p)))
+        {
+            addresses.insert(child);
+        }
+        Some(addresses)
+    }
 }
 
 /// Number of USB device addresses, 0 to 127. Address 0 is the default address (USB 2.0 §9.4.6).
@@ -92,7 +126,10 @@ impl BusState {
     /// Create new, empty bus state.
     pub const fn new() -> Self {
         Self {
-            devices: BlockingMutex::new(RefCell::new([None; ADDRESS_COUNT as usize])),
+            devices: BlockingMutex::new(RefCell::new(DeviceState {
+                parent: [None; ADDRESS_COUNT as usize],
+                removing: AddressSet::new(),
+            })),
             enum_lock: AsyncMutex::new(()),
         }
     }
@@ -105,48 +142,71 @@ impl BusState {
     fn alloc_address(&self) -> Option<u8> {
         self.devices.lock(|d| {
             let mut d = d.borrow_mut();
-            let addr = (1..ADDRESS_COUNT).find(|&addr| d[addr as usize].is_none())?;
-            d[addr as usize] = Some(0);
+            let addr = (1..ADDRESS_COUNT).find(|&addr| d.parent[addr as usize].is_none())?;
+            d.parent[addr as usize] = Some(0);
             Some(addr)
         })
     }
 
     /// Record that device `addr` hangs off hub `hub`.
     pub(crate) fn set_parent(&self, addr: u8, hub: u8) {
-        self.devices.lock(|d| {
-            if let Some(slot @ Some(_)) = d.borrow_mut().get_mut(addr as usize)
-                && hub < ADDRESS_COUNT
-            {
-                *slot = Some(hub);
-            }
-        });
+        self.devices.lock(|d| d.borrow_mut().set_parent(addr, hub));
     }
 
-    /// Release a previously allocated device address, and the devices behind it.
-    ///
-    /// No-op if the address is out of range or was not marked as in use.
-    pub fn free_address(&self, addr: u8) {
+    /// Release an address that has no devices behind it.
+    pub(crate) fn free_address(&self, addr: u8) {
         self.devices.lock(|d| {
             let mut d = d.borrow_mut();
-            if d.get(addr as usize).copied().flatten().is_none() {
-                return;
-            }
-            d[addr as usize] = None;
-            let mut removed = 1u128 << addr;
-
-            // Free all child devices behind addr.
-            while let Some(child) =
-                (1..ADDRESS_COUNT).find(|&a| d[a as usize].is_some_and(|hub| removed & (1u128 << hub) != 0))
-            {
-                d[child as usize] = None;
-                removed |= 1u128 << child;
+            if !d.removing.contains(addr) {
+                if let Some(slot) = d.parent.get_mut(addr as usize) {
+                    *slot = None;
+                }
             }
         });
     }
 
-    /// Release every address.
-    pub(crate) fn free_all(&self) {
-        self.devices.lock(|d| *d.borrow_mut() = [None; ADDRESS_COUNT as usize]);
+    /// Remove `addr` and its descendants, or all devices for address 0.
+    ///
+    /// A concurrent removal is queued for the caller already notifying the allocator.
+    /// Its addresses remain allocated until that caller finishes.
+    pub(crate) fn remove_address<'d>(&self, alloc: &impl UsbHostAllocator<'d>, addr: u8) {
+        let busy = self.devices.lock(|d| {
+            let mut d = d.borrow_mut();
+            let Some(removed) = d.device_tree(addr) else {
+                return true;
+            };
+            let busy = !d.removing.is_empty();
+            d.removing.union(removed);
+            busy
+        });
+
+        if busy {
+            // `removed` has been added to `devices` and will be picked up
+            // by notify loop already running
+            return;
+        }
+
+        // Loops here to ensure that queued removals are processed
+        // this avoids calling `device_removed` within a CS
+        let mut notified = AddressSet::default();
+        loop {
+            let pending = self.devices.lock(|d| {
+                let mut d = d.borrow_mut();
+                let next = d.removing.exclude(notified);
+                if next.is_empty() {
+                    for addr in d.removing {
+                        d.parent[addr as usize] = None;
+                    }
+                    d.removing = AddressSet::new();
+                }
+                next
+            });
+            if pending.is_empty() {
+                return;
+            }
+            alloc.device_removed(pending);
+            notified.union(pending);
+        }
     }
 }
 
@@ -234,11 +294,12 @@ impl<'d, C: UsbHostController<'d>> BusController<'d, C> {
     /// On attach, the implementation drives a bus reset to completion
     /// before returning and reports the speed the device settled on.
     ///
-    /// On detach, every device address is freed.
+    /// On detach, removal of every device address is requested. If another
+    /// removal is being reported, those addresses stay allocated until it finishes.
     pub async fn wait_for_device_event(&mut self) -> DeviceEvent {
         let event = self.driver.wait_for_device_event().await;
         if event == DeviceEvent::Disconnected {
-            self.state.free_all();
+            self.state.remove_address(&self.driver.allocator(), 0);
         }
         event
     }
@@ -285,9 +346,12 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
 
     /// Release a previously allocated device address.
     ///
-    /// Also releases its descendants.
+    /// Also releases its descendants. A concurrent removal may queue the
+    /// notification and delay release until its callback finishes.
     pub fn free_address(&self, addr: u8) {
-        self.state.free_address(addr);
+        if addr != 0 {
+            self.state.remove_address(&self.alloc, addr);
+        }
     }
 
     /// Enumerate a connected device.
@@ -506,7 +570,81 @@ pub fn bus<'d, C: UsbHostController<'d>>(
 
 #[cfg(test)]
 mod tests {
+    use embassy_usb_driver::host::TimeoutConfig;
+
     use super::*;
+
+    /// Allocator that records the set passed to `device_removed`.
+    #[derive(Clone)]
+    struct Recorder<'a>(&'a core::cell::Cell<AddressSet>, Option<&'a dyn Fn(AddressSet)>);
+
+    enum NoPipe {}
+
+    impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for NoPipe {
+        async fn control_in(&mut self, _: &[u8; 8], _: &mut [u8]) -> Result<usize, PipeError>
+        where
+            T: pipe::IsControl,
+            D: pipe::IsIn,
+        {
+            match *self {}
+        }
+
+        async fn control_out(&mut self, _: &[u8; 8], _: &[u8]) -> Result<(), PipeError>
+        where
+            T: pipe::IsControl,
+            D: pipe::IsOut,
+        {
+            match *self {}
+        }
+
+        async fn request_in(&mut self, _: &mut [u8]) -> Result<usize, PipeError>
+        where
+            D: pipe::IsIn,
+        {
+            match *self {}
+        }
+
+        async fn request_out(&mut self, _: &[u8], _: bool) -> Result<(), PipeError>
+        where
+            D: pipe::IsOut,
+        {
+            match *self {}
+        }
+
+        fn set_timeout(&mut self, _: TimeoutConfig)
+        where
+            T: pipe::IsControl,
+        {
+            match *self {}
+        }
+
+        fn reset_data_toggle(&mut self)
+        where
+            T: pipe::IsBulkOrInterrupt,
+        {
+            match *self {}
+        }
+    }
+
+    impl<'a> UsbHostAllocator<'a> for Recorder<'a> {
+        type Pipe<T: pipe::Type, D: pipe::Direction> = NoPipe;
+
+        fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
+            &self,
+            _: u8,
+            _: &EndpointInfo,
+            _: Option<SplitInfo>,
+        ) -> Result<NoPipe, HostError> {
+            Err(HostError::OutOfPipes)
+        }
+
+        fn device_removed(&self, addrs: AddressSet) {
+            self.0.set(addrs);
+            if let Some(on_removed) = self.1 {
+                on_removed(addrs);
+            }
+        }
+    }
 
     #[test]
     fn freeing_a_hub_frees_the_devices_behind_it() {
@@ -518,7 +656,7 @@ mod tests {
         state.set_parent(child, hub);
         state.set_parent(grandchild, child);
 
-        state.free_address(hub);
+        state.remove_address(&Recorder(&Default::default(), None), hub);
 
         // The unrelated device keeps its address, and the freed ones are free again.
         assert_eq!(state.alloc_address(), Some(hub));
@@ -532,21 +670,58 @@ mod tests {
         let state = BusState::new();
         let addr = state.alloc_address().unwrap();
 
-        state.free_address(0);
-        state.free_address(addr + 1);
-        state.free_address(200);
+        let seen = core::cell::Cell::new(AddressSet::default());
 
+        let alloc = Recorder(&seen, None);
+        state.remove_address(&alloc, addr + 1);
+        state.remove_address(&alloc, 200);
+
+        assert!(seen.get().into_iter().next().is_none());
         assert_eq!(state.alloc_address(), Some(addr + 1));
     }
 
     #[test]
-    fn free_all_frees_every_address() {
+    fn removing_notifies_the_removed_addresses() {
         let state = BusState::new();
-        state.alloc_address().unwrap();
-        state.alloc_address().unwrap();
+        let hub = state.alloc_address().unwrap();
+        let child = state.alloc_address().unwrap();
+        let other = state.alloc_address().unwrap();
+        state.set_parent(child, hub);
+        let notified = core::cell::Cell::new(AddressSet::default());
+        let alloc = Recorder(&notified, None);
 
-        state.free_all();
+        state.remove_address(&alloc, hub);
+        assert!(notified.get().into_iter().eq([hub, child]));
 
+        state.remove_address(&alloc, 0);
+        assert!(notified.get().into_iter().eq([0, other]));
         assert_eq!(state.alloc_address(), Some(1));
+    }
+
+    #[test]
+    fn removal_callback_can_queue_another_removal() {
+        let state = BusState::new();
+        let hub = state.alloc_address().unwrap();
+        let child = state.alloc_address().unwrap();
+        let other = state.alloc_address().unwrap();
+        state.set_parent(child, hub);
+
+        let seen = core::cell::Cell::new(AddressSet::default());
+        let calls = core::cell::Cell::new(0);
+        let on_removed = |addrs: AddressSet| {
+            calls.set(calls.get() + 1);
+            if !addrs.contains(0) {
+                assert!(addrs.into_iter().eq([hub, child]));
+                state.free_address(hub);
+                assert_eq!(state.alloc_address(), Some(other + 1));
+                state.remove_address(&Recorder(&seen, None), 0);
+            }
+        };
+        let alloc = Recorder(&seen, Some(&on_removed));
+        state.remove_address(&alloc, hub);
+
+        assert_eq!(calls.get(), 2);
+        assert!(seen.get().into_iter().eq([0, other, other + 1]));
+        assert_eq!(state.alloc_address(), Some(hub));
     }
 }
