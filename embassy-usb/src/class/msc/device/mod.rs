@@ -827,6 +827,12 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         let Some(lba) = self.check_read_write(cbw, rw, block_device, block_buf) else {
             return Ok(CommandResult::failed(cbw.data_transfer_length));
         };
+
+        if rw.blocks == 0 {
+            self.sense = SenseData::NO_SENSE;
+            return Ok(CommandResult::passed(0));
+        }
+
         let blocks = rw.blocks;
         let block_size = block_device.block_size() as usize;
         let (mut front, mut back) = split_chunks(block_buf, block_size);
@@ -899,6 +905,11 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             self.set_sense(SENSE_KEY_DATA_PROTECT, ASC_WRITE_PROTECTED, ASCQ_NONE);
             self.discard_out_data(cbw.data_transfer_length, block_buf).await?;
             return Ok(CommandResult::failed(cbw.data_transfer_length));
+        }
+
+        if rw.blocks == 0 {
+            self.sense = SenseData::NO_SENSE;
+            return Ok(CommandResult::passed(0));
         }
 
         let blocks = rw.blocks;
