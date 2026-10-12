@@ -8,7 +8,7 @@ use core::task::Poll;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_time::Timer;
+use embassy_time::{Duration, Instant, Timer};
 pub use embedded_hal_1::i2c::Operation;
 use pac::i2c;
 
@@ -38,6 +38,7 @@ pub enum AbortReason {
 /// I2C error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum Error {
     /// I2C abort with error
     Abort(AbortReason),
@@ -54,11 +55,14 @@ pub enum Error {
     /// Target i2c address is reserved
     #[deprecated = "embassy_rp no longer prevents accesses to reserved addresses."]
     AddressReserved(u16),
+    /// Operation timed out
+    Timeout,
 }
 
 /// I2C Config error
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum ConfigError {
     /// Max i2c speed is 1MHz
     FrequencyTooHigh,
@@ -135,6 +139,8 @@ pub struct Config {
     /// Using external pullup resistors is recommended for I2C. If you do
     /// have external pullups you should not enable this.
     pub scl_pullup: bool,
+    /// Timeout for I2C operations.
+    pub timeout: Duration,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -142,6 +148,7 @@ impl Default for Config {
             frequency: Hertz(100_000),
             sda_pullup: true,
             scl_pullup: true,
+            timeout: Duration::from_millis(1000),
         }
     }
 }
@@ -166,6 +173,29 @@ fn check_lens(lens: impl Iterator<Item = (bool, usize)>) -> Result<(), Error> {
     Ok(())
 }
 
+#[derive(Copy, Clone)]
+struct Timeout {
+    deadline: Instant,
+}
+
+impl Timeout {
+    #[inline]
+    fn new(duration: Duration) -> Self {
+        Self {
+            deadline: Instant::now() + duration,
+        }
+    }
+
+    #[inline]
+    fn check(self) -> Result<(), Error> {
+        if Instant::now() > self.deadline {
+            return Err(Error::Timeout);
+        }
+
+        Ok(())
+    }
+}
+
 /// Size of I2C FIFO.
 pub const FIFO_SIZE: u8 = 16;
 
@@ -175,6 +205,7 @@ pub struct I2c<'d, M: Mode> {
     phantom: PhantomData<(&'d mut (), M)>,
     sda: Peri<'d, AnyPin>,
     scl: Peri<'d, AnyPin>,
+    timeout: Duration,
 }
 
 impl<M: Mode> core::fmt::Debug for I2c<'_, M> {
@@ -195,6 +226,12 @@ impl<'d> I2c<'d, Blocking> {
     ) -> Self {
         Self::new_inner(T::info(), scl.into(), sda.into(), config)
     }
+}
+
+async fn with_timeout(timeout: Duration, f: impl future::Future<Output = Result<(), Error>>) -> Result<(), Error> {
+    embassy_time::with_timeout(timeout, f)
+        .await
+        .unwrap_or(Err(Error::Timeout))
 }
 
 impl<'d> I2c<'d, Async> {
@@ -241,6 +278,10 @@ impl<'d> I2c<'d, Async> {
     }
 
     async fn read_async_internal(&mut self, buffer: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
+        with_timeout(self.timeout, self.read_async_inner(buffer, restart, send_stop)).await
+    }
+
+    async fn read_async_inner(&mut self, buffer: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
         if buffer.is_empty() {
             return Err(Error::InvalidReadBufferLength);
         }
@@ -338,6 +379,10 @@ impl<'d> I2c<'d, Async> {
         bytes: impl IntoIterator<Item = u8>,
         send_stop: bool,
     ) -> Result<(), Error> {
+        with_timeout(self.timeout, self.write_async_inner(bytes, send_stop)).await
+    }
+
+    async fn write_async_inner(&mut self, bytes: impl IntoIterator<Item = u8>, send_stop: bool) -> Result<(), Error> {
         let p = self.info.regs;
 
         let mut bytes = bytes.into_iter().peekable();
@@ -543,6 +588,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             phantom: PhantomData,
             scl,
             sda,
+            timeout: config.timeout,
         };
 
         if let Err(e) = me.set_config_inner(&config) {
@@ -556,6 +602,8 @@ impl<'d, M: Mode> I2c<'d, M> {
         if config.frequency.0 > 1_000_000 {
             return Err(ConfigError::FrequencyTooHigh);
         }
+
+        self.timeout = config.timeout;
 
         let p = self.info.regs;
 
@@ -744,6 +792,8 @@ impl<'d, M: Mode> I2c<'d, M> {
     }
 
     fn read_blocking_internal(&mut self, read: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
+        let timeout = Timeout::new(self.timeout);
+
         if read.is_empty() {
             return Err(Error::InvalidReadBufferLength);
         }
@@ -755,7 +805,9 @@ impl<'d, M: Mode> I2c<'d, M> {
             let last = i == lastindex;
 
             // wait until there is space in the FIFO to write the next byte
-            while self.tx_fifo_full() {}
+            while self.tx_fifo_full() {
+                timeout.check()?;
+            }
 
             p.ic_data_cmd().write(|w| {
                 w.set_restart(restart && first);
@@ -765,6 +817,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             });
 
             while self.rx_fifo_len() == 0 {
+                timeout.check()?;
                 self.read_and_clear_abort_reason()?;
             }
 
@@ -775,6 +828,8 @@ impl<'d, M: Mode> I2c<'d, M> {
     }
 
     fn write_blocking_internal(&mut self, write: &[u8], send_stop: bool) -> Result<(), Error> {
+        let timeout = Timeout::new(self.timeout);
+
         if write.is_empty() {
             return Err(Error::InvalidWriteBufferLength);
         }
@@ -793,7 +848,9 @@ impl<'d, M: Mode> I2c<'d, M> {
             // internal shift register has completed. For this to function
             // correctly, the TX_EMPTY_CTRL flag in IC_CON must be set. The
             // TX_EMPTY_CTRL flag was set in i2c_init.
-            while !p.ic_raw_intr_stat().read().tx_empty() {}
+            while !p.ic_raw_intr_stat().read().tx_empty() {
+                timeout.check()?;
+            }
 
             let abort_reason = self.read_and_clear_abort_reason();
 
@@ -801,7 +858,9 @@ impl<'d, M: Mode> I2c<'d, M> {
                 // If the transaction was aborted or if it completed
                 // successfully wait until the STOP condition has occurred.
 
-                while !p.ic_raw_intr_stat().read().stop_det() {}
+                while !p.ic_raw_intr_stat().read().stop_det() {
+                    timeout.check()?;
+                }
 
                 p.ic_clr_stop_det().read();
             }
@@ -936,6 +995,7 @@ impl embedded_hal_1::i2c::Error for Error {
             Self::SCLHeldLow => embedded_hal_1::i2c::ErrorKind::Bus,
             #[allow(deprecated)]
             Self::AddressReserved(_) => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
         }
     }
 }

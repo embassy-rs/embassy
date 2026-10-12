@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add set_baudrate() to BufferedUartTx.
 - USB host: debounce root-port connections and fail pending interrupt transfers on disconnect
 - I2C: reject zero-length operations, instead of hanging or leaving the bus locked.
+- I2C: add `Config::timeout` (default 1 s) and return `Error::Timeout` on timeout.
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes
