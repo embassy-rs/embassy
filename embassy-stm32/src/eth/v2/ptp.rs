@@ -206,6 +206,7 @@ impl<T: Instance> PtpClock<T> {
         mac.macier().modify(|w| w.set_tsie(false));
         mac.mactscr().modify(|w| w.set_tsena(false));
         mac.macssir().write(|w| {
+            #[cfg(eth_v2)]
             w.set_snsinc(0);
             w.set_ssinc(self.rate.increment.nanos());
         });
