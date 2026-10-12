@@ -2,6 +2,7 @@
 #![no_main]
 
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
 use defmt::{info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
