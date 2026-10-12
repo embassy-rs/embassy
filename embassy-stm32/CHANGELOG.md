@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+Time driver:
+- fix: stm32/time-driver-lptim: arm alarms that fall in the current counter cycle; they fired at the overflow, up to a quarter cycle late
+
 I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
 
