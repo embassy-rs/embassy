@@ -147,12 +147,14 @@ pub const fn pack_serial_nor_option0(
 
 pub const fn pack_serial_nor_option1(
     flash_connection: SerialNorFlashConnection,
+    drive_strength: u32,
     dqs_pinmux_group: u32,
     pinmux_group: u32,
     status_override: u32,
     dummy_cycles: u32,
 ) -> u32 {
     ((flash_connection as u32) << 28)
+        | ((drive_strength & 0xF) << 24)
         | ((dqs_pinmux_group & 0xF) << 20)
         | ((pinmux_group & 0xF) << 16)
         | ((status_override & 0xFF) << 8)
@@ -361,6 +363,60 @@ impl FlexspiNor {
         })
     }
 
+    /// Probe the attached serial NOR with `option`, let the caller override a
+    /// few board-specific fields on the ROM-confirmed config, then init.
+    ///
+    /// This mirrors the real ROM flow: `get_config` fills in a working
+    /// [`FlexspiNorConfig`] (read LUT, dummy cycles, page/sector sizes, …)
+    /// derived from the device's SFDP tables. The `custom_fcb` closure then runs on
+    /// that confirmed config so the caller can override only what the ROM can't
+    /// infer from the part itself ( e.g. the port geometry (`sflash_a/b_size`) or
+    /// the read sample-clock source) before the config is written back via
+    /// `init`.
+    ///
+    /// Use this over [`FlexspiNor::new`] when you need the SFDP-derived
+    /// config but must adjust connection/clock fields: `new` takes a
+    /// fully-formed config and inits immediately, with no modification in between.
+    pub(super) fn new_with_options(
+        vtable: &'static FlexspiNorVtable,
+        instance: u32,
+        mut option: SerialNorConfigOption,
+        custom_fcb: impl FnOnce(&mut FlexspiNorConfig),
+    ) -> Result<Self, FlexspiError> {
+        if TAKEN
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(FlexspiError::Unavailable);
+        }
+
+        // SAFETY: FlexspiNorConfig is a `#[repr(C)]`; zeroing it is the
+        // direct equivalent of the C `memset(&cfg, 0, sizeof cfg)` the ROM
+        // examples do before `get_config` fills it in.
+        let mut config: FlexspiNorConfig = unsafe { core::mem::zeroed() };
+
+        // Step 1: SFDP probe where the ROM populates `config` (read LUT, sizes, …).
+        if let Err(e) = Result::from(unsafe { (vtable.get_config)(instance, &raw mut config, &raw mut option) }) {
+            TAKEN.store(false, Ordering::Relaxed);
+            return Err(e);
+        }
+
+        // Step 2: let the caller override board-specific fields in place.
+        custom_fcb(&mut config);
+
+        // Step 3: write the tweaked config back via init.
+        if let Err(e) = Result::from(unsafe { (vtable.init)(instance, &raw mut config) }) {
+            TAKEN.store(false, Ordering::Relaxed);
+            return Err(e);
+        }
+
+        Ok(Self {
+            vtable,
+            instance,
+            config,
+        })
+    }
+
     pub fn version(&self) -> u32 {
         self.vtable.version
     }
@@ -386,23 +442,13 @@ impl FlexspiNor {
         unsafe { (self.vtable.erase_block)(self.instance, &raw mut self.config, addr) }.into()
     }
 
-    pub fn get_config(&mut self) -> Result<SerialNorConfigOption, FlexspiError> {
-        let mut opt = SerialNorConfigOption::default();
-        Result::from(unsafe { (self.vtable.get_config)(self.instance, &raw mut self.config, &raw mut opt) })
-            .map(|()| opt)
-    }
-
-    pub fn read(&mut self, dst: &mut [u32], start: u32) -> Result<(), FlexspiError> {
-        unsafe {
-            (self.vtable.read)(
-                self.instance,
-                &raw mut self.config,
-                dst.as_mut_ptr(),
-                start,
-                dst.len() as u32,
-            )
+    pub fn read(&mut self, dst: &mut [u32], start: u32, byte_len: u32) -> Result<(), FlexspiError> {
+        // `byte_len` is the number of BYTES to read (NOT words); `dst` must be large enough to hold them.
+        // `byte_len` need not be aligned, current statement in RM is incorrect, confirmed by NXP.
+        if byte_len as usize > core::mem::size_of_val(dst) {
+            return Err(FlexspiError::BufferTooSmall);
         }
-        .into()
+        unsafe { (self.vtable.read)(self.instance, &raw mut self.config, dst.as_mut_ptr(), start, byte_len) }.into()
     }
 
     pub fn xfer(&mut self, xfer: &mut FlexspiXfer) -> Result<(), FlexspiError> {
@@ -422,11 +468,14 @@ impl FlexspiNor {
         unsafe { (self.vtable.config_clock)(self.instance, freq_option as u32, sample_clk_mode as u32) }
     }
 
-    pub fn partial_program(&mut self, dst: u32, src: &[u32]) -> Result<(), FlexspiError> {
-        unsafe {
-            (self.vtable.partial_program)(self.instance, &raw mut self.config, dst, src.as_ptr(), src.len() as u32)
+    pub fn partial_program(&mut self, dst: u32, src: &[u32], byte_len: u32) -> Result<(), FlexspiError> {
+        // `byte_len` is the number of BYTES (NOT words) to program; `src` must hold
+        // them.
+        if byte_len as usize > core::mem::size_of_val(src) {
+            return Err(FlexspiError::BufferTooSmall);
         }
-        .into()
+        unsafe { (self.vtable.partial_program)(self.instance, &raw mut self.config, dst, src.as_ptr(), byte_len) }
+            .into()
     }
 }
 
@@ -453,6 +502,7 @@ pub enum FlexspiError {
     UnsupportedSfdpVersion,
     FlashNotFound,
     DtrReadDummyProbeFailed,
+    BufferTooSmall,
     Unknown(u32),
     Unavailable,
 }

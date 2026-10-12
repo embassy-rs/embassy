@@ -106,6 +106,18 @@ impl RomApi {
         FlexspiNor::new(unsafe { &*self.flex_spi_nor }, instance, config)
     }
 
+    /// Probe the serial NOR with `option`, run `custom_fcb` on the ROM-confirmed
+    /// config, then init.
+    #[cfg(feature = "mcxa5xx")]
+    pub fn flex_spi_with_options(
+        &self,
+        instance: u32,
+        option: SerialNorConfigOption,
+        custom_fcb: impl FnOnce(&mut FlexspiNorConfig),
+    ) -> Result<FlexspiNor, FlexspiError> {
+        FlexspiNor::new_with_options(unsafe { &*self.flex_spi_nor }, instance, option, custom_fcb)
+    }
+
     #[cfg(feature = "mcxa5xx")]
     pub fn spi_flash(&self, config: SpiFlashConfig) -> Result<SpiFlash, SpiFlashError> {
         SpiFlash::new(unsafe { &*self.spi_flash }, config)
