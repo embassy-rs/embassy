@@ -243,7 +243,10 @@ async fn run_exp(name: &str, ctrl: &mut i2c::I2c<'_, mode::Async>) -> bool {
         }
     };
     let us = t.elapsed().as_micros();
-    info!("EXP {} bus samples @1ms (bit0 sda0, bit1 scl0, bit2 sda1, bit3 scl1): {:x}", name, samples);
+    info!(
+        "EXP {} bus samples @1ms (bit0 sda0, bit1 scl0, bit2 sda1, bit3 scl1): {:x}",
+        name, samples
+    );
     match r {
         Ok(Ok(())) => info!("RESULT {} general-call: OK {}us", name, us),
         Ok(Err(e)) => {
@@ -251,18 +254,29 @@ async fn run_exp(name: &str, ctrl: &mut i2c::I2c<'_, mode::Async>) -> bool {
             info!("RESULT {} general-call: ERR {:?} {}us", name, e, us);
         }
         Err(_) => {
-            ok = false;
             info!("RESULT {} general-call: HANG {}us", name, us);
             dump_i2c(name);
             // Who holds the bus? Reset the blocks one at a time and look at the lines.
             info!("RELEASE {} before: levels={:x}", name, levels());
             reset_block(false, true);
             Timer::after_millis(2).await;
-            info!("RELEASE {} after resetting slave block I2C1: levels={:x}", name, levels());
+            info!(
+                "RELEASE {} after resetting slave block I2C1: levels={:x}",
+                name,
+                levels()
+            );
             reset_block(true, false);
             Timer::after_millis(2).await;
-            info!("RELEASE {} after also resetting controller block I2C0: levels={:x}", name, levels());
-            info!("EXP {} end levels={:x} ok=false (skipped ops 2 and 3 after hang)", name, levels());
+            info!(
+                "RELEASE {} after also resetting controller block I2C0: levels={:x}",
+                name,
+                levels()
+            );
+            info!(
+                "EXP {} end levels={:x} ok=false (skipped ops 2 and 3 after hang)",
+                name,
+                levels()
+            );
             return false;
         }
     }
@@ -533,11 +547,23 @@ async fn controller_task(con: &mut i2c::I2c<'static, mode::Async>) {
                 let mut scfg = i2c_slave::Config::default();
                 scfg.addr = DEV_ADDR as u16;
                 let mut dev = if $slave {
-                    Some(i2c_slave::I2cSlave::new(p.I2C1.reborrow(), p.PIN_19.reborrow(), p.PIN_18.reborrow(), Irqs, scfg))
+                    Some(i2c_slave::I2cSlave::new(
+                        p.I2C1.reborrow(),
+                        p.PIN_19.reborrow(),
+                        p.PIN_18.reborrow(),
+                        Irqs,
+                        scfg,
+                    ))
                 } else {
                     None
                 };
-                let mut ctrl = i2c::I2c::new(p.I2C0.reborrow(), p.PIN_21.reborrow(), p.PIN_20.reborrow(), Irqs, cfg);
+                let mut ctrl = i2c::I2c::new(
+                    p.I2C0.reborrow(),
+                    p.PIN_21.reborrow(),
+                    p.PIN_20.reborrow(),
+                    Irqs,
+                    cfg,
+                );
                 exp_tail!($name, dev, ctrl, $freq, $pu, $via);
             }};
             ($name:expr, swap = true, slave = $slave:expr, freq = $freq:expr, pullups = $pu:expr, viacfg = $via:expr) => {{
@@ -551,27 +577,116 @@ async fn controller_task(con: &mut i2c::I2c<'static, mode::Async>) {
                 let mut scfg = i2c_slave::Config::default();
                 scfg.addr = DEV_ADDR as u16;
                 let mut dev = if $slave {
-                    Some(i2c_slave::I2cSlave::new(p.I2C0.reborrow(), p.PIN_21.reborrow(), p.PIN_20.reborrow(), Irqs, scfg))
+                    Some(i2c_slave::I2cSlave::new(
+                        p.I2C0.reborrow(),
+                        p.PIN_21.reborrow(),
+                        p.PIN_20.reborrow(),
+                        Irqs,
+                        scfg,
+                    ))
                 } else {
                     None
                 };
-                let mut ctrl = i2c::I2c::new(p.I2C1.reborrow(), p.PIN_19.reborrow(), p.PIN_18.reborrow(), Irqs, cfg);
+                let mut ctrl = i2c::I2c::new(
+                    p.I2C1.reborrow(),
+                    p.PIN_19.reborrow(),
+                    p.PIN_18.reborrow(),
+                    Irqs,
+                    cfg,
+                );
                 exp_tail!($name, dev, ctrl, $freq, $pu, $via);
             }};
         }
 
         // The configuration CI uses: slave first, controller built at the default frequency, then set_config.
-        exp!("A 1k slave via-set_config pullups-on", swap = false, slave = true, freq = 1000, pullups = true, viacfg = true);
-        exp!("B 1k slave direct-config pullups-on", swap = false, slave = true, freq = 1000, pullups = true, viacfg = false);
-        exp!("C 1k NO-slave via-set_config", swap = false, slave = false, freq = 1000, pullups = true, viacfg = true);
-        exp!("D 1k slave via-set_config pullups-off(external only)", swap = false, slave = true, freq = 1000, pullups = false, viacfg = true);
-        exp!("E 1k slave swapped-roles via-set_config", swap = true, slave = true, freq = 1000, pullups = true, viacfg = true);
-        exp!("F 10k slave via-set_config", swap = false, slave = true, freq = 10_000, pullups = true, viacfg = true);
-        exp!("G 100k slave via-set_config", swap = false, slave = true, freq = 100_000, pullups = true, viacfg = true);
-        exp!("H 400k slave via-set_config", swap = false, slave = true, freq = 400_000, pullups = true, viacfg = true);
-        exp!("I 1M slave via-set_config", swap = false, slave = true, freq = 1_000_000, pullups = true, viacfg = true);
-        exp!("J 100k NO-slave via-set_config", swap = false, slave = false, freq = 100_000, pullups = true, viacfg = true);
-        exp!("K 1k slave via-set_config pullups-on (repeat)", swap = false, slave = true, freq = 1000, pullups = true, viacfg = true);
+        exp!(
+            "A 1k slave via-set_config pullups-on",
+            swap = false,
+            slave = true,
+            freq = 1000,
+            pullups = true,
+            viacfg = true
+        );
+        exp!(
+            "B 1k slave direct-config pullups-on",
+            swap = false,
+            slave = true,
+            freq = 1000,
+            pullups = true,
+            viacfg = false
+        );
+        exp!(
+            "C 1k NO-slave via-set_config",
+            swap = false,
+            slave = false,
+            freq = 1000,
+            pullups = true,
+            viacfg = true
+        );
+        exp!(
+            "D 1k slave via-set_config pullups-off(external only)",
+            swap = false,
+            slave = true,
+            freq = 1000,
+            pullups = false,
+            viacfg = true
+        );
+        exp!(
+            "E 1k slave swapped-roles via-set_config",
+            swap = true,
+            slave = true,
+            freq = 1000,
+            pullups = true,
+            viacfg = true
+        );
+        exp!(
+            "F 10k slave via-set_config",
+            swap = false,
+            slave = true,
+            freq = 10_000,
+            pullups = true,
+            viacfg = true
+        );
+        exp!(
+            "G 100k slave via-set_config",
+            swap = false,
+            slave = true,
+            freq = 100_000,
+            pullups = true,
+            viacfg = true
+        );
+        exp!(
+            "H 400k slave via-set_config",
+            swap = false,
+            slave = true,
+            freq = 400_000,
+            pullups = true,
+            viacfg = true
+        );
+        exp!(
+            "I 1M slave via-set_config",
+            swap = false,
+            slave = true,
+            freq = 1_000_000,
+            pullups = true,
+            viacfg = true
+        );
+        exp!(
+            "J 100k NO-slave via-set_config",
+            swap = false,
+            slave = false,
+            freq = 100_000,
+            pullups = true,
+            viacfg = true
+        );
+        exp!(
+            "K 1k slave via-set_config pullups-on (repeat)",
+            swap = false,
+            slave = true,
+            freq = 1000,
+            pullups = true,
+            viacfg = true
+        );
         info!("DIAG SUMMARY: {} of 11 experiments had a failed operation", failed);
         reset_i2c();
 
