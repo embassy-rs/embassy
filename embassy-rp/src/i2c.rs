@@ -145,6 +145,27 @@ impl Default for Config {
         }
     }
 }
+/// Reject empty operations up front: one partway through would leave the bus held with no STOP.
+fn check_operations(operations: &[Operation<'_>]) -> Result<(), Error> {
+    check_lens(operations.iter().map(|op| match op {
+        Operation::Read(buf) => (true, buf.len()),
+        Operation::Write(buf) => (false, buf.len()),
+    }))
+}
+
+fn check_lens(lens: impl Iterator<Item = (bool, usize)>) -> Result<(), Error> {
+    for (is_read, len) in lens {
+        if len == 0 {
+            return Err(if is_read {
+                Error::InvalidReadBufferLength
+            } else {
+                Error::InvalidWriteBufferLength
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Size of I2C FIFO.
 pub const FIFO_SIZE: u8 = 16;
 
@@ -320,6 +341,9 @@ impl<'d> I2c<'d, Async> {
         let p = self.info.regs;
 
         let mut bytes = bytes.into_iter().peekable();
+        if bytes.peek().is_none() {
+            return Err(Error::InvalidWriteBufferLength);
+        }
 
         // Cancel-safety
         let on_drop = OnDrop::new(|| {
@@ -454,6 +478,7 @@ impl<'d> I2c<'d, Async> {
         if operations.is_empty() {
             return Ok(());
         }
+        check_operations(operations)?;
 
         self.setup_with_recovery(address.into()).await?;
 
@@ -829,6 +854,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         if operations.is_empty() {
             return Ok(());
         }
+        check_operations(operations)?;
 
         self.setup(address.into(), false)?;
         for i in 0..operations.len() {
@@ -874,6 +900,12 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, M> {
         address: u8,
         operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
+        use embedded_hal_02::blocking::i2c::Operation as Op;
+        check_lens(operations.iter().map(|op| match op {
+            Op::Read(buf) => (true, buf.len()),
+            Op::Write(buf) => (false, buf.len()),
+        }))?;
+
         self.setup(address.into(), false)?;
         for i in 0..operations.len() {
             let last = i == operations.len() - 1;

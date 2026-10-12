@@ -16,6 +16,7 @@ use embassy_rp::config::Config as rpConfig;
 use embassy_rp::peripherals::{I2C0, I2C1};
 use embassy_rp::time::Hertz;
 use embassy_rp::{bind_interrupts, i2c, i2c_slave, mode};
+use embedded_hal::blocking::i2c::{Operation as Op02, Transactional};
 use embedded_hal_1::i2c::Operation;
 use panic_probe as _;
 
@@ -114,6 +115,10 @@ async fn bounded(op: impl Future<Output = Result<(), i2c::Error>>) -> Result<boo
     }
 }
 
+fn bus_idle() -> bool {
+    !embassy_rp::pac::I2C0.ic_status().read().mst_activity()
+}
+
 fn nack() -> Result<bool, i2c::Error> {
     Err(i2c::Error::Abort(AbortReason::NoAcknowledge))
 }
@@ -179,6 +184,13 @@ async fn error_checks(con: &mut i2c::I2c<'static, mode::Async>) {
         r,
         Err(i2c::Error::InvalidWriteBufferLength),
     );
+
+    let ops = &mut [Op02::Write(&[1]), Op02::Write(&[])];
+    let r = con.exec(DEV_ADDR, ops).map(|()| false);
+    let want = Err(i2c::Error::InvalidWriteBufferLength);
+    t.check("0.2 transaction rejects an empty operation", r, want);
+    embassy_time::Timer::after_millis(3).await;
+    t.check("0.2 transaction leaves the bus idle", Ok(bus_idle()), Ok(true));
 
     t.finish();
 }
