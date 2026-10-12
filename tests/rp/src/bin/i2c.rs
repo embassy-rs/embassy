@@ -156,14 +156,6 @@ async fn error_checks(con: &mut i2c::I2c<'static, mode::Async>) {
     const ABSENT: u8 = 0x43;
     let mut t = ErrorReporter { failed: 0 };
 
-    // A 10 kHz transfer cannot finish in 300 us.
-    let mut slow = i2c::Config::default();
-    slow.frequency = Hertz(10_000);
-    slow.timeout = embassy_time::Duration::from_micros(300);
-    con.set_config(&slow).unwrap();
-    let r = bounded(con.write(ABSENT, &[1, 2, 3, 4])).await;
-    t.check("async write times out", r, Err(i2c::Error::Timeout));
-
     set_freq(con, 100_000).await;
     let r = con.blocking_write(ABSENT, &[1]).map(|()| false);
     t.check("blocking write to an absent address is NACKed", r, nack());
@@ -200,9 +192,20 @@ async fn error_checks(con: &mut i2c::I2c<'static, mode::Async>) {
     embassy_time::Timer::after_millis(3).await;
     t.check("0.2 transaction leaves the bus idle", Ok(bus_idle()), Ok(true));
 
+    // A 10 kHz transfer cannot finish in 300 us.
+    let mut slow = i2c::Config::default();
+    slow.frequency = Hertz(10_000);
+    slow.timeout = embassy_time::Duration::from_micros(300);
     con.set_config(&slow).unwrap();
+    let r = bounded(con.write(ABSENT, &[1, 2, 3, 4])).await;
+    t.check("async write times out", r, Err(i2c::Error::Timeout));
+    for _ in 0..3 {
+        let r = bounded(con.write(ABSENT, &[1, 2, 3, 4])).await;
+        t.check("write straight after a timed out one", r, Err(i2c::Error::Timeout));
+    }
     let r = con.blocking_write(ABSENT, &[1, 2, 3, 4]).map(|()| false);
     t.check("blocking write times out", r, Err(i2c::Error::Timeout));
+    t.check("blocking timeout leaves the bus idle", Ok(bus_idle()), Ok(true));
 
     t.finish();
 }

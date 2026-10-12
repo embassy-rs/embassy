@@ -187,12 +187,8 @@ impl Timeout {
     }
 
     #[inline]
-    fn check(self) -> Result<(), Error> {
-        if Instant::now() > self.deadline {
-            return Err(Error::Timeout);
-        }
-
-        Ok(())
+    fn expired(self) -> bool {
+        Instant::now() > self.deadline
     }
 }
 
@@ -608,6 +604,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         let p = self.info.regs;
 
         p.ic_enable().write(|w| w.set_enable(false));
+        self.wait_ic_en_clear();
 
         // Configure baudrate
 
@@ -681,6 +678,11 @@ impl<'d, M: Mode> I2c<'d, M> {
         let p = self.info.regs;
         p.ic_enable().write(|w| w.set_enable(false));
 
+        // IC_TAR and IC_CON only change while disabled; a timed out transfer may still be shutting down.
+        if !self.wait_ic_en_clear() {
+            return Err(Error::Timeout);
+        }
+
         if !ignore_lockup {
             if self.is_sda_low() {
                 return Err(Error::SDAHeldLow);
@@ -696,7 +698,73 @@ impl<'d, M: Mode> I2c<'d, M> {
         Ok(())
     }
 
+    /// calc time to tx one byte (9 SCL periods).
+    fn byte_time(&self) -> Duration {
+        let p = self.info.regs;
+        let period = u64::from(p.ic_fs_scl_hcnt().read().ic_fs_scl_hcnt())
+            + u64::from(p.ic_fs_scl_lcnt().read().ic_fs_scl_lcnt());
+        Duration::from_micros(9 * period * 1_000_000 / u64::from(crate::clocks::clk_peri_freq()))
+    }
+
+    fn settle_timeout(&self) -> Timeout {
+        Timeout::new(self.byte_time() * 2)
+    }
+
+    fn wait_ic_en_clear(&self) -> bool {
+        let timeout = self.settle_timeout();
+        while self.info.regs.ic_enable_status().read().ic_en() {
+            if timeout.expired() {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Check deadline and abort/release bus on timeout.
+    fn check_timeout(&mut self, timeout: Timeout) -> Result<(), Error> {
+        if !timeout.expired() {
+            return Ok(());
+        }
+
+        // timed out, abort and release bus.
+        let p = self.info.regs;
+        p.ic_enable().write(|w| {
+            w.set_abort(true);
+            w.set_enable(true);
+        });
+        // wait for abort to take effect.
+        let settle = self.settle_timeout();
+        while p.ic_enable().read().abort() && !settle.expired() {}
+        // disable.
+        p.ic_enable().write(|w| w.set_enable(false));
+        // wait for disable to take effect.
+        self.wait_ic_en_clear();
+        self.read_and_clear_abort_reason().ok();
+        Err(Error::Timeout)
+    }
+
+    /// Disable the controller and wait until it releases the bus
+    async fn wait_disabled(&self) -> Result<(), Error> {
+        let p = self.info.regs;
+        p.ic_enable().write(|w| w.set_enable(false));
+
+        // One byte (9 SCL periods) may still be in flight, plus a stretched clock.
+        let timeout = self.settle_timeout();
+        while p.ic_enable_status().read().ic_en() {
+            // A slave stretching the clock may still timeout.
+            if timeout.expired() {
+                return Err(Error::Timeout);
+            }
+            Timer::after_micros(10).await;
+        }
+        Ok(())
+    }
+
     async fn setup_with_recovery(&mut self, addr: Address) -> Result<(), Error> {
+        // wait for bus to be released.
+        self.wait_disabled().await?;
+        // Discard the abort a cancelled transfer left latched.
+        self.read_and_clear_abort_reason().ok();
         let setup_result = self.setup(addr, false);
         if setup_result == Err(Error::SDAHeldLow) {
             #[cfg(feature = "defmt")]
@@ -806,7 +874,7 @@ impl<'d, M: Mode> I2c<'d, M> {
 
             // wait until there is space in the FIFO to write the next byte
             while self.tx_fifo_full() {
-                timeout.check()?;
+                self.check_timeout(timeout)?;
             }
 
             p.ic_data_cmd().write(|w| {
@@ -817,7 +885,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             });
 
             while self.rx_fifo_len() == 0 {
-                timeout.check()?;
+                self.check_timeout(timeout)?;
                 self.read_and_clear_abort_reason()?;
             }
 
@@ -849,7 +917,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             // correctly, the TX_EMPTY_CTRL flag in IC_CON must be set. The
             // TX_EMPTY_CTRL flag was set in i2c_init.
             while !p.ic_raw_intr_stat().read().tx_empty() {
-                timeout.check()?;
+                self.check_timeout(timeout)?;
             }
 
             let abort_reason = self.read_and_clear_abort_reason();
@@ -859,7 +927,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                 // successfully wait until the STOP condition has occurred.
 
                 while !p.ic_raw_intr_stat().read().stop_det() {
-                    timeout.check()?;
+                    self.check_timeout(timeout)?;
                 }
 
                 p.ic_clr_stop_det().read();
