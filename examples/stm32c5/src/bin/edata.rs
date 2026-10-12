@@ -49,7 +49,7 @@ async fn main(_spawner: Spawner) {
         Ok(ProbeWord::Virgin) => {
             info!("EDATA word is virgin; programming test data...");
             unwrap!(f.edata_write_u16_slice(embassy_stm32::flash::EDataBank::Bank1, TEST_OFFSET, &expected));
-        },
+        }
         // The page was just erased. A value here means erase or ECC handling
         // did not behave as expected, so do not continue with the test.
         Ok(ProbeWord::Value(v)) => panic!("erased EDATA word unexpectedly contains {v:#06x}"),
