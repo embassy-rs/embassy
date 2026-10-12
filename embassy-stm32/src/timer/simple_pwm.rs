@@ -81,7 +81,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(P
 pub struct SimplePwmChannel<'d, T: GeneralInstance4Channel> {
     timer: ManuallyDrop<Timer<'d, T>>,
     channel: Channel,
-    _pin: Option<Flex<'d>>,
+    pin: Option<Flex<'d>>,
 }
 
 // TODO: check for RMW races
@@ -200,6 +200,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
             unsafe { self.timer.clone_unchecked() },
             self.channel,
             self.timer.setup_ring_buffer(tx_dma, irq, self.channel, dma_buf),
+            self.pin,
         )
     }
 }
@@ -294,7 +295,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         SimplePwmChannel {
             timer: unsafe { self.inner.clone_unchecked() },
             channel,
-            _pin: None,
+            pin: None,
         }
     }
 
@@ -350,7 +351,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         let ch = |channel, pin| SimplePwmChannel {
             timer: unsafe { timer.clone_unchecked() },
             channel,
-            _pin: pin,
+            pin,
         };
 
         SimplePwmChannels {

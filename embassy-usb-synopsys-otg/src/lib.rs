@@ -11,6 +11,7 @@
 mod fmt;
 
 use core::cell::UnsafeCell;
+use core::cmp::min;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
@@ -80,26 +81,26 @@ where
             vals::Pktstsd::OUT_DATA_RX => {
                 trace!("OUT_DATA_RX ep={} len={}", ep_num, len);
 
-                if state.ep_states[ep_num].out_size.load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
+                let ep = &state.ep_states[ep_num];
+                // A packet of a multi-packet transfer. Its reader is woken by OUT_DATA_DONE.
+                // SAFETY: `State::mutex` is held.
+                let received = state.mutex.lock(|| {
+                    let xfer = unsafe { &mut *ep.out_xfer.get() };
+                    xfer.as_mut().is_some_and(|xfer| xfer.receive(r, len))
+                });
+
+                if received {
+                    continue;
+                }
+
+                if ep.out_size.load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
                     // SAFETY: Buffer size is allocated to be equal to endpoint's maximum packet size
                     // We trust the peripheral to not exceed its configured MPSIZ
-                    let buf =
-                        unsafe { core::slice::from_raw_parts_mut(*state.ep_states[ep_num].out_buffer.get(), len) };
+                    let buf = unsafe { core::slice::from_raw_parts_mut(*ep.out_buffer.get(), len) };
+                    read_fifo(r, buf);
 
-                    let mut chunks = buf.chunks_exact_mut(4);
-                    for chunk in &mut chunks {
-                        // RX FIFO is shared so always read from fifo(0)
-                        let data = r.fifo(0).read().0;
-                        chunk.copy_from_slice(&data.to_ne_bytes());
-                    }
-                    let rem = chunks.into_remainder();
-                    if !rem.is_empty() {
-                        let data = r.fifo(0).read().0;
-                        rem.copy_from_slice(&data.to_ne_bytes()[0..rem.len()]);
-                    }
-
-                    state.ep_states[ep_num].out_size.store(len as u16, Ordering::Release);
-                    state.ep_states[ep_num].out_waker.wake();
+                    ep.out_size.store(len as u16, Ordering::Release);
+                    ep.out_waker.wake();
                 } else {
                     error!("ep_out buffer overflow index={}", ep_num);
 
@@ -112,6 +113,17 @@ where
             }
             vals::Pktstsd::OUT_DATA_DONE => {
                 trace!("OUT_DATA_DONE ep={}", ep_num);
+
+                let ep = &state.ep_states[ep_num];
+                // SAFETY: `State::mutex` is held.
+                let completed = state.mutex.lock(|| {
+                    let xfer = unsafe { &mut *ep.out_xfer.get() };
+                    xfer.as_mut().is_some_and(|xfer| xfer.complete())
+                });
+
+                if completed {
+                    ep.out_waker.wake();
+                }
             }
             vals::Pktstsd::SETUP_DATA_DONE => {
                 trace!("SETUP_DATA_DONE ep={}", ep_num);
@@ -220,6 +232,19 @@ where
     }
 }
 
+/// Reads a received packet from the RX FIFO into `buf`.
+fn read_fifo(r: Otg, buf: &mut [u8]) {
+    // RX FIFO is shared so always read from fifo(0)
+    let mut chunks = buf.chunks_exact_mut(4);
+    for chunk in &mut chunks {
+        chunk.copy_from_slice(&r.fifo(0).read().0.to_ne_bytes());
+    }
+    let rem = chunks.into_remainder();
+    if !rem.is_empty() {
+        rem.copy_from_slice(&r.fifo(0).read().0.to_ne_bytes()[..rem.len()]);
+    }
+}
+
 /// USB PHY type
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PhyType {
@@ -282,10 +307,53 @@ struct EpState {
     /// unreadable without VBUS power — such a read hangs the whole chip.
     in_enabled: AtomicBool,
     out_enabled: AtomicBool,
+    /// The OUT transfer of [`EndpointOut::read_transfer`], if one is in progress. Accessed only
+    /// with [`State::mutex`] held.
+    out_xfer: UnsafeCell<Option<OutXfer>>,
 }
 
-// SAFETY: `out_buffer` access is synchronized via `out_size`. `in_alloc`/`out_alloc` are written
-// only during endpoint allocation before the USB stack starts; afterward they are read-only.
+/// A multi-packet OUT transfer, which [`on_interrupt`] receives straight into `buf`.
+struct OutXfer {
+    buf: *mut u8,
+    /// Size of `buf`, a whole number of max-size packets.
+    cap: usize,
+    len: usize,
+    max_packet_size: usize,
+    /// Set when `buf` is full or a short packet ended the transfer.
+    ended: bool,
+    /// Set when the core has also completed the transfer, so the endpoint can be armed again.
+    done: bool,
+}
+
+impl OutXfer {
+    /// Reads a received packet of `len` bytes from the RX FIFO into `buf`. Returns false, with the
+    /// packet still in the FIFO, if it does not belong to this transfer.
+    fn receive(&mut self, r: Otg, len: usize) -> bool {
+        if self.ended || self.len + len > self.cap {
+            return false;
+        }
+
+        // SAFETY: `read_transfer` keeps `buf[..cap]` borrowed while the transfer is in progress.
+        read_fifo(r, unsafe {
+            core::slice::from_raw_parts_mut(self.buf.add(self.len), len)
+        });
+        self.len += len;
+        // The core ends the transfer after `cap` bytes or on a short packet.
+        self.ended = self.len == self.cap || len < self.max_packet_size;
+        true
+    }
+
+    /// Handles the core's transfer completed entry. Returns true if it completes this transfer.
+    /// An entry that arrives before the last packet belongs to the transfer before this one.
+    fn complete(&mut self) -> bool {
+        self.done = self.ended;
+        self.done
+    }
+}
+
+// SAFETY: `out_buffer` access is synchronized via `out_size`, and `out_xfer` access via
+// `State::mutex`. `in_alloc`/`out_alloc` are written only during endpoint allocation before the
+// USB stack starts; afterward they are read-only.
 unsafe impl Send for EpState {}
 unsafe impl Sync for EpState {}
 
@@ -448,6 +516,7 @@ where
                     out_alloc: UnsafeCell::new(None),
                     in_enabled: AtomicBool::new(false),
                     out_enabled: AtomicBool::new(false),
+                    out_xfer: UnsafeCell::new(None),
                 }
             }; EP_COUNT],
             bus_waker: AtomicWaker::new(),
@@ -1101,13 +1170,28 @@ where
 
             regs.grxfsiz().modify(|w| w.set_rxfd(rx_fifo_size_words));
 
+            // Share the FIFO space that no endpoint uses between the bulk IN endpoints, so that
+            // `write_transfer` can queue several packets.
+            let is_bulk_in = |ep: &EndpointData| ep.ep_type == EndpointType::Bulk;
+            let bulk_in_count = (1..st.endpoint_count())
+                .filter_map(|i| st.ep_alloc_get(Direction::In, i))
+                .filter(|ep| is_bulk_in(ep))
+                .count() as u16;
+            let spare_words = self.instance.fifo_depth_words - rx_fifo_size_words - st.ep_fifo_size_in();
+
             // Configure TX (USB in direction) fifo size for each endpoint
             let mut fifo_top = rx_fifo_size_words;
             for i in 0..st.endpoint_count() {
                 if let Some(ep) = st.ep_alloc_get(Direction::In, i) {
+                    let mut fifo_size_words = ep.fifo_size_words;
+                    if i != 0 && is_bulk_in(ep) {
+                        let packet_words = ep.max_packet_size.div_ceil(4);
+                        fifo_size_words += spare_words / bulk_in_count / packet_words * packet_words;
+                    }
+
                     trace!(
                         "configuring tx fifo ep={}, fifo={}, offset={}, size={}",
-                        i, ep.tx_fifo, fifo_top, ep.fifo_size_words
+                        i, ep.tx_fifo, fifo_top, fifo_size_words
                     );
 
                     let dieptxf = if ep.tx_fifo == 0 {
@@ -1117,11 +1201,11 @@ where
                     };
 
                     dieptxf.write(|w| {
-                        w.set_fd(ep.fifo_size_words);
+                        w.set_fd(fifo_size_words);
                         w.set_sa(fifo_top);
                     });
 
-                    fifo_top += ep.fifo_size_words;
+                    fifo_top += fifo_size_words;
                 }
             }
 
@@ -1683,15 +1767,36 @@ where
     }
 }
 
-impl<'d, M> embassy_usb_driver::EndpointOut for Endpoint<'d, Out, M>
+impl<'d, D, M> Endpoint<'d, D, M>
 where
     M: RawMutex + Copy,
 {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+    /// Returns the largest transfer, in whole max-size packets, that the core can do at once.
+    fn max_transfer_len(&self) -> usize {
+        let max_packet_size = usize::from(self.info.max_packet_size);
+        if self.info.ep_type == EndpointType::Isochronous {
+            // One packet per transfer, so that each packet gets its own frame parity.
+            return max_packet_size;
+        }
+
+        // GHWCFG3 gives the width of the transfer size counter, minus 11, and of the packet
+        // counter, minus 4.
+        let hwcfg3 = self.regs.hwcfg3().read();
+        let max_len = (1usize << ((hwcfg3 & 0xf) + 11)) - 1;
+        let max_packets = (1usize << (((hwcfg3 >> 4) & 0x7) + 4)) - 1;
+        min(max_len / max_packet_size, max_packets) * max_packet_size
+    }
+}
+
+impl<'d, M> Endpoint<'d, Out, M>
+where
+    M: RawMutex + Copy,
+{
+    /// Waits for a packet and reads it from `out_buffer`. The endpoint is idle afterwards.
+    async fn read_packet(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         trace!("read start len={}", buf.len());
 
         poll_fn(|cx| {
-            let index = self.info.addr.index();
             self.state.out_waker.register(cx.waker());
 
             if !self.state.out_enabled.load(Ordering::Acquire) {
@@ -1714,38 +1819,79 @@ where
                 // Release buffer
                 self.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
 
-                self.mutex.lock(|| {
-                    // Receive 1 packet
-                    self.regs.doeptsiz(index).modify(|w| {
-                        w.set_xfrsiz(self.info.max_packet_size as _);
-                        w.set_pktcnt(1);
-                    });
-
-                    if self.info.ep_type == EndpointType::Isochronous {
-                        // Isochronous endpoints must set the correct even/odd frame bit to
-                        // correspond with the next frame's number.
-                        let frame_number = self.regs.dsts().read().fnsof();
-                        let frame_is_odd = frame_number & 0x01 == 1;
-
-                        self.regs.doepctl(index).modify(|r| {
-                            if frame_is_odd {
-                                r.set_sd0pid_sevnfrm(true);
-                            } else {
-                                r.set_soddfrm(true);
-                            }
-                        });
-                    }
-
-                    // Re-enable and clear NAK to receive more data. Newer DWC2
-                    // cores (e.g. nRF54LM20A) clear EPENA after each transfer
-                    // and NAK everything until it is set again.
-                    self.regs.doepctl(index).modify(|w| {
-                        w.set_epena(true);
-                        w.set_cnak(true);
-                    });
-                });
-
                 Poll::Ready(Ok(len as usize))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    /// Prepares the idle endpoint to receive `packets` max-size packets.
+    fn arm_out(&self, packets: u16) {
+        let index = self.info.addr.index();
+        self.mutex.lock(|| {
+            self.regs.doeptsiz(index).modify(|w| {
+                w.set_xfrsiz(u32::from(self.info.max_packet_size) * u32::from(packets));
+                w.set_pktcnt(packets);
+            });
+
+            if self.info.ep_type == EndpointType::Isochronous {
+                // Isochronous endpoints must set the correct even/odd frame bit to
+                // correspond with the next frame's number.
+                let frame_number = self.regs.dsts().read().fnsof();
+                let frame_is_odd = frame_number & 0x01 == 1;
+
+                self.regs.doepctl(index).modify(|r| {
+                    if frame_is_odd {
+                        r.set_sd0pid_sevnfrm(true);
+                    } else {
+                        r.set_soddfrm(true);
+                    }
+                });
+            }
+
+            // Re-enable and clear NAK to receive more data. Newer DWC2
+            // cores (e.g. nRF54LM20A) clear EPENA after each transfer
+            // and NAK everything until it is set again.
+            self.regs.doepctl(index).modify(|w| {
+                w.set_epena(true);
+                w.set_cnak(true);
+            });
+        });
+    }
+
+    /// Receives `buf.len()` bytes, a whole number of max-size packets, straight into `buf`. A short
+    /// packet ends the transfer early. The endpoint must be idle, and is idle afterwards.
+    async fn read_packets(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let max_packet_size = usize::from(self.info.max_packet_size);
+        let xfer = OutXfer {
+            buf: buf.as_mut_ptr(),
+            cap: buf.len(),
+            len: 0,
+            max_packet_size,
+            ended: false,
+            done: false,
+        };
+        // SAFETY: `State::mutex` is held.
+        self.mutex.lock(|| unsafe { *self.state.out_xfer.get() = Some(xfer) });
+        // If this future is dropped, stop the transfer before `buf` is released.
+        let _guard = OutXferGuard(&*self);
+        self.arm_out((buf.len() / max_packet_size) as u16);
+
+        poll_fn(|cx| {
+            self.state.out_waker.register(cx.waker());
+
+            let finished = self.mutex.lock(|| {
+                // SAFETY: `State::mutex` is held.
+                let xfer = unsafe { &mut *self.state.out_xfer.get() };
+                xfer.take_if(|xfer| xfer.done).map(|xfer| xfer.len)
+            });
+
+            if let Some(len) = finished {
+                Poll::Ready(Ok(len))
+            } else if !self.state.out_enabled.load(Ordering::Acquire) {
+                Poll::Ready(Err(EndpointError::Disabled))
             } else {
                 Poll::Pending
             }
@@ -1754,19 +1900,74 @@ where
     }
 }
 
-impl<'d, M> embassy_usb_driver::EndpointIn for Endpoint<'d, In, M>
+/// Stops an unfinished [`OutXfer`] when dropped, so that the interrupt handler no longer writes
+/// to its buffer.
+struct OutXferGuard<'a, 'd, M: RawMutex + Copy>(&'a Endpoint<'d, Out, M>);
+
+impl<M: RawMutex + Copy> Drop for OutXferGuard<'_, '_, M> {
+    fn drop(&mut self) {
+        let ep = self.0;
+        // SAFETY: `State::mutex` is held.
+        let unfinished = ep.mutex.lock(|| unsafe { (*ep.state.out_xfer.get()).is_some() });
+        if !unfinished {
+            return;
+        }
+
+        let index = ep.info.addr.index();
+        if ep.regs.doepctl(index).read().epena() {
+            abort_out_endpoint(ep.regs, index);
+        }
+        // SAFETY: `State::mutex` is held.
+        ep.mutex.lock(|| unsafe { *ep.state.out_xfer.get() = None });
+
+        // The data of the transfer is lost. Wait for the next packet, like `read` does.
+        if ep.state.out_enabled.load(Ordering::Acquire) {
+            ep.arm_out(1);
+        }
+    }
+}
+
+impl<'d, M> embassy_usb_driver::EndpointOut for Endpoint<'d, Out, M>
 where
     M: RawMutex + Copy,
 {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
-        trace!("write ep={:?} data={:?}", self.info.addr, Bytes(buf));
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let len = self.read_packet(buf).await?;
+        self.arm_out(1);
+        Ok(len)
+    }
 
-        if buf.len() > self.info.max_packet_size as usize {
-            return Err(EndpointError::BufferOverflow);
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let max_packet_size = usize::from(self.info.max_packet_size);
+
+        // The endpoint is already armed for one packet, by `read` or when it was enabled.
+        let mut n = self.read_packet(buf).await?;
+        let mut ended = n < max_packet_size;
+
+        // Receive the whole packets that fit in the rest of `buf` as multi-packet transfers.
+        while !ended && buf.len() - n >= max_packet_size {
+            let len = min(buf.len() - n, self.max_transfer_len()) / max_packet_size * max_packet_size;
+            let received = self.read_packets(&mut buf[n..][..len]).await?;
+            ended = received < len;
+            n += received;
         }
+        self.arm_out(1);
 
+        // Less than a max-size packet of space is left.
+        if !ended && n < buf.len() {
+            n += self.read(&mut buf[n..]).await?;
+        }
+        Ok(n)
+    }
+}
+
+impl<'d, M> Endpoint<'d, In, M>
+where
+    M: RawMutex + Copy,
+{
+    /// Waits for the previous transfer to complete.
+    async fn wait_in_idle(&mut self) -> Result<(), EndpointError> {
         let index = self.info.addr.index();
-        // Wait for previous transfer to complete and check if endpoint is disabled
         poll_fn(|cx| {
             self.state.in_waker.register(cx.waker());
 
@@ -1789,32 +1990,110 @@ where
                 Poll::Pending
             }
         })
-        .await?;
+        .await
+    }
 
-        if buf.len() > 0 {
-            poll_fn(|cx| {
-                self.state.in_waker.register(cx.waker());
+    /// Waits for space for `len` bytes in the transmit FIFO.
+    async fn wait_fifo_space(&mut self, len: usize) -> Result<(), EndpointError> {
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            self.state.in_waker.register(cx.waker());
 
-                let size_words = (buf.len() + 3) / 4;
+            if !self.state.in_enabled.load(Ordering::Acquire) {
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
 
-                let fifo_space = self.regs.dtxfsts(index).read().ineptfsav() as usize;
-                if size_words > fifo_space {
-                    // Not enough space in fifo, enable tx fifo empty interrupt
-                    self.mutex.lock(|| {
-                        self.regs.diepempmsk().modify(|w| {
-                            w.set_ineptxfem(w.ineptxfem() | (1 << index));
-                        });
+            let size_words = (len + 3) / 4;
+
+            let fifo_space = self.regs.dtxfsts(index).read().ineptfsav() as usize;
+            if size_words > fifo_space {
+                // Not enough space in fifo, enable tx fifo empty interrupt
+                self.mutex.lock(|| {
+                    self.regs.diepempmsk().modify(|w| {
+                        w.set_ineptxfem(w.ineptxfem() | (1 << index));
                     });
+                });
 
-                    trace!("tx fifo for ep={} full, waiting for txfe", index);
+                trace!("tx fifo for ep={} full, waiting for txfe", index);
 
-                    Poll::Pending
+                Poll::Pending
+            } else {
+                trace!("write ep={:?} wait for fifo: ready", self.info.addr);
+                Poll::Ready(Ok(()))
+            }
+        })
+        .await
+    }
+
+    /// Sets up a transfer of `len` bytes and enables the endpoint.
+    ///
+    /// Call with [`State::mutex`] held.
+    fn start_in_transfer(&self, len: usize) {
+        let index = self.info.addr.index();
+        let packets = len.div_ceil(usize::from(self.info.max_packet_size)).max(1);
+        self.regs.dieptsiz(index).write(|w| {
+            w.set_mcnt(1);
+            w.set_pktcnt(packets as u16);
+            w.set_xfrsiz(len as _);
+        });
+
+        if self.info.ep_type == EndpointType::Isochronous {
+            // Isochronous endpoints must set the correct even/odd frame bit to
+            // correspond with the next frame's number.
+            let frame_number = self.regs.dsts().read().fnsof();
+            let frame_is_odd = frame_number & 0x01 == 1;
+
+            self.regs.diepctl(index).modify(|r| {
+                if frame_is_odd {
+                    r.set_sd0pid_sevnfrm(true);
                 } else {
-                    trace!("write ep={:?} wait for fifo: ready", self.info.addr);
-                    Poll::Ready(())
+                    r.set_soddfrm_sd1pid(true);
                 }
-            })
-            .await
+            });
+        }
+
+        // Enable endpoint
+        self.regs.diepctl(index).modify(|w| {
+            w.set_cnak(true);
+            w.set_epena(true);
+        });
+    }
+
+    /// Writes one packet to the transmit FIFO.
+    ///
+    /// Call with [`State::mutex`] held.
+    fn write_fifo(&self, packet: &[u8]) {
+        let fifo = self.regs.fifo(self.info.addr.index());
+        let mut chunks = packet.chunks_exact(4);
+        for chunk in &mut chunks {
+            let val = u32::from_ne_bytes(chunk.try_into().unwrap());
+            fifo.write_value(regs::Fifo(val));
+        }
+        // Write any last chunk
+        let rem = chunks.remainder();
+        if !rem.is_empty() {
+            let mut tmp = [0u8; 4];
+            tmp[0..rem.len()].copy_from_slice(rem);
+            let tmp = u32::from_ne_bytes(tmp);
+            fifo.write_value(regs::Fifo(tmp));
+        }
+    }
+}
+
+impl<'d, M> embassy_usb_driver::EndpointIn for Endpoint<'d, In, M>
+where
+    M: RawMutex + Copy,
+{
+    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+        trace!("write ep={:?} data={:?}", self.info.addr, Bytes(buf));
+
+        if buf.len() > self.info.max_packet_size as usize {
+            return Err(EndpointError::BufferOverflow);
+        }
+
+        self.wait_in_idle().await?;
+        if buf.len() > 0 {
+            self.wait_fifo_space(buf.len()).await?;
         }
 
         // ERRATA: Transmit data FIFO is corrupted when a write sequence to the FIFO is interrupted with
@@ -1822,53 +2101,35 @@ where
         //
         // Prevent the interrupt (which might poke FIFOs) from executing while copying data to FIFOs.
         self.mutex.lock(|| {
-            // Setup transfer size
-            self.regs.dieptsiz(index).write(|w| {
-                w.set_mcnt(1);
-                w.set_pktcnt(1);
-                w.set_xfrsiz(buf.len() as _);
-            });
-
-            if self.info.ep_type == EndpointType::Isochronous {
-                // Isochronous endpoints must set the correct even/odd frame bit to
-                // correspond with the next frame's number.
-                let frame_number = self.regs.dsts().read().fnsof();
-                let frame_is_odd = frame_number & 0x01 == 1;
-
-                self.regs.diepctl(index).modify(|r| {
-                    if frame_is_odd {
-                        r.set_sd0pid_sevnfrm(true);
-                    } else {
-                        r.set_soddfrm_sd1pid(true);
-                    }
-                });
-            }
-
-            // Enable endpoint
-            self.regs.diepctl(index).modify(|w| {
-                w.set_cnak(true);
-                w.set_epena(true);
-            });
-
-            // Write data to FIFO
-            let fifo = self.regs.fifo(index);
-            let mut chunks = buf.chunks_exact(4);
-            for chunk in &mut chunks {
-                let val = u32::from_ne_bytes(chunk.try_into().unwrap());
-                fifo.write_value(regs::Fifo(val));
-            }
-            // Write any last chunk
-            let rem = chunks.remainder();
-            if !rem.is_empty() {
-                let mut tmp = [0u8; 4];
-                tmp[0..rem.len()].copy_from_slice(rem);
-                let tmp = u32::from_ne_bytes(tmp);
-                fifo.write_value(regs::Fifo(tmp));
-            }
+            self.start_in_transfer(buf.len());
+            self.write_fifo(buf);
         });
 
         trace!("write done ep={:?}", self.info.addr);
 
+        Ok(())
+    }
+
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
+        let max_packet_size = usize::from(self.info.max_packet_size);
+
+        // The core sends each packet as soon as it is in the FIFO, so the next packets are written
+        // while earlier ones go out.
+        for transfer in buf.chunks(self.max_transfer_len()) {
+            trace!("write_transfer ep={:?} len={}", self.info.addr, transfer.len());
+            self.wait_in_idle().await?;
+            self.mutex.lock(|| self.start_in_transfer(transfer.len()));
+
+            for packet in transfer.chunks(max_packet_size) {
+                self.wait_fifo_space(packet.len()).await?;
+                // ERRATA: see `write`.
+                self.mutex.lock(|| self.write_fifo(packet));
+            }
+        }
+
+        if needs_zlp && buf.len().is_multiple_of(max_packet_size) {
+            self.write(&[]).await?;
+        }
         Ok(())
     }
 }

@@ -3,12 +3,16 @@
 
 use core::cell::Cell;
 use core::ops::RangeInclusive;
-use core::sync::atomic::{AtomicU32, Ordering};
+#[cfg(target_has_atomic = "32")]
+use core::sync::atomic::AtomicU32;
+use core::sync::atomic::Ordering;
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use heapless::Vec;
+#[cfg(not(target_has_atomic = "32"))]
+use portable_atomic::AtomicU32;
 
 use super::{
     Channel, ChannelConfig, FeedbackRefresh, MAX_AUDIO_CHANNEL_COUNT, MAX_AUDIO_CHANNEL_INDEX, SampleWidth, Volume,
@@ -60,24 +64,16 @@ impl defmt::Format for FeatureUnitControls {
 }
 
 /// Internal state for a USB Audio Class 1.0 class.
+#[derive(Default)]
 pub struct State<'d> {
     control: Option<Control<'d>>,
     shared: SharedControl<'d>,
 }
 
-impl<'d> Default for State<'d> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<'d> State<'d> {
     /// Create a new `State`.
     pub fn new() -> Self {
-        Self {
-            control: None,
-            shared: SharedControl::default(),
-        }
+        Self::default()
     }
 
     /// Initialize the control state and register the USB control handler.
@@ -87,7 +83,7 @@ impl<'d> State<'d> {
         builder: &'b mut Builder<'d, D>,
         channels: &'d [Channel],
         sample_rates_hz: &'d [u32],
-        controls: &'d [FeatureUnitControls],
+        controls: Vec<FeatureUnitControls, MAX_AUDIO_CHANNEL_COUNT, u8>,
         control_interface: InterfaceNumber,
         streaming_endpoint_address: u8,
     ) -> ControlMonitor<'d> {
@@ -146,7 +142,7 @@ struct SharedControl<'d> {
     channels: &'d [Channel],
 
     /// The controls used to build the descriptor.
-    controls: &'d [FeatureUnitControls],
+    controls: Vec<FeatureUnitControls, MAX_AUDIO_CHANNEL_COUNT, u8>,
 
     /// The sample rates the stream offers.
     sample_rates_hz: &'d [u32],
@@ -163,7 +159,7 @@ impl<'d> Default for SharedControl<'d> {
         SharedControl {
             audio_settings: CriticalSectionMutex::new(Cell::new(AudioSettings::default())),
             channels: &[],
-            controls: &[],
+            controls: Vec::new(),
             sample_rates_hz: &[],
             sample_rate_hz: AtomicU32::new(0),
             changed: Signal::new(),
@@ -538,7 +534,7 @@ pub(super) struct AudioFunction<'a> {
     /// What the Output Terminal is.
     pub output_terminal: TerminalType,
     /// Controls in descriptor order: master, then audio channels. Empty omits the Feature Unit.
-    pub feature_unit: &'a [FeatureUnitControls],
+    pub feature_unit: Vec<FeatureUnitControls, MAX_AUDIO_CHANNEL_COUNT, u8>,
 }
 
 /// Unit ids, unique within a function.
@@ -688,8 +684,8 @@ impl AudioFunction<'_> {
                     2,               // bControlSize (two bytes per channel)
                 ])
                 .unwrap();
-            for controls in self.feature_unit {
-                feature_unit.extend_from_slice(&controls.bits().to_le_bytes()).unwrap();
+            for control in &self.feature_unit {
+                feature_unit.extend_from_slice(&control.bits().to_le_bytes()).unwrap();
             }
             feature_unit.push(0x00).unwrap(); // iFeature (none)
         }

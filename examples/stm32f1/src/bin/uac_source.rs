@@ -27,13 +27,6 @@ pub const SAMPLE_WIDTH: uac1::SampleWidth = uac1::SampleWidth::Width2Byte;
 /// Device supported sample rates
 static SUPPORTED_SAMPLE_RATES: [u32; 1] = [16_000];
 
-// Master has no controls; left and right support mute.
-const FEATURE_UNIT_CONTROLS: [FeatureUnitControls; 3] = [
-    FeatureUnitControls::empty(),
-    FeatureUnitControls::MUTE,
-    FeatureUnitControls::MUTE,
-];
-
 // Sine wave: 1000 Hz, 1 ms, 16-bit, 2 channels
 // Sample rate: 16000 Hz
 // Total bytes: 64
@@ -147,7 +140,13 @@ async fn main(spawner: Spawner) {
         STATE.init(State::new()),
         SourceConfig {
             input_terminal: TerminalType::MiniDisk,
-            feature_unit: &FEATURE_UNIT_CONTROLS,
+            // Master has no controls; left and right support mute.
+            feature_unit: [
+                FeatureUnitControls::empty(),
+                FeatureUnitControls::MUTE,
+                FeatureUnitControls::MUTE,
+            ]
+            .into(),
             ..SourceConfig::new(
                 &SUPPORTED_SAMPLE_RATES,
                 SAMPLE_WIDTH,

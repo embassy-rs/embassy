@@ -387,6 +387,19 @@ mod btable {
     }
 }
 
+/// USB erratum "Buffer description table update completes after CTR interrupt triggers"
+/// (STM32H523/533: ES0621 Rev 3 §2.19.1; STM32U3: ES0626 §2.18.1): the CTR interrupt of an OUT
+/// transaction fires slightly before the peripheral has finished writing the packet and its byte
+/// count to USB SRAM. Software must wait 800 ns before reading either (6.4 μs at low speed, which
+/// this device-mode driver does not use).
+///
+/// `block_for_ns` counts CPU cycles. `block_for_us` would not do: with the `time` feature it can
+/// return after less than 800 ns.
+fn wait_for_out_packet_memory() {
+    #[cfg(any(stm32h5, stm32u3))]
+    crate::wait::block_for_ns(800);
+}
+
 struct EndpointBuffer<T: Instance> {
     addr: u16,
     len: u16,
@@ -934,43 +947,65 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             return;
         }
         // This can race, so do a retry loop.
+        //
+        // Only bulk and interrupt endpoints have a halt feature. EP0 does not implement it
+        // (resetting DTOG_TX would send its status stage as DATA0), and STALL or NAK on an
+        // isochronous endpoint is undefined.
+        //
+        // Clearing the halt feature always resets the data toggle to DATA0, whether or
+        // not the endpoint was halted (USB 2.0 section 9.4.5). Writing 1 to DTOG toggles
+        // it, so writing its current value clears it.
+        //
+        // If disabled, stall does nothing. This is checked once, before the loop: when a
+        // transfer completes between a read and a write below, the STAT toggle can land on
+        // DISABLED, and the next iteration must still move it to the wanted state.
         let reg = T::regs().epr(ep_addr.index() as _);
+        let r = reg.read();
+        let stat = match ep_addr.direction() {
+            Direction::In => r.stat_tx(),
+            Direction::Out => r.stat_rx(),
+        };
+        if !matches!(r.ep_type(), EpType::Bulk | EpType::Interrupt) || stat == Stat::Disabled {
+            return;
+        }
         match ep_addr.direction() {
             Direction::In => {
                 loop {
                     let r = reg.read();
-                    match r.stat_tx() {
-                        Stat::Disabled => break, // if disabled, stall does nothing.
-                        Stat::Stall => break,    // done!
-                        _ => {
-                            let want_stat = match stalled {
-                                false => Stat::Nak,
-                                true => Stat::Stall,
-                            };
-                            let mut w = invariant(r);
-                            w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
-                            reg.write_value(w);
-                        }
+                    let stat = r.stat_tx();
+                    let want_stat = match (stalled, stat) {
+                        (true, _) => Stat::Stall,
+                        (false, Stat::Stall) => Stat::Nak,
+                        (false, stat) => stat,
+                    };
+                    let reset_dtog = !stalled && r.dtog_tx();
+                    if stat == want_stat && !reset_dtog {
+                        break;
                     }
+                    let mut w = invariant(r);
+                    w.set_stat_tx(Stat::from_bits(stat.to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_tx(reset_dtog);
+                    reg.write_value(w);
                 }
                 EP_IN_WAKERS[ep_addr.index()].wake();
             }
             Direction::Out => {
                 loop {
                     let r = reg.read();
-                    match r.stat_rx() {
-                        Stat::Disabled => break, // if disabled, stall does nothing.
-                        Stat::Stall => break,    // done!
-                        _ => {
-                            let want_stat = match stalled {
-                                false => Stat::Valid,
-                                true => Stat::Stall,
-                            };
-                            let mut w = invariant(r);
-                            w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
-                            reg.write_value(w);
-                        }
+                    let stat = r.stat_rx();
+                    let want_stat = match (stalled, stat) {
+                        (true, _) => Stat::Stall,
+                        (false, Stat::Stall) => Stat::Valid,
+                        (false, stat) => stat,
+                    };
+                    let reset_dtog = !stalled && r.dtog_rx();
+                    if stat == want_stat && !reset_dtog {
+                        break;
                     }
+                    let mut w = invariant(r);
+                    w.set_stat_rx(Stat::from_bits(stat.to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_rx(reset_dtog);
+                    reg.write_value(w);
                 }
                 EP_OUT_WAKERS[ep_addr.index()].wake();
             }
@@ -1011,40 +1046,48 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             return;
         }
         // This can race, so do a retry loop.
+        //
+        // Enabling an endpoint (SET_CONFIGURATION, or SET_INTERFACE even when the alternate
+        // setting does not change) resets its data toggle to DATA0 (USB 2.0 section 9.1.1.5).
+        // Writing 1 to DTOG toggles it, so writing its current value clears it.
+        // Isochronous endpoints use DTOG as the buffer selector and are left alone.
         let epr = T::regs().epr(ep_addr.index() as _);
         trace!("EPR before: {:04x}", epr.read().0);
         match ep_addr.direction() {
             Direction::In => {
                 loop {
+                    let r = epr.read();
+                    let iso = r.ep_type() == EpType::Iso;
                     let want_stat = match enabled {
                         false => Stat::Disabled,
-                        true => match epr.read().ep_type() {
-                            EpType::Iso => Stat::Valid,
-                            _ => Stat::Nak,
-                        },
+                        true if iso => Stat::Valid,
+                        true => Stat::Nak,
                     };
-                    let r = epr.read();
-                    if r.stat_tx() == want_stat {
+                    let reset_dtog = enabled && !iso && r.dtog_tx();
+                    if r.stat_tx() == want_stat && !reset_dtog {
                         break;
                     }
                     let mut w = invariant(r);
                     w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_tx(reset_dtog);
                     epr.write_value(w);
                 }
                 EP_IN_WAKERS[ep_addr.index()].wake();
             }
             Direction::Out => {
                 loop {
+                    let r = epr.read();
                     let want_stat = match enabled {
                         false => Stat::Disabled,
                         true => Stat::Valid,
                     };
-                    let r = epr.read();
-                    if r.stat_rx() == want_stat {
+                    let reset_dtog = enabled && r.ep_type() != EpType::Iso && r.dtog_rx();
+                    if r.stat_rx() == want_stat && !reset_dtog {
                         break;
                     }
                     let mut w = invariant(r);
                     w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_rx(reset_dtog);
                     epr.write_value(w);
                 }
                 EP_OUT_WAKERS[ep_addr.index()].wake();
@@ -1331,30 +1374,13 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         })
         .await;
 
-        // Errata for STM32H5, 2.20.1:
-        // During OUT transfers, the correct transfer interrupt (CTR) is triggered a little before the last USB SRAM accesses
-        // have completed. If the software responds quickly to the interrupt, the full buffer contents may not be correct.
-        //
-        // Workaround:
-        // Software should ensure that a small delay is included before accessing the SRAM contents. This delay should be
-        // 800 ns in Full Speed mode and 6.4 μs in Low Speed mode.
-        #[cfg(stm32h5)]
-        {
-            #[cfg(feature = "time")]
-            embassy_time::block_for(embassy_time::Duration::from_nanos(800));
-            #[cfg(not(feature = "time"))]
-            {
-                let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
-                let cycles = freq * 800 / 1_000_000;
-                cortex_m::asm::delay(cycles as u32);
-            }
-        }
-
         RX_COMPLETE[index].store(false, Ordering::Relaxed);
 
         if stat == Stat::Disabled {
             return Err(EndpointError::Disabled);
         }
+
+        wait_for_out_packet_memory();
 
         let regs = T::regs();
 
@@ -1483,6 +1509,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             })
             .await;
 
+            wait_for_out_packet_memory();
             let mut buf = [0; 8];
             let rx_len = self.ep_out.read_data(&mut buf);
             if rx_len != Ok(8) {
@@ -1545,6 +1572,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             return Err(EndpointError::Disabled);
         }
 
+        wait_for_out_packet_memory();
         let rx_len = self.ep_out.read_data(buf)?;
 
         regs.epr(0).write(|w| {
