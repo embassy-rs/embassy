@@ -19,6 +19,53 @@ use panic_probe as _;
 
 use crate::i2c::AbortReason;
 
+fn dump_i2c(tag: &str) {
+    use embassy_rp::pac;
+    let v = pac::SIO.gpio_in(0).read();
+    info!(
+        "DIAG {}: GP18(sda1)={} GP19(scl1)={} GP20(sda0)={} GP21(scl0)={}",
+        tag,
+        (v >> 18) & 1,
+        (v >> 19) & 1,
+        (v >> 20) & 1,
+        (v >> 21) & 1
+    );
+    macro_rules! regs {
+        ($name:expr, $r:expr) => {{
+            let r = $r;
+            info!(
+                "DIAG {} {}: con={:#x} tar={:#x} sar={:#x} enable={:#x} en_status={:#x} status={:#x} raw_intr={:#x} mask={:#x} abrt={:#x} txflr={} rxflr={} hcnt={} lcnt={}",
+                tag,
+                $name,
+                r.ic_con().read().0,
+                r.ic_tar().read().0,
+                r.ic_sar().read().0,
+                r.ic_enable().read().0,
+                r.ic_enable_status().read().0,
+                r.ic_status().read().0,
+                r.ic_raw_intr_stat().read().0,
+                r.ic_intr_mask().read().0,
+                r.ic_tx_abrt_source().read().0,
+                r.ic_txflr().read().0,
+                r.ic_rxflr().read().0,
+                r.ic_fs_scl_hcnt().read().0,
+                r.ic_fs_scl_lcnt().read().0,
+            );
+        }};
+    }
+    regs!("I2C0(ctrl)", pac::I2C0);
+    regs!("I2C1(slave)", pac::I2C1);
+    use cortex_m::peripheral::NVIC;
+    info!(
+        "DIAG {} nvic: I2C0 enabled={} pending={} | I2C1 enabled={} pending={}",
+        tag,
+        NVIC::is_enabled(pac::Interrupt::I2C0_IRQ),
+        NVIC::is_pending(pac::Interrupt::I2C0_IRQ),
+        NVIC::is_enabled(pac::Interrupt::I2C1_IRQ),
+        NVIC::is_pending(pac::Interrupt::I2C1_IRQ),
+    );
+}
+
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => i2c::InterruptHandler<I2C0>;
     I2C1_IRQ => i2c::InterruptHandler<I2C1>;
@@ -109,7 +156,16 @@ async fn controller_task(con: &mut i2c::I2c<'static, mode::Async>) {
 
     {
         let buf = [0xCA, 0x11];
-        con.write(0u8, &buf).await.unwrap();
+        dump_i2c("before first op");
+        match embassy_time::with_timeout(embassy_time::Duration::from_secs(2), con.write(0u8, &buf)).await {
+            Ok(r) => r.unwrap(),
+            Err(_) => {
+                dump_i2c("first op timed out");
+                embassy_time::Timer::after_millis(100).await;
+                dump_i2c("100ms later");
+                panic!("DIAG: first general call never completed");
+            }
+        }
         info!("Controler general call write");
         embassy_futures::yield_now().await;
     }
