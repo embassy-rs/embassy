@@ -18,6 +18,7 @@ pub(crate) const SCSI_MODE_SENSE_10: u8 = 0x5a;
 pub(crate) const SCSI_READ_16: u8 = 0x88;
 pub(crate) const SCSI_WRITE_16: u8 = 0x8a;
 pub(crate) const SCSI_SERVICE_ACTION_IN_16: u8 = 0x9e;
+pub(crate) const SCSI_REPORT_LUNS: u8 = 0xa0;
 pub(crate) const SCSI_READ_12: u8 = 0xa8;
 pub(crate) const SCSI_WRITE_12: u8 = 0xaa;
 pub(crate) const SCSI_SA_READ_CAPACITY_16: u8 = 0x10;
@@ -36,6 +37,16 @@ pub(crate) const RW6_ZERO_LENGTH_BLOCKS: u32 = 256;
 // SERVICE ACTION IN(16) CDB (SPC-4).
 /// Byte 1 bits holding the service action.
 pub(crate) const SERVICE_ACTION_MASK: u8 = 0x1f;
+
+// REPORT LUNS CDB byte 2, SELECT REPORT (SPC-4 §6.33).
+/// All logical units, excluding well-known logical units.
+pub(crate) const RL_SELECT_ALL: u8 = 0x00;
+/// Well-known logical units only.
+pub(crate) const RL_SELECT_WELL_KNOWN: u8 = 0x01;
+/// All logical units, including well-known logical units.
+pub(crate) const RL_SELECT_ALL_AND_WELL_KNOWN: u8 = 0x02;
+/// Allocation lengths below this are rejected.
+pub(crate) const RL_MIN_ALLOCATION_LENGTH: usize = 4;
 
 // Additional sense codes.
 pub(crate) const ASC_WRITE_ERROR: u8 = 0x0c;
