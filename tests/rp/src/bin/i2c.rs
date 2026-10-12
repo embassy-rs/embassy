@@ -151,6 +151,237 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, mode::Async>) -> ! {
     }
 }
 
+// ---- temporary diagnostic battery ----
+
+/// Pulse the reset of both I2C blocks so each experiment starts from a clean peripheral.
+fn reset_i2c() {
+    use embassy_rp::pac;
+    pac::RESETS.reset().modify(|w| {
+        w.set_i2c0(true);
+        w.set_i2c1(true);
+    });
+    pac::RESETS.reset().modify(|w| {
+        w.set_i2c0(false);
+        w.set_i2c1(false);
+    });
+    while {
+        let d = pac::RESETS.reset_done().read();
+        !(d.i2c0() && d.i2c1())
+    } {}
+}
+
+/// Reset one I2C block only, to see which one is holding the bus.
+fn reset_block(i2c0: bool, i2c1: bool) {
+    use embassy_rp::pac;
+    pac::RESETS.reset().modify(|w| {
+        if i2c0 {
+            w.set_i2c0(true);
+        }
+        if i2c1 {
+            w.set_i2c1(true);
+        }
+    });
+    pac::RESETS.reset().modify(|w| {
+        if i2c0 {
+            w.set_i2c0(false);
+        }
+        if i2c1 {
+            w.set_i2c1(false);
+        }
+    });
+    while {
+        let d = pac::RESETS.reset_done().read();
+        (i2c0 && !d.i2c0()) || (i2c1 && !d.i2c1())
+    } {}
+}
+
+/// bit0 = SDA0 (GP20), bit1 = SCL0 (GP21), bit2 = SDA1 (GP18), bit3 = SCL1 (GP19)
+fn levels() -> u8 {
+    let v = embassy_rp::pac::SIO.gpio_in(0).read();
+    (((v >> 20) & 1) | (((v >> 21) & 1) << 1) | (((v >> 18) & 1) << 2) | (((v >> 19) & 1) << 3)) as u8
+}
+
+async fn slave_loop(dev: &mut i2c_slave::I2cSlave<'_, mode::Async>) -> core::convert::Infallible {
+    loop {
+        let mut buf = [0u8; 64];
+        match dev.listen(&mut buf).await {
+            Ok(i2c_slave::Command::Read) => {
+                dev.respond_and_fill(&[0xD0], 0xD0).await.ok();
+            }
+            Ok(i2c_slave::Command::WriteRead(_)) => {
+                dev.respond_and_fill(&[0xD1], 0xD1).await.ok();
+            }
+            Ok(_) => {}
+            Err(_) => embassy_futures::yield_now().await,
+        }
+    }
+}
+
+/// Three bounded operations. Returns true if all completed.
+async fn run_exp(name: &str, ctrl: &mut i2c::I2c<'_, mode::Async>) -> bool {
+    use embassy_futures::select::{Either, select};
+    use embassy_time::{Duration, Instant, Timer, with_timeout};
+
+    let mut ok = true;
+    info!("EXP {} start levels={:x}", name, levels());
+
+    // 1. general call, with the bus sampled every millisecond while it runs
+    let mut samples = [0xFFu8; 40];
+    let t = Instant::now();
+    let r = {
+        let op = with_timeout(Duration::from_millis(500), ctrl.write(0u8, &[0xCA, 0x11]));
+        let sampler = async {
+            for s in samples.iter_mut() {
+                *s = levels();
+                Timer::after_micros(1000).await;
+            }
+            core::future::pending::<()>().await
+        };
+        match select(op, sampler).await {
+            Either::First(r) => r,
+            Either::Second(_) => unreachable!(),
+        }
+    };
+    let us = t.elapsed().as_micros();
+    info!("EXP {} bus samples @1ms (bit0 sda0, bit1 scl0, bit2 sda1, bit3 scl1): {:x}", name, samples);
+    match r {
+        Ok(Ok(())) => info!("RESULT {} general-call: OK {}us", name, us),
+        Ok(Err(e)) => {
+            ok = false;
+            info!("RESULT {} general-call: ERR {:?} {}us", name, e, us);
+        }
+        Err(_) => {
+            ok = false;
+            info!("RESULT {} general-call: HANG {}us", name, us);
+            dump_i2c(name);
+            // Who holds the bus? Reset the blocks one at a time and look at the lines.
+            info!("RELEASE {} before: levels={:x}", name, levels());
+            reset_block(false, true);
+            Timer::after_millis(2).await;
+            info!("RELEASE {} after resetting slave block I2C1: levels={:x}", name, levels());
+            reset_block(true, false);
+            Timer::after_millis(2).await;
+            info!("RELEASE {} after also resetting controller block I2C0: levels={:x}", name, levels());
+            info!("EXP {} end levels={:x} ok=false (skipped ops 2 and 3 after hang)", name, levels());
+            return false;
+        }
+    }
+
+    // 2. one-byte write to the slave
+    let t = Instant::now();
+    match with_timeout(Duration::from_millis(500), ctrl.write(DEV_ADDR, &[0xAA])).await {
+        Ok(Ok(())) => info!("RESULT {} write: OK {}us", name, t.elapsed().as_micros()),
+        Ok(Err(e)) => {
+            ok = false;
+            info!("RESULT {} write: ERR {:?} {}us", name, e, t.elapsed().as_micros());
+        }
+        Err(_) => {
+            ok = false;
+            info!("RESULT {} write: HANG {}us", name, t.elapsed().as_micros());
+        }
+    }
+
+    // 3. one-byte read from the slave
+    let t = Instant::now();
+    let mut b = [0u8; 1];
+    match with_timeout(Duration::from_millis(500), ctrl.read(DEV_ADDR, &mut b)).await {
+        Ok(Ok(())) => info!("RESULT {} read: OK {:x} {}us", name, b, t.elapsed().as_micros()),
+        Ok(Err(e)) => {
+            ok = false;
+            info!("RESULT {} read: ERR {:?} {}us", name, e, t.elapsed().as_micros());
+        }
+        Err(_) => {
+            ok = false;
+            info!("RESULT {} read: HANG {}us", name, t.elapsed().as_micros());
+        }
+    }
+
+    info!("EXP {} end levels={:x} ok={}", name, levels(), ok);
+    ok
+}
+
+/// What is actually connected: idle levels, a continuity matrix and pull-up rise times.
+async fn gpio_survey(p: &mut embassy_rp::Peripherals) {
+    use embassy_rp::gpio::{Flex, Pull};
+    use embassy_time::{Instant, Timer};
+
+    let mut f = [
+        Flex::new(p.PIN_18.reborrow()),
+        Flex::new(p.PIN_19.reborrow()),
+        Flex::new(p.PIN_20.reborrow()),
+        Flex::new(p.PIN_21.reborrow()),
+    ];
+    for x in f.iter_mut() {
+        x.set_pull(Pull::None);
+        x.set_as_input();
+    }
+    Timer::after_millis(2).await;
+    info!(
+        "SURVEY idle, no internal pull: GP18={} GP19={} GP20={} GP21={}",
+        f[0].is_high(),
+        f[1].is_high(),
+        f[2].is_high(),
+        f[3].is_high()
+    );
+
+    // Continuity: internal pull-ups on the pins not being driven, so a bridged pin follows the driven one down.
+    for d in 0..4 {
+        for x in f.iter_mut() {
+            x.set_as_input();
+            x.set_pull(Pull::Up);
+        }
+        Timer::after_millis(1).await;
+        f[d].set_low();
+        f[d].set_as_output();
+        Timer::after_micros(500).await;
+        info!(
+            "SURVEY continuity drive GP{} low (others pulled up): GP18={} GP19={} GP20={} GP21={}",
+            18 + d,
+            f[0].is_high(),
+            f[1].is_high(),
+            f[2].is_high(),
+            f[3].is_high()
+        );
+        f[d].set_as_input();
+        Timer::after_millis(2).await;
+    }
+
+    // Rise time after release, first with no internal pull (external only), then with the internal pull-up.
+    for (pull, label) in [(Pull::None, "no-internal"), (Pull::Up, "internal-up")] {
+        for d in 0..4 {
+            for x in f.iter_mut() {
+                x.set_as_input();
+                x.set_pull(pull);
+            }
+            f[d].set_low();
+            f[d].set_as_output();
+            Timer::after_micros(500).await;
+            f[d].set_as_input();
+            let t = Instant::now();
+            while f[d].is_low() && t.elapsed().as_micros() < 5000 {}
+            info!(
+                "SURVEY rise GP{} {}: {}us (5001+ = never)",
+                18 + d,
+                label,
+                t.elapsed().as_micros()
+            );
+            Timer::after_millis(2).await;
+        }
+    }
+
+    for x in f.iter_mut() {
+        x.set_pull(Pull::Down);
+    }
+    Timer::after_millis(2).await;
+    info!(
+        "SURVEY internal pull-down only (high = external pull-up wins): GP18={} GP19={} GP20={} GP21={}",
+        f[0].is_high(),
+        f[1].is_high(),
+        f[2].is_high(),
+        f[3].is_high()
+    );
+}
+
 async fn controller_task(con: &mut i2c::I2c<'static, mode::Async>) {
     info!("Controller start");
 
@@ -256,8 +487,93 @@ async fn controller_task(con: &mut i2c::I2c<'static, mode::Async>) {
             }),
         });
 
-        let p = embassy_rp::init(config);
+        let mut p = embassy_rp::init(config);
         info!("Hello World!");
+        info!(
+            "DIAG clk_sys={}Hz clk_peri={}Hz",
+            embassy_rp::clocks::clk_sys_freq(),
+            embassy_rp::clocks::clk_peri_freq()
+        );
+
+        gpio_survey(&mut p).await;
+
+        let mut failed = 0u32;
+        macro_rules! exp_tail {
+            ($name:expr, $dev:ident, $ctrl:ident, $freq:expr, $pu:expr, $via:expr) => {{
+                if $via {
+                    let mut c = i2c::Config::default();
+                    c.frequency = Hertz($freq);
+                    c.sda_pullup = $pu;
+                    c.scl_pullup = $pu;
+                    $ctrl.set_config(&c).unwrap();
+                }
+                let ok = match $dev.as_mut() {
+                    Some(d) => match embassy_futures::select::select(slave_loop(d), run_exp($name, &mut $ctrl)).await {
+                        embassy_futures::select::Either::Second(ok) => ok,
+                        embassy_futures::select::Either::First(never) => match never {},
+                    },
+                    None => run_exp($name, &mut $ctrl).await,
+                };
+                drop($ctrl);
+                drop($dev);
+                if !ok {
+                    failed += 1;
+                }
+            }};
+        }
+        macro_rules! exp {
+            ($name:expr, swap = false, slave = $slave:expr, freq = $freq:expr, pullups = $pu:expr, viacfg = $via:expr) => {{
+                reset_i2c();
+                let mut cfg = i2c::Config::default();
+                cfg.sda_pullup = $pu;
+                cfg.scl_pullup = $pu;
+                if !$via {
+                    cfg.frequency = Hertz($freq);
+                }
+                let mut scfg = i2c_slave::Config::default();
+                scfg.addr = DEV_ADDR as u16;
+                let mut dev = if $slave {
+                    Some(i2c_slave::I2cSlave::new(p.I2C1.reborrow(), p.PIN_19.reborrow(), p.PIN_18.reborrow(), Irqs, scfg))
+                } else {
+                    None
+                };
+                let mut ctrl = i2c::I2c::new(p.I2C0.reborrow(), p.PIN_21.reborrow(), p.PIN_20.reborrow(), Irqs, cfg);
+                exp_tail!($name, dev, ctrl, $freq, $pu, $via);
+            }};
+            ($name:expr, swap = true, slave = $slave:expr, freq = $freq:expr, pullups = $pu:expr, viacfg = $via:expr) => {{
+                reset_i2c();
+                let mut cfg = i2c::Config::default();
+                cfg.sda_pullup = $pu;
+                cfg.scl_pullup = $pu;
+                if !$via {
+                    cfg.frequency = Hertz($freq);
+                }
+                let mut scfg = i2c_slave::Config::default();
+                scfg.addr = DEV_ADDR as u16;
+                let mut dev = if $slave {
+                    Some(i2c_slave::I2cSlave::new(p.I2C0.reborrow(), p.PIN_21.reborrow(), p.PIN_20.reborrow(), Irqs, scfg))
+                } else {
+                    None
+                };
+                let mut ctrl = i2c::I2c::new(p.I2C1.reborrow(), p.PIN_19.reborrow(), p.PIN_18.reborrow(), Irqs, cfg);
+                exp_tail!($name, dev, ctrl, $freq, $pu, $via);
+            }};
+        }
+
+        // The configuration CI uses: slave first, controller built at the default frequency, then set_config.
+        exp!("A 1k slave via-set_config pullups-on", swap = false, slave = true, freq = 1000, pullups = true, viacfg = true);
+        exp!("B 1k slave direct-config pullups-on", swap = false, slave = true, freq = 1000, pullups = true, viacfg = false);
+        exp!("C 1k NO-slave via-set_config", swap = false, slave = false, freq = 1000, pullups = true, viacfg = true);
+        exp!("D 1k slave via-set_config pullups-off(external only)", swap = false, slave = true, freq = 1000, pullups = false, viacfg = true);
+        exp!("E 1k slave swapped-roles via-set_config", swap = true, slave = true, freq = 1000, pullups = true, viacfg = true);
+        exp!("F 10k slave via-set_config", swap = false, slave = true, freq = 10_000, pullups = true, viacfg = true);
+        exp!("G 100k slave via-set_config", swap = false, slave = true, freq = 100_000, pullups = true, viacfg = true);
+        exp!("H 400k slave via-set_config", swap = false, slave = true, freq = 400_000, pullups = true, viacfg = true);
+        exp!("I 1M slave via-set_config", swap = false, slave = true, freq = 1_000_000, pullups = true, viacfg = true);
+        exp!("J 100k NO-slave via-set_config", swap = false, slave = false, freq = 100_000, pullups = true, viacfg = true);
+        exp!("K 1k slave via-set_config pullups-on (repeat)", swap = false, slave = true, freq = 1000, pullups = true, viacfg = true);
+        info!("DIAG SUMMARY: {} of 11 experiments had a failed operation", failed);
+        reset_i2c();
 
         let d_sda = p.PIN_19;
         let d_scl = p.PIN_18;
