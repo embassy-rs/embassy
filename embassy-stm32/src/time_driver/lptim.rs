@@ -268,9 +268,16 @@ impl RtcDriver {
             let alarm = self.alarm.borrow(cs);
             let at = alarm.timestamp.get();
 
-            if at < t + 0xc000 {
+            // Arm now if it falls in this counter cycle
+            if at < t + 0x1_0000 {
                 // just enable it. `set_alarm` has already set the correct CCR val.
                 ier_set_ccie(r, 0, true);
+
+                // The overflow interrupt may run after an alarm a few ticks into the new cycle
+                // has already passed; the compare match was then missed. Fire it now.
+                if at <= self.now() {
+                    self.trigger_alarm(cs);
+                }
             }
         })
     }
@@ -305,9 +312,9 @@ impl RtcDriver {
         // This way, when we enable it later, the right value is already set.
         write_compare(r, timestamp as u16);
 
-        // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
-        let diff = timestamp - t;
-        ier_set_ccie(r, 0, diff < 0xc000);
+        // Enable it if it'll happen this counter cycle. Otherwise, `next_period` will enable it.
+        let next_overflow = ((t >> 16) + 1) << 16;
+        ier_set_ccie(r, 0, timestamp < next_overflow);
 
         // Reevaluate if the alarm timestamp is still in the future
         let t = self.now();
