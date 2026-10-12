@@ -65,7 +65,7 @@ async fn main(_spawner: Spawner) -> ! {
         Err(e) => error!("{}", &e),
     }
 
-    info!("Test3: Arbitrary length encrypt");
+    info!("Example3: Arbitrary length encrypt");
     let key3 = [0x42u8; 16];
     let pt3: &[u8; 34] = b"hello world! this is my plaintext.";
     let ct3: [u8; 48] = [
@@ -227,7 +227,7 @@ async fn main(_spawner: Spawner) -> ! {
         Err(e) => error!("{}", &e),
     }
 
-    info!("Test2: F.5.2 CTR-AES128.Decrypt, blocks 1-2");
+    info!("Example2: F.5.2 CTR-AES128.Decrypt, blocks 1-2");
     // Reuses key1, counter1 and ct1 from Test1
     let mut out = [0u8; 32];
     match ctr.decrypt(&ct1, &mut out) {
