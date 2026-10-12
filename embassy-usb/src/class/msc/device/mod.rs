@@ -486,6 +486,11 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                 return self.send_in_data(cbw, &data[..len]).await;
             }
 
+            // SPC-4 processes REPORT LUNS sent to an incorrect logical unit normally.
+            if cbw.cb[0] == SCSI_REPORT_LUNS {
+                return self.report_luns(cbw).await;
+            }
+
             self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_LOGICAL_UNIT_NOT_SUPPORTED, ASCQ_NONE);
             return Ok(CommandResult::failed(cbw.data_transfer_length));
         }
@@ -512,6 +517,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             SCSI_START_STOP_UNIT => self.start_stop_unit(cbw, block_device).await,
             SCSI_PREVENT_ALLOW_MEDIUM_REMOVAL => Ok(self.prevent_allow_medium_removal(cbw)),
             SCSI_SYNCHRONIZE_CACHE_10 => self.synchronize_cache_10(cbw, block_device).await,
+            SCSI_REPORT_LUNS => self.report_luns(cbw).await,
             _ => {
                 self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_COMMAND_OPERATION_CODE, ASCQ_NONE);
                 Ok(CommandResult::failed(cbw.data_transfer_length))
@@ -1044,6 +1050,23 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         Ok(CommandResult::passed(0))
     }
 
+    async fn report_luns(&mut self, cbw: &Cbw) -> Result<CommandResult, EndpointError> {
+        if cbw.data_transfer_length > 0 && !cbw.direction_in() {
+            return Ok(CommandResult::phase_error(cbw.data_transfer_length));
+        }
+
+        let allocation_len = u32::from_be_bytes([cbw.cb[6], cbw.cb[7], cbw.cb[8], cbw.cb[9]]) as usize;
+        let Some(data) = lun_list(cbw.cb[2]).filter(|_| allocation_len >= RL_MIN_ALLOCATION_LENGTH) else {
+            self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
+            return Ok(CommandResult::failed(cbw.data_transfer_length));
+        };
+
+        let len = min(data.len(), allocation_len);
+        let result = self.send_in_data(cbw, &data[..len]).await?;
+        self.sense = SenseData::NO_SENSE;
+        Ok(result)
+    }
+
     async fn send_in_data(&mut self, cbw: &Cbw, data: &[u8]) -> Result<CommandResult, EndpointError> {
         let transfer_len = min(data.len(), cbw.data_transfer_length as usize);
         self.write_ep.write_transfer(&data[..transfer_len], false).await?;
@@ -1121,6 +1144,18 @@ fn is_eject(cb: &[u8; 16]) -> bool {
     let load_eject = cb[4] & SSU_LOEJ != 0;
     let start = cb[4] & SSU_START != 0;
     power_condition == 0 && load_eject && !start
+}
+
+/// REPORT LUNS parameter data for a SELECT REPORT value, or `None` if the value is unsupported.
+///
+/// LUN 0 is the only logical unit, and there are no well-known logical units.
+fn lun_list(select_report: u8) -> Option<&'static [u8]> {
+    match select_report {
+        // LUN LIST LENGTH, 4 reserved bytes, then LUN 0.
+        RL_SELECT_ALL | RL_SELECT_ALL_AND_WELL_KNOWN => Some(&[0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+        RL_SELECT_WELL_KNOWN => Some(&[0; 8]),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1213,6 +1248,15 @@ mod tests {
         core::assert!(!is_eject(&cdb(0x00))); // stop
         core::assert!(!is_eject(&cdb(0x01))); // start
         core::assert!(!is_eject(&cdb(0x32))); // power condition set, LoEj ignored
+    }
+
+    #[test]
+    fn lun_list_reports_lun_0() {
+        let lun_0 = [0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        core::assert_eq!(lun_list(RL_SELECT_ALL), Some(&lun_0[..]));
+        core::assert_eq!(lun_list(RL_SELECT_ALL_AND_WELL_KNOWN), Some(&lun_0[..]));
+        core::assert_eq!(lun_list(RL_SELECT_WELL_KNOWN), Some(&[0u8; 8][..]));
+        core::assert_eq!(lun_list(0x03), None);
     }
 
     struct MockBlockDevice {
