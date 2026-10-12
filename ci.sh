@@ -74,7 +74,7 @@ rm -f out/tests/pimoroni-pico-plus-2/spinlock_mutex_multicore
 # Doesn't work when run from ram on the 2350
 rm -f out/tests/pimoroni-pico-plus-2/flash
 # This test passes locally but fails on the HIL, no idea why
-rm -f out/tests/pimoroni-pico-plus-2/i2c
+# rm -f out/tests/pimoroni-pico-plus-2/i2c
 # The pico2 plus doesn't have the adcs hooked up like the picoW does.
 rm -f out/tests/pimoroni-pico-plus-2/adc
 # temporarily disabled
