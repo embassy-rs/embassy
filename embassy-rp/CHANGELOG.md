@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - I2C: add `Config::timeout` (default 1 s) and return `Error::Timeout` on timeout.
 - I2C: transfers started immediately after cancel now wait for bus to be released.
 - I2C: a blocking operation that times out aborts the transfer and releases the bus.
+- I2C: Ensure NACK during `blocking_write` is reported correctly.
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes

@@ -920,7 +920,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                 self.check_timeout(timeout)?;
             }
 
-            let abort_reason = self.read_and_clear_abort_reason();
+            let mut abort_reason = self.read_and_clear_abort_reason();
 
             if abort_reason.is_err() || (send_stop && last) {
                 // If the transaction was aborted or if it completed
@@ -931,6 +931,11 @@ impl<'d, M: Mode> I2c<'d, M> {
                 }
 
                 p.ic_clr_stop_det().read();
+
+                // Recheck abort, may be triggered while waiting.
+                if abort_reason.is_ok() {
+                    abort_reason = self.read_and_clear_abort_reason();
+                }
             }
 
             // Note the hardware issues a STOP automatically on an abort
