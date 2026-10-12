@@ -13,6 +13,7 @@ pub(crate) enum Key {
     Key192([u8; 24]),
     Key256([u8; 32]),
 }
+/// AES key length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeySize {
     Bits128,
@@ -20,6 +21,7 @@ pub enum KeySize {
     Bits256,
 }
 
+/// Errors returned by the AES modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AesError {
@@ -79,6 +81,7 @@ impl<'d> GenericHashcrypt<'d> {
         Sha256 { _peri: self }
     }
 
+    /// Switches the peripheral to AES-ECB mode.
     pub fn aes_ecb(&mut self) -> AesEcb<'_, 'd> {
         // AES-ECB config via register calls
         pac::HASHCRYPT.ctrl().modify(|w| {
@@ -103,6 +106,7 @@ impl<'d> GenericHashcrypt<'d> {
         }
     }
 
+    /// Switches the peripheral to AES-CBC mode.
     pub fn aes_cbc(&mut self) -> AesCbc<'_, 'd> {
         // AES-CBC config via register calls
         pac::HASHCRYPT.ctrl().modify(|w| {
@@ -128,6 +132,7 @@ impl<'d> GenericHashcrypt<'d> {
         }
     }
 
+    /// Switches the peripheral to AES-CTR mode.
     pub fn aes_ctr(&mut self) -> AesCtr<'_, 'd> {
         // AES-CTR config via register calls
         pac::HASHCRYPT.ctrl().modify(|w| {
@@ -309,38 +314,43 @@ pub trait Digest {
     fn finalise(&mut self) -> Self::Output;
 }
 
-// TODO: add update with impl_sha! macro once it's introduced in the SHA PR
-
+/// AES encryption and decryption, implemented by [`AesEcb`], [`AesCbc`] and [`AesCtr`].
 pub trait Aes {
     /// Encrypt `data` into `output`.
     ///
     /// `data` and `output` must have the same length. Except in CTR mode, the length must be
-    /// a multiple of 16 bytes;
+    /// a multiple of 16 bytes; for arbitrary-length messages in ECB and CBC, see [`AesPadded`].
     fn encrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
 
     /// Decrypt `data` into `output`.
     ///
     /// `data` and `output` must have the same length. Except in CTR mode, the length must be
-    /// a multiple of 16 bytes;
+    /// a multiple of 16 bytes; for PKCS#7-padded ciphertext in ECB and CBC, see [`AesPadded`].
     fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
-
-    // Arbitrary-length messages: ECB and CBC will get an `AesPadded` trait using PKCS#7
-    // padding, which pads every message (aligned ones get a full extra block) so the
-    // padding can be removed on decryption. CTR is a streaming mode, so a short final
-    // block is zero-padded internally and the extra output bytes are discarded.
 }
-
-// This trait is ment to be imlemented by AesEcb and AesCbc as they are not streaming algorithms
-// and so, the same padding scheme can not be implemented instead, we will use the padded with
-// PKCS#7, which lets decrypt_padded recover the original message length
+/// Arbitrary-length encryption for the block modes ([`AesEcb`] and [`AesCbc`]), using PKCS#7 padding.
+///
+/// PKCS#7 always pads: a message that is already a multiple of 16 bytes gets a full extra
+/// block. This is what lets [`decrypt_padded`](AesPadded::decrypt_padded) find and remove
+/// the padding reliably. CTR doesn't need this trait, since it accepts any length directly.
 pub trait AesPadded {
+    /// Pad `data` with PKCS#7 and encrypt it into `output`.
+    ///
+    /// `output` must be at least `(data.len() / 16 + 1) * 16` bytes. Returns the slice of
+    /// `output` holding the ciphertext.
     fn encrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError>;
 
+    /// Decrypt PKCS#7-padded `data` into `output` and strip the padding.
+    ///
+    /// `data` must be non-empty, a multiple of 16 bytes, and encrypted with the same key
+    /// (and IV) using PKCS#7 padding. `output` must be at least `data.len()` bytes. Returns
+    /// the slice of `output` holding the original message.
+    ///
+    /// Returns [`AesError::InvalidPadding`] if the padding is malformed, e.g. for a wrong key
+    /// or unpadded ciphertext. This check is best-effort, not an integrity check: random data
+    /// passes it occasionally. Don't expose this error to untrusted parties
+    /// (padding-oracle attacks).
     fn decrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError>;
-
-    // the methods in this trait will be similar to the ones in the Aes trait, but instead
-    // of only accepting messages with the size divisible by 16, it will accept arbitrary
-    // size messages that will be padded acroding to PKCS#7 padding scheme
 }
 
 // Specific driver types
@@ -367,6 +377,7 @@ impl<'a, 'd> Digest for Sha256<'a, 'd> {
     }
 }
 
+/// AES in ECB mode.
 pub struct AesEcb<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
@@ -512,6 +523,8 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
 impl<'a, 'd> AesEcb<'a, 'd> {
     // Does not require anything past the default Aes and AesPadded methods
 }
+
+/// AES in CBC mode. See [`AesCbc::set_iv`] for IV requirements.
 pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
@@ -694,10 +707,16 @@ impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
 }
 
 impl<'a, 'd> AesCbc<'a, 'd> {
+    /// Sets the IV used by every following encrypt/decrypt call.
+    ///
+    /// The IV is not chained between calls: each call starts from this IV, until it's changed
+    /// by the next call of this method.
     pub fn set_iv(&mut self, iv: &[u8; 16]) {
         self.iv = Some(*iv);
     }
 }
+
+/// AES in CTR mode. See [`AesCtr::set_counter`] for counter requirements.
 pub struct AesCtr<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
     key_size: Option<KeySize>,
@@ -786,6 +805,10 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
 }
 
 impl<'a, 'd> AesCtr<'a, 'd> {
+    /// Sets the initial counter block used by every following encrypt/decrypt call.
+    ///
+    /// The counter is not advanced between calls: each call starts from this value, until it's
+    /// changed by the next call of this function.
     pub fn set_counter(&mut self, counter: &[u8; 16]) {
         self.counter = Some(*counter);
     }
@@ -794,6 +817,7 @@ impl<'a, 'd> AesCtr<'a, 'd> {
 macro_rules! impl_aes {
     ($ty:ident) => {
         impl<'a, 'd> $ty<'a, 'd> {
+            /// Sets the AES key length. Do this before using [`Self::set_key`].
             pub fn set_key_size(&mut self, size: KeySize) {
                 let val = match size {
                     KeySize::Bits128 => Aeskeysz::Bits128,
@@ -808,6 +832,9 @@ macro_rules! impl_aes {
                 self.key_size = Some(size);
             }
 
+            /// Returns the configured key size in bytes.
+            ///
+            /// Returns [`AesError::DeviceError`] if the register holds a reserved value.
             pub fn key_size(&self) -> Result<u32, AesError> {
                 match pac::HASHCRYPT.cryptcfg().read().aeskeysz() {
                     // Convert from bits to bytes
@@ -818,6 +845,11 @@ macro_rules! impl_aes {
                 }
             }
 
+            /// Sets the key used by every following encrypt/decrypt call, until it's changed by the
+            /// next call of this method.
+            ///
+            /// Returns [`AesError::KeySizeNeeded`] if [`Self::set_key_size`] hasn't been called, or
+            /// [`AesError::WrongKeySize`] if the key length doesn't match it.
             pub fn set_key(&mut self, key: &[u8]) -> Result<(), AesError> {
                 let expected_size = match self.key_size {
                     Some(s) => s,
