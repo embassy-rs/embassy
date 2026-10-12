@@ -1,4 +1,6 @@
-//! Driver for the HASHCRYPT peripheral, mode switch skeleton
+//! Driver for the HASHCRYPT peripheral
+//!
+//! See UM11126 (LPC55S6x user manual), HASHCRYPT chapter, for register details
 use embassy_hal_internal::Peri;
 use nxp_pac::hashcrypt::vals::{Aesdecrypt, Aeskeysz, Aesmode, Aessecret, Mode};
 use nxp_pac::syscon::vals::HashAesRst::Released;
@@ -83,7 +85,6 @@ impl<'d> GenericHashcrypt<'d> {
 
     /// Switches the peripheral to AES-ECB mode.
     pub fn aes_ecb(&mut self) -> AesEcb<'_, 'd> {
-        // AES-ECB config via register calls
         pac::HASHCRYPT.ctrl().modify(|w| {
             w.set_mode(Mode::Aes);
             w.set_new_hash(true);
@@ -93,9 +94,16 @@ impl<'d> GenericHashcrypt<'d> {
             w.set_aesmode(Aesmode::Ecb);
             w.set_aessecret(Aessecret::NormalWay);
             w.set_streamlast(false);
+            // The AES core works on big-endian 128-bit blocks; these bits map that onto
+            // the little-endian M33.
+            // Key, IV and data words are loaded most significant word first, i.e. in message order.
             w.set_msw1st(true);
+            // The first output register holds the most significant word, i.e. message bytes 0..3.
             w.set_msw1st_out(true);
+            // Bytes within each data and IV word are swapped on input, so a little-endian word
+            // reaches the core big-endian.
             w.set_swapdat(true);
+            // Same as SWAPDAT, for key words.
             w.set_swapkey(true);
         });
 
@@ -108,7 +116,6 @@ impl<'d> GenericHashcrypt<'d> {
 
     /// Switches the peripheral to AES-CBC mode.
     pub fn aes_cbc(&mut self) -> AesCbc<'_, 'd> {
-        // AES-CBC config via register calls
         pac::HASHCRYPT.ctrl().modify(|w| {
             w.set_mode(Mode::Aes);
             w.set_new_hash(true);
@@ -118,9 +125,16 @@ impl<'d> GenericHashcrypt<'d> {
             w.set_aesmode(Aesmode::Cbc);
             w.set_aessecret(Aessecret::NormalWay);
             w.set_streamlast(false);
+            // The AES core works on big-endian 128-bit blocks; these bits map that onto
+            // the little-endian M33.
+            // Key, IV and data words are loaded most significant word first, i.e. in message order.
             w.set_msw1st(true);
+            // The first output register holds the most significant word, i.e. message bytes 0..3.
             w.set_msw1st_out(true);
+            // Bytes within each data and IV word are swapped on input, so a little-endian word
+            // reaches the core big-endian.
             w.set_swapdat(true);
+            // Same as SWAPDAT, for key words.
             w.set_swapkey(true);
         });
 
@@ -134,7 +148,6 @@ impl<'d> GenericHashcrypt<'d> {
 
     /// Switches the peripheral to AES-CTR mode.
     pub fn aes_ctr(&mut self) -> AesCtr<'_, 'd> {
-        // AES-CTR config via register calls
         pac::HASHCRYPT.ctrl().modify(|w| {
             w.set_mode(Mode::Aes);
             w.set_new_hash(true);
@@ -144,9 +157,16 @@ impl<'d> GenericHashcrypt<'d> {
             w.set_aesmode(Aesmode::Ctr);
             w.set_aessecret(Aessecret::NormalWay);
             w.set_streamlast(false);
+            // The AES core works on big-endian 128-bit blocks; these bits map that onto
+            // the little-endian M33.
+            // Key, IV and data words are loaded most significant word first, i.e. in message order.
             w.set_msw1st(true);
+            // The first output register holds the most significant word, i.e. message bytes 0..3.
             w.set_msw1st_out(true);
+            // Bytes within each data and IV word are swapped on input, so a little-endian word
+            // reaches the core big-endian.
             w.set_swapdat(true);
+            // Same as SWAPDAT, for key words.
             w.set_swapkey(true);
             w.set_aesctrpos(0);
         });
@@ -171,11 +191,14 @@ impl<'d> GenericHashcrypt<'d> {
     }
 
     pub(crate) fn read_digest(count: usize, out: &mut [u8]) {
-        // Block until the DIGEST status flag signals the output registers hold a
-        // complete result, then read `count` words out of DIGEST0..n.
+        // Waits for the result, then reads `count` words from the DIGEST registers into `out`.
+        //
+        // Words are read big-endian: SHA digests are defined big-endian, and in AES mode there is
+        // no output byte swap (MSW1ST_OUT only fixes the word order).
         while !pac::HASHCRYPT.status().read().digest() {
             cortex_m::asm::nop();
         }
+
         for i in 0..count {
             let word = pac::HASHCRYPT.digest0(i).read().digest();
             out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
@@ -235,7 +258,7 @@ impl<'d> GenericHashcrypt<'d> {
                 w.set_streamlast(true);
             });
         }
-
+        // Native little-endian words; SWAPDAT does the byte swap (see the aes_* constructors).
         for word in input.chunks_exact(4) {
             Self::feed_word(u32::from_le_bytes(word.try_into().unwrap()));
         }
@@ -284,7 +307,6 @@ impl<'d> GenericHashcrypt<'d> {
         let has_tail = !tail.is_empty();
         let mut offset = 0;
 
-        // process the 16 byte blocks
         for (i, block) in blocks.enumerate() {
             let block: &[u8; 16] = block.try_into().unwrap();
             let out: &mut [u8; 16] = (&mut output[offset..offset + 16]).try_into().unwrap();
@@ -294,7 +316,7 @@ impl<'d> GenericHashcrypt<'d> {
             offset += 16;
         }
 
-        // if the tail exist, pad with 0
+        // CTR is a stream mode: run a full zero-filled block and keep only the tail bytes.
         if has_tail {
             let mut in_blocks = [0u8; 16];
             in_blocks[..tail.len()].copy_from_slice(tail);
@@ -403,6 +425,8 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
             return Ok(());
         }
 
+        // Found by testing: AESDECRYPT only takes effect if written before the NEW_HASH pulse.
+        // STREAMLAST is cleared here too, since CRYPTCFG survives NEW_HASH.
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesdecrypt(Aesdecrypt::Encrypt);
             w.set_streamlast(false);
@@ -436,6 +460,8 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
             return Ok(());
         }
 
+        // Found by testing: AESDECRYPT only takes effect if written before the NEW_HASH pulse.
+        // STREAMLAST is cleared here too, since CRYPTCFG survives NEW_HASH.
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesdecrypt(Aesdecrypt::Decrypt);
             w.set_streamlast(false);
@@ -464,6 +490,8 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
             return Err(AesError::OutputTooSmall);
         }
 
+        // Found by testing: AESDECRYPT only takes effect if written before the NEW_HASH pulse.
+        // STREAMLAST is cleared here too, since CRYPTCFG survives NEW_HASH.
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesdecrypt(Aesdecrypt::Encrypt);
             w.set_streamlast(false);
@@ -492,6 +520,8 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
             return Err(AesError::OutputTooSmall);
         }
 
+        // Found by testing: AESDECRYPT only takes effect if written before the NEW_HASH pulse.
+        // STREAMLAST is cleared here too, since CRYPTCFG survives NEW_HASH.
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesdecrypt(Aesdecrypt::Decrypt);
             w.set_streamlast(false);
@@ -518,10 +548,6 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
 
         return Ok(&output[..len - n]);
     }
-}
-
-impl<'a, 'd> AesEcb<'a, 'd> {
-    // Does not require anything past the default Aes and AesPadded methods
 }
 
 /// AES in CBC mode. See [`AesCbc::set_iv`] for IV requirements.
@@ -560,6 +586,8 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
             return Ok(());
         }
 
+        // Found by testing: AESDECRYPT only takes effect if written before the NEW_HASH pulse.
+        // STREAMLAST is cleared here too, since CRYPTCFG survives NEW_HASH.
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesdecrypt(Aesdecrypt::Encrypt);
             w.set_streamlast(false);
@@ -603,6 +631,8 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
             return Ok(());
         }
 
+        // Found by testing: AESDECRYPT only takes effect if written before the NEW_HASH pulse.
+        // STREAMLAST is cleared here too, since CRYPTCFG survives NEW_HASH.
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesdecrypt(Aesdecrypt::Decrypt);
             w.set_streamlast(false);
@@ -641,6 +671,8 @@ impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
             return Err(AesError::OutputTooSmall);
         }
 
+        // Found by testing: AESDECRYPT only takes effect if written before the NEW_HASH pulse.
+        // STREAMLAST is cleared here too, since CRYPTCFG survives NEW_HASH.
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesdecrypt(Aesdecrypt::Encrypt);
             w.set_streamlast(false);
@@ -677,6 +709,8 @@ impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
             return Err(AesError::OutputTooSmall);
         }
 
+        // Found by testing: AESDECRYPT only takes effect if written before the NEW_HASH pulse.
+        // STREAMLAST is cleared here too, since CRYPTCFG survives NEW_HASH.
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesdecrypt(Aesdecrypt::Decrypt);
             w.set_streamlast(false);
@@ -748,6 +782,8 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
             return Ok(());
         }
 
+        // Found by testing: AESDECRYPT only takes effect if written before the NEW_HASH pulse.
+        // STREAMLAST is cleared here too, since CRYPTCFG survives NEW_HASH.
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesdecrypt(Aesdecrypt::Encrypt);
             w.set_streamlast(false);
@@ -787,6 +823,8 @@ impl<'a, 'd> Aes for AesCtr<'a, 'd> {
             return Ok(());
         }
 
+        // Found by testing: AESDECRYPT only takes effect if written before the NEW_HASH pulse.
+        // STREAMLAST is cleared here too, since CRYPTCFG survives NEW_HASH.
         pac::HASHCRYPT.cryptcfg().modify(|w| {
             w.set_aesdecrypt(Aesdecrypt::Decrypt);
             w.set_streamlast(false);
@@ -837,7 +875,6 @@ macro_rules! impl_aes {
             /// Returns [`AesError::DeviceError`] if the register holds a reserved value.
             pub fn key_size(&self) -> Result<u32, AesError> {
                 match pac::HASHCRYPT.cryptcfg().read().aeskeysz() {
-                    // Convert from bits to bytes
                     Aeskeysz::Bits128 => return Ok(16),
                     Aeskeysz::Bits192 => return Ok(24),
                     Aeskeysz::Bits256 => return Ok(32),
