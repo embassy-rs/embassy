@@ -27,10 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MIDI`: Add packet encoding and decoding
 - Make `InterfaceAltBuilder::endpoint_in` and `InterfaceAltBuilder::endpoint_out` public
 - Fix various typos in comments and internal variable names
+- Added portable-atomic for targets not supporting core::sync::AtomicU32
 - Add USB Mass Storage Class (MSC) implementation (Bulk-Only Transport + SCSI transparent commands)
 - `MSC`: Add `SectorCache`, optimizing read-erase-write cycles in large block devices (flash), and `BlockDeviceAdapter` for `block_device_driver::BlockDevice` (feature `block-device-driver`)
 - `GUD`: Add Generic USB Display support.
 - USB host: debounce hub port connections and cleanup addresses after hub removal
+- USB host: call `UsbHostAllocator::device_removed` for each address freed on device removal
 
 ## 0.6.0 - 2026-03-10
 

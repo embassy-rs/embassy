@@ -7,6 +7,7 @@ use core::cell::Cell;
 use core::cmp::min;
 use core::mem::MaybeUninit;
 
+use embassy_futures::join::join;
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 
 use super::bot::{CSW_STATUS_FAILED, CSW_STATUS_PASSED, CSW_STATUS_PHASE_ERROR, Cbw, Csw, encode_csw, parse_cbw};
@@ -42,6 +43,9 @@ pub struct Config {
     pub serial_number: [u8; 32],
     /// Length of the unit serial number in bytes (0..=32).
     pub serial_number_len: u8,
+    /// Ask the driver to double-buffer the bulk endpoints. See
+    /// [`Driver::alloc_endpoint_bulk_in_double_buffered`].
+    pub double_buffered: bool,
 }
 
 impl Config {
@@ -58,6 +62,7 @@ impl Config {
             product_revision_level: [b' '; 4],
             serial_number: [0u8; 32],
             serial_number_len: 0,
+            double_buffered: false,
         }
     }
 
@@ -92,6 +97,15 @@ impl Config {
     /// Sets the SCSI Product Revision Level (space-padded or truncated to 4 bytes).
     pub fn set_product_revision_level(&mut self, revision: &str) {
         copy_pad_ascii(&mut self.product_revision_level, revision);
+    }
+
+    /// Asks the driver to double-buffer the bulk endpoints.
+    ///
+    /// This improves throughput on drivers that support it, at the cost of more endpoint
+    /// resources. Drivers that don't support it allocate ordinary endpoints.
+    pub fn double_buffered(mut self, double_buffered: bool) -> Self {
+        self.double_buffered = double_buffered;
+        self
     }
 
     /// Sets the Unit Serial Number (up to 32 ASCII characters).
@@ -137,15 +151,15 @@ pub trait BlockDevice {
     /// Returns the total amount of logical blocks.
     fn block_count(&self) -> u32;
 
-    /// Reads one logical block at `lba` into `buf`.
+    /// Reads consecutive logical blocks starting at `lba` into `buf`.
     ///
-    /// Implementations should expect `buf.len() == self.block_size() as usize`.
-    fn read_block(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error>;
+    /// `buf.len()` is a non-zero multiple of `self.block_size()`.
+    fn read_blocks(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error>;
 
-    /// Writes one logical block at `lba` from `data`.
+    /// Writes consecutive logical blocks starting at `lba` from `data`.
     ///
-    /// Implementations should expect `data.len() == self.block_size() as usize`.
-    fn write_block(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error>;
+    /// `data.len()` is a non-zero multiple of `self.block_size()`.
+    fn write_blocks(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error>;
 
     /// Flushes pending writes to backing storage.
     fn flush(&mut self) -> Result<(), Self::Error>;
@@ -170,11 +184,16 @@ pub trait AsyncBlockDevice {
     /// Returns the total amount of logical blocks.
     fn block_count(&self) -> u32;
 
-    /// Reads one logical block at `lba` into `buf`.
-    async fn read_block(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error>;
+    /// Reads consecutive logical blocks starting at `lba` into `buf`.
+    ///
+    /// `buf.len()` is a non-zero multiple of `self.block_size()`. Transferring
+    /// several blocks per call lets storage use multi-block commands.
+    async fn read_blocks(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error>;
 
-    /// Writes one logical block at `lba` from `data`.
-    async fn write_block(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error>;
+    /// Writes consecutive logical blocks starting at `lba` from `data`.
+    ///
+    /// `data.len()` is a non-zero multiple of `self.block_size()`.
+    async fn write_blocks(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error>;
 
     /// Flushes pending writes to backing storage.
     async fn flush(&mut self) -> Result<(), Self::Error>;
@@ -196,12 +215,12 @@ impl<T: BlockDevice + ?Sized> AsyncBlockDevice for T {
         BlockDevice::block_count(self)
     }
 
-    async fn read_block(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
-        BlockDevice::read_block(self, lba, buf)
+    async fn read_blocks(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
+        BlockDevice::read_blocks(self, lba, buf)
     }
 
-    async fn write_block(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error> {
-        BlockDevice::write_block(self, lba, data)
+    async fn write_blocks(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error> {
+        BlockDevice::write_blocks(self, lba, data)
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
@@ -311,8 +330,17 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             None,
         );
 
-        let read_ep = alt.endpoint_bulk_out(None, config.max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(None, config.max_packet_size);
+        let (read_ep, write_ep) = if config.double_buffered {
+            (
+                alt.endpoint_bulk_out_double_buffered(None, config.max_packet_size),
+                alt.endpoint_bulk_in_double_buffered(None, config.max_packet_size),
+            )
+        } else {
+            (
+                alt.endpoint_bulk_out(None, config.max_packet_size),
+                alt.endpoint_bulk_in(None, config.max_packet_size),
+            )
+        };
 
         drop(func);
 
@@ -350,6 +378,11 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     ///
     /// `block_buf` is a temporary buffer used for block transfers and must be at
     /// least `block_device.block_size()` and `max_packet_size` bytes long.
+    ///
+    /// A buffer of two or more blocks is split in two halves, so the USB transfer of
+    /// one half overlaps with `block_device` reading or writing the other. Each call
+    /// to `block_device` moves up to half the buffer, so a buffer of several blocks
+    /// speeds up large transfers.
     pub async fn run<B: AsyncBlockDevice>(&mut self, block_device: &mut B, block_buf: &mut [u8]) -> StopReason {
         assert!(
             block_buf.len() >= block_device.block_size() as usize
@@ -431,8 +464,11 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         block_buf: &mut [u8],
         cbw: &Cbw,
     ) -> Result<CommandResult, EndpointError> {
+        let read_write = ReadWrite::parse(&cbw.cb[..cbw.cb_length as usize]);
+        let is_write = read_write.is_some_and(|rw| rw.write);
+
         // Drain unexpected OUT data for any non-WRITE command upfront, or any command to an unsupported LUN (BOT Cases 9 & 10)
-        if !cbw.direction_in() && cbw.data_transfer_length > 0 && (cbw.cb[0] != SCSI_WRITE_10 || cbw.lun != 0) {
+        if !cbw.direction_in() && cbw.data_transfer_length > 0 && (!is_write || cbw.lun != 0) {
             self.discard_out_data(cbw.data_transfer_length, block_buf).await?;
         }
 
@@ -455,6 +491,12 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         }
 
         let result = match cbw.cb[0] {
+            _ if let Some(rw) = read_write
+                && rw.write =>
+            {
+                self.write(cbw, rw, block_device, block_buf).await
+            }
+            _ if let Some(rw) = read_write => self.read(cbw, rw, block_device, block_buf).await,
             SCSI_TEST_UNIT_READY => Ok(self.test_unit_ready(cbw)),
             SCSI_REQUEST_SENSE => self.request_sense(cbw).await,
             SCSI_INQUIRY => self.inquiry(cbw).await,
@@ -462,8 +504,11 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             SCSI_MODE_SENSE_10 => self.mode_sense_10(cbw, block_device).await,
             SCSI_READ_FORMAT_CAPACITIES => self.read_format_capacities(cbw, block_device).await,
             SCSI_READ_CAPACITY_10 => self.read_capacity_10(cbw, block_device).await,
-            SCSI_READ_10 => self.read_10(cbw, block_device, block_buf).await,
-            SCSI_WRITE_10 => self.write_10(cbw, block_device, block_buf).await,
+            SCSI_SERVICE_ACTION_IN_16
+                if cbw.cb_length >= 16 && cbw.cb[1] & SERVICE_ACTION_MASK == SCSI_SA_READ_CAPACITY_16 =>
+            {
+                self.read_capacity_16(cbw, block_device).await
+            }
             SCSI_START_STOP_UNIT => self.start_stop_unit(cbw, block_device).await,
             SCSI_PREVENT_ALLOW_MEDIUM_REMOVAL => Ok(self.prevent_allow_medium_removal(cbw)),
             SCSI_SYNCHRONIZE_CACHE_10 => self.synchronize_cache_10(cbw, block_device).await,
@@ -709,9 +754,69 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         Ok(result)
     }
 
-    async fn read_10<B: AsyncBlockDevice>(
+    async fn read_capacity_16<B: AsyncBlockDevice>(
         &mut self,
         cbw: &Cbw,
+        block_device: &B,
+    ) -> Result<CommandResult, EndpointError> {
+        if cbw.data_transfer_length > 0 && !cbw.direction_in() {
+            return Ok(CommandResult::phase_error(cbw.data_transfer_length));
+        }
+
+        let mut data = [0u8; 32];
+        let last_lba = block_device.block_count().saturating_sub(1) as u64;
+        let block_size = block_device.block_size();
+
+        data[0..8].copy_from_slice(&last_lba.to_be_bytes());
+        data[8..12].copy_from_slice(&block_size.to_be_bytes());
+
+        let allocation_len = u32::from_be_bytes([cbw.cb[10], cbw.cb[11], cbw.cb[12], cbw.cb[13]]) as usize;
+        let len = min(data.len(), allocation_len);
+        let result = self.send_in_data(cbw, &data[..len]).await?;
+        self.sense = SenseData::NO_SENSE;
+        Ok(result)
+    }
+
+    /// Checks a READ or WRITE command against `block_device` and `block_buf`.
+    ///
+    /// Returns the starting LBA, or sets sense and returns `None` if the command can't run.
+    fn check_read_write<B: AsyncBlockDevice>(
+        &mut self,
+        cbw: &Cbw,
+        rw: ReadWrite,
+        block_device: &B,
+        block_buf: &[u8],
+    ) -> Option<u32> {
+        let block_size = block_device.block_size();
+        if block_size == 0
+            || block_buf.len() < block_size as usize
+            || rw.blocks.checked_mul(block_size) != Some(cbw.data_transfer_length)
+        {
+            self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
+            return None;
+        }
+
+        if rw
+            .lba
+            .checked_add(rw.blocks as u64)
+            .is_none_or(|end| end > block_device.block_count() as u64)
+        {
+            self.set_sense(
+                SENSE_KEY_ILLEGAL_REQUEST,
+                ASC_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE,
+                ASCQ_NONE,
+            );
+            return None;
+        }
+
+        // In range, so it fits in u32 like the block count.
+        Some(rw.lba as u32)
+    }
+
+    async fn read<B: AsyncBlockDevice>(
+        &mut self,
+        cbw: &Cbw,
+        rw: ReadWrite,
         block_device: &mut B,
         block_buf: &mut [u8],
     ) -> Result<CommandResult, EndpointError> {
@@ -719,51 +824,28 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             return Ok(CommandResult::phase_error(cbw.data_transfer_length));
         }
 
+        let Some(lba) = self.check_read_write(cbw, rw, block_device, block_buf) else {
+            return Ok(CommandResult::failed(cbw.data_transfer_length));
+        };
+
+        if rw.blocks == 0 {
+            self.sense = SenseData::NO_SENSE;
+            return Ok(CommandResult::passed(0));
+        }
+
+        let blocks = rw.blocks;
         let block_size = block_device.block_size() as usize;
-        if block_size == 0 || block_buf.len() < block_size {
-            self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
-            return Ok(CommandResult::failed(cbw.data_transfer_length));
-        }
-
-        let lba = u32::from_be_bytes([cbw.cb[2], cbw.cb[3], cbw.cb[4], cbw.cb[5]]);
-        let blocks = u16::from_be_bytes([cbw.cb[7], cbw.cb[8]]) as u32;
-
-        let Some(total_bytes) = blocks.checked_mul(block_device.block_size()) else {
-            self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
-            return Ok(CommandResult::failed(cbw.data_transfer_length));
-        };
-
-        if cbw.data_transfer_length != total_bytes {
-            self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
-            return Ok(CommandResult::failed(cbw.data_transfer_length));
-        }
-
-        let Some(last_lba) = lba.checked_add(blocks) else {
-            self.set_sense(
-                SENSE_KEY_ILLEGAL_REQUEST,
-                ASC_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE,
-                ASCQ_NONE,
-            );
-            return Ok(CommandResult::failed(cbw.data_transfer_length));
-        };
-
-        if last_lba > block_device.block_count() {
-            self.set_sense(
-                SENSE_KEY_ILLEGAL_REQUEST,
-                ASC_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE,
-                ASCQ_NONE,
-            );
-            return Ok(CommandResult::failed(cbw.data_transfer_length));
-        }
+        let (mut front, mut back) = split_chunks(block_buf, block_size);
+        let chunk_blocks = (front.len() / block_size) as u32;
 
         let mut residue = cbw.data_transfer_length;
-        for i in 0..blocks {
-            if block_device
-                .read_block(lba + i, &mut block_buf[..block_size])
-                .await
-                .is_err()
-            {
-                warn!("msc: read_block failed at lba {}", lba + i);
+        let mut chunk_lba = lba;
+        let mut len = min(blocks, chunk_blocks) as usize * block_size;
+        let mut filled = block_device.read_blocks(chunk_lba, &mut front[..len]).await;
+
+        loop {
+            if filled.is_err() {
+                warn!("msc: read_blocks failed at lba {}", chunk_lba);
                 self.set_sense(SENSE_KEY_MEDIUM_ERROR, ASC_UNRECOVERED_READ_ERROR, ASCQ_NONE);
                 if residue < cbw.data_transfer_length {
                     let _ = self.write_ep.write(&[]).await;
@@ -771,17 +853,42 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                 return Ok(CommandResult::failed(residue));
             }
 
-            self.write_all_in(&block_buf[..block_size]).await?;
-            residue = residue.saturating_sub(block_size as u32);
+            let next_lba = chunk_lba + (len / block_size) as u32;
+            let next = min(lba + blocks - next_lba, chunk_blocks) as usize * block_size;
+
+            if back.is_empty() {
+                self.write_ep.write_transfer(&front[..len], false).await?;
+                filled = read_chunk(block_device, next_lba, &mut front[..next]).await;
+            } else {
+                // Send this chunk while storage reads the next one.
+                let (sent, read) = join(
+                    self.write_ep.write_transfer(&front[..len], false),
+                    read_chunk(block_device, next_lba, &mut back[..next]),
+                )
+                .await;
+                sent?;
+                filled = read;
+                core::mem::swap(&mut front, &mut back);
+            }
+
+            residue -= len as u32;
+
+            if next == 0 {
+                break;
+            }
+
+            chunk_lba = next_lba;
+            len = next;
         }
 
         self.sense = SenseData::NO_SENSE;
         Ok(CommandResult::passed(residue))
     }
 
-    async fn write_10<B: AsyncBlockDevice>(
+    async fn write<B: AsyncBlockDevice>(
         &mut self,
         cbw: &Cbw,
+        rw: ReadWrite,
         block_device: &mut B,
         block_buf: &mut [u8],
     ) -> Result<CommandResult, EndpointError> {
@@ -789,52 +896,10 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             return Ok(CommandResult::phase_error(cbw.data_transfer_length));
         }
 
-        if block_buf.is_empty() {
-            self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
-            return Ok(CommandResult::failed(cbw.data_transfer_length));
-        }
-
-        let block_size = block_device.block_size() as usize;
-        if block_size == 0 || block_buf.len() < block_size {
-            self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
-            self.discard_out_data(cbw.data_transfer_length, block_buf).await?;
-            return Ok(CommandResult::failed(cbw.data_transfer_length));
-        }
-
-        let lba = u32::from_be_bytes([cbw.cb[2], cbw.cb[3], cbw.cb[4], cbw.cb[5]]);
-        let blocks = u16::from_be_bytes([cbw.cb[7], cbw.cb[8]]) as u32;
-
-        let Some(total_bytes) = blocks.checked_mul(block_device.block_size()) else {
-            self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
+        let Some(lba) = self.check_read_write(cbw, rw, block_device, block_buf) else {
             self.discard_out_data(cbw.data_transfer_length, block_buf).await?;
             return Ok(CommandResult::failed(cbw.data_transfer_length));
         };
-
-        if cbw.data_transfer_length != total_bytes {
-            self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
-            self.discard_out_data(cbw.data_transfer_length, block_buf).await?;
-            return Ok(CommandResult::failed(cbw.data_transfer_length));
-        }
-
-        let Some(last_lba) = lba.checked_add(blocks) else {
-            self.set_sense(
-                SENSE_KEY_ILLEGAL_REQUEST,
-                ASC_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE,
-                ASCQ_NONE,
-            );
-            self.discard_out_data(cbw.data_transfer_length, block_buf).await?;
-            return Ok(CommandResult::failed(cbw.data_transfer_length));
-        };
-
-        if last_lba > block_device.block_count() {
-            self.set_sense(
-                SENSE_KEY_ILLEGAL_REQUEST,
-                ASC_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE,
-                ASCQ_NONE,
-            );
-            self.discard_out_data(cbw.data_transfer_length, block_buf).await?;
-            return Ok(CommandResult::failed(cbw.data_transfer_length));
-        }
 
         if block_device.is_write_protected() {
             self.set_sense(SENSE_KEY_DATA_PROTECT, ASC_WRITE_PROTECTED, ASCQ_NONE);
@@ -842,29 +907,73 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             return Ok(CommandResult::failed(cbw.data_transfer_length));
         }
 
-        let mut residue = cbw.data_transfer_length;
+        if rw.blocks == 0 {
+            self.sense = SenseData::NO_SENSE;
+            return Ok(CommandResult::passed(0));
+        }
 
-        for i in 0..blocks {
-            self.read_exact_out(&mut block_buf[..block_size]).await?;
+        let blocks = rw.blocks;
+        let block_size = block_device.block_size() as usize;
+        let (mut front, mut back) = split_chunks(block_buf, block_size);
+        let chunk_blocks = (front.len() / block_size) as u32;
 
-            if block_device
-                .write_block(lba + i, &block_buf[..block_size])
-                .await
-                .is_err()
-            {
-                warn!("msc: write_block failed at lba {}", lba + i);
-                self.set_sense(SENSE_KEY_MEDIUM_ERROR, ASC_WRITE_ERROR, ASCQ_NONE);
+        let mut received = 0;
+        let mut chunk_lba = lba;
+        let mut len = min(blocks, chunk_blocks) as usize * block_size;
 
-                let unwritten_residue = residue;
-                let remaining_to_drain = residue.saturating_sub(block_size as u32);
-                if remaining_to_drain > 0 {
-                    self.discard_out_data(remaining_to_drain, block_buf).await?;
-                }
+        read_exact_out(&mut self.read_ep, &mut front[..len]).await?;
 
-                return Ok(CommandResult::failed(unwritten_residue));
+        received += len as u32;
+
+        let failed = loop {
+            let next_lba = chunk_lba + (len / block_size) as u32;
+            let next = min(lba + blocks - next_lba, chunk_blocks) as usize * block_size;
+
+            let stored = if back.is_empty() {
+                block_device.write_blocks(chunk_lba, &front[..len]).await
+            } else {
+                // Receive the next chunk while storage writes this one.
+                let (got, stored) = join(
+                    read_exact_out(&mut self.read_ep, &mut back[..next]),
+                    block_device.write_blocks(chunk_lba, &front[..len]),
+                )
+                .await;
+
+                got?;
+                received += next as u32;
+
+                stored
+            };
+
+            if stored.is_err() {
+                break Some(chunk_lba);
+            }
+            if next == 0 {
+                break None;
             }
 
-            residue = residue.saturating_sub(block_size as u32);
+            if back.is_empty() {
+                read_exact_out(&mut self.read_ep, &mut front[..next]).await?;
+                received += next as u32;
+            } else {
+                core::mem::swap(&mut front, &mut back);
+            }
+
+            chunk_lba = next_lba;
+            len = next;
+        };
+
+        if let Some(failed_lba) = failed {
+            warn!("msc: write_blocks failed at lba {}", failed_lba);
+            self.set_sense(SENSE_KEY_MEDIUM_ERROR, ASC_WRITE_ERROR, ASCQ_NONE);
+
+            let remaining_to_drain = cbw.data_transfer_length - received;
+            if remaining_to_drain > 0 {
+                self.discard_out_data(remaining_to_drain, block_buf).await?;
+            }
+
+            let written = (failed_lba - lba) * block_size as u32;
+            return Ok(CommandResult::failed(cbw.data_transfer_length - written));
         }
 
         if block_device.flush().await.is_err() {
@@ -937,7 +1046,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
 
     async fn send_in_data(&mut self, cbw: &Cbw, data: &[u8]) -> Result<CommandResult, EndpointError> {
         let transfer_len = min(data.len(), cbw.data_transfer_length as usize);
-        self.write_all_in(&data[..transfer_len]).await?;
+        self.write_ep.write_transfer(&data[..transfer_len], false).await?;
 
         // If transfer completed with fewer bytes than expected by the host, and the
         // length transferred is a multiple of max_packet_size (including 0), send a ZLP
@@ -950,26 +1059,6 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
 
         let residue = cbw.data_transfer_length.saturating_sub(transfer_len as u32);
         Ok(CommandResult::passed(residue))
-    }
-
-    async fn write_all_in(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        let max_packet_size = self.config.max_packet_size as usize;
-        for chunk in data.chunks(max_packet_size) {
-            self.write_ep.write(chunk).await?;
-        }
-        Ok(())
-    }
-
-    async fn read_exact_out(&mut self, mut buf: &mut [u8]) -> Result<(), EndpointError> {
-        while !buf.is_empty() {
-            let n = self.read_ep.read(buf).await?;
-            if n == 0 {
-                continue;
-            }
-            buf = &mut buf[n..];
-        }
-
-        Ok(())
     }
 
     async fn discard_out_data(&mut self, mut len: u32, scratch: &mut [u8]) -> Result<(), EndpointError> {
@@ -994,6 +1083,34 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     fn set_sense(&mut self, key: SenseKey, asc: u8, ascq: u8) {
         self.sense = SenseData { key, asc, ascq };
     }
+}
+
+/// Splits `buf` into two chunks of whole blocks so USB transfers can overlap with storage access.
+///
+/// Both chunks are the same size. If `buf` holds a single block, the second chunk is empty.
+fn split_chunks(buf: &mut [u8], block_size: usize) -> (&mut [u8], &mut [u8]) {
+    let blocks = buf.len() / block_size;
+    let back_len = blocks / 2 * block_size;
+    let (front, back) = buf.split_at_mut(blocks.div_ceil(2) * block_size);
+
+    (&mut front[..back_len.max(block_size)], &mut back[..back_len])
+}
+
+async fn read_chunk<B: AsyncBlockDevice>(block_device: &mut B, lba: u32, buf: &mut [u8]) -> Result<(), B::Error> {
+    if buf.is_empty() {
+        return Ok(());
+    }
+
+    block_device.read_blocks(lba, buf).await
+}
+
+async fn read_exact_out(ep: &mut impl EndpointOut, mut buf: &mut [u8]) -> Result<(), EndpointError> {
+    while !buf.is_empty() {
+        let n = ep.read_transfer(buf).await?;
+        buf = &mut buf[n..];
+    }
+
+    Ok(())
 }
 
 /// Whether a START STOP UNIT CDB asks to eject the medium (SBC-3 §5.25).
@@ -1110,12 +1227,14 @@ mod tests {
         fn block_count(&self) -> u32 {
             4
         }
-        fn read_block(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
-            buf.copy_from_slice(&self.blocks[lba as usize]);
+        fn read_blocks(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
+            buf.copy_from_slice(self.blocks[lba as usize..][..buf.len() / 512].as_flattened());
             Ok(())
         }
-        fn write_block(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error> {
-            self.blocks[lba as usize].copy_from_slice(data);
+        fn write_blocks(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error> {
+            self.blocks[lba as usize..][..data.len() / 512]
+                .as_flattened_mut()
+                .copy_from_slice(data);
             Ok(())
         }
         fn flush(&mut self) -> Result<(), Self::Error> {
@@ -1129,10 +1248,11 @@ mod tests {
             blocks: [[0u8; 512]; 4],
         };
         dev.blocks[1][0] = 42;
-        let mut buf = [0u8; 512];
+        dev.blocks[2][0] = 43;
+        let mut buf = [0u8; 1024];
         embassy_futures::block_on(async {
-            AsyncBlockDevice::read_block(&mut dev, 1, &mut buf).await.unwrap();
-            core::assert_eq!(buf[0], 42);
+            AsyncBlockDevice::read_blocks(&mut dev, 1, &mut buf).await.unwrap();
+            core::assert_eq!((buf[0], buf[512]), (42, 43));
         });
     }
 }

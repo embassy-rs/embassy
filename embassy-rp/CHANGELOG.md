@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - USB device: clearing an endpoint halt now resets the data toggle to DATA0.
 - USB device: stalling an endpoint with a transfer in flight no longer lets that transfer complete, and the queued packet is no longer delivered once the halt is cleared.
 - USB device: a suspend latched before a bus reset no longer produces a spurious Suspend event that wedges enumeration.
+- USB device: `Driver::new` now resets the controller instead of zeroing its registers, so RP235x keeps the `LINESTATE_TUNING` controller fixes, among them the hardware fix for RP2040-E15, enabled.
 - Fix i2c_slave respond_to_read for buffers larger than one chunk
 - Add `uid`, returns device's unique ID as bytes or hexadecimal, using either OTP chip ID on RP235x or SPI flash chip's unique ID on RP2040.
 - Update `fixed` dependency
