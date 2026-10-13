@@ -220,8 +220,8 @@ impl AtomicWaker {
 
     /// Wake the registered waker, if any.
     ///
-    /// The stored waker is invoked via [`Waker::wake_by_ref`] and remains
-    /// registered, matching the semantics of
+    /// A clone of the stored waker is woken after the state is released, so
+    /// the stored waker remains registered, matching the semantics of
     /// [`CriticalSectionWaker`](super::CriticalSectionWaker).
     pub fn wake(&self) {
         // `fetch_or` (rather than `compare_exchange`) is load-bearing here.
