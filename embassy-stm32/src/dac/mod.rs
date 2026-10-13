@@ -15,7 +15,7 @@ pub use ringbuffered::RingBufferedDacChannel;
 
 use crate::dma::{ChannelAndRequest, Packing, word as dma};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-#[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+#[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
 use crate::pac::dac;
 use crate::pac::dac::Dac as Regs;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
@@ -287,9 +287,17 @@ impl<'d> DacChannel<'d, Async> {
         core::mem::forget(self);
 
         let crate::dma::ChannelAndRequest { channel, request } = dma;
+
+        #[cfg(not(dac_v9))]
         info.regs.cr().modify(|w| {
             w.set_en(idx, true);
             w.set_dmaen(idx, true);
+        });
+
+        #[cfg(dac_v9)]
+        info.regs.cr().modify(|w| {
+            w.set_en(true);
+            w.set_dmaen(true);
         });
 
         let ring_buf = unsafe {
@@ -310,15 +318,32 @@ impl<'d> DacChannel<'d, Async> {
     /// Write `data` to this channel via DMA.
     pub async fn write<W: Word>(&mut self, data: &[W]) {
         // Enable DAC and DMA
+
+        #[cfg(not(dac_v9))]
         self.info.regs.cr().modify(|w| {
             w.set_en(self.idx, true);
             w.set_dmaen(self.idx, true);
         });
 
+        #[cfg(not(dac_v9))]
         let _guard = OnDrop::new(|| {
             self.info.regs.cr().modify(|w| {
                 w.set_en(self.idx, false);
                 w.set_dmaen(self.idx, false);
+            })
+        });
+
+        #[cfg(dac_v9)]
+        self.info.regs.cr().modify(|w| {
+            w.set_en(true);
+            w.set_dmaen(true);
+        });
+
+        #[cfg(dac_v9)]
+        let _guard = OnDrop::new(|| {
+            self.info.regs.cr().modify(|w| {
+                w.set_en(false);
+                w.set_dmaen(false);
             })
         });
 
@@ -503,9 +528,16 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
         #[cfg(stm32g4)]
         dac.set_wave(wave);
         if let Some(idx) = trigger {
+            #[cfg(not(dac_v9))]
             dac.info.regs.cr().modify(|reg| {
                 reg.set_tsel(dac.idx, idx);
                 reg.set_ten(dac.idx, true);
+            });
+
+            #[cfg(dac_v9)]
+            dac.info.regs.cr().modify(|reg| {
+                reg.set_tsel(idx);
+                reg.set_ten(true);
             });
 
             // Set in case Sawtooth wave form is used
@@ -514,8 +546,14 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
                 reg.set_strsttrigsel(dac.idx, idx);
             });
         } else {
+            #[cfg(not(dac_v9))]
             dac.info.regs.cr().modify(|reg| {
                 reg.set_ten(dac.idx, false);
+            });
+
+            #[cfg(dac_v9)]
+            dac.info.regs.cr().modify(|reg| {
+                reg.set_ten(false);
             });
         }
 
@@ -532,9 +570,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     /// Enable or disable this channel.
     pub fn set_enable(&mut self, on: bool) {
         critical_section::with(|_| {
-            self.info.regs.cr().modify(|reg| {
-                reg.set_en(self.idx, on);
-            });
+            set_channel_enable(self.info.regs, self.idx, on);
         });
 
         #[cfg(dac_v8)]
@@ -568,9 +604,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     ///
     /// NOTE: In sawtooth mode, this only works with [SOFTWARE] as reset_trigger source
     pub fn trigger(&mut self) {
-        self.info.regs.swtrigr().write(|reg| {
-            reg.set_swtrig(self.idx, true);
-        });
+        set_channel_trigger(self.info.regs, self.idx, true);
     }
 
     /// Software trigger this channels sawtooth waveform step
@@ -621,7 +655,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
 
     /// Read the current output value of the DAC.
     pub fn read(&self) -> u16 {
-        self.info.regs.dor(self.idx).read().dor()
+        channel_read(self.info.regs, self.idx)
     }
 
     /// Set sawtooth reset value set on every reset trigger
@@ -703,6 +737,47 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
                 reg.set_hfsel(hfsel);
             });
         });
+    }
+}
+
+#[inline]
+fn set_channel_enable(regs: dac::Dac, idx: usize, on: bool) {
+    #[cfg(not(dac_v9))]
+    regs.cr().modify(|reg| reg.set_en(idx, on));
+
+    #[cfg(dac_v9)]
+    {
+        let _ = idx;
+        regs.cr().modify(|reg| reg.set_en(on))
+    }
+}
+
+#[inline]
+fn set_channel_trigger(regs: dac::Dac, idx: usize, on: bool) {
+    #[cfg(not(dac_v9))]
+    regs.swtrigr().write(|reg| {
+        reg.set_swtrig(idx, on);
+    });
+    #[cfg(dac_v9)]
+    {
+        let _ = idx;
+        regs.swtrigr().write(|reg| {
+            reg.set_swtrig(on);
+        });
+    }
+}
+
+#[inline]
+fn channel_read(regs: dac::Dac, idx: usize) -> u16 {
+    #[cfg(not(dac_v9))]
+    {
+        regs.dor(idx).read().dor()
+    }
+
+    #[cfg(dac_v9)]
+    {
+        let _ = idx;
+        regs.dor().read().dor()
     }
 }
 
@@ -1128,7 +1203,13 @@ trait SealedWord: Sized {
 
     fn dma_buf_mut(buf: &mut [Self]) -> &mut [Self::Word];
     fn dma_buf(buf: &[Self]) -> &[Self::Word];
+
+    #[cfg(not(dac_v9))]
     fn dma_ptr(regs: Regs, idx: usize) -> *mut u32;
+
+    #[cfg(dac_v9)]
+    fn dma_ptr(regs: Regs) -> *mut u32;
+
     fn set_value(regs: Regs, idx: usize, value: Self);
     fn set_values(regs: Regs, values: (Self, Self));
 }
@@ -1149,8 +1230,14 @@ impl SealedWord for u8 {
         buf
     }
 
+    #[cfg(not(dac_v9))]
     fn dma_ptr(regs: Regs, idx: usize) -> *mut u32 {
         regs.dhr8r(idx).as_ptr() as *mut u32
+    }
+
+    #[cfg(dac_v9)]
+    fn dma_ptr(regs: Regs) -> *mut u32 {
+        regs.dhr8r().as_ptr() as *mut u32
     }
 
     fn set_value(regs: Regs, idx: usize, value: Self) {
