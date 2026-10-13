@@ -778,6 +778,17 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             #[cfg(feature = "firmware-logs")]
             self.log_read(&mut buf).await;
 
+            #[cfg(feature = "bluetooth")]
+            if core::future::poll_fn(|cx| {
+                Poll::Ready(self.bt.as_mut().is_some_and(|bt| bt.poll_rx_ready(cx).is_ready()))
+            })
+            .await
+            {
+                // A continuously ready WiFi TX queue must not starve a deferred BT record.
+                self.handle_irq(&mut buf).await;
+                continue;
+            }
+
             if self.has_credit() {
                 let ioctl = self.ioctl_state.wait_pending();
                 // The multicast filter list the stack wants, when it changes. Applying
@@ -794,20 +805,22 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     });
                 let wifi_tx = self.ch.tx();
                 #[cfg(feature = "bluetooth")]
-                let bt_tx = async {
-                    match &mut self.bt {
-                        Some(bt) => {
-                            let _ = bt.tx_chan.receive().await;
+                let bt_work = core::future::poll_fn(|cx| match &mut self.bt {
+                    Some(bt) => {
+                        if bt.poll_rx_ready(cx).is_ready() {
+                            Poll::Ready(Either::First(()))
+                        } else {
+                            bt.tx_chan.poll_receive(cx).map(|_| Either::Second(()))
                         }
-                        None => core::future::pending().await,
                     }
-                };
+                    None => Poll::Pending,
+                });
                 #[cfg(not(feature = "bluetooth"))]
-                let bt_tx = core::future::pending::<()>();
+                let bt_work = core::future::pending::<Either<(), ()>>();
 
                 let ev = self.bus.wait_for_event();
 
-                match select4(select(ioctl, mcast), wifi_tx, bt_tx, ev).await {
+                match select4(select(ioctl, mcast), wifi_tx, bt_work, ev).await {
                     Either4::First(Either::First(PendingIoctl {
                         buf: iobuf,
                         kind,
@@ -876,11 +889,11 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         drop(packet);
                         self.check_status(&mut buf).await;
                     }
-                    Either4::Third(_) => {
+                    Either4::Third(Either::Second(())) => {
                         #[cfg(feature = "bluetooth")]
                         self.bt.as_mut().unwrap().hci_write(&mut self.bus, &mut buf).await;
                     }
-                    Either4::Fourth(()) => {
+                    Either4::Third(Either::First(())) | Either4::Fourth(()) => {
                         self.handle_irq(&mut buf).await;
                     }
                 }
@@ -893,6 +906,16 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         .await;
                 }
 
+                #[cfg(feature = "bluetooth")]
+                {
+                    // Queue space can resume BT RX without a new IRQ or WiFi TX credit.
+                    let bt_rx = core::future::poll_fn(|cx| match &mut self.bt {
+                        Some(bt) => bt.poll_rx_ready(cx),
+                        None => Poll::Pending,
+                    });
+                    let _ = select(bt_rx, self.bus.wait_for_event()).await;
+                }
+                #[cfg(not(feature = "bluetooth"))]
                 self.bus.wait_for_event().await;
                 self.handle_irq(&mut buf).await;
             }
