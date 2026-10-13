@@ -10,7 +10,7 @@ use core::mem::MaybeUninit;
 use embassy_futures::join::join;
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 
-use super::bot::{CSW_STATUS_FAILED, CSW_STATUS_PASSED, CSW_STATUS_PHASE_ERROR, Cbw, Csw, encode_csw, parse_cbw};
+use super::bot::{CBW_LEN, Cbw, Csw, CswStatus};
 use super::scsi::*;
 use super::{
     BOT_REQ_GET_MAX_LUN, BOT_REQ_RESET, SenseData, SenseKey, USB_CLASS_MSC, USB_PROTOCOL_BULK_ONLY,
@@ -437,12 +437,12 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             .read(&mut buf[..self.config.max_packet_size as usize])
             .await?;
 
-        if n != 31 {
+        if n != CBW_LEN {
             warn!("msc: invalid CBW size {}", n);
             return Ok(None);
         }
 
-        let cbw = match parse_cbw(&buf[..31]) {
+        let cbw = match Cbw::parse(&buf[..CBW_LEN]) {
             Ok(cbw) => cbw,
             Err(_) => {
                 warn!("msc: invalid CBW payload");
@@ -453,9 +453,9 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         Ok(Some(cbw))
     }
 
-    async fn write_csw(&mut self, tag: u32, residue: u32, status: u8) -> Result<(), EndpointError> {
-        let csw = encode_csw(Csw { tag, residue, status });
-        self.write_ep.write(&csw).await
+    async fn write_csw(&mut self, tag: u32, residue: u32, status: CswStatus) -> Result<(), EndpointError> {
+        let csw = Csw { tag, residue, status };
+        self.write_ep.write(&csw.encode()).await
     }
 
     async fn process_cbw<B: AsyncBlockDevice>(
@@ -527,7 +527,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         // If an IN command failed and no data was transferred, terminate host's Data-In
         // phase with a ZLP before the CSW is sent (prevents host reading CSW as data).
         if let Ok(r) = &result
-            && r.status != CSW_STATUS_PASSED
+            && r.status != CswStatus::Passed
             && cbw.direction_in()
             && r.residue == cbw.data_transfer_length
             && cbw.data_transfer_length > 0
@@ -1161,7 +1161,7 @@ fn lun_list(select_report: u8) -> Option<&'static [u8]> {
 #[derive(Clone, Copy)]
 struct CommandResult {
     residue: u32,
-    status: u8,
+    status: CswStatus,
     stop: Option<StopReason>,
 }
 
@@ -1169,7 +1169,7 @@ impl CommandResult {
     const fn passed(residue: u32) -> Self {
         Self {
             residue,
-            status: CSW_STATUS_PASSED,
+            status: CswStatus::Passed,
             stop: None,
         }
     }
@@ -1177,7 +1177,7 @@ impl CommandResult {
     const fn failed(residue: u32) -> Self {
         Self {
             residue,
-            status: CSW_STATUS_FAILED,
+            status: CswStatus::Failed,
             stop: None,
         }
     }
@@ -1185,7 +1185,7 @@ impl CommandResult {
     const fn phase_error(residue: u32) -> Self {
         Self {
             residue,
-            status: CSW_STATUS_PHASE_ERROR,
+            status: CswStatus::PhaseError,
             stop: None,
         }
     }

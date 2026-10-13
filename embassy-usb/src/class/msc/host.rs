@@ -34,16 +34,14 @@
 //! ```
 
 use core::marker::PhantomData;
+use core::ops::Range;
 
 use embassy_sync::blocking_mutex::raw::{NoopRawMutex, RawMutex};
 use embassy_sync::mutex::Mutex;
 use embassy_usb_driver::host::{PipeError, SplitInfo, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
-use super::bot::{
-    CBW_FLAG_IN, CBW_LEN, CBW_SIGNATURE, CSW_LEN, CSW_SIGNATURE, CSW_STATUS_FAILED, CSW_STATUS_PASSED,
-    CSW_STATUS_PHASE_ERROR,
-};
+use super::bot::{CBW_FLAG_IN, CSW_LEN, Cbw, Csw, CswStatus};
 use super::scsi::*;
 use super::{BOT_REQ_GET_MAX_LUN, BOT_REQ_RESET, USB_CLASS_MSC, USB_PROTOCOL_BULK_ONLY, USB_SUBCLASS_SCSI_TRANSPARENT};
 pub use super::{SenseData, SenseKey};
@@ -128,11 +126,20 @@ pub enum DataDir<'a> {
 }
 
 impl DataDir<'_> {
-    fn len(&self) -> u32 {
+    fn len(&self) -> usize {
         match self {
             Self::None => 0,
-            Self::In(b) => b.len() as u32,
-            Self::Out(b) => b.len() as u32,
+            Self::In(b) => b.len(),
+            Self::Out(b) => b.len(),
+        }
+    }
+
+    /// The `range` part of the buffer, in the same direction.
+    fn slice(&mut self, range: Range<usize>) -> DataDir<'_> {
+        match self {
+            Self::None => DataDir::None,
+            Self::In(b) => DataDir::In(&mut b[range]),
+            Self::Out(b) => DataDir::Out(&b[range]),
         }
     }
 
@@ -333,6 +340,148 @@ where
         self.clear_halt_out().await?;
         Ok(())
     }
+
+    /// Run one CBW → data → CSW cycle.
+    async fn run_cycle(&mut self, lun: u8, cdb: &[u8], data: DataDir<'_>) -> Result<CommandOutcome, MscError> {
+        let tag = self.next_tag;
+        self.next_tag = self.next_tag.wrapping_add(1);
+
+        let mut cb = [0u8; 16];
+        cb[..cdb.len()].copy_from_slice(cdb);
+        let cbw = Cbw {
+            tag,
+            data_transfer_length: data.len() as u32,
+            flags: data.cbw_flags(),
+            lun,
+            cb_length: cdb.len() as u8,
+            cb,
+        };
+
+        trace!(
+            "MSC: CBW tag={:#010x} lun={} op={:#04x} data_len={} dir={}",
+            tag,
+            lun,
+            cdb[0],
+            data.len(),
+            match data {
+                DataDir::None => "none",
+                DataDir::In(_) => "in",
+                DataDir::Out(_) => "out",
+            },
+        );
+
+        // CBW phase.
+        if let Err(e) = self.bulk_out.request_out(&cbw.encode(), false).await {
+            if matches!(e, PipeError::Stall) {
+                self.clear_halt_out().await?;
+            }
+            return Err(e.into());
+        }
+
+        // Data phase. A stall here is recoverable: clear the halt, then
+        // read the CSW.
+        match data {
+            DataDir::None => {}
+            DataDir::In(buf) => match self.bulk_in.request_in(buf).await {
+                Ok(_) => {}
+                Err(PipeError::Stall) => self.clear_halt_in().await?,
+                Err(e) => return Err(e.into()),
+            },
+            DataDir::Out(buf) => match self.bulk_out.request_out(buf, false).await {
+                Ok(()) => {}
+                Err(PipeError::Stall) => self.clear_halt_out().await?,
+                Err(e) => return Err(e.into()),
+            },
+        }
+
+        // CSW phase. A stall here gets one retry after clearing.
+        let raw = match self.read_csw().await {
+            Ok(b) => b,
+            Err(MscError::Transfer(PipeError::Stall)) => {
+                self.clear_halt_in().await?;
+                self.read_csw().await?
+            }
+            Err(e) => return Err(e),
+        };
+
+        let csw = match Csw::parse(&raw) {
+            Ok(csw) if csw.tag == tag => csw,
+            parsed => {
+                warn!(
+                    "MSC: invalid CSW (expected tag={:#010x}, got {:?}, raw={:?})",
+                    tag, parsed, raw
+                );
+                self.mass_storage_reset().await.ok();
+                return Err(MscError::Protocol);
+            }
+        };
+
+        match csw.status {
+            CswStatus::Passed => Ok(CommandOutcome::Ok { residue: csw.residue }),
+            CswStatus::Failed => Ok(CommandOutcome::Failed { residue: csw.residue }),
+            CswStatus::PhaseError => {
+                self.mass_storage_reset().await?;
+                Err(MscError::PhaseError)
+            }
+        }
+    }
+
+    async fn read_csw(&mut self) -> Result<[u8; CSW_LEN], MscError> {
+        let mut buf = [0u8; CSW_LEN];
+        let n = self.bulk_in.request_in(&mut buf).await?;
+        if n == CSW_LEN {
+            trace!("MSC: CSW raw={:?}", buf);
+            Ok(buf)
+        } else {
+            warn!(
+                "MSC: short CSW ({} bytes, expected {}), data={:?}",
+                n,
+                CSW_LEN,
+                &buf[..n]
+            );
+            Err(MscError::Protocol)
+        }
+    }
+
+    /// Run one command: dirty-check, recover if needed, run the cycle,
+    /// and clear dirty on success.
+    async fn command(&mut self, lun: u8, cdb: &[u8], data: DataDir<'_>) -> Result<CommandOutcome, MscError> {
+        if self.dirty {
+            // A previous command was cancelled or wedged the transport;
+            // re-sync before starting.
+            self.mass_storage_reset().await?;
+            self.dirty = false;
+        }
+        self.dirty = true;
+        let result = self.run_cycle(lun, cdb, data).await;
+        if result.is_ok() {
+            self.dirty = false;
+        }
+        result
+    }
+
+    /// Issue `REQUEST SENSE`.
+    async fn request_sense(&mut self, lun: u8) -> Result<SenseData, MscError> {
+        let cdb = [SCSI_REQUEST_SENSE, 0, 0, 0, 18, 0];
+        let mut buf = [0u8; 18];
+        // Accept Failed here too — a second failure would loop.
+        let _ = self.command(lun, &cdb, DataDir::In(&mut buf)).await?;
+        Ok(SenseData {
+            key: SenseKey::from_bits(buf[2]),
+            asc: buf[12],
+            ascq: buf[13],
+        })
+    }
+
+    /// Run a command, auto-issuing `REQUEST SENSE` on CSW Failed so the
+    /// sense data reports the command we just ran (the caller holds the
+    /// lock, so no other task can interleave).
+    async fn run_with_sense(&mut self, lun: u8, cdb: &[u8], data: DataDir<'_>) -> Result<u32, MscError> {
+        match self.command(lun, cdb, data).await? {
+            CommandOutcome::Ok { residue } => Ok(residue),
+            CommandOutcome::Failed { .. } => Err(MscError::Scsi(self.request_sense(lun).await?)),
+        }
+    }
 }
 
 async fn clear_endpoint_halt<P>(ctrl: &mut P, ep_addr: u8) -> Result<(), MscError>
@@ -366,185 +515,6 @@ where
         Ok(_) => Err(MscError::InvalidResponse),
         Err(PipeError::Stall) => Ok(0),
         Err(e) => Err(e.into()),
-    }
-}
-
-/// Run one CBW → data → CSW cycle. Caller holds the transport lock.
-async fn run_cycle<'d, A>(
-    t: &mut Transport<'d, A>,
-    lun: u8,
-    cdb: &[u8],
-    data: DataDir<'_>,
-) -> Result<CommandOutcome, MscError>
-where
-    A: UsbHostAllocator<'d>,
-{
-    let tag = {
-        let tag = t.next_tag;
-        t.next_tag = t.next_tag.wrapping_add(1);
-        tag
-    };
-
-    let mut cbw = [0u8; CBW_LEN];
-    cbw[0..4].copy_from_slice(&CBW_SIGNATURE.to_le_bytes());
-    cbw[4..8].copy_from_slice(&tag.to_le_bytes());
-    cbw[8..12].copy_from_slice(&data.len().to_le_bytes());
-    cbw[12] = data.cbw_flags();
-    cbw[13] = lun & 0x0F;
-    cbw[14] = cdb.len() as u8;
-    cbw[15..15 + cdb.len()].copy_from_slice(cdb);
-
-    trace!(
-        "MSC: CBW tag={:#010x} lun={} op={:#04x} data_len={} dir={}",
-        tag,
-        lun,
-        cdb[0],
-        data.len(),
-        match data {
-            DataDir::None => "none",
-            DataDir::In(_) => "in",
-            DataDir::Out(_) => "out",
-        },
-    );
-
-    // CBW phase.
-    if let Err(e) = t.bulk_out.request_out(&cbw, false).await {
-        if matches!(e, PipeError::Stall) {
-            t.clear_halt_out().await?;
-        }
-        return Err(e.into());
-    }
-
-    // Data phase. A stall here is recoverable: clear the halt, then
-    // read the CSW.
-    match data {
-        DataDir::None => {}
-        DataDir::In(buf) => match t.bulk_in.request_in(buf).await {
-            Ok(_) => {}
-            Err(PipeError::Stall) => t.clear_halt_in().await?,
-            Err(e) => return Err(e.into()),
-        },
-        DataDir::Out(buf) => match t.bulk_out.request_out(buf, false).await {
-            Ok(()) => {}
-            Err(PipeError::Stall) => t.clear_halt_out().await?,
-            Err(e) => return Err(e.into()),
-        },
-    }
-
-    // CSW phase. A stall here gets one retry after clearing.
-    let csw = match read_csw(t).await {
-        Ok(b) => b,
-        Err(MscError::Transfer(PipeError::Stall)) => {
-            t.clear_halt_in().await?;
-            read_csw(t).await?
-        }
-        Err(e) => return Err(e),
-    };
-
-    let signature = u32::from_le_bytes([csw[0], csw[1], csw[2], csw[3]]);
-    let csw_tag = u32::from_le_bytes([csw[4], csw[5], csw[6], csw[7]]);
-    let residue = u32::from_le_bytes([csw[8], csw[9], csw[10], csw[11]]);
-    let status = csw[12];
-
-    if signature != CSW_SIGNATURE || csw_tag != tag {
-        warn!(
-            "MSC: CSW mismatch (expected sig={:#010x} tag={:#010x}, got sig={:#010x} tag={:#010x} residue={} status={:#04x}, raw={:?})",
-            CSW_SIGNATURE, tag, signature, csw_tag, residue, status, csw,
-        );
-        t.mass_storage_reset().await.ok();
-        return Err(MscError::Protocol);
-    }
-
-    match status {
-        CSW_STATUS_PASSED => Ok(CommandOutcome::Ok { residue }),
-        CSW_STATUS_FAILED => Ok(CommandOutcome::Failed { residue }),
-        CSW_STATUS_PHASE_ERROR => {
-            t.mass_storage_reset().await?;
-            Err(MscError::PhaseError)
-        }
-        _ => {
-            t.mass_storage_reset().await.ok();
-            Err(MscError::Protocol)
-        }
-    }
-}
-
-async fn read_csw<'d, A>(t: &mut Transport<'d, A>) -> Result<[u8; CSW_LEN], MscError>
-where
-    A: UsbHostAllocator<'d>,
-{
-    let mut buf = [0u8; CSW_LEN];
-    let n = t.bulk_in.request_in(&mut buf).await?;
-    if n == CSW_LEN {
-        trace!("MSC: CSW raw={:?}", buf);
-        Ok(buf)
-    } else {
-        warn!(
-            "MSC: short CSW ({} bytes, expected {}), data={:?}",
-            n,
-            CSW_LEN,
-            &buf[..n]
-        );
-        Err(MscError::Protocol)
-    }
-}
-
-/// Run one command on an already-locked transport: dirty-check,
-/// recover if needed, run the cycle, and clear dirty on success.
-async fn command_locked<'d, A>(
-    t: &mut Transport<'d, A>,
-    lun: u8,
-    cdb: &[u8],
-    data: DataDir<'_>,
-) -> Result<CommandOutcome, MscError>
-where
-    A: UsbHostAllocator<'d>,
-{
-    if t.dirty {
-        // A previous command was cancelled or wedged the transport;
-        // re-sync before starting.
-        t.mass_storage_reset().await?;
-        t.dirty = false;
-    }
-    t.dirty = true;
-    let result = run_cycle(t, lun, cdb, data).await;
-    if result.is_ok() {
-        t.dirty = false;
-    }
-    result
-}
-
-/// Issue `REQUEST SENSE` on a locked transport.
-async fn request_sense_locked<'d, A>(t: &mut Transport<'d, A>, lun: u8) -> Result<SenseData, MscError>
-where
-    A: UsbHostAllocator<'d>,
-{
-    let cdb = [SCSI_REQUEST_SENSE, 0, 0, 0, 18, 0];
-    let mut buf = [0u8; 18];
-    // Accept Failed here too — a second failure would loop.
-    let _ = command_locked(t, lun, &cdb, DataDir::In(&mut buf)).await?;
-    Ok(SenseData {
-        key: SenseKey::from_bits(buf[2]),
-        asc: buf[12],
-        ascq: buf[13],
-    })
-}
-
-/// Run a command on an already-locked transport, auto-issuing
-/// `REQUEST SENSE` on CSW Failed so the sense data reports the
-/// command we just ran (no other task can interleave).
-async fn run_with_sense_locked<'d, A>(
-    t: &mut Transport<'d, A>,
-    lun: u8,
-    cdb: &[u8],
-    data: DataDir<'_>,
-) -> Result<u32, MscError>
-where
-    A: UsbHostAllocator<'d>,
-{
-    match command_locked(t, lun, cdb, data).await? {
-        CommandOutcome::Ok { residue } => Ok(residue),
-        CommandOutcome::Failed { .. } => Err(MscError::Scsi(request_sense_locked(t, lun).await?)),
     }
 }
 
@@ -728,8 +698,7 @@ where
             return Err(MscError::NoSuchLun);
         }
 
-        let mut t = self.transport.lock().await;
-        command_locked(&mut t, lun, cdb, data).await
+        self.transport.lock().await.command(lun, cdb, data).await
     }
 
     /// Issue a Bulk-Only Mass Storage Reset followed by
@@ -790,7 +759,7 @@ where
     /// releases the transport lock.
     async fn run(&mut self, cdb: &[u8], data: DataDir<'_>) -> Result<u32, MscError> {
         let mut t = self.device.transport.lock().await;
-        run_with_sense_locked(&mut t, self.lun, cdb, data).await
+        t.run_with_sense(self.lun, cdb, data).await
     }
 
     /// Run `INQUIRY` (standard data, 36 bytes).
@@ -808,8 +777,7 @@ where
 
     /// Read SCSI sense data via `REQUEST SENSE`.
     pub async fn request_sense(&mut self) -> Result<SenseData, MscError> {
-        let mut t = self.device.transport.lock().await;
-        request_sense_locked(&mut t, self.lun).await
+        self.device.transport.lock().await.request_sense(self.lun).await
     }
 
     /// Probe with `TEST UNIT READY`.
@@ -825,9 +793,9 @@ where
         // command.
         let sense = {
             let mut t = self.device.transport.lock().await;
-            match command_locked(&mut t, self.lun, &cdb, DataDir::None).await? {
+            match t.command(self.lun, &cdb, DataDir::None).await? {
                 CommandOutcome::Ok { .. } => return Ok(true),
-                CommandOutcome::Failed { .. } => request_sense_locked(&mut t, self.lun).await?,
+                CommandOutcome::Failed { .. } => t.request_sense(self.lun).await?,
             }
         };
         match sense.key {
@@ -862,7 +830,7 @@ where
 
             let cdb = [SCSI_READ_CAPACITY_10, 0, 0, 0, 0, 0, 0, 0, 0, 0];
             let mut buf = [0u8; 8];
-            run_with_sense_locked(&mut t, self.lun, &cdb, DataDir::In(&mut buf)).await?;
+            t.run_with_sense(self.lun, &cdb, DataDir::In(&mut buf)).await?;
             let last_lba = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
             let block_size = u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
 
@@ -872,7 +840,7 @@ where
                 cdb16[1] = SCSI_SA_READ_CAPACITY_16;
                 cdb16[13] = 32;
                 let mut buf16 = [0u8; 32];
-                run_with_sense_locked(&mut t, self.lun, &cdb16, DataDir::In(&mut buf16)).await?;
+                t.run_with_sense(self.lun, &cdb16, DataDir::In(&mut buf16)).await?;
                 let last_lba = u64::from_be_bytes([
                     buf16[0], buf16[1], buf16[2], buf16[3], buf16[4], buf16[5], buf16[6], buf16[7],
                 ]);
@@ -906,36 +874,7 @@ where
     /// split into chunks of up to 65 535 blocks per command, all
     /// issued under a single transport lock hold.
     pub async fn read_blocks(&mut self, lba: u64, buf: &mut [u8]) -> Result<(), MscError> {
-        let cap = self.capacity().await?;
-        let (block_size, total_blocks) = check_block_args(lba, buf.len(), &cap)?;
-
-        let mut t = self.device.transport.lock().await;
-
-        let mut cur_lba = lba;
-        let mut offset = 0usize;
-        let mut remaining = total_blocks;
-
-        while remaining > 0 {
-            let (n, use_10) = chunk_blocks(cur_lba, remaining);
-            let bytes = n as usize * block_size;
-            let chunk = &mut buf[offset..offset + bytes];
-
-            let residue = if use_10 {
-                let cdb = rw10_cdb(SCSI_READ_10, cur_lba as u32, n as u16);
-                run_with_sense_locked(&mut t, self.lun, &cdb, DataDir::In(chunk)).await?
-            } else {
-                let cdb = rw16_cdb(SCSI_READ_16, cur_lba, n);
-                run_with_sense_locked(&mut t, self.lun, &cdb, DataDir::In(chunk)).await?
-            };
-            if residue != 0 {
-                return Err(MscError::InvalidResponse);
-            }
-
-            offset += bytes;
-            cur_lba += n as u64;
-            remaining -= n as u64;
-        }
-        Ok(())
+        self.transfer_blocks(lba, DataDir::In(buf)).await
     }
 
     /// Write `buf.len() / block_size` blocks starting at `lba`.
@@ -947,34 +886,43 @@ where
     /// split into chunks of up to 65 535 blocks per command, all
     /// issued under a single transport lock hold.
     pub async fn write_blocks(&mut self, lba: u64, buf: &[u8]) -> Result<(), MscError> {
+        self.transfer_blocks(lba, DataDir::Out(buf)).await
+    }
+
+    /// Move `data` to or from the blocks starting at `lba`, in as many
+    /// READ or WRITE commands as needed, under a single lock hold.
+    async fn transfer_blocks(&mut self, lba: u64, mut data: DataDir<'_>) -> Result<(), MscError> {
         let cap = self.capacity().await?;
-        let (block_size, total_blocks) = check_block_args(lba, buf.len(), &cap)?;
+        let (block_size, total_blocks) = check_block_args(lba, data.len(), &cap)?;
+        let write = matches!(data, DataDir::Out(_));
 
         let mut t = self.device.transport.lock().await;
 
+        let mut cdb_buf = [0u8; 16];
         let mut cur_lba = lba;
         let mut offset = 0usize;
         let mut remaining = total_blocks;
 
         while remaining > 0 {
-            let (n, use_10) = chunk_blocks(cur_lba, remaining);
-            let bytes = n as usize * block_size;
-            let chunk = &buf[offset..offset + bytes];
+            let blocks = chunk_blocks(cur_lba, remaining);
+            let bytes = blocks as usize * block_size;
+            let cdb = ReadWrite {
+                write,
+                lba: cur_lba,
+                blocks,
+            }
+            .encode(&mut cdb_buf);
 
-            let residue = if use_10 {
-                let cdb = rw10_cdb(SCSI_WRITE_10, cur_lba as u32, n as u16);
-                run_with_sense_locked(&mut t, self.lun, &cdb, DataDir::Out(chunk)).await?
-            } else {
-                let cdb = rw16_cdb(SCSI_WRITE_16, cur_lba, n);
-                run_with_sense_locked(&mut t, self.lun, &cdb, DataDir::Out(chunk)).await?
-            };
+            let residue = t
+                .run_with_sense(self.lun, cdb, data.slice(offset..offset + bytes))
+                .await?;
             if residue != 0 {
                 return Err(MscError::InvalidResponse);
             }
 
             offset += bytes;
-            cur_lba += n as u64;
-            remaining -= n as u64;
+            cur_lba += blocks as u64;
+            remaining -= blocks as u64;
         }
         Ok(())
     }
@@ -1071,21 +1019,19 @@ where
     }
 }
 
-/// Pick the next chunk size and CDB flavour.
+/// Pick the next chunk size.
 ///
-/// Prefers `READ/WRITE(10)` whenever the starting LBA fits in a `u32`
-/// (clamping the chunk to `u16::MAX` blocks) for maximum device
-/// compatibility; only falls back to the 16-byte variants when the LBA
-/// itself exceeds the 32-bit range.
-fn chunk_blocks(lba: u64, remaining: u64) -> (u32, bool) {
-    const MAX_BLOCKS_10: u64 = u16::MAX as u64;
-    let use_10 = lba <= u32::MAX as u64;
-    let n = if use_10 {
-        remaining.min(MAX_BLOCKS_10) as u32
+/// Whenever the starting LBA fits in a `u32`, clamps the chunk to
+/// `u16::MAX` blocks so [`ReadWrite::encode`] picks `READ/WRITE(10)`
+/// for maximum device compatibility; only LBAs beyond the 32-bit range
+/// use the 16-byte variants.
+fn chunk_blocks(lba: u64, remaining: u64) -> u32 {
+    let max = if lba <= u32::MAX as u64 {
+        u16::MAX as u64
     } else {
-        remaining.min(u32::MAX as u64) as u32
+        u32::MAX as u64
     };
-    (n, use_10)
+    remaining.min(max) as u32
 }
 
 fn check_block_args(lba: u64, bytes: usize, cap: &BlockCapacity) -> Result<(usize, u64), MscError> {
@@ -1210,17 +1156,17 @@ mod tests {
     #[test]
     fn chunk_blocks_prefers_read10_while_lba_fits_u32() {
         // Small chunk passes through verbatim.
-        assert_eq!(chunk_blocks(0, 1), (1, true));
+        assert_eq!(chunk_blocks(0, 1), 1);
         // Clamped to u16::MAX even for huge remaining counts and high LBA.
-        assert_eq!(chunk_blocks(0, u16::MAX as u64), (u16::MAX as u32, true));
-        assert_eq!(chunk_blocks(0, u64::MAX), (u16::MAX as u32, true));
-        assert_eq!(chunk_blocks(u32::MAX as u64, u64::MAX), (u16::MAX as u32, true));
+        assert_eq!(chunk_blocks(0, u16::MAX as u64), u16::MAX as u32);
+        assert_eq!(chunk_blocks(0, u64::MAX), u16::MAX as u32);
+        assert_eq!(chunk_blocks(u32::MAX as u64, u64::MAX), u16::MAX as u32);
     }
 
     #[test]
     fn chunk_blocks_falls_back_to_read16_above_u32_max() {
-        assert_eq!(chunk_blocks(u32::MAX as u64 + 1, 100), (100, false));
-        assert_eq!(chunk_blocks(u64::MAX - 10, u64::MAX), (u32::MAX, false));
+        assert_eq!(chunk_blocks(u32::MAX as u64 + 1, 100), 100);
+        assert_eq!(chunk_blocks(u64::MAX - 10, u64::MAX), u32::MAX);
     }
 
     // ----------------------------------------------------------------------

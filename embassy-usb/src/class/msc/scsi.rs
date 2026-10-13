@@ -190,10 +190,25 @@ impl ReadWrite {
         let write = matches!(cb[0], SCSI_WRITE_6 | SCSI_WRITE_10 | SCSI_WRITE_12 | SCSI_WRITE_16);
         Some(Self { write, lba, blocks })
     }
+
+    /// Encodes the command into `buf` and returns the CDB, a prefix of `buf`.
+    ///
+    /// Uses READ(10) / WRITE(10) when the LBA and block count fit, for compatibility, else the 16-byte form.
+    pub fn encode<'a>(&self, buf: &'a mut [u8; 16]) -> &'a [u8] {
+        if let (Ok(lba), Ok(blocks)) = (u32::try_from(self.lba), u16::try_from(self.blocks)) {
+            let op = if self.write { SCSI_WRITE_10 } else { SCSI_READ_10 };
+            buf[..10].copy_from_slice(&rw10_cdb(op, lba, blocks));
+            &buf[..10]
+        } else {
+            let op = if self.write { SCSI_WRITE_16 } else { SCSI_READ_16 };
+            *buf = rw16_cdb(op, self.lba, self.blocks);
+            buf
+        }
+    }
 }
 
 /// Builds a READ(10) or WRITE(10) CDB.
-pub(crate) fn rw10_cdb(op: u8, lba: u32, blocks: u16) -> [u8; 10] {
+fn rw10_cdb(op: u8, lba: u32, blocks: u16) -> [u8; 10] {
     let mut cdb = [0u8; 10];
     cdb[0] = op;
     cdb[2..6].copy_from_slice(&lba.to_be_bytes());
@@ -202,7 +217,7 @@ pub(crate) fn rw10_cdb(op: u8, lba: u32, blocks: u16) -> [u8; 10] {
 }
 
 /// Builds a READ(16) or WRITE(16) CDB.
-pub(crate) fn rw16_cdb(op: u8, lba: u64, blocks: u32) -> [u8; 16] {
+fn rw16_cdb(op: u8, lba: u64, blocks: u32) -> [u8; 16] {
     let mut cdb = [0u8; 16];
     cdb[0] = op;
     cdb[2..10].copy_from_slice(&lba.to_be_bytes());
@@ -269,6 +284,25 @@ mod tests {
                     blocks: 0xDEAD_BEEF
                 }
             );
+        }
+    }
+
+    #[test]
+    fn encode_picks_smallest_cdb() {
+        let mut buf = [0u8; 16];
+        let cases = [
+            (0, 1, 10),
+            (u32::MAX as u64, u16::MAX as u32, 10),
+            (u32::MAX as u64 + 1, 1, 16),
+            (0, u16::MAX as u32 + 1, 16),
+        ];
+        for (lba, blocks, len) in cases {
+            for write in [false, true] {
+                let rw = ReadWrite { write, lba, blocks };
+                let cdb = rw.encode(&mut buf);
+                core::assert_eq!(cdb.len(), len);
+                core::assert_eq!(ReadWrite::parse(cdb), Some(rw));
+            }
         }
     }
 
