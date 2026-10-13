@@ -7,8 +7,6 @@ use cortex_m_rt::{entry, exception};
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
 use embassy_boot_stm32::*;
-#[cfg(feature = "verify")]
-use embassy_crypto_rustcrypto as _;
 use embassy_stm32::flash::{BANK1_REGION, Flash, WRITE_SIZE};
 use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::usb::Driver;
@@ -17,6 +15,8 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_usb::{Builder, msos};
 use embassy_usb_dfu::consts::DfuAttributes;
 use embassy_usb_dfu::{ResetImmediate, new_state, usb_dfu};
+#[cfg(feature = "verify")]
+use mcu_crypto_asm as _;
 
 bind_interrupts!(struct Irqs {
     USB_LP => usb::InterruptHandler<peripherals::USB>;
@@ -94,6 +94,7 @@ fn main() -> ! {
             msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
         ));
 
+        #[cfg(not(feature = "verify"))]
         usb_dfu::<_, _, _, _, 4096>(&mut builder, &mut state, |func| {
             // You likely don't have to add these function level headers if your USB device is not composite
             // (i.e. if your device does not expose another interface in addition to DFU)
@@ -103,6 +104,21 @@ fn main() -> ! {
                 msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
             ));
         });
+
+        #[cfg(feature = "verify")]
+        usb_dfu::<_, _, _, _, embassy_crypto::Sha512, embassy_crypto::ed25519::VerifyingKey, 4096>(
+            &mut builder,
+            &mut state,
+            |func| {
+                // You likely don't have to add these function level headers if your USB device is not composite
+                // (i.e. if your device does not expose another interface in addition to DFU)
+                func.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+                func.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+                    "DeviceInterfaceGUIDs",
+                    msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+                ));
+            },
+        );
 
         let mut dev = builder.build();
         embassy_futures::block_on(dev.run());

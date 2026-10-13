@@ -16,17 +16,28 @@ impl defmt::Format for VerificationError {
     }
 }
 
-pub trait Digest {
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// Wrapper trait for emassy-crypto hashers
+pub trait Digest: sealed::Sealed {
+    /// The output size of the hasher (in bytes)
     const OUTPUT_SIZE: usize;
+    /// The output type of the hasher
     type Output: AsRef<[u8]>;
 
+    /// Create a new hasher instance
     fn new() -> Self;
+    /// Process data, updating the internal state
     fn update(&mut self, data: &[u8]);
+    /// Retrieve result and consume hasher instance
     fn finalize(self) -> Self::Output;
 }
 
 macro_rules! impl_digest {
     ($($t:ident),*) => {$(
+        impl sealed::Sealed for embassy_crypto::$t {}
         impl Digest for embassy_crypto::$t {
             const OUTPUT_SIZE: usize = <embassy_crypto::$t>::OUTPUT_SIZE;
             type Output = [u8; Self::OUTPUT_SIZE];
@@ -45,21 +56,30 @@ macro_rules! impl_digest {
 
 impl_digest!(Sha1, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256);
 
+/// Wrapper trait for emassy-crypto signatures
 pub trait Signature {
+    /// The size of the signature (in bytes)
     const SIGNATURE_SIZE: usize;
+    /// Create a new signature instance from a slice of bytes
     fn from_bytes(bytes: &[u8]) -> Result<Self, embassy_crypto::Error>
     where
         Self: Sized;
 }
 
-pub trait VerifyingKey {
+/// Wrapper trait for emassy-crypto verifying keys
+pub trait VerifyingKey: sealed::Sealed {
+    /// The size of the key (in bytes)
     const KEY_SIZE: usize;
+    /// The signature type associated to this verifying key
     type Signature: Signature;
 
+    /// Create a new verifying key instance from a slice of bytes
     fn from_bytes(bytes: &[u8]) -> Result<Self, embassy_crypto::Error>
     where
         Self: Sized;
-    fn verify(&self, message: &[u8], pkey: &Self::Signature) -> Result<(), embassy_crypto::Error>;
+
+    /// Verify a message using a signature
+    fn verify(&self, message: &[u8], signature: &Self::Signature) -> Result<(), embassy_crypto::Error>;
 }
 
 macro_rules! impl_signature_p {
@@ -70,6 +90,7 @@ macro_rules! impl_signature_p {
                 embassy_crypto::$t::Signature::from_bytes(b.try_into().map_err(|_| embassy_crypto::Error::InvalidSignature)?)
             }
         }
+        impl sealed::Sealed for embassy_crypto::$t::VerifyingKey {}
         impl VerifyingKey for embassy_crypto::$t::VerifyingKey {
             const KEY_SIZE: usize = 2 * $n + 1;
             type Signature = embassy_crypto::$t::Signature;
@@ -85,6 +106,7 @@ macro_rules! impl_signature_p {
 
 impl_signature_p!((p256, 32), (p384, 48));
 
+impl sealed::Sealed for embassy_crypto::ed25519::Signature {}
 impl Signature for embassy_crypto::ed25519::Signature {
     const SIGNATURE_SIZE: usize = 64;
     fn from_bytes(b: &[u8]) -> Result<embassy_crypto::ed25519::Signature, embassy_crypto::Error> {
@@ -93,6 +115,8 @@ impl Signature for embassy_crypto::ed25519::Signature {
         ))
     }
 }
+
+impl sealed::Sealed for embassy_crypto::ed25519::VerifyingKey {}
 impl VerifyingKey for embassy_crypto::ed25519::VerifyingKey {
     const KEY_SIZE: usize = 32;
     type Signature = embassy_crypto::ed25519::Signature;

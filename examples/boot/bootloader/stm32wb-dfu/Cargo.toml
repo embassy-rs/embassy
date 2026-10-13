@@ -10,7 +10,8 @@ publish = false
 defmt = { version = "1.0.1", optional = true }
 defmt-rtt = { version = "1.0.0", optional = true }
 
-embassy-crypto-rustcrypto = { version = "0.1.0", path = "../../../../embassy-crypto-rustcrypto", features = ["embassy-crypto-sha512", "embassy-crypto-ed25519"], optional = true }
+embassy-crypto = { path = "../../../../embassy-crypto", optional = true }
+mcu-crypto-asm = { git = "https://github.com/kokroo/mcu-crypto-asm.git", features = ["embassy-crypto-sha512", "embassy-crypto-ed25519"], optional = true }
 
 embassy-stm32 = { path = "../../../../embassy-stm32", features = [] }
 embassy-boot-stm32 = { path = "../../../../embassy-boot-stm32" }
@@ -34,8 +35,9 @@ defmt = [
     "embassy-usb-dfu/defmt"
 ]
 verify = [
-    "embassy-usb-dfu/verify",
-    "dep:embassy-crypto-rustcrypto"
+    "dep:embassy-crypto",
+    "dep:mcu-crypto-asm",
+    "embassy-usb-dfu/verify"
 ]
 
 [profile.dev]
@@ -74,3 +76,6 @@ build = [
   { target = "thumbv7em-none-eabi", features = ["embassy-stm32/stm32wb55rg"], artifact-dir = "out/examples/boot/bootloader/stm32wb-dfu/plain" },
   { target = "thumbv7em-none-eabi", features = ["embassy-stm32/stm32wb55rg", "verify"], artifact-dir = "out/examples/boot/bootloader/stm32wb-dfu/verify" }
 ]
+
+[patch."https://github.com/embassy-rs/embassy"]
+embassy-crypto = { path = "../../../../embassy-crypto" }

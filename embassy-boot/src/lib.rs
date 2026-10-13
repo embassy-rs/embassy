@@ -29,6 +29,7 @@ pub use firmware_updater::{
     BlockingFirmwareState, BlockingFirmwareUpdater, FirmwareState, FirmwareUpdater, FirmwareUpdaterConfig,
     FirmwareUpdaterError,
 };
+pub use verification::{Digest, VerifyingKey};
 
 pub(crate) const REVERT_MAGIC: u8 = 0xC0;
 pub(crate) const BOOT_MAGIC: u8 = 0xD0;
