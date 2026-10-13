@@ -168,7 +168,7 @@ pub mod crc;
 pub mod cryp;
 #[cfg(csi)]
 pub mod csi;
-#[cfg(dac)]
+#[cfg(all(dac, not(dac_v9)))]
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
