@@ -16,7 +16,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut generic = GenericHashcrypt::new(p.HASHCRYPT);
 
-    info!("ECB Example");
+    info!("ECB Examples");
     // F.1.1 ECB-AES128.Encrypt / F.1.2 ECB-AES128.Decrypt (NIST SP 800-38A)
     // Key 2b7e151628aed2a6abf7158809cf4f3c
     // Block #1
@@ -177,7 +177,6 @@ async fn main(_spawner: Spawner) -> ! {
         Err(e) => error!("{}", &e),
     }
 
-    // ---------------------------------------------------------------- CTR
     info!("CTR Examples");
     // F.5.1 CTR-AES128.Encrypt / F.5.2 CTR-AES128.Decrypt (NIST SP 800-38A)
     // Key 2b7e151628aed2a6abf7158809cf4f3c
