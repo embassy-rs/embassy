@@ -6,6 +6,8 @@ use core::cell::RefCell;
 use cortex_m_rt::{entry, exception};
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
+#[cfg(feature = "verify")]
+use embassy_crypto_rustcrypto as _;
 use embassy_boot_stm32::*;
 use embassy_stm32::flash::{BANK1_REGION, Flash, WRITE_SIZE};
 use embassy_stm32::usb::Driver;
