@@ -22,7 +22,7 @@ use panic_probe as _;
 use stm32wb_hci::aci::durations::{AdvInterval, PreferredConnInterval};
 use stm32wb_hci::aci::flags::Role;
 use stm32wb_hci::aci::gap::{GapDeleteAdType, GapInit, GapSetDiscoverable, GapUpdateAdvData};
-use stm32wb_hci::aci::gatt::GattInit;
+use stm32wb_hci::aci::gatt::{GattInit, GattReadHandleValue, GattUpdateCharValue};
 use stm32wb_hci::aci::hal::{HalSetTxPowerLevel, HalWriteConfigData};
 use stm32wb_hci::aci::ranges::PaLevel;
 use stm32wb_hci::aci::values::{AdvertisingType, ConfigDataOffset, OwnAddressType, Privacy};
@@ -34,7 +34,7 @@ bind_interrupts!(struct Irqs{
     IPCC_C1_TX => TransmitInterruptHandler;
 });
 
-const BLE_GAP_DEVICE_NAME_LENGTH: u8 = 7;
+const DEVICE_NAME: &[u8] = b"embassy";
 
 #[embassy_executor::task]
 async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
@@ -138,10 +138,35 @@ async fn main(spawner: Spawner) {
                 .exec(&GapInit::new(
                     Role::PERIPHERAL,
                     Privacy::Disabled,
-                    BLE_GAP_DEVICE_NAME_LENGTH,
+                    DEVICE_NAME.len() as u8,
                 ))
                 .await;
             info!("{}", response);
+            let gap_service = unwrap!(response);
+
+            info!("set device name...");
+            let command = unwrap!(GattUpdateCharValue::try_new(
+                gap_service.service_handle,
+                gap_service.dev_name_char_handle,
+                0,
+                DEVICE_NAME
+            ));
+            let response = ble.exec(&command).await;
+            info!("{}", response);
+            unwrap!(response);
+
+            // The value attribute directly follows the characteristic declaration.
+            info!("read back device name...");
+            let response = ble
+                .exec(&GattReadHandleValue::new(
+                    gap_service.dev_name_char_handle + 1,
+                    0,
+                    DEVICE_NAME.len() as u16,
+                ))
+                .await;
+            info!("{}", response);
+            let value = unwrap!(response);
+            defmt::assert_eq!(value.value.as_slice(), DEVICE_NAME);
 
             info!("set discoverable...");
             let interval = unwrap!(AdvInterval::from_millis(250));
