@@ -365,7 +365,7 @@ impl FlexspiNor {
 
     /// Probe the attached serial NOR with `option`, let the caller override a
     /// few board-specific fields on the ROM-confirmed config, then init.
-    ///
+    /// DDR/DTR dummy-cycle auto-probing can write test patterns at flash offset 0x200, first 0x1000 bytes are usually kept reserved.
     /// This mirrors the real ROM flow: `get_config` fills in a working
     /// [`FlexspiNorConfig`] (read LUT, dummy cycles, page/sector sizes, …)
     /// derived from the device's SFDP tables. The `custom_fcb` closure then runs on
