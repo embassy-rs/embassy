@@ -18,6 +18,16 @@ fn main() {
     let mut cfgs = CfgSet::new();
     build_common::set_target_cfgs(&mut cfgs);
 
+    cfgs.declare("time_driver_ostimer");
+    cfgs.declare("time_driver_lptmr");
+    if env::var_os("CARGO_FEATURE_TIME_DRIVER_LPTMR").is_some() {
+        cfgs.enable("time_driver_lptmr");
+    } else if env::var_os("CARGO_FEATURE_TIME_DRIVER_OSTIMER").is_some()
+        || env::var_os("CARGO_FEATURE_TIME_DRIVER_ANY").is_some()
+    {
+        cfgs.enable("time_driver_ostimer");
+    }
+
     fn driver_to_cfg_name(name: &str) -> String {
         match name.split_once("::") {
             Some((path, _block)) => path,
@@ -137,8 +147,18 @@ fn generate_peripherals_call() -> TokenStream {
         })
         .collect();
 
+    let available: Vec<_> = singletons
+        .iter()
+        .zip(&singleton_tokens)
+        .map(|(s, tokens)| match s.name.as_str() {
+            "OSTIMER0" => quote! { #[cfg(not(time_driver_ostimer))] #tokens },
+            "LPTMR0" => quote! { #[cfg(not(time_driver_lptmr))] #tokens },
+            _ => tokens.clone(),
+        })
+        .collect();
     quote! {
-        embassy_hal_internal::peripherals!(#(#singleton_tokens),*);
+        embassy_hal_internal::peripherals_definition!(#(#singleton_tokens),*);
+        embassy_hal_internal::peripherals_struct!(#(#available),*);
     }
 }
 
