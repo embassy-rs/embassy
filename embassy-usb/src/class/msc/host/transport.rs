@@ -9,11 +9,8 @@ use super::super::bot::{CSW_LEN, Cbw, Csw, CswStatus};
 use super::super::scsi::*;
 use super::super::{BOT_REQ_GET_MAX_LUN, BOT_REQ_RESET};
 use super::{CommandOutcome, DataDir, MscError, SenseData};
+use crate::control::Request;
 use crate::host::control::{ControlType, Recipient, RequestType, SetupPacket};
-
-// Standard endpoint requests for stall recovery (USB 2.0 §9.4).
-const REQ_CLEAR_FEATURE: u8 = 0x01;
-const FEATURE_ENDPOINT_HALT: u16 = 0x0000;
 
 /// Shared, mutex-protected BBB transport state.
 pub(super) struct Transport<'d, A>
@@ -211,8 +208,8 @@ where
             control_type: ControlType::Standard,
             recipient: Recipient::Endpoint,
         },
-        request: REQ_CLEAR_FEATURE,
-        value: FEATURE_ENDPOINT_HALT,
+        request: Request::CLEAR_FEATURE,
+        value: Request::FEATURE_ENDPOINT_HALT,
         index: ep_addr as u16,
         length: 0,
     };
