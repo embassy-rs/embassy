@@ -1,0 +1,96 @@
+[package]
+name = "embassy-crypto-stub"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Stub drivers for `embassy-crypto`, with unreachable (panicking) implementations."
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-crypto-stub"
+categories = [
+    "embedded",
+    "no-std",
+    "cryptography",
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-crypto-stub-v$VERSION/embassy-crypto-stub/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-crypto-stub/src/"
+features = ["all"]
+target = "thumbv7em-none-eabi"
+
+[package.metadata.docs.rs]
+features = ["all"]
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["all"]},
+    {target = "thumbv7em-none-eabi", features = ["embassy-crypto-sha256", "embassy-crypto-aes128-gcm", "embassy-crypto-p256-ecdh"]},
+    {target = "thumbv6m-none-eabi", features = ["all"]},
+]
+
+[dependencies]
+embassy-crypto = { version = "0.1.0", path = "../embassy-crypto" }
+
+[features]
+## Register every driver this crate can provide.
+all = [
+    "embassy-crypto-md5", "embassy-crypto-sha1", "embassy-crypto-sha224", "embassy-crypto-sha256",
+    "embassy-crypto-sha384", "embassy-crypto-sha512", "embassy-crypto-sha512-224", "embassy-crypto-sha512-256",
+    "embassy-crypto-hmac-sha1", "embassy-crypto-hmac-sha224", "embassy-crypto-hmac-sha256", "embassy-crypto-hmac-sha384",
+    "embassy-crypto-hmac-sha512", "embassy-crypto-hmac-sha512-224", "embassy-crypto-hmac-sha512-256",
+    "embassy-crypto-aes128-ecb", "embassy-crypto-aes128-cbc", "embassy-crypto-aes128-ctr",
+    "embassy-crypto-aes128-gcm", "embassy-crypto-aes128-ccm", "embassy-crypto-aes128-cmac",
+    "embassy-crypto-aes256-ecb", "embassy-crypto-aes256-cbc", "embassy-crypto-aes256-ctr",
+    "embassy-crypto-aes256-gcm", "embassy-crypto-aes256-ccm", "embassy-crypto-aes256-cmac",
+    "embassy-crypto-p256-arith", "embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa",
+    "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa",
+    "embassy-crypto-chacha8", "embassy-crypto-chacha12", "embassy-crypto-chacha20",
+    "embassy-crypto-chacha8-poly1305", "embassy-crypto-chacha12-poly1305", "embassy-crypto-chacha20-poly1305",
+    "embassy-crypto-x25519", "embassy-crypto-ed25519",
+]
+
+## One feature per `embassy-crypto` driver. Enabling it registers this crate's
+## stub implementation as the global driver for that operation. The features
+## are empty: the stub has no crypto backend, every driver panics with
+## `unreachable!()`.
+embassy-crypto-md5 = []
+embassy-crypto-sha1 = []
+embassy-crypto-sha224 = []
+embassy-crypto-sha256 = []
+embassy-crypto-sha384 = []
+embassy-crypto-sha512 = []
+embassy-crypto-sha512-224 = []
+embassy-crypto-sha512-256 = []
+embassy-crypto-hmac-sha1 = []
+embassy-crypto-hmac-sha224 = []
+embassy-crypto-hmac-sha256 = []
+embassy-crypto-hmac-sha384 = []
+embassy-crypto-hmac-sha512 = []
+embassy-crypto-hmac-sha512-224 = []
+embassy-crypto-hmac-sha512-256 = []
+embassy-crypto-aes128-ecb = []
+embassy-crypto-aes128-cbc = []
+embassy-crypto-aes128-ctr = []
+embassy-crypto-aes128-gcm = []
+embassy-crypto-aes128-ccm = []
+embassy-crypto-aes128-cmac = []
+embassy-crypto-aes256-ecb = []
+embassy-crypto-aes256-cbc = []
+embassy-crypto-aes256-ctr = []
+embassy-crypto-aes256-gcm = []
+embassy-crypto-aes256-ccm = []
+embassy-crypto-aes256-cmac = []
+embassy-crypto-chacha8 = []
+embassy-crypto-chacha12 = []
+embassy-crypto-chacha20 = []
+embassy-crypto-chacha8-poly1305 = []
+embassy-crypto-chacha12-poly1305 = []
+embassy-crypto-chacha20-poly1305 = []
+embassy-crypto-p256-arith = []
+embassy-crypto-p256-ecdh = []
+embassy-crypto-p256-ecdsa = []
+embassy-crypto-p384-arith = []
+embassy-crypto-p384-ecdh = []
+embassy-crypto-p384-ecdsa = []
+embassy-crypto-x25519 = []
+embassy-crypto-ed25519 = []
