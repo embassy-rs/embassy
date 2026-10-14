@@ -35,6 +35,8 @@ features = ["defmt", "cortex-m", "dfu"]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
 
+embassy-crypto = { version = "0.1.0", path = "../embassy-crypto", optional = true }
+
 bitflags = "2.10.0"
 cortex-m = { version = "0.7.7", features = ["inline-asm"], optional = true }
 embassy-boot = { version = "0.7.0", path = "../embassy-boot" }
@@ -56,8 +58,4 @@ defmt = ["dep:defmt", "embassy-boot/defmt", "embassy-usb/defmt"]
 log = ["dep:log"]
 cortex-m = ["dep:cortex-m"]  
 esp32c3-hal = ["dep:esp32c3-hal"]
-ed25519-dalek = ["embassy-boot/ed25519-dalek", "_verify"]
-ed25519-salty = ["embassy-boot/ed25519-salty", "_verify"]
-
-# Internal features
-_verify = []
+verify = ["dep:embassy-crypto"]

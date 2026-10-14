@@ -1,4 +1,3 @@
-use digest::Digest;
 #[cfg(target_os = "none")]
 use embassy_embedded_hal::flash::partition::Partition;
 #[cfg(target_os = "none")]
@@ -6,6 +5,8 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage_async::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
+use crate::verification::asynch::{hash, verify};
+use crate::verification::{Digest, VerifyingKey};
 use crate::{BOOT_MAGIC, DFU_DETACH_MAGIC, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, State};
 
 /// FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
@@ -76,73 +77,24 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
     ///
     /// Mark to trigger firmware swap on next boot if verify succeeds.
     ///
-    /// If the "ed25519-salty" feature is set (or another similar feature) then the signature is expected to have
-    /// been generated from a SHA-512 digest of the firmware bytes.
+    /// The signature is expected to have been generated
+    /// from the firmware bytes using a digest of the provided type.
     ///
-    /// If no signature feature is set then this method will always return a
-    /// signature error.
-    #[cfg(feature = "_verify")]
-    pub async fn verify_and_mark_updated(
+    /// See [`super::BlockingFirmwareUpdater::verify_and_mark_updated`]
+    /// for buffer requirements, errors, and panics.
+    pub async fn verify_and_mark_updated<D: Digest, V: VerifyingKey>(
         &mut self,
-        _public_key: &[u8; 32],
-        _signature: &[u8; 64],
-        _update_len: u32,
+        public_key: &[u8],
+        signature: &[u8],
+        chunk_buf: &mut [u8],
+        update_len: u32,
     ) -> Result<(), FirmwareUpdaterError> {
-        assert!(_update_len <= self.dfu.capacity() as u32);
+        assert!(update_len <= self.dfu.capacity() as u32);
 
         self.state.verify_booted().await?;
 
-        #[cfg(feature = "ed25519-dalek")]
-        {
-            use ed25519_dalek::{Signature, SignatureError, Verifier, VerifyingKey};
-
-            use crate::digest_adapters::ed25519_dalek::Sha512;
-
-            let into_signature_error = |e: SignatureError| FirmwareUpdaterError::Signature(e.into());
-
-            let public_key = VerifyingKey::from_bytes(_public_key).map_err(into_signature_error)?;
-            let signature = Signature::from_bytes(_signature);
-
-            let mut chunk_buf = [0; 64];
-            let mut message = [0; 64];
-            self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message).await?;
-
-            public_key.verify(&message, &signature).map_err(into_signature_error)?;
-            return self.state.mark_updated().await;
-        }
-        #[cfg(feature = "ed25519-salty")]
-        {
-            use salty::{PublicKey, Signature};
-
-            use crate::digest_adapters::salty::Sha512;
-            use crate::fmt::Bytes;
-
-            fn into_signature_error<E>(_: E) -> FirmwareUpdaterError {
-                FirmwareUpdaterError::Signature(signature::Error::default())
-            }
-
-            let public_key = PublicKey::try_from(_public_key).map_err(into_signature_error)?;
-            let signature = Signature::try_from(_signature).map_err(into_signature_error)?;
-
-            let mut message = [0; 64];
-            let mut chunk_buf = [0; 64];
-            self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message).await?;
-
-            let r = public_key.verify(&message, &signature);
-            trace!(
-                "Verifying with public key {}, signature {} and message {} yields ok: {}",
-                Bytes(&public_key.to_bytes()),
-                Bytes(&signature.to_bytes()),
-                Bytes(&message),
-                r.is_ok()
-            );
-            r.map_err(into_signature_error)?;
-            return self.state.mark_updated().await;
-        }
-        #[cfg(not(any(feature = "ed25519-dalek", feature = "ed25519-salty")))]
-        {
-            Err(FirmwareUpdaterError::Signature(signature::Error::new()))
-        }
+        verify::<_, D, V>(&mut self.dfu, public_key, signature, update_len, chunk_buf).await?;
+        return self.state.mark_updated().await;
     }
 
     /// Compute a digest of the update in the DFU partition.
@@ -153,16 +105,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
         &mut self,
         update_len: u32,
         chunk_buf: &mut [u8],
-        output: &mut [u8],
-    ) -> Result<(), FirmwareUpdaterError> {
-        let mut digest = D::new();
-        for offset in (0..update_len).step_by(chunk_buf.len()) {
-            self.dfu.read(offset, chunk_buf).await?;
-            let len = core::cmp::min((update_len - offset) as usize, chunk_buf.len());
-            digest.update(&chunk_buf[..len]);
-        }
-        output.copy_from_slice(digest.finalize().as_slice());
-        Ok(())
+    ) -> Result<D::Output, FirmwareUpdaterError> {
+        Ok(hash::<_, D>(&mut self.dfu, update_len, chunk_buf).await?)
     }
 
     /// Read a slice of data from the DFU storage peripheral, starting the read
@@ -385,11 +329,13 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
 
 #[cfg(test)]
 mod tests {
+    use embassy_crypto::Sha1;
+    use embassy_crypto_rand as _;
+    use embassy_crypto_rustcrypto as _;
     use embassy_embedded_hal::flash::partition::Partition;
     use embassy_sync::blocking_mutex::raw::NoopRawMutex;
     use embassy_sync::mutex::Mutex;
     use futures::executor::block_on;
-    use sha1::{Digest, Sha1};
 
     use super::*;
     use crate::mem_flash::MemFlash;
@@ -408,10 +354,9 @@ mod tests {
         let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig { dfu, state }, &mut aligned);
         block_on(updater.write_firmware(0, to_write.as_slice())).unwrap();
         let mut chunk_buf = [0; 2];
-        let mut hash = [0; 20];
-        block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)).unwrap();
+        let hash = block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf)).unwrap();
 
-        assert_eq!(Sha1::digest(update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash.as_ref());
     }
 
     #[test]
@@ -432,10 +377,9 @@ mod tests {
             offset += chunk.len();
         }
         let mut chunk_buf = [0; 2];
-        let mut hash = [0; 20];
-        block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)).unwrap();
+        let hash = block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf)).unwrap();
 
-        assert_eq!(Sha1::digest(update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash.as_ref());
     }
 
     #[test]
@@ -456,10 +400,9 @@ mod tests {
             offset += chunk.len();
         }
         let mut chunk_buf = [0; 2];
-        let mut hash = [0; 20];
-        block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)).unwrap();
+        let hash = block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf)).unwrap();
 
-        assert_eq!(Sha1::digest(update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash.as_ref());
     }
 
     #[test]
@@ -480,9 +423,8 @@ mod tests {
             offset += chunk.len();
         }
         let mut chunk_buf = [0; 2];
-        let mut hash = [0; 20];
-        block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)).unwrap();
+        let hash = block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf)).unwrap();
 
-        assert_eq!(Sha1::digest(update).as_slice(), hash);
+        assert_eq!(Sha1::digest(&update).as_slice(), hash.as_ref());
     }
 }
