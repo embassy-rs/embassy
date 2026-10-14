@@ -42,7 +42,6 @@ pub struct GenericHashcrypt<'d> {
 }
 
 // mode switching implementation of generic driver
-#[allow(dead_code)]
 impl<'d> GenericHashcrypt<'d> {
     /// Creates an instance of a generic hashcrypt driver, which can be used to create an instance of a specific driver for one of the criptographic operation that the chip is capabile of
     pub fn new(peri: Peri<'d, HASHCRYPT>) -> Self {
