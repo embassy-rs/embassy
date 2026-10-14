@@ -103,13 +103,15 @@ impl PowerMode {
 /// Returns `Ok(None)` when active `WakeGuard`s inhibit entry. `Ok(Some(status))`
 /// means the WFE entry sequence ran, including when an event prevented sleep.
 /// After any attempted entry, the executor must poll runnable work again.
+/// This checks `WakeGuard`s, but does not limit entry to the depth selected by
+/// [`CoreSleep`].
 ///
 /// ## SAFETY
 ///
 /// Care must be taken that we have ensured that the system is ready to go to deep
 /// sleep, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
-/// have been called and returned successfully, with a `CoreSleep` configuration
-/// set to DeepSleep (or lower).
+/// have been called and returned successfully. The caller must ensure a suitable
+/// wake interrupt is configured; the absence of `WakeGuard`s does not prove this.
 /// Hold the critical section through recovery and execute ISB after restoring
 /// the caller's interrupt mask.
 pub unsafe fn deep_sleep_if_possible(cs: &CriticalSection) -> Result<Option<SleepStatus>, PowerModeError> {
@@ -125,9 +127,14 @@ pub unsafe fn deep_sleep_if_possible(cs: &CriticalSection) -> Result<Option<Slee
 
 /// Enter Deep Sleep, preserving event wakeups and restoring the configured idle mode.
 ///
+/// This bypasses `WakeGuard`s and the automatic idle depth selected by
+/// [`CoreSleep`]. It does not require an executor feature; the caller is responsible
+/// for the entry and recovery contract below.
+///
 /// # Safety
 ///
 /// Clock initialization must have completed and peripherals must be quiescent.
+/// The caller must keep a suitable wake interrupt and its required clocks enabled.
 /// The caller must hold the critical section through entry and recovery, then
 /// execute ISB after restoring its interrupt mask.
 pub unsafe fn go_to_deep_sleep(cs: &CriticalSection) -> Result<(), PowerModeError> {
@@ -136,6 +143,8 @@ pub unsafe fn go_to_deep_sleep(cs: &CriticalSection) -> Result<(), PowerModeErro
 }
 
 /// Enter Deep Sleep and capture the hardware result before recovery.
+///
+/// Like [`go_to_deep_sleep`], this bypasses `WakeGuard`s and the automatic idle depth.
 ///
 /// # Safety
 ///
@@ -146,6 +155,10 @@ pub unsafe fn go_to_deep_sleep_with_status(cs: &CriticalSection) -> Result<Sleep
 }
 
 /// Enter core-clock-gated Sleep and restore the configured idle mode.
+///
+/// This bypasses `WakeGuard`s and the automatic idle depth selected by
+/// [`CoreSleep`]. The caller must arrange a suitable wake interrupt and keep its
+/// source configured until recovery completes.
 ///
 /// # Safety
 ///
@@ -158,6 +171,8 @@ pub unsafe fn go_to_sleep(cs: &CriticalSection) -> Result<(), PowerModeError> {
 }
 
 /// Enter Sleep and capture the hardware result before recovery.
+///
+/// Like [`go_to_sleep`], this bypasses `WakeGuard`s and the automatic idle depth.
 ///
 /// # Safety
 ///
@@ -318,7 +333,9 @@ fn clear_spc_low_power_status(spc: pac::spc::Spc) {
 
 /// Clear the previous CMC result immediately before a new entry attempt.
 fn clear_previous_clock_status(cmc: pac::cmc::Cmc) {
-    // CKSTAT.VALID is write-one-to-clear.
+    // Follow the W1C diagrams for CKSTAT.VALID (MCXA2xx RM 18.7.1.4,
+    // MCXA5xx RM 26.7.1.4). Both manuals' field prose instead says "wrote 0";
+    // it conflicts with the diagrams and is not a reason to write zero here.
     cmc.ckstat().write(|w| w.set_valid(true));
 }
 

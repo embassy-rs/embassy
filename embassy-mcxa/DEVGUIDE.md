@@ -54,6 +54,15 @@ restores the idle clock policy configured by `CoreSleep`.
 Clock initialization enables `SEVONPEND` for all idle policies so interrupt
 events are not missed between masking interrupts and the explicit entry call.
 
+The explicit entry APIs bypass `WakeGuard`s and the `CoreSleep` automatic idle
+depth. Callers must independently quiesce consumers and keep a suitable wake
+interrupt and its clocks ready. A WUU guard owns a route, not a complete CPU-wake
+capability; DMA/trigger routes do not wake the CPU. The custom executor panics on
+an entry/recovery error while interrupts are still masked rather than retrying
+indefinitely or falling back to WFE under a rejected configuration. Recovery
+readiness waits remain unbounded; a clock that never becomes ready can still
+prevent the entry call from returning.
+
 Sleep and Deep Sleep use WFE to preserve Embassy's SEV-based wakeups. A pending
 event may make WFE return without sleeping; this is not an error.
 `deep_sleep_if_possible()` returns `Ok(None)` when wake guards inhibit entry,
@@ -81,13 +90,13 @@ CMC/SPC write-one-to-clear acknowledgements write only their intended flag,
 without clearing unrelated isolation or busy status.
 
 Section 22.3.1 (page 859) requires an active-only SPLL to be powered off before
-Deep Sleep and powered on after `LDOCSR.VOUT_OK` returns. On MCXA2xx the HAL
+Deep Sleep and powered on after `LDOCSR.VOUT_OK` returns. MCXA5xx section 29.3.1
+specifies the same sequence. On both families the HAL
 temporarily switches a PLL-clocked CPU to SIRC, saves PLL control policy,
 disables PLL output/power and monitoring, and restores them after reference
 clocks and the LDO are ready. It waits for PLL lock before restoring the CPU
 source and monitor policy. A disabled SIRC output is enabled temporarily and
-its gate/lock policy is restored afterward. An already-retained PLL is left running. MCXA5xx
-does not use this family-specific sequence.
+its gate/lock policy is restored afterward. An already-retained PLL is left running.
 
 MCXA2xx recovery waits for FIRC validity and accuracy before reusing it as a
 PLL reference. VBAT only supports FRO16K on this family (section 24.1.2):

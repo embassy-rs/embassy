@@ -1,7 +1,10 @@
 //! Wake-Up Unit (WUU) driver.
 //!
 //! Configures one external pin, internal module interrupt, or internal
-//! DMA/trigger request and returns a guard that keeps the source armed.
+//! DMA/trigger request and returns a guard that keeps its WUU route enabled.
+//! The guard does not prove CPU wake readiness: the source peripheral, its
+//! clocks, and its interrupt must be configured separately. DMA/trigger routes
+//! can request service without waking the CPU.
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
@@ -47,9 +50,9 @@ impl From<Edge> for Wupe {
 pub enum Event {
     /// Generate a WUU interrupt.
     Interrupt,
-    /// Generate a DMA request.
+    /// Generate a DMA request, not a CPU-wake interrupt.
     DmaRequest,
-    /// Generate a trigger event.
+    /// Generate a trigger event, not a CPU-wake interrupt.
     Trigger,
 }
 
@@ -68,6 +71,9 @@ impl From<Event> for Wupdc {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PinMode {
     /// Enable detection only while the device is in a low-leakage mode.
+    ///
+    /// Sleep and Deep Sleep are not low-leakage modes for this detector;
+    /// use [`PinMode::AnyPower`] for external-pin detection in those modes.
     LowPowerOnly,
     /// Enable detection in active and low-leakage modes.
     AnyPower,
@@ -226,7 +232,10 @@ impl<'d> Wuu<'d> {
 
     /// Arm an external wake source without taking ownership of its GPIO pin.
     ///
-    /// The caller must configure the pin as an input before entering low power.
+    /// The pin must already be configured as an input when this method is called
+    /// and remain suitably configured until the guard is dropped, including when
+    /// [`PinMode::AnyPower`] enables detection immediately. The returned guard
+    /// does not borrow the GPIO input owner or prevent its drop/reconfiguration.
     /// This is intended for pins that are also managed by a GPIO-based runtime
     /// service.
     pub fn enable_external_pin_source<'a>(
@@ -255,7 +264,10 @@ impl<'d> Wuu<'d> {
 
     /// Arm an internal module interrupt as the active wake source.
     ///
-    /// The source peripheral and its interrupt must be configured separately.
+    /// The source peripheral, its clocks, and its interrupt must be configured
+    /// separately and remain ready for the intended power mode. Module wake uses
+    /// the originating peripheral's interrupt, not the WUU interrupt handler.
+    /// Dropping the guard disables only the WUU route, not that peripheral or IRQ.
     pub fn enable_internal_module<'a>(&'a mut self, module: InternalModule) -> ConfiguredWake<'a, 'd> {
         set_internal_module(module, true);
         ConfiguredWake {
@@ -268,6 +280,8 @@ impl<'d> Wuu<'d> {
     /// Arm an internal DMA request or trigger as the active wake source.
     ///
     /// These sources request DMA or trigger service without waking the core.
+    /// The originating peripheral and request consumer must be configured
+    /// separately. Dropping the guard disables only the WUU route.
     pub fn enable_internal_request<'a>(&'a mut self, request: InternalRequest) -> ConfiguredWake<'a, 'd> {
         set_internal_request(request, true);
         ConfiguredWake {
@@ -285,10 +299,15 @@ enum Source {
     InternalRequest(InternalRequest),
 }
 
-/// Guard proving that a WUU wake source is configured.
+/// Guard keeping one WUU route configured.
 ///
-/// Dropping the guard disables its wake source.
-#[must_use = "the wake source is disabled when this guard is dropped"]
+/// This is not proof that the CPU can wake in the selected power mode: source
+/// readiness, clock availability, interrupt configuration, and mode applicability
+/// remain the caller's responsibility. DMA/trigger routes do not wake the CPU.
+///
+/// Dropping the guard disables its WUU route. For internal sources it does not
+/// stop the originating peripheral or disable that peripheral's own interrupt.
+#[must_use = "the WUU route is disabled when this guard is dropped"]
 pub struct ConfiguredWake<'a, 'd> {
     _wuu: &'a mut Wuu<'d>,
     source: Source,
