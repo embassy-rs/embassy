@@ -41,6 +41,24 @@ pub use crate::structs::BssInfo;
 
 const MTU: usize = 1514;
 
+/// Packet pool buffer size for a full received frame: 22 header bytes + 1514, word-rounded.
+///
+/// ```ignore
+/// static POOL: StaticPool<{ cyw43::RX_BUF_SIZE }, 16, { cyw43::RX_BUF_ALIGN }> = StaticPool::new();
+/// ```
+pub const RX_BUF_SIZE: usize =
+    (structs::SdpcmHeader::SIZE + RX_SDPCM_PADDING + structs::BdcHeader::SIZE + RX_BDC_DATA_OFFSET + MTU)
+        .next_multiple_of(RX_BUF_ALIGN);
+
+/// Padding after the 12-byte SDPCM header of a received frame.
+const RX_SDPCM_PADDING: usize = 2;
+
+/// BDC data offset in front of a received frame: one 32-bit word.
+const RX_BDC_DATA_OFFSET: usize = 4;
+
+/// Packet pool buffer alignment: the bus reads frames as 32-bit words.
+pub const RX_BUF_ALIGN: usize = 4;
+
 /// cyw43 Error type
 #[derive(Debug)]
 pub struct Error;
