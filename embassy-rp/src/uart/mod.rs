@@ -343,6 +343,11 @@ impl<'d, M: Mode> UartRx<'d, M> {
         Ok(())
     }
 
+    /// Check whether the RX FIFO holds data, i.e. whether a read would not block.
+    pub fn read_ready(&mut self) -> bool {
+        !self.info.regs.uartfr().read().rxfe()
+    }
+
     /// Returns Ok(len) if no errors occurred. Returns Err((len, err)) if an error was
     /// encountered. In both cases, `len` is the number of *good* bytes copied into
     /// `buffer`.
@@ -1158,6 +1163,11 @@ impl<'d, M: Mode> Uart<'d, M> {
     /// Read from UART RX blocking execution until done.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
+    }
+
+    /// Check whether the RX FIFO holds data, i.e. whether a read would not block.
+    pub fn read_ready(&mut self) -> bool {
+        self.rx.read_ready()
     }
 
     /// Check if UART is busy transmitting.

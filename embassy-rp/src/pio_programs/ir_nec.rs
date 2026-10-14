@@ -175,10 +175,8 @@ impl<'d, PIO: Instance, const SM: usize> PioIrNecRx<'d, PIO, SM> {
 
         let rx_pin = common.make_pio_pin(rx_pin);
 
-        sm_rx.set_pins(Level::High, &[&rx_pin]);
         cfg.set_in_pins(&[&rx_pin]);
         cfg.set_jmp_pin(&rx_pin);
-        sm_rx.set_pin_dirs(PioDirection::In, &[&rx_pin]);
 
         cfg.clock_divider = (clk_sys_freq() as f32 / 17_777.777).to_fixed();
 
@@ -188,6 +186,8 @@ impl<'d, PIO: Instance, const SM: usize> PioIrNecRx<'d, PIO, SM> {
         cfg.fifo_join = FifoJoin::RxOnly;
 
         sm_rx.set_config(&cfg);
+        sm_rx.set_pins(Level::High, &[&rx_pin]);
+        sm_rx.set_pin_dirs(PioDirection::In, &[&rx_pin]);
         sm_rx.set_enable(true);
 
         Self { sm_rx }
@@ -361,14 +361,13 @@ impl<'d, PIO: Instance, const SM1: usize, const SM2: usize> PioIrNecTx<'d, PIO, 
 
         let tx_pin = common.make_pio_pin(tx_pin);
 
-        sm_burst.set_pins(Level::High, &[&tx_pin]);
-        sm_burst.set_pin_dirs(PioDirection::Out, &[&tx_pin]);
-
         burst_cfg.set_out_pins(&[&tx_pin]);
         burst_cfg.set_set_pins(&[&tx_pin]);
         burst_cfg.use_program(&program.burst_prg, &[]);
         burst_cfg.clock_divider = (clk_sys_freq() / (4 * 38_222)).to_fixed();
         sm_burst.set_config(&burst_cfg);
+        sm_burst.set_pins(Level::High, &[&tx_pin]);
+        sm_burst.set_pin_dirs(PioDirection::Out, &[&tx_pin]);
         sm_burst.set_enable(true);
 
         let mut control_cfg = Config::default();
