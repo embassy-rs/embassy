@@ -1,6 +1,8 @@
 MEMORY {
     BOOT2 : ORIGIN = 0x10000000, LENGTH = 0x100
-    FLASH : ORIGIN = 0x10000100, LENGTH = 2048K - 0x100
+    /* blinky_ram executes from the main SRAM banks after boot2 copies it. */
+    FLASH : ORIGIN = DEFINED(__run_from_ram) ? 0x20000000 : 0x10000100,
+            LENGTH = DEFINED(__run_from_ram) ? 256K : 2048K - 0x100
 
     /* Pick one of the two options for RAM layout     */
 
@@ -8,7 +10,9 @@ MEMORY {
     /* Reasonable, unless you are doing something     */
     /* really particular with DMA or other concurrent */
     /* access that would benefit from striping        */
-    RAM   : ORIGIN = 0x20000000, LENGTH = 264K
+    /* Its writable data and stack use the 8 KiB scratch banks. */
+    RAM   : ORIGIN = DEFINED(__run_from_ram) ? 0x20040000 : 0x20000000,
+            LENGTH = DEFINED(__run_from_ram) ? 8K : 264K
 
     /* OPTION B: Keep the unstriped sections separate */
     /* RAM: ORIGIN = 0x20000000, LENGTH = 256K        */

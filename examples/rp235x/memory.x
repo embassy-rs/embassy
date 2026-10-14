@@ -4,13 +4,17 @@ MEMORY {
      *
      * 2 MiB is a safe default here, although a Pico 2 has 4 MiB.
      */
-    FLASH : ORIGIN = 0x10000000, LENGTH = 2048K
+    /* blinky_ram runs from the first half of SRAM. */
+    FLASH : ORIGIN = DEFINED(__run_from_ram) ? 0x20000000 : 0x10000000,
+            LENGTH = DEFINED(__run_from_ram) ? 256K : 2048K
     /*
      * RAM consists of 8 banks, SRAM0-SRAM7, with a striped mapping.
      * This is usually good for performance, as it distributes load on
      * those banks evenly.
      */
-    RAM : ORIGIN = 0x20000000, LENGTH = 512K
+    /* Its writable data and stack use the second half. */
+    RAM : ORIGIN = DEFINED(__run_from_ram) ? 0x20040000 : 0x20000000,
+          LENGTH = DEFINED(__run_from_ram) ? 256K : 512K
     /*
      * RAM banks 8 and 9 use a direct mapping. They can be used to have
      * memory areas dedicated for some specific job, improving predictability
