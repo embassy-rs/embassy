@@ -21,6 +21,10 @@ const fn slice8_ref(x: &[u32]) -> &[u8] {
     unsafe { slice::from_raw_parts(x.as_ptr() as *const u8, len) }
 }
 
+const fn decode_version(version: u32) -> (u8, u8, u8) {
+    ((version >> 24) as u8, (version >> 16) as u8, (version >> 8) as u8)
+}
+
 /// A guard that, once constructed, allows for sys commands to be sent to CPU2.
 pub struct Sys<'a> {
     ipcc_system_cmd_rsp_channel: IpccTxChannel<'a>,
@@ -85,17 +89,26 @@ impl<'a> Sys<'a> {
     /// The FUS version lives in the FUS info table, whose location depends on which
     /// firmware runs on CPU2 (see ST's `SHCI_GetWirelessFwInfo` in `shci.c`, and AN5185,
     /// "FUS versioning and identification").
-    pub fn fus_version(&self) -> Option<u32> {
+    pub fn fus_version(&self) -> Option<(u8, u8, u8)> {
         if self.fus_running() {
-            Some(self.fus_info().unwrap().fus_version)
+            Some(decode_version(self.fus_info().unwrap().fus_version))
         } else {
             let fus_info = unsafe { TL_DEVICE_INFO_TABLE.as_ptr().read_volatile().fus_info_table };
             if fus_info.version != 0 {
-                Some(fus_info.version)
+                Some(decode_version(fus_info.version))
             } else {
                 None
             }
         }
+    }
+
+    /// Returns the wireless stack version, if installed
+    pub fn wireless_stack_version(&self) -> Option<(u8, u8, u8)> {
+        self.fus_info()
+            .map(|fus| fus.wireless_stack_version)
+            .filter(|v| *v != 0)
+            .or_else(|| self.wireless_fw_info().map(|info| info.version))
+            .map(decode_version)
     }
 
     pub async fn write(&mut self, opcode: ShciOpcode, payload: &[u8]) {

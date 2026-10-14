@@ -65,10 +65,6 @@ pub enum Error {
     TooManyAttempts,
 }
 
-fn decode_version(version: u32) -> (u8, u8, u8) {
-    ((version >> 24) as u8, (version >> 16) as u8, (version >> 8) as u8)
-}
-
 /// End of the application image in flash (end of `.rodata` plus the `.data` init image).
 ///
 /// Relies on the `__sidata`/`__sdata`/`__edata` symbols provided by the
@@ -180,17 +176,12 @@ pub async fn request_upgrade(
     stack_version: (u8, u8, u8),
     stack_type: StackType,
 ) -> Result<(), Error> {
-    let fus_version = sys.fus_version().map(decode_version);
+    let fus_version = sys.fus_version();
     // The FUS reports the installed wireless stack version even while it (and not
     // the stack) is running, so take the stack version from whichever table is
     // present. The stack type is only reported by the running wireless stack.
     let running_type = sys.wireless_fw_info().map(|info| info.stack_type());
-    let running_stack = sys
-        .fus_info()
-        .map(|fus| fus.wireless_stack_version)
-        .filter(|v| *v != 0)
-        .or_else(|| sys.wireless_fw_info().map(|info| info.version))
-        .map(decode_version);
+    let running_stack = sys.wireless_stack_version();
     info!(
         "FUS version: {:?}  wireless stack: {:?} ({:?})",
         fus_version, running_stack, running_type
@@ -311,11 +302,7 @@ pub async fn start_upgrade(sys: &mut Sys<'_>) -> Result<(), Error> {
 /// Returns `Ok(())` once the wireless stack is running (upgrade completed, or nothing
 /// to do). Resets the system as required by the FUS state machine; otherwise loops
 /// forever, so it never returns `Err` on transient states.
-pub async fn boot(
-    ready_event: SchiSysEventReady,
-    sys: &mut Sys<'_>,
-    stack_type: StackType,
-) -> Result<(), Error> {
+pub async fn boot(ready_event: SchiSysEventReady, sys: &mut Sys<'_>, stack_type: StackType) -> Result<(), Error> {
     let firmware_started = ready_event == SchiSysEventReady::WirelessFwRunning
         && (sys
             .wireless_fw_info()

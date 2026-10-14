@@ -92,10 +92,6 @@ const STACK_TYPE: StackType = StackType::BleHci;
 #[cfg(not(feature = "fw_hci"))]
 const STACK_TYPE: StackType = StackType::BleMacStatic;
 
-fn decode_version(version: u32) -> (u8, u8, u8) {
-    ((version >> 24) as u8, (version >> 16) as u8, (version >> 8) as u8)
-}
-
 /// Pass an embedded binary only if it is present: the `include_bytes!` lines above
 /// stay commented out until the files are downloaded (see firmware/README.md).
 fn img(binary: &'static [u8]) -> Option<&'static [u8]> {
@@ -128,6 +124,8 @@ async fn main(_spawner: Spawner) {
     .await
     .unwrap();
 
-    let info = mbox.sys.wireless_fw_info().unwrap();
-    info!("wireless stack up to date: version {:?}", decode_version(info.version));
+    info!(
+        "wireless stack up to date: version {:?}",
+        mbox.sys.wireless_stack_version()
+    );
 }
