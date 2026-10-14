@@ -1,3 +1,13 @@
+//! ROM bootloader image authentication and loading sessions for MCXA5xx.
+//!
+//! Construct [`Kb`] with [`super::RomApi::kb`] and [`KbOptions`] selecting image
+//! authentication or Secure Binary loading. Feed image data to
+//! [`Kb::kb_execute`]; dropping the handle calls the ROM session deinitializer.
+//!
+//! Pointer-bearing option records mirror the ROM ABI. Their backing buffers,
+//! keys and region descriptors must satisfy the selected operation's ROM
+//! requirements and remain available while the session uses them.
+
 use core::ffi::c_void;
 use core::ptr::null_mut;
 use core::sync::atomic::{AtomicBool, Ordering};

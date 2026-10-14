@@ -1,3 +1,14 @@
+//! On-chip boot ROM services for MCXA devices.
+//!
+//! Use [`get`] to access the chip family's [`RomApi`] table and construct a
+//! driver for the required service. Both supported families provide internal
+//! flash operations. MCXA5xx additionally provides FlexSPI NOR, SPI NOR/EEPROM,
+//! KB image-loading and NBOOT security services.
+//!
+//! ROM calls are synchronous. Erase, program and image-loading operations can
+//! change persistent contents; observe each service's buffer, alignment,
+//! ownership and configuration requirements before invoking it.
+
 mod flash;
 #[cfg(feature = "mcxa5xx")]
 mod flexspi_nor;

@@ -1,3 +1,15 @@
+//! ROM-backed FlexSPI serial NOR operations for MCXA5xx.
+//!
+//! Construct [`FlexspiNor`] through [`super::RomApi::flex_spi`] with a complete
+//! configuration, or use [`super::RomApi::flex_spi_with_options`] to probe the
+//! device and customize its configuration before initialization. The handle
+//! retains exclusive controller and [`FlexspiNorPins`] borrows and supports a
+//! single CS0, at-most-quad device on the default port A or B pin mapping.
+//!
+//! Slice transfers use byte counts with word-aligned storage. Raw-pointer
+//! operations have additional safety requirements. DDR/DTR probing can modify
+//! flash before customization; read the public constructor warnings before use.
+
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use super::Status;
