@@ -54,6 +54,38 @@ pub(crate) const RL_SELECT_ALL_AND_WELL_KNOWN: u8 = 0x02;
 /// Allocation lengths below this are rejected.
 pub(crate) const RL_MIN_ALLOCATION_LENGTH: usize = 4;
 
+// Standard INQUIRY data (SPC-3 §6.4.2).
+pub(crate) const INQUIRY_DATA_LEN: usize = 36;
+/// Byte 0 bits holding the peripheral device type.
+pub(crate) const PERIPHERAL_DEVICE_TYPE_MASK: u8 = 0x1f;
+/// Byte 0: peripheral qualifier 000b, direct-access block device.
+pub(crate) const PERIPHERAL_DIRECT_ACCESS: u8 = 0x00;
+/// Byte 0: peripheral qualifier 011b (no device on this logical unit), unknown device type.
+pub(crate) const PERIPHERAL_NO_LUN: u8 = 0x7f;
+/// Byte 1: removable medium.
+pub(crate) const INQUIRY_RMB: u8 = 0x80;
+/// Byte 2: conforms to SPC-2.
+pub(crate) const INQUIRY_VERSION_SPC2: u8 = 0x04;
+/// Byte 3: response data format.
+pub(crate) const INQUIRY_RESPONSE_DATA_FORMAT: u8 = 0x02;
+
+// Vital product data pages (SPC-3 §7.6).
+pub(crate) const VPD_PAGE_SUPPORTED_PAGES: u8 = 0x00;
+pub(crate) const VPD_PAGE_UNIT_SERIAL_NUMBER: u8 = 0x80;
+pub(crate) const VPD_PAGE_DEVICE_IDENTIFICATION: u8 = 0x83;
+/// Identification descriptor code set: ASCII.
+pub(crate) const VPD_CODE_SET_ASCII: u8 = 0x02;
+/// Identification descriptor association and type: logical unit, vendor-specific.
+pub(crate) const VPD_DESIGNATOR_VENDOR_SPECIFIC: u8 = 0x00;
+
+// MODE SENSE parameter header (SPC-3 §7.4.3).
+/// Device-specific parameter bit: the medium is write-protected.
+pub(crate) const MODE_DSP_WP: u8 = 0x80;
+
+// READ FORMAT CAPACITIES data (UFI §4.10).
+/// Descriptor type: formatted media, current capacity.
+pub(crate) const RFC_FORMATTED_MEDIA: u8 = 0x02;
+
 // Additional sense codes.
 pub(crate) const ASC_WRITE_ERROR: u8 = 0x0c;
 pub(crate) const ASC_UNRECOVERED_READ_ERROR: u8 = 0x11;
@@ -101,9 +133,19 @@ pub enum SenseKey {
     Reserved = 0xF,
 }
 
+/// Fixed-format sense data byte 2 bits holding the sense key.
+const SENSE_KEY_MASK: u8 = 0x0f;
+
+/// Length of fixed-format sense data.
+pub(crate) const SENSE_DATA_LEN: usize = 18;
+/// Response code: current error, fixed format.
+const SENSE_RESPONSE_CODE_CURRENT: u8 = 0x70;
+/// Bytes following the additional sense length field (byte 7).
+const SENSE_ADDITIONAL_LENGTH: u8 = 10;
+
 impl SenseKey {
     pub(crate) fn from_bits(b: u8) -> Self {
-        match b & 0x0F {
+        match b & SENSE_KEY_MASK {
             0x0 => Self::NoSense,
             0x1 => Self::RecoveredError,
             0x2 => Self::NotReady,
@@ -157,6 +199,72 @@ impl SenseData {
             ascq: ASCQ_NONE,
         }
     }
+
+    pub(crate) fn parse(raw: &[u8; SENSE_DATA_LEN]) -> Self {
+        Self {
+            key: SenseKey::from_bits(raw[2]),
+            asc: raw[12],
+            ascq: raw[13],
+        }
+    }
+
+    pub(crate) fn encode(&self) -> [u8; SENSE_DATA_LEN] {
+        let mut out = [0u8; SENSE_DATA_LEN];
+        out[0] = SENSE_RESPONSE_CODE_CURRENT;
+        out[2] = self.key as u8;
+        out[7] = SENSE_ADDITIONAL_LENGTH;
+        out[12] = self.asc;
+        out[13] = self.ascq;
+        out
+    }
+}
+
+/// READ CAPACITY(10) / READ CAPACITY(16) parameter data (SBC-3 §5.10, §5.11).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) struct Capacity {
+    pub last_lba: u64,
+    pub block_size: u32,
+}
+
+impl Capacity {
+    pub const LEN_10: usize = 8;
+    pub const LEN_16: usize = 32;
+    /// READ CAPACITY(10) reports this LBA when the last one doesn't fit in 32 bits.
+    pub const LBA_10_OVERFLOW: u32 = u32::MAX;
+
+    pub fn parse_10(raw: &[u8; Self::LEN_10]) -> Self {
+        Self {
+            last_lba: be32(&raw[0..4]) as u64,
+            block_size: be32(&raw[4..8]),
+        }
+    }
+
+    pub fn encode_10(&self) -> [u8; Self::LEN_10] {
+        let last_lba = u32::try_from(self.last_lba).unwrap_or(Self::LBA_10_OVERFLOW);
+        let mut out = [0u8; Self::LEN_10];
+        out[0..4].copy_from_slice(&last_lba.to_be_bytes());
+        out[4..8].copy_from_slice(&self.block_size.to_be_bytes());
+        out
+    }
+
+    pub fn parse_16(raw: &[u8; Self::LEN_16]) -> Self {
+        Self {
+            last_lba: (be32(&raw[0..4]) as u64) << 32 | be32(&raw[4..8]) as u64,
+            block_size: be32(&raw[8..12]),
+        }
+    }
+
+    pub fn encode_16(&self) -> [u8; Self::LEN_16] {
+        let mut out = [0u8; Self::LEN_16];
+        out[0..8].copy_from_slice(&self.last_lba.to_be_bytes());
+        out[8..12].copy_from_slice(&self.block_size.to_be_bytes());
+        out
+    }
+}
+
+fn be32(b: &[u8]) -> u32 {
+    u32::from_be_bytes([b[0], b[1], b[2], b[3]])
 }
 
 /// A decoded READ or WRITE command (6, 10, 12 or 16 byte CDB).
@@ -184,7 +292,6 @@ impl ReadWrite {
             return None;
         }
 
-        let be32 = |b: &[u8]| u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
         let (lba, blocks) = match cb[0] {
             SCSI_READ_6 | SCSI_WRITE_6 => {
                 let lba = u32::from_be_bytes([0, cb[1] & RW6_LBA_MSB_MASK, cb[2], cb[3]]);
@@ -553,6 +660,36 @@ mod tests {
             Command::Unsupported {
                 opcode: SCSI_SERVICE_ACTION_IN_16
             }
+        );
+    }
+
+    #[test]
+    fn sense_data_round_trips() {
+        let raw = SenseData::WRITE_PROTECTED.encode();
+        core::assert_eq!(raw[0], 0x70);
+        core::assert_eq!(raw[2], 0x07);
+        core::assert_eq!(raw[7], 10);
+        core::assert_eq!(raw[12], ASC_WRITE_PROTECTED);
+        core::assert_eq!(SenseData::parse(&raw), SenseData::WRITE_PROTECTED);
+    }
+
+    #[test]
+    fn capacity_round_trips() {
+        let cap = Capacity {
+            last_lba: 0x1234_5678,
+            block_size: 512,
+        };
+        core::assert_eq!(cap.encode_10(), [0x12, 0x34, 0x56, 0x78, 0, 0, 0x02, 0]);
+        core::assert_eq!(Capacity::parse_10(&cap.encode_10()), cap);
+
+        let big = Capacity {
+            last_lba: 0x1_0000_0000,
+            block_size: 4096,
+        };
+        core::assert_eq!(Capacity::parse_16(&big.encode_16()), big);
+        core::assert_eq!(
+            Capacity::parse_10(&big.encode_10()).last_lba,
+            Capacity::LBA_10_OVERFLOW as u64
         );
     }
 

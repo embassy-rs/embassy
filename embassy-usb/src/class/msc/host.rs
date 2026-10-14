@@ -195,7 +195,7 @@ pub enum PeripheralType {
 
 impl PeripheralType {
     fn from_bits(b: u8) -> Self {
-        match b & 0x1F {
+        match b & PERIPHERAL_DEVICE_TYPE_MASK {
             0x00 => Self::DirectAccess,
             0x01 => Self::SequentialAccess,
             0x05 => Self::CdDvd,
@@ -462,15 +462,11 @@ where
 
     /// Issue `REQUEST SENSE`.
     async fn request_sense(&mut self, lun: u8) -> Result<SenseData, MscError> {
-        let cdb = [SCSI_REQUEST_SENSE, 0, 0, 0, 18, 0];
-        let mut buf = [0u8; 18];
+        let cdb = [SCSI_REQUEST_SENSE, 0, 0, 0, SENSE_DATA_LEN as u8, 0];
+        let mut buf = [0u8; SENSE_DATA_LEN];
         // Accept Failed here too — a second failure would loop.
         let _ = self.command(lun, &cdb, DataDir::In(&mut buf)).await?;
-        Ok(SenseData {
-            key: SenseKey::from_bits(buf[2]),
-            asc: buf[12],
-            ascq: buf[13],
-        })
+        Ok(SenseData::parse(&buf))
     }
 
     /// Run a command, auto-issuing `REQUEST SENSE` on CSW Failed so the
@@ -763,12 +759,12 @@ where
     }
 
     /// Run `INQUIRY` (standard data, 36 bytes).
-    pub async fn inquiry<'a>(&mut self, buf: &'a mut [u8; 36]) -> Result<InquiryData<'a>, MscError> {
-        let cdb = [SCSI_INQUIRY, 0, 0, 0, 36, 0];
+    pub async fn inquiry<'a>(&mut self, buf: &'a mut [u8; INQUIRY_DATA_LEN]) -> Result<InquiryData<'a>, MscError> {
+        let cdb = [SCSI_INQUIRY, 0, 0, 0, INQUIRY_DATA_LEN as u8, 0];
         self.run(&cdb, DataDir::In(&mut buf[..])).await?;
         Ok(InquiryData {
             peripheral: PeripheralType::from_bits(buf[0]),
-            removable: buf[1] & 0x80 != 0,
+            removable: buf[1] & INQUIRY_RMB != 0,
             vendor: &buf[8..16],
             product: &buf[16..32],
             revision: &buf[32..36],
@@ -829,31 +825,23 @@ where
             let mut t = self.device.transport.lock().await;
 
             let cdb = [SCSI_READ_CAPACITY_10, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-            let mut buf = [0u8; 8];
+            let mut buf = [0u8; Capacity::LEN_10];
             t.run_with_sense(self.lun, &cdb, DataDir::In(&mut buf)).await?;
-            let last_lba = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
-            let block_size = u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
+            let mut cap = Capacity::parse_10(&buf);
 
-            if last_lba == 0xFFFF_FFFF {
+            if cap.last_lba == Capacity::LBA_10_OVERFLOW as u64 {
                 let mut cdb16 = [0u8; 16];
                 cdb16[0] = SCSI_SERVICE_ACTION_IN_16;
                 cdb16[1] = SCSI_SA_READ_CAPACITY_16;
-                cdb16[13] = 32;
-                let mut buf16 = [0u8; 32];
+                cdb16[13] = Capacity::LEN_16 as u8;
+                let mut buf16 = [0u8; Capacity::LEN_16];
                 t.run_with_sense(self.lun, &cdb16, DataDir::In(&mut buf16)).await?;
-                let last_lba = u64::from_be_bytes([
-                    buf16[0], buf16[1], buf16[2], buf16[3], buf16[4], buf16[5], buf16[6], buf16[7],
-                ]);
-                let block_size = u32::from_be_bytes([buf16[8], buf16[9], buf16[10], buf16[11]]);
-                BlockCapacity {
-                    block_count: last_lba.saturating_add(1),
-                    block_size,
-                }
-            } else {
-                BlockCapacity {
-                    block_count: last_lba as u64 + 1,
-                    block_size,
-                }
+                cap = Capacity::parse_16(&buf16);
+            }
+
+            BlockCapacity {
+                block_count: cap.last_lba.saturating_add(1),
+                block_size: cap.block_size,
             }
         };
 

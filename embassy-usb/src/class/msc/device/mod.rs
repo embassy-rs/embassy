@@ -23,10 +23,6 @@ use crate::{Builder, Handler};
 mod block_device;
 pub use block_device::*;
 
-const VPD_PAGE_SUPPORTED_PAGES: u8 = 0x00;
-const VPD_PAGE_UNIT_SERIAL_NUMBER: u8 = 0x80;
-const VPD_PAGE_DEVICE_IDENTIFICATION: u8 = 0x83;
-
 /// Configuration for the USB Mass Storage Class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
@@ -478,10 +474,9 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                     if let Some(result) = self.check_phase(cbw, DataPhase::DataIn) {
                         return Ok(result);
                     }
-                    // SPC-2: Unsupported LUN returns 0x7F (0x60 peripheral not connected | 0x1F unknown device type).
-                    // Leaves the sense data alone.
-                    let mut data = [0u8; 36];
-                    data[0] = 0x7f;
+                    // SPC-2: an unsupported LUN reports that no device is connected. Leaves the sense data alone.
+                    let mut data = [0u8; INQUIRY_DATA_LEN];
+                    data[0] = PERIPHERAL_NO_LUN;
                     let len = min(data.len(), allocation_length);
                     self.send_in_data(cbw, &data[..len]).await
                 }
@@ -588,13 +583,8 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     }
 
     fn request_sense(&self, allocation_length: usize, buf: &mut Response) -> Result<Reply, SenseData> {
-        buf[0] = 0x70;
-        buf[2] = self.sense.key as u8;
-        buf[7] = 10;
-        buf[12] = self.sense.asc;
-        buf[13] = self.sense.ascq;
         // The dispatcher then resets the sense data, per SCSI SPC-2.
-        Ok(Reply::data(18, allocation_length))
+        Ok(Reply::copy(buf, &self.sense.encode(), allocation_length))
     }
 
     fn inquiry(&self, inquiry: Inquiry, buf: &mut Response) -> Result<Reply, SenseData> {
@@ -607,7 +597,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             match inquiry.page_code {
                 VPD_PAGE_SUPPORTED_PAGES => {
                     let data = [
-                        0x00, // direct-access block device
+                        PERIPHERAL_DIRECT_ACCESS,
                         VPD_PAGE_SUPPORTED_PAGES,
                         0x00,
                         0x03, // 3 bytes follow
@@ -615,8 +605,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                         VPD_PAGE_UNIT_SERIAL_NUMBER,
                         VPD_PAGE_DEVICE_IDENTIFICATION,
                     ];
-                    buf[..data.len()].copy_from_slice(&data);
-                    data.len()
+                    return Ok(Reply::copy(buf, &data, inquiry.allocation_length));
                 }
                 VPD_PAGE_UNIT_SERIAL_NUMBER => {
                     let serial = self.config.serial_number_bytes();
@@ -632,8 +621,8 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                         4
                     } else {
                         buf[3] = (4 + id.len()) as u8; // page length
-                        buf[4] = 0x02; // ASCII code set
-                        buf[5] = 0x00; // logical unit, vendor-specific identifier type
+                        buf[4] = VPD_CODE_SET_ASCII;
+                        buf[5] = VPD_DESIGNATOR_VENDOR_SPECIFIC;
                         buf[7] = id.len() as u8;
                         buf[8..8 + id.len()].copy_from_slice(id);
                         8 + id.len()
@@ -647,15 +636,15 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                 return Err(SenseData::INVALID_FIELD_IN_CDB);
             }
 
-            buf[0] = 0x00; // direct-access block device
-            buf[1] = 0x80; // removable medium
-            buf[2] = 0x04; // SPC-2
-            buf[3] = 0x02; // response data format
-            buf[4] = 31; // additional length
+            buf[0] = PERIPHERAL_DIRECT_ACCESS;
+            buf[1] = INQUIRY_RMB;
+            buf[2] = INQUIRY_VERSION_SPC2;
+            buf[3] = INQUIRY_RESPONSE_DATA_FORMAT;
+            buf[4] = (INQUIRY_DATA_LEN - 5) as u8; // additional length
             buf[8..16].copy_from_slice(&self.config.vendor_id);
             buf[16..32].copy_from_slice(&self.config.product_id);
             buf[32..36].copy_from_slice(&self.config.product_revision_level);
-            36
+            INQUIRY_DATA_LEN
         };
 
         Ok(Reply::data(len, inquiry.allocation_length))
@@ -878,7 +867,7 @@ fn mode_sense_6<B: AsyncBlockDevice>(
     buf: &mut Response,
 ) -> Result<Reply, SenseData> {
     buf[0] = 3; // Mode data length
-    buf[2] = if block_device.is_write_protected() { 0x80 } else { 0x00 };
+    buf[2] = device_specific_parameter(block_device);
     Ok(Reply::data(4, allocation_length))
 }
 
@@ -889,7 +878,7 @@ fn mode_sense_10<B: AsyncBlockDevice>(
 ) -> Result<Reply, SenseData> {
     buf[1] = 6; // Mode data length (6 bytes follow)
     buf[2] = 0; // medium type
-    buf[3] = if block_device.is_write_protected() { 0x80 } else { 0x00 };
+    buf[3] = device_specific_parameter(block_device);
     Ok(Reply::data(8, allocation_length))
 }
 
@@ -902,7 +891,7 @@ fn read_format_capacities<B: AsyncBlockDevice>(
 
     buf[3] = 8;
     buf[4..8].copy_from_slice(&block_device.block_count().to_be_bytes());
-    buf[8] = 0x02; // formatted media, current capacity
+    buf[8] = RFC_FORMATTED_MEDIA;
     buf[9] = (block_size >> 16) as u8;
     buf[10] = (block_size >> 8) as u8;
     buf[11] = block_size as u8;
@@ -910,11 +899,8 @@ fn read_format_capacities<B: AsyncBlockDevice>(
 }
 
 fn read_capacity_10<B: AsyncBlockDevice>(block_device: &B, buf: &mut Response) -> Result<Reply, SenseData> {
-    let last_lba = block_device.block_count().saturating_sub(1);
-
-    buf[0..4].copy_from_slice(&last_lba.to_be_bytes());
-    buf[4..8].copy_from_slice(&block_device.block_size().to_be_bytes());
-    Ok(Reply::Data(8))
+    // Sent whole, as READ CAPACITY(10) has no allocation length.
+    Ok(Reply::copy(buf, &capacity(block_device).encode_10(), usize::MAX))
 }
 
 fn read_capacity_16<B: AsyncBlockDevice>(
@@ -922,11 +908,23 @@ fn read_capacity_16<B: AsyncBlockDevice>(
     block_device: &B,
     buf: &mut Response,
 ) -> Result<Reply, SenseData> {
-    let last_lba = block_device.block_count().saturating_sub(1) as u64;
+    Ok(Reply::copy(buf, &capacity(block_device).encode_16(), allocation_length))
+}
 
-    buf[0..8].copy_from_slice(&last_lba.to_be_bytes());
-    buf[8..12].copy_from_slice(&block_device.block_size().to_be_bytes());
-    Ok(Reply::data(32, allocation_length))
+/// MODE SENSE device-specific parameter for `block_device`.
+fn device_specific_parameter<B: AsyncBlockDevice>(block_device: &B) -> u8 {
+    if block_device.is_write_protected() {
+        MODE_DSP_WP
+    } else {
+        0
+    }
+}
+
+fn capacity<B: AsyncBlockDevice>(block_device: &B) -> Capacity {
+    Capacity {
+        last_lba: block_device.block_count().saturating_sub(1) as u64,
+        block_size: block_device.block_size(),
+    }
 }
 
 async fn start_stop_unit<B: AsyncBlockDevice>(eject: bool, block_device: &mut B) -> Result<Reply, SenseData> {
@@ -956,8 +954,7 @@ fn report_luns(select_report: u8, allocation_length: usize, buf: &mut Response) 
         return Err(SenseData::INVALID_FIELD_IN_CDB);
     };
 
-    buf[..data.len()].copy_from_slice(data);
-    Ok(Reply::data(data.len(), allocation_length))
+    Ok(Reply::copy(buf, data, allocation_length))
 }
 
 /// Checks a READ or WRITE command against `block_device` and `block_buf`.
@@ -1049,6 +1046,12 @@ impl Reply {
     /// Sends `len` bytes of the response, truncated to the CDB's allocation length.
     fn data(len: usize, allocation_length: usize) -> Self {
         Self::Data(min(len, allocation_length))
+    }
+
+    /// Copies `data` to the response buffer and sends it, truncated to the CDB's allocation length.
+    fn copy(buf: &mut Response, data: &[u8], allocation_length: usize) -> Self {
+        buf[..data.len()].copy_from_slice(data);
+        Self::data(data.len(), allocation_length)
     }
 }
 
