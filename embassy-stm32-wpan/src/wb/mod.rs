@@ -4,6 +4,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 #[cfg(any(feature = "wb-ble", feature = "wb-mac", feature = "wb-thread"))]
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::Peri;
+use embassy_stm32::flash::{Blocking, Flash};
 use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc, IpccRxChannel, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::IPCC;
@@ -221,6 +222,54 @@ impl<'d> TlMbox<'d> {
             mm: mm,
             traces: _ipcc_traces_channel,
         }
+    }
+
+    /// Initialise the Transport Layer, install the requested coprocessor firmware,
+    /// and return once the wireless stack is running.
+    ///
+    /// Like [`wait_ready`](Self::wait_ready), this constructs the mailbox and waits
+    /// for the CPU2 ready event, but then drives the FUS upgrade flow
+    /// ([`fus::request_upgrade`]) with the supplied ST-signed binaries before
+    /// returning. The device resets several times while FUS installs the firmware;
+    /// calling this once per boot eventually reaches the state where the requested
+    /// wireless stack is running, and only then returns `Ok(self)`.
+    ///
+    /// The parameters after `config` are the same as for [`fus::request_upgrade`];
+    /// see there for how to pick `stack_version` and `stack_type`.
+    pub async fn with_firmware(
+        ipcc: Peri<'d, IPCC>,
+        irqs: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_RX, ReceiveInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_TX, TransmitInterruptHandler>,
+        config: Config,
+        flash: &mut Flash<'_, Blocking>,
+        fus_0_5_3: Option<&[u8]>,
+        fus_1_2_0: Option<&[u8]>,
+        fus_v2: Option<&[u8]>,
+        stack_fw: Option<&[u8]>,
+        stack_version: (u8, u8, u8),
+        stack_type: StackType,
+    ) -> Result<Self, fus::Error> {
+        let mut this = Self::init(ipcc, irqs, config);
+
+        let ready = with_timeout(Duration::from_millis(500), this.sys.read_ready())
+            .await
+            .map_err(|_| fus::Error::Command)?
+            .map_err(|_| fus::Error::Command)?;
+
+        fus::request_upgrade(
+            &mut this.sys,
+            flash,
+            ready,
+            fus_0_5_3,
+            fus_1_2_0,
+            fus_v2,
+            stack_fw,
+            stack_version,
+            stack_type,
+        )
+        .await?;
+
+        Ok(this)
     }
 
     /// Initialise the Transport Layer, and waits for the ready event with a timeout
