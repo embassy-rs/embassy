@@ -53,11 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - breaking: Remove `<T: Instance>` from `Spi`, `I2c` and `I2cSlave` ([#4900](https://github.com/embassy-rs/embassy/pull/4900))
 - Add set_baudrate() to BufferedUartTx.
 - USB host: debounce root-port connections and fail pending interrupt transfers on disconnect
-- I2C: reject zero-length operations, instead of hanging or leaving the bus locked.
+- I2C: reject zero-length operations instead of hanging or leaving the bus locked.
 - I2C: add `Config::timeout` (default 1 s) and return `Error::Timeout` on timeout.
 - I2C: transfers started immediately after cancel now wait for bus to be released.
 - I2C: a blocking operation that times out aborts the transfer and releases the bus.
 - I2C: Ensure NACK during `blocking_write` is reported correctly.
+- PIO: Fix PIO programs driving pins above 31 on RP235xB, call `StateMachine::set_config` before `set_pin_dirs` and `set_pins`. These now panic when given a pin outside the PIO's GPIOBASE window, rather than failing silently.
+- UART: add `read_ready` to `Uart` and `UartRx`, reporting whether the RX FIFO holds data.
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes

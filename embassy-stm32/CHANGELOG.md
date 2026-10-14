@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+Time driver:
+- fix: stm32/time-driver-lptim: arm alarms that fall in the current counter cycle; they fired at the overflow, up to a quarter cycle late
+
 I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
 
@@ -114,6 +117,7 @@ Timer:
 - feat: stm32/timer: add timer_v2 dithering APIs (`DitheringConfig`, ARR/CCR fractional nibble setters) in low-level, simple PWM, and complementary PWM drivers
 - feat: stm32/timer: add low-level timer status helpers for UIF remap control and counting direction (`is_counting_up`/`is_counting_down`)
 - feat: stm32/timer: add `low_level::Timer::get_counter()` to read the counter register as `T::Word`
+- feat: stm32/timer/complementary_pwm: add `set_main_output_enable`, `set_complementary_output_enable`, `main_output_enabled` and `complementary_output_enabled` to switch and read a channel's `CCxE` and `CCxNE` independently; `enable`/`disable` still switch both. `low_level::Timer::get_complementary_channel_enable_state` reads `CCxNE`.
 
 QEI:
 - fix: stm32/qei: `count()`, `reset()`, and `auto_reload` always used the 16-bit register view, so on 32-bit timers `reset()` only cleared the lower 16 bits of the counter (leaving the upper bits stale) and `auto_reload`/`count()` were truncated to `u16`; `Config`/`AdvancedConfig` are now generic over the timer instance and `auto_reload` uses `T::Word`, while `count()` returns `u32` so 32-bit timers work correctly across their full range (breaking change)

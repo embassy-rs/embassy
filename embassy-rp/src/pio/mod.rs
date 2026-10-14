@@ -1085,13 +1085,24 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         if PIO::PIO.gpiobase().read().gpiobase() { 16 } else { 0 }
     }
 
+    /// Pin number relative to GPIOBASE; panics if the pin is outside the window chosen by `set_config`.
+    fn pin_offset(pin: &Pin<'d, PIO>) -> u8 {
+        match pin.pin().checked_sub(Self::pin_base()) {
+            Some(rel) if rel < 32 => rel,
+            _ => panic!(
+                "pin {} is outside the PIO's GPIOBASE window; call StateMachine::set_config first",
+                pin.pin()
+            ),
+        }
+    }
+
     /// Sets pin directions. This pauses the current state machine to run `SET` commands
     /// and temporarily unsets the `OUT_STICKY` bit.
     pub fn set_pin_dirs(&mut self, dir: Direction, pins: &[&Pin<'d, PIO>]) {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin() - Self::pin_base());
+                    w.set_set_base(Self::pin_offset(pin));
                     w.set_set_count(1);
                 });
                 // SET PINDIRS, (dir)
@@ -1109,7 +1120,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin() - Self::pin_base());
+                    w.set_set_base(Self::pin_offset(pin));
                     w.set_set_count(1);
                 });
                 // SET PINS, (dir)

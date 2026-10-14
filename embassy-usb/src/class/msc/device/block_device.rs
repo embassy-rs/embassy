@@ -1,6 +1,96 @@
-//! Block device adapters for [`MscClass`](super::MscClass).
+//! Block devices for [`MscClass`](super::MscClass): the storage traits and adapters.
 
-use super::AsyncBlockDevice;
+/// Trait implemented by synchronous block devices used by [`MscClass`](super::MscClass).
+pub trait BlockDevice {
+    /// Error type returned by storage operations.
+    type Error;
+
+    /// Returns the block size in bytes.
+    fn block_size(&self) -> u32;
+
+    /// Returns the total amount of logical blocks.
+    fn block_count(&self) -> u32;
+
+    /// Reads consecutive logical blocks starting at `lba` into `buf`.
+    ///
+    /// `buf.len()` is a non-zero multiple of `self.block_size()`.
+    fn read_blocks(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error>;
+
+    /// Writes consecutive logical blocks starting at `lba` from `data`.
+    ///
+    /// `data.len()` is a non-zero multiple of `self.block_size()`.
+    fn write_blocks(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error>;
+
+    /// Flushes pending writes to backing storage.
+    fn flush(&mut self) -> Result<(), Self::Error>;
+
+    /// Returns whether the media is write-protected.
+    fn is_write_protected(&self) -> bool {
+        false
+    }
+}
+
+/// Async block device abstraction used by [`MscClass`](super::MscClass).
+///
+/// You can implement this trait directly for asynchronous storage, or
+/// implement [`BlockDevice`] and rely on the blanket adapter.
+pub trait AsyncBlockDevice {
+    /// Error type returned by storage operations.
+    type Error;
+
+    /// Returns the block size in bytes.
+    fn block_size(&self) -> u32;
+
+    /// Returns the total amount of logical blocks.
+    fn block_count(&self) -> u32;
+
+    /// Reads consecutive logical blocks starting at `lba` into `buf`.
+    ///
+    /// `buf.len()` is a non-zero multiple of `self.block_size()`. Transferring
+    /// several blocks per call lets storage use multi-block commands.
+    async fn read_blocks(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error>;
+
+    /// Writes consecutive logical blocks starting at `lba` from `data`.
+    ///
+    /// `data.len()` is a non-zero multiple of `self.block_size()`.
+    async fn write_blocks(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error>;
+
+    /// Flushes pending writes to backing storage.
+    async fn flush(&mut self) -> Result<(), Self::Error>;
+
+    /// Returns whether the media is write-protected.
+    fn is_write_protected(&self) -> bool {
+        false
+    }
+}
+
+impl<T: BlockDevice + ?Sized> AsyncBlockDevice for T {
+    type Error = T::Error;
+
+    fn block_size(&self) -> u32 {
+        BlockDevice::block_size(self)
+    }
+
+    fn block_count(&self) -> u32 {
+        BlockDevice::block_count(self)
+    }
+
+    async fn read_blocks(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
+        BlockDevice::read_blocks(self, lba, buf)
+    }
+
+    async fn write_blocks(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error> {
+        BlockDevice::write_blocks(self, lba, data)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        BlockDevice::flush(self)
+    }
+
+    fn is_write_protected(&self) -> bool {
+        BlockDevice::is_write_protected(self)
+    }
+}
 
 /// A cacheing wrapper for `AsyncBlockDevice` that aggregates writes to a device
 /// with large blocks, eliminating multiple flash read-erase-write cycles.
@@ -353,5 +443,46 @@ mod tests {
                 let _ = adapter.write_blocks(1, &io[1..]).await;
             });
         }
+    }
+
+    struct MockBlockDevice {
+        blocks: [[u8; 512]; 4],
+    }
+
+    impl BlockDevice for MockBlockDevice {
+        type Error = ();
+        fn block_size(&self) -> u32 {
+            512
+        }
+        fn block_count(&self) -> u32 {
+            4
+        }
+        fn read_blocks(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
+            buf.copy_from_slice(self.blocks[lba as usize..][..buf.len() / 512].as_flattened());
+            Ok(())
+        }
+        fn write_blocks(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error> {
+            self.blocks[lba as usize..][..data.len() / 512]
+                .as_flattened_mut()
+                .copy_from_slice(data);
+            Ok(())
+        }
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn sync_block_device_blanket_impl() {
+        let mut dev = MockBlockDevice {
+            blocks: [[0u8; 512]; 4],
+        };
+        dev.blocks[1][0] = 42;
+        dev.blocks[2][0] = 43;
+        let mut buf = [0u8; 1024];
+        embassy_futures::block_on(async {
+            AsyncBlockDevice::read_blocks(&mut dev, 1, &mut buf).await.unwrap();
+            core::assert_eq!((buf[0], buf[512]), (42, 43));
+        });
     }
 }

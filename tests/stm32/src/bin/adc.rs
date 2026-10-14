@@ -205,10 +205,29 @@ async fn main(_spawner: Spawner) {
         check_vrefint("dma vrefint", buf[1]);
         check_vrefint("dma vrefint 2", buf[3]);
         if method != PinMethod::Drive {
+            // The vrefint conversion in between discharges the sampling capacitor towards
+            // VREFINT, so the second pin sample only recovers partway towards the pin level.
+            // Require it to be clearly on the expected side of both the midpoint and the
+            // vrefint level measured in this same sequence.
+            let vref_avg = (buf[1] as u32 + buf[3] as u32) / 2;
+            let margin = max / 64;
+            info!("dma {} 2: {} (max {})", if high { "high" } else { "low" }, buf[2], max);
             if high {
-                check_high("dma high 2", buf[2]);
+                let threshold = mid.min(vref_avg) + margin;
+                assert!(
+                    buf[2] as u32 > threshold,
+                    "dma high 2 expected high (> {}), got {}",
+                    threshold,
+                    buf[2]
+                );
             } else {
-                check_low("dma low 2", buf[2]);
+                let threshold = mid.max(vref_avg) - margin;
+                assert!(
+                    (buf[2] as u32) < threshold,
+                    "dma low 2 expected low (< {}), got {}",
+                    threshold,
+                    buf[2]
+                );
             }
         }
     }
