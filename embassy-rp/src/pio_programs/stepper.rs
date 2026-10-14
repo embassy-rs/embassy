@@ -59,7 +59,6 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
         let pin1 = pio.make_pio_pin(pin1);
         let pin2 = pio.make_pio_pin(pin2);
         let pin3 = pio.make_pio_pin(pin3);
-        sm.set_pin_dirs(Direction::Out, &[&pin0, &pin1, &pin2, &pin3]);
         let mut cfg = Config::default();
         cfg.set_out_pins(&[&pin0, &pin1, &pin2, &pin3]);
 
@@ -67,6 +66,7 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
 
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);
+        sm.set_pin_dirs(Direction::Out, &[&pin0, &pin1, &pin2, &pin3]);
         sm.set_enable(true);
         Self { irq, sm }
     }

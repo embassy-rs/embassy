@@ -87,6 +87,14 @@ impl Timeout {
     }
 }
 
+/// Performs a busy-wait delay for at least specified number of microseconds.
+#[allow(dead_code)]
+pub fn block_for_us(micros: u64) {
+    cortex_m::asm::delay(
+        unsafe { crate::rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * micros / 1_000_000 } as u32,
+    );
+}
+
 /// Performs a busy-wait delay for a specified number of microseconds that is async if possible
 #[allow(dead_code)]
 pub async fn wait_for_us(micros: u64) {
@@ -95,28 +103,6 @@ pub async fn wait_for_us(micros: u64) {
 
     #[cfg(not(feature = "time"))]
     block_for_us(micros);
-}
-
-/// Performs a busy-wait delay for a specified number of microseconds.
-#[allow(dead_code)]
-pub fn block_for_us(micros: u64) {
-    #[cfg(feature = "time")]
-    embassy_time::block_for(Duration::from_micros(micros));
-
-    #[cfg(not(feature = "time"))]
-    cortex_m::asm::delay(
-        unsafe { crate::rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * micros / 1_000_000 } as u32,
-    );
-}
-
-/// Performs a busy-wait delay of at least `nanos` nanoseconds, counted in CPU cycles.
-///
-/// Unlike [`block_for_us`] with the `time` feature, it never ends early: `embassy_time::block_for`
-/// returns at a tick boundary, so it can end up to one tick before the requested time.
-#[allow(dead_code)]
-pub fn block_for_ns(nanos: u32) {
-    let sys_hz = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0;
-    cortex_m::asm::delay((sys_hz as u64 * nanos as u64).div_ceil(1_000_000_000) as u32);
 }
 
 #[cfg(feature = "time")]

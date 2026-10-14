@@ -820,12 +820,14 @@ impl<'a> Control<'a> {
 
         self.events.mask.enable(&[Event::ESCAN_RESULT]);
         let subscriber = self.events.queue.subscriber().unwrap();
-        self.set_iovar_v::<256>("escan", scan_params.to_bytes()).await;
-
-        Scanner {
+        // Own scan state before awaiting so Scanner cleans it up on cancellation.
+        let scanner = Scanner {
             subscriber,
             events: self.events,
-        }
+        };
+        self.set_iovar_v::<256>("escan", scan_params.to_bytes()).await;
+
+        scanner
     }
     /// Leave the wifi, with which we are currently associated.
     pub async fn leave(&mut self) {
@@ -1192,5 +1194,84 @@ mod psk_event_tests {
         let mut join = pin!(control.join("test", JoinOptions::new_open()));
         assert!(join.as_mut().poll(&mut cx).is_pending());
         assert!(matches!(pending_ioctl(&state.ioctl_state, &mut cx).cmd, Ioctl::SetVar));
+    }
+}
+
+#[cfg(test)]
+mod scan_cancellation_tests {
+    use core::future::Future;
+    use core::pin::pin;
+    use core::task::{Context, Poll, Waker};
+
+    use super::*;
+
+    #[test]
+    fn dropping_scan_startup_cleans_events_and_allows_a_fresh_scan() {
+        let mut state = crate::State::new();
+        let (runner, _device) = ch::new(&mut state.net.ch, HardwareAddress::Ethernet([0; 6]), crate::MTU);
+        let mut control = Control::new(
+            runner.state_runner(),
+            &state.net.events,
+            &state.ioctl_state,
+            &state.net.secure_network,
+        );
+        let events = &state.net.events;
+        let ioctl = &state.ioctl_state;
+        let mut cx = Context::from_waker(Waker::noop());
+
+        {
+            let mut scan = pin!(control.scan(ScanOptions::default()));
+            assert!(scan.as_mut().poll(&mut cx).is_pending());
+            assert!(events.mask.is_enabled(Event::ESCAN_RESULT));
+            assert!(events.queue.subscriber().is_err());
+            assert!(!ioctl.is_idle());
+            // Drop at the first Pending, before the runner takes the ioctl.
+        }
+
+        assert!(!events.mask.is_enabled(Event::ESCAN_RESULT));
+        assert!(events.queue.subscriber().is_ok());
+        assert!(ioctl.is_idle());
+        assert!(pin!(ioctl.wait_pending()).as_mut().poll(&mut cx).is_pending());
+
+        let mut scanner = {
+            let mut scan = pin!(control.scan(ScanOptions::default()));
+            assert!(scan.as_mut().poll(&mut cx).is_pending());
+            assert!(events.mask.is_enabled(Event::ESCAN_RESULT));
+            assert!(events.queue.subscriber().is_err());
+            let Poll::Ready(request) = pin!(ioctl.wait_pending()).as_mut().poll(&mut cx) else {
+                panic!("expected a pending scan request");
+            };
+            assert!(matches!(request.cmd, Ioctl::SetVar));
+            assert!(request.kind == IoctlType::Set);
+            ioctl.ioctl_done(&[]);
+            let Poll::Ready(scanner) = scan.as_mut().poll(&mut cx) else {
+                panic!("scan startup did not complete");
+            };
+            scanner
+        };
+
+        // Completing startup transfers the cleanup responsibility to Scanner.
+        assert!(events.mask.is_enabled(Event::ESCAN_RESULT));
+        assert!(events.queue.subscriber().is_err());
+        {
+            let mut next = pin!(scanner.next());
+            assert!(next.as_mut().poll(&mut cx).is_pending());
+            events
+                .queue
+                .immediate_publisher()
+                .publish_immediate(events::Message::new(
+                    events::Status {
+                        event_type: Event::ESCAN_RESULT,
+                        status: EStatus::SUCCESS as u32,
+                        reason: 0,
+                    },
+                    events::Payload::None,
+                ));
+            assert!(matches!(next.as_mut().poll(&mut cx), Poll::Ready(None)));
+        }
+        assert!(!events.mask.is_enabled(Event::ESCAN_RESULT));
+        drop(scanner);
+        assert!(events.queue.subscriber().is_ok());
+        assert!(ioctl.is_idle());
     }
 }

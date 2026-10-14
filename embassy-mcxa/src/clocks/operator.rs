@@ -50,7 +50,10 @@ pub(super) struct ClockOperator<'a> {
     pub(super) scg0: pac::scg::Scg,
     pub(super) syscon: pac::syscon::Syscon,
     pub(super) vbat0: pac::vbat::Vbat,
+    #[cfg(feature = "mcxa2xx")]
     pub(super) spc0: pac::spc::Spc,
+    #[cfg(feature = "mcxa5xx")]
+    pub(super) spc0: pac::spc::Spc5xx,
     pub(super) fmu0: pac::fmu::Fmu,
     pub(super) cmc: pac::cmc::Cmc,
 }

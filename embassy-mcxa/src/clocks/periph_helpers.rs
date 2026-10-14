@@ -689,6 +689,123 @@ impl SPConfHelper for AdcConfig {
 // OSTimer
 //
 
+/// Selectable functional clocks for LPTMR.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum LptmrClockSel {
+    /// Direct FRO16K input (PSR.PCS = 1), independent of the MRCC divider.
+    Clk16K,
+    /// Divided low-frequency FRO through MRCC (PSR.PCS = 3).
+    FroLfDiv,
+    /// Divided high-frequency FRO through MRCC.
+    FroHfDiv,
+    /// External clock through MRCC.
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    /// 1 MHz clock through MRCC.
+    Clk1M,
+    /// Divided PLL1 output through MRCC.
+    Pll1ClkDiv,
+}
+
+/// LPTMR clock configuration. LPTMR has no MRCC bus gate or reset line.
+pub(crate) struct LptmrConfig {
+    /// Required power state.
+    pub power: PoweredClock,
+    /// Functional clock source.
+    pub source: LptmrClockSel,
+    /// MRCC divider; must be divide-by-one for the direct FRO16K input.
+    pub div: Div4,
+    /// Counter prescaler.
+    pub prescaler: crate::lptmr::Prescaler,
+}
+
+impl SPConfHelper for LptmrConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        use crate::pac::mrcc::LptmrClkselMux;
+
+        let freq = match self.source {
+            LptmrClockSel::Clk16K => {
+                if self.div != Div4::no_div() {
+                    return Err(ClockError::BadConfig {
+                        clock: "lptmr",
+                        reason: "FRO16K bypasses the MRCC divider",
+                    });
+                }
+                clocks.ensure_clk_16k_vsys_active(&self.power)?
+            }
+            LptmrClockSel::FroLfDiv => clocks.ensure_fro_lf_div_active(&self.power)?,
+            LptmrClockSel::FroHfDiv => clocks.ensure_fro_hf_div_active(&self.power)?,
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            LptmrClockSel::ClkIn => clocks.ensure_clk_in_active(&self.power)?,
+            LptmrClockSel::Clk1M => clocks.ensure_clk_1m_active(&self.power)?,
+            LptmrClockSel::Pll1ClkDiv => clocks.ensure_pll1_clk_div_active(&self.power)?,
+        };
+        let input = freq / self.div.into_divisor();
+        let counter = input / self.prescaler.divisor();
+        let total_divisor = self.div.into_divisor() as u64 * self.prescaler.divisor() as u64;
+        if freq as u64 % total_divisor != 0 {
+            return Err(ClockError::BadConfig {
+                clock: "lptmr",
+                reason: "fractional-Hz counter clocks are not supported",
+            });
+        }
+        // Use the stricter chip clocking tables (MCXA2 21.3.2, MCXA5
+        // 28.3.2), not the generic LPTMR chapter's 25MHz limit. Both limits
+        // are independent of run mode. Counter reads also require bus >=2x
+        // the increment rate (MCXA2 35.3.5, MCXA5 40.3.5).
+        #[cfg(feature = "mcxa2xx")]
+        let max_input: u64 = 22_500_000;
+        #[cfg(feature = "mcxa5xx")]
+        let max_input: u64 = 24_000_000;
+        let bus = clocks.ensure_slow_clk_active(&PoweredClock::NormalEnabledDeepSleepDisabled)?;
+        let divisor = self.div.into_divisor() as u64;
+        if input == 0
+            || (freq as u64) > max_input * divisor
+            || counter == 0
+            || (freq as u64) * 2 > (bus as u64) * divisor * self.prescaler.divisor() as u64
+        {
+            return Err(ClockError::BadConfig {
+                clock: "lptmr",
+                reason: "input or counter frequency exceeds hardware limits",
+            });
+        }
+        if self.source == LptmrClockSel::Clk16K {
+            return Ok(PreEnableParts {
+                freq: counter,
+                wake_guard: WakeGuard::for_power(&self.power),
+            });
+        }
+        // Encodings are identical across families; PAC variant names differ.
+        let bits = match self.source {
+            LptmrClockSel::FroLfDiv => 0,
+            LptmrClockSel::FroHfDiv => 2,
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            LptmrClockSel::ClkIn => 3,
+            LptmrClockSel::Clk1M => 5,
+            LptmrClockSel::Pll1ClkDiv => 6,
+            LptmrClockSel::Clk16K => unreachable!(),
+        };
+        let clksel = crate::pac::MRCC0.mrcc_lptmr0_clksel();
+        let clkdiv = crate::pac::MRCC0.mrcc_lptmr0_clkdiv();
+        clksel.write(|w| w.set_mux(LptmrClkselMux::from_bits(bits)));
+        clkdiv.modify(|w| {
+            w.set_halt(ClkdivHalt::Off);
+            w.set_reset(ClkdivReset::Off);
+        });
+        clkdiv.write(|w| {
+            w.set_div(self.div.into_bits());
+            w.set_halt(ClkdivHalt::On);
+            w.set_reset(ClkdivReset::On);
+        });
+        while clkdiv.read().unstab() == ClkdivUnstab::Off {}
+        Ok(PreEnableParts {
+            freq: counter,
+            wake_guard: WakeGuard::for_power(&self.power),
+        })
+    }
+}
+
 /// Selectable clocks for the OSTimer peripheral
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum OstimerClockSel {

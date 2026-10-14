@@ -2,6 +2,7 @@ use core::cell::RefCell;
 use core::convert::Infallible;
 use core::future::Future;
 use core::mem::MaybeUninit;
+use core::task::{Context, Poll};
 
 use aligned::{A4, Aligned};
 use bt_hci_transport::{PacketToController, ReadHciError};
@@ -55,6 +56,7 @@ pub(crate) struct BtRunner<'d> {
     h2b_write_pointer: u32,
     b2h_read_pointer: u32,
     host_ctrl: HostCtrl,
+    pending_drain: bool,
 }
 
 /// Host-owned BTSDIO control bits.
@@ -141,6 +143,7 @@ pub(crate) fn new<'d>(state: &'d mut BtState) -> (BtRunner<'d>, BtDriver<'d>) {
             h2b_write_pointer: 0,
             b2h_read_pointer: 0,
             host_ctrl: HostCtrl::new(),
+            pending_drain: false,
         },
         BtDriver {
             rx: RefCell::new(rx_receiver),
@@ -457,8 +460,19 @@ impl<'a> BtRunner<'a> {
         return false;
     }
 
+    pub(crate) fn poll_rx_ready(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        if self.pending_drain {
+            // Register for queue space without reserving or publishing a slot.
+            self.rx_chan.poll_send(cx).map(|_| ())
+        } else {
+            Poll::Pending
+        }
+    }
+
     pub(crate) async fn handle_irq(&mut self, bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>) {
-        if self.bt_has_work(bus).await {
+        // Acknowledge new interrupts even when continuing a deferred drain.
+        if self.bt_has_work(bus).await || self.pending_drain {
+            self.pending_drain = false;
             loop {
                 // Check if we have data.
                 let write_pointer = bus.bp_read32(self.addr + BTSDIO_OFFSET_BT2HOST_IN).await;
@@ -479,10 +493,12 @@ impl<'a> BtRunner<'a> {
                     warn!("ringbuf data not enough for a full packet?");
                     break;
                 }
+                // Keep the entire record in the ring until the host has queue space.
+                let Some(mut msg) = self.rx_chan.try_send() else {
+                    self.pending_drain = true;
+                    break;
+                };
                 self.b2h_read_pointer = (self.b2h_read_pointer + 4) % BTSDIO_FWBUF_SIZE;
-
-                // Obtain a buf from the channel.
-                let mut msg = self.rx_chan.send().await;
 
                 msg.buf[0] = header[3]; // hci packet type
                 let payload = &mut msg.buf[1..][..rounded_len as usize];
@@ -592,3 +608,7 @@ impl<'d> bt_hci_transport::Transport for BtDriver<'d> {
         }
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "bluetooth_tests.rs"]
+mod tests;

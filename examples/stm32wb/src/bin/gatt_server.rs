@@ -41,7 +41,7 @@ bind_interrupts!(struct Irqs{
     IPCC_C1_TX => TransmitInterruptHandler;
 });
 
-const BLE_GAP_DEVICE_NAME_LENGTH: u8 = 7;
+const DEVICE_NAME: &[u8] = b"TXTX";
 
 #[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
@@ -129,9 +129,22 @@ async fn main(spawner: Spawner) {
         .exec(&GapInit::new(
             Role::PERIPHERAL,
             Privacy::Disabled,
-            BLE_GAP_DEVICE_NAME_LENGTH,
+            DEVICE_NAME.len() as u8,
         ))
         .await;
+    defmt::debug!("{}", response);
+    let gap_service = unwrap!(response);
+
+    // The advertised local name doesn't touch the GAP Device Name characteristic (0x2A00),
+    // which otherwise keeps the stack's default value.
+    info!("set device name...");
+    let command = unwrap!(GattUpdateCharValue::try_new(
+        gap_service.service_handle,
+        gap_service.dev_name_char_handle,
+        0,
+        DEVICE_NAME
+    ));
+    let response = ble.exec(&command).await;
     defmt::debug!("{}", response);
 
     info!("set IO capabilities...");
@@ -155,7 +168,7 @@ async fn main(spawner: Spawner) {
     defmt::debug!("{}", response);
 
     info!("set scan response data...");
-    let scan_rsp = unwrap!(AdvData::<31>::new().complete_local_name(b"TXTX"));
+    let scan_rsp = unwrap!(AdvData::<31>::new().complete_local_name(DEVICE_NAME));
     let mut data = [0; 31];
     data[..scan_rsp.as_bytes().len()].copy_from_slice(scan_rsp.as_bytes());
     let response = ble
@@ -169,7 +182,7 @@ async fn main(spawner: Spawner) {
 
     let mut ble_context = ble_context.unwrap();
 
-    let local_name = unwrap!(local_name_structure::<8>(b"TXTX", true));
+    let local_name = unwrap!(local_name_structure::<8>(DEVICE_NAME, true));
     let interval = unwrap!(AdvInterval::from_millis(100));
     let set_discoverable = unwrap!(GapSetDiscoverable::try_new(
         AdvertisingType::ConnectableUndirected,

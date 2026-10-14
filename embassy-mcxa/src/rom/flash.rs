@@ -1,3 +1,14 @@
+//! ROM-backed internal flash operations for MCXA devices.
+//!
+//! Construct [`Flash`] with [`super::RomApi::flash`] to query flash geometry,
+//! erase and program memory, read data, and verify programmed or erased regions.
+//! The driver also implements the `embedded-storage` NOR flash traits. MCXA5xx
+//! exposes additional IFR verification and flash-controller configuration data.
+//!
+//! Lengths are expressed in bytes, with operation-specific address and buffer
+//! alignment requirements. Select expendable regions for programming tests and
+//! avoid overwriting application code or protected flash configuration.
+
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};

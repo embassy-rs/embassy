@@ -168,7 +168,7 @@ pub mod crc;
 pub mod cryp;
 #[cfg(csi)]
 pub mod csi;
-#[cfg(all(dac, not(stm32c5)))]
+#[cfg(all(dac, not(dac_v9)))]
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
@@ -240,7 +240,7 @@ pub mod mdf;
 pub mod mdios;
 #[cfg(npu)]
 pub mod npu;
-#[cfg(opamp)]
+#[cfg(all(opamp, not(stm32c5)))]
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;

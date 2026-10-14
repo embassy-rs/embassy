@@ -20,7 +20,7 @@ use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
 use crate::util::{WriteBuffer, try_until};
-use crate::{Chip, ChipId, Core, MTU, WithContext, events};
+use crate::{Chip, ChipId, Core, RX_BUF_ALIGN, RX_BUF_SIZE, WithContext, events};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -778,6 +778,17 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             #[cfg(feature = "firmware-logs")]
             self.log_read(&mut buf).await;
 
+            #[cfg(feature = "bluetooth")]
+            if core::future::poll_fn(|cx| {
+                Poll::Ready(self.bt.as_mut().is_some_and(|bt| bt.poll_rx_ready(cx).is_ready()))
+            })
+            .await
+            {
+                // A continuously ready WiFi TX queue must not starve a deferred BT record.
+                self.handle_irq(&mut buf).await;
+                continue;
+            }
+
             if self.has_credit() {
                 let ioctl = self.ioctl_state.wait_pending();
                 // The multicast filter list the stack wants, when it changes. Applying
@@ -794,20 +805,22 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     });
                 let wifi_tx = self.ch.tx();
                 #[cfg(feature = "bluetooth")]
-                let bt_tx = async {
-                    match &mut self.bt {
-                        Some(bt) => {
-                            let _ = bt.tx_chan.receive().await;
+                let bt_work = core::future::poll_fn(|cx| match &mut self.bt {
+                    Some(bt) => {
+                        if bt.poll_rx_ready(cx).is_ready() {
+                            Poll::Ready(Either::First(()))
+                        } else {
+                            bt.tx_chan.poll_receive(cx).map(|_| Either::Second(()))
                         }
-                        None => core::future::pending().await,
                     }
-                };
+                    None => Poll::Pending,
+                });
                 #[cfg(not(feature = "bluetooth"))]
-                let bt_tx = core::future::pending::<()>();
+                let bt_work = core::future::pending::<Either<(), ()>>();
 
                 let ev = self.bus.wait_for_event();
 
-                match select4(select(ioctl, mcast), wifi_tx, bt_tx, ev).await {
+                match select4(select(ioctl, mcast), wifi_tx, bt_work, ev).await {
                     Either4::First(Either::First(PendingIoctl {
                         buf: iobuf,
                         kind,
@@ -876,11 +889,11 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         drop(packet);
                         self.check_status(&mut buf).await;
                     }
-                    Either4::Third(_) => {
+                    Either4::Third(Either::Second(())) => {
                         #[cfg(feature = "bluetooth")]
                         self.bt.as_mut().unwrap().hci_write(&mut self.bus, &mut buf).await;
                     }
-                    Either4::Fourth(()) => {
+                    Either4::Third(Either::First(())) | Either4::Fourth(()) => {
                         self.handle_irq(&mut buf).await;
                     }
                 }
@@ -893,6 +906,16 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         .await;
                 }
 
+                #[cfg(feature = "bluetooth")]
+                {
+                    // Queue space can resume BT RX without a new IRQ or WiFi TX credit.
+                    let bt_rx = core::future::poll_fn(|cx| match &mut self.bt {
+                        Some(bt) => bt.poll_rx_ready(cx),
+                        None => Poll::Pending,
+                    });
+                    let _ = select(bt_rx, self.bus.wait_for_event()).await;
+                }
+                #[cfg(not(feature = "bluetooth"))]
                 self.bus.wait_for_event().await;
                 self.handle_irq(&mut buf).await;
             }
@@ -1014,16 +1037,19 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
             let mut packet = self.ch.try_rx_buf();
 
-            let buf = match packet {
-                Some(ref mut packet) if packet.capacity() >= len => unsafe {
+            let buf = match &mut packet {
+                // SPI reads whole words: up to 3 bytes past `len`.
+                Some(packet) if packet.capacity() >= len.next_multiple_of(4) => unsafe {
                     assert!(
-                        (packet.as_ptr() as usize).is_multiple_of(4),
-                        "PacketBuf requires 4-align"
+                        (packet.as_ptr() as usize).is_multiple_of(RX_BUF_ALIGN),
+                        "cyw43: pool buffers must be aligned to cyw43::RX_BUF_ALIGN ({})",
+                        RX_BUF_ALIGN
                     );
                     assert!(
-                        packet.capacity() >= MTU + SdpcmHeader::SIZE + BdcHeader::SIZE,
-                        "PacketBuf requires {} headroom",
-                        SdpcmHeader::SIZE + BdcHeader::SIZE
+                        packet.capacity() >= RX_BUF_SIZE,
+                        "cyw43: pool buffers must hold cyw43::RX_BUF_SIZE ({}) bytes, got {}",
+                        RX_BUF_SIZE,
+                        packet.capacity()
                     );
 
                     // SAFETY: align is checked above
@@ -1068,7 +1094,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             let reception = self.rx(&mut buf[..len]);
 
             if let Some(mut packet) = packet
-                && packet.capacity() >= len
+                && packet.capacity() >= len.next_multiple_of(4)
                 && let Some(Reception { len, offset }) = reception
             {
                 packet.reserve(offset);

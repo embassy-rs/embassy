@@ -30,19 +30,19 @@ where
         }
     }
 
-    pub fn active(&self) -> Partition<NoopRawMutex, ACTIVE> {
+    pub fn active(&self) -> Partition<'_, NoopRawMutex, ACTIVE> {
         Self::create_partition(&self.active)
     }
 
-    pub fn dfu(&self) -> Partition<NoopRawMutex, DFU> {
+    pub fn dfu(&self) -> Partition<'_, NoopRawMutex, DFU> {
         Self::create_partition(&self.dfu)
     }
 
-    pub fn state(&self) -> Partition<NoopRawMutex, STATE> {
+    pub fn state(&self) -> Partition<'_, NoopRawMutex, STATE> {
         Self::create_partition(&self.state)
     }
 
-    fn create_partition<T: NorFlash>(mutex: &Mutex<NoopRawMutex, T>) -> Partition<NoopRawMutex, T> {
+    fn create_partition<T: NorFlash>(mutex: &Mutex<NoopRawMutex, T>) -> Partition<'_, NoopRawMutex, T> {
         Partition::new(mutex, 0, unwrap!(mutex.try_lock()).capacity() as u32)
     }
 }

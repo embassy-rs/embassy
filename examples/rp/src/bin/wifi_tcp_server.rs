@@ -92,7 +92,8 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    static POOL: StaticPool = StaticPool::new();
+    // cyw43 receives each frame with its bus headers straight into these buffers.
+    static POOL: StaticPool<{ cyw43::RX_BUF_SIZE }, 16, { cyw43::RX_BUF_ALIGN }> = StaticPool::new();
     let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.

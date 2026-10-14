@@ -15,6 +15,8 @@ publish = false
 build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa2xx"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa5xx"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa2xx", "time-driver-lptmr"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa5xx", "time-driver-lptmr"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -58,7 +60,7 @@ grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "2bfe368b9ad974d03a41279bddb1ef05705ae9d8" }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "c4fc85c89f21bc256dee0af69885db539e403533", features = ["rt"] }
 paste = "1.0.15"
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
@@ -66,7 +68,7 @@ rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 [build-dependencies]
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "2bfe368b9ad974d03a41279bddb1ef05705ae9d8", default-features = false, features = ["metadata"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "c4fc85c89f21bc256dee0af69885db539e403533", default-features = false, features = ["metadata"] }
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 regex = "1.12.3"
@@ -75,7 +77,15 @@ convert_case = "0.11"
 indexmap = "2.14.0"
 
 [features]
-default = ["rt", "swd-swo-as-gpio", "dma-ipd-req"]
+default = ["rt", "swd-swo-as-gpio", "dma-ipd-req", "time-driver-any"]
+
+## Default to OSTIMER0 unless an explicit time driver is selected.
+time-driver-any = ["rt"]
+## Explicitly use OSTIMER0 as the Embassy time driver, at 1 MHz.
+time-driver-ostimer = ["rt"]
+## Use LPTMR0 as the Embassy time driver, at 1 MHz. Polls alarms every 1 ms.
+## Overrides time-driver-any; incompatible with explicit time-driver-ostimer.
+time-driver-lptmr = ["rt"]
 
 # Base defmt feature enables core + panic handler
 # Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)

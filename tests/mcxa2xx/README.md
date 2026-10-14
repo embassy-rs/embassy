@@ -12,6 +12,8 @@
 - [ ] Flash
 - [x] CTimer PWM
 - [x] CTimer capture
+- [x] LPTMR polling, async waits, cancellation, prescalers and FRO16K
+- [x] LPTMR Embassy time backend (additional `time-driver-lptmr` build)
 - [ ] SPI
 
 ## Wiring:

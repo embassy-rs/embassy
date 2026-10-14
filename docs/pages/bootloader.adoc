@@ -62,11 +62,9 @@ The `FirmwareUpdater` is an object for conveniently flashing firmware to the DFU
 
 === Verification
 
-The bootloader supports the verification of firmware that has been flashed to the DFU partition. Verification requires that firmware has been signed digitally using link:https://ed25519.cr.yp.to/[`ed25519`] signatures. With verification enabled, the `FirmwareUpdater::verify_and_mark_updated` method is called in place of `mark_updated`. A public key and signature are required, along with the actual length of the firmware that has been flashed. If verification fails then the firmware will not be marked as updated and therefore be rejected.
+The bootloader supports the verification of firmware that has been flashed to the DFU partition. Verification requires that firmware has been signed digitally using a signature algorithm provided by `embassy_crypto`. With verification enabled, the `FirmwareUpdater::verify_and_mark_updated` method is called in place of `mark_updated`. A public key and signature are required, along with the actual length of the firmware that has been flashed. If verification fails then the firmware will not be marked as updated and therefore be rejected.
 
 Signatures are normally conveyed with the firmware to be updated and not written to flash. How signatures are provided is a firmware responsibility.
-
-To enable verification use either the `ed25519-dalek` or `ed25519-salty` features when depending on the `embassy-boot` crate. We recommend `ed25519-salty` at this time due to its small size.
 
 ==== Tips on keys and signing with ed25519
 
