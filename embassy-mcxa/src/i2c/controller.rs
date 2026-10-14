@@ -291,7 +291,7 @@ const SCL_LATENCY_BASE_CYCLES: u32 = 2;
 const MAX_DUTY_BAUD_DEGRADATION_PERCENT: u32 = 1;
 
 /// Percentage of the nominal bus frequency that the timing search aims for
-/// when [`Config::strict_mode`] is enabled.
+/// when [`Config::strict_mode`] is enabled, which it is by default.
 ///
 /// The resulting 3% headroom matches the i.MXRT Flexcomm I2C driver.
 const STRICT_MODE_TARGET_PERCENT: u32 = 97;
@@ -547,7 +547,7 @@ enum SendStop {
 }
 
 /// I2C controller configuration
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 #[non_exhaustive]
 pub struct Config {
     /// Bus speed
@@ -563,13 +563,26 @@ pub struct Config {
 
     /// Enable strict mode
     ///
-    /// If enabled, the frequency the timing search aims for is reduced by 3%
-    /// to provide some margin, which should prevent jitter from causing the
-    /// bus to exceed the nominal speed.
+    /// Enabled by default. The frequency the timing search aims for is reduced
+    /// to [`STRICT_MODE_TARGET_PERCENT`] of the nominal rate to provide some
+    /// margin, which should prevent clock tolerance and jitter from causing the
+    /// bus to exceed the nominal speed. Clear it to target the nominal rate
+    /// directly, when throughput matters more than staying clear of the limit.
     ///
     /// Timings at or below the target are always preferred over timings above
     /// it regardless of this flag; strict mode lowers the target itself.
     pub strict_mode: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            speed: Speed::Standard,
+            duty_cycle: Default::default(),
+            clock_config: Default::default(),
+            strict_mode: true,
+        }
+    }
 }
 
 /// I2C controller clock configuration
@@ -2000,6 +2013,51 @@ mod tests {
                 high_percent: 25,
             }
         );
+    }
+
+    #[test]
+    fn strict_mode_is_enabled_by_default() {
+        assert!(
+            Config::default().strict_mode,
+            "strict mode must be enabled unless the caller opts out"
+        );
+
+        let strict = compute_baud_params(48_000_000, Speed::Fast, DutyCycle::default(), true).unwrap();
+        let relaxed = compute_baud_params(48_000_000, Speed::Fast, DutyCycle::default(), false).unwrap();
+
+        assert_eq!(
+            strict.configured_timing(48_000_000),
+            ConfiguredTiming {
+                frequency_hz: 387_096,
+                high_percent: 48,
+            }
+        );
+        assert_eq!(
+            relaxed.configured_timing(48_000_000),
+            ConfiguredTiming {
+                frequency_hz: 400_000,
+                high_percent: 48,
+            }
+        );
+    }
+
+    #[test]
+    fn strict_mode_keeps_every_source_below_the_nominal_rate() {
+        let sources = [6_000_000, 12_000_000, 24_000_000, 48_000_000, 96_000_000, 150_000_000];
+        let speeds = [Speed::Standard, Speed::Fast, Speed::FastPlus];
+
+        for source in sources {
+            for speed in speeds {
+                let params = compute_baud_params(source, speed, DutyCycle::default(), true).unwrap();
+                let nominal: u32 = speed.into();
+                let actual = params.configured_timing(source).frequency_hz;
+
+                assert!(
+                    actual <= nominal,
+                    "{source} Hz source ran {speed:?} at {actual} Hz, above the {nominal} Hz nominal rate"
+                );
+            }
+        }
     }
 
     #[test]
