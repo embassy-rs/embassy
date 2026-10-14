@@ -31,6 +31,7 @@ tmp108 = "0.4.0"
 
 [features]
 default = ["default-executor"]
+time-driver-lptmr = ["embassy-mcxa/time-driver-lptmr"]
 default-executor = [
   "embassy-executor/platform-cortex-m",
   "embassy-executor/executor-interrupt",

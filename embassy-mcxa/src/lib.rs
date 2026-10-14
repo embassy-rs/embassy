@@ -57,9 +57,11 @@ pub mod i2c;
 pub mod i3c;
 #[cfg(mcxa_inputmux)]
 pub mod inputmux;
+#[cfg(mcxa_lptmr)]
+pub mod lptmr;
 #[cfg(mcxa_lpuart)]
 pub mod lpuart;
-#[cfg(mcxa_ostimer)]
+#[cfg(all(mcxa_ostimer, time_driver_ostimer))]
 pub mod ostimer;
 pub mod perf_counters;
 #[cfg(mcxa_cmc)]
@@ -105,6 +107,18 @@ pub use nxp_pac as pac;
 pub(crate) use nxp_pac as pac;
 
 pub use crate::_generated::{Peripherals, interrupt, peripherals};
+
+#[cfg(all(feature = "time-driver-ostimer", feature = "time-driver-lptmr"))]
+compile_error!("Select at most one explicit time driver: time-driver-ostimer or time-driver-lptmr");
+
+pub(crate) fn init_time_driver(priority: interrupt::Priority) {
+    #[cfg(time_driver_ostimer)]
+    ostimer::init(priority);
+    #[cfg(time_driver_lptmr)]
+    lptmr::time_driver::init(priority);
+    #[cfg(not(any(time_driver_ostimer, time_driver_lptmr)))]
+    let _ = priority;
+}
 
 const HALS_SELECTED: usize = const { cfg!(feature = "mcxa2xx") as usize + cfg!(feature = "mcxa5xx") as usize };
 
