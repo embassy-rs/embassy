@@ -154,33 +154,31 @@ impl Executor {
                     embassy_executor::trace_idle();
                     debug_lo();
                     let result = critical_section::with(|cs| {
-                        let result = crate::clocks::deep_sleep_if_possible(&cs);
-                        if matches!(result, Ok(Some(_))) {
+                        let result = crate::clocks::deep_sleep_if_possible(&cs).unwrap_or_else(|error| {
+                            debug_hi();
+                            // Recovery may have left an incompatible idle configuration.
+                            // Fail once, with interrupts still masked, rather than retrying
+                            // indefinitely or executing WFE under a rejected configuration.
+                            panic!("Deep Sleep entry/recovery failed: {:?}", error);
+                        });
+                        if result.is_some() {
                             debug_hi();
                         }
                         result
                     });
                     cortex_m::asm::isb();
                     match result {
-                        Ok(Some(status)) => {
+                        Some(status) => {
                             if status.core_clock_was_gated() {
                                 crate::perf_counters::incr_deep_sleeps();
                             }
                             // WFE may have consumed a task event without sleeping.
                             // Poll again rather than waiting on an already-consumed event.
                         }
-                        Ok(None) => {
+                        None => {
                             do_wfe();
                             debug_hi();
                             crate::perf_counters::incr_wfe_sleeps();
-                        }
-                        Err(error) => {
-                            debug_hi();
-                            #[cfg(feature = "defmt")]
-                            defmt::error!("Deep Sleep entry/recovery failed: {:?}", error);
-                            #[cfg(not(feature = "defmt"))]
-                            let _ = error;
-                            // Do not execute WFE under a rejected CMC configuration.
                         }
                     }
                 }

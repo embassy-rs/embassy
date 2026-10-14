@@ -214,7 +214,10 @@ pub enum FlashSleep {
     FlashDozeWithFlashWake,
 }
 
-/// Maximum sleep depth for the CPU core
+/// Automatic idle sleep policy for the CPU core.
+///
+/// Explicit unsafe sleep-entry APIs can request a different depth; this policy
+/// determines the idle configuration restored after those calls.
 #[derive(Copy, Clone, Default, Debug)]
 #[non_exhaustive]
 pub enum CoreSleep {
