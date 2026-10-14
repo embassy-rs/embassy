@@ -186,7 +186,7 @@ static_cell = "2.1.1"
 cortex-m = { version = "0.7", features = ["critical-section-single-core", "inline-asm"] }
 # If you would like "device" to be an optional feature, please open an issue.
 cortex-m-rt = { version = "0.7", features = ["device"] }
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "2bfe368b9ad974d03a41279bddb1ef05705ae9d8", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "c4fc85c89f21bc256dee0af69885db539e403533", features = ["rt"] }
 
 [target.'cfg(all(target_os = "none", target_arch = "arm"))'.dev-dependencies]
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"] }
