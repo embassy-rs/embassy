@@ -1,3 +1,13 @@
+//! ROM-managed SPI NOR flash and EEPROM access for MCXA5xx.
+//!
+//! Construct [`SpiFlash`] with [`super::RomApi::spi_flash`]. The packed
+//! [`SpiFlashConfig`] selects the SPI instance, chip select and memory geometry.
+//! The handle provides byte-slice reads and writes, erasure, reconfiguration and
+//! flushing through the ROM's SPI memory driver.
+//!
+//! This interface is separate from the FlexSPI NOR driver. Configuration and
+//! erase/program requests must match the attached device's capabilities.
+
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicBool, Ordering};
 
