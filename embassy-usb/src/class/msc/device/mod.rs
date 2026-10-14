@@ -464,8 +464,8 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         block_buf: &mut [u8],
         cbw: &Cbw,
     ) -> Result<CommandResult, EndpointError> {
-        let read_write = ReadWrite::parse(&cbw.cb[..cbw.cb_length as usize]);
-        let is_write = read_write.is_some_and(|rw| rw.write);
+        let command = Command::parse(&cbw.cb, cbw.cb_length as usize);
+        let is_write = matches!(command, Command::Write(_));
 
         // Drain unexpected OUT data for any non-WRITE command upfront, or any command to an unsupported LUN (BOT Cases 9 & 10)
         if !cbw.direction_in() && cbw.data_transfer_length > 0 && (!is_write || cbw.lun != 0) {
@@ -474,51 +474,55 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
 
         // Only LUN 0 is supported.
         if cbw.lun != 0 {
-            if cbw.cb[0] == SCSI_INQUIRY {
-                if cbw.data_transfer_length > 0 && !cbw.direction_in() {
-                    return Ok(CommandResult::phase_error(cbw.data_transfer_length));
+            return match command {
+                Command::Inquiry(Inquiry { allocation_length, .. }) => {
+                    if cbw.data_transfer_length > 0 && !cbw.direction_in() {
+                        return Ok(CommandResult::phase_error(cbw.data_transfer_length));
+                    }
+                    // SPC-2: Unsupported LUN returns 0x7F (0x60 peripheral not connected | 0x1F unknown device type).
+                    let mut data = [0u8; 36];
+                    data[0] = 0x7f;
+                    let len = min(data.len(), allocation_length);
+                    self.send_in_data(cbw, &data[..len]).await
                 }
-                // SPC-2: Unsupported LUN returns 0x7F (0x60 peripheral not connected | 0x1F unknown device type).
-                let mut data = [0u8; 36];
-                data[0] = 0x7f;
-                let allocation_len = u16::from_be_bytes([cbw.cb[3], cbw.cb[4]]) as usize;
-                let len = min(data.len(), allocation_len);
-                return self.send_in_data(cbw, &data[..len]).await;
-            }
-
-            // SPC-4 processes REPORT LUNS sent to an incorrect logical unit normally.
-            if cbw.cb[0] == SCSI_REPORT_LUNS {
-                return self.report_luns(cbw).await;
-            }
-
-            self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_LOGICAL_UNIT_NOT_SUPPORTED, ASCQ_NONE);
-            return Ok(CommandResult::failed(cbw.data_transfer_length));
+                // SPC-4 processes REPORT LUNS sent to an incorrect logical unit normally.
+                Command::ReportLuns {
+                    select_report,
+                    allocation_length,
+                } => self.report_luns(cbw, select_report, allocation_length).await,
+                _ => {
+                    self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_LOGICAL_UNIT_NOT_SUPPORTED, ASCQ_NONE);
+                    Ok(CommandResult::failed(cbw.data_transfer_length))
+                }
+            };
         }
 
-        let result = match cbw.cb[0] {
-            _ if let Some(rw) = read_write
-                && rw.write =>
-            {
-                self.write(cbw, rw, block_device, block_buf).await
+        let result = match command {
+            Command::Read(rw) => self.read(cbw, rw, block_device, block_buf).await,
+            Command::Write(rw) => self.write(cbw, rw, block_device, block_buf).await,
+            Command::TestUnitReady => Ok(self.test_unit_ready(cbw)),
+            Command::RequestSense { allocation_length } => self.request_sense(cbw, allocation_length).await,
+            Command::Inquiry(inquiry) => self.inquiry(cbw, inquiry).await,
+            Command::ModeSense6 { allocation_length } => self.mode_sense_6(cbw, allocation_length, block_device).await,
+            Command::ModeSense10 { allocation_length } => {
+                self.mode_sense_10(cbw, allocation_length, block_device).await
             }
-            _ if let Some(rw) = read_write => self.read(cbw, rw, block_device, block_buf).await,
-            SCSI_TEST_UNIT_READY => Ok(self.test_unit_ready(cbw)),
-            SCSI_REQUEST_SENSE => self.request_sense(cbw).await,
-            SCSI_INQUIRY => self.inquiry(cbw).await,
-            SCSI_MODE_SENSE_6 => self.mode_sense_6(cbw, block_device).await,
-            SCSI_MODE_SENSE_10 => self.mode_sense_10(cbw, block_device).await,
-            SCSI_READ_FORMAT_CAPACITIES => self.read_format_capacities(cbw, block_device).await,
-            SCSI_READ_CAPACITY_10 => self.read_capacity_10(cbw, block_device).await,
-            SCSI_SERVICE_ACTION_IN_16
-                if cbw.cb_length >= 16 && cbw.cb[1] & SERVICE_ACTION_MASK == SCSI_SA_READ_CAPACITY_16 =>
-            {
-                self.read_capacity_16(cbw, block_device).await
+            Command::ReadFormatCapacities { allocation_length } => {
+                self.read_format_capacities(cbw, allocation_length, block_device).await
             }
-            SCSI_START_STOP_UNIT => self.start_stop_unit(cbw, block_device).await,
-            SCSI_PREVENT_ALLOW_MEDIUM_REMOVAL => Ok(self.prevent_allow_medium_removal(cbw)),
-            SCSI_SYNCHRONIZE_CACHE_10 => self.synchronize_cache_10(cbw, block_device).await,
-            SCSI_REPORT_LUNS => self.report_luns(cbw).await,
-            _ => {
+            Command::ReadCapacity10 => self.read_capacity_10(cbw, block_device).await,
+            Command::ReadCapacity16 { allocation_length } => {
+                self.read_capacity_16(cbw, allocation_length, block_device).await
+            }
+            Command::StartStopUnit { eject } => self.start_stop_unit(cbw, eject, block_device).await,
+            Command::PreventAllowMediumRemoval => Ok(self.prevent_allow_medium_removal(cbw)),
+            Command::SynchronizeCache10 => self.synchronize_cache_10(cbw, block_device).await,
+            Command::ReportLuns {
+                select_report,
+                allocation_length,
+            } => self.report_luns(cbw, select_report, allocation_length).await,
+            Command::Unsupported { opcode } => {
+                debug!("msc: unsupported opcode 0x{:02x}", opcode);
                 self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_COMMAND_OPERATION_CODE, ASCQ_NONE);
                 Ok(CommandResult::failed(cbw.data_transfer_length))
             }
@@ -548,12 +552,11 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         CommandResult::passed(0)
     }
 
-    async fn request_sense(&mut self, cbw: &Cbw) -> Result<CommandResult, EndpointError> {
+    async fn request_sense(&mut self, cbw: &Cbw, allocation_length: usize) -> Result<CommandResult, EndpointError> {
         if cbw.data_transfer_length > 0 && !cbw.direction_in() {
             return Ok(CommandResult::phase_error(cbw.data_transfer_length));
         }
 
-        let allocation_len = cbw.cb[4] as usize;
         let mut data = [0u8; 18];
         data[0] = 0x70;
         data[2] = self.sense.key as u8;
@@ -564,21 +567,23 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         // Reset sense data after returning it, per SCSI SPC-2 spec.
         self.sense = SenseData::NO_SENSE;
 
-        let len = min(data.len(), allocation_len);
+        let len = min(data.len(), allocation_length);
         let result = self.send_in_data(cbw, &data[..len]).await?;
 
         Ok(result)
     }
 
-    async fn inquiry(&mut self, cbw: &Cbw) -> Result<CommandResult, EndpointError> {
+    async fn inquiry(&mut self, cbw: &Cbw, inquiry: Inquiry) -> Result<CommandResult, EndpointError> {
         if cbw.data_transfer_length > 0 && !cbw.direction_in() {
             return Ok(CommandResult::phase_error(cbw.data_transfer_length));
         }
 
-        let evpd = cbw.cb[1] & 0x01 != 0;
-        let cmd_dt = cbw.cb[1] & 0x02 != 0;
-        let page_code = cbw.cb[2];
-        let allocation_len = u16::from_be_bytes([cbw.cb[3], cbw.cb[4]]) as usize;
+        let Inquiry {
+            evpd,
+            cmd_dt,
+            page_code,
+            allocation_length: allocation_len,
+        } = inquiry;
 
         // CmdDt is obsolete and unsupported.
         if cmd_dt {
@@ -671,13 +676,13 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     async fn mode_sense_6<B: AsyncBlockDevice>(
         &mut self,
         cbw: &Cbw,
+        allocation_len: usize,
         block_device: &B,
     ) -> Result<CommandResult, EndpointError> {
         if cbw.data_transfer_length > 0 && !cbw.direction_in() {
             return Ok(CommandResult::phase_error(cbw.data_transfer_length));
         }
 
-        let allocation_len = cbw.cb[4] as usize;
         let mut data = [0u8; 4];
         data[0] = 3; // Mode data length
         data[2] = if block_device.is_write_protected() { 0x80 } else { 0x00 };
@@ -691,13 +696,13 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     async fn mode_sense_10<B: AsyncBlockDevice>(
         &mut self,
         cbw: &Cbw,
+        allocation_len: usize,
         block_device: &B,
     ) -> Result<CommandResult, EndpointError> {
         if cbw.data_transfer_length > 0 && !cbw.direction_in() {
             return Ok(CommandResult::phase_error(cbw.data_transfer_length));
         }
 
-        let allocation_len = u16::from_be_bytes([cbw.cb[7], cbw.cb[8]]) as usize;
         let mut data = [0u8; 8];
         data[0] = 0;
         data[1] = 6; // Mode data length (6 bytes follow)
@@ -713,6 +718,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     async fn read_format_capacities<B: AsyncBlockDevice>(
         &mut self,
         cbw: &Cbw,
+        allocation_len: usize,
         block_device: &B,
     ) -> Result<CommandResult, EndpointError> {
         if cbw.data_transfer_length > 0 && !cbw.direction_in() {
@@ -731,7 +737,6 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         data[10] = (block_size >> 8) as u8;
         data[11] = block_size as u8;
 
-        let allocation_len = u16::from_be_bytes([cbw.cb[7], cbw.cb[8]]) as usize;
         let len = min(data.len(), allocation_len);
         let result = self.send_in_data(cbw, &data[..len]).await?;
         self.sense = SenseData::NO_SENSE;
@@ -763,6 +768,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     async fn read_capacity_16<B: AsyncBlockDevice>(
         &mut self,
         cbw: &Cbw,
+        allocation_len: usize,
         block_device: &B,
     ) -> Result<CommandResult, EndpointError> {
         if cbw.data_transfer_length > 0 && !cbw.direction_in() {
@@ -776,7 +782,6 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         data[0..8].copy_from_slice(&last_lba.to_be_bytes());
         data[8..12].copy_from_slice(&block_size.to_be_bytes());
 
-        let allocation_len = u32::from_be_bytes([cbw.cb[10], cbw.cb[11], cbw.cb[12], cbw.cb[13]]) as usize;
         let len = min(data.len(), allocation_len);
         let result = self.send_in_data(cbw, &data[..len]).await?;
         self.sense = SenseData::NO_SENSE;
@@ -995,6 +1000,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     async fn start_stop_unit<B: AsyncBlockDevice>(
         &mut self,
         cbw: &Cbw,
+        eject: bool,
         block_device: &mut B,
     ) -> Result<CommandResult, EndpointError> {
         if cbw.data_transfer_length != 0 {
@@ -1002,7 +1008,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             return Ok(CommandResult::failed(cbw.data_transfer_length));
         }
 
-        if !is_eject(&cbw.cb) {
+        if !eject {
             self.sense = SenseData::NO_SENSE;
             return Ok(CommandResult::passed(0));
         }
@@ -1050,13 +1056,17 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         Ok(CommandResult::passed(0))
     }
 
-    async fn report_luns(&mut self, cbw: &Cbw) -> Result<CommandResult, EndpointError> {
+    async fn report_luns(
+        &mut self,
+        cbw: &Cbw,
+        select_report: u8,
+        allocation_len: usize,
+    ) -> Result<CommandResult, EndpointError> {
         if cbw.data_transfer_length > 0 && !cbw.direction_in() {
             return Ok(CommandResult::phase_error(cbw.data_transfer_length));
         }
 
-        let allocation_len = u32::from_be_bytes([cbw.cb[6], cbw.cb[7], cbw.cb[8], cbw.cb[9]]) as usize;
-        let Some(data) = lun_list(cbw.cb[2]).filter(|_| allocation_len >= RL_MIN_ALLOCATION_LENGTH) else {
+        let Some(data) = lun_list(select_report).filter(|_| allocation_len >= RL_MIN_ALLOCATION_LENGTH) else {
             self.set_sense(SENSE_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB, ASCQ_NONE);
             return Ok(CommandResult::failed(cbw.data_transfer_length));
         };
@@ -1134,16 +1144,6 @@ async fn read_exact_out(ep: &mut impl EndpointOut, mut buf: &mut [u8]) -> Result
     }
 
     Ok(())
-}
-
-/// Whether a START STOP UNIT CDB asks to eject the medium (SBC-3 §5.25).
-///
-/// LoEj and Start are ignored unless the power condition field is zero.
-fn is_eject(cb: &[u8; 16]) -> bool {
-    let power_condition = cb[4] & SSU_POWER_CONDITION_MASK;
-    let load_eject = cb[4] & SSU_LOEJ != 0;
-    let start = cb[4] & SSU_START != 0;
-    power_condition == 0 && load_eject && !start
 }
 
 /// REPORT LUNS parameter data for a SELECT REPORT value, or `None` if the value is unsupported.
@@ -1233,21 +1233,6 @@ mod tests {
         core::assert_eq!(&config.product_id, b"Storage Device  ");
         core::assert_eq!(&config.product_revision_level, b"2.0 ");
         core::assert_eq!(config.serial_number_bytes(), dynamic_serial.as_bytes());
-    }
-
-    #[test]
-    fn decodes_eject() {
-        let cdb = |byte4: u8| {
-            let mut cb = [0u8; 16];
-            cb[0] = SCSI_START_STOP_UNIT;
-            cb[4] = byte4;
-            cb
-        };
-        core::assert!(is_eject(&cdb(0x02)));
-        core::assert!(!is_eject(&cdb(0x03))); // load
-        core::assert!(!is_eject(&cdb(0x00))); // stop
-        core::assert!(!is_eject(&cdb(0x01))); // start
-        core::assert!(!is_eject(&cdb(0x32))); // power condition set, LoEj ignored
     }
 
     #[test]

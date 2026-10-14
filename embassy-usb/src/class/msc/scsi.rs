@@ -23,6 +23,12 @@ pub(crate) const SCSI_READ_12: u8 = 0xa8;
 pub(crate) const SCSI_WRITE_12: u8 = 0xaa;
 pub(crate) const SCSI_SA_READ_CAPACITY_16: u8 = 0x10;
 
+// INQUIRY CDB byte 1 (SPC-3 §6.4).
+/// Enable Vital Product Data.
+pub(crate) const INQUIRY_EVPD: u8 = 0x01;
+/// Command Support Data (obsolete).
+pub(crate) const INQUIRY_CMDDT: u8 = 0x02;
+
 // START STOP UNIT CDB byte 4 (SBC-3 §5.25).
 pub(crate) const SSU_START: u8 = 0x01;
 pub(crate) const SSU_LOEJ: u8 = 0x02;
@@ -207,6 +213,113 @@ impl ReadWrite {
     }
 }
 
+/// A decoded INQUIRY command.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) struct Inquiry {
+    pub evpd: bool,
+    pub cmd_dt: bool,
+    pub page_code: u8,
+    pub allocation_length: usize,
+}
+
+/// A decoded SCSI command, as received by the device.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) enum Command {
+    TestUnitReady,
+    RequestSense {
+        allocation_length: usize,
+    },
+    Inquiry(Inquiry),
+    ModeSense6 {
+        allocation_length: usize,
+    },
+    ModeSense10 {
+        allocation_length: usize,
+    },
+    ReadFormatCapacities {
+        allocation_length: usize,
+    },
+    ReadCapacity10,
+    ReadCapacity16 {
+        allocation_length: usize,
+    },
+    Read(ReadWrite),
+    Write(ReadWrite),
+    StartStopUnit {
+        eject: bool,
+    },
+    PreventAllowMediumRemoval,
+    SynchronizeCache10,
+    ReportLuns {
+        select_report: u8,
+        allocation_length: usize,
+    },
+    /// An opcode this class doesn't implement, or a READ / WRITE / SERVICE ACTION IN(16) CDB
+    /// shorter than its opcode requires.
+    Unsupported {
+        opcode: u8,
+    },
+}
+
+impl Command {
+    /// Decodes the command block of a CBW, of which the host sent the first `len` bytes.
+    pub fn parse(cb: &[u8; 16], len: usize) -> Self {
+        if let Some(rw) = ReadWrite::parse(&cb[..len]) {
+            return if rw.write { Self::Write(rw) } else { Self::Read(rw) };
+        }
+
+        let be16 = |i: usize| u16::from_be_bytes([cb[i], cb[i + 1]]) as usize;
+        let be32 = |i: usize| u32::from_be_bytes([cb[i], cb[i + 1], cb[i + 2], cb[i + 3]]) as usize;
+        match cb[0] {
+            SCSI_TEST_UNIT_READY => Self::TestUnitReady,
+            SCSI_REQUEST_SENSE => Self::RequestSense {
+                allocation_length: cb[4] as usize,
+            },
+            SCSI_INQUIRY => Self::Inquiry(Inquiry {
+                evpd: cb[1] & INQUIRY_EVPD != 0,
+                cmd_dt: cb[1] & INQUIRY_CMDDT != 0,
+                page_code: cb[2],
+                allocation_length: be16(3),
+            }),
+            SCSI_MODE_SENSE_6 => Self::ModeSense6 {
+                allocation_length: cb[4] as usize,
+            },
+            SCSI_MODE_SENSE_10 => Self::ModeSense10 {
+                allocation_length: be16(7),
+            },
+            SCSI_READ_FORMAT_CAPACITIES => Self::ReadFormatCapacities {
+                allocation_length: be16(7),
+            },
+            SCSI_READ_CAPACITY_10 => Self::ReadCapacity10,
+            SCSI_SERVICE_ACTION_IN_16 if len >= 16 && cb[1] & SERVICE_ACTION_MASK == SCSI_SA_READ_CAPACITY_16 => {
+                Self::ReadCapacity16 {
+                    allocation_length: be32(10),
+                }
+            }
+            SCSI_START_STOP_UNIT => Self::StartStopUnit { eject: is_eject(cb[4]) },
+            SCSI_PREVENT_ALLOW_MEDIUM_REMOVAL => Self::PreventAllowMediumRemoval,
+            SCSI_SYNCHRONIZE_CACHE_10 => Self::SynchronizeCache10,
+            SCSI_REPORT_LUNS => Self::ReportLuns {
+                select_report: cb[2],
+                allocation_length: be32(6),
+            },
+            opcode => Self::Unsupported { opcode },
+        }
+    }
+}
+
+/// Whether START STOP UNIT CDB byte 4 asks to eject the medium (SBC-3 §5.25).
+///
+/// LoEj and Start are ignored unless the power condition field is zero.
+fn is_eject(byte4: u8) -> bool {
+    let power_condition = byte4 & SSU_POWER_CONDITION_MASK;
+    let load_eject = byte4 & SSU_LOEJ != 0;
+    let start = byte4 & SSU_START != 0;
+    power_condition == 0 && load_eject && !start
+}
+
 /// Builds a READ(10) or WRITE(10) CDB.
 fn rw10_cdb(op: u8, lba: u32, blocks: u16) -> [u8; 10] {
     let mut cdb = [0u8; 10];
@@ -349,6 +462,68 @@ mod tests {
         core::assert_eq!(ReadWrite::parse(&cb(&[SCSI_INQUIRY])), None);
         core::assert_eq!(ReadWrite::parse(&cb(&[SCSI_SYNCHRONIZE_CACHE_10])), None);
         core::assert_eq!(ReadWrite::parse(&[]), None);
+    }
+
+    #[test]
+    fn parses_commands() {
+        core::assert_eq!(
+            Command::parse(&cb(&[SCSI_INQUIRY, 0x01, 0x80, 0x01, 0x02, 0]), 6),
+            Command::Inquiry(Inquiry {
+                evpd: true,
+                cmd_dt: false,
+                page_code: 0x80,
+                allocation_length: 0x102,
+            })
+        );
+        core::assert_eq!(
+            Command::parse(&cb(&[SCSI_REPORT_LUNS, 0, 2, 0, 0, 0, 0, 0, 1, 0]), 12),
+            Command::ReportLuns {
+                select_report: 2,
+                allocation_length: 0x100,
+            }
+        );
+        core::assert_eq!(
+            Command::parse(&cb(&rw10_cdb(SCSI_WRITE_10, 7, 2)), 10),
+            Command::Write(ReadWrite {
+                write: true,
+                lba: 7,
+                blocks: 2
+            })
+        );
+        core::assert_eq!(Command::parse(&cb(&[0xff]), 6), Command::Unsupported { opcode: 0xff });
+    }
+
+    #[test]
+    fn short_cdbs_are_unsupported() {
+        let read10 = cb(&rw10_cdb(SCSI_READ_10, 0, 1));
+        core::assert_eq!(
+            Command::parse(&read10, 6),
+            Command::Unsupported { opcode: SCSI_READ_10 }
+        );
+
+        let mut rc16 = [0u8; 16];
+        rc16[0] = SCSI_SERVICE_ACTION_IN_16;
+        rc16[1] = SCSI_SA_READ_CAPACITY_16;
+        rc16[13] = 32;
+        core::assert_eq!(
+            Command::parse(&rc16, 16),
+            Command::ReadCapacity16 { allocation_length: 32 }
+        );
+        core::assert_eq!(
+            Command::parse(&rc16, 12),
+            Command::Unsupported {
+                opcode: SCSI_SERVICE_ACTION_IN_16
+            }
+        );
+    }
+
+    #[test]
+    fn decodes_eject() {
+        core::assert!(is_eject(0x02));
+        core::assert!(!is_eject(0x03)); // load
+        core::assert!(!is_eject(0x00)); // stop
+        core::assert!(!is_eject(0x01)); // start
+        core::assert!(!is_eject(0x32)); // power condition set, LoEj ignored
     }
 
     #[test]
