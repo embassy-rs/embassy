@@ -101,21 +101,111 @@ impl RomApi {
         Nboot::new(unsafe { &*self.nboot })
     }
 
+    /// Initialize the ROM FlexSPI NOR driver from a complete configuration.
+    ///
+    /// The controller and selected pins are borrowed until the handle is dropped,
+    /// excluding native FlexSPI and GPIO drivers using those same tokens. ROM
+    /// always uses controller instance 0. An initialization error releases the
+    /// ROM claim and borrows, but does not roll back controller or flash state.
+    /// With `defmt`, failed ROM
+    /// initialization phases are logged at debug level with their raw status.
+    ///
+    /// `config` must describe the attached device and the borrowed pins.
+    /// The single-port CS0/quad footprint of [`FlexspiNorPins`] is checked before
+    /// ROM entry; unsupported geometry returns [`FlexspiError::InvalidArgument`].
+    /// Required upstream clocks must be running; invalid hardware settings may fail or
+    /// stall ROM operations. Unsafe code creating mapped-flash references or XIP
+    /// code remains responsible for ensuring that those objects are not
+    /// invalidated by later ROM operations, even without concurrent dereferences.
     #[cfg(feature = "mcxa5xx")]
-    pub fn flex_spi(&self, instance: u32, config: FlexspiNorConfig) -> Result<FlexspiNor, FlexspiError> {
-        FlexspiNor::new(unsafe { &*self.flex_spi_nor }, instance, config)
+    pub fn flex_spi<'d>(
+        &self,
+        peri: crate::Peri<'d, crate::peripherals::FLEXSPI0>,
+        pins: FlexspiNorPins<'d>,
+        config: FlexspiNorConfig,
+    ) -> Result<FlexspiNor<'d>, FlexspiError> {
+        FlexspiNor::new(unsafe { &*self.flex_spi_nor }, peri, pins, config)
     }
 
     /// Probe the serial NOR with `option`, run `custom_fcb` on the ROM-confirmed
     /// config, then init.
+    ///
+    /// # Destructive probing
+    ///
+    /// DDR/DTR dummy-cycle auto-probing can write test patterns at external-flash
+    /// offset `0x200` (MCXA5xx RM Rev. 1, section 7.4.2). Arrange expendable flash
+    /// space before calling: probing happens **before** `custom_fcb`, and an
+    /// error does not guarantee unchanged contents. The write offset does not
+    /// establish the complete erase/program footprint; reserving exactly 4 KiB
+    /// is not a universal preservation guarantee.
+    ///
+    /// The controller and selected pins are borrowed for the handle's lifetime.
+    /// ROM always uses instance 0; select port A/B through `option`, matching
+    /// the borrowed pins. This variant uses the existing upstream clock for the
+    /// probe. Prepare it before calling, or use
+    /// [`Self::flex_spi_with_options_and_clock`] for selection inside the claim.
+    /// Clock/probe/init errors release the claim, not hardware/flash state.
+    /// With `defmt`, failed ROM phases are logged at debug level.
+    /// Options selecting an unborrowed port, alternate pin group, or a wider
+    /// device are rejected before probing. The final FCB is checked after
+    /// `custom_fcb` and before init against the footprint of [`FlexspiNorPins`].
+    ///
+    /// The probe's upstream clock must already be prepared and running.
+    /// `custom_fcb` should preserve the probed device parameters except for the
+    /// intended board overrides; probing does not validate arbitrary later
+    /// customization. The mapped-flash/XIP caveat of [`Self::flex_spi`] applies.
     #[cfg(feature = "mcxa5xx")]
-    pub fn flex_spi_with_options(
+    pub fn flex_spi_with_options<'d>(
         &self,
-        instance: u32,
+        peri: crate::Peri<'d, crate::peripherals::FLEXSPI0>,
+        pins: FlexspiNorPins<'d>,
         option: SerialNorConfigOption,
         custom_fcb: impl FnOnce(&mut FlexspiNorConfig),
-    ) -> Result<FlexspiNor, FlexspiError> {
-        FlexspiNor::new_with_options(unsafe { &*self.flex_spi_nor }, instance, option, custom_fcb)
+    ) -> Result<FlexspiNor<'d>, FlexspiError> {
+        FlexspiNor::new_with_options(unsafe { &*self.flex_spi_nor }, peri, pins, option, custom_fcb)
+    }
+
+    /// Select a prepared clock source **before** probing, then customize and init.
+    ///
+    /// This follows the pre-probe selection ordering in MCXA5xx RM Rev. 1,
+    /// section 5.8.12, using the device-specific encodings in
+    /// [`FlexspiClockSource`] rather than that section's incompatible Table 60.
+    /// Selection only changes the clock mux; it does not start
+    /// the source. The selection, probe, customization and init share one ROM
+    /// claim, released on any error. `NoClock` is rejected
+    /// before entering ROM. Failed ROM phases are logged at debug level with
+    /// `defmt` enabled.
+    ///
+    /// # Destructive probing
+    ///
+    /// DDR/DTR auto-probing can write flash at offset `0x200` **before** the
+    /// customization closure. Arrange expendable probe space before calling;
+    /// neither an error nor a fixed 4 KiB reservation guarantees preservation.
+    /// See [`Self::flex_spi_with_options`] for the full probing contract.
+    ///
+    /// The controller/pin borrowing and mapped-flash/XIP caveats of
+    /// [`Self::flex_spi_with_options`] apply. Additionally, `clock_source` must
+    /// already be running at a device-supported frequency, and the controller
+    /// must be idle and prepared for the ROM clock-selector API before this
+    /// call. Selecting a source is not a substitute for initializing its PLL/FRO
+    /// or preparing the controller's clocks.
+    #[cfg(feature = "mcxa5xx")]
+    pub fn flex_spi_with_options_and_clock<'d>(
+        &self,
+        peri: crate::Peri<'d, crate::peripherals::FLEXSPI0>,
+        pins: FlexspiNorPins<'d>,
+        option: SerialNorConfigOption,
+        clock_source: FlexspiClockSource,
+        custom_fcb: impl FnOnce(&mut FlexspiNorConfig),
+    ) -> Result<FlexspiNor<'d>, FlexspiError> {
+        FlexspiNor::new_with_options_and_clock(
+            unsafe { &*self.flex_spi_nor },
+            peri,
+            pins,
+            option,
+            Some(clock_source),
+            custom_fcb,
+        )
     }
 
     #[cfg(feature = "mcxa5xx")]
