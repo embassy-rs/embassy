@@ -291,10 +291,10 @@ const SCL_LATENCY_BASE_CYCLES: u32 = 2;
 const MAX_DUTY_BAUD_DEGRADATION_PERCENT: u32 = 1;
 
 /// Percentage of the nominal bus frequency that the timing search aims for
-/// when [`Config::strict_mode`] is enabled, which it is by default.
+/// unless [`Config::relaxed_mode`] is explicitly enabled.
 ///
 /// The resulting 3% headroom matches the i.MXRT Flexcomm I2C driver.
-const STRICT_MODE_TARGET_PERCENT: u32 = 97;
+const STRICT_TARGET_PERCENT: u32 = 97;
 
 #[derive(Clone, Copy)]
 struct BaudCandidate {
@@ -439,14 +439,14 @@ fn params_for_candidate(
 /// would put SCL above the target, and a candidate above the target is only
 /// selected when no candidate lands at or below it. I2C specifies the bus
 /// rate as a ceiling, so undershooting is always preferable to overshooting.
-/// When `strict_mode` is set, the search additionally aims at
-/// [`STRICT_MODE_TARGET_PERCENT`] of the nominal rate so that jitter is less
+/// Unless `relaxed_mode` is set, the search additionally aims at
+/// [`STRICT_TARGET_PERCENT`] of the nominal rate so that jitter is less
 /// likely to push the bus over it.
 fn compute_baud_params(
     src_hz: u32,
     speed: Speed,
     duty_cycle: DutyCycle,
-    strict_mode: bool,
+    relaxed_mode: bool,
 ) -> Result<BaudParams, SetupError> {
     if speed == Speed::UltraFast {
         return Err(SetupError::UnsupportedSpeed);
@@ -461,10 +461,10 @@ fn compute_baud_params(
     let nominal_hz: u32 = speed.into();
     // Everything below derives from the SCL period, so biasing the target here
     // scales the tBUF clamp and the SETHOLD/DATAVD hold times with it.
-    let baud_hz = if strict_mode {
-        (nominal_hz / 100 * STRICT_MODE_TARGET_PERCENT).max(1)
-    } else {
+    let baud_hz = if relaxed_mode {
         nominal_hz
+    } else {
+        (nominal_hz / 100 * STRICT_TARGET_PERCENT).max(1)
     };
     let prescalers = [
         Prescale::DivideBy1,
@@ -561,17 +561,18 @@ pub struct Config {
     /// Clock configuration
     pub clock_config: ClockConfig,
 
-    /// Enable strict mode
+    /// Enable relaxed mode.
     ///
-    /// Enabled by default. The frequency the timing search aims for is reduced
-    /// to [`STRICT_MODE_TARGET_PERCENT`] of the nominal rate to provide some
-    /// margin, which should prevent clock tolerance and jitter from causing the
-    /// bus to exceed the nominal speed. Clear it to target the nominal rate
+    /// Disabled by default. Unless explicitly enabled, the frequency the timing
+    /// search aims for is reduced to [`STRICT_TARGET_PERCENT`] of the nominal
+    /// rate to provide margin against clock tolerance and jitter causing the bus
+    /// to exceed the nominal speed. Set this flag to target the nominal rate
     /// directly, when throughput matters more than staying clear of the limit.
     ///
     /// Timings at or below the target are always preferred over timings above
-    /// it regardless of this flag; strict mode lowers the target itself.
-    pub strict_mode: bool,
+    /// it regardless of this flag; relaxed mode only removes the target margin,
+    /// leaving the other timing constraints unchanged.
+    pub relaxed_mode: bool,
 }
 
 impl Default for Config {
@@ -580,7 +581,7 @@ impl Default for Config {
             speed: Speed::Standard,
             duty_cycle: Default::default(),
             clock_config: Default::default(),
-            strict_mode: true,
+            relaxed_mode: false,
         }
     }
 }
@@ -722,7 +723,7 @@ impl<'d, M: Mode> I2c<'d, M> {
     }
 
     fn set_configuration(&mut self, config: &Config) -> Result<(), SetupError> {
-        let params = compute_baud_params(self.freq, config.speed, config.duty_cycle, config.strict_mode)?;
+        let params = compute_baud_params(self.freq, config.speed, config.duty_cycle, config.relaxed_mode)?;
 
         // Disable the controller.
         critical_section::with(|_| self.info.regs().mcr().modify(|w| w.set_men(false)));
@@ -1990,7 +1991,7 @@ mod tests {
             for speed in speeds {
                 let minimum = DutyCycle::minimum_for_speed(speed).unwrap();
                 let duty_cycle = DutyCycle::new(minimum).unwrap();
-                let params = compute_baud_params(source, speed, duty_cycle, false).unwrap();
+                let params = compute_baud_params(source, speed, duty_cycle, true).unwrap();
 
                 assert!(
                     params.meets_minimum_high_time(source, speed),
@@ -2002,7 +2003,7 @@ mod tests {
 
     #[test]
     fn fast_mode_review_example_meets_thigh() {
-        let params = compute_baud_params(48_000_000, Speed::Fast, DutyCycle::new(24).unwrap(), false).unwrap();
+        let params = compute_baud_params(48_000_000, Speed::Fast, DutyCycle::new(24).unwrap(), true).unwrap();
 
         assert_eq!((params.prescale as u8, params.clklo, params.clkhi), (1, 44, 13));
         assert!(params.meets_minimum_high_time(48_000_000, Speed::Fast));
@@ -2016,14 +2017,15 @@ mod tests {
     }
 
     #[test]
-    fn strict_mode_is_enabled_by_default() {
+    fn relaxed_mode_requires_explicit_opt_in() {
         assert!(
-            Config::default().strict_mode,
-            "strict mode must be enabled unless the caller opts out"
+            !Config::default().relaxed_mode,
+            "relaxed mode must be disabled unless the caller opts in"
         );
 
-        let strict = compute_baud_params(48_000_000, Speed::Fast, DutyCycle::default(), true).unwrap();
-        let relaxed = compute_baud_params(48_000_000, Speed::Fast, DutyCycle::default(), false).unwrap();
+        let config = Config::default();
+        let strict = compute_baud_params(48_000_000, Speed::Fast, config.duty_cycle, config.relaxed_mode).unwrap();
+        let relaxed = compute_baud_params(48_000_000, Speed::Fast, DutyCycle::default(), true).unwrap();
 
         assert_eq!(
             strict.configured_timing(48_000_000),
@@ -2042,13 +2044,13 @@ mod tests {
     }
 
     #[test]
-    fn strict_mode_keeps_every_source_below_the_nominal_rate() {
+    fn strict_timing_keeps_every_source_below_the_nominal_rate() {
         let sources = [6_000_000, 12_000_000, 24_000_000, 48_000_000, 96_000_000, 150_000_000];
         let speeds = [Speed::Standard, Speed::Fast, Speed::FastPlus];
 
         for source in sources {
             for speed in speeds {
-                let params = compute_baud_params(source, speed, DutyCycle::default(), true).unwrap();
+                let params = compute_baud_params(source, speed, DutyCycle::default(), false).unwrap();
                 let nominal: u32 = speed.into();
                 let actual = params.configured_timing(source).frequency_hz;
 
@@ -2084,7 +2086,7 @@ mod tests {
         ];
 
         for (source, speed, expected) in cases {
-            let params = compute_baud_params(source, speed, DutyCycle::default(), false).unwrap();
+            let params = compute_baud_params(source, speed, DutyCycle::default(), true).unwrap();
             let actual = (
                 params.prescale as u8,
                 params.clklo,
@@ -2101,9 +2103,9 @@ mod tests {
     fn duty_cycle_frequency_degradation_is_bounded() {
         let duty_cycle = DutyCycle::new(DutyCycle::FAST_MIN_PERCENT).unwrap();
 
-        assert!(compute_baud_params(42_000_000, Speed::Fast, duty_cycle, false).is_ok());
+        assert!(compute_baud_params(42_000_000, Speed::Fast, duty_cycle, true).is_ok());
         assert!(matches!(
-            compute_baud_params(38_000_000, Speed::Fast, duty_cycle, false),
+            compute_baud_params(38_000_000, Speed::Fast, duty_cycle, true),
             Err(SetupError::BaudrateNotAchievable)
         ));
     }
@@ -2112,15 +2114,15 @@ mod tests {
     fn invalid_or_unachievable_timing_returns_an_error() {
         let fast_only_duty = DutyCycle::new(DutyCycle::FAST_MIN_PERCENT).unwrap();
         assert!(matches!(
-            compute_baud_params(48_000_000, Speed::Standard, fast_only_duty, false),
+            compute_baud_params(48_000_000, Speed::Standard, fast_only_duty, true),
             Err(SetupError::InvalidDutyCycle)
         ));
         assert!(matches!(
-            compute_baud_params(1_000_000, Speed::FastPlus, DutyCycle::default(), false),
+            compute_baud_params(1_000_000, Speed::FastPlus, DutyCycle::default(), true),
             Err(SetupError::BaudrateNotAchievable)
         ));
         assert!(matches!(
-            compute_baud_params(48_000_000, Speed::UltraFast, DutyCycle::default(), false),
+            compute_baud_params(48_000_000, Speed::UltraFast, DutyCycle::default(), true),
             Err(SetupError::UnsupportedSpeed)
         ));
     }
