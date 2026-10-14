@@ -392,12 +392,9 @@ mod btable {
 /// transaction fires slightly before the peripheral has finished writing the packet and its byte
 /// count to USB SRAM. Software must wait 800 ns before reading either (6.4 μs at low speed, which
 /// this device-mode driver does not use).
-///
-/// `block_for_ns` counts CPU cycles. `block_for_us` would not do: with the `time` feature it can
-/// return after less than 800 ns.
 fn wait_for_out_packet_memory() {
     #[cfg(any(stm32h5, stm32u3))]
-    crate::wait::block_for_ns(800);
+    crate::wait::block_for_us(1);
 }
 
 struct EndpointBuffer<T: Instance> {
