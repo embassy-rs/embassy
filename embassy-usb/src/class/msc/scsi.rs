@@ -64,11 +64,6 @@ pub(crate) const ASC_LOGICAL_UNIT_NOT_SUPPORTED: u8 = 0x25;
 pub(crate) const ASC_WRITE_PROTECTED: u8 = 0x27;
 pub(crate) const ASCQ_NONE: u8 = 0x00;
 
-// Sense keys under the names the device class uses.
-pub(crate) const SENSE_KEY_MEDIUM_ERROR: SenseKey = SenseKey::MediumError;
-pub(crate) const SENSE_KEY_ILLEGAL_REQUEST: SenseKey = SenseKey::IllegalRequest;
-pub(crate) const SENSE_KEY_DATA_PROTECT: SenseKey = SenseKey::DataProtect;
-
 /// SCSI sense key (SPC-3 §4.5.6, Table 27).
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -143,11 +138,25 @@ pub struct SenseData {
 }
 
 impl SenseData {
-    pub(crate) const NO_SENSE: Self = Self {
-        key: SenseKey::NoSense,
-        asc: 0,
-        ascq: 0,
-    };
+    pub(crate) const NO_SENSE: Self = Self::new(SenseKey::NoSense, 0);
+    pub(crate) const INVALID_COMMAND_OPERATION_CODE: Self =
+        Self::new(SenseKey::IllegalRequest, ASC_INVALID_COMMAND_OPERATION_CODE);
+    pub(crate) const INVALID_FIELD_IN_CDB: Self = Self::new(SenseKey::IllegalRequest, ASC_INVALID_FIELD_IN_CDB);
+    pub(crate) const LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE: Self =
+        Self::new(SenseKey::IllegalRequest, ASC_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE);
+    pub(crate) const LOGICAL_UNIT_NOT_SUPPORTED: Self =
+        Self::new(SenseKey::IllegalRequest, ASC_LOGICAL_UNIT_NOT_SUPPORTED);
+    pub(crate) const WRITE_PROTECTED: Self = Self::new(SenseKey::DataProtect, ASC_WRITE_PROTECTED);
+    pub(crate) const WRITE_ERROR: Self = Self::new(SenseKey::MediumError, ASC_WRITE_ERROR);
+    pub(crate) const UNRECOVERED_READ_ERROR: Self = Self::new(SenseKey::MediumError, ASC_UNRECOVERED_READ_ERROR);
+
+    const fn new(key: SenseKey, asc: u8) -> Self {
+        Self {
+            key,
+            asc,
+            ascq: ASCQ_NONE,
+        }
+    }
 }
 
 /// A decoded READ or WRITE command (6, 10, 12 or 16 byte CDB).
@@ -263,6 +272,15 @@ pub(crate) enum Command {
     },
 }
 
+/// The data phase a command expects (MSC BBB r1.0 §6.7).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) enum DataPhase {
+    NoData,
+    DataIn,
+    DataOut,
+}
+
 impl Command {
     /// Decodes the command block of a CBW, of which the host sent the first `len` bytes.
     pub fn parse(cb: &[u8; 16], len: usize) -> Self {
@@ -306,6 +324,27 @@ impl Command {
                 allocation_length: be32(6),
             },
             opcode => Self::Unsupported { opcode },
+        }
+    }
+
+    /// The data phase this command expects, or `None` for unsupported commands.
+    pub fn data_phase(&self) -> Option<DataPhase> {
+        match self {
+            Self::TestUnitReady
+            | Self::StartStopUnit { .. }
+            | Self::PreventAllowMediumRemoval
+            | Self::SynchronizeCache10 => Some(DataPhase::NoData),
+            Self::RequestSense { .. }
+            | Self::Inquiry(_)
+            | Self::ModeSense6 { .. }
+            | Self::ModeSense10 { .. }
+            | Self::ReadFormatCapacities { .. }
+            | Self::ReadCapacity10
+            | Self::ReadCapacity16 { .. }
+            | Self::Read(_)
+            | Self::ReportLuns { .. } => Some(DataPhase::DataIn),
+            Self::Write(_) => Some(DataPhase::DataOut),
+            Self::Unsupported { .. } => None,
         }
     }
 }
