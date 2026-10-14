@@ -28,9 +28,10 @@
 //! the command's return parameters. `[echo n]` puts the first `n` parameter
 //! bytes (the handle) in front of them, for commands that return their handle.
 //!
-//! Before calling into C, the argument list is evaluated once as a dry run to
+//! In debug builds, the argument list is first evaluated once as a dry run to
 //! check that it consumes exactly the serialized parameters. A mapping that
 //! does not match the bt-hci layout returns an error without calling the stack.
+//! Release builds skip the dry run.
 
 use core::cell::Cell;
 
@@ -75,7 +76,7 @@ impl<'a> Params<'a> {
     }
 
     /// Takes the next `n` bytes. Past the end it returns an empty slice; the
-    /// dry run catches that before anything is passed to C.
+    /// debug-build dry run catches that before anything is passed to C.
     fn take(&self, n: usize) -> &'a [u8] {
         let start = self.pos.get();
         let end = start.saturating_add(n);
@@ -227,9 +228,11 @@ macro_rules! direct {
             async fn exec(&self, cmd: &$cmd $(<$lt>)?) -> Result<(), CmdError<ErrorKind>> {
                 let mut buf = [0u8; PARAMS_LEN];
                 let $p = Params::new(&mut buf, cmd.params())?;
-                $(let _ = $arg;)*
-                if !$p.rewind() {
-                    return Err(layout_mismatch::<$cmd>());
+                if cfg!(debug_assertions) {
+                    $(let _ = $arg;)*
+                    if !$p.rewind() {
+                        return Err(layout_mismatch::<$cmd>());
+                    }
                 }
                 status(self.call(|| unsafe { $f($($arg),*) }))
             }
@@ -246,9 +249,11 @@ macro_rules! direct {
             ) -> Result<<$cmd $(<$lt>)? as cmd::SyncCmd>::Return, CmdError<ErrorKind>> {
                 let mut buf = [0u8; PARAMS_LEN];
                 let $p = Params::new(&mut buf, cmd.params())?;
-                $(let _ = $arg;)*
-                if !$p.rewind() {
-                    return Err(layout_mismatch::<$cmd>());
+                if cfg!(debug_assertions) {
+                    $(let _ = $arg;)*
+                    if !$p.rewind() {
+                        return Err(layout_mismatch::<$cmd>());
+                    }
                 }
                 status(self.call(|| unsafe { $f($($arg),*) }))
             }
@@ -267,9 +272,11 @@ macro_rules! direct {
                 let mut storage = [0u32; OUT_WORDS];
                 let $p = Params::new(&mut buf, cmd.params())?;
                 let $o = Out::new(&mut storage);
-                $(let _ = $arg;)*
-                if !$p.rewind() | !$o.rewind() {
-                    return Err(layout_mismatch::<$cmd>());
+                if cfg!(debug_assertions) {
+                    $(let _ = $arg;)*
+                    if !$p.rewind() | !$o.rewind() {
+                        return Err(layout_mismatch::<$cmd>());
+                    }
                 }
                 status(self.call(|| unsafe { $f($($arg),*) }))?;
                 $o.finish($p.handle(0 $(+ $echo)?))
