@@ -8,7 +8,7 @@
     without any external tool: the ST-signed coprocessor binaries are embedded in the
     application image, programmed into the flash download area by the application
     itself, and installed by the FUS (firmware upgrade services) running on the M0+.
-    All of the logic lives in `embassy_stm32_wpan::fus::FirmwareUpgrader::request_upgrade`.
+    All of the logic lives in `embassy_stm32_wpan::TlMbox::with_firmware`.
 
     Setup:
 
@@ -18,7 +18,7 @@
     - Flash and run this example (a release build is required so the application image
       stays small enough to leave room for the download area):
       cargo run --release --bin fus_update
-      (or: probe-rs run --chip STM32WB55RG target/thumbv7em-none-eabi/release/fus_update)
+      (or: probe-rs run --chip STM32WB55RG target/thumbv7em-none-eabihf/release/fus_update)
 
     The upgrader figures out the current FUS/wireless stack versions on its own and
     performs however many upgrade steps the supplied binaries allow, roughly:
@@ -29,7 +29,7 @@
                      replacing any stack of a different type)
 
     Binaries that are commented out below are passed as `None`; if the upgrade path
-    needs one of them, `request_upgrade` returns `Error::MissingImage` and tells you
+    needs one of them, `with_firmware` returns `Error::MissingImage` and tells you
     which. The device resets several times during the process; on the final boot the
     new wireless stack is running and its version is printed.
 
@@ -44,9 +44,8 @@ use embassy_stm32::bind_interrupts;
 use embassy_stm32::flash::Flash;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::{Config as RccConfig, StopMode, WakeGuard};
-use embassy_stm32::rtc::{AnyRtc, Rtc};
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::fus::{FirmwareUpgrader, StackType};
+use embassy_stm32_wpan::fus::StackType;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -112,48 +111,23 @@ async fn main(_spawner: Spawner) {
 
     let _guard = WakeGuard::new(StopMode::Stop1);
 
-    let (rtc, _time_provider) = Rtc::new(p.RTC);
-    rtc.write_backup_register(19, rtc.read_backup_register(19).unwrap_or(0) + 1);
-
-    let config = Config::default();
-    let mut mbox = TlMbox::init(p.IPCC, Irqs, config);
     let mut flash = Flash::new_blocking(p.FLASH);
 
-    let ready = mbox.sys.read_ready().await.unwrap();
-    let stack_raw = mbox
-        .sys
-        .fus_info()
-        .map(|fus| fus.wireless_stack_version)
-        .filter(|v| *v != 0)
-        .or_else(|| mbox.sys.wireless_fw_info().map(|info| info.version));
-    info!(
-        "CPU2 ready: {:?}  FUS version: {:?}  wireless stack: {:?}",
-        ready,
-        mbox.sys.fus_version().map(decode_version),
-        stack_raw.map(decode_version)
-    );
+    let mbox = TlMbox::with_firmware(
+        p.IPCC,
+        Irqs,
+        Config::default(),
+        &mut flash,
+        img(FUS_FW_0_5_3),
+        img(FUS_FW_1_2_0),
+        img(FUS_FW_V2),
+        img(STACK_FW),
+        STACK_VERSION,
+        STACK_TYPE,
+    )
+    .await
+    .unwrap();
 
-    // Diagnostics: raw versions + boot counter, readable over SWD at
-    // 0x40002894.. even when RTT is not attached.
-    rtc.write_backup_register(17, mbox.sys.fus_version().unwrap_or(0xFFFF_FFFF));
-    rtc.write_backup_register(18, stack_raw.unwrap_or(0xFFFF_FFFF));
-    rtc.write_backup_register(20, ready as u32);
-
-    let mut upgrader = FirmwareUpgrader::new(rtc, 15);
-    upgrader
-        .request_upgrade(
-            &mut mbox.sys,
-            &mut flash,
-            ready,
-            img(FUS_FW_0_5_3),
-            img(FUS_FW_1_2_0),
-            img(FUS_FW_V2),
-            img(STACK_FW),
-            STACK_VERSION,
-            STACK_TYPE,
-        )
-        .await
-        .unwrap();
-
-    info!("wireless stack up to date");
+    let info = mbox.sys.wireless_fw_info().unwrap();
+    info!("wireless stack up to date: version {:?}", decode_version(info.version));
 }
