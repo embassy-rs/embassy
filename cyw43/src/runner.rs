@@ -20,7 +20,7 @@ use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
 use crate::util::{WriteBuffer, try_until};
-use crate::{Chip, ChipId, Core, MTU, WithContext, events};
+use crate::{Chip, ChipId, Core, RX_BUF_ALIGN, RX_BUF_SIZE, WithContext, events};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -1037,16 +1037,19 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
             let mut packet = self.ch.try_rx_buf();
 
-            let buf = match packet {
-                Some(ref mut packet) if packet.capacity() >= len => unsafe {
+            let buf = match &mut packet {
+                // SPI reads whole words: up to 3 bytes past `len`.
+                Some(packet) if packet.capacity() >= len.next_multiple_of(4) => unsafe {
                     assert!(
-                        (packet.as_ptr() as usize).is_multiple_of(4),
-                        "PacketBuf requires 4-align"
+                        (packet.as_ptr() as usize).is_multiple_of(RX_BUF_ALIGN),
+                        "cyw43: pool buffers must be aligned to cyw43::RX_BUF_ALIGN ({})",
+                        RX_BUF_ALIGN
                     );
                     assert!(
-                        packet.capacity() >= MTU + SdpcmHeader::SIZE + BdcHeader::SIZE,
-                        "PacketBuf requires {} headroom",
-                        SdpcmHeader::SIZE + BdcHeader::SIZE
+                        packet.capacity() >= RX_BUF_SIZE,
+                        "cyw43: pool buffers must hold cyw43::RX_BUF_SIZE ({}) bytes, got {}",
+                        RX_BUF_SIZE,
+                        packet.capacity()
                     );
 
                     // SAFETY: align is checked above
@@ -1091,7 +1094,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             let reception = self.rx(&mut buf[..len]);
 
             if let Some(mut packet) = packet
-                && packet.capacity() >= len
+                && packet.capacity() >= len.next_multiple_of(4)
                 && let Some(Reception { len, offset }) = reception
             {
                 packet.reserve(offset);
