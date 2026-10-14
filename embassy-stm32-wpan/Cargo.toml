@@ -14,6 +14,7 @@ publish = false
 [package.metadata.embassy]
 build = [
     {target = "thumbv7em-none-eabi", features = ["stm32wb55rg"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["stm32wba65ri", "wba-ble", "ble-stack-full", "linklayer-ble-full", "direct"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -60,6 +61,11 @@ defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embas
 log = ["dep:log"]
 bt-hci = ["dep:bt-hci"]
 wb-hci = ["bt-hci", "dep:stm32wb-hci"]
+# WBA only: implement each bt-hci command by calling its ST BLE stack function
+# directly, instead of encoding it as an HCI packet for `BleStack_Request`.
+# Commands the stack has no function for are not available, and neither are
+# ST vendor (ACI) commands sent through the controller.
+direct = ["bt-hci"]
 
 
 wb = []
