@@ -59,6 +59,19 @@ async fn test_driver() {
         assert!(!timer.is_running());
         timer.wait_ticks(2_000).await.unwrap();
 
+        // The compare may arrive before the wait is first polled. It must
+        // complete from the latched status without requiring another IRQ.
+        timer.start(1_000).unwrap();
+        Timer::after_millis(5).await;
+        timer.wait_for_compare().await.unwrap();
+        assert!(!timer.is_running());
+
+        // Exercise registration/completion races and reuse after each wait.
+        for _ in 0..64 {
+            timer.wait_ticks(1).await.unwrap();
+            assert!(!timer.is_running());
+        }
+
         timer.start(1_000).unwrap();
         Timer::after_millis(5).await;
         assert!(timer.has_elapsed());
