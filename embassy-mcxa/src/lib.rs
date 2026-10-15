@@ -49,6 +49,8 @@ pub mod executor;
 pub mod flexcan;
 #[cfg(mcxa_flexspi)]
 pub mod flexspi;
+#[cfg(mcxa_freqme)]
+pub mod freqme;
 #[cfg(mcxa_gpio)]
 pub mod gpio;
 #[cfg(mcxa_lpi2c)]
