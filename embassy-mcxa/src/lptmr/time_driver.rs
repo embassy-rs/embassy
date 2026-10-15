@@ -10,7 +10,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
-use super::{Config, configure, read_counter, ticks};
+use super::{Config, configure, read_counter};
 use crate::clocks::PoweredClock;
 use crate::interrupt::InterruptExt;
 use crate::pac::lptmr::{Ten, Tfc, Tie};
@@ -24,9 +24,13 @@ struct State {
     queue: Queue,
 }
 
+fn extend(previous: u64, counter: u32) -> u64 {
+    previous + counter.wrapping_sub(previous as u32) as u64
+}
+
 impl State {
     fn now(&mut self) -> u64 {
-        self.time = ticks::extend(self.time, read_counter());
+        self.time = extend(self.time, read_counter());
         self.time
     }
 }

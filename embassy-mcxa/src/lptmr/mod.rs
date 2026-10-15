@@ -5,12 +5,9 @@
 //! counter; async wait cancellation also stops it. Pulse counting and DMA are
 //! not supported. LPTMR stops counting while the core is halted by a debugger.
 
-use core::future::poll_fn;
-use core::task::Poll;
-
 use embassy_hal_internal::drop::OnDrop;
-use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Duration;
+use maitake_sync::WaitCell;
 
 use crate::clocks::periph_helpers::{Div4, LptmrClockSel, LptmrConfig, SPConfHelper};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, with_clocks};
@@ -18,7 +15,6 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::lptmr::{Pbyp, Pcs, Prescale, Ten, Tfc, Tie};
 use crate::{Peri, interrupt, pac, peripherals};
 
-mod ticks;
 #[cfg(feature = "time-driver-lptmr")]
 pub(crate) mod time_driver;
 
@@ -32,6 +28,7 @@ impl Prescaler {
     pub const fn bypass() -> Self {
         Self(0)
     }
+
     /// Divide by 2^exponent. Returns None outside 1..=16.
     pub const fn divide(exponent: u8) -> Option<Self> {
         if exponent >= 1 && exponent <= 16 {
@@ -40,6 +37,7 @@ impl Prescaler {
             None
         }
     }
+
     /// Counter clock divisor.
     pub const fn divisor(self) -> u32 {
         1 << self.0
@@ -87,7 +85,7 @@ pub enum Error {
     NotRunning,
 }
 
-static WAKER: AtomicWaker = AtomicWaker::new();
+static WAIT_CELL: WaitCell = WaitCell::new();
 
 /// LPTMR compare interrupt handler. Bind it to LPTMR0.
 pub struct InterruptHandler;
@@ -101,7 +99,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::LPTMR0> for InterruptHa
                 w.set_tcf(false);
                 w.set_tie(Tie::Tie0);
             });
-            WAKER.wake();
+            WAIT_CELL.wake();
         }
     }
 }
@@ -176,18 +174,22 @@ impl<'d> Lptmr<'d> {
     pub fn frequency(&self) -> u32 {
         self.freq
     }
+
     /// Is the counter enabled?
     pub fn is_running(&self) -> bool {
         pac::LPTMR0.csr().read().ten() == Ten::Ten1
     }
+
     /// Latched compare status (not automatically cleared by this method).
     pub fn has_elapsed(&self) -> bool {
         pac::LPTMR0.csr().read().tcf()
     }
+
     /// Current counter snapshot.
     pub fn counter(&self) -> u32 {
         critical_section::with(|_| read_counter())
     }
+
     /// Acknowledge compare without altering the counter configuration.
     pub fn clear_compare_flag(&mut self) {
         pac::LPTMR0.csr().modify(|w| w.set_tcf(true));
@@ -220,20 +222,21 @@ impl<'d> Lptmr<'d> {
             return Err(Error::NotRunning);
         }
         let _stop = OnDrop::new(|| pac::LPTMR0.csr().write(|_| {}));
-        poll_fn(|cx| {
-            WAKER.register(cx.waker());
-            critical_section::with(|_| {
-                if pac::LPTMR0.csr().read().tcf() {
-                    return Poll::Ready(());
-                }
-                pac::LPTMR0.csr().modify(|w| {
-                    w.set_tcf(false);
-                    w.set_tie(Tie::Tie1);
-                });
-                Poll::Pending
+        WAIT_CELL
+            .wait_for(|| {
+                critical_section::with(|_| {
+                    if pac::LPTMR0.csr().read().tcf() {
+                        return true;
+                    }
+                    pac::LPTMR0.csr().modify(|w| {
+                        w.set_tcf(false);
+                        w.set_tie(Tie::Tie1);
+                    });
+                    false
+                })
             })
-        })
-        .await;
+            .await
+            .expect("LPTMR wait cell is never closed");
         Ok(())
     }
 
@@ -253,9 +256,16 @@ impl<'d> Lptmr<'d> {
         Ok(())
     }
 
+    fn from_micros(&self, micros: u64, freq: u32) -> Option<u32> {
+        let ticks = micros.checked_mul(freq as u64)?.div_ceil(1_000_000);
+        ticks.try_into().ok()
+    }
+
     /// Wait for a duration rounded up to counter ticks. Zero returns immediately.
     pub async fn delay(&mut self, duration: Duration) -> Result<(), Error> {
-        let ticks = ticks::from_micros(duration.as_micros(), self.freq).ok_or(Error::InvalidPeriod)?;
+        let ticks = self
+            .from_micros(duration.as_micros(), self.freq)
+            .ok_or(Error::InvalidPeriod)?;
         if ticks == 0 {
             return Ok(());
         }
