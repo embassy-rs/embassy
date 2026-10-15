@@ -68,6 +68,10 @@ impl<'d, MODE> Flash<'d, MODE> {
     ///
     /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     /// For example, to read address `0x0800_1234` you have to use offset `0x1234`.
+    #[cfg_attr(
+        any(flash_h7, flash_h7ab),
+        doc = "\nNOTE: aborted erase operations (due to power loss) or doubly-written bytes may cause this function to raise a `BusFault`. If you want to be certain that it won't, use [`Flash::read_with_ecc_check`]."
+    )]
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         let (base, size, offset) = check_flash_address(FLASH_BASE as u32, offset)?;
         blocking_read(base, size, offset, bytes)
