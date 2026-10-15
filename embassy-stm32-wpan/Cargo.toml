@@ -14,7 +14,7 @@ publish = false
 [package.metadata.embassy]
 build = [
     {target = "thumbv7em-none-eabi", features = ["stm32wb55rg"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["stm32wba65ri", "wba-ble", "wb-hci", "ble-stack-full", "linklayer-ble-full", "direct"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["stm32wba65ri", "wba-ble", "ble-stack-full", "linklayer-ble-full", "direct"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -49,7 +49,7 @@ critical-section = "1.2"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
-stm32wb-hci = { version = "0.20.0", default-features = false, optional = true }
+stm32wb-hci = { git = "https://github.com/OueslatiGhaith/stm32wb-hci", branch = "direct", optional = true }
 futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
 bt-hci = { version = "0.11.0", optional = true }
@@ -61,11 +61,11 @@ defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embas
 log = ["dep:log"]
 bt-hci = ["dep:bt-hci"]
 wb-hci = ["bt-hci", "dep:stm32wb-hci"]
-# WBA only: implement each bt-hci command by calling its ST BLE stack function
-# directly, instead of encoding it as an HCI packet for `BleStack_Request`.
-# With `wb-hci`, the ST vendor (ACI) commands of `stm32wb-hci` are implemented
-# the same way. Commands the stack has no function for are not available.
-direct = ["bt-hci"]
+# WBA only: execute each command by calling its ST BLE stack function directly,
+# instead of encoding it as an HCI packet for `BleStack_Request`. The calls
+# come from `stm32wb-hci`, for the bt-hci and ST vendor (ACI) commands the
+# selected stack implements; other commands are not available.
+direct = ["wb-hci", "stm32wb-hci/direct"]
 
 
 wb = []
