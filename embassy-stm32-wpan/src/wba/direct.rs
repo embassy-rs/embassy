@@ -7,26 +7,31 @@
 //! its own function in ST's BLE stack, the way `nrf-sdc` does. For example
 //! `LeSetAdvParams` calls `hci_le_set_advertising_parameters`.
 //!
-//! Only the commands listed in this file are implemented. A command the ST
-//! stack has no function for (or whose bt-hci layout does not match it) fails
-//! to compile instead of failing at runtime. ST vendor (ACI) commands from
-//! `stm32wb-hci` are not implemented here.
+//! Only the commands listed here are implemented. A command the ST stack has
+//! no function for (or whose bt-hci layout does not match it) fails to compile
+//! instead of failing at runtime. With `wb-hci`, the ST vendor (ACI) commands
+//! of `stm32wb-hci` are implemented the same way, in [`aci`].
 //!
 //! # Mapping syntax
 //!
 //! Each entry lists the arguments of the ST function in HCI wire order, read
 //! from the command's serialized parameters `p`:
 //!
-//! - `p.u8()`, `p.u16()`: a 1 or 2 byte value
+//! - `p.u8()`, `p.u16()`, `p.u32()`: a 1, 2 or 4 byte value
 //! - `p.ptr(n)`: pointer to an `n` byte array (address, key, 24-bit interval)
-//! - `p.list(n)`, `p.list_of::<T>()`: pointer to the entries counted by the previous `p.u8()`,
-//!   each `n` bytes long (or one ST struct `T`)
+//! - `p.array_of::<T>(n)`: pointer to `n` ST structs `T`
+//! - `p.list(n)`, `p.list_of::<T>()`: pointer to the entries counted by the
+//!   previous `p.u8()` or `p.u16()`, each `n` bytes long (or one ST struct `T`)
+//! - `p.uuid()`: pointer to a 16-bit or 128-bit UUID, selected by the previous
+//!   `p.u8()` (1 or 2)
 //! - `p.rest()`: pointer to all remaining bytes
 //!
-//! Output arguments are taken from `o` (`o.u8()`, `o.u16()`, `o.u32()`,
-//! `o.bytes(n)`). After the call their values, in order, form
-//! the command's return parameters. `[echo n]` puts the first `n` parameter
-//! bytes (the handle) in front of them, for commands that return their handle.
+//! Output arguments are taken from `o`: `o.u8()`, `o.u16()`, `o.u32()`,
+//! `o.bytes(n)`, `o.array_of::<T>(n)`, and `o.items(n, max)` or
+//! `o.items_of::<T>(max)` for up to `max` entries counted by the previous
+//! output. After the call their values, in order, form the command's return
+//! parameters. `[echo n]` puts the first `n` parameter bytes (the handle) in
+//! front of them, for commands that return their handle.
 //!
 //! In debug builds, the argument list is first evaluated once as a dry run to
 //! check that it consumes exactly the serialized parameters. A mapping that
@@ -58,7 +63,8 @@ const INVALID: CmdError<ErrorKind> = CmdError::Io(ErrorKind::InvalidData);
 struct Params<'a> {
     buf: &'a [u8],
     pos: Cell<usize>,
-    last_u8: Cell<u8>,
+    /// The last `u8` or `u16` read, which counts a following list.
+    last: Cell<u16>,
 }
 
 impl<'a> Params<'a> {
@@ -71,7 +77,7 @@ impl<'a> Params<'a> {
         Ok(Self {
             buf: &buf[..len],
             pos: Cell::new(0),
-            last_u8: Cell::new(0),
+            last: Cell::new(0),
         })
     }
 
@@ -86,13 +92,23 @@ impl<'a> Params<'a> {
 
     fn u8(&self) -> u8 {
         let v = self.take(1).first().copied().unwrap_or(0);
-        self.last_u8.set(v);
+        self.last.set(v.into());
         v
     }
 
     fn u16(&self) -> u16 {
-        match self.take(2) {
+        let v = match self.take(2) {
             [a, b] => u16::from_le_bytes([*a, *b]),
+            _ => 0,
+        };
+        self.last.set(v);
+        v
+    }
+
+    #[allow(dead_code, reason = "only some command sets use it")]
+    fn u32(&self) -> u32 {
+        match self.take(4) {
+            [a, b, c, d] => u32::from_le_bytes([*a, *b, *c, *d]),
             _ => 0,
         }
     }
@@ -101,8 +117,13 @@ impl<'a> Params<'a> {
         self.take(n).as_ptr()
     }
 
+    #[allow(dead_code, reason = "only some command sets use it")]
+    fn array_of<T>(&self, n: usize) -> *const T {
+        self.ptr(n * core::mem::size_of::<T>()).cast()
+    }
+
     fn list(&self, entry_len: usize) -> *const u8 {
-        self.ptr(self.last_u8.get() as usize * entry_len)
+        self.ptr(self.last.get() as usize * entry_len)
     }
 
     /// Like [`Self::list`], with the entry length taken from ST's packed
@@ -111,12 +132,24 @@ impl<'a> Params<'a> {
         self.list(core::mem::size_of::<T>()).cast()
     }
 
+    #[allow(dead_code, reason = "only some command sets use it")]
+    /// A UUID whose type (1: 16-bit, 2: 128-bit) is the previous `p.u8()`.
+    fn uuid(&self) -> *const u8 {
+        let len = match self.last.get() {
+            1 => 2,
+            2 => 16,
+            _ => 0,
+        };
+        self.ptr(len)
+    }
+
     fn rest(&self) -> *const u8 {
         self.ptr(self.buf.len().saturating_sub(self.pos.get()))
     }
 
-    fn handle(&self, n: usize) -> &'a [u8] {
-        self.buf.get(..n).unwrap_or(&[])
+    /// The `n` parameter bytes at `start`, without consuming them.
+    fn bytes_at(&self, start: usize, n: usize) -> &'a [u8] {
+        self.buf.get(start..start + n).unwrap_or(&[])
     }
 
     /// Ends the dry run: checks that every byte was consumed, then rewinds.
@@ -134,7 +167,8 @@ impl<'a> Params<'a> {
 struct Out {
     base: *mut u8,
     next: Cell<usize>,
-    fields: [Cell<(u16, u16)>; OUT_FIELDS],
+    /// Offset, length, and for a counted list its entry length (else 0).
+    fields: [Cell<(u16, u16, u16)>; OUT_FIELDS],
     count: Cell<usize>,
     overflow: Cell<bool>,
 }
@@ -144,20 +178,20 @@ impl Out {
         Self {
             base: storage.as_mut_ptr().cast(),
             next: Cell::new(0),
-            fields: [const { Cell::new((0, 0)) }; OUT_FIELDS],
+            fields: [const { Cell::new((0, 0, 0)) }; OUT_FIELDS],
             count: Cell::new(0),
             overflow: Cell::new(false),
         }
     }
 
-    fn alloc(&self, len: usize) -> *mut u8 {
+    fn alloc(&self, len: usize, entry_len: usize) -> *mut u8 {
         let offset = self.next.get();
         let count = self.count.get();
         if count == OUT_FIELDS || offset + len > OUT_WORDS * 4 {
             self.overflow.set(true);
             return self.base;
         }
-        self.fields[count].set((offset as u16, len as u16));
+        self.fields[count].set((offset as u16, len as u16, entry_len as u16));
         self.count.set(count + 1);
         self.next.set(offset + len.next_multiple_of(4));
         // SAFETY: `offset + len` is within the storage.
@@ -165,19 +199,47 @@ impl Out {
     }
 
     fn u8(&self) -> *mut u8 {
-        self.alloc(1)
+        self.alloc(1, 0)
     }
 
     fn u16(&self) -> *mut u16 {
-        self.alloc(2).cast()
+        self.alloc(2, 0).cast()
     }
 
     fn u32(&self) -> *mut u32 {
-        self.alloc(4).cast()
+        self.alloc(4, 0).cast()
     }
 
     fn bytes(&self, n: usize) -> *mut u8 {
-        self.alloc(n)
+        self.alloc(n, 0)
+    }
+
+    #[allow(dead_code, reason = "only some command sets use it")]
+    fn array_of<T>(&self, n: usize) -> *mut T {
+        self.alloc(n * core::mem::size_of::<T>(), 0).cast()
+    }
+
+    #[allow(dead_code, reason = "only some command sets use it")]
+    /// Room for up to `max` entries of `entry_len` bytes, of which the return
+    /// parameters keep as many as the previous output counts.
+    fn items(&self, entry_len: usize, max: usize) -> *mut u8 {
+        self.alloc(max * entry_len, entry_len)
+    }
+
+    #[allow(dead_code, reason = "only some command sets use it")]
+    fn items_of<T>(&self, max: usize) -> *mut T {
+        self.items(core::mem::size_of::<T>(), max).cast()
+    }
+
+    #[allow(dead_code, reason = "only some command sets use it")]
+    /// Puts parameter bytes the C function does not write back among the
+    /// return parameters, at this point in their order.
+    fn echo(&self, bytes: &[u8]) {
+        let dst = self.alloc(bytes.len(), 0);
+        if !self.overflow.get() {
+            // SAFETY: `alloc` reserved `bytes.len()` bytes at `dst`.
+            unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len()) };
+        }
     }
 
     /// Ends the dry run: checks that the outputs fit, then forgets them.
@@ -196,13 +258,23 @@ impl Out {
         let mut wire = [0u8; OUT_WORDS * 4 + 8];
         wire[..echo.len()].copy_from_slice(echo);
         let mut len = echo.len();
+        let mut previous: &[u8] = &[];
         for field in &self.fields[..self.count.get()] {
-            let (offset, n) = field.get();
-            let (offset, n) = (offset as usize, n as usize);
+            let (offset, n, entry_len) = field.get();
+            let (offset, mut n, entry_len) = (offset as usize, n as usize, entry_len as usize);
             // SAFETY: `alloc` recorded this range inside the storage.
             let value = unsafe { core::slice::from_raw_parts(self.base.add(offset), n) };
-            wire[len..][..n].copy_from_slice(value);
+            if entry_len != 0 {
+                let entries = match previous {
+                    [count] => *count as usize,
+                    [lo, hi] => u16::from_le_bytes([*lo, *hi]) as usize,
+                    _ => return Err(INVALID),
+                };
+                n = n.min(entries * entry_len);
+            }
+            wire[len..][..n].copy_from_slice(&value[..n]);
             len += n;
+            previous = value;
         }
         R::from_hci_bytes_complete(&wire[..len]).map_err(|_| INVALID)
     }
@@ -279,11 +351,14 @@ macro_rules! direct {
                     }
                 }
                 status(self.call(|| unsafe { $f($($arg),*) }))?;
-                $o.finish($p.handle(0 $(+ $echo)?))
+                $o.finish($p.bytes_at(0, 0 $(+ $echo)?))
             }
         }
     };
 }
+
+#[cfg(feature = "wb-hci")]
+mod aci;
 
 /// Link Control commands (Core Vol 4, Part E, 7.1)
 mod link_control {
