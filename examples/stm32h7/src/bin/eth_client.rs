@@ -68,7 +68,7 @@ async fn main(spawner: Spawner) -> ! {
 
     static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
 
-    let device = Ethernet::new(
+    let device = unwrap!(Ethernet::new(
         PACKETS.init(PacketQueue::<4, 4>::new()),
         p.ETH,
         p.PA1,
@@ -83,7 +83,7 @@ async fn main(spawner: Spawner) -> ! {
         p.PA2,
         p.PC1,
         Irqs,
-    );
+    ));
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();

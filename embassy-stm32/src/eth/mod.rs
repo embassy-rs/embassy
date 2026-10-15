@@ -26,6 +26,57 @@ pub use crate::eth::generic_phy::*;
 pub use crate::eth::sma::{Instance as SmaInstance, Sma, StationManagement};
 use crate::pac::eth::Eth as Regs;
 
+/// Failure to initialize or access the Ethernet MAC or PHY.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    /// The MAC DMA software reset did not complete.
+    DmaResetTimeout,
+    /// An MDIO transaction did not complete.
+    MdioTimeout,
+    /// No MDIO address completed a PHY software reset.
+    PhyNotFound,
+    /// The PHY did not complete its software reset.
+    PhyResetTimeout,
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::DmaResetTimeout => "MAC DMA software reset timed out",
+            Self::MdioTimeout => "MDIO transaction timed out",
+            Self::PhyNotFound => "no MDIO address completed a PHY software reset",
+            Self::PhyResetTimeout => "PHY software reset timed out",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
+
+// ST's F4/H7 HAL gives Ethernet DMA reset 500 ms. Use the same limit so
+// a slow reset is not rejected before the vendor driver would time out.
+pub(crate) const MAC_RESET_TIMEOUT_US: u64 = 500_000;
+
+// `wait::Timeout` never expires without `time`, so the poll count must be finite.
+// Register reads, loop overhead, and interrupts can extend the elapsed time.
+pub(crate) fn wait_for(mut ready: impl FnMut() -> bool, timeout_us: u64) -> bool {
+    if ready() {
+        return true;
+    }
+    // SAFETY: Ethernet operations run after RCC initializes CLOCK_FREQS; the
+    // configured system clock is not changed during this synchronous wait.
+    let sys_hz = unsafe { crate::rcc::get_freqs().sys.to_hertz().unwrap().0 };
+    let cycles_per_us = sys_hz.div_ceil(1_000_000).max(1);
+    for _ in 0..timeout_us {
+        cortex_m::asm::delay(cycles_per_us);
+        if ready() {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(feature = "ptp")]
 fn adjusted_ptp_addend(nominal: u32, adjustment: embassy_ptp_driver::ScaledPpm) -> u32 {
     let scale = 1.0 + f64::from(adjustment.raw()) / ((1i32 << 16) as f64 * 1e6);
@@ -241,9 +292,11 @@ mod tests {
 /// Trait for an Ethernet PHY
 pub trait Phy {
     /// Reset PHY and wait for it to come out of reset.
-    fn phy_reset(&mut self);
+    /// Returns an error if reset or MDIO access fails.
+    fn phy_reset(&mut self) -> Result<(), Error>;
     /// PHY initialisation.
-    fn phy_init(&mut self);
+    /// Returns an error if initialization fails.
+    fn phy_init(&mut self) -> Result<(), Error>;
     /// Poll link to see if it is up and FD with 100Mbps
     fn poll_link(&mut self, cx: &mut Context) -> Option<bool>;
 }
