@@ -1,6 +1,6 @@
 //! Two-board I3C **controller** half — tight loop, panic-on-failure.
 //!
-//! Pairs with `examples/mcxa5xx/src/bin/i3c-target-dma.rs`.
+//! Pairs with `examples/mcxa577/src/bin/i3c-target-dma.rs`.
 //!
 //! Wiring: SCL P1_9 ↔ partner SCL, SDA P1_8 ↔ partner SDA, common GND.
 

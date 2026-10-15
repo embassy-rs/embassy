@@ -1,5 +1,5 @@
 [package]
-name = "embassy-mcxa2xx-examples"
+name = "embassy-mcxa577-examples"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
@@ -13,13 +13,14 @@ critical-section = "1.2.0"
 defmt = "1.0"
 defmt-rtt = "1.0"
 embassy-embedded-hal = { version = "0.6.0", path = "../../embassy-embedded-hal" }
-embassy-executor = { version = "0.10.0", path = "../../embassy-executor", default-features = false, features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", default-features = false, features = ["platform-cortex-m", "executor-thread", "defmt"]  }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures"}
-embassy-mcxa = { version = "0.1.0", path = "../../embassy-mcxa", features = ["defmt", "unstable-pac", "mcxa2xx", "embedded-mcu-hal"] }
+embassy-mcxa = { version = "0.1.0", path = "../../embassy-mcxa", features = ["defmt", "unstable-pac", "mcxa577", "embedded-mcu-hal"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync" }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-time-driver = { version = "0.2.2", path = "../../embassy-time-driver", optional = true }
 embedded-io-async = "0.7.0"
+embedded-hal-async = "1.0"
 embedded-mcu-hal = { version = "0.3.0", features = ["defmt"] }
 embedded-storage = "0.3.1"
 heapless = "0.9.2"
@@ -39,6 +40,8 @@ default-executor = [
 executor-platform = [
   "embassy-mcxa/executor-platform"
 ]
+mcxa5xx = []
+unstable-pac = []
 
 [profile.release]
 lto = true # better optimizations
@@ -46,5 +49,5 @@ debug = 2  # enough information for defmt/rtt locations
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/mcxa2xx" }
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/mcxa577" }
 ]
