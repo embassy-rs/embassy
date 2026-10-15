@@ -179,6 +179,7 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
             Bus {
                 regs: self.regs,
                 power_available: false,
+                enable_sof: self.alloc_in.used & (1 << ISO_EP) != 0,
                 vbus_detect: self.vbus_detect,
                 _phantom: PhantomData,
             },
@@ -195,6 +196,7 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
 pub struct Bus<'d, V: VbusDetect> {
     regs: pac::usbd::Usbd,
     power_available: bool,
+    enable_sof: bool,
     vbus_detect: V,
     _phantom: PhantomData<&'d ()>,
 }
@@ -222,12 +224,18 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
 
         errata::post_enable();
 
+        if self.enable_sof {
+            regs.isoinconfig().write(|w| w.set_response(vals::Response::ZeroData));
+            regs.events_sof().write_value(0);
+        }
+
         unsafe { NVIC::unmask(pac::Interrupt::USBD) };
 
         regs.intenset().write(|w| {
             w.set_usbreset(true);
             w.set_usbevent(true);
             w.set_epdata(true);
+            w.set_sof(self.enable_sof);
         });
 
         if self.vbus_detect.wait_power_ready().await.is_ok() {
@@ -241,6 +249,7 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
 
     async fn disable(&mut self) {
         let regs = self.regs;
+        regs.intenclr().write(|w| w.set_sof(true));
         regs.enable().write(|x| x.set_enable(false));
     }
 
@@ -261,7 +270,6 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
                     In::waker(i).wake();
                     Out::waker(i).wake();
                 }
-                regs.intenclr().write(|w| w.set_sof(true));
                 In::waker(ISO_EP).wake();
 
                 return Poll::Ready(Event::Reset);
@@ -352,16 +360,6 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
                     was_enabled = (w.0 & mask) != 0;
                     if enabled { w.0 |= mask } else { w.0 &= !mask }
                 });
-
-                if i == ISO_EP {
-                    if enabled {
-                        // Respond with an empty packet when no data is available.
-                        regs.isoinconfig().write(|w| w.set_response(vals::Response::ZeroData));
-                        regs.events_sof().write_value(0);
-                    }
-                    let inten = if enabled { regs.intenset() } else { regs.intenclr() };
-                    inten.write(|w| w.set_sof(true));
-                }
 
                 let ready_mask = In::mask(i);
                 if enabled {
