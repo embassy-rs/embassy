@@ -1,6 +1,6 @@
 //! Two-board I3C **target** half — tight loop, panic-on-failure.
 //!
-//! Pairs with `examples/mcxa5xx/src/bin/i3c-controller-async.rs`.
+//! Pairs with `examples/mcxa577/src/bin/i3c-controller-async.rs`.
 //!
 //! Wiring: SCL P1_9 ↔ MCXA5 P0_21, SDA P1_8 ↔ MCXA5 P0_20, common GND.
 

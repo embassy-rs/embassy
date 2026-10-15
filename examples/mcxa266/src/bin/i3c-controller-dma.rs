@@ -1,10 +1,10 @@
 //! Two-board I3C **controller** half (DMA) — tight loop, panic-on-failure.
 //!
-//! Pairs with `examples/mcxa2xx/src/bin/i3c-target-dma.rs` (or any matching
+//! Pairs with `examples/mcxa577/src/bin/i3c-target-dma.rs` (or any matching
 //! target). Same protocol/cadence as `i3c-controller-async.rs` but uses the
 //! DMA-backed controller driver (`I3c::new_async_with_dma`).
 //!
-//! Wiring: SCL P0_21 ↔ MCXA2 P1_9, SDA P0_20 ↔ MCXA2 P1_8, common GND.
+//! Wiring: SCL P1_9 ↔ partner SCL, SDA P1_8 ↔ partner SDA, common GND.
 
 #![no_std]
 #![no_main]
@@ -15,11 +15,12 @@ use embassy_executor::Spawner;
 use embassy_mcxa as hal;
 use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
+use embassy_mcxa::clocks::periph_helpers::{Div4, I3cClockSel};
 use embassy_mcxa::config::Config;
 use embassy_mcxa::i3c::controller::{self, BusType, I3c, IbiEvent, IbiSlot, InterruptHandler, Operation, Payload};
 use embassy_mcxa::peripherals::I3C0;
 use embassy_mcxa::trng::Trng;
-use embassy_mcxa5xx_examples::util::verify_equal;
+use embassy_mcxa266_examples::util::verify_equal;
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -27,7 +28,7 @@ const TARGET_STATIC_ADDR: u8 = 0x0a;
 const TARGET_DYNAMIC_ADDR: u8 = 0x0b;
 const NON_RESET_PREFIX: u8 = 0x00;
 const RESET_COMMAND: u8 = 0xf0;
-const MAX_TRANSFER_LEN: usize = 250;
+const MAX_TRANSFER_LEN: usize = 255;
 
 bind_interrupts!(
     struct Irqs {
@@ -55,7 +56,9 @@ async fn set_dasa<'d>(i3c: &mut I3c<'d, hal::i3c::Dma<'d>>) -> Result<(), contro
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
+    if let Some(firc) = config.clock_cfg.firc.as_mut() {
+        firc.fro_hf_div = Some(Div8::from_divisor(2).unwrap());
+    }
 
     let p = hal::init(config);
 
@@ -64,8 +67,12 @@ async fn main(_spawner: Spawner) {
         PurPin::<I3C0>::mux(&*p.P0_2);
     }
 
-    let cfg = controller::Config::default();
-    let mut i3c = I3c::new_async_with_dma(p.I3C0, p.P0_21, p.P0_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, cfg).unwrap();
+    let mut cfg = controller::Config::default();
+    cfg.clock_config.source = I3cClockSel::FroHfDiv;
+    cfg.clock_config.div = Div4::from_divisor(1).unwrap();
+    cfg.open_drain_freq = 1_000_000;
+    cfg.push_pull_freq = 2_000_000;
+    let mut i3c = I3c::new_async_with_dma(p.I3C0, p.P1_9, p.P1_8, p.DMA0_CH0, p.DMA0_CH1, Irqs, cfg).unwrap();
     let mut trng = Trng::new_blocking(p.TRNG0, Default::default());
 
     Timer::after_secs(2).await;

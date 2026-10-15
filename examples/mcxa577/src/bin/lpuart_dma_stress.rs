@@ -21,7 +21,7 @@ use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::clocks::periph_helpers::LpuartClockSel;
 use embassy_mcxa::lpuart::{Config, Dma, Error, Lpuart, LpuartRx, LpuartTx};
 use embassy_mcxa::trng::{InterruptHandler, Trng};
-use embassy_mcxa5xx_examples::util::verify_equal;
+use embassy_mcxa577_examples::util::verify_equal;
 use embassy_time::Timer;
 use panic_probe as _;
 

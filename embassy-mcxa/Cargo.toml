@@ -13,10 +13,28 @@ publish = false
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa2xx"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa5xx"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa2xx", "time-driver-lptmr"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa5xx", "time-driver-lptmr"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa175"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa176"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa185"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa186"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa255"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa256"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa265"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa266"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa276"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa286"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa287"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa456"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa457"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa536"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa537"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa556"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa557"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa566"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa567"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa577"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa266", "time-driver-lptmr"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa577", "time-driver-lptmr"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -25,8 +43,26 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-mcxa/
 
 features = ["defmt", "unstable-pac"]
 flavors = [
-    { name = "mcx-a256", target = "thumbv8m.main-none-eabihf", features = ["mcxa2xx"] },
-    { name = "mcx-a577", target = "thumbv8m.main-none-eabihf", features = ["mcxa5xx"] },
+    { name = "mcx-a175", target = "thumbv8m.main-none-eabihf", features = ["mcxa175"] },
+    { name = "mcx-a176", target = "thumbv8m.main-none-eabihf", features = ["mcxa176"] },
+    { name = "mcx-a185", target = "thumbv8m.main-none-eabihf", features = ["mcxa185"] },
+    { name = "mcx-a186", target = "thumbv8m.main-none-eabihf", features = ["mcxa186"] },
+    { name = "mcx-a255", target = "thumbv8m.main-none-eabihf", features = ["mcxa255"] },
+    { name = "mcx-a256", target = "thumbv8m.main-none-eabihf", features = ["mcxa256"] },
+    { name = "mcx-a265", target = "thumbv8m.main-none-eabihf", features = ["mcxa265"] },
+    { name = "mcx-a266", target = "thumbv8m.main-none-eabihf", features = ["mcxa266"] },
+    { name = "mcx-a276", target = "thumbv8m.main-none-eabihf", features = ["mcxa276"] },
+    { name = "mcx-a286", target = "thumbv8m.main-none-eabihf", features = ["mcxa286"] },
+    { name = "mcx-a287", target = "thumbv8m.main-none-eabihf", features = ["mcxa287"] },
+    { name = "mcx-a456", target = "thumbv8m.main-none-eabihf", features = ["mcxa456"] },
+    { name = "mcx-a457", target = "thumbv8m.main-none-eabihf", features = ["mcxa457"] },
+    { name = "mcx-a536", target = "thumbv8m.main-none-eabihf", features = ["mcxa536"] },
+    { name = "mcx-a537", target = "thumbv8m.main-none-eabihf", features = ["mcxa537"] },
+    { name = "mcx-a556", target = "thumbv8m.main-none-eabihf", features = ["mcxa556"] },
+    { name = "mcx-a557", target = "thumbv8m.main-none-eabihf", features = ["mcxa557"] },
+    { name = "mcx-a566", target = "thumbv8m.main-none-eabihf", features = ["mcxa566"] },
+    { name = "mcx-a567", target = "thumbv8m.main-none-eabihf", features = ["mcxa567"] },
+    { name = "mcx-a577", target = "thumbv8m.main-none-eabihf", features = ["mcxa577"] },
 ]
 
 [dependencies]
@@ -62,7 +98,7 @@ grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "97b7ac14a079e76913d9689f69210dc0e8195994", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "a049612e781d1b616843ee49afd9839232684ff7", features = ["rt"] }
 paste = "1.0.15"
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
@@ -70,7 +106,7 @@ rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 [build-dependencies]
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "97b7ac14a079e76913d9689f69210dc0e8195994", default-features = false, features = ["metadata"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "a049612e781d1b616843ee49afd9839232684ff7", default-features = false, features = ["metadata"] }
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 regex = "1.12.3"
@@ -170,10 +206,35 @@ executor-platform = []
 unstable-osc32k = []
 
 #
-# Chip family selection
+# Chip selection
 #
-mcxa2xx = ["nxp-pac/mcxa256"]
-mcxa5xx = ["nxp-pac/mcxa577"]
+mcxa175 = ["_mcxa2xx", "nxp-pac/mcxa175"]
+mcxa176 = ["_mcxa2xx", "nxp-pac/mcxa176"]
+mcxa185 = ["_mcxa2xx", "nxp-pac/mcxa185"]
+mcxa186 = ["_mcxa2xx", "nxp-pac/mcxa186"]
+mcxa255 = ["_mcxa2xx", "nxp-pac/mcxa255"]
+mcxa256 = ["_mcxa2xx", "nxp-pac/mcxa256"]
+mcxa265 = ["_mcxa2xx", "nxp-pac/mcxa265"]
+mcxa266 = ["_mcxa2xx", "nxp-pac/mcxa266"]
+mcxa276 = ["_mcxa2xx", "nxp-pac/mcxa276"]
+mcxa286 = ["_mcxa5xx", "nxp-pac/mcxa286"]
+mcxa287 = ["_mcxa5xx", "nxp-pac/mcxa287"]
+mcxa456 = ["_mcxa5xx", "nxp-pac/mcxa456"]
+mcxa457 = ["_mcxa5xx", "nxp-pac/mcxa457"]
+mcxa536 = ["_mcxa5xx", "nxp-pac/mcxa536"]
+mcxa537 = ["_mcxa5xx", "nxp-pac/mcxa537"]
+mcxa556 = ["_mcxa5xx", "nxp-pac/mcxa556"]
+mcxa557 = ["_mcxa5xx", "nxp-pac/mcxa557"]
+mcxa566 = ["_mcxa5xx", "nxp-pac/mcxa566"]
+mcxa567 = ["_mcxa5xx", "nxp-pac/mcxa567"]
+mcxa577 = ["_mcxa5xx", "nxp-pac/mcxa577"]
+
+# Compatibility aliases.
+mcxa2xx = ["mcxa266"]
+mcxa5xx = ["mcxa577"]
+
+_mcxa2xx = []
+_mcxa5xx = []
 
 [dev-dependencies]
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"] }

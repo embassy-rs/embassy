@@ -4,6 +4,12 @@ The link:https://github.com/embassy-rs/embassy/tree/main/embassy-mcxa[Embassy MC
 
 * link:https://github.com/embassy-rs/nxp-pac[nxp-pac]
 
+== Chip selection
+
+Select the chip feature, for example `mcxa266` or `mcxa577`.
+The compatibility aliases `mcxa2xx` and `mcxa5xx` select those two chips respectively.
+The `_mcxa2xx` and `_mcxa5xx` features are internal register-map groups.
+
 == Peripherals
 
 The following peripherals have a HAL implementation at present
@@ -52,6 +58,6 @@ hardware clock down and wake early. Functional clock limits are 22.5 MHz on
 MCXA2 and 24 MHz on MCXA5, with the counter increment rate limited to half the
 active slow bus clock for reliable snapshots.
 
-Run the `lptmr` example in `examples/mcxa2xx` or `examples/mcxa5xx` normally to
+Run the `lptmr` example in `examples/mcxa266` or `examples/mcxa577` normally to
 exercise the standalone driver, or add `--features time-driver-lptmr` to
 exercise the Embassy time backend.
