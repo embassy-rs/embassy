@@ -1,0 +1,1 @@
+{ "rust-analyzer.cargo.features": ["stm32wba50ke", "direct"] }
