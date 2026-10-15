@@ -44,6 +44,7 @@ async fn main(_spawner: Spawner) {
         p.DMA0_CH1,
         Irqs,
         FlexspiClockConfig::default(),
+        Default::default(),
         FLASH_CONFIG,
     ));
 

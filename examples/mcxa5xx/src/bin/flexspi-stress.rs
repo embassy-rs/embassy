@@ -226,6 +226,7 @@ async fn blocking_phase(p: &mut Peripherals) -> u32 {
         p.P3_10.reborrow(),
         p.P3_11.reborrow(),
         FlexspiClockConfig::default(),
+        Default::default(),
         FLASH_CONFIG,
     )));
     let mut flash = BlockingFlash(flash);
@@ -254,6 +255,7 @@ async fn interrupt_phase(p: &mut Peripherals) -> u32 {
         p.P3_11.reborrow(),
         Irqs,
         FlexspiClockConfig::default(),
+        Default::default(),
         FLASH_CONFIG,
     )));
     let mut flash = AsyncFlash(flash);
@@ -284,6 +286,7 @@ async fn dma_phase(p: &mut Peripherals) -> u32 {
         p.DMA0_CH1.reborrow(),
         Irqs,
         FlexspiClockConfig::default(),
+        Default::default(),
         FLASH_CONFIG,
     )));
     let mut flash = AsyncFlash(flash);
