@@ -248,6 +248,12 @@ impl Clocks {
         Ok(clk.frequency)
     }
 
+    /// Ensure the gated `fro_12m` clock is active and valid at the given power state.
+    #[inline]
+    pub fn ensure_fro_12m_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        self.ensure_clock_active(&self.fro_12m, "fro_12m", at_level)
+    }
+
     /// Ensure the `fro_lf_div` clock is active and valid at the given power state.
     #[inline]
     pub fn ensure_fro_lf_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {

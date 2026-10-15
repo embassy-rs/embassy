@@ -159,6 +159,8 @@ define_counters!(
     interrupt_ctimer4_wake,
     interrupt_edma0,
     interrupt_edma0_wake,
+    interrupt_freqme0,
+    interrupt_freqme0_wake,
     interrupt_gpio0,
     interrupt_gpio0_wake,
     interrupt_gpio1,

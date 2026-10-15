@@ -27,6 +27,21 @@ pub(crate) fn init() {
     }
 }
 
+/// Configure both FREQME inputs while serializing the shared INPUTMUX gate.
+#[cfg(mcxa_freqme)]
+pub(crate) fn configure_freqme(reference: u8, target: u8) -> Result<(), crate::clocks::ClockError> {
+    critical_section::with(|_| {
+        // SAFETY: INPUTMUX is only accessed during serialized configuration;
+        // no driver retains access to its gate across this critical section.
+        let _parts = unsafe { enable::<INPUTMUX0>(&NoConfig)? };
+        pac::INPUTMUX0.freqmeas_ref().write(|w| w.set_inp(reference.into()));
+        pac::INPUTMUX0.freqmeas_tar().write(|w| w.set_inp(target.into()));
+        // SAFETY: routing remains active without the register interface clock.
+        unsafe { disable::<INPUTMUX0>() };
+        Ok(())
+    })
+}
+
 macro_rules! impl_input_mux {
     (ctimer, $value:literal, $pin:ident) => {
         impl_input_mux!(ctimer, 0, $value, $pin);
@@ -56,10 +71,11 @@ macro_rules! impl_input_mux {
             {
                 #[inline(always)]
                 fn mux() {
-                    let _ = unsafe { enable::<INPUTMUX0>(&NoConfig) };
-                    pac::INPUTMUX0.[<$reg>]($n).write(|w| w.set_inp([<$value>].into()));
-                    unsafe { disable::<INPUTMUX0>() };
-
+                    critical_section::with(|_| {
+                        let _ = unsafe { enable::<INPUTMUX0>(&NoConfig) };
+                        pac::INPUTMUX0.[<$reg>]($n).write(|w| w.set_inp([<$value>].into()));
+                        unsafe { disable::<INPUTMUX0>() };
+                    });
                 }
             }
 

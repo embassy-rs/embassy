@@ -188,10 +188,14 @@ fn generate_cc_gates() -> TokenStream {
         let peripheral_name = format_ident!("{}", peripheral.name);
         let enable = format_ident!("{}", gate.enable);
         let reset = gate.reset.map(|reset| format_ident!("{reset}"));
-        let config = gate
-            .config
-            .map(|config| format_ident!("{config}"))
-            .unwrap_or_else(|| format_ident!("NoConfig"));
+        let config = gate.config.map(|config| format_ident!("{config}")).unwrap_or_else(|| {
+            // FREQME's PAC metadata predates its HAL clock helper.
+            if peripheral.driver_name == "mcxa/FREQME" {
+                format_ident!("FreqmeConfig")
+            } else {
+                format_ident!("NoConfig")
+            }
+        });
         let bit = format_ident!("{}", gate.bit);
 
         match reset {

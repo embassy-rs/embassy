@@ -241,6 +241,121 @@ impl SPConfHelper for Clk1MConfig {
 }
 
 //
+// FREQME
+//
+
+/// Internal clock routed to the FREQME reference input.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum FreqmeClockSel {
+    /// Gated FRO12M peripheral output, not the ungated oscillator root.
+    Fro12m,
+    /// Divided FRO180M (MCXA2) or FRO192M (MCXA5) output.
+    FroHfDiv,
+    /// FRO16K output to the VDD_CORE domain (`clk_16k[1]`).
+    Clk16k,
+}
+
+impl FreqmeClockSel {
+    fn frequency(self, clocks: &Clocks, power: &PoweredClock) -> Result<u32, ClockError> {
+        let freq = match self {
+            Self::Fro12m => clocks.ensure_fro_12m_active(power)?,
+            Self::FroHfDiv => clocks.ensure_fro_hf_div_active(power)?,
+            Self::Clk16k => clocks.ensure_clk_16k_vdd_core_active(power)?,
+        };
+        if freq == 0 {
+            return Err(ClockError::BadConfig {
+                clock: "freqme",
+                reason: "input frequency is zero",
+            });
+        }
+        Ok(freq)
+    }
+
+    fn selector(self) -> u8 {
+        match self {
+            Self::Fro12m => 2,
+            Self::FroHfDiv => 3,
+            Self::Clk16k => 5,
+        }
+    }
+}
+
+/// Signal whose frequency FREQME measures, independent of its reference input.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum FreqmeTargetClockSel {
+    /// Gated FRO12M peripheral output.
+    Fro12m,
+    /// Divided FRO180M (MCXA2) or FRO192M (MCXA5) output.
+    FroHfDiv,
+    /// FRO16K output to the VDD_CORE domain (`clk_16k[1]`).
+    Clk16k,
+    /// System/CPU clock divided by six (the default SLOWCLKDIV setting).
+    /// This source is not available in deep sleep.
+    SlowClk,
+}
+
+impl FreqmeTargetClockSel {
+    fn frequency(self, clocks: &Clocks, power: &PoweredClock) -> Result<u32, ClockError> {
+        let freq = match self {
+            Self::Fro12m => clocks.ensure_fro_12m_active(power)?,
+            Self::FroHfDiv => clocks.ensure_fro_hf_div_active(power)?,
+            Self::Clk16k => clocks.ensure_clk_16k_vdd_core_active(power)?,
+            Self::SlowClk => clocks.ensure_slow_clk_active(power)?,
+        };
+        if freq == 0 {
+            return Err(ClockError::BadConfig {
+                clock: "freqme target",
+                reason: "input frequency is zero",
+            });
+        }
+        Ok(freq)
+    }
+
+    fn selector(self) -> u8 {
+        match self {
+            Self::Fro12m => 2,
+            Self::FroHfDiv => 3,
+            Self::Clk16k => 5,
+            Self::SlowClk => 6,
+        }
+    }
+}
+
+/// Clock and measurement-window configuration for FREQME.
+pub struct FreqmeConfig {
+    /// Required power state of both inputs.
+    pub power: PoweredClock,
+    /// Reference clock whose configured frequency is returned in `PreEnableParts`.
+    pub reference: FreqmeClockSel,
+    /// Target clock to measure.
+    pub target: FreqmeTargetClockSel,
+    /// Window used to validate the nominal 31-bit counter capacity.
+    pub reference_scale: crate::freqme::ReferenceScale,
+}
+
+impl SPConfHelper for FreqmeConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let reference = self.reference.frequency(clocks, &self.power)?;
+        let target = self.target.frequency(clocks, &self.power)?;
+        if !crate::freqme::window_fits(reference, target, self.reference_scale) {
+            return Err(ClockError::BadConfig {
+                clock: "freqme",
+                reason: "nominal measurement exceeds the 31-bit target counter",
+            });
+        }
+        crate::inputmux::configure_freqme(self.reference.selector(), self.target.selector())?;
+        Ok(PreEnableParts {
+            freq: reference,
+            wake_guard: WakeGuard::for_power(&self.power),
+        })
+    }
+}
+
+//
 // Wwdt
 //
 
