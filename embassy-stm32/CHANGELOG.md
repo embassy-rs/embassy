@@ -71,6 +71,7 @@ USB:
 - fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
 - fix: OTG_HS on STM32N6 no longer hangs the bus while bringing up the USB HS PHY: USBPHYC is now programmed with the OTG core clocked and the USBPHYC block out of reset, as in ST's own example.
 - feat: support double-buffered bulk endpoints on USB v1 (STM32F1, F3 and L1).
+- feat: support double-buffered bulk endpoints on USB v4 (STM32G0, C0, H5, U0, U3, U5 with the 32-bit packet memory); tested on an STM32G0B1.
 - fix: `ClearFeature(ENDPOINT_HALT)` on an endpoint that was not halted looped forever and hung the device; on a halted endpoint it left the halt set, and setting a halt while a transfer completed could disable the endpoint. Halt requests now apply only to bulk and interrupt endpoints.
 - fix: reset the data toggle to DATA0 when a halt is cleared and when `SET_CONFIGURATION` or `SET_INTERFACE` enables an endpoint (USB 2.0 §9.4.5, §9.1.1.5).
 - fix: the USB errata delay before reading a received packet now waits at least 800 ns, counted in CPU cycles, covers EP0 SETUP and control OUT data, and also applies to STM32U3, which has the same erratum. On STM32H5 it could end after less than 800 ns with the `time` feature and busy-waited 800 µs on every packet without it.

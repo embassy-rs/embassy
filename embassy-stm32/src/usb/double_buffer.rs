@@ -41,6 +41,8 @@ pub(super) const fn received_len(count: u16) -> usize {
     (count & 0x03ff) as usize
 }
 
+// Only the 16-bit buffer descriptors restore the allocation bits through this.
+#[cfg_attr(any(usbram_32_2048, usbram_32_1024), allow(dead_code))]
 pub(super) const fn receive_capacity(count: u16) -> u16 {
     count & !0x03ff
 }
