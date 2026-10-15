@@ -185,17 +185,17 @@ define_counters!(
     interrupt_i2c4_wake,
     interrupt_i3c0,
     interrupt_i3c0_wake,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_i3c1,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_i3c1_wake,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_i3c2,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_i3c2_wake,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_i3c3,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_i3c3_wake,
     interrupt_lpuart0,
     interrupt_lpuart0_wake,
@@ -217,21 +217,21 @@ define_counters!(
     interrupt_spi0_wake,
     interrupt_spi1,
     interrupt_spi1_wake,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_spi2,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_spi2_wake,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_spi3,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_spi3_wake,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_spi4,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_spi4_wake,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_spi5,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     interrupt_spi5_wake,
     interrupt_trng0,
     interrupt_trng0_wake,

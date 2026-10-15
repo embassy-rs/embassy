@@ -15,6 +15,18 @@ use regex::Regex;
 mod build_common;
 
 fn main() {
+    let chips = env::vars()
+        .filter(|(name, _)| {
+            name.strip_prefix("CARGO_FEATURE_MCXA")
+                .is_some_and(|chip| !chip.is_empty() && chip.bytes().all(|c| c.is_ascii_digit()))
+        })
+        .count();
+    match chips {
+        0 => panic!("No MCXA chip feature enabled"),
+        1 => {}
+        _ => panic!("Multiple MCXA chip features enabled"),
+    }
+
     let mut cfgs = CfgSet::new();
     build_common::set_target_cfgs(&mut cfgs);
 

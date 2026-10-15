@@ -31,9 +31,9 @@ impl Iterator for BitIter {
     }
 }
 
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 const PORT_COUNT: usize = 5;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 const PORT_COUNT: usize = 6;
 
 static PORT_WAIT_MAPS: [WaitMap<usize, ()>; PORT_COUNT] = [const { WaitMap::new() }; PORT_COUNT];
@@ -674,9 +674,9 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Is the output pin set as high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        #[cfg(feature = "mcxa2xx")]
+        #[cfg(feature = "_mcxa2xx")]
         let set = self.gpio().pdor().read().pdo(self.pin.pin_index() as usize);
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         let set = (self.gpio().pdor().read().0 & (1 << self.pin.pin_index())) != 0;
         set
     }
