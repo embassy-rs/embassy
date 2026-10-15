@@ -3043,6 +3043,7 @@ pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
 /// Macro to generate DMA channel interrupt handlers.
 macro_rules! impl_dma_interrupt_handler {
     ($irq:ident, $dma:expr, $ch:expr) => {
+        #[cfg(all(target_os = "none", target_arch = "arm"))]
         #[cortex_m_rt::interrupt]
         fn $irq() {
             // SAFETY: The correct $ch is called as generated, We check that
