@@ -1,0 +1,20 @@
+= Embassy EFM32 HAL
+
+The link:https://github.com/embassy-rs/embassy/tree/main/embassy-efm32[Embassy EFM32 HAL] is based on the following PAC (Peripheral Access Crate):
+
+* link:https://github.com/efm32-rs/efm32gg-pac[efm32gg-pac], for the EFM32GG (Giant Gecko) family
+
+== Timer driver
+
+The EFM32 timer driver uses the RTC and operates at 32768 Hz. It's clocked from the internal LFRCO by default, or from
+an external 32.768 kHz crystal (LFXO) if configured. The crystal pins (PB7, PB8) are reserved for it unless the
+`lfxo-as-gpio` feature is enabled.
+
+== Peripherals
+
+The following peripherals have a HAL implementation at present
+
+* CMU (clocks)
+* GPIO
+* USART and UART (asynchronous mode)
+* RTC (timer driver)

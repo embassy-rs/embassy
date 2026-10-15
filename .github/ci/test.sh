@@ -23,6 +23,8 @@ cargo test --manifest-path ./embassy-ptp-driver/Cargo.toml --all-features
 
 cargo test --manifest-path ./embassy-boot/Cargo.toml
 
+cargo test --manifest-path ./embassy-efm32/Cargo.toml --no-default-features --features efm32gg990,time-driver-rtc,_test
+
 cargo test --manifest-path ./embassy-nrf/Cargo.toml --no-default-features --features nrf52840,time-driver-rtc1,gpiote
 
 cargo test --manifest-path ./embassy-rp/Cargo.toml --no-default-features --features time-driver,rp2040,_test
