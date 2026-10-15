@@ -33,6 +33,10 @@ use crate::pac::cmc::{Ckmode, PmctrlmainLpmode, PmprotLpmode};
 use crate::pac::scg::{
     Fircacc, Firccsr, Fircvld, Rccr, Scs, Sirccsr, SirccsrLk, Sircerr, Sircvld, SpllLock, Spllcsr, SpllcsrLk, Spllerr,
 };
+#[cfg(feature = "mcxa2xx")]
+use crate::pac::spc::Spc;
+#[cfg(feature = "mcxa5xx")]
+use crate::pac::spc::Spc5xx as Spc;
 use crate::pac::spc::{PdLpReq, SpcLpReq};
 
 const SLEEPDEEP: u32 = 1 << 2;
@@ -324,7 +328,7 @@ fn restore_idle_mode(cmc: pac::cmc::Cmc, idle_mode: Ckmode) -> Result<(), PowerM
 }
 
 /// Clear SPC request flags independently of CMC wake status.
-fn clear_spc_low_power_status(spc: pac::spc::Spc) {
+fn clear_spc_low_power_status(spc: Spc) {
     // Direct W1C writes must not echo unrelated flags such as ISO_CLR or BUSY.
     spc.pd_status0().write(|w| w.set_pd_lp_req(PdLpReq::ReqYes));
     spc.sc().write(|w| w.set_spc_lp_req(SpcLpReq::LowPower));
@@ -528,7 +532,7 @@ mod tests {
         };
         assert_eq!(core::mem::offset_of!(Registers, domain), 0x30);
         // SAFETY: the isolated, aligned RAM block covers every accessed register.
-        let spc = unsafe { pac::spc::Spc::from_ptr((&raw mut registers).cast()) };
+        let spc = unsafe { Spc::from_ptr((&raw mut registers).cast()) };
         clear_spc_low_power_status(spc);
         assert_eq!(registers.status.0, 1 << 1);
         assert_eq!(registers.domain.0, 1 << 4);
