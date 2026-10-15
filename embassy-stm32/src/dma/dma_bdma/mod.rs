@@ -768,13 +768,11 @@ impl<'d> Channel<'d> {
                     }
                 }
 
-                // MDMA requires BNDT (block_size) to be a multiple of TLEN+1 (buffer_size).
-                // Auto-decrease buffer_size until it divides cleanly into block_size.
-                let mut buffer_size = options.buffer_size as usize;
-                while block_size % buffer_size != 0 && buffer_size > 1 {
-                    buffer_size -= 1;
-                }
-                // Update the options so the TCR write uses the correct value
+                // TLEN+1 (buffer_size) must be a multiple of the source and destination data size.
+                // It does not need to divide BNDT (block_size): the last transfer of a block is
+                // shortened to the remaining data.
+                let data_size = usize::from(mem_size.bytes().max(peri_size.bytes()));
+                let buffer_size = (options.buffer_size as usize / data_size * data_size).max(data_size);
 
                 let (sinc, dinc) = match (incr_mem, dir) {
                     (Increment::None, _) => (Incmode::Fixed, Incmode::Fixed),
