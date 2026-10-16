@@ -63,3 +63,15 @@ Red LED pulses last 100 ms, every second (five seconds in the GPIO example).
 Gating examples expose CLKOUT on P4_2 and executor activity on P2_3.
 Clock gating disconnects the debugger. A startup delay allows recovery;
 if the target becomes stuck, reset or enter ISP mode before reflashing.
+
+## Peripheral checks
+
+PWM, FREQME, CRC, TRNG, memory DMA, and ADC temperature passed hardware checks.
+LPTMR passed both standalone waits and the `time-driver-lptmr` backend:
+
+```sh
+cargo run --release --features time-driver-lptmr --bin lptmr
+```
+
+Temperature channel 26 and constants match NXP's MCXA287 SDK.
+Temperature accuracy and TRNG entropy quality were not measured.
