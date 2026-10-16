@@ -159,6 +159,9 @@ RCC:
 SPI:
 - change default NSS configuration from active-high to active-low
 
+LCD:
+- fix clock divider calculations when the target rate is not perfectly possible with ps+div registers
+
 ## 0.6.0 - 2026-03-10
 
 ADC:

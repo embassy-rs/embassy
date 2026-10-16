@@ -215,9 +215,7 @@ impl<'d, T: Instance> Lcd<'d, T> {
         let mut best_fps_match = u32::MAX;
 
         for trial_div in 0..0xF {
-            let trial_ps = (target_division / (trial_div + 16))
-                .next_power_of_two()
-                .trailing_zeros();
+            let trial_ps = previous_power_of_two(target_division / (trial_div + 16)).trailing_zeros();
             let fps = lcd_clk.0 / ((1 << trial_ps) * (trial_div + 16)) / duty_divider;
 
             if fps < config.target_fps.0 {
@@ -427,6 +425,14 @@ impl<'d, T: Instance> Drop for Lcd<'d, T> {
         // Disable the lcd
         T::regs().cr().modify(|w| w.set_lcden(false));
         rcc::disable::<T>();
+    }
+}
+
+fn previous_power_of_two(a: u32) -> u32 {
+    if a.is_power_of_two() {
+        a
+    } else {
+        a.next_power_of_two() - 1
     }
 }
 
