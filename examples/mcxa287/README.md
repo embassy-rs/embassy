@@ -45,3 +45,21 @@ Ranges below are flash offsets, with exclusive ends.
 
 Transfer, memory-mapped, ROM, and stress examples passed hardware tests.
 The two soak examples are compile-tested only.
+
+## Power
+
+`power-wfe-gated` uses the default executor.
+The four `power-deepsleep*` examples require the HAL executor:
+
+```sh
+cargo run --release --no-default-features --features executor-platform --bin power-deepsleep
+```
+
+All five configurations passed functional timer-wake checks on hardware.
+The GPIO example also passed an SW2 interrupt check; SW2 toggles the blue LED.
+Current draw, CLKOUT waveforms, and wake latency were not measured.
+
+Red LED pulses last 100 ms, every second (five seconds in the GPIO example).
+Gating examples expose CLKOUT on P4_2 and executor activity on P2_3.
+Clock gating disconnects the debugger. A startup delay allows recovery;
+if the target becomes stuck, reset or enter ISP mode before reflashing.
