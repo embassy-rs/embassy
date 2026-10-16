@@ -1,10 +1,14 @@
+/*
+ * Note: build.rs defines __run_from_ram for blinky_ram.
+ * Unlike the other examples, blinky_ram executes from the main SRAM banks after the rp235x bootrom copies it from flash to RAM.
+ * The machine code is placed in the first half of RAM and the writable data and stack use the second half of RAM.
+ */
 MEMORY {
     /*
      * The RP2350 has either external or internal flash.
      *
      * 2 MiB is a safe default here, although a Pico 2 has 4 MiB.
      */
-    /* blinky_ram runs from the first half of SRAM. */
     FLASH : ORIGIN = DEFINED(__run_from_ram) ? 0x20000000 : 0x10000000,
             LENGTH = DEFINED(__run_from_ram) ? 256K : 2048K
     /*
@@ -12,7 +16,6 @@ MEMORY {
      * This is usually good for performance, as it distributes load on
      * those banks evenly.
      */
-    /* Its writable data and stack use the second half. */
     RAM : ORIGIN = DEFINED(__run_from_ram) ? 0x20040000 : 0x20000000,
           LENGTH = DEFINED(__run_from_ram) ? 256K : 512K
     /*
