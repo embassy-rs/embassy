@@ -167,7 +167,7 @@ rand_chacha = { version = "0.10.0", default-features = false }
 static_cell = "2"
 portable-atomic = { version = "1.14", features = [] }
 critical-section = "1.2"
-stm32wb-hci = { version = "0.20.0", default-features = false, optional = true }
+stm32wb-hci = { version = "0.20.1", default-features = false, optional = true }
 bt-hci = { version = "0.11.0", optional = true }
 sdio = "0.5.0"
 block-device-driver = "0.2.0"
