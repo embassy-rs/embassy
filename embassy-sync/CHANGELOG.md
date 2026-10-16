@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `AtomicWaker`: `wake()` releases its state before waking the waker, so a task that registers again from within the wake (an interrupt executor preempting the waking interrupt) is not woken again in a loop.
 - `CriticalSectionRawMutex` now implements `Clone + Copy`.
 - Add `write_all` as a method to `pipe::Writer`, trait import not strictly necessary anymore.
 - `AtomicWaker` is now lockless: `register()` and `wake()` no longer enter a critical section,
