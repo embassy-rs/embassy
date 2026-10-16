@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Clear the scan event mask and subscription on cancellation.
+- Keep WiFi responsive when the Bluetooth RX queue is full; resume queued records when space frees.
+- Disassociate before retrying a failed or cancelled join.
 - Return `JoinError::InvalidPassphrase` instead of panicking when joining with an invalid passphrase.
 - Add WPA3 and WPA2/WPA3 transition-mode SoftAP support.
 - The multicast hardware address filter is now managed automatically by `embassy-net`/`xarxa` through the driver trait. `Control::(add|remove)_multicast_address` is removed.

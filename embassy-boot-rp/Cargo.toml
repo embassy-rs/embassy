@@ -2,7 +2,7 @@
 edition = "2024"
 name = "embassy-boot-rp"
 version = "0.10.0"
-description = "Bootloader lib for RP2040 chips"
+description = "Bootloader lib for RP2040, RP235x chips"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-boot-rp"
@@ -15,14 +15,19 @@ categories = [
 [package.metadata.embassy]
 build = [
     {target = "thumbv6m-none-eabi", features = ["embassy-rp/rp2040"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["embassy-rp/rp235xa"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["embassy-rp/rp235xb"]},
 ]
 
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-rp-v$VERSION/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot-rp/src/"
-target = "thumbv6m-none-eabi"
-features = ["embassy-rp/rp2040"]
+flavors = [
+    { name = "rp2040", target = "thumbv6m-none-eabi", features = ["embassy-rp/rp2040"] },
+    { name = "rp235xa", target = "thumbv8m.main-none-eabihf", features = ["embassy-rp/rp235xa"] },
+    { name = "rp235xb", target = "thumbv8m.main-none-eabihf", features = ["embassy-rp/rp235xb"] },
+]
 
 [lib]
 

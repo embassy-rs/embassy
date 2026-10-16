@@ -27,6 +27,7 @@ pub fn calculate_pio_clock_divider(target_hz: u32) -> fixed::FixedU32<U8> {
 /// # Returns
 ///
 /// A fixed-point divider value suitable for use in a PIO state machine configuration
+#[allow(clippy::unusual_byte_groupings)]
 pub const fn calculate_pio_clock_divider_value(sys_hz: u32, target_hz: u32) -> fixed::FixedU32<U8> {
     // Requires a non-zero frequency
     core::assert!(target_hz > 0);

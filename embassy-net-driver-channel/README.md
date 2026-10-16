@@ -26,8 +26,8 @@ loop {
     ).await {
         Either::First(_) => {
             // a packet is ready to be received!
-            rx_chan.rx_ready().await; // wait for space in the rx queue
-            let mut buf = PacketBuf::try_new().unwrap();
+            let mut buf = rx_chan.rx_buf().await; // wait for an empty buffer from the stack
+            buf.set_len(buf.capacity());
             let n = receive_packet_over_spi(&mut buf).await;
             buf.set_len(n);
             rx_chan.rx(buf).await;
@@ -40,11 +40,11 @@ loop {
 }
 ```
 
-However, this code has a latent deadlock bug. The symptom is it can hang at `rx_chan.rx_ready().await` under load.
+However, this code has a latent deadlock bug. The symptom is it can hang at `rx_chan.rx_buf().await` under load.
 
-The reason is that, under load, both the TX and RX queues can get full at the same time. When this happens, the `embassy-net` task stalls trying to send because the TX queue is full, therefore it stops processing packets in the RX queue. Your driver task also stalls because the RX queue is full, therefore it stops processing packets in the TX queue.
+The reason is that, under load, both the TX and RX queues can get full at the same time. When this happens, the `embassy-net` task stalls trying to send because the TX queue is full, therefore it stops processing packets in the RX queue and stops handing out empty buffers. Your driver task also stalls waiting for an empty buffer, therefore it stops processing packets in the TX queue.
 
-The fix is to make sure to always service the TX queue while you're waiting for space to become available in the RX queue. For example, select on either "a packet to send is available" or "INT is low AND there is room in the RX queue":
+The fix is to make sure to always service the TX queue while you're waiting for an empty buffer. For example, select on either "a packet to send is available" or "INT is low AND there is an empty buffer":
 
 ```rust,ignore
 loop {
@@ -53,15 +53,15 @@ loop {
         async {
             // ... the chip signaling an interrupt, indicating a packet is available to receive
             irq_pin.wait_for_low().await;
-            // *AND* there being room in the rx queue...
-            rx_chan.rx_ready().await;
+            // *AND* an empty buffer to receive it into...
+            rx_chan.rx_buf().await
         },
         // ... or a packet to send appearing, i.e. embassy-net wants to send a packet
         tx_chan.tx(),
     ).await {
-        Either::First(()) => {
+        Either::First(mut buf) => {
             // a packet is ready to be received!
-            let mut buf = PacketBuf::try_new().unwrap();
+            buf.set_len(buf.capacity());
             let n = receive_packet_over_spi(&mut buf).await;
             buf.set_len(n);
             rx_chan.rx(buf).await;

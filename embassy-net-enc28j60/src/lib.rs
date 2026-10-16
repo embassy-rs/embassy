@@ -54,6 +54,9 @@ pub struct Enc28j60<S, O> {
 
     // address of the next packet in buffer memory
     next_packet: u16,
+
+    // empty buffer from the stack, to receive the next packet into
+    rx_buf: Option<PacketBuf>,
 }
 
 impl<S, O> Enc28j60<S, O>
@@ -73,6 +76,7 @@ where
 
             bank: Bank::Bank0,
             next_packet: RXST,
+            rx_buf: None,
         };
         res.init();
         res
@@ -656,12 +660,27 @@ where
         Ok(())
     }
 
+    fn rx_wanted(&mut self) -> usize {
+        self.rx_buf.is_none() as usize
+    }
+
+    fn rx_give(&mut self, buf: PacketBuf) {
+        self.rx_buf = Some(buf);
+    }
+
     fn receive(&mut self) -> Option<PacketBuf> {
-        let mut buf = PacketBuf::try_new()?;
+        let mut buf = self.rx_buf.take()?;
         buf.set_len(MTU.min(buf.capacity()));
-        let n = self.receive(&mut buf)?;
-        buf.set_len(n);
-        Some(buf)
+        match self.receive(&mut buf) {
+            Some(n) => {
+                buf.set_len(n);
+                Some(buf)
+            }
+            None => {
+                self.rx_buf = Some(buf);
+                None
+            }
+        }
     }
 
     fn can_transmit(&mut self) -> bool {

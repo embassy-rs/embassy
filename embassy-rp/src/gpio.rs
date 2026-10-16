@@ -239,7 +239,7 @@ fn irq_handler<const N: usize>(bank: pac::io::Io, wakers: &[AtomicWaker; N]) {
     // and here we are selecting the set that belongs to the currently executing
     // cpu.
     let proc_intx: pac::io::Int = bank.int_proc(cpu);
-    for pin in 0..N {
+    for (pin, waker) in wakers.iter().enumerate().take(N) {
         // There are 4 raw interrupt status registers, PROCx_INTS0, PROCx_INTS1,
         // PROCx_INTS2, and PROCx_INTS3, and we are selecting the one that the
         // current pin belongs to.
@@ -260,7 +260,7 @@ fn irq_handler<const N: usize>(bank: pac::io::Io, wakers: &[AtomicWaker; N]) {
                 w.set_level_high(pin_group, true);
                 w.set_level_low(pin_group, true);
             });
-            wakers[pin].wake();
+            waker.wake();
         }
     }
 }
@@ -498,15 +498,16 @@ impl<'d> OutputOpenDrain<'d> {
     /// Set the output as high.
     #[inline]
     pub fn set_high(&mut self) {
-        // For Open Drain High, disable the output pin.
-        self.pin.set_as_input()
+        // For Open Drain High, disable the output pin. The input buffer is always on, so only touch
+        // the output enable to keep this a single write.
+        self.pin.pin.sio_oe().value_clr().write_value(self.pin.bit())
     }
 
     /// Set the output as low.
     #[inline]
     pub fn set_low(&mut self) {
         // For Open Drain Low, enable the output pin.
-        self.pin.set_as_output()
+        self.pin.pin.sio_oe().value_set().write_value(self.pin.bit())
     }
 
     /// Set the output level.
@@ -527,7 +528,7 @@ impl<'d> OutputOpenDrain<'d> {
     /// Is the output level low?
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        self.pin.is_set_as_output()
+        self.pin.is_output()
     }
 
     /// What level output is set to
@@ -539,7 +540,7 @@ impl<'d> OutputOpenDrain<'d> {
     /// Toggle pin output
     #[inline]
     pub fn toggle(&mut self) {
-        self.pin.toggle_set_as_output()
+        self.pin.pin.sio_oe().value_xor().write_value(self.pin.bit())
     }
 
     /// Get whether the pin input level is high.
@@ -600,7 +601,7 @@ impl<'d> OutputOpenDrain<'d> {
 
 /// GPIO flexible pin.
 ///
-/// This pin can be either an input or output pin. The output level register bit will remain
+/// This pin can either be a disconnected, input, or output pin. The output level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 #[derive(Debug)]
@@ -616,11 +617,13 @@ impl<'d> Flex<'d> {
     /// before the pin is put into output mode.
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>) -> Self {
-        pin.pad_ctrl().write(|w| {
+        // Input buffer, pulls and output driver off. The output enable may have been left set by
+        // a previous owner of the pin, so clear it before connecting the pin to SIO.
+        pin.pad_ctrl().write(|_w| {
             #[cfg(feature = "_rp235x")]
-            w.set_iso(false);
-            w.set_ie(true);
+            _w.set_iso(false);
         });
+        pin.sio_oe().value_clr().write_value(1 << (pin.pin() % 32));
 
         pin.gpio().ctrl().write(|w| {
             #[cfg(feature = "rp2040")]
@@ -641,7 +644,6 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_pull(&mut self, pull: Pull) {
         self.pin.pad_ctrl().modify(|w| {
-            w.set_ie(true);
             let (pu, pd) = match pull {
                 Pull::Up => (true, false),
                 Pull::Down => (false, true),
@@ -686,6 +688,7 @@ impl<'d> Flex<'d> {
     /// The pull setting is left unchanged.
     #[inline]
     pub fn set_as_input(&mut self) {
+        self.enable_input_buffer();
         self.pin.sio_oe().value_clr().write_value(self.bit())
     }
 
@@ -695,18 +698,59 @@ impl<'d> Flex<'d> {
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
     pub fn set_as_output(&mut self) {
+        self.enable_input_buffer();
         self.pin.sio_oe().value_set().write_value(self.bit())
     }
 
-    /// Set as output pin.
+    /// Put the pin into disconnected mode.
+    ///
+    /// This disables the output driver, the input buffer and the internal weak pull-up and
+    /// pull-down resistors.
     #[inline]
-    fn is_set_as_output(&self) -> bool {
+    pub fn set_as_disconnected(&mut self) {
+        self.pin.sio_oe().value_clr().write_value(self.bit());
+        self.pin.pad_ctrl().write_clear(|w| {
+            w.set_ie(true);
+            w.set_pue(true);
+            w.set_pde(true);
+        });
+    }
+
+    /// Turn the input buffer on. It is off while the pin is disconnected, and it stays on in
+    /// output mode so the pin level can be read back.
+    #[inline]
+    fn enable_input_buffer(&mut self) {
+        self.pin.pad_ctrl().write_set(|w| w.set_ie(true));
+    }
+
+    /// Is the pin configured as an input?
+    ///
+    /// This is true after [`Self::set_as_input()`].
+    #[inline]
+    pub fn is_input(&self) -> bool {
+        self.pin.pad_ctrl().read().ie() && !self.is_output()
+    }
+
+    /// Is the pin configured as an output?
+    ///
+    /// This is true after [`Self::set_as_output()`].
+    #[inline]
+    pub fn is_output(&self) -> bool {
         (self.pin.sio_oe().value().read() & self.bit()) != 0
+    }
+
+    /// Is the pin disconnected?
+    ///
+    /// This is true when both the output driver and the input buffer are disabled.
+    #[inline]
+    pub fn is_disconnected(&self) -> bool {
+        !self.pin.pad_ctrl().read().ie() && !self.is_output()
     }
 
     /// Toggle output pin.
     #[inline]
     pub fn toggle_set_as_output(&mut self) {
+        self.enable_input_buffer();
         self.pin.sio_oe().value_xor().write_value(self.bit())
     }
 
@@ -751,8 +795,8 @@ impl<'d> Flex<'d> {
     pub fn is_high(&self) -> bool {
         !self.is_low()
     }
-    /// Get whether the pin input level is low.
 
+    /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&self) -> bool {
         self.pin.sio_in().read() & self.bit() == 0
@@ -1148,11 +1192,13 @@ mod eh02 {
         type Error = Infallible;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
+            self.set_high();
+            Ok(())
         }
 
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
+            self.set_low();
+            Ok(())
         }
     }
 
@@ -1170,7 +1216,8 @@ mod eh02 {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
-            Ok(self.toggle())
+            self.toggle();
+            Ok(())
         }
     }
 
@@ -1191,12 +1238,14 @@ mod eh02 {
 
         #[inline]
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
+            self.set_high();
+            Ok(())
         }
 
         #[inline]
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
+            self.set_low();
+            Ok(())
         }
     }
 
@@ -1214,7 +1263,8 @@ mod eh02 {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
-            Ok(self.toggle())
+            self.toggle();
+            Ok(())
         }
     }
 
@@ -1234,11 +1284,13 @@ mod eh02 {
         type Error = Infallible;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
+            self.set_high();
+            Ok(())
         }
 
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
+            self.set_low();
+            Ok(())
         }
     }
 
@@ -1256,7 +1308,8 @@ mod eh02 {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
-            Ok(self.toggle())
+            self.toggle();
+            Ok(())
         }
     }
 }
@@ -1281,11 +1334,13 @@ impl<'d> embedded_hal_1::digital::ErrorType for Output<'d> {
 
 impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 
@@ -1305,11 +1360,13 @@ impl<'d> embedded_hal_1::digital::ErrorType for OutputOpenDrain<'d> {
 
 impl<'d> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 
@@ -1349,11 +1406,13 @@ impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
 
 impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 

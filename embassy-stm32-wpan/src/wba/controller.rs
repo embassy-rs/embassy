@@ -206,6 +206,7 @@ impl<'d> Controller<'d> {
         ret
     }
 
+    #[cfg(not(feature = "direct"))]
     fn pop_buf(&mut self) -> Option<&[u8]> {
         match self.cmd_buf.1 {
             0 => None,
@@ -218,7 +219,7 @@ impl<'d> Controller<'d> {
     }
 }
 
-#[cfg(feature = "bt-hci")]
+#[cfg(all(feature = "bt-hci", not(feature = "direct")))]
 const ERR: bt_hci::cmd::Error<embedded_io::ErrorKind> = bt_hci::cmd::Error::Io(embedded_io::ErrorKind::InvalidData);
 
 #[cfg(feature = "bt-hci")]
@@ -234,6 +235,13 @@ impl<'d> ControllerAdapter<'d> {
             controller: NoopMutex::const_new(NoopRawMutex::new(), RefCell::new(controller)),
             pending_evt: AtomicBool::new(false),
         }
+    }
+
+    /// Runs a direct BLE stack call while holding the controller, like `exec`.
+    #[cfg(feature = "direct")]
+    pub(super) fn call(&self, f: impl FnOnce() -> u8) -> u8 {
+        let _controller = self.controller.borrow().borrow_mut();
+        f()
     }
 }
 
@@ -311,7 +319,8 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
     }
 }
 
-#[cfg(feature = "bt-hci")]
+// With `direct`, commands are implemented one by one in `wba/direct.rs` instead.
+#[cfg(all(feature = "bt-hci", not(feature = "direct")))]
 impl<'d, C> bt_hci::controller::ControllerCmdSync<C> for ControllerAdapter<'d>
 where
     C: bt_hci::cmd::SyncCmd,
@@ -336,7 +345,7 @@ where
     }
 }
 
-#[cfg(feature = "bt-hci")]
+#[cfg(all(feature = "bt-hci", not(feature = "direct")))]
 impl<'d, C> bt_hci::controller::ControllerCmdAsync<C> for ControllerAdapter<'d>
 where
     C: bt_hci::cmd::AsyncCmd,

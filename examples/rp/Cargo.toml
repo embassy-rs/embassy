@@ -12,8 +12,7 @@ embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["de
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.10.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040", "executor-thread", "executor-interrupt"] }
-embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt"] }
-embassy-usb-host = { version = "0.1.0", path = "../../embassy-usb-host", features = ["defmt"] }
+embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt", "block-device-driver"] }
 embassy-usb-driver = { version = "0.2.2", path = "../../embassy-usb-driver" }
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "dhcpv4", "dhcpv4-server", "medium-ethernet", "dns", "embedded-nal", "ipv4", "ipv6", "multicast", "icmp-ping-reply"] }
 embassy-net-wiznet = { version = "0.3.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
@@ -51,6 +50,8 @@ usbd-hid = "0.10.0"
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = "1.0"
+aligned = "0.4.3"
+block-device-driver = "0.2.0"
 embedded-hal-bus = { version = "0.1", features = ["async"] }
 embedded-io-async = { version = "0.7.0", features = ["defmt"] }
 embedded-storage = { version = "0.3" }

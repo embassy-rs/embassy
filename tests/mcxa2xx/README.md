@@ -12,6 +12,10 @@
 - [ ] Flash
 - [x] CTimer PWM
 - [x] CTimer capture
+- [x] LPTMR polling, async waits, cancellation, prescalers and FRO16K
+- [x] LPTMR Embassy time backend (additional `time-driver-lptmr` build)
+- [x] FREQME blocking/async one-shot and continuous internal clocks including SLOW_CLK, cancellation, IRQs and reconstruction (no wiring)
+- [x] FREQME runtime scale/source/power reconfiguration and threshold-error recovery
 - [ ] SPI
 
 ## Wiring:

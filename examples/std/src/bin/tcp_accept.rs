@@ -1,8 +1,8 @@
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
-use embassy_net::StackStorage;
 use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::wire::{IpCidr, Ipv4Addr};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_net_tuntap::TunTapDevice;
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write as _;
@@ -40,7 +40,8 @@ async fn main_task(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the TAP interface to the stack.
     static DEVICE: StaticCell<TunTapDevice> = StaticCell::new();

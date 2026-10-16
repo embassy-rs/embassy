@@ -36,7 +36,7 @@ use embassy_net::iface::Iface;
 use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::udp::{PacketMeta, UdpMetadata, UdpSocket};
 use embassy_net::wire::{IpAddr, IpCidr, Ipv6Addr, Ipv6Cidr, ListenSocketAddr, SocketAddr};
-use embassy_net::{Stack, StackStorage};
+use embassy_net::{Stack, StackStorage, StaticPool};
 use embassy_net_adin1110::{
     ADIN1110, Device, PACKET_ID_PORT_MASK, PACKET_ID_PORT1, PACKET_ID_PORT2, PortLinks, Runner, Tc6, TxPort,
 };
@@ -251,7 +251,8 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();

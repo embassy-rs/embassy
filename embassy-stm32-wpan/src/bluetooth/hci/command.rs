@@ -17,11 +17,10 @@ use stm32_bindings::ble::{
     hci_le_set_scan_parameters, hci_le_set_scan_response_data, hci_le_test_end, hci_le_transmitter_test,
     hci_le_transmitter_test_v2, hci_read_bd_addr, hci_read_local_version_information, hci_reset, hci_set_event_mask,
 };
-use stm32wb_hci::BdAddrType;
-use stm32wb_hci::host::OwnAddressType;
 
 use crate::bluetooth::VersionInfo;
 use crate::bluetooth::error::BleError;
+use crate::bluetooth::gap::types::{BdAddrType, OwnAddressType};
 use crate::bluetooth::hci::types;
 
 /// BLE Success status code
@@ -473,10 +472,7 @@ impl CommandSender {
         ce_length_min: u16,
         ce_length_max: u16,
     ) -> Result<(), BleError> {
-        let mut peer_addr_bytes = [0u8; 7];
-        peer_addr.copy_into_slice(&mut peer_addr_bytes);
-
-        let peer_addr_ptr: &[u8; 6] = &peer_addr_bytes[1..7].try_into().unwrap();
+        let peer_addr_bytes = peer_addr.bytes();
 
         unsafe {
             let filter_policy = if use_filter_accept_list { 1 } else { 0 };
@@ -484,8 +480,8 @@ impl CommandSender {
                 scan_interval,
                 scan_window,
                 filter_policy,
-                peer_addr_bytes[0],
-                peer_addr_ptr as *const [u8; 6] as *const u8,
+                peer_addr.kind(),
+                &peer_addr_bytes as *const [u8; 6] as *const u8,
                 own_addr_type as u8,
                 interval_min,
                 interval_max,

@@ -61,6 +61,7 @@ impl Flag {
 }
 
 #[cfg(feature = "bt-hci")]
+#[cfg_attr(feature = "direct", allow(dead_code))]
 pub fn to_err(e: bt_hci::FromHciBytesError) -> embedded_io::ErrorKind {
     use bt_hci::FromHciBytesError;
     use embedded_io::ErrorKind;
@@ -72,6 +73,7 @@ pub fn to_err(e: bt_hci::FromHciBytesError) -> embedded_io::ErrorKind {
 }
 
 #[cfg(feature = "bt-hci")]
+#[cfg_attr(feature = "direct", allow(dead_code))]
 pub fn make_cc_with_cs<'a>(
     buf: &'a [u8],
 ) -> Result<bt_hci::event::CommandCompleteWithStatus<'a>, bt_hci::cmd::Error<embedded_io::ErrorKind>> {

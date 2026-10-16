@@ -22,7 +22,8 @@
 //! security.set_authentication_requirements(params)?;
 //! ```
 
-use stm32wb_hci::vendor::event::{GapPairingReason, GapPairingStatus, KeypressNotificationType, VendorEvent};
+use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::wire::OrUnknown;
 
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::hci::types::Status;
@@ -398,14 +399,14 @@ pub enum SecurityEvent {
     },
     /// Application authorization response is required.
     AuthorizationRequest { conn_handle: u16 },
-    /// Peripheral-side security procedure has started successfully.
-    PeripheralSecurityInitiated,
     /// Peer address could not be resolved with current privacy data.
     AddressNotResolved { conn_handle: u16 },
     /// Peer keypress-notification during passkey entry.
     KeypressNotification {
         conn_handle: u16,
-        notification_type: KeypressNotificationType,
+        /// Keypress notification type (Core Spec Vol 3, Part H, 3.5.8): 0 = entry
+        /// started, 1 = digit entered, 2 = digit erased, 3 = cleared, 4 = entry completed.
+        notification_type: u8,
     },
 }
 
@@ -437,56 +438,50 @@ impl SmpMode {
 /// Convert an STM32 vendor-specific event into a high-level security event.
 ///
 /// Returns `None` for vendor events that do not map to [`SecurityEvent`].
-pub fn from_vendor_event(event: &VendorEvent) -> Option<SecurityEvent> {
+pub fn from_vendor_event(event: &AciEvent<'_>) -> Option<SecurityEvent> {
     match event {
-        VendorEvent::GapPairingComplete(e) => {
-            let (status, reason) = match e.status {
-                GapPairingStatus::Success => (PairingStatus::Success, 0),
-                GapPairingStatus::Timeout(r) => (PairingStatus::Timeout, pairing_reason_to_u8(r)),
-                GapPairingStatus::Failed(r) => (PairingStatus::Failed, pairing_reason_to_u8(r)),
+        AciEvent::GapPairingComplete(e) => {
+            let status = PairingStatus::from_u8(e.status.to_raw());
+            let reason = match status {
                 // Keep these apart: encryption failing against a stored bond is a
                 // different fault from a refused pairing negotiation, and the
                 // pairing-complete reason code is only defined for the latter.
-                GapPairingStatus::EncryptionFailed(_) => (PairingStatus::EncryptionFailed, 0),
+                PairingStatus::Success | PairingStatus::EncryptionFailed => 0,
+                PairingStatus::Timeout | PairingStatus::Failed => e.reason.to_raw(),
             };
             Some(SecurityEvent::PairingComplete {
-                conn_handle: e.conn_handle.0,
+                conn_handle: e.connection_handle.raw(),
                 status,
                 reason,
             })
         }
-        VendorEvent::GapPassKeyRequest(conn_handle) => Some(SecurityEvent::PasskeyRequest {
-            conn_handle: conn_handle.0,
+        AciEvent::GapPassKeyReq(e) => Some(SecurityEvent::PasskeyRequest {
+            conn_handle: e.connection_handle.raw(),
         }),
-        VendorEvent::GapNumericComparisonValue(e) => Some(SecurityEvent::NumericComparisonRequest {
-            conn_handle: e.connection_handle.0,
+        AciEvent::GapNumericComparisonValue(e) => Some(SecurityEvent::NumericComparisonRequest {
+            conn_handle: e.connection_handle.raw(),
             numeric_value: e.numeric_value,
         }),
-        VendorEvent::GapBondLost(conn_handle) => Some(SecurityEvent::BondLost {
-            conn_handle: conn_handle.0,
+        AciEvent::GapBondLost(e) => Some(SecurityEvent::BondLost {
+            conn_handle: e.connection_handle.raw(),
         }),
-        VendorEvent::GapPairingRequest(e) => Some(SecurityEvent::PairingRequest {
-            conn_handle: e.connection_handle.0,
-            is_bonded: e.bonded,
+        AciEvent::GapPairingRequest(e) => Some(SecurityEvent::PairingRequest {
+            conn_handle: e.connection_handle.raw(),
+            is_bonded: matches!(e.bonded, OrUnknown::Known(true)),
             auth_req: e.auth_req,
         }),
-        VendorEvent::GapAuthorizationRequest(conn_handle) => Some(SecurityEvent::AuthorizationRequest {
-            conn_handle: conn_handle.0,
+        AciEvent::GapAuthorizationReq(e) => Some(SecurityEvent::AuthorizationRequest {
+            conn_handle: e.connection_handle.raw(),
         }),
-        VendorEvent::GapPeripheralSecurityInitiated => Some(SecurityEvent::PeripheralSecurityInitiated),
-        VendorEvent::GapAddressNotResolved(conn_handle) => Some(SecurityEvent::AddressNotResolved {
-            conn_handle: conn_handle.0,
+        AciEvent::GapAddrNotResolved(e) => Some(SecurityEvent::AddressNotResolved {
+            conn_handle: e.connection_handle.raw(),
         }),
-        VendorEvent::GapKeypressNotification(e) => Some(SecurityEvent::KeypressNotification {
-            conn_handle: e.connection_handle.0,
+        AciEvent::GapKeypressNotification(e) => Some(SecurityEvent::KeypressNotification {
+            conn_handle: e.connection_handle.raw(),
             notification_type: e.notification_type,
         }),
         _ => None,
     }
-}
-
-fn pairing_reason_to_u8(reason: GapPairingReason) -> u8 {
-    reason as u8
 }
 
 /// Pairing completion status

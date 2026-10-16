@@ -24,11 +24,11 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{Config as RccConfig, LseDrive, LseMode};
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
+use embassy_stm32_wpan::bluetooth::{EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::Duration;
 use panic_probe as _;
@@ -233,8 +233,9 @@ async fn main(spawner: Spawner) {
 
     // Main loop - handle BLE events in a power-efficient manner.
     // Keep draining BLE events; pending events/interrupts can otherwise reduce STOP residency.
+    let mut event_buf = EventBuffer::new();
     loop {
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
         // Keep host/log overhead low: avoid formatting every event unless debugging.
         if !MEASURE_POWER {
             info!("BLE Event received: {:?}", event);

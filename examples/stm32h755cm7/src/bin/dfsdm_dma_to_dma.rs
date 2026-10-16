@@ -13,7 +13,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config::{DataRightShift, FilterOrder, FilterParameters};
-use embassy_stm32::dfsdm::{Error, FilterConfig, Flt0, ResultRegular};
+use embassy_stm32::dfsdm::{Error, FilterConfig, Flt0, RegularResult};
 use embassy_stm32::dma::{self, Channel, TransferOptions};
 use embassy_stm32::peripherals::{self, DFSDM1};
 use embassy_stm32::{SharedData, bind_interrupts, dfsdm};
@@ -88,11 +88,12 @@ async fn main(_spawner: Spawner) {
     let source: [u32; TOTAL] = core::array::from_fn(|i| samples[i] as u32);
 
     // Setup.
-    let ch = split
-        .ch0
-        .build_parallel_standard(&common)
-        .set_data_right_shift(DataRightShift::new(0))
-        .enable();
+    let (ch, filters) = split.build(&common, |tb| {
+        tb.ch0
+            .build_parallel_standard(&common)
+            .set_data_right_shift(DataRightShift::new(0))
+            .enable()
+    });
 
     let flt_cfg = FilterConfig {
         filter_params: FilterParameters::try_new(FilterOrder::Disabled, IOSR).expect("inside bounds"),
@@ -101,7 +102,7 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    let mut flt0 = split.flt0.build(&common, Irqs).enable_reg_dma(&ch, [&ch], &flt_cfg);
+    let mut flt0 = filters.flt0.build(&common, Irqs).enable_reg_dma(&ch, [&ch], &flt_cfg);
 
     let mut buffer = [0u32; 2 * N_OUT];
     let mut ring = flt0.regular.ring_buffered(p.DMA1_CH0, Irqs, &mut buffer);
@@ -123,9 +124,10 @@ async fn main(_spawner: Spawner) {
     });
 
     // Comparison.
-    // `blocking_read` spins until data is ready; the async `read` is the twin
-    // with the same half-capacity contract. Both return `Err(Error::Overrun)`
-    // when the DMA overran, which resets the ring and drops samples.
+    // `blocking_read` returns as soon as some samples are ready; the async
+    // `read` awaits exactly `buf.len()`. Both accept any buffer length and
+    // return `Err(Error::Overrun)` when the DMA overran, which resets the ring
+    // and drops samples.
     let mut result = [0u32; N_OUT];
     loop {
         match ring.blocking_read(&mut result) {
@@ -137,7 +139,7 @@ async fn main(_spawner: Spawner) {
 
     let mut all_ok = true;
     for k in 0..N_OUT {
-        let d = ResultRegular::from_word(result[k]);
+        let d = RegularResult::from_word(result[k]);
         all_ok &= d.data == manual[k];
         info!("out {}: dfsdm = {}, manual = {}", k, d.data, manual[k]);
     }

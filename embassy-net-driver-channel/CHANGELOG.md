@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - Port to the `xarxa-driver` `Driver` trait, replacing `embassy-net-driver`.
-- Packets are now owned `PacketBuf`s from the global packet pool, passed through plain channels instead of zero-copy channels.
+- Packets are now owned `PacketBuf`s from the stack's packet pool, passed through plain channels instead of zero-copy channels.
+- Runners receive into empty buffers handed out by the stack, taken with `rx_buf`, `try_rx_buf` or `poll_rx_buf`.
 
 ## 0.4.0 - 2026-03-11
 

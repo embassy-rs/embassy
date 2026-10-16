@@ -33,21 +33,24 @@
 #![no_std]
 #![no_main]
 
+use bt_hci::event::Event;
+use bt_hci::event::le::LeEvent;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
     CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType,
     Uuid, is_cccd_handle, is_value_handle,
 };
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::{Duration, Ticker};
 use panic_probe as _;
-use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
+use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -194,27 +197,32 @@ async fn main(spawner: Spawner) {
     const ANTENNA_IDS: [u8; 2] = [0x00, 0x00];
 
     // ── Main loop ────────────────────────────────────────────────────────────
+    let mut event_buf = EventBuffer::new();
     loop {
-        match select(ble.read_event(), ticker.next()).await {
+        match select(ble.read_event(&mut event_buf), ticker.next()).await {
             Either::First(event) => {
                 // ── CTE events ────────────────────────────────────────────────
-                if let stm32wb_hci::Event::LeConnectionIqReport(r) = &event {
+                if let BleEvent::Core(Event::Le(LeEvent::LeConnectionIqReport(r))) = &event {
                     info!(
                         "CTE IQ Report: conn=0x{:04X} ch={} rssi={} samples={}",
-                        r.conn_handle.0, r.data_channel_index, r.rssi, r.sample_count
+                        r.handle.raw(),
+                        r.data_channel_index,
+                        r.rssi,
+                        r.iq_samples.len()
                     );
-                } else if let stm32wb_hci::Event::LeCteRequestFailed(f) = &event {
+                } else if let BleEvent::Core(Event::Le(LeEvent::LeCteRequestFailed(f))) = &event {
                     warn!(
                         "CTE Request Failed: conn=0x{:04X} status={:?}",
-                        f.conn_handle.0, f.status
+                        f.handle.raw(),
+                        f.status
                     );
                 } else {
                     // ── GAP events ────────────────────────────────────────────────
                     if let Some(gap_event) = ble.process_event(&event) {
                         match gap_event {
                             GapEvent::Connected(conn) => {
-                                info!("Connected: 0x{:04X}", conn.handle.0);
-                                state.conn_handle = Some(conn.handle.0);
+                                info!("Connected: 0x{:04X}", conn.handle.raw());
+                                state.conn_handle = Some(conn.handle.raw());
                                 state.switch_notifications_enabled = false;
 
                                 // Enable CTE transmit: configure AoA type, then enable response
@@ -233,7 +241,7 @@ async fn main(spawner: Spawner) {
                             GapEvent::Disconnected { handle, reason } => {
                                 info!(
                                     "Disconnected: 0x{:04X}, reason 0x{:02X} ({})",
-                                    handle.0,
+                                    handle.raw(),
                                     reason.as_u8(),
                                     Display2Format(&reason)
                                 );
@@ -249,16 +257,16 @@ async fn main(spawner: Spawner) {
 
                     // ── GATT events ───────────────────────────────────────────────
                     match &event {
-                        stm32wb_hci::Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
-                            if is_cccd_handle(state.switch_char_handle.0, attr.attr_handle.0) {
-                                let cccd = CccdValue::from_bytes(attr.data());
+                        BleEvent::Vendor(AciEvent::GattAttributeModified(attr)) => {
+                            if is_cccd_handle(state.switch_char_handle.0, attr.attr_handle) {
+                                let cccd = CccdValue::from_bytes(attr.attr_data);
                                 state.switch_notifications_enabled = cccd.notifications;
                                 info!(
                                     "SWITCH_C notifications {}",
                                     if cccd.notifications { "ENABLED" } else { "DISABLED" }
                                 );
-                            } else if is_value_handle(state.led_char_handle.0, attr.attr_handle.0) {
-                                let new_val = attr.data().first().copied().unwrap_or(0);
+                            } else if is_value_handle(state.led_char_handle.0, attr.attr_handle) {
+                                let new_val = attr.attr_data.first().copied().unwrap_or(0);
                                 state.led_value = new_val;
                                 gatt.update_characteristic_value(
                                     state.service_handle,
@@ -274,12 +282,12 @@ async fn main(spawner: Spawner) {
                                 );
                             }
                         }
-                        stm32wb_hci::Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
-                            conn_handle,
+                        BleEvent::Vendor(AciEvent::AttExchangeMtuResp(AttExchangeMtuRespEvent {
+                            connection_handle: conn_handle,
                             server_rx_mtu,
                         })) => {
                             if let Some(conn) = ble.get_connection_mut(*conn_handle) {
-                                conn.update_mtu(*server_rx_mtu as u16);
+                                conn.update_mtu(*server_rx_mtu);
                             }
                         }
                         _ => {}

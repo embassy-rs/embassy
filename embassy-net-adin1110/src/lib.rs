@@ -23,7 +23,7 @@ mod regs;
 #[cfg(feature = "tc6")]
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use ch::driver::{LinkState, PacketBuf};
+use ch::driver::LinkState;
 pub use crc32::ETH_FCS;
 use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
@@ -363,19 +363,13 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, GenericSpi<SPI>, INT,
 
                     while status1.p1_rx_rdy() {
                         debug!("alloc RX packet buffer");
-                        match select(rx_chan.rx_ready(), tx_chan.tx()).await {
+                        match select(rx_chan.rx_buf(), tx_chan.tx()).await {
                             // Handle frames that needs to transmit from the wire.
-                            // Note: rx_chan.rx_ready() doesn't complete while the
+                            // Note: rx_chan.rx_buf() doesn't complete while the
                             //       tx_chan is full. So these will be handled
                             //       automaticly.
-                            Either::First(()) => {
-                                let Some(mut frame) = PacketBuf::try_new() else {
-                                    error!("packet pool empty, can't receive");
-                                    // Back off, so we don't spin until the stack frees a buffer.
-                                    Timer::after_millis(1).await;
-                                    continue;
-                                };
-                                frame.set_len(MTU);
+                            Either::First(mut frame) => {
+                                frame.set_len(MTU.min(frame.capacity()));
                                 match self.mac.read_fifo(&mut frame).await {
                                     Ok(n) => {
                                         frame.set_len(n);
@@ -562,14 +556,8 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, Tc6<SPI>, INT, RS
 
             while mac.protocol.rx_available() {
                 debug!("alloc RX packet buffer");
-                rx_chan.rx_ready().await;
-                let Some(mut frame) = PacketBuf::try_new() else {
-                    error!("packet pool empty, can't receive");
-                    // Back off, so we don't spin until the stack frees a buffer.
-                    Timer::after_millis(1).await;
-                    continue;
-                };
-                frame.set_len(MTU);
+                let mut frame = rx_chan.rx_buf().await;
+                frame.set_len(MTU.min(frame.capacity()));
                 #[cfg(not(feature = "packetmeta-id"))]
                 let result = mac.read_fifo(&mut frame).await;
                 #[cfg(feature = "packetmeta-id")]

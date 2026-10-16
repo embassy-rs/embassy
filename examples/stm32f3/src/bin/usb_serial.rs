@@ -11,7 +11,7 @@ use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_time::Timer;
 use embassy_usb::Builder;
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use panic_probe as _;
 

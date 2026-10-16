@@ -27,6 +27,21 @@ pub(crate) fn init() {
     }
 }
 
+/// Configure both FREQME inputs while serializing the shared INPUTMUX gate.
+#[cfg(mcxa_freqme)]
+pub(crate) fn configure_freqme(reference: u8, target: u8) -> Result<(), crate::clocks::ClockError> {
+    critical_section::with(|_| {
+        // SAFETY: INPUTMUX is only accessed during serialized configuration;
+        // no driver retains access to its gate across this critical section.
+        let _parts = unsafe { enable::<INPUTMUX0>(&NoConfig)? };
+        pac::INPUTMUX0.freqmeas_ref().write(|w| w.set_inp(reference.into()));
+        pac::INPUTMUX0.freqmeas_tar().write(|w| w.set_inp(target.into()));
+        // SAFETY: routing remains active without the register interface clock.
+        unsafe { disable::<INPUTMUX0>() };
+        Ok(())
+    })
+}
+
 macro_rules! impl_input_mux {
     (ctimer, $value:literal, $pin:ident) => {
         impl_input_mux!(ctimer, 0, $value, $pin);
@@ -56,10 +71,11 @@ macro_rules! impl_input_mux {
             {
                 #[inline(always)]
                 fn mux() {
-                    let _ = unsafe { enable::<INPUTMUX0>(&NoConfig) };
-                    pac::INPUTMUX0.[<$reg>]($n).write(|w| w.set_inp([<$value>].into()));
-                    unsafe { disable::<INPUTMUX0>() };
-
+                    critical_section::with(|_| {
+                        let _ = unsafe { enable::<INPUTMUX0>(&NoConfig) };
+                        pac::INPUTMUX0.[<$reg>]($n).write(|w| w.set_inp([<$value>].into()));
+                        unsafe { disable::<INPUTMUX0>() };
+                    });
                 }
             }
 
@@ -119,11 +135,11 @@ impl_input_mux!(ctimer, 8, P3_15);
 impl_input_mux!(ctimer, 9, P3_16);
 impl_input_mux!(ctimer, 10, P3_17);
 impl_input_mux!(ctimer, 11, P3_22);
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 impl_input_mux!(ctimer, 14, P3_27);
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 impl_input_mux!(ctimer, 13, P3_28);
-#[cfg(all(feature = "dangerous-reset-as-gpio", feature = "mcxa2xx"))]
+#[cfg(all(feature = "dangerous-reset-as-gpio", feature = "_mcxa2xx"))]
 impl_input_mux!(ctimer, 4, P3_29);
 
 impl_input_mux!(ctimer, 7, P4_6);

@@ -41,6 +41,8 @@ pub struct ReadableRingBuffer<'a, W: Word> {
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new empty ring buffer.
+    ///
+    /// You must call [`start`](Self::start) after creating ring buffer for it to work.
     pub unsafe fn new<PW: Word>(
         channel: Channel<'a>,
         _request: Request,
@@ -81,9 +83,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     ///
-    /// You must call this after creating it for it to work.
-    ///
-    /// It starts the channel and makes it run, even if earlier it was suspended (paused).
+    /// You must call this after creating ring buffer for it to work.
     pub fn start(&mut self) {
         self.channel.enable_circular_mode();
         self.channel.start();
@@ -155,17 +155,12 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request the transfer to pause, keeping the existing configuration for this channel.
-    /// To restart the transfer, call [`start`](Self::start) again.
+    /// Stop the ring buffer operation.
+    /// To resume the transfer, call [`start`](Self::start).
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_pause(&mut self) {
+    pub fn stop(&mut self) {
         self.channel.request_pause()
-    }
-
-    /// Request the transfer to resume after having been paused.
-    pub fn request_resume(&mut self) {
-        self.channel.request_resume()
     }
 
     /// Return whether DMA is still running.
@@ -218,6 +213,8 @@ pub struct WritableRingBuffer<'a, W: Word> {
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer filled with the given buffer data.
+    ///
+    /// You must call [`start`](Self::start) after creating ring buffer for it to work.
     pub unsafe fn new<PW: Word>(
         channel: Channel<'a>,
         _request: Request,
@@ -258,7 +255,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     ///
-    /// You must call this after creating it for it to work.
+    /// You must call this after creating ring buffer for it to work.
     pub fn start(&mut self) {
         self.channel.enable_circular_mode();
         self.channel.start();
@@ -267,12 +264,6 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
         self.ringbuf.reset(&mut DmaCtrlImpl(self.channel.reborrow()));
-    }
-
-    /// Write elements directly to the raw buffer.
-    /// This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), RingBufferError> {
-        Ok(self.ringbuf.write_immediate(buf)?)
     }
 
     /// Write elements from the ring buffer
@@ -319,11 +310,11 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request the transfer to pause, keeping the existing configuration for this channel.
-    /// To restart the transfer, call [`start`](Self::start) again.
+    /// Stop the ring buffer operation.
+    /// To resume the transfer, call [`start`](Self::start).
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_pause(&mut self) {
+    pub fn stop(&mut self) {
         self.channel.request_pause()
     }
 

@@ -11,9 +11,8 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler};
-use embassy_usb::class::hid::{
-    HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State as HidState,
-};
+use embassy_usb::class::hid::device::{HidReaderWriter, RequestHandler, State as HidState};
+use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, ReportId};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
 use panic_probe as _;
@@ -67,7 +66,7 @@ async fn main(_spawner: Spawner) {
     builder.handler(&mut device_handler);
 
     // Create classes on the builder.
-    let config = embassy_usb::class::hid::Config {
+    let config = embassy_usb::class::hid::device::Config {
         report_descriptor: KeyboardReport::desc(),
         request_handler: None,
         poll_ms: 60,

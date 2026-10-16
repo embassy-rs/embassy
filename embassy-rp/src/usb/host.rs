@@ -26,6 +26,14 @@ use crate::peripherals::USB;
 use crate::usb::EP_MEMORY_SIZE;
 use crate::{Peri, RegExt};
 
+/// Milliseconds a new connection must stay stable.
+const DEVICE_DEBOUNCE_STABLE: u64 = 100;
+/// Milliseconds before giving up on a bouncing connection.
+const DEVICE_DEBOUNCE_TIMEOUT: u64 = 2000;
+
+/// USB addresses 0 through 127, including the default address.
+const ADDRESS_COUNT: usize = 128;
+
 /// Root port reset drive time (USB 2.0 §7.1.7.5, TDRSTR).
 const ROOT_RESET_MS: u64 = 50;
 /// Reset recovery time (USB 2.0 §7.1.7.5, TRSTRCY). A device need not answer any request
@@ -54,6 +62,11 @@ const NAK_POLL_DELAY_YIELD: u16 = 300;
 /// NAK retry interval outside a yield.
 #[cfg(feature = "rp2040")]
 const NAK_POLL_DELAY_NORMAL: u16 = 16;
+
+/// Consecutive attempts of one EPX transaction that the device leaves without any
+/// answer before the transfer fails with [`PipeError::Timeout`]: the error count of
+/// three that OHCI and EHCI keep per transfer.
+const NO_RESPONSE_RETRIES: u8 = 3;
 
 /// Bits reserved per EPX pipe in [`EpxArbiter::error`].
 const EPX_ERROR_BITS: usize = 4;
@@ -278,6 +291,14 @@ pub struct HostState {
     /// EPX arbitration. One lock keeps multi-field decisions consistent; it also masks
     /// the interrupt, so a re-entrant borrow cannot happen.
     arbiter: critical_section::Mutex<RefCell<EpxArbiter>>,
+    /// Per device address, bumped when the device is removed.
+    generation: critical_section::Mutex<RefCell<[u8; ADDRESS_COUNT]>>,
+}
+
+impl Default for HostState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl HostState {
@@ -295,7 +316,31 @@ impl HostState {
             epx_wakers: [const { AtomicWaker::new() }; EPX_MAX_PIPES],
             used_blocks: critical_section::Mutex::new(Cell::new(0)),
             arbiter: critical_section::Mutex::new(RefCell::new(EpxArbiter::new())),
+            generation: critical_section::Mutex::new(RefCell::new([0; ADDRESS_COUNT])),
         }
+    }
+
+    fn generation(&self, addr: u8) -> u8 {
+        critical_section::with(|cs| {
+            self.generation
+                .borrow(cs)
+                .borrow()
+                .get(addr as usize)
+                .copied()
+                .unwrap_or(0)
+        })
+    }
+
+    /// Bump the generation of the device at `addr` (every device for `None`) and wake the pipes waiting on it.
+    fn device_removed(&self, addr: Option<u8>) {
+        critical_section::with(|cs| {
+            for (i, generation) in self.generation.borrow(cs).borrow_mut().iter_mut().enumerate() {
+                if addr.is_none_or(|addr| addr as usize == i) {
+                    *generation = generation.wrapping_add(1);
+                }
+            }
+        });
+        EP_IN_WAKERS.iter().for_each(|waker| waker.wake());
     }
 
     fn reset(&self) {
@@ -484,6 +529,8 @@ pub struct Channel<'d, T: SealedHostInstance, E, D> {
     timeout: TimeoutConfig,
     /// Per-transaction control response budget, or `None` outside a control transfer.
     control_timeout_us: Option<u64>,
+    /// [`HostState::generation`] of the device address at allocation.
+    generation: u8,
 }
 
 impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
@@ -531,7 +578,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         if ep_info.ep_type == EndpointType::Interrupt {
             assert!(index > 0 && index < EP_COUNT);
         } else {
-            assert!(index >= EP_COUNT && index < EP_COUNT + EPX_MAX_PIPES);
+            assert!((EP_COUNT..EP_COUNT + EPX_MAX_PIPES).contains(&index));
         }
 
         Self {
@@ -551,6 +598,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             pre,
             timeout: default_timeout(),
             control_timeout_us: None,
+            generation: T::host_state().generation(dev_addr),
         }
     }
 }
@@ -679,6 +727,8 @@ enum TransactionStatus {
     Complete,
     /// EPX was taken away at a NAK boundary; the caller should retry.
     NakYield,
+    /// The device did not answer (RX timeout); the caller may retry.
+    NoResponse,
     /// The software response budget expired.
     Timeout,
 }
@@ -850,13 +900,17 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         E::ep_type() == EndpointType::Interrupt
     }
 
-    /// Wait for buffer to be available
-    /// Returns stall status
-    async fn wait_available(&self) -> bool {
+    /// Wait for the buffer to be available, or fail if its device was removed.
+    async fn wait_available(&self) -> Result<(), PipeError> {
         trace!("CHANNEL {} WAIT AVAILABLE", self.index);
         poll_fn(|cx| {
             // Both IN and OUT endpoints use IN registers on rp2040 in host mode
             self.waker().register(cx.waker());
+
+            // Disconnected since allocation: this transfer can never complete.
+            if Self::is_interrupt() && T::host_state().generation(self.dev_addr) != self.generation {
+                return Poll::Ready(Err(PipeError::Disconnected));
+            }
 
             let reg = self.buffer_control().read();
 
@@ -868,7 +922,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             // FIXME: Stall derived from other place
             match reg.available(0) {
                 true => Poll::Pending,
-                false => Poll::Ready(false),
+                false => Poll::Ready(Ok(())),
             }
         })
         .await
@@ -898,7 +952,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         }
     }
 
-    async fn wait_ready_for_transaction(&self) {
+    async fn wait_ready_for_transaction(&self) -> Result<(), PipeError> {
         trace!("CHANNEL {} WAIT READY", self.index);
 
         // Join the queue for EPX. Dropped with this future, cancelled or not.
@@ -924,20 +978,26 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         .await;
 
         // Once this pipe owns EPX, wait for its transfer buffer to be free.
-        self.wait_available().await;
+        self.wait_available().await
     }
 
-    // FIXME: RX Timeout with LS device on hub
     /// Start transaction and wait it to be complete
     async fn wait_transaction(&self) -> Result<TransactionStatus, PipeError> {
         assert!(!Self::is_interrupt());
         let regs = T::regs();
 
+        // A device that does not answer raises RX_TIMEOUT, and the controller retries
+        // the token for as long as it is left to: without it the transaction never
+        // ends. Low-speed devices behind a hub (PRE) raise none on their own, on
+        // RP2040 as on RP2350.
+        // Left over from an earlier transaction.
+        regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
+
         // Enable error and cplt interrupts
         regs.inte().modify(|w| {
             w.set_trans_complete(true);
             w.set_stall(true);
-            w.set_error_rx_timeout(false);
+            w.set_error_rx_timeout(true);
             w.set_error_rx_overflow(true);
             w.set_error_crc(true);
             w.set_error_bit_stuff(true);
@@ -962,7 +1022,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         }
 
         trace!("CHANNEL {} WAIT TRANSACTION", self.index);
-        let res = poll_fn(|cx| {
+        poll_fn(|cx| {
             self.waker().register(cx.waker());
 
             if let Some(error) = T::host_state().take_epx_error(self.epx_slot()) {
@@ -988,11 +1048,13 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 regs.sie_status().write_clear(|w| w.set_rx_overflow(true));
                 return Poll::Ready(Err(PipeError::BufferOverflow));
             }
+            if stat.rx_timeout() {
+                regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
+                return Poll::Ready(Ok(TransactionStatus::NoResponse));
+            }
             Poll::Pending
         })
-        .await;
-
-        res
+        .await
     }
 
     /// Mark this channel as currently used and configure endpoint type
@@ -1154,7 +1216,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     /// Read one packet from a dedicated interrupt endpoint.
     async fn interrupt_in_read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
-        self.wait_ready_for_transaction().await;
+        self.wait_ready_for_transaction().await?;
         self.set_current();
         self.settle_interrupt_toggle();
         let mut guard = self.interrupt_transfer_guard();
@@ -1168,13 +1230,13 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             // Already armed, so the controller owns the buffer and may fill it at
             // any moment. Writing to it here would race that; just wait.
             trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
-            self.wait_available().await;
+            self.wait_available().await?;
         } else {
             // Idle: not armed and holding nothing, so the controller cannot be
             // touching the buffer and it is safe to program.
             trace!("CHANNEL {} ARM INTERRUPT", self.index);
             self.interrupt_reload();
-            self.wait_available().await;
+            self.wait_available().await?;
         }
 
         let rx_len = self.buffer_control().read().length(0) as usize;
@@ -1192,7 +1254,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     /// Write to a dedicated interrupt endpoint, one packet per poll.
     async fn interrupt_out_write(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError> {
-        self.wait_ready_for_transaction().await;
+        self.wait_ready_for_transaction().await?;
         self.set_current();
         self.settle_interrupt_toggle();
         let mut guard = self.interrupt_transfer_guard();
@@ -1204,7 +1266,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         loop {
             trace!("CHANNEL {} ARM INTERRUPT OUT", self.index);
             packet = self.interrupt_send(&buf[count..]);
-            self.wait_available().await;
+            self.wait_available().await?;
             self.advance_pid();
             count += packet;
             if count >= buf.len() {
@@ -1215,7 +1277,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         if ensure_transaction_end && packet == self.max_packet_size as usize {
             trace!("CHANNEL {} ARM INTERRUPT OUT ZLP", self.index);
             self.interrupt_send(&[]);
-            self.wait_available().await;
+            self.wait_available().await?;
             self.advance_pid();
         }
 
@@ -1259,13 +1321,13 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             pid
         };
 
-        let chunk = if data.len() > 0 {
+        let chunk = if !data.is_empty() {
             data.chunks(self.max_packet_size as _).next().unwrap()
         } else {
             &[]
         };
 
-        self.buf.write(&chunk);
+        self.buf.write(chunk);
 
         self.write_buffer_control(|w| {
             w.set_available(0, true);
@@ -1294,7 +1356,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     /// Clear buffer interrupt bit
     fn clear_sie_status(&self) {
         if Self::is_interrupt() {
-            T::regs().buff_status().write_clear(|w| w.0 = 0b11 << self.index * 2);
+            T::regs().buff_status().write_clear(|w| w.0 = 0b11 << (self.index * 2));
         } else {
             T::regs().buff_status().write_clear(|w| w.0 = 0b11);
         }
@@ -1307,8 +1369,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             .control_timeout_us
             .map(|us| embassy_time::Instant::now() + embassy_time::Duration::from_micros(us));
 
+        let mut no_response = 0;
         loop {
-            self.wait_ready_for_transaction().await;
+            self.wait_ready_for_transaction().await?;
             self.set_current();
             let mut guard = self.transaction_guard();
 
@@ -1335,7 +1398,19 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 TransactionStatus::NakYield if E::ep_type() == EndpointType::Isochronous => {
                     return Err(PipeError::Canceled);
                 }
-                TransactionStatus::NakYield => {}
+                // A NAK is an answer: the silent attempts start over.
+                TransactionStatus::NakYield => no_response = 0,
+                TransactionStatus::NoResponse if E::ep_type() == EndpointType::Isochronous => {
+                    return Err(PipeError::Timeout);
+                }
+                // Retried like a NAK, EPX handed over in between; the guard stops the
+                // transaction, which the controller would otherwise retry for good.
+                TransactionStatus::NoResponse => {
+                    no_response += 1;
+                    if no_response >= NO_RESPONSE_RETRIES {
+                        return Err(PipeError::Timeout);
+                    }
+                }
                 TransactionStatus::Timeout => {
                     guard.disarm();
                     return Err(PipeError::Timeout);
@@ -1365,7 +1440,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     /// Read over EPX until the caller's buffer fills or the device sends a short packet.
     async fn epx_read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
         let mut count: usize = 0;
-        let res = loop {
+        loop {
             trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
             let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
             let rx_len = self.transfer_in_packet(packet_len as u16, self.pid).await?;
@@ -1386,15 +1461,13 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             if count == buf.len() || rx_len < self.max_packet_size as usize {
                 break Ok(count);
             }
-        };
-
-        res
+        }
     }
 
     /// Write over EPX until the caller's buffer is drained.
     async fn epx_write(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError> {
         let mut count = 0;
-        let res = loop {
+        loop {
             trace!("CHANNEL {} START WRITE", self.index);
             let packet = self.transfer_out_packet(&buf[count..], self.pid).await?;
             self.advance_pid();
@@ -1412,9 +1485,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 }
                 break Ok(());
             }
-        };
-
-        res
+        }
     }
 
     /// Send SETUP packet
@@ -1708,45 +1779,83 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
     }
 
     async fn wait_for_device_event(&mut self) -> DeviceEvent {
-        let is_connected = |status: u8| match status {
-            0b01 | 0b10 => true,
-            _ => false,
+        let is_connected = |status: u8| matches!(status, 0b01 | 0b10);
+
+        let mut debounce_elapsed = 0;
+        let mut last_bounce = embassy_time::Instant::now();
+        let ev = loop {
+            let was = self.connected;
+
+            // Reconnected before we polled: report the removal first, the speed register only holds the current state.
+            let speed = T::regs().sie_status().read().speed();
+            if was && is_connected(speed) && T::regs().intr().read().host_conn_dis() {
+                break DeviceEvent::Disconnected;
+            }
+
+            // Clear interrupt status
+            T::regs().sie_status().write_clear(|w| {
+                w.set_speed(0b11);
+            });
+
+            // Enable conn/dis irq
+            T::regs().inte().modify(|w| {
+                w.set_host_conn_dis(true);
+            });
+            let mut speed = 0;
+            let ev = poll_fn(|cx| {
+                BUS_WAKER.register(cx.waker());
+
+                let now = T::regs().sie_status().read().speed();
+                speed = now;
+                let connect_event: DeviceEvent = match now {
+                    0b01 => DeviceEvent::Connected(Speed::Low),
+                    0b10 => DeviceEvent::Connected(Speed::Full),
+                    _ => DeviceEvent::Disconnected,
+                };
+                match (was, is_connected(now)) {
+                    (true, false) => Poll::Ready(DeviceEvent::Disconnected),
+                    (true, true) if T::regs().intr().read().host_conn_dis() => Poll::Ready(DeviceEvent::Disconnected),
+                    (false, true) => Poll::Ready(connect_event),
+                    _ => Poll::Pending,
+                }
+            })
+            .await;
+
+            if let DeviceEvent::Connected(_) = ev {
+                // Clear both speed bits, which clears host_conn_dis latch such that next poll
+                // will not incorrectly report a disconnect in (was=true, is_connected=true) above.
+                T::regs().sie_status().write_clear(|w| w.set_speed(0b11));
+
+                if last_bounce.elapsed().as_millis() >= DEVICE_DEBOUNCE_STABLE {
+                    debounce_elapsed = 0;
+                }
+
+                // A glitch latched in HOST_CONN_DIS restarts the wait, up to DEVICE_DEBOUNCE_TIMEOUT in total.
+                if debounce_elapsed < DEVICE_DEBOUNCE_TIMEOUT {
+                    debounce_elapsed += DEVICE_DEBOUNCE_STABLE;
+                    embassy_time::Timer::after_millis(DEVICE_DEBOUNCE_STABLE).await;
+
+                    if T::regs().sie_status().read().speed() != speed || T::regs().intr().read().host_conn_dis() {
+                        last_bounce = embassy_time::Instant::now();
+                        continue;
+                    }
+                }
+            }
+            break ev;
         };
 
-        let was = self.connected;
-
-        // Clear interrupt status
-        T::regs().sie_status().write_clear(|w| {
-            w.set_speed(0b11);
-        });
-
-        // Enable conn/dis irq
-        T::regs().inte().modify(|w| {
-            w.set_host_conn_dis(true);
-        });
-        let ev = poll_fn(|cx| {
-            BUS_WAKER.register(cx.waker());
-
-            let now = T::regs().sie_status().read().speed();
-            let speed_now: DeviceEvent = match now {
-                0b01 => DeviceEvent::Connected(Speed::Low),
-                0b10 => DeviceEvent::Connected(Speed::Full),
-                _ => DeviceEvent::Disconnected,
-            };
-            match (was, is_connected(now)) {
-                (true, false) => Poll::Ready(DeviceEvent::Disconnected),
-                (false, true) => Poll::Ready(speed_now),
-                _ => Poll::Pending,
-            }
-        })
-        .await;
-
         self.connected = matches!(ev, DeviceEvent::Connected(_));
+
+        if ev == DeviceEvent::Disconnected {
+            T::host_state().device_removed(None);
+        }
 
         // Per the `UsbHostController` contract, reset before reporting the attach so the
         // device leaves Powered for Default (USB 2.0 §9.1.2). Full-speed only, so no chirp.
         if matches!(ev, DeviceEvent::Connected(_)) {
             self.bus_reset().await;
+            // The reset itself latches the line change; don't report it as a disconnect.
+            T::regs().sie_status().write_clear(|w| w.set_speed(0b11));
         }
         ev
     }
@@ -1768,6 +1877,7 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
 
 /// Service the RP235x stop-on-NAK interrupt, handing EPX to whoever is queued.
 /// Returns `true` when it consumed the interrupt; RP2040 has no such interrupt.
+#[allow(clippy::extra_unused_type_parameters)]
 fn on_nak_stop<T: SealedHostInstance>() -> bool {
     #[cfg(feature = "_rp235x")]
     {
@@ -1890,11 +2000,11 @@ impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for Inte
                     T::host_state().wake_current_epx();
                 }
 
-                for n in 1..EP_COUNT {
+                for (n, waker) in EP_IN_WAKERS.iter().enumerate().take(EP_COUNT).skip(1) {
                     if status & (0b11 << (n * 2)) != 0 {
                         regs.buff_status().write_clear(|w| w.0 = 0b11 << (n * 2));
                         trace!("USB IRQ: Interrupt EP {}", n);
-                        EP_IN_WAKERS[n].wake();
+                        waker.wake();
                     }
                 }
                 "^^^"

@@ -129,14 +129,14 @@ impl CkoutDivider {
 }
 
 impl TryFrom<u16> for CkoutDivider {
-    type Error = ();
+    type Error = Error;
 
     /// Try to create from the actual divider value (2..=256).
     fn try_from(divider: u16) -> Result<Self, Self::Error> {
         if (2..=256).contains(&divider) {
             Ok(Self((divider - 1) as u8))
         } else {
-            Err(())
+            Err(Error::InvalidConfig)
         }
     }
 }
@@ -157,9 +157,9 @@ impl AwdFilterOsr {
     /// Create from the actual OSR value (2..=32).
     /// Panics if out of range.
     /// For a non-panicking variant, use [`AwdFilterOsr::try_from`].
-    pub fn new(divider: u16) -> Self {
-        assert!((2..=32).contains(&divider), "OSR must be 2..=32");
-        Self((divider - 1) as u8)
+    pub fn new(osr: u16) -> Self {
+        assert!((2..=32).contains(&osr), "OSR must be 2..=32");
+        Self((osr - 1) as u8)
     }
 
     /// Watchdog filter bypassed (register value 0).
@@ -172,14 +172,14 @@ impl AwdFilterOsr {
 }
 
 impl TryFrom<u16> for AwdFilterOsr {
-    type Error = ();
+    type Error = Error;
 
     /// Try to create from the actual OSR value (2..=32).
     fn try_from(divider: u16) -> Result<Self, Self::Error> {
         if (2..=32).contains(&divider) {
             Ok(Self((divider - 1) as u8))
         } else {
-            Err(())
+            Err(Error::InvalidConfig)
         }
     }
 }
@@ -332,9 +332,13 @@ impl DataRightShift {
 }
 
 impl TryFrom<u8> for DataRightShift {
-    type Error = ();
+    type Error = Error;
     fn try_from(shift: u8) -> Result<Self, Self::Error> {
-        if shift <= 31 { Ok(Self(shift)) } else { Err(()) }
+        if shift <= 31 {
+            Ok(Self(shift))
+        } else {
+            Err(Error::InvalidConfig)
+        }
     }
 }
 
@@ -364,9 +368,13 @@ impl PulsesToSkip {
 }
 
 impl TryFrom<u8> for PulsesToSkip {
-    type Error = ();
+    type Error = Error;
     fn try_from(pulses: u8) -> Result<Self, Self::Error> {
-        if pulses <= 63 { Ok(Self(pulses)) } else { Err(()) }
+        if pulses <= 63 {
+            Ok(Self(pulses))
+        } else {
+            Err(Error::InvalidConfig)
+        }
     }
 }
 
@@ -524,7 +532,7 @@ const MAX_GAIN_SERIAL: u128 = i32::MAX.unsigned_abs() as u128;
 /// the 1-bit serial case. This linear model is an approximation for the
 /// parallel (16-bit) case - verify against TRM before
 /// trusting it in a headroom-critical design; use
-/// [`FilterParameters::new_ignore_gain_ceiling`] if you've verified your
+/// [`FilterParameters::try_new_ignore_gain_ceiling`] if you've verified your
 /// own headroom instead.
 const fn max_gain(width: InputWidth) -> u128 {
     MAX_GAIN_SERIAL >> (width.bits() - 1)
@@ -649,10 +657,10 @@ impl FilterParameters {
     /// the given `width`.
     ///
     /// Returns [`Error::InvalidFilterParameters`] if `iosr` is outside
-    /// `1..=256`, the filter order's FOSR is invalid, or the resulting gain
-    /// exceeds the ceiling for `width`.
+    /// `1..=256`, the filter order's FOSR is outside `1..=1024`, or the
+    /// resulting gain exceeds the ceiling for `width`.
     pub fn try_new_for_width(order: FilterOrder, iosr: u16, width: InputWidth) -> Result<Self, Error> {
-        if (1..=256).contains(&iosr) && order.fosr() > 0 {
+        if (1..=256).contains(&iosr) && (1..=1024).contains(&order.fosr()) {
             let params = Self { order, iosr, width };
             if params.total_gain_checked().is_some() {
                 return Ok(params);
@@ -678,10 +686,10 @@ impl FilterParameters {
     /// method.
     ///
     /// Returns [`Error::InvalidFilterParameters`] if `iosr` is outside
-    /// `1..=256`, the filter order's FOSR is invalid, or the gain
+    /// `1..=256`, the filter order's FOSR is outside `1..=1024`, or the gain
     /// computation itself overflows `u128`.
-    pub fn new_ignore_gain_ceiling(order: FilterOrder, iosr: u16) -> Result<Self, Error> {
-        if (1..=256).contains(&iosr) && order.fosr() > 0 && order.valid() {
+    pub fn try_new_ignore_gain_ceiling(order: FilterOrder, iosr: u16) -> Result<Self, Error> {
+        if (1..=256).contains(&iosr) && (1..=1024).contains(&order.fosr()) && order.valid() {
             Ok(Self {
                 order,
                 iosr,
@@ -711,7 +719,7 @@ impl FilterParameters {
     /// `new`/`try_new`/`new_for_width`/`try_new_for_width`, since they
     /// already require this to succeed at construction. May be `None`'s
     /// logical inverse (i.e. always computable) for
-    /// `new_ignore_gain_ceiling` instances, since those skip the ceiling -
+    /// `try_new_ignore_gain_ceiling` instances, since those skip the ceiling -
     /// this method still reports the ceiling-checked view for them, which
     /// is why [`total_gain`]/[`total_gain_wide`] exist as the ceiling-free
     /// accessors.
@@ -729,7 +737,7 @@ impl FilterParameters {
     /// `try_new_for_width`, the gain is guaranteed `<= i32::MAX`-derived
     /// ceiling and this never truncates.
     ///
-    /// For instances built via [`FilterParameters::new_ignore_gain_ceiling`],
+    /// For instances built via [`FilterParameters::try_new_ignore_gain_ceiling`],
     /// the true gain may exceed `u32::MAX` and this value silently
     /// truncates (`as u32`) - use [`FilterParameters::total_gain_wide`]
     /// instead in that case.
@@ -740,7 +748,7 @@ impl FilterParameters {
     /// Returns the total gain of this filter parametrization as a lossless
     /// `u128`, regardless of how the instance was constructed. Prefer this
     /// over [`FilterParameters::total_gain`] for instances built via
-    /// [`FilterParameters::new_ignore_gain_ceiling`].
+    /// [`FilterParameters::try_new_ignore_gain_ceiling`].
     pub fn total_gain_wide(&self) -> u128 {
         // Safe to unwrap: `order.gain()` only returns `None` on arithmetic
         // overflow, which both constructor paths already reject at
@@ -751,11 +759,16 @@ impl FilterParameters {
             .expect("FilterParameters: gain computation overflowed u128 for a validated instance")
     }
 
-    /// Recommended right-shift to achieve i24-fullscale results
+    /// Recommended right-shift to achieve i24-fullscale results.
+    ///
+    /// Assumes a full-scale input for the configured input width: +/-1 for
+    /// serial inputs, +/-2^15 for parallel inputs.
     pub fn recommended_shift(&self) -> u8 {
-        let gain = self.total_gain_wide();
-
-        gain.next_power_of_two().ilog2().saturating_sub(23) as u8
+        // Exponent arithmetic: shift = log2(gain) + (width bits - 1) - 23,
+        // computed without materializing the (possibly huge) product.
+        let gain_exp = self.total_gain_wide().next_power_of_two().ilog2();
+        let exp = gain_exp + self.width.bits() - 1;
+        exp.saturating_sub(23) as u8
     }
 }
 

@@ -19,21 +19,20 @@
 #![no_std]
 #![no_main]
 
+use bt_hci::event::{EncryptionChangeV1, Event};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::security::{IoCapability, SecureConnectionsSupport, SecurityEvent, SecurityParams};
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
-use stm32wb_hci::Event;
-use stm32wb_hci::event::EncryptionChange;
-use stm32wb_hci::vendor::event::VendorEvent;
+use stm32wb_hci::aci::AciEvent;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -175,21 +174,22 @@ async fn main(spawner: Spawner) {
     info!("");
 
     // Main event loop
+    let mut event_buf = EventBuffer::new();
     loop {
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
 
         // Process GAP events (connections)
         if let Some(gap_event) = ble.process_event(&event) {
             match gap_event {
                 GapEvent::Connected(conn) => {
                     info!("=== CONNECTED ===");
-                    info!("  Handle: 0x{:04X}", conn.handle.0);
+                    info!("  Handle: 0x{:04X}", conn.handle.raw());
                     info!("  Peer: {}", conn.peer_address);
 
                     // Immediately request pairing from the peripheral side so
                     // the central doesn't have to trigger it via an
                     // insufficient-security GATT error first.
-                    if let Err(e) = security.request_pairing(conn.handle.0) {
+                    if let Err(e) = security.request_pairing(conn.handle.raw()) {
                         warn!("request_pairing failed: {:?}", e);
                     } else {
                         info!("Pairing requested — waiting for central to respond...");
@@ -200,7 +200,7 @@ async fn main(spawner: Spawner) {
                     info!("=== DISCONNECTED ===");
                     info!(
                         "  Handle: 0x{:04X}, Reason: 0x{:02X} ({})",
-                        handle.0,
+                        handle.raw(),
                         reason.as_u8(),
                         Display2Format(&reason)
                     );
@@ -264,9 +264,6 @@ async fn main(spawner: Spawner) {
                     info!("=== AUTHORIZATION REQUEST ===");
                     info!("  Connection: 0x{:04X}", conn_handle);
                 }
-                SecurityEvent::PeripheralSecurityInitiated => {
-                    info!("=== PERIPHERAL SECURITY INITIATED ===");
-                }
                 SecurityEvent::AddressNotResolved { conn_handle } => {
                     warn!("=== ADDRESS NOT RESOLVED ===");
                     warn!("  Connection: 0x{:04X}", conn_handle);
@@ -287,29 +284,34 @@ async fn main(spawner: Spawner) {
 
             //            EventParams::GapPairingRequest { conn_handle, is_bonded } => {
             //                info!("=== PAIRING REQUEST ===");
-            //                info!("  Connection: 0x{:04X}", conn_handle.0);
+            //                info!("  Connection: 0x{:04X}", conn_handle.raw());
             //                info!("  Previously bonded: {}", is_bonded);
             //                // The stack will handle the pairing process automatically
             //            }
-            Event::Vendor(VendorEvent::GattAttributeModified(attribute)) => {
+            BleEvent::Vendor(AciEvent::GattAttributeModified(attribute)) => {
                 info!("=== SECURE WRITE RECEIVED ===");
                 info!(
                     "  Connection: 0x{:04X}, Attr: 0x{:04X}",
-                    attribute.conn_handle, attribute.attr_handle
+                    attribute.connection_handle.raw(),
+                    attribute.attr_handle
                 );
-                info!("  Data ({} bytes): {:?}", attribute.data().len(), attribute.data());
+                info!(
+                    "  Data ({} bytes): {:?}",
+                    attribute.attr_data.len(),
+                    attribute.attr_data
+                );
                 info!("  (This write succeeded because device is paired!)");
             }
 
-            Event::EncryptionChange(EncryptionChange {
+            BleEvent::Core(Event::EncryptionChangeV1(EncryptionChangeV1 {
                 status,
-                conn_handle,
-                encryption,
-            }) => {
+                handle,
+                enabled,
+            })) => {
                 info!("=== ENCRYPTION CHANGE ===");
-                info!("  Connection: 0x{:04X}", conn_handle.0);
+                info!("  Connection: 0x{:04X}", handle.raw());
                 info!("  Status: {:?}", status);
-                info!("  Encryption: {}", encryption);
+                info!("  Encryption: {:?}", enabled);
             }
 
             _ => {

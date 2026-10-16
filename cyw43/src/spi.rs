@@ -286,11 +286,12 @@ where
         Ok(())
     }
 
-    async fn wlan_write(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
-        let len = buf.len() - 4;
-        buf[..4].copy_from_slice(&cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, len as u32).to_le_bytes());
+    async fn wlan_write(&mut self, buf: &mut crate::util::WriteBuffer) -> crate::Result<()> {
+        let len = buf.buf().len() as u32;
+        buf.cmd()
+            .copy_from_slice(&cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, len).to_le_bytes());
 
-        self.status = self.spi.cmd_write(slice32_ref(buf)).await;
+        self.status = self.spi.cmd_write(slice32_ref(buf.cmd_buf())).await;
 
         Ok(())
     }
@@ -313,7 +314,13 @@ where
 
             self.backplane_set_window(addr).await;
 
-            let cmd = cmd_word(READ, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
+            let cmd = cmd_word(
+                READ,
+                INC_ADDR,
+                FUNC_BACKPLANE,
+                window_offs | BACKPLANE_ADDRESS_32BIT_FLAG,
+                len as u32,
+            );
 
             // round `buf` to word boundary, add one extra word for the response delay
             self.status = self
@@ -351,7 +358,13 @@ where
 
             self.backplane_set_window(addr).await;
 
-            let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
+            let cmd = cmd_word(
+                WRITE,
+                INC_ADDR,
+                FUNC_BACKPLANE,
+                window_offs | BACKPLANE_ADDRESS_32BIT_FLAG,
+                len as u32,
+            );
             slice32_mut(buf)[0] = cmd;
 
             self.status = self.spi.cmd_write(&slice32_ref(buf)[..len.div_ceil(4) + 1]).await;

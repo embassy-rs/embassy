@@ -21,14 +21,14 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
+use embassy_stm32_wpan::bluetooth::gap::connection::LeConnRole;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
+use embassy_stm32_wpan::bluetooth::{EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
-use stm32wb_hci::event::ConnectionRole;
 
 // ---- Test configuration ----
 const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
@@ -135,20 +135,21 @@ async fn main(spawner: Spawner) {
     info!("Waiting for connections...");
 
     // Main event loop
+    let mut event_buf = EventBuffer::new();
     loop {
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
 
         // Process the event and update connection state
         if let Some(gap_event) = ble.process_event(&event) {
             match gap_event {
                 GapEvent::Connected(conn) => {
                     info!("=== CONNECTION ESTABLISHED ===");
-                    info!("  Handle: 0x{:04X}", conn.handle.0);
+                    info!("  Handle: 0x{:04X}", conn.handle.raw());
                     info!(
                         "  Role: {}",
                         match conn.role {
-                            ConnectionRole::Central => "Central",
-                            ConnectionRole::Peripheral => "Peripheral",
+                            LeConnRole::Central => "Central",
+                            LeConnRole::Peripheral => "Peripheral",
                         }
                     );
                     info!("  Peer Address: {}", conn.peer_address);
@@ -163,7 +164,7 @@ async fn main(spawner: Spawner) {
 
                 GapEvent::Disconnected { handle, reason } => {
                     info!("=== DISCONNECTION ===");
-                    info!("  Handle: 0x{:04X}", handle.0);
+                    info!("  Handle: 0x{:04X}", handle.raw());
                     info!("  Reason: 0x{:02X} ({})", reason.as_u8(), Display2Format(&reason));
                     info!("  Active connections: {}", ble.connections().count());
 
@@ -178,7 +179,7 @@ async fn main(spawner: Spawner) {
 
                 GapEvent::ConnectionParamsUpdated { handle, interval } => {
                     info!("=== CONNECTION PARAMS UPDATED ===");
-                    info!("  Handle: 0x{:04X}", handle.0);
+                    info!("  Handle: 0x{:04X}", handle.raw());
                     info!("  New Interval: {}", interval.interval());
                     info!("  New Latency: {}", interval.conn_latency());
                     info!("  New Timeout: {}", interval.supervision_timeout());
@@ -186,7 +187,7 @@ async fn main(spawner: Spawner) {
 
                 GapEvent::PhyUpdated { handle, tx_phy, rx_phy } => {
                     info!("=== PHY UPDATED ===");
-                    info!("  Handle: 0x{:04X}", handle.0);
+                    info!("  Handle: 0x{:04X}", handle.raw());
                     info!("  TX PHY: {:?}", tx_phy);
                     info!("  RX PHY: {:?}", rx_phy);
                 }
@@ -198,7 +199,7 @@ async fn main(spawner: Spawner) {
                     ..
                 } => {
                     info!("=== DATA LENGTH CHANGED ===");
-                    info!("  Handle: 0x{:04X}", handle.0);
+                    info!("  Handle: 0x{:04X}", handle.raw());
                     info!("  Max TX: {} bytes", max_tx_octets);
                     info!("  Max RX: {} bytes", max_rx_octets);
                 }

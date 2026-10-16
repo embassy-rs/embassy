@@ -243,8 +243,8 @@ where
         }
     }
 
-    async fn wlan_write(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
-        self.cmd53_write(FUNC_WLAN, 0, &buf[4..]).await
+    async fn wlan_write(&mut self, buf: &mut crate::util::WriteBuffer) -> crate::Result<()> {
+        self.cmd53_write(FUNC_WLAN, 0, &buf.cmd_buf()[4..]).await
     }
 
     async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {

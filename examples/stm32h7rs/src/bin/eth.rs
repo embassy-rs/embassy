@@ -4,9 +4,9 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::udp::UdpSocket;
 use embassy_net::wire::{IpCidr, Ipv4Addr};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
 use embassy_stm32::rng::Rng;
@@ -85,7 +85,9 @@ async fn main(spawner: Spawner) -> ! {
     // Have to use UDP w/ static config to fit in internal flash
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    // The ethernet DMA needs 8-byte aligned buffers, sized in multiples of 8.
+    static POOL: StaticPool<1520, 16, 8> = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();

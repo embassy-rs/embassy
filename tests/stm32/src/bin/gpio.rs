@@ -215,6 +215,58 @@ async fn main(_spawner: Spawner) {
         assert!(b.is_low());
     }
 
+    // Test is_input / is_output / is_disconnected and set_as_disconnected
+    {
+        let mut b = Flex::new(b.reborrow());
+        b.set_as_input(Pull::Up);
+        assert!(b.is_input());
+        assert!(!b.is_output());
+        assert!(!b.is_disconnected());
+
+        let mut a = Flex::new(a.reborrow());
+        a.set_low();
+        a.set_as_output(Speed::Low);
+        assert!(a.is_output());
+        assert!(!a.is_input());
+        assert!(!a.is_disconnected());
+        delay();
+        assert!(b.is_low());
+
+        a.set_as_input_output(Speed::Low);
+        assert!(a.is_input());
+        assert!(a.is_output());
+        assert!(!a.is_disconnected());
+        delay();
+        assert!(b.is_low());
+
+        // A disconnected pin doesn't drive the line.
+        a.set_as_disconnected();
+        assert!(a.is_disconnected());
+        assert!(!a.is_input());
+        assert!(!a.is_output());
+        delay();
+        assert!(b.is_high());
+        // Its input is off, so it reads low even though the line is high.
+        assert!(a.is_low());
+
+        // set_as_input must turn the input back on.
+        a.set_as_input(Pull::None);
+        assert!(a.is_input());
+        assert!(!a.is_disconnected());
+        delay();
+        assert!(a.is_high());
+
+        // set_as_output must turn the input back on, so the pin can read its own level.
+        a.set_as_disconnected();
+        a.set_high();
+        a.set_as_output(Speed::Low);
+        assert!(a.is_output());
+        assert!(!a.is_disconnected());
+        delay();
+        assert!(a.is_high());
+        assert!(b.is_high());
+    }
+
     info!("Test OK");
     cortex_m::asm::bkpt();
 }

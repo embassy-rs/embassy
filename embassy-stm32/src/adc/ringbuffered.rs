@@ -81,7 +81,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
         // requests before we pause the DMA channel.
         self.regs.stop();
 
-        self.ring_buf.request_pause();
+        self.ring_buf.stop();
 
         compiler_fence(Ordering::SeqCst);
     }
@@ -213,7 +213,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
                     return Ok(len);
                 }
                 Err(_) => {
-                    self.ring_buf.request_pause();
+                    self.ring_buf.stop();
 
                     return Err(OverrunError);
                 }
@@ -229,7 +229,7 @@ impl<R: AdcRegs> Drop for RingBufferedAdc<'_, R> {
 
         compiler_fence(Ordering::SeqCst);
 
-        self.ring_buf.request_pause();
+        self.ring_buf.stop();
         self.info.disable();
     }
 }

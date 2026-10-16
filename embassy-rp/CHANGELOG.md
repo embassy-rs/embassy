@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - All drivers now use the shared `embassy_rp::mode::{Mode, Blocking, Async}` instead of per-module copies.
 - Add `embassy_rp::time::Hertz`.
 - GPIO: rename `get_level` to `level` and `get_output_level` to `output_level`.
+- GPIO: add `Flex::set_as_disconnected`, `Flex::is_input` and `Flex::is_disconnected`.
+- GPIO: `Flex::new` leaves the pin disconnected, with the input buffer and output driver off. `set_as_input` and `set_as_output` turn the input buffer on; `set_pull` no longer does.
 - SPI: `Config::frequency` is now `Hertz`.
 - SPI: add `ConfigError`; constructors, `set_config` and `set_frequency` now return `Result`.
 - SPI: rename `flush` to `blocking_flush`.
@@ -42,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - USB device: clearing an endpoint halt now resets the data toggle to DATA0.
 - USB device: stalling an endpoint with a transfer in flight no longer lets that transfer complete, and the queued packet is no longer delivered once the halt is cleared.
 - USB device: a suspend latched before a bus reset no longer produces a spurious Suspend event that wedges enumeration.
+- USB device: `Driver::new` now resets the controller instead of zeroing its registers, so RP235x keeps the `LINESTATE_TUNING` controller fixes, among them the hardware fix for RP2040-E15, enabled.
 - Fix i2c_slave respond_to_read for buffers larger than one chunk
 - Add `uid`, returns device's unique ID as bytes or hexadecimal, using either OTP chip ID on RP235x or SPI flash chip's unique ID on RP2040.
 - Update `fixed` dependency
@@ -49,7 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PIO: add `Config::set_input_sync_bypass` to declare input synchronizer bypass pins; the bypass is applied inside `StateMachine::set_config` once `GPIOBASE` is established, fixing bypass for pins >= 32 on RP2350B.
 - breaking: Remove `<T: Instance>` from `Spi`, `I2c` and `I2cSlave` ([#4900](https://github.com/embassy-rs/embassy/pull/4900))
 - Add set_baudrate() to BufferedUartTx.
-
+- USB host: debounce root-port connections and fail pending interrupt transfers on disconnect
+- PIO: Fix PIO programs driving pins above 31 on RP235xB, now call `StateMachine::set_config` before `set_pin_dirs` and `set_pins`. These now panic when given a pin outside the PIO's GPIOBASE window, rather than failing silently.
+- UART: add `read_ready` to `Uart` and `UartRx`, reporting whether the RX FIFO holds data.
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes

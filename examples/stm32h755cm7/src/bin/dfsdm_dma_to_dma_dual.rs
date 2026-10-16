@@ -13,7 +13,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config::{DataRightShift, FilterOrder, FilterParameters};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0, Flt1, ResultRegular};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, Flt1, RegularResult};
 use embassy_stm32::dma::{self, Channel, TransferOptions};
 use embassy_stm32::peripherals::{self, DFSDM1};
 use embassy_stm32::{SharedData, bind_interrupts, dfsdm};
@@ -92,11 +92,12 @@ async fn main(_spawner: Spawner) {
     let source: [u32; TOTAL] = core::array::from_fn(|i| (even[i] as u32) | ((odd[i] as u32) << 16));
 
     // Setup.
-    let pair = split
-        .ch0
-        .build_parallel_dual(&common, split.ch1)
-        .set_data_right_shift([DataRightShift::new(0); 2])
-        .enable();
+    let (pair, filters) = split.build(&common, |tb| {
+        tb.ch0
+            .build_parallel_dual(&common, tb.ch1)
+            .set_data_right_shift([DataRightShift::new(0); 2])
+            .enable()
+    });
 
     let filter_params = FilterParameters::try_new(FilterOrder::Disabled, IOSR).expect("inside bounds");
     let flt_cfg0 = FilterConfig::<DFSDM1, Flt0> {
@@ -112,11 +113,11 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    let mut flt0 = split
+    let mut flt0 = filters
         .flt0
         .build(&common, Irqs)
         .enable_reg_dma(&pair.even, [&pair.even], &flt_cfg0);
-    let mut flt1 = split
+    let mut flt1 = filters
         .flt1
         .build(&common, Irqs)
         .enable_reg_dma(&pair.odd, [&pair.odd], &flt_cfg1);
@@ -158,8 +159,8 @@ async fn main(_spawner: Spawner) {
 
     let mut all_ok = true;
     for k in 0..N_OUT {
-        let e = ResultRegular::from_word(result_even[k]);
-        let o = ResultRegular::from_word(result_odd[k]);
+        let e = RegularResult::from_word(result_even[k]);
+        let o = RegularResult::from_word(result_odd[k]);
         all_ok &= e.data == manual_even[k] && o.data == manual_odd[k];
         info!(
             "out {}: even dfsdm {} vs manual {}, odd dfsdm {} vs manual {}",

@@ -4,8 +4,8 @@
 use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::tcp::{TcpListener, TcpSocket};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_net_esp_hosted as hosted;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::mode::Async;
@@ -84,7 +84,8 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<hosted::NetDriver<'static>> = StaticCell::new();

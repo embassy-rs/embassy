@@ -322,7 +322,7 @@ impl<'d> Pwm<'d> {
 
     #[inline]
     fn bit(&self) -> u32 {
-        1 << self.slice as usize
+        1 << self.slice
     }
 
     /// Splits the PWM driver into separate `PwmOutput` instances for channels A and B.
@@ -331,10 +331,10 @@ impl<'d> Pwm<'d> {
         (
             self.pin_a
                 .take()
-                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin), self.slice.clone(), true)),
+                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin), self.slice, true)),
             self.pin_b
                 .take()
-                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin), self.slice.clone(), true)),
+                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin), self.slice, true)),
         )
     }
     /// Splits the PWM driver by reference to allow for separate duty cycle control
@@ -344,10 +344,10 @@ impl<'d> Pwm<'d> {
         (
             self.pin_a
                 .as_mut()
-                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin.reborrow()), self.slice.clone(), false)),
+                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin.reborrow()), self.slice, false)),
             self.pin_b
                 .as_mut()
-                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin.reborrow()), self.slice.clone(), false)),
+                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin.reborrow()), self.slice, false)),
         )
     }
 }

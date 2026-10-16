@@ -100,7 +100,7 @@ pub struct Spi<'d, M: Mode> {
 }
 
 fn div_roundup(a: u32, b: u32) -> u32 {
-    (a + b - 1) / b
+    a.div_ceil(b)
 }
 
 fn calc_prescs(freq: Hertz) -> Result<(u8, u8), ConfigError> {
@@ -130,6 +130,7 @@ fn calc_prescs(freq: Hertz) -> Result<(u8, u8), ConfigError> {
 }
 
 impl<'d, M: Mode> Spi<'d, M> {
+    #[allow(clippy::too_many_arguments)]
     fn new_inner<T: Instance>(
         _spi: Peri<'d, T>,
         clk: Option<Peri<'d, AnyPin>>,
@@ -382,6 +383,7 @@ impl<'d> Spi<'d, Blocking> {
 
 impl<'d> Spi<'d, Async> {
     /// Create an SPI driver in async mode supporting DMA operations.
+    #[allow(clippy::too_many_arguments)]
     pub fn new<T: Instance, TxDma: ChannelInstance, RxDma: ChannelInstance>(
         spi: Peri<'d, T>,
         clk: Peri<'d, impl ClkPin<T> + 'd>,

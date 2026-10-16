@@ -38,3 +38,7 @@ ed25519-dalek = { version = "2", default-features = false }
 
 [features]
 defmt = ["dep:defmt", "embassy-crypto/defmt"]
+# Register `TestRng` as the global `embassy-crypto` RNG. Off by default so
+# the crate can be linked alongside a real driver (e.g. a HAL's hardware RNG),
+# which would otherwise collide on the registration symbol.
+rng = []

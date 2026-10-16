@@ -44,6 +44,22 @@ impl Registers {
         &mut self.msg_ram_mut().receive[fifonr].fxsa[bufnum]
     }
 
+    pub fn read_fd_into(&self, fifonr: usize, out: &mut FdFrame) -> Option<u16> {
+        let status = self.regs.rxfs(fifonr).read();
+        if status.ffl() < 1 {
+            return None;
+        }
+
+        let read_idx = status.fgi();
+        let mailbox = self.rx_fifo_element(fifonr, read_idx as usize);
+        let (header, timestamp) = extract_header(mailbox);
+        let words = (header.len() as usize).min(64).div_ceil(4);
+        out.set_from_words(header, mailbox.data[..words].iter().map(|reg| reg.get()));
+
+        self.regs.rxfa(fifonr).modify(|w| w.set_fai(read_idx));
+        Some(timestamp)
+    }
+
     pub fn read<F: CanHeader>(&self, fifonr: usize) -> Option<(F, u16)> {
         // Fill level - do we have a msg?
         if self.regs.rxfs(fifonr).read().ffl() < 1 {
@@ -774,20 +790,25 @@ fn data_from_tx_buffer(buffer: &mut [u8], mailbox: &TxBufferElement, len: usize)
 }
 
 fn extract_frame(mailbox: &RxFifoElement, buffer: &mut [u8]) -> Option<(Header, u16)> {
-    let header_reg = mailbox.header.read();
-
-    let id = make_id(header_reg.id().bits(), header_reg.xtd().bits());
-    let dlc = header_reg.to_data_length().len();
-    let len = dlc as usize;
-    let timestamp = header_reg.txts().bits;
+    let (header, timestamp) = extract_header(mailbox);
+    let len = header.len() as usize;
     if len > buffer.len() {
         return None;
     }
     data_from_fifo(buffer, mailbox, len);
+    Some((header, timestamp))
+}
+
+fn extract_header(mailbox: &RxFifoElement) -> (Header, u16) {
+    let header_reg = mailbox.header.read();
+
+    let id = make_id(header_reg.id().bits(), header_reg.xtd().bits());
+    let dlc = header_reg.to_data_length().len();
+    let timestamp = header_reg.txts().bits;
     let header = if header_reg.fdf().bits {
         Header::new_fd(id, dlc, header_reg.rtr().bits(), header_reg.brs().bits())
     } else {
         Header::new(id, dlc, header_reg.rtr().bits())
     };
-    Some((header, timestamp))
+    (header, timestamp)
 }
