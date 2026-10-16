@@ -17,6 +17,9 @@ Time driver:
 I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
 
+USART:
+- fix: stm32/usart: `BufferedUartTx::flush` could return before the last bytes left the UART when a write wrapped around the end of the TX buffer. The TC interrupt now reports done only when the TX buffer is empty, and every write pends the interrupt.
+
 Flash:
 - fix: stm32/flash: preserve F2/F4/F7/H7 PSIZE during programming cleanup so subsequent erases retain x32 parallelism.
 - add: `flash::Config` and `Flash::new_with_config` / `new_blocking_with_config` for optional erase parallelism on STM32F2/F4/F7 and `flash_h7`. Existing constructors keep their defaults; regions preserve the selection.
