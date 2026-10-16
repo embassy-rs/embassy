@@ -1,7 +1,7 @@
-# FRDM-MCXA156 draft examples
+# FRDM-MCXA156 examples
 
-This draft board package selects the exact MCXA156 through the branch's
-`mcxa156` feature with the explicit OSTIMER time driver. Both HAL PAC dependencies use upstream `embassy-rs/nxp-pac`
+These examples select the exact `mcxa156` feature and the explicit OSTIMER
+time driver. Both HAL PAC dependencies use upstream `embassy-rs/nxp-pac`
 revision `52488ea8ddf6c19d6a84a48d906b2bb48c4193bf`, containing the merged
 MCXA156 MetaPAC. No local PAC path or Wavenumber PAC fork is needed.
 
@@ -36,6 +36,16 @@ examples after warm reset and full power removal. Record board/probe/host,
 commands, source/lock/binary hashes, and raw observations. Confirm all power
 paths are removed for the cold-start check.
 
-The merged-PAC software build is validated independently from those hardware
-checks. Current upstream Embassy integration and final contribution readiness
-remain tracked by the coordination plan; these examples are still a draft.
+The initial HAL keeps the 12 MHz reset system clock and supports GPIO,
+OSTIMER, and blocking LPUART0. Other clock operating points, native USB, the
+LPTMR time backend, and the HAL low-power executor are not implemented.
+
+The package enables `swd-swo-as-gpio` and `jtag-extras-as-gpio` for the UART
+pins P0_2/P0_3. This also releases the package-dependent ISP pins P0_6/P3_29;
+applications that need ROM ISP entry on reset should account for that choice.
+SWDIO/SWCLK and reset remain reserved, so the examples keep probe access.
+See the HAL README for all dedicated-pin opt-ins and package-union limits.
+
+The examples have been exercised on FRDM-MCXA156 PCB A1 / schematic A3.
+A build alone does not validate wiring or behavior; repeat the checks above
+when changing the board configuration or runtime implementation.

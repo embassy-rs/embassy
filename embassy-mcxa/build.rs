@@ -21,6 +21,34 @@ fn hal_peripherals() -> impl Iterator<Item = &'static nxp_pac::metadata::Periphe
         .filter(|peripheral| !cfg!(feature = "_mcxa1xx") || !peripheral.driver_name.is_empty())
 }
 
+// A156 PAC pins describe the package union; these opt-ins are HAL policy.
+// Keep definitions, Peripherals fields and every generated pin trait in sync.
+fn hal_pin_feature(pin: &nxp_pac::metadata::Pin) -> Option<&'static str> {
+    let reserved = if cfg!(feature = "_mcxa1xx") {
+        match pin.name {
+            "P0_0" | "P0_1" => Some("swd-as-gpio"),
+            "P0_2" => Some("swd-swo-as-gpio"),
+            // ISPMODE_N is P0_6 on larger packages, P3_29 on QFN48/LQFP64.
+            "P0_3" | "P0_6" | "P3_29" => Some("jtag-extras-as-gpio"),
+            "P1_29" => Some("dangerous-reset-as-gpio"),
+            "P1_30" | "P1_31" => Some("sosc-as-gpio"),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(feature) = reserved {
+        assert!(
+            pin.feature.is_none() || pin.feature == Some(feature),
+            "conflicting dedicated-pin policy for {}",
+            pin.name
+        );
+        Some(feature)
+    } else {
+        pin.feature
+    }
+}
+
 fn main() {
     let chips = env::vars()
         .filter(|(name, _)| {
@@ -135,7 +163,7 @@ fn generate_peripherals_call() -> TokenStream {
     // Add pins
     singletons.extend(METADATA.pins.iter().map(|pin| Singleton {
         name: pin.name.to_owned(),
-        feature: pin.feature.map(|str| str.to_owned()),
+        feature: hal_pin_feature(pin).map(str::to_owned),
     }));
 
     // Add peripherals
@@ -245,9 +273,7 @@ fn pin_feature_gate(pin_name: &str) -> TokenStream {
         .iter()
         .find(|pin| pin.name == pin_name)
         .unwrap_or_else(|| panic!("Failed to find pin {pin_name}"));
-    pin.feature
-        .as_ref()
-        .map_or(TokenStream::default(), |feature| quote! { #[cfg(feature = #feature)] })
+    hal_pin_feature(pin).map_or(TokenStream::default(), |feature| quote! { #[cfg(feature = #feature)] })
 }
 
 fn generate_instance_calls() -> TokenStream {

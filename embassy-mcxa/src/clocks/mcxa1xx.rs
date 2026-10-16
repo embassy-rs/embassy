@@ -1,7 +1,7 @@
 //! Minimal MCXA1xx clock support for the development board bring-up.
 //!
-//! MCXA1xx does not reuse the MCXA2xx clock operator: the accepted device
-//! comparison marks the MRCC/SCG and flash-clock paths as incompatible. This
+//! MCXA156 has distinct MRCC/SCG register layouts and clock selectors, so it
+//! does not use the MCXA2xx clock operator or its voltage/flash timing sequence. This
 //! module keeps the reset 12 MHz system clock and only configures the exact
 //! peripheral selectors needed by OSTIMER0 and LPUART0.
 

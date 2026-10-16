@@ -3,10 +3,12 @@
 From this directory, run:
 
 ```text
-cargo test --target x86_64-pc-windows-msvc
+cargo test
 ```
 
-Use the host's Rust target on other platforms. This manual host lane compiles
+This native-host command is a manual test lane; adding it to shared upstream
+CI is a separate follow-up. Current CI builds/checks do not execute these
+regression tests. The harness compiles
 the HAL's actual PCR adapter against the same pinned upstream MCXA156 PAC,
 with register storage backed by aligned RAM. It checks all eight PCR types:
 optional/reserved bit preservation, mux selector widths, and rejection of

@@ -11,7 +11,7 @@ cortex-m-rt = { version = "0.7", features = ["set-sp", "set-vtor"] }
 defmt = "1.0"
 defmt-rtt = "1.0"
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", default-features = false, features = ["platform-cortex-m", "executor-thread", "defmt"] }
-embassy-mcxa = { version = "0.1.0", path = "../../embassy-mcxa", default-features = false, features = ["defmt", "unstable-pac", "mcxa156", "time-driver-ostimer"] }
+embassy-mcxa = { version = "0.1.0", path = "../../embassy-mcxa", default-features = false, features = ["defmt", "unstable-pac", "mcxa156", "time-driver-ostimer", "swd-swo-as-gpio", "jtag-extras-as-gpio"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 panic-probe = { version = "1.0", features = ["print-defmt"] }
 
