@@ -42,8 +42,8 @@ pub struct GenericHashcrypt<'d> {
 }
 
 // mode switching implementation of generic driver
-#[allow(dead_code)]
 impl<'d> GenericHashcrypt<'d> {
+    /// Creates an instance of a generic hashcrypt driver, which can be used to create an instance of a specific driver for one of the criptographic operation that the chip is capabile of
     pub fn new(peri: Peri<'d, HASHCRYPT>) -> Self {
         pac::SYSCON.ahbclkctrl2().modify(|w| {
             w.set_hash_aes(true);
@@ -55,20 +55,36 @@ impl<'d> GenericHashcrypt<'d> {
         Self { _peri: peri }
     }
 
+    /// Creates an instance of a SHA-1 driver.
+    ///
+    /// # Warning
+    /// SHA-1 has been cryptographically broken since 2017
+    /// It's provided for legacy/protocol compatibility only, avoid it for anything security-sensitive.
     pub fn sha1(&mut self) -> Sha1<'_, 'd> {
         pac::HASHCRYPT.ctrl().modify(|w| {
             w.set_mode(Mode::Sha1);
             w.set_new_hash(true);
         });
-        Sha1 { _peri: self }
+        Sha1 {
+            _peri: self,
+            buffer: [0u8; 64],
+            buffer_len: 0usize,
+            total_len: 0u64,
+        }
     }
 
+    /// Creates an instance of a SHA-256 driver
     pub fn sha256(&mut self) -> Sha256<'_, 'd> {
         pac::HASHCRYPT.ctrl().modify(|w| {
             w.set_mode(Mode::Sha2256);
             w.set_new_hash(true);
         });
-        Sha256 { _peri: self }
+        Sha256 {
+            _peri: self,
+            buffer: [0u8; 64],
+            buffer_len: 0usize,
+            total_len: 0u64,
+        }
     }
 
     pub fn aes_ecb(&mut self) -> AesEcb<'_, 'd> {
@@ -155,6 +171,53 @@ impl<'d> GenericHashcrypt<'d> {
         }
     }
 }
+// Helper functions for SHA modes
+impl<'d> GenericHashcrypt<'d> {
+    pub(crate) fn drain_buffer(buffer: &[u8; 64]) {
+        let sha = pac::HASHCRYPT.indata();
+        for chunk in buffer.chunks_exact(4) {
+            let word = u32::from_le_bytes(chunk.try_into().unwrap());
+            sha.write(|w| {
+                w.set_data(word);
+            });
+        }
+    }
+
+    pub(crate) fn pad_drain_final(buffer: &mut [u8; 64], buffer_len: usize, total_len: u64) {
+        // This method is meant to be called inside the body of a finalise method
+        // Now that we know that there is no more incoming data from this message
+        // we can start padding the message padding according to FIPS 180-4 §5.1.1, pg 13
+
+        // Separate the message from the padding with a single 1
+        buffer[buffer_len] = 0x80;
+        // Is there room for the size of the message in the current block ?
+        if buffer_len < 56 {
+            // Add the padding until the last 2 words
+            for i in (buffer_len + 1)..56 {
+                buffer[i] = 0;
+            }
+            // Append the size of the entire message
+            buffer[56..64].copy_from_slice(&(total_len * 8).to_be_bytes());
+            Self::drain_buffer(buffer);
+        } else {
+            // Pad until the block is completely filled
+            for i in (buffer_len + 1)..64 {
+                buffer[i] = 0;
+            }
+            // Drain the buffer in to the FIFO
+            Self::drain_buffer(buffer);
+
+            // Reset
+            *buffer = [0u8; 64];
+            // Append the size of the entire message
+            buffer[56..64].copy_from_slice(&(total_len * 8).to_be_bytes());
+
+            // Now we can hash the final padded block
+            // Hashing begins automatically once the 16 words (512 bits) of the FIFO are full
+            Self::drain_buffer(buffer);
+        }
+    }
+}
 
 pub trait Digest {
     type Output;
@@ -164,8 +227,7 @@ pub trait Digest {
     /// Returns the digest of the message streamed via `update`
     fn finalise(&mut self) -> Self::Output;
 }
-
-// TODO: add update with impl_sha! macro once it's introduced in the SHA PR
+// Helper methods for the types that implement the Digest trait
 
 pub trait Aes {
     /// Encrypt `data` into `output`.
@@ -188,25 +250,67 @@ pub trait Aes {
 
 // Specific driver types
 pub struct Sha1<'a, 'd> {
-    _peri: &'a mut GenericHashcrypt<'d>,
+    _peri: &'a mut GenericHashcrypt<'d>, // A mutable reference to the generic driver which holds the HASHCRYPT peripheral
+    buffer: [u8; 64],                    // A 64 byte buffer in which we can dump incoming data streams
+    buffer_len: usize, // The number of valid bytes currently buffered, resets to 0 after buffer is drained
+    total_len: u64,    // The size of the complete message to be hashed
 }
 
 impl<'a, 'd> Digest for Sha1<'a, 'd> {
     type Output = [u8; 20];
 
     fn finalise(&mut self) -> Self::Output {
-        todo!("Add finalise method for Sha1");
+        GenericHashcrypt::pad_drain_final(&mut self.buffer, self.buffer_len, self.total_len);
+        // Now we can prepare the 8 word digest
+
+        let mut digest: [u8; 20] = [0u8; 20];
+        GenericHashcrypt::read_digest(5, &mut digest);
+
+        // Reset the HASHCRYPT peripheral, so it's ready for a new hash. When finalize() is called again,
+        // all the registers including the length of the message that was previously hashed are reset, so that
+        // the next digest is correct and free of residual values from previous hash operations.
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        // Clean the buffer and total message length to get rid of any leftovers from previous messages.
+        self.buffer = [0u8; 64];
+        self.buffer_len = 0;
+        self.total_len = 0;
+
+        digest
     }
 }
 
 pub struct Sha256<'a, 'd> {
-    _peri: &'a mut GenericHashcrypt<'d>,
+    _peri: &'a mut GenericHashcrypt<'d>, // A mutable reference to the generic driver which holds the HASHCRYPT peripheral
+    buffer: [u8; 64],                    // A 64 byte buffer in which we can dump incoming data streams
+    buffer_len: usize, // The number of valid bytes currently buffered, resets to 0 after buffer is drained
+    total_len: u64,    // The size of the complete message to be hashed
 }
 
 impl<'a, 'd> Digest for Sha256<'a, 'd> {
     type Output = [u8; 32];
     fn finalise(&mut self) -> Self::Output {
-        todo!("Add finalise method for SHA-256");
+        GenericHashcrypt::pad_drain_final(&mut self.buffer, self.buffer_len, self.total_len);
+        // Now we can prepare the 8 word digest
+
+        let mut digest: [u8; 32] = [0u8; 32];
+        GenericHashcrypt::read_digest(8, &mut digest);
+
+        // Reset the HASHCRYPT peripheral, so it's ready for a new hash. When finalize() is called again,
+        // all the registers including the length of the message that was previously hashed are reset, so that
+        // the next digest is correct and free of residual values from previous hash operations.
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        // Clean the buffer and total message length to get rid of any leftovers from previous messages.
+        self.buffer = [0u8; 64];
+        self.buffer_len = 0;
+        self.total_len = 0;
+
+        digest
     }
 }
 
@@ -227,7 +331,7 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> AesEcb<'a, 'd> {
-    // Does not require anything past the default aes methods
+    // Does not require anything past the default AES methods
 }
 pub struct AesCbc<'a, 'd> {
     _peri: &'a mut GenericHashcrypt<'d>,
@@ -269,6 +373,54 @@ impl<'a, 'd> AesCtr<'a, 'd> {
         todo!("Add method body");
     }
 }
+
+macro_rules! impl_sha {
+    ($ty:ident) => {
+        impl<'a, 'd> $ty<'a, 'd> {
+            /// Accepts and buffers an arbitrary length SHA message to be hashed
+            pub fn update(&mut self, data: &[u8]) {
+                let data_len = data.len() as u32; // Length of the incoming data
+                let mut offset = 0; // tracks how many bytes of `data` have been consumed so far
+
+                self.total_len += data.len() as u64;
+                while offset < data_len {
+                    // how much room is there in the buffer ?
+                    let space = 64 - self.buffer_len;
+
+                    // how much can i take from the incoming data ?
+                    let take = space.min((data_len - offset) as usize);
+
+                    // move "take" bytes from the data to the buffer, occupying whatever space is left in the buffer
+                    self.buffer[self.buffer_len..(self.buffer_len + take)]
+                        .copy_from_slice(&data[(offset as usize)..((offset) as usize) + take]);
+
+                    self.buffer_len += take;
+                    offset += take as u32;
+
+                    // Once the buffer is full, we drain it in to the FIFO via .indata().set_data()
+                    if self.buffer_len == 64 {
+                        // buffer is full, so we drain the message streamed so far into the FIFO
+                        GenericHashcrypt::drain_buffer(&self.buffer);
+                        // Once the 16 word FIFO is full (see [drain_buffer]), hashing begins automatically, and we are free to start
+                        // overwriting the buffer so we can fill it once more with the incoming data
+
+                        // Reset the buffer
+                        self.buffer_len = 0;
+                        self.buffer = [0u8; 64];
+                    }
+
+                    // Even though a digest might be ready to read at this point,
+                    // polling HASHCRYPT.status().read().digest() here would yield a useless, incomplete hash,
+                    // caused by an incomplete message. Instead, we will poll it in [finalize()] when we can
+                    // be sure that no more data will be streamed.
+                }
+            }
+        }
+    };
+}
+
+impl_sha!(Sha1);
+impl_sha!(Sha256);
 
 macro_rules! impl_aes {
     ($ty:ident) => {
