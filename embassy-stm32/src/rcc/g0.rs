@@ -281,6 +281,10 @@ pub(crate) unsafe fn init(config: Config) {
     // Spin until the effective flash latency is set.
     while FLASH.acr().read().latency() != latency {}
 
+    // Enable prefetch after switching latency (RM0444 3.3.3): with wait states and prefetch off, every
+    // sequential fetch stalls. ICEN is already on after reset.
+    FLASH.acr().modify(|w| w.set_prften(true));
+
     // Now that boost mode and flash read access latency are configured, set up SYSCLK
     RCC.cfgr().modify(|w| {
         w.set_sw(config.sys);
