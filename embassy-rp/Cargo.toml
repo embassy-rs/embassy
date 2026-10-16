@@ -49,7 +49,7 @@ default = [ "rt" ]
 rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
-defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt", "chrono?/defmt", "fixed/defmt", "embassy-crypto?/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt", "chrono?/defmt", "fixed/defmt", "embassy-crypto?/defmt", "embassy-time/defmt"]
 ## Enable log support
 log = ["dep:log"]
 ## Enable chrono support
