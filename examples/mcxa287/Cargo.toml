@@ -1,0 +1,27 @@
+[package]
+name = "embassy-mcxa287-examples"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = { version = "0.7", features = ["set-sp", "set-vtor"] }
+defmt = "1.0"
+defmt-rtt = "1.0"
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-mcxa = { version = "0.1.0", path = "../../embassy-mcxa", features = ["defmt", "mcxa287"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embedded-io-async = "0.7.0"
+panic-probe = { version = "1.0", features = ["print-defmt"] }
+static_cell = "2.1.1"
+
+[profile.release]
+lto = true
+debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/mcxa287" }
+]
