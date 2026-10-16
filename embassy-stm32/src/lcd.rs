@@ -215,9 +215,9 @@ impl<'d, T: Instance> Lcd<'d, T> {
         let mut best_fps_match = u32::MAX;
 
         for trial_div in 0..0xF {
-            let trial_ps = (target_division / (trial_div + 16))
-                .next_power_of_two()
-                .trailing_zeros();
+            let Some(trial_ps) = (target_division / (trial_div + 16)).checked_ilog2() else {
+                continue;
+            };
             let fps = lcd_clk.0 / ((1 << trial_ps) * (trial_div + 16)) / duty_divider;
 
             if fps < config.target_fps.0 {
