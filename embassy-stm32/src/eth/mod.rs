@@ -58,23 +58,39 @@ impl core::error::Error for Error {}
 // a slow reset is not rejected before the vendor driver would time out.
 pub(crate) const MAC_RESET_TIMEOUT_US: u64 = 500_000;
 
-// `wait::Timeout` never expires without `time`, so the poll count must be finite.
-// Register reads, loop overhead, and interrupts can extend the elapsed time.
+// IEEE 802.3 allows a PHY reset to take up to 500 ms.
+pub(crate) const PHY_RESET_TIMEOUT_US: u64 = 500_000;
+
+// With `time` the deadline is a real clock. Without it the budget is a cycle count, which
+// depends on the core and can run shorter than `timeout_us`.
 pub(crate) fn wait_for(mut ready: impl FnMut() -> bool, timeout_us: u64) -> bool {
     if ready() {
         return true;
     }
-    // SAFETY: Ethernet operations run after RCC initializes CLOCK_FREQS; the
-    // configured system clock is not changed during this synchronous wait.
-    let sys_hz = unsafe { crate::rcc::get_freqs().sys.to_hertz().unwrap().0 };
-    let cycles_per_us = sys_hz.div_ceil(1_000_000).max(1);
-    for _ in 0..timeout_us {
-        cortex_m::asm::delay(cycles_per_us);
-        if ready() {
-            return true;
+    #[cfg(feature = "time")]
+    {
+        let timeout = crate::wait::Timeout::from_micros(timeout_us);
+        while timeout.check().is_ok() {
+            if ready() {
+                return true;
+            }
         }
+        ready()
     }
-    false
+    #[cfg(not(feature = "time"))]
+    {
+        // SAFETY: Ethernet operations run after RCC initializes CLOCK_FREQS; the
+        // configured system clock is not changed during this synchronous wait.
+        let sys_hz = unsafe { crate::rcc::get_freqs().sys.to_hertz().unwrap().0 };
+        let cycles_per_us = sys_hz.div_ceil(1_000_000).max(1);
+        for _ in 0..timeout_us {
+            cortex_m::asm::delay(cycles_per_us);
+            if ready() {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 #[cfg(feature = "ptp")]

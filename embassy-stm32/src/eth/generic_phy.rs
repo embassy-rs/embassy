@@ -9,8 +9,7 @@ use embassy_time::{Duration, Timer};
 #[cfg(feature = "time")]
 use futures_util::FutureExt;
 
-use crate::eth::{Error, Phy, StationManagement};
-use crate::wait::block_for_us;
+use crate::eth::{Error, PHY_RESET_TIMEOUT_US, Phy, StationManagement, wait_for};
 
 #[allow(dead_code)]
 mod phy_consts {
@@ -151,17 +150,21 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
 impl<SM: StationManagement> GenericPhy<SM> {
     fn reset_at(&mut self, address: u8) -> Result<(), Error> {
         self.sm.smi_write(address, PHY_REG_BCR, PHY_REG_BCR_RESET)?;
-        for _ in 0..50 {
-            if self.sm.smi_read(address, PHY_REG_BCR)? & PHY_REG_BCR_RESET == 0 {
-                return Ok(());
-            }
-            // IEEE 802.3 allows a PHY reset to take up to 500ms
-            block_for_us(10_000);
-        }
-        if self.sm.smi_read(address, PHY_REG_BCR)? & PHY_REG_BCR_RESET == 0 {
-            Ok(())
-        } else {
-            Err(Error::PhyResetTimeout)
+        let mut read_error = None;
+        let finished = wait_for(
+            || match self.sm.smi_read(address, PHY_REG_BCR) {
+                Ok(bcr) => bcr & PHY_REG_BCR_RESET == 0,
+                Err(error) => {
+                    read_error = Some(error);
+                    true
+                }
+            },
+            PHY_RESET_TIMEOUT_US,
+        );
+        match read_error {
+            Some(error) => Err(error),
+            None if finished => Ok(()),
+            None => Err(Error::PhyResetTimeout),
         }
     }
 }

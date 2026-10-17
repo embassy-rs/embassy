@@ -23,6 +23,7 @@ USART:
 Ethernet:
 - change: constructors, `Phy::phy_reset` / `phy_init`, and `StationManagement::smi_read` / `smi_write` return `Result` with `eth::Error` when MAC reset, MDIO, or PHY initialization cannot complete. `GenericPhy::new_auto` returns `PhyNotFound` when no address completes a PHY reset; link polls report down on MDIO error.
 - fix: bound v2 DMA shutdown waits and panic if DMA still owns descriptors, rather than releasing live buffers or waiting forever.
+- fix: stm32/eth: with the `time` feature, the bounded MAC, MDIO, PHY and DMA waits use the time driver instead of a cycle-counted delay.
 
 Flash:
 - fix: stm32/flash: preserve F2/F4/F7/H7 PSIZE during programming cleanup so subsequent erases retain x32 parallelism.
