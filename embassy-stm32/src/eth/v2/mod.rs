@@ -593,17 +593,40 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     }
 }
 
+impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
+    // DMADSR channel 0 process state, 0b000 is Stopped.
+    fn dma_tx_stopped() -> bool {
+        let dsr = T::regs().ethernet_dma().dmadsr().read();
+        #[cfg(eth_v2)]
+        return dsr.tps0() == 0;
+        #[cfg(eth_v2a)]
+        return dsr.tps(0) == 0;
+        #[cfg(eth_v2b)]
+        return dsr.tps().to_bits() == 0;
+    }
+
+    fn dma_rx_stopped() -> bool {
+        let dsr = T::regs().ethernet_dma().dmadsr().read();
+        #[cfg(eth_v2)]
+        return dsr.rps0() == 0;
+        #[cfg(eth_v2a)]
+        return dsr.rps(0) == 0;
+        #[cfg(eth_v2b)]
+        return dsr.rps().to_bits() == 0;
+    }
+}
+
 impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
     fn drop(&mut self) {
         let dma = T::regs().ethernet_dma();
         let mac = T::regs().ethernet_mac();
         let mtl = T::regs().ethernet_mtl();
 
-        // Disable the TX DMA and wait for any previous transmissions to be completed
+        // Disable the TX DMA and wait for any previous transmissions to be completed.
         ch0!(dma, dmac_tx_cr).modify(|w| w.set_st(false));
         while {
             let txqueue = ch0!(mtl, mtl_tx_qdr).read();
-            txqueue.trcsts() == 0b01 || txqueue.txqsts()
+            txqueue.trcsts() == 0b01 || txqueue.txqsts() || !Self::dma_tx_stopped()
         } {}
 
         // Disable MAC transmitter and receiver
@@ -612,11 +635,13 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
             w.set_te(false);
         });
 
-        // Wait for previous receiver transfers to be completed and then disable the RX DMA
+        // Wait for the receive FIFO to drain to memory, then stop the RX DMA and wait for
+        // its process state to read Stopped.
         while {
             let rxqueue = ch0!(mtl, mtl_rx_qdr).read();
             rxqueue.rxqsts() != 0b00 || rxqueue.prxq() != 0
         } {}
         ch0!(dma, dmac_rx_cr).modify(|w| w.set_sr(false));
+        while !Self::dma_rx_stopped() {}
     }
 }
