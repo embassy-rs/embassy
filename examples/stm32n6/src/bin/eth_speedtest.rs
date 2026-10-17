@@ -211,7 +211,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let mac_addr = [0x00, 0x00, 0xDE, 0xCA, 0xFF, 0xEE];
 
-    let device = Ethernet::new_rgmii(
+    let device = unwrap!(Ethernet::new_rgmii(
         &mut packets.0,
         p.ETH1,
         p.PF0,  // RGMII_GTX_CLK
@@ -232,7 +232,7 @@ async fn main(spawner: Spawner) -> ! {
         p.PD12, // MDIO
         p.PD1,  // MDC
         Irqs,
-    );
+    ));
 
     static STACK: StaticCell<StackStorage> = StaticCell::new();
     // Fixed seed: this is a local test, no need for entropy.
