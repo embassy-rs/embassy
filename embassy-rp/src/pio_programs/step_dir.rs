@@ -163,14 +163,14 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
         program: &PioStepDirProgram<'d, T>,
     ) -> Self {
         let step = pio.make_pio_pin(step_pin);
-        sm.set_pins(Level::Low, &[&step]);
-        sm.set_pin_dirs(Direction::Out, &[&step]);
 
         let mut cfg = Config::default();
         cfg.set_set_pins(&[&step]);
         cfg.clock_divider = calculate_pio_clock_divider(DEFAULT_FREQUENCY_HZ * program.cycles_per_pulse());
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);
+        sm.set_pins(Level::Low, &[&step]);
+        sm.set_pin_dirs(Direction::Out, &[&step]);
         sm.set_enable(true);
 
         let dir = Output::new(dir_pin, Level::Low);

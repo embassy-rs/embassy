@@ -563,6 +563,12 @@ impl<'d> Channel<'d> {
 
                 assert!(ndtr > 0 && ndtr <= 0xFFFF);
 
+                if ch.cr().read().en() {
+                    warn!("DMA channel is still enabled after previous transfer. Make sure that transfer was dropped.");
+                    ch.cr().modify(|w| w.set_en(false));
+                    while ch.cr().read().en() {}
+                }
+
                 ch.par().write_value(peri_addr as u32);
                 ch.m0ar().write_value(mem_addr as u32);
                 ch.ndtr().write_value(pac::dma::regs::Ndtr(ndtr as _));
@@ -631,6 +637,12 @@ impl<'d> Channel<'d> {
                 state.complete_count.store(0, Ordering::Release);
                 self.clear_irqs();
 
+                if ch.cr().read().en() {
+                    warn!("DMA channel is still enabled after previous transfer. Make sure that transfer was dropped.");
+                    ch.cr().modify(|w| w.set_en(false));
+                    while ch.cr().read().en() {}
+                }
+
                 ch.par().write_value(peri_addr as u32);
                 ch.mar().write_value(mem_addr as u32);
                 ch.ndtr().write(|w| w.set_ndt(mem_len as u16));
@@ -681,6 +693,12 @@ impl<'d> Channel<'d> {
 
                 state.complete_count.store(0, Ordering::Release);
                 self.clear_irqs();
+
+                if ch.cr().read().en() {
+                    warn!("DMA channel is still enabled after previous transfer. Make sure that transfer was dropped.");
+                    ch.cr().modify(|w| w.set_en(false));
+                    while ch.cr().read().en() {}
+                }
 
                 match dir {
                     Dir::MemoryToPeripheral => {

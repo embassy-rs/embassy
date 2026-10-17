@@ -1615,6 +1615,11 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
             .modify(|w| w.set_ccne(channel.index(), enable));
     }
 
+    /// Get enable/disable state of a complementary channel.
+    pub fn get_complementary_channel_enable_state(&self, channel: Channel) -> bool {
+        self.regs_advanced().ccer().read().ccne(channel.index())
+    }
+
     /// Set Output Idle State
     pub fn set_ois(&self, channel: Channel, val: bool) {
         self.regs_advanced().cr2().modify(|w| w.set_ois(channel.index(), val));

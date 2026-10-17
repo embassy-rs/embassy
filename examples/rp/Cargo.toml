@@ -6,6 +6,13 @@ license = "MIT OR Apache-2.0"
 
 publish = false
 
+[features]
+blinky-ram = ["embassy-rp/boot2-ram-memcpy", "embassy-rp/run-from-ram"]
+
+[[bin]]
+name = "blinky_ram"
+required-features = ["blinky-ram"]
+
 [dependencies]
 embassy-embedded-hal = { version = "0.6.0", path = "../../embassy-embedded-hal", features = ["defmt"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }

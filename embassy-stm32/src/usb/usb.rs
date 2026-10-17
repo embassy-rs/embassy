@@ -3,11 +3,20 @@
 #[cfg(usb_v4)]
 mod usb_host;
 
+#[cfg(any(usb_v1, usb_v4))]
+mod double_buffer;
+
+#[cfg(any(usb_v1, usb_v4))]
+use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
+#[cfg(any(usb_v1, usb_v4))]
+use critical_section::Mutex;
+#[cfg(any(usb_v1, usb_v4))]
+use double_buffer::{RxQueue, TxQueue};
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
@@ -87,6 +96,36 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             let index = istr.ep_id() as usize;
 
             let mut epr = regs.epr(index).read();
+            // EP_KIND means DBL_BUF only for bulk endpoints, not EP0 STATUS_OUT
+            // or isochronous endpoints. Normal transfers never borrow the queue.
+            #[cfg(any(usb_v1, usb_v4))]
+            if epr.ep_type() == EpType::Bulk && epr.ep_kind() {
+                critical_section::with(|cs| {
+                    let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
+                    match states[index].as_mut() {
+                        Some(DoubleState::In(queue)) if epr.ctr_tx() => {
+                            let mut w = invariant(epr);
+                            w.set_ctr_tx(false);
+                            regs.epr(index).write_value(w);
+                            if queue.complete() && matches!(epr.stat_tx(), Stat::Valid | Stat::Nak) {
+                                release_bulk_in::<T>(index);
+                            }
+                            EP_IN_WAKERS[index].wake();
+                        }
+                        Some(DoubleState::Out(queue)) if epr.ctr_rx() => {
+                            let mut w = invariant(epr);
+                            w.set_ctr_rx(false);
+                            regs.epr(index).write_value(w);
+                            if queue.complete() && matches!(epr.stat_rx(), Stat::Valid | Stat::Nak) {
+                                release_bulk_out::<T>(index);
+                            }
+                            EP_OUT_WAKERS[index].wake();
+                        }
+                        _ => {}
+                    }
+                });
+                return;
+            }
             if epr.ctr_rx() {
                 RX_COMPLETE[index].store(true, Ordering::Relaxed);
                 if index == 0 && epr.setup() {
@@ -128,6 +167,17 @@ const USBRAM_ALIGN: usize = 4;
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP0_SETUP: AtomicBool = AtomicBool::new(false);
 
+#[cfg(any(usb_v1, usb_v4))]
+#[derive(Clone, Copy)]
+enum DoubleState {
+    In(TxQueue),
+    Out(RxQueue),
+}
+
+// Shared by allocation, Bus, endpoints and the CTR interrupt handler.
+#[cfg(any(usb_v1, usb_v4))]
+static DOUBLE_BUFFERED: Mutex<RefCell<[Option<DoubleState>; EP_COUNT]>> = Mutex::new(RefCell::new([None; EP_COUNT]));
+
 static TX_PENDING: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
 static RX_COMPLETE: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
@@ -153,6 +203,92 @@ fn invariant(mut r: regs::Epr) -> regs::Epr {
     r.set_stat_rx(Stat::from_bits(0));
     r.set_stat_tx(Stat::from_bits(0));
     r
+}
+
+// Must be called inside a critical section. Hardware can still finish the
+// previous packet; invariant() preserves CTR and writes no other toggle bits.
+//
+// SW_BUF and STAT must be written separately. Hardware sets STAT to NAK when
+// a transfer leaves the selectors equal, and toggling SW_BUF then restores
+// VALID by itself. Toggling STAT in that same write would turn it back into
+// NAK. After reset_* there is no such conflict NAK, so STAT must be set
+// explicitly.
+#[cfg(any(usb_v1, usb_v4))]
+fn release_bulk_in<T: Instance>(index: usize) {
+    let reg = T::regs().epr(index);
+    let mut w = invariant(reg.read());
+    w.set_dtog_rx(true); // SW_BUF hands the prepared packet to the peripheral.
+    reg.write_value(w);
+    let r = reg.read();
+    if r.stat_tx() == Stat::Nak {
+        let mut w = invariant(r);
+        w.set_stat_tx(Stat::from_bits(Stat::Nak.to_bits() ^ Stat::Valid.to_bits()));
+        reg.write_value(w);
+    }
+}
+
+// Discard queued packets and reset DATA0 / buffer 0. Disable transfers first
+// so the peripheral cannot change DTOG while software resets ownership.
+#[cfg(any(usb_v1, usb_v4))]
+fn reset_bulk_in<T: Instance>(index: usize, stat: Stat, queue: &mut TxQueue) {
+    let reg = T::regs().epr(index);
+    loop {
+        let r = reg.read();
+        if r.stat_tx() == Stat::Disabled {
+            break;
+        }
+        let mut w = invariant(r);
+        w.set_stat_tx(r.stat_tx()); // XOR with Disabled (0)
+        reg.write_value(w);
+    }
+    let r = reg.read();
+    let mut w = invariant(r);
+    w.set_ep_kind(true);
+    w.set_dtog_tx(r.dtog_tx()); // reset to DATA0 and buffer 0
+    w.set_dtog_rx(r.dtog_rx());
+    w.set_stat_tx(stat);
+    w.set_ctr_tx(false);
+    reg.write_value(w);
+    *queue = TxQueue::new();
+}
+
+#[cfg(any(usb_v1, usb_v4))]
+fn release_bulk_out<T: Instance>(index: usize) {
+    let reg = T::regs().epr(index);
+    let mut w = invariant(reg.read());
+    w.set_dtog_tx(true); // SW_BUF returns a free receive buffer to USB.
+    reg.write_value(w);
+    let r = reg.read();
+    if r.stat_rx() == Stat::Nak {
+        let mut w = invariant(r);
+        w.set_stat_rx(Stat::from_bits(Stat::Nak.to_bits() ^ Stat::Valid.to_bits()));
+        reg.write_value(w);
+    }
+}
+
+#[cfg(any(usb_v1, usb_v4))]
+fn reset_bulk_out<T: Instance>(index: usize, stat: Stat, queue: &mut RxQueue) {
+    let reg = T::regs().epr(index);
+    loop {
+        let r = reg.read();
+        if r.stat_rx() == Stat::Disabled {
+            break;
+        }
+        let mut w = invariant(r);
+        w.set_stat_rx(r.stat_rx());
+        reg.write_value(w);
+    }
+    btable::reset_out_len(index, 0);
+    btable::reset_out_len(index, 1);
+    let r = reg.read();
+    let mut w = invariant(r);
+    w.set_ep_kind(true);
+    w.set_dtog_rx(r.dtog_rx()); // DATA0 / hardware buffer 0
+    w.set_dtog_tx(!r.dtog_tx()); // SW_BUF=1: USB can receive into buffer 0
+    w.set_stat_rx(stat);
+    w.set_ctr_rx(false);
+    reg.write_value(w);
+    *queue = RxQueue::new();
 }
 
 fn align_len_up(len: u16) -> u16 {
@@ -199,6 +335,13 @@ mod btable {
         USBRAM.mem(index * 4 + 1).write_value(max_len_bits);
     }
 
+    #[cfg(any(usb_v1, usb_v4))]
+    pub(super) fn reset_out_len(index: usize, buffer: usize) {
+        let count = USBRAM.mem(index * 4 + buffer * 2 + 1);
+        // Allocation bits persist in PMA; only the received byte count changes.
+        count.write_value(double_buffer::receive_capacity(count.read()));
+    }
+
     pub(super) fn read_out_len_tx<T: Instance>(index: usize) -> u16 {
         USBRAM.mem(index * 4 + 1).read()
     }
@@ -235,6 +378,14 @@ mod btable {
             .write_value((addr as u32) | ((max_len_bits as u32) << 16));
     }
 
+    #[cfg(usb_v4)]
+    pub(super) fn reset_out_len(index: usize, buffer: usize) {
+        // Buffer 0 of a double-buffered endpoint is described in CHEP_TXRXBD, buffer 1 in CHEP_RXTXBD.
+        // Allocation bits (31:26) and address persist; only the received byte count (25:16) changes.
+        let bd = USBRAM.mem(index * 2 + buffer);
+        bd.write_value(bd.read() & !(0x03ff << 16));
+    }
+
     pub(super) fn read_out_len_tx<T: Instance>(index: usize) -> u16 {
         (USBRAM.mem(index * 2).read() >> 16) as u16
     }
@@ -244,6 +395,16 @@ mod btable {
     }
 }
 
+/// USB erratum "Buffer description table update completes after CTR interrupt triggers"
+/// (STM32H523/533: ES0621 Rev 3 §2.19.1; STM32U3: ES0626 §2.18.1): the CTR interrupt of an OUT
+/// transaction fires slightly before the peripheral has finished writing the packet and its byte
+/// count to USB SRAM. Software must wait 800 ns before reading either (6.4 μs at low speed, which
+/// this device-mode driver does not use).
+fn wait_for_out_packet_memory() {
+    #[cfg(any(stm32h5, stm32u3))]
+    crate::wait::block_for_us(1);
+}
+
 struct EndpointBuffer<T: Instance> {
     addr: u16,
     len: u16,
@@ -251,27 +412,44 @@ struct EndpointBuffer<T: Instance> {
 }
 
 impl<T: Instance> EndpointBuffer<T> {
+    // Whole words use fixed-size conversions. A copy with a runtime length per
+    // word would call memcpy, which dominated the per-packet CPU time.
     fn read(&mut self, buf: &mut [u8]) {
         assert!(buf.len() <= self.len as usize);
-        for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
-            let val = USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).read();
-            let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
-            buf[i * USBRAM_ALIGN..][..n].copy_from_slice(&val.to_le_bytes()[..n]);
+        let mem = |i| USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).read().to_le_bytes();
+        let (words, tail) = buf.as_chunks_mut::<USBRAM_ALIGN>();
+        let len = words.len();
+        words.iter_mut().enumerate().for_each(|(i, word)| *word = mem(i));
+        if !tail.is_empty() {
+            tail.copy_from_slice(&mem(len)[..tail.len()]);
         }
     }
 
     fn write(&mut self, buf: &[u8]) {
         assert!(buf.len() <= self.len as usize);
-        for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
-            let mut val = [0u8; USBRAM_ALIGN];
-            let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
-            val[..n].copy_from_slice(&buf[i * USBRAM_ALIGN..][..n]);
-
+        let mem = |i, val: [u8; USBRAM_ALIGN]| {
             #[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
             let val = u16::from_le_bytes(val);
             #[cfg(any(usbram_32_2048, usbram_32_1024))]
             let val = u32::from_le_bytes(val);
             USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).write_value(val);
+        };
+        let (words, tail) = buf.as_chunks::<USBRAM_ALIGN>();
+        words.iter().enumerate().for_each(|(i, &word)| mem(i, word));
+        if !tail.is_empty() {
+            let mut val = [0; USBRAM_ALIGN];
+            val[..tail.len()].copy_from_slice(tail);
+            mem(words.len(), val);
+        }
+    }
+
+    /// Packet buffer `n` of a double-buffered endpoint whose first buffer is `self`.
+    #[cfg(any(usb_v1, usb_v4))]
+    fn double_buffer_half(&self, n: usize) -> Self {
+        Self {
+            addr: self.addr + n as u16 * self.len,
+            len: self.len,
+            _marker: PhantomData,
         }
     }
 }
@@ -288,6 +466,8 @@ struct EndpointData {
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     alloc: [EndpointData; EP_COUNT],
+    #[cfg(any(usb_v1, usb_v4))]
+    double_buffered: u16,
     ep_mem_free: u16, // first free address in EP mem, in bytes.
 }
 
@@ -350,6 +530,8 @@ impl<'d, T: Instance> Driver<'d, T> {
                 used_in: false,
                 used_out: false,
             }; EP_COUNT],
+            #[cfg(any(usb_v1, usb_v4))]
+            double_buffered: 0,
             ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
         }
     }
@@ -377,10 +559,8 @@ impl<'d, T: Instance> Driver<'d, T> {
         let used = ep.used_out || ep.used_in;
 
         if used && ep.ep_type == EndpointType::Isochronous {
-            // Isochronous endpoints are always double-buffered.
-            // Their corresponding endpoint/channel registers are forced to be unidirectional.
-            // Do not reuse this index.
-            // FIXME: Bulk endpoints can be double buffered, but are not in the current implementation.
+            // Isochronous endpoints use both halves of the buffer table and cannot be used
+            // for both IN and OUT at the same time.
             return false;
         }
 
@@ -390,6 +570,73 @@ impl<'d, T: Instance> Driver<'d, T> {
         };
 
         !used || (ep.ep_type == ep_type && !used_dir)
+    }
+
+    #[cfg(any(usb_v1, usb_v4))]
+    fn alloc_double_buffered<D: Dir>(
+        &mut self,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+    ) -> Result<Endpoint<'d, T, D>, EndpointAllocError> {
+        if !matches!(max_packet_size, 8 | 16 | 32 | 64) || ep_addr.is_some_and(|addr| addr.direction() != D::dir()) {
+            return Err(EndpointAllocError);
+        }
+        let available = |i: usize| i != 0 && self.alloc.get(i).is_some_and(|ep| !ep.used_in && !ep.used_out);
+        let index = match ep_addr {
+            Some(addr) => available(addr.index()).then_some(addr.index()),
+            None => (1..EP_COUNT).find(|&i| available(i)),
+        }
+        .ok_or(EndpointAllocError)?;
+        let (len, len_bits) = match D::dir() {
+            Direction::In => (align_len_up(max_packet_size), 0),
+            Direction::Out => calc_out_len(max_packet_size),
+        };
+        if self.ep_mem_free + len * 2 > USBRAM_SIZE as u16 {
+            return Err(EndpointAllocError);
+        }
+        let addr = self.alloc_ep_mem(len * 2);
+        let state = match D::dir() {
+            Direction::In => {
+                // The 32-bit buffer descriptors hold address and length in one word, written below.
+                #[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
+                {
+                    btable::write_in_tx::<T>(index, addr);
+                    btable::write_in_rx::<T>(index, addr + len);
+                }
+                btable::write_in_len_tx::<T>(index, addr, 0);
+                btable::write_in_len_rx::<T>(index, addr + len, 0);
+                DoubleState::In(TxQueue::new())
+            }
+            Direction::Out => {
+                btable::write_out_tx::<T>(index, addr, len_bits);
+                btable::write_out_rx::<T>(index, addr + len, len_bits);
+                DoubleState::Out(RxQueue::new())
+            }
+        };
+        // Either mode takes both halves of a previously unused hardware pair.
+        self.alloc[index] = EndpointData {
+            ep_type: EndpointType::Bulk,
+            used_in: true,
+            used_out: true,
+        };
+        self.double_buffered |= 1 << index;
+        critical_section::with(|cs| DOUBLE_BUFFERED.borrow(cs).borrow_mut()[index] = Some(state));
+        Ok(Endpoint {
+            _marker: PhantomData,
+            info: EndpointInfo {
+                addr: EndpointAddress::from_parts(index, D::dir()),
+                ep_type: EndpointType::Bulk,
+                max_packet_size,
+                interval_ms: 0,
+            },
+            // The second packet buffer directly follows the first one.
+            buf: EndpointBuffer {
+                addr,
+                len,
+                _marker: PhantomData,
+            },
+            double_buffered: true,
+        })
     }
 
     fn alloc_endpoint<D: Dir>(
@@ -489,6 +736,8 @@ impl<'d, T: Instance> Driver<'d, T> {
                 interval_ms,
             },
             buf,
+            #[cfg(any(usb_v1, usb_v4))]
+            double_buffered: false,
         })
     }
 }
@@ -517,6 +766,24 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
         self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
+    }
+
+    #[cfg(any(usb_v1, usb_v4))]
+    fn alloc_endpoint_bulk_out_double_buffered(
+        &mut self,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+    ) -> Result<Self::EndpointOut, EndpointAllocError> {
+        self.alloc_double_buffered(ep_addr, max_packet_size)
+    }
+
+    #[cfg(any(usb_v1, usb_v4))]
+    fn alloc_endpoint_bulk_in_double_buffered(
+        &mut self,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+    ) -> Result<Self::EndpointIn, EndpointAllocError> {
+        self.alloc_double_buffered(ep_addr, max_packet_size)
     }
 
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -557,6 +824,8 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             Bus {
                 phantom: PhantomData,
                 ep_types,
+                #[cfg(any(usb_v1, usb_v4))]
+                double_buffered: self.double_buffered,
                 inited: false,
             },
             ControlPipe {
@@ -573,6 +842,8 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ep_types: [EpType; EP_COUNT - 1],
+    #[cfg(any(usb_v1, usb_v4))]
+    double_buffered: u16,
     inited: bool,
 }
 
@@ -613,7 +884,28 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                     regs.epr(i).write(|w| {
                         w.set_ea(i as _);
                         w.set_ep_type(self.ep_types[i - 1]);
-                    })
+                    });
+                }
+                #[cfg(any(usb_v1, usb_v4))]
+                if self.double_buffered != 0 {
+                    critical_section::with(|cs| {
+                        let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
+                        for i in 1..EP_COUNT {
+                            if self.double_buffered & (1 << i) == 0 {
+                                continue;
+                            }
+                            match states[i].as_mut() {
+                                Some(DoubleState::In(queue)) => {
+                                    let mut w = invariant(regs.epr(i).read());
+                                    w.set_ep_kind(true);
+                                    regs.epr(i).write_value(w);
+                                    *queue = TxQueue::new();
+                                }
+                                Some(DoubleState::Out(queue)) => reset_bulk_out::<T>(i, Stat::Disabled, queue),
+                                None => {}
+                            }
+                        }
+                    });
                 }
 
                 for w in &EP_IN_WAKERS {
@@ -637,44 +929,92 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+        #[cfg(any(usb_v1, usb_v4))]
+        let index = ep_addr.index();
+        #[cfg(any(usb_v1, usb_v4))]
+        if self.double_buffered & (1 << index) != 0
+            && critical_section::with(|cs| {
+                let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
+                match (ep_addr.direction(), states[index].as_mut()) {
+                    (Direction::In, Some(DoubleState::In(queue))) => {
+                        if T::regs().epr(index).read().stat_tx() != Stat::Disabled {
+                            reset_bulk_in::<T>(index, if stalled { Stat::Stall } else { Stat::Nak }, queue);
+                        }
+                        EP_IN_WAKERS[index].wake();
+                    }
+                    (Direction::Out, Some(DoubleState::Out(state))) => {
+                        if T::regs().epr(index).read().stat_rx() != Stat::Disabled {
+                            reset_bulk_out::<T>(index, if stalled { Stat::Stall } else { Stat::Valid }, state);
+                        }
+                        EP_OUT_WAKERS[index].wake();
+                    }
+                    _ => return false,
+                }
+                true
+            })
+        {
+            return;
+        }
         // This can race, so do a retry loop.
+        //
+        // Only bulk and interrupt endpoints have a halt feature. EP0 does not implement it
+        // (resetting DTOG_TX would send its status stage as DATA0), and STALL or NAK on an
+        // isochronous endpoint is undefined.
+        //
+        // Clearing the halt feature always resets the data toggle to DATA0, whether or
+        // not the endpoint was halted (USB 2.0 section 9.4.5). Writing 1 to DTOG toggles
+        // it, so writing its current value clears it.
+        //
+        // If disabled, stall does nothing. This is checked once, before the loop: when a
+        // transfer completes between a read and a write below, the STAT toggle can land on
+        // DISABLED, and the next iteration must still move it to the wanted state.
         let reg = T::regs().epr(ep_addr.index() as _);
+        let r = reg.read();
+        let stat = match ep_addr.direction() {
+            Direction::In => r.stat_tx(),
+            Direction::Out => r.stat_rx(),
+        };
+        if !matches!(r.ep_type(), EpType::Bulk | EpType::Interrupt) || stat == Stat::Disabled {
+            return;
+        }
         match ep_addr.direction() {
             Direction::In => {
                 loop {
                     let r = reg.read();
-                    match r.stat_tx() {
-                        Stat::Disabled => break, // if disabled, stall does nothing.
-                        Stat::Stall => break,    // done!
-                        _ => {
-                            let want_stat = match stalled {
-                                false => Stat::Nak,
-                                true => Stat::Stall,
-                            };
-                            let mut w = invariant(r);
-                            w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
-                            reg.write_value(w);
-                        }
+                    let stat = r.stat_tx();
+                    let want_stat = match (stalled, stat) {
+                        (true, _) => Stat::Stall,
+                        (false, Stat::Stall) => Stat::Nak,
+                        (false, stat) => stat,
+                    };
+                    let reset_dtog = !stalled && r.dtog_tx();
+                    if stat == want_stat && !reset_dtog {
+                        break;
                     }
+                    let mut w = invariant(r);
+                    w.set_stat_tx(Stat::from_bits(stat.to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_tx(reset_dtog);
+                    reg.write_value(w);
                 }
                 EP_IN_WAKERS[ep_addr.index()].wake();
             }
             Direction::Out => {
                 loop {
                     let r = reg.read();
-                    match r.stat_rx() {
-                        Stat::Disabled => break, // if disabled, stall does nothing.
-                        Stat::Stall => break,    // done!
-                        _ => {
-                            let want_stat = match stalled {
-                                false => Stat::Valid,
-                                true => Stat::Stall,
-                            };
-                            let mut w = invariant(r);
-                            w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
-                            reg.write_value(w);
-                        }
+                    let stat = r.stat_rx();
+                    let want_stat = match (stalled, stat) {
+                        (true, _) => Stat::Stall,
+                        (false, Stat::Stall) => Stat::Valid,
+                        (false, stat) => stat,
+                    };
+                    let reset_dtog = !stalled && r.dtog_rx();
+                    if stat == want_stat && !reset_dtog {
+                        break;
                     }
+                    let mut w = invariant(r);
+                    w.set_stat_rx(Stat::from_bits(stat.to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_rx(reset_dtog);
+                    reg.write_value(w);
                 }
                 EP_OUT_WAKERS[ep_addr.index()].wake();
             }
@@ -692,41 +1032,71 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         trace!("set_enabled {:?} {}", ep_addr, enabled);
+        #[cfg(any(usb_v1, usb_v4))]
+        let index = ep_addr.index();
+        #[cfg(any(usb_v1, usb_v4))]
+        if self.double_buffered & (1 << index) != 0
+            && critical_section::with(|cs| {
+                let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
+                match (ep_addr.direction(), states[index].as_mut()) {
+                    (Direction::In, Some(DoubleState::In(queue))) => {
+                        reset_bulk_in::<T>(index, if enabled { Stat::Nak } else { Stat::Disabled }, queue);
+                        EP_IN_WAKERS[index].wake();
+                    }
+                    (Direction::Out, Some(DoubleState::Out(state))) => {
+                        reset_bulk_out::<T>(index, if enabled { Stat::Valid } else { Stat::Disabled }, state);
+                        EP_OUT_WAKERS[index].wake();
+                    }
+                    _ => return false,
+                }
+                true
+            })
+        {
+            return;
+        }
         // This can race, so do a retry loop.
+        //
+        // Enabling an endpoint (SET_CONFIGURATION, or SET_INTERFACE even when the alternate
+        // setting does not change) resets its data toggle to DATA0 (USB 2.0 section 9.1.1.5).
+        // Writing 1 to DTOG toggles it, so writing its current value clears it.
+        // Isochronous endpoints use DTOG as the buffer selector and are left alone.
         let epr = T::regs().epr(ep_addr.index() as _);
         trace!("EPR before: {:04x}", epr.read().0);
         match ep_addr.direction() {
             Direction::In => {
                 loop {
+                    let r = epr.read();
+                    let iso = r.ep_type() == EpType::Iso;
                     let want_stat = match enabled {
                         false => Stat::Disabled,
-                        true => match epr.read().ep_type() {
-                            EpType::Iso => Stat::Valid,
-                            _ => Stat::Nak,
-                        },
+                        true if iso => Stat::Valid,
+                        true => Stat::Nak,
                     };
-                    let r = epr.read();
-                    if r.stat_tx() == want_stat {
+                    let reset_dtog = enabled && !iso && r.dtog_tx();
+                    if r.stat_tx() == want_stat && !reset_dtog {
                         break;
                     }
                     let mut w = invariant(r);
                     w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_tx(reset_dtog);
                     epr.write_value(w);
                 }
                 EP_IN_WAKERS[ep_addr.index()].wake();
             }
             Direction::Out => {
                 loop {
+                    let r = epr.read();
                     let want_stat = match enabled {
                         false => Stat::Disabled,
                         true => Stat::Valid,
                     };
-                    let r = epr.read();
-                    if r.stat_rx() == want_stat {
+                    let reset_dtog = enabled && r.ep_type() != EpType::Iso && r.dtog_rx();
+                    if r.stat_rx() == want_stat && !reset_dtog {
                         break;
                     }
                     let mut w = invariant(r);
                     w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_rx(reset_dtog);
                     epr.write_value(w);
                 }
                 EP_OUT_WAKERS[ep_addr.index()].wake();
@@ -798,6 +1168,49 @@ pub struct Endpoint<'d, T: Instance, D> {
     _marker: PhantomData<(&'d mut T, D)>,
     info: EndpointInfo,
     buf: EndpointBuffer<T>,
+    /// Double-buffered bulk endpoint, see `alloc_double_buffered`.
+    #[cfg(any(usb_v1, usb_v4))]
+    double_buffered: bool,
+}
+
+#[cfg(any(usb_v1, usb_v4))]
+impl<'d, T: Instance> Endpoint<'d, T, In> {
+    async fn write_double_buffered(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            critical_section::with(|cs| {
+                let reg = T::regs().epr(index);
+                let r = reg.read();
+                if r.stat_tx() == Stat::Disabled || IRQ_RESET.load(Ordering::Acquire) {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                if r.stat_tx() == Stat::Stall {
+                    return Poll::Pending;
+                }
+                let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
+                let Some(DoubleState::In(queue)) = states[index].as_mut() else {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                };
+                let Some(buffer) = queue.free_buffer() else {
+                    return Poll::Pending;
+                };
+                // No IRQ may reset ownership while we copy. Hardware may finish
+                // the other buffer, but it cannot access this software-owned one.
+                let mut packet = self.buf.double_buffer_half(buffer);
+                packet.write(buf);
+                match buffer {
+                    0 => btable::write_in_len_tx::<T>(index, packet.addr, buf.len() as u16),
+                    _ => btable::write_in_len_rx::<T>(index, packet.addr, buf.len() as u16),
+                }
+                if queue.enqueue() {
+                    release_bulk_in::<T>(index);
+                }
+                Poll::Ready(Ok(()))
+            })
+        })
+        .await
+    }
 }
 
 impl<'d, T: Instance, D> Endpoint<'d, T, D> {
@@ -899,8 +1312,52 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
     }
 }
 
+#[cfg(any(usb_v1, usb_v4))]
+impl<'d, T: Instance> Endpoint<'d, T, Out> {
+    async fn read_double_buffered(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            EP_OUT_WAKERS[index].register(cx.waker());
+            critical_section::with(|cs| {
+                let r = T::regs().epr(index).read();
+                if r.stat_rx() == Stat::Disabled || IRQ_RESET.load(Ordering::Acquire) {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
+                let Some(DoubleState::Out(queue)) = states[index].as_mut() else {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                };
+                let Some(buffer) = queue.next_packet() else {
+                    return Poll::Pending;
+                };
+                let count = match buffer {
+                    0 => btable::read_out_len_tx::<T>(index),
+                    _ => btable::read_out_len_rx::<T>(index),
+                };
+                let len = double_buffer::received_len(count);
+                if len > buf.len() {
+                    return Poll::Ready(Err(EndpointError::BufferOverflow));
+                }
+                self.buf.double_buffer_half(buffer).read(&mut buf[..len]);
+                // Restore capacity before this buffer can be advertised again.
+                btable::reset_out_len(index, buffer);
+                if queue.consume() {
+                    release_bulk_out::<T>(index);
+                }
+                Poll::Ready(Ok(len))
+            })
+        })
+        .await
+    }
+}
+
 impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        #[cfg(any(usb_v1, usb_v4))]
+        if self.double_buffered {
+            return self.read_double_buffered(buf).await;
+        }
+
         trace!("READ WAITING, buf.len() = {}", buf.len());
         let index = self.info.addr.index();
         let stat = poll_fn(|cx| {
@@ -926,30 +1383,13 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         })
         .await;
 
-        // Errata for STM32H5, 2.20.1:
-        // During OUT transfers, the correct transfer interrupt (CTR) is triggered a little before the last USB SRAM accesses
-        // have completed. If the software responds quickly to the interrupt, the full buffer contents may not be correct.
-        //
-        // Workaround:
-        // Software should ensure that a small delay is included before accessing the SRAM contents. This delay should be
-        // 800 ns in Full Speed mode and 6.4 μs in Low Speed mode.
-        #[cfg(stm32h5)]
-        {
-            #[cfg(feature = "time")]
-            embassy_time::block_for(embassy_time::Duration::from_nanos(800));
-            #[cfg(not(feature = "time"))]
-            {
-                let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
-                let cycles = freq * 800 / 1_000_000;
-                cortex_m::asm::delay(cycles as u32);
-            }
-        }
-
         RX_COMPLETE[index].store(false, Ordering::Relaxed);
 
         if stat == Stat::Disabled {
             return Err(EndpointError::Disabled);
         }
+
+        wait_for_out_packet_memory();
 
         let regs = T::regs();
 
@@ -985,6 +1425,10 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
         if buf.len() > self.info.max_packet_size as usize {
             return Err(EndpointError::BufferOverflow);
+        }
+        #[cfg(any(usb_v1, usb_v4))]
+        if self.double_buffered {
+            return self.write_double_buffered(buf).await;
         }
         trace!("WRITE WAITING, buf.len() = {}", buf.len());
 
@@ -1074,6 +1518,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             })
             .await;
 
+            wait_for_out_packet_memory();
             let mut buf = [0; 8];
             let rx_len = self.ep_out.read_data(&mut buf);
             if rx_len != Ok(8) {
@@ -1136,6 +1581,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             return Err(EndpointError::Disabled);
         }
 
+        wait_for_out_packet_memory();
         let rx_len = self.ep_out.read_data(buf)?;
 
         regs.epr(0).write(|w| {

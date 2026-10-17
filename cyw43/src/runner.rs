@@ -1,3 +1,4 @@
+use core::mem;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::Relaxed;
 use core::task::Poll;
@@ -5,7 +6,7 @@ use core::task::Poll;
 use aligned::{A4, Aligned};
 use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
+use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::Duration;
 use sdio::sdio::{CCCR_INT_ENABLE, CCCR_IO_ENABLE, CCCR_IO_READY};
 
@@ -18,8 +19,8 @@ use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
-use crate::util::{WriteBuffer, aligned_from, try_until};
-use crate::{Chip, ChipId, Core, WithContext, events};
+use crate::util::{WriteBuffer, try_until};
+use crate::{Chip, ChipId, Core, RX_BUF_ALIGN, RX_BUF_SIZE, WithContext, events};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -777,6 +778,17 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             #[cfg(feature = "firmware-logs")]
             self.log_read(&mut buf).await;
 
+            #[cfg(feature = "bluetooth")]
+            if core::future::poll_fn(|cx| {
+                Poll::Ready(self.bt.as_mut().is_some_and(|bt| bt.poll_rx_ready(cx).is_ready()))
+            })
+            .await
+            {
+                // A continuously ready WiFi TX queue must not starve a deferred BT record.
+                self.handle_irq(&mut buf).await;
+                continue;
+            }
+
             if self.has_credit() {
                 let ioctl = self.ioctl_state.wait_pending();
                 // The multicast filter list the stack wants, when it changes. Applying
@@ -793,20 +805,22 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     });
                 let wifi_tx = self.ch.tx();
                 #[cfg(feature = "bluetooth")]
-                let bt_tx = async {
-                    match &mut self.bt {
-                        Some(bt) => {
-                            let _ = bt.tx_chan.receive().await;
+                let bt_work = core::future::poll_fn(|cx| match &mut self.bt {
+                    Some(bt) => {
+                        if bt.poll_rx_ready(cx).is_ready() {
+                            Poll::Ready(Either::First(()))
+                        } else {
+                            bt.tx_chan.poll_receive(cx).map(|_| Either::Second(()))
                         }
-                        None => core::future::pending().await,
                     }
-                };
+                    None => Poll::Pending,
+                });
                 #[cfg(not(feature = "bluetooth"))]
-                let bt_tx = core::future::pending::<()>();
+                let bt_work = core::future::pending::<Either<(), ()>>();
 
                 let ev = self.bus.wait_for_event();
 
-                match select4(select(ioctl, mcast), wifi_tx, bt_tx, ev).await {
+                match select4(select(ioctl, mcast), wifi_tx, bt_work, ev).await {
                     Either4::First(Either::First(PendingIoctl {
                         buf: iobuf,
                         kind,
@@ -875,11 +889,11 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         drop(packet);
                         self.check_status(&mut buf).await;
                     }
-                    Either4::Third(_) => {
+                    Either4::Third(Either::Second(())) => {
                         #[cfg(feature = "bluetooth")]
                         self.bt.as_mut().unwrap().hci_write(&mut self.bus, &mut buf).await;
                     }
-                    Either4::Fourth(()) => {
+                    Either4::Third(Either::First(())) | Either4::Fourth(()) => {
                         self.handle_irq(&mut buf).await;
                     }
                 }
@@ -892,6 +906,16 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         .await;
                 }
 
+                #[cfg(feature = "bluetooth")]
+                {
+                    // Queue space can resume BT RX without a new IRQ or WiFi TX credit.
+                    let bt_rx = core::future::poll_fn(|cx| match &mut self.bt {
+                        Some(bt) => bt.poll_rx_ready(cx),
+                        None => Poll::Pending,
+                    });
+                    let _ = select(bt_rx, self.bus.wait_for_event()).await;
+                }
+                #[cfg(not(feature = "bluetooth"))]
                 self.bus.wait_for_event().await;
                 self.handle_irq(&mut buf).await;
             }
@@ -899,7 +923,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     }
 
     /// Wait for IRQ on F2 packet available
-    async fn handle_irq(&mut self, buf: &mut Aligned<A4, [u8; 4 + 2048]>) {
+    async fn handle_irq(&mut self, buf: &mut Aligned<A4, [u8]>) {
         match BUS::TYPE {
             BusType::Sdio => {
                 let irq = self
@@ -974,11 +998,8 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     }
 
     /// Handle F2 events while status register is set
-    async fn check_status(&mut self, buf: &mut Aligned<A4, [u8; 4 + 2048]>) {
+    async fn check_status(&mut self, buf: &mut Aligned<A4, [u8]>) {
         loop {
-            let mut packet = self.ch.try_rx_buf();
-            let capacity = packet.as_ref().map(PacketBuf::capacity);
-
             let mut hwtag_buf: Aligned<A4, [u8; 4]> = Aligned([0; 4]);
 
             // Probe the pending frame's length, without consuming it.
@@ -1014,89 +1035,66 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                 }
             };
 
-            if capacity.is_some_and(|capacity| len > capacity) {
-                // The frame can't fit in a `PacketBuf` (e.g. a jumbo frame received
-                // while xarxa isn't configured for them), so it can never be
-                // delivered. It must still be drained from the chip, or the packet
-                // stays pending in F2 and RX wedges. Read it into the scratch
-                // buffer and discard it.
-                warn!("rx frame too big for packet pool, len {}", len);
-                let drained = match self.bus.bus_type() {
-                    BusType::Spi => self.wlan_read(buf, true, 0, len).await.is_ok(),
-                    BusType::Sdio => {
-                        // The hwtag was already consumed into `hwtag_buf` above.
-                        len <= INITIAL_READ
-                            || self
-                                .wlan_read(buf, false, INITIAL_READ, len - INITIAL_READ)
-                                .await
-                                .is_ok()
-                    }
-                };
-                if !drained {
-                    debug!("failed to drain oversized rx frame");
-                    break;
-                }
-                continue;
-            }
+            let mut packet = self.ch.try_rx_buf();
 
-            let buf = match packet {
-                Some(ref mut buf) => aligned_from(buf.storage_mut()),
-                None => {
-                    warn!("packet pool empty, dropping rxd packet if present.");
+            let buf = match &mut packet {
+                // SPI reads whole words: up to 3 bytes past `len`.
+                Some(packet) if packet.capacity() >= len.next_multiple_of(4) => unsafe {
+                    assert!(
+                        (packet.as_ptr() as usize).is_multiple_of(RX_BUF_ALIGN),
+                        "cyw43: pool buffers must be aligned to cyw43::RX_BUF_ALIGN ({})",
+                        RX_BUF_ALIGN
+                    );
+                    assert!(
+                        packet.capacity() >= RX_BUF_SIZE,
+                        "cyw43: pool buffers must hold cyw43::RX_BUF_SIZE ({}) bytes, got {}",
+                        RX_BUF_SIZE,
+                        packet.capacity()
+                    );
+
+                    // SAFETY: align is checked above
+                    mem::transmute(packet.storage_mut())
+                },
+                _ => {
+                    warn!("packet pool empty or buf over size; dropping rxd packet if present.");
 
                     &mut *buf
                 }
             };
 
-            let reception = match self.bus.bus_type() {
+            match self.bus.bus_type() {
                 BusType::Spi => {
                     if self.wlan_read(buf, true, 0, len).await.is_err() {
-                        debug!("spi wlan_read failed");
+                        debug!("failed to read payload, len={}", len);
                         break;
                     }
-                    trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
-
-                    self.rx(&mut buf[..len])
                 }
                 BusType::Sdio => {
-                    if len > INITIAL_READ {
-                        if self
-                            .wlan_read(buf, false, INITIAL_READ, len - INITIAL_READ)
-                            .await
-                            .is_err()
-                        {
-                            debug!("failed to read sdio payload, len={}", len);
-                            break;
-                        }
-                    } else {
-                        // TODO: investigate this condition
-                        trace!("no extra space required");
-                        continue;
-                    }
-
                     // The hwtag was read into `hwtag_buf` above, put it back in
                     // front of the payload.
                     buf[..INITIAL_READ].copy_from_slice(&hwtag_buf[..]);
 
-                    if len == SdpcmHeader::SIZE {
-                        let Some((sdpcm_header, _)) = SdpcmHeader::parse(&mut buf[..len]) else {
-                            debug!("failed to parse sdpcm header");
-                            break;
-                        };
-
-                        self.update_credit(sdpcm_header);
-
-                        None
-                    } else if len > SdpcmHeader::SIZE {
-                        trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
-                        self.rx(&mut buf[..len])
-                    } else {
-                        None
+                    if len > INITIAL_READ
+                        && self
+                            .wlan_read(buf, false, INITIAL_READ, len - INITIAL_READ)
+                            .await
+                            .is_err()
+                    {
+                        debug!("failed to read payload, len={}", len);
+                        break;
                     }
                 }
-            };
+            }
+
+            trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
+
+            // Process every drained frame, even when there's no `PacketBuf` to
+            // receive it into: credits, ioctl responses, and events must not be
+            // dropped just because the rx pool is empty.
+            let reception = self.rx(&mut buf[..len]);
 
             if let Some(mut packet) = packet
+                && packet.capacity() >= len.next_multiple_of(4)
                 && let Some(Reception { len, offset }) = reception
             {
                 packet.reserve(offset);
@@ -1112,10 +1110,16 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     /// receive and event or ethernet frame; if a frame, return the offset and len of the frame
     fn rx(&mut self, buf: &mut [u8]) -> Option<Reception> {
         let Some((sdpcm_header, payload)) = SdpcmHeader::parse(buf) else {
+            debug!("failed to parse sdpcm header");
+
             return None;
         };
 
         self.update_credit(sdpcm_header);
+
+        if payload.is_empty() {
+            return None;
+        }
 
         let channel = sdpcm_header.channel_and_flags & 0x0f;
 

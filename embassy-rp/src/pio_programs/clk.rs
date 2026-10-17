@@ -37,7 +37,6 @@ impl<'d, T: Instance, const SM: usize> PioClk<'d, T, SM> {
         frequency: u32,
     ) -> Self {
         let pin = pio.make_pio_pin(pin);
-        sm.set_pin_dirs(Direction::Out, &[&pin]);
 
         let mut cfg = Config::default();
         let sm_frequency = frequency * PIO_CLK_PROGRAM_CLK_MULTIPLIER;
@@ -46,6 +45,7 @@ impl<'d, T: Instance, const SM: usize> PioClk<'d, T, SM> {
         cfg.use_program(&program.prg, &[]);
 
         sm.set_config(&cfg);
+        sm.set_pin_dirs(Direction::Out, &[&pin]);
 
         Self { sm, pin }
     }

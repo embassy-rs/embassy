@@ -8,12 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+RCC:
+- fix: stm32/rcc g0: enable the flash prefetch after setting the latency; with 2 wait states at 64 MHz and prefetch off code ran 8-16% slower.
+
+Time driver:
+- fix: stm32/time-driver-lptim: arm alarms that fall in the current counter cycle; they fired at the overflow, up to a quarter cycle late
+
 I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
+
+USART:
+- fix: stm32/usart: `BufferedUartTx::flush` could return before the last bytes left the UART when a write wrapped around the end of the TX buffer. The TC interrupt now reports done only when the TX buffer is empty, and every write pends the interrupt.
 
 Flash:
 - fix: stm32/flash: preserve F2/F4/F7/H7 PSIZE during programming cleanup so subsequent erases retain x32 parallelism.
 - add: `flash::Config` and `Flash::new_with_config` / `new_blocking_with_config` for optional erase parallelism on STM32F2/F4/F7 and `flash_h7`. Existing constructors keep their defaults; regions preserve the selection.
+
+Low power:
+- fix: stm32/low-power: fail to compile on chip families with no low-power implementation, instead of building a `sleep()` that set `SLEEPDEEP` and entered whatever `PWR` happened to default to, without clearing the wake-up flags or restoring the system clock on wake-up. Implemented families are F4, G4, L0, L4, L5, U0, U3, U5, H5, WB, WBA and WL.
+- add: stm32/low-power: Stop mode support for STM32G4, entering the low-power-regulator stop (`PWR_CR1.LPMS = 0b001`).
 
 Align to API guidelines:
 - change: stm32/gpio: rename `get_level()` to `level()` and `get_output_level()` to `output_level()` on `Input`, `Output`, `OutputOpenDrain`, `Flex` and `ExtiInput`. `lpgpio::LpGpio::get_level()` is now `level()`.
@@ -57,11 +70,18 @@ CAN:
 
 Ethernet:
 - fix: stm32/eth v2: place a memory barrier before handing a descriptor to the DMA, so the buffer address and the frame contents are visible to it first.
+- fix: stm32/eth v2: wait for the DMA channel's own process state (`DMADSR` TPS/RPS) to read Stopped in `Drop`, instead of treating empty MTL FIFOs as DMA stopped, so descriptors and buffers are not released while the DMA may still own them.
 
 USB:
+- perf: copy packet memory a word at a time instead of calling `memcpy` for every word.
 - fix: OTG_FS on STM32F1 uses 4 endpoints and 320 FIFO words.
 - fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
 - fix: OTG_HS on STM32N6 no longer hangs the bus while bringing up the USB HS PHY: USBPHYC is now programmed with the OTG core clocked and the USBPHYC block out of reset, as in ST's own example.
+- feat: support double-buffered bulk endpoints on USB v1 (STM32F1, F3 and L1).
+- feat: support double-buffered bulk endpoints on USB v4 (STM32G0, C0, H5, U0, U3, U5 with the 32-bit packet memory); tested on an STM32G0B1.
+- fix: `ClearFeature(ENDPOINT_HALT)` on an endpoint that was not halted looped forever and hung the device; on a halted endpoint it left the halt set, and setting a halt while a transfer completed could disable the endpoint. Halt requests now apply only to bulk and interrupt endpoints.
+- fix: reset the data toggle to DATA0 when a halt is cleared and when `SET_CONFIGURATION` or `SET_INTERFACE` enables an endpoint (USB 2.0 §9.4.5, §9.1.1.5).
+- fix: the USB errata delay before reading a received packet now waits at least 800 ns, counted in CPU cycles, covers EP0 SETUP and control OUT data, and also applies to STM32U3, which has the same erratum. On STM32H5 it could end after less than 800 ns with the `time` feature and busy-waited 800 µs on every packet without it.
 
 DMA:
 - fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
@@ -105,6 +125,7 @@ Timer:
 - feat: stm32/timer: add timer_v2 dithering APIs (`DitheringConfig`, ARR/CCR fractional nibble setters) in low-level, simple PWM, and complementary PWM drivers
 - feat: stm32/timer: add low-level timer status helpers for UIF remap control and counting direction (`is_counting_up`/`is_counting_down`)
 - feat: stm32/timer: add `low_level::Timer::get_counter()` to read the counter register as `T::Word`
+- feat: stm32/timer/complementary_pwm: add `set_main_output_enable`, `set_complementary_output_enable`, `main_output_enabled` and `complementary_output_enabled` to switch and read a channel's `CCxE` and `CCxNE` independently; `enable`/`disable` still switch both. `low_level::Timer::get_complementary_channel_enable_state` reads `CCxNE`.
 
 QEI:
 - fix: stm32/qei: `count()`, `reset()`, and `auto_reload` always used the 16-bit register view, so on 32-bit timers `reset()` only cleared the lower 16 bits of the counter (leaving the upper bits stale) and `auto_reload`/`count()` were truncated to `u16`; `Config`/`AdvancedConfig` are now generic over the timer instance and `auto_reload` uses `T::Word`, while `count()` returns `u32` so 32-bit timers work correctly across their full range (breaking change)

@@ -142,12 +142,12 @@ impl<'d, M: Mode> Trng<'d, M> {
     }
 
     fn start(&mut self) {
-        #[cfg(feature = "mcxa2xx")]
+        #[cfg(feature = "_mcxa2xx")]
         self.info.regs().mctl().modify(|w| w.set_trng_acc(true));
     }
 
     fn stop(&mut self) {
-        #[cfg(feature = "mcxa2xx")]
+        #[cfg(feature = "_mcxa2xx")]
         self.info.regs().mctl().modify(|w| w.set_trng_acc(false));
     }
 
@@ -265,7 +265,7 @@ impl<'d> Trng<'d, Async> {
 
                 let status = IntStatus(status);
 
-                if status.ent_val() {
+                if status.ent_val() && self.info.regs().mctl().read().ent_val() {
                     Some(Ok(()))
                 } else if status.frq_ct_fail() {
                     Some(Err(Error::FrequencyCountFail))
@@ -273,6 +273,9 @@ impl<'d> Trng<'d, Async> {
                     Some(Err(Error::HardwareFail))
                 } else if status.intg_flt() {
                     Some(Err(Error::IntegrityError))
+                } else if status.ent_val() {
+                    // A blocking read may have consumed the reported entropy.
+                    None
                 } else {
                     Some(Err(Error::ErrorStatus))
                 }

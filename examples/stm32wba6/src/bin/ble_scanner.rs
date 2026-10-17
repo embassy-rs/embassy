@@ -15,17 +15,18 @@
 #![no_std]
 #![no_main]
 
+use bt_hci::event::Event;
+use bt_hci::event::le::LeEvent;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{ParsedAdvData, ScanParams, ScanType};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams, GapRole};
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
-use stm32wb_hci::Event;
 
 // ---- Test configuration ----
 const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
@@ -94,27 +95,28 @@ async fn main(spawner: Spawner) {
     let mut device_count = 0u32;
 
     // Main event loop - process advertising reports
+    let mut event_buf = EventBuffer::new();
     loop {
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
 
         // Check for advertising reports
-        if let Event::LeAdvertisingReport(reports) = &event {
-            for report in reports.iter() {
+        if let BleEvent::Core(Event::Le(LeEvent::LeAdvertisingReport(adv))) = &event {
+            for report in adv.reports.iter().flatten() {
                 device_count += 1;
 
                 // Parse the advertising data
-                let parsed = ParsedAdvData::parse(&report.data);
+                let parsed = ParsedAdvData::parse(report.data);
 
                 info!("--- Device #{} ---", device_count);
 
                 // Display device address
-                info!("  Address: {}", report.address);
+                info!("  Address: {}", report.addr);
 
                 // Display RSSI
                 info!("  RSSI: {} dBm", report.rssi);
 
                 // Display event type
-                info!("  Type: {}", report.event_type);
+                info!("  Type: {}", report.event_kind);
 
                 // Display parsed name if available
                 if let Some(name) = parsed.name {

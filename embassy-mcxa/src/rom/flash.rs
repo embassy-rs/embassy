@@ -1,3 +1,14 @@
+//! ROM-backed internal flash operations for MCXA devices.
+//!
+//! Construct [`Flash`] with [`super::RomApi::flash`] to query flash geometry,
+//! erase and program memory, read data, and verify programmed or erased regions.
+//! The driver also implements the `embedded-storage` NOR flash traits. MCXA5xx
+//! exposes additional IFR verification and flash-controller configuration data.
+//!
+//! Lengths are expressed in bytes, with operation-specific address and buffer
+//! alignment requirements. Select expendable regions for programming tests and
+//! avoid overwriting application code or protected flash configuration.
+
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
@@ -60,7 +71,7 @@ pub enum FlashRampControlOption {
     DivisionFactor64 = 3,
 }
 
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -69,7 +80,7 @@ pub struct FlashReadSingleWordConfig {
     pub reserved1: [u8; 3],
 }
 
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 impl FlashReadSingleWordConfig {
     pub const fn new(ecc: FlashReadEccOption, margin: FlashReadMarginOption, dmacc: FlashReadDmaccOption) -> Self {
         Self {
@@ -79,7 +90,7 @@ impl FlashReadSingleWordConfig {
     }
 }
 
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -89,7 +100,7 @@ pub struct FlashSetWriteModeConfig {
     reserved: [u8; 2],
 }
 
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -100,7 +111,7 @@ pub struct FlashSetReadModeConfig {
     pub reserved: [u8; 3],
 }
 
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -127,13 +138,13 @@ pub struct FlashConfig {
     pub pflash_sector_size: u32,
     /// FFR configuration.
     pub ffr_config: FlashFfrConfig,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     /// Flash controller parameter configuration.
     pub mode_config: FlashModeConfig,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     /// ROM NBOOT context pointer.
     pub nboot_ctx: *mut u32,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     /// Use AHB read (true) or alternative read path (false), per ROM.
     pub use_ahb_read: bool,
 }
@@ -187,13 +198,13 @@ pub(super) struct FlashVtable {
         unsafe extern "C" fn(config: *mut FlashConfig, start: u32, length_in_bytes: u32) -> Status,
     // Get flash property.
     flash_get_property: unsafe extern "C" fn(config: *mut FlashConfig, which_property: u32, value: *mut u32) -> Status,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     // Verify phrase erase in IFR.
     ifr_verify_erase_phrase: unsafe extern "C" fn(config: *mut FlashConfig, start: u32, length_in_bytes: u32) -> Status,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     // Verify page erase in IFR.
     ifr_verify_erase_page: unsafe extern "C" fn(config: *mut FlashConfig, start: u32, length_in_bytes: u32) -> Status,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     // Verify sector erase in IFR.
     ifr_verify_erase_sector: unsafe extern "C" fn(config: *mut FlashConfig, start: u32, length_in_bytes: u32) -> Status,
     // Read flash into dest.
@@ -289,17 +300,17 @@ impl Flash {
         .map(|()| value)
     }
 
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn ifr_verify_erase_phrase(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashError> {
         unsafe { (self.vtable.ifr_verify_erase_phrase)(&raw mut self.config, start, length_in_bytes) }.into()
     }
 
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn ifr_verify_erase_page(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashError> {
         unsafe { (self.vtable.ifr_verify_erase_page)(&raw mut self.config, start, length_in_bytes) }.into()
     }
 
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn ifr_verify_erase_sector(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashError> {
         unsafe { (self.vtable.ifr_verify_erase_sector)(&raw mut self.config, start, length_in_bytes) }.into()
     }
@@ -456,10 +467,10 @@ impl NorFlash for Flash {
 /// Base address of the internal program flash.
 pub const FLASH_BASE: u32 = 0x0000_0000;
 
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 /// Total size of the internal program flash in bytes (1 MB).
 pub const FLASH_SIZE: usize = 0x10_0000;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 /// Total size of the internal program flash in bytes (2 MB).
 pub const FLASH_SIZE: usize = 0x20_0000;
 

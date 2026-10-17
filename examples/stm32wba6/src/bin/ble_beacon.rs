@@ -24,8 +24,8 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType};
+use embassy_stm32_wpan::bluetooth::{EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::{Duration, Ticker};
 use panic_probe as _;
@@ -193,8 +193,9 @@ async fn main(spawner: Spawner) {
 
     let mut ticker = Ticker::every(Duration::from_secs(5));
 
+    let mut event_buf = EventBuffer::new();
     loop {
-        match select(ble.read_event(), ticker.next()).await {
+        match select(ble.read_event(&mut event_buf), ticker.next()).await {
             Either::First(_event) => {
                 // Non-connectable beacons generate no connection events; ignore.
             }

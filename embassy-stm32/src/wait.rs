@@ -87,6 +87,14 @@ impl Timeout {
     }
 }
 
+/// Performs a busy-wait delay for at least specified number of microseconds.
+#[allow(dead_code)]
+pub fn block_for_us(micros: u64) {
+    cortex_m::asm::delay(
+        unsafe { crate::rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * micros / 1_000_000 } as u32,
+    );
+}
+
 /// Performs a busy-wait delay for a specified number of microseconds that is async if possible
 #[allow(dead_code)]
 pub async fn wait_for_us(micros: u64) {
@@ -95,18 +103,6 @@ pub async fn wait_for_us(micros: u64) {
 
     #[cfg(not(feature = "time"))]
     block_for_us(micros);
-}
-
-/// Performs a busy-wait delay for a specified number of microseconds.
-#[allow(dead_code)]
-pub fn block_for_us(micros: u64) {
-    #[cfg(feature = "time")]
-    embassy_time::block_for(Duration::from_micros(micros));
-
-    #[cfg(not(feature = "time"))]
-    cortex_m::asm::delay(
-        unsafe { crate::rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * micros / 1_000_000 } as u32,
-    );
 }
 
 #[cfg(feature = "time")]
@@ -126,7 +122,7 @@ pub async fn try_until_result<E: From<TimeoutError>>(
 
     match select(
         async {
-            let mut ticker = Ticker::every(Duration::from_millis(1));
+            let mut ticker = Ticker::every(Duration::from_micros(500));
 
             loop {
                 if func().await? {
@@ -167,7 +163,7 @@ pub async fn try_until_result<E: From<TimeoutError>>(
             return Ok(());
         }
 
-        block_for_us(1_000);
+        block_for_us(500);
         yield_now().await;
     }
 }

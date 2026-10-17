@@ -9,7 +9,7 @@ use super::CLOCKS;
 use super::types::{Clocks, PoweredClock};
 use crate::pac;
 use crate::pac::cmc::Ckmode;
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 use crate::pac::scg::Fircvld;
 use crate::pac::scg::{Sircvld, SpllLock};
 
@@ -131,7 +131,7 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     }
 
     // Ensure FRO45M is up and running
-    #[cfg(feature = "mcxa2xx")]
+    #[cfg(feature = "_mcxa2xx")]
     if let Some(frohf) = clocks.fro_hf_root.as_ref()
         && !matches!(frohf.power, PoweredClock::AlwaysEnabled)
     {

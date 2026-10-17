@@ -13,7 +13,7 @@ use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::signal::Signal;
 use embassy_sync::zerocopy_channel;
 use embassy_usb::class::uac::device as uac1;
-use embassy_usb::class::uac::device::speaker::{self, Speaker};
+use embassy_usb::class::uac::device::speaker::{self, FeatureUnitControls, Speaker};
 use embassy_usb::driver::EndpointError;
 use heapless::Vec;
 use micromath::F32Ext;
@@ -330,11 +330,20 @@ async fn main(spawner: Spawner) {
     } = Speaker::new(
         &mut builder,
         state,
-        USB_MAX_PACKET_SIZE as u16,
-        uac1::SampleWidth::Width4Byte,
-        &[SAMPLE_RATE_HZ],
-        &AUDIO_CHANNELS,
-        FEEDBACK_REFRESH_PERIOD,
+        speaker::Config {
+            sample_rates_hz: &[SAMPLE_RATE_HZ],
+            sample_width: SAMPLE_WIDTH,
+            channels: &AUDIO_CHANNELS,
+            // Master has no controls; left and right support mute and volume.
+            feature_unit: [
+                FeatureUnitControls::empty(),
+                FeatureUnitControls::MUTE | FeatureUnitControls::VOLUME,
+                FeatureUnitControls::MUTE | FeatureUnitControls::VOLUME,
+            ]
+            .into(),
+            max_packet_size: USB_MAX_PACKET_SIZE as u16,
+            feedback_refresh_period: FEEDBACK_REFRESH_PERIOD,
+        },
     );
 
     // Create the USB device

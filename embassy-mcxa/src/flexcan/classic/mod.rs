@@ -16,7 +16,7 @@
     "<summary><h4>Async Example</h4></summary>\n\n",
     "Here's a short example program that demonstrates how to set up a FlexCAN peripheral in Async mode for Classic CAN using this HAL:\n",
     "```rust,no_run\n",
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/mcxa2xx/src/bin/flexcan-classic-async.rs")),
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/mcxa266/src/bin/flexcan-classic-async.rs")),
     "\n```\n",
     "</details>",
 )]
@@ -26,7 +26,7 @@
     "<summary><h4>Blocking Example</h4></summary>\n\n",
     "Here's a short example program that demonstrates how to set up a FlexCAN peripheral in Blocking mode for Classic CAN using this HAL:\n",
     "```rust,no_run\n",
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/mcxa2xx/src/bin/flexcan-classic-blocking.rs")),
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/mcxa266/src/bin/flexcan-classic-blocking.rs")),
     "\n```\n",
     "</details>",
 )]

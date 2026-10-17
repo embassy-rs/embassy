@@ -1,5 +1,5 @@
 use crate::descriptor::descriptor_type;
-use crate::driver::EndpointAddress;
+use crate::driver::{EndpointAddress, EndpointType};
 use crate::types::InterfaceNumber;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -79,6 +79,7 @@ pub struct EndpointInfo {
     pub interface: InterfaceNumber,
     pub interface_alt: u8,
     pub ep_address: EndpointAddress,
+    pub ep_type: EndpointType,
 }
 
 pub fn foreach_endpoint(data: &[u8], mut f: impl FnMut(EndpointInfo)) -> Result<(), ReadError> {
@@ -87,6 +88,7 @@ pub fn foreach_endpoint(data: &[u8], mut f: impl FnMut(EndpointInfo)) -> Result<
         interface: InterfaceNumber(0),
         interface_alt: 0,
         ep_address: EndpointAddress::from(0),
+        ep_type: EndpointType::Control,
     };
     for res in Reader::new(data).read_descriptors() {
         let (kind, mut r) = res?;
@@ -102,6 +104,12 @@ pub fn foreach_endpoint(data: &[u8], mut f: impl FnMut(EndpointInfo)) -> Result<
             }
             descriptor_type::ENDPOINT => {
                 ep.ep_address = EndpointAddress::from(r.read_u8()?);
+                ep.ep_type = match r.read_u8()? & 0x03 {
+                    0 => EndpointType::Control,
+                    1 => EndpointType::Isochronous,
+                    2 => EndpointType::Bulk,
+                    _ => EndpointType::Interrupt,
+                };
                 f(ep);
             }
             _ => {}

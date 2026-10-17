@@ -1,10 +1,5 @@
 //! BLE Error types
 
-use stm32wb_hci::host::Error as HostError;
-use stm32wb_hci::vendor::command::gap::Error as GapError;
-use stm32wb_hci::vendor::command::gatt::Error as GattError;
-use stm32wb_hci::vendor::command::hal::Error as HalError;
-
 use super::hci::types::Status;
 
 /// BLE Stack Errors
@@ -35,43 +30,19 @@ pub enum BleError {
     /// Connection error
     ConnectionError,
 
-    // Controller Host Error
-    HostError(HostError),
-
-    // Controller Gatt Error
-    GattError(GattError),
-
-    // Controller Gap Error
-    GapError(GapError),
-
-    // Controller Hal Error
-    HalError(HalError),
+    /// Transport error while exchanging an HCI packet with the controller
+    Io(embedded_io::ErrorKind),
 
     /// Unknown or unspecified error
     Unknown,
 }
 
-impl From<HostError> for BleError {
-    fn from(err: HostError) -> Self {
-        Self::HostError(err)
-    }
-}
-
-impl From<GattError> for BleError {
-    fn from(err: GattError) -> Self {
-        Self::GattError(err)
-    }
-}
-
-impl From<GapError> for BleError {
-    fn from(err: GapError) -> Self {
-        Self::GapError(err)
-    }
-}
-
-impl From<HalError> for BleError {
-    fn from(err: HalError) -> Self {
-        Self::HalError(err)
+impl From<bt_hci::cmd::Error<embedded_io::ErrorKind>> for BleError {
+    fn from(err: bt_hci::cmd::Error<embedded_io::ErrorKind>) -> Self {
+        match err {
+            bt_hci::cmd::Error::Hci(e) => Status::from_u8(e.to_status().into_inner()).into(),
+            bt_hci::cmd::Error::Io(e) => Self::Io(e),
+        }
     }
 }
 

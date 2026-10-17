@@ -108,9 +108,6 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
     ) -> Self {
         let pin = common.make_pio_pin(pin);
 
-        sm.set_pin_dirs(Direction::In, &[&pin]);
-        sm.set_pins(Level::Low, &[&pin]);
-
         let mut cfg = Config::default();
         cfg.use_program(&program.prg, &[&pin]);
         cfg.set_in_pins(&[&pin]);
@@ -128,6 +125,8 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
         cfg.clock_divider = divider.into();
 
         sm.set_config(&cfg);
+        sm.set_pin_dirs(Direction::In, &[&pin]);
+        sm.set_pins(Level::Low, &[&pin]);
         sm.clear_fifos();
         sm.restart();
         unsafe {

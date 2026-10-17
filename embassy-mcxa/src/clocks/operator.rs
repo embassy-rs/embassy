@@ -48,7 +48,10 @@ pub(super) struct ClockOperator<'a> {
     pub(super) scg0: pac::scg::Scg,
     pub(super) syscon: pac::syscon::Syscon,
     pub(super) vbat0: pac::vbat::Vbat,
+    #[cfg(feature = "_mcxa2xx")]
     pub(super) spc0: pac::spc::Spc,
+    #[cfg(feature = "_mcxa5xx")]
+    pub(super) spc0: pac::spc::Spc5xx,
     pub(super) fmu0: pac::fmu::Fmu,
     pub(super) cmc: pac::cmc::Cmc,
 }
@@ -64,7 +67,7 @@ impl ClockOperator<'_> {
     fn active_limits(&self) -> &'static ClockLimits {
         match self.config.vdd_power.active_mode.level {
             VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             VddLevel::NormalMode => &ClockLimits::NORMAL_DRIVE,
             VddLevel::OverDriveMode => &ClockLimits::OVER_DRIVE,
         }
@@ -73,7 +76,7 @@ impl ClockOperator<'_> {
     fn low_power_limits(&self) -> &'static ClockLimits {
         match self.config.vdd_power.low_power_mode.level {
             VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             VddLevel::NormalMode => &ClockLimits::NORMAL_DRIVE,
             VddLevel::OverDriveMode => &ClockLimits::OVER_DRIVE,
         }
@@ -97,9 +100,9 @@ impl ClockOperator<'_> {
         //   * Make FIRC changes
         //   * Switch main clock back to FIRC
         // * Firc is enabled and default -> nop
-        #[cfg(feature = "mcxa2xx")]
+        #[cfg(feature = "_mcxa2xx")]
         let default_freq = FircFreqSel::Mhz45;
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         let default_freq = FircFreqSel::Mhz48;
         let is_default = self.config.firc.as_ref().is_some_and(|c| c.frequency == default_freq);
 
@@ -406,7 +409,7 @@ impl ClockOperator<'_> {
         let Fro16KConfig {
             vsys_domain_active,
             vdd_core_domain_active,
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             vbat_domain_active,
         } = fro16k;
 
@@ -417,7 +420,7 @@ impl ClockOperator<'_> {
         self.vbat0.froclke().modify(|w| {
             w.set_clke(0, *vsys_domain_active);
             w.set_clke(1, *vdd_core_domain_active);
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             w.set_clke(2, *vbat_domain_active);
         });
 
@@ -433,7 +436,7 @@ impl ClockOperator<'_> {
                 power: PoweredClock::AlwaysEnabled,
             });
         }
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         if *vbat_domain_active {
             self.clocks.clk_16k_vbat = Some(Clock {
                 frequency: 16_384,
@@ -445,7 +448,7 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the ROSC/OSC32K clock family
-    #[cfg(all(feature = "mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "_mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
     pub(super) fn configure_osc32k_clocks(&mut self) -> Result<(), ClockError> {
         use config::{Osc32KCapSel, Osc32KCoarseGain, Osc32KMode};
         use nxp_pac::vbat::{
@@ -1193,9 +1196,9 @@ impl ClockOperator<'_> {
             MainClockSource::SoscClkIn => (Scs::Sosc, "clk_in", self.clocks.clk_in.as_ref()),
             MainClockSource::SircFro12M => (Scs::Sirc, "fro_12m", self.clocks.fro_12m.as_ref()),
             MainClockSource::FircHfRoot => (Scs::Firc, "fro_hf_root", self.clocks.fro_hf_root.as_ref()),
-            #[cfg(feature = "mcxa2xx")]
+            #[cfg(feature = "_mcxa2xx")]
             MainClockSource::RoscFro16K => (Scs::Rosc, "fro16k", self.clocks.clk_16k_vdd_core.as_ref()),
-            #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+            #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
             MainClockSource::RoscOsc32K => (Scs::Rosc, "osc32k", self.clocks.clk_32k_vdd_core.as_ref()),
             MainClockSource::SPll1 => (Scs::Spll, "pll1_clk", self.clocks.pll1_clk.as_ref()),
         };
@@ -1221,7 +1224,7 @@ impl ClockOperator<'_> {
                 clock_limits::VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS,
                 clock_limits::VDD_CORE_MID_DRIVE_MAX_WAIT_STATES,
             ),
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             VddLevel::NormalMode => (
                 clock_limits::VDD_CORE_NORMAL_DRIVE_WAIT_STATE_LIMITS,
                 clock_limits::VDD_CORE_NORMAL_DRIVE_MAX_WAIT_STATES,
@@ -1307,7 +1310,7 @@ impl ClockOperator<'_> {
                 // All other fields reset only with a system reset."
                 None
             }
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             VddLevel::NormalMode => Some((ActiveCfgCoreldoVddLvl::Normal, Vsm::Sram1v1)),
             VddLevel::OverDriveMode => Some((ActiveCfgCoreldoVddLvl::Over, Vsm::Sram1v2)),
         };
@@ -1383,10 +1386,10 @@ impl ClockOperator<'_> {
             //
             // This SHOULD be covered by table 165. LPWKUP Delay, but it doesn't actually have
             // a value for the 1.0v-1.2v transition we need. For now, the C SDK always uses 0x5B.
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             (VddLevel::OverDriveMode, VddLevel::NormalMode) => (false, 0x005b),
             (VddLevel::OverDriveMode, VddLevel::MidDriveMode) => (false, 0x005b),
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             (VddLevel::NormalMode, VddLevel::MidDriveMode) => (false, 0x005b),
 
             //
@@ -1394,15 +1397,15 @@ impl ClockOperator<'_> {
             //
             // For now, enforce that active is always >= voltage to low power. I don't know if this
             // is required, but there's probably also no reason to support it?
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             (VddLevel::MidDriveMode, VddLevel::NormalMode) => return BAD_ASCENDING,
             (VddLevel::MidDriveMode, VddLevel::OverDriveMode) => return BAD_ASCENDING,
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             (VddLevel::NormalMode, VddLevel::OverDriveMode) => return BAD_ASCENDING,
 
             // Correct "matching" options
             (VddLevel::MidDriveMode, VddLevel::MidDriveMode) => (true, 0x0000),
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             (VddLevel::NormalMode, VddLevel::NormalMode) => (true, 0x0000),
             (VddLevel::OverDriveMode, VddLevel::OverDriveMode) => (true, 0x0000),
         };
@@ -1446,7 +1449,7 @@ impl ClockOperator<'_> {
         };
         let lvl = match self.config.vdd_power.low_power_mode.level {
             VddLevel::MidDriveMode => LpCfgCoreldoVddLvl::Mid,
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             VddLevel::NormalMode => LpCfgCoreldoVddLvl::Normal,
             VddLevel::OverDriveMode => LpCfgCoreldoVddLvl::Over,
         };

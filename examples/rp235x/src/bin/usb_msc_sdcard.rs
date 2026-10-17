@@ -48,16 +48,22 @@ impl<C: SdBlockDevice> MscBlockDevice for SdDisk<C> {
         self.block_count
     }
 
-    fn read_block(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
-        self.card
-            .read(core::slice::from_mut(&mut self.block), BlockIdx(lba), "USB MSC")?;
-        buf.copy_from_slice(&self.block.contents);
+    fn read_blocks(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
+        for (i, chunk) in buf.chunks_exact_mut(Block::LEN).enumerate() {
+            let idx = BlockIdx(lba + i as u32);
+            self.card.read(core::slice::from_mut(&mut self.block), idx, "USB MSC")?;
+            chunk.copy_from_slice(&self.block.contents);
+        }
         Ok(())
     }
 
-    fn write_block(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error> {
-        self.block.contents.copy_from_slice(data);
-        self.card.write(core::slice::from_ref(&self.block), BlockIdx(lba))
+    fn write_blocks(&mut self, lba: u32, data: &[u8]) -> Result<(), Self::Error> {
+        for (i, chunk) in data.chunks_exact(Block::LEN).enumerate() {
+            self.block.contents.copy_from_slice(chunk);
+            self.card
+                .write(core::slice::from_ref(&self.block), BlockIdx(lba + i as u32))?;
+        }
+        Ok(())
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {

@@ -14,6 +14,5 @@ publish = false
 # package twice under different names.
 
 [dependencies]
-mcu-crypto-asm = { git = "https://github.com/kokroo/mcu-crypto-asm", rev = "20201d1aa07d525553c73a1280165813ada2b2e4", features = [
-    "embassy-crypto-aes128-gcm",
-] }
+# mcu-crypto-asm = { git = "https://github.com/kokroo/mcu-crypto-asm", rev = "20201d1aa07d525553c73a1280165813ada2b2e4", features = ["embassy-crypto-aes128-gcm"] }
+embassy-crypto-rustcrypto = { version = "0.1.0", path = "../../embassy-crypto-rustcrypto", features = ["embassy-crypto-aes128-gcm"] }

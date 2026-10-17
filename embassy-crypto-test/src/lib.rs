@@ -1274,6 +1274,75 @@ macro_rules! curve_suites {
                 )
             }
 
+            /// Run the point decompression suite: compressed SEC1 round trips
+            /// of the arithmetic vectors' points, both roots of each X
+            /// coordinate, and rejection of malformed encodings.
+            pub fn decompress(suite: &Suite<EcArith>) -> Outcome {
+                let stats = run(
+                    suite,
+                    |i, _| i as u32,
+                    |case| {
+                        for bytes in [case.a_g, case.b_g, case.sum, case.a_times_b_g, case.lincomb] {
+                            if bytes.is_empty() {
+                                continue;
+                            }
+                            let sec1: &[u8; 2 * N + 1] = bytes.try_into().map_err(|_| "bad point length in vector")?;
+                            let pk = PublicKey::from_sec1(sec1).map_err(|_| "vector point rejected")?;
+                            let enc = pk.to_sec1_compressed();
+                            if enc[0] != 0x02 | (sec1[2 * N] & 1) || enc[1..] != sec1[1..1 + N] {
+                                return Err("compression mismatch");
+                            }
+                            if PublicKey::from_sec1_compressed(&enc) != Ok(pk) {
+                                return Err("public key decompression mismatch");
+                            }
+                            let vk = VerifyingKey::from_sec1(sec1).map_err(|_| "vector point rejected")?;
+                            if VerifyingKey::from_sec1_compressed(&enc).map(|k| k.to_sec1()) != Ok(vk.to_sec1()) {
+                                return Err("verifying key decompression mismatch");
+                            }
+
+                            let mut other = enc;
+                            other[0] ^= 1;
+                            let neg = PublicKey::from_sec1_compressed(&other).map_err(|_| "other root rejected")?;
+                            if neg.x() != pk.x() || neg.y() == pk.y() || neg.to_sec1_compressed() != other {
+                                return Err("other root mismatch");
+                            }
+                        }
+                        Ok(Verdict::Pass)
+                    },
+                )?;
+
+                let reject = |enc: &[u8; N + 1], what: &'static str| {
+                    if PublicKey::from_sec1_compressed(enc) == Err(Error::InvalidKey)
+                        && VerifyingKey::from_sec1_compressed(enc).is_err()
+                    {
+                        Ok(())
+                    } else {
+                        Err(Failure {
+                            suite: suite.name,
+                            tc_id: u32::MAX,
+                            what,
+                        })
+                    }
+                };
+                // A valid X coordinate behind each bad tag.
+                let mut enc = [0u8; N + 1];
+                enc[1..].copy_from_slice(&suite.cases[0].a_g[1..1 + N]);
+                for tag in [0x00, 0x01, 0x04, 0x06, 0x07, 0xff] {
+                    enc[0] = tag;
+                    reject(&enc, "bad tag accepted")?;
+                }
+                // x >= p.
+                let mut enc = [0xffu8; N + 1];
+                enc[0] = 0x02;
+                reject(&enc, "x out of range accepted")?;
+                // x = 1 gives a non-residue on P-256 and P-384.
+                let mut enc = [0u8; N + 1];
+                enc[0] = 0x02;
+                enc[N] = 1;
+                reject(&enc, "x not on curve accepted")?;
+                Ok(stats)
+            }
+
             /// Run the ECDSA suite: verification against the vectors, plus a
             /// sign-and-verify round trip through the signing API.
             pub fn ecdsa(suite: &Suite<Ecdsa>) -> Outcome {
@@ -1620,12 +1689,16 @@ named! {
     p256_ecdh => p256::ecdh(&P256_ECDH);
     /// P-256 ECDSA (Wycheproof `ecdsa_secp256r1_sha256_p1363_test`).
     p256_ecdsa => p256::ecdsa(&P256_ECDSA);
+    /// P-256 compressed SEC1 point decompression (generated).
+    p256_decompress => p256::decompress(&P256_ARITH);
     /// P-384 arithmetic (generated).
     p384_arith => p384::arith(&P384_ARITH);
     /// P-384 ECDH (Wycheproof `ecdh_secp384r1_ecpoint_test`).
     p384_ecdh => p384::ecdh(&P384_ECDH);
     /// P-384 ECDSA (Wycheproof `ecdsa_secp384r1_sha384_p1363_test`).
     p384_ecdsa => p384::ecdsa(&P384_ECDSA);
+    /// P-384 compressed SEC1 point decompression (generated).
+    p384_decompress => p384::decompress(&P384_ARITH);
 
     /// X25519 (Wycheproof `x25519_test`).
     x25519_dh => x25519::dh(&X25519);

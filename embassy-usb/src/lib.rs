@@ -31,6 +31,11 @@ pub mod types;
 /// USB host support.
 pub mod host;
 
+/// Milliseconds a new connection must stay stable.
+pub(crate) const DEVICE_DEBOUNCE_STABLE: u64 = 100;
+/// Milliseconds before giving up on a bouncing connection.
+pub(crate) const DEVICE_DEBOUNCE_TIMEOUT: u64 = 2000;
+
 mod config {
     #![allow(unused)]
     include!(concat!(env!("OUT_DIR"), "/config.rs"));
