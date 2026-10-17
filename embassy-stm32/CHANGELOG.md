@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+UID:
+- fix: stm32/uid l0: read U_ID(95:64) at offset 0x14 (RM0367); the fixed 4-byte stride returned a factory constant as the third word, so chips from the same wafer and lot shared one "unique" ID ([#3046](https://github.com/embassy-rs/embassy/issues/3046)).
+
 RCC:
 - fix: stm32/rcc g0: enable the flash prefetch after setting the latency; with 2 wait states at 64 MHz and prefetch off code ran 8-16% slower.
 
