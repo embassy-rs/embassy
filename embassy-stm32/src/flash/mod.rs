@@ -151,7 +151,7 @@ pub struct FlashSector {
 }
 
 /// Flash bank.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlashBank {
     /// Bank 1

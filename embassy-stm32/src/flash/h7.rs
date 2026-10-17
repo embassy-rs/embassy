@@ -4,7 +4,8 @@ use core::sync::atomic::{Ordering, fence};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::flash::regs::Sr;
 
-use super::{BANK1_REGION, FLASH_REGIONS, FlashSector, WRITE_SIZE};
+use super::{BANK1_REGION, FLASH_REGIONS, Flash, FlashBank, FlashSector, WRITE_SIZE};
+use crate::dma::{Channel, TransferOptions};
 use crate::flash::Error;
 use crate::pac;
 
@@ -228,9 +229,163 @@ pub(crate) unsafe fn clear_all_err() {
 }
 
 unsafe fn bank_clear_all_err(bank: pac::flash::Bank) {
-    // read and write back the same value.
-    // This clears all "write 1 to clear" bits.
-    bank.sr().modify(|_| {});
+    // The status flags are cleared through the clear control register, which has the
+    // clear bits at the same positions as the flags in the status register.
+    // Mask out the busy bits (15:0), which are reserved in CCR.
+    const FLAGS_MASK: u32 = 0x1FFF_0000;
+    let sr = bank.sr().read();
+    bank.ccr().write_value(pac::flash::regs::Ccr(sr.0 & FLAGS_MASK));
+}
+
+/// An ECC error reported by the flash memory.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct EccError {
+    /// The bank in which the error occurred.
+    pub bank: FlashBank,
+    /// At least one single bit error was detected and corrected.
+    pub single: bool,
+    /// At least one double bit error was detected. The data read from this location is invalid.
+    pub double: bool,
+    /// Absolute address of the flash word that caused the first ECC error.
+    pub address: u32,
+}
+
+/// Errors returned by [`Flash::ecc_check`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum EccCheckError {
+    /// The requested range is not valid.
+    Flash(Error),
+    /// An ECC error was detected while reading the requested range.
+    Ecc(EccError),
+    /// The DMA transfer failed, but the flash did not report an ECC error.
+    Dma,
+}
+
+fn bank_regs(bank: FlashBank) -> pac::flash::Bank {
+    match bank {
+        FlashBank::Bank2 => pac::FLASH.bank(1),
+        _ => pac::FLASH.bank(0),
+    }
+}
+
+fn bank_base(bank: FlashBank) -> u32 {
+    unwrap!(FLASH_REGIONS.iter().find(|r| r.bank == bank)).base()
+}
+
+fn banks() -> &'static [FlashBank] {
+    if is_dual_bank() {
+        &[FlashBank::Bank1, FlashBank::Bank2]
+    } else {
+        &[FlashBank::Bank1]
+    }
+}
+
+fn bank_ecc_error(bank: FlashBank) -> Option<EccError> {
+    let regs = bank_regs(bank);
+    let sr = regs.sr().read();
+    if !sr.sneccerr1() && !sr.dbeccerr() {
+        return None;
+    }
+
+    // FAR contains the index of the failing flash word, relative to the start of the bank.
+    let far = regs.far().read().fail_ecc_addr() as u32;
+    Some(EccError {
+        bank,
+        single: sr.sneccerr1(),
+        double: sr.dbeccerr(),
+        address: bank_base(bank) + far * WRITE_SIZE as u32,
+    })
+}
+
+impl<'d, MODE> Flash<'d, MODE> {
+    /// Get the ECC error that is currently latched by the flash, if any.
+    ///
+    /// If both banks have an ECC error latched, the error of bank 1 is returned.
+    ///
+    /// Use [`Flash::clear_ecc_error`] to clear it.
+    pub fn ecc_error(&self) -> Option<EccError> {
+        banks().iter().find_map(|&bank| bank_ecc_error(bank))
+    }
+
+    /// Clear latched ECC errors of all banks.
+    pub fn clear_ecc_error(&mut self) {
+        for &bank in banks() {
+            bank_regs(bank).ccr().write(|w| {
+                w.set_clr_sneccerr(true);
+                w.set_clr_dbeccerr(true);
+            });
+        }
+    }
+
+    /// Read a flash region using DMA, checking it for ECC errors.
+    ///
+    /// Reading a flash word that contains a double ECC error with the CPU causes a bus fault.
+    /// Reading it with DMA instead only aborts the DMA transfer, which makes it possible to
+    /// detect corruption without faulting. Note that the flash CRC unit can not be used for
+    /// this, as CRC reads do not raise ECC errors.
+    ///
+    /// `offset` is an offset from the flash start, NOT an absolute address. The region that is
+    /// checked is `offset..offset + buf.len()`. If this function returns `Ok`, `buf` contains the data
+    /// of that region. `buf` must be accessible by the DMA channel.
+    ///
+    /// Any ECC errors that are latched before the check starts are cleared.
+    ///
+    /// The check stops at the first ECC error that is found. The flash only latches the address of
+    /// the first error, so the returned [`EccError`] can also have its `double` flag set because of
+    /// a later flash word in the same chunk. To continue checking after an error, call this
+    /// function again starting from the flash word after [`EccError::address`].
+    pub async fn read_with_ecc_check(
+        &mut self,
+        dma: &mut Channel<'_>,
+        offset: u32,
+        buf: &mut [u8],
+    ) -> Result<(), EccCheckError> {
+        let (base, size, offset) =
+            super::check_flash_address(super::FLASH_BASE as u32, offset).map_err(EccCheckError::Flash)?;
+        if offset + buf.len() as u32 > size {
+            return Err(EccCheckError::Flash(Error::Size));
+        }
+
+        let mut options = TransferOptions::default();
+        options.panic_on_error = false;
+
+        #[cfg(dma)]
+        {
+            // Memory to memory transfers are not allowed in direct mode, which the DMA driver uses
+            // if no FIFO threshold is set (and the source and destination word sizes are equal), so
+            // we have to configure it.
+            options.fifo_threshold = Some(crate::dma::FifoThreshold::Full);
+        }
+
+        self.clear_ecc_error();
+
+        let start = base + offset;
+
+        // The DMA can transfer at most 0xFFFF items at once.
+        const CHUNK_SIZE: usize = 0xFFFF;
+        for (i, chunk) in buf.chunks_mut(CHUNK_SIZE).enumerate() {
+            let address = start + (i * CHUNK_SIZE) as u32;
+            let src = core::ptr::slice_from_raw_parts(address as *const u8, chunk.len());
+
+            let mut transfer = unsafe { dma.transfer(0, src, chunk.as_mut_ptr(), options) };
+            (&mut transfer).await;
+            let dma_error = transfer.is_error();
+            drop(transfer);
+
+            // Single errors don't abort the transfer, but stop here anyway: further errors
+            // would be reported with the address of this one.
+            if let Some(err) = self.ecc_error() {
+                return Err(EccCheckError::Ecc(err));
+            }
+            if dma_error {
+                return Err(EccCheckError::Dma);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 async fn wait_ready(bank: pac::flash::Bank) -> Result<(), Error> {

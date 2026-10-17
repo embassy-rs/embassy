@@ -1,6 +1,6 @@
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{AtomicUsize, Ordering, compiler_fence, fence};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering, compiler_fence, fence};
 use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::AtomicWaker;
@@ -23,12 +23,20 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
         DmaInfo::Dma(r) => {
             let cr = r.st(info.num).cr();
             let isr = r.isr(info.num / 4).read();
-
-            if isr.teif(info.num % 4) {
-                panic!("DMA: error on DMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
-            }
-
             let mut activity = false;
+
+            if isr.teif(info.num % 4) && cr.read().teie() {
+                if state.panic_on_error.load(Ordering::Relaxed) {
+                    panic!("DMA: error on DMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
+                }
+                // The hardware already disabled the stream, make sure it stays that way.
+                // Leave TEIF set so `is_error` can report it, and disable the error interrupt.
+                cr.modify(|w| {
+                    w.set_en(false);
+                    w.set_teie(false);
+                });
+                activity = true;
+            }
             if isr.htif(info.num % 4) && cr.read().htie() {
                 // Acknowledge half transfer complete interrupt
                 r.ifcr(info.num / 4).write(|w| w.set_htif(info.num % 4, true));
@@ -49,12 +57,20 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
         DmaInfo::Bdma(r) => {
             let isr = r.isr().read();
             let cr = r.ch(info.num).cr();
+            let mut activity: bool = false;
 
-            if isr.teif(info.num) {
-                panic!("DMA: error on BDMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
+            if isr.teif(info.num) && cr.read().teie() {
+                if state.panic_on_error.load(Ordering::Relaxed) {
+                    panic!("DMA: error on BDMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
+                }
+                // The hardware already disabled the channel, make sure it stays that way.
+                // Leave TEIF set so `is_error` can report it, and disable the error interrupt.
+                cr.modify(|w| {
+                    w.set_en(false);
+                    w.set_teie(false);
+                });
+                activity = true;
             }
-
-            let mut activity = false;
             if isr.htif(info.num) && cr.read().htie() {
                 // Acknowledge half transfer complete interrupt
                 r.ifcr().write(|w| w.set_htif(info.num, true));
@@ -88,8 +104,17 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
             let isr = r.ch(info.num).isr();
             let ifcr = r.ch(info.num).ifcr();
 
-            if isr.read().teif() {
-                panic!("DMA: error on MDMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
+            if isr.read().teif() && r.ch(info.num).cr().read().teie() {
+                if state.panic_on_error.load(Ordering::Relaxed) {
+                    panic!("DMA: error on MDMA@{:08x} channel {}", r.as_ptr() as u32, info.num);
+                }
+                // The hardware already disabled the channel, make sure it stays that way.
+                // Leave TEIF (and the error details in ESR) set so `is_error` can report it, and
+                // disable the error interrupt.
+                r.ch(info.num).cr().modify(|w| {
+                    w.set_en(false);
+                    w.set_teie(false);
+                });
             }
 
             if isr.read().ctcif() {
@@ -178,6 +203,11 @@ pub struct TransferOptions {
     #[cfg(mdma)]
     /// Swap words in each double-word
     pub word_swap: bool,
+    /// Panic when the DMA reports a transfer error (e.g. a bus error).
+    ///
+    /// If this is `false`, the channel is stopped instead, and the error can be
+    /// checked with [`Transfer::is_error`].
+    pub panic_on_error: bool,
 }
 
 /// DMA Packing options
@@ -216,6 +246,7 @@ impl Default for TransferOptions {
             half_word_swap: false,
             #[cfg(mdma)]
             word_swap: false,
+            panic_on_error: true,
         }
     }
 }
@@ -452,12 +483,14 @@ mod bdma_only {
 pub(crate) struct ChannelState {
     waker: AtomicWaker,
     complete_count: AtomicUsize,
+    panic_on_error: AtomicBool,
 }
 
 impl ChannelState {
     pub(crate) const NEW: Self = Self {
         waker: AtomicWaker::new(),
         complete_count: AtomicUsize::new(0),
+        panic_on_error: AtomicBool::new(true),
     };
 }
 
@@ -526,11 +559,13 @@ impl<'d> Channel<'d> {
             super::dmamux::configure_dmamux(dmamux, _request);
         }
 
+        let state: &ChannelState = &STATE[self.channel as usize];
+        state.panic_on_error.store(options.panic_on_error, Ordering::Relaxed);
+
         match self.info().dma {
             #[cfg(dma)]
             DmaInfo::Dma(r) => {
                 assert!(mem_len > 0 && mem_len <= 0xFFFF);
-                let state: &ChannelState = &STATE[self.channel as usize];
                 let ch = r.st(info.num);
 
                 state.complete_count.store(0, Ordering::Release);
@@ -631,7 +666,6 @@ impl<'d> Channel<'d> {
                 #[cfg(bdma_v2)]
                 critical_section::with(|_| r.cselr().modify(|w| w.set_cs(info.num, _request)));
 
-                let state: &ChannelState = &STATE[self.channel as usize];
                 let ch = r.ch(info.num);
 
                 state.complete_count.store(0, Ordering::Release);
@@ -688,7 +722,6 @@ impl<'d> Channel<'d> {
                 // Circular mode is not supported
                 assert!(!options.circular);
 
-                let state: &ChannelState = &STATE[self.channel as usize];
                 let ch = r.ch(info.num);
 
                 state.complete_count.store(0, Ordering::Release);
@@ -735,13 +768,11 @@ impl<'d> Channel<'d> {
                     }
                 }
 
-                // MDMA requires BNDT (block_size) to be a multiple of TLEN+1 (buffer_size).
-                // Auto-decrease buffer_size until it divides cleanly into block_size.
-                let mut buffer_size = options.buffer_size as usize;
-                while block_size % buffer_size != 0 && buffer_size > 1 {
-                    buffer_size -= 1;
-                }
-                // Update the options so the TCR write uses the correct value
+                // TLEN+1 (buffer_size) must be a multiple of the source and destination data size.
+                // It does not need to divide BNDT (block_size): the last transfer of a block is
+                // shortened to the remaining data.
+                let data_size = usize::from(mem_size.bytes().max(peri_size.bytes()));
+                let buffer_size = (options.buffer_size as usize / data_size * data_size).max(data_size);
 
                 let (sinc, dinc) = match (incr_mem, dir) {
                     (Increment::None, _) => (Incmode::Fixed, Incmode::Fixed),
@@ -864,6 +895,19 @@ impl<'d> Channel<'d> {
         }
     }
 
+    /// Clear a latched transfer error.
+    fn clear_transfer_error(&self) {
+        let info = self.info();
+        match self.info().dma {
+            #[cfg(dma)]
+            DmaInfo::Dma(r) => r.ifcr(info.num / 4).write(|w| w.set_teif(info.num % 4, true)),
+            #[cfg(bdma)]
+            DmaInfo::Bdma(r) => r.ifcr().write(|w| w.set_teif(info.num, true)),
+            #[cfg(mdma)]
+            DmaInfo::Mdma(r) => r.ch(info.num).ifcr().write(|w| w.set_cteif(true)),
+        }
+    }
+
     fn clear_irqs(&self) {
         let info = self.info();
         match self.info().dma {
@@ -938,16 +982,20 @@ impl<'d> Channel<'d> {
             #[cfg(dma)]
             DmaInfo::Dma(r) => {
                 // Disable the channel. Keep the IEs enabled so the irqs still fire.
+                // If a transfer error is still latched, keep TEIE disabled so it doesn't fire again.
+                let error = self.is_error();
                 r.st(info.num).cr().write(|w| {
-                    w.set_teie(true);
+                    w.set_teie(!error);
                     w.set_tcie(true);
                 });
             }
             #[cfg(bdma)]
             DmaInfo::Bdma(r) => {
                 // Disable the channel. Keep the IEs enabled so the irqs still fire.
+                // If a transfer error is still latched, keep TEIE disabled so it doesn't fire again.
+                let error = self.is_error();
                 r.ch(info.num).cr().write(|w| {
-                    w.set_teie(true);
+                    w.set_teie(!error);
                     w.set_tcie(true);
                 });
             }
@@ -961,6 +1009,22 @@ impl<'d> Channel<'d> {
         }
 
         while self.is_running() {}
+
+        // Clear a latched transfer error once the channel has stopped, so late errors are cleared too.
+        self.clear_transfer_error();
+    }
+
+    /// Whether a transfer error is latched for this channel.
+    fn is_error(&self) -> bool {
+        let info = self.info();
+        match self.info().dma {
+            #[cfg(dma)]
+            DmaInfo::Dma(r) => r.isr(info.num / 4).read().teif(info.num % 4),
+            #[cfg(bdma)]
+            DmaInfo::Bdma(r) => r.isr().read().teif(info.num),
+            #[cfg(mdma)]
+            DmaInfo::Mdma(r) => r.ch(info.num).isr().read().teif(),
+        }
     }
 
     fn is_running(&self) -> bool {
@@ -1303,6 +1367,8 @@ impl<'a> Transfer<'a> {
     ///
     /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
     /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
+    ///
+    /// This also clears a latched transfer error, so check [`is_error`](Self::is_error) before resetting.
     pub fn request_reset(&mut self) {
         self.channel.request_reset()
     }
@@ -1321,6 +1387,17 @@ impl<'a> Transfer<'a> {
         self.channel.get_remaining_transfers()
     }
 
+    /// Return whether this transfer was stopped because of a transfer error.
+    ///
+    /// Errors are only reported here if [`TransferOptions::panic_on_error`] is `false`,
+    /// otherwise a transfer error causes a panic.
+    ///
+    /// This reads the transfer error flag of the channel, which stays set until the
+    /// transfer is reset or dropped.
+    pub fn is_error(&self) -> bool {
+        self.channel.is_error()
+    }
+
     /// Blocking wait until the transfer finishes.
     pub fn blocking_wait(mut self) {
         while self.is_running() {}
@@ -1328,6 +1405,8 @@ impl<'a> Transfer<'a> {
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);
 
+        // `Drop` is skipped, so clear a latched transfer error here.
+        self.channel.clear_transfer_error();
         core::mem::forget(self);
     }
 
