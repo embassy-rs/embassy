@@ -77,6 +77,9 @@ impl<SM: StationManagement> GenericPhy<SM> {
 
     /// Construct the PHY. Try to probe all addresses from 0 to 31 during initialization
     ///
+    /// Addresses whose PHY ID registers both read all-ones are skipped, because nothing drives
+    /// the MDIO line there.
+    ///
     /// Ethernet initialization returns [`Error::PhyNotFound`] if no address completes a PHY reset.
     pub fn new_auto(sm: SM) -> Self {
         Self {
@@ -95,6 +98,12 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
         // Detect SMI address
         if self.phy_addr == 0xFF {
             for addr in 0..32 {
+                let id1 = self.sm.smi_read(addr, PHY_REG_ID1)?;
+                let id2 = self.sm.smi_read(addr, PHY_REG_ID2)?;
+                if (id1, id2) == (u16::MAX, u16::MAX) {
+                    continue;
+                }
+
                 match self.reset_at(addr) {
                     Ok(()) => {
                         trace!("Found ETH PHY on address {}", addr);
