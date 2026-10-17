@@ -9,7 +9,7 @@ pub mod security;
 
 use bt_hci::cmd::controller_baseband::{Reset, SetEventMask};
 use bt_hci::cmd::info::ReadLocalVersionInformation;
-use bt_hci::cmd::le::LeSetEventMask;
+use bt_hci::cmd::le::{LeReceiverTest, LeReceiverTestV2, LeSetEventMask, LeTransmitterTest};
 use bt_hci::controller::{Controller as _, ControllerCmdSync};
 use bt_hci::event::le::{
     LeConnectionComplete, LeConnectionUpdateComplete, LeDataLengthChange, LeEnhancedConnectionComplete, LeEvent,
@@ -920,7 +920,7 @@ impl<'d> HCI<'d, Test> {
             _mode: Test,
         };
 
-        this.dtm_init()?;
+        this.dtm_init().await?;
 
         Ok(this)
     }
@@ -930,23 +930,52 @@ impl<'d> HCI<'d, Test> {
     /// Performs the minimum initialization required before issuing DTM commands
     /// (HCI_LE_Transmitter_Test, HCI_LE_Receiver_Test, HCI_LE_Test_End).
     /// Does not initialize GATT or GAP — those layers are not used in DTM.
-    fn dtm_init(&mut self) -> Result<(), BleError> {
-        self.cmd_sender.reset()?;
+    async fn dtm_init(&mut self) -> Result<(), BleError> {
+        // 1. Reset BLE controller
+        self.controller.exec(&Reset::new()).await?;
 
-        let version = self.cmd_sender.read_local_version()?;
+        // 2. Read local version information
+        let version = self.controller.exec(&ReadLocalVersionInformation::new()).await?;
 
+        let (hci_version, hci_subversion, lmp_version, company_identifier) = (
+            version.hci_version,
+            version.hci_subversion,
+            version.lmp_version,
+            version.company_identifier,
+        );
         info!(
-            "BLE Controller: HCI Version {}.{}, Manufacturer: 0x{:04X}",
-            version.hci_version >> 4,
-            version.hci_version & 0x0F,
-            version.manufacturer_name
+            "BLE Controller: HCI Version {:?}, Revision: 0x{:04X}, LMP Version: {:?}, Manufacturer: 0x{:04X}",
+            hci_version, hci_subversion, lmp_version, company_identifier
         );
 
-        if let Err(e) = self.cmd_sender.set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
-            warn!("set_event_mask failed: {:?}", e);
+        if let Err(e) = self
+            .controller
+            .exec(&SetEventMask::new(EventMask::from_hci_bytes(&[0xFF; 8]).unwrap().0))
+            .await
+        {
+            warn!(
+                "set_event_mask failed: {:?} (may be handled internally)",
+                BleError::from(e)
+            );
         }
-        if let Err(e) = self.cmd_sender.le_set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
-            warn!("le_set_event_mask failed: {:?}", e);
+
+        let event_mask = EventMask::from_hci_bytes(&[0xFF; 8]).expect("valid event mask").0;
+        if let Err(e) = self.controller.exec(&SetEventMask::new(event_mask)).await {
+            warn!(
+                "set_event_mask failed: {:?} (may be handled internally)",
+                BleError::from(e)
+            );
+        }
+
+        if let Err(e) = self
+            .controller
+            .exec(&LeSetEventMask::new(LeEventMask::from_hci_bytes(&[0xFF; 8]).unwrap().0))
+            .await
+        {
+            warn!(
+                "le_set_event_mask failed: {:?} (may be handled internally)",
+                BleError::from(e)
+            );
         }
 
         info!("BLE stack initialized for DTM");
@@ -962,8 +991,11 @@ impl<'d> HCI<'d, Test> {
     /// `channel`: 0–39, maps to 2402 + (2 × N) MHz.
     /// `length`: payload bytes per packet, 0–255.
     /// `payload`: bit pattern to transmit.
-    pub fn dtm_transmit(&mut self, channel: u8, length: u8, payload: DtmPacketPayload) -> Result<(), BleError> {
-        hci::command::le_transmitter_test(channel, length, payload)
+    pub async fn dtm_transmit(&mut self, channel: u8, length: u8, payload: DtmPacketPayload) -> Result<(), BleError> {
+        self.controller
+            .exec(&LeTransmitterTest::new(channel, length, payload as u8))
+            .await
+            .map_err(|e| e.into())
     }
 
     /// Start a DTM receiver test on the given channel.
@@ -972,12 +1004,18 @@ impl<'d> HCI<'d, Test> {
     /// Call `Ble::deinit()` then `Ble::new_dtm()` first to ensure the LL is idle.
     ///
     /// `channel`: 0–39, maps to 2402 + (2 × N) MHz.
-    pub fn dtm_receive(&mut self, channel: u8) -> Result<(), BleError> {
-        hci::command::le_receiver_test(channel)
+    pub async fn dtm_receive(&mut self, channel: u8) -> Result<(), BleError> {
+        self.controller
+            .exec(&LeReceiverTest::new(channel))
+            .await
+            .map_err(|e| e.into())
     }
 
-    pub fn dtm_receive_v2(&mut self, rx_channel: u8, phy: DtmRxPhy, modulation_index: u8) -> Result<(), BleError> {
-        hci::command::le_receiver_test_v2(rx_channel, phy, modulation_index)
+    pub async fn dtm_receive_v2(&mut self, channel: u8, phy: DtmRxPhy, modulation_index: u8) -> Result<(), BleError> {
+        self.controller
+            .exec(&LeReceiverTestV2::new(channel, phy as u8, modulation_index))
+            .await
+            .map_err(|e| e.into())
     }
 
     pub fn le_transmitter_test_v2(
@@ -1018,7 +1056,7 @@ impl<'d, M: Mode> HCI<'d, M> {
     ///
     /// - `Ok(())` on success
     /// - `Err(BleError)` if the HCI reset failed
-    pub fn deinit(mut self) -> Result<(), BleError> {
+    pub async fn deinit(mut self) -> Result<(), BleError> {
         // Terminate all active connections cleanly
         for conn in self.connections.iter() {
             // 0x16 = "local host terminated connection"
@@ -1027,7 +1065,7 @@ impl<'d, M: Mode> HCI<'d, M> {
 
         // Reset the HCI controller — this resets the radio hardware to its
         // initial state, which is required before re-calling init_ble_stack().
-        self.cmd_sender.reset()?;
+        self.controller.exec(&Reset::new()).await?;
 
         self.is_advertising = false;
         self.active_scan_proc = None;

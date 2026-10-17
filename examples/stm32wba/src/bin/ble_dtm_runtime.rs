@@ -149,7 +149,7 @@ async fn main(spawner: Spawner) {
                 // deinit terminates connections and advertising via hci_reset(),
                 // leaving the LL in a clean idle state. State is returned so it
                 // can be passed directly to the next HCI instance.
-                ble.deinit().expect("deinit failed");
+                ble.deinit().await.expect("deinit failed");
 
                 // Initialize a minimal DTM-only instance (no GAP/GATT needed for DTM)
                 let mut dtm_ble = HCI::new_dtm(platform, runtime, Irqs)
@@ -161,7 +161,7 @@ async fn main(spawner: Spawner) {
                 // Deinit the DTM instance — resets radio hardware so PhyStartClbr
                 // succeeds when advertising is configured after full BLE reinit.
                 info!("DTM done — reinitializing BLE stack");
-                dtm_ble.deinit().expect("deinit after DTM failed");
+                dtm_ble.deinit().await.expect("deinit after DTM failed");
 
                 // Reinitialize full BLE stack with the same state
                 ble = match ADDR_TYPE {
@@ -285,6 +285,7 @@ async fn run_dtm_test(ble: &mut HCI<'_, Test>, expected: u32) {
             info!("Expected ~{} packets (~1600 packets/s at 625us interval)", expected);
 
             ble.dtm_transmit(DTM_CHANNEL, DTM_DATA_LENGTH, DtmPacketPayload::Prbs9)
+                .await
                 .expect("DTM TX start failed");
 
             Timer::after_secs(DTM_TEST_DURATION_SECS).await;
@@ -302,7 +303,7 @@ async fn run_dtm_test(ble: &mut HCI<'_, Test>, expected: u32) {
             );
             info!("Expected ~{} packets (~1600 packets/s at 625us interval)", expected);
 
-            ble.dtm_receive(DTM_CHANNEL).expect("DTM RX start failed");
+            ble.dtm_receive(DTM_CHANNEL).await.expect("DTM RX start failed");
 
             Timer::after_secs(DTM_TEST_DURATION_SECS).await;
 
