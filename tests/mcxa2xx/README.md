@@ -8,6 +8,7 @@
 - [x] ADC
 - [x] I3C
 - [x] CRC
+- [x] TRNG blocking/async reads, mixed-mode calls, and stale-IRQ rejection
 - [x] Watchdog
 - [ ] Flash
 - [x] CTimer PWM

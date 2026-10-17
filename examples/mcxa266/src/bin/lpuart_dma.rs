@@ -29,6 +29,7 @@ async fn main(_spawner: Spawner) {
     // Create UART configuration
     let config = Config {
         baudrate_bps: 115_200,
+        rx_fifo_watermark: 0, // Drain every received byte.
         ..Default::default()
     };
 
