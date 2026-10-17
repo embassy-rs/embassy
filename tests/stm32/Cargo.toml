@@ -133,7 +133,7 @@ embassy-crypto-test = { version = "0.1.0", path = "../../embassy-crypto-test", f
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt"] }
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "93228f1ec64720122016be52be4671e413fa92a9", default-features = false }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131deb9ff3290e0e01079537e1ed7b2ad", default-features = false }
 mcu-crypto-asm = { git = "https://github.com/kokroo/mcu-crypto-asm", rev = "20201d1aa07d525553c73a1280165813ada2b2e4", features = ["embassy-crypto-p256-arith", "embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa", "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa"], optional = true }
 # Same crate, software AES-128-GCM only; a separate instance (via a shim
 # crate, since Cargo forbids two names for one package) so chips without a
