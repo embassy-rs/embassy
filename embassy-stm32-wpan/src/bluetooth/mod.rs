@@ -9,7 +9,11 @@ pub mod security;
 
 use bt_hci::cmd::controller_baseband::{Reset, SetEventMask};
 use bt_hci::cmd::info::ReadLocalVersionInformation;
-use bt_hci::cmd::le::{LeReceiverTest, LeReceiverTestV2, LeSetEventMask, LeTransmitterTest};
+use bt_hci::cmd::le::{
+    LeReadLocalSupportedFeatures, LeReceiverTest, LeReceiverTestV2, LeSetEventMask, LeTransmitterTest,
+    LeTransmitterTestV2,
+};
+
 use bt_hci::controller::{Controller as _, ControllerCmdSync};
 use bt_hci::event::le::{
     LeConnectionComplete, LeConnectionUpdateComplete, LeDataLengthChange, LeEnhancedConnectionComplete, LeEvent,
@@ -20,8 +24,9 @@ use bt_hci::param::{BdAddr, ConnHandle, EventMask, LeEventMask, PhyKind};
 use bt_hci::{ControllerToHostPacket, FromHciBytes};
 use embassy_futures::yield_now;
 use embassy_stm32::interrupt;
-use stm32wb_hci::aci::flags::Role;
+use stm32wb_hci::aci::flags::{RadioActivityMask, Role};
 use stm32wb_hci::aci::gatt::GattInit;
+use stm32wb_hci::aci::hal::{HalLeTxTestPacketNumber, HalReadRssi, HalRssi, HalSetRadioActivityMask};
 pub use stm32wb_hci::event::BleEvent;
 
 use crate::bluetooth::error::BleError;
@@ -37,7 +42,8 @@ use crate::bluetooth::gatt::{
 };
 use crate::bluetooth::hci::command::CommandSender;
 use crate::bluetooth::hci::types::DtmPacketPayload;
-use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy, RadioActivityMask};
+use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy};
+
 use crate::bluetooth::security::{SecurityEvent, SecurityManager, from_vendor_event as security_from_vendor_event};
 use crate::controller::{Controller, ControllerAdapter};
 use crate::{HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
@@ -229,8 +235,8 @@ impl<'d> HCI<'d, Normal> {
 
         // 5. Read supported features (optional - skip if not available)
         info!("Calling le_read_local_supported_features...");
-        match self.cmd_sender.le_read_local_supported_features() {
-            Ok(features) => info!("Supported LE features: {=[u8]:#02X}", features),
+        match self.controller.exec(&LeReadLocalSupportedFeatures::new()).await {
+            Ok(features) => info!("Supported LE features: {}", features),
             Err(e) => warn!("le_read_local_supported_features failed: {:?} (skipping)", e),
         }
 
@@ -599,16 +605,19 @@ impl<'d> HCI<'d, Normal> {
     ///
     /// Returns `Ok(None)` when the controller reports that RSSI is not
     /// available (raw value 127).
-    pub fn read_rssi(&self) -> Result<Option<i8>, BleError> {
-        self.cmd_sender.read_rssi()
+    pub async fn read_rssi(&self) -> Result<HalRssi, BleError> {
+        self.controller.exec(&HalReadRssi::new()).await.map_err(|e| e.into())
     }
 
     /// Select which radio activities are reported through
     /// `ACI_HAL_END_OF_RADIO_ACTIVITY_EVENT`.
     ///
     /// See [`RadioActivityMask`] for the available bits.
-    pub fn set_radio_activity_mask(&self, mask: RadioActivityMask) -> Result<(), BleError> {
-        self.cmd_sender.set_radio_activity_mask(mask)
+    pub async fn set_radio_activity_mask(&self, mask: RadioActivityMask) -> Result<(), BleError> {
+        self.controller
+            .exec(&HalSetRadioActivityMask::new(mask))
+            .await
+            .map_err(|e| e.into())
     }
 
     // ===== Direction Finding / CTE Commands =====
@@ -1018,18 +1027,30 @@ impl<'d> HCI<'d, Test> {
             .map_err(|e| e.into())
     }
 
-    pub fn le_transmitter_test_v2(
+    pub async fn le_transmitter_test_v2(
         &mut self,
         tx_channel: u8,
         test_data_length: u8,
         packet_payload: DtmPacketPayload,
         phy: DtmTxPhy,
     ) -> Result<(), BleError> {
-        hci::command::le_transmitter_test_v2(tx_channel, test_data_length, packet_payload, phy)
+        self.controller
+            .exec(&LeTransmitterTestV2::new(
+                tx_channel,
+                test_data_length,
+                packet_payload as u8,
+                phy as u8,
+            ))
+            .await
+            .map_err(|e| e.into())
     }
 
-    pub fn aci_hal_tx_test_packet_number(&mut self) -> Result<u32, BleError> {
-        hci::command::aci_hal_tx_test_packet_number()
+    pub async fn aci_hal_tx_test_packet_number(&mut self) -> Result<u32, BleError> {
+        Ok(self
+            .controller
+            .exec(&HalLeTxTestPacketNumber::new())
+            .await?
+            .number_of_packets)
     }
 
     /// End a DTM test and return the received packet count.
