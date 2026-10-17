@@ -78,6 +78,9 @@ impl<SM: StationManagement> GenericPhy<SM> {
 
     /// Construct the PHY. Try to probe all addresses from 0 to 31 during initialization
     ///
+    /// Addresses whose PHY ID registers both read all-ones are skipped, because nothing drives
+    /// the MDIO line there.
+    ///
     /// # Panics
     /// Initialization panics if PHY didn't respond on any address
     pub fn new_auto(sm: SM) -> Self {
@@ -97,6 +100,12 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
         // Detect SMI address
         if self.phy_addr == 0xFF {
             for addr in 0..32 {
+                let id1 = self.sm.smi_read(addr, PHY_REG_ID1);
+                let id2 = self.sm.smi_read(addr, PHY_REG_ID2);
+                if (id1, id2) == (u16::MAX, u16::MAX) {
+                    continue;
+                }
+
                 self.sm.smi_write(addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
                 for _ in 0..10 {
                     if self.sm.smi_read(addr, PHY_REG_BCR) & PHY_REG_BCR_RESET != PHY_REG_BCR_RESET {
