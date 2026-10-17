@@ -457,7 +457,6 @@ embassy_hal_internal::peripherals! {
 
     // GRTC
     GRTC_CH0,
-    #[cfg(not(feature = "time-driver-grtc"))]
     GRTC_CH1,
     GRTC_CH2,
     GRTC_CH3,
@@ -468,6 +467,7 @@ embassy_hal_internal::peripherals! {
     GRTC_CH8,
     GRTC_CH9,
     GRTC_CH10,
+    #[cfg(not(feature = "time-driver-grtc"))]
     GRTC_CH11,
 
     // PWM
