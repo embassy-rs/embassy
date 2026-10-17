@@ -3,9 +3,9 @@
 //! This is a thin Rust wrapper around ST's GATT server implementation.
 
 use stm32_bindings::ble::{
-    self, aci_gatt_add_char, aci_gatt_add_char_desc, aci_gatt_add_service, aci_gatt_init, aci_gatt_permit_read,
-    aci_gatt_permit_write, aci_gatt_read_handle_value, aci_gatt_set_desc_value, aci_gatt_set_event_mask,
-    aci_gatt_store_db, aci_gatt_update_char_value, aci_gatt_update_char_value_ext,
+    self, aci_gatt_add_char, aci_gatt_add_char_desc, aci_gatt_add_service, aci_gatt_permit_read, aci_gatt_permit_write,
+    aci_gatt_read_handle_value, aci_gatt_set_desc_value, aci_gatt_set_event_mask, aci_gatt_store_db,
+    aci_gatt_update_char_value, aci_gatt_update_char_value_ext,
 };
 
 use super::types::{
@@ -13,7 +13,7 @@ use super::types::{
     ServiceHandle, ServiceType, Uuid, UuidType,
 };
 use crate::bluetooth::error::BleError;
-use crate::bluetooth::hci::{self, Status};
+use crate::bluetooth::hci::Status;
 
 /// Update type for aci_gatt_update_char_value_ext
 #[allow(dead_code)]
@@ -29,24 +29,6 @@ mod update_type {
 const BLE_STATUS_SUCCESS: u8 = 0x00;
 const ACCESS_ALLOWED: u8 = 0x00;
 const ACCESS_DENIED: u8 = 0x01;
-
-/// Initialize the GATT layer globally
-///
-/// This function calls aci_gatt_init() to initialize the GATT layer.
-/// Per ST's BLE_HeartRate example, this MUST be called before aci_gap_init().
-///
-/// This is called automatically by Ble::init() and should not be called directly.
-pub(crate) fn init_gatt_layer() -> Result<(), BleError> {
-    unsafe {
-        let status = aci_gatt_init();
-        if status == BLE_STATUS_SUCCESS {
-            Ok(())
-        } else {
-            error!("aci_gatt_init failed: 0x{:02X}", status);
-            Err(BleError::CommandFailed(hci::types::Status::from_u8(status)))
-        }
-    }
-}
 
 /// GATT Server
 ///

@@ -34,7 +34,7 @@ use embassy_stm32::usart::{self, BufferedUart, BufferedUartRx, BufferedUartTx, C
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{
     CHAR_VALUE_HANDLE_OFFSET, CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions,
     ServiceHandle, ServiceType, Uuid, is_cccd_handle, is_value_handle,
@@ -47,6 +47,7 @@ use panic_probe as _;
 use static_cell::StaticCell;
 use stm32wb_hci::aci::AciEvent;
 use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
+use stm32wb_hci::aci::values::AddressType;
 
 // Interrupt bindings
 bind_interrupts!(struct Irqs {

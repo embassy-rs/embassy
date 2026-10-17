@@ -28,10 +28,11 @@ use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{
     BdAddrType, ConnectionInitParams, GapEvent, ParsedAdvData, ScanParams, ScanType,
 };
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
+use stm32wb_hci::aci::values::AddressType;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;

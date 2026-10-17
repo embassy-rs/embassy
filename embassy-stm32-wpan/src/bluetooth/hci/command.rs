@@ -5,20 +5,17 @@
 //! the implementation compared to packet-based HCI.
 
 use stm32_bindings::ble::{
-    aci_hal_le_tx_test_packet_number, aci_hal_read_rssi, aci_hal_set_radio_activity_mask, hci_disconnect,
-    hci_le_connection_cte_request_enable, hci_le_connection_cte_response_enable, hci_le_connection_update,
-    hci_le_create_connection, hci_le_create_connection_cancel, hci_le_read_advertising_physical_channel_tx_power,
-    hci_le_read_antenna_information, hci_le_read_buffer_size_v2, hci_le_read_local_p256_public_key,
-    hci_le_read_local_supported_features_page_0, hci_le_read_phy, hci_le_receiver_test, hci_le_receiver_test_v2,
+    hci_disconnect, hci_le_connection_cte_request_enable, hci_le_connection_cte_response_enable,
+    hci_le_connection_update, hci_le_create_connection, hci_le_create_connection_cancel,
+    hci_le_read_advertising_physical_channel_tx_power, hci_le_read_antenna_information, hci_le_read_buffer_size_v2,
+    hci_le_read_local_p256_public_key, hci_le_read_local_supported_features_page_0, hci_le_read_phy,
     hci_le_remote_connection_parameter_request_reply, hci_le_remove_device_from_resolving_list,
     hci_le_set_advertising_data, hci_le_set_advertising_enable, hci_le_set_advertising_parameters,
     hci_le_set_connection_cte_receive_parameters, hci_le_set_connection_cte_transmit_parameters,
-    hci_le_set_data_length, hci_le_set_event_mask, hci_le_set_phy, hci_le_set_random_address, hci_le_set_scan_enable,
-    hci_le_set_scan_parameters, hci_le_set_scan_response_data, hci_le_test_end, hci_le_transmitter_test,
-    hci_le_transmitter_test_v2, hci_read_bd_addr, hci_read_local_version_information, hci_reset, hci_set_event_mask,
+    hci_le_set_data_length, hci_le_set_phy, hci_le_set_random_address, hci_le_set_scan_enable,
+    hci_le_set_scan_parameters, hci_le_set_scan_response_data, hci_le_test_end, hci_read_bd_addr,
 };
 
-use crate::bluetooth::VersionInfo;
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::gap::types::{BdAddrType, OwnAddressType};
 use crate::bluetooth::hci::types;
@@ -28,33 +25,6 @@ const BLE_STATUS_SUCCESS: u8 = 0x00;
 
 /// `BLE_STATUS_PENDING`: the command was accepted and completes asynchronously.
 const BLE_STATUS_PENDING: u8 = 0x95;
-
-/// Enable or disable LE advertising in the link layer.
-///
-/// Standalone function for use outside the normal CommandSender flow
-/// (e.g., re-enabling advertising after disconnect, or kicking the LL
-/// after runner startup when ACI_GAP_SET_DISCOVERABLE didn't enable it).
-pub fn le_set_advertising_enable(enable: bool) -> Result<(), BleError> {
-    let status = unsafe { hci_le_set_advertising_enable(if enable { 1 } else { 0 }) };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
-    }
-}
-
-/// Enable or disable LE scanning in the link layer.
-///
-/// Standalone function for kicking the LL after runner startup when
-/// the scan enable command was issued before the runner was active.
-pub fn le_set_scan_enable(enable: bool, filter_duplicates: bool) -> Result<(), BleError> {
-    let status = unsafe { hci_le_set_scan_enable(if enable { 1 } else { 0 }, if filter_duplicates { 1 } else { 0 }) };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
-    }
-}
 
 /// Command sender for HCI commands
 ///
@@ -81,53 +51,6 @@ impl CommandSender {
         }
     }
 
-    // ===== Controller & Baseband Commands =====
-
-    /// Reset the BLE controller
-    pub fn reset(&self) -> Result<(), BleError> {
-        unsafe {
-            let status = hci_reset();
-            Self::check_status(status)
-        }
-    }
-
-    /// Read local version information
-    pub fn read_local_version(&self) -> Result<VersionInfo, BleError> {
-        unsafe {
-            let mut hci_version = 0u8;
-            let mut hci_revision = 0u16;
-            let mut lmp_pal_version = 0u8;
-            let mut manufacturer_name = 0u16;
-            let mut lmp_pal_subversion = 0u16;
-
-            let status = hci_read_local_version_information(
-                &mut hci_version,
-                &mut hci_revision,
-                &mut lmp_pal_version,
-                &mut manufacturer_name,
-                &mut lmp_pal_subversion,
-            );
-
-            Self::check_status(status)?;
-            Ok(VersionInfo {
-                hci_version,
-                hci_revision,
-                lmp_version: lmp_pal_version,
-                manufacturer_name,
-                lmp_subversion: lmp_pal_subversion,
-            })
-        }
-    }
-
-    /// Set event mask
-    pub fn set_event_mask(&self, mask: u64) -> Result<(), BleError> {
-        unsafe {
-            let mask_bytes = mask.to_le_bytes();
-            let status = hci_set_event_mask(&mask_bytes as *const [u8; 8] as *const u8);
-            Self::check_status(status)
-        }
-    }
-
     /// Read BD_ADDR (Bluetooth device address)
     pub fn read_bd_addr(&self) -> Result<[u8; 6], BleError> {
         unsafe {
@@ -139,15 +62,6 @@ impl CommandSender {
     }
 
     // ===== LE Controller Commands =====
-
-    /// Set LE event mask
-    pub fn le_set_event_mask(&self, mask: u64) -> Result<(), BleError> {
-        unsafe {
-            let mask_bytes = mask.to_le_bytes();
-            let status = hci_le_set_event_mask(&mask_bytes as *const [u8; 8] as *const u8);
-            Self::check_status(status)
-        }
-    }
 
     /// Set random address
     pub fn le_set_random_address(&self, address: &[u8; 6]) -> Result<(), BleError> {
@@ -643,32 +557,6 @@ impl CommandSender {
     }
 
     // ===== HAL / link-control Commands =====
-
-    /// Read the RSSI (dBm) of the most recently received packet.
-    ///
-    /// Returns `Ok(None)` when the controller reports RSSI as not available
-    /// (raw value 127).
-    pub fn read_rssi(&self) -> Result<Option<i8>, BleError> {
-        unsafe {
-            let mut rssi: u8 = 0;
-            let status = aci_hal_read_rssi(&mut rssi);
-            Self::check_status(status)?;
-            let dbm = rssi as i8;
-            Ok(if dbm == 127 { None } else { Some(dbm) })
-        }
-    }
-
-    /// Configure which radio activities are reported through
-    /// `ACI_HAL_END_OF_RADIO_ACTIVITY_EVENT`.
-    ///
-    /// Only the activities selected in `mask` raise the event; this is the
-    /// supported way to keep the MCU asleep outside of radio activity.
-    pub fn set_radio_activity_mask(&self, mask: types::RadioActivityMask) -> Result<(), BleError> {
-        unsafe {
-            let status = aci_hal_set_radio_activity_mask(mask.0);
-            Self::check_status(status)
-        }
-    }
 }
 
 impl Default for CommandSender {
@@ -681,62 +569,17 @@ impl Default for CommandSender {
 ///
 /// `rx_channel`: 0–39. Frequency = 2402 + (2 × N) MHz.
 /// Call `le_test_end()` to stop and read the received packet count.
-pub(crate) fn le_receiver_test(rx_channel: u8) -> Result<(), BleError> {
-    let status = unsafe { hci_le_receiver_test(rx_channel) };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
-    }
-}
 
 /// Start a DTM receiver test with PHY selection (v2).
 ///
 /// `modulation_index`: 0x00 = standard, 0x01 = stable.
-pub(crate) fn le_receiver_test_v2(
-    rx_channel: u8,
-    phy: super::types::DtmRxPhy,
-    modulation_index: u8,
-) -> Result<(), BleError> {
-    let status = unsafe { hci_le_receiver_test_v2(rx_channel, phy as u8, modulation_index) };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
-    }
-}
 
 /// Start a DTM transmitter test (v1, 1M PHY).
 ///
 /// `tx_channel`: 0–39. Frequency = 2402 + (2 × N) MHz.
 /// `test_data_length`: payload bytes per packet, 0–255.
-pub(crate) fn le_transmitter_test(
-    tx_channel: u8,
-    test_data_length: u8,
-    packet_payload: types::DtmPacketPayload,
-) -> Result<(), BleError> {
-    let status = unsafe { hci_le_transmitter_test(tx_channel, test_data_length, packet_payload as u8) };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(types::Status::from_u8(status)))
-    }
-}
 
 /// Start a DTM transmitter test with PHY selection (v2).
-pub(crate) fn le_transmitter_test_v2(
-    tx_channel: u8,
-    test_data_length: u8,
-    packet_payload: types::DtmPacketPayload,
-    phy: types::DtmTxPhy,
-) -> Result<(), BleError> {
-    let status = unsafe { hci_le_transmitter_test_v2(tx_channel, test_data_length, packet_payload as u8, phy as u8) };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(())
-    } else {
-        Err(BleError::CommandFailed(types::Status::from_u8(status)))
-    }
-}
 
 /// End a DTM test and return the received packet count.
 ///
@@ -745,20 +588,6 @@ pub(crate) fn le_transmitter_test_v2(
 pub(crate) fn le_test_end() -> Result<u16, BleError> {
     let mut num_packets: u16 = 0;
     let status = unsafe { hci_le_test_end(&mut num_packets) };
-    if status == BLE_STATUS_SUCCESS {
-        Ok(num_packets)
-    } else {
-        Err(BleError::CommandFailed(super::types::Status::from_u8(status)))
-    }
-}
-
-/// Read the number of TX packets sent during an active transmitter test.
-///
-/// ST proprietary command. Call this while the test is running to monitor
-/// progress without ending the test.
-pub(crate) fn aci_hal_tx_test_packet_number() -> Result<u32, BleError> {
-    let mut num_packets: u32 = 0;
-    let status = unsafe { aci_hal_le_tx_test_packet_number(&mut num_packets) };
     if status == BLE_STATUS_SUCCESS {
         Ok(num_packets)
     } else {

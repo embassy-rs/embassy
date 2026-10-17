@@ -50,7 +50,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams, IoCapability as GapIoCapability};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::hci::AdvFilterPolicy;
 use embassy_stm32_wpan::bluetooth::security::{
@@ -63,7 +63,7 @@ use embassy_stm32_wpan::{
 use panic_probe as _;
 use stm32wb_hci::aci::AciEvent;
 use stm32wb_hci::aci::gap::GapPairingCompleteEvent;
-use stm32wb_hci::aci::values::PairingStatus;
+use stm32wb_hci::aci::values::{AddressType, PairingStatus};
 use stm32wb_hci::wire::OrUnknown;
 
 bind_interrupts!(struct Irqs {
@@ -113,7 +113,7 @@ async fn main(spawner: Spawner) {
         address_type: AddressType::Public,
         bd_addr: st_public_bd_addr(),
         device_name: b"Embassy-Bond",
-        io_capability: GapIoCapability::DisplayYesNo,
+        io_capability: stm32wb_hci::aci::values::IoCapability::DisplayYesNo,
         skip_authentication_setup: true,
         ..GapInitParams::default()
     };
