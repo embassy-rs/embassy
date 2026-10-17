@@ -13,7 +13,6 @@ use bt_hci::cmd::le::{
     LeReadLocalSupportedFeatures, LeReceiverTest, LeReceiverTestV2, LeSetEventMask, LeTransmitterTest,
     LeTransmitterTestV2,
 };
-
 use bt_hci::controller::{Controller as _, ControllerCmdSync};
 use bt_hci::event::le::{
     LeConnectionComplete, LeConnectionUpdateComplete, LeDataLengthChange, LeEnhancedConnectionComplete, LeEvent,
@@ -43,7 +42,6 @@ use crate::bluetooth::gatt::{
 use crate::bluetooth::hci::command::CommandSender;
 use crate::bluetooth::hci::types::DtmPacketPayload;
 use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy};
-
 use crate::bluetooth::security::{SecurityEvent, SecurityManager, from_vendor_event as security_from_vendor_event};
 use crate::controller::{Controller, ControllerAdapter};
 use crate::{HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
