@@ -9,24 +9,31 @@ use nxp_pac::lpuart::Dozeen;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
+#[cfg(mcxa_dma)]
 use crate::dma::DmaRequest;
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
+#[cfg(not(feature = "_mcxa1xx"))]
+use crate::pac::lpuart::Swap;
 use crate::pac::lpuart::{
     Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Msbf as MsbFirst, Pt as Parity, Rst, Rxflush,
-    Sbns as StopBits, Swap, Tc, Tdre, Txctsc as TxCtsConfig, Txctssrc as TxCtsSource, Txflush,
+    Sbns as StopBits, Tc, Tdre, Txctsc as TxCtsConfig, Txctssrc as TxCtsSource, Txflush,
 };
 
+#[cfg(mcxa_dma)]
 pub(crate) mod bbq;
 mod blocking;
 mod buffered;
+#[cfg(mcxa_dma)]
 mod dma;
 
+#[cfg(mcxa_dma)]
 pub use bbq::{
     BbqConfig, BbqError, BbqHalfParts, BbqInterruptHandler, BbqParts, BbqRxMode, LpuartBbq, LpuartBbqRx, LpuartBbqTx,
 };
 pub use blocking::Blocking;
 pub use buffered::{Buffered, BufferedInterruptHandler};
+#[cfg(mcxa_dma)]
 pub use dma::{Dma, RingBufferedLpuartRx};
 
 mod sealed {
@@ -120,7 +127,9 @@ pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = LpuartConfig> {
     fn state() -> &'static State;
 
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance;
+    #[cfg(mcxa_dma)]
     const TX_DMA_REQUEST: DmaRequest;
+    #[cfg(mcxa_dma)]
     const RX_DMA_REQUEST: DmaRequest;
     const PERF_INT_INCR: fn();
     const PERF_INT_WAKE_INCR: fn();
@@ -156,7 +165,9 @@ macro_rules! impl_lpuart_instance {
 
                 const CLOCK_INSTANCE: $crate::clocks::periph_helpers::LpuartInstance
                     = $crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
+                #[cfg(mcxa_dma)]
                 const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Tx>];
+                #[cfg(mcxa_dma)]
                 const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpuart $n Rx>];
                 const PERF_INT_INCR: fn() = $crate::perf_counters::[<incr_interrupt_lpuart $n>];
                 const PERF_INT_WAKE_INCR: fn() = $crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
@@ -166,6 +177,7 @@ macro_rules! impl_lpuart_instance {
                 type Interrupt = $crate::interrupt::typelevel::[<LPUART $n>];
             }
 
+            #[cfg(mcxa_dma)]
             $crate::impl_lpuart_bbq_instance!($n);
         }
     };
@@ -249,7 +261,8 @@ fn configure_control_settings(info: &'static Info, config: &Config) {
         w.set_idlecfg(config.rx_idle_config);
         w.set_ilt(config.rx_idle_type);
 
-        // Swap TXD/RXD if configured
+        #[cfg(not(feature = "_mcxa1xx"))]
+        // Swap TXD/RXD if configured.
         if config.swap_txd_rxd {
             w.set_swap(Swap::Swap);
         } else {
@@ -515,6 +528,7 @@ pub enum Error {
     Other,
 }
 
+#[cfg(mcxa_dma)]
 impl From<crate::dma::InvalidParameters> for Error {
     fn from(_value: crate::dma::InvalidParameters) -> Self {
         Error::Other
@@ -622,6 +636,7 @@ struct TxPins<'a> {
 }
 
 impl<'a> TxPins<'a> {
+    #[cfg(mcxa_dma)]
     fn take(self) -> (Peri<'a, AnyPin>, Option<Peri<'a, AnyPin>>) {
         unsafe {
             let tx_pin = self.tx_pin.clone_unchecked();
@@ -638,6 +653,7 @@ struct RxPins<'a> {
 }
 
 impl<'a> RxPins<'a> {
+    #[cfg(mcxa_dma)]
     fn take(self) -> (Peri<'a, AnyPin>, Option<Peri<'a, AnyPin>>) {
         unsafe {
             let rx_pin = self.rx_pin.clone_unchecked();
@@ -670,6 +686,7 @@ impl Drop for RxPins<'_> {
 pub struct LpuartTx<'a, M: Mode> {
     info: &'static Info,
     state: &'static State,
+    #[cfg_attr(not(mcxa_dma), allow(dead_code))] // Only DMA modes inspect this stored state.
     mode: M,
     _tx_pins: TxPins<'a>,
     _wg: Option<WakeGuard>,
@@ -680,6 +697,7 @@ pub struct LpuartTx<'a, M: Mode> {
 pub struct LpuartRx<'a, M: Mode> {
     info: &'static Info,
     state: &'static State,
+    #[cfg_attr(not(mcxa_dma), allow(dead_code))] // Only DMA modes inspect this stored state.
     mode: M,
     _rx_pins: RxPins<'a>,
     _wg: Option<WakeGuard>,
@@ -758,6 +776,11 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         enable_rx_rts: bool,
         config: Config,
     ) -> Result<Option<WakeGuard>, Error> {
+        #[cfg(feature = "_mcxa1xx")]
+        if config.swap_txd_rxd {
+            return Err(Error::InvalidArgument);
+        }
+
         // Check if the peripheral was leaked using [core::mem::forget], and clean up the peripheral.
         if T::state().tx_rx_refmask.fetch_any_alive_reset() {
             disable_peripheral(T::info());

@@ -6,6 +6,13 @@
 // Allow functions with too many args - we have a lot of HAL constructors like this for now
 #![allow(clippy::too_many_arguments)]
 
+/// Module for MCXA1xx-specific HAL drivers.
+#[cfg(feature = "_mcxa1xx")]
+#[path = "."]
+mod mcxa1xx_exclusive {
+    pub use crate::chips::mcxa1xx::init;
+}
+
 /// Module for MCXA2xx-specific HAL drivers
 ///
 /// NOTE: *for now*, some items are here because we haven't validated them on the MCXA5xx yet.
@@ -23,6 +30,7 @@ mod mcxa5xx_exclusive {
     pub use crate::chips::mcxa5xx::init;
 }
 
+#[cfg(not(feature = "_mcxa1xx"))]
 pub mod rom;
 pub mod trace;
 
@@ -32,6 +40,9 @@ pub mod adc;
 pub mod cdog;
 #[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
 pub mod clkout; // TODO: Add dummy driver to metadata
+#[cfg(all(feature = "_mcxa1xx", mcxa_mrcc1xx))]
+#[path = "clocks/mcxa1xx.rs"]
+pub mod clocks;
 #[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
 pub mod clocks;
 pub mod config;
@@ -51,7 +62,7 @@ pub mod flexcan;
 pub mod flexspi;
 #[cfg(mcxa_freqme)]
 pub mod freqme;
-#[cfg(mcxa_gpio)]
+#[cfg(any(mcxa_gpio, mcxa_gpio1xx))]
 pub mod gpio;
 #[cfg(mcxa_lpi2c)]
 pub mod i2c;
@@ -61,7 +72,7 @@ pub mod i3c;
 pub mod inputmux;
 #[cfg(mcxa_lptmr)]
 pub mod lptmr;
-#[cfg(mcxa_lpuart)]
+#[cfg(any(mcxa_lpuart, mcxa_lpuart1xx))]
 pub mod lpuart;
 #[cfg(all(mcxa_ostimer, time_driver_ostimer))]
 pub mod ostimer;
@@ -83,6 +94,8 @@ pub mod trng;
 #[cfg(mcxa_wwdt)]
 pub mod wwdt;
 
+#[cfg(feature = "_mcxa1xx")]
+pub use mcxa1xx_exclusive::*;
 #[cfg(feature = "_mcxa2xx")]
 pub use mcxa2xx_exclusive::*;
 #[cfg(feature = "_mcxa5xx")]
@@ -122,7 +135,9 @@ pub(crate) fn init_time_driver(priority: interrupt::Priority) {
     let _ = priority;
 }
 
-const HALS_SELECTED: usize = const { cfg!(feature = "_mcxa2xx") as usize + cfg!(feature = "_mcxa5xx") as usize };
+const HALS_SELECTED: usize = const {
+    cfg!(feature = "_mcxa1xx") as usize + cfg!(feature = "_mcxa2xx") as usize + cfg!(feature = "_mcxa5xx") as usize
+};
 
 /// Ensure exactly one chip feature is set.
 #[doc(hidden)]
