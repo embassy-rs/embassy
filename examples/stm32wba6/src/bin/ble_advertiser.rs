@@ -24,11 +24,12 @@ use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::{EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
+use stm32wb_hci::aci::values::AddressType;
 
 // ---- Test configuration ----
 const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;

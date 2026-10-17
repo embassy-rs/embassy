@@ -5,105 +5,31 @@
 //!
 //! Based on ST's Ble_Hci_Gap_Gatt_Init() from BLE_HeartRate example.
 
+use bt_hci::cmd::le::LeSetDefaultPhy;
+use bt_hci::controller::ControllerCmdSync;
+use bt_hci::param::{AllPhys, PhyMask};
+use stm32wb_hci::aci::flags::Role;
+use stm32wb_hci::aci::gap::{GapInit, GapSetAuthenticationRequirement, GapSetIoCapability};
+use stm32wb_hci::aci::gatt::GattUpdateCharValue;
+use stm32wb_hci::aci::general::{AciReadConfigData, AciWriteConfigData};
+use stm32wb_hci::aci::hal::HalSetTxPowerLevel;
+use stm32wb_hci::aci::ranges::{PaLevel, Passkey};
+use stm32wb_hci::aci::values::{
+    AddressType, ConfigDataOffset, IoCapability, Privacy, ReadableConfigDataOffset, ScSupport, UseFixedPin,
+};
+
 use crate::bluetooth::error::BleError;
-use crate::bluetooth::hci::types::Status;
+use crate::controller::ControllerAdapter;
 
-#[allow(non_camel_case_types)]
-type tBleStatus = u8;
-
-const BLE_STATUS_SUCCESS: u8 = 0x00;
-
-// Config data offsets and lengths (from ST's ble_defs.h)
-const CONFIG_DATA_PUBADDR_OFFSET: u8 = 0x00;
-const CONFIG_DATA_ADDR_LEN: u8 = 6;
-const CONFIG_DATA_ER_OFFSET: u8 = 0x08;
-const CONFIG_DATA_ER_LEN: u8 = 16;
-const CONFIG_DATA_IR_OFFSET: u8 = 0x18;
-const CONFIG_DATA_IR_LEN: u8 = 16;
-const CONFIG_DATA_RANDOM_ADDRESS_OFFSET: u8 = 0x2E;
-const CONFIG_DATA_GAP_ADD_REC_NBR_OFFSET: u8 = 0x34;
-const CONFIG_DATA_GAP_ADD_REC_NBR_LEN: u8 = 1;
-
-// GAP roles
-const GAP_PERIPHERAL_ROLE: u8 = 0x01;
 #[allow(dead_code)]
 const GAP_CENTRAL_ROLE: u8 = 0x04;
 #[allow(dead_code)]
 const GAP_OBSERVER_ROLE: u8 = 0x08;
 
-unsafe extern "C" {
-    /// Initialize GAP layer
-    #[link_name = "ACI_GAP_INIT"]
-    fn aci_gap_init(
-        role: u8,
-        privacy_enabled: u8,
-        device_name_char_len: u8,
-        gap_service_handle: *mut u16,
-        gap_dev_name_char_handle: *mut u16,
-        gap_appearance_char_handle: *mut u16,
-    ) -> tBleStatus;
-
-    /// Write configuration data to BLE stack
-    #[link_name = "ACI_HAL_WRITE_CONFIG_DATA"]
-    fn aci_hal_write_config_data(offset: u8, length: u8, value: *const u8) -> tBleStatus;
-
-    /// Read configuration data from BLE stack
-    #[link_name = "ACI_HAL_READ_CONFIG_DATA"]
-    fn aci_hal_read_config_data(offset: u8, data_len: *mut u8, data: *mut u8) -> tBleStatus;
-
-    /// Set transmission power level
-    #[link_name = "ACI_HAL_SET_TX_POWER_LEVEL"]
-    fn aci_hal_set_tx_power_level(en_high_power: u8, pa_level: u8) -> tBleStatus;
-
-    /// Set default PHY
-    #[link_name = "HCI_LE_SET_DEFAULT_PHY"]
-    fn hci_le_set_default_phy(all_phys: u8, tx_phys: u8, rx_phys: u8) -> tBleStatus;
-
-    /// Set IO capability
-    #[link_name = "ACI_GAP_SET_IO_CAPABILITY"]
-    fn aci_gap_set_io_capability(io_capability: u8) -> tBleStatus;
-
-    /// Set authentication requirement
-    #[link_name = "ACI_GAP_SET_AUTHENTICATION_REQUIREMENT"]
-    fn aci_gap_set_authentication_requirement(
-        bonding_mode: u8,
-        mitm_mode: u8,
-        sc_support: u8,
-        key_press_notification_support: u8,
-        min_encryption_key_size: u8,
-        max_encryption_key_size: u8,
-        use_fixed_pin: u8,
-        fixed_pin: u32,
-        identity_address_type: u8,
-    ) -> tBleStatus;
-
-    /// Update characteristic value (for device name and appearance)
-    #[link_name = "ACI_GATT_UPDATE_CHAR_VALUE"]
-    fn aci_gatt_update_char_value(
-        service_handle: u16,
-        char_handle: u16,
-        val_offset: u8,
-        char_value_length: u8,
-        char_value: *const u8,
-    ) -> tBleStatus;
-}
-
-/// Address type to use for the device.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AddressType {
-    /// IEEE-registered public address. Written to PUBADDR (config offset 0x00).
-    /// Requires a real OUI; the WBA stack-basic library will reject the write
-    /// if the address violates expectations.
-    Public,
-    /// Random static address. `init_gap_and_hal` enforces the top two bits of
-    /// byte 5 are `11` and skips the PUBADDR config write.
-    RandomStatic,
-}
-
 /// GAP initialization parameters
 pub struct GapInitParams {
     /// Device role (peripheral, central, or both)
-    pub role: GapRole,
+    pub role: Role,
     /// Privacy mode enabled
     pub privacy_enabled: bool,
     /// Device name
@@ -119,7 +45,7 @@ pub struct GapInitParams {
     /// Encryption Root key (16 bytes) for LTK derivation
     pub er_value: [u8; 16],
     /// TX power level (0-31, default 25 for +6dBm)
-    pub tx_power: u8,
+    pub tx_power: PaLevel,
     /// PHY preferences
     pub phy_prefs: PhyPrefs,
     /// IO capability
@@ -131,95 +57,62 @@ pub struct GapInitParams {
     pub skip_authentication_setup: bool,
 }
 
-/// GAP role
-#[derive(Debug, Clone, Copy)]
-pub enum GapRole {
-    Peripheral,
-    Central,
-    Both,
-    /// Observer: scanning only, no advertising or connections.
-    /// Required for `ACI_GAP_START_OBSERVATION_PROC`.
-    Observer,
-}
-
-impl GapRole {
-    fn to_bits(self) -> u8 {
-        match self {
-            GapRole::Peripheral => GAP_PERIPHERAL_ROLE,
-            GapRole::Central => GAP_CENTRAL_ROLE,
-            GapRole::Both => GAP_PERIPHERAL_ROLE | GAP_CENTRAL_ROLE,
-            GapRole::Observer => GAP_OBSERVER_ROLE,
-        }
-    }
-}
-
 /// PHY preferences
 #[derive(Debug, Clone, Copy)]
 pub struct PhyPrefs {
     /// All PHYs (0 = host has preference, 1 = host has no preference)
-    pub all_phys: u8,
+    pub all_phys: AllPhys,
     /// TX PHY preference (1M, 2M, Coded)
-    pub tx_phys: u8,
+    pub tx_phys: PhyMask,
     /// RX PHY preference (1M, 2M, Coded)
-    pub rx_phys: u8,
+    pub rx_phys: PhyMask,
 }
 
 impl Default for PhyPrefs {
     fn default() -> Self {
         Self {
-            all_phys: 0x00, // Host has preference
-            tx_phys: 0x03,  // 1M and 2M
-            rx_phys: 0x03,  // 1M and 2M
+            all_phys: AllPhys::new(),                                        // Host has preference
+            tx_phys: PhyMask::new().set_le_1m_phy(true).set_le_2m_phy(true), // 1M and 2M
+            rx_phys: PhyMask::new().set_le_1m_phy(true).set_le_2m_phy(true), // 1M and 2M
         }
     }
-}
-
-/// IO Capability
-#[derive(Debug, Clone, Copy)]
-#[repr(u8)]
-pub enum IoCapability {
-    DisplayOnly = 0x00,
-    DisplayYesNo = 0x01,
-    KeyboardOnly = 0x02,
-    NoInputNoOutput = 0x03,
-    KeyboardDisplay = 0x04,
 }
 
 /// Security parameters
 #[derive(Debug, Clone, Copy)]
 pub struct SecurityParams {
     /// Bonding mode (0 = no bonding, 1 = bonding)
-    pub bonding_mode: u8,
+    pub bonding_mode: bool,
     /// MITM protection required
-    pub mitm_mode: u8,
+    pub mitm_mode: bool,
     /// Secure Connections support
-    pub sc_support: u8,
+    pub sc_support: ScSupport,
     /// Key press notification support
-    pub key_press_notification_support: u8,
+    pub key_press_notification_support: bool,
     /// Minimum encryption key size (7-16)
     pub min_encryption_key_size: u8,
     /// Maximum encryption key size (7-16)
     pub max_encryption_key_size: u8,
     /// Use fixed PIN
-    pub use_fixed_pin: u8,
+    pub use_fixed_pin: UseFixedPin,
     /// Fixed PIN value (0-999999)
-    pub fixed_pin: u32,
+    pub fixed_pin: Passkey,
     /// Identity address type (0 = public, 1 = random static)
-    pub identity_address_type: u8,
+    pub identity_address_type: AddressType,
 }
 
 impl Default for SecurityParams {
     fn default() -> Self {
         Self {
-            bonding_mode: 1,
-            mitm_mode: 1,
-            sc_support: 1,
-            key_press_notification_support: 0,
+            bonding_mode: true,
+            mitm_mode: true,
+            sc_support: ScSupport::Optional,
+            key_press_notification_support: false,
             min_encryption_key_size: 8,
             max_encryption_key_size: 16,
-            use_fixed_pin: 1,
-            fixed_pin: 111111,
-            identity_address_type: 0, // Public address
+            use_fixed_pin: UseFixedPin::Yes,
+            fixed_pin: Passkey::new(111111).unwrap(),
+            identity_address_type: AddressType::Public, // Public address
         }
     }
 }
@@ -227,17 +120,18 @@ impl Default for SecurityParams {
 impl Default for GapInitParams {
     fn default() -> Self {
         Self {
-            role: GapRole::Peripheral,
+            role: Role::PERIPHERAL,
             privacy_enabled: false,
             device_name: b"Embassy-BLE",
             appearance: 0, // Unknown
             // Random static address: top two bits of byte 5 are `0b11` (enforced by init_gap_and_hal).
             // Callers that want a per-chip address should overwrite all 6 bytes, e.g. from the chip UID.
             bd_addr: [0x00, 0x1A, 0x26, 0xE1, 0x80, 0xC1],
-            address_type: AddressType::RandomStatic,
+            address_type: AddressType::Random,
+
             ir_value: [0x12; 16],
             er_value: [0x34; 16],
-            tx_power: 25, // +6 dBm
+            tx_power: PaLevel::new(28).unwrap(), // +6 dBm
             phy_prefs: PhyPrefs::default(),
             io_capability: IoCapability::NoInputNoOutput,
             security: SecurityParams::default(),
@@ -266,158 +160,144 @@ pub struct GapHandles {
 /// 8. Sets authentication requirements
 ///
 /// Must be called after BleStack_Init() and aci_gatt_init().
-pub fn init_gap_and_hal(params: &mut GapInitParams) -> Result<GapHandles, BleError> {
-    unsafe {
-        // 1. Write additional GAP service record number (for Device Info service, etc.)
-        let additional_records: [u8; 1] = [0x03];
-        let status = aci_hal_write_config_data(
-            CONFIG_DATA_GAP_ADD_REC_NBR_OFFSET,
-            CONFIG_DATA_GAP_ADD_REC_NBR_LEN,
-            additional_records.as_ptr(),
-        );
-        if status != BLE_STATUS_SUCCESS {
-            warn!("aci_hal_write_config_data (GAP_ADD_REC_NBR) failed: 0x{:02X}", status);
+pub async fn init_gap_and_hal(
+    controller: &ControllerAdapter<'_>,
+    params: &mut GapInitParams,
+) -> Result<GapHandles, BleError> {
+    // 1. Write additional GAP service record number (for Device Info service, etc.)
+    controller
+        .exec(&AciWriteConfigData::try_new(ConfigDataOffset::GapAdditionalRecordNumber, &[0x03]).unwrap())
+        .await
+        .inspect_err(|e| warn!("aci_hal_write_config_data (GAP_ADD_REC_NBR) failed: {}", e))?;
+
+    // 2. Write BD address (only for public addresses).
+    //
+    // For random static addresses the PUBADDR write is skipped — the WBA
+    // stack-basic library rejects it, and the address is handled separately.
+    match params.address_type {
+        AddressType::Public => {
+            controller
+                .exec(&AciWriteConfigData::try_new(ConfigDataOffset::PublicAddress, &params.bd_addr).unwrap())
+                .await
+                .inspect_err(|e| warn!("aci_hal_write_config_data (GAP_ADD_REC_NBR) failed: {}", e))?;
+
+            info!(
+                "Public BD address configured: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                params.bd_addr[5],
+                params.bd_addr[4],
+                params.bd_addr[3],
+                params.bd_addr[2],
+                params.bd_addr[1],
+                params.bd_addr[0]
+            );
         }
+        AddressType::Random => {
+            // Per BT Core Spec Vol 6 Part B §1.3.2.1: the top two bits of the most
+            // significant byte must be `11` to identify this as a random static address,
+            // distinguishing it from resolvable (10) and non-resolvable (01) private types.
+            params.bd_addr[5] |= 0xC0;
 
-        // 2. Write BD address (only for public addresses).
-        //
-        // For random static addresses the PUBADDR write is skipped — the WBA
-        // stack-basic library rejects it, and the address is handled separately.
-        match params.address_type {
-            AddressType::Public => {
-                let status = aci_hal_write_config_data(
-                    CONFIG_DATA_PUBADDR_OFFSET,
-                    CONFIG_DATA_ADDR_LEN,
-                    params.bd_addr.as_ptr(),
-                );
-                if status != BLE_STATUS_SUCCESS {
-                    error!("aci_hal_write_config_data (PUBADDR) failed: 0x{:02X}", status);
-                    return Err(BleError::CommandFailed(Status::from_u8(status)));
-                }
-                info!(
-                    "Public BD address configured: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-                    params.bd_addr[5],
-                    params.bd_addr[4],
-                    params.bd_addr[3],
-                    params.bd_addr[2],
-                    params.bd_addr[1],
-                    params.bd_addr[0]
-                );
-            }
-            AddressType::RandomStatic => {
-                // Per BT Core Spec Vol 6 Part B §1.3.2.1: the top two bits of the most
-                // significant byte must be `11` to identify this as a random static address,
-                // distinguishing it from resolvable (10) and non-resolvable (01) private types.
-                params.bd_addr[5] |= 0xC0;
+            let addr: [u8; 6] = controller
+                .exec(&AciReadConfigData::new(ReadableConfigDataOffset::StaticRandomAddress))
+                .await
+                .inspect_err(|e| warn!("aci_hal_read_config_data (GAP_ADD_REC_NBR) failed: {}", e))?
+                .data[..6]
+                .try_into()
+                .unwrap();
 
-                let mut addr = [0u8; 6];
-                let mut len = CONFIG_DATA_ADDR_LEN;
-                let status = aci_hal_read_config_data(CONFIG_DATA_RANDOM_ADDRESS_OFFSET, &mut len, addr.as_mut_ptr());
-
-                if status == BLE_STATUS_SUCCESS {
-                    info!(
-                        "Random static address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-                        addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]
-                    );
-                } else {
-                    warn!("Failed to read random address slot: 0x{:02X}", status);
-                }
-            }
+            info!(
+                "Random static address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]
+            );
         }
+    }
 
-        // 3. Write IR (Identity Root) value
-        let status = aci_hal_write_config_data(CONFIG_DATA_IR_OFFSET, CONFIG_DATA_IR_LEN, params.ir_value.as_ptr());
-        if status != BLE_STATUS_SUCCESS {
-            warn!("aci_hal_write_config_data (IR) failed: 0x{:02X}", status);
-        }
+    // 3. Write IR (Identity Root) value
+    controller
+        .exec(&AciWriteConfigData::try_new(ConfigDataOffset::IdentityRoot, &params.ir_value).unwrap())
+        .await
+        .inspect_err(|e| warn!("aci_hal_write_config_data (IR) failed: {}", e))?;
 
-        // 4. Write ER (Encryption Root) value
-        let status = aci_hal_write_config_data(CONFIG_DATA_ER_OFFSET, CONFIG_DATA_ER_LEN, params.er_value.as_ptr());
-        if status != BLE_STATUS_SUCCESS {
-            warn!("aci_hal_write_config_data (ER) failed: 0x{:02X}", status);
-        }
+    // 4. Write ER (Encryption Root) value
+    controller
+        .exec(&AciWriteConfigData::try_new(ConfigDataOffset::EncryptionRoot, &params.er_value).unwrap())
+        .await
+        .inspect_err(|e| warn!("aci_hal_write_config_data (ER) failed: {}", e))?;
 
-        // 5. Set TX power level
-        let status = aci_hal_set_tx_power_level(1, params.tx_power);
-        if status != BLE_STATUS_SUCCESS {
-            warn!("aci_hal_set_tx_power_level failed: 0x{:02X}", status);
-        }
+    // 5. Set TX power level
+    controller
+        .exec(&HalSetTxPowerLevel::new(true, params.tx_power))
+        .await
+        .inspect_err(|e| warn!("aci_hal_set_tx_power_level failed: {}", e))?;
 
-        // 6. Initialize GAP layer
-        let mut gap_service_handle: u16 = 0;
-        let mut gap_dev_name_char_handle: u16 = 0;
-        let mut gap_appearance_char_handle: u16 = 0;
-
-        // Per BLE stack docs, valid values are 0x00 (disabled) or 0x02 (Controller
-        // Privacy enabled). Passing 0x01 is undefined and silently leaves the SMP
-        // layer in a "no privacy" state, which makes bonded reconnects from RPA
-        // peers fail with HAL warning 0x06 (SMP unexpected LTK request).
-        let privacy_value: u8 = if params.privacy_enabled { 0x02 } else { 0x00 };
-
-        let status = aci_gap_init(
-            params.role.to_bits(),
-            privacy_value,
+    let service = controller
+        .exec(&GapInit::new(
+            params.role,
+            if params.privacy_enabled {
+                Privacy::Enabled
+            } else {
+                Privacy::Disabled
+            },
             params.device_name.len() as u8,
-            &mut gap_service_handle,
-            &mut gap_dev_name_char_handle,
-            &mut gap_appearance_char_handle,
-        );
+        ))
+        .await
+        .inspect_err(|e| warn!("aci_gap_init failed: {}", e))?;
 
-        if status != BLE_STATUS_SUCCESS {
-            error!("aci_gap_init failed: 0x{:02X}", status);
-            return Err(BleError::CommandFailed(Status::from_u8(status)));
-        }
+    info!(
+        "GAP initialized - service: 0x{:04X}, name: 0x{:04X}, appearance: 0x{:04X}",
+        service.service_handle, service.dev_name_char_handle, service.appearance_char_handle
+    );
 
-        info!(
-            "GAP initialized - service: 0x{:04X}, name: 0x{:04X}, appearance: 0x{:04X}",
-            gap_service_handle, gap_dev_name_char_handle, gap_appearance_char_handle
-        );
+    // 7. Update device name characteristic
+    controller
+        .exec(
+            &GattUpdateCharValue::try_new(
+                service.service_handle,
+                service.dev_name_char_handle,
+                0,
+                params.device_name,
+            )
+            .unwrap(),
+        )
+        .await
+        .inspect_err(|e| warn!("aci_gatt_update_char_value (device name) failed: {}", e))?;
 
-        // 7. Update device name characteristic
-        let status = aci_gatt_update_char_value(
-            gap_service_handle,
-            gap_dev_name_char_handle,
-            0,
-            params.device_name.len() as u8,
-            params.device_name.as_ptr(),
-        );
-        if status != BLE_STATUS_SUCCESS {
-            warn!("aci_gatt_update_char_value (device name) failed: 0x{:02X}", status);
-        }
+    // 8. Update appearance characteristic
+    controller
+        .exec(
+            &GattUpdateCharValue::try_new(
+                service.service_handle,
+                service.appearance_char_handle,
+                0,
+                &params.appearance.to_le_bytes(),
+            )
+            .unwrap(),
+        )
+        .await
+        .inspect_err(|e| warn!("aci_gatt_update_char_value (appearance) failed: {}", e))?;
 
-        // 8. Update appearance characteristic
-        let appearance_bytes = params.appearance.to_le_bytes();
-        let status = aci_gatt_update_char_value(
-            gap_service_handle,
-            gap_appearance_char_handle,
-            0,
-            2,
-            appearance_bytes.as_ptr(),
-        );
-        if status != BLE_STATUS_SUCCESS {
-            warn!("aci_gatt_update_char_value (appearance) failed: 0x{:02X}", status);
-        }
-
-        // 9. Set default PHY
-        let status = hci_le_set_default_phy(
+    // 9. Set default PHY
+    controller
+        .exec(&LeSetDefaultPhy::new(
             params.phy_prefs.all_phys,
             params.phy_prefs.tx_phys,
             params.phy_prefs.rx_phys,
-        );
-        if status != BLE_STATUS_SUCCESS {
-            warn!("hci_le_set_default_phy failed: 0x{:02X}", status);
-        }
+        ))
+        .await
+        .inspect_err(|e| warn!("hci_le_set_default_phy failed: {}", e))?;
 
-        // 10. Set IO capability
-        let status = aci_gap_set_io_capability(params.io_capability as u8);
-        if status != BLE_STATUS_SUCCESS {
-            warn!("aci_gap_set_io_capability failed: 0x{:02X}", status);
-        }
+    // 10. Set IO capability
+    controller
+        .exec(&GapSetIoCapability::new(params.io_capability))
+        .await
+        .inspect_err(|e| warn!("aci_gap_set_io_capability failed: {}", e))?;
 
-        // 11. Set authentication requirements (optional — apps that use SecurityManager
-        // should set skip_authentication_setup to avoid calling this twice).
-        if !params.skip_authentication_setup {
-            let status = aci_gap_set_authentication_requirement(
+    // 11. Set authentication requirements (optional — apps that use SecurityManager
+    // should set skip_authentication_setup to avoid calling this twice).
+
+    if !params.skip_authentication_setup {
+        controller
+            .exec(&GapSetAuthenticationRequirement::new(
                 params.security.bonding_mode,
                 params.security.mitm_mode,
                 params.security.sc_support,
@@ -427,18 +307,16 @@ pub fn init_gap_and_hal(params: &mut GapInitParams) -> Result<GapHandles, BleErr
                 params.security.use_fixed_pin,
                 params.security.fixed_pin,
                 params.security.identity_address_type,
-            );
-            if status != BLE_STATUS_SUCCESS {
-                warn!("aci_gap_set_authentication_requirement failed: 0x{:02X}", status);
-            }
-        }
-
-        info!("GAP and HAL configuration completed successfully");
-
-        Ok(GapHandles {
-            gap_service_handle,
-            gap_dev_name_char_handle,
-            gap_appearance_char_handle,
-        })
+            ))
+            .await
+            .inspect_err(|e| warn!("aci_gap_set_authentication_requirement failed: {}", e))?;
     }
+
+    info!("GAP and HAL configuration completed successfully");
+
+    Ok(GapHandles {
+        gap_service_handle: service.service_handle,
+        gap_dev_name_char_handle: service.dev_name_char_handle,
+        gap_appearance_char_handle: service.appearance_char_handle,
+    })
 }

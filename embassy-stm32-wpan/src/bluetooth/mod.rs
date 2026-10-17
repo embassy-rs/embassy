@@ -20,6 +20,8 @@ use bt_hci::param::{BdAddr, ConnHandle, EventMask, LeEventMask, PhyKind};
 use bt_hci::{ControllerToHostPacket, FromHciBytes};
 use embassy_futures::yield_now;
 use embassy_stm32::interrupt;
+use stm32wb_hci::aci::flags::Role;
+use stm32wb_hci::aci::gatt::GattInit;
 pub use stm32wb_hci::event::BleEvent;
 
 use crate::bluetooth::error::BleError;
@@ -29,8 +31,7 @@ use crate::bluetooth::gap::connection::{
 };
 use crate::bluetooth::gap::scanner::{ScanParams, ScanProcedure, Scanner};
 use crate::bluetooth::gap::types::{AdvData, AdvParams, BdAddrType};
-use crate::bluetooth::gap_init::{GapInitParams, GapRole, init_gap_and_hal};
-use crate::bluetooth::gatt::server::init_gatt_layer;
+use crate::bluetooth::gap_init::{GapInitParams, init_gap_and_hal};
 use crate::bluetooth::gatt::{
     GattClient, GattClientEvent, GattEvent, GattServer, client_events_from_vendor_event, from_vendor_event,
 };
@@ -118,7 +119,7 @@ impl<'d> HCI<'d, Normal> {
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
-        Self::new_with_role(platform, runtime, irq, GapRole::Peripheral).await
+        Self::new_with_role(platform, runtime, irq, Role::PERIPHERAL).await
     }
 
     /// Like `new`, but lets you specify the GAP role.
@@ -130,7 +131,7 @@ impl<'d> HCI<'d, Normal> {
         runtime: &'d mut Runtime,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
-        role: GapRole,
+        role: Role,
     ) -> Result<Self, BleError> {
         let uid = embassy_stm32::uid::uid();
         let mut gap_params = GapInitParams::default();
@@ -238,7 +239,10 @@ impl<'d> HCI<'d, Normal> {
         info!("Initializing GATT layer...");
 
         // Call aci_gatt_init from gatt module
-        init_gatt_layer()?;
+        self.controller
+            .exec(&GattInit::new())
+            .await
+            .inspect_err(|e| error!("aci_gatt_init failed: {}", e))?;
 
         info!("GATT layer initialized");
 
@@ -248,7 +252,7 @@ impl<'d> HCI<'d, Normal> {
 
         info!("Initializing GAP and HAL...");
 
-        let _gap_handles = init_gap_and_hal(&mut gap_params)?;
+        init_gap_and_hal(&self.controller, &mut gap_params).await?;
 
         info!("GAP and HAL initialized");
 

@@ -25,7 +25,7 @@ use embassy_stm32::rcc::{self};
 use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{
     CHAR_VALUE_HANDLE_OFFSET, CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions,
     ServiceHandle, ServiceType, Uuid, is_cccd_handle, is_value_handle,
@@ -35,6 +35,7 @@ use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, ne
 use panic_probe as _;
 use stm32wb_hci::aci::AciEvent;
 use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
+use stm32wb_hci::aci::values::AddressType;
 
 // ---- Test configuration ----
 const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
