@@ -265,6 +265,11 @@ path = "src/bin/eth.rs"
 required-features = [ "eth",]
 
 [[bin]]
+name = "eth_reinit"
+path = "src/bin/eth_reinit.rs"
+required-features = [ "eth",]
+
+[[bin]]
 name = "fdcan"
 path = "src/bin/fdcan.rs"
 required-features = [ "fdcan",]

@@ -61,6 +61,11 @@ pub(crate) const MAC_RESET_TIMEOUT_US: u64 = 500_000;
 // IEEE 802.3 allows a PHY reset to take up to 500 ms.
 pub(crate) const PHY_RESET_TIMEOUT_US: u64 = 500_000;
 
+// DMA shutdown has no universal completion time across MACs and traffic loads.
+// The 100 ms wait is a failure budget: if it expires, Drop must not release
+// buffers the DMA might still own.
+pub(crate) const DMA_STOP_TIMEOUT_US: u64 = 100_000;
+
 // With `time` the deadline is a real clock. Without it the budget is a cycle count, which
 // depends on the core and can run shorter than `timeout_us`.
 pub(crate) fn wait_for(mut ready: impl FnMut() -> bool, timeout_us: u64) -> bool {

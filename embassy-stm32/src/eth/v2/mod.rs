@@ -24,11 +24,6 @@ use crate::peripherals::SYSCFG;
 use crate::rcc::MaybeWakeGuard;
 use crate::{interrupt, rcc};
 
-// DMA shutdown has no universal completion time across MACs and traffic loads.
-// The 100 ms wait is a failure budget: if it expires, Drop must not release
-// buffers the DMA might still own.
-const DMA_STOP_TIMEOUT_US: u64 = 100_000;
-
 /// Access a per-channel DMA/MTL register at channel 0.
 ///
 /// On eth_v2a the DMA/MTL channel registers are arrays (the MAC has multiple
@@ -653,7 +648,7 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
                 let txqueue = ch0!(mtl, mtl_tx_qdr).read();
                 txqueue.trcsts() != 0b01 && !txqueue.txqsts() && Self::dma_tx_stopped()
             },
-            DMA_STOP_TIMEOUT_US,
+            crate::eth::DMA_STOP_TIMEOUT_US,
         ) {
             // Returning would release descriptors that the stalled DMA might still access.
             panic!("Ethernet TX DMA failed to stop");
@@ -668,7 +663,7 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
         // Stop the RX DMA. Frames still queued are discarded, and waiting for them to drain
         // would never finish when the RX ring is full and the DMA is suspended.
         ch0!(dma, dmac_rx_cr).modify(|w| w.set_sr(false));
-        if !crate::eth::wait_for(Self::dma_rx_stopped, DMA_STOP_TIMEOUT_US) {
+        if !crate::eth::wait_for(Self::dma_rx_stopped, crate::eth::DMA_STOP_TIMEOUT_US) {
             // Returning would release descriptors that the stalled DMA might still access.
             panic!("Ethernet RX DMA failed to stop");
         }

@@ -27,7 +27,7 @@ use crate::pac::AFIO;
 use crate::pac::SYSCFG;
 #[cfg(any(eth_v1b, eth_v1c))]
 use crate::pac::eth::vals::Ipco;
-use crate::pac::eth::vals::{Apcs, Dm, DmaomrSr, Fes, Ftf, Ifg, Pbl, Rpd, Rsf, St, Tsf};
+use crate::pac::eth::vals::{Apcs, Dm, DmaomrSr, Fes, Ftf, Ifg, Pbl, Rpd, Rps, Rsf, St, Tps, Tsf};
 use crate::pac::{ETH, RCC};
 use crate::rcc::MaybeWakeGuard;
 
@@ -461,8 +461,16 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
         let dma = T::regs().ethernet_dma();
         let mac = T::regs().ethernet_mac();
 
-        // Disable the TX DMA and wait for any previous transmissions to be completed
+        // Disable the TX DMA and wait for any previous transmissions to be completed.
+        // The DMA stops only after the frame in progress has been sent.
         dma.dmaomr().modify(|w| w.set_st(St::Stopped));
+        if !crate::eth::wait_for(
+            || dma.dmasr().read().tps() == Tps::Stopped,
+            crate::eth::DMA_STOP_TIMEOUT_US,
+        ) {
+            // Returning would release descriptors that the stalled DMA might still access.
+            panic!("Ethernet TX DMA failed to stop");
+        }
 
         // Disable MAC transmitter and receiver
         mac.maccr().modify(|w| {
@@ -470,6 +478,15 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
             w.set_te(false);
         });
 
+        // Stop the RX DMA. Frames still queued are discarded, and waiting for them to drain
+        // would never finish when the RX ring is full and the DMA is suspended.
         dma.dmaomr().modify(|w| w.set_sr(DmaomrSr::Stopped));
+        if !crate::eth::wait_for(
+            || dma.dmasr().read().rps() == Rps::Stopped,
+            crate::eth::DMA_STOP_TIMEOUT_US,
+        ) {
+            // Returning would release descriptors that the stalled DMA might still access.
+            panic!("Ethernet RX DMA failed to stop");
+        }
     }
 }

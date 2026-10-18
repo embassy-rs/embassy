@@ -75,7 +75,7 @@ CAN:
 
 Ethernet:
 - fix: stm32/eth v2: place a memory barrier before handing a descriptor to the DMA, so the buffer address and the frame contents are visible to it first.
-- fix: stm32/eth v2: wait for the DMA channel's own process state (`DMADSR` TPS/RPS) to read Stopped in `Drop`, instead of treating empty MTL FIFOs as DMA stopped, so descriptors and buffers are not released while the DMA may still own them.
+- fix: stm32/eth: Wait for DMA to stop on drop.
 - fix: stm32/eth: skip MDIO addresses whose PHY ID registers both read all-ones when probing for a PHY, instead of resetting and waiting on every address that has no device.
 
 USB:
