@@ -5,7 +5,7 @@ use cortex_m as _;
 use defmt::{error, info};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_nxp::hashcrypt::{Aes, AesPadded, GenericHashcrypt, KeySize};
+use embassy_nxp::hashcrypt::{Aes, AesPadded, GenericHashcrypt, KeySize, Padding};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -76,7 +76,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     ecb.set_key(&key3).unwrap();
     let mut out = [0u8; 48];
-    match ecb.encrypt_padded(pt3, &mut out) {
+    match ecb.encrypt_padded(pt3, &mut out, Padding::Pkcs7) {
         Ok(ct) => {
             info!("Plain text:  {:02x}", pt3);
             info!("Cipher text: {:02x}", ct);
@@ -87,7 +87,7 @@ async fn main(_spawner: Spawner) -> ! {
     info!("Example4: Arbitrary length decrypt");
     // Reuses key3 and ct3 from Test3
     let mut out = [0u8; 48];
-    match ecb.decrypt_padded(&ct3, &mut out) {
+    match ecb.decrypt_padded(&ct3, &mut out, Padding::Pkcs7) {
         Ok(pt) => {
             info!("Plain text:  {:02x}", pt);
             info!("Cipher text: {:02x}", ct3);
@@ -158,7 +158,7 @@ async fn main(_spawner: Spawner) -> ! {
     ];
 
     let mut out = [0u8; 48];
-    match cbc.encrypt_padded(pt3, &mut out) {
+    match cbc.encrypt_padded(pt3, &mut out, Padding::Pkcs7) {
         Ok(ct) => {
             info!("Plain text:  {:02x}", pt3);
             info!("Cipher text: {:02x}", ct);
@@ -169,7 +169,7 @@ async fn main(_spawner: Spawner) -> ! {
     info!("Example4: Arbitrary length decrypt");
     // Reuses key1 and iv1 from Test1, ct3 from Test3
     let mut out = [0u8; 48];
-    match cbc.decrypt_padded(&ct3, &mut out) {
+    match cbc.decrypt_padded(&ct3, &mut out, Padding::Pkcs7) {
         Ok(pt) => {
             info!("Plain text:  {:02x}", pt);
             info!("Cipher text: {:02x}", ct3);
