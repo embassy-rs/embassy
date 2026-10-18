@@ -3,7 +3,7 @@
 //!
 //! Chips: F30x (`adc_v3_f3`), L4/L5/WB55 (`adc_v3_l4`), G4/H5/H7RS (`adc_v3_g4`), H7 (`adc_v3_h7`), U5 `ADC1`/
 //! `ADC2` (`adc_v3_u5`), U3 (`adc_v3_u3`), N6 (`adc_v3_n6`), C5 (`adc_v3_c5`). The common registers live in
-//! the `ADCx_COMMON` block.
+//! the `ADCx_COMMON` block. The 12-bit `ADC3` of the H72x/H73x is in [`super::v3_h7_adc3`].
 
 use core::sync::atomic::Ordering;
 
@@ -98,8 +98,9 @@ fn to_res(res: Resolution) -> Res {
         Resolution::Bits8 => Res::Bits8,
         #[cfg(not(any(adc_v3_h7, adc_v3_u5)))]
         Resolution::Bits6 => Res::Bits6,
-        // On the U5 the 6-bit resolution belongs to ADC4, not to ADC1/ADC2.
-        #[cfg(adc_v3_u5)]
+        // On the U5 the 6-bit resolution belongs to ADC4, and on the H72x/H73x to ADC3, not to
+        // ADC1/ADC2.
+        #[cfg(all(adc_res6, any(adc_v3_h7, adc_v3_u5)))]
         Resolution::Bits6 => panic!("this ADC has no 6-bit resolution"),
     }
 }
@@ -253,18 +254,8 @@ impl AdcRegs for Regs {
         self.cr().modify(|w| w.set_deeppwd(false));
         #[cfg(not(adc_v3_n6))]
         self.cr().modify(|w| w.set_advregen(true));
-
-        // ADC3 on STM32H72x/H73x is a different, 12-bit, ADC that has no voltage regulator (LDO), so it has no
-        // LDORDY flag to wait for.
-        #[cfg(all(adc_v3_h7, any(stm32h72x, stm32h73x)))]
-        let has_ldo = self.as_ptr() != crate::pac::ADC3.as_ptr();
-        #[cfg(not(all(adc_v3_h7, any(stm32h72x, stm32h73x))))]
-        let has_ldo = true;
-
-        if has_ldo {
-            #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_c5))]
-            while !self.isr().read().ldordy() {}
-        }
+        #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_c5))]
+        while !self.isr().read().ldordy() {}
         block_for_us(20);
 
         // Calibration.

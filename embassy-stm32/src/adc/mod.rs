@@ -5,11 +5,12 @@
 // API is the same on every chip and only differs where the hardware lacks a feature (in which
 // case the method or configuration option is absent for that chip).
 //
-// | module | register layout                   | families |
-// |--------|-----------------------------------|----------|
-// | `v1`   | `SR`/`CR1`/`CR2`, `SQR1..3`       | F1, F2, F4, F7, L1 |
-// | `v2`   | `CFGR1`, `CHSELR` bitmask         | F0, L0, G0, C0, U0, WL, WB1x, WBA, U5 (`ADC4`) |
-// | `v3`   | `ISR`/`CFGR`, `SQR1..4`, `DIFSEL` | F3, L4, L5, WB, G4, H5, H7, H7RS, U5, U3, N6, C5 |
+// | module       | register layout                   | families |
+// |--------------|-----------------------------------|----------|
+// | `v1`         | `SR`/`CR1`/`CR2`, `SQR1..3`       | F1, F2, F4, F7, L1 |
+// | `v2`         | `CFGR1`, `CHSELR` bitmask         | F0, L0, G0, C0, U0, WL, WB1x, WBA, U5 (`ADC4`) |
+// | `v3`         | `ISR`/`CFGR`, `SQR1..4`, `DIFSEL` | F3, L4, L5, WB, G4, H5, H7, H7RS, U5, U3, N6, C5 |
+// | `v3_h7_adc3` | `v3`, 12-bit `TR1..3`/`DMAEN`     | H72x/H73x (`ADC3`) |
 //
 // The register versions in stm32-data follow the same scheme (`adc_v1_f4`, `adc_v2_g0`,
 // `adc_v3_h7`, ...): the first component is the generation, the second the first chip family
@@ -49,6 +50,8 @@ mod v1;
 mod v2;
 #[cfg(adc_v3)]
 mod v3;
+#[cfg(adc_v3_h7_adc3)]
+mod v3_h7_adc3;
 mod watchdog;
 
 pub use configured_sequence::ConfiguredSequence;
@@ -60,6 +63,9 @@ pub use watchdog::{AnalogWatchdog, WatchdogChannels, WatchdogIndex};
 
 /// Register-level enums of the ADC, re-exported from the PAC.
 pub use crate::pac::adc::vals;
+/// Sample time of the 12-bit `ADC3` of the STM32H72x/H73x, in ADC clock cycles.
+#[cfg(adc_v3_h7_adc3)]
+pub use crate::pac::adc::vals::Adc3SampleTime;
 /// Sample time of the STM32U5 `ADC4`, in ADC clock cycles.
 #[cfg(adc_v2_u5)]
 pub use crate::pac::adc::vals::Adc4SampleTime;
@@ -69,7 +75,8 @@ pub use crate::pac::adc::vals::Exten;
 /// Sample time, in ADC clock cycles.
 ///
 /// The variants are the cycle counts of this chip's ADC. On the STM32U5 the two ADC generations
-/// coexist: `ADC1`/`ADC2` use `SampleTime`, `ADC4` uses [`Adc4SampleTime`].
+/// coexist: `ADC1`/`ADC2` use `SampleTime`, `ADC4` uses `Adc4SampleTime`. Likewise on the
+/// STM32H72x/H73x, where `ADC3` uses `Adc3SampleTime`.
 pub use crate::pac::adc::vals::SampleTime;
 /// External trigger edge selection.
 ///
@@ -104,7 +111,7 @@ trigger_trait!(InjectedTrigger, Instance);
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Resolution {
     /// 6-bit.
-    #[cfg(not(any(adc_v1_f1, adc_v3_h7)))]
+    #[cfg(adc_res6)]
     Bits6,
     /// 8-bit.
     #[cfg(not(adc_v1_f1))]
@@ -126,7 +133,7 @@ impl Resolution {
     /// Number of bits.
     pub const fn bits(self) -> u8 {
         match self {
-            #[cfg(not(any(adc_v1_f1, adc_v3_h7)))]
+            #[cfg(adc_res6)]
             Self::Bits6 => 6,
             #[cfg(not(adc_v1_f1))]
             Self::Bits8 => 8,

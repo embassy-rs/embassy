@@ -53,6 +53,7 @@ Align to API guidelines:
 - change: stm32/adc: `setup_injected_conversions` and `into_ring_buffered_and_injected` take the interrupt binding first and a mode (`Async`/`Blocking`).
 - feat: stm32/adc: DMA sequences, ring buffers, triggers, injected conversions, watchdogs, oversampling, differential inputs and `clock()` on every chip that has the hardware.
 - fix: stm32/adc: G0/C0 DMA sequences kept the wrong sample time; F0/L0 multi-channel DMA sequences hung; H7 internal channels are on `ADC3` (`ADC2` on H7A3/B3); H5/L5/U5 ran the ADC above its maximum clock; U5 `ADC12_COMMON` was at the wrong address.
+- fix: stm32/adc: Add proper support for STM32H72x/H73x `ADC3` (it uses a different IP with different sample time and resolution choices)
 - change: stm32/spi: `set_config` returns `Result<(), spi::ConfigError>` instead of `Result<(), ()>`.
 - feat: stm32/i2c: implement `embedded_hal_02::blocking::i2c::Transactional` for `I2c`.
 - change: stm32: the interrupt binding argument now comes after all peripheral arguments in `eth`, `usb`, `sdmmc`, `ltdc`, `ucpd`, `dac`, `dcmi`, `adf`, `mdf`, `spdifrx`, `i2s`, `sai`, `spi` and `tsc` constructors.
