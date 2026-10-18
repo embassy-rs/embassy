@@ -6,6 +6,8 @@
 //! The test re-runs its own binary: the child panics inside the main task with a payload whose
 //! `Drop` prints a marker, and the parent checks that the child aborted before that `Drop` ran.
 
+#![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
+
 use std::process::Command;
 
 use embassy_executor::Spawner;
