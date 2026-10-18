@@ -10,6 +10,7 @@ pub mod chip;
 mod device;
 
 use embassy_futures::select::{Either3, select3};
+use embassy_futures::yield_now;
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Ticker, Timer};
@@ -90,6 +91,11 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, 
                         }
                         // Empty RX buffer, or a read error: no more frames to read
                         Ok(0) | Err(_) => {
+                            if !rx_frames_remaining {
+                                // INTn was asserted but no frame could be read. If INTn is stuck low the next
+                                // wait completes without suspending, so yield to let other tasks run.
+                                yield_now().await;
+                            }
                             rx_frames_remaining = false;
                         }
                     };
