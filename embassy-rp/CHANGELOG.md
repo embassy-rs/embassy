@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Flash: remove the instance generic; `Flash<'d, T, M, FLASH_SIZE>` is now `Flash<'d, M, FLASH_SIZE>`.
 - TRNG: remove the instance generic and add a `Mode` generic with a `new_blocking` constructor.
 - Watchdog: add a lifetime parameter, and rename `get_scratch` to `scratch`.
+- Watchdog: fix `PSM.WDSEL` on RP235x, which used RP2040 bit positions; a watchdog reset now also resets the OTP block, as the bootrom's `reboot()` does.
 - PIO programs: the interrupt binding and DMA channel now come after the pins in `PioI2sIn::new`, `PioWs2812::new`, `PioWs2812::with_color_order`, `PioStepper::new` and `PioStepDir::new`.
 - TRNG: retry failed health checks instead of hanging or panicking, panic only after 1000 consecutive failures.
 - TRNG: wait for the soft reset to complete before applying the configuration.
