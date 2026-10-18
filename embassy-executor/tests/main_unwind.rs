@@ -15,6 +15,7 @@ use embassy_executor::raw::Executor;
 
 const CHILD_ENV: &str = "EMBASSY_EXECUTOR_MAIN_UNWIND_CHILD";
 const DROP_MARKER: &str = "main_unwind: panic payload dropped";
+const ABORT_MESSAGE: &str = "embassy_executor::main must not unwind";
 
 struct NoopPender;
 
@@ -69,9 +70,11 @@ async fn main(_spawner: Spawner) {
         .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    if stderr.contains(DROP_MARKER) || output.status.success() {
+    if stderr.contains(DROP_MARKER) || output.status.success() || !stderr.contains(ABORT_MESSAGE) {
         eprintln!("child exited with {} and stderr:\n{stderr}", output.status);
-        eprintln!("test main_unwind ... FAILED: the panic unwound out of `main` and dropped its payload");
+        eprintln!(
+            "test main_unwind ... FAILED: the child did not abort with `{ABORT_MESSAGE}` before dropping its payload"
+        );
         std::process::exit(1);
     }
 
