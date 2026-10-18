@@ -27,6 +27,8 @@ teleprobe_meta::target!(b"nucleo-stm32h755zi");
 teleprobe_meta::target!(b"nucleo-stm32h753zi");
 #[cfg(feature = "stm32h7a3zi")]
 teleprobe_meta::target!(b"nucleo-stm32h7a3zi");
+#[cfg(feature = "stm32h723zg")]
+teleprobe_meta::target!(b"nucleo-stm32h723zg");
 #[cfg(feature = "stm32u585ai")]
 teleprobe_meta::target!(b"iot-stm32u585ai");
 #[cfg(feature = "stm32u5a5zj")]
@@ -305,6 +307,40 @@ define_peris!(
     @irq MEM2MEM_DMA = {
         DMA2_STREAM1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH1>;
         BDMA_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::BDMA_CH0>;
+        MDMA => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::MDMA_CH0>;
+    },
+);
+#[cfg(feature = "stm32h723zg")]
+define_peris!(
+    UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH0, UART_RX_DMA = DMA1_CH1,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PB5, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH0, SPI_RX_DMA = DMA1_CH1,
+    DAC = DAC1, DAC_PIN = PA4, DAC_ADC = ADC1,
+    // The internal channels are on ADC3, a 12-bit ADC. ADC1 is the 16-bit one; PC0 is on both.
+    ADC = ADC3, ADC_PIN = PC0, ADC_DMA = DMA1_CH0,
+    ADC_B = ADC1, ADC_B_DMA = DMA1_CH1,
+    MEM2MEM_DMA = DMA2_CH1,
+    MEM2MEM_MDMA = MDMA_CH0,
+    @irq UART = {
+        USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
+            embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
+        RNG => embassy_stm32::rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
+        DMA1_STREAM0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH0>;
+        DMA1_STREAM1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC = {
+        DMA1_STREAM0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH0>;
+    },
+    @irq ADC_IRQ = {
+        ADC3 => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC3>;
+    },
+    @irq ADC_B = {
+        DMA1_STREAM1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    },
+    @irq ADC_B_IRQ = {
+        ADC => embassy_stm32::adc::InterruptHandler<embassy_stm32::peripherals::ADC1>;
+    },
+    @irq MEM2MEM_DMA = {
+        DMA2_STREAM1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA2_CH1>;
         MDMA => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::MDMA_CH0>;
     },
 );
@@ -996,6 +1032,37 @@ pub fn config() -> Config {
         {
             config.rcc.supply_config = SupplyConfig::DirectSMPS;
         }
+    }
+
+    #[cfg(feature = "stm32h723zg")]
+    {
+        config.rcc.hsi = Some(HSIPrescaler::Div1);
+        config.rcc.csi = true;
+        config.rcc.hsi48 = Some(Default::default()); // needed for RNG
+        config.rcc.pll1 = Some(Pll {
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul50,
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div8), // SPI1 cksel defaults to pll1_q
+            divr: None,
+        });
+        config.rcc.pll2 = Some(Pll {
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul50,
+            divp: Some(PllDiv::Div8), // 100mhz
+            divq: None,
+            divr: None,
+        });
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::Div2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.voltage_scale = VoltageScale::Scale1;
+        config.rcc.mux.adcsel = mux::Adcsel::Pll2P;
     }
 
     #[cfg(any(feature = "stm32h7a3zi"))]
