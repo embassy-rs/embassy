@@ -78,7 +78,7 @@ async fn main(spawner: Spawner) {
     const PACKET_QUEUE_SIZE: usize = 4;
     static PACKETS: StaticCell<PacketQueue<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>> = StaticCell::new();
 
-    let device = Ethernet::new(
+    let device = unwrap!(Ethernet::new(
         PACKETS.init(PacketQueue::<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>::new()),
         p.ETH,
         p.PA1,
@@ -96,7 +96,7 @@ async fn main(spawner: Spawner) {
         p.PA2,
         p.PC1,
         Irqs,
-    );
+    ));
 
     static STACK: StaticCell<StackStorage> = StaticCell::new();
     // F2 runs out of RAM

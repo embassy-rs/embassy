@@ -67,7 +67,7 @@ async fn main(spawner: Spawner) -> ! {
     static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
     // warning: Not all STM32H7 devices have the exact same pins here
     // for STM32H747XIH, replace p.PB13 for PG12
-    let device = Ethernet::new(
+    let device = unwrap!(Ethernet::new(
         PACKETS.init(PacketQueue::<4, 4>::new()),
         p.ETH,
         p.PA1,  // ref_clk
@@ -82,7 +82,7 @@ async fn main(spawner: Spawner) -> ! {
         p.PA2, // mdio
         p.PC1, // mdc
         Irqs,
-    );
+    ));
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();

@@ -120,6 +120,9 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     /// See [`Ethernet::new_with_phy`] for creating an RMII ethernet
     /// river with a non-standard PHY.
     ///
+    /// Returns [`crate::eth::Error`] if DMA reset or PHY initialization times out,
+    /// or if no PHY is found. DMA remains inactive on error.
+    ///
     /// safety: the returned instance is not leak-safe
     pub fn new<const TX: usize, const RX: usize, #[cfg(afio)] A>(
         queue: &'d mut PacketQueue<TX, RX>,
@@ -136,7 +139,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
         mdio: Peri<'d, if_afio!(impl MDIOPin<SMA, A>)>,
         mdc: Peri<'d, if_afio!(impl MDCPin<SMA, A>)>,
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         let sma = Sma::new(sma, mdio, mdc);
         let phy = GenericPhy::new_auto(sma);
 
@@ -152,6 +155,9 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     ///
     /// See [`Ethernet::new_mii_with_phy`] for creating an RMII ethernet
     /// river with a non-standard PHY.
+    /// Returns [`crate::eth::Error`] if DMA reset or PHY initialization times out,
+    /// or if no PHY is found. DMA remains inactive on error.
+    ///
     pub fn new_mii<const TX: usize, const RX: usize, #[cfg(afio)] A>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
@@ -172,7 +178,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
         mdio: Peri<'d, if_afio!(impl MDIOPin<SMA, A>)>,
         mdc: Peri<'d, if_afio!(impl MDCPin<SMA, A>)>,
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         let sma = Sma::new(sma, mdio, mdc);
         let phy = GenericPhy::new_auto(sma);
 
@@ -184,6 +190,9 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
 }
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
+    /// Returns [`crate::eth::Error`] if DMA reset or PHY initialization fails.
+    /// DMA remains inactive on error.
+    ///
     /// safety: the returned instance is not leak-safe
     pub fn new_with_phy<const TX: usize, const RX: usize, #[cfg(afio)] A>(
         queue: &'d mut PacketQueue<TX, RX>,
@@ -198,7 +207,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         mac_addr: [u8; 6],
         phy: P,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         #[cfg(eth_v1a)]
         {
             config_in_pins!(ref_clk, rx_d0, rx_d1);
@@ -229,7 +238,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
         rmii_mii_sel: bool,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         // Enable the necessary Clocks
         #[cfg(eth_v1a)]
         critical_section::with(|_| {
@@ -265,8 +274,11 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         let mac = T::regs().ethernet_mac();
 
         // Reset and wait
+        // Do not attach descriptors if the hardware never completes reset.
         dma.dmabmr().modify(|w| w.set_sr(true));
-        while dma.dmabmr().read().sr() {}
+        if !crate::eth::wait_for(|| !dma.dmabmr().read().sr(), crate::eth::MAC_RESET_TIMEOUT_US) {
+            return Err(crate::eth::Error::DmaResetTimeout);
+        }
 
         #[cfg(any(eth_v1b, eth_v1c))]
         // === Enable Enhanced Descriptor Format FIRST (before any descriptor setup) ===
@@ -326,11 +338,15 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         });
 
         // TODO MTU size setting not found for v1 ethernet, check if correct
+        // PHY initialization uses MDIO but must finish before DMA owns queue descriptors.
+        let mut phy = phy;
+        phy.phy_reset()?;
+        phy.phy_init()?;
 
-        let mut this = Self {
+        let this = Self {
             _peri: peri,
             _pins: pins,
-            phy: phy,
+            phy,
             mac_addr,
             wake_guard: T::RCC_INFO.wake_guard().into(),
             link_state: LinkState::Down,
@@ -369,16 +385,16 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_tie(true);
         });
 
-        this.phy.phy_reset();
-        this.phy.phy_init();
-
         interrupt::ETH.unpend();
         unsafe { interrupt::ETH.enable() };
 
-        this
+        Ok(this)
     }
 
     /// Create a new MII ethernet driver using 12 pins.
+    ///
+    /// Returns [`crate::eth::Error`] if DMA reset or PHY initialization fails.
+    /// DMA remains inactive on error.
     pub fn new_mii_with_phy<const TX: usize, const RX: usize, #[cfg(afio)] A>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
@@ -397,7 +413,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         mac_addr: [u8; 6],
         phy: P,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         #[cfg(eth_v1a)]
         {
             config_in_pins!(rx_clk, tx_clk, rx_d0, rx_d1, rx_d2, rx_d3, rxdv);

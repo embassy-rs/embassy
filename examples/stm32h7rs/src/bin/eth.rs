@@ -65,7 +65,7 @@ async fn main(spawner: Spawner) -> ! {
     let mac_addr = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
     static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
-    let device = Ethernet::new(
+    let device = unwrap!(Ethernet::new(
         PACKETS.init(PacketQueue::<4, 4>::new()),
         p.ETH,
         p.PB6,
@@ -80,7 +80,7 @@ async fn main(spawner: Spawner) -> ! {
         p.PA2,
         p.PG6,
         Irqs,
-    );
+    ));
 
     // Have to use UDP w/ static config to fit in internal flash
     // Init network stack
