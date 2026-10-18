@@ -247,6 +247,7 @@ fn main() {
 
     cfgs.declare_all(&[
         "adc_v2_u5",
+        "adc_v3_h7_adc3",
         "adc_oversampler",
         "adc_oversampler_1024",
         "adc_sync_clock",
@@ -254,6 +255,7 @@ fn main() {
         "adc_presc_f4",
         "adc_presc_l1",
         "adc_presc_full",
+        "adc_res6",
         "adc_res14",
         "adc_res16",
         "peri_adc1",
@@ -2655,12 +2657,17 @@ fn main() {
             let adc_common = adc_common.map(|p| p.name).unwrap_or("none");
             // Which driver implementation handles this instance: the first component of the
             // register version (`v1_f4` -> legacy `v1`, ...). The U5 has both ADC generations
-            // in one register version; its `ADC4` block is a `v2` ADC.
+            // in one register version; its `ADC4` block is a `v2` ADC. The H72x/H73x `ADC3`
+            // block is a second, 12-bit, `v3` layout next to the main one.
             let family = match (regs.version, regs.block) {
                 ("v3_u5", "ADC4") => {
                     cfgs.enable("adc_v2");
                     cfgs.enable("adc_v2_u5");
                     "v2"
+                }
+                ("v3_h7", "ADC3") => {
+                    cfgs.enable("adc_v3_h7_adc3");
+                    "v3"
                 }
                 (version, _) => version.split('_').next().unwrap(),
             };
@@ -2687,7 +2694,7 @@ fn main() {
                     "adc_oversampler_1024",
                     matches!(
                         (regs.version, regs.block),
-                        ("v3_h7" | "v3_u3" | "v3_n6" | "v3_c5", _) | ("v3_u5", "ADC")
+                        ("v3_u3" | "v3_n6" | "v3_c5", _) | ("v3_h7" | "v3_u5", "ADC")
                     ),
                 ),
                 (
@@ -2714,10 +2721,17 @@ fn main() {
                     ),
                 ),
                 (
-                    "adc_res14",
-                    matches!((regs.version, regs.block), ("v3_h7", _) | ("v3_u5", "ADC")),
+                    "adc_res6",
+                    !matches!(
+                        (regs.version, regs.block),
+                        ("v1_f1", _) | ("v3_h7", "ADC") | ("v3_u5", "ADC")
+                    ),
                 ),
-                ("adc_res16", regs.version == "v3_h7"),
+                (
+                    "adc_res14",
+                    matches!((regs.version, regs.block), ("v3_h7", "ADC") | ("v3_u5", "ADC")),
+                ),
+                ("adc_res16", (regs.version, regs.block) == ("v3_h7", "ADC")),
             ] {
                 if enable {
                     cfgs.enable(cfg);
