@@ -23,6 +23,15 @@ pub enum KeySize {
     Bits256,
 }
 
+/// Padding scheme used by [`AesPadded`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Padding {
+    /// PKCS#7: pads with `n` bytes of value `n`, always adding 1..=16 bytes. The ciphertext is `(data.len() / 16 + 1) * 16` bytes long.
+    Pkcs7,
+}
+
 /// Errors returned by the AES modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -296,7 +305,7 @@ impl<'d> GenericHashcrypt<'d> {
         }
     }
 
-    pub(crate) fn process_blocks_padded(data: &[u8], output: &mut [u8]) {
+    pub(crate) fn process_blocks_pkcs7(data: &[u8], output: &mut [u8]) {
         let mut offset = 0;
         let mut blocks = data.chunks_exact(16);
         for block in &mut blocks {
@@ -411,32 +420,42 @@ pub trait Aes {
     /// Decrypt `data` into `output`.
     ///
     /// `data` and `output` must have the same length. Except in CTR mode, the length must be
-    /// a multiple of 16 bytes; for PKCS#7-padded ciphertext in ECB and CBC, see [`AesPadded`].
+    /// a multiple of 16 bytes; for padded ciphertext in ECB and CBC, see [`AesPadded`].
     fn decrypt(&mut self, data: &[u8], output: &mut [u8]) -> Result<(), AesError>;
 }
-/// Arbitrary-length encryption for the block modes ([`AesEcb`] and [`AesCbc`]), using PKCS#7 padding.
-///
-/// PKCS#7 always pads: a message that is already a multiple of 16 bytes gets a full extra
-/// block. This is what lets [`decrypt_padded`](AesPadded::decrypt_padded) find and remove
-/// the padding reliably. CTR doesn't need this trait, since it accepts any length directly.
-pub trait AesPadded {
-    /// Pad `data` with PKCS#7 and encrypt it into `output`.
-    ///
-    /// `output` must be at least `(data.len() / 16 + 1) * 16` bytes. Returns the slice of
-    /// `output` holding the ciphertext.
-    fn encrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError>;
 
-    /// Decrypt PKCS#7-padded `data` into `output` and strip the padding.
+/// Arbitrary-length encryption for the block modes ([`AesEcb`] and [`AesCbc`]).
+///
+/// The message is padded to a multiple of 16 bytes using the [`Padding`] scheme passed to
+/// each call. CTR doesn't need this trait, since it accepts any length directly.
+pub trait AesPadded {
+    /// Pad `data` according to the selected padding scheme and encrypt it into `output`.
+    ///
+    /// `output` must be large enough for the padded message (see [`Padding`]). Returns the
+    /// slice of `output` holding the ciphertext.
+    fn encrypt_padded<'o>(
+        &mut self,
+        data: &[u8],
+        output: &'o mut [u8],
+        padding_type: Padding,
+    ) -> Result<&'o [u8], AesError>;
+
+    /// Decrypt padded `data` into `output` and strip the padding.
     ///
     /// `data` must be non-empty, a multiple of 16 bytes, and encrypted with the same key
-    /// (and IV) using PKCS#7 padding. `output` must be at least `data.len()` bytes. Returns
+    /// (and IV) and padding scheme. `output` must be at least `data.len()` bytes. Returns
     /// the slice of `output` holding the original message.
     ///
     /// Returns [`AesError::InvalidPadding`] if the padding is malformed, e.g. for a wrong key
     /// or unpadded ciphertext. This check is best-effort, not an integrity check: random data
     /// passes it occasionally. Don't expose this error to untrusted parties
     /// (padding-oracle attacks).
-    fn decrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError>;
+    fn decrypt_padded<'o>(
+        &mut self,
+        data: &[u8],
+        output: &'o mut [u8],
+        padding_type: Padding,
+    ) -> Result<&'o [u8], AesError>;
 }
 
 // Specific driver types
@@ -585,13 +604,21 @@ impl<'a, 'd> Aes for AesEcb<'a, 'd> {
 }
 
 impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
-    fn encrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
+    fn encrypt_padded<'o>(
+        &mut self,
+        data: &[u8],
+        output: &'o mut [u8],
+        padding_type: Padding,
+    ) -> Result<&'o [u8], AesError> {
         let key = match &self.key {
             Some(k) => k,
             None => return Err(AesError::KeyNeeded),
         };
 
-        let padded_len = (data.len() / 16 + 1) * 16;
+        let padded_len = match padding_type {
+            Padding::Pkcs7 => (data.len() / 16 + 1) * 16,
+        };
+
         if output.len() < padded_len {
             return Err(AesError::OutputTooSmall);
         }
@@ -608,12 +635,22 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
         });
 
         GenericHashcrypt::feed_key(key);
-        GenericHashcrypt::process_blocks_padded(data, output);
 
-        return Ok(&output[..padded_len]);
+        match padding_type {
+            Padding::Pkcs7 => {
+                GenericHashcrypt::process_blocks_pkcs7(data, output);
+
+                return Ok(&output[..padded_len]);
+            }
+        }
     }
 
-    fn decrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
+    fn decrypt_padded<'o>(
+        &mut self,
+        data: &[u8],
+        output: &'o mut [u8],
+        padding_type: Padding,
+    ) -> Result<&'o [u8], AesError> {
         let key = match &self.key {
             Some(k) => k,
             None => return Err(AesError::KeyNeeded),
@@ -638,21 +675,26 @@ impl<'a, 'd> AesPadded for AesEcb<'a, 'd> {
         });
 
         GenericHashcrypt::feed_key(key);
-        GenericHashcrypt::process_blocks(data, output);
 
-        let len = data.len();
-        let n = output[len - 1] as usize;
+        match padding_type {
+            Padding::Pkcs7 => {
+                GenericHashcrypt::process_blocks(data, output);
 
-        if n == 0 || n > 16 {
-            return Err(AesError::InvalidPadding);
-        }
-        for i in (len - n)..len {
-            if output[i] != n as u8 {
-                return Err(AesError::InvalidPadding);
+                let len = data.len();
+                let n = output[len - 1] as usize;
+
+                if n == 0 || n > 16 {
+                    return Err(AesError::InvalidPadding);
+                }
+                for i in (len - n)..len {
+                    if output[i] != n as u8 {
+                        return Err(AesError::InvalidPadding);
+                    }
+                }
+
+                return Ok(&output[..len - n]);
             }
         }
-
-        return Ok(&output[..len - n]);
     }
 }
 
@@ -757,7 +799,12 @@ impl<'a, 'd> Aes for AesCbc<'a, 'd> {
 }
 
 impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
-    fn encrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
+    fn encrypt_padded<'o>(
+        &mut self,
+        data: &[u8],
+        output: &'o mut [u8],
+        padding_type: Padding,
+    ) -> Result<&'o [u8], AesError> {
         let key = match &self.key {
             Some(k) => k,
             None => {
@@ -772,7 +819,10 @@ impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
             }
         };
 
-        let padded_len = (data.len() / 16 + 1) * 16;
+        let padded_len = match padding_type {
+            Padding::Pkcs7 => (data.len() / 16 + 1) * 16,
+        };
+
         if output.len() < padded_len {
             return Err(AesError::OutputTooSmall);
         }
@@ -790,12 +840,22 @@ impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
 
         GenericHashcrypt::feed_key(key);
         GenericHashcrypt::feed_iv_counter(iv);
-        GenericHashcrypt::process_blocks_padded(data, output);
 
-        return Ok(&output[..padded_len]);
+        match padding_type {
+            Padding::Pkcs7 => {
+                GenericHashcrypt::process_blocks_pkcs7(data, output);
+
+                return Ok(&output[..padded_len]);
+            }
+        }
     }
 
-    fn decrypt_padded<'o>(&mut self, data: &[u8], output: &'o mut [u8]) -> Result<&'o [u8], AesError> {
+    fn decrypt_padded<'o>(
+        &mut self,
+        data: &[u8],
+        output: &'o mut [u8],
+        padding_type: Padding,
+    ) -> Result<&'o [u8], AesError> {
         let key = match &self.key {
             Some(k) => k,
             None => return Err(AesError::KeyNeeded),
@@ -828,21 +888,26 @@ impl<'a, 'd> AesPadded for AesCbc<'a, 'd> {
 
         GenericHashcrypt::feed_key(key);
         GenericHashcrypt::feed_iv_counter(iv);
-        GenericHashcrypt::process_blocks(data, output);
 
-        let len = data.len();
-        let n = output[len - 1] as usize;
+        match padding_type {
+            Padding::Pkcs7 => {
+                GenericHashcrypt::process_blocks(data, output);
 
-        if n == 0 || n > 16 {
-            return Err(AesError::InvalidPadding);
-        }
-        for i in (len - n)..len {
-            if output[i] != n as u8 {
-                return Err(AesError::InvalidPadding);
+                let len = data.len();
+                let n = output[len - 1] as usize;
+
+                if n == 0 || n > 16 {
+                    return Err(AesError::InvalidPadding);
+                }
+                for i in (len - n)..len {
+                    if output[i] != n as u8 {
+                        return Err(AesError::InvalidPadding);
+                    }
+                }
+
+                return Ok(&output[..len - n]);
             }
         }
-
-        return Ok(&output[..len - n]);
     }
 }
 
