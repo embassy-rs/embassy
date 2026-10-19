@@ -36,7 +36,7 @@ embedded-storage-async = { version = "0.4.1" }
 [dev-dependencies]
 log = "0.4"
 rand = "0.8"
-futures = { version = "0.3", features = ["executor"] }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 critical-section = { version = "1.1.1", features = ["std"] }
 embassy-crypto-rustcrypto = { version = "0.1.0", path = "../embassy-crypto-rustcrypto", features = ["embassy-crypto-sha1", "embassy-crypto-sha512", "embassy-crypto-ed25519"] }
 embassy-crypto-rand = { version = "0.1.0", path = "../embassy-crypto-rand" }

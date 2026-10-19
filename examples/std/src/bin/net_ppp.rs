@@ -21,7 +21,7 @@ use embassy_net::wire::IpCidr;
 use embassy_net::{Stack, StackStorage, StaticPool};
 use embassy_net_ppp::Runner;
 use embedded_io_async::Write;
-use futures::io::BufReader;
+use futures_lite::io::BufReader;
 use heapless::Vec;
 use log::*;
 use nix::sys::termios;

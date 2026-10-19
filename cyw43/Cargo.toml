@@ -29,7 +29,6 @@ derive_more = { version = "2.1.1", optional = true, default-features =false }
 sdio = "0.5.0"
 
 cortex-m-rt = "0.7.0"
-futures = { version = "0.3.17", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 heapless = "0.9"
