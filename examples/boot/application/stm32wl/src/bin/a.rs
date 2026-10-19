@@ -30,7 +30,7 @@ static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init_primary(Default::default(), &SHARED_DATA);
-    let flash = Flash::new_blocking(p.FLASH);
+    let flash = Flash::new_blocking(p.FLASH, Default::default());
     let flash = Mutex::new(BlockingAsync::new(flash));
 
     let mut button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up, Irqs);

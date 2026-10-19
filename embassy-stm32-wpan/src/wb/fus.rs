@@ -17,7 +17,8 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use cortex_m::asm::wfi;
 use cortex_m::peripheral::SCB;
-use embassy_stm32::flash::{Blocking, FLASH_BASE, FLASH_SIZE, Flash, WRITE_SIZE};
+use embassy_stm32::flash::{FLASH_BASE, FLASH_SIZE, Flash, WRITE_SIZE};
+use embassy_stm32::mode::Blocking;
 use embassy_stm32::pac;
 use embassy_time::{Duration, Timer};
 
