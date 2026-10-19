@@ -35,7 +35,6 @@ flavors = [
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4", optional = true }
 
-embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-rp = { version = "0.10.0", path = "../embassy-rp", default-features = false }
 embassy-boot = { version = "0.7.0", path = "../embassy-boot" }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
@@ -43,8 +42,6 @@ embassy-time = { version = "0.5.1", path = "../embassy-time" }
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.1"
-embedded-storage-async = { version = "0.4.1" }
-cfg-if = "1.0.0"
 
 [features]
 defmt = [

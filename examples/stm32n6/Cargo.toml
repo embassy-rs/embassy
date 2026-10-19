@@ -22,17 +22,12 @@ defmt-rtt = "1.0.0"
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = { version = "0.7.0", features = ["set-vtor"] }
-embedded-hal = "0.2.6"
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
-embedded-hal-async = { version = "1.0" }
 embedded-io-async = { version = "0.7.0" }
-embedded-nal-async = "0.8.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 critical-section = "1.1"
 micromath = "2.0.0"
-stm32-fmc = "0.3.0"
-embedded-storage = "0.3.1"
 static_cell = "2"
 hmac = "0.12.1"
 sha2 = { version = "0.10.9", default-features = false }

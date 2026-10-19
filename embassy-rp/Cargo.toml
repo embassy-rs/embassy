@@ -68,10 +68,10 @@ unstable-pac = []
 time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 
 ## Enable the thread-mode executor.
-executor-thread = ["dep:embassy-executor", "dep:embassy-executor-macros"]
+executor-thread = ["dep:embassy-executor"]
 
 ## Enable the interrupt-mode executor.
-executor-interrupt = ["dep:embassy-executor", "dep:embassy-executor-macros"]
+executor-interrupt = ["dep:embassy-executor"]
 
 ## Enable ROM function cache. This will store the address of a ROM function when first used, improving performance of subsequent calls.
 rom-func-cache = []
@@ -176,10 +176,8 @@ embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-crypto = { version = "0.1.0", path = "../embassy-crypto", optional = true }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
-embassy-executor-macros = { version = "0.8.0", path = "../embassy-executor-macros", optional = true }
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
-cfg-if = "1.0.0"
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 critical-section = "1.2.0"

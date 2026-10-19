@@ -49,8 +49,6 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 display-interface-spi = "0.5.0"
 embedded-graphics = "0.8.1"
 mipidsi = "0.8.0"
-display-interface = "0.5.0"
-byte-slice-cast = { version = "1.2.0", default-features = false }
 smart-leds = "0.4.0"
 heapless = "0.9"
 usbd-hid = "0.10.0"
@@ -61,7 +59,6 @@ aligned = "0.4.3"
 block-device-driver = "0.2.0"
 embedded-hal-bus = { version = "0.1", features = ["async"] }
 embedded-io-async = { version = "0.7.0", features = ["defmt"] }
-embedded-storage = { version = "0.3" }
 static_cell = "2.1"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
 log = "0.4"

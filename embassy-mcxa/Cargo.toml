@@ -95,7 +95,6 @@ embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", feat
 embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils" }
 
 grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
-heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
 nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "a049612e781d1b616843ee49afd9839232684ff7", features = ["rt"] }
@@ -110,7 +109,6 @@ nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "a049612e78
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 regex = "1.12.3"
-syn = "2.0.117"
 convert_case = "0.11"
 indexmap = "2.14.0"
 

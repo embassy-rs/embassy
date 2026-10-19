@@ -25,7 +25,6 @@ xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131d
 [dev-dependencies]
 embedded-hal-mock = { version = "0.10.0", features = ["embedded-hal-async", "eh1"] }
 crc = "3.0.1"
-env_logger = "0.10"
 critical-section = { version = "1.1.2", features = ["std"] }
 futures-test = "0.3.28"
 xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131deb9ff3290e0e01079537e1ed7b2ad" }

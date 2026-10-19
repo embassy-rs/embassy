@@ -9,7 +9,6 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["log"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-wasm", "executor-thread", "log"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["log", "wasm", ] }
 

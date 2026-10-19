@@ -129,7 +129,6 @@ cm0 = ["portable-atomic/unsafe-assume-single-core"]
 [dependencies]
 teleprobe-meta = "1"
 
-embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "tick-hz-131_072", "defmt-timestamp-uptime"] }
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "memory-x", "time-driver-any"]  }
@@ -155,9 +154,6 @@ dsp-fixedpoint = { version = "0.2.0", default-features = false }
 
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.5"
-embedded-hal = "0.2.6"
-embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
-embedded-hal-async = { version = "1.0" }
 embedded-io-async = { version = "0.7.0" }
 embedded-can = { version = "0.4" }
 micromath = "2.1.0"
@@ -179,7 +175,6 @@ sha1 = { version = "0.11.0", default-features = false }
 hmac = "0.13.0"
 aes-gcm = { version = "0.11.0", default-features = false, features = ["aes"] }
 num-traits = { version="0.2", default-features = false,features = ["libm"], optional = true}
-heapless = "0.9.3"
 
 [patch.crates-io]
 embedded-tls = { git = "https://github.com/embassy-rs/embedded-tls" }

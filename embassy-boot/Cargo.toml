@@ -35,7 +35,6 @@ embedded-storage-async = { version = "0.4.1" }
 
 [dev-dependencies]
 log = "0.4"
-env_logger = "0.9"
 rand = "0.8"
 futures = { version = "0.3", features = ["executor"] }
 critical-section = { version = "1.1.1", features = ["std"] }
