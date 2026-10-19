@@ -66,6 +66,26 @@ struct InMemoryDfu<H: DfuModeHandler> {
     dfu_state: RefCell<UsbDfuState<H>>,
 }
 
+#[derive(Debug)]
+#[allow(dead_code)]
+enum TestError {
+    Dfu(dfu_core::Error),
+    Io(std::io::Error),
+    Control(&'static str),
+}
+
+impl From<std::io::Error> for TestError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<dfu_core::Error> for TestError {
+    fn from(e: dfu_core::Error) -> Self {
+        Self::Dfu(e)
+    }
+}
+
 impl<H: DfuModeHandler> DfuIo for InMemoryDfu<H> {
     type Read = usize;
 
@@ -73,7 +93,7 @@ impl<H: DfuModeHandler> DfuIo for InMemoryDfu<H> {
 
     type Reset = ();
 
-    type Error = anyhow::Error;
+    type Error = TestError;
 
     type MemoryLayout = dfu_core::memory_layout::MemoryLayout;
 
@@ -96,8 +116,8 @@ impl<H: DfuModeHandler> DfuIo for InMemoryDfu<H> {
         let mut state = self.dfu_state.borrow_mut();
         match state.control_in(req, buffer) {
             Some(InResponse::Accepted(data)) => Ok(data.len()),
-            Some(InResponse::Rejected) => Err(anyhow::anyhow!("control in rejected")),
-            None => Err(anyhow::anyhow!("control in returned None")),
+            Some(InResponse::Rejected) => Err(TestError::Control("control in rejected")),
+            None => Err(TestError::Control("control in returned None")),
         }
     }
 
@@ -120,8 +140,8 @@ impl<H: DfuModeHandler> DfuIo for InMemoryDfu<H> {
         let mut state = self.dfu_state.borrow_mut();
         match state.control_out(req, buffer) {
             Some(OutResponse::Accepted) => Ok(buffer.len()),
-            Some(OutResponse::Rejected) => Err(anyhow::anyhow!("control out rejected")),
-            None => Err(anyhow::anyhow!("control out returned None")),
+            Some(OutResponse::Rejected) => Err(TestError::Control("control out rejected")),
+            None => Err(TestError::Control("control out returned None")),
         }
     }
 
