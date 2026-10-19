@@ -26,13 +26,14 @@ use embassy_executor::Spawner;
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::security::{IoCapability, SecureConnectionsSupport, SecurityEvent, SecurityParams};
 use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
 use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::values::AddressType;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;

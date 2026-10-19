@@ -23,10 +23,12 @@ use embassy_executor::Spawner;
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{ParsedAdvData, ScanParams, ScanType};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams, GapRole};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
+use stm32wb_hci::aci::flags::Role;
+use stm32wb_hci::aci::values::AddressType;
 
 // ---- Test configuration ----
 const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
@@ -63,14 +65,14 @@ async fn main(spawner: Spawner) {
     let mut ble = match ADDR_TYPE {
         OwnAddressType::Public => {
             let gap_params = GapInitParams {
-                role: GapRole::Observer,
+                role: Role::OBSERVER,
                 bd_addr: [0x01, 0x00, 0x00, 0xE1, 0x80, 0x00],
                 address_type: AddressType::Public,
                 ..GapInitParams::default()
             };
             HCI::new_with_gap_params(platform, runtime, Irqs, gap_params).await
         }
-        _ => HCI::new_with_role(platform, runtime, Irqs, GapRole::Observer).await,
+        _ => HCI::new_with_role(platform, runtime, Irqs, Role::OBSERVER).await,
     }
     .expect("BLE initialization failed");
 
