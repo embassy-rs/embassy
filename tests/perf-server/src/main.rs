@@ -16,7 +16,7 @@ fn wildcard(port: u16) -> String {
 }
 
 fn main() {
-    pretty_env_logger::init();
+    env_logger::init();
     spawn(rx_listen);
     spawn(rxtx_listen);
     spawn(tls_rx_listen);
