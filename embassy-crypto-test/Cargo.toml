@@ -33,8 +33,8 @@ crypto-bigint = { version = "0.7.5", default-features = false, features = ["allo
 p256 = { version = "0.14", default-features = false, features = ["arithmetic"] }
 p384 = { version = "0.14", default-features = false, features = ["arithmetic"] }
 elliptic-curve = { version = "0.14", default-features = false, features = ["arithmetic", "sec1"] }
-x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"] }
-ed25519-dalek = { version = "2", default-features = false }
+x25519-dalek = { version = "3", default-features = false, features = ["static_secrets"] }
+ed25519-dalek = { version = "3", default-features = false }
 
 [features]
 defmt = ["dep:defmt", "embassy-crypto/defmt"]

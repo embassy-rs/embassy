@@ -84,8 +84,6 @@ cortex-m-rt = ">=0.7.3,<0.8"
 cortex-m = "0.7.6"
 critical-section = "1.1"
 
-rand-core-06 = { package = "rand_core", version = "0.6" }
-rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [

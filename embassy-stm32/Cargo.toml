@@ -179,8 +179,6 @@ embedded-can = "0.4"
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 
-rand-core-06 = { package = "rand_core", version = "0.6" }
-rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 

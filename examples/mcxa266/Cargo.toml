@@ -22,7 +22,7 @@ embedded-io-async = "0.7.0"
 embedded-mcu-hal = { version = "0.3.0", features = ["defmt"] }
 embedded-storage = "0.3.1"
 panic-probe = { version = "1.0", features = ["print-defmt"] }
-rand_core = "0.9"
+rand_core = "0.10"
 static_cell = "2.1.1"
 tmp108 = "0.4.0"
 

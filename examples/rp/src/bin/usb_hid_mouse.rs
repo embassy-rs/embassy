@@ -17,7 +17,7 @@ use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, Mou
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
 use panic_probe as _;
-use rand::Rng;
+use rand::RngExt;
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;

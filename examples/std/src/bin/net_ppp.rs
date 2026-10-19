@@ -22,10 +22,11 @@ use embassy_net::{Stack, StackStorage, StaticPool};
 use embassy_net_ppp::Runner;
 use embedded_io_async::Write;
 use futures_lite::io::BufReader;
+use getrandom::SysRng;
 use heapless::Vec;
 use log::*;
 use nix::sys::termios;
-use rand_core::{OsRng, TryRngCore};
+use rand_core::TryRng;
 use static_cell::StaticCell;
 
 use crate::serial_port::SerialPort;
@@ -88,7 +89,7 @@ async fn main_task(spawner: Spawner) {
 
     // Generate random seed
     let mut seed = [0; 8];
-    OsRng.try_fill_bytes(&mut seed).unwrap();
+    SysRng.try_fill_bytes(&mut seed).unwrap();
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack

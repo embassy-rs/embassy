@@ -9,7 +9,7 @@ use embassy_mspm0::gpio::{Level, Output};
 use embassy_mspm0::trng::{CryptoDecimRate, Trng};
 use embassy_time::Timer;
 use panic_halt as _;
-use rand_core::TryRngCore;
+use rand_core::TryRng;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
