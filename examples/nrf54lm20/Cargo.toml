@@ -24,7 +24,6 @@ cortex-m-rt = "0.7.0"
 portable-atomic = "1"
 
 static_cell = "2"
-usbd-hid = "0.10.0"
 
 [profile.release]
 debug = 2

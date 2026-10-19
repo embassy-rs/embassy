@@ -12,10 +12,9 @@ use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_time::Timer;
 use embassy_usb::Builder;
 use embassy_usb::class::hid::device::{HidWriter, RequestHandler, State};
-use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, ReportId};
+use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, MouseReport, ReportId};
 use embassy_usb::control::OutResponse;
 use panic_probe as _;
-use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 
 bind_interrupts!(struct Irqs {
     USB_FS => usb::InterruptHandler<peripherals::USB>;
@@ -79,7 +78,7 @@ async fn main(_spawner: Spawner) {
 
     // Create classes on the builder.
     let config = embassy_usb::class::hid::device::Config {
-        report_descriptor: MouseReport::desc(),
+        report_descriptor: MouseReport::DESCRIPTOR,
         request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
@@ -87,7 +86,7 @@ async fn main(_spawner: Spawner) {
         hid_boot_protocol: HidBootProtocol::Mouse,
     };
 
-    let mut writer = HidWriter::<_, 5>::new(&mut builder, &mut state, config);
+    let mut writer = HidWriter::<_, 4>::new(&mut builder, &mut state, config);
 
     // Build the builder.
     let mut usb = builder.build();
@@ -116,9 +115,8 @@ async fn main(_spawner: Spawner) {
                     x: 0,
                     y,
                     wheel: 0,
-                    pan: 0,
                 };
-                match writer.write_serialize(&report).await {
+                match writer.write(&report.to_bytes()).await {
                     Ok(()) => {}
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 }
