@@ -34,7 +34,6 @@ micromath = "2.0.0"
 stm32-fmc = "0.4.0"
 static_cell = "2"
 chrono = { version = "^0.4", default-features = false }
-grounded = "0.2.0"
 
 # cargo build/run
 [profile.dev]
