@@ -479,6 +479,5 @@ once_cell = { version = "1", default-features = false, features = [
 cortex-m = { version = "0.7", optional = true }
 
 [dev-dependencies]
-serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor" }
