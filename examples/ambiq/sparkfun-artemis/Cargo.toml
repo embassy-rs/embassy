@@ -13,7 +13,7 @@ build = [
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.3"
-panic-halt = "0.2.0"
+panic-halt = "1.0.0"
 
 embassy-executor = { version = "0.10.0", path = "../../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "executor-interrupt"] }
 embassy-time = { version = "0.5.1", path = "../../../embassy-time" }

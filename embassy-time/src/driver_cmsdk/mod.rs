@@ -20,7 +20,6 @@ use cortex_m::interrupt::InterruptNumber;
 use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::{Driver, TICK_HZ, time_driver_impl};
 use embassy_time_queue_utils::Queue;
-use once_cell::sync::OnceCell;
 use regs::{Control, Interrupt};
 
 time_driver_impl!(
@@ -94,7 +93,15 @@ impl AlarmState {
 
 unsafe impl Send for AlarmState {}
 
-static SCALE: OnceCell<u64> = OnceCell::new();
+/// Timer ticks per embassy tick. Zero until the driver is initialized.
+static SCALE: AtomicU32 = AtomicU32::new(0);
+
+fn scale() -> Option<u64> {
+    match SCALE.load(Ordering::Acquire) {
+        0 => None,
+        scale => Some(scale as u64),
+    }
+}
 
 /// Embassy time driver.
 pub struct TimerDriver {
@@ -141,7 +148,8 @@ impl TimerDriver {
         alarm_timer: regs::MmioRegisters<'static>,
     ) {
         // Initiate scale value here. This is required to convert timer ticks back to a timestamp.
-        SCALE.set((sysclk_hz / TICK_HZ as u32) as u64).unwrap();
+        assert!(scale().is_none(), "time driver already initialized");
+        SCALE.store(sysclk_hz / TICK_HZ as u32, Ordering::Release);
         timekeeper.write_control(Control::ZERO);
         timekeeper.write_reload(u32::MAX);
         timekeeper.write_value(u32::MAX);
@@ -203,7 +211,7 @@ impl TimerDriver {
             if at < t {
                 self.trigger_alarm(cs);
             } else {
-                let remaining_ticks = (at - t).checked_mul(*SCALE.get().unwrap());
+                let remaining_ticks = (at - t).checked_mul(scale().unwrap());
                 if let Some(ticks) = remaining_ticks
                     && ticks <= u32::MAX as u64
                 {
@@ -243,7 +251,7 @@ impl TimerDriver {
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
-        if SCALE.get().is_none() {
+        if scale().is_none() {
             return false;
         }
         let mut timer_mut = self.alarm_timer.borrow(cs).borrow_mut();
@@ -270,7 +278,7 @@ impl TimerDriver {
         // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
         // and we don't do that here.
         let safe_timestamp = timestamp.max(t + 3);
-        let timer_ticks = (safe_timestamp - t).checked_mul(*SCALE.get().unwrap());
+        let timer_ticks = (safe_timestamp - t).checked_mul(scale().unwrap());
         timer.write_reload(u32::MAX);
         if let Some(ticks) = timer_ticks
             && ticks < u32::MAX as u64
@@ -294,7 +302,7 @@ impl TimerDriver {
 
 impl Driver for TimerDriver {
     fn now(&self) -> u64 {
-        if SCALE.get().is_none() {
+        if scale().is_none() {
             return 0;
         }
         let mut period1: u32;
@@ -315,7 +323,7 @@ impl Driver for TimerDriver {
             // Double read to protect against race conditions when the counter is overflowing.
             period2 = self.periods.load(Ordering::Relaxed);
             if period1 == period2 {
-                let now = (((period1 as u64) << 32) | counter_val as u64) / *SCALE.get().unwrap();
+                let now = (((period1 as u64) << 32) | counter_val as u64) / scale().unwrap();
                 return now;
             }
         }

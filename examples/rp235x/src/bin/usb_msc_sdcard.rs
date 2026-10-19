@@ -23,8 +23,7 @@ use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_usb::Builder;
 use embassy_usb::class::msc::device::{BlockDevice as MscBlockDevice, Config as MscConfig, MscClass, State};
 use embedded_hal_bus::spi::ExclusiveDevice;
-use embedded_sdmmc::sdcard::{DummyCsPin, SdCard};
-use embedded_sdmmc::{Block, BlockDevice as SdBlockDevice, BlockIdx};
+use embedded_sdmmc::{Block, BlockDevice as SdBlockDevice, BlockIdx, SdCard};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -51,7 +50,7 @@ impl<C: SdBlockDevice> MscBlockDevice for SdDisk<C> {
     fn read_blocks(&mut self, lba: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
         for (i, chunk) in buf.chunks_exact_mut(Block::LEN).enumerate() {
             let idx = BlockIdx(lba + i as u32);
-            self.card.read(core::slice::from_mut(&mut self.block), idx, "USB MSC")?;
+            self.card.read(core::slice::from_mut(&mut self.block), idx)?;
             chunk.copy_from_slice(&self.block.contents);
         }
         Ok(())
@@ -79,10 +78,14 @@ async fn main(_spawner: Spawner) {
     // Waveshare RP2350-PiZero: SCK=GPIO30, MOSI=GPIO31, MISO=GPIO40, CS=GPIO43.
     let mut spi_config = spi::Config::default();
     spi_config.frequency = Hertz(400_000);
-    let spi = Spi::new_blocking(p.SPI1, p.PIN_30, p.PIN_31, p.PIN_40, spi_config).unwrap();
-    let spi_dev = ExclusiveDevice::new_no_delay(spi, DummyCsPin);
+    let mut spi = Spi::new_blocking(p.SPI1, p.PIN_30, p.PIN_31, p.PIN_40, spi_config).unwrap();
     let cs = Output::new(p.PIN_43, Level::High);
-    let card = SdCard::new(spi_dev, cs, embassy_time::Delay);
+
+    // The card needs at least 74 clock cycles with CS high before it accepts commands.
+    spi.blocking_write(&[0xFF; 10]).unwrap();
+
+    let spi_dev = ExclusiveDevice::new_no_delay(spi, cs).unwrap();
+    let card = SdCard::new(spi_dev, embassy_time::Delay);
     let block_count = card.num_blocks().unwrap().0;
     info!("SD card: {} blocks", block_count);
 

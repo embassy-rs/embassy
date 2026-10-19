@@ -193,8 +193,6 @@ embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["un
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 
-rand-core-06 = { package = "rand_core", version = "0.6" }
-rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 pio = { version = "0.4" }

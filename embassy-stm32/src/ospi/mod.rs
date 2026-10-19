@@ -2136,8 +2136,8 @@ macro_rules! ospi_signal_src_trait_impl {
 
 dma_trait!(OctoDma, Instance);
 
-cfg_if::cfg_if! {
-    if #[cfg(octospim_v1)] {
+cfg_select! {
+    octospim_v1 => {
         // signal sources when using OCTOSPIM
         ospi_signal_src_trait!(SckSrc);
         ospi_signal_src_trait!(NckSrc);
@@ -2151,7 +2151,8 @@ cfg_if::cfg_if! {
         ospi_signal_src_trait!(D5Src);
         ospi_signal_src_trait!(D6Src);
         ospi_signal_src_trait!(D7Src);
-    } else {
+    }
+    _ => {
         // pins when NOT using OCTOSPIM
         pin_trait!(SckPin, Instance);
         pin_trait!(NckPin, Instance);

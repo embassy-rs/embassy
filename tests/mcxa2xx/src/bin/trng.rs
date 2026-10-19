@@ -16,8 +16,8 @@ use hal::config::Config;
 use hal::peripherals::TRNG0;
 use hal::trng::{self, InterruptHandler, Trng};
 use panic_probe as _;
-use rand_core::RngCore;
-use rand_core::block::BlockRngCore;
+use rand_core::Rng;
+use rand_core::block::Generator;
 
 bind_interrupts!(
     struct Irqs {

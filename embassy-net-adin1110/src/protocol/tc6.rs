@@ -762,7 +762,7 @@ mod tests {
         tx_port: TxPort,
     ) -> (MockTc6, embedded_hal_mock::common::Generic<SpiTransaction<u8>>) {
         let spi = SpiMock::new(expectations);
-        let spi_dev = ExclusiveDevice::new(spi.clone(), CsPinMock, MockDelay {});
+        let spi_dev = ExclusiveDevice::new(spi.clone(), CsPinMock, MockDelay {}).unwrap();
         let mut tc6 = Tc6::new(spi_dev, false, tx_port);
         tc6.set_port_count(2);
         (tc6, spi)

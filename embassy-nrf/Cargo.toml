@@ -344,8 +344,6 @@ embedded-hal-async = { version = "1.0" }
 embedded-io = { version = "0.7.1" }
 embedded-io-async = { version = "0.7.0" }
 
-rand-core-06 = { package = "rand_core", version = "0.6" }
-rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 # nrf-pac = "0.4.0"
@@ -359,5 +357,4 @@ cortex-m = "0.7.6"
 critical-section = "1.1"
 embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.1"
-cfg-if = "1.0.0"
 document-features = "0.2.7"

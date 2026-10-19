@@ -151,7 +151,7 @@ async fn main(spawner: Spawner) {
         Irqs,
         spi_config,
     );
-    let spe_spi = ExclusiveDevice::new(spe_spi, spe_spi_cs_n, Delay);
+    let spe_spi = ExclusiveDevice::new(spe_spi, spe_spi_cs_n, Delay).unwrap();
 
     let cfg0_without_crc = spe_cfg0.is_high();
     let cfg1_spi_mode = spe_cfg1.is_high();

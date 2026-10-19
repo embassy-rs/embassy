@@ -19,7 +19,7 @@ embassy-boot-stm32 = { path = "../../../../embassy-boot-stm32" }
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 embassy-sync = { version = "0.8.0", path = "../../../../embassy-sync" }
 cortex-m-rt = { version = "0.7" }
-embassy-usb-dfu = { version = "0.3.0", path = "../../../../embassy-usb-dfu", features = ["dfu", "cortex-m"] }
+embassy-usb-dfu = { version = "0.3.0", path = "../../../../embassy-usb-dfu", features = ["dfu"] }
 embassy-usb = { version = "0.6.0", path = "../../../../embassy-usb", default-features = false }
 embassy-futures = { version = "0.1.2", path = "../../../../embassy-futures" }
 

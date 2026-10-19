@@ -11,7 +11,7 @@ panic-halt = "1.0"
 embedded-hal = "1.0"
 
 riscv = { version = "0.16.0", features = ["critical-section-single-hart"] }
-riscv-rt = { version = "0.17.1", features = ["single-hart"] }
+riscv-rt = { version = "0.18.0", features = ["single-hart"] }
 
 [package.metadata.embassy]
 build = [

@@ -8,7 +8,6 @@ use core::f32::consts::PI;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
-use micromath::F32Ext;
 
 use crate::Peri;
 use crate::pac::mathacl::{Mathacl as Regs, vals};
@@ -313,9 +312,9 @@ impl IQType {
         // number of fractional bits
         let f_bits: u8 = total_bits - i_bits;
 
-        let abs_floor = abs.floor();
-        let i_data = abs_floor as u32;
-        let f_data = ((abs - abs_floor) * (1u32 << f_bits) as f32).round() as u32;
+        // `abs` is non-negative, so truncating is flooring, and adding 0.5 before truncating is rounding.
+        let i_data = abs as u32;
+        let f_data = ((abs - i_data as f32) * (1u32 << f_bits) as f32 + 0.5) as u32;
 
         // Handle trimming integer part
         if i_bits == 0 && i_data > 0 {

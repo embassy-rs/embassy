@@ -18,7 +18,7 @@ cortex-m-rt = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 embedded-graphics = { version = "0.8.1" }
-tinybmp = { version = "0.5" }
+tinybmp = { version = "0.7" }
 
 # cargo build/run
 [profile.dev]

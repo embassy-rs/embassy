@@ -15,7 +15,7 @@ use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_usb::{Builder, msos};
 use embassy_usb_dfu::consts::DfuAttributes;
-use embassy_usb_dfu::{ResetImmediate, new_state, usb_dfu};
+use embassy_usb_dfu::{Reset, new_state, usb_dfu};
 
 bind_interrupts!(struct Irqs {
     USB_OTG_HS => usb::InterruptHandler<peripherals::USB_OTG_HS>;
@@ -31,6 +31,14 @@ const DEVICE_INTERFACE_GUIDS: &[&str] = &["{EAA9A5DC-30BA-44BC-9232-606CDC875321
 // N.B. Please replace with your own!
 #[cfg(feature = "verify")]
 static PUBLIC_SIGNING_KEY: &[u8; 32] = include_bytes!("../secrets/key.pub.short");
+
+struct ResetImmediate;
+
+impl Reset for ResetImmediate {
+    fn reset(&self) {
+        cortex_m::peripheral::SCB::sys_reset()
+    }
+}
 
 #[entry]
 fn main() -> ! {

@@ -123,7 +123,10 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     // Copy the generics + where clause to avoid more spurious errors.
     let generics = &f.sig.generics;
     let where_clause = &f.sig.generics.where_clause;
-    let unsafety = &f.sig.unsafety;
+    let unsafety = match &f.sig.safety {
+        syn::Safety::Unsafe(token) => Some(token),
+        _ => None,
+    };
     let visibility = &f.vis;
 
     // assemble the original input arguments,

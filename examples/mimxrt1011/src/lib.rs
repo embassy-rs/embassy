@@ -4,14 +4,16 @@
 
 #![no_std]
 
-use imxrt_boot_gen::flexspi;
 use imxrt_boot_gen::flexspi::opcodes::sdr::*;
 use imxrt_boot_gen::flexspi::{
     ColumnAddressWidth, Command, DeviceModeConfiguration, FlashPadType, Instr, LookupTable, Pads,
-    ReadSampleClockSource, Sequence, SequenceBuilder, SerialClockFrequency, SerialFlashRegion,
+    ReadSampleClockSource, Sequence, SequenceBuilder, SerialClockOption, SerialFlashRegion,
     WaitTimeConfigurationCommands,
 };
 use imxrt_boot_gen::serial_flash::nor;
+use imxrt_boot_gen::{Imxrt, flexspi};
+
+const CHIP: Imxrt = Imxrt::Imxrt1010;
 
 /// While the IMXRT1010-EVK and Makerdiary iMX RT1011 Nano Kit have 128MBit of flash we limit to 64Mbit
 /// to allow the Metro M7 boards to use the same FCB configuration.
@@ -61,14 +63,14 @@ const COMMON_CONFIGURATION_BLOCK: flexspi::ConfigurationBlock = flexspi::Configu
     .device_mode_configuration(DeviceModeConfiguration::Disabled)
     .wait_time_cfg_commands(WaitTimeConfigurationCommands::disable())
     .flash_size(SerialFlashRegion::A1, DENSITY_BYTES)
-    .serial_clk_freq(SerialClockFrequency::MHz120)
+    .serial_clk_freq(CHIP.serial_clock_frequency(SerialClockOption::MHz120))
     .serial_flash_pad_type(FlashPadType::Quad);
 
 pub const SERIAL_NOR_CONFIGURATION_BLOCK: nor::ConfigurationBlock =
-    nor::ConfigurationBlock::new(COMMON_CONFIGURATION_BLOCK)
+    nor::ConfigurationBlock::new(CHIP, COMMON_CONFIGURATION_BLOCK)
         .page_size(256)
         .sector_size(4096)
-        .ip_cmd_serial_clk_freq(nor::SerialClockFrequency::MHz30);
+        .ip_cmd_serial_clk_freq(Some(CHIP.ip_serial_clock_frequency(SerialClockOption::MHz30)));
 
 #[unsafe(no_mangle)]
 #[cfg_attr(all(target_arch = "arm", target_os = "none"), unsafe(link_section = ".fcb"))]

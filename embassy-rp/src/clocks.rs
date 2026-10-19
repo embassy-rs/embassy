@@ -1824,12 +1824,16 @@ impl RoscRng {
 
     /// Get a random u32
     pub fn next_u32(&mut self) -> u32 {
-        rand_core_09::impls::next_u32_via_fill(self)
+        let mut bytes = [0; 4];
+        self.fill_bytes(&mut bytes);
+        u32::from_le_bytes(bytes)
     }
 
     /// Get a random u64
     pub fn next_u64(&mut self) -> u64 {
-        rand_core_09::impls::next_u64_via_fill(self)
+        let mut bytes = [0; 8];
+        self.fill_bytes(&mut bytes);
+        u64::from_le_bytes(bytes)
     }
 
     /// Fill a slice with random bytes
@@ -1837,43 +1841,6 @@ impl RoscRng {
         dest.fill_with(Self::next_u8)
     }
 }
-
-impl rand_core_06::RngCore for RoscRng {
-    fn next_u32(&mut self) -> u32 {
-        self.next_u32()
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.next_u64()
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.fill_bytes(dest);
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
-}
-
-impl rand_core_06::CryptoRng for RoscRng {}
-
-impl rand_core_09::RngCore for RoscRng {
-    fn next_u32(&mut self) -> u32 {
-        self.next_u32()
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.next_u64()
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.fill_bytes(dest);
-    }
-}
-
-impl rand_core_09::CryptoRng for RoscRng {}
 
 impl rand_core_10::TryRng for RoscRng {
     type Error = core::convert::Infallible;

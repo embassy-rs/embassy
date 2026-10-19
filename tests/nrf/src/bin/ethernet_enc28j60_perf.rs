@@ -47,7 +47,7 @@ async fn main(spawner: Spawner) {
     config.frequency = spim::Frequency::M16;
     let spi = spim::Spim::new(p.SPI3, eth_sck, eth_mosi, eth_miso, Irqs, config);
     let cs = Output::new(eth_cs, Level::High, OutputDrive::Standard);
-    let spi = ExclusiveDevice::new(spi, cs, Delay);
+    let spi = ExclusiveDevice::new(spi, cs, Delay).unwrap();
 
     let rst = Output::new(eth_rst, Level::High, OutputDrive::Standard);
     let mac_addr = [2, 3, 4, 5, 6, 7];

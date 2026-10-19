@@ -120,6 +120,7 @@ ADC:
 
 RNG:
 - feat: stm32/rng: add configurable initialization policy (`RngConfig`) with `new_with_config` and health-test profile control
+- change: stm32/rng: `Rng` implements the `rand_core` 0.10 traits instead of the 0.6 and 0.9 ones.
 
 COMP:
 - feat: stm32/comp: add support for comp_v1 (used on G0)

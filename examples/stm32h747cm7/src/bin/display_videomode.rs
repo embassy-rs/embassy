@@ -16,16 +16,11 @@ use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat};
 use embassy_stm32::rcc::{DsiHostPllConfig, DsiPllInput, DsiPllOutput, Hse, Pll};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, SharedData, bind_interrupts, peripherals};
+use embassy_stm32h755cm7_examples::framebuffer::Framebuffer;
 use embassy_stm32h755cm7_examples::glass::Glass;
 use embassy_stm32h755cm7_examples::init_sdram;
-use embassy_stm32h755cm7_examples::ui::Tui;
 use embassy_time::Timer;
-use mousefood::embedded_graphics::prelude::{DrawTarget, RgbColor};
-use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
 use panic_probe as _;
-use ratatui::Terminal;
-
-extern crate alloc;
 
 bind_interrupts!(
     struct Irqs {
@@ -158,9 +153,9 @@ async fn main(_spawner: Spawner) {
         stm32_fmc::devices::is42s32800g_6::Is42s32800g {},
     );
 
-    // Initialize SDRAM, MPU, framebuffers, and heap
+    // Initialize SDRAM, MPU and framebuffers
     let cp = cortex_m::Peripherals::take().unwrap();
-    let mut buffers = init_sdram(cp, sdram);
+    let buffers = init_sdram(cp, sdram);
 
     // Reset display
     let mut dsi_reset = Output::new(p.PG3, embassy_stm32::gpio::Level::Low, embassy_stm32::gpio::Speed::Low);
@@ -185,7 +180,7 @@ async fn main(_spawner: Spawner) {
     };
     ltdc.init_layer(&layer, None);
 
-    buffers.fb0.clear(RgbColor::BLACK).unwrap();
+    buffers.fb0.draw_bars();
 
     info!("Set LTDC fb: {:x}", buffers.fb0.as_ptr());
 
@@ -228,12 +223,12 @@ async fn main(_spawner: Spawner) {
         .await
         .unwrap();
 
-    let backend = EmbeddedBackend::new(&mut buffers.fb0, EmbeddedBackendConfig::default());
-    let mut terminal = Terminal::new(backend).unwrap();
-    let mut tui = Tui::new();
-
+    // Move an inverted line down the color bars, one row per frame.
+    let mut y = 0;
     loop {
-        terminal.draw(|frame| tui.draw(frame)).unwrap();
+        buffers.fb0.draw_bars_row(y, false);
+        y = (y + 1) % Framebuffer::HEIGHT;
+        buffers.fb0.draw_bars_row(y, true);
         ltdc.wait_line(ltdc.total_height()).await;
     }
 }
