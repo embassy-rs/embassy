@@ -67,6 +67,14 @@ pub(super) fn set_exti_interrupt_enabled(pin: PinNumber, state: InterruptState) 
     });
 }
 
+/// Enables or disables the EXTI event output for a specific pin
+pub(super) fn set_exti_event_enabled(pin: PinNumber, enabled: bool) {
+    critical_section::with(|_| {
+        let pin = pin as usize;
+        cpu_regs().emr(0).modify(|w| w.set_line(pin, enabled));
+    });
+}
+
 /// Configures and enables an EXTI line from a GPIO Input in a single critical section
 pub(super) fn configure_and_enable_exti(pin: &Input, trigger_edge: TriggerEdge) {
     let pin_num = pin.pin.pin.pin();
