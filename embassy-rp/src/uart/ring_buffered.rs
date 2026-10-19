@@ -293,6 +293,16 @@ impl<'d> RingBufferedUartTx<'d> {
         let info = T::info();
         super::Uart::<'d, Async>::init(info, Some(tx.into()), None, None, None, config);
 
+        Self::new_inner(info, tx_dma, irq, tx_buffer)
+    }
+
+    /// Everything but the UART setup, which a combined driver does once for both halves.
+    fn new_inner<TxDma: ChannelInstance>(
+        info: &'static Info,
+        tx_dma: Peri<'d, TxDma>,
+        irq: impl Binding<TxDma::Interrupt, TxInterruptHandler<TxDma>> + 'd,
+        tx_buffer: &'d mut [u8],
+    ) -> Self {
         let ring = TxRing::new(
             tx_dma,
             irq,
@@ -372,6 +382,117 @@ impl<'d> embedded_io_async::ErrorType for RingBufferedUartTx<'d> {
 }
 
 impl<'d> embedded_io_async::Write for RingBufferedUartTx<'d> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        Ok(Self::write(self, buf).await)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Self::flush(self).await;
+        Ok(())
+    }
+}
+
+/// Ring-buffered DMA UART with both directions on one UART.
+///
+/// This is a [`RingBufferedUartRx`] and a [`RingBufferedUartTx`] set up together, so the UART
+/// and both pins are configured once. Use [`split`](Self::split) to hand the halves to separate
+/// tasks, or [`split_ref`](Self::split_ref) to borrow them.
+///
+/// Three DMA channels are needed: a data and a control channel for receive, and one for
+/// transmit. The transmit channel must be bound to
+/// [`TxInterruptHandler`](crate::dma_ring_tx::TxInterruptHandler).
+pub struct RingBufferedUart<'d> {
+    tx: RingBufferedUartTx<'d>,
+    rx: RingBufferedUartRx<'d>,
+}
+
+impl<'d> RingBufferedUart<'d> {
+    /// Create a ring-buffered DMA UART.
+    ///
+    /// See [`RingBufferedUartRx::new`] and [`RingBufferedUartTx::new`] for the buffer
+    /// requirements: `rx_buffer` must be a non-zero multiple of 4 bytes, `tx_buffer` any
+    /// non-empty length.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new<T: Instance, RxDma: ChannelInstance, CtrlDma: ChannelInstance, TxDma: ChannelInstance>(
+        _uart: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, impl RxPin<T>>,
+        rx_dma: Peri<'d, RxDma>,
+        ctrl_dma: Peri<'d, CtrlDma>,
+        tx_dma: Peri<'d, TxDma>,
+        irq: impl Binding<T::Interrupt, InterruptHandler<T>>
+        + Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
+        + Binding<TxDma::Interrupt, TxInterruptHandler<TxDma>>
+        + 'd,
+        rx_buffer: &'d mut [u8],
+        tx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        let info = T::info();
+        super::Uart::<'d, Async>::init(info, Some(tx.into()), Some(rx.into()), None, None, config);
+
+        let data = Channel::new(rx_dma, irq);
+        let control = Channel::new_no_interrupt(ctrl_dma);
+
+        Self {
+            rx: RingBufferedUartRx::new_inner(info, T::dma_state(), T::ring_buffered_state(), data, control, rx_buffer),
+            tx: RingBufferedUartTx::new_inner(info, tx_dma, irq, tx_buffer),
+        }
+    }
+
+    /// Split into independent transmitter and receiver halves.
+    pub fn split(self) -> (RingBufferedUartTx<'d>, RingBufferedUartRx<'d>) {
+        (self.tx, self.rx)
+    }
+
+    /// Borrow the transmitter and receiver halves.
+    pub fn split_ref(&mut self) -> (&mut RingBufferedUartTx<'d>, &mut RingBufferedUartRx<'d>) {
+        (&mut self.tx, &mut self.rx)
+    }
+
+    /// See [`RingBufferedUartRx::read`].
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.rx.read(buf).await
+    }
+
+    /// See [`RingBufferedUartRx::blocking_read`].
+    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.rx.blocking_read(buf)
+    }
+
+    /// See [`RingBufferedUartTx::write`].
+    pub async fn write(&mut self, buf: &[u8]) -> usize {
+        self.tx.write(buf).await
+    }
+
+    /// See [`RingBufferedUartTx::try_write`].
+    pub fn try_write(&mut self, buf: &[u8]) -> usize {
+        self.tx.try_write(buf)
+    }
+
+    /// See [`RingBufferedUartTx::flush`].
+    pub async fn flush(&mut self) {
+        self.tx.flush().await
+    }
+}
+
+impl<'d> embedded_io_async::ErrorType for RingBufferedUart<'d> {
+    type Error = Error;
+}
+
+impl<'d> embedded_io_async::Read for RingBufferedUart<'d> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        Self::read(self, buf).await
+    }
+}
+
+impl<'d> embedded_io_async::ReadReady for RingBufferedUart<'d> {
+    fn read_ready(&mut self) -> Result<bool, Self::Error> {
+        self.rx.read_ready()
+    }
+}
+
+impl<'d> embedded_io_async::Write for RingBufferedUart<'d> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Ok(Self::write(self, buf).await)
     }
