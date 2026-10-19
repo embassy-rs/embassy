@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use core::ops::{Bound, Range, RangeBounds};
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
@@ -27,9 +28,15 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const 
 
     #[cfg(test)]
     pub fn random() -> Self {
+        // xorshift32, seeded differently on every call.
+        static SEED: AtomicU32 = AtomicU32::new(0x2545_f491);
+        let mut x = SEED.fetch_add(0x9e37_79b9, Ordering::Relaxed) | 1;
         let mut mem = [0; SIZE];
         for byte in mem.iter_mut() {
-            *byte = rand::random::<u8>();
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            *byte = x as u8;
         }
         Self {
             mem,
