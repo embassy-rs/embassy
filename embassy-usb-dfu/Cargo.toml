@@ -40,7 +40,7 @@ embassy-usb = { version = "0.6.0", path = "../embassy-usb", default-features = f
 embedded-storage = { version = "0.3.1" }
 
 [dev-dependencies]
-dfu-core = { version = "0.10.0", features=["std"] }
+dfu-core = { version = "0.11.1", features=["std"] }
 
 [features]
 dfu = []

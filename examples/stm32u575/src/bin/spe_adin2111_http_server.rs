@@ -221,7 +221,7 @@ async fn main(spawner: Spawner) {
         Irqs,
         spi_config,
     );
-    let spe_spi = SpeSpiCs::new(spe_spi, spe_spi_cs_n, Delay);
+    let spe_spi = SpeSpiCs::new(spe_spi, spe_spi_cs_n, Delay).unwrap();
 
     static STATE: StaticCell<embassy_net_adin1110::State<8, 8>> = StaticCell::new();
     let state = STATE.init(embassy_net_adin1110::State::<8, 8>::new());

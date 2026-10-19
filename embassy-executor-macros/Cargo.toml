@@ -13,7 +13,7 @@ categories = [
 ]
 
 [dependencies]
-syn = { version = "2.0.15", features = ["full", "visit"] }
+syn = { version = "3.0.9", features = ["full", "visit"] }
 quote = "1.0.9"
 proc-macro2 = "1.0.29"
 

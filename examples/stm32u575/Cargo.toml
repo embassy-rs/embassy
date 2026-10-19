@@ -25,7 +25,7 @@ defmt-rtt = "1.0.0"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal-async = { version = "1.0" }
-embedded-hal-bus = { version = "0.1", features = ["async", "defmt-03"] }
+embedded-hal-bus = { version = "0.3", features = ["async", "defmt-03"] }
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 static_cell = "2"
 pca9535 = "2.0.0"

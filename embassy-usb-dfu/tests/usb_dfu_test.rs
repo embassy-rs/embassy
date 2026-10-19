@@ -145,7 +145,7 @@ impl<H: DfuModeHandler> DfuIo for InMemoryDfu<H> {
         }
     }
 
-    fn usb_reset(&mut self) -> Result<Self::Reset, Self::Error> {
+    fn usb_reset(self) -> Result<Self::Reset, Self::Error> {
         Ok(())
     }
 
@@ -183,13 +183,13 @@ fn usb_dfu(dfu_attributes: DfuAttributes) {
         dfu_version: (1, 1),
     };
     let dfu_state = new_state::<_, _, _, BLOCK_SIZE>(updater, dfu_attributes, NoopReset {});
-    let mut dfu = dfu_core::sync::DfuSync::new(InMemoryDfu {
+    let dfu = dfu_core::synchronous::DfuSync::new(InMemoryDfu {
         functional_descriptor,
         dfu_state: RefCell::new(dfu_state),
     });
 
     let firmware = [42; BLOCK_SIZE];
-    let err = dfu.download_from_slice(&firmware);
+    let err = dfu.download_from_slice(&firmware).map(|_| ());
     println!("{:?}", err);
     assert_eq!(&dfu_buffer.borrow()[..firmware.len()], firmware);
     assert!(err.is_ok());

@@ -1076,7 +1076,7 @@ mod tests {
             let delay = MockDelay {};
             let spi = SpiMock::new(expectations);
             let spi_dev: ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay> =
-                ExclusiveDevice::new(spi.clone(), cs, delay);
+                ExclusiveDevice::new(spi.clone(), cs, delay).unwrap();
             let spe = ADIN1110::new_generic(spi_dev, spi_crc, append_fcs_on_tx);
 
             Self { spe, spi }

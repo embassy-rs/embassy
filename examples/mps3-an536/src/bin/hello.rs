@@ -18,7 +18,8 @@ async fn main(_spawner: embassy_executor::Spawner) -> ! {
 
 #[aarch32_rt::irq]
 fn irq_handler() {
-    use arm_gic::gicv3::{GicCpuInterface, InterruptGroup};
+    use arm_gic::InterruptGroup;
+    use arm_gic::gicv3::GicCpuInterface;
     defmt::debug!("> IRQ");
     while let Some(int_id) = GicCpuInterface::get_and_acknowledge_interrupt(InterruptGroup::Group1) {
         match int_id {

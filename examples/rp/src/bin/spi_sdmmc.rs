@@ -13,7 +13,7 @@ use embassy_rp::spi::Spi;
 use embassy_rp::time::Hertz;
 use embassy_rp::{gpio, spi};
 use embedded_hal_bus::spi::ExclusiveDevice;
-use embedded_sdmmc::sdcard::{DummyCsPin, SdCard};
+use embedded_sdmmc::SdCard;
 use gpio::{Level, Output};
 use panic_probe as _;
 
@@ -39,13 +39,14 @@ async fn main(_spawner: Spawner) {
     // SPI clock needs to be running at <= 400kHz during initialization
     let mut config = spi::Config::default();
     config.frequency = Hertz(400_000);
-    let spi = Spi::new_blocking(p.SPI1, p.PIN_10, p.PIN_11, p.PIN_12, config).unwrap();
-    // Use a dummy cs pin here, for embedded-hal SpiDevice compatibility reasons
-    let spi_dev = ExclusiveDevice::new_no_delay(spi, DummyCsPin);
-    // Real cs pin
+    let mut spi = Spi::new_blocking(p.SPI1, p.PIN_10, p.PIN_11, p.PIN_12, config).unwrap();
     let cs = Output::new(p.PIN_16, Level::High);
 
-    let sdcard = SdCard::new(spi_dev, cs, embassy_time::Delay);
+    // The card needs at least 74 clock cycles with CS high before it accepts commands.
+    spi.blocking_write(&[0xFF; 10]).unwrap();
+
+    let spi_dev = ExclusiveDevice::new_no_delay(spi, cs).unwrap();
+    let sdcard = SdCard::new(spi_dev, embassy_time::Delay);
     info!("Card size is {} bytes", sdcard.num_bytes().unwrap());
 
     // Now that the card is initialized, the SPI clock can go faster
@@ -55,19 +56,19 @@ async fn main(_spawner: Spawner) {
 
     // Now let's look for volumes (also known as partitions) on our block device.
     // To do this we need a Volume Manager. It will take ownership of the block device.
-    let mut volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, DummyTimesource());
+    let volume_mgr = embedded_sdmmc::VolumeManager::new(sdcard, DummyTimesource());
 
     // Try and access Volume 0 (i.e. the first partition).
     // The volume object holds information about the filesystem on that volume.
-    let mut volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0)).unwrap();
+    let volume0 = volume_mgr.open_volume(embedded_sdmmc::VolumeIdx(0)).unwrap();
     info!("Volume 0: {:?}", defmt::Debug2Format(&volume0));
 
-    // Open the root directory (mutably borrows from the volume).
-    let mut root_dir = volume0.open_root_dir().unwrap();
+    // Open the root directory (borrows from the volume).
+    let root_dir = volume0.open_root_dir().unwrap();
 
     // Open a file called "MY_FILE.TXT" in the root directory
-    // This mutably borrows the directory.
-    let mut my_file = root_dir
+    // This borrows the directory.
+    let my_file = root_dir
         .open_file_in_dir("MY_FILE.TXT", embedded_sdmmc::Mode::ReadOnly)
         .unwrap();
 

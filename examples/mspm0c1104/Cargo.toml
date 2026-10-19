@@ -15,7 +15,7 @@ cortex-m-rt = { version = "0.7.0"}
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-panic-semihosting = "0.6.0"
+panic-semihosting = "0.7.0"
 
 # The chip only has 1KB of ram, so we must optimize binaries regardless
 [profile.dev]
