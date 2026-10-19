@@ -207,7 +207,6 @@ bitflags = "2.13.1"
 
 aligned = "0.4.3"
 heapless = "0.9.3"
-once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
 stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-123d98e0d40a014f05e1b128228831cde6111d12" }
