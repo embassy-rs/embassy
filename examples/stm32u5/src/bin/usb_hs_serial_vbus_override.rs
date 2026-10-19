@@ -8,12 +8,11 @@ use embassy_futures::join::join3;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals, usb};
+use embassy_stm32::{Config, bind_interrupts, interrupt, pac, peripherals, usb};
 use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use panic_probe as _;
-use stm32_metapac as pac;
 
 bind_interrupts!(struct Irqs {
     OTG_HS => usb::InterruptHandler<peripherals::USB_OTG_HS>;
