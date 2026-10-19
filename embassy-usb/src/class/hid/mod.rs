@@ -1,10 +1,12 @@
 //! Human Interface Device (HID) class.
 
+mod boot;
 mod types;
 
 pub mod device;
 pub mod host;
 
+pub use boot::{KeyboardReport, MouseButtons, MouseReport};
 pub use types::*;
 
 pub(crate) const USB_CLASS_HID: u8 = 0x03;

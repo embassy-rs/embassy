@@ -15,11 +15,10 @@ use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_usb::class::hid::device::{HidReaderWriter, RequestHandler, State};
-use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, ReportId};
+use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, KeyboardReport, ReportId};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
 use panic_probe as _;
-use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 
 bind_interrupts!(struct Irqs {
     USBD => usb::InterruptHandler<peripherals::USBD>;
@@ -78,7 +77,7 @@ async fn main(_spawner: Spawner) {
 
     // Create classes on the builder.
     let config = embassy_usb::class::hid::device::Config {
-        report_descriptor: KeyboardReport::desc(),
+        report_descriptor: KeyboardReport::DESCRIPTOR,
         request_handler: None,
         poll_ms: 60,
         max_packet_size: 64,
@@ -123,12 +122,10 @@ async fn main(_spawner: Spawner) {
                 };
             } else {
                 let report = KeyboardReport {
+                    modifiers: 0,
                     keycodes: [4, 0, 0, 0, 0, 0],
-                    leds: 0,
-                    modifier: 0,
-                    reserved: 0,
                 };
-                match writer.write_serialize(&report).await {
+                match writer.write(&report.to_bytes()).await {
                     Ok(()) => {}
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 };
@@ -143,12 +140,10 @@ async fn main(_spawner: Spawner) {
                 };
             } else {
                 let report = KeyboardReport {
+                    modifiers: 0,
                     keycodes: [0, 0, 0, 0, 0, 0],
-                    leds: 0,
-                    modifier: 0,
-                    reserved: 0,
                 };
-                match writer.write_serialize(&report).await {
+                match writer.write(&report.to_bytes()).await {
                     Ok(()) => {}
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 };

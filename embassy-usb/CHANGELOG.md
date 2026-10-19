@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deprecate `embassy-usb-host`: it is superseded by this crate and is no longer maintained. Migrate to `embassy_usb::host` and `embassy_usb::class::<name>::host`
 - Add `InterfaceAltBuilder::endpoint_bulk_in_double_buffered()` and `endpoint_bulk_out_double_buffered()`
 - `CDC-ACM`: Add `CdcAcmClass::new_double_buffered()`
-- Bump usbd-hid from 0.9.0 to 0.10.0
+- **Breaking:** Remove the `usbd-hid` feature, and `write_serialize()` from `HidWriter` and `HidReaderWriter`
+- `HID`: Add `KeyboardReport` and `MouseReport` at `class::hid`, with report descriptors (`DESCRIPTOR`) and `to_bytes()` for sending them from a device
 - `UAC1`: Add audio source
 - `UAC1`: BREAKING: `AudioSource::new(builder, state, config)` replaces the positional arguments and the manual handler registration; `AudioSource` now has `stream` and `control_monitor` (with `muted()`), `Volume` moved to `class::uac::device`. Internally `Speaker` and `AudioSource` share one implementation of the descriptors and control handler
 - `UAC1`: BREAKING: `Speaker::new(builder, state, config)` takes `speaker::Config` and returns `Self` with the parts inside instead of a tuple

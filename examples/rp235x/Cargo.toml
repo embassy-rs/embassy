@@ -49,7 +49,6 @@ embedded-graphics = "0.8.1"
 mipidsi = "0.8.0"
 smart-leds = "0.3.0"
 heapless = "0.9"
-usbd-hid = "0.10.0"
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = "1.0"
