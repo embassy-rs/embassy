@@ -115,7 +115,7 @@ adc = []
 # The ADC test pin is driven by the DAC (`ADC_DAC`).
 adc-dac = []
 ucpd = []
-cordic = ["dep:num-traits"]
+cordic = ["dep:libm"]
 hsem = []
 dual-bank = ["embassy-stm32/dual-bank"]
 single-bank = ["embassy-stm32/single-bank"]
@@ -174,7 +174,7 @@ sha2 = { version = "0.11.0", default-features = false }
 sha1 = { version = "0.11.0", default-features = false }
 hmac = "0.13.0"
 aes-gcm = { version = "0.11.0", default-features = false, features = ["aes"] }
-num-traits = { version="0.2", default-features = false,features = ["libm"], optional = true}
+libm = { version = "0.2", optional = true }
 
 [patch.crates-io]
 embedded-tls = { git = "https://github.com/embassy-rs/embedded-tls" }
