@@ -56,7 +56,7 @@ impl<'a, const SIZE: usize> NorFlash for InMemoryFlashPartition<'a, SIZE> {
 struct NoopReset {}
 
 impl Reset for NoopReset {
-    fn sys_reset(&self) {
+    fn reset(&self) {
         // noop
     }
 }

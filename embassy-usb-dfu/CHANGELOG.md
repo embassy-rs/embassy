@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - updated firmware verification to `embassy_crypto`
+- Removed `ResetImmediate` and the `cortex-m` and `esp32c3-hal` features.
+- Renamed `Reset::sys_reset` to `Reset::reset`.
 
 ## 0.3.0 - 2026-03-10
 

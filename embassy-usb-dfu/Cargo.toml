@@ -14,14 +14,14 @@ categories = [
 
 [package.metadata.embassy]
 build = [
-    { target = "thumbv7em-none-eabi", features = [ "defmt", "cortex-m", "dfu" ] },
-    { target = "thumbv7em-none-eabi", features = [ "defmt", "cortex-m", "application" ] },
+    { target = "thumbv7em-none-eabi", features = [ "defmt", "dfu" ] },
+    { target = "thumbv7em-none-eabi", features = [ "defmt", "application" ] },
 ]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-v$VERSION/embassy-usb-dfu/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-dfu/src/"
-features = ["defmt", "cortex-m"]
+features = ["defmt"]
 target = "thumbv7em-none-eabi"
 flavors = [
     { name = "dfu",         features = [ "dfu" ] },
@@ -29,17 +29,15 @@ flavors = [
 ]
 
 [package.metadata.docs.rs]
-features = ["defmt", "cortex-m", "dfu"]
+features = ["defmt", "dfu"]
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
 
-cortex-m = { version = "0.7.7", features = ["inline-asm"], optional = true }
 embassy-boot = { version = "0.7.0", path = "../embassy-boot" }
 embassy-usb = { version = "0.6.0", path = "../embassy-usb", default-features = false }
 embedded-storage = { version = "0.3.1" }
-esp32c3-hal = { version = "0.13.0", optional = true, default-features = false }
 
 [dev-dependencies]
 dfu-core = { version = "0.10.0", features=["std"] }
@@ -49,6 +47,4 @@ dfu = []
 application = []
 defmt = ["dep:defmt", "embassy-boot/defmt", "embassy-usb/defmt"]
 log = ["dep:log"]
-cortex-m = ["dep:cortex-m"]  
-esp32c3-hal = ["dep:esp32c3-hal"]
 verify = []

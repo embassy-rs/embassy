@@ -154,7 +154,7 @@ macro_rules! impl_handler {
         }
 
         fn system_reset(&mut self) {
-            self.reset.sys_reset()
+            self.reset.reset()
         }
     };
 }
