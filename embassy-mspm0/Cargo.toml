@@ -69,7 +69,6 @@ log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 critical-section = "1.2.0"
-micromath = "2.0.0"
 
 # mspm0-metapac = { version = "" }
 mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-f78bc71fcc6d74b25c2cae58220d8bf443fb12df" }
