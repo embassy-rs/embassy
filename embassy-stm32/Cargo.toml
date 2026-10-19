@@ -222,8 +222,6 @@ quote = "1.0.47"
 
 [dev-dependencies]
 critical-section = { version = "1.2", features = ["std"] }
-proptest = "1.11.0"
-proptest-state-machine = "0.8.0"
 
 
 [features]
