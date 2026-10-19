@@ -11,7 +11,7 @@ use embassy_executor::Spawner;
 use embassy_mspm0::adc::{self, Adc, AdcChannel, Conversion};
 use embassy_mspm0::{Config, bind_interrupts, peripherals};
 use embassy_time::Timer;
-use panic_halt as _;
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     ADC0 => adc::InterruptHandler<peripherals::ADC0>;

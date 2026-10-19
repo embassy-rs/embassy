@@ -154,7 +154,7 @@ impl core::error::Error for Error {}
 /// use embassy_mspm0::Config;
 /// use embassy_mspm0::trng::Trng;
 /// use rand_core::TryRng;
-/// use {defmt_rtt as _, panic_halt as _};
+/// use {defmt_rtt as _, panic_probe as _};
 ///
 /// #[embassy_executor::main]
 /// async fn main(_spawner: Spawner) -> ! {

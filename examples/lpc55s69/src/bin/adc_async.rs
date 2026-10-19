@@ -9,7 +9,7 @@ use embassy_executor::Spawner;
 use embassy_nxp::adc::{Adc, Config, InterruptHandler, Resolution};
 use embassy_nxp::{bind_interrupts, peripherals};
 use embassy_time::Timer;
-use panic_halt as _;
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     ADC0 => InterruptHandler<peripherals::ADC0>;

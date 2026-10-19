@@ -8,7 +8,7 @@ use embassy_mspm0::Config;
 use embassy_mspm0::gpio::{Level, Output};
 use embassy_mspm0::trng::{CryptoDecimRate, Trng};
 use embassy_time::Timer;
-use panic_halt as _;
+use panic_probe as _;
 use rand_core::TryRng;
 
 #[embassy_executor::main]

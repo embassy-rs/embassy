@@ -13,7 +13,6 @@ use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::{SharedData, bind_interrupts, interrupt};
 use embassy_sync::mutex::Mutex;
-use panic_reset as _;
 
 #[cfg(feature = "skip-include")]
 static APP_B: &[u8] = &[0, 1, 2, 3];
@@ -55,5 +54,10 @@ async fn main(_spawner: Spawner) {
     updater.mark_updated().await.unwrap();
     //defmt::info!("Marked as updated");
     led.set_low();
+    cortex_m::peripheral::SCB::sys_reset();
+}
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
     cortex_m::peripheral::SCB::sys_reset();
 }
