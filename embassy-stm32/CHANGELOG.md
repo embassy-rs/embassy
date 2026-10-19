@@ -171,6 +171,9 @@ DMA:
 - feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
 - feat: stm32/dma: add `TwoDItem`, `TwoDConfig`, and `LinkedListItem` trait; `Table` is now generic over item type
 - fix: stm32/dma: GPDMA: panic when a linked-list `Table` straddles a 64 KiB boundary
+- feat: stm32/dma: GPDMA: per-item hardware triggers (`ItemConfig::trigger`)
+- feat: stm32/dma: GPDMA: memory-to-memory linked-list items (`LinearItem::new_copy`), software-requested
+- feat: stm32/dma: GPDMA: `LinkedListTransfer::trigger_overrun` and `clear_trigger_overrun`
 
 I2S:
 - feat: stm32/i2s: add `I2S::rx_len()` returning the number of samples buffered in the RX DMA ring buffer

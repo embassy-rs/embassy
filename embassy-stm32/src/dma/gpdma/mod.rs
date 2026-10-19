@@ -197,11 +197,23 @@ pub enum TriggerPolarity {
     FallingEdge,
 }
 
-impl From<TriggerPolarity> for vals::Trigpol {
+// On chips with both controllers, channels use LPDMA's types and linked-list items GPDMA's.
+#[cfg(gpdma)]
+impl From<TriggerPolarity> for pac::gpdma::vals::Trigpol {
     fn from(value: TriggerPolarity) -> Self {
         match value {
-            TriggerPolarity::RisingEdge => vals::Trigpol::RisingEdge,
-            TriggerPolarity::FallingEdge => vals::Trigpol::FallingEdge,
+            TriggerPolarity::RisingEdge => Self::RisingEdge,
+            TriggerPolarity::FallingEdge => Self::FallingEdge,
+        }
+    }
+}
+
+#[cfg(lpdma)]
+impl From<TriggerPolarity> for pac::lpdma::vals::Trigpol {
+    fn from(value: TriggerPolarity) -> Self {
+        match value {
+            TriggerPolarity::RisingEdge => Self::RisingEdge,
+            TriggerPolarity::FallingEdge => Self::FallingEdge,
         }
     }
 }
@@ -220,13 +232,26 @@ pub enum TriggerMode {
     Burst,
 }
 
-impl From<TriggerMode> for vals::Trigm {
+#[cfg(gpdma)]
+impl From<TriggerMode> for pac::gpdma::vals::Trigm {
     fn from(value: TriggerMode) -> Self {
         match value {
-            TriggerMode::Block => vals::Trigm::Block,
-            TriggerMode::TwoDBlock => vals::Trigm::from_bits(1),
-            TriggerMode::LinkedListItem => vals::Trigm::LinkedListItem,
-            TriggerMode::Burst => vals::Trigm::Burst,
+            TriggerMode::Block => Self::Block,
+            TriggerMode::TwoDBlock => Self::from_bits(1),
+            TriggerMode::LinkedListItem => Self::LinkedListItem,
+            TriggerMode::Burst => Self::Burst,
+        }
+    }
+}
+
+#[cfg(lpdma)]
+impl From<TriggerMode> for pac::lpdma::vals::Trigm {
+    fn from(value: TriggerMode) -> Self {
+        match value {
+            TriggerMode::Block => Self::Block,
+            TriggerMode::TwoDBlock => Self::from_bits(1),
+            TriggerMode::LinkedListItem => Self::LinkedListItem,
+            TriggerMode::Burst => Self::Burst,
         }
     }
 }
@@ -1174,6 +1199,18 @@ impl<'a> LinkedListTransfer<'a> {
     /// it was requested to stop early with [`request_pause`](Self::request_pause).
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
+    }
+
+    /// Whether a trigger was lost because the previous one was still being served (`TOF`).
+    pub fn trigger_overrun(&self) -> bool {
+        let info = self.channel.info();
+        info.dma.ch(info.num).sr().read().tof()
+    }
+
+    /// Clear the trigger overrun flag.
+    pub fn clear_trigger_overrun(&self) {
+        let info = self.channel.info();
+        info.dma.ch(info.num).fcr().write(|w| w.set_tof(true));
     }
 
     /// Gets the total remaining transfers for the channel

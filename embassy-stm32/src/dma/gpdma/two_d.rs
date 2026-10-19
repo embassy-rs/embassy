@@ -141,7 +141,7 @@ impl TwoDItem {
         config: TwoDConfig,
     ) -> Self {
         let mut item = Item::new(
-            request, dir, peri_addr, mem_addr, mem_len, incr_mem, data_size, dst_size,
+            request, dir, peri_addr, mem_addr, mem_len, incr_mem, false, data_size, dst_size,
         );
         item.apply_config(&config.linear);
 
