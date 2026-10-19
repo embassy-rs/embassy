@@ -20,7 +20,6 @@ env_logger = "0.11"
 futures-lite = "2.6.1"
 log = "0.4.14"
 nix = "0.26.2"
-clap = { version = "3.0.0-beta.5", features = ["derive"] }
 rand_core = "0.10"
 getrandom = { version = "0.4", features = ["sys_rng"] }
 heapless = { version = "0.9", default-features = false }
