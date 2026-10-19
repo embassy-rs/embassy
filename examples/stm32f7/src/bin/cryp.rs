@@ -1,15 +1,11 @@
-//! CRYP AES-GCM hardware vs software roundtrip example.
+//! CRYP AES-GCM roundtrip example.
 //!
 //! Encrypts and decrypts a 32 KiB payload using the CRYP peripheral in
-//! AES-GCM-128 mode, compares the result against the software `aes-gcm`
-//! crate, and reports execution time for both paths.
+//! AES-GCM-128 mode, and reports the execution time.
 
 #![no_std]
 #![no_main]
 
-use aes_gcm::Aes128Gcm;
-use aes_gcm::aead::heapless::Vec;
-use aes_gcm::aead::{AeadInPlace, KeyInit};
 use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -20,7 +16,6 @@ use panic_probe as _;
 use static_cell::StaticCell;
 
 const PAYLOAD_LEN: usize = 32 * 1024;
-const TAG_LEN: usize = 16;
 
 // CRYP DMA transfers as 32-bit words; user buffers must be 4-byte aligned.
 #[repr(align(4))]
@@ -29,8 +24,6 @@ struct Aligned<const N: usize>([u8; N]);
 static PAYLOAD: StaticCell<Aligned<PAYLOAD_LEN>> = StaticCell::new();
 static CIPHERTEXT: StaticCell<Aligned<PAYLOAD_LEN>> = StaticCell::new();
 static PLAINTEXT: StaticCell<Aligned<PAYLOAD_LEN>> = StaticCell::new();
-static SW_BUF: StaticCell<Vec<u8, { PAYLOAD_LEN + TAG_LEN }>> = StaticCell::new();
-static SW_DECRYPT: StaticCell<Vec<u8, { PAYLOAD_LEN + TAG_LEN }>> = StaticCell::new();
 
 bind_interrupts!(struct Irqs {
     CRYP => cryp::InterruptHandler<peripherals::CRYP>;
@@ -77,43 +70,14 @@ async fn main(_spawner: Spawner) -> ! {
     let decrypt_tag = hw_cryp.finish(gcm_decrypt).await;
     let hw_duration = hw_start.elapsed();
 
-    // Software reference for validation and timing comparison.
-    let cipher = Aes128Gcm::new(&key.into());
-    let sw_buf = SW_BUF.init_with(|| {
-        let mut v: Vec<u8, { PAYLOAD_LEN + TAG_LEN }> = Vec::new();
-        v.extend_from_slice(&payload.0).unwrap();
-        v
-    });
-    let sw_start = Instant::now();
-    cipher.encrypt_in_place(&iv.into(), aad, sw_buf).unwrap();
-    let sw_decrypt = SW_DECRYPT.init_with(|| {
-        let mut v: Vec<u8, { PAYLOAD_LEN + TAG_LEN }> = Vec::new();
-        v.extend_from_slice(sw_buf).unwrap();
-        v
-    });
-    cipher.decrypt_in_place(&iv.into(), aad, sw_decrypt).unwrap();
-    let sw_duration = sw_start.elapsed();
-    assert_eq!(sw_decrypt.as_slice(), &payload.0[..]);
-    let (sw_ciphertext, sw_tag) = sw_buf.split_at(PAYLOAD_LEN);
-
-    info!(
-        "HW encrypt: ct match={} tag match={}",
-        &ciphertext.0[..] == sw_ciphertext,
-        encrypt_tag.as_slice() == sw_tag,
-    );
     info!(
         "HW decrypt: pt match={} tag match={}",
         &plaintext.0[..] == &payload.0[..],
         encrypt_tag == decrypt_tag,
     );
 
-    let hw_us = hw_duration.as_micros();
-    let sw_us = sw_duration.as_micros();
-    let speedup_x100 = if hw_us > 0 { (sw_us * 100) / hw_us } else { 0 };
     info!("Payload: {} bytes", PAYLOAD_LEN);
-    info!("Hardware (encrypt+decrypt): {} us", hw_us);
-    info!("Software (encrypt+decrypt): {} us", sw_us);
-    info!("Speedup: {}.{:02}x", speedup_x100 / 100, speedup_x100 % 100);
+    info!("Hardware (encrypt+decrypt): {} us", hw_duration.as_micros());
 
     loop {}
 }
