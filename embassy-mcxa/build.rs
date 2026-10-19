@@ -13,6 +13,41 @@ use quote::{ToTokens, format_ident, quote};
 
 mod build_common;
 
+fn hal_peripherals() -> impl Iterator<Item = &'static nxp_pac::metadata::Peripheral> {
+    METADATA
+        .peripherals
+        .iter()
+        .filter(|peripheral| !cfg!(feature = "_mcxa1xx") || !peripheral.driver_name.is_empty())
+}
+
+// A156 PAC pins describe the package union; these opt-ins are HAL policy.
+// Keep definitions, Peripherals fields and every generated pin trait in sync.
+fn hal_pin_feature(pin: &nxp_pac::metadata::Pin) -> Option<&'static str> {
+    let reserved = if cfg!(feature = "_mcxa1xx") {
+        match pin.name {
+            "P0_0" | "P0_1" => Some("swd-as-gpio"),
+            "P0_2" => Some("swd-swo-as-gpio"),
+            // ISPMODE_N is P0_6 on larger packages, P3_29 on QFN48/LQFP64.
+            "P0_3" | "P0_6" | "P3_29" => Some("jtag-extras-as-gpio"),
+            "P1_29" => Some("dangerous-reset-as-gpio"),
+            "P1_30" | "P1_31" => Some("sosc-as-gpio"),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(feature) = reserved {
+        assert!(
+            pin.feature.is_none() || pin.feature == Some(feature),
+            "conflicting dedicated-pin policy for {}",
+            pin.name
+        );
+        Some(feature)
+    } else {
+        pin.feature
+    }
+}
+
 fn main() {
     let chips = env::vars()
         .filter(|(name, _)| {
@@ -26,12 +61,21 @@ fn main() {
         _ => panic!("Multiple MCXA chip features enabled"),
     }
 
+    assert!(
+        !(cfg!(feature = "_mcxa1xx") && cfg!(feature = "executor-platform")),
+        "MCXA156 does not support executor-platform; use embassy-executor/platform-cortex-m"
+    );
+
     let mut cfgs = CfgSet::new();
     build_common::set_target_cfgs(&mut cfgs);
 
     cfgs.declare("time_driver_ostimer");
     cfgs.declare("time_driver_lptmr");
     if env::var_os("CARGO_FEATURE_TIME_DRIVER_LPTMR").is_some() {
+        assert!(
+            !cfg!(feature = "_mcxa1xx"),
+            "MCXA156 currently supports only the OSTIMER time driver"
+        );
         cfgs.enable("time_driver_lptmr");
     } else if env::var_os("CARGO_FEATURE_TIME_DRIVER_OSTIMER").is_some()
         || env::var_os("CARGO_FEATURE_TIME_DRIVER_ANY").is_some()
@@ -40,12 +84,23 @@ fn main() {
     }
 
     fn driver_to_cfg_name(name: &str) -> String {
-        match name.split_once("::") {
+        let path = match name.split_once("::") {
             Some((path, _block)) => path,
             None => name,
+        };
+
+        if let Some(driver) = path.strip_prefix("MCXA156/") {
+            let driver = driver.to_lowercase();
+            if driver.starts_with("port") {
+                return "mcxa_port1xx".into();
+            }
+            return match driver.as_str() {
+                "gpio" | "lpuart" | "mrcc" | "scg" => format!("mcxa_{driver}1xx"),
+                _ => format!("mcxa_{driver}"),
+            };
         }
-        .replace("/", "_")
-        .to_lowercase()
+
+        path.replace("/", "_").to_lowercase()
     }
 
     // Declare all drivers in nxp-pac (used or unused)
@@ -54,7 +109,7 @@ fn main() {
     }
 
     // Enable all drivers for this chip
-    for peripheral in METADATA.peripherals {
+    for peripheral in hal_peripherals() {
         if peripheral.driver_name.is_empty() {
             continue;
         }
@@ -107,22 +162,15 @@ fn generate_peripherals_call() -> TokenStream {
     // Add pins
     singletons.extend(METADATA.pins.iter().map(|pin| Singleton {
         name: pin.name.to_owned(),
-        feature: pin.feature.map(|str| str.to_owned()),
+        feature: hal_pin_feature(pin).map(str::to_owned),
     }));
 
     // Add peripherals
-    singletons.extend(
-        METADATA
-            .peripherals
-            .iter()
-            .map(|peripheral| Singleton::just_name(peripheral.name)),
-    );
+    singletons.extend(hal_peripherals().map(|peripheral| Singleton::just_name(peripheral.name)));
 
     // Add DMA channels
-    for (dma_num, dma_peripheral) in METADATA
-        .peripherals
-        .iter()
-        .filter_map(|p| prefix_num(p.name, "DMA").map(|dma_num| (dma_num, p)))
+    for (dma_num, dma_peripheral) in
+        hal_peripherals().filter_map(|p| prefix_num(p.name, "DMA").map(|dma_num| (dma_num, p)))
     {
         let channels_num = find_num(dma_peripheral.driver_name, "DMA").unwrap();
 
@@ -132,7 +180,7 @@ fn generate_peripherals_call() -> TokenStream {
     }
 
     // Add CTIMER channels
-    for ctimer_num in METADATA.peripherals.iter().filter_map(|p| prefix_num(p.name, "CTIMER")) {
+    for ctimer_num in hal_peripherals().filter_map(|p| prefix_num(p.name, "CTIMER")) {
         for num in 0..4 {
             singletons.push(Singleton::just_name(format!("CTIMER{ctimer_num}_CH{num}")));
         }
@@ -184,7 +232,7 @@ fn generate_interrupt_mod_call() -> TokenStream {
 fn generate_cc_gates() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for peripheral in METADATA.peripherals {
+    for peripheral in hal_peripherals() {
         let Some(gate) = peripheral.gate.as_ref() else {
             continue;
         };
@@ -221,9 +269,7 @@ fn pin_feature_gate(pin_name: &str) -> TokenStream {
         .iter()
         .find(|pin| pin.name == pin_name)
         .unwrap_or_else(|| panic!("Failed to find pin {pin_name}"));
-    pin.feature
-        .as_ref()
-        .map_or(TokenStream::default(), |feature| quote! { #[cfg(feature = #feature)] })
+    hal_pin_feature(pin).map_or(TokenStream::default(), |feature| quote! { #[cfg(feature = #feature)] })
 }
 
 fn generate_instance_calls() -> TokenStream {
@@ -233,7 +279,7 @@ fn generate_instance_calls() -> TokenStream {
         "adc", "crc", "dac", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi", "can",
     ];
 
-    for peripheral in METADATA.peripherals {
+    for peripheral in hal_peripherals() {
         if peripheral.driver_name.is_empty() {
             // Only use peripherals that have a driver
             continue;
@@ -268,10 +314,8 @@ fn generate_instance_calls() -> TokenStream {
 fn generate_gpio_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for (gpio_num, gpio_peripheral) in METADATA
-        .peripherals
-        .iter()
-        .filter_map(|p| prefix_num(p.name, "GPIO").map(|gpio_num| (gpio_num, p)))
+    for (gpio_num, gpio_peripheral) in
+        hal_peripherals().filter_map(|p| prefix_num(p.name, "GPIO").map(|gpio_num| (gpio_num, p)))
     {
         let peripheral = format_ident!("{}", gpio_peripheral.name);
         let gpio_num = proc_macro2::Literal::u32_unsuffixed(gpio_num);
@@ -295,7 +339,7 @@ fn generate_gpio_pin_impls() -> TokenStream {
 fn generate_adc_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for adc in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "ADC")) {
+    for adc in hal_peripherals().filter(|p| is_numbered(p.name, "ADC")) {
         let adc_name = format_ident!("{}", adc.name);
         for signal in adc.signals {
             let channel: u8 = prefix_num(signal.name, "A")
@@ -320,11 +364,7 @@ fn generate_adc_pin_impls() -> TokenStream {
 fn generate_clkout_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for clkout in METADATA
-        .peripherals
-        .iter()
-        .filter(|p| p.name.eq_ignore_ascii_case("clkout"))
-    {
+    for clkout in hal_peripherals().filter(|p| p.name.eq_ignore_ascii_case("clkout")) {
         for signal in clkout.signals {
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
@@ -345,7 +385,7 @@ fn generate_clkout_impls() -> TokenStream {
 fn generate_lpi2c_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for lpi2c in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "LPI2C")) {
+    for lpi2c in hal_peripherals().filter(|p| is_numbered(p.name, "LPI2C")) {
         let lpi2c_name = format_ident!("{}", lpi2c.name);
         for signal in lpi2c.signals {
             let signal_pin = format_ident!("{}Pin", ccase!(pascal, signal.name));
@@ -368,7 +408,7 @@ fn generate_lpi2c_pin_impls() -> TokenStream {
 fn generate_i3c_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for i3c in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "I3C")) {
+    for i3c in hal_peripherals().filter(|p| is_numbered(p.name, "I3C")) {
         let i3c_name = format_ident!("{}", i3c.name);
         for signal in i3c.signals {
             let signal_pin = format_ident!("{}Pin", ccase!(pascal, signal.name));
@@ -391,7 +431,7 @@ fn generate_i3c_pin_impls() -> TokenStream {
 fn generate_spi_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for spi in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "LPSPI")) {
+    for spi in hal_peripherals().filter(|p| is_numbered(p.name, "LPSPI")) {
         let spi_name = format_ident!("{}", spi.name);
         for signal in spi.signals {
             let signal_pin = format_ident!("{}Pin", ccase!(pascal, signal.name));
@@ -414,7 +454,7 @@ fn generate_spi_pin_impls() -> TokenStream {
 fn generate_flexspi_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for flexspi in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "FLEXSPI")) {
+    for flexspi in hal_peripherals().filter(|p| is_numbered(p.name, "FLEXSPI")) {
         let flexspi_name = format_ident!("{}", flexspi.name);
 
         for signal in flexspi.signals {
@@ -440,7 +480,7 @@ fn generate_flexspi_pin_impls() -> TokenStream {
 fn generate_dac_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for dac in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "DAC")) {
+    for dac in hal_peripherals().filter(|p| is_numbered(p.name, "DAC")) {
         let dac_name = format_ident!("{}", dac.name);
 
         for signal in dac.signals {
@@ -462,7 +502,7 @@ fn generate_dac_pin_impls() -> TokenStream {
 fn generate_ctimer_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for ctimer in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "CTIMER")) {
+    for ctimer in hal_peripherals().filter(|p| is_numbered(p.name, "CTIMER")) {
         let ctimer_name = format_ident!("{}", ctimer.name);
 
         let mut inp_pins = IndexMap::new();
@@ -518,9 +558,22 @@ fn generate_ctimer_pin_impls() -> TokenStream {
 fn generate_lpuart_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for lpuart in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "LPUART")) {
+    for lpuart in hal_peripherals().filter(|p| is_numbered(p.name, "LPUART")) {
         let lpuart_name = format_ident!("{}", lpuart.name);
         for signal in lpuart.signals {
+            // MCXA pin metadata also exposes the peripheral trigger input.
+            // It has no Embassy pin trait yet, so retain it in the PAC while
+            // deliberately omitting a HAL implementation. Keep other unknown
+            // names fail-closed so metadata spelling drift breaks the build.
+            if signal.name == "TRIG" {
+                continue;
+            }
+            assert!(
+                matches!(signal.name, "TXD" | "RXD" | "CTS_B" | "RTS_B"),
+                "unsupported LPUART pin signal {} for {}",
+                signal.name,
+                lpuart.name
+            );
             let signal_name = format_ident!("{}", signal.name);
             for pin in signal.pins {
                 let pin_name = format_ident!("{}", pin.pin);
@@ -540,7 +593,7 @@ fn generate_lpuart_pin_impls() -> TokenStream {
 
 fn generate_flexcan_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
-    for can in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "CAN")) {
+    for can in hal_peripherals().filter(|p| is_numbered(p.name, "CAN")) {
         let can_name = format_ident!("{}", can.name);
         for signal in can.signals {
             // Signal names from the PAC metadata are `TXD` / `RXD`, which the
@@ -565,11 +618,7 @@ fn generate_flexcan_pin_impls() -> TokenStream {
 fn generate_dma_requests_enum() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    for (dma, dma_num) in METADATA
-        .peripherals
-        .iter()
-        .filter_map(|p| prefix_num(p.name, "DMA").map(|num| (p, num)))
-    {
+    for (dma, dma_num) in hal_peripherals().filter_map(|p| prefix_num(p.name, "DMA").map(|num| (p, num))) {
         let num_channels = find_num(dma.driver_name, "DMA").unwrap();
 
         for channel_num in 0..num_channels {
@@ -590,7 +639,7 @@ fn generate_dma_requests_enum() -> TokenStream {
 
 fn generate_dma_impls() -> TokenStream {
     let mut dma_requests = HashMap::new();
-    for dma_mux in METADATA.peripherals.iter().flat_map(|p| p.dma_muxing) {
+    for dma_mux in hal_peripherals().flat_map(|p| p.dma_muxing) {
         dma_requests.insert(dma_mux.signal, dma_mux.request);
     }
     let mut sorted_dma_requests = dma_requests.into_iter().collect::<Vec<_>>();

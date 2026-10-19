@@ -1,0 +1,13 @@
+[package]
+name = "mcxa-pcr-tests"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "52488ea8ddf6c19d6a84a48d906b2bb48c4193bf", features = ["mcxa156"] }
+
+[features]
+default = ["_mcxa1xx"]
+_mcxa1xx = []
