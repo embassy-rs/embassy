@@ -23,7 +23,7 @@ mod buffered;
 pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
 
 mod ring_buffered;
-pub use ring_buffered::RingBufferedUartRx;
+pub use ring_buffered::{RingBufferedUartRx, RingBufferedUartTx};
 
 /// Word length.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

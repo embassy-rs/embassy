@@ -384,7 +384,7 @@ impl<'d> Drop for RxRing<'d> {
 }
 
 /// Write a channel's transfer count, papering over the RP2040/RP2350 register shape difference.
-fn set_trans_count(ch: pac::dma::Channel, count: u32) {
+pub(crate) fn set_trans_count(ch: pac::dma::Channel, count: u32) {
     #[cfg(feature = "rp2040")]
     ch.trans_count().write_value(count);
     #[cfg(feature = "_rp235x")]

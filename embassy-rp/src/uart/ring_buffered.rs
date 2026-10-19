@@ -42,6 +42,7 @@ use core::task::Poll;
 
 use super::*;
 use crate::dma_ring::{RxRing, State};
+use crate::dma_ring_tx::{TxInterruptHandler, TxRing};
 
 /// Ring-buffered DMA UART RX driver.
 ///
@@ -255,5 +256,128 @@ impl<'d> embedded_io_async::Read for RingBufferedUartRx<'d> {
 impl<'d> embedded_io_async::ReadReady for RingBufferedUartRx<'d> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
         Self::read_ready(self)
+    }
+}
+
+/// Ring-buffered DMA UART TX driver.
+///
+/// Writes are copied into a circular pool and sent by one DMA channel, with no per-byte
+/// interrupt: the CPU is involved once per contiguous run of queued bytes, not once per FIFO
+/// refill. Use it when the interrupt-driven [`BufferedUartTx`] spends too much time in its
+/// interrupt at high baud rates.
+///
+/// Unlike the receive side, transmit cannot run the DMA continuously, because a looping DMA
+/// would resend old bytes whenever it caught up with the writer. See [`crate::dma_ring_tx`] for
+/// how runs are started and why the pool can be any length.
+///
+/// The DMA channel must be bound to [`TxInterruptHandler`](crate::dma_ring_tx::TxInterruptHandler),
+/// not to [`dma::InterruptHandler`].
+pub struct RingBufferedUartTx<'d> {
+    info: &'static Info,
+    ring: TxRing<'d>,
+}
+
+impl<'d> RingBufferedUartTx<'d> {
+    /// Create a ring-buffered DMA UART TX driver.
+    ///
+    /// `tx_buffer` is the pool; any non-empty length works. Larger pools let more be queued
+    /// before [`write`](Self::write) has to wait.
+    pub fn new<T: Instance, TxDma: ChannelInstance>(
+        _uart: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        tx_dma: Peri<'d, TxDma>,
+        irq: impl Binding<TxDma::Interrupt, TxInterruptHandler<TxDma>> + 'd,
+        tx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        let info = T::info();
+        super::Uart::<'d, Async>::init(info, Some(tx.into()), None, None, None, config);
+
+        let ring = TxRing::new(
+            tx_dma,
+            irq,
+            info.regs.uartdr().as_ptr() as *mut u8,
+            info.tx_dreq,
+            tx_buffer,
+        );
+        info.regs.uartdmacr().write_set(|w| w.set_txdmae(true));
+
+        Self { info, ring }
+    }
+
+    /// Queue as much of `buf` as fits and return how much that was, without waiting.
+    pub fn try_write(&mut self, buf: &[u8]) -> usize {
+        self.ring.try_write(buf)
+    }
+
+    /// Queue bytes from `buf`, waiting until at least one fits.
+    ///
+    /// Returns the number of bytes queued, which is never zero unless `buf` is empty. This does
+    /// not wait for `buf` to be queued in full — use [`embedded_io_async::Write::write_all`]
+    /// for that. Queued bytes are sent in the background; use [`flush`](Self::flush) to wait for
+    /// them to leave the wire.
+    pub async fn write(&mut self, buf: &[u8]) -> usize {
+        if buf.is_empty() {
+            return 0;
+        }
+        poll_fn(|cx| {
+            // Register before checking, so a run completing in between still wakes us.
+            self.ring.register_waker(cx.waker());
+            match self.ring.try_write(buf) {
+                0 => Poll::Pending,
+                n => Poll::Ready(n),
+            }
+        })
+        .await
+    }
+
+    /// Wait until every queued byte has been sent, including the one still being shifted out.
+    pub async fn flush(&mut self) {
+        poll_fn(|cx| {
+            self.ring.register_waker(cx.waker());
+            if self.ring.pending() != 0 {
+                return Poll::Pending;
+            }
+            // The DMA is done, but the FIFO and the shift register are not. There is no
+            // interrupt for that, so poll.
+            if self.info.regs.uartfr().read().busy() {
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+            Poll::Ready(())
+        })
+        .await
+    }
+
+    /// Bytes that could be queued right now.
+    pub fn free_space(&mut self) -> usize {
+        self.ring.free()
+    }
+
+    /// Bytes queued that the DMA has not finished reading.
+    pub fn pending(&mut self) -> usize {
+        self.ring.pending()
+    }
+}
+
+impl<'d> Drop for RingBufferedUartTx<'d> {
+    fn drop(&mut self) {
+        // Stop the DREQ source; `TxRing`'s own Drop then aborts the channel.
+        self.info.regs.uartdmacr().write_clear(|w| w.set_txdmae(true));
+    }
+}
+
+impl<'d> embedded_io_async::ErrorType for RingBufferedUartTx<'d> {
+    type Error = core::convert::Infallible;
+}
+
+impl<'d> embedded_io_async::Write for RingBufferedUartTx<'d> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        Ok(Self::write(self, buf).await)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Self::flush(self).await;
+        Ok(())
     }
 }

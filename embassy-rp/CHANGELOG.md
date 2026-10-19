@@ -67,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RP235x: enable the RCP and initialize its salt at startup if the bootrom didn't. Fixes flash and multicore if a debugger starts the program directly after a reset.
 - RP235x: with the `run-from-ram` feature, the flash driver restores XIP with the bootrom's `flash_enter_cmd_xip` instead of the XIP setup function in boot RAM.
 - UART: add `RingBufferedUartRx`, a continuous DMA RX driver using two chained DMA channels (a data channel plus a control channel that reloads it from a segment pointer table). No per-byte interrupt and no CPU involvement between buffers.
+- UART: add `RingBufferedUartTx`, a DMA TX driver that sends from a circular pool one contiguous run at a time, restarting the channel from its completion interrupt. No per-byte interrupt. Bind the channel to `dma_ring_tx::TxInterruptHandler`.
 
 
 ## 0.10.0 - 2026-03-10
