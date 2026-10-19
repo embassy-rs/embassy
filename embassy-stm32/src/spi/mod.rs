@@ -383,6 +383,9 @@ pub struct Spi<'d, M: PeriMode, CM: CommunicationMode> {
     nss_pull: Pull,
     gpio_speed: Speed,
     crc_enabled: bool,
+    /// Hardware NSS per transfer (`new_with_nss`).
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    nss_per_transfer: bool,
 }
 
 impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
@@ -411,6 +414,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             nss_pull: config.nss_pull,
             gpio_speed: config.gpio_speed,
             crc_enabled: !matches!(config.crc, CrcConfig::Disabled),
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            nss_per_transfer: false,
         };
         this.enable_and_init(config);
         this
@@ -638,6 +643,25 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         self.info.regs.rxcrc().read().rxcrc() as u16
     }
 
+    /// With NSS per transfer: set `TSIZE` to `len` and clear EOT and TXTF, which would block the
+    /// next transfer. Call with SPE clear.
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    fn set_transfer_size(&self, len: usize) {
+        if !self.nss_per_transfer {
+            return;
+        }
+
+        let Ok(tsize) = u16::try_from(len) else {
+            panic!("with NSS per transfer, a transfer is at most 65535 words");
+        };
+        let regs = self.info.regs;
+        regs.cr2().modify(|w| w.set_tsize(tsize));
+        regs.ifcr().write(|w| {
+            w.set_eotc(true);
+            w.set_txtfc(true);
+        });
+    }
+
     /// Check if a CRC error occurred.
     fn check_transfer_crc(&self) -> Result<(), Error> {
         if !self.crc_enabled {
@@ -846,6 +870,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        self.set_transfer_size(words.len());
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
 
@@ -880,7 +906,11 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
         // wait until last word is transmitted. (except on spi_v1 and spi_v2, see above)
         #[cfg(not(any(spi_v1, spi_v2, spi_v3)))]
-        while !self.info.regs.sr().read().txc() {}
+        if self.info.regs.cr2().read().tsize() == 0 {
+            while !self.info.regs.sr().read().txc() {}
+        } else {
+            while !self.info.regs.sr().read().eot() {}
+        }
         #[cfg(spi_v3)]
         while self.info.regs.sr().read().bsy() {}
 
@@ -895,6 +925,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        self.set_transfer_size(words.len());
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
 
@@ -916,6 +948,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        self.set_transfer_size(words.len());
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
 
@@ -940,6 +974,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        self.set_transfer_size(read.len().max(write.len()));
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
 
@@ -1156,6 +1192,38 @@ impl<'d> Spi<'d, Async, Master> {
         )
     }
 
+    /// Create a new SPI driver with hardware NSS, pulsed for each transfer.
+    ///
+    /// Each transfer (or `embedded-hal` operation) is bounded by `TSIZE`, at most 65535 words, and
+    /// gets its own NSS pulse.
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    pub fn new_with_nss<T: Instance, D1: TxDma<T>, D2: RxDma<T>>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        nss: Peri<'d, impl CsPin<T>>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+        config: Config,
+    ) -> Self {
+        let mut this = Self::new_inner(
+            peri,
+            new_pin!(sck, config.sck_af()),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(miso, AfType::input(config.input_pull)),
+            CsPinType::Flex(new_pin!(nss, AfType::output(OutputType::PushPull, config.gpio_speed)).unwrap()),
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
+            config,
+        );
+        this.nss_per_transfer = true;
+        this
+    }
+
     /// Create a new SPI driver, in RX-only mode (only MISO pin, no MOSI).
     pub fn new_rxonly<T: Instance, #[cfg(any(spi_v1, spi_v2, spi_v3))] D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
@@ -1317,6 +1385,8 @@ impl<'d> Spi<'d, Async, Master> {
             w.set_spe(false);
         });
         self.set_word_size(W::CONFIG);
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        self.set_transfer_size(data.len());
 
         let tx_dst = self.info.regs.tx_ptr();
         let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, Default::default()) };
@@ -1519,6 +1589,8 @@ impl<'d> Spi<'d, Async, Master> {
         });
 
         self.set_word_size(W::CONFIG);
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        self.set_transfer_size(read.len());
 
         // spi_v4 clears rxfifo on SPE=0
         #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]

@@ -237,6 +237,7 @@ SPI:
 - change default NSS configuration from active-high to active-low
 - change: sdmmc: removed the deprecated `sdmmc::sd` module (`StorageDevice`, `Card`, `Emmc`, `DataBlock`, `CmdBlock`). Use the `sdio` crate's `BlockDevice` with `Sdmmc` instead.
 - change: sdmmc: removed `Config::use_cmd23` and `Config::use_acmd23`, which only affected the `sdmmc::sd` module.
+- feat: stm32/spi v4+: `Spi::new_with_nss`, hardware NSS pulsed per transfer
 
 LCD:
 - fix clock divider calculations when the target rate is not perfectly possible with ps+div registers
