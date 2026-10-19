@@ -3,8 +3,6 @@
 use core::convert::Infallible;
 use core::slice;
 
-use cfg_if::cfg_if;
-
 use crate::can::enums::*;
 use crate::can::fd::config::*;
 use crate::can::fd::message_ram::enums::*;
@@ -119,12 +117,9 @@ impl Registers {
 
     #[cfg(time_driver_tim3)]
     fn timestamp_source_is_tim3(&self) -> bool {
-        cfg_if! {
-            if #[cfg(can_fdcan_v2)] {
-                self.regs.tscc().read().tss() == 2
-            } else {
-                self.regs.tscc().read().tss() == stm32_metapac::can::vals::Tss::External
-            }
+        cfg_select! {
+            can_fdcan_v2 => self.regs.tscc().read().tss() == 2,
+            _ => self.regs.tscc().read().tss() == stm32_metapac::can::vals::Tss::External,
         }
     }
 
@@ -169,10 +164,11 @@ impl Registers {
 
     pub fn curr_error(&self) -> Option<BusError> {
         let err = { self.regs.psr().read() };
-        cfg_if! {
-            if #[cfg(can_fdcan_v2)] {
+        cfg_select! {
+            can_fdcan_v2 => {
                 let lec = err.lec();
-            } else {
+            }
+            _ => {
                 let lec = err.lec().to_bits();
             }
         }

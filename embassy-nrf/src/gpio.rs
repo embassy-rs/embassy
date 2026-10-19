@@ -4,7 +4,6 @@
 use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 
-use cfg_if::cfg_if;
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
 use crate::pac;
@@ -610,12 +609,9 @@ pub(crate) trait SealedPin {
 
     #[inline]
     fn _pin(&self) -> u8 {
-        cfg_if! {
-            if #[cfg(feature = "_gpio-p1")] {
-                self.pin_port() % 32
-            } else {
-                self.pin_port()
-            }
+        cfg_select! {
+            feature = "_gpio-p1" => self.pin_port() % 32,
+            _ => self.pin_port(),
         }
     }
 
