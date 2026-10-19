@@ -213,6 +213,36 @@ pub(super) fn finish() -> Result<(), Error> {
     res
 }
 
+/// Whether a double ECC error has been detected since the flags were last cleared.
+#[cfg(any(flash_ecc_bus_error, flash_ecc_nmi))]
+pub(super) fn ecc_double_error() -> bool {
+    #[cfg(any(flash_v5_h7, flash_v5_h7ab))]
+    return (0..SETS).any(|set| reg!(set, sr).read().dbeccerr());
+    #[cfg(flash_v5_h7rs)]
+    return pac::FLASH.isr().read().dbeccerr();
+    #[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+    return pac::FLASH.eccdetr().read().eccd();
+}
+
+/// Clears the ECC double error flags (and on H5/C5 the correction flag).
+#[cfg(any(flash_ecc_bus_error, flash_ecc_nmi))]
+pub(super) fn ecc_clear() {
+    #[cfg(any(flash_v5_h7, flash_v5_h7ab))]
+    for set in 0..SETS {
+        reg!(set, ccr).write(|w| w.set_clr_dbeccerr(true));
+    }
+    #[cfg(flash_v5_h7rs)]
+    pac::FLASH.icr().write(|w| w.set_clr_dbeccerr(true));
+    #[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+    {
+        // The flags are write-1-to-clear, the other fields are read-only or keep their value.
+        let r = pac::FLASH.ecccorr();
+        r.write_value(r.read());
+        let r = pac::FLASH.eccdetr();
+        r.write_value(r.read());
+    }
+}
+
 #[cfg(flash_dual_bank)]
 pub(super) fn banks_swapped() -> bool {
     pac::FLASH.optcr().read().swap_bank()
