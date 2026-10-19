@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner) {
 
     let cfg = {
         let mut c = Config::default();
-        c.divider = 125.into();
+        c.divider_x16 = 125 << 4;
         c.top = 10000;
         c.compare_a = 5000;
         c.compare_b = 5000;

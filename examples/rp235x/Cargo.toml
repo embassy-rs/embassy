@@ -32,8 +32,6 @@ cyw43-pio = { version = "0.10.0", path = "../../cyw43-pio", features = ["defmt"]
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
-fixed = "1.23.1"
-fixed-macro = "1.2"
 
 # for assign resources example
 assign-resources = { git = "https://github.com/adamgreig/assign-resources", rev = "bd22cb7a92031fb16f74a5da42469d466c33383e" }

@@ -7,7 +7,7 @@ use core::mem::{self, MaybeUninit};
 
 use crate::gpio::{Level, Output, Pin as GpioPin};
 use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, Pin as PioPinHandle, PioPin, StateMachine};
-use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider_x256;
 use crate::{Peri, clocks};
 
 /// Default pulse frequency used during initialization.
@@ -166,7 +166,7 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
 
         let mut cfg = Config::default();
         cfg.set_set_pins(&[&step]);
-        cfg.clock_divider = calculate_pio_clock_divider(DEFAULT_FREQUENCY_HZ * program.cycles_per_pulse());
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(DEFAULT_FREQUENCY_HZ * program.cycles_per_pulse());
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);
         sm.set_pins(Level::Low, &[&step]);
@@ -211,8 +211,8 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
         }
 
         self.frequency_hz = freq_hz;
-        let clock_divider = calculate_pio_clock_divider(freq_hz * self.cycles_per_pulse);
-        self.sm.set_clock_divider(clock_divider);
+        let clock_divider = calculate_pio_clock_divider_x256(freq_hz * self.cycles_per_pulse);
+        self.sm.set_clock_divider_x256(clock_divider);
         self.sm.clkdiv_restart();
         Ok(())
     }

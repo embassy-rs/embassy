@@ -122,7 +122,7 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
         cfg.shift_out = shift_cfg;
 
         let divider = (clk_sys_freq() / 1000000) as u16 * 6;
-        cfg.clock_divider = divider.into();
+        cfg.clock_divider_x256 = (divider as u32) << 8;
 
         sm.set_config(&cfg);
         sm.set_pin_dirs(Direction::In, &[&pin]);

@@ -6,7 +6,7 @@ use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioBatch, PioPin, ShiftConfig, ShiftDirection,
     StateMachine,
 };
-use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider_x256;
 use crate::{Peri, dma, interrupt, mode};
 
 /// This struct represents an I2S receiver & controller driver program
@@ -76,7 +76,8 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
             cfg.use_program(&program.prg, &[&bit_clock_pin, &lr_clock_pin]);
             cfg.set_in_pins(&[&data_pin]);
             let clock_frequency = sample_rate * bit_depth * channels;
-            cfg.clock_divider = calculate_pio_clock_divider(clock_frequency * PIO_I2S_IN_PROGRAM_CLK_MULTIPLIER);
+            cfg.clock_divider_x256 =
+                calculate_pio_clock_divider_x256(clock_frequency * PIO_I2S_IN_PROGRAM_CLK_MULTIPLIER);
             cfg.shift_in = ShiftConfig {
                 threshold: 32,
                 direction: ShiftDirection::Left,
@@ -187,7 +188,8 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
             let mut cfg = Config::default();
             cfg.use_program(&program.prg, &[&bit_clock_pin, &lr_clock_pin]);
             cfg.set_out_pins(&[&data_pin]);
-            cfg.clock_divider = calculate_pio_clock_divider(bclk_frequency * PIO_I2S_OUT_PROGRAM_CLK_MULTIPLIER);
+            cfg.clock_divider_x256 =
+                calculate_pio_clock_divider_x256(bclk_frequency * PIO_I2S_OUT_PROGRAM_CLK_MULTIPLIER);
             cfg.shift_out = ShiftConfig {
                 threshold: 32,
                 direction: ShiftDirection::Left,

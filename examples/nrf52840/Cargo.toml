@@ -20,7 +20,6 @@ embassy-net-enc28j60 = { version = "0.3.0", path = "../../embassy-net-enc28j60",
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
-fixed = "1.10.0"
 static_cell = { version = "2" }
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"

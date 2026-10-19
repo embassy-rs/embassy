@@ -52,7 +52,7 @@ async fn main(_spawner: Spawner) {
     let left_bckw = gpio::Output::new(r.left_backward_pin, gpio::Level::Low);
     let mut left_speed = pwm::Config::default();
     left_speed.top = period;
-    left_speed.divider = divider.into();
+    left_speed.divider_x16 = (divider as u16) << 4;
     let left_pwm = pwm::Pwm::new_output_a(r.left_slice, r.left_pwm_pin, left_speed);
     let left_motor = Motor::new(left_fwd, left_bckw, left_pwm).unwrap();
 
@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner) {
     let right_bckw = gpio::Output::new(r.right_backward_pin, gpio::Level::Low);
     let mut right_speed = pwm::Config::default();
     right_speed.top = period;
-    right_speed.divider = divider.into();
+    right_speed.divider_x16 = (divider as u16) << 4;
     let right_pwm = pwm::Pwm::new_output_b(r.right_slice, r.right_pwm_pin, right_speed);
     let right_motor = Motor::new(right_fwd, right_bckw, right_pwm).unwrap();
 

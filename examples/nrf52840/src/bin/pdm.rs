@@ -7,7 +7,6 @@ use embassy_executor::Spawner;
 use embassy_nrf::pdm::{self, Config, Pdm};
 use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::Timer;
-use fixed::types::I7F1;
 use num_integer::Roots;
 use panic_probe as _;
 
@@ -22,9 +21,10 @@ async fn main(_p: Spawner) {
     let mut pdm = Pdm::new(p.PDM, p.P0_01, p.P0_00, Irqs, config);
 
     loop {
-        for gain in [I7F1::from_num(-20), I7F1::from_num(0), I7F1::from_num(20)] {
+        // Gain is in units of 0.5 dB.
+        for gain in [-40, 0, 40] {
             pdm.set_gain(gain, gain);
-            info!("Gain = {} dB", defmt::Debug2Format(&gain));
+            info!("Gain = {} dB", gain as f32 / 2.0);
             pdm.start().await;
 
             // wait some time till the microphon settled

@@ -30,8 +30,6 @@ cyw43-pio = { version = "0.10.0", path = "../../cyw43-pio", features = ["defmt"]
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
-fixed = "1.23.1"
-fixed-macro = "1.2"
 
 # for web request example
 reqwless = { git = "https://github.com/drogue-iot/reqwless", rev = "68f703dfc16e6f7f964b7238c922c0d433118872", features = ["defmt"] }

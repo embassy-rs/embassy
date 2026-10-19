@@ -991,8 +991,6 @@ fn set_baudrate_inner(regs: Regs, clock: u32, baudrate: u32) -> Result<(), Confi
 ///
 /// Values returned are `(ibrd, fbrd)`
 fn calculate_brd(clock: u32, div: u8, baud: u32, oversampling: u8) -> Option<(u16, u8)> {
-    use fixed::types::U26F6;
-
     // Calculate BRD according to SLAU 846 section 18.2.3.4.
     //
     // BRD is a 22-bit value with 16 integer bits and 6 fractional bits.
@@ -1004,37 +1002,15 @@ fn calculate_brd(clock: u32, div: u8, baud: u32, oversampling: u8) -> Option<(u1
     // order to reduce error. However this is wrong since the denominator ends up being too
     // small to represent in 6 fraction bits. This means that FBRD would always be 0.
     //
-    // Calculations are done in a U16F6 format. However the fixed crate has no such representation.
-    // U26F6 is used since it has the same number of fractional bits and we verify at the end that
-    // the integer part did not overflow.
-    let clock = U26F6::from_num(clock);
-    let div = U26F6::from_num(div);
-    let oversampling = U26F6::from_num(oversampling);
-    let baud = U26F6::from_num(baud);
+    // Calculations are done in fixed point with 6 fractional bits, in a u64 so they can't overflow.
+    let uart_clock = (u64::from(clock) << 6).checked_div(u64::from(div))?;
 
-    let uart_clock = clock.checked_div(div)?;
-
-    // oversampling * baud
-    let denom = oversampling.checked_mul(baud)?;
     // uart_clock / (oversampling * baud)
-    let brd = uart_clock.checked_div(denom)?;
+    let brd = uart_clock.checked_div(u64::from(oversampling) * u64::from(baud))?;
 
-    // Checked is used to determine overflow in the 10 most singificant bits since the
-    // actual representation of BRD is U16F6.
-    let ibrd = brd.checked_to_num::<u16>()?;
-
-    // We need to scale FBRD's representation to an integer.
-    let fbrd_scale = U26F6::from_num(2_u32.checked_pow(U26F6::FRAC_NBITS)?);
-
-    // It is suggested that 0.5 is added to ensure that any fractional parts round up to the next
-    // integer. If it doesn't round up then it'll get discarded which is okay.
-    let half = U26F6::from_num(1) / U26F6::from_num(2);
-    // fbrd = INT(((FRAC(BRD) * 64) + 0.5))
-    let fbrd = brd
-        .frac()
-        .checked_mul(fbrd_scale)?
-        .checked_add(half)?
-        .checked_to_num::<u8>()?;
+    // The integer part must fit in 16 bits.
+    let ibrd = u16::try_from(brd >> 6).ok()?;
+    let fbrd = (brd & 0x3F) as u8;
 
     Some((ibrd, fbrd))
 }
