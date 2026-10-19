@@ -224,7 +224,6 @@ stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", ta
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
-regex = "1.13.1"
 
 [dev-dependencies]
 critical-section = { version = "1.2", features = ["std"] }

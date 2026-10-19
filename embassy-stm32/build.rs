@@ -7,7 +7,6 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use regex::Regex;
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, Peripheral, PeripheralRccKernelClock,
@@ -2274,8 +2273,6 @@ fn main() {
 
     let mut trigger_list: BTreeSet<&str> = BTreeSet::new();
 
-    let trigger_expr = Regex::new(r"(?m)(.+?)(\d+)$").unwrap();
-
     // JPEG HAL: emit dma_trait impls on chips that use RX/TX DMA signal names.
     // ST naming: jpeg_rx_dma = mem→peri (input), jpeg_tx_dma = peri→mem (output).
     if chip_name.starts_with("stm32n6") || chip_name.starts_with("stm32u5f9") || chip_name.starts_with("stm32u5g9") {
@@ -2306,9 +2303,9 @@ fn main() {
         }
 
         for trigger in p.triggers {
-            let matches = trigger_expr.captures(trigger.signal).unwrap();
-            let signal = &matches[1];
-            let idx: u8 = matches[2].parse().unwrap();
+            let (signal, idx) = split_trailing_number(trigger.signal)
+                .unwrap_or_else(|| panic!("trigger signal without index: {}", trigger.signal));
+            let idx: u8 = idx.try_into().unwrap();
 
             trigger_list.insert(trigger.source);
 
@@ -3411,6 +3408,15 @@ fn parse_adc_pin_signal(signal: &str) -> Option<(u8, bool)> {
     } else {
         None
     }
+}
+
+/// Split `"FOO12"` into `("FOO", 12)`. Returns `None` if `s` doesn't end with a digit or is all digits.
+fn split_trailing_number(s: &str) -> Option<(&str, u32)> {
+    let prefix = s.trim_end_matches(|c: char| c.is_ascii_digit());
+    if prefix.is_empty() || prefix.len() == s.len() {
+        return None;
+    }
+    Some((prefix, s[prefix.len()..].parse().unwrap()))
 }
 
 #[derive(Copy, Clone, Debug)]
