@@ -51,8 +51,6 @@ async fn main(_spawner: Spawner) {
 
     let mut sd_cfg = embassy_stm32::sdmmc::Config::default();
     sd_cfg.data_transfer_timeout = 200_000_000;
-    sd_cfg.use_cmd23 = true;
-    sd_cfg.use_acmd23 = true;
 
     let mut sd = Sdmmc::new_4bit_with_vswitch_dlyb(
         p.SDMMC2,

@@ -165,6 +165,8 @@ RCC:
 
 SPI:
 - change default NSS configuration from active-high to active-low
+- change: sdmmc: removed the deprecated `sdmmc::sd` module (`StorageDevice`, `Card`, `Emmc`, `DataBlock`, `CmdBlock`). Use the `sdio` crate's `BlockDevice` with `Sdmmc` instead.
+- change: sdmmc: removed `Config::use_cmd23` and `Config::use_acmd23`, which only affected the `sdmmc::sd` module.
 
 ## 0.6.0 - 2026-03-10
 
