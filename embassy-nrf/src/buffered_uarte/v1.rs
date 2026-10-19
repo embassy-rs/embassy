@@ -46,14 +46,23 @@ pub(crate) struct State {
 }
 
 /// UART error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Buffer Overrun
-    #[error("buffer overrun")]
     Overrun,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Overrun => f.write_str("buffer overrun"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 impl State {
     pub(crate) const fn new() -> Self {

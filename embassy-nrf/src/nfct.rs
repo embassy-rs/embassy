@@ -77,26 +77,37 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHand
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 /// NFC error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Rx Error received while waiting for frame
-    #[error("rx error received while waiting for frame")]
     RxError,
     /// Rx buffer was overrun, increase your buffer size to resolve this
-    #[error("rx buffer was overrun")]
     RxOverrun,
     /// Lost field.
-    #[error("lost field: deactivated")]
     Deactivated,
     /// Collision
-    #[error("collision")]
     Collision,
     /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
-    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::RxError => f.write_str("rx error received while waiting for frame"),
+            Self::RxOverrun => f.write_str("rx buffer was overrun"),
+            Self::Deactivated => f.write_str("lost field: deactivated"),
+            Self::Collision => f.write_str("collision"),
+            Self::BufferNotInRAM => {
+                f.write_str("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")
+            }
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// NFC tag emulator driver.
 pub struct NfcT<'d> {

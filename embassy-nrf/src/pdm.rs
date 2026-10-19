@@ -61,23 +61,32 @@ pub struct Pdm<'d> {
 }
 
 /// PDM error
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Buffer is too long
-    #[error("buffer is too long")]
     BufferTooLong,
     /// Buffer is empty
-    #[error("buffer is empty")]
     BufferZeroLength,
     /// PDM is not running
-    #[error("PDM is not running")]
     NotRunning,
     /// PDM is already running
-    #[error("PDM is already running")]
     AlreadyRunning,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BufferTooLong => f.write_str("buffer is too long"),
+            Self::BufferZeroLength => f.write_str("buffer is empty"),
+            Self::NotRunning => f.write_str("PDM is not running"),
+            Self::AlreadyRunning => f.write_str("PDM is already running"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 static DUMMY_BUFFER: [i16; 1] = [0; 1];
 

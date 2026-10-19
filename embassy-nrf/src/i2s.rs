@@ -26,26 +26,37 @@ pub const DMA_SIZE: usize = crate::util::easy_dma_max!(pac::i2s::regs::Maxcnt, s
 pub type DoubleBuffering<S, const NS: usize> = MultiBuffering<S, 2, NS>;
 
 /// I2S transfer error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// The buffer is too long.
-    #[error("buffer is too long")]
     BufferTooLong,
     /// The buffer is empty.
-    #[error("buffer is empty")]
     BufferZeroLength,
     /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
-    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
     /// The buffer address is not aligned.
-    #[error("buffer address is not aligned")]
     BufferMisaligned,
     /// The buffer length is not a multiple of the alignment.
-    #[error("buffer length is not a multiple of the alignment")]
     BufferLengthMisaligned,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BufferTooLong => f.write_str("buffer is too long"),
+            Self::BufferZeroLength => f.write_str("buffer is empty"),
+            Self::BufferNotInRAM => {
+                f.write_str("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")
+            }
+            Self::BufferMisaligned => f.write_str("buffer address is not aligned"),
+            Self::BufferLengthMisaligned => f.write_str("buffer length is not a multiple of the alignment"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// I2S configuration.
 #[derive(Clone)]
