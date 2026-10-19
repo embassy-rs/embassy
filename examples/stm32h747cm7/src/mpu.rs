@@ -8,10 +8,6 @@ use cortex_m::peripheral::MPU;
 /// TEX=0, C=1, B=0
 pub const ATTR_WRITE_THROUGH: u32 = (0b000 << 19) | (1 << 17) | (0 << 16) | (0 << 18);
 
-/// Normal memory, write-back, write/read allocate:
-/// Common Cortex-M setting: TEX=0, C=1, B=1
-pub const ATTR_WRITE_BACK: u32 = (0b000 << 19) | (1 << 17) | (1 << 16) | (0 << 18);
-
 // https://developer.arm.com/documentation/dui0646/c/Cortex-M7-Peripherals/Optional-Memory-Protection-Unit/MPU-Region-Attribute-and-Size-Register
 const MPU_XN: u32 = 1 << 28;
 const MPU_ENABLE: u32 = 1;
