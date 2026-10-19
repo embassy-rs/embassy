@@ -21,7 +21,6 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU8, Ordering};
 use core::task::Poll;
 
-use bit_field::BitField;
 pub use detector::*;
 pub use dma::*;
 use embassy_hal_internal::PeripheralType;
