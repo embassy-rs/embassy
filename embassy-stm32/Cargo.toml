@@ -174,7 +174,6 @@ embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.7", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
-embedded-hal-nb = { version = "1.0" }
 embedded-can = "0.4"
 
 embedded-storage = "0.3.1"
@@ -189,9 +188,7 @@ defmt = { version = "1.1.1", optional = true }
 log = { version = "0.4.33", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.7"
-futures-util = { version = "0.3.33", default-features = false }
 sdio = "0.5.0"
-sdio-host = "0.9.0"
 dsp-fixedpoint = { version = "0.2.0", default-features = false }
 critical-section = { version = "1.2", default-features = false }
 
@@ -204,11 +201,8 @@ cfg-if = "1.0.4"
 embedded-io = { version = "0.7.1" }
 embedded-io-async = { version = "0.7.0" }
 chrono = { version = "^0.4", default-features = false, optional = true }
-bit_field = "0.10.3"
-trait-set = "0.3.0"
 document-features = "0.2.12"
 
-static_assertions = { version = "1.1" }
 bitflags = "2.13.1"
 
 block-device-driver = { version = "0.2" }
@@ -225,12 +219,9 @@ stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", ta
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
-regex = "1.13.1"
 
 [dev-dependencies]
 critical-section = { version = "1.2", features = ["std"] }
-proptest = "1.11.0"
-proptest-state-machine = "0.8.0"
 
 
 [features]

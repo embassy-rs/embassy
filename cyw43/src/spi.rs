@@ -4,7 +4,6 @@ use aligned::{A4, Aligned};
 use embassy_futures::yield_now;
 use embassy_time::{Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
-use futures::FutureExt;
 
 use crate::WithContext;
 use crate::consts::*;
@@ -191,10 +190,9 @@ where
         trace!("read REG_BUS_TEST_RO");
         try_until(
             async || {
-                self.read32_swapped(FUNC_BUS, REG_BUS_TEST_RO)
-                    .inspect(|v| trace!("{:#x}", v))
-                    .await
-                    == FEEDBEAD
+                let v = self.read32_swapped(FUNC_BUS, REG_BUS_TEST_RO).await;
+                trace!("{:#x}", v);
+                v == FEEDBEAD
             },
             Duration::from_millis(500),
         )

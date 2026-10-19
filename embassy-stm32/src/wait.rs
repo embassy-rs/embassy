@@ -74,12 +74,12 @@ impl Timeout {
     {
         #[cfg(feature = "time")]
         {
-            use futures_util::FutureExt;
-
-            embassy_futures::select::select(embassy_time::Timer::at(self.deadline), fut).map(|r| match r {
-                embassy_futures::select::Either::First(_) => Err(TimeoutError.into()),
-                embassy_futures::select::Either::Second(r) => r,
-            })
+            async move {
+                match embassy_futures::select::select(embassy_time::Timer::at(self.deadline), fut).await {
+                    embassy_futures::select::Either::First(_) => Err(TimeoutError.into()),
+                    embassy_futures::select::Either::Second(r) => r,
+                }
+            }
         }
 
         #[cfg(not(feature = "time"))]
@@ -114,11 +114,11 @@ pub async fn try_until_result<E: From<TimeoutError>>(
     timeout: Timeout,
 ) -> Result<(), E> {
     use core::future::poll_fn;
+    use core::pin::Pin;
     use core::task::Poll;
 
     use embassy_futures::select::{Either, select};
     use embassy_time::{Duration, Ticker};
-    use futures_util::FutureExt;
 
     match select(
         async {
@@ -131,7 +131,7 @@ pub async fn try_until_result<E: From<TimeoutError>>(
 
                 // Advance the ticker to the next pending tick
                 poll_fn(|cx| {
-                    while matches!(ticker.next().poll_unpin(cx), Poll::Ready(())) {}
+                    while matches!(Pin::new(&mut ticker.next()).poll(cx), Poll::Ready(())) {}
                     Poll::Ready(())
                 })
                 .await;

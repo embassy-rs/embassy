@@ -10,8 +10,6 @@ use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Config, InterruptHandler, Pio, ShiftConfig, ShiftDirection};
 use embassy_rp::{bind_interrupts, dma};
-use fixed::traits::ToFixed;
-use fixed_macro::types::U56F8;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -49,7 +47,7 @@ async fn main(_spawner: Spawner) {
 
     let mut cfg = Config::default();
     cfg.use_program(&common.load_program(&prg.program), &[]);
-    cfg.clock_divider = (U56F8!(125_000_000) / U56F8!(10_000)).to_fixed();
+    cfg.clock_divider_x256 = (125_000_000 / 10_000) << 8;
     cfg.shift_in = ShiftConfig {
         auto_fill: true,
         threshold: 32,

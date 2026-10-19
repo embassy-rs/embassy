@@ -5,6 +5,9 @@
 #![no_std]
 #![no_main]
 
+use core::mem::MaybeUninit;
+use core::ptr::addr_of_mut;
+
 use defmt::{info, trace};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -12,7 +15,6 @@ use embassy_futures::select::{Either, select};
 use embassy_stm32 as hal;
 use embassy_stm32::spdifrx::{self, Spdifrx};
 use embassy_stm32::{Peri, bind_interrupts, dma, peripherals, sai};
-use grounded::uninit::GroundedArrayCell;
 use hal::sai::*;
 use panic_probe as _;
 
@@ -29,10 +31,10 @@ const DMA_BUFFER_LENGTH: usize = HALF_DMA_BUFFER_LENGTH * 2; //  2 half-blocks
 
 // DMA buffers must be in special regions. Refer https://embassy.dev/book/#_stm32_bdma_only_working_out_of_some_ram_regions
 #[unsafe(link_section = ".sram1")]
-static SPDIFRX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
+static mut SPDIFRX_BUFFER: MaybeUninit<[u32; DMA_BUFFER_LENGTH]> = MaybeUninit::uninit();
 
 #[unsafe(link_section = ".sram4")]
-static SAI_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
+static mut SAI_BUFFER: MaybeUninit<[u32; DMA_BUFFER_LENGTH]> = MaybeUninit::uninit();
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -68,17 +70,9 @@ async fn main(_spawner: Spawner) {
         w.set_sai4asel(clk_source);
     });
 
-    let sai_buffer: &mut [u32] = unsafe {
-        SAI_BUFFER.initialize_all_copied(0);
-        let (ptr, len) = SAI_BUFFER.get_ptr_len();
-        core::slice::from_raw_parts_mut(ptr, len)
-    };
-
-    let spdifrx_buffer: &mut [u32] = unsafe {
-        SPDIFRX_BUFFER.initialize_all_copied(0);
-        let (ptr, len) = SPDIFRX_BUFFER.get_ptr_len();
-        core::slice::from_raw_parts_mut(ptr, len)
-    };
+    // SAFETY: main runs once, so these are the only references to the buffers.
+    let sai_buffer: &mut [u32] = unsafe { (*addr_of_mut!(SAI_BUFFER)).write([0; DMA_BUFFER_LENGTH]) };
+    let spdifrx_buffer: &mut [u32] = unsafe { (*addr_of_mut!(SPDIFRX_BUFFER)).write([0; DMA_BUFFER_LENGTH]) };
 
     let mut sai_transmitter = new_sai_transmitter(
         p.SAI4.reborrow(),

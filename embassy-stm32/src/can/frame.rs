@@ -1,5 +1,4 @@
 //! Definition for CAN Frames
-use bit_field::BitField;
 
 use crate::can::enums::FrameCreateError;
 
@@ -40,17 +39,13 @@ impl Header {
 
     /// Create new CAN Header
     pub fn new(id: embedded_can::Id, len: u8, rtr: bool) -> Header {
-        let mut flags = 0u8;
-        flags.set_bit(Self::FLAG_RTR, rtr);
+        let flags = (rtr as u8) << Self::FLAG_RTR;
         Header { id, len, flags }
     }
 
     /// Create new CAN FD Header
     pub fn new_fd(id: embedded_can::Id, len: u8, rtr: bool, brs: bool) -> Header {
-        let mut flags = 0u8;
-        flags.set_bit(Self::FLAG_RTR, rtr);
-        flags.set_bit(Self::FLAG_FDCAN, true);
-        flags.set_bit(Self::FLAG_BRS, brs);
+        let flags = (rtr as u8) << Self::FLAG_RTR | 1 << Self::FLAG_FDCAN | (brs as u8) << Self::FLAG_BRS;
         Header { id, len, flags }
     }
 
@@ -71,17 +66,17 @@ impl Header {
 
     /// Is remote frame
     pub fn rtr(&self) -> bool {
-        self.flags.get_bit(Self::FLAG_RTR)
+        self.flags & (1 << Self::FLAG_RTR) != 0
     }
 
     /// Request/is FDCAN frame
     pub fn fdcan(&self) -> bool {
-        self.flags.get_bit(Self::FLAG_FDCAN)
+        self.flags & (1 << Self::FLAG_FDCAN) != 0
     }
 
     /// Request/is Flexible Data Rate
     pub fn bit_rate_switching(&self) -> bool {
-        self.flags.get_bit(Self::FLAG_BRS)
+        self.flags & (1 << Self::FLAG_BRS) != 0
     }
 
     /// Get priority of frame

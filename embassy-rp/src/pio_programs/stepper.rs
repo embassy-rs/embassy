@@ -4,7 +4,7 @@ use core::mem::{self, MaybeUninit};
 
 use crate::Peri;
 use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, PioPin, StateMachine};
-use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider_x256;
 
 /// This struct represents a Stepper driver program loaded into pio instruction memory.
 pub struct PioStepperProgram<'a, PIO: Instance> {
@@ -62,7 +62,7 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
         let mut cfg = Config::default();
         cfg.set_out_pins(&[&pin0, &pin1, &pin2, &pin3]);
 
-        cfg.clock_divider = calculate_pio_clock_divider(100 * 136);
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(100 * 136);
 
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);
@@ -73,12 +73,11 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
 
     /// Set pulse frequency
     pub fn set_frequency(&mut self, freq: u32) {
-        let clock_divider = calculate_pio_clock_divider(freq * 136);
-        let divider_f32 = clock_divider.to_num::<f32>();
-        assert!(divider_f32 <= 65536.0, "clkdiv must be <= 65536");
-        assert!(divider_f32 >= 1.0, "clkdiv must be >= 1");
+        let clock_divider = calculate_pio_clock_divider_x256(freq * 136);
+        assert!(clock_divider <= 65536 << 8, "clkdiv must be <= 65536");
+        assert!(clock_divider >= 1 << 8, "clkdiv must be >= 1");
 
-        self.sm.set_clock_divider(clock_divider);
+        self.sm.set_clock_divider_x256(clock_divider);
         self.sm.clkdiv_restart();
     }
 

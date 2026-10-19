@@ -1133,10 +1133,10 @@ trait SealedWord: Sized {
     fn set_values(regs: Regs, values: (Self, Self));
 }
 
-trait_set::trait_set! {
-    /// The dac word type
-    pub trait Word = SealedWord;
-}
+/// The dac word type
+#[allow(private_bounds)]
+pub trait Word: SealedWord {}
+impl<T: SealedWord> Word for T {}
 
 impl SealedWord for u8 {
     type Word = u8;

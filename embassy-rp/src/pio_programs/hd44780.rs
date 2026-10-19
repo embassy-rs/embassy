@@ -4,7 +4,7 @@ use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, Irq, LoadedProgram, PioPin, ShiftConfig, ShiftDirection,
     StateMachine,
 };
-use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider_x256;
 use crate::{Peri, dma, interrupt, mode};
 
 /// This struct represents a HD44780 program that takes command words (<wait:24> <command:4> <0:4>)
@@ -137,7 +137,7 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         cfg.use_program(&word_prg.prg, &[&e]);
 
         // Target 1 MHz PIO clock (each cycle is 1µs)
-        cfg.clock_divider = calculate_pio_clock_divider(1_000_000);
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(1_000_000);
 
         cfg.set_out_pins(&[&db4, &db5, &db6, &db7]);
         cfg.set_set_pins(&[&rs, &rw]);
@@ -168,7 +168,7 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         cfg.use_program(&seq_prg.prg, &[&e]);
 
         // Target ~15.6 MHz PIO clock (~64ns/insn)
-        cfg.clock_divider = calculate_pio_clock_divider(15_600_000);
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(15_600_000);
 
         cfg.set_jmp_pin(&db7);
         cfg.set_set_pins(&[&rs, &rw]);

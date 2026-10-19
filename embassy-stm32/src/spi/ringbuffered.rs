@@ -5,8 +5,8 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
+use embassy_futures::select::select;
 use embedded_io_async::ReadReady;
-use futures_util::future::select;
 
 use crate::dma::{ReadableRingBuffer, RingBufferError};
 use crate::gpio::Flex;

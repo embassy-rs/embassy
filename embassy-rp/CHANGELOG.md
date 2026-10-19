@@ -60,6 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - I2C: Ensure NACK during `blocking_write` is reported correctly.
 - PIO: Fix PIO programs driving pins above 31 on RP235xB, call `StateMachine::set_config` before `set_pin_dirs` and `set_pins`. These now panic when given a pin outside the PIO's GPIOBASE window, rather than failing silently.
 - UART: add `read_ready` to `Uart` and `UartRx`, reporting whether the RX FIFO holds data.
+- Removed the `fixed` dependency. Clock dividers are now plain integers holding the fixed-point bits:
+  - PWM: `pwm::Config::divider` is renamed to `divider_x16`, a `u16` with 8 integer and 4 fractional bits (the divider multiplied by 16).
+  - PIO: `pio::Config::clock_divider`, `StateMachine::set_clock_divider`, `calculate_pio_clock_divider` and `calculate_pio_clock_divider_value` are renamed to `clock_divider_x256`, `set_clock_divider_x256`, `calculate_pio_clock_divider_x256` and `calculate_pio_clock_divider_value_x256`, and use a `u32` with 16 integer and 8 fractional bits (the divider multiplied by 256).
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes

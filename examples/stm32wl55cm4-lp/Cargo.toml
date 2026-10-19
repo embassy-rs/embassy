@@ -18,7 +18,6 @@ embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [
   "low-power",
   "executor-thread"
 ]}
-embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = [
   "defmt",
 ]}

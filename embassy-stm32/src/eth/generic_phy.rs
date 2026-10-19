@@ -1,13 +1,13 @@
 //! Generic SMI Ethernet PHY
 
+#[cfg(feature = "time")]
+use core::pin::Pin;
 use core::task::Context;
 #[cfg(feature = "time")]
 use core::task::Poll;
 
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Timer};
-#[cfg(feature = "time")]
-use futures_util::FutureExt;
 
 use crate::eth::{Error, PHY_RESET_TIMEOUT_US, Phy, StationManagement, wait_for};
 
@@ -141,10 +141,10 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
         cx.waker().wake_by_ref();
 
         #[cfg(feature = "time")]
-        if matches!(self.timer.poll_unpin(cx), Poll::Ready(())) {
+        if matches!(Pin::new(&mut self.timer).poll(cx), Poll::Ready(())) {
             self.timer = Timer::after(self.poll_interval);
 
-            let _ = self.timer.poll_unpin(cx);
+            let _ = Pin::new(&mut self.timer).poll(cx);
         } else {
             return None;
         }

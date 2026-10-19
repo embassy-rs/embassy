@@ -11,11 +11,17 @@ use crate::util::try_until;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg_attr(feature = "log", derive(derive_more::Display))]
 enum Word {
     U8,
     U16,
     U32,
+}
+
+#[cfg(feature = "log")]
+impl core::fmt::Display for Word {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self, f)
+    }
 }
 
 const BLOCK_SIZE: usize = BACKPLANE_MAX_TRANSFER_SIZE;

@@ -181,6 +181,9 @@ async fn test_upload_download(stack: Stack<'_>) -> usize {
 
 // ===== TLS perf tests (stm32h5, enabled via the `tls` feature) =====
 #[cfg(feature = "tls")]
+// `NoVerify` is deprecated in favor of `InsecureNoVerify` in embedded-tls git, which tests/stm32 patches in,
+// but the crates.io release only has `NoVerify`.
+#[allow(deprecated)]
 mod tls_impl {
     use embedded_tls::{Aes128GcmSha256, NoVerify, TlsConfig, TlsConnection, TlsContext};
     use static_cell::StaticCell;

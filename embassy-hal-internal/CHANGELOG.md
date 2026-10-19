@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Removed the unused `ratio` module.
+
 ## 0.5.0 - 2026-03-20
 
 - Make peripheral steal() const

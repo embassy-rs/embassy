@@ -1,7 +1,5 @@
 use std::str::FromStr;
 
-use darling::FromMeta;
-use darling::export::NestedMeta;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{ReturnType, Type};
@@ -67,12 +65,27 @@ pub static ARCH_UNSPECIFIED: Arch = Arch {
     executor_required: true,
 };
 
-#[derive(Debug, FromMeta, Default)]
+#[derive(Default)]
 struct Args {
-    #[darling(default)]
     entry: Option<String>,
-    #[darling(default)]
     executor: Option<String>,
+}
+
+impl Args {
+    fn parse(args: TokenStream) -> syn::Result<Self> {
+        let mut res = Self::default();
+        let parser = syn::meta::parser(|meta| {
+            if meta.path.is_ident("entry") {
+                set_arg(&meta, &mut res.entry, parse_str_arg(&meta)?)
+            } else if meta.path.is_ident("executor") {
+                set_arg(&meta, &mut res.executor, parse_str_arg(&meta)?)
+            } else {
+                Err(meta.error("unknown argument"))
+            }
+        });
+        syn::parse::Parser::parse2(parser, args)?;
+        Ok(res)
+    }
 }
 
 pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
@@ -86,15 +99,10 @@ pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
         Err(e) => return token_stream_with_error(item, e),
     };
 
-    let args = match NestedMeta::parse_meta_list(args) {
-        Ok(x) => x,
-        Err(e) => return token_stream_with_error(item, e),
-    };
-
-    let args = match Args::from_list(&args) {
+    let args = match Args::parse(args) {
         Ok(x) => x,
         Err(e) => {
-            errors.extend(e.write_errors());
+            errors.extend(e.into_compile_error());
             Args::default()
         }
     };

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fix deterministic single-bit corruption on RP2350 backplane reads by using two DMA channels (TX + RX). The single single-channel pattern raced with the PIO state machine in debug builds, causing the LSB of the last sampled word in `cmd_read` to be cleared.
 - Breaking: `PioSpi::new` now takes two `dma::Channel` arguments (TX and RX) instead of one.
+- Breaking: removed the `fixed` dependency. `PioSpi::new` and the `*_CLOCK_DIVIDER` constants use a `u32` clock divider with 16 integer and 8 fractional bits (the divider multiplied by 256).
 
 ## 0.10.0 - 2026-03-10
 
