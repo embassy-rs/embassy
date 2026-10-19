@@ -205,7 +205,6 @@ document-features = "0.2.12"
 
 bitflags = "2.13.1"
 
-block-device-driver = { version = "0.2" }
 aligned = "0.4.3"
 heapless = "0.9.3"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }

@@ -40,7 +40,6 @@ embassy-boot = { version = "0.7.0", path = "../embassy-boot" }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 
 cortex-m = { version = "0.7.6" }
-cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.1"
 
 [features]
