@@ -11,9 +11,11 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitMap;
 
 use crate::interrupt::typelevel::{Handler, Interrupt};
-use crate::pac::common::{RW, Reg};
 use crate::pac::gpio::{Irqc, Isf, Pdd, Pid, Ptco, Ptso};
-use crate::pac::port::{Dse, Ibe, Inv, Mux, Ode, Pcr, Pe, Ps, Sre};
+use crate::pac::port::{Dse, Ibe, Inv, Mux, Ode, Pe, Ps, Sre};
+
+mod pcr;
+pub(crate) use pcr::PcrRegister;
 
 struct BitIter(u32);
 
@@ -31,7 +33,7 @@ impl Iterator for BitIter {
     }
 }
 
-#[cfg(feature = "_mcxa2xx")]
+#[cfg(any(feature = "_mcxa1xx", feature = "_mcxa2xx"))]
 const PORT_COUNT: usize = 5;
 #[cfg(feature = "_mcxa5xx")]
 const PORT_COUNT: usize = 6;
@@ -244,26 +246,17 @@ pub struct AnyPin {
     port: u8,
     pin: u8,
     gpio: crate::pac::gpio::Gpio,
-    port_reg: crate::pac::port::Port,
-    pcr_reg: Reg<Pcr, RW>,
+    pcr_reg: PcrRegister,
     irq_bound: bool,
 }
 
 impl AnyPin {
     /// Create an `AnyPin` from raw components.
-    pub(crate) fn new(
-        port: u8,
-        pin: u8,
-        gpio: crate::pac::gpio::Gpio,
-        port_reg: crate::pac::port::Port,
-        pcr_reg: Reg<Pcr, RW>,
-        irq_bound: bool,
-    ) -> Self {
+    pub(crate) fn new(port: u8, pin: u8, gpio: crate::pac::gpio::Gpio, pcr_reg: PcrRegister, irq_bound: bool) -> Self {
         Self {
             port,
             pin,
             gpio,
-            port_reg,
             pcr_reg,
             irq_bound,
         }
@@ -285,12 +278,7 @@ impl AnyPin {
     }
 
     #[inline(always)]
-    fn port_reg(&self) -> crate::pac::port::Port {
-        self.port_reg
-    }
-
-    #[inline(always)]
-    fn pcr_reg(&self) -> Reg<Pcr, RW> {
+    fn pcr_reg(&self) -> PcrRegister {
         self.pcr_reg
     }
 
@@ -309,9 +297,7 @@ pub(crate) trait SealedPin {
 
     fn gpio(&self) -> crate::pac::gpio::Gpio;
 
-    fn port_reg(&self) -> crate::pac::port::Port;
-
-    fn pcr_reg(&self) -> Reg<Pcr, RW>;
+    fn pcr_reg(&self) -> PcrRegister;
 
     fn set_function(&self, function: Mux);
 
@@ -336,14 +322,7 @@ pub trait GpioPin: SealedPin + Sized + PeripheralType + Into<AnyPin> + 'static {
         // SAFETY: This is only called within the GpioPin trait, which is only
         // implemented within this module on valid pin peripherals and thus
         // has been verified to be correct.
-        AnyPin::new(
-            self.port(),
-            self.pin(),
-            self.gpio(),
-            self.port_reg(),
-            self.pcr_reg(),
-            false,
-        )
+        AnyPin::new(self.port(), self.pin(), self.gpio(), self.pcr_reg(), false)
     }
 }
 
@@ -364,43 +343,35 @@ impl SealedPin for AnyPin {
     }
 
     #[inline(always)]
-    fn port_reg(&self) -> crate::pac::port::Port {
-        self.port_reg()
-    }
-
-    #[inline(always)]
-    fn pcr_reg(&self) -> Reg<Pcr, RW> {
+    fn pcr_reg(&self) -> PcrRegister {
         self.pcr_reg()
     }
 
     #[inline(always)]
     fn set_function(&self, function: Mux) {
-        self.pcr_reg().modify(|w| w.set_mux(function));
+        self.pcr_reg().set_function(function);
     }
 
     #[inline(always)]
     fn set_pull(&self, pull: Pull) {
         let (pull_enable, pull_select) = pull.into();
-        self.pcr_reg().modify(|w| {
-            w.set_pe(pull_enable);
-            w.set_ps(pull_select)
-        });
+        self.pcr_reg().set_pull(pull_enable, pull_select);
     }
 
     #[inline(always)]
     fn set_drive_strength(&self, strength: Dse) {
-        self.pcr_reg().modify(|w| w.set_dse(strength));
+        self.pcr_reg().set_drive_strength(strength);
     }
 
     #[inline(always)]
     fn set_slew_rate(&self, slew_rate: Sre) {
-        self.pcr_reg().modify(|w| w.set_sre(slew_rate));
+        self.pcr_reg().set_slew_rate(slew_rate);
     }
 
     #[inline(always)]
     fn set_enable_input_buffer(&self, buffer_enabled: bool) {
         self.pcr_reg()
-            .modify(|w| w.set_ibe(if buffer_enabled { Ibe::Ibe1 } else { Ibe::Ibe0 }));
+            .set_enable_input_buffer(if buffer_enabled { Ibe::Ibe1 } else { Ibe::Ibe0 });
     }
 
     #[inline(always)]
@@ -449,43 +420,42 @@ macro_rules! impl_gpio_pin {
                 }
 
                 #[inline(always)]
-                fn port_reg(&self) -> $crate::pac::port::Port {
-                    $crate::pac::[<PORT $port>]
-                }
-
-                #[inline(always)]
-                fn pcr_reg(&self) -> $crate::pac::common::Reg<$crate::pac::port::Pcr, $crate::pac::common::RW> {
-                    self.port_reg().pcr($pin)
+                fn pcr_reg(&self) -> $crate::gpio::PcrRegister {
+                    #[cfg(feature = "_mcxa1xx")]
+                    {
+                        $crate::pac::[<PORT $port>].[<pcr $pin>]().into()
+                    }
+                    #[cfg(not(feature = "_mcxa1xx"))]
+                    {
+                        $crate::pac::[<PORT $port>].pcr($pin).into()
+                    }
                 }
 
                 #[inline(always)]
                 fn set_function(&self, function: $crate::pac::port::Mux) {
-                    self.pcr_reg().modify(|w| w.set_mux(function));
+                    self.pcr_reg().set_function(function);
                 }
 
                 #[inline(always)]
                 fn set_pull(&self, pull: $crate::gpio::Pull) {
                     let (pull_enable, pull_select) = pull.into();
-                    self.pcr_reg().modify(|w| {
-                        w.set_pe(pull_enable);
-                        w.set_ps(pull_select);
-                    });
+                    self.pcr_reg().set_pull(pull_enable, pull_select);
                 }
 
                 #[inline(always)]
                 fn set_drive_strength(&self, strength: $crate::pac::port::Dse) {
-                    self.pcr_reg().modify(|w| w.set_dse(strength));
+                    self.pcr_reg().set_drive_strength(strength);
                 }
 
                 #[inline(always)]
                 fn set_slew_rate(&self, slew_rate: $crate::pac::port::Sre) {
-                    self.pcr_reg().modify(|w| w.set_sre(slew_rate));
+                    self.pcr_reg().set_slew_rate(slew_rate);
                 }
 
                 #[inline(always)]
                 fn set_enable_input_buffer(&self, buffer_enabled: bool) {
                     use $crate::pac::port::Ibe;
-                    self.pcr_reg().modify(|w| w.set_ibe(if buffer_enabled { Ibe::Ibe1 } else { Ibe::Ibe0 }));
+                    self.pcr_reg().set_enable_input_buffer(if buffer_enabled { Ibe::Ibe1 } else { Ibe::Ibe0 });
                 }
 
                 #[inline(always)]
@@ -525,7 +495,6 @@ macro_rules! impl_gpio_pin {
                         self.port(),
                         self.pin(),
                         self.gpio(),
-                        self.port_reg(),
                         self.pcr_reg(),
                         false,
                     )
@@ -551,7 +520,6 @@ macro_rules! impl_gpio_pin {
                             this.port(),
                             this.pin(),
                             this.gpio(),
-                            this.port_reg(),
                             this.pcr_reg(),
                             true,
                         ))
@@ -674,7 +642,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Is the output pin set as high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        #[cfg(feature = "_mcxa2xx")]
+        #[cfg(any(feature = "_mcxa1xx", feature = "_mcxa2xx"))]
         let set = self.gpio().pdor().read().pdo(self.pin.pin_index() as usize);
         #[cfg(feature = "_mcxa5xx")]
         let set = (self.gpio().pdor().read().0 & (1 << self.pin.pin_index())) != 0;
@@ -690,13 +658,13 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Configure open-drain output.
     #[inline]
     pub fn set_open_drain(&mut self, open_drain: OpenDrain) {
-        self.pin.pcr_reg().modify(|w| w.set_ode(open_drain.into()));
+        self.pin.pcr_reg().set_open_drain(open_drain.into());
     }
 
     /// Configure the input logic inversion of this pin.
     #[inline]
     pub fn set_input_inversion(&mut self, invert: Inverter) {
-        self.pin.pcr_reg().modify(|w| w.set_inv(invert.into()));
+        self.pin.pcr_reg().set_input_inversion(invert.into());
     }
 
     /// Configure the pin pull up/down level.

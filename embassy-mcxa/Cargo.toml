@@ -13,6 +13,7 @@ publish = false
 
 [package.metadata.embassy]
 build = [
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa156"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa175"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa176"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxa185"]},
@@ -43,6 +44,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-mcxa/
 
 features = ["defmt", "unstable-pac"]
 flavors = [
+    { name = "mcx-a156", target = "thumbv8m.main-none-eabihf", features = ["mcxa156"] },
     { name = "mcx-a175", target = "thumbv8m.main-none-eabihf", features = ["mcxa175"] },
     { name = "mcx-a176", target = "thumbv8m.main-none-eabihf", features = ["mcxa176"] },
     { name = "mcx-a185", target = "thumbv8m.main-none-eabihf", features = ["mcxa185"] },
@@ -97,13 +99,13 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "a049612e781d1b616843ee49afd9839232684ff7", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "52488ea8ddf6c19d6a84a48d906b2bb48c4193bf", features = ["rt"] }
 paste = "1.0.15"
 
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 [build-dependencies]
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "a049612e781d1b616843ee49afd9839232684ff7", default-features = false, features = ["metadata"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "52488ea8ddf6c19d6a84a48d906b2bb48c4193bf", default-features = false, features = ["metadata"] }
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 convert_case = "0.12"
@@ -203,6 +205,7 @@ unstable-osc32k = []
 #
 # Chip selection
 #
+mcxa156 = ["_mcxa1xx", "nxp-pac/mcxa156"]
 mcxa175 = ["_mcxa2xx", "nxp-pac/mcxa175"]
 mcxa176 = ["_mcxa2xx", "nxp-pac/mcxa176"]
 mcxa185 = ["_mcxa2xx", "nxp-pac/mcxa185"]
@@ -225,9 +228,11 @@ mcxa567 = ["_mcxa5xx", "nxp-pac/mcxa567"]
 mcxa577 = ["_mcxa5xx", "nxp-pac/mcxa577"]
 
 # Compatibility aliases.
+mcxa1xx = ["mcxa156"]
 mcxa2xx = ["mcxa266"]
 mcxa5xx = ["mcxa577"]
 
+_mcxa1xx = []
 _mcxa2xx = []
 _mcxa5xx = []
 

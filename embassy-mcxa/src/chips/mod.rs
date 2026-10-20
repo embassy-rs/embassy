@@ -1,3 +1,6 @@
+#[cfg(feature = "_mcxa1xx")]
+pub mod mcxa1xx;
+
 #[cfg(feature = "_mcxa2xx")]
 pub mod mcxa2xx;
 
