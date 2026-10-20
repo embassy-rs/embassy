@@ -112,49 +112,46 @@ impl OsTimer {
         unsafe { interrupt::OS_EVENT.enable() };
     }
 
-    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> AlarmOutcome {
-        let alarm = self.alarms.borrow(cs);
-        alarm.timestamp.set(timestamp);
-
-        // Disable the previous alarm and clear a potentially latched match before
-        // replacing MATCH_L/MATCH_H.
+    fn program_match(&self, _cs: CriticalSection, deadline: u64) -> AlarmOutcome {
+        // MCXA2 RM 29.3.2/29.6.1.8; MCXA5 RM 36.3.2/36.6.1.8.
         OSTIMER0.osevent_ctrl().modify(|w| {
             w.set_ostimer_intena(false);
             w.set_ostimer_intrflag(true);
         });
-
-        // Wait until any previous match-register synchronization completes.
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
 
-        // Keep the queue sentinel in software; idle queues still need wrap tracking.
-        let maintenance = (self.now() | (PERIOD_TICKS - 1)).saturating_add(1);
-        let target = timestamp.min(maintenance);
-        let gray_timestamp = dec_to_gray(target & COUNTER_MASK);
-
+        let gray_timestamp = dec_to_gray(deadline & COUNTER_MASK);
         OSTIMER0.match_l().write(|w| w.set_match_value(gray_timestamp as u32));
         OSTIMER0
             .match_h()
             .write(|w| w.set_match_value((gray_timestamp >> 32) as u16));
 
-        // Writing MATCH_H starts the transfer of the pair from the shadow registers into the
-        // active comparator. MATCH_WR_RDY reads 1 until that transfer completes, so wait for
-        // it to clear before sampling the timer. See section 36.6.1.8 of the MCXA5 Reference
-        // Manual for details
+        // MATCH_H transfers the shadow pair to the active comparator.
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
-
-        let t = self.now();
-        if target <= t {
+        if deadline <= self.now() {
             OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
-            alarm.timestamp.set(u64::MAX);
             return AlarmOutcome::AlreadyDue;
         }
 
-        // INTRFLAG is write-one-to-clear. Explicitly write zero while enabling
-        // the alarm so a match that races this register update remains latched.
+        // Preserve a match latched before the enable write: INTRFLAG is W1C.
         OSTIMER0.osevent_ctrl().modify(|w| {
             w.set_ostimer_intrflag(false);
             w.set_ostimer_intena(true);
         });
+        AlarmOutcome::Armed
+    }
+
+    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> AlarmOutcome {
+        let alarm = self.alarms.borrow(cs);
+        alarm.timestamp.set(timestamp);
+
+        // Keep the queue sentinel in software; idle queues still need wrap tracking.
+        let maintenance = (self.now() | (PERIOD_TICKS - 1)).saturating_add(1);
+        let target = timestamp.min(maintenance);
+        if matches!(self.program_match(cs, target), AlarmOutcome::AlreadyDue) {
+            alarm.timestamp.set(u64::MAX);
+            return AlarmOutcome::AlreadyDue;
+        }
         if target == timestamp {
             AlarmOutcome::Armed
         } else {
