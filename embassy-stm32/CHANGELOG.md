@@ -127,6 +127,7 @@ DMA:
 - fix: stm32/dma: compute GPDMA `BR1.BNDT` from the memory-side width regardless of direction, fixing destination overrun on reads with peripheral width > memory width
 - feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
 - feat: stm32/dma: add `TwoDItem`, `TwoDConfig`, and `LinkedListItem` trait; `Table` is now generic over item type
+- fix: stm32/dma: GPDMA: panic when a linked-list `Table` straddles a 64 KiB boundary
 
 I2S:
 - feat: stm32/i2s: add `I2S::rx_len()` returning the number of samples buffered in the RX DMA ring buffer
