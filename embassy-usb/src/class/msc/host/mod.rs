@@ -391,7 +391,9 @@ where
 
         let max_lun = get_max_lun(&mut ctrl, info.interface).await?;
 
-        let device = Self {
+        // No Bulk-Only Reset here: the port reset done during enumeration already
+        // reset the device, and some devices drop the first CBW after one.
+        Ok(Self {
             transport: Mutex::new(Transport {
                 ctrl,
                 bulk_in,
@@ -406,17 +408,7 @@ where
             interface: info.interface,
             max_lun,
             _phantom: PhantomData,
-        };
-
-        // Put the BBB transport into a known-clean state before any real
-        // command. Best-effort: a few devices stall Bulk-Only Reset — that's
-        // fine, the state they care about is whatever they reset during
-        // enumeration.
-        if let Err(e) = device.reset().await {
-            debug!("MSC: initial Bulk-Only Reset failed ({:?}); continuing anyway", e);
-        }
-
-        Ok(device)
+        })
     }
 
     /// USB interface number this device is bound to.
