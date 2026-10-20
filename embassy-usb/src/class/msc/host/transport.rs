@@ -2,6 +2,7 @@
 
 use core::marker::PhantomData;
 
+use embassy_time::Timer;
 use embassy_usb_driver::Direction as UsbDirection;
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 
@@ -49,6 +50,10 @@ where
     pub(super) async fn mass_storage_reset(&mut self) -> Result<(), MscError> {
         let setup = SetupPacket::class_interface_out(BOT_REQ_RESET, 0, self.interface as u16, 0);
         self.ctrl.control_out(&setup.to_bytes(), &[]).await?;
+        // Give the device time to recover before clearing the halts. Some devices ACK a
+        // CBW that comes too soon after the reset and then drop it. Linux waits 6s here
+        // (`usb_stor_reset_common`).
+        Timer::after_secs(6).await;
         self.clear_halt_in().await?;
         self.clear_halt_out().await?;
         Ok(())
