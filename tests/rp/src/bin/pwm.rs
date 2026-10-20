@@ -168,7 +168,7 @@ async fn main(_spawner: Spawner) {
     // pull-down
     {
         let pin2 = Input::new(p11.reborrow(), Pull::None);
-        Pwm::new_input(
+        let _pwm = Pwm::new_input(
             p.PWM_SLICE3.reborrow(),
             p7.reborrow(),
             Pull::Down,
@@ -182,7 +182,7 @@ async fn main(_spawner: Spawner) {
     // pull-up
     {
         let pin2 = Input::new(p11.reborrow(), Pull::None);
-        Pwm::new_input(
+        let _pwm = Pwm::new_input(
             p.PWM_SLICE3.reborrow(),
             p7.reborrow(),
             Pull::Up,
