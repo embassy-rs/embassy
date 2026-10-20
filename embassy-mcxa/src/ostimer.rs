@@ -196,7 +196,7 @@ impl Driver for OsTimer {
 
         // Keep interrupts from delaying the low-half read across multiple ticks.
         critical_section::with(|cs| {
-            let high = OSTIMER0.evtimerh().read().0 as u64;
+            let high = OSTIMER0.evtimerh().read().evtimer_count_value() as u64;
             let low = OSTIMER0.evtimerl().read().evtimer_count_value() as u64;
             let counter = gray_to_dec((high << 32) | low);
             let time = self.time.borrow(cs);
