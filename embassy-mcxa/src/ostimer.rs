@@ -29,6 +29,12 @@ impl AlarmState {
     }
 }
 
+enum AlarmOutcome {
+    Armed,
+    AlreadyDue,
+    Disarmed,
+}
+
 /// Convert gray to decimal
 ///
 /// Os Event provides a 64-bit timestamp gray-encoded. All we have to
@@ -103,8 +109,7 @@ impl OsTimer {
         unsafe { interrupt::OS_EVENT.enable() };
     }
 
-    /// Set an alarm for timestamp, returning false if the time has already expired.
-    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
+    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> AlarmOutcome {
         let alarm = self.alarms.borrow(cs);
         alarm.timestamp.set(timestamp);
 
@@ -114,6 +119,10 @@ impl OsTimer {
             w.set_ostimer_intena(false);
             w.set_ostimer_intrflag(true);
         });
+
+        if timestamp == u64::MAX {
+            return AlarmOutcome::Disarmed;
+        }
 
         // Wait until any previous match-register synchronization completes.
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
@@ -135,7 +144,7 @@ impl OsTimer {
         if timestamp <= t {
             OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
             alarm.timestamp.set(u64::MAX);
-            return false;
+            return AlarmOutcome::AlreadyDue;
         }
 
         // INTRFLAG is write-one-to-clear. Explicitly write zero while enabling
@@ -144,12 +153,12 @@ impl OsTimer {
             w.set_ostimer_intrflag(false);
             w.set_ostimer_intena(true);
         });
-        true
+        AlarmOutcome::Armed
     }
 
     fn trigger_alarm(&self, cs: CriticalSection) {
         let mut next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
-        while !self.set_alarm(cs, next) {
+        while matches!(self.set_alarm(cs, next), AlarmOutcome::AlreadyDue) {
             next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
         }
     }
@@ -194,7 +203,7 @@ impl Driver for OsTimer {
 
             if queue.schedule_wake(at, waker) {
                 let mut next = queue.next_expiration(self.now());
-                while !self.set_alarm(cs, next) {
+                while matches!(self.set_alarm(cs, next), AlarmOutcome::AlreadyDue) {
                     next = queue.next_expiration(self.now());
                 }
             }
