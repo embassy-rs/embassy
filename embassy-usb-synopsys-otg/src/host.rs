@@ -1219,25 +1219,35 @@ where
             ((buf.len() as u32 + self.max_packet_size as u32 - 1) / self.max_packet_size as u32) as u16
         };
 
-        loop {
-            self.halt_channel().await?;
-            self.setup_rx_buffer(&mut buf[..xfer_size as usize]);
-            self.configure_channel(true, ep_type, pktcnt, xfer_size, dpid);
-            self.enable_channel();
+        self.halt_channel().await?;
+        self.setup_rx_buffer(&mut buf[..xfer_size as usize]);
+        self.configure_channel(true, ep_type, pktcnt, xfer_size, dpid);
+        self.enable_channel();
 
+        let res = loop {
             let events = self.wait_for_result().await;
-            let count = self.rx_count();
-            self.clear_rx_buffer();
-
             match Self::classify_events(events) {
-                ChannelEvent::Complete => return Ok(count),
+                ChannelEvent::Complete => break Ok(self.rx_count()),
                 ChannelEvent::Nak | ChannelEvent::Nyet | ChannelEvent::Halted | ChannelEvent::None => {
+                    // Periodic channels auto-halt after NAK; settle before retry.
+                    // Non-periodic ones are halted and re-enabled without touching HCTSIZ,
+                    // so a transfer NAKed after some packets resumes where it stopped
+                    // instead of restarting with a stale data toggle.
+                    if let Err(e) = self.halt_channel().await {
+                        break Err(e);
+                    }
                     yield_now().await;
-                    continue;
+                    if is_periodic {
+                        self.setup_rx_buffer(&mut buf[..xfer_size as usize]);
+                        self.configure_channel(true, ep_type, pktcnt, xfer_size, dpid);
+                    }
+                    self.enable_channel();
                 }
-                ChannelEvent::Error(e) => return Err(e),
+                ChannelEvent::Error(e) => break Err(e),
             }
-        }
+        };
+        self.clear_rx_buffer();
+        res
     }
 
     /// Perform a control IN transfer (SETUP -> DATA IN -> STATUS OUT).
