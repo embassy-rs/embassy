@@ -78,6 +78,8 @@ impl OsTimer {
         let parts = unsafe {
             enable_and_reset::<OSTIMER0>(&OsTimerConfig {
                 power: PoweredClock::AlwaysEnabled,
+                // Split counter reads require bus >= 2 MHz, or the same 1 MHz source.
+                // MCXA2 RM 29.6.1.2; MCXA5 RM 36.6.1.2.
                 source: OstimerClockSel::Clk1M,
             })
             .expect("Enabling OsTimer clock should not fail")
@@ -177,9 +179,12 @@ impl Driver for OsTimer {
             return 0;
         }
 
-        let mut t = OSTIMER0.evtimerh().read().0 as u64;
-        t <<= 32;
-        t |= OSTIMER0.evtimerl().read().evtimer_count_value() as u64;
+        // Keep interrupts from delaying the low-half read across multiple ticks.
+        let t = critical_section::with(|_| {
+            let high = OSTIMER0.evtimerh().read().0 as u64;
+            let low = OSTIMER0.evtimerl().read().evtimer_count_value() as u64;
+            (high << 32) | low
+        });
         gray_to_dec(t)
     }
 
