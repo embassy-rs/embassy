@@ -56,8 +56,10 @@ macro_rules! curve_drivers {
             mod arith {
                 use elliptic_curve::group::Group;
                 use elliptic_curve::ops::LinearCombination;
+                use elliptic_curve::point::{AffineCoordinates, DecompressPoint};
+                use elliptic_curve::subtle::Choice;
                 use embassy_crypto::driver::{$dpoint, $dscalar};
-                use $curve::{ProjectivePoint, Scalar};
+                use $curve::{AffinePoint, FieldBytes, ProjectivePoint, Scalar};
 
                 use super::{point, point_bytes, scalar, scalar_bytes};
 
@@ -105,6 +107,17 @@ macro_rules! curve_drivers {
 
                     fn point_to_affine(p: &ProjectivePoint) -> Option<$dpoint> {
                         point_bytes(p)
+                    }
+
+                    fn point_decompress(x: &[u8; $n], y_is_odd: bool) -> Option<$dpoint> {
+                        let p = Option::<AffinePoint>::from(AffinePoint::decompress(
+                            &FieldBytes::from(*x),
+                            Choice::from(y_is_odd as u8),
+                        ))?;
+                        Some($dpoint {
+                            x: p.x().into(),
+                            y: p.y().into(),
+                        })
                     }
 
                     fn point_is_identity(p: &ProjectivePoint) -> bool {

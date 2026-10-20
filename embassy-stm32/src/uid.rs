@@ -1,13 +1,19 @@
 //! Unique ID (UID)
 
-use once_cell::sync::Lazy;
+use embassy_sync::once_lock::OnceLock;
 
 struct UID {
     bytes: [u8; 12],
     hex: [u8; 24],
 }
 
-static UID: Lazy<UID> = Lazy::new(|| {
+static UID: OnceLock<UID> = OnceLock::new();
+
+fn get() -> &'static UID {
+    UID.get_or_init(read)
+}
+
+fn read() -> UID {
     let mut bytes = [0u8; 12];
     for (idx, chunk) in bytes.chunks_mut(4).enumerate() {
         chunk.copy_from_slice(&crate::pac::UID.uid(idx).read().to_le_bytes());
@@ -23,11 +29,11 @@ static UID: Lazy<UID> = Lazy::new(|| {
     }
 
     UID { bytes, hex }
-});
+}
 
 /// Get this device's unique 96-bit ID.
 pub fn uid() -> &'static [u8; 12] {
-    &UID.bytes
+    &get().bytes
 }
 
 /// Get this device's unique 96-bit ID, encoded into a string of 24 hexadecimal ASCII digits.
@@ -37,5 +43,5 @@ pub fn uid_hex() -> &'static str {
 
 /// Get this device's unique 96-bit ID, encoded into 24 hexadecimal ASCII bytes.
 pub fn uid_hex_bytes() -> &'static [u8; 24] {
-    &UID.hex
+    &get().hex
 }

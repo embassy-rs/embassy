@@ -15,19 +15,19 @@ defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4", default-features = false, optional = true }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
-embedded-hal-bus = { version = "0.1", features = ["async"] }
 embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-channel" }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
-bitfield = "0.14.0"
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "01f496c2cfc362efb1fb9c94d0d9c1232152f2e2", optional = true, features = ["async"] }
+bitfield = "0.20.0"
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131deb9ff3290e0e01079537e1ed7b2ad", optional = true, features = ["async"] }
 
 [dev-dependencies]
-embedded-hal-mock = { version = "0.10.0", features = ["embedded-hal-async", "eh1"] }
+embedded-hal-mock = { version = "0.11.1", features = ["embedded-hal-async", "eh1"] }
+embedded-hal-bus = { version = "0.3", features = ["async"] }
 crc = "3.0.1"
-env_logger = "0.10"
 critical-section = { version = "1.1.2", features = ["std"] }
 futures-test = "0.3.28"
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131deb9ff3290e0e01079537e1ed7b2ad" }
 
 [features]
 default = ["generic-spi"]

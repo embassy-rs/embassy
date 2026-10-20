@@ -4,7 +4,7 @@ use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, Irq, LoadedProgram, PioPin, ShiftConfig, ShiftDirection,
     StateMachine,
 };
-use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider_x256;
 use crate::{Peri, dma, interrupt, mode};
 
 /// This struct represents a HD44780 program that takes command words (<wait:24> <command:4> <0:4>)
@@ -107,6 +107,7 @@ pub struct PioHD44780<'l, P: Instance, const S: usize> {
 
 impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
     /// Configure the given state machine to first init, then write data to, a HD44780 display.
+    #[allow(clippy::too_many_arguments)]
     pub async fn new<D: dma::ChannelInstance>(
         common: &mut Common<'l, P>,
         mut sm: StateMachine<'l, P, S>,
@@ -132,15 +133,14 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         let db6 = common.make_pio_pin(db6);
         let db7 = common.make_pio_pin(db7);
 
-        sm.set_pin_dirs(Direction::Out, &[&rs, &rw, &e, &db4, &db5, &db6, &db7]);
-
         let mut cfg = Config::default();
         cfg.use_program(&word_prg.prg, &[&e]);
 
         // Target 1 MHz PIO clock (each cycle is 1µs)
-        cfg.clock_divider = calculate_pio_clock_divider(1_000_000);
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(1_000_000);
 
         cfg.set_out_pins(&[&db4, &db5, &db6, &db7]);
+        cfg.set_set_pins(&[&rs, &rw]);
         cfg.shift_out = ShiftConfig {
             auto_fill: true,
             direction: ShiftDirection::Left,
@@ -148,6 +148,7 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         };
         cfg.fifo_join = FifoJoin::TxOnly;
         sm.set_config(&cfg);
+        sm.set_pin_dirs(Direction::Out, &[&rs, &rw, &e, &db4, &db5, &db6, &db7]);
 
         sm.set_enable(true);
         // init to 8 bit thrice
@@ -167,7 +168,7 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         cfg.use_program(&seq_prg.prg, &[&e]);
 
         // Target ~15.6 MHz PIO clock (~64ns/insn)
-        cfg.clock_divider = calculate_pio_clock_divider(15_600_000);
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(15_600_000);
 
         cfg.set_jmp_pin(&db7);
         cfg.set_set_pins(&[&rs, &rw]);

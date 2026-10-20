@@ -5,7 +5,7 @@ use crate::gpio::Pull;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
 };
-use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider_x256;
 
 /// This struct represents an Encoder program loaded into pio instruction memory.
 pub struct PioEncoderProgram<'a, PIO: Instance> {
@@ -68,7 +68,6 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         let mut pin_b = pio.make_pio_pin(pin_b);
         pin_a.set_pull(Pull::Up);
         pin_b.set_pull(Pull::Up);
-        sm.set_pin_dirs(PioDirection::In, &[&pin_a, &pin_b]);
 
         let mut cfg = Config::default();
         cfg.set_in_pins(&[&pin_a, &pin_b]);
@@ -76,20 +75,21 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         cfg.shift_in.direction = ShiftDirection::Left;
 
         // Target 12 MHz PIO clock
-        cfg.clock_divider = calculate_pio_clock_divider(12_000_000);
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(12_000_000);
 
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);
+        sm.set_pin_dirs(PioDirection::In, &[&pin_a, &pin_b]);
         sm.set_enable(true);
         Self { sm }
     }
     /// Change rotary encoder target frequency at runtime
     pub fn set_target_frequency(&mut self, target_frequency: u32) {
-        let clock_divider = calculate_pio_clock_divider(target_frequency);
+        let clock_divider = calculate_pio_clock_divider_x256(target_frequency);
         self.sm.set_enable(false);
         self.sm.clear_fifos();
         self.sm.restart();
-        self.sm.set_clock_divider(clock_divider);
+        self.sm.set_clock_divider_x256(clock_divider);
         self.sm.set_enable(true);
     }
 

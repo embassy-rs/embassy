@@ -6,6 +6,7 @@
 //! - [`SecretKey`], [`PublicKey`] and [`SharedSecret`]: ECDH, via [`driver::P256Ecdh`].
 //! - [`SigningKey`], [`VerifyingKey`] and [`Signature`]: ECDSA over SHA-256
 //!   digests, via [`driver::P256Ecdsa`].
+//! - Compressed SEC1 encodings are decoded via [`driver::P256Arith`].
 //!
 //! # Example
 //!

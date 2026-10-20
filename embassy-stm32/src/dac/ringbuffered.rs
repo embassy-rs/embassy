@@ -39,18 +39,9 @@ impl<'d, W: Word> RingBufferedDacChannel<'d, W> {
 
     /// Start the DMA transfer.
     ///
-    /// Call this after creating the ring buffer (and optionally pre-filling it with
-    /// [`write_immediate`](Self::write_immediate)) to begin DAC output.
+    /// Call this after creating the ring buffer to begin DAC output.
     pub fn start(&mut self) {
         self.ring_buf.start();
-    }
-
-    /// Write samples directly into the raw DMA buffer without checking DMA position.
-    ///
-    /// Useful for pre-filling the buffer before calling [`start`](Self::start). Writes
-    /// at most `capacity` elements aligned to the end of the buffer.
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ring_buf.write_immediate(W::dma_buf(buf))
     }
 
     /// Write samples into the ring buffer.
@@ -82,16 +73,11 @@ impl<'d, W: Word> RingBufferedDacChannel<'d, W> {
         self.ring_buf.is_running()
     }
 
-    /// Request the DMA to stop, discarding the channel configuration.
-    pub fn request_reset(&mut self) {
-        self.ring_buf.request_reset();
-    }
-
     /// Request the DMA to pause, preserving the channel configuration.
     ///
     /// Resume with [`start`](Self::start).
     pub fn request_pause(&mut self) {
-        self.ring_buf.request_pause();
+        self.ring_buf.stop();
     }
 
     /// Stop the DMA transfer, waiting until all buffered samples have been output.

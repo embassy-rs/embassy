@@ -135,27 +135,28 @@ pub struct Clocks {
     /// `clk_16k_vbat` is one of three outputs of the `FRO16K` internal oscillator.
     ///
     /// Also referred to as `clk_16k[2]` in the datasheet.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub clk_16k_vbat: Option<Clock>,
 
     /// `clk_32k_vsys` is one of two/three outputs of the `FRO16K` internal oscillator.
     ///
     /// Also referred to as `clk_32k[0]` in the datasheet, it feeds peripherals in
-    /// the system domain, such as the CMP and RTC.
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    /// the system domain, such as the CMP. Note that it does NOT feed the RTC,
+    /// which is a VBAT-domain peripheral and uses `clk_32k[2]`.
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     pub clk_32k_vsys: Option<Clock>,
 
     /// `clk_32k_vdd_core` is one of two/three outputs of the `FRO16K` internal oscillator.
     ///
     /// Also referred to as `clk_32k[1]` in the datasheet, it feeds peripherals in
     /// the VDD Core domain, such as the OSTimer or LPUarts.
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     pub clk_32k_vdd_core: Option<Clock>,
 
     /// `clk_32k_vbat` is one of three outputs of the `FRO16K` internal oscillator.
     ///
     /// Also referred to as `clk_32k[2]` in the datasheet.
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     pub clk_32k_vbat: Option<Clock>,
 
     /// `main_clk` is the main clock, upstream of the cpu/system clock.
@@ -247,6 +248,12 @@ impl Clocks {
         Ok(clk.frequency)
     }
 
+    /// Ensure the gated `fro_12m` clock is active and valid at the given power state.
+    #[inline]
+    pub fn ensure_fro_12m_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        self.ensure_clock_active(&self.fro_12m, "fro_12m", at_level)
+    }
+
     /// Ensure the `fro_lf_div` clock is active and valid at the given power state.
     #[inline]
     pub fn ensure_fro_lf_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
@@ -299,7 +306,7 @@ impl Clocks {
     }
 
     /// Ensure the `clk_16k_vbat` clock is active and valid at the given power state.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn ensure_clk_16k_vbat_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
         // NOTE: clk_16k is always active in low power mode
         Ok(self
@@ -313,21 +320,21 @@ impl Clocks {
     }
 
     /// Ensure the `clk_32k_vsys` clock is active and valid at the given power state.
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     #[inline]
     pub fn ensure_clk_32k_vsys_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.clk_32k_vsys, "clk_32k_vsys", at_level)
     }
 
     /// Ensure the `clk_32k_vdd_core` clock is active and valid at the given power state.
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     #[inline]
     pub fn ensure_clk_32k_vdd_core_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.clk_32k_vdd_core, "clk_32k_vdd_core", at_level)
     }
 
     /// Ensure the `clk_32k_vbat` clock is active and valid at the given power state.
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     #[inline]
     pub fn ensure_clk_32k_vbat_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.clk_32k_vbat, "clk_32k_vbat", at_level)

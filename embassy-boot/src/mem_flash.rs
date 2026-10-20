@@ -1,39 +1,59 @@
 #![allow(unused)]
 
 use core::ops::{Bound, Range, RangeBounds};
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
-pub struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> {
+pub struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const READ_SIZE: usize = 1> {
     pub mem: [u8; SIZE],
+    pub pending_read_successes: Option<usize>,
     pub pending_write_successes: Option<usize>,
 }
 
 #[derive(Debug)]
 pub struct MemFlashError;
 
-impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE> {
+impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const READ_SIZE: usize>
+    MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE, READ_SIZE>
+{
     pub const fn new(fill: u8) -> Self {
         Self {
             mem: [fill; SIZE],
+            pending_read_successes: None,
             pending_write_successes: None,
         }
     }
 
     #[cfg(test)]
     pub fn random() -> Self {
+        // xorshift32, seeded differently on every call.
+        static SEED: AtomicU32 = AtomicU32::new(0x2545_f491);
+        let mut x = SEED.fetch_add(0x9e37_79b9, Ordering::Relaxed) | 1;
         let mut mem = [0; SIZE];
         for byte in mem.iter_mut() {
-            *byte = rand::random::<u8>();
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            *byte = x as u8;
         }
         Self {
             mem,
+            pending_read_successes: None,
             pending_write_successes: None,
         }
     }
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), MemFlashError> {
+        if let Some(remaining) = self.pending_read_successes.as_mut() {
+            if *remaining == 0 {
+                return Err(MemFlashError);
+            }
+            *remaining -= 1;
+        }
+        assert_eq!(offset as usize % READ_SIZE, 0);
+        assert_eq!(bytes.len() % READ_SIZE, 0);
         let len = bytes.len();
         bytes.copy_from_slice(&self.mem[offset as usize..offset as usize + len]);
         Ok(())
@@ -91,16 +111,16 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> MemFla
     }
 }
 
-impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> Default
-    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
+impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const READ_SIZE: usize> Default
+    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE, READ_SIZE>
 {
     fn default() -> Self {
         Self::new(0xFF)
     }
 }
 
-impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> ErrorType
-    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
+impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const READ_SIZE: usize> ErrorType
+    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE, READ_SIZE>
 {
     type Error = MemFlashError;
 }
@@ -111,10 +131,10 @@ impl NorFlashError for MemFlashError {
     }
 }
 
-impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> ReadNorFlash
-    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
+impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const READ_SIZE: usize> ReadNorFlash
+    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE, READ_SIZE>
 {
-    const READ_SIZE: usize = 1;
+    const READ_SIZE: usize = READ_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
         self.read(offset, bytes)
@@ -125,8 +145,8 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> ReadNo
     }
 }
 
-impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> NorFlash
-    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
+impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const READ_SIZE: usize> NorFlash
+    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE, READ_SIZE>
 {
     const WRITE_SIZE: usize = WRITE_SIZE;
     const ERASE_SIZE: usize = ERASE_SIZE;
@@ -140,10 +160,10 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> NorFla
     }
 }
 
-impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncReadNorFlash
-    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
+impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const READ_SIZE: usize> AsyncReadNorFlash
+    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE, READ_SIZE>
 {
-    const READ_SIZE: usize = 1;
+    const READ_SIZE: usize = READ_SIZE;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
         self.read(offset, bytes)
@@ -154,8 +174,8 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncR
     }
 }
 
-impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncNorFlash
-    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
+impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const READ_SIZE: usize> AsyncNorFlash
+    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE, READ_SIZE>
 {
     const WRITE_SIZE: usize = WRITE_SIZE;
     const ERASE_SIZE: usize = ERASE_SIZE;

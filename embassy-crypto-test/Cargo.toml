@@ -29,12 +29,16 @@ cipher = "0.5"
 chacha20 = "0.10"
 chacha20poly1305 = { version = "0.11", default-features = false, features = ["reduced-round", "alloc"] }
 aead = { version = "0.6", default-features = false, features = ["alloc"] }
-num-bigint-dig = "0.8"
+crypto-bigint = { version = "0.7.5", default-features = false, features = ["alloc"] }
 p256 = { version = "0.14", default-features = false, features = ["arithmetic"] }
 p384 = { version = "0.14", default-features = false, features = ["arithmetic"] }
 elliptic-curve = { version = "0.14", default-features = false, features = ["arithmetic", "sec1"] }
-x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"] }
-ed25519-dalek = { version = "2", default-features = false }
+x25519-dalek = { version = "3", default-features = false, features = ["static_secrets"] }
+ed25519-dalek = { version = "3", default-features = false }
 
 [features]
 defmt = ["dep:defmt", "embassy-crypto/defmt"]
+# Register `TestRng` as the global `embassy-crypto` RNG. Off by default so
+# the crate can be linked alongside a real driver (e.g. a HAL's hardware RNG),
+# which would otherwise collide on the registration symbol.
+rng = []

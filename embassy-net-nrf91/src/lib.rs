@@ -657,11 +657,12 @@ impl StateInner {
                     9 => match (msg.id >> 16) & 0xFFF {
                         // IP receive notification
                         1 => {
-                            if let Some(mut buf) = ch::driver::PacketBuf::try_new() {
+                            if let Some(mut buf) = ch.try_rx_buf() {
+                                let max = buf.capacity().min(MTU);
                                 let mut len = msg.data_len;
-                                if len > MTU {
-                                    warn!("truncating rx'd packet from {} to {} bytes", len, MTU);
-                                    len = MTU;
+                                if len > max {
+                                    warn!("truncating rx'd packet from {} to {} bytes", len, max);
+                                    len = max;
                                 }
                                 buf.set_len(len);
                                 fence(Ordering::SeqCst); // synchronize volatile accesses with the nonvolatile copy_nonoverlapping.
@@ -671,7 +672,7 @@ impl StateInner {
                                     warn!("rx queue full, dropping packet");
                                 }
                             } else {
-                                warn!("packet pool empty, dropping rx'd packet");
+                                warn!("no rx buffer, dropping rx'd packet");
                             }
                             false
                         }

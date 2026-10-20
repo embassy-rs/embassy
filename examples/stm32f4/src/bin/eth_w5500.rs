@@ -4,9 +4,9 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::wire::Ipv4Addr;
+use embassy_net::{StackStorage, StaticPool};
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_stm32::exti::{self, ExtiInput};
@@ -92,7 +92,8 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(unwrap!(ethernet_task(runner)));
 
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();

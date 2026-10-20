@@ -196,9 +196,9 @@ pub mod pac {
 
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
-// 1.5 MB NVM
+// 1012 kB NVM
 #[allow(unused)]
-pub const FLASH_SIZE: usize = 1524 * 1024;
+pub const FLASH_SIZE: usize = 1012 * 1024;
 
 embassy_hal_internal::peripherals! {
     // PPI
@@ -531,8 +531,8 @@ impl_pin!(P2_08, 2, 8);
 impl_pin!(P2_09, 2, 9);
 impl_pin!(P2_10, 2, 10);
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "gpiote")] {
+cfg_select! {
+    feature = "gpiote" => {
         impl_gpiote_pin!(P0_00, GPIOTE30);
         impl_gpiote_pin!(P0_01, GPIOTE30);
         impl_gpiote_pin!(P0_02, GPIOTE30);
@@ -561,6 +561,7 @@ cfg_if::cfg_if! {
         impl_gpiote_pin!(P1_15, GPIOTE20);
         impl_gpiote_pin!(P1_16, GPIOTE20);
     }
+    _ => {}
 }
 
 #[cfg(feature = "_ns")]

@@ -15,7 +15,7 @@ async fn main(_spawner: Spawner) {
 
     const ADDR: u32 = 0x0;
 
-    let mut f = Flash::new_blocking(p.FLASH);
+    let mut f = Flash::new_blocking(p.FLASH, Default::default());
 
     info!("Reading...");
     let mut buf = [0u8; 8];

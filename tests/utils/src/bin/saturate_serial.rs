@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::Duration;
 use std::{env, io, process, thread};
 
-use rand::{Rng, rng};
+use rand::{RngExt, rng};
 use serial::SerialPort;
 
 pub fn main() {

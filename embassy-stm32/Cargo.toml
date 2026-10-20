@@ -81,7 +81,8 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f303c8", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f398ve", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f378cc", "time", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32g0b0ce", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "dual-bank", "exti", "stm32g0b0ce", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "single-bank", "stm32g0b0ce", "time", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32g0c1ve", "time", "time-driver-any"]},
     {target = "thumbv7m-none-eabi", features = ["defmt", "exti", "stm32f217zg", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "low-power", "stm32l552ze", "time", "time-driver-any"]},
@@ -89,6 +90,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32wle5jb", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32g431kb", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "exti", "stm32g474pe", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "single-bank", "stm32g474pe", "time", "time-driver-any"]},
     {target = "thumbv7m-none-eabi", features = ["defmt", "exti", "stm32f107vc", "time", "time-driver-any"]},
     {target = "thumbv7m-none-eabi", features = ["defmt", "exti", "stm32f103re", "time", "time-driver-any"]},
     {target = "thumbv7m-none-eabi", features = ["defmt", "exti", "stm32f100c4", "time", "time-driver-any"]},
@@ -97,13 +99,14 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32h562ag", "time", "time-driver-any", "embassy-crypto-rng"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32wba50ke", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32wba55ug", "time", "time-driver-any"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32wba62cg", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "stm32wba62cg", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "single-bank", "stm32wba62cg", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32wba65ri", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u385rg", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5f9zj", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5f9zj", "time", "time-driver-any", "usb-host"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5g9nj", "time", "time-driver-any"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32n657x0", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32n657x0", "time", "time-driver-any", "npu-nn"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32wb35ce", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32wb55rg", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32wb55rg", "time", "time-driver-any", "executor-thread"]},
@@ -112,6 +115,25 @@ build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32u031r8", "time", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32u073mb", "time", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32u083rc", "time", "time-driver-any"]},
+    {target = "thumbv7m-none-eabi", features = ["defmt", "exti", "stm32f103zg", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "single-bank", "stm32f429zg", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "exti", "stm32f429zg", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "single-bank", "stm32f767zi", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "exti", "stm32f767zi", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "single-bank", "stm32g0b1rc", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "dual-bank", "exti", "stm32g0b1rc", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32g491re", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "single-bank", "stm32l476rc", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "exti", "stm32l476rc", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "single-bank", "stm32u375re", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "stm32u375re", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "single-bank", "stm32u575zg", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "stm32u575zg", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32c5a3zg", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "single-bank", "stm32c552rc", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "stm32c552rc", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32g070rb", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h755zi-cm4", "time", "time-driver-any"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -148,7 +170,7 @@ flavors = [
     { regex_feature = "stm32wb.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32wba.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32wl.*", target = "thumbv7em-none-eabi" },
-    { regex_feature = "stm32n6.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "stm32n6.*", target = "thumbv8m.main-none-eabihf", features = ["npu-nn"] },
 ]
 
 [package.metadata.docs.rs]
@@ -163,7 +185,7 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "01f496c2cfc362efb1fb9c94d0d9c1232152f2e2", features = ["async", "packet-buf-align-8"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131deb9ff3290e0e01079537e1ed7b2ad", features = ["async"] }
 embassy-crypto = { version = "0.1.0", path = "../embassy-crypto", features = ["large-contexts"] }
 crypto-bigint = { version = "0.7.5", default-features = false, optional = true }
 embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }
@@ -174,14 +196,11 @@ embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.7", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
-embedded-hal-nb = { version = "1.0" }
 embedded-can = "0.4"
 
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 
-rand-core-06 = { package = "rand_core", version = "0.6" }
-rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 
@@ -189,47 +208,37 @@ defmt = { version = "1.1.1", optional = true }
 log = { version = "0.4.33", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.7"
-futures-util = { version = "0.3.33", default-features = false }
 sdio = "0.5.0"
-sdio-host = "0.9.0"
 dsp-fixedpoint = { version = "0.2.0", default-features = false }
 critical-section = { version = "1.2", default-features = false }
 
 vcell = "0.1.3"
 nb = "1.1.0"
 stm32-hrtim = { version = "0.2.0", optional = true }
+embedded-nn = { version = "0.2.3", optional = true, default-features = false, features = ["libm"] }
 stm32-fmc = "0.4.0"
-cfg-if = "1.0.4"
 embedded-io = { version = "0.7.1" }
 embedded-io-async = { version = "0.7.0" }
 chrono = { version = "^0.4", default-features = false, optional = true }
-bit_field = "0.10.3"
-trait-set = "0.3.0"
 document-features = "0.2.12"
 
-static_assertions = { version = "1.1" }
 bitflags = "2.13.1"
 
-block-device-driver = { version = "0.2" }
 aligned = "0.4.3"
 heapless = "0.9.3"
-once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-3b1e9bcf7cd6a04e2ccb74182b22ded50d264723" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-0d42494e3be9b3a68f31137f80cf4e80dba6b44e" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-3b1e9bcf7cd6a04e2ccb74182b22ded50d264723", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-0d42494e3be9b3a68f31137f80cf4e80dba6b44e", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
-regex = "1.13.1"
 
 [dev-dependencies]
 critical-section = { version = "1.2", features = ["std"] }
-proptest = "1.11.0"
-proptest-state-machine = "0.8.0"
 
 
 [features]
@@ -264,6 +273,9 @@ ptp = ["xarxa-driver/packetmeta-timestamp", "dep:embassy-ptp-driver"]
 chrono = ["dep:chrono"]
 
 stm32-hrtim = ["dep:stm32-hrtim"]
+
+## Enable the `embedded-nn` software epochs for the Neural-ART NPU (`npu::epoch`).
+npu-nn = ["dep:embedded-nn"]
 
 ## Enable USB host mode support
 usb-host = ["embassy-usb-synopsys-otg/host"]
@@ -326,6 +338,9 @@ embassy-crypto-p384-ecdh = ["dep:crypto-bigint"]
 ## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
 embassy-crypto-p384-ecdsa = ["dep:crypto-bigint"]
 
+## Enable the [`exti`](crate::exti) module: async waiting for GPIO pin edges with
+## [`ExtiInput`](crate::exti::ExtiInput). Also required by the async SPI slave
+## constructors and [`RingBufferedSpiRx`](crate::spi::RingBufferedSpiRx).
 exti = []
 low-power = [ "time" ]
 low-power-debug-with-sleep = [ "low-power" ]

@@ -58,7 +58,7 @@ MEMORY
 
 /* Provide the mandatory FLASH and RAM definitions for cortex-m-rt's linker script. */
 REGION_ALIAS(FLASH, FLASH1);
-REGION_ALIAS(RAM,   DTCM);
+REGION_ALIAS(RAM,   AXISRAM);
 
 /* The location of the stack can be overridden using the `_stack_start` symbol. */
 /* - Set the stack location at the end of RAM, using all remaining space.       */

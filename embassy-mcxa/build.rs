@@ -10,13 +10,34 @@ use indexmap::IndexMap;
 use nxp_pac::metadata::METADATA;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
-use regex::Regex;
 
 mod build_common;
 
 fn main() {
+    let chips = env::vars()
+        .filter(|(name, _)| {
+            name.strip_prefix("CARGO_FEATURE_MCXA")
+                .is_some_and(|chip| !chip.is_empty() && chip.bytes().all(|c| c.is_ascii_digit()))
+        })
+        .count();
+    match chips {
+        0 => panic!("No MCXA chip feature enabled"),
+        1 => {}
+        _ => panic!("Multiple MCXA chip features enabled"),
+    }
+
     let mut cfgs = CfgSet::new();
     build_common::set_target_cfgs(&mut cfgs);
+
+    cfgs.declare("time_driver_ostimer");
+    cfgs.declare("time_driver_lptmr");
+    if env::var_os("CARGO_FEATURE_TIME_DRIVER_LPTMR").is_some() {
+        cfgs.enable("time_driver_lptmr");
+    } else if env::var_os("CARGO_FEATURE_TIME_DRIVER_OSTIMER").is_some()
+        || env::var_os("CARGO_FEATURE_TIME_DRIVER_ANY").is_some()
+    {
+        cfgs.enable("time_driver_ostimer");
+    }
 
     fn driver_to_cfg_name(name: &str) -> String {
         match name.split_once("::") {
@@ -98,14 +119,12 @@ fn generate_peripherals_call() -> TokenStream {
     );
 
     // Add DMA channels
-    let dma_regex = Regex::new(r"(?i:^DMA)(\d+)").unwrap();
-    let dma_channels_regex = Regex::new(r"(?i:DMA)(\d+)").unwrap();
     for (dma_num, dma_peripheral) in METADATA
         .peripherals
         .iter()
-        .filter_map(|p| get_regex_num(p.name, &dma_regex).map(|dma_num| (dma_num, p)))
+        .filter_map(|p| prefix_num(p.name, "DMA").map(|dma_num| (dma_num, p)))
     {
-        let channels_num = get_regex_num(dma_peripheral.driver_name, &dma_channels_regex).unwrap();
+        let channels_num = find_num(dma_peripheral.driver_name, "DMA").unwrap();
 
         for channel in 0..channels_num {
             singletons.push(Singleton::just_name(format!("DMA{dma_num}_CH{channel}")));
@@ -113,12 +132,7 @@ fn generate_peripherals_call() -> TokenStream {
     }
 
     // Add CTIMER channels
-    let ctimer_regex = Regex::new(r"(?i:^CTIMER)(\d+)").unwrap();
-    for ctimer_num in METADATA
-        .peripherals
-        .iter()
-        .filter_map(|p| get_regex_num(p.name, &ctimer_regex))
-    {
+    for ctimer_num in METADATA.peripherals.iter().filter_map(|p| prefix_num(p.name, "CTIMER")) {
         for num in 0..4 {
             singletons.push(Singleton::just_name(format!("CTIMER{ctimer_num}_CH{num}")));
         }
@@ -137,8 +151,18 @@ fn generate_peripherals_call() -> TokenStream {
         })
         .collect();
 
+    let available: Vec<_> = singletons
+        .iter()
+        .zip(&singleton_tokens)
+        .map(|(s, tokens)| match s.name.as_str() {
+            "OSTIMER0" => quote! { #[cfg(not(time_driver_ostimer))] #tokens },
+            "LPTMR0" => quote! { #[cfg(not(time_driver_lptmr))] #tokens },
+            _ => tokens.clone(),
+        })
+        .collect();
     quote! {
-        embassy_hal_internal::peripherals!(#(#singleton_tokens),*);
+        embassy_hal_internal::peripherals_definition!(#(#singleton_tokens),*);
+        embassy_hal_internal::peripherals_struct!(#(#available),*);
     }
 }
 
@@ -168,10 +192,14 @@ fn generate_cc_gates() -> TokenStream {
         let peripheral_name = format_ident!("{}", peripheral.name);
         let enable = format_ident!("{}", gate.enable);
         let reset = gate.reset.map(|reset| format_ident!("{reset}"));
-        let config = gate
-            .config
-            .map(|config| format_ident!("{config}"))
-            .unwrap_or_else(|| format_ident!("NoConfig"));
+        let config = gate.config.map(|config| format_ident!("{config}")).unwrap_or_else(|| {
+            // FREQME's PAC metadata predates its HAL clock helper.
+            if peripheral.driver_name == "mcxa/FREQME" {
+                format_ident!("FreqmeConfig")
+            } else {
+                format_ident!("NoConfig")
+            }
+        });
         let bit = format_ident!("{}", gate.bit);
 
         match reset {
@@ -205,20 +233,19 @@ fn generate_instance_calls() -> TokenStream {
         "adc", "crc", "dac", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi", "can",
     ];
 
-    let peripheral_regex = Regex::new(r"(^.*\D)(\d+)?").unwrap();
-
     for peripheral in METADATA.peripherals {
         if peripheral.driver_name.is_empty() {
             // Only use peripherals that have a driver
             continue;
         }
 
-        let Some(captures) = peripheral_regex.captures(peripheral.name) else {
+        let name = peripheral.name.trim_end_matches(|c: char| c.is_ascii_digit());
+        if name.is_empty() {
             panic!("Weird peripheral name: {}", peripheral.name);
-        };
+        }
 
-        let peripheral_name = captures.get(1).unwrap().as_str().to_lowercase();
-        let peripheral_number = captures.get(2).map(|m| m.as_str().parse::<u32>().unwrap());
+        let peripheral_name = name.to_lowercase();
+        let peripheral_number = leading_num(&peripheral.name[name.len()..]);
 
         if REQUIRES_INSTANCE.contains(&peripheral_name.as_str()) {
             let arg = if let Some(peripheral_number) = peripheral_number {
@@ -241,11 +268,10 @@ fn generate_instance_calls() -> TokenStream {
 fn generate_gpio_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    let gpio_regex = Regex::new(r"(?i:^GPIO)(\d+)").unwrap();
     for (gpio_num, gpio_peripheral) in METADATA
         .peripherals
         .iter()
-        .filter_map(|p| get_regex_num(p.name, &gpio_regex).map(|gpio_num| (gpio_num, p)))
+        .filter_map(|p| prefix_num(p.name, "GPIO").map(|gpio_num| (gpio_num, p)))
     {
         let peripheral = format_ident!("{}", gpio_peripheral.name);
         let gpio_num = proc_macro2::Literal::u32_unsuffixed(gpio_num);
@@ -269,12 +295,10 @@ fn generate_gpio_pin_impls() -> TokenStream {
 fn generate_adc_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    let adc_regex = Regex::new(r"^ADC\d+").unwrap();
-    let adc_channel_regex = Regex::new(r"(?:^A)(\d+)").unwrap();
-    for adc in METADATA.peripherals.iter().filter(|p| adc_regex.is_match(p.name)) {
+    for adc in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "ADC")) {
         let adc_name = format_ident!("{}", adc.name);
         for signal in adc.signals {
-            let channel: u8 = get_regex_num(signal.name, &adc_channel_regex)
+            let channel: u8 = prefix_num(signal.name, "A")
                 .unwrap_or_else(|| panic!("Could not get ADC channel from: {}", signal.name))
                 .try_into()
                 .unwrap();
@@ -321,8 +345,7 @@ fn generate_clkout_impls() -> TokenStream {
 fn generate_lpi2c_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    let lpi2c_regex = Regex::new(r"^LPI2C\d+").unwrap();
-    for lpi2c in METADATA.peripherals.iter().filter(|p| lpi2c_regex.is_match(p.name)) {
+    for lpi2c in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "LPI2C")) {
         let lpi2c_name = format_ident!("{}", lpi2c.name);
         for signal in lpi2c.signals {
             let signal_pin = format_ident!("{}Pin", ccase!(pascal, signal.name));
@@ -345,8 +368,7 @@ fn generate_lpi2c_pin_impls() -> TokenStream {
 fn generate_i3c_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    let i3c_regex = Regex::new(r"^I3C\d+").unwrap();
-    for i3c in METADATA.peripherals.iter().filter(|p| i3c_regex.is_match(p.name)) {
+    for i3c in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "I3C")) {
         let i3c_name = format_ident!("{}", i3c.name);
         for signal in i3c.signals {
             let signal_pin = format_ident!("{}Pin", ccase!(pascal, signal.name));
@@ -369,8 +391,7 @@ fn generate_i3c_pin_impls() -> TokenStream {
 fn generate_spi_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    let spi_regex = Regex::new(r"^LPSPI\d+").unwrap();
-    for spi in METADATA.peripherals.iter().filter(|p| spi_regex.is_match(p.name)) {
+    for spi in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "LPSPI")) {
         let spi_name = format_ident!("{}", spi.name);
         for signal in spi.signals {
             let signal_pin = format_ident!("{}Pin", ccase!(pascal, signal.name));
@@ -393,8 +414,7 @@ fn generate_spi_pin_impls() -> TokenStream {
 fn generate_flexspi_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    let flexspi_regex = Regex::new(r"^FLEXSPI\d+").unwrap();
-    for flexspi in METADATA.peripherals.iter().filter(|p| flexspi_regex.is_match(p.name)) {
+    for flexspi in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "FLEXSPI")) {
         let flexspi_name = format_ident!("{}", flexspi.name);
 
         for signal in flexspi.signals {
@@ -420,8 +440,7 @@ fn generate_flexspi_pin_impls() -> TokenStream {
 fn generate_dac_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    let dac_regex = Regex::new(r"^DAC\d+").unwrap();
-    for dac in METADATA.peripherals.iter().filter(|p| dac_regex.is_match(p.name)) {
+    for dac in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "DAC")) {
         let dac_name = format_ident!("{}", dac.name);
 
         for signal in dac.signals {
@@ -443,10 +462,7 @@ fn generate_dac_pin_impls() -> TokenStream {
 fn generate_ctimer_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    let ctimer_regex = Regex::new(r"^CTIMER\d+").unwrap();
-    let match_channel_regex = Regex::new(r"(?:^MAT)(\d+)").unwrap();
-
-    for ctimer in METADATA.peripherals.iter().filter(|p| ctimer_regex.is_match(p.name)) {
+    for ctimer in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "CTIMER")) {
         let ctimer_name = format_ident!("{}", ctimer.name);
 
         let mut inp_pins = IndexMap::new();
@@ -461,7 +477,7 @@ fn generate_ctimer_pin_impls() -> TokenStream {
                     let mux = format_ident!("Mux{}", pin.alt);
                     inp_pins.insert(pin_name, mux);
                 }
-            } else if let Some(match_index) = get_regex_num(signal.name, &match_channel_regex) {
+            } else if let Some(match_index) = prefix_num(signal.name, "MAT") {
                 for pin in signal.pins {
                     let pin_name = format_ident!("{}", pin.pin);
                     let mux = format_ident!("Mux{}", pin.alt);
@@ -502,8 +518,7 @@ fn generate_ctimer_pin_impls() -> TokenStream {
 fn generate_lpuart_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    let lpuart_regex = Regex::new(r"^LPUART\d+").unwrap();
-    for lpuart in METADATA.peripherals.iter().filter(|p| lpuart_regex.is_match(p.name)) {
+    for lpuart in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "LPUART")) {
         let lpuart_name = format_ident!("{}", lpuart.name);
         for signal in lpuart.signals {
             let signal_name = format_ident!("{}", signal.name);
@@ -525,8 +540,7 @@ fn generate_lpuart_pin_impls() -> TokenStream {
 
 fn generate_flexcan_pin_impls() -> TokenStream {
     let mut generated = TokenStream::new();
-    let can_regex = Regex::new(r"^CAN\d+").unwrap();
-    for can in METADATA.peripherals.iter().filter(|p| can_regex.is_match(p.name)) {
+    for can in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "CAN")) {
         let can_name = format_ident!("{}", can.name);
         for signal in can.signals {
             // Signal names from the PAC metadata are `TXD` / `RXD`, which the
@@ -551,15 +565,12 @@ fn generate_flexcan_pin_impls() -> TokenStream {
 fn generate_dma_requests_enum() -> TokenStream {
     let mut generated = TokenStream::new();
 
-    let dma_regex = Regex::new(r"(?:^DMA)(\d+)").unwrap();
-    let dma_driver_regex = Regex::new(r"(?:DMA)(\d+)").unwrap();
-
     for (dma, dma_num) in METADATA
         .peripherals
         .iter()
-        .filter_map(|p| get_regex_num(p.name, &dma_regex).map(|num| (p, num)))
+        .filter_map(|p| prefix_num(p.name, "DMA").map(|num| (p, num)))
     {
-        let num_channels = get_regex_num(dma.driver_name, &dma_driver_regex).unwrap();
+        let num_channels = find_num(dma.driver_name, "DMA").unwrap();
 
         for channel_num in 0..num_channels {
             let dma_num = proc_macro2::Literal::u32_unsuffixed(dma_num);
@@ -637,8 +648,24 @@ fn rustfmt(path: impl AsRef<Path>) {
     }
 }
 
-fn get_regex_num(string: &str, regex: &Regex) -> Option<u32> {
-    regex
-        .captures(string)
-        .map(|cap| cap.extract::<1>().1[0].parse::<u32>().unwrap())
+/// Parse the number directly following `prefix` at the start of `s`, e.g. `prefix_num("DMA0", "DMA") == Some(0)`.
+fn prefix_num(s: &str, prefix: &str) -> Option<u32> {
+    s.strip_prefix(prefix).and_then(leading_num)
+}
+
+/// Whether `s` is `prefix` directly followed by a number, e.g. `is_numbered("LPUART2", "LPUART")`.
+fn is_numbered(s: &str, prefix: &str) -> bool {
+    prefix_num(s, prefix).is_some()
+}
+
+/// Parse the number directly following the first occurrence of `needle` in `s` that is followed by a number.
+fn find_num(s: &str, needle: &str) -> Option<u32> {
+    s.match_indices(needle)
+        .find_map(|(i, _)| leading_num(&s[i + needle.len()..]))
+}
+
+/// Parse the decimal number at the start of `s`, ignoring anything after it.
+fn leading_num(s: &str) -> Option<u32> {
+    let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    s[..end].parse().ok()
 }

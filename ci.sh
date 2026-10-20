@@ -24,15 +24,12 @@ if [[ -z "${CARGO_TARGET_DIR}" ]]; then
     export CARGO_TARGET_DIR=target_ci
 fi
 
-# always run check to prime cache
-cargo embassy-devtool check --force-incremental
+cargo embassy-devtool build
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
     exit
 fi
-
-cargo embassy-devtool build
 
 # temporarily disabled, these boards are dead.
 rm -rf out/tests/stm32f103c8
@@ -40,7 +37,7 @@ rm -rf out/tests/nrf52840-dk
 rm -rf out/tests/nrf52833-dk
 rm -rf out/tests/nrf5340-dk
 rm -rf out/tests/nrf51422-dk
- 
+
 # disabled because these boards are not on the shelf
 rm -rf out/tests/mspm0g3507
 
@@ -52,6 +49,9 @@ rm -rf out/tests/stm32wba65ri
 rm -rf out/tests/stm32l152re
 rm -rf out/tests/stm32f207zg
 rm -rf out/tests/nrf9160-dk
+
+# disabled until wired
+rm -f out/tests/stm32f446re/pwm_ringbuffered
 
 # unstable, I think it's running out of RAM?
 rm -f out/tests/stm32f207zg/eth

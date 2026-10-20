@@ -9,8 +9,11 @@ use super::*;
 // SplitBuild - filter-count dispatch, one trait per channel arity
 // =============================================================================
 
+pub(crate) trait SealedTcv2SplitBuild {}
+
 /// Builds the actual split struct from already-extracted pin pairs.
-pub trait Tcv2SplitBuild<T: Instance, C: ClockOutputMode, S0: PinSet, S1: PinSet> {
+#[allow(private_bounds)]
+pub trait Tcv2SplitBuild<T: Instance, C: ClockOutputMode, S0: PinSet, S1: PinSet>: SealedTcv2SplitBuild {
     /// The split struct for this (transceiver, filter) shape.
     type Out;
 
@@ -22,8 +25,13 @@ pub trait Tcv2SplitBuild<T: Instance, C: ClockOutputMode, S0: PinSet, S1: PinSet
     ) -> Self::Out;
 }
 
+pub(crate) trait SealedTcv4SplitBuild {}
+
 /// 4-transceiver twin of [`Tcv2SplitBuild`].
-pub trait Tcv4SplitBuild<T: Instance, C: ClockOutputMode, S0: PinSet, S1: PinSet, S2: PinSet, S3: PinSet> {
+#[allow(private_bounds)]
+pub trait Tcv4SplitBuild<T: Instance, C: ClockOutputMode, S0: PinSet, S1: PinSet, S2: PinSet, S3: PinSet>:
+    SealedTcv4SplitBuild
+{
     /// The split struct for this (transceiver, filter) shape.
     type Out;
 
@@ -37,7 +45,10 @@ pub trait Tcv4SplitBuild<T: Instance, C: ClockOutputMode, S0: PinSet, S1: PinSet
     ) -> Self::Out;
 }
 
+pub(crate) trait SealedTcv8SplitBuild {}
+
 /// 8-transceiver twin of [`Tcv2SplitBuild`].
+#[allow(private_bounds)]
 pub trait Tcv8SplitBuild<
     T: Instance,
     C: ClockOutputMode,
@@ -49,7 +60,7 @@ pub trait Tcv8SplitBuild<
     S5: PinSet,
     S6: PinSet,
     S7: PinSet,
->
+>: SealedTcv8SplitBuild
 {
     /// The split struct for this (transceiver, filter) shape.
     type Out;
@@ -76,6 +87,8 @@ pub trait Tcv8SplitBuild<
 // Channel-config tuples - the split entry point
 // =============================================================================
 
+pub(crate) trait SealedChannelCfgTuple {}
+
 /// Implemented for the tuple a `configure_pins` closure returns.
 /// The arity *is* the transceiver-count check: `(C0, C1)` only impls for
 /// `Tcv2` instances, the 8-tuple only for `Tcv8`.
@@ -84,7 +97,8 @@ pub trait Tcv8SplitBuild<
     label = "tuple length doesn't match `{T}`'s transceiver count",
     note = "check `{T}`'s transceiver count and return a tuple of that length, one token per `creator.chN`"
 )]
-pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode> {
+#[allow(private_bounds)]
+pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode>: SealedChannelCfgTuple {
     /// The fully-wired split (neighbor pin-sets already correct).
     type Split;
 

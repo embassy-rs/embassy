@@ -4,9 +4,9 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_stm32::pac::DESIG;
 use embassy_stm32::{Config, uid};
 use panic_probe as _;
-use stm32_metapac::DESIG;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

@@ -4,9 +4,9 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::wire::Ipv4Addr;
+use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
 use embassy_stm32::rng::Rng;
@@ -67,7 +67,7 @@ async fn main(spawner: Spawner) -> ! {
     static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
     // warning: Not all STM32H7 devices have the exact same pins here
     // for STM32H747XIH, replace p.PB13 for PG12
-    let device = Ethernet::new(
+    let device = unwrap!(Ethernet::new(
         PACKETS.init(PacketQueue::<4, 4>::new()),
         p.ETH,
         p.PA1,  // ref_clk
@@ -82,11 +82,13 @@ async fn main(spawner: Spawner) -> ! {
         p.PA2, // mdio
         p.PC1, // mdc
         Irqs,
-    );
+    ));
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    // The ethernet DMA needs 8-byte aligned buffers, sized in multiples of 8.
+    static POOL: StaticPool<1520, 16, 8> = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();

@@ -20,9 +20,9 @@ use defmt::{Format, error, info, println, unwrap};
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_net::StackStorage;
 use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::wire::{IpCidr, Ipv4Addr, Ipv4Cidr};
+use embassy_net::{StackStorage, StaticPool};
 use embassy_net_adin1110::{ADIN1110, Device, GenericSpi, Runner};
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
@@ -151,7 +151,7 @@ async fn main(spawner: Spawner) {
         Irqs,
         spi_config,
     );
-    let spe_spi = ExclusiveDevice::new(spe_spi, spe_spi_cs_n, Delay);
+    let spe_spi = ExclusiveDevice::new(spe_spi, spe_spi_cs_n, Delay).unwrap();
 
     let cfg0_without_crc = spe_cfg0.is_high();
     let cfg1_spi_mode = spe_cfg1.is_high();
@@ -202,7 +202,8 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();

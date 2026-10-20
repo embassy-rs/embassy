@@ -80,7 +80,7 @@ pub struct Pll {
     /// PLL multiplication factor.
     pub mul: PllMul,
 
-    #[cfg(any(stm32h743, stm32h730))]
+    #[cfg(any(stm32h743, stm32h730, stm32h753))]
     /// PLL Fractional multiplier.
     pub fracn: Option<u16>,
 
@@ -980,14 +980,14 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
     // be chosen when the reference clock frequency is lower than 2 MHz.
     let wide_allowed = ref_range != Pllrge::Range1;
 
-    #[cfg(any(stm32h743, stm32h730))]
+    #[cfg(any(stm32h743, stm32h730, stm32h753))]
     let vco_clk = match config.fracn {
         Some(fracn) => {
             Hertz::hz((ref_clk.0 as f32 * ((config.mul.to_bits() + 1) as f32 + (fracn as f32 / 8192.0))) as u32)
         }
         None => ref_clk * config.mul,
     };
-    #[cfg(not(any(stm32h743, stm32h730)))]
+    #[cfg(not(any(stm32h743, stm32h730, stm32h753)))]
     let vco_clk = ref_clk * config.mul;
 
     let vco_range = if VCO_RANGE.contains(&vco_clk) {
@@ -1036,7 +1036,7 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
             w.set_pllsrc(config.source);
         });
 
-        #[cfg(any(stm32h743, stm32h730))]
+        #[cfg(any(stm32h743, stm32h730, stm32h753))]
         if let Some(fracn) = config.fracn {
             RCC.pllfracr(num).modify(|w| w.set_fracn(fracn))
         }
@@ -1045,14 +1045,14 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
             w.set_pllvcosel(num, vco_range);
             w.set_pllrge(num, ref_range);
 
-            #[cfg(any(stm32h743, stm32h730))]
+            #[cfg(any(stm32h743, stm32h730, stm32h753))]
             if config.fracn.is_some() {
                 w.set_pllfracen(num, true);
             } else {
                 w.set_pllfracen(num, false);
             }
 
-            #[cfg(not(any(stm32h743, stm32h730)))]
+            #[cfg(not(any(stm32h743, stm32h730, stm32h753)))]
             w.set_pllfracen(num, false);
 
             w.set_divpen(num, p.is_some());
@@ -1132,7 +1132,7 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
         _ => unreachable!(),
     };
 
-    #[cfg(all(flash_h7, not(pwr_h7rm0468)))]
+    #[cfg(all(flash_v5_h7, not(pwr_h7rm0468)))]
     let (latency, wrhighfreq) = match (vos, clk.0) {
         // VOS 0 range VCORE 1.26V - 1.40V
         (VoltageScale::Scale0, ..=70_000_000) => (0, 0),
@@ -1163,7 +1163,7 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
 
     // See RM0468 Rev 3 Table 16. FLASH recommended number of wait
     // states and programming delay
-    #[cfg(all(flash_h7, pwr_h7rm0468))]
+    #[cfg(all(flash_v5_h7, pwr_h7rm0468))]
     let (latency, wrhighfreq) = match (vos, clk.0) {
         // VOS 0 range VCORE 1.26V - 1.40V
         (VoltageScale::Scale0, ..=70_000_000) => (0, 0),
@@ -1187,7 +1187,7 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
 
     // See RM0455 Rev 10 Table 16. FLASH recommended number of wait
     // states and programming delay
-    #[cfg(flash_h7ab)]
+    #[cfg(flash_v5_h7ab)]
     let (latency, wrhighfreq) = match (vos, clk.0) {
         // VOS 0 range VCORE 1.25V - 1.35V
         (VoltageScale::Scale0, ..=42_000_000) => (0, 0),
@@ -1217,7 +1217,7 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
         (VoltageScale::Scale3, ..=88) => (3, 1),
         _ => unreachable!(),
     };
-    #[cfg(flash_h7rs)]
+    #[cfg(flash_v5_h7rs)]
     let (latency, wrhighfreq) = match (vos, clk.0) {
         // VOS high range VCORE 1.30V - 1.40V
         (VoltageScale::High, ..=40_000_000) => (0, 0),

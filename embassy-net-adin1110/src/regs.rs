@@ -87,7 +87,7 @@ impl From<u16> for SpiRegisters {
 // Register definitions
 bitfield! {
     /// Status0 Register bits
-    pub struct Status0(u32);
+    pub struct Status0(pub u32);
     impl Debug;
     u32;
     /// Control Data Protection Error
@@ -120,7 +120,7 @@ bitfield! {
 
 bitfield! {
     /// Status1 Register bits
-    pub struct Status1(u32);
+    pub struct Status1(pub u32);
     impl Debug;
     u32;
     /// CRC Mismatch on a Tx Frame on Port 2
@@ -161,7 +161,7 @@ bitfield! {
 
 bitfield! {
     /// Config0 Register bits
-    pub struct Config0(u32);
+    pub struct Config0(pub u32);
     impl Debug;
     u32;
     /// Configuration Synchronization
@@ -192,7 +192,7 @@ bitfield! {
 
 bitfield! {
     /// Config2 Register bits
-    pub struct Config2(u32);
+    pub struct Config2(pub u32);
     impl Debug;
     u32;
     /// Admit Frames with IFG Errors on Port 2
@@ -225,7 +225,7 @@ bitfield! {
 
 bitfield! {
     /// IMASK0 Register bits
-    pub struct IMask0(u32);
+    pub struct IMask0(pub u32);
     impl Debug;
     u32;
     /// Control Data Protection Error Mask
@@ -258,7 +258,7 @@ bitfield! {
 
 bitfield! {
     /// IMASK1 Register bits
-    pub struct IMask1(u32);
+    pub struct IMask1(pub u32);
     impl Debug;
     u32;
     /// Mask Bit for TXF_ECC_ERR

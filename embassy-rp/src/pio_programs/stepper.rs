@@ -4,7 +4,7 @@ use core::mem::{self, MaybeUninit};
 
 use crate::Peri;
 use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, PioPin, StateMachine};
-use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider_x256;
 
 /// This struct represents a Stepper driver program loaded into pio instruction memory.
 pub struct PioStepperProgram<'a, PIO: Instance> {
@@ -44,6 +44,7 @@ pub struct PioStepper<'d, T: Instance, const SM: usize> {
 
 impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
     /// Configure a state machine to drive a stepper
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pio: &mut Common<'d, T>,
         mut sm: StateMachine<'d, T, SM>,
@@ -58,26 +59,25 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
         let pin1 = pio.make_pio_pin(pin1);
         let pin2 = pio.make_pio_pin(pin2);
         let pin3 = pio.make_pio_pin(pin3);
-        sm.set_pin_dirs(Direction::Out, &[&pin0, &pin1, &pin2, &pin3]);
         let mut cfg = Config::default();
         cfg.set_out_pins(&[&pin0, &pin1, &pin2, &pin3]);
 
-        cfg.clock_divider = calculate_pio_clock_divider(100 * 136);
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(100 * 136);
 
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);
+        sm.set_pin_dirs(Direction::Out, &[&pin0, &pin1, &pin2, &pin3]);
         sm.set_enable(true);
         Self { irq, sm }
     }
 
     /// Set pulse frequency
     pub fn set_frequency(&mut self, freq: u32) {
-        let clock_divider = calculate_pio_clock_divider(freq * 136);
-        let divider_f32 = clock_divider.to_num::<f32>();
-        assert!(divider_f32 <= 65536.0, "clkdiv must be <= 65536");
-        assert!(divider_f32 >= 1.0, "clkdiv must be >= 1");
+        let clock_divider = calculate_pio_clock_divider_x256(freq * 136);
+        assert!(clock_divider <= 65536 << 8, "clkdiv must be <= 65536");
+        assert!(clock_divider >= 1 << 8, "clkdiv must be >= 1");
 
-        self.sm.set_clock_divider(clock_divider);
+        self.sm.set_clock_divider_x256(clock_divider);
         self.sm.clkdiv_restart();
     }
 

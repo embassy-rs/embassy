@@ -9,4 +9,4 @@ An implementation of the USB DFU 1.1 protocol using embassy-boot. It has 2 compo
 
 Embassy-boot provides functionality to verify that an update binary has been correctly signed using ed25519 as described in https://embassy.dev/book/#_verification. Even though the linked procedure describes the signature being concatenated to the end of the update binary, embassy-boot does not force this and is flexible in terms of how the signature for a binary is distributed. The current implementation in embassy-usb-dfu does however assume that the signature is 64 bytes long and concatenated to the end of the update binary since this is the simplest way to make it work with the usb-dfu mechanism. I.e. embassy-usb-dfu does not currently offer the same flexibility as embassy-boot.
 
-To enable verification, you need to enable either the `ed25519-dalek` or the `ed25519-salty` feature with `ed25519-salty` being recommended.
+To enable verification, you need to enable the `verify` feature.

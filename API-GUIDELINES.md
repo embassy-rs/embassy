@@ -895,7 +895,7 @@ The trait crates we commonly implement:
 | `embedded-io`, `embedded-io-async` | Buffered UART (`Read`, `Write`, `ReadReady`, `WriteReady`, `BufRead`), and any other byte-stream driver (USB CDC, PIO UART, …) |
 | `embedded-storage`, `embedded-storage-async` | Internal flash, QSPI/OSPI flash, EEPROM (`nor_flash::{ReadNorFlash, NorFlash, MultiwriteNorFlash}`) |
 | `embedded-can` | CAN frames and IDs (`Frame`, `Id`, `StandardId`, `ExtendedId`), and `blocking::Can` on the driver |
-| `rand_core` 0.6 / 0.9 / 0.10 | RNG/TRNG (`RngCore`, `CryptoRng`); each version behind its own `rand-core-NN` dependency |
+| `rand_core` 0.10 (as `rand-core-10`) | RNG/TRNG (`TryRng`, `TryCryptoRng`) |
 | `embassy-embedded-hal` | `SetConfig`, so drivers work with `SpiDeviceWithConfig`/`I2cDeviceWithConfig` and friends |
 | `embassy-usb-driver` | USB device (`Driver`, `Bus`, `ControlPipe`, `EndpointIn`, `EndpointOut`) and host controllers |
 | `embassy-time-driver` | The time driver backing `embassy-time` |

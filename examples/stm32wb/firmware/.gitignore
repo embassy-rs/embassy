@@ -1,0 +1,3 @@
+# ST-signed coprocessor binaries; download with fetch commands from README.md
+*.bin
+Release_Notes.html

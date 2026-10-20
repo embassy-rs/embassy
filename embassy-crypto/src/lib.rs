@@ -9,6 +9,7 @@ mod chacha;
 mod ct;
 mod ec;
 mod hash;
+mod hkdf;
 
 pub mod ed25519;
 pub mod p256;
@@ -19,6 +20,7 @@ pub use aes::*;
 pub use chacha::*;
 pub use driver::Error;
 pub use hash::*;
+pub use hkdf::*;
 
 /// Fill `buf` with cryptographically secure random bytes.
 pub fn rng_fill_bytes(buf: &mut [u8]) {

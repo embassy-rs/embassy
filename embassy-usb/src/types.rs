@@ -25,7 +25,7 @@ impl core::fmt::Display for InterfaceNumber {
 }
 
 /// A handle for a USB string descriptor that contains its index.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(transparent)]
 pub struct StringIndex(pub u8);

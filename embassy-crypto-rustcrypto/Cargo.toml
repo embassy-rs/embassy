@@ -51,11 +51,11 @@ elliptic-curve = { version = "0.14", default-features = false, features = ["arit
 ecdsa = { version = "0.17", default-features = false, features = ["digest", "algorithm"], optional = true }
 p256 = { version = "0.14", default-features = false, features = ["arithmetic", "ecdh", "ecdsa"], optional = true }
 p384 = { version = "0.14", default-features = false, features = ["arithmetic", "ecdh", "ecdsa"], optional = true }
-x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"], optional = true }
-ed25519-dalek = { version = "2", default-features = false, features = ["zeroize"], optional = true }
+x25519-dalek = { version = "3", default-features = false, features = ["static_secrets"], optional = true }
+ed25519-dalek = { version = "3", default-features = false, features = ["zeroize"], optional = true }
 
 [dev-dependencies]
-embassy-crypto-test = { version = "0.1.0", path = "../embassy-crypto-test" }
+embassy-crypto-test = { version = "0.1.0", path = "../embassy-crypto-test", features = [ "rng" ] }
 
 [features]
 ## Register every driver this crate can provide.

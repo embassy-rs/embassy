@@ -3,8 +3,6 @@
 use embassy_hal_internal::{Peri, PeripheralType};
 pub use embedded_hal_1::pwm::SetDutyCycle;
 use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
-use fixed::FixedU16;
-use fixed::traits::ToFixed;
 use pac::pwm::regs::{ChDiv, Intr};
 use pac::pwm::vals::Divmode;
 
@@ -29,11 +27,12 @@ pub struct Config {
     pub phase_correct: bool,
     /// Enables the PWM slice, allowing it to generate an output.
     pub enable: bool,
-    /// A fractional clock divider, represented as a fixed-point number with
-    /// 8 integer bits and 4 fractional bits. It allows precise control over
-    /// the PWM output frequency by gating the PWM counter increment.
-    /// A higher value will result in a slower output frequency.
-    pub divider: fixed::FixedU16<fixed::types::extra::U4>,
+    /// A fractional clock divider, as a fixed-point number with 8 integer bits
+    /// and 4 fractional bits (the divider multiplied by 16). For example, `16`
+    /// divides by 1, `40` divides by 2.5, and the maximum `0xFFF` divides by 255.9375.
+    /// It allows precise control over the PWM output frequency by gating the
+    /// PWM counter increment. A higher value will result in a slower output frequency.
+    pub divider_x16: u16,
     /// The output on channel A goes high when `compare_a` is higher than the
     /// counter. A compare of 0 will produce an always low output, while a
     /// compare of `top + 1` will produce an always high output.
@@ -55,7 +54,7 @@ impl Default for Config {
             invert_b: false,
             phase_correct: false,
             enable: true, // differs from reset value
-            divider: 1.to_fixed(),
+            divider_x16: 1 << 4,
             compare_a: 0,
             compare_b: 0,
             top: 0xffff,
@@ -251,11 +250,11 @@ impl<'d> Pwm<'d> {
     }
 
     fn configure(p: pac::pwm::Channel, config: &Config) {
-        if config.divider > FixedU16::<fixed::types::extra::U4>::from_bits(0xFFF) {
+        if config.divider_x16 > 0xFFF {
             panic!("Requested divider is too large");
         }
 
-        p.div().write_value(ChDiv(config.divider.to_bits() as u32));
+        p.div().write_value(ChDiv(config.divider_x16 as u32));
         p.cc().write(|w| {
             w.set_a(config.compare_a);
             w.set_b(config.compare_b);
@@ -322,7 +321,7 @@ impl<'d> Pwm<'d> {
 
     #[inline]
     fn bit(&self) -> u32 {
-        1 << self.slice as usize
+        1 << self.slice
     }
 
     /// Splits the PWM driver into separate `PwmOutput` instances for channels A and B.
@@ -331,10 +330,10 @@ impl<'d> Pwm<'d> {
         (
             self.pin_a
                 .take()
-                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin), self.slice.clone(), true)),
+                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin), self.slice, true)),
             self.pin_b
                 .take()
-                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin), self.slice.clone(), true)),
+                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin), self.slice, true)),
         )
     }
     /// Splits the PWM driver by reference to allow for separate duty cycle control
@@ -344,10 +343,10 @@ impl<'d> Pwm<'d> {
         (
             self.pin_a
                 .as_mut()
-                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin.reborrow()), self.slice.clone(), false)),
+                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin.reborrow()), self.slice, false)),
             self.pin_b
                 .as_mut()
-                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin.reborrow()), self.slice.clone(), false)),
+                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin.reborrow()), self.slice, false)),
         )
     }
 }

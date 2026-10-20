@@ -10,12 +10,12 @@
 mod fmt;
 
 mod boot_loader;
-mod digest_adapters;
 mod firmware_updater;
 #[cfg(test)]
 mod mem_flash;
 #[cfg(test)]
 mod test_flash;
+mod verification;
 
 // The expected value of the flash after an erase
 // TODO: Use the value provided by NorFlash when available
@@ -29,6 +29,7 @@ pub use firmware_updater::{
     BlockingFirmwareState, BlockingFirmwareUpdater, FirmwareState, FirmwareUpdater, FirmwareUpdaterConfig,
     FirmwareUpdaterError,
 };
+pub use verification::{Digest, VerifyingKey};
 
 pub(crate) const REVERT_MAGIC: u8 = 0xC0;
 pub(crate) const BOOT_MAGIC: u8 = 0xD0;
@@ -43,7 +44,7 @@ pub enum State {
     Boot,
     /// Bootloader has swapped the active partition with the dfu partition and will attempt boot.
     Swap,
-    /// Bootloader has reverted the active partition with the dfu partition and will attempt boot.
+    /// Bootloader rejected an update or reverted a failed trial and will boot the previous image.
     Revert,
     /// Application has received a request to reboot into DFU mode to apply an update.
     DfuDetach,
@@ -89,15 +90,16 @@ mod tests {
 
     extern crate std;
 
+    use embassy_futures::block_on;
     use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
     use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
-    use futures::executor::block_on;
 
     use super::*;
     use crate::boot_loader::BootLoaderConfig;
     use crate::firmware_updater::FirmwareUpdaterConfig;
     use crate::mem_flash::MemFlash;
     use crate::test_flash::{AsyncTestFlash, BlockingTestFlash};
+    use crate::verification::VerifyingKey;
 
     /*
     #[test]
@@ -135,7 +137,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "_verify"))]
     fn test_swap_state() {
         // The flashes and buffers used here are large, run on a thread with a bigger stack.
         std::thread::Builder::new()
@@ -146,7 +147,6 @@ mod tests {
             .unwrap();
     }
 
-    #[cfg(not(feature = "_verify"))]
     fn test_swap_state_inner() {
         const FIRMWARE_SIZE: usize = 57344;
         let flash = AsyncTestFlash::new(BootLoaderConfig {
@@ -227,7 +227,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "_verify"))]
     fn test_swap_state_active_page_biggest() {
         const FIRMWARE_SIZE: usize = 12288;
         let flash = AsyncTestFlash::new(BootLoaderConfig {
@@ -272,7 +271,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "_verify"))]
     fn test_swap_state_dfu_page_biggest() {
         const FIRMWARE_SIZE: usize = 12288;
         let flash = AsyncTestFlash::new(BootLoaderConfig {
@@ -316,24 +314,21 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "_verify")]
     fn test_verify() {
-        // The following key setup is based on:
-        // https://docs.rs/ed25519-dalek/latest/ed25519_dalek/#example
+        use embassy_crypto::Sha512;
+        use embassy_crypto::ed25519::{Signature, SigningKey, VerifyingKey};
+        use embassy_crypto_rand as _;
+        use embassy_crypto_rustcrypto as _;
 
-        use ed25519_dalek::{Digest, Sha512, Signature, Signer, SigningKey, VerifyingKey};
-        use rand::rngs::OsRng;
-
-        let mut csprng = OsRng {};
-        let keypair = SigningKey::generate(&mut csprng);
+        let keypair = SigningKey::generate().unwrap();
 
         let firmware: &[u8] = b"This are bytes that would otherwise be firmware bytes for DFU.";
         let mut digest = Sha512::new();
         digest.update(&firmware);
         let message = digest.finalize();
-        let signature: Signature = keypair.sign(&message);
+        let signature = keypair.sign(&message).unwrap();
 
-        let public_key = keypair.verifying_key();
+        let public_key = keypair.verifying_key().unwrap();
 
         // Setup flash
         let flash = BlockingTestFlash::new(BootLoaderConfig {
@@ -360,9 +355,10 @@ mod tests {
         );
 
         assert!(
-            block_on(updater.verify_and_mark_updated(
+            block_on(updater.verify_and_mark_updated::<Sha512, VerifyingKey>(
                 &public_key.to_bytes(),
                 &signature.to_bytes(),
+                &mut [0; 64],
                 firmware_len as u32,
             ))
             .is_ok()

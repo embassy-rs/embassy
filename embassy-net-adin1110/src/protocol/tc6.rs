@@ -762,7 +762,7 @@ mod tests {
         tx_port: TxPort,
     ) -> (MockTc6, embedded_hal_mock::common::Generic<SpiTransaction<u8>>) {
         let spi = SpiMock::new(expectations);
-        let spi_dev = ExclusiveDevice::new(spi.clone(), CsPinMock, MockDelay {});
+        let spi_dev = ExclusiveDevice::new(spi.clone(), CsPinMock, MockDelay {}).unwrap();
         let mut tc6 = Tc6::new(spi_dev, false, tx_port);
         tc6.set_port_count(2);
         (tc6, spi)
@@ -1316,8 +1316,15 @@ mod tests {
     }
 
     #[cfg(feature = "packetmeta-id")]
+    fn new_buf() -> PacketBuf {
+        use xarxa::Pool;
+        static POOL: xarxa::StaticPool<1514, 64> = xarxa::StaticPool::new();
+        POOL.alloc().unwrap()
+    }
+
+    #[cfg(feature = "packetmeta-id")]
     fn packet_with_id(frame: &[u8], id: u32) -> PacketBuf {
-        let mut buf = PacketBuf::try_new().unwrap();
+        let mut buf = new_buf();
         buf.set_len(frame.len());
         buf.copy_from_slice(frame);
         buf.meta_mut().id = id;
@@ -1369,7 +1376,7 @@ mod tests {
             let (mut tc6, mut spi) = harness(&expectations);
             tc6.rca = 1;
 
-            let mut buf = PacketBuf::try_new().unwrap();
+            let mut buf = new_buf();
             buf.set_len(MTU);
             let n = tc6.receive_packet(&mut buf).await.expect("receive_packet");
             assert_eq!(buf.meta().id, id);

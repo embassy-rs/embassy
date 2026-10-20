@@ -1,12 +1,12 @@
 use std::io;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
 use nix::errno::Errno;
 use nix::fcntl::OFlag;
 use nix::sys::termios;
 
 pub struct SerialPort {
-    fd: RawFd,
+    fd: OwnedFd,
 }
 
 impl SerialPort {
@@ -18,7 +18,7 @@ impl SerialPort {
         )
         .map_err(to_io_error)?;
 
-        let mut cfg = termios::tcgetattr(fd).map_err(to_io_error)?;
+        let mut cfg = termios::tcgetattr(&fd).map_err(to_io_error)?;
         cfg.input_flags = termios::InputFlags::empty();
         cfg.output_flags = termios::OutputFlags::empty();
         cfg.control_flags = termios::ControlFlags::empty();
@@ -32,28 +32,31 @@ impl SerialPort {
         termios::cfsetspeed(&mut cfg, baudrate).map_err(to_io_error)?;
         // Set VMIN = 1 to block until at least one character is received.
         cfg.control_chars[termios::SpecialCharacterIndices::VMIN as usize] = 1;
-        termios::tcsetattr(fd, termios::SetArg::TCSANOW, &cfg).map_err(to_io_error)?;
-        termios::tcflush(fd, termios::FlushArg::TCIOFLUSH).map_err(to_io_error)?;
+        termios::tcsetattr(&fd, termios::SetArg::TCSANOW, &cfg).map_err(to_io_error)?;
+        termios::tcflush(&fd, termios::FlushArg::TCIOFLUSH).map_err(to_io_error)?;
 
         Ok(Self { fd })
     }
 }
 
-impl AsRawFd for SerialPort {
-    fn as_raw_fd(&self) -> RawFd {
-        self.fd
+impl AsFd for SerialPort {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
     }
 }
 
+// SAFETY: the `Read` and `Write` impls only read from and write to `fd`, they never close or replace it.
+unsafe impl async_io::IoSafe for SerialPort {}
+
 impl io::Read for SerialPort {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        nix::unistd::read(self.fd, buf).map_err(to_io_error)
+        nix::unistd::read(&self.fd, buf).map_err(to_io_error)
     }
 }
 
 impl io::Write for SerialPort {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        nix::unistd::write(self.fd, buf).map_err(to_io_error)
+        nix::unistd::write(&self.fd, buf).map_err(to_io_error)
     }
 
     fn flush(&mut self) -> io::Result<()> {

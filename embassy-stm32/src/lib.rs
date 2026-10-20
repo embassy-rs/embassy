@@ -137,10 +137,9 @@ mod crypto_driver;
 pub mod comp {
     //! Comp stub module to provide consistent API
 
-    trait_set::trait_set! {
-        /// Comp stub peripheral type
-        pub trait Instance = embassy_hal_internal::PeripheralType + 'static;
-    }
+    /// Comp stub peripheral type
+    pub trait Instance: embassy_hal_internal::PeripheralType + 'static {}
+    impl<T: embassy_hal_internal::PeripheralType + 'static> Instance for T {}
 
     pin_trait!(OutputPin, Instance);
 }
@@ -168,7 +167,7 @@ pub mod crc;
 pub mod cryp;
 #[cfg(csi)]
 pub mod csi;
-#[cfg(all(dac, not(stm32c5)))]
+#[cfg(all(dac, not(dac_v9)))]
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
@@ -240,7 +239,7 @@ pub mod mdf;
 pub mod mdios;
 #[cfg(npu)]
 pub mod npu;
-#[cfg(opamp)]
+#[cfg(all(opamp, not(stm32c5)))]
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;

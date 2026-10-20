@@ -7,7 +7,6 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
-use futures_util::FutureExt;
 
 use crate::exti::low_level::read_pending;
 use crate::gpio::{AnyPin, ExtiPin, Flex, Input, Level, Pin as GpioPin, PinNumber, Pull};
@@ -237,7 +236,7 @@ impl<'d> ExtiInput<'d, Async> {
     ///
     /// If the pin is already high, it will wait for it to go low then back high.
     pub fn poll_for_rising_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ = ExtiInputFuture::new(&self.pin, TriggerEdge::Rising, false).poll_unpin(cx);
+        let _ = Pin::new(&mut ExtiInputFuture::new(&self.pin, TriggerEdge::Rising, false)).poll(cx);
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
@@ -251,7 +250,7 @@ impl<'d> ExtiInput<'d, Async> {
     ///
     /// If the pin is already low, it will wait for it to go high then back low.
     pub fn poll_for_falling_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ = ExtiInputFuture::new(&self.pin, TriggerEdge::Falling, false).poll_unpin(cx);
+        let _ = Pin::new(&mut ExtiInputFuture::new(&self.pin, TriggerEdge::Falling, false)).poll(cx);
     }
 
     /// Asynchronously wait until the pin sees any edge (either rising or falling).
@@ -261,7 +260,7 @@ impl<'d> ExtiInput<'d, Async> {
 
     /// Asynchronously wait until the pin sees any edge (either rising or falling).
     pub fn poll_for_any_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ = ExtiInputFuture::new(&self.pin, TriggerEdge::Any, false).poll_unpin(cx);
+        let _ = Pin::new(&mut ExtiInputFuture::new(&self.pin, TriggerEdge::Any, false)).poll(cx);
     }
 }
 

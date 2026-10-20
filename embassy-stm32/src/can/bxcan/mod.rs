@@ -1286,17 +1286,18 @@ foreach_peripheral!(
     // CAN1 owns the filter bank and needs to be enabled in order
     // for CAN2 to receive messages.
     (can, CAN1) => {
-        cfg_if::cfg_if! {
-            if #[cfg(all(
+        cfg_select! {
+            all(
                 any(stm32l4, stm32f72x, stm32f73x),
                 not(any(stm32l49x, stm32l4ax))
-            ))] {
+            ) => {
                 // Most L4 devices and some F7 devices use the name "CAN1"
                 // even if there is no "CAN2" peripheral.
                 unsafe impl FilterOwner for peripherals::CAN1 {
                     const NUM_FILTER_BANKS: u8 = 14;
                 }
-            } else {
+            }
+            _ => {
                 unsafe impl FilterOwner for peripherals::CAN1 {
                     const NUM_FILTER_BANKS: u8 = 28;
                 }

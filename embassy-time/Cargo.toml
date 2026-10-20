@@ -24,11 +24,11 @@ build = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-v$VERSION/embassy-time/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time/src/"
-features = ["defmt", "std"]
+features = ["defmt", "std", "mock-driver"]
 target = "x86_64-unknown-linux-gnu"
 
 [package.metadata.docs.rs]
-features = ["defmt", "std"]
+features = ["defmt", "std", "mock-driver"]
 
 [features]
 ## Enable defmt
@@ -59,13 +59,12 @@ mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Create a time driver for `std` environments.
 std = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Create a time driver for WASM.
-wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:web-time", "tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
+wasm = ["dep:wasm-bindgen", "dep:web-time", "tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Provides a time driver using the ARM CMSDK timer.
 cmsdk = [
   "dep:derive-mmio",
   "dep:bitbybit",
   "dep:arbitrary-int",
-  "dep:once_cell",
   "dep:embassy-time-queue-utils"
 ]
 cortex-m = ["dep:cortex-m"]
@@ -251,6 +250,10 @@ tick-hz-20_000_000 = ["embassy-time-driver/tick-hz-20_000_000"]
 tick-hz-20_480_000 = ["embassy-time-driver/tick-hz-20_480_000"]
 ## 24.0MHz Tick Rate
 tick-hz-24_000_000 = ["embassy-time-driver/tick-hz-24_000_000"]
+## 24.576MHz Tick Rate
+tick-hz-24_576_000 = ["embassy-time-driver/tick-hz-24_576_000"]
+## 25.6MHz Tick Rate
+tick-hz-25_600_000 = ["embassy-time-driver/tick-hz-25_600_000"]
 ## 27.0MHz Tick Rate
 tick-hz-27_000_000 = ["embassy-time-driver/tick-hz-27_000_000"]
 ## 30.0MHz Tick Rate
@@ -261,6 +264,8 @@ tick-hz-32_000_000 = ["embassy-time-driver/tick-hz-32_000_000"]
 tick-hz-32_768_000 = ["embassy-time-driver/tick-hz-32_768_000"]
 ## 36.0MHz Tick Rate
 tick-hz-36_000_000 = ["embassy-time-driver/tick-hz-36_000_000"]
+## 38.4MHz Tick Rate
+tick-hz-38_400_000 = ["embassy-time-driver/tick-hz-38_400_000"]
 ## 40.0MHz Tick Rate
 tick-hz-40_000_000 = ["embassy-time-driver/tick-hz-40_000_000"]
 ## 40.96MHz Tick Rate
@@ -456,25 +461,19 @@ embedded-hal-async = { version = "1.0" }
 
 futures-core = { version = "0.3.31", default-features = false }
 critical-section = "1.1"
-cfg-if = "1.0.0"
 
 document-features = "0.2.7"
 
 # WASM dependencies
 wasm-bindgen = { version = "0.2.81", optional = true }
-js-sys = { version = "0.3", optional = true }
 web-time = { version = "1.1.0", default-features = false, optional = true }
 
 # ARM CMSDK dependencies
-derive-mmio = { version = "0.6", optional = true }
+derive-mmio = { version = "0.8", optional = true }
 bitbybit = { version = "2", optional = true }
 arbitrary-int = { version = "2", optional = true }
-once_cell = { version = "1", default-features = false, features = [
-  "critical-section",
-], optional = true }
 cortex-m = { version = "0.7", optional = true }
 
 [dev-dependencies]
-serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor" }

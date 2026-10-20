@@ -1,4 +1,4 @@
-//! `embedded-fatfs` adapter over `embassy-stm32`'s `StorageDevice`, plus
+//! `embedded-fatfs` adapter over the `sdio` crate's `BlockDevice`, plus
 //! an MBR-aware `mount` for typical Mac/Windows-formatted SD cards.
 
 use aligned::{A4, Aligned};

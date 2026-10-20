@@ -539,8 +539,8 @@ pin_trait!(UlpiD7Pin, Instance);
 foreach_interrupt!(
     (USB_OTG_FS, otg, $block:ident, GLOBAL, $irq:ident) => {
         impl crate::peripherals::USB_OTG_FS {
-            cfg_if::cfg_if! {
-                if #[cfg(any(
+            cfg_select! {
+                any(
                     stm32f1,
                     stm32f2,
                     stm32f401,
@@ -553,9 +553,10 @@ foreach_interrupt!(
                     stm32f429,
                     stm32f437,
                     stm32f439,
-                ))] {
+                ) => {
                     const ENDPOINT_COUNT: usize = 4;
-                } else if #[cfg(any(
+                }
+                any(
                     stm32f412,
                     stm32f413,
                     stm32f423,
@@ -567,13 +568,16 @@ foreach_interrupt!(
                     stm32u5,
                     stm32wba,
                     stm32h7rs,
-                ))] {
+                ) => {
                     const ENDPOINT_COUNT: usize = 6;
-                } else if #[cfg(stm32g0x1)] {
+                }
+                stm32g0x1 => {
                     const ENDPOINT_COUNT: usize = 8;
-                } else if #[cfg(stm32h7)] {
+                }
+                stm32h7 => {
                     const ENDPOINT_COUNT: usize = 9;
-                } else {
+                }
+                _ => {
                     compile_error!("USB_OTG_FS peripheral is not supported by this chip.");
                 }
             }
@@ -582,8 +586,8 @@ foreach_interrupt!(
         impl SealedInstance for crate::peripherals::USB_OTG_FS {
             const HIGH_SPEED: bool = false;
 
-            cfg_if::cfg_if! {
-                if #[cfg(any(
+            cfg_select! {
+                any(
                     stm32f1,
                     stm32f2,
                     stm32f401,
@@ -607,13 +611,16 @@ foreach_interrupt!(
                     stm32u5,
                     stm32wba,
                     stm32h7rs,
-                ))] {
+                ) => {
                     const FIFO_DEPTH_WORDS: u16 = 320;
-                } else if #[cfg(stm32g0x1)] {
+                }
+                stm32g0x1 => {
                     const FIFO_DEPTH_WORDS: u16 = 512;
-                } else if #[cfg(stm32h7)] {
+                }
+                stm32h7 => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else {
+                }
+                _ => {
                     compile_error!("USB_OTG_FS peripheral is not supported by this chip.");
                 }
             }
@@ -639,8 +646,8 @@ foreach_interrupt!(
 
     (USB_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
         impl crate::peripherals::USB_OTG_HS {
-            cfg_if::cfg_if! {
-                if #[cfg(any(
+            cfg_select! {
+                any(
                     stm32f2,
                     stm32f405,
                     stm32f407,
@@ -650,19 +657,22 @@ foreach_interrupt!(
                     stm32f429,
                     stm32f437,
                     stm32f439,
-                ))] {
+                ) => {
                     const ENDPOINT_COUNT: usize = 6;
-                } else if #[cfg(any(
+                }
+                any(
                     stm32f446,
                     stm32f469,
                     stm32f479,
                     stm32f7,
                     stm32h7, stm32h7rs,
-                ))] {
+                ) => {
                     const ENDPOINT_COUNT: usize = 9;
-                } else if #[cfg(any(stm32u5, stm32wba))] {
+                }
+                any(stm32u5, stm32wba) => {
                     const ENDPOINT_COUNT: usize = 9;
-                } else {
+                }
+                _ => {
                     compile_error!("USB_OTG_HS peripheral is not supported by this chip.");
                 }
             }
@@ -671,8 +681,8 @@ foreach_interrupt!(
         impl SealedInstance for crate::peripherals::USB_OTG_HS {
             const HIGH_SPEED: bool = true;
 
-            cfg_if::cfg_if! {
-                if #[cfg(any(
+            cfg_select! {
+                any(
                     stm32f2,
                     stm32f405,
                     stm32f407,
@@ -682,19 +692,22 @@ foreach_interrupt!(
                     stm32f429,
                     stm32f437,
                     stm32f439,
-                ))] {
+                ) => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else if #[cfg(any(
+                }
+                any(
                     stm32f446,
                     stm32f469,
                     stm32f479,
                     stm32f7,
                     stm32h7, stm32h7rs,
-                ))] {
+                ) => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else if #[cfg(any(stm32u5, stm32wba))] {
+                }
+                any(stm32u5, stm32wba) => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else {
+                }
+                _ => {
                     compile_error!("USB_OTG_HS peripheral is not supported by this chip.");
                 }
             }
@@ -721,12 +734,13 @@ foreach_interrupt!(
 
     (USB1_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
         impl crate::peripherals::USB1_OTG_HS {
-            cfg_if::cfg_if! {
-                if #[cfg(stm32n6)] {
+            cfg_select! {
+                stm32n6 => {
                     // RM0486 Rev 4, §73.3 Table 736, p. 3762: 9 bidirectional device
                     // endpoints including EP0, and 4 KB of dedicated SRAM = 1024 words.
                     const ENDPOINT_COUNT: usize = 9;
-                } else {
+                }
+                _ => {
                     compile_error!("USB1_OTG_HS peripheral is not supported by this chip.");
                 }
             }
@@ -735,10 +749,11 @@ foreach_interrupt!(
         impl SealedInstance for crate::peripherals::USB1_OTG_HS {
             const HIGH_SPEED: bool = true;
 
-            cfg_if::cfg_if! {
-                if #[cfg(stm32n6)] {
+            cfg_select! {
+                stm32n6 => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else {
+                }
+                _ => {
                     compile_error!("USB1_OTG_HS peripheral is not supported by this chip.");
                 }
             }
@@ -760,26 +775,39 @@ foreach_interrupt!(
                 let fsel = fsel_from_freq(<Self as crate::rcc::SealedRccPeripheral>::frequency());
                 let rcc = crate::pac::RCC;
 
-                // The RM requires the PHY trims to be programmed while the PHY is under
-                // reset (RM0486 Rev 4, §74.4.4, p. 3928) and says nothing either way about
-                // FSEL, which lives next to them in USBPHYC_CR; program it in the same
-                // window to be safe. Use the atomic set/clear reset registers so the reset
-                // stays asserted across the write; the generic `rcc::enable_and_reset`
-                // would already have released it.
-                rcc.ahb5rstsr().write(|w| {
-                    w.set_otgphy1rsts(true);
-                    w.set_syscfgotghsphy1rsts(true);
+                // The sequence of ST's own NUCLEO-N657X0-Q USB device example
+                // (STM32CubeN6, Ux_Device_CDC_ACM, `HAL_PCD_MspInit` + `RESET_USB_MACRO`).
+                // On silicon, USBPHYC_CR is only reachable with the OTG1 core clocked
+                // and with the USBPHYC block itself out of reset: touching it with
+                // OTG1EN off, or with bit 23 of AHB5RSTR held, stalls the bus and drops
+                // the debug port until a power cycle. Bit 23 is SYSCFGOTGHSPHY1RST in the
+                // PAC and OTG1PHYCTLRST in ST's HAL: it resets the USBPHYC registers,
+                // while OTGPHY1RST resets the PHY, which is what has to stay under reset
+                // while it is programmed (RM0486 Rev 4, §74.4.4, p. 3928).
+                //
+                // Clocking by hand skips the RCC refcount. That is fine here: the PHY
+                // is private to its OTG core, and `common_init` enables and resets the
+                // core through `rcc::enable_and_reset` right after this.
+                rcc.ahb5ensr().write(|w| {
+                    w.set_otg1ens(true);
+                    w.set_otgphy1ens(true);
                 });
-                // Clocking the PHY by hand skips the RCC refcount. That is fine here:
-                // the PHY is private to its OTG core and lives and dies with it.
-                rcc.ahb5ensr().write(|w| w.set_otgphy1ens(true));
+                rcc.ahb5rstsr().write(|w| {
+                    w.set_syscfgotghsphy1rsts(true);
+                    w.set_otg1rsts(true);
+                    w.set_otgphy1rsts(true);
+                });
+                rcc.ahb5rstcr().write(|w| w.set_syscfgotghsphy1rstc(true));
+                // "Required few clock cycles before accessing USB PHY Controller
+                // Registers" (ST's example waits 1 ms).
+                crate::wait::block_for_us(1000);
                 // The trims (TRIM1CR / TRIM2CR) keep their reset values, which are the
                 // recommended ones (RM0486 Rev 4, §74.5, pp. 3930-3934).
                 crate::pac::OTG1PHYCTL.cr().modify(|w| w.set_fsel(fsel));
-                rcc.ahb5rstcr().write(|w| {
-                    w.set_otgphy1rstc(true);
-                    w.set_syscfgotghsphy1rstc(true);
-                });
+                rcc.ahb5rstcr().write(|w| w.set_otgphy1rstc(true));
+                // "Required few clock cycles before Releasing Reset" (1 ms again).
+                crate::wait::block_for_us(1000);
+                rcc.ahb5rstcr().write(|w| w.set_otg1rstc(true));
             }
         }
 
@@ -790,12 +818,13 @@ foreach_interrupt!(
 
     (USB2_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
         impl crate::peripherals::USB2_OTG_HS {
-            cfg_if::cfg_if! {
-                if #[cfg(stm32n6)] {
+            cfg_select! {
+                stm32n6 => {
                     // Second instance, identical to the first — RM0486 Rev 4,
                     // §73.3 Table 736, p. 3762.
                     const ENDPOINT_COUNT: usize = 9;
-                } else {
+                }
+                _ => {
                     compile_error!("USB2_OTG_HS peripheral is not supported by this chip.");
                 }
             }
@@ -804,10 +833,11 @@ foreach_interrupt!(
         impl SealedInstance for crate::peripherals::USB2_OTG_HS {
             const HIGH_SPEED: bool = true;
 
-            cfg_if::cfg_if! {
-                if #[cfg(stm32n6)] {
+            cfg_select! {
+                stm32n6 => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else {
+                }
+                _ => {
                     compile_error!("USB2_OTG_HS peripheral is not supported by this chip.");
                 }
             }
@@ -830,16 +860,21 @@ foreach_interrupt!(
                 let fsel = fsel_from_freq(<Self as crate::rcc::SealedRccPeripheral>::frequency());
                 let rcc = crate::pac::RCC;
 
+                rcc.ahb5ensr().write(|w| {
+                    w.set_otg2ens(true);
+                    w.set_otgphy2ens(true);
+                });
                 rcc.ahb5rstsr().write(|w| {
-                    w.set_otgphy2rsts(true);
                     w.set_syscfgotghsphy2rsts(true);
+                    w.set_otg2rsts(true);
+                    w.set_otgphy2rsts(true);
                 });
-                rcc.ahb5ensr().write(|w| w.set_otgphy2ens(true));
+                rcc.ahb5rstcr().write(|w| w.set_syscfgotghsphy2rstc(true));
+                crate::wait::block_for_us(1000);
                 crate::pac::OTG2PHYCTL.cr().modify(|w| w.set_fsel(fsel));
-                rcc.ahb5rstcr().write(|w| {
-                    w.set_otgphy2rstc(true);
-                    w.set_syscfgotghsphy2rstc(true);
-                });
+                rcc.ahb5rstcr().write(|w| w.set_otgphy2rstc(true));
+                crate::wait::block_for_us(1000);
+                rcc.ahb5rstcr().write(|w| w.set_otg2rstc(true));
             }
         }
 

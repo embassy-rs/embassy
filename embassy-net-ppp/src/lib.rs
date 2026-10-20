@@ -84,10 +84,14 @@ impl<'d> Runner<'d> {
 
         let mut needs_poll = true;
         let mut was_up = false;
+        // Empty buffer from the stack, to copy the next received packet into.
+        let mut pkt_buf: Option<PacketBuf> = None;
 
         loop {
             let rx_fut = async {
-                rx_chan.rx_ready().await;
+                if pkt_buf.is_none() {
+                    pkt_buf = Some(rx_chan.rx_buf().await);
+                }
                 let rx_data = match needs_poll {
                     true => &[][..],
                     false => match rw.fill_buf().await {
@@ -111,16 +115,15 @@ impl<'d> Runner<'d> {
                         PPPoSAction::None => {}
                         PPPoSAction::Received(rg) => {
                             let pkt = &rx_buf[rg];
-                            match PacketBuf::try_new() {
-                                Some(mut buf) if pkt.len() <= MTU => {
-                                    buf.set_len(pkt.len());
-                                    buf.copy_from_slice(pkt);
-                                    rx_chan.rx(buf).await;
-                                }
-                                Some(_) => {
-                                    warn!("received packet len {} exceeds MTU {}, dropping", pkt.len(), MTU)
-                                }
-                                None => warn!("packet pool empty, dropping received packet"),
+                            // `rx_fut` got a buffer before returning.
+                            let mut buf = pkt_buf.take().unwrap();
+                            if pkt.len() <= MTU.min(buf.capacity()) {
+                                buf.set_len(pkt.len());
+                                buf.copy_from_slice(pkt);
+                                rx_chan.rx(buf).await;
+                            } else {
+                                warn!("received packet len {} exceeds MTU {}, dropping", pkt.len(), MTU);
+                                pkt_buf = Some(buf);
                             }
                         }
                         PPPoSAction::Transmit(n) => rw.write_all(&tx_buf[..n]).await.map_err(RunError::Write)?,

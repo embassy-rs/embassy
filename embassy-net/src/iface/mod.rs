@@ -39,13 +39,28 @@ pub struct IfaceAddr {
     pub cidr: IpCidr,
     /// Where the address came from.
     pub origin: AddrOrigin,
-    /// When the address stops being preferred and becomes deprecated
-    /// (RFC 4862 section 5.5.4). `None` means "forever".
+    /// Whether the address is preferred or deprecated (RFC 4862 section 5.5.4).
     ///
-    /// Only SLAAC sets this: a router advertises a preferred lifetime alongside
-    /// the valid one, and shortens it to zero to signal that a prefix is on its
-    /// way out while addresses formed from it still work.
-    pub preferred_until: Option<Instant>,
+    /// Only SLAAC sets anything but [`Preferred::Always`]: a router advertises a
+    /// preferred lifetime alongside the valid one, and shortens it to zero to
+    /// signal that a prefix is on its way out while addresses formed from it
+    /// still work.
+    pub preferred: Preferred,
+}
+
+/// Whether an address is preferred, or deprecated.
+///
+/// A deprecated address keeps working for connections that already use it,
+/// but is avoided when a source address is chosen for a new one.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Preferred {
+    /// Preferred for as long as it is assigned.
+    Always,
+    /// Preferred until this instant, deprecated after it.
+    Until(Instant),
+    /// Deprecated.
+    Never,
 }
 
 impl IfaceAddr {
@@ -53,16 +68,20 @@ impl IfaceAddr {
         Self {
             cidr: addr.cidr,
             origin: addr.origin,
-            preferred_until: addr.preferred_until.map(instant_from_xarxa),
+            preferred: match addr.preferred {
+                xarxa::iface::Preferred::Always => Preferred::Always,
+                xarxa::iface::Preferred::Until(until) => Preferred::Until(instant_from_xarxa(until)),
+                xarxa::iface::Preferred::Never => Preferred::Never,
+            },
         }
     }
 
-    /// Whether the address is still preferred, i.e. not deprecated.
+    /// Whether the address is preferred, i.e. not deprecated.
     ///
-    /// A deprecated address keeps working for connections that already use it,
-    /// but is avoided when a source address is chosen for a new one.
-    pub fn is_preferred(&self, now: Instant) -> bool {
-        self.preferred_until.is_none_or(|until| until > now)
+    /// An address whose preferred lifetime ran out becomes [`Preferred::Never`]
+    /// at the stack's next poll.
+    pub fn is_preferred(&self) -> bool {
+        !matches!(self.preferred, Preferred::Never)
     }
 }
 
@@ -316,8 +335,7 @@ impl<'d> Iface<'d> {
     /// if the server is off.
     ///
     /// All entries are passed, whether their lease is running or already over.
-    /// Check each entry's [`state`](self::dhcpv4_server::DhcpServerLease::state)
-    /// and [`expires_at`](self::dhcpv4_server::DhcpServerLease::expires_at).
+    /// Check each entry's [`state`](self::dhcpv4_server::DhcpServerLease::state).
     #[cfg(feature = "dhcpv4-server")]
     pub fn dhcpv4_server_leases<R>(
         &self,

@@ -5,6 +5,8 @@ pub use asynch::{FirmwareState, FirmwareUpdater};
 pub use blocking::{BlockingFirmwareState, BlockingFirmwareUpdater};
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
+use crate::verification::VerificationError;
+
 /// Firmware updater flash configuration holding the two flashes used by the updater
 ///
 /// If only a single flash is actually used, then that flash should be partitioned into two partitions before use.
@@ -23,7 +25,7 @@ pub enum FirmwareUpdaterError {
     /// Error from flash.
     Flash(NorFlashErrorKind),
     /// Signature errors.
-    Signature(signature::Error),
+    Signature(embassy_crypto::Error),
     /// Bad state.
     BadState,
 }
@@ -45,5 +47,14 @@ where
 {
     fn from(error: E) -> Self {
         FirmwareUpdaterError::Flash(error.kind())
+    }
+}
+
+impl From<VerificationError> for FirmwareUpdaterError {
+    fn from(error: VerificationError) -> Self {
+        match error {
+            VerificationError::Flash(e) => FirmwareUpdaterError::Flash(e),
+            VerificationError::Signature(e) => FirmwareUpdaterError::Signature(e),
+        }
     }
 }

@@ -7,8 +7,6 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use fixed::FixedU32;
-use fixed::types::extra::U8;
 use pio::{Program, SideSet, Wrap};
 
 use crate::dma::{self, Transfer, Word};
@@ -650,8 +648,10 @@ impl Into<crate::pac::pio::vals::ExecctrlStatusN> for StatusN {
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config<'d, PIO: Instance> {
-    /// Clock divisor register for state machines.
-    pub clock_divider: FixedU32<U8>,
+    /// Clock divider for state machines, as a fixed-point number with 16 integer bits
+    /// and 8 fractional bits (the divider multiplied by 256). For example, `256` divides
+    /// by 1, `640` divides by 2.5. Must be between `1 << 8` and `65536 << 8` inclusive.
+    pub clock_divider_x256: u32,
     /// Which data bit to use for inline OUT enable.
     pub out_en_sel: u8,
     /// Use a bit of OUT data as an auxiliary write enable When used in conjunction with OUT_STICKY.
@@ -685,7 +685,7 @@ pub struct Config<'d, PIO: Instance> {
 impl<'d, PIO: Instance> Default for Config<'d, PIO> {
     fn default() -> Self {
         Self {
-            clock_divider: 1u8.into(),
+            clock_divider_x256: 1 << 8,
             out_en_sel: Default::default(),
             inline_out_en: Default::default(),
             out_sticky: Default::default(),
@@ -789,15 +789,15 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     /// Set the config for a given PIO state machine.
     pub fn set_config(&mut self, config: &Config<'d, PIO>) {
         // sm expects 0 for 65536, truncation makes that happen
-        assert!(config.clock_divider <= 65536, "clkdiv must be <= 65536");
-        assert!(config.clock_divider >= 1, "clkdiv must be >= 1");
+        assert!(config.clock_divider_x256 <= 65536 << 8, "clkdiv must be <= 65536");
+        assert!(config.clock_divider_x256 >= 1 << 8, "clkdiv must be >= 1");
         assert!(config.out_en_sel < 32, "out_en_sel must be < 32");
         //assert!(config.status_n < 32, "status_n must be < 32");
         // sm expects 0 for 32, truncation makes that happen
         assert!(config.shift_in.threshold <= 32, "shift_in.threshold must be <= 32");
         assert!(config.shift_out.threshold <= 32, "shift_out.threshold must be <= 32");
         let sm = Self::this_sm();
-        sm.clkdiv().write(|w| w.0 = config.clock_divider.to_bits() << 8);
+        sm.clkdiv().write(|w| w.0 = config.clock_divider_x256 << 8);
         sm.shiftctrl().write(|w| {
             w.set_fjoin_rx(config.fifo_join == FifoJoin::RxOnly);
             w.set_fjoin_tx(config.fifo_join == FifoJoin::TxOnly);
@@ -889,10 +889,10 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                 for i in 0..4 {
                     if i != SM {
                         PIO::PIO.sm(i).pinctrl().modify(|w| {
-                            w.set_in_base(w.in_base().checked_sub(shift).unwrap_or_default());
-                            w.set_sideset_base(w.sideset_base().checked_sub(shift).unwrap_or_default());
-                            w.set_set_base(w.set_base().checked_sub(shift).unwrap_or_default());
-                            w.set_out_base(w.out_base().checked_sub(shift).unwrap_or_default());
+                            w.set_in_base(w.in_base().saturating_sub(shift));
+                            w.set_sideset_base(w.sideset_base().saturating_sub(shift));
+                            w.set_set_base(w.set_base().saturating_sub(shift));
+                            w.set_out_base(w.out_base().saturating_sub(shift));
                         });
                     }
                 }
@@ -906,10 +906,10 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                 w.set_sideset_count(config.pins.sideset_count);
                 w.set_set_count(config.pins.set_count);
                 w.set_out_count(config.pins.out_count);
-                w.set_in_base(config.pins.in_base.checked_sub(shift).unwrap_or_default());
-                w.set_sideset_base(config.pins.sideset_base.checked_sub(shift).unwrap_or_default());
-                w.set_set_base(config.pins.set_base.checked_sub(shift).unwrap_or_default());
-                w.set_out_base(config.pins.out_base.checked_sub(shift).unwrap_or_default());
+                w.set_in_base(config.pins.in_base.saturating_sub(shift));
+                w.set_sideset_base(config.pins.sideset_base.saturating_sub(shift));
+                w.set_set_base(config.pins.set_base.saturating_sub(shift));
+                w.set_out_base(config.pins.out_base.saturating_sub(shift));
             });
 
             PIO::PIO.gpiobase().write(|w| w.set_gpiobase(shift == 16));
@@ -951,6 +951,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                 StatusSource::TxFifoLevel => pac::pio::vals::SmExecctrlStatusSel::Txlevel,
                 StatusSource::RxFifoLevel => pac::pio::vals::SmExecctrlStatusSel::Rxlevel,
             });
+            #[allow(clippy::useless_conversion)]
             w.set_status_n(config.status_n.into());
         });
 
@@ -1025,9 +1026,12 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     }
 
     /// Set the clock divider for this state machine.
-    pub fn set_clock_divider(&mut self, clock_divider: FixedU32<U8>) {
+    ///
+    /// The divider is a fixed-point number with 16 integer bits and 8 fractional bits,
+    /// see [`Config::clock_divider_x256`].
+    pub fn set_clock_divider_x256(&mut self, clock_divider: u32) {
         let sm = Self::this_sm();
-        sm.clkdiv().write(|w| w.0 = clock_divider.to_bits() << 8);
+        sm.clkdiv().write(|w| w.0 = clock_divider << 8);
     }
 
     #[inline(always)]
@@ -1084,17 +1088,31 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         if PIO::PIO.gpiobase().read().gpiobase() { 16 } else { 0 }
     }
 
+    /// Pin number relative to GPIOBASE; panics if the pin is outside the window chosen by `set_config`.
+    fn pin_offset(pin: &Pin<'d, PIO>) -> u8 {
+        match pin.pin().checked_sub(Self::pin_base()) {
+            Some(rel) if rel < 32 => rel,
+            _ => panic!(
+                "pin {} is outside the PIO's GPIOBASE window; call StateMachine::set_config first",
+                pin.pin()
+            ),
+        }
+    }
+
     /// Sets pin directions. This pauses the current state machine to run `SET` commands
     /// and temporarily unsets the `OUT_STICKY` bit.
     pub fn set_pin_dirs(&mut self, dir: Direction, pins: &[&Pin<'d, PIO>]) {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin() - Self::pin_base());
+                    w.set_set_base(Self::pin_offset(pin));
                     w.set_set_count(1);
                 });
                 // SET PINDIRS, (dir)
-                unsafe { sm.exec_instr(0b111_00000_100_00000 | dir as u16) };
+                #[allow(clippy::unusual_byte_groupings)]
+                unsafe {
+                    sm.exec_instr(0b111_00000_100_00000 | dir as u16)
+                };
             }
         });
     }
@@ -1105,11 +1123,14 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin() - Self::pin_base());
+                    w.set_set_base(Self::pin_offset(pin));
                     w.set_set_count(1);
                 });
                 // SET PINS, (dir)
-                unsafe { sm.exec_instr(0b11100_000_000_00000 | level as u16) };
+                #[allow(clippy::unusual_byte_groupings)]
+                unsafe {
+                    sm.exec_instr(0b11100_000_000_00000 | level as u16)
+                };
             }
         });
     }
@@ -1299,7 +1320,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     }
 
     /// Bypass flipflop synchronizer on GPIO inputs.
-    pub fn set_input_sync_bypass<'a>(&'a mut self, bypass: u32, mask: u32) {
+    pub fn set_input_sync_bypass(&mut self, bypass: u32, mask: u32) {
         // this can interfere with per-pin bypass functions. splitting the
         // modification is going to be fine since nothing that relies on
         // it can reasonably run before we finish.
@@ -1345,7 +1366,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
 
         Pin {
             pin: pin.into(),
-            pio: PhantomData::default(),
+            pio: PhantomData,
         }
     }
 }
@@ -1357,6 +1378,12 @@ pub struct PioBatch<'a, PIO: Instance> {
     sm_enable_mask: u8,
     sm_enable: u8,
     _pio: PhantomData<&'a PIO>,
+}
+
+impl<'a, PIO: Instance> Default for PioBatch<'a, PIO> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a, PIO: Instance> PioBatch<'a, PIO> {

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- added: `gpio::Flex::is_input`, `Flex::is_output` and `Flex::is_disconnected`.
 - added: inherent `read_ready` method on `BufferedUarte` and `BufferedUarteRx`.
 - bugfix: buffered_uarte: `BufferedUarteRx::read_ready` no longer returns `true` when no data has been received, and returns overrun errors, like `BufferedUarte::read_ready`.
 - bugfix: enforce each peripheral's own EasyDMA `MAXCNT` limit in uarte, buffered_uarte, spim, spis, twim, twis, i2s, pdm, pwm and saadc instead of the chip-wide `DMA_SIZE`.
@@ -46,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added: `embedded_io::Write` for `Uarte` and `UarteTx`.
 - added: `Spim::set_config`, `Spis::set_config` and `Twim::set_config` inherent methods.
 - bugfix: twis: apply `scl_pullup` instead of `sda_pullup` to the SCL pin.
+- changed: removed the `fixed` dependency. `temp::Temp::read` is renamed to `read_celsius_x4` and returns an `i32` in units of 0.25 °C. `pdm::Config::gain_left`, `gain_right` and `Pdm::set_gain` take an `i8` in units of 0.5 dB.
+- removed: `rand_core` 0.6 and 0.9 trait impls for `rng::Rng`. It implements the `rand_core` 0.10 traits only.
 
 ## 0.11.0 - 2026-06-16
 

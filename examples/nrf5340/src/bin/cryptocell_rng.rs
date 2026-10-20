@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_nrf::bind_interrupts;
 use embassy_nrf::crypto::rng::{self, Rng};
 use panic_probe as _;
-use rand::Rng as _;
+use rand::RngExt as _;
 
 bind_interrupts!(struct Irqs {
     CRYPTOCELL => rng::InterruptHandler;

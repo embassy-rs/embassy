@@ -10,7 +10,10 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     #[allow(unused_mut)]
     let mut peripherals = Peripherals::take();
 
-    // crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
+    // The MCXA5 vector is named RTC0; the MCXA2 one is RTC. This line was
+    // copied from chips/mcxa2xx.rs, did not compile as `RTC`, and was commented
+    // out rather than renamed, so rtc_interrupt_priority was silently ignored.
+    crate::interrupt::RTC0.set_priority(cfg.rtc_interrupt_priority);
     crate::interrupt::GPIO0.set_priority(cfg.gpio_interrupt_priority);
     crate::interrupt::GPIO1.set_priority(cfg.gpio_interrupt_priority);
     crate::interrupt::GPIO2.set_priority(cfg.gpio_interrupt_priority);
@@ -21,9 +24,9 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     // Configure clocks
     crate::clocks::init(cfg.clock_cfg).unwrap();
 
-    // Initialize embassy-time global driver backed by OSTIMER0
+    // Initialize the selected embassy-time global driver.
     // NOTE: As early as possible, but MUST be AFTER clocks!
-    crate::ostimer::init(cfg.time_interrupt_priority);
+    crate::init_time_driver(cfg.time_interrupt_priority);
 
     // Initialize the INPUTMUX peripheral
     crate::inputmux::init();

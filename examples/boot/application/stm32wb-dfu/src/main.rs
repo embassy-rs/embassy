@@ -15,7 +15,6 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::Duration;
 use embassy_usb::{Builder, msos};
 use embassy_usb_dfu::application::{DfuAttributes, DfuState, Handler, usb_dfu};
-use panic_reset as _;
 
 bind_interrupts!(struct Irqs {
     USB_LP => usb::InterruptHandler<peripherals::USB>;
@@ -42,7 +41,7 @@ async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
-    let flash = Flash::new_blocking(p.FLASH);
+    let flash = Flash::new_blocking(p.FLASH, Default::default());
     let flash = Mutex::new(RefCell::new(flash));
 
     let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);
@@ -97,4 +96,9 @@ async fn main(_spawner: Spawner) {
 
     let mut dev = builder.build();
     dev.run().await
+}
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    cortex_m::peripheral::SCB::sys_reset();
 }

@@ -40,6 +40,18 @@ pub struct Mac {
     pub result: Expected,
 }
 
+/// An HKDF case: `okm` is the first `size` bytes of output, empty if `size`
+/// exceeds what HKDF can produce.
+pub struct Hkdf {
+    pub tc_id: u32,
+    pub ikm: &'static [u8],
+    pub salt: &'static [u8],
+    pub info: &'static [u8],
+    pub size: usize,
+    pub okm: &'static [u8],
+    pub result: Expected,
+}
+
 /// A GCM, CCM or ChaCha-Poly1305 case.
 pub struct Aead {
     pub tc_id: u32,

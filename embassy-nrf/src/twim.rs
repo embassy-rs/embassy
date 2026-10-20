@@ -67,38 +67,51 @@ impl Default for Config {
 }
 
 /// TWI error.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, thiserror::Error)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// TX buffer was too long.
-    #[error("tx buffer was too long")]
     TxBufferTooLong,
     /// RX buffer was too long.
-    #[error("rx buffer was too long")]
     RxBufferTooLong,
     /// Data transmit failed.
-    #[error("data transmit failed")]
     Transmit,
     /// Data reception failed.
-    #[error("data reception failed")]
     Receive,
     /// The buffer is not in data RAM and is larger than the RAM buffer. It's most likely in flash, and nRF's DMA cannot access flash.
-    #[error("RAM buffer too small: buffer is likely in flash which nRF DMA cannot access")]
     RAMBufferTooSmall,
     /// Didn't receive an ACK bit after the address byte. Address might be wrong, or the i2c device chip might not be connected properly.
-    #[error("address NACK: no ACK received after address byte, address may be wrong or device not connected")]
     AddressNack,
     /// Didn't receive an ACK bit after a data byte.
-    #[error("data NACK: no ACK received after data byte")]
     DataNack,
     /// Overrun error.
-    #[error("overrun error")]
     Overrun,
     /// Timeout error.
-    #[error("timeout error")]
     Timeout,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::TxBufferTooLong => f.write_str("tx buffer was too long"),
+            Self::RxBufferTooLong => f.write_str("rx buffer was too long"),
+            Self::Transmit => f.write_str("data transmit failed"),
+            Self::Receive => f.write_str("data reception failed"),
+            Self::RAMBufferTooSmall => {
+                f.write_str("RAM buffer too small: buffer is likely in flash which nRF DMA cannot access")
+            }
+            Self::AddressNack => f.write_str(
+                "address NACK: no ACK received after address byte, address may be wrong or device not connected",
+            ),
+            Self::DataNack => f.write_str("data NACK: no ACK received after data byte"),
+            Self::Overrun => f.write_str("overrun error"),
+            Self::Timeout => f.write_str("timeout error"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {

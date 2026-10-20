@@ -8,15 +8,8 @@ use crate::coherency::SurfaceSyncInfo;
 use crate::color::Rgba8888;
 use crate::command::CommandList;
 use crate::error::{Error, InitError};
-use crate::ffi::nema_gfx::{nema_init, nema_reg_write};
+use crate::ffi::nema_gfx::nema_init;
 use crate::framebuffer::GpuSurface;
-
-/// `GPU2D_SYS_INTERRUPT_ENABLE`.
-///
-/// The Cube HAL header only documents the status register (`SYS_INTERRUPT` at
-/// `0xFF8`); the matching enable register at `0xFFC` is not named anywhere, but
-/// ST's TouchGFX generator writes it right after `nema_init()`.
-const GPU2D_SYS_INTERRUPT_ENABLE: u32 = 0x0FFC;
 
 /// Value ST writes: unmask system interrupt bits 1-6, which cover the bus-error
 /// and cache-hold interrupts. Without it the GPU2D error IRQ never fires, so
@@ -114,12 +107,12 @@ impl NeoChrom {
             return Err(InitError::NemaGfx);
         }
 
-        unsafe {
-            // Unmask the GPU2D system interrupts. `nema_init()` leaves them
-            // masked, so the error IRQ — and with it the cache-hold handshake
-            // in `gpu2d_bridge::service_error` — would never fire.
-            nema_reg_write(GPU2D_SYS_INTERRUPT_ENABLE, GPU2D_SYS_INTERRUPT_ENABLE_BUS_ERROR);
-        }
+        // Unmask the GPU2D system interrupts. `nema_init()` leaves them
+        // masked, so the error IRQ — and with it the cache-hold handshake
+        // in `gpu2d_bridge::service_error` — would never fire.
+        embassy_stm32::pac::GPU2D.sys_interrupt_enable().write_value(
+            embassy_stm32::pac::gpu2d::regs::SysInterruptEnable(GPU2D_SYS_INTERRUPT_ENABLE_BUS_ERROR),
+        );
 
         unsafe {
             use crate::ffi::nema_gfx::{nema_ext_hold_enable, nema_ext_hold_irq_enable};

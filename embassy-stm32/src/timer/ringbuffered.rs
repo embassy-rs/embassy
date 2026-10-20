@@ -8,6 +8,7 @@ use super::{Channel, GeneralInstance4Channel};
 pub use crate::dma::RingBufferError as Error;
 use crate::dma::WritableRingBuffer;
 use crate::dma::word::Word;
+use crate::gpio::Flex;
 
 /// A PWM channel that uses a DMA ring buffer for continuous waveform generation.
 ///
@@ -28,6 +29,7 @@ pub struct RingBufferedPwmChannel<'d, T: GeneralInstance4Channel, W: Word + Into
     timer: ManuallyDrop<Timer<'d, T>>,
     ring_buf: WritableRingBuffer<'d, W>,
     channel: Channel,
+    _pin: Option<Flex<'d>>, //Must be kept alive to prevent it from being dropped while the Timer channel is using it
 }
 
 impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmChannel<'d, T, W> {
@@ -35,11 +37,13 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
         timer: ManuallyDrop<Timer<'d, T>>,
         channel: Channel,
         ring_buf: WritableRingBuffer<'d, W>,
+        pin: Option<Flex<'d>>,
     ) -> Self {
         Self {
             timer,
             ring_buf,
             channel,
+            _pin: pin,
         }
     }
 
@@ -53,11 +57,6 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
     /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
         self.ring_buf.clear()
-    }
-
-    /// Write elements directly to the raw buffer. This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ring_buf.write_immediate(buf)
     }
 
     /// Write elements from the ring buffer
@@ -91,19 +90,12 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
         self.ring_buf.set_waker(waker)
     }
 
-    /// Request the DMA to reset. The configuration for this channel will not be preserved.
-    ///
-    /// This doesn't immediately stop the transfer, you have to wait until is_running returns false.
-    pub fn request_reset(&mut self) {
-        self.ring_buf.request_reset()
-    }
-
     /// Request the transfer to pause, keeping the existing configuration for this channel.
     /// To restart the transfer, call [`start`](Self::start) again.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until is_running returns false.
     pub fn request_pause(&mut self) {
-        self.ring_buf.request_pause()
+        self.ring_buf.stop()
     }
 
     /// Return whether DMA is still running.

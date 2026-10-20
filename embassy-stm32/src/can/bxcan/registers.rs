@@ -8,6 +8,10 @@ use super::{Mailbox, TransmitStatus};
 use crate::can::enums::BusError;
 use crate::can::frame::{Envelope, Frame, Header};
 
+fn classic_can_data_len(dlc: u8) -> u8 {
+    dlc.min(8)
+}
+
 pub(crate) struct Registers(pub crate::pac::can::Can);
 
 impl Registers {
@@ -409,7 +413,7 @@ impl Registers {
             unwrap!(embedded_can::ExtendedId::new(id)).into()
         };
         let rdtr = fifo.rdtr().read();
-        let data_len = rdtr.dlc();
+        let data_len = classic_can_data_len(rdtr.dlc());
         let rtr = rir.rtr() == stm32_metapac::can::vals::Rtr::Remote;
 
         #[cfg(not(feature = "time"))]
@@ -425,6 +429,24 @@ impl Registers {
         rfr.modify(|v| v.set_rfom(true));
 
         Some(envelope)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classic_can_data_len;
+    use crate::can::frame::{Frame, Header};
+
+    #[test]
+    fn classic_can_dlc_never_exceeds_eight_data_bytes() {
+        for dlc in 0..=15 {
+            let len = classic_can_data_len(dlc);
+            assert_eq!(len, dlc.min(8));
+
+            let header = Header::new(embedded_can::StandardId::new(1).unwrap().into(), len, false);
+            let frame = Frame::new(header, &[0; 8]).unwrap();
+            assert_eq!(frame.data().len(), usize::from(len));
+        }
     }
 }
 

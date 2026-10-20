@@ -57,7 +57,7 @@ async fn pwm_set_dutycycle(slice2: Peri<'static, PWM_SLICE2>, pin4: Peri<'static
 
     let mut c = Config::default();
     c.top = period;
-    c.divider = divider.into();
+    c.divider_x16 = (divider as u16) << 4;
 
     let mut pwm = Pwm::new_output_a(slice2, pin4, c.clone());
 

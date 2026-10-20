@@ -5,8 +5,8 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
+use embassy_futures::select::select;
 use embedded_io_async::ReadReady;
-use futures_util::future::select;
 
 use crate::dma::{ReadableRingBuffer, RingBufferError};
 use crate::gpio::Flex;
@@ -147,7 +147,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
 
     /// Stop DMA backed SPI receiver
     pub fn stop(&mut self) {
-        self.ring_buf.request_pause();
+        self.ring_buf.stop();
 
         set_rxdmaen(self.info.regs, false);
 
