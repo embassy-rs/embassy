@@ -176,9 +176,15 @@ pub fn banks_swapped() -> bool {
     !cfg!(test) && family::banks_swapped()
 }
 
+/// Whether the option bytes put the flash in dual-bank mode, on chips with a selectable bank mode.
+#[cfg(bank_setup_configurable)]
+pub(crate) fn dual_bank_mode() -> bool {
+    family::dual_bank_mode()
+}
+
 #[cfg(bank_setup_configurable)]
 fn check_bank_setup() {
-    let dual = family::dual_bank_mode();
+    let dual = dual_bank_mode();
     if cfg!(feature = "single-bank") && dual {
         panic!(
             "embassy-stm32 is configured as single-bank, but the flash is in dual-bank mode. Change the dual-bank option bit in the option bytes or enable the `dual-bank` feature."
