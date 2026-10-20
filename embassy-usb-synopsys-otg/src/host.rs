@@ -1158,38 +1158,73 @@ where
     /// time bound; the caller is responsible for cancelling on its own
     /// deadline if one is needed. Disconnect is still surfaced via
     /// [`PipeError::Disconnected`].
+    ///
+    /// In slave mode the data must fit in the TX FIFO and request queue, so it is sent in
+    /// chunks of what is free there. When the device NAKs, the core drops the rest of the
+    /// chunk; HCTSIZ then holds how many packets went through and the next PID, and the
+    /// transfer resumes from the first packet that was not acknowledged.
     async fn do_out_transfer(&mut self, ep_type: EndpointType, data: &[u8], dpid: u8) -> Result<(), PipeError> {
-        let pktcnt = if data.is_empty() {
-            1
-        } else {
-            ((data.len() as u32 + self.max_packet_size as u32 - 1) / self.max_packet_size as u32) as u16
-        };
+        let r = self.regs;
+        let ch = self.index;
+        let mps = self.max_packet_size as usize;
+        let is_periodic = matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous);
 
+        let mut offset = 0;
+        let mut dpid = dpid;
         // `do_ping` survives across retries: on NYET from a HS device we
         // must issue a PING token before the next OUT, but configure_channel
         // rewrites HCTSIZ each iteration so we re-assert it here.
         let mut do_ping = false;
         loop {
             self.halt_channel().await?;
-            self.configure_channel(false, ep_type, pktcnt, data.len() as u32, dpid);
+
+            let (free_words, free_requests) = if is_periodic {
+                let sts = r.hptxsts().read();
+                (sts.ptxfsavl() as usize, sts.ptxqsav() as usize)
+            } else {
+                let sts = r.hnptxsts().read();
+                (sts.nptxfsav() as usize, sts.nptqxsav() as usize)
+            };
+            let max_pkts = (free_words * 4 / mps).min(free_requests);
+            if max_pkts == 0 {
+                // Another channel is using the FIFO.
+                yield_now().await;
+                continue;
+            }
+
+            let remaining = data.len() - offset;
+            let pkts = remaining.div_ceil(mps).clamp(1, max_pkts);
+            let len = remaining.min(pkts * mps);
+
+            self.configure_channel(false, ep_type, pkts as u16, len as u32, dpid);
             if do_ping {
-                self.regs.hctsiz(self.index).modify(|w| w.set_doping(true));
+                r.hctsiz(ch).modify(|w| w.set_doping(true));
                 do_ping = false;
             }
             self.enable_channel();
-            self.write_fifo(data);
+            self.write_fifo(&data[offset..offset + len]);
 
             let events = self.wait_for_result().await;
             match Self::classify_events(events) {
-                ChannelEvent::Complete => return Ok(()),
-                ChannelEvent::Nyet => {
-                    do_ping = true;
-                    yield_now().await;
-                    continue;
+                ChannelEvent::Complete => {
+                    offset += len;
+                    if offset == data.len() {
+                        return Ok(());
+                    }
+                    if pkts % 2 == 1 {
+                        dpid = toggle_dpid(dpid);
+                    }
                 }
-                ChannelEvent::Nak | ChannelEvent::Halted | ChannelEvent::None => {
+                ev @ (ChannelEvent::Nak | ChannelEvent::Nyet | ChannelEvent::Halted | ChannelEvent::None) => {
+                    if matches!(ev, ChannelEvent::Nyet) {
+                        do_ping = true;
+                    }
+                    self.halt_channel().await?;
+                    let hctsiz = r.hctsiz(ch).read();
+                    let sent = pkts - hctsiz.pktcnt() as usize;
+                    offset += len.min(sent * mps);
+                    dpid = hctsiz.dpid();
                     yield_now().await;
-                    continue;
                 }
                 ChannelEvent::Error(e) => return Err(e),
             }
@@ -1403,6 +1438,17 @@ where
 impl vals::Dpid {
     /// SETUP PID (value 3 = MDATA, used for SETUP token in host mode).
     const SETUP: Self = Self::MDATA;
+}
+
+/// The PID following `dpid` in a DATA0/DATA1 sequence.
+fn toggle_dpid(dpid: u8) -> u8 {
+    if dpid == vals::Dpid::DATA0.to_bits() {
+        vals::Dpid::DATA1.to_bits()
+    } else if dpid == vals::Dpid::DATA1.to_bits() {
+        vals::Dpid::DATA0.to_bits()
+    } else {
+        dpid
+    }
 }
 
 /// Yield to the executor, allowing other tasks to run.
