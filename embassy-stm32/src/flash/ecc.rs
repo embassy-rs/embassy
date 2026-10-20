@@ -11,6 +11,11 @@
 //! - All other chips with ECC: the read raises an NMI. embassy-stm32 defines the NMI handler.
 //!   During a read through the driver it clears the flags and records the error. Any other NMI
 //!   panics.
+//!
+//! On H5 and C5, the EDATA area and the OTP area have 16-bit words with their own ECC. They
+//! can only be read with 16- or 32-bit accesses. A word that was never programmed since it was
+//! erased has no valid ECC: reading it gives a double ECC error with all bits set, which these
+//! reads return as erased data.
 
 use super::Error;
 #[cfg(any(flash_ecc_bus_error, flash_ecc_nmi))]
@@ -27,6 +32,12 @@ pub(super) fn read(address: u32, bytes: &mut [u8]) -> Result<(), Error> {
 /// reports an uncorrectable ECC error.
 #[cfg(any(flash_ecc_bus_error, flash_ecc_nmi))]
 pub(super) fn read(address: u32, bytes: &mut [u8]) -> Result<(), Error> {
+    // The OTP area, and the read-only area after it, have 16-bit words.
+    #[cfg(any(flash_v5_h5, flash_v5_h50))]
+    if matches!(crate::_generated::FLASH_OTP_BASE, Some(otp) if address >= otp) {
+        return read_half_words(address, bytes);
+    }
+
     let mut address = address;
     let mut bytes = bytes;
     while !bytes.is_empty() {
@@ -111,16 +122,27 @@ fn read_chunk(address: u32, bytes: &mut [u8]) -> bool {
     }
 }
 
-/// Set while the driver reads a chunk of flash.
+/// Set while the driver reads flash.
 #[cfg(flash_ecc_nmi)]
 static READING: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 /// Set by the NMI handler when it handled a double ECC error during a read.
 #[cfg(flash_ecc_nmi)]
 static ECC_ERROR: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+/// The data of the 16-bit word of the last double ECC error, saved by the NMI handler.
+#[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+static ECC_DATA: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU16::new(0);
 
-/// Reads a chunk, with the NMI handler armed. Returns `false` on a double ECC error.
+/// A double ECC error raised by a read.
 #[cfg(flash_ecc_nmi)]
-fn read_chunk(address: u32, bytes: &mut [u8]) -> bool {
+struct DoubleError {
+    /// The data of the failing 16-bit word, in the areas with 16-bit words.
+    #[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+    data: u16,
+}
+
+/// Runs `read` with the NMI handler armed. Returns the double ECC error it raised, if any.
+#[cfg(flash_ecc_nmi)]
+fn armed(read: impl FnOnce()) -> Option<DoubleError> {
     use core::sync::atomic::Ordering::Relaxed;
     use core::sync::atomic::{Ordering, compiler_fence};
 
@@ -134,7 +156,7 @@ fn read_chunk(address: u32, bytes: &mut [u8]) -> bool {
         compiler_fence(Ordering::SeqCst);
         dsb();
 
-        copy(address, bytes);
+        read();
         // Reading a flash register waits for the reads to complete. If one of them raised the
         // NMI, wait for the handler to run.
         dsb();
@@ -151,6 +173,8 @@ fn read_chunk(address: u32, bytes: &mut [u8]) -> bool {
             }
             if !error {
                 // The NMI didn't come (it can be masked on some chips): clear the flags here.
+                #[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+                ECC_DATA.store(family::ecc_data(), Relaxed);
                 family::ecc_clear();
                 error = true;
             }
@@ -158,8 +182,65 @@ fn read_chunk(address: u32, bytes: &mut [u8]) -> bool {
 
         compiler_fence(Ordering::SeqCst);
         READING.store(false, Relaxed);
-        !error
+        error.then(|| DoubleError {
+            #[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+            data: ECC_DATA.load(Relaxed),
+        })
     })
+}
+
+/// Reads a chunk, with the NMI handler armed. Returns `false` on a double ECC error.
+#[cfg(flash_ecc_nmi)]
+fn read_chunk(address: u32, bytes: &mut [u8]) -> bool {
+    armed(|| copy(address, bytes)).is_none()
+}
+
+/// Reads `bytes.len()` bytes at `address` from an area with 16-bit words (EDATA, OTP), with
+/// 16-bit accesses. Words that were not programmed since they were erased read as `0xFFFF`.
+#[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+pub(super) fn read_half_words(address: u32, bytes: &mut [u8]) -> Result<(), Error> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    let end = address + bytes.len() as u32;
+    uncached(|| {
+        for word in (address & !1..end).step_by(2) {
+            let data = read_half_word(word)?.unwrap_or(0xFFFF).to_le_bytes();
+            for (i, &b) in data.iter().enumerate() {
+                let a = word + i as u32;
+                if (address..end).contains(&a) {
+                    bytes[(a - address) as usize] = b;
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Reads the 16-bit word at `address` of an area with 16-bit words. Returns `None` if the word
+/// was not programmed since it was erased.
+///
+/// The caller must have disabled the instruction cache, see [`uncached`].
+#[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+pub(super) fn read_half_word(address: u32) -> Result<Option<u16>, Error> {
+    let mut data = 0;
+    match armed(|| data = unsafe { core::ptr::read_volatile(address as *const u16) }) {
+        None => Ok(Some(data)),
+        // An erased word has all bits set, including the ECC bits.
+        Some(e) if e.data == 0xFFFF => Ok(None),
+        Some(_) => Err(Error::Ecc),
+    }
+}
+
+/// Runs `f` with the instruction cache disabled. The areas with 16-bit words must not be cached:
+/// a cache line fill would read words that the driver doesn't check, and on C5 it's a
+/// HardFault.
+#[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+pub(super) fn uncached<R>(f: impl FnOnce() -> R) -> R {
+    let state = cache::before_op();
+    let res = f();
+    cache::after_op(&state, (0, 0));
+    res
 }
 
 /// NMI handler. A double ECC error raised by a flash read of the driver makes the read return
@@ -171,6 +252,8 @@ unsafe extern "C" fn NonMaskableInt() {
     use core::sync::atomic::Ordering::Relaxed;
 
     if READING.load(Relaxed) && family::ecc_double_error() {
+        #[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+        ECC_DATA.store(family::ecc_data(), Relaxed);
         family::ecc_clear();
         ECC_ERROR.store(true, Relaxed);
     } else {

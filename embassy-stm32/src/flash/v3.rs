@@ -2,7 +2,8 @@
 //!
 //! The program memory erases to 0x00. A plain 32-bit store programs a word, and a page is
 //! erased by writing a word into it with `ERASE` and `PROG` set. There is no bank or page
-//! number: everything is selected by address. The same controller handles the data EEPROM.
+//! number: everything is selected by address. The same controller handles the data EEPROM: a
+//! 32-bit store to it erases the word if needed and programs it.
 
 use core::ptr::write_volatile;
 use core::sync::atomic::{Ordering, fence};
@@ -47,16 +48,6 @@ pub(super) unsafe fn start_erase(sector: &FlashSector, _config: &Config, interru
     // RM0038 §3.4.2: write 0x0000_0000 to the first word of the page.
     write_volatile(sector.start as *mut u32, 0);
     fence(Ordering::SeqCst);
-}
-
-/// Writes a byte, half-word or word to the data EEPROM. The EEPROM must be unlocked.
-pub(super) unsafe fn eeprom_write<T: Copy>(address: u32, value: T) -> Result<(), Error> {
-    wait_idle();
-    let _ = finish();
-    write_volatile(address as *mut T, value);
-    fence(Ordering::SeqCst);
-    wait_idle();
-    finish()
 }
 
 pub(super) fn busy() -> bool {

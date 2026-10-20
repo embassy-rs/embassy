@@ -160,6 +160,9 @@ fn with_cs<R>(critical_section: bool, f: impl FnOnce() -> R) -> R {
 pub(super) enum Op<'a> {
     /// Program one [`WRITE_SIZE`] unit at the given address.
     Write(u32, &'a [u8; WRITE_SIZE]),
+    /// Program 2 or 4 bytes of the EDATA area at the given address, aligned to their size.
+    #[cfg(flash_edata)]
+    WriteEdata(u32, &'a [u8]),
     /// Erase one sector.
     Erase(&'a FlashSector, &'a Config),
 }
@@ -179,6 +182,8 @@ impl Op<'_> {
     fn range(&self) -> (u32, u32) {
         match *self {
             Op::Write(address, _) => (address, WRITE_SIZE as u32),
+            #[cfg(flash_edata)]
+            Op::WriteEdata(address, data) => (address, data.len() as u32),
             Op::Erase(sector, _) => (sector.start, sector.size),
         }
     }
@@ -215,6 +220,8 @@ impl OpGuard {
             let _ = family::finish();
             match op {
                 Op::Write(address, data) => family::start_write(address, data, interrupt),
+                #[cfg(flash_edata)]
+                Op::WriteEdata(address, data) => family::start_write_edata(address, data, interrupt),
                 Op::Erase(sector, config) => family::start_erase(sector, config, interrupt),
             }
         }

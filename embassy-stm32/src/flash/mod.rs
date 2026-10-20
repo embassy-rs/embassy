@@ -18,13 +18,26 @@
 //!
 //! With the Cortex-M7 data cache enabled, a read also fails when another flash word of the same
 //! 32-byte cache line has an uncorrectable error.
+//!
+//! # EDATA
+//!
+//! On H5 and C5, part of the flash can be used as EDATA ("flash high-cycle data" on H5): flash
+//! with 16-bit words and a higher endurance, meant for storing data. It is enabled in the option
+//! bytes (`EDATA_EN` on C5, `EDATA1_EN`/`EDATA1_STRT` and `EDATA2_EN`/`EDATA2_STRT` on H5).
+//! `FlashLayout::edata_bank1` and `FlashLayout::edata_bank2` are `Edata` drivers for the EDATA
+//! area of each bank.
+//!
+//! # EEPROM
+//!
+//! L0 and L1 have a data EEPROM, which can be rewritten without erasing it first.
+//! `FlashLayout::eeprom` is an `Eeprom` driver for it.
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
 mod asynch;
 mod cache;
 mod common;
 mod ecc;
-#[cfg(flash_v5_c5)]
+#[cfg(flash_edata)]
 mod edata;
 #[cfg(eeprom)]
 mod eeprom;
@@ -38,8 +51,10 @@ mod family;
 
 pub use asynch::InterruptHandler;
 pub use common::*;
-#[cfg(flash_v5_c5)]
-pub use edata::*;
+#[cfg(flash_edata)]
+pub use edata::{EDATA_ERASE_SIZE, EDATA_WRITE_SIZE, Edata};
+#[cfg(eeprom)]
+pub use eeprom::Eeprom;
 #[cfg(all(flash_dual_bank, any(flash_v5_h5, flash_v5_h50, flash_v5_c5)))]
 pub use family::perform_bank_swap;
 
@@ -219,14 +234,12 @@ pub enum Error {
     Unaligned,
     /// The target area is write-protected (`WRPERR`).
     Protected,
-    /// The target location was not erased before programming (`PGERR`, `PROGERR`, `NOTZEROERR`).
+    /// The target location was not erased before programming (`PGERR`, `PROGERR`, `NOTZEROERR`,
+    /// or an EDATA word that was already programmed).
     NotErased,
     /// The hardware reported a programming or erase error, for example a sequence, size,
     /// alignment or parallelism error. See the status register flags in the reference manual.
     Hardware,
-    /// The EDATA area is not enabled in the option bytes.
-    #[cfg(flash_v5_c5)]
-    EdataDisabled,
     /// The data read contains an uncorrectable ECC error: two or more bits of a flash word are
     /// wrong. Program and erase operations interrupted by a reset or power loss leave such
     /// errors behind, and so does programming a flash word twice without erasing it.
@@ -242,8 +255,6 @@ impl core::fmt::Display for Error {
             Self::Protected => "write protected",
             Self::NotErased => "location not erased",
             Self::Hardware => "flash hardware error",
-            #[cfg(flash_v5_c5)]
-            Self::EdataDisabled => "EDATA area disabled",
             #[cfg(any(flash_ecc_bus_error, flash_ecc_nmi))]
             Self::Ecc => "uncorrectable ECC error",
         };

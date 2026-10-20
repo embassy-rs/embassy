@@ -105,8 +105,33 @@ async fn main(_spawner: Spawner) {
 
     test_regions(p.FLASH.reborrow()).await;
 
+    #[cfg(any(feature = "stm32h563zi", feature = "stm32h503rb"))]
+    test_otp(p.FLASH.reborrow());
+
     info!("Test OK");
     cortex_m::asm::bkpt();
+}
+
+/// The OTP area has 16-bit words that can't be read by byte, and that give an ECC error when
+/// they are not programmed. Reads return them as erased. The test doesn't write it, as it can't
+/// be erased.
+#[cfg(any(feature = "stm32h563zi", feature = "stm32h503rb"))]
+fn test_otp(p: Peri<'_, peripherals::FLASH>) {
+    let mut otp = Flash::new_blocking(p, Config::default())
+        .into_blocking_regions()
+        .otp_region;
+    let mut all = [0u8; 2048];
+    assert_eq!(otp.0.size as usize, all.len());
+    unwrap!(otp.blocking_read(0, &mut all));
+    let erased = all.chunks_exact(2).filter(|w| w == &[0xFF, 0xFF]).count();
+    info!("OTP: {} of {} words erased", erased, all.len() / 2);
+
+    for (offset, len) in [(0, 1), (1, 1), (1, 2), (3, 7), (2047, 1)] {
+        let mut buf = [0u8; 8];
+        let buf = &mut buf[..len];
+        unwrap!(otp.blocking_read(offset, buf));
+        assert_eq!(buf, &all[offset as usize..][..len]);
+    }
 }
 
 /// The last sector of each bank, skipping the ones holding the test binary.
@@ -125,6 +150,17 @@ fn test_sectors() -> [Option<Sector>; 2] {
             let limit = FLASH_BASE as u32 + sfsa * region.erase_size;
             info!("SFSA = {} (0x{:08x})", sfsa, limit);
             if sfsa != 0 { end.min(limit) } else { end }
+        };
+        // On H5, the last sectors of a bank can be enabled as EDATA instead.
+        #[cfg(feature = "stm32h563zi")]
+        let end = {
+            let f = embassy_stm32::pac::FLASH;
+            let (enabled, start) = match bank {
+                FlashBank::Bank1 => (f.edata1r_cur().read().edata1_en(), f.edata1r_cur().read().edata1_strt()),
+                _ => (f.edata2r_cur().read().edata2_en(), f.edata2r_cur().read().edata2_strt()),
+            };
+            let sectors = if enabled { start as u32 + 1 } else { 0 };
+            end - sectors * region.erase_size
         };
 
         let start = end - region.erase_size;
