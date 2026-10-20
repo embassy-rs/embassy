@@ -57,6 +57,21 @@ fn options() -> (Config, TestOptions) {
     )
 }
 
+#[cfg(feature = "stm32h723zg")]
+fn options() -> (Config, TestOptions) {
+    use embassy_stm32::rcc;
+    info!("H72 config");
+    let mut c = config();
+    c.rcc.mux.fdcansel = rcc::mux::Fdcansel::Pll1Q;
+    (
+        c,
+        TestOptions {
+            max_latency: Duration::from_micros(1200),
+            max_buffered: 3,
+        },
+    )
+}
+
 #[cfg(any(feature = "stm32h7a3zi"))]
 fn options() -> (Config, TestOptions) {
     use embassy_stm32::rcc;

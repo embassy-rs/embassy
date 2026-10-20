@@ -35,7 +35,7 @@ async fn main(_spawner: Spawner) {
 
     let mut adc = Adc::new_blocking(adc, Default::default());
 
-    #[cfg(feature = "stm32h755zi")]
+    #[cfg(any(feature = "stm32h755zi", feature = "stm32h723zg"))]
     let normalization_factor = 256;
     #[cfg(any(
         feature = "stm32f429zi",

@@ -670,7 +670,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         self.sda.sio_in().read() & (1 << (self.sda.pin() % 32)) == 0
     }
 
-    fn setup(&self, addr: Address, ignore_lockup: bool) -> Result<(), Error> {
+    fn setup(&mut self, addr: Address, ignore_lockup: bool) -> Result<(), Error> {
         addr.check()?;
 
         let ten_bit = addr.is_ten_bit();
@@ -682,6 +682,8 @@ impl<'d, M: Mode> I2c<'d, M> {
         if !self.wait_ic_en_clear() {
             return Err(Error::Timeout);
         }
+        // Discard the abort a cancelled or timed out transfer latched while shutting down.
+        self.read_and_clear_abort_reason().ok();
 
         if !ignore_lockup {
             if self.is_sda_low() {
@@ -763,8 +765,6 @@ impl<'d, M: Mode> I2c<'d, M> {
     async fn setup_with_recovery(&mut self, addr: Address) -> Result<(), Error> {
         // wait for bus to be released.
         self.wait_disabled().await?;
-        // Discard the abort a cancelled transfer left latched.
-        self.read_and_clear_abort_reason().ok();
         let setup_result = self.setup(addr, false);
         if setup_result == Err(Error::SDAHeldLow) {
             #[cfg(feature = "defmt")]
