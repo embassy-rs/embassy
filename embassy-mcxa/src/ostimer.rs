@@ -19,20 +19,6 @@ const COUNTER_MASK: u64 = (1 << 42) - 1;
 // Half-wrap checkpoints leave a half-cycle margin for interrupt latency.
 const PERIOD_TICKS: u64 = 1 << 41;
 
-struct AlarmState {
-    timestamp: Cell<u64>,
-}
-
-unsafe impl Send for AlarmState {}
-
-impl AlarmState {
-    const fn new() -> Self {
-        Self {
-            timestamp: Cell::new(u64::MAX),
-        }
-    }
-}
-
 enum AlarmOutcome {
     Armed,
     AlreadyDue,
@@ -89,25 +75,17 @@ impl GrayTicks {
 
 embassy_time_driver::time_driver_impl!(static DRIVER: OsTimer = OsTimer {
     time: Mutex::new(Cell::new(0)),
-    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
     queue: Mutex::new(RefCell::new(Queue::new())),
 });
 
 struct OsTimer {
     time: Mutex<CriticalSectionRawMutex, Cell<u64>>,
-    /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
-    alarms: Mutex<CriticalSectionRawMutex, AlarmState>,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
 
 impl OsTimer {
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
-        // init alarms
-        critical_section::with(|cs| {
-            self.time.borrow(cs).set(0);
-            let alarm = DRIVER.alarms.borrow(cs);
-            alarm.timestamp.set(u64::MAX);
-        });
+        critical_section::with(|cs| self.time.borrow(cs).set(0));
 
         let parts = unsafe {
             enable_and_reset::<OSTIMER0>(&OsTimerConfig {
@@ -161,14 +139,10 @@ impl OsTimer {
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> AlarmOutcome {
-        let alarm = self.alarms.borrow(cs);
-        alarm.timestamp.set(timestamp);
-
         // Keep the queue sentinel in software; idle queues still need wrap tracking.
         let maintenance = (self.now() | (PERIOD_TICKS - 1)).saturating_add(1);
         let target = timestamp.min(maintenance);
         if matches!(self.program_match(cs, target), AlarmOutcome::AlreadyDue) {
-            alarm.timestamp.set(u64::MAX);
             return AlarmOutcome::AlreadyDue;
         }
         if target == timestamp {
