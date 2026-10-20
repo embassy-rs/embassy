@@ -130,7 +130,9 @@ impl OsTimer {
             return AlarmOutcome::AlreadyDue;
         }
 
-        // Preserve a match latched before the enable write: INTRFLAG is W1C.
+        // MCXA5 RM 36.6.1.8: INTENA enables; INTRFLAG is W1C.
+        // Section 36.5 step 4 names INTRFLAG instead; Figure 177 says write-zero.
+        // Write zero here to preserve a match latched before enabling.
         OSTIMER0.osevent_ctrl().modify(|w| {
             w.set_ostimer_intrflag(false);
             w.set_ostimer_intena(true);
