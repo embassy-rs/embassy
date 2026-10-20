@@ -107,10 +107,6 @@ impl OsTimer {
         // Make sure interrupt is masked
         OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
 
-        // Default to the end of time
-        OSTIMER0.match_l().write(|w| w.set_match_value(u32::MAX));
-        OSTIMER0.match_h().write(|w| w.set_match_value(u16::MAX));
-
         interrupt::OS_EVENT.unpend();
         interrupt::OS_EVENT.set_priority(irq_prio);
         unsafe { interrupt::OS_EVENT.enable() };
