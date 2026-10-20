@@ -499,12 +499,10 @@ where
             w.set_physel(phy_type.internal() && !phy_type.high_speed());
         });
 
-        // Wait for host mode to take effect (~25ms).
-        // Poll cmod bit with async yield between attempts.
-        for _ in 0..50u32 {
-            if r.gintsts().read().cmod() {
-                break;
-            }
+        // Wait for host mode to take effect. The RM says at least 25ms, but it can take
+        // longer (~63ms measured on STM32F429 OTG_HS). Host registers must not be accessed
+        // before this, writes to them are lost.
+        while !r.gintsts().read().cmod() {
             embassy_time::Timer::after_millis(1).await;
         }
     }
