@@ -962,22 +962,9 @@ where
             self.is_low_speed,
         );
 
-        // The DWC2 does not auto-clear CHENA after transfer completion.
-        // If the channel is still active from a previous transfer, we
-        // must explicitly halt it and wait for the hardware to confirm
-        // (CHENA cleared) before reconfiguring. Without this, writing
-        // new HCCHAR/HCTSIZ while the channel is active causes undefined
-        // behavior — typically a permanent hang or stale interrupts.
-        if r.hcchar(ch).read().chena() {
-            r.hcchar(ch).modify(|w| {
-                w.set_chena(true);
-                w.set_chdis(true);
-            });
-            while r.hcchar(ch).read().chena() {
-                core::hint::spin_loop();
-            }
-            r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
-        }
+        // The channel must be halted (see `halt_channel`) before calling this:
+        // the DWC2 does not clear CHENA after an IN transfer completes, and
+        // writing HCCHAR/HCTSIZ while the channel is active is undefined.
 
         // Configure channel characteristics
         let is_periodic = matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous);
@@ -1049,22 +1036,39 @@ where
         });
     }
 
-    /// Halt and spin until CHENA clears. No-op if already disabled (no CHH would
-    /// be raised, so awaiting one would park forever). Drains any halt CHH.
-    fn halt_channel(&self) {
+    /// Halt and wait for the CHH confirming it. No-op if already disabled (no CHH would
+    /// be raised, so awaiting one would park forever). Drops any pending channel events.
+    ///
+    /// CHENA reads 0 before the CHH arrives: in slave mode it is raised once the ISR has
+    /// popped the "channel halted" entry from the RX FIFO. Re-enabling the channel before
+    /// that would let the late CHH halt the next transaction.
+    async fn halt_channel(&self) -> Result<(), PipeError> {
         let r = self.regs;
         let ch = self.index;
         if r.hcchar(ch).read().chena() {
+            r.hcintmsk(ch).modify(|w| w.set_chhm(true));
+            self.state.mutex.lock(|| {
+                r.haintmsk().modify(|w| {
+                    w.set_haintm(w.haintm() | (1 << ch));
+                });
+            });
             r.hcchar(ch).modify(|w| {
                 w.set_chena(true);
                 w.set_chdis(true);
             });
-            while r.hcchar(ch).read().chena() {
-                core::hint::spin_loop();
+            loop {
+                let events = self.wait_for_result().await;
+                if events & EV_DISCONNECT != 0 {
+                    return Err(PipeError::Disconnected);
+                }
+                if events & EV_CHH != 0 {
+                    break;
+                }
             }
         }
         r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
         self.state.channels[ch].result.store(0, Ordering::Release);
+        Ok(())
     }
 
     fn write_fifo(&self, data: &[u8]) {
@@ -1166,6 +1170,7 @@ where
         // rewrites HCTSIZ each iteration so we re-assert it here.
         let mut do_ping = false;
         loop {
+            self.halt_channel().await?;
             self.configure_channel(false, ep_type, pktcnt, data.len() as u32, dpid);
             if do_ping {
                 self.regs.hctsiz(self.index).modify(|w| w.set_doping(true));
@@ -1215,6 +1220,7 @@ where
         };
 
         loop {
+            self.halt_channel().await?;
             self.setup_rx_buffer(&mut buf[..xfer_size as usize]);
             self.configure_channel(true, ep_type, pktcnt, xfer_size, dpid);
             self.enable_channel();
@@ -1226,10 +1232,6 @@ where
             match Self::classify_events(events) {
                 ChannelEvent::Complete => return Ok(count),
                 ChannelEvent::Nak | ChannelEvent::Nyet | ChannelEvent::Halted | ChannelEvent::None => {
-                    // Periodic channels auto-halt after NAK; settle before retry.
-                    if is_periodic {
-                        self.halt_channel();
-                    }
                     yield_now().await;
                     continue;
                 }
