@@ -45,10 +45,14 @@ async fn main(_spawner: Spawner) {
     ))]
     let normalization_factor: i32 = 16;
 
+    // A long sample time. The shortest one is too short for PA4 (a slow channel) when the
+    // converter runs at its maximum clock, e.g. 50 MHz on the H755.
+    let sample_time = SampleTime::from_bits(5);
+
     dac.set(0);
     // Now wait a little to obtain a stable value
     Timer::after_millis(30).await;
-    let offset = adc.blocking_read(&mut adc_pin, SampleTime::from_bits(0));
+    let offset = adc.blocking_read(&mut adc_pin, sample_time);
 
     for v in 0..=255 {
         // First set the DAC output value
@@ -59,10 +63,7 @@ async fn main(_spawner: Spawner) {
         Timer::after_millis(30).await;
 
         // Need to steal the peripherals here because PA4 is obviously in use already
-        let measured = adc.blocking_read(
-            &mut unsafe { embassy_stm32::Peripherals::steal() }.PA4,
-            SampleTime::from_bits(0),
-        );
+        let measured = adc.blocking_read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4, sample_time);
         // Calibrate and normalize the measurement to get close to the dac_output_val
         let measured_normalized = ((measured as i32 - offset as i32) / normalization_factor) as i16;
 
