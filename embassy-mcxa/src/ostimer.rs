@@ -15,6 +15,10 @@ use crate::interrupt::InterruptExt;
 use crate::pac::OSTIMER0;
 use crate::peripherals::OSTIMER0;
 
+const COUNTER_MASK: u64 = (1 << 42) - 1;
+// Half-wrap checkpoints leave a half-cycle margin for interrupt latency.
+const PERIOD_TICKS: u64 = 1 << 41;
+
 struct AlarmState {
     timestamp: Cell<u64>,
 }
@@ -32,7 +36,7 @@ impl AlarmState {
 enum AlarmOutcome {
     Armed,
     AlreadyDue,
-    Disarmed,
+    Maintenance,
 }
 
 /// Convert gray to decimal
@@ -63,11 +67,13 @@ fn dec_to_gray(dec: u64) -> u64 {
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: OsTimer = OsTimer {
+    time: Mutex::new(Cell::new(0)),
     alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
     queue: Mutex::new(RefCell::new(Queue::new())),
 });
 
 struct OsTimer {
+    time: Mutex<CriticalSectionRawMutex, Cell<u64>>,
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
     alarms: Mutex<CriticalSectionRawMutex, AlarmState>,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
@@ -77,6 +83,7 @@ impl OsTimer {
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
         // init alarms
         critical_section::with(|cs| {
+            self.time.borrow(cs).set(0);
             let alarm = DRIVER.alarms.borrow(cs);
             alarm.timestamp.set(u64::MAX);
         });
@@ -120,14 +127,13 @@ impl OsTimer {
             w.set_ostimer_intrflag(true);
         });
 
-        if timestamp == u64::MAX {
-            return AlarmOutcome::Disarmed;
-        }
-
         // Wait until any previous match-register synchronization completes.
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
 
-        let gray_timestamp = dec_to_gray(timestamp);
+        // Keep the queue sentinel in software; idle queues still need wrap tracking.
+        let maintenance = (self.now() | (PERIOD_TICKS - 1)).saturating_add(1);
+        let target = timestamp.min(maintenance);
+        let gray_timestamp = dec_to_gray(target & COUNTER_MASK);
 
         OSTIMER0.match_l().write(|w| w.set_match_value(gray_timestamp as u32));
         OSTIMER0
@@ -141,7 +147,7 @@ impl OsTimer {
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
 
         let t = self.now();
-        if timestamp <= t {
+        if target <= t {
             OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
             alarm.timestamp.set(u64::MAX);
             return AlarmOutcome::AlreadyDue;
@@ -153,7 +159,11 @@ impl OsTimer {
             w.set_ostimer_intrflag(false);
             w.set_ostimer_intena(true);
         });
-        AlarmOutcome::Armed
+        if target == timestamp {
+            AlarmOutcome::Armed
+        } else {
+            AlarmOutcome::Maintenance
+        }
     }
 
     fn trigger_alarm(&self, cs: CriticalSection) {
@@ -189,12 +199,16 @@ impl Driver for OsTimer {
         }
 
         // Keep interrupts from delaying the low-half read across multiple ticks.
-        let t = critical_section::with(|_| {
+        critical_section::with(|cs| {
             let high = OSTIMER0.evtimerh().read().0 as u64;
             let low = OSTIMER0.evtimerl().read().evtimer_count_value() as u64;
-            (high << 32) | low
-        });
-        gray_to_dec(t)
+            let counter = gray_to_dec((high << 32) | low);
+            let time = self.time.borrow(cs);
+            let previous = time.get();
+            let now = previous + (counter.wrapping_sub(previous) & COUNTER_MASK);
+            time.set(now);
+            now
+        })
     }
 
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
@@ -219,5 +233,8 @@ fn OS_EVENT() {
 
 pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     DRIVER.init(irq_prio);
-    INIT.store(true, Ordering::Relaxed);
+    critical_section::with(|cs| {
+        INIT.store(true, Ordering::Relaxed);
+        DRIVER.trigger_alarm(cs);
+    });
 }
