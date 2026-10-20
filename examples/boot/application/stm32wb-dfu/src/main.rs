@@ -41,7 +41,7 @@ async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
-    let flash = Flash::new_blocking(p.FLASH);
+    let flash = Flash::new_blocking(p.FLASH, Default::default());
     let flash = Mutex::new(RefCell::new(flash));
 
     let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);

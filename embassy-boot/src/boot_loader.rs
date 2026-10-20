@@ -83,7 +83,7 @@ impl<'a, ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>
     /// # Example
     /// ```ignore
     /// // Assume `active_flash`, `dfu_flash`, and `state_flash` all share the same flash memory interface.
-    /// let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
+    /// let layout = Flash::new_blocking(p.FLASH, Default::default()).into_blocking_regions();
     /// let flash = Mutex::new(RefCell::new(layout.bank1_region));
     ///
     /// let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);

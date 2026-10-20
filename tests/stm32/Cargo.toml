@@ -219,11 +219,6 @@ path = "src/bin/dac_l1.rs"
 required-features = [ "stm32l152re",]
 
 [[bin]]
-name = "mem2mem"
-path = "src/bin/mem2mem.rs"
-required-features = [ "mem2mem",]
-
-[[bin]]
 name = "eeprom"
 path = "src/bin/eeprom.rs"
 required-features = [ "eeprom",]
@@ -242,6 +237,11 @@ required-features = [ "eth",]
 name = "fdcan"
 path = "src/bin/fdcan.rs"
 required-features = [ "fdcan",]
+
+[[bin]]
+name = "flash"
+path = "src/bin/flash.rs"
+required-features = []
 
 [[bin]]
 name = "gpio"
@@ -267,6 +267,11 @@ required-features = [ "hsem",]
 name = "i2s_dma"
 path = "src/bin/i2s_dma.rs"
 required-features = [ "i2s_f4",]
+
+[[bin]]
+name = "mem2mem"
+path = "src/bin/mem2mem.rs"
+required-features = [ "mem2mem",]
 
 [[bin]]
 name = "pwm_ringbuffered"

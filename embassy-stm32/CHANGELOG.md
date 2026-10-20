@@ -26,8 +26,31 @@ Ethernet:
 - fix: stm32/eth: with the `time` feature, the bounded MAC, MDIO, PHY and DMA waits use the time driver instead of a cycle-counted delay.
 
 Flash:
-- fix: stm32/flash: preserve F2/F4/F7/H7 PSIZE during programming cleanup so subsequent erases retain x32 parallelism.
-- add: `flash::Config` and `Flash::new_with_config` / `new_blocking_with_config` for optional erase parallelism on STM32F2/F4/F7 and `flash_h7`. Existing constructors keep their defaults; regions preserve the selection.
+- change: `Flash::new` and `Flash::new_blocking` take a `flash::Config`. On STM32F2/F4/F7/H7, `Config::erase_parallelism` selects the erase parallelism (default x32).
+- change: Use the `embassy_stm32::mode::{Blocking, Async}` markers, removed `flash::Blocking` and `flash::Async`.
+- add: async support on all families.
+- add: support for STM32H7R/S.
+- add: `flash::banks_swapped()`.
+- change: `flash::perform_bank_swap()` (H5, C5) is only available when the flash is in dual-bank mode.
+- change: `flash::Error` variants are `OutOfBounds`, `Unaligned`, `Protected`, `NotErased` and `Hardware` (plus `EdataDisabled` on C5). `Error` is `#[non_exhaustive]` and implements `Display` and `core::error::Error`.
+- change: `WRITE_SIZE` is the native program unit: 2 on F0/F1/F3, 4 on F7, 16 on H7A/B.
+- change: `FlashSector::index_in_bank` and `FlashRegion::sectors()` are `u32`.
+- change: `FlashBank` is the physical bank. With the banks swapped (`SWAP_BANK`/`FB_MODE`), `FlashBank::base()` and `FlashRegion::base()` return the address where the bank is currently mapped.
+- change: the EEPROM (L0/L1) and EDATA (C5) methods are available on `Flash<'_, Async>` too.
+- change: chips whose flash bank mode is selectable by option byte (G0B0, U5, U3, WBA6, C5 half-flash parts, L47x/L49x with 256/512 KB, L552xC) require the `single-bank` or `dual-bank` feature.
+- fix: H7, H7A/B and H5 clear the error flags after an error; before, every later operation failed until reset.
+- fix: on F76x/F77x in dual-bank mode, erasing a bank 2 sector erased the bank 1 sector with the same number.
+- fix: on U3B5/U3C5, erasing a page from 128 up erased the wrong page.
+- fix: async operations on L4, G0 and G4 returned `Ok` when they failed.
+- fix: the STM32F42x/F43x PA12 read corruption check (errata 2.2.11) panicked on reads from bank 1 too.
+- fix: L1 locks the flash again after each operation, and page erase writes 0 to the first word of the page.
+- fix: L0 returns `Error::NotErased` when programming a word that is not erased, which was silently dropped.
+- fix: C0, G0, U0, WB, WL and WBA wait for all busy flags (`CFGBSY`, `PESD`, `WDW`) before writing `FLASH_CR`.
+- fix: the STM32WL CM0+ core uses the `C2CR`/`C2SR` registers.
+- fix: the L4+ dual-bank check reads `DBANK` or `DB1M` depending on the flash size.
+- fix: G0 with swapped banks erases the requested bank.
+- fix: the caches are disabled during program and erase operations and flushed afterwards: the `FLASH_ACR` caches (F2/F4, L4, G0/G4, C0, U0, WB, WL), the F7 ART, the ICACHE (L5, U5, U3, WBA, H5, C5) and the Cortex-M7 caches (F7, H7).
+- fix: async operations prevent the low-power executor from entering Stop mode.
 
 Low power:
 - fix: stm32/low-power: fail to compile on chip families with no low-power implementation, instead of building a `sleep()` that set `SLEEPDEEP` and entered whatever `PWR` happened to default to, without clearing the wake-up flags or restoring the system clock on wake-up. Implemented families are F4, G4, L0, L4, L5, U0, U3, U5, H5, WB, WBA and WL.
