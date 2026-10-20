@@ -99,6 +99,7 @@ defmt = [
     "embassy-sync/defmt",
     "embassy-embedded-hal/defmt",
     "embassy-hal-internal/defmt",
+    "mspm0-metapac/defmt",
 ]
 
 ## Use log for logging

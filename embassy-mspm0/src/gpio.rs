@@ -11,11 +11,12 @@ use embassy_sync::waitqueue::AtomicWaker;
 use maitake_sync::WaitMap;
 use mspm0_metapac::iomux::regs::Pincm;
 
+use crate::interrupt;
 use crate::interrupt::typelevel::Handler;
 use crate::pac::gpio::vals::*;
 use crate::pac::gpio::{self};
-#[cfg(all(feature = "rt", any(gpioa_interrupt, gpiob_interrupt)))]
-use crate::pac::interrupt;
+// #[cfg(all(feature = "rt", any(gpioa_interrupt, gpiob_interrupt)))]
+// use crate::pac::interrupt;
 use crate::pac::{self};
 
 pub struct Blocking {}
@@ -28,9 +29,8 @@ pub struct InterruptHandler<T: Pin> {
 
 impl<T: Pin> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        // TODO: This code is not optimal for multiple bindings.
-        //
-        // For example binding PA0 and PA1 would result in 2 reads of MIS and 2 modifications of IMASK.
+        // TODO: This code is not optimal for multiple bindings. For example binding PA0 and PA1 would
+        // result in 2 reads of MIS and 2 modifications of IMASK.
         let info = T::info();
         let state = T::state();
         let block = info.block();
@@ -41,7 +41,7 @@ impl<T: Pin> Handler<T::Interrupt> for InterruptHandler<T> {
             // Notify the future that an edge event has occurred by masking the interrupt for this pin.
             //
             // This needs to be performed before waking and in a critical section because the thread the
-            // waker wake may be higher priority than the interrupt handler.
+            // waker wakes may be higher priority than this interrupt handler.
             critical_section::with(|_cs| {
                 block.cpu_int().imask().modify(|w| {
                     w.set_dio(info.pin(), false);
@@ -347,7 +347,10 @@ impl<'d> Flex<'d, Async> {
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
-    pub fn new<T: Pin>(pin: Peri<'d, T>) -> Self {
+    pub fn new<T: Pin>(
+        pin: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
         // Pin will be in disconnected state.
         Flex {
             pin: PinBorrow::new(pin),
@@ -494,8 +497,12 @@ impl<'d, Mode: GpioMode> Input<'d, Mode> {
 impl<'d> Input<'d, Async> {
     /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
-    pub fn new<T: Pin>(pin: Peri<'d, T>, pull: Pull) -> Input<'d, Async> {
-        let mut pin = Flex::new(pin);
+    pub fn new<T: Pin>(
+        pin: Peri<'d, T>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        pull: Pull,
+    ) -> Input<'d, Async> {
+        let mut pin = Flex::new(pin, irq);
         pin.set_as_input();
         pin.set_pull(pull);
         Self { pin }
@@ -693,8 +700,12 @@ impl<'d, Mode: GpioMode> OutputOpenDrain<'d, Mode> {
 impl<'d> OutputOpenDrain<'d, Async> {
     /// Create a new GPIO open drain output driver for a [Pin] with the provided [Level].
     #[inline]
-    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
-        let mut pin = Flex::new(pin);
+    pub fn new<T: Pin>(
+        pin: Peri<'d, T>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        initial_output: Level,
+    ) -> Self {
+        let mut pin = Flex::new(pin, irq);
         pin.set_level(initial_output);
         pin.set_as_input_output();
         Self { pin }
@@ -1163,8 +1174,12 @@ const GPIO_PF: u8 = 1;
 macro_rules! impl_pin {
     ($name: ident, $port: expr, $pin_num: expr) => {
         impl crate::gpio::Pin for crate::peripherals::$name {
-            // FIXME: This is wrong, but for compilation it is needed
-            type Interrupt = crate::interrupt::typelevel::GROUP0;
+            type Interrupt = cfg_select! {
+                // FIXME: Pick the right one (just hardcoded to test C110x)
+                any(gpioa_interrupt, gpiob_interrupt) => crate::interrupt::typelevel::GPIOA, // compile_error!("Pick the right interrupt using macro magic"),
+                any(gpioa_group, gpiob_group, gpioc_group) => crate::interrupt::typelevel::GROUP1,
+                _ => compile_error!("No GPIO interrupt was picked"),
+            };
         }
         impl crate::gpio::SealedPin for crate::peripherals::$name {
             #[inline]
@@ -1243,7 +1258,7 @@ impl Info {
     pub const fn pincm_index(&self) -> usize {
         cfg_select! {
             any(gpio_pb, gpio_pc) => self.pincm_index as usize,
-            _ => self.info.pin_port,
+            _ => self.pin_port as usize,
         }
     }
 
@@ -1386,65 +1401,65 @@ pub(crate) fn init(gpio: gpio::Gpio) {
     });
 }
 
-#[cfg(feature = "rt")]
-fn irq_handler(gpio: gpio::Gpio, port: Port) {
-    use crate::BitIter;
-    // Only consider pins which have interrupts unmasked.
+// #[cfg(feature = "rt")]
+// fn irq_handler(gpio: gpio::Gpio, port: Port) {
+//     use crate::BitIter;
+//     // Only consider pins which have interrupts unmasked.
 
-    let bits = gpio.cpu_int().mis().read().0;
+//     let bits = gpio.cpu_int().mis().read().0;
 
-    for i in BitIter(bits) {
-        let id = ((port as u8) * 32) + i as u8;
-        let _ = GPIO_WAIT_MAP.wake(&id, ());
+//     for i in BitIter(bits) {
+//         let id = ((port as u8) * 32) + i as u8;
+//         let _ = GPIO_WAIT_MAP.wake(&id, ());
 
-        // Notify the future that an edge event has occurred by masking the interrupt for this pin.
-        gpio.cpu_int().imask().modify(|w| {
-            w.set_dio(i as usize, false);
-        });
-    }
-}
+//         // Notify the future that an edge event has occurred by masking the interrupt for this pin.
+//         gpio.cpu_int().imask().modify(|w| {
+//             w.set_dio(i as usize, false);
+//         });
+//     }
+// }
 
 #[cfg(all(gpioa_interrupt, gpioa_group))]
 compile_error!("gpioa_interrupt and gpioa_group are mutually exclusive cfgs");
 #[cfg(all(gpiob_interrupt, gpiob_group))]
 compile_error!("gpiob_interrupt and gpiob_group are mutually exclusive cfgs");
 
-// C110x and L110x have a dedicated interrupts just for GPIOA.
-//
-// These chips do not have a GROUP1 interrupt.
-#[cfg(all(feature = "rt", gpioa_interrupt))]
-#[interrupt]
-fn GPIOA() {
-    irq_handler(pac::GPIOA, Port::PortA);
-}
+// // C110x and L110x have a dedicated interrupts just for GPIOA.
+// //
+// // These chips do not have a GROUP1 interrupt.
+// #[cfg(all(feature = "rt", gpioa_interrupt))]
+// #[interrupt]
+// fn GPIOA() {
+//     irq_handler(pac::GPIOA, Port::PortA);
+// }
 
-#[cfg(all(feature = "rt", gpiob_interrupt))]
-#[interrupt]
-fn GPIOB() {
-    irq_handler(pac::GPIOB, Port::PortB);
-}
+// #[cfg(all(feature = "rt", gpiob_interrupt))]
+// #[interrupt]
+// fn GPIOB() {
+//     irq_handler(pac::GPIOB, Port::PortB);
+// }
 
-// These symbols are weakly defined as DefaultHandler and are called by the interrupt group implementation.
-//
-// Defining these as no_mangle is required so that the linker will pick these over the default handler.
+// // These symbols are weakly defined as DefaultHandler and are called by the interrupt group implementation.
+// //
+// // Defining these as no_mangle is required so that the linker will pick these over the default handler.
 
-#[cfg(all(feature = "rt", gpioa_group))]
-#[unsafe(no_mangle)]
-#[allow(non_snake_case)]
-fn GPIOA() {
-    irq_handler(pac::GPIOA, Port::PortA);
-}
+// #[cfg(all(feature = "rt", gpioa_group))]
+// #[unsafe(no_mangle)]
+// #[allow(non_snake_case)]
+// fn GPIOA() {
+//     irq_handler(pac::GPIOA, Port::PortA);
+// }
 
-#[cfg(all(feature = "rt", gpiob_group))]
-#[unsafe(no_mangle)]
-#[allow(non_snake_case)]
-fn GPIOB() {
-    irq_handler(pac::GPIOB, Port::PortB);
-}
+// #[cfg(all(feature = "rt", gpiob_group))]
+// #[unsafe(no_mangle)]
+// #[allow(non_snake_case)]
+// fn GPIOB() {
+//     irq_handler(pac::GPIOB, Port::PortB);
+// }
 
-#[cfg(all(feature = "rt", gpioc_group))]
-#[allow(non_snake_case)]
-#[unsafe(no_mangle)]
-fn GPIOC() {
-    irq_handler(pac::GPIOC, Port::PortC);
-}
+// #[cfg(all(feature = "rt", gpioc_group))]
+// #[allow(non_snake_case)]
+// #[unsafe(no_mangle)]
+// fn GPIOC() {
+//     irq_handler(pac::GPIOC, Port::PortC);
+// }
