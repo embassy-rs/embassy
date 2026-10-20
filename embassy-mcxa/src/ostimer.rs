@@ -39,31 +39,52 @@ enum AlarmOutcome {
     Maintenance,
 }
 
-/// Convert gray to decimal
-///
-/// Os Event provides a 64-bit timestamp gray-encoded. All we have to
-/// do here is read both 32-bit halves of the register and convert
-/// from gray to regular binary.
-fn gray_to_dec(gray: u64) -> u64 {
-    let mut dec = gray;
+/// A 42-bit binary counter value.
+#[derive(Copy, Clone)]
+struct EvTicks(u64);
 
-    dec ^= dec >> 1;
-    dec ^= dec >> 2;
-    dec ^= dec >> 4;
-    dec ^= dec >> 8;
-    dec ^= dec >> 16;
-    dec ^= dec >> 32;
+impl EvTicks {
+    // Select the hardware counter bits of a software timestamp.
+    fn from_timestamp(timestamp: u64) -> Self {
+        Self(timestamp & COUNTER_MASK)
+    }
 
-    dec
+    fn value(self) -> u64 {
+        self.0
+    }
+
+    fn to_gray(self) -> GrayTicks {
+        GrayTicks(self.0 ^ (self.0 >> 1))
+    }
 }
 
-/// Convert decimal to gray
-///
-/// Before writing match value to the target register, we must convert
-/// it back into gray code.
-fn dec_to_gray(dec: u64) -> u64 {
-    let gray = dec;
-    gray ^ (gray >> 1)
+/// A 42-bit Gray-coded counter value.
+#[derive(Copy, Clone)]
+struct GrayTicks(u64);
+
+impl GrayTicks {
+    fn from_registers(high: u16, low: u32) -> Self {
+        Self(((u64::from(high) << 32) | u64::from(low)) & COUNTER_MASK)
+    }
+
+    fn low(self) -> u32 {
+        self.0 as u32
+    }
+
+    fn high(self) -> u16 {
+        (self.0 >> 32) as u16
+    }
+
+    fn decode(self) -> EvTicks {
+        let mut binary = self.0;
+        binary ^= binary >> 1;
+        binary ^= binary >> 2;
+        binary ^= binary >> 4;
+        binary ^= binary >> 8;
+        binary ^= binary >> 16;
+        binary ^= binary >> 32;
+        EvTicks(binary)
+    }
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: OsTimer = OsTimer {
@@ -120,11 +141,9 @@ impl OsTimer {
         });
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
 
-        let gray_timestamp = dec_to_gray(deadline & COUNTER_MASK);
-        OSTIMER0.match_l().write(|w| w.set_match_value(gray_timestamp as u32));
-        OSTIMER0
-            .match_h()
-            .write(|w| w.set_match_value((gray_timestamp >> 32) as u16));
+        let gray_timestamp = EvTicks::from_timestamp(deadline).to_gray();
+        OSTIMER0.match_l().write(|w| w.set_match_value(gray_timestamp.low()));
+        OSTIMER0.match_h().write(|w| w.set_match_value(gray_timestamp.high()));
 
         // MATCH_H transfers the shadow pair to the active comparator.
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
@@ -193,9 +212,9 @@ impl Driver for OsTimer {
 
         // Keep interrupts from delaying the low-half read across multiple ticks.
         critical_section::with(|cs| {
-            let high = OSTIMER0.evtimerh().read().evtimer_count_value() as u64;
-            let low = OSTIMER0.evtimerl().read().evtimer_count_value() as u64;
-            let counter = gray_to_dec((high << 32) | low);
+            let high = OSTIMER0.evtimerh().read().evtimer_count_value();
+            let low = OSTIMER0.evtimerl().read().evtimer_count_value();
+            let counter = GrayTicks::from_registers(high, low).decode().value();
             let time = self.time.borrow(cs);
             let previous = time.get();
             let now = previous + (counter.wrapping_sub(previous) & COUNTER_MASK);
