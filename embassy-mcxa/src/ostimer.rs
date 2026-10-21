@@ -1,4 +1,13 @@
 //! Time Driver.
+//!
+//! # REVISIT: Power Down
+//!
+//! OSTIMER stops in Power Down and cannot wake the core. When adding Power Down:
+//! - Check task deadlines under the sleep-entry critical section.
+//! - Ignore epoch-maintenance matches; veto entry for pending task alarms.
+//! - With no task alarms, require explicit stopped-time semantics or account for
+//!   elapsed time using a Power Down-capable clock.
+
 use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicBool, Ordering};
 
