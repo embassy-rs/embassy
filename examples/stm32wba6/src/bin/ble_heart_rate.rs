@@ -40,6 +40,7 @@ use embassy_time::{Duration, Ticker};
 use panic_probe as _;
 use stm32wb_hci::aci::AciEvent;
 use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
+use stm32wb_hci::adv_data::AdvFlags;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -118,53 +119,72 @@ async fn main(spawner: Spawner) {
 
     // Heart Rate Service: 1 service + 3 chars + 1 CCCD + 1 write permit = 8 attribute records
     let service_handle = gatt
-        .add_service(Uuid::from_u16(HRS_SERVICE_UUID), ServiceType::Primary, 8)
+        .add_service(
+            ble.controller(),
+            Uuid::Uuid16(HRS_SERVICE_UUID),
+            ServiceType::Primary,
+            8,
+        )
+        .await
         .expect("Failed to add HRS service");
 
     // Heart Rate Measurement: NOTIFY, variable length (max 5 bytes for minimal format)
     let hrm_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u16(HRM_CHAR_UUID),
+            Uuid::Uuid16(HRM_CHAR_UUID),
             5,
             CharProperties::NOTIFY,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(),
             0,
             true,
         )
+        .await
         .expect("Failed to add HRM characteristic");
 
     // Body Sensor Location: READ only, 1 byte constant
     let bsl_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u16(BSL_CHAR_UUID),
+            Uuid::Uuid16(BSL_CHAR_UUID),
             1,
             CharProperties::READ,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(),
             0,
             false,
         )
+        .await
         .expect("Failed to add BSL characteristic");
 
     // Set body sensor location to Wrist
-    gatt.update_characteristic_value(service_handle, bsl_char_handle, 0, &[BODY_SENSOR_LOCATION_WRIST])
-        .expect("Failed to set BSL value");
+    gatt.update_characteristic_value(
+        ble.controller(),
+        service_handle,
+        bsl_char_handle,
+        0,
+        &[BODY_SENSOR_LOCATION_WRIST],
+    )
+    .await
+    .expect("Failed to set BSL value");
 
     // HR Control Point: WRITE (requires write permission for validation)
     let hrcp_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u16(HRCP_CHAR_UUID),
+            Uuid::Uuid16(HRCP_CHAR_UUID),
             1,
             CharProperties::WRITE,
-            SecurityPermissions::NONE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::empty(),
+            GattEventMask::ATTRIBUTE_WRITE,
             0,
             false,
         )
+        .await
         .expect("Failed to add HRCP characteristic");
 
     info!("Heart Rate Service created (handle 0x{:04X})", service_handle.0);
@@ -184,9 +204,11 @@ async fn main(spawner: Spawner) {
 
     // ── Advertising ──────────────────────────────────────────────────────────
     let mut adv_data = AdvData::new();
-    adv_data.add_flags(0x06).unwrap();
-    adv_data.add_name("HRS_WBA6").unwrap();
-    adv_data.add_service_uuid_16(HRS_SERVICE_UUID).unwrap();
+    adv_data = adv_data
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .unwrap();
+    adv_data = adv_data.complete_local_name(b"HRS_WBA6").unwrap();
+    adv_data = adv_data.complete_uuid16_list(&[HRS_SERVICE_UUID]).unwrap();
 
     let adv_params = AdvParams {
         interval_min: 0x0050, // 50 ms
@@ -209,7 +231,7 @@ async fn main(spawner: Spawner) {
         match select(ble.read_event(&mut event_buf), ticker.next()).await {
             Either::First(event) => {
                 // ── GAP events ────────────────────────────────────────────────
-                if let Some(gap_event) = ble.process_event(&event) {
+                if let Some(gap_event) = ble.process_event(&event).await {
                     match gap_event {
                         GapEvent::Connected(conn) => {
                             info!("Connected: 0x{:04X}", conn.handle.raw());
@@ -271,7 +293,16 @@ async fn main(spawner: Spawner) {
 
                 if state.notifications_enabled {
                     if let Some(conn) = state.conn_handle {
-                        if let Err(e) = gatt.notify(conn, state.service_handle, state.hrm_char_handle, &hrm) {
+                        if let Err(e) = gatt
+                            .notify(
+                                ble.controller(),
+                                conn,
+                                state.service_handle,
+                                state.hrm_char_handle,
+                                &hrm,
+                            )
+                            .await
+                        {
                             error!("HRM notify failed: {:?}", e);
                         }
                     }

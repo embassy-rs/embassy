@@ -27,13 +27,15 @@ use embassy_stm32::rcc::{self};
 use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::security::{IoCapability, SecureConnectionsSupport, SecurityEvent, SecurityParams};
 use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
 use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::values::AddressType;
+use stm32wb_hci::adv_data::AdvFlags;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -46,7 +48,7 @@ const SECURE_SERVICE_UUID: u16 = 0xABCD;
 const SECURE_CHAR_UUID: u16 = 0xABCE;
 
 // ---- Test configuration ----
-const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
+const ADDR_TYPE: OwnAddressType = OwnAddressType::StaticRandom;
 
 /// BLE runner task - drives the BLE stack sequencer
 #[embassy_executor::task]
@@ -100,41 +102,47 @@ async fn main(spawner: Spawner) {
         .with_io_capability(IoCapability::DisplayYesNo);
 
     security
-        .set_authentication_requirements(security_params)
+        .set_authentication_requirements(ble.controller(), security_params)
+        .await
         .expect("Failed to set security parameters");
     info!("Security configured: Bonding + MITM + SC");
 
     // Enable address resolution (for bonded devices using RPA)
     security
-        .set_address_resolution_enable(true)
+        .set_address_resolution_enable(ble.controller(), true)
+        .await
         .expect("Failed to enable address resolution");
 
     // Initialize GATT server
     let mut gatt = ble.gatt_server();
 
     // Create a service with a secure characteristic
-    let service_uuid = Uuid::from_u16(SECURE_SERVICE_UUID);
+    let service_uuid = Uuid::Uuid16(SECURE_SERVICE_UUID);
     let service_handle = gatt
-        .add_service(service_uuid, ServiceType::Primary, 4)
+        .add_service(ble.controller(), service_uuid, ServiceType::Primary, 4)
+        .await
         .expect("Failed to add service");
 
     // Add characteristic that requires authenticated encryption
-    let char_uuid = Uuid::from_u16(SECURE_CHAR_UUID);
+    let char_uuid = Uuid::Uuid16(SECURE_CHAR_UUID);
     let char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
             char_uuid,
             20,
             CharProperties::READ | CharProperties::WRITE,
-            SecurityPermissions::AUTHEN_READ | SecurityPermissions::AUTHEN_WRITE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::AUTHENTICATED_READ | SecurityPermissions::AUTHENTICATED_WRITE,
+            GattEventMask::ATTRIBUTE_WRITE,
             0,
             true,
         )
+        .await
         .expect("Failed to add characteristic");
 
     // Set initial value
-    gatt.update_characteristic_value(service_handle, char_handle, 0, b"Secure!")
+    gatt.update_characteristic_value(ble.controller(), service_handle, char_handle, 0, b"Secure!")
+        .await
         .expect("Failed to set value");
 
     info!("GATT service created with secure characteristic");
@@ -151,10 +159,14 @@ async fn main(spawner: Spawner) {
     // Helper to create advertising data
     fn create_adv_data() -> AdvData {
         let mut adv_data = AdvData::new();
-        adv_data.add_flags(0x06).expect("Failed to add flags");
-        adv_data.add_name("Embassy-Secure").expect("Failed to add name");
-        adv_data
-            .add_service_uuid_16(SECURE_SERVICE_UUID)
+        adv_data = adv_data
+            .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+            .expect("Failed to add flags");
+        adv_data = adv_data
+            .complete_local_name(b"Embassy-Secure")
+            .expect("Failed to add name");
+        adv_data = adv_data
+            .complete_uuid16_list(&[SECURE_SERVICE_UUID])
             .expect("Failed to add UUID");
         adv_data
     }
@@ -177,14 +189,14 @@ async fn main(spawner: Spawner) {
         let event = ble.read_event(&mut event_buf).await;
 
         // Process GAP events (connections)
-        if let Some(gap_event) = ble.process_event(&event) {
+        if let Some(gap_event) = ble.process_event(&event).await {
             match gap_event {
                 GapEvent::Connected(conn) => {
                     info!("=== CONNECTED ===");
                     info!("  Handle: 0x{:04X}", conn.handle.raw());
                     info!("  Peer: {}", conn.peer_address);
 
-                    if let Err(e) = security.request_pairing(conn.handle.raw()) {
+                    if let Err(e) = security.request_pairing(ble.controller(), conn.handle.raw()).await {
                         warn!("request_pairing failed: {:?}", e);
                     } else {
                         info!("Pairing requested — waiting for central to respond...");
@@ -235,7 +247,7 @@ async fn main(spawner: Spawner) {
                     info!("  Passkey: {:06}", passkey);
                     info!("  Enter this passkey on your phone/device!");
 
-                    if let Err(e) = security.pass_key_response(conn_handle, passkey) {
+                    if let Err(e) = security.pass_key_response(ble.controller(), conn_handle, passkey).await {
                         error!("Failed to send passkey response: {:?}", e);
                     }
                 }
@@ -251,14 +263,17 @@ async fn main(spawner: Spawner) {
                     let confirm = true;
                     info!("  Auto-confirming: {}", if confirm { "YES" } else { "NO" });
 
-                    if let Err(e) = security.numeric_comparison_response(conn_handle, confirm) {
+                    if let Err(e) = security
+                        .numeric_comparison_response(ble.controller(), conn_handle, confirm)
+                        .await
+                    {
                         error!("Failed to send numeric comparison response: {:?}", e);
                     }
                 }
                 SecurityEvent::BondLost { conn_handle } => {
                     info!("=== BOND LOST ===");
                     info!("  Connection: 0x{:04X}", conn_handle);
-                    if let Err(e) = security.allow_rebond(conn_handle) {
+                    if let Err(e) = security.allow_rebond(ble.controller(), conn_handle).await {
                         warn!("Failed to allow rebond: {:?}", e);
                     }
                 }

@@ -2,49 +2,36 @@
 //!
 //! This is a thin Rust wrapper around ST's GATT server implementation.
 
-use stm32_bindings::ble::{
-    self, aci_gatt_add_char, aci_gatt_add_char_desc, aci_gatt_add_service, aci_gatt_init, aci_gatt_permit_read,
-    aci_gatt_permit_write, aci_gatt_read_handle_value, aci_gatt_set_desc_value, aci_gatt_set_event_mask,
-    aci_gatt_store_db, aci_gatt_update_char_value, aci_gatt_update_char_value_ext,
+use bt_hci::cmd::SyncCmd;
+use stm32wb_hci::aci::flags::{GattDescEventMask as HciGattDescEventMask, UpdateType};
+use stm32wb_hci::aci::gatt::{
+    GattAddChar, GattAddCharDesc, GattAddService, GattDelChar, GattDelService, GattPermitRead, GattPermitWrite,
+    GattReadHandleValue, GattSetDescValue, GattSetEventMask, GattStoreDb, GattUpdateCharValue, GattUpdateCharValueExt,
 };
+use stm32wb_hci::aci::ranges::{AttAppError, EncKeySize};
+use stm32wb_hci::aci::values::PermitStatus;
+use stm32wb_hci::wire::AttBearer;
 
 use super::types::{
-    AttributeAccess, CharProperties, CharacteristicHandle, DescriptorHandle, GattEventMask, SecurityPermissions,
-    ServiceHandle, ServiceType, Uuid, UuidType,
+    AccessPermissions, CharProperties, CharacteristicHandle, DescriptorHandle, GattEventMask, SecurityPermissions,
+    ServiceHandle, ServiceType, Uuid,
 };
 use crate::bluetooth::error::BleError;
-use crate::bluetooth::hci::{self, Status};
+use crate::controller::ControllerAdapter;
 
-/// Update type for aci_gatt_update_char_value_ext
-#[allow(dead_code)]
-mod update_type {
-    /// Update locally only, do not notify/indicate
-    pub const LOCAL_ONLY: u8 = 0x00;
-    /// Send notification to connected client
-    pub const NOTIFICATION: u8 = 0x01;
-    /// Send indication to connected client
-    pub const INDICATION: u8 = 0x02;
+fn to_bearer(conn_handle: u16) -> Result<AttBearer, BleError> {
+    AttBearer::from_raw(conn_handle).ok_or(BleError::InvalidParameter)
 }
 
-const BLE_STATUS_SUCCESS: u8 = 0x00;
-const ACCESS_ALLOWED: u8 = 0x00;
-const ACCESS_DENIED: u8 = 0x01;
-
-/// Initialize the GATT layer globally
-///
-/// This function calls aci_gatt_init() to initialize the GATT layer.
-/// Per ST's BLE_HeartRate example, this MUST be called before aci_gap_init().
-///
-/// This is called automatically by Ble::init() and should not be called directly.
-pub(crate) fn init_gatt_layer() -> Result<(), BleError> {
-    unsafe {
-        let status = aci_gatt_init();
-        if status == BLE_STATUS_SUCCESS {
-            Ok(())
-        } else {
-            error!("aci_gatt_init failed: 0x{:02X}", status);
-            Err(BleError::CommandFailed(hci::types::Status::from_u8(status)))
-        }
+/// Maps the raw encryption key size the public API takes to the range the
+/// command encodes. The stack only documents 7-16; 0 ("no encryption", the
+/// common case) is sent as the minimum, which the stack ignores unless the
+/// security permissions require encryption.
+fn to_enc_key_size(encryption_key_size: u8) -> Result<EncKeySize, BleError> {
+    if encryption_key_size == 0 {
+        Ok(EncKeySize::MIN)
+    } else {
+        EncKeySize::new(encryption_key_size).ok_or(BleError::InvalidParameter)
     }
 }
 
@@ -76,44 +63,20 @@ impl GattServer {
     /// # Example
     ///
     /// ```no_run
-    /// let service_uuid = Uuid::from_u16(0x1234);
-    /// let handle = gatt.add_service(service_uuid, ServiceType::Primary, 10)?;
+    /// let service_uuid = Uuid::Uuid16(0x1234);
+    /// let handle = gatt.add_service(controller, service_uuid, ServiceType::Primary, 10).await?;
     /// ```
-    pub fn add_service(
+    pub async fn add_service(
         &mut self,
+        controller: &ControllerAdapter<'_>,
         uuid: Uuid,
         service_type: ServiceType,
         max_attribute_records: u8,
     ) -> Result<ServiceHandle, BleError> {
-        let mut service_handle: u16 = 0;
-
-        unsafe {
-            let status = match uuid {
-                Uuid::Uuid16(uuid16) => {
-                    let uuid_bytes = uuid16.to_le_bytes();
-                    aci_gatt_add_service(
-                        UuidType::Uuid16 as u8,
-                        uuid_bytes.as_ptr() as *const _,
-                        service_type as u8,
-                        max_attribute_records,
-                        &mut service_handle,
-                    )
-                }
-                Uuid::Uuid128(uuid128) => aci_gatt_add_service(
-                    UuidType::Uuid128 as u8,
-                    uuid128.as_ptr() as *const _,
-                    service_type as u8,
-                    max_attribute_records,
-                    &mut service_handle,
-                ),
-            };
-
-            if status == BLE_STATUS_SUCCESS {
-                Ok(ServiceHandle(service_handle))
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+        let service = GattAddService::new(uuid, service_type, max_attribute_records)
+            .exec(controller)
+            .await?;
+        Ok(ServiceHandle(service.service_handle))
     }
 
     /// Add a characteristic to a service
@@ -136,21 +99,23 @@ impl GattServer {
     /// # Example
     ///
     /// ```no_run
-    /// let char_uuid = Uuid::from_u16(0x2A00); // Device Name
+    /// let char_uuid = Uuid::Uuid16(0x2A00); // Device Name
     /// let props = CharProperties::READ | CharProperties::WRITE;
     /// let handle = gatt.add_characteristic(
+    ///     controller,
     ///     service_handle,
     ///     char_uuid,
     ///     20,
     ///     props,
-    ///     SecurityPermissions::NONE,
-    ///     GattEventMask::ATTRIBUTE_MODIFIED,
+    ///     SecurityPermissions::empty(),
+    ///     GattEventMask::ATTRIBUTE_WRITE,
     ///     0,
     ///     true,
-    /// )?;
+    /// ).await?;
     /// ```
-    pub fn add_characteristic(
+    pub async fn add_characteristic(
         &mut self,
+        controller: &ControllerAdapter<'_>,
         service_handle: ServiceHandle,
         uuid: Uuid,
         value_length: u16,
@@ -160,45 +125,21 @@ impl GattServer {
         encryption_key_size: u8,
         is_variable: bool,
     ) -> Result<CharacteristicHandle, BleError> {
-        let mut char_handle: u16 = 0;
+        let enc_key_size = to_enc_key_size(encryption_key_size)?;
 
-        unsafe {
-            let status = match uuid {
-                Uuid::Uuid16(uuid16) => {
-                    let uuid_bytes = uuid16.to_le_bytes();
-                    aci_gatt_add_char(
-                        service_handle.0,
-                        UuidType::Uuid16 as u8,
-                        uuid_bytes.as_ptr() as *const _,
-                        value_length,
-                        properties.0,
-                        security.0,
-                        event_mask.0,
-                        encryption_key_size,
-                        is_variable as u8,
-                        &mut char_handle,
-                    )
-                }
-                Uuid::Uuid128(uuid128) => aci_gatt_add_char(
-                    service_handle.0,
-                    UuidType::Uuid128 as u8,
-                    uuid128.as_ptr() as *const _,
-                    value_length,
-                    properties.0,
-                    security.0,
-                    event_mask.0,
-                    encryption_key_size,
-                    is_variable as u8,
-                    &mut char_handle,
-                ),
-            };
-
-            if status == BLE_STATUS_SUCCESS {
-                Ok(CharacteristicHandle(char_handle))
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+        let char = GattAddChar::new(
+            service_handle.0,
+            uuid,
+            value_length,
+            properties,
+            security,
+            event_mask,
+            enc_key_size,
+            is_variable,
+        )
+        .exec(controller)
+        .await?;
+        Ok(CharacteristicHandle(char.char_handle))
     }
 
     /// Update a characteristic value
@@ -214,10 +155,11 @@ impl GattServer {
     ///
     /// ```no_run
     /// let value = b"Hello";
-    /// gatt.update_characteristic_value(service_handle, char_handle, 0, value)?;
+    /// gatt.update_characteristic_value(controller, service_handle, char_handle, 0, value).await?;
     /// ```
-    pub fn update_characteristic_value(
+    pub async fn update_characteristic_value(
         &mut self,
+        controller: &ControllerAdapter<'_>,
         service_handle: ServiceHandle,
         char_handle: CharacteristicHandle,
         offset: u8,
@@ -227,21 +169,10 @@ impl GattServer {
             return Err(BleError::InvalidParameter);
         }
 
-        unsafe {
-            let status = aci_gatt_update_char_value(
-                service_handle.0,
-                char_handle.0,
-                offset,
-                value.len() as u8,
-                value.as_ptr(),
-            );
-
-            if status == BLE_STATUS_SUCCESS {
-                Ok(())
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+        let cmd = GattUpdateCharValue::try_new(service_handle.0, char_handle.0, offset, value)
+            .map_err(|_| BleError::InvalidParameter)?;
+        cmd.exec(controller).await?;
+        Ok(())
     }
 
     /// Delete a service from the GATT database
@@ -249,16 +180,13 @@ impl GattServer {
     /// # Parameters
     ///
     /// - `service_handle`: Handle of the service to delete
-    pub fn delete_service(&mut self, service_handle: ServiceHandle) -> Result<(), BleError> {
-        unsafe {
-            let status = ble::aci_gatt_del_service(service_handle.0);
-
-            if status == BLE_STATUS_SUCCESS {
-                Ok(())
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+    pub async fn delete_service(
+        &mut self,
+        controller: &ControllerAdapter<'_>,
+        service_handle: ServiceHandle,
+    ) -> Result<(), BleError> {
+        GattDelService::new(service_handle.0).exec(controller).await?;
+        Ok(())
     }
 
     /// Delete a characteristic from a service
@@ -267,20 +195,16 @@ impl GattServer {
     ///
     /// - `service_handle`: Handle of the service
     /// - `char_handle`: Handle of the characteristic to delete
-    pub fn delete_characteristic(
+    pub async fn delete_characteristic(
         &mut self,
+        controller: &ControllerAdapter<'_>,
         service_handle: ServiceHandle,
         char_handle: CharacteristicHandle,
     ) -> Result<(), BleError> {
-        unsafe {
-            let status = ble::aci_gatt_del_char(service_handle.0, char_handle.0);
-
-            if status == BLE_STATUS_SUCCESS {
-                Ok(())
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+        GattDelChar::new(service_handle.0, char_handle.0)
+            .exec(controller)
+            .await?;
+        Ok(())
     }
 
     /// Send a notification to a connected client
@@ -305,8 +229,9 @@ impl GattServer {
     ///
     /// The `GattNotificationComplete` event will be generated when the notification
     /// has been transmitted.
-    pub fn notify(
+    pub async fn notify(
         &self,
+        controller: &ControllerAdapter<'_>,
         conn_handle: u16,
         service_handle: ServiceHandle,
         char_handle: CharacteristicHandle,
@@ -316,24 +241,18 @@ impl GattServer {
             return Err(BleError::InvalidParameter);
         }
 
-        unsafe {
-            let status = aci_gatt_update_char_value_ext(
-                conn_handle,
-                service_handle.0,
-                char_handle.0,
-                update_type::NOTIFICATION,
-                value.len() as u16,
-                0, // offset
-                value.len() as u8,
-                value.as_ptr(),
-            );
-
-            if status == BLE_STATUS_SUCCESS {
-                Ok(())
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+        let cmd = GattUpdateCharValueExt::try_new(
+            to_bearer(conn_handle)?,
+            service_handle.0,
+            char_handle.0,
+            UpdateType::NOTIFICATION,
+            value.len() as u16,
+            0, // offset
+            value,
+        )
+        .map_err(|_| BleError::InvalidParameter)?;
+        cmd.exec(controller).await?;
+        Ok(())
     }
 
     /// Send an indication to a connected client
@@ -359,8 +278,9 @@ impl GattServer {
     ///
     /// The `GattIndicationComplete` event will be generated when the client
     /// confirms receipt of the indication.
-    pub fn indicate(
+    pub async fn indicate(
         &self,
+        controller: &ControllerAdapter<'_>,
         conn_handle: u16,
         service_handle: ServiceHandle,
         char_handle: CharacteristicHandle,
@@ -370,24 +290,18 @@ impl GattServer {
             return Err(BleError::InvalidParameter);
         }
 
-        unsafe {
-            let status = aci_gatt_update_char_value_ext(
-                conn_handle,
-                service_handle.0,
-                char_handle.0,
-                update_type::INDICATION,
-                value.len() as u16,
-                0, // offset
-                value.len() as u8,
-                value.as_ptr(),
-            );
-
-            if status == BLE_STATUS_SUCCESS {
-                Ok(())
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+        let cmd = GattUpdateCharValueExt::try_new(
+            to_bearer(conn_handle)?,
+            service_handle.0,
+            char_handle.0,
+            UpdateType::INDICATION,
+            value.len() as u16,
+            0, // offset
+            value,
+        )
+        .map_err(|_| BleError::InvalidParameter)?;
+        cmd.exec(controller).await?;
+        Ok(())
     }
 
     /// Read a characteristic value from the local GATT database
@@ -400,26 +314,20 @@ impl GattServer {
     /// # Returns
     ///
     /// Number of bytes read on success
-    pub fn read_value(&self, attr_handle: u16, buffer: &mut [u8]) -> Result<usize, BleError> {
-        unsafe {
-            let mut value_length: u16 = 0;
-            let mut value_offset: u16 = 0;
+    pub async fn read_value(
+        &self,
+        controller: &ControllerAdapter<'_>,
+        attr_handle: u16,
+        buffer: &mut [u8],
+    ) -> Result<usize, BleError> {
+        let resp = GattReadHandleValue::new(attr_handle, 0, buffer.len() as u16)
+            .exec(controller)
+            .await?;
 
-            let status = aci_gatt_read_handle_value(
-                attr_handle,
-                0,
-                buffer.len() as u16,
-                &mut value_length,
-                &mut value_offset,
-                buffer.as_mut_ptr(),
-            );
-
-            if status == BLE_STATUS_SUCCESS {
-                Ok(value_length as usize)
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+        let value = resp.value.as_slice();
+        let len = value.len().min(buffer.len());
+        buffer[..len].copy_from_slice(&value[..len]);
+        Ok(resp.length as usize)
     }
 
     /// Set the GATT event mask
@@ -429,16 +337,9 @@ impl GattServer {
     /// # Parameters
     ///
     /// - `mask`: Bitmask of events to enable (use GattEventMaskBits constants)
-    pub fn set_event_mask(&self, mask: u32) -> Result<(), BleError> {
-        unsafe {
-            let status = aci_gatt_set_event_mask(mask);
-
-            if status == BLE_STATUS_SUCCESS {
-                Ok(())
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+    pub async fn set_event_mask(&self, controller: &ControllerAdapter<'_>, mask: u32) -> Result<(), BleError> {
+        GattSetEventMask::new(mask).exec(controller).await?;
+        Ok(())
     }
 
     /// Respond to a read permit request.
@@ -446,41 +347,60 @@ impl GattServer {
     /// Use this after receiving a `GattEvent::ReadPermitRequest`.
     /// When denying, `error_code` is returned to the client and `attr_handle`
     /// selects the first denied attribute (0 denies all).
-    pub fn permit_read(&self, conn_handle: u16, allow: bool, error_code: u8, attr_handle: u16) -> Result<(), BleError> {
-        unsafe {
-            let status = aci_gatt_permit_read(
-                conn_handle,
-                if allow { ACCESS_ALLOWED } else { ACCESS_DENIED },
-                error_code,
-                attr_handle,
-            );
-            if status == BLE_STATUS_SUCCESS {
-                Ok(())
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+    pub async fn permit_read(
+        &self,
+        controller: &ControllerAdapter<'_>,
+        conn_handle: u16,
+        allow: bool,
+        error_code: u8,
+        attr_handle: u16,
+    ) -> Result<(), BleError> {
+        // The error code is only sent to the client when denying; when
+        // allowing, use a placeholder because the command encodes only
+        // application error codes.
+        let error_code = if allow {
+            AttAppError::INSUFFICIENT_AUTHORIZATION
+        } else {
+            AttAppError::try_from(error_code).map_err(|_| BleError::InvalidParameter)?
+        };
+        let read_status = if allow {
+            PermitStatus::Allowed
+        } else {
+            PermitStatus::Denied
+        };
+        GattPermitRead::new(to_bearer(conn_handle)?, read_status, error_code, attr_handle)
+            .exec(controller)
+            .await?;
+        Ok(())
     }
 
     /// Allow a pending read permit request.
-    pub fn allow_read(&self, conn_handle: u16) -> Result<(), BleError> {
-        self.permit_read(conn_handle, true, 0, 0)
+    pub async fn allow_read(&self, controller: &ControllerAdapter<'_>, conn_handle: u16) -> Result<(), BleError> {
+        self.permit_read(controller, conn_handle, true, 0, 0).await
     }
 
     /// Deny a pending read permit request.
     ///
     /// - `error_code`: ATT error code to send to the client
     /// - `attr_handle`: first denied attribute handle (0 denies all in the request)
-    pub fn deny_read(&self, conn_handle: u16, error_code: u8, attr_handle: u16) -> Result<(), BleError> {
-        self.permit_read(conn_handle, false, error_code, attr_handle)
+    pub async fn deny_read(
+        &self,
+        controller: &ControllerAdapter<'_>,
+        conn_handle: u16,
+        error_code: u8,
+        attr_handle: u16,
+    ) -> Result<(), BleError> {
+        self.permit_read(controller, conn_handle, false, error_code, attr_handle)
+            .await
     }
 
     /// Respond to a write permit request.
     ///
     /// Use this after receiving a `GattEvent::WritePermitRequest`.
     /// If allowing, pass the value that was requested to be written.
-    pub fn permit_write(
+    pub async fn permit_write(
         &self,
+        controller: &ControllerAdapter<'_>,
         conn_handle: u16,
         attr_handle: u16,
         allow: bool,
@@ -490,31 +410,39 @@ impl GattServer {
         if value.len() > 255 {
             return Err(BleError::InvalidParameter);
         }
-        unsafe {
-            let status = aci_gatt_permit_write(
-                conn_handle,
-                attr_handle,
-                if allow { ACCESS_ALLOWED } else { ACCESS_DENIED },
-                error_code,
-                value.len() as u8,
-                value.as_ptr(),
-            );
-            if status == BLE_STATUS_SUCCESS {
-                Ok(())
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+        let write_status = if allow {
+            PermitStatus::Allowed
+        } else {
+            PermitStatus::Denied
+        };
+        let cmd = GattPermitWrite::try_new(to_bearer(conn_handle)?, attr_handle, write_status, error_code, value)
+            .map_err(|_| BleError::InvalidParameter)?;
+        cmd.exec(controller).await?;
+        Ok(())
     }
 
     /// Allow a pending write permit request using the requested value.
-    pub fn allow_write(&self, conn_handle: u16, attr_handle: u16, value: &[u8]) -> Result<(), BleError> {
-        self.permit_write(conn_handle, attr_handle, true, 0, value)
+    pub async fn allow_write(
+        &self,
+        controller: &ControllerAdapter<'_>,
+        conn_handle: u16,
+        attr_handle: u16,
+        value: &[u8],
+    ) -> Result<(), BleError> {
+        self.permit_write(controller, conn_handle, attr_handle, true, 0, value)
+            .await
     }
 
     /// Deny a pending write permit request.
-    pub fn deny_write(&self, conn_handle: u16, attr_handle: u16, error_code: u8) -> Result<(), BleError> {
-        self.permit_write(conn_handle, attr_handle, false, error_code, &[])
+    pub async fn deny_write(
+        &self,
+        controller: &ControllerAdapter<'_>,
+        conn_handle: u16,
+        attr_handle: u16,
+        error_code: u8,
+    ) -> Result<(), BleError> {
+        self.permit_write(controller, conn_handle, attr_handle, false, error_code, &[])
+            .await
     }
 
     /// Add a characteristic descriptor to a characteristic.
@@ -528,17 +456,18 @@ impl GattServer {
     /// - `value_max_len`: maximum descriptor value length in bytes
     /// - `value`: initial descriptor value
     /// - `security`: security requirements (encryption/authentication)
-    /// - `access`: raw attribute access permissions (read/write/...)
+    /// - `access`: attribute access permissions (read/write/...)
     #[allow(clippy::too_many_arguments)]
-    pub fn add_descriptor(
+    pub async fn add_descriptor(
         &mut self,
+        controller: &ControllerAdapter<'_>,
         service_handle: ServiceHandle,
         char_handle: CharacteristicHandle,
         uuid: Uuid,
         value_max_len: u8,
         value: &[u8],
         security: SecurityPermissions,
-        access: AttributeAccess,
+        access: AccessPermissions,
         event_mask: GattEventMask,
         encryption_key_size: u8,
         is_variable: bool,
@@ -547,56 +476,31 @@ impl GattServer {
             return Err(BleError::InvalidParameter);
         }
 
-        let mut desc_handle: u16 = 0;
-        unsafe {
-            let status = match uuid {
-                Uuid::Uuid16(uuid16) => {
-                    let uuid_bytes = uuid16.to_le_bytes();
-                    aci_gatt_add_char_desc(
-                        service_handle.0,
-                        char_handle.0,
-                        UuidType::Uuid16 as u8,
-                        uuid_bytes.as_ptr() as *const _,
-                        value_max_len,
-                        value.len() as u8,
-                        value.as_ptr(),
-                        security.0,
-                        access.0,
-                        event_mask.0,
-                        encryption_key_size,
-                        is_variable as u8,
-                        &mut desc_handle,
-                    )
-                }
-                Uuid::Uuid128(uuid128) => aci_gatt_add_char_desc(
-                    service_handle.0,
-                    char_handle.0,
-                    UuidType::Uuid128 as u8,
-                    uuid128.as_ptr() as *const _,
-                    value_max_len,
-                    value.len() as u8,
-                    value.as_ptr(),
-                    security.0,
-                    access.0,
-                    event_mask.0,
-                    encryption_key_size,
-                    is_variable as u8,
-                    &mut desc_handle,
-                ),
-            };
+        let event_mask = HciGattDescEventMask::from_bits(event_mask.bits()).ok_or(BleError::InvalidParameter)?;
+        let enc_key_size = to_enc_key_size(encryption_key_size)?;
 
-            if status == BLE_STATUS_SUCCESS {
-                Ok(DescriptorHandle(desc_handle))
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+        let cmd = GattAddCharDesc::try_new(
+            service_handle.0,
+            char_handle.0,
+            uuid,
+            value_max_len,
+            value,
+            security,
+            access,
+            event_mask,
+            enc_key_size,
+            is_variable,
+        )
+        .map_err(|_| BleError::InvalidParameter)?;
+        let desc = cmd.exec(controller).await?;
+        Ok(DescriptorHandle(desc.char_desc_handle))
     }
 
     /// Update the value of a descriptor created with
     /// [`add_descriptor`](Self::add_descriptor).
-    pub fn update_descriptor_value(
+    pub async fn update_descriptor_value(
         &mut self,
+        controller: &ControllerAdapter<'_>,
         service_handle: ServiceHandle,
         char_handle: CharacteristicHandle,
         desc_handle: DescriptorHandle,
@@ -606,35 +510,18 @@ impl GattServer {
         if value.len() > 255 {
             return Err(BleError::InvalidParameter);
         }
-        unsafe {
-            let status = aci_gatt_set_desc_value(
-                service_handle.0,
-                char_handle.0,
-                desc_handle.0,
-                offset,
-                value.len() as u8,
-                value.as_ptr(),
-            );
-            if status == BLE_STATUS_SUCCESS {
-                Ok(())
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+        let cmd = GattSetDescValue::try_new(service_handle.0, char_handle.0, desc_handle.0, offset, value)
+            .map_err(|_| BleError::InvalidParameter)?;
+        cmd.exec(controller).await?;
+        Ok(())
     }
 
     /// Force the stack to persist the GATT database.
     ///
     /// The stack already saves the database per active connection on
     /// disconnect; use this to snapshot it immediately instead.
-    pub fn store_db(&self) -> Result<(), BleError> {
-        unsafe {
-            let status = aci_gatt_store_db();
-            if status == BLE_STATUS_SUCCESS {
-                Ok(())
-            } else {
-                Err(BleError::CommandFailed(Status::from_u8(status)))
-            }
-        }
+    pub async fn store_db(&self, controller: &ControllerAdapter<'_>) -> Result<(), BleError> {
+        GattStoreDb::new().exec(controller).await?;
+        Ok(())
     }
 }
