@@ -43,16 +43,6 @@ rm -rf out/tests/nrf51422-dk
 # temporarily disabled, flaky.
 rm -f out/tests/stm32wba65ri/adc
 
-# probe-rs error: "multi-core ram flash start not implemented yet"
-# As of 2025-02-17 these tests work when run from flash
-rm -f out/tests/pimoroni-pico-plus-2/multicore
-rm -f out/tests/pimoroni-pico-plus-2/gpio_multicore
-rm -f out/tests/pimoroni-pico-plus-2/spinlock_mutex_multicore
-# Doesn't work when run from ram on the 2350
-rm -f out/tests/pimoroni-pico-plus-2/flash
-# The pico2 plus doesn't have the adcs hooked up like the picoW does.
-rm -f out/tests/pimoroni-pico-plus-2/adc
-
 # tests are implemented but the HIL test farm doesn't actually have these boards, yet
 rm -rf out/tests/stm32c071rb
 rm -rf out/tests/stm32f100rd

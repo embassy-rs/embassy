@@ -736,6 +736,13 @@ __pre_init:
 // So we just unlock the spinlock manually.
 //
 // We can still use PSM to reset PROC1 since it comes after PROC0 in the state machine.
+//
+// The bootrom executes redundancy coprocessor (RCP) instructions, which fault unless the RCP is
+// enabled in CPACR and its salt registers have been initialized. The bootrom does both on a normal
+// boot, but not if a debugger loads the image and jumps to it directly after a reset. Core 1 also
+// waits in the bootrom for its salt to become valid before it can be launched. So, like pico-sdk's
+// crt0, enable the RCP and initialize the salts if nobody did it yet. This must happen before
+// resetting PROC1.
 #[cfg(feature = "rt")]
 #[cfg(feature = "_rp235x")]
 core::arch::global_asm!(
@@ -746,6 +753,25 @@ core::arch::global_asm!(
     .type __pre_init, %function
     .thumb_func
 __pre_init:
+    // Enable full access to coprocessor 7 (RCP) in CPACR.
+    ldr r0, =0xe000ed88
+    ldr r1, [r0]
+    orr r1, r1, #0xc000
+    str r1, [r0]
+    dsb
+    isb
+
+    // rcp_canary_status: sets N if the salt is valid. Writing a valid salt again is an RCP fault.
+    mrc p7, #1, apsr_nzcv, c0, c0, #0
+    bmi .Lrp235x_rcp_salt_valid
+    // rcp_salt_core0, rcp_salt_core1. The value doesn't matter much: we only get here if the
+    // bootrom didn't run, which a secure boot would have done.
+    mcrr p7, #8, r0, r0, c0
+    mcrr p7, #8, r0, r0, c1
+    // Wake core 1 if it's waiting for its salt.
+    sev
+.Lrp235x_rcp_salt_valid:
+
     // pac::SIO.spinlock(31).write_value(1);
     ldr r0, =0xd000017c
     movs r1, #1
