@@ -171,6 +171,10 @@ pub struct Clocks {
 
     /// `pll1_clk_div` is a configurable frequency clock, sourced from `pll1_clk`
     pub pll1_clk_div: Option<Clock>,
+
+    /// Cumulative explicit shallow-Sleep entry evidence since clock initialization.
+    #[cfg(feature = "sleep-diagnostics")]
+    pub sleep_diagnostics: super::sleep::SleepDiagnostics,
 }
 
 /// `ClockError` is the main error returned when configuring or checking clock state
@@ -209,9 +213,10 @@ pub struct Clock {
 /// mode will be stopped. This means that any downstream usage, e.g. by peripherals,
 /// will also stop.
 ///
-/// In the future, we will provide an API for entering Deep Sleep, and if there are
-/// any peripherals that are NOT using an `AlwaysEnabled` clock active, entry into
-/// Deep Sleep will be prevented, in order to avoid misbehaving peripherals.
+/// Drivers using active-only clocks retain a [`WakeGuard`]. All public Deep Sleep
+/// entry APIs reject entry while any such guard is live. Shallow Sleep is not
+/// inhibited by these guards. An `AlwaysEnabled` clock alone does not establish
+/// that every resource needed for peripheral operation is retained.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PoweredClock {

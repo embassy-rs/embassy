@@ -10,6 +10,9 @@
 #[cfg(all(test, not(target_os = "none")))]
 extern crate embassy_executor as _;
 
+#[cfg(test)]
+mod test_support;
+
 #[cfg(all(feature = "executor-platform", feature = "external-deep-sleep-executor"))]
 compile_error!("embassy-mcxa executor-platform and external-deep-sleep-executor are mutually exclusive");
 

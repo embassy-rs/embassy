@@ -12,6 +12,17 @@ pub(crate) fn default_register_value<T: Copy + Default, A: crate::pac::common::A
     T::default()
 }
 
+/// Wait a bounded number of reads for a peripheral enable acknowledgement.
+pub(crate) fn wait_for_enable_state(mut enabled: impl FnMut() -> bool, expected: bool) -> bool {
+    for _ in 0..1024 {
+        if enabled() == expected {
+            return true;
+        }
+        core::hint::spin_loop();
+    }
+    false
+}
+
 /// Trait describing an AHB clock gate that can be toggled through MRCC.
 pub trait Gate {
     type MrccPeriphConfig: SPConfHelper;

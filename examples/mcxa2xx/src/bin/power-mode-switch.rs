@@ -307,6 +307,9 @@ async fn main(_spawner: Spawner) {
                         .write("No clock gating recorded: a pending event or debugger may have prevented entry.\r\n");
                 }
             }
+            Err(hal::clocks::PowerModeError::DeepSleepInhibited) => {
+                console.write("Deep Sleep inhibited by a live WakeGuard; no entry was attempted.\r\n");
+            }
             Err(error) => {
                 defmt::error!("Power mode entry/recovery failed: {:?}", error);
                 console.print(format_args!("Power mode entry/recovery failed: {:?}\r\n", error));

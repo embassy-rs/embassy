@@ -14,7 +14,7 @@ use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode as IoMode, Sck
 use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 
@@ -26,6 +26,8 @@ const LPSPI_FIFO_SIZE: u8 = 4;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum SetupError {
+    /// Resume the controller before changing its configuration.
+    Suspended,
     /// Clock configuration error.
     ClockSetup(ClockError),
     /// Other internal errors or unexpected state.
@@ -37,6 +39,10 @@ pub enum SetupError {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum IoError {
+    /// The controller is explicitly suspended.
+    Suspended,
+    /// A transfer, DMA request, or unread FIFO data prevents suspension.
+    Busy,
     /// Receive error.
     ///
     /// Indicates FIFO overflow condition has happened.
@@ -47,6 +53,12 @@ pub enum IoError {
     TransmitError,
     /// Other internal errors or unexpected state.
     Other,
+}
+
+fn wait_for_module_enable(enabled: impl FnMut() -> bool, expected: bool) -> Result<(), IoError> {
+    crate::clocks::wait_for_enable_state(enabled, expected)
+        .then_some(())
+        .ok_or(IoError::Other)
 }
 
 impl From<crate::dma::InvalidParameters> for IoError {
@@ -137,6 +149,8 @@ pub struct Spi<'d, M: IoMode> {
     _freq: u32,
     mode: M,
     _wg: Option<WakeGuard>,
+    power: PoweredClock,
+    suspended: bool,
     _phantom: PhantomData<&'d mut M>,
 }
 
@@ -169,6 +183,8 @@ impl<'d, M: IoMode> Spi<'d, M> {
             mode,
             _freq: parts.freq,
             _wg: parts.wake_guard,
+            power,
+            suspended: false,
             _phantom: PhantomData,
         };
 
@@ -178,6 +194,9 @@ impl<'d, M: IoMode> Spi<'d, M> {
     }
 
     fn set_configuration(&mut self, config: &Config) -> Result<(), SetupError> {
+        if self.suspended {
+            return Err(SetupError::Suspended);
+        }
         let (prescaler, div) = compute_baud_params(self._freq, config.frequency);
 
         self.info.regs().cr().write(|w| {
@@ -236,7 +255,79 @@ impl<'d, M: IoMode> Spi<'d, M> {
 }
 
 impl<'d, M: IoMode> Spi<'d, M> {
+    /// Stop an idle controller and release its Deep Sleep requirement.
+    ///
+    /// Cancel outstanding I/O and deassert any externally managed chip select
+    /// first. Pending transfers, FIFO data, or armed DMA requests return
+    /// [`IoError::Busy`] without changing hardware or its guard.
+    /// Once a disable is requested, I/O stays inhibited even if acknowledgement
+    /// fails. The guard remains held in that case; explicitly resume to recover.
+    pub fn suspend(&mut self) -> Result<(), IoError> {
+        critical_section::with(|_| {
+            let fifo = self.info.regs().fsr().read();
+            if self.info.regs().sr().read().mbf() == Mbf::Busy
+                || fifo.txcount() != 0
+                || fifo.rxcount() != 0
+                || self.info.regs().der().read().0 != 0
+                || self.mode.dma_is_armed_or_active()
+            {
+                return Err(IoError::Busy);
+            }
+            self.suspended = true;
+            self.info.regs().ier().write(|w| w.0 = 0);
+            self.mode.stop_dma();
+            self.info.regs().cr().modify(|w| w.set_men(false));
+            wait_for_module_enable(|| self.info.regs().cr().read().men(), false)?;
+            self._wg = None;
+            Ok(())
+        })
+    }
+
+    /// Restore the requirement before enabling and acknowledging the controller.
+    ///
+    /// An unexpectedly disabled but otherwise idle configured controller can
+    /// also be resumed. Queued data or a lost master configuration is rejected.
+    pub fn resume(&mut self) -> Result<(), IoError> {
+        if self.suspended || !self.info.regs().cr().read().men() {
+            critical_section::with(|_| {
+                let was_suspended = self.suspended;
+                self.suspended = true;
+                self._wg = WakeGuard::for_power(&self.power);
+                if self.info.regs().cfgr1().read().master() != Master::MasterMode {
+                    return Err(IoError::Other);
+                }
+                if !was_suspended {
+                    let fifo = self.info.regs().fsr().read();
+                    if fifo.txcount() != 0 || fifo.rxcount() != 0 || self.mode.dma_is_armed_or_active() {
+                        return Err(IoError::Busy);
+                    }
+                }
+                self.info.regs().cr().modify(|w| w.set_men(true));
+                wait_for_module_enable(|| self.info.regs().cr().read().men(), true)?;
+                self.suspended = false;
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Whether I/O is inhibited until an explicit resume.
+    pub fn is_suspended(&self) -> bool {
+        self.suspended
+    }
+
+    fn ensure_active(&self) -> Result<(), IoError> {
+        if self.suspended {
+            Err(IoError::Suspended)
+        } else if !self.info.regs().cr().read().men() {
+            Err(IoError::Other)
+        } else {
+            Ok(())
+        }
+    }
+
     fn check_status(&mut self) -> Result<(), IoError> {
+        self.ensure_active()?;
         let status = self.info.regs().sr().read();
 
         if status.ref_() {
@@ -254,6 +345,7 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
     /// Read data from Spi blocking execution until done.
     pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if data.is_empty() {
             return Ok(());
         }
@@ -265,12 +357,16 @@ impl<'d, M: IoMode> Spi<'d, M> {
         });
 
         for word in data {
-            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
+            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {
+                self.check_status()?;
+            }
             self.check_status()?;
             self.info.regs().tdr().write(|w| w.set_data(0));
 
             // Wait until we have data in the RxFIFO.
-            while self.info.regs().fsr().read().rxcount() == 0 {}
+            while self.info.regs().fsr().read().rxcount() == 0 {
+                self.check_status()?;
+            }
             self.check_status()?;
             *word = self.info.regs().rdr().read().data() as u8;
         }
@@ -280,6 +376,7 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
     /// Write data to Spi blocking execution until done.
     pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if data.is_empty() {
             return Ok(());
         }
@@ -291,7 +388,9 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
         for word in data {
             // Wait until we have at least one byte space in the TxFIFO.
-            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
+            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {
+                self.check_status()?;
+            }
             self.check_status()?;
             self.info.regs().tdr().write(|w| w.set_data(*word as u32));
         }
@@ -301,6 +400,7 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
     /// Transfer data to SPI blocking execution until done.
     pub fn blocking_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if read.is_empty() && write.is_empty() {
             return Ok(());
         }
@@ -316,35 +416,47 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
         for (rb, wb) in read_common.iter_mut().zip(write_common.iter()) {
             // Wait until we have at least one byte space in the TxFIFO.
-            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
+            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {
+                self.check_status()?;
+            }
             self.check_status()?;
             self.info.regs().tdr().write(|w| w.set_data(*wb as u32));
 
             // Wait until we have data in the RxFIFO.
-            while self.info.regs().fsr().read().rxcount() == 0 {}
+            while self.info.regs().fsr().read().rxcount() == 0 {
+                self.check_status()?;
+            }
             self.check_status()?;
             *rb = self.info.regs().rdr().read().data() as u8;
         }
 
         if !read_tail.is_empty() {
             for rb in read_tail {
-                while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
+                while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {
+                    self.check_status()?;
+                }
                 self.check_status()?;
                 self.info.regs().tdr().write(|w| w.set_data(0));
 
-                while self.info.regs().fsr().read().rxcount() == 0 {}
+                while self.info.regs().fsr().read().rxcount() == 0 {
+                    self.check_status()?;
+                }
                 self.check_status()?;
                 *rb = self.info.regs().rdr().read().data() as u8;
             }
         }
 
         if !write_tail.is_empty() {
-            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
+            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {
+                self.check_status()?;
+            }
             self.check_status()?;
             self.info.regs().tcr().modify(|w| w.set_rxmsk(Rxmsk::Mask));
 
             for wb in write_tail {
-                while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
+                while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {
+                    self.check_status()?;
+                }
                 self.check_status()?;
                 self.info.regs().tdr().write(|w| w.set_data(*wb as u32));
             }
@@ -355,6 +467,7 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
     /// Transfer data in place to SPI blocking execution until done.
     pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if data.is_empty() {
             return Ok(());
         }
@@ -366,12 +479,16 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
         for word in data {
             // Wait until we have at least one byte space in the TxFIFO.
-            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
+            while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {
+                self.check_status()?;
+            }
             self.check_status()?;
             self.info.regs().tdr().write(|w| w.set_data(*word as u32));
 
             // Wait until we have data in the RxFIFO.
-            while self.info.regs().fsr().read().rxcount() == 0 {}
+            while self.info.regs().fsr().read().rxcount() == 0 {
+                self.check_status()?;
+            }
             self.check_status()?;
             *word = self.info.regs().rdr().read().data() as u8;
         }
@@ -381,7 +498,10 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
     /// Block execution until Spi is done.
     pub fn blocking_flush(&mut self) -> Result<(), IoError> {
-        while self.info.regs().sr().read().mbf() == Mbf::Busy {}
+        self.ensure_active()?;
+        while self.info.regs().sr().read().mbf() == Mbf::Busy {
+            self.check_status()?;
+        }
         self.check_status()
     }
 }
@@ -887,6 +1007,7 @@ where
 
     /// Async flush.
     pub async fn async_flush(&mut self) -> Result<(), IoError> {
+        self.ensure_active()?;
         self.info
             .wait_cell()
             .wait_for(|| {
@@ -900,6 +1021,7 @@ where
 
 impl<'d> AsyncEngine for Spi<'d, Async> {
     async fn async_read_internal(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if data.is_empty() {
             return Ok(());
         }
@@ -946,6 +1068,7 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
     }
 
     async fn async_write_internal(&mut self, data: &[u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if data.is_empty() {
             return Ok(());
         }
@@ -978,6 +1101,7 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
     }
 
     async fn async_transfer_internal(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if read.is_empty() && write.is_empty() {
             return Ok(());
         }
@@ -1091,6 +1215,7 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
     }
 
     async fn async_transfer_in_place_internal(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if data.is_empty() {
             return Ok(());
         }
@@ -1130,6 +1255,7 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
 
 impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
     async fn async_read_internal(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if data.is_empty() {
             return Ok(());
         }
@@ -1154,6 +1280,7 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
     }
 
     async fn async_write_internal(&mut self, data: &[u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if data.is_empty() {
             return Ok(());
         }
@@ -1177,6 +1304,7 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
     }
 
     async fn async_transfer_internal(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if read.is_empty() && write.is_empty() {
             return Ok(());
         }
@@ -1233,6 +1361,7 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
     }
 
     async fn async_transfer_in_place_internal(&mut self, data: &mut [u8]) -> Result<(), IoError> {
+        self.ensure_active()?;
         if data.is_empty() {
             return Ok(());
         }
@@ -1247,6 +1376,25 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
         }
 
         self.async_flush().await
+    }
+}
+
+impl<M: IoMode> Drop for Spi<'_, M> {
+    fn drop(&mut self) {
+        self.info.regs().ier().write(|w| w.0 = 0);
+        self.info.regs().der().write(|w| w.0 = 0);
+        self.mode.stop_dma();
+        self.info.regs().cr().modify(|w| {
+            w.set_men(false);
+            w.set_rst(true);
+        });
+        self._sck.set_as_disabled();
+        if let Some(pin) = &self._miso {
+            pin.set_as_disabled();
+        }
+        if let Some(pin) = &self._mosi {
+            pin.set_as_disabled();
+        }
     }
 }
 
@@ -1315,7 +1463,7 @@ impl<'d, M: IoMode> embedded_hal_02::blocking::spi::Write<u8> for Spi<'d, M> {
 impl embedded_hal_1::spi::Error for IoError {
     fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
         match *self {
-            IoError::Other => embedded_hal_1::spi::ErrorKind::Other,
+            IoError::Other | IoError::Suspended | IoError::Busy => embedded_hal_1::spi::ErrorKind::Other,
             IoError::ReceiveError => embedded_hal_1::spi::ErrorKind::Overrun,
             IoError::TransmitError => embedded_hal_1::spi::ErrorKind::Other,
         }
@@ -1379,5 +1527,204 @@ impl<'d, M: IoMode> SetConfig for Spi<'d, M> {
 
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         self.set_configuration(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use super::*;
+    use embassy_futures::block_on;
+    use std::boxed::Box;
+
+    fn test_spi<'d, M: IoMode + 'd>(mode: M, power: PoweredClock) -> Spi<'d, M> {
+        let memory = Box::leak(Box::new([0u32; 256]));
+        // SAFETY: this uniquely allocated aligned block covers the SPI registers.
+        let regs = unsafe { crate::pac::lpspi::Lpspi::from_ptr(memory.as_mut_ptr().cast()) };
+        let info = Box::leak(Box::new(Info {
+            regs,
+            wait_cell: maitake_sync::WaitCell::new(),
+        }));
+        info.regs().cr().modify(|w| w.set_men(true));
+        info.regs().cfgr1().modify(|w| w.set_master(Master::MasterMode));
+        Spi {
+            info,
+            _sck: crate::test_support::pin(),
+            _miso: Some(crate::test_support::pin()),
+            _mosi: Some(crate::test_support::pin()),
+            _freq: 12_000_000,
+            mode,
+            _wg: WakeGuard::for_power(&power),
+            power,
+            suspended: false,
+            _phantom: PhantomData,
+        }
+    }
+
+    #[test]
+    fn spi_suspension_rejects_io_until_explicit_resume() {
+        critical_section::with(|cs| {
+            let mut spi = test_spi(Blocking, PoweredClock::NormalEnabledDeepSleepDisabled);
+            spi.suspend().unwrap();
+            assert!(spi.is_suspended());
+            assert!(!spi.info.regs().cr().read().men());
+            assert!(!crate::clocks::active_wake_guards(&cs));
+            assert_eq!(spi.blocking_write(&[]), Err(IoError::Suspended));
+            assert_eq!(spi.blocking_read(&mut []), Err(IoError::Suspended));
+            assert_eq!(spi.blocking_transfer(&mut [], &[]), Err(IoError::Suspended));
+            assert_eq!(spi.blocking_transfer_in_place(&mut []), Err(IoError::Suspended));
+            assert_eq!(spi.blocking_flush(), Err(IoError::Suspended));
+            assert_eq!(spi.set_configuration(&Config::default()), Err(SetupError::Suspended));
+            spi.suspend().unwrap();
+            spi.resume().unwrap();
+            spi.resume().unwrap();
+            assert!(spi.info.regs().cr().read().men());
+            assert!(crate::clocks::active_wake_guards(&cs));
+            let info = spi.info;
+            drop(spi);
+            assert!(info.regs().cr().read().rst());
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn module_enable_acknowledgement_waits_for_delayed_readback() {
+        let mut reads = 0;
+        let result = wait_for_module_enable(
+            || {
+                reads += 1;
+                reads > 3
+            },
+            true,
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(reads, 4);
+    }
+
+    #[test]
+    fn module_enable_acknowledgement_is_bounded() {
+        let mut reads = 0;
+        let result = wait_for_module_enable(
+            || {
+                reads += 1;
+                true
+            },
+            false,
+        );
+        assert_eq!(result, Err(IoError::Other));
+        assert_eq!(reads, 1024);
+    }
+
+    #[test]
+    fn resume_repairs_an_idle_disabled_module_even_if_software_was_active() {
+        critical_section::with(|cs| {
+            let mut spi = test_spi(Blocking, PoweredClock::NormalEnabledDeepSleepDisabled);
+            spi.info.regs().cr().modify(|w| w.set_men(false));
+            assert!(!spi.is_suspended());
+            spi.resume().unwrap();
+            assert!(spi.info.regs().cr().read().men());
+            assert!(!spi.is_suspended());
+            assert!(crate::clocks::active_wake_guards(&cs));
+            drop(spi);
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn disabled_module_with_queued_data_is_not_replayed_by_resume() {
+        critical_section::with(|cs| {
+            let mut spi = test_spi(Blocking, PoweredClock::NormalEnabledDeepSleepDisabled);
+            spi.info.regs().cr().modify(|w| w.set_men(false));
+            // SAFETY: the read-only hardware register is backed by writable fixture RAM.
+            unsafe { spi.info.regs().fsr().as_ptr().write_volatile(crate::pac::lpspi::Fsr(2)) };
+            assert_eq!(spi.resume(), Err(IoError::Busy));
+            assert!(spi.is_suspended());
+            assert!(!spi.info.regs().cr().read().men());
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn resume_rejects_lost_configuration_without_releasing_the_guard() {
+        critical_section::with(|cs| {
+            let mut spi = test_spi(Blocking, PoweredClock::NormalEnabledDeepSleepDisabled);
+            spi.suspend().unwrap();
+            spi.info.regs().cfgr1().write(|w| w.0 = 0);
+            assert_eq!(spi.resume(), Err(IoError::Other));
+            assert!(spi.is_suspended());
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn disabled_hardware_returns_error_before_the_jedec_fifo_wait() {
+        let mut spi = test_spi(Blocking, PoweredClock::NormalEnabledDeepSleepDisabled);
+        spi.info.regs().cr().modify(|w| w.set_men(false));
+        let mut jedec = [0x9f, 0, 0, 0];
+        assert_eq!(spi.blocking_transfer_in_place(&mut jedec), Err(IoError::Other));
+        assert_eq!(spi.check_status(), Err(IoError::Other));
+        assert_eq!(spi.info.regs().fsr().read().txcount(), 0);
+    }
+
+    #[test]
+    fn spi_busy_fifo_or_dma_rejection_retains_guard() {
+        critical_section::with(|cs| {
+            let mut spi = test_spi(Blocking, PoweredClock::NormalEnabledDeepSleepDisabled);
+            spi.info.regs().sr().modify(|w| w.set_mbf(Mbf::Busy));
+            assert_eq!(spi.suspend(), Err(IoError::Busy));
+            spi.info.regs().sr().write(|w| w.0 = 0);
+            let mut fifo = spi.info.regs().fsr().read();
+            fifo.set_txcount(1);
+            // SAFETY: the read-only hardware register is backed by writable test RAM.
+            unsafe { spi.info.regs().fsr().as_ptr().write_volatile(fifo) };
+            assert_eq!(spi.suspend(), Err(IoError::Busy));
+            // SAFETY: this register points into the isolated fixture allocation.
+            unsafe { spi.info.regs().fsr().as_ptr().write_volatile(crate::pac::lpspi::Fsr(0)) };
+            spi.info.regs().der().write(|w| w.set_rdde(true));
+            assert_eq!(spi.suspend(), Err(IoError::Busy));
+            assert!(!spi.is_suspended());
+            assert!(spi.info.regs().cr().read().men());
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn suspended_async_spi_cannot_rearm_hardware() {
+        let mut spi = test_spi(Async, PoweredClock::AlwaysEnabled);
+        spi.suspend().unwrap();
+        assert_eq!(block_on(spi.async_read(&mut [])), Err(IoError::Suspended));
+        assert_eq!(block_on(spi.async_write(&[])), Err(IoError::Suspended));
+        assert_eq!(block_on(spi.async_transfer(&mut [], &[])), Err(IoError::Suspended));
+        assert_eq!(block_on(spi.async_transfer_in_place(&mut [])), Err(IoError::Suspended));
+        assert_eq!(block_on(spi.async_flush()), Err(IoError::Suspended));
+        assert_eq!(spi.info.regs().ier().read().0, 0);
+        spi.resume().unwrap();
+        assert!(spi._wg.is_none());
+    }
+
+    #[test]
+    fn armed_dma_rejects_suspend_even_when_peripheral_requests_are_disabled() {
+        struct ArmedMode<'a>(&'a core::cell::Cell<bool>);
+        impl super::super::sealed::Sealed for ArmedMode<'_> {
+            fn stop_dma(&self) {
+                self.0.set(true);
+            }
+
+            fn dma_is_armed_or_active(&self) -> bool {
+                true
+            }
+        }
+        impl super::super::Mode for ArmedMode<'_> {}
+
+        critical_section::with(|cs| {
+            let stopped = core::cell::Cell::new(false);
+            let mut spi = test_spi(ArmedMode(&stopped), PoweredClock::NormalEnabledDeepSleepDisabled);
+            assert_eq!(spi.suspend(), Err(IoError::Busy));
+            assert!(!stopped.get());
+            assert!(!spi.is_suspended());
+            assert!(spi.info.regs().cr().read().men());
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
     }
 }

@@ -1,4 +1,8 @@
-//! CTimer-based Capture driver
+//! CTimer-based Capture driver.
+//!
+//! Suspension disables this channel's edge detection and interrupt before
+//! releasing its guard. A shared timer stops only after its last PWM/capture
+//! user stops; captured timestamps do not include time spent with it stopped.
 
 use core::fmt;
 use core::marker::PhantomData;
@@ -8,7 +12,7 @@ use core::sync::atomic::Ordering;
 use embassy_hal_internal::Peri;
 
 use super::{AnyChannel, CTimer, CTimerChannel, Channel, Info, InputPin, Instance};
-use crate::clocks::WakeGuard;
+use crate::clocks::{PoweredClock, WakeGuard};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::inputmux::{SealedValidInputMuxConfig, ValidInputMuxConfig};
 use crate::interrupt;
@@ -16,8 +20,13 @@ use crate::interrupt::typelevel::Interrupt;
 
 /// Capture error.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum CaptureError {
+    /// The channel does not belong to the supplied timer core.
+    TimerMismatch,
+    /// Resume the channel before waiting for a capture.
+    Suspended,
     /// Other
     Other,
 }
@@ -160,6 +169,9 @@ pub struct Capture<'d> {
     pin: Peri<'d, AnyPin>,
     source_freq: u32,
     _wg: Option<WakeGuard>,
+    power: PoweredClock,
+    config: Config,
+    suspended: bool,
 }
 
 impl<'d> Capture<'d> {
@@ -177,6 +189,9 @@ impl<'d> Capture<'d> {
     where
         (T, CH, PIN): ValidInputMuxConfig,
     {
+        if !core::ptr::eq(ctimer.info, T::info()) {
+            return Err(CaptureError::TimerMismatch);
+        }
         pin.mux();
         <(T, CH, PIN) as SealedValidInputMuxConfig>::mux();
 
@@ -186,6 +201,9 @@ impl<'d> Capture<'d> {
             pin: pin.into(),
             source_freq: ctimer._freq,
             _wg: ctimer._wg.clone(),
+            power: ctimer.power,
+            config,
+            suspended: false,
         };
 
         inst.set_configuration(&config)?;
@@ -202,57 +220,60 @@ impl<'d> Capture<'d> {
     }
 
     fn set_configuration(&mut self, config: &Config) -> Result<(), CaptureError> {
-        self.info.regs().ccr().modify(|w| {
-            match self.ch.number() {
-                Channel::Zero => match config.edge {
-                    Edge::Both => {
-                        w.set_cap0re(true);
-                        w.set_cap0fe(true);
-                    }
-                    Edge::RisingEdge => {
-                        w.set_cap0re(true);
-                    }
-                    Edge::FallingEdge => {
-                        w.set_cap0fe(true);
-                    }
-                },
-                Channel::One => match config.edge {
-                    Edge::Both => {
-                        w.set_cap1re(true);
-                        w.set_cap1fe(true);
-                    }
-                    Edge::RisingEdge => {
-                        w.set_cap1re(true);
-                    }
-                    Edge::FallingEdge => {
-                        w.set_cap1fe(true);
-                    }
-                },
-                Channel::Two => match config.edge {
-                    Edge::Both => {
-                        w.set_cap2re(true);
-                        w.set_cap2fe(true);
-                    }
-                    Edge::RisingEdge => {
-                        w.set_cap2re(true);
-                    }
-                    Edge::FallingEdge => {
-                        w.set_cap2fe(true);
-                    }
-                },
-                Channel::Three => match config.edge {
-                    Edge::Both => {
-                        w.set_cap3re(true);
-                        w.set_cap3fe(true);
-                    }
-                    Edge::RisingEdge => {
-                        w.set_cap3re(true);
-                    }
-                    Edge::FallingEdge => {
-                        w.set_cap3fe(true);
-                    }
-                },
-            };
+        critical_section::with(|_| {
+            self.info.regs().ccr().modify(|w| {
+                w.0 &= !(0b11 << (usize::from(self.ch.number()) * 3));
+                match self.ch.number() {
+                    Channel::Zero => match config.edge {
+                        Edge::Both => {
+                            w.set_cap0re(true);
+                            w.set_cap0fe(true);
+                        }
+                        Edge::RisingEdge => {
+                            w.set_cap0re(true);
+                        }
+                        Edge::FallingEdge => {
+                            w.set_cap0fe(true);
+                        }
+                    },
+                    Channel::One => match config.edge {
+                        Edge::Both => {
+                            w.set_cap1re(true);
+                            w.set_cap1fe(true);
+                        }
+                        Edge::RisingEdge => {
+                            w.set_cap1re(true);
+                        }
+                        Edge::FallingEdge => {
+                            w.set_cap1fe(true);
+                        }
+                    },
+                    Channel::Two => match config.edge {
+                        Edge::Both => {
+                            w.set_cap2re(true);
+                            w.set_cap2fe(true);
+                        }
+                        Edge::RisingEdge => {
+                            w.set_cap2re(true);
+                        }
+                        Edge::FallingEdge => {
+                            w.set_cap2fe(true);
+                        }
+                    },
+                    Channel::Three => match config.edge {
+                        Edge::Both => {
+                            w.set_cap3re(true);
+                            w.set_cap3fe(true);
+                        }
+                        Edge::RisingEdge => {
+                            w.set_cap3re(true);
+                        }
+                        Edge::FallingEdge => {
+                            w.set_cap3fe(true);
+                        }
+                    },
+                };
+            })
         });
 
         Ok(())
@@ -262,7 +283,44 @@ impl<'d> Capture<'d> {
         self.source_freq
     }
 
+    /// Stop this channel after cancelling any outstanding capture future.
+    pub fn suspend(&mut self) {
+        critical_section::with(|_| {
+            let shift = usize::from(self.ch.number()) * 3;
+            self.info.regs().ccr().modify(|w| w.0 &= !(0b111 << shift));
+            let mask = 1 << usize::from(self.ch.number());
+            self.info.regs().ir().write(|w| w.0 = mask << 4);
+            self.info.irq_flags().fetch_and(!(mask as u8), Ordering::AcqRel);
+            self.info.stop_if_unused();
+            self.suspended = true;
+            self._wg = None;
+        });
+    }
+
+    /// Restore this channel's requirement and edge configuration before running.
+    pub fn resume(&mut self) -> Result<(), CaptureError> {
+        if self.suspended {
+            critical_section::with(|_| {
+                self._wg = WakeGuard::for_power(&self.power);
+                let config = self.config;
+                self.set_configuration(&config)?;
+                self.info.regs().tcr().modify(|w| w.set_cen(true));
+                self.suspended = false;
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Whether edge capture is explicitly suspended.
+    pub fn is_suspended(&self) -> bool {
+        self.suspended
+    }
+
     pub async fn capture(&mut self) -> Result<Timestamp, CaptureError> {
+        if self.suspended {
+            return Err(CaptureError::Suspended);
+        }
         self.info
             .wait_cell()
             .wait_for(|| {
@@ -295,6 +353,7 @@ impl<'d> Capture<'d> {
 
 impl<'d> Drop for Capture<'d> {
     fn drop(&mut self) {
+        self.suspend();
         self.pin.set_as_disabled();
     }
 }
@@ -317,26 +376,116 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 w.set_cap0i(false);
                 mask |= 1 << 0;
             }
-
             if ir.cr1int() {
                 w.set_cap1i(false);
                 mask |= 1 << 1;
             }
-
             if ir.cr2int() {
                 w.set_cap2i(false);
                 mask |= 1 << 2;
             }
-
             if ir.cr3int() {
                 w.set_cap3i(false);
                 mask |= 1 << 3;
             }
         });
         T::info().irq_flags().fetch_or(mask, Ordering::Release);
-
         T::PERF_INT_WAKE_INCR();
         T::info().wait_cell().wake();
+    }
+}
+
+#[cfg(test)]
+mod power_tests {
+    extern crate std;
+
+    use super::*;
+    use core::sync::atomic::AtomicU8;
+    use embassy_futures::block_on;
+    use std::boxed::Box;
+
+    fn test_capture() -> Capture<'static> {
+        let memory = Box::leak(Box::new([0u32; 64]));
+        // SAFETY: isolated aligned RAM covers the CTIMER registers.
+        let regs = unsafe { crate::pac::ctimer::Ctimer::from_ptr(memory.as_mut_ptr().cast()) };
+        let info = Box::leak(Box::new(Info {
+            regs,
+            wait_cell: maitake_sync::WaitCell::new(),
+            irq_flags: AtomicU8::new(0),
+        }));
+        // SAFETY: the channel addresses only the isolated register fixture.
+        let ch = unsafe { Peri::new_unchecked(AnyChannel::new(Channel::One)) };
+        let mut capture = Capture {
+            info,
+            ch,
+            pin: crate::test_support::pin(),
+            source_freq: 12_000_000,
+            _wg: Some(WakeGuard::new()),
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            config: Config { edge: Edge::RisingEdge },
+            suspended: false,
+        };
+        let config = capture.config;
+        capture.set_configuration(&config).unwrap();
+        info.regs().tcr().modify(|w| w.set_cen(true));
+        capture
+    }
+
+    #[test]
+    fn capture_stops_edges_before_releasing_its_guard() {
+        critical_section::with(|cs| {
+            let mut capture = test_capture();
+            capture.info.regs().ccr().modify(|w| w.set_cap1i(true));
+            capture.info.irq_flags().store(1 << 1, Ordering::Release);
+            capture.suspend();
+            assert!(capture.is_suspended());
+            assert!(matches!(
+                embassy_embedded_hal::SetConfig::set_config(&mut capture, &Config::default()),
+                Err(CaptureError::Suspended)
+            ));
+            assert!(!capture.info.regs().ccr().read().cap1re());
+            assert!(!capture.info.regs().ccr().read().cap1i());
+            assert_eq!(capture.info.irq_flags().load(Ordering::Acquire), 0);
+            assert!(!capture.info.regs().tcr().read().cen());
+            assert!(!crate::clocks::active_wake_guards(&cs));
+            assert!(matches!(block_on(capture.capture()), Err(CaptureError::Suspended)));
+            capture.resume().unwrap();
+            assert!(capture.info.regs().ccr().read().cap1re());
+            assert!(!capture.info.regs().ccr().read().cap1fe());
+            assert!(crate::clocks::active_wake_guards(&cs));
+            let info = capture.info;
+            drop(capture);
+            assert!(!info.regs().tcr().read().cen());
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn dropping_capture_preserves_other_timer_channels() {
+        let capture = test_capture();
+        let info = capture.info;
+        info.regs().ccr().modify(|w| w.set_cap2re(true));
+        drop(capture);
+        assert!(!info.regs().ccr().read().cap1re());
+        assert!(info.regs().ccr().read().cap2re());
+        assert!(info.regs().tcr().read().cen());
+    }
+
+    #[test]
+    fn resume_restores_the_latest_edge_configuration() {
+        let mut capture = test_capture();
+        embassy_embedded_hal::SetConfig::set_config(
+            &mut capture,
+            &Config {
+                edge: Edge::FallingEdge,
+            },
+        )
+        .unwrap();
+        assert!(!capture.info.regs().ccr().read().cap1re());
+        capture.suspend();
+        capture.resume().unwrap();
+        assert!(!capture.info.regs().ccr().read().cap1re());
+        assert!(capture.info.regs().ccr().read().cap1fe());
     }
 }
 
@@ -345,6 +494,11 @@ impl<'d> embassy_embedded_hal::SetConfig for Capture<'d> {
     type ConfigError = CaptureError;
 
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
-        self.set_configuration(config)
+        if self.suspended {
+            return Err(CaptureError::Suspended);
+        }
+        self.set_configuration(config)?;
+        self.config = *config;
+        Ok(())
     }
 }

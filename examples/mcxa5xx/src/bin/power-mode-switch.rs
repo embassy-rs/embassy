@@ -217,6 +217,9 @@ async fn main(_spawner: Spawner) {
             match entry_result {
                 Ok(Some(status)) => write_sleep_status(&mut console, status),
                 Ok(None) => {}
+                Err(hal::clocks::PowerModeError::DeepSleepInhibited) => {
+                    console.write("Deep Sleep inhibited by a live WakeGuard; no entry was attempted.\r\n");
+                }
                 Err(error) => {
                     defmt::warn!("Power mode entry failed: {:?}", error);
                     console.write("Power mode entry failed: ");
@@ -506,6 +509,7 @@ fn write_reset_reason(console: &mut Console<'_>, reason: ResetReasonRaw) {
 
 fn power_mode_error_message(error: hal::clocks::PowerModeError) -> &'static str {
     match error {
+        hal::clocks::PowerModeError::DeepSleepInhibited => "Deep Sleep is inhibited by a live WakeGuard",
         hal::clocks::PowerModeError::ClockNotInitialized => "clocks have not been initialized",
         hal::clocks::PowerModeError::ClockControlLocked => "CKCTRL is locked in an incompatible mode",
         hal::clocks::PowerModeError::PowerModeProtectionLocked => {

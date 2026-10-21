@@ -1,14 +1,9 @@
-//! Sleep and deep sleep management for the MCXA2xx and MCXA5xx series
-//! This file contains code to manage sleep and deep sleep entry and exit.
-//! This file supports the custom executor in embassy-mcxa/src/executor and
-//! a user supplied custom executor.
-//! The API calls with the name go_to_* are available for the custom executor
-//! and do ignore the wake guards.
-//! NOTE BENE:
-//!   When using a custom executor, it is the users responsibility to manage
-//! wake guards correctly.
-
-//! Checked CMC sleep entry, exit, and clock recovery.
+//! Checked CMC sleep entry, exit, and clock recovery for MCXA2xx and MCXA5xx.
+//!
+//! Both the built-in and external executors may use these entry APIs.
+//! All public Deep Sleep entry points honor `WakeGuard`s. Guards do not inhibit
+//! shallow Sleep, which leaves peripheral operation subject to its normal clock
+//! gating and Doze configuration.
 //!
 //! Entry follows the NXP CMC configuration, readback, and barrier sequence.
 //! Sleep and Deep Sleep retain WFE event wakeups.
@@ -47,6 +42,8 @@ const SLEEP_CONTROL_MASK: u32 = SLEEPDEEP | SEVONPEND;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PowerModeError {
+    /// A live `WakeGuard` inhibits Deep Sleep; no entry was attempted.
+    DeepSleepInhibited,
     /// Clock initialization has not completed.
     ClockNotInitialized,
     /// CKCTRL is locked with an incompatible clocking mode.
@@ -85,6 +82,39 @@ impl SleepStatus {
     }
 }
 
+/// Cumulative evidence from explicit shallow-Sleep WFE calls.
+///
+/// This does not measure clock-gated duration or include raw WFE executed by an
+/// external executor's Active-idle path. Read through [`super::with_clocks`].
+#[cfg(feature = "sleep-diagnostics")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SleepDiagnostics {
+    /// WFE calls with shallow-Sleep configuration.
+    pub attempts: u32,
+    /// Calls with a clear VALID bit before WFE and a set VALID bit afterward.
+    pub fresh_gated: u32,
+    /// Calls whose prior VALID bit did not clear; not counted as fresh gating.
+    pub uncleared: u32,
+    /// Last CKSTAT after the status-clear write and before WFE.
+    pub last_before: u32,
+    /// Last CKSTAT captured immediately after WFE and before recovery.
+    pub last_after: u32,
+}
+
+#[cfg(feature = "sleep-diagnostics")]
+impl SleepDiagnostics {
+    fn record(&mut self, before: u32, after: u32) {
+        self.attempts = self.attempts.saturating_add(1);
+        if pac::cmc::Ckstat(before).valid() {
+            self.uncleared = self.uncleared.saturating_add(1);
+        } else if pac::cmc::Ckstat(after).valid() {
+            self.fresh_gated = self.fresh_gated.saturating_add(1);
+        }
+        self.last_before = before;
+        self.last_after = after;
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PowerMode {
     Sleep,
@@ -119,25 +149,25 @@ impl PowerMode {
 /// Hold the critical section through recovery and execute ISB after restoring
 /// the caller's interrupt mask.
 pub unsafe fn deep_sleep_if_possible(cs: &CriticalSection) -> Result<Option<SleepStatus>, PowerModeError> {
-    let inhibit = crate::clocks::active_wake_guards(cs);
-    if inhibit {
-        return Ok(None);
-    }
-
     // SAFETY: this function has the same clock-initialization and critical-section
     // requirements as go_to_deep_sleep.
-    unsafe { go_to_deep_sleep_with_status(cs) }.map(Some)
+    match unsafe { go_to_deep_sleep_with_status(cs) } {
+        Err(PowerModeError::DeepSleepInhibited) => Ok(None),
+        result => result.map(Some),
+    }
 }
 
 /// Enter Deep Sleep, preserving event wakeups and restoring the configured idle mode.
 ///
-/// This bypasses `WakeGuard`s and the automatic idle depth selected by
-/// [`CoreSleep`]. It does not require an executor feature; the caller is responsible
-/// for the entry and recovery contract below.
+/// Returns [`PowerModeError::DeepSleepInhibited`] without changing hardware when
+/// a `WakeGuard` is live. This does not limit entry to the automatic idle depth
+/// selected by [`CoreSleep`] and does not require an executor feature.
+/// The caller is responsible for the entry and recovery contract below.
 ///
 /// # Safety
 ///
-/// Clock initialization must have completed and peripherals must be quiescent.
+/// Clock initialization must have completed. Peripherals must be quiescent or
+/// use driver-validated retained operation for their clocks, DMA, and memory.
 /// The caller must keep a suitable wake interrupt and its required clocks enabled.
 /// The caller must hold the critical section through entry and recovery, then
 /// execute ISB after restoring its interrupt mask.
@@ -148,7 +178,8 @@ pub unsafe fn go_to_deep_sleep(cs: &CriticalSection) -> Result<(), PowerModeErro
 
 /// Enter Deep Sleep and capture the hardware result before recovery.
 ///
-/// Like [`go_to_deep_sleep`], this bypasses `WakeGuard`s and the automatic idle depth.
+/// Like [`go_to_deep_sleep`], this honors `WakeGuard`s independently of the
+/// automatic idle depth. Inhibition is reported before any hardware changes.
 ///
 /// # Safety
 ///
@@ -160,9 +191,10 @@ pub unsafe fn go_to_deep_sleep_with_status(cs: &CriticalSection) -> Result<Sleep
 
 /// Enter core-clock-gated Sleep and restore the configured idle mode.
 ///
-/// This bypasses `WakeGuard`s and the automatic idle depth selected by
-/// [`CoreSleep`]. The caller must arrange a suitable wake interrupt and keep its
-/// source configured until recovery completes.
+/// `WakeGuard`s inhibit Deep Sleep, not this shallow mode. This does not limit
+/// entry to the automatic idle depth selected by [`CoreSleep`]. The caller must
+/// arrange a suitable wake interrupt and keep its source configured until
+/// recovery completes.
 ///
 /// # Safety
 ///
@@ -176,7 +208,8 @@ pub unsafe fn go_to_sleep(cs: &CriticalSection) -> Result<(), PowerModeError> {
 
 /// Enter Sleep and capture the hardware result before recovery.
 ///
-/// Like [`go_to_sleep`], this bypasses `WakeGuard`s and the automatic idle depth.
+/// Like [`go_to_sleep`], this is not inhibited by `WakeGuard`s and is independent
+/// of the automatic idle depth.
 ///
 /// # Safety
 ///
@@ -186,11 +219,25 @@ pub unsafe fn go_to_sleep_with_status(cs: &CriticalSection) -> Result<SleepStatu
     unsafe { enter_power_mode(cs, PowerMode::Sleep) }
 }
 
+fn check_power_mode_admission(cs: &CriticalSection, mode: PowerMode) -> Result<(), PowerModeError> {
+    if mode == PowerMode::DeepSleep && crate::clocks::active_wake_guards(cs) {
+        return Err(PowerModeError::DeepSleepInhibited);
+    }
+    Ok(())
+}
+
 unsafe fn enter_power_mode(cs: &CriticalSection, mode: PowerMode) -> Result<SleepStatus, PowerModeError> {
+    check_power_mode_admission(cs, mode)?;
     // Synchronize the caller's interrupt masking before configuring low power.
     cortex_m::asm::isb();
+    #[cfg(not(feature = "sleep-diagnostics"))]
     let clock_state = CLOCKS.borrow_ref(*cs);
+    #[cfg(not(feature = "sleep-diagnostics"))]
     let clocks = clock_state.as_ref().ok_or(PowerModeError::ClockNotInitialized)?;
+    #[cfg(feature = "sleep-diagnostics")]
+    let mut clock_state = CLOCKS.borrow_ref_mut(*cs);
+    #[cfg(feature = "sleep-diagnostics")]
+    let clocks = clock_state.as_mut().ok_or(PowerModeError::ClockNotInitialized)?;
     let idle_mode = idle_clock_mode(clocks.core_sleep);
     let cmc = pac::CMC;
     let spc = pac::SPC0;
@@ -222,6 +269,29 @@ unsafe fn enter_power_mode(cs: &CriticalSection, mode: PowerMode) -> Result<Slee
         None
     };
 
+    #[cfg(feature = "retained-deep-sleep")]
+    let retained_firc = if mode == PowerMode::DeepSleep && super::retention::required() {
+        let saved = scg.firccsr().read();
+        if !super::retention::set_retention(scg, true, saved.lk()) {
+            let restored = super::retention::set_retention(
+                scg,
+                saved.fircsten() == pac::scg::Fircsten::EnabledInStopModes,
+                saved.lk(),
+            );
+            // SAFETY: entry has not run and the caller still masks interrupts.
+            unsafe { restart_active_only_clocks(scg, clocks, pll_state.as_ref()) };
+            restore_idle_mode(cmc, idle_mode)?;
+            return Err(if restored {
+                PowerModeError::ConfigurationRejected
+            } else {
+                PowerModeError::RecoveryRejected
+            });
+        }
+        Some(saved)
+    } else {
+        None
+    };
+
     // SAFETY: SCB is an MMIO-only zero-sized handle. The caller masks interrupts
     // and restores the affected SCR bits before returning.
     let scb: SCB = unsafe { core::mem::transmute(()) };
@@ -230,6 +300,8 @@ unsafe fn enter_power_mode(cs: &CriticalSection, mode: PowerMode) -> Result<Slee
     unsafe { scb.scr.modify(sleep_control_for_entry) };
     let requested_main_mode = cmc.pmctrlmain().read().0;
     clear_previous_clock_status(cmc);
+    #[cfg(feature = "sleep-diagnostics")]
+    let before = cmc.ckstat().read().0;
     clear_spc_low_power_status(spc);
     cortex_m::asm::dsb();
     cortex_m::asm::wfe();
@@ -242,16 +314,32 @@ unsafe fn enter_power_mode(cs: &CriticalSection, mode: PowerMode) -> Result<Slee
         pd_status0: spc.pd_status0().read().0,
         spc_sc: spc.sc().read().0,
     };
+    #[cfg(feature = "sleep-diagnostics")]
+    if mode == PowerMode::Sleep {
+        clocks.sleep_diagnostics.record(before, status.ckstat);
+    }
     if mode != PowerMode::Sleep {
         // SAFETY: recovery is performed in the same critical section as entry.
         unsafe { restart_active_only_clocks(scg, clocks, pll_state.as_ref()) };
     }
+    #[cfg(feature = "retained-deep-sleep")]
+    let firc_recovered = retained_firc.is_none_or(|saved| {
+        super::retention::set_retention(
+            scg,
+            saved.fircsten() == pac::scg::Fircsten::EnabledInStopModes,
+            saved.lk(),
+        )
+    });
     clear_spc_low_power_status(spc);
     let recovery = restore_idle_mode(cmc, idle_mode);
     // SAFETY: restore only our SCR changes, preserving unrelated control bits.
     unsafe { scb.scr.modify(|current| restore_sleep_control(current, saved_scr)) };
     cortex_m::asm::isb();
     recovery?;
+    #[cfg(feature = "retained-deep-sleep")]
+    if !firc_recovered {
+        return Err(PowerModeError::RecoveryRejected);
+    }
 
     Ok(status)
 }
@@ -514,6 +602,68 @@ fn firc_ready(control: Firccsr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "sleep-diagnostics")]
+    #[test]
+    fn diagnostics_distinguish_fresh_gating_from_uncleared_status() {
+        let mut stats = SleepDiagnostics::default();
+        stats.record(0, 0);
+        assert_eq!(stats.attempts, 1);
+        assert_eq!(stats.fresh_gated, 0);
+        stats.record(0, (1 << 31) | 1);
+        assert_eq!(stats.fresh_gated, 1);
+        stats.record((1 << 31) | 1, (1 << 31) | 1);
+        assert_eq!(stats.attempts, 3);
+        assert_eq!(stats.fresh_gated, 1);
+        assert_eq!(stats.uncleared, 1);
+        assert_eq!(stats.last_before, (1 << 31) | 1);
+        assert_eq!(stats.last_after, (1 << 31) | 1);
+    }
+
+    #[cfg(feature = "sleep-diagnostics")]
+    #[test]
+    fn diagnostics_saturate_instead_of_wrapping() {
+        let mut stats = SleepDiagnostics {
+            attempts: u32::MAX,
+            fresh_gated: u32::MAX,
+            uncleared: u32::MAX,
+            ..Default::default()
+        };
+        stats.record(0, 1 << 31);
+        stats.record(1 << 31, 0);
+        assert_eq!(stats.attempts, u32::MAX);
+        assert_eq!(stats.fresh_gated, u32::MAX);
+        assert_eq!(stats.uncleared, u32::MAX);
+    }
+
+    #[test]
+    fn live_guard_inhibits_deep_sleep_but_not_shallow_sleep() {
+        critical_section::with(|cs| {
+            let _guard = crate::clocks::WakeGuard::new();
+
+            assert_eq!(
+                check_power_mode_admission(&cs, PowerMode::DeepSleep),
+                Err(PowerModeError::DeepSleepInhibited)
+            );
+            assert_eq!(check_power_mode_admission(&cs, PowerMode::Sleep), Ok(()));
+        });
+    }
+
+    #[test]
+    fn last_guard_clone_controls_deep_sleep_admission() {
+        critical_section::with(|cs| {
+            let guard = crate::clocks::WakeGuard::new();
+            let clone = guard.clone();
+            drop(guard);
+
+            assert_eq!(
+                check_power_mode_admission(&cs, PowerMode::DeepSleep),
+                Err(PowerModeError::DeepSleepInhibited)
+            );
+            drop(clone);
+            assert_eq!(check_power_mode_admission(&cs, PowerMode::DeepSleep), Ok(()));
+        });
+    }
 
     #[test]
     fn spc_acknowledges_only_low_power_request_flags() {
