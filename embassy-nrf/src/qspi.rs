@@ -111,15 +111,24 @@ impl Default for Config {
 }
 
 /// Error
-#[derive(Debug, Copy, Clone, Eq, PartialEq, thiserror::Error)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Operation address was out of bounds.
-    #[error("out of bounds")]
     OutOfBounds,
     // TODO add "not in data memory" error and check for it
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::OutOfBounds => f.write_str("out of bounds"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {

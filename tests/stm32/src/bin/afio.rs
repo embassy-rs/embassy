@@ -804,7 +804,7 @@ mod connectivity_line {
         {
             // no remap RMII
             afio_registers_set_remap();
-            Ethernet::new(
+            let _ = Ethernet::new(
                 &mut PacketQueue::<1, 1>::new(),
                 p.ETH.reborrow(),
                 p.PA1.reborrow(),
@@ -825,7 +825,7 @@ mod connectivity_line {
         {
             // no remap MII
             afio_registers_set_remap();
-            Ethernet::new_mii(
+            let _ = Ethernet::new_mii(
                 &mut PacketQueue::<1, 1>::new(),
                 p.ETH.reborrow(),
                 p.PA1.reborrow(),
@@ -851,7 +851,7 @@ mod connectivity_line {
         {
             // remap RMII
             reset_afio_registers();
-            Ethernet::new(
+            let _ = Ethernet::new(
                 &mut PacketQueue::<1, 1>::new(),
                 p.ETH.reborrow(),
                 p.PA1.reborrow(),
@@ -872,7 +872,7 @@ mod connectivity_line {
         {
             // remap MII
             reset_afio_registers();
-            Ethernet::new_mii(
+            let _ = Ethernet::new_mii(
                 &mut PacketQueue::<1, 1>::new(),
                 p.ETH.reborrow(),
                 p.PA1.reborrow(),

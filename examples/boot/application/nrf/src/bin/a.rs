@@ -12,7 +12,6 @@ use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::nvmc::Nvmc;
 use embassy_nrf::wdt::{self, Watchdog};
 use embassy_sync::mutex::Mutex;
-use panic_reset as _;
 
 #[cfg(feature = "skip-include")]
 static APP_B: &[u8] = &[0, 1, 2, 3];
@@ -103,4 +102,9 @@ async fn main(_spawner: Spawner) {
             cortex_m::peripheral::SCB::sys_reset();
         }
     }
+}
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    cortex_m::peripheral::SCB::sys_reset();
 }

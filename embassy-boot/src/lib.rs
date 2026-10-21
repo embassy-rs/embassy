@@ -90,9 +90,9 @@ mod tests {
 
     extern crate std;
 
+    use embassy_futures::block_on;
     use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
     use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
-    use futures::executor::block_on;
 
     use super::*;
     use crate::boot_loader::BootLoaderConfig;

@@ -12,7 +12,6 @@ use embassy_rp::watchdog::Watchdog;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::Timer;
 use gpio::{Level, Output};
-use panic_reset as _;
 
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
 
@@ -47,4 +46,9 @@ async fn main(_s: Spawner) {
         led.set_low();
         Timer::after_millis(100).await;
     }
+}
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    cortex_m::peripheral::SCB::sys_reset();
 }

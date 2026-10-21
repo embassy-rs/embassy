@@ -61,6 +61,35 @@ pub struct Pll {
     pub divr: Option<PllRDiv>,
 }
 
+/// Flash prefetch (`FLASH_ACR.PRFTEN`).
+///
+/// On the STM32G0B0/G0B1/G0C1 in dual-bank mode a code prefetch can fail on a branch or function call across
+/// the flash banks ("Prefetch failure when branching across flash memory banks": ES0547 2.2.8, ES0548 2.2.10,
+/// ES0549 2.2.10; not fixed in silicon revisions A, Z and Y; the only workaround is prefetch off).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum FlashPrefetch {
+    /// Prefetch off.
+    Off,
+    /// Prefetch on. On a dual-bank device the caller vouches that no code branches across the flash banks.
+    ///
+    /// When code must sit in both banks with prefetch on, keep the cross-bank calls to a few known entry points
+    /// and route each through a function in RAM that clears `PRFTEN`, makes the call and sets `PRFTEN` again.
+    /// The errata list no workaround; a trampoline that keeps prefetch on during the crossing is not covered.
+    On,
+    /// Prefetch on, unless the device runs in dual-bank mode and the program's code (`__stext..__etext` of
+    /// cortex-m-rt) reaches into bank 2; without the `rt` feature, off on a device in dual-bank mode.
+    ///
+    /// For applications that want the prefetch on a dual-bank device. Only the program's own code is checked, so
+    /// not for a bootloader that jumps into an application in the other bank: that jump branches across the banks.
+    IfCodeInOneBank,
+    /// Prefetch on, unless the device runs in dual-bank mode (the default).
+    ///
+    /// Safe for any program, bootloaders included. An application on a dual-bank device gets the prefetch back
+    /// with [`FlashPrefetch::IfCodeInOneBank`]; it then sets it from its own code when it initializes the clocks.
+    IfSingleBank,
+}
+
 /// Clocks configutation
 #[non_exhaustive]
 #[derive(Clone, Copy)]
@@ -95,6 +124,9 @@ pub struct Config {
 
     /// Per-peripheral kernel clock selection muxes
     pub mux: super::mux::ClockMux,
+
+    /// Flash prefetch, see [`FlashPrefetch`].
+    pub flash_prefetch: FlashPrefetch,
 }
 
 impl Config {
@@ -114,6 +146,7 @@ impl Config {
             ls: crate::rcc::LsConfig::new(),
             voltage_range: VoltageRange::Range1,
             mux: super::mux::ClockMux::default(),
+            flash_prefetch: FlashPrefetch::IfSingleBank,
         }
     }
 }
@@ -281,6 +314,22 @@ pub(crate) unsafe fn init(config: Config) {
     // Spin until the effective flash latency is set.
     while FLASH.acr().read().latency() != latency {}
 
+    // Enable prefetch after switching latency (RM0444 3.3.3): with wait states and prefetch off, every
+    // sequential fetch stalls. ICEN is already on after reset.
+    let prefetch = match config.flash_prefetch {
+        FlashPrefetch::Off => false,
+        FlashPrefetch::On => true,
+        FlashPrefetch::IfCodeInOneBank => code_in_one_bank(),
+        FlashPrefetch::IfSingleBank => {
+            let dual_bank = dual_bank();
+            if dual_bank {
+                info!("flash prefetch off: dual-bank flash (ES0547/ES0548/ES0549), see FlashPrefetch::IfCodeInOneBank");
+            }
+            !dual_bank
+        }
+    };
+    FLASH.acr().modify(|w| w.set_prften(prefetch));
+
     // Now that boost mode and flash read access latency are configured, set up SYSCLK
     RCC.cfgr().modify(|w| {
         w.set_sw(config.sys);
@@ -342,4 +391,68 @@ mod max {
     pub(crate) const PLL_P: RangeInclusive<Hertz> = Hertz(3_090_000)..=Hertz(122_000_000);
     pub(crate) const PLL_Q: RangeInclusive<Hertz> = Hertz(12_000_000)..=Hertz(128_000_000);
     pub(crate) const PLL_R: RangeInclusive<Hertz> = Hertz(12_000_000)..=Hertz(64_000_000);
+}
+
+/// Whether the flash runs in dual-bank mode on a device with the cross-bank prefetch erratum (ES0547 2.2.8,
+/// ES0548/ES0549 2.2.10).
+fn dual_bank() -> bool {
+    // ES0547 2.2.8: every G0B0 has 512 KiB and always operates in dual-bank configuration ("DUAL_BANK option bit
+    // is not used"), whatever the `single-bank` / `dual-bank` feature selects.
+    #[cfg(stm32g0b0)]
+    return true;
+    // A 256 KiB G0B1/G0C1 follows its DUAL_BANK option bit, whatever the feature selects.
+    #[cfg(all(any(stm32g0b1, stm32g0c1), bank_setup_configurable))]
+    return crate::flash::dual_bank_mode();
+    // The 512 KiB G0B1/G0C1 are always dual-bank, the 128 KiB ones single-bank only.
+    #[cfg(all(any(stm32g0b1, stm32g0c1), not(bank_setup_configurable)))]
+    return cfg!(flash_dual_bank);
+    #[cfg(not(any(stm32g0b0, stm32g0b1, stm32g0c1)))]
+    false
+}
+
+/// Whether no code can branch across the flash banks: the flash is in single-bank mode, or all of `.text` sits
+/// in one bank.
+fn code_in_one_bank() -> bool {
+    if !dual_bank() {
+        return true;
+    }
+    #[cfg(stm32g0b0)]
+    return text_in_one_bank(crate::_generated::FLASH_BASE + crate::_generated::FLASH_SIZE / 2);
+    #[cfg(all(any(stm32g0b1, stm32g0c1), flash_dual_bank))]
+    return text_in_one_bank(crate::_generated::FLASH_BANK2_BASE as usize);
+    // A 256 KiB G0B1/G0C1 built for single-bank, but the option bytes say dual-bank: prefetch off.
+    #[cfg(all(any(stm32g0b1, stm32g0c1), not(flash_dual_bank), bank_setup_configurable))]
+    {
+        warn!("flash prefetch off: built for single-bank flash, but the option bytes select dual-bank");
+        return false;
+    }
+    #[cfg(not(any(
+        stm32g0b0,
+        all(any(stm32g0b1, stm32g0c1), any(flash_dual_bank, bank_setup_configurable))
+    )))]
+    true
+}
+
+/// Whether the program's code (`__stext..__etext` of cortex-m-rt) sits on one side of `bank2`, the bank 2 base;
+/// without the `rt` feature the code's place is unknown, so `false`.
+#[cfg(any(stm32g0b0, all(any(stm32g0b1, stm32g0c1), flash_dual_bank)))]
+fn text_in_one_bank(bank2: usize) -> bool {
+    #[cfg(feature = "rt")]
+    let one_bank = {
+        unsafe extern "C" {
+            static __stext: u8;
+            static __etext: u8;
+        }
+        let (start, end) = (&raw const __stext as usize, &raw const __etext as usize);
+        end <= bank2 || start >= bank2
+    };
+    #[cfg(not(feature = "rt"))]
+    let one_bank = false;
+    if !one_bank {
+        warn!(
+            "flash prefetch off: code spans both flash banks (bank 2 at {:#x}, ES0547/ES0548/ES0549)",
+            bank2
+        );
+    }
+    one_bank
 }

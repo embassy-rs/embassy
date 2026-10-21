@@ -239,7 +239,7 @@ impl<'d> ControllerAdapter<'d> {
 
     /// Runs a direct BLE stack call while holding the controller, like `exec`.
     #[cfg(feature = "direct")]
-    pub(super) fn call(&self, f: impl FnOnce() -> u8) -> u8 {
+    pub(super) fn call<R>(&self, f: impl FnOnce() -> R) -> R {
         let _controller = self.controller.borrow().borrow_mut();
         f()
     }

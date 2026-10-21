@@ -10,7 +10,7 @@ repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-net-tuntap"
 
 [dependencies]
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "93228f1ec64720122016be52be4671e413fa92a9", features = ["async"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131deb9ff3290e0e01079537e1ed7b2ad", features = ["async"] }
 async-io = "2.6.0"
 log = "0.4.14"
 libc = "0.2.101"

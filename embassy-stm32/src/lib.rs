@@ -137,10 +137,9 @@ mod crypto_driver;
 pub mod comp {
     //! Comp stub module to provide consistent API
 
-    trait_set::trait_set! {
-        /// Comp stub peripheral type
-        pub trait Instance = embassy_hal_internal::PeripheralType + 'static;
-    }
+    /// Comp stub peripheral type
+    pub trait Instance: embassy_hal_internal::PeripheralType + 'static {}
+    impl<T: embassy_hal_internal::PeripheralType + 'static> Instance for T {}
 
     pin_trait!(OutputPin, Instance);
 }

@@ -8,11 +8,11 @@ use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering, compiler_f
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
+use embassy_futures::select::{Either, select};
 use embassy_hal_internal::PeripheralType;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{Phase, Polarity};
-use futures_util::future::{Either, select};
 
 use crate::Peri;
 use crate::atomic::{AtomicClear, AtomicDecrement, AtomicIncrement, AtomicModify};
@@ -1264,21 +1264,22 @@ impl<'d> UartRx<'d, Async> {
         });
 
         // wait for the first of DMA request or idle line detected to completes
-        // select consumes its arguments
-        // when transfer is dropped, it will stop the DMA request
-        let r = match select(transfer, abort).await {
+        let mut transfer = transfer;
+        let r = match select(&mut transfer, abort).await {
             // DMA transfer completed first
-            Either::Left(((), _)) => Ok(ReadCompletionEvent::DmaCompleted),
+            Either::First(()) => Ok(ReadCompletionEvent::DmaCompleted),
 
             // Idle line detected first
-            Either::Right((Ok(()), transfer)) => Ok(ReadCompletionEvent::Idle(
+            Either::Second(Ok(())) => Ok(ReadCompletionEvent::Idle(
                 buffer_len - transfer.get_remaining_transfers() as usize,
             )),
 
             // error occurred
-            Either::Right((Err(e), _)) => Err(e),
+            Either::Second(Err(e)) => Err(e),
         };
 
+        // when transfer is dropped, it will stop the DMA request
+        drop(transfer);
         drop(on_drop);
 
         r

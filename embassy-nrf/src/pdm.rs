@@ -10,7 +10,6 @@ use core::task::Poll;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use fixed::types::I7F1;
 
 use crate::gpio::{AnyPin, DISCONNECTED, Pin as GpioPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
@@ -62,23 +61,32 @@ pub struct Pdm<'d> {
 }
 
 /// PDM error
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Buffer is too long
-    #[error("buffer is too long")]
     BufferTooLong,
     /// Buffer is empty
-    #[error("buffer is empty")]
     BufferZeroLength,
     /// PDM is not running
-    #[error("PDM is not running")]
     NotRunning,
     /// PDM is already running
-    #[error("PDM is already running")]
     AlreadyRunning,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BufferTooLong => f.write_str("buffer is too long"),
+            Self::BufferZeroLength => f.write_str("buffer is empty"),
+            Self::NotRunning => f.write_str("PDM is not running"),
+            Self::AlreadyRunning => f.write_str("PDM is already running"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 static DUMMY_BUFFER: [i16; 1] = [0; 1];
 
@@ -148,17 +156,19 @@ impl<'d> Pdm<'d> {
         }
     }
 
-    fn _set_gain(r: pac::pdm::Pdm, gain_left: I7F1, gain_right: I7F1) {
-        let gain_to_bits = |gain: I7F1| -> vals::Gain {
-            let gain: i8 = gain.saturating_add(I7F1::from_bits(0x28)).to_bits().clamp(0, 0x50);
+    fn _set_gain(r: pac::pdm::Pdm, gain_left: i8, gain_right: i8) {
+        let gain_to_bits = |gain: i8| -> vals::Gain {
+            let gain = gain.saturating_add(0x28).clamp(0, 0x50);
             vals::Gain::from_bits(gain as u8)
         };
         r.gainl().write(|w| w.set_gainl(gain_to_bits(gain_left)));
         r.gainr().write(|w| w.set_gainr(gain_to_bits(gain_right)));
     }
 
-    /// Adjust the gain of the PDM microphone on the fly
-    pub fn set_gain(&mut self, gain_left: I7F1, gain_right: I7F1) {
+    /// Adjust the gain of the PDM microphone on the fly.
+    ///
+    /// Gains are in units of 0.5 dB, from -40 (-20 dB) to 40 (+20 dB). Values outside that range are clamped.
+    pub fn set_gain(&mut self, gain_left: i8, gain_right: i8) {
         Self::_set_gain(self.r, gain_left, gain_right)
     }
 
@@ -363,10 +373,10 @@ pub struct Config {
         feature = "_nrf91",
     ))]
     pub ratio: Ratio,
-    /// Gain left in dB
-    pub gain_left: I7F1,
-    /// Gain right in dB
-    pub gain_right: I7F1,
+    /// Gain left, in units of 0.5 dB, from -40 (-20 dB) to 40 (+20 dB). Values outside that range are clamped.
+    pub gain_left: i8,
+    /// Gain right, in units of 0.5 dB, from -40 (-20 dB) to 40 (+20 dB). Values outside that range are clamped.
+    pub gain_right: i8,
 }
 
 impl Default for Config {
@@ -382,8 +392,8 @@ impl Default for Config {
                 feature = "_nrf91",
             ))]
             ratio: Ratio::Ratio80,
-            gain_left: I7F1::ZERO,
-            gain_right: I7F1::ZERO,
+            gain_left: 0,
+            gain_right: 0,
         }
     }
 }

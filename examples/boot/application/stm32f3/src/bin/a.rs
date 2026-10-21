@@ -11,7 +11,6 @@ use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::{bind_interrupts, interrupt};
 use embassy_sync::mutex::Mutex;
-use panic_reset as _;
 
 bind_interrupts!(
     pub struct Irqs{
@@ -26,7 +25,7 @@ static APP_B: &[u8] = include_bytes!("../../b.bin");
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    let flash = Flash::new_blocking(p.FLASH);
+    let flash = Flash::new_blocking(p.FLASH, Default::default());
     let flash = Mutex::new(BlockingAsync::new(flash));
 
     let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
@@ -47,5 +46,10 @@ async fn main(_spawner: Spawner) {
     }
     updater.mark_updated().await.unwrap();
     led.set_low();
+    cortex_m::peripheral::SCB::sys_reset();
+}
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
     cortex_m::peripheral::SCB::sys_reset();
 }

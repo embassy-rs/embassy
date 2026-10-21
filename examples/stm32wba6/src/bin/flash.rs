@@ -32,7 +32,9 @@ async fn main(_spawner: Spawner) {
 
     Timer::after_millis(100).await;
 
-    let mut f = Flash::new_blocking(p.FLASH).into_blocking_regions().bank1_region;
+    let mut f = Flash::new_blocking(p.FLASH, Default::default())
+        .into_blocking_regions()
+        .bank1_region;
 
     info!("Reading before erase...");
     let mut buf = [0u8; 32];

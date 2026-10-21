@@ -11,7 +11,7 @@ use embassy_nxp::gpio::{Level, Output};
 use embassy_nxp::peripherals::USART2;
 use embassy_nxp::usart::{Config, InterruptHandler, Usart};
 use embassy_time::Timer;
-use panic_halt as _;
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
         FLEXCOMM2 => InterruptHandler<USART2>;

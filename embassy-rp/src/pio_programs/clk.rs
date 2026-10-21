@@ -3,7 +3,7 @@
 use crate::Peri;
 use crate::pio::program::pio_asm;
 use crate::pio::{Common, Config, Direction, Instance, LoadedProgram, Pin, PioBatch, PioPin, StateMachine};
-use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider_x256;
 
 /// Clock generator PIO program
 pub struct PioClkProgram<'a, PIO: Instance> {
@@ -40,7 +40,7 @@ impl<'d, T: Instance, const SM: usize> PioClk<'d, T, SM> {
 
         let mut cfg = Config::default();
         let sm_frequency = frequency * PIO_CLK_PROGRAM_CLK_MULTIPLIER;
-        cfg.clock_divider = calculate_pio_clock_divider(sm_frequency);
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(sm_frequency);
         cfg.set_set_pins(&[&pin]);
         cfg.use_program(&program.prg, &[]);
 

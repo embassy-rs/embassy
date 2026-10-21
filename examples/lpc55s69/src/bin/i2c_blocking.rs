@@ -8,7 +8,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nxp::i2c::{Config, I2c};
 use embassy_time::Timer;
-use panic_halt as _;
+use panic_probe as _;
 
 const MPU6500_ADDR: u8 = 0x68; // 0x69 if AD0 is grounded
 const WHO_AM_I: u8 = 0x75; // chip ID register

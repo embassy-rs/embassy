@@ -13,11 +13,6 @@ use aligned::{A4, Aligned};
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use sdio_host::Cmd;
-use sdio_host::common_cmd::{self, R1, R2, Resp, ResponseLen, Rz};
-use sdio_host::sd::{CID, CSD, CardStatus};
-#[cfg(sdmmc_uhs)]
-use sdio_host::sd_cmd;
 
 use crate::atomic::AtomicModify;
 #[cfg(sdmmc_dlyb)]
@@ -33,13 +28,9 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
 use crate::time::Hertz;
-use crate::wait::block_for_us;
 #[cfg(sdmmc_uhs)]
 use crate::wait::{try_until, wait_for_us};
 use crate::{interrupt, peripherals};
-
-/// Deprecated module for SD and EMMC cards
-pub mod sd;
 
 #[cfg(sdmmc_dlyb)]
 mod dlyb;
@@ -95,68 +86,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-struct U128(pub u128);
-
-struct CommandResponse<R: TypedResp>(R::Word);
-
-trait TypedResp: Resp {
-    type Word: From<U128>;
-}
-
-impl From<U128> for () {
-    fn from(value: U128) -> Self {
-        match value.0 {
-            0 => (),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl From<U128> for u32 {
-    fn from(value: U128) -> Self {
-        value.0.try_into().unwrap()
-    }
-}
-
-impl From<U128> for u128 {
-    fn from(value: U128) -> Self {
-        value.0
-    }
-}
-
-impl TypedResp for Rz {
-    type Word = ();
-}
-
-impl TypedResp for R1 {
-    type Word = u32;
-}
-
-impl<E> From<CommandResponse<R1>> for CardStatus<E> {
-    fn from(value: CommandResponse<R1>) -> Self {
-        CardStatus::<E>::from(value.0)
-    }
-}
-
-impl TypedResp for R2 {
-    type Word = u128;
-}
-
-impl<E> From<CommandResponse<R2>> for CID<E> {
-    fn from(value: CommandResponse<R2>) -> Self {
-        CID::<E>::from(value.0)
-    }
-}
-
-impl<E> From<CommandResponse<R2>> for CSD<E> {
-    fn from(value: CommandResponse<R2>) -> Self {
-        CSD::<E>::from(value.0)
-    }
-}
-
-/// Frequency used for SD Card initialization. Must be no higher than 400 kHz.
-const SD_INIT_FREQ: Hertz = Hertz(400_000);
-
 /// The signalling scheme used on the SDMMC bus
 #[non_exhaustive]
 #[allow(missing_docs)]
@@ -172,30 +101,10 @@ pub enum Signalling {
     DDR50,
 }
 
-const fn aligned_mut(x: &mut [u32]) -> &mut Aligned<A4, [u8]> {
-    let len = x.len() * 4;
-    unsafe { core::mem::transmute(slice::from_raw_parts_mut(x.as_mut_ptr() as *mut u8, len)) }
-}
-
-const fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
-    let len = x.len() * 4;
-    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as *mut u8, len) }
-}
-
 #[allow(unused)]
 const fn slice32_mut(x: &mut Aligned<A4, [u8]>) -> &mut [u32] {
     let len = size_of_val(x).div_ceil(4);
     unsafe { slice::from_raw_parts_mut(x as *mut Aligned<A4, [u8]> as *mut u32, len) }
-}
-
-const fn aligned_ref(x: &[u32]) -> &Aligned<A4, [u8]> {
-    let len = x.len() * 4;
-    unsafe { core::mem::transmute(slice::from_raw_parts(x.as_ptr() as *const u8, len)) }
-}
-
-const fn slice8_ref(x: &[u32]) -> &[u8] {
-    let len = x.len() * 4;
-    unsafe { slice::from_raw_parts(x.as_ptr() as *const u8, len) }
 }
 
 #[allow(unused)]
@@ -251,14 +160,6 @@ enum PowerCtrl {
 enum DatapathMode {
     Block(BlockSize),
     Byte,
-}
-
-fn get_waitresp_val(rlen: ResponseLen) -> u8 {
-    match rlen {
-        common_cmd::ResponseLen::Zero => 0,
-        common_cmd::ResponseLen::R48 => 1,
-        common_cmd::ResponseLen::R136 => 3,
-    }
 }
 
 const fn sdio_waitresp_val(rlen: ::sdio::ResponseLen) -> u8 {
@@ -426,29 +327,16 @@ const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOp
 ///
 /// Default values:
 /// data_transfer_timeout: 5_000_000
-/// use_cmd23: false
-/// use_acmd23: false
 #[non_exhaustive]
 pub struct Config {
     /// The timeout to be set for data transfers, in card bus clock periods
     pub data_transfer_timeout: u32,
-
-    /// Pre-declare block count via CMD23 before CMD25, skipping CMD12.
-    /// Honored only if the card advertises support; falls back silently
-    /// otherwise (see [`StorageDevice::supports_cmd23`]).
-    pub use_cmd23: bool,
-
-    /// Send ACMD23 (SET_WR_BLK_ERASE_COUNT) before CMD25 as a pre-erase
-    /// hint. Mandatory in SD spec v2+, so honored unconditionally.
-    pub use_acmd23: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             data_transfer_timeout: 5_000_000,
-            use_cmd23: false,
-            use_acmd23: false,
         }
     }
 }
@@ -1008,18 +896,10 @@ impl Drop for VswitchGuard<'_, '_> {
 }
 
 impl<'d> Sdmmc<'d> {
-    /// True if the driver has switched to UHS-I 1.8V signalling. Always
-    /// `false` outside `cfg(sdmmc_uhs)`.
-    fn uhs_active(&self) -> bool {
-        #[cfg(sdmmc_uhs)]
-        return self.uhs_active;
-        #[cfg(not(sdmmc_uhs))]
-        return false;
-    }
-
     /// Set the CKIN feedback-clock sampling flag (`CLKCR.SELCLKRX`).
     /// Caller must follow with a `clkcr_set_clkdiv` to write the bit.
     /// No-op outside `cfg(sdmmc_uhs)`.
+    #[cfg(not(sdmmc_dlyb))]
     fn set_feedback_clk(&mut self, on: bool) {
         #[cfg(sdmmc_uhs)]
         {
@@ -1373,21 +1253,6 @@ impl<'d> Sdmmc<'d> {
         regs.idmactrlr().modify(|w| w.set_idmaen(false));
     }
 
-    fn init_idle(&mut self) -> Result<CommandResponse<Rz>, Error> {
-        let regs = self.info.regs;
-
-        self.clkcr_set_clkdiv(SD_INIT_FREQ, ::sdio::BusWidth::W1)?;
-        regs.dtimer()
-            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
-
-        regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
-
-        // Wait 74 cycles
-        block_for_us((74_000_000 / SD_INIT_FREQ.0) as u64);
-
-        self.cmd(common_cmd::idle(), true, false)
-    }
-
     /// Sets the CLKDIV field in CLKCR. Updates clock field in self
     fn clkcr_set_clkdiv(&mut self, freq: Hertz, width: ::sdio::BusWidth) -> Result<(), Error> {
         let regs = self.info.regs;
@@ -1458,134 +1323,6 @@ impl<'d> Sdmmc<'d> {
             .map_err(|_| Error::VoltageSwitchFailed)
     }
 
-    /// Run the UHS-I voltage-switch (CMD11) handshake against the card,
-    /// drive the level-shifter pin to its 1.8V level, and mark the
-    /// peripheral as UHS-active so subsequent `clkcr_set_clkdiv` calls
-    /// set `CLKCR.busspeed = 1`.
-    ///
-    /// Caller MUST have verified the card responded to ACMD41 with
-    /// `S18A = 1` AND that `self.has_vswitch()` is true. This routine
-    /// must be called while the bus is at the 400 kHz init clock; see
-    /// SD Physical Layer Spec §3.7.5 / RM0486 §30.8.
-    ///
-    /// On success, `self.uhs_active` is set and the level shifter is
-    /// at 1.8V; the bus clock has been auto-restarted by hardware. On
-    /// failure, returns `Error::VoltageSwitchFailed` with the level
-    /// shifter restored to 3.3V so the caller can retry without UHS.
-    #[cfg(sdmmc_uhs)]
-    async fn voltage_switch(&mut self) -> Result<(), Error> {
-        // CKSTOP fires within microseconds of the CMD11 R1 ack at
-        // 400 kHz; a 50 ms ceiling is generous.
-        const CKSTOP_TIMEOUT: u64 = 50_000;
-        // VSWEND fires after the hardware-managed 5 ms clock-low hold
-        // plus the 1 ms post-restart sampling window — ~6 ms typical.
-        const VSWEND_TIMEOUT: u64 = 50_000;
-
-        let regs = self.info.regs;
-
-        // Clear stale CKSTOP / VSWEND flags from a previous attempt and
-        // arm the voltage-switch state machine. The next CMD11 R1 will
-        // trigger the clock-stop + timed-hold sequence.
-        regs.icr().write(|w| {
-            w.set_ckstopc(true);
-            w.set_vswendc(true);
-        });
-        regs.power().modify(|w| w.set_vswitchen(true));
-
-        // RAII guard: on any early return below, restore the level
-        // shifter to 3.3V (if we'd already toggled to 1.8V) and clear
-        // the vswitch trigger bits.
-        let mut guard = VswitchGuard {
-            sdmmc: &mut *self,
-            pin_toggled: false,
-            armed: true,
-        };
-
-        // 1. Send CMD11.
-        guard
-            .sdmmc
-            .cmd(sd_cmd::voltage_switch(), true, false)
-            .map_err(|_| Error::VoltageSwitchFailed)?;
-
-        // 2. Wait for CKSTOP — peripheral parked the clock low.
-        guard.sdmmc.wait_status_flag(CKSTOP_TIMEOUT, |s| s.ckstop()).await?;
-        regs.icr().write(|w| w.set_ckstopc(true));
-
-        // 3. Toggle level-shifter pin to 1.8V (caller pre-set 3.3V).
-        if let Some(pin) = guard.sdmmc.vswitch_pin.as_mut() {
-            pin.toggle();
-        }
-        guard.pin_toggled = true;
-
-        // 4. Release the clock-low hold. Hardware holds SDMMC_CK low
-        //    for ≥5 ms then auto-restarts.
-        regs.power().modify(|w| w.set_vswitch(true));
-
-        // 5. Wait for VSWEND — peripheral re-sampled D0 after restart.
-        guard.sdmmc.wait_status_flag(VSWEND_TIMEOUT, |s| s.vswend()).await?;
-        regs.icr().write(|w| w.set_vswendc(true));
-
-        // 6. STAR.BUSYD0 is the INVERTED level of D0 (per the v3 metapac
-        //    docstring "Inverted value of SDMMC_D0 line (Busy)"):
-        //      BUSYD0 = 1 → D0 LOW  → card still busy / refused switch
-        //      BUSYD0 = 0 → D0 HIGH → card released D0 / handshake ok
-        if regs.star().read().busyd0() {
-            return Err(Error::VoltageSwitchFailed);
-        }
-
-        // Success — disarm the abort guard and finalise.
-        guard.armed = false;
-        drop(guard);
-
-        // 7. Disarm the voltage-switch state machine. VSWITCHEN/VSWITCH
-        //    are one-shot triggers, not mode bits — leaving them set
-        //    has been observed to wedge the next command (e.g. CMD2).
-        regs.power().modify(|w| {
-            w.set_vswitch(false);
-            w.set_vswitchen(false);
-        });
-
-        // 8. Mark UHS active and assert busspeed=1 right away. The next
-        //    CMDs (CMD2/CMD3/CMD9/CMD7/...) fire before the next
-        //    clkcr_set_clkdiv, and they need UHS timing on the 1.8V bus.
-        //    CLKDIV / WIDBUS stay at their init_idle values (400 kHz,
-        //    1-bit) — only the busspeed bit flips.
-        self.uhs_active = true;
-        regs.clkcr().modify(|w| w.set_busspeed(true));
-
-        // 9. Settle. The clock just restarted and we just flipped
-        //    busspeed; empirically the very next CPSM command hangs
-        //    without a short delay. 1 ms is well above the internal
-        //    resync window.
-        wait_for_us(1_000).await;
-
-        Ok(())
-    }
-
-    fn get_cid(&self) -> Result<CommandResponse<R2>, Error> {
-        self.cmd(common_cmd::all_send_cid(), true, false) // CMD2
-    }
-
-    fn get_csd(&self, address: u16) -> Result<CommandResponse<R2>, Error> {
-        self.cmd(common_cmd::send_csd(address), true, false)
-    }
-
-    /// Query the card status (CMD13, returns R1)
-    fn read_status(&self, address: u16) -> Result<CommandResponse<R1>, Error> {
-        self.cmd(common_cmd::card_status(address, false), true, false)
-    }
-
-    /// Select one card and place it into the _Tranfer State_
-    ///
-    /// If `None` is specifed for `card`, all cards are put back into
-    /// _Stand-by State_
-    fn select_card(&self, rca: Option<u16>) -> Result<(), Error> {
-        match self.cmd(common_cmd::select_card(rca.unwrap_or(0)), true, false) {
-            Err(Error::Timeout) if rca.is_none() => Ok(()),
-            result => result.map(|_| ()),
-        }
-    }
-
     /// Clear flags in interrupt clear register
     #[inline]
     fn clear_interrupt_flags(&self) {
@@ -1619,77 +1356,6 @@ impl<'d> Sdmmc<'d> {
         });
     }
 
-    /// Send command to card
-    #[allow(unused_variables)]
-    fn cmd<R: TypedResp>(&self, cmd: Cmd<R>, check_crc: bool, data: bool) -> Result<CommandResponse<R>, Error> {
-        trace!("(0) cmd arg: 0x{:x} 0x{:x}", cmd.cmd, cmd.arg);
-
-        let regs = self.info.regs;
-
-        self.clear_interrupt_flags();
-        // CP state machine must be idle
-        while self.cmd_active() {}
-
-        // Command arg
-        regs.argr().write(|w| w.set_cmdarg(cmd.arg));
-
-        // Command index and start CP State Machine
-        regs.cmdr().write(|w| {
-            w.set_waitint(false);
-            w.set_waitresp(get_waitresp_val(cmd.response_len()));
-            w.set_cmdindex(cmd.cmd);
-            w.set_cpsmen(true);
-
-            #[cfg(any(sdmmc_v2, sdmmc_v3))]
-            {
-                // Special mode in CP State Machine
-                // CMD12: Stop Transmission
-                let cpsm_stop_transmission = cmd.cmd == 12;
-                w.set_cmdstop(cpsm_stop_transmission);
-                w.set_cmdtrans(data);
-            }
-        });
-
-        let mut status;
-        if cmd.response_len() == ResponseLen::Zero {
-            // Wait for CMDSENT or a timeout
-            while {
-                status = regs.star().read();
-                !(status.ctimeout() || status.cmdsent())
-            } {}
-        } else {
-            // Wait for CMDREND or CCRCFAIL or a timeout
-            while {
-                status = regs.star().read();
-                !(status.ctimeout() || status.cmdrend() || status.ccrcfail())
-            } {}
-        }
-
-        if status.ctimeout() {
-            trace!("ctimeout: {}", cmd.cmd);
-
-            return Err(Error::Timeout);
-        } else if check_crc && status.ccrcfail() {
-            return Err(Error::Crc);
-        }
-
-        Ok(CommandResponse(
-            match R::LENGTH {
-                ResponseLen::Zero => U128(0u128),
-                ResponseLen::R48 => U128(self.info.regs.respr(0).read().cardstatus() as u128),
-                ResponseLen::R136 => {
-                    let cid0 = self.info.regs.respr(0).read().cardstatus() as u128;
-                    let cid1 = self.info.regs.respr(1).read().cardstatus() as u128;
-                    let cid2 = self.info.regs.respr(2).read().cardstatus() as u128;
-                    let cid3 = self.info.regs.respr(3).read().cardstatus() as u128;
-
-                    U128((cid0 << 96) | (cid1 << 64) | (cid2 << 32) | (cid3))
-                }
-            }
-            .into(),
-        ))
-    }
-
     fn on_drop(&self) {
         let regs = self.info.regs;
         if self.data_active() {
@@ -1704,7 +1370,7 @@ impl<'d> Sdmmc<'d> {
             // Command index and start CP State Machine
             regs.cmdr().write(|w| {
                 w.set_waitint(false);
-                w.set_waitresp(get_waitresp_val(ResponseLen::R48));
+                w.set_waitresp(sdio_waitresp_val(::sdio::ResponseLen::R48));
                 w.set_cmdindex(12);
                 w.set_cpsmen(true);
 

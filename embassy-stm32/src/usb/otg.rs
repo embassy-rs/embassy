@@ -539,8 +539,8 @@ pin_trait!(UlpiD7Pin, Instance);
 foreach_interrupt!(
     (USB_OTG_FS, otg, $block:ident, GLOBAL, $irq:ident) => {
         impl crate::peripherals::USB_OTG_FS {
-            cfg_if::cfg_if! {
-                if #[cfg(any(
+            cfg_select! {
+                any(
                     stm32f1,
                     stm32f2,
                     stm32f401,
@@ -553,9 +553,10 @@ foreach_interrupt!(
                     stm32f429,
                     stm32f437,
                     stm32f439,
-                ))] {
+                ) => {
                     const ENDPOINT_COUNT: usize = 4;
-                } else if #[cfg(any(
+                }
+                any(
                     stm32f412,
                     stm32f413,
                     stm32f423,
@@ -567,13 +568,16 @@ foreach_interrupt!(
                     stm32u5,
                     stm32wba,
                     stm32h7rs,
-                ))] {
+                ) => {
                     const ENDPOINT_COUNT: usize = 6;
-                } else if #[cfg(stm32g0x1)] {
+                }
+                stm32g0x1 => {
                     const ENDPOINT_COUNT: usize = 8;
-                } else if #[cfg(stm32h7)] {
+                }
+                stm32h7 => {
                     const ENDPOINT_COUNT: usize = 9;
-                } else {
+                }
+                _ => {
                     compile_error!("USB_OTG_FS peripheral is not supported by this chip.");
                 }
             }
@@ -582,8 +586,8 @@ foreach_interrupt!(
         impl SealedInstance for crate::peripherals::USB_OTG_FS {
             const HIGH_SPEED: bool = false;
 
-            cfg_if::cfg_if! {
-                if #[cfg(any(
+            cfg_select! {
+                any(
                     stm32f1,
                     stm32f2,
                     stm32f401,
@@ -607,13 +611,16 @@ foreach_interrupt!(
                     stm32u5,
                     stm32wba,
                     stm32h7rs,
-                ))] {
+                ) => {
                     const FIFO_DEPTH_WORDS: u16 = 320;
-                } else if #[cfg(stm32g0x1)] {
+                }
+                stm32g0x1 => {
                     const FIFO_DEPTH_WORDS: u16 = 512;
-                } else if #[cfg(stm32h7)] {
+                }
+                stm32h7 => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else {
+                }
+                _ => {
                     compile_error!("USB_OTG_FS peripheral is not supported by this chip.");
                 }
             }
@@ -639,8 +646,8 @@ foreach_interrupt!(
 
     (USB_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
         impl crate::peripherals::USB_OTG_HS {
-            cfg_if::cfg_if! {
-                if #[cfg(any(
+            cfg_select! {
+                any(
                     stm32f2,
                     stm32f405,
                     stm32f407,
@@ -650,19 +657,22 @@ foreach_interrupt!(
                     stm32f429,
                     stm32f437,
                     stm32f439,
-                ))] {
+                ) => {
                     const ENDPOINT_COUNT: usize = 6;
-                } else if #[cfg(any(
+                }
+                any(
                     stm32f446,
                     stm32f469,
                     stm32f479,
                     stm32f7,
                     stm32h7, stm32h7rs,
-                ))] {
+                ) => {
                     const ENDPOINT_COUNT: usize = 9;
-                } else if #[cfg(any(stm32u5, stm32wba))] {
+                }
+                any(stm32u5, stm32wba) => {
                     const ENDPOINT_COUNT: usize = 9;
-                } else {
+                }
+                _ => {
                     compile_error!("USB_OTG_HS peripheral is not supported by this chip.");
                 }
             }
@@ -671,8 +681,8 @@ foreach_interrupt!(
         impl SealedInstance for crate::peripherals::USB_OTG_HS {
             const HIGH_SPEED: bool = true;
 
-            cfg_if::cfg_if! {
-                if #[cfg(any(
+            cfg_select! {
+                any(
                     stm32f2,
                     stm32f405,
                     stm32f407,
@@ -682,19 +692,22 @@ foreach_interrupt!(
                     stm32f429,
                     stm32f437,
                     stm32f439,
-                ))] {
+                ) => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else if #[cfg(any(
+                }
+                any(
                     stm32f446,
                     stm32f469,
                     stm32f479,
                     stm32f7,
                     stm32h7, stm32h7rs,
-                ))] {
+                ) => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else if #[cfg(any(stm32u5, stm32wba))] {
+                }
+                any(stm32u5, stm32wba) => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else {
+                }
+                _ => {
                     compile_error!("USB_OTG_HS peripheral is not supported by this chip.");
                 }
             }
@@ -721,12 +734,13 @@ foreach_interrupt!(
 
     (USB1_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
         impl crate::peripherals::USB1_OTG_HS {
-            cfg_if::cfg_if! {
-                if #[cfg(stm32n6)] {
+            cfg_select! {
+                stm32n6 => {
                     // RM0486 Rev 4, §73.3 Table 736, p. 3762: 9 bidirectional device
                     // endpoints including EP0, and 4 KB of dedicated SRAM = 1024 words.
                     const ENDPOINT_COUNT: usize = 9;
-                } else {
+                }
+                _ => {
                     compile_error!("USB1_OTG_HS peripheral is not supported by this chip.");
                 }
             }
@@ -735,10 +749,11 @@ foreach_interrupt!(
         impl SealedInstance for crate::peripherals::USB1_OTG_HS {
             const HIGH_SPEED: bool = true;
 
-            cfg_if::cfg_if! {
-                if #[cfg(stm32n6)] {
+            cfg_select! {
+                stm32n6 => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else {
+                }
+                _ => {
                     compile_error!("USB1_OTG_HS peripheral is not supported by this chip.");
                 }
             }
@@ -803,12 +818,13 @@ foreach_interrupt!(
 
     (USB2_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
         impl crate::peripherals::USB2_OTG_HS {
-            cfg_if::cfg_if! {
-                if #[cfg(stm32n6)] {
+            cfg_select! {
+                stm32n6 => {
                     // Second instance, identical to the first — RM0486 Rev 4,
                     // §73.3 Table 736, p. 3762.
                     const ENDPOINT_COUNT: usize = 9;
-                } else {
+                }
+                _ => {
                     compile_error!("USB2_OTG_HS peripheral is not supported by this chip.");
                 }
             }
@@ -817,10 +833,11 @@ foreach_interrupt!(
         impl SealedInstance for crate::peripherals::USB2_OTG_HS {
             const HIGH_SPEED: bool = true;
 
-            cfg_if::cfg_if! {
-                if #[cfg(stm32n6)] {
+            cfg_select! {
+                stm32n6 => {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else {
+                }
+                _ => {
                     compile_error!("USB2_OTG_HS peripheral is not supported by this chip.");
                 }
             }

@@ -20,14 +20,14 @@ compile_error!("embassy-mcxa executor-platform and external-deep-sleep-executor 
 ///
 /// NOTE: *for now*, some items are here because we haven't validated them on the MCXA5xx yet.
 /// This note will be removed when the two reach parity.
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 #[path = "."]
 mod mcxa2xx_exclusive {
     pub use crate::chips::mcxa2xx::init;
 }
 
 /// Module for MCXA5xx-specific HAL drivers
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 #[path = "."]
 mod mcxa5xx_exclusive {
     pub use crate::chips::mcxa5xx::init;
@@ -59,6 +59,8 @@ pub mod executor;
 pub mod flexcan;
 #[cfg(mcxa_flexspi)]
 pub mod flexspi;
+#[cfg(mcxa_freqme)]
+pub mod freqme;
 #[cfg(mcxa_gpio)]
 pub mod gpio;
 #[cfg(mcxa_lpi2c)]
@@ -93,9 +95,9 @@ pub mod wuu;
 #[cfg(mcxa_wwdt)]
 pub mod wwdt;
 
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 pub use mcxa2xx_exclusive::*;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 pub use mcxa5xx_exclusive::*;
 
 pub(crate) mod chips;
@@ -132,7 +134,7 @@ pub(crate) fn init_time_driver(priority: interrupt::Priority) {
     let _ = priority;
 }
 
-const HALS_SELECTED: usize = const { cfg!(feature = "mcxa2xx") as usize + cfg!(feature = "mcxa5xx") as usize };
+const HALS_SELECTED: usize = const { cfg!(feature = "_mcxa2xx") as usize + cfg!(feature = "_mcxa5xx") as usize };
 
 /// Ensure exactly one chip feature is set.
 #[doc(hidden)]

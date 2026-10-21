@@ -9,8 +9,6 @@ use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Common, Config, InterruptHandler, Irq, Pio, PioPin, ShiftDirection, StateMachine};
 use embassy_rp::{Peri, bind_interrupts};
-use fixed::traits::ToFixed;
-use fixed_macro::types::U56F8;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -34,7 +32,7 @@ fn setup_pio_task_sm0<'d>(pio: &mut Common<'d, PIO0>, sm: &mut StateMachine<'d, 
     let out_pin = pio.make_pio_pin(pin);
     cfg.set_out_pins(&[&out_pin]);
     cfg.set_set_pins(&[&out_pin]);
-    cfg.clock_divider = (U56F8!(125_000_000) / 20 / 200).to_fixed();
+    cfg.clock_divider_x256 = (125_000_000 / 20 / 200) << 8;
     cfg.shift_out.auto_fill = true;
     sm.set_config(&cfg);
 }
@@ -66,7 +64,7 @@ fn setup_pio_task_sm1<'d>(pio: &mut Common<'d, PIO0>, sm: &mut StateMachine<'d, 
 
     let mut cfg = Config::default();
     cfg.use_program(&pio.load_program(&prg.program), &[]);
-    cfg.clock_divider = (U56F8!(125_000_000) / 2000).to_fixed();
+    cfg.clock_divider_x256 = (125_000_000 / 2000) << 8;
     cfg.shift_in.auto_fill = true;
     cfg.shift_in.direction = ShiftDirection::Right;
     sm.set_config(&cfg);
@@ -96,7 +94,7 @@ fn setup_pio_task_sm2<'d>(pio: &mut Common<'d, PIO0>, sm: &mut StateMachine<'d, 
     );
     let mut cfg = Config::default();
     cfg.use_program(&pio.load_program(&prg.program), &[]);
-    cfg.clock_divider = (U56F8!(125_000_000) / 2000).to_fixed();
+    cfg.clock_divider_x256 = (125_000_000 / 2000) << 8;
     sm.set_config(&cfg);
 }
 

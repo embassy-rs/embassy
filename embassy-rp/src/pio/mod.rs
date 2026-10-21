@@ -7,8 +7,6 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use fixed::FixedU32;
-use fixed::types::extra::U8;
 use pio::{Program, SideSet, Wrap};
 
 use crate::dma::{self, Transfer, Word};
@@ -650,8 +648,10 @@ impl Into<crate::pac::pio::vals::ExecctrlStatusN> for StatusN {
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config<'d, PIO: Instance> {
-    /// Clock divisor register for state machines.
-    pub clock_divider: FixedU32<U8>,
+    /// Clock divider for state machines, as a fixed-point number with 16 integer bits
+    /// and 8 fractional bits (the divider multiplied by 256). For example, `256` divides
+    /// by 1, `640` divides by 2.5. Must be between `1 << 8` and `65536 << 8` inclusive.
+    pub clock_divider_x256: u32,
     /// Which data bit to use for inline OUT enable.
     pub out_en_sel: u8,
     /// Use a bit of OUT data as an auxiliary write enable When used in conjunction with OUT_STICKY.
@@ -685,7 +685,7 @@ pub struct Config<'d, PIO: Instance> {
 impl<'d, PIO: Instance> Default for Config<'d, PIO> {
     fn default() -> Self {
         Self {
-            clock_divider: 1u8.into(),
+            clock_divider_x256: 1 << 8,
             out_en_sel: Default::default(),
             inline_out_en: Default::default(),
             out_sticky: Default::default(),
@@ -789,15 +789,15 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     /// Set the config for a given PIO state machine.
     pub fn set_config(&mut self, config: &Config<'d, PIO>) {
         // sm expects 0 for 65536, truncation makes that happen
-        assert!(config.clock_divider <= 65536, "clkdiv must be <= 65536");
-        assert!(config.clock_divider >= 1, "clkdiv must be >= 1");
+        assert!(config.clock_divider_x256 <= 65536 << 8, "clkdiv must be <= 65536");
+        assert!(config.clock_divider_x256 >= 1 << 8, "clkdiv must be >= 1");
         assert!(config.out_en_sel < 32, "out_en_sel must be < 32");
         //assert!(config.status_n < 32, "status_n must be < 32");
         // sm expects 0 for 32, truncation makes that happen
         assert!(config.shift_in.threshold <= 32, "shift_in.threshold must be <= 32");
         assert!(config.shift_out.threshold <= 32, "shift_out.threshold must be <= 32");
         let sm = Self::this_sm();
-        sm.clkdiv().write(|w| w.0 = config.clock_divider.to_bits() << 8);
+        sm.clkdiv().write(|w| w.0 = config.clock_divider_x256 << 8);
         sm.shiftctrl().write(|w| {
             w.set_fjoin_rx(config.fifo_join == FifoJoin::RxOnly);
             w.set_fjoin_tx(config.fifo_join == FifoJoin::TxOnly);
@@ -1026,9 +1026,12 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     }
 
     /// Set the clock divider for this state machine.
-    pub fn set_clock_divider(&mut self, clock_divider: FixedU32<U8>) {
+    ///
+    /// The divider is a fixed-point number with 16 integer bits and 8 fractional bits,
+    /// see [`Config::clock_divider_x256`].
+    pub fn set_clock_divider_x256(&mut self, clock_divider: u32) {
         let sm = Self::this_sm();
-        sm.clkdiv().write(|w| w.0 = clock_divider.to_bits() << 8);
+        sm.clkdiv().write(|w| w.0 = clock_divider << 8);
     }
 
     #[inline(always)]

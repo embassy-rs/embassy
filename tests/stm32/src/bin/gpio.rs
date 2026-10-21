@@ -275,6 +275,7 @@ fn delay() {
     #[cfg(any(
         feature = "stm32h755zi",
         feature = "stm32h753zi",
+        feature = "stm32h723zg",
         feature = "stm32h7a3zi",
         feature = "stm32h7s3l8"
     ))]

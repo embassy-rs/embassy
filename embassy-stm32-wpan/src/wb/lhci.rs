@@ -41,7 +41,7 @@ impl Default for LhciC1DeviceInformationCcrp {
             wireless_fw_info_table,
         } = unsafe { ptr::read_volatile(TL_DEVICE_INFO_TABLE.as_ptr()) };
 
-        let device_id = stm32_device_signature::device_id();
+        let device_id = embassy_stm32::uid::uid();
         let uid96_0 = (device_id[3] as u32) << 24
             | (device_id[2] as u32) << 16
             | (device_id[1] as u32) << 8

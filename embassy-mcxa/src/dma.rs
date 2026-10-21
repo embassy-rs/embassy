@@ -125,7 +125,7 @@ use crate::pac::edma_tcd::{
 };
 use crate::pac::{self, Interrupt};
 use crate::peripherals::DMA0;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 use crate::peripherals::DMA1;
 
 /// Initialize DMA controller (clock enabled, reset released, controller configured).
@@ -150,7 +150,7 @@ pub(crate) fn init() {
     // Enable DMA1 clock, release reset, and configure its management page.
     // Without this, any access to the DMA1 TCD registers faults because the
     // peripheral is unclocked and held in reset.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     {
         let _ = unsafe { enable_and_reset::<DMA1>(&NoConfig) };
 
@@ -164,7 +164,7 @@ pub(crate) fn init() {
     }
 
     // Enable all DMA request lines for non-secure access.
-    #[cfg(all(feature = "mcxa5xx", feature = "dma-ipd-req"))]
+    #[cfg(all(feature = "_mcxa5xx", feature = "dma-ipd-req"))]
     for sec_gp_i in 0..=9 {
         crate::pac::AHBSC.sec_gp_reg(sec_gp_i).write(|w| w.0 = 0xffff_ffff);
     }
@@ -472,7 +472,7 @@ impl PingPongStatus {
 }
 
 // Because mcxa2xx only has 1 DMA instance, we need to conditionally set the instance count.
-const DMA_INSTANCE_COUNT: usize = if cfg!(feature = "mcxa5xx") { 2 } else { 1 };
+const DMA_INSTANCE_COUNT: usize = if cfg!(feature = "_mcxa5xx") { 2 } else { 1 };
 const DMA_CHANNEL_COUNT: usize = 12;
 
 fn ping_pong_status(dma: usize, channel: usize) -> Option<PingPongStatus> {
@@ -857,7 +857,7 @@ impl DmaChannel<'_> {
     pub(crate) fn tcd(&self) -> pac::edma_tcd::Tcd {
         match self.dma() {
             0 => pac::EDMA_0_TCD.tcd(self.channel.channel()),
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             1 => pac::EDMA_1_TCD.tcd(self.channel.channel()),
             _ => unreachable!(),
         }
@@ -2991,7 +2991,7 @@ pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
 
     let t = match dma {
         0 => pac::EDMA_0_TCD.tcd(channel),
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         1 => pac::EDMA_1_TCD.tcd(channel),
         _ => unreachable!(),
     };

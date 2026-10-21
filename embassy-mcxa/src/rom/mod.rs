@@ -10,23 +10,23 @@
 //! ownership and configuration requirements before invoking it.
 
 mod flash;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 mod flexspi_nor;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 mod kb;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 mod nboot;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 mod spi_flash;
 
 pub use flash::*;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 pub use flexspi_nor::*;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 pub use kb::*;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 pub use nboot::*;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 pub use spi_flash::*;
 
 #[repr(transparent)]
@@ -42,10 +42,10 @@ pub struct StandardVersion {
 }
 
 pub fn get() -> &'static RomApi {
-    #[cfg(feature = "mcxa2xx")]
+    #[cfg(feature = "_mcxa2xx")]
     /// Base address of the ROM API bootloader tree for MCXA276.
     const ROM_API_BASE: u32 = 0x0300_5FE0;
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     /// Base address of the ROM API bootloader tree for MCXA577.
     const ROM_API_BASE: u32 = 0x1303_D800;
 
@@ -61,19 +61,19 @@ pub struct RomApi {
     run_bootloader: unsafe extern "C" fn(arg: *const u32),
     // Flash driver interface table.
     flash: *const FlashVtable,
-    #[cfg(feature = "mcxa2xx")]
+    #[cfg(feature = "_mcxa2xx")]
     jump: unsafe extern "C" fn(image_base: u32),
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     kb: *const KbVtable,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     nboot: *const NbootVtable,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     flex_spi_nor: *const FlexspiNorVtable,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     spi_flash: *const SpiFlashVtable,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     version: StandardVersion,
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     copyright: *const core::ffi::c_char,
 }
 
@@ -102,12 +102,12 @@ impl RomApi {
         Flash::new(unsafe { &*self.flash })
     }
 
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn kb(&self, options: KbOptions) -> Result<Kb, KbError> {
         Kb::new(unsafe { &*self.kb }, options)
     }
 
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn nboot(&self) -> Result<Nboot, NbootError> {
         Nboot::new(unsafe { &*self.nboot })
     }
@@ -128,7 +128,7 @@ impl RomApi {
     /// stall ROM operations. Unsafe code creating mapped-flash references or XIP
     /// code remains responsible for ensuring that those objects are not
     /// invalidated by later ROM operations, even without concurrent dereferences.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn flex_spi<'d>(
         &self,
         peri: crate::Peri<'d, crate::peripherals::FLEXSPI0>,
@@ -165,7 +165,7 @@ impl RomApi {
     /// `custom_fcb` should preserve the probed device parameters except for the
     /// intended board overrides; probing does not validate arbitrary later
     /// customization. The mapped-flash/XIP caveat of [`Self::flex_spi`] applies.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn flex_spi_with_options<'d>(
         &self,
         peri: crate::Peri<'d, crate::peripherals::FLEXSPI0>,
@@ -200,7 +200,7 @@ impl RomApi {
     /// must be idle and prepared for the ROM clock-selector API before this
     /// call. Selecting a source is not a substitute for initializing its PLL/FRO
     /// or preparing the controller's clocks.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn flex_spi_with_options_and_clock<'d>(
         &self,
         peri: crate::Peri<'d, crate::peripherals::FLEXSPI0>,
@@ -219,17 +219,17 @@ impl RomApi {
         )
     }
 
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn spi_flash(&self, config: SpiFlashConfig) -> Result<SpiFlash, SpiFlashError> {
         SpiFlash::new(unsafe { &*self.spi_flash }, config)
     }
 
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn version(&self) -> StandardVersion {
         self.version
     }
 
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn copyright(&self) -> *const core::ffi::c_char {
         self.copyright
     }

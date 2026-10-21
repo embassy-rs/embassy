@@ -10,8 +10,11 @@ use common::*;
 use defmt::assert;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel, BorrowedAdcChannel, Config, SampleTime};
+use embassy_stm32::Peri;
+use embassy_stm32::adc::{Adc, AdcChannel, BasicInstance, BorrowedAdcChannel, Config, Instance, RxDma, SampleTimes};
 use embassy_stm32::gpio::{Flex, Pull, Speed};
+use embassy_stm32::interrupt::typelevel::Binding;
+use embassy_stm32::mode::Async;
 use panic_probe as _;
 
 /// How a known level is put on the test pin.
@@ -77,13 +80,10 @@ fn set_level(driver: &mut Driver<'_>, method: PinMethod, high: bool) {
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
 
-    let adc = peri!(p, ADC);
-    let pin = peri!(p, ADC_PIN);
-    let mut dma = peri!(p, ADC_DMA);
-    let dma_irqs = irqs!(ADC);
+    let mut pin = peri!(p, ADC_PIN);
 
     // A second handle on the pin, so we can drive it while the ADC owns it as a channel.
-    let mut flex = Driver {
+    let mut driver = Driver {
         flex: Flex::new(unsafe { pin.clone_unchecked() }),
         #[cfg(feature = "adc-dac")]
         dac: embassy_stm32::dac::DacChannel::new_blocking::<_, embassy_stm32::dac::Ch1>(peri!(p, ADC_DAC), unsafe {
@@ -91,14 +91,70 @@ async fn main(_spawner: Spawner) {
         }),
     };
 
-    let mut adc = Adc::new(adc, irqs!(ADC_IRQ), Config::default());
-    info!("adc clock: {} Hz, resolution {:?}", adc.clock().0, adc.resolution());
-    let max = adc.resolution().max_count();
-    let st = SampleTime::from_bits(7);
+    {
+        let mut adc = Adc::new(peri!(p, ADC), irqs!(ADC_IRQ), Config::default());
+        let vref = adc.enable_vrefint().degrade_adc();
+        let temp = adc.enable_temperature().degrade_adc();
+        let ch = pin.reborrow().degrade_adc();
+        test_adc(
+            "ADC",
+            &mut adc,
+            &mut driver,
+            ch,
+            Some(vref),
+            Some(temp),
+            peri!(p, ADC_DMA),
+            irqs!(ADC),
+        )
+        .await;
+    }
 
-    // Type-erase the pin once (this also puts it in analog mode).
-    let mut ch = pin.degrade_adc();
-    let mut vref: BorrowedAdcChannel<'_, peris::ADC> = adc.enable_vrefint().degrade_adc();
+    // A second ADC of a different kind on the same chip (the 16-bit ADC1 next to the 12-bit
+    // ADC3 of the H72x/H73x), converting the same pin. It has no internal channels.
+    #[cfg(feature = "adc-b")]
+    {
+        let mut adc = Adc::new(peri!(p, ADC_B), irqs!(ADC_B_IRQ), Config::default());
+        let ch = pin.reborrow().degrade_adc();
+        test_adc(
+            "ADC_B",
+            &mut adc,
+            &mut driver,
+            ch,
+            None,
+            None,
+            peri!(p, ADC_B_DMA),
+            irqs!(ADC_B),
+        )
+        .await;
+    }
+
+    info!("Test OK");
+    cortex_m::asm::bkpt();
+}
+
+/// Run the whole test on one ADC. `vref` and `temp` are the VREFINT and temperature sensor channels,
+/// for ADCs that have them.
+async fn test_adc<'d, T: Instance, D: RxDma<T>>(
+    name: &str,
+    adc: &mut Adc<'d, T, Async>,
+    flex: &mut Driver<'_>,
+    mut ch: BorrowedAdcChannel<'_, T>,
+    mut vref: Option<BorrowedAdcChannel<'_, T>>,
+    temp: Option<BorrowedAdcChannel<'_, T>>,
+    mut dma: Peri<'_, D>,
+    dma_irqs: impl Binding<D::Interrupt, embassy_stm32::dma::InterruptHandler<D>> + Copy + 'd,
+) where
+    <T as BasicInstance>::Regs: SampleTimes,
+{
+    info!(
+        "{}: adc clock: {} Hz, resolution {:?}",
+        name,
+        adc.clock().0,
+        adc.resolution()
+    );
+    let max = adc.resolution().max_count();
+    // The longest sample time.
+    let st = adc.sample_time_for_us(1000);
 
     let check_vrefint = |what: &str, v: u16| {
         // VREFINT is ~1.2 V, so the reading gives VDDA, which is 1.8 V to 3.3 V on the farm.
@@ -106,7 +162,6 @@ async fn main(_spawner: Spawner) {
         info!("{}: {} (max {}), VDDA {} mV", what, v, max, vdda_mv);
         assert!((1700..=3600).contains(&vdda_mv), "{} expected ~1.2 V, got {}", what, v);
     };
-
     // ---- find out how this ADC wants its pin driven, and what levels that gives ----
     let mut found = None;
     let methods = [
@@ -120,11 +175,11 @@ async fn main(_spawner: Spawner) {
         let mut hi = 0;
         let mut lo = 0;
         for _ in 0..3 {
-            set_level(&mut flex, m, true);
+            set_level(flex, m, true);
             hi = adc.blocking_read(&mut ch, st) as u32;
         }
         for _ in 0..3 {
-            set_level(&mut flex, m, false);
+            set_level(flex, m, false);
             lo = adc.blocking_read(&mut ch, st) as u32;
         }
         info!("{:?}: high {} low {} (max {})", m, hi, lo, max);
@@ -148,7 +203,7 @@ async fn main(_spawner: Spawner) {
     for high in [true, false, true, false] {
         let mut v = 0;
         for _ in 0..3 {
-            set_level(&mut flex, method, high);
+            set_level(flex, method, high);
             v = adc.blocking_read(&mut ch, st);
         }
         if high {
@@ -157,13 +212,15 @@ async fn main(_spawner: Spawner) {
             check_low("blocking low", v);
         }
     }
-    check_vrefint("blocking vrefint", adc.blocking_read(&mut vref, st));
+    if let Some(vref) = &mut vref {
+        check_vrefint("blocking vrefint", adc.blocking_read(vref, st));
+    }
 
     // ---- interrupt-driven reads ----
     for high in [true, false] {
         let mut v = 0;
         for _ in 0..3 {
-            set_level(&mut flex, method, high);
+            set_level(flex, method, high);
             v = adc.read(&mut ch, st).await;
         }
         if high {
@@ -172,28 +229,39 @@ async fn main(_spawner: Spawner) {
             check_low("async low", v);
         }
     }
-    check_vrefint("async vrefint", adc.read(&mut vref, st).await);
+    if let Some(vref) = &mut vref {
+        check_vrefint("async vrefint", adc.read(vref, st).await);
+    }
 
     // ---- DMA sequence reads ----
     // The pin goes first so that it is sampled right after it was driven; every ADC can scan
     // two channels in either order.
     info!(
-        "pin channel {}, vrefint channel {}",
+        "pin channel {}, vrefint channel {:?}",
         ch.get_hw_channel(),
-        vref.get_hw_channel()
+        vref.as_ref().map(|v| v.get_hw_channel())
     );
 
-    let mut buf = [0u16; 4];
     for high in [true, false, true, false] {
         // Settle the sampling capacitor near the target level first.
         for _ in 0..2 {
-            set_level(&mut flex, method, high);
+            set_level(flex, method, high);
             adc.blocking_read(&mut ch, st);
         }
-        let seq = [(ch.reborrow_adc(), st), (vref.reborrow_adc(), st)];
-        set_level(&mut flex, method, high);
-        adc.read_sequence(dma.reborrow(), dma_irqs, seq.into_iter(), None, &mut buf)
-            .await;
+        let mut buf = [0u16; 4];
+        set_level(flex, method, high);
+        match &mut vref {
+            Some(vref) => {
+                let seq = [(ch.reborrow_adc(), st), (vref.reborrow_adc(), st)];
+                adc.read_sequence(dma.reborrow(), dma_irqs, seq.into_iter(), None, &mut buf)
+                    .await;
+            }
+            None => {
+                let seq = [(ch.reborrow_adc(), st)];
+                adc.read_sequence(dma.reborrow(), dma_irqs, seq.into_iter(), None, &mut buf[..1])
+                    .await;
+            }
+        }
         info!("dma buf: {}", buf);
         // With the drive method the second sequence samples a partly discharged pin, so only
         // the first pin sample is checked.
@@ -202,9 +270,11 @@ async fn main(_spawner: Spawner) {
         } else {
             check_low("dma low", buf[0]);
         }
-        check_vrefint("dma vrefint", buf[1]);
-        check_vrefint("dma vrefint 2", buf[3]);
-        if method != PinMethod::Drive {
+        if vref.is_some() {
+            check_vrefint("dma vrefint", buf[1]);
+            check_vrefint("dma vrefint 2", buf[3]);
+        }
+        if vref.is_some() && method != PinMethod::Drive {
             // The vrefint conversion in between discharges the sampling capacitor towards
             // VREFINT, so the second pin sample only recovers partway towards the pin level.
             // Require it to be clearly on the expected side of both the midpoint and the
@@ -234,14 +304,23 @@ async fn main(_spawner: Spawner) {
 
     // ---- configured sequence (one DMA transfer per call) ----
     {
-        set_level(&mut flex, method, true);
-        let seq = [(ch.reborrow_adc(), st), (vref.reborrow_adc(), st)];
-        let mut configured = adc.configure_sequence(dma.reborrow(), seq.into_iter(), dma_irqs);
+        set_level(flex, method, true);
         let mut buf = [0u16; 2];
+        let len = if vref.is_some() { 2 } else { 1 };
+        let mut configured = match &mut vref {
+            Some(vref) => {
+                let seq = [(ch.reborrow_adc(), st), (vref.reborrow_adc(), st)];
+                adc.configure_sequence(dma.reborrow(), seq.into_iter(), dma_irqs)
+            }
+            None => {
+                let seq = [(ch.reborrow_adc(), st)];
+                adc.configure_sequence(dma.reborrow(), seq.into_iter(), dma_irqs)
+            }
+        };
         for high in [true, false, true] {
             for _ in 0..3 {
-                set_level(&mut flex, method, high);
-                configured.read(&mut buf).await;
+                set_level(flex, method, high);
+                configured.read(&mut buf[..len]).await;
             }
             info!("configured buf: {}", buf);
             if high {
@@ -249,13 +328,14 @@ async fn main(_spawner: Spawner) {
             } else {
                 check_low("configured low", buf[0]);
             }
-            check_vrefint("configured vrefint", buf[1]);
+            if len == 2 {
+                check_vrefint("configured vrefint", buf[1]);
+            }
         }
     }
 
     // ---- temperature sensor: just check it converts to something plausible ----
-    {
-        let mut temp: BorrowedAdcChannel<'_, peris::ADC> = adc.enable_temperature().degrade_adc();
+    if let Some(mut temp) = temp {
         let v = adc.blocking_read(&mut temp, st);
         info!("temperature sensor raw: {} (max {})", v, max);
         assert!(
@@ -265,6 +345,5 @@ async fn main(_spawner: Spawner) {
         );
     }
 
-    info!("Test OK");
-    cortex_m::asm::bkpt();
+    info!("{}: OK", name);
 }

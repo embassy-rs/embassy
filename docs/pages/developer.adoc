@@ -3,3 +3,4 @@
 This section covers the internals of Embassy, aimed at contributors and developers who want to understand how Embassy is built or add support for new hardware.
 
 include::developer_stm32.adoc[leveloffset = 2]
+include::developer_time.adoc[leveloffset = 2]

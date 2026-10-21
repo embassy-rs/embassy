@@ -803,9 +803,11 @@ async fn run_codec<'d, T: Instance>(
         }
     });
 
-    use futures_util::future::{Either, select};
-    let bytes = match select(out_xfer, core::pin::pin!(eoc)).await {
-        Either::Left(((), _eoc_unfinished)) => {
+    use embassy_futures::select::{Either, select};
+    let mut out_xfer = out_xfer;
+    let bytes = match select(&mut out_xfer, eoc).await {
+        Either::First(()) => {
+            drop(out_xfer);
             // Output buffer filled before EOC — caller's dst is too small.
             regs.jpeg_cfr().write(|w| w.set_ceocf(true));
             regs.jpeg_cr().modify(|w| {
@@ -816,7 +818,7 @@ async fn run_codec<'d, T: Instance>(
             drop(in_xfer);
             return Err(Error::OutputTooSmall);
         }
-        Either::Right(((), out_xfer)) => {
+        Either::Second(()) => {
             // The DMA may have stopped a few words short of fully draining
             // the output FIFO after EOC. We have access to the channel's
             // remaining count from the unfinished transfer, but the codec

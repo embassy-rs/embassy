@@ -19,12 +19,22 @@ use static_cell::StaticCell;
 
 teleprobe_meta::timeout!(120);
 
-#[cfg(not(any(feature = "stm32h563zi", feature = "stm32f767zi", feature = "stm32f207zg")))]
+#[cfg(not(any(
+    feature = "stm32h563zi",
+    feature = "stm32f767zi",
+    feature = "stm32f207zg",
+    feature = "stm32h723zg"
+)))]
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler<ETH>;
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
 });
-#[cfg(any(feature = "stm32h563zi", feature = "stm32f767zi", feature = "stm32f207zg"))]
+#[cfg(any(
+    feature = "stm32h563zi",
+    feature = "stm32f767zi",
+    feature = "stm32f207zg",
+    feature = "stm32h723zg"
+))]
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler<ETH>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
@@ -66,6 +76,8 @@ async fn main(spawner: Spawner) {
     let n = 5;
     #[cfg(feature = "stm32h753zi")]
     let n = 6;
+    #[cfg(feature = "stm32h723zg")]
+    let n = 7;
 
     let mac_addr = [0x00, n, 0xDE, 0xAD, 0xBE, 0xEF];
 
@@ -77,7 +89,7 @@ async fn main(spawner: Spawner) {
 
     static PACKETS: StaticCell<PacketQueue<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>> = StaticCell::new();
 
-    let device = Ethernet::new(
+    let device = unwrap!(Ethernet::new(
         PACKETS.init(PacketQueue::<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>::new()),
         p.ETH,
         p.PA1,
@@ -95,7 +107,7 @@ async fn main(spawner: Spawner) {
         p.PA2,
         p.PC1,
         Irqs,
-    );
+    ));
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();

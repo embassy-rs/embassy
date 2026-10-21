@@ -20,10 +20,18 @@ use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::{interrupt, pac, peripherals};
 
 /// SAADC error
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, _f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {}
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// Interrupt handler.
 pub struct InterruptHandler {

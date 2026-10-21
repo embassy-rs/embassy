@@ -9,7 +9,6 @@ publish = false
 teleprobe-meta = "1"
 
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
-embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt", ] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt",  "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.11.0", path = "../../embassy-nrf", features = ["defmt", "gpiote", "unstable-pac"] }
@@ -18,8 +17,7 @@ embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defm
 embassy-net-esp-hosted = { version = "0.3.0", path = "../../embassy-net-esp-hosted", features = ["defmt", "esp-hosted-fg"] }
 embassy-net-enc28j60 = { version = "0.3.0", path = "../../embassy-net-enc28j60", features = ["defmt"] }
 # Shrink the packet pool: the tests link everything into RAM, and the default 16 buffers don't fit.
-embedded-hal-async = { version = "1.0" }
-embedded-hal-bus = { version = "0.1", features = ["async"] }
+embedded-hal-bus = { version = "0.3", features = ["async"] }
 static_cell = "2"
 perf-client = { path = "../perf-client" }
 

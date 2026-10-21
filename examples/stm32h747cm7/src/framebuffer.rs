@@ -1,13 +1,22 @@
-//! Framebuffer implementing embedded_graphics DrawTarget
+//! ARGB8888 framebuffer drawing a color bar test pattern
 
 use core::ptr::NonNull;
 
-use defmt::warn;
 use embassy_stm32::dsihost::panel::DsiPanel;
-use mousefood::embedded_graphics::prelude::*;
-use mousefood::prelude::Rgb888;
 
 use crate::glass::Glass;
+
+/// Color bars in ARGB8888, left to right.
+const BARS: [u32; 8] = [
+    0xFFFF_FFFF, // white
+    0xFFFF_FF00, // yellow
+    0xFF00_FFFF, // cyan
+    0xFF00_FF00, // green
+    0xFFFF_00FF, // magenta
+    0xFFFF_0000, // red
+    0xFF00_00FF, // blue
+    0xFF00_0000, // black
+];
 
 // Framebuffer
 pub struct Framebuffer {
@@ -42,88 +51,19 @@ impl Framebuffer {
         self.ptr.as_ptr()
     }
 
-    /// Get a linear index from x,y coordinates
-    #[inline]
-    fn index_of(x: u32, y: u32) -> Option<usize> {
-        if x < Self::WIDTH as u32 && y < Self::HEIGHT as u32 {
-            Some(y as usize * Self::WIDTH + x as usize)
-        } else {
-            None
+    /// Fill the whole framebuffer with vertical color bars.
+    pub fn draw_bars(&mut self) {
+        for y in 0..Self::HEIGHT {
+            self.draw_bars_row(y, false);
         }
     }
 
-    /// Set an RGB888 color with alpha set to 0xff
-    #[inline]
-    fn set(&mut self, index: usize, color: Rgb888) {
-        if index < self.len {
-            let r = color.r() as u32;
-            let g = color.g() as u32;
-            let b = color.b() as u32;
-
-            self.as_mut_slice()[index] = (0xff << 24) | (r << 16) | (g << 8) | b;
+    /// Draw row `y` of the color bars, with the colors inverted if `inverted` is set.
+    pub fn draw_bars_row(&mut self, y: usize, inverted: bool) {
+        let row = &mut self.as_mut_slice()[y * Self::WIDTH..][..Self::WIDTH];
+        for (x, px) in row.iter_mut().enumerate() {
+            let color = BARS[x * BARS.len() / Self::WIDTH];
+            *px = if inverted { color ^ 0x00FF_FFFF } else { color };
         }
-    }
-
-    #[inline]
-    fn get(&self, index: usize) -> Rgb888 {
-        let px = self.as_slice()[index];
-
-        let r = ((px >> 16) & 0xFF) as u8;
-        let g = ((px >> 8) & 0xFF) as u8;
-        let b = (px & 0xFF) as u8;
-
-        Rgb888::new(r, g, b)
-    }
-}
-
-impl OriginDimensions for &'static mut Framebuffer {
-    fn size(&self) -> Size {
-        Size {
-            width: Framebuffer::WIDTH as u32,
-            height: Framebuffer::HEIGHT as u32,
-        }
-    }
-}
-
-impl DrawTarget for &'static mut Framebuffer {
-    type Color = Rgb888;
-    type Error = ();
-
-    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
-    where
-        I: IntoIterator<Item = Pixel<Self::Color>>,
-    {
-        for Pixel(point, color) in pixels {
-            if let Some(index) = Framebuffer::index_of(point.x as u32, point.y as u32) {
-                self.set(index, color);
-            } else {
-                warn!("Pixel coordinates out of range");
-            }
-        }
-
-        Ok(())
-    }
-
-    fn fill_contiguous<I>(
-        &mut self,
-        area: &mousefood::embedded_graphics::primitives::Rectangle,
-        colors: I,
-    ) -> Result<(), Self::Error>
-    where
-        I: IntoIterator<Item = Self::Color>,
-    {
-        self.draw_iter(area.points().zip(colors).map(|(pos, color)| Pixel(pos, color)))
-    }
-
-    fn fill_solid(
-        &mut self,
-        area: &mousefood::embedded_graphics::primitives::Rectangle,
-        color: Self::Color,
-    ) -> Result<(), Self::Error> {
-        self.fill_contiguous(area, core::iter::repeat(color))
-    }
-
-    fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
-        self.fill_solid(&self.bounding_box(), color)
     }
 }

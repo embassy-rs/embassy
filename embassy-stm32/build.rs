@@ -7,7 +7,6 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use regex::Regex;
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, Peripheral, PeripheralRccKernelClock,
@@ -247,6 +246,7 @@ fn main() {
 
     cfgs.declare_all(&[
         "adc_v2_u5",
+        "adc_v3_h7_adc3",
         "adc_oversampler",
         "adc_oversampler_1024",
         "adc_sync_clock",
@@ -254,6 +254,7 @@ fn main() {
         "adc_presc_f4",
         "adc_presc_l1",
         "adc_presc_full",
+        "adc_res6",
         "adc_res14",
         "adc_res16",
         "peri_adc1",
@@ -507,8 +508,16 @@ fn main() {
     // ========
     // Generate FLASH regions
     cfgs.declare("flash");
+    cfgs.declare("flash_dual_bank");
     let mut has_flash = false;
-    if !chip_name.starts_with("stm32n6") {
+    // Only chips with a flash controller supported by the driver get the `flash` module.
+    let flash_supported = METADATA.peripherals.iter().any(|p| {
+        p.name == "FLASH"
+            && p.registers
+                .as_ref()
+                .is_some_and(|r| r.kind == "flash" && r.version.starts_with('v'))
+    });
+    if flash_supported {
         cfgs.enable("flash");
         has_flash = true;
 
@@ -517,16 +526,6 @@ fn main() {
             .iter()
             .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
             .collect();
-
-        let check_fb_mode = dual_bank_selected
-            && METADATA.peripherals.iter().any(|p| {
-                p.name == "SYSCFG"
-                    && p.registers.as_ref().is_some_and(|r| {
-                        r.ir.fieldsets
-                            .iter()
-                            .any(|f| f.name == "Memrmp" && f.fields.iter().any(|f| f.name == "fb_mode"))
-                    })
-            });
 
         let mut bank_1_base = None;
         let mut bank_2_base = None;
@@ -540,39 +539,25 @@ fn main() {
                 otp_base = Some(region.address);
             }
         }
-        let bank_1 = bank_1_base
-            .map(|a| quote!(#a))
-            .unwrap_or_else(|| quote!(panic!("Bank 1 not present")));
-        let bank_2 = bank_2_base
-            .map(|a| quote!(#a))
-            .unwrap_or_else(|| quote!(panic!("Bank 2 not present")));
-        let otp = otp_base
-            .map(|a| quote!(#a))
-            .unwrap_or_else(|| quote!(panic!("OTP not present")));
-
-        let (swap_check, bank1, bank2) = if check_fb_mode {
-            (
-                quote! { let is_swapped = crate::pac::SYSCFG.memrmp().read().fb_mode(); },
-                quote! { if is_swapped { #bank_2 } else { #bank_1 } },
-                quote! { if is_swapped { #bank_1 } else { #bank_2 } },
-            )
-        } else {
-            (quote! {}, quote! { #bank_1 }, quote! { #bank_2 })
+        let bank_1 = bank_1_base.unwrap();
+        let otp = match otp_base {
+            Some(a) => quote!(Some(#a)),
+            None => quote!(None),
         };
 
-        flash_regions.extend(quote! {
-            impl crate::flash::FlashBank {
-                /// Absolute base address.
-                pub fn base(&self) -> u32 {
-                    #swap_check
-                    match self {
-                        crate::flash::FlashBank::Bank1 => #bank1,
-                        crate::flash::FlashBank::Bank2 => #bank2,
-                        crate::flash::FlashBank::Otp => #otp,
-                    }
-                }
-            }
+        g.extend(quote! {
+            pub(crate) const FLASH_BANK1_BASE: u32 = #bank_1;
+            pub(crate) const FLASH_OTP_BASE: Option<u32> = #otp;
         });
+
+        // The selected memory layout has two banks: dual-bank chips, and chips with a
+        // selectable bank mode built with the `dual-bank` feature.
+        if let Some(bank_2) = bank_2_base {
+            cfgs.enable("flash_dual_bank");
+            g.extend(quote! {
+                pub(crate) const FLASH_BANK2_BASE: u32 = #bank_2;
+            });
+        }
 
         for region in flash_memory_regions.iter() {
             let region_name = format_ident!("{}", get_flash_region_name(region.name));
@@ -608,12 +593,11 @@ fn main() {
             let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
             flash_regions.extend(quote! {
                 #[cfg(flash)]
-                pub struct #region_type<'d, MODE = crate::flash::Async>(
+                pub struct #region_type<'d, M: crate::mode::Mode>(
                     pub &'static crate::flash::FlashRegion,
                     pub(crate) embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>,
-                    pub(crate) core::marker::PhantomData<MODE>,
-                    #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
-                    pub(crate) Option<crate::flash::EraseParallelism>,
+                    pub(crate) core::marker::PhantomData<M>,
+                    pub(crate) crate::flash::Config,
                 );
             });
         }
@@ -625,7 +609,7 @@ fn main() {
                 let field_name = format_ident!("{}", region_name.to_lowercase());
                 let field_type = format_ident!("{}", get_flash_region_type_name(f.name));
                 let field = quote! {
-                    pub #field_name: #field_type<'d, MODE>
+                    pub #field_name: #field_type<'d, M>
                 };
                 let region_name = format_ident!("{}", region_name);
                 let init = quote! {
@@ -633,8 +617,7 @@ fn main() {
                         &#region_name,
                         unsafe { p.clone_unchecked()},
                         core::marker::PhantomData,
-                        #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
-                        erase_parallelism,
+                        config,
                     )
                 };
 
@@ -645,17 +628,16 @@ fn main() {
         let regions_len = flash_memory_regions.len();
         flash_regions.extend(quote! {
             #[cfg(flash)]
-            pub struct FlashLayout<'d, MODE = crate::flash::Async> {
+            pub struct FlashLayout<'d, M: crate::mode::Mode> {
                 #(#fields),*,
-                _mode: core::marker::PhantomData<MODE>,
+                _mode: core::marker::PhantomData<M>,
             }
 
             #[cfg(flash)]
-            impl<'d, MODE> FlashLayout<'d, MODE> {
+            impl<'d, M: crate::mode::Mode> FlashLayout<'d, M> {
                 pub(crate) fn new(
                     p: embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>,
-                    #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
-                    erase_parallelism: Option<crate::flash::EraseParallelism>,
+                    config: crate::flash::Config,
                 ) -> Self {
                     Self {
                         #(#inits),*,
@@ -2272,8 +2254,6 @@ fn main() {
 
     let mut trigger_list: BTreeSet<&str> = BTreeSet::new();
 
-    let trigger_expr = Regex::new(r"(?m)(.+?)(\d+)$").unwrap();
-
     // JPEG HAL: emit dma_trait impls on chips that use RX/TX DMA signal names.
     // ST naming: jpeg_rx_dma = mem→peri (input), jpeg_tx_dma = peri→mem (output).
     if chip_name.starts_with("stm32n6") || chip_name.starts_with("stm32u5f9") || chip_name.starts_with("stm32u5g9") {
@@ -2304,9 +2284,9 @@ fn main() {
         }
 
         for trigger in p.triggers {
-            let matches = trigger_expr.captures(trigger.signal).unwrap();
-            let signal = &matches[1];
-            let idx: u8 = matches[2].parse().unwrap();
+            let (signal, idx) = split_trailing_number(trigger.signal)
+                .unwrap_or_else(|| panic!("trigger signal without index: {}", trigger.signal));
+            let idx: u8 = idx.try_into().unwrap();
 
             trigger_list.insert(trigger.source);
 
@@ -2655,12 +2635,17 @@ fn main() {
             let adc_common = adc_common.map(|p| p.name).unwrap_or("none");
             // Which driver implementation handles this instance: the first component of the
             // register version (`v1_f4` -> legacy `v1`, ...). The U5 has both ADC generations
-            // in one register version; its `ADC4` block is a `v2` ADC.
+            // in one register version; its `ADC4` block is a `v2` ADC. The H72x/H73x `ADC3`
+            // block is a second, 12-bit, `v3` layout next to the main one.
             let family = match (regs.version, regs.block) {
                 ("v3_u5", "ADC4") => {
                     cfgs.enable("adc_v2");
                     cfgs.enable("adc_v2_u5");
                     "v2"
+                }
+                ("v3_h7", "ADC3") => {
+                    cfgs.enable("adc_v3_h7_adc3");
+                    "v3"
                 }
                 (version, _) => version.split('_').next().unwrap(),
             };
@@ -2687,7 +2672,7 @@ fn main() {
                     "adc_oversampler_1024",
                     matches!(
                         (regs.version, regs.block),
-                        ("v3_h7" | "v3_u3" | "v3_n6" | "v3_c5", _) | ("v3_u5", "ADC")
+                        ("v3_u3" | "v3_n6" | "v3_c5", _) | ("v3_h7" | "v3_u5", "ADC")
                     ),
                 ),
                 (
@@ -2714,10 +2699,17 @@ fn main() {
                     ),
                 ),
                 (
-                    "adc_res14",
-                    matches!((regs.version, regs.block), ("v3_h7", _) | ("v3_u5", "ADC")),
+                    "adc_res6",
+                    !matches!(
+                        (regs.version, regs.block),
+                        ("v1_f1", _) | ("v3_h7", "ADC") | ("v3_u5", "ADC")
+                    ),
                 ),
-                ("adc_res16", regs.version == "v3_h7"),
+                (
+                    "adc_res14",
+                    matches!((regs.version, regs.block), ("v3_h7", "ADC") | ("v3_u5", "ADC")),
+                ),
+                ("adc_res16", (regs.version, regs.block) == ("v3_h7", "ADC")),
             ] {
                 if enable {
                     cfgs.enable(cfg);
@@ -3397,6 +3389,15 @@ fn parse_adc_pin_signal(signal: &str) -> Option<(u8, bool)> {
     } else {
         None
     }
+}
+
+/// Split `"FOO12"` into `("FOO", 12)`. Returns `None` if `s` doesn't end with a digit or is all digits.
+fn split_trailing_number(s: &str) -> Option<(&str, u32)> {
+    let prefix = s.trim_end_matches(|c: char| c.is_ascii_digit());
+    if prefix.is_empty() || prefix.len() == s.len() {
+        return None;
+    }
+    Some((prefix, s[prefix.len()..].parse().unwrap()))
 }
 
 #[derive(Copy, Clone, Debug)]

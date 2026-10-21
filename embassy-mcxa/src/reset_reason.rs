@@ -71,12 +71,12 @@ impl ResetReasonRaw {
         (1 << 13, ResetReason::Wwdt0),
         (1 << 14, ResetReason::Software),
         (1 << 15, ResetReason::Lockup),
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         (1 << 25, ResetReason::Wwdt1),
         (1 << 26, ResetReason::Cdog0),
         (1 << 27, ResetReason::Cdog1),
         (1 << 28, ResetReason::Jtag),
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         (1 << 30, ResetReason::SecurityViolation),
     ];
 
@@ -158,7 +158,7 @@ impl ResetReasonRaw {
 
     /// Watchdog 1
     #[inline]
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn is_watchdog1(&self) -> bool {
         (self.0 & (1 << 25)) != 0
     }
@@ -179,7 +179,7 @@ impl ResetReasonRaw {
     }
 
     /// Security Violation
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub fn is_security_violation(&self) -> bool {
         (self.0 & (1 << 30)) != 0
     }
@@ -235,11 +235,11 @@ pub enum ResetReason {
     Wwdt0,
 
     /// Windowed Watchdog 1 reset.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     Wwdt1,
 
     /// Security Violation reset.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     SecurityViolation,
 
     /// System clock generation reset.

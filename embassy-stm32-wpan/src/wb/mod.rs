@@ -4,9 +4,10 @@ use core::sync::atomic::{Ordering, compiler_fence};
 #[cfg(any(feature = "wb-ble", feature = "wb-mac", feature = "wb-thread"))]
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::Peri;
-use embassy_stm32::flash::{Blocking, Flash};
+use embassy_stm32::flash::Flash;
 use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc, IpccRxChannel, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32::mode::Blocking;
 use embassy_stm32::peripherals::IPCC;
 use embassy_time::{Duration, with_timeout};
 use sub::mm::MemoryManager;

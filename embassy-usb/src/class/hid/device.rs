@@ -4,9 +4,6 @@ use core::mem::MaybeUninit;
 use core::ops::Range;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-#[cfg(feature = "usbd-hid")]
-use usbd_hid::descriptor::AsInputReport;
-
 use super::{
     HID_DESC_TYPE_HID, HID_DESC_TYPE_REPORT, HID_REQ_GET_IDLE, HID_REQ_GET_PROTOCOL, HID_REQ_GET_REPORT,
     HID_REQ_SET_IDLE, HID_REQ_SET_PROTOCOL, HID_REQ_SET_REPORT, HidBootProtocol, HidProtocolMode, HidSubclass,
@@ -161,12 +158,6 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWrit
         self.writer.ready().await;
     }
 
-    /// Writes an input report by serializing the given report structure.
-    #[cfg(feature = "usbd-hid")]
-    pub async fn write_serialize<IR: AsInputReport>(&mut self, r: &IR) -> Result<(), EndpointError> {
-        self.writer.write_serialize(r).await
-    }
-
     /// Writes `report` to its interrupt endpoint.
     pub async fn write(&mut self, report: &[u8]) -> Result<(), EndpointError> {
         self.writer.write(report).await
@@ -243,16 +234,6 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     /// Waits for the interrupt in endpoint to be enabled.
     pub async fn ready(&mut self) {
         self.ep_in.wait_enabled().await;
-    }
-
-    /// Writes an input report by serializing the given report structure.
-    #[cfg(feature = "usbd-hid")]
-    pub async fn write_serialize<IR: AsInputReport>(&mut self, r: &IR) -> Result<(), EndpointError> {
-        let mut buf: [u8; N] = [0; N];
-        let Ok(size) = r.serialize(&mut buf) else {
-            return Err(EndpointError::BufferOverflow);
-        };
-        self.write(&buf[0..size]).await
     }
 
     /// Writes `report` to its interrupt endpoint.

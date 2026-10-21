@@ -10,8 +10,8 @@ use core::sync::atomic::{Ordering, fence};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
+use embassy_futures::select::{Either, select};
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
-use futures_util::future::{Either, select};
 #[cfg(feature = "exti")]
 pub use ringbuffered::RingBufferedSpiRx;
 
@@ -1631,11 +1631,11 @@ impl<'d> Spi<'d, Async, Slave> {
 
             let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
             match select(join(&mut tx_f, &mut rx_f), nss_fut).await {
-                Either::Left((((), ()), _)) => {
+                Either::First(((), ())) => {
                     finish_dma(regs);
                     (n_rx_total, n_tx_total)
                 }
-                Either::Right(((), _)) => {
+                Either::Second(()) => {
                     // Deselect before the buffers were exhausted: report how much was
                     // transferred, then stop the DMA channels (dropping the futures
                     // resets them) and clean up.
@@ -1728,18 +1728,18 @@ impl<'d> Spi<'d, Async, Slave> {
             let mut deselect_count = None;
             match tx_f.as_mut() {
                 Some(tx_f) => match select(join(tx_f, &mut rx_f), nss_fut).await {
-                    Either::Left((((), ()), _)) => {
+                    Either::First(((), ())) => {
                         finish_dma(regs);
                     }
-                    Either::Right(((), _)) => {
+                    Either::Second(()) => {
                         deselect_count = Some(n - rx_f.get_remaining_transfers() as usize);
                     }
                 },
                 None => match select(&mut rx_f, nss_fut).await {
-                    Either::Left(((), _)) => {
+                    Either::First(()) => {
                         finish_dma(regs);
                     }
-                    Either::Right(((), _)) => {
+                    Either::Second(()) => {
                         deselect_count = Some(n - rx_f.get_remaining_transfers() as usize);
                     }
                 },
@@ -1814,7 +1814,7 @@ impl<'d> Spi<'d, Async, Slave> {
 
             let mut nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
             match select(&mut tx_f, nss_fut.as_mut()).await {
-                Either::Left(((), _)) => {
+                Either::First(()) => {
                     // The TX DMA is done, which only means every byte reached the
                     // TX FIFO. The frames are clocked out by the external master,
                     // which may be another task on this executor: busy-waiting for
@@ -1822,7 +1822,7 @@ impl<'d> Spi<'d, Async, Slave> {
                     // edge instead, then count what was actually sent.
                     nss_fut.await;
                 }
-                Either::Right(((), _)) => {}
+                Either::Second(()) => {}
             }
 
             // The transaction is over (deselected). Count the bytes the DMA

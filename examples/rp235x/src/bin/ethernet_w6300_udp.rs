@@ -76,7 +76,7 @@ async fn main(spawner: Spawner) {
     let (device, runner) = embassy_net_wiznet::new(
         mac_addr,
         state,
-        ExclusiveDevice::new(spi, cs, Delay),
+        ExclusiveDevice::new(spi, cs, Delay).unwrap(),
         w6300_int,
         w6300_reset,
     )

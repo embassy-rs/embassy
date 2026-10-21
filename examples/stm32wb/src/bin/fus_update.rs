@@ -107,7 +107,7 @@ async fn main(_spawner: Spawner) {
 
     let _guard = WakeGuard::new(StopMode::Stop1);
 
-    let mut flash = Flash::new_blocking(p.FLASH);
+    let mut flash = Flash::new_blocking(p.FLASH, Default::default());
 
     let mbox = TlMbox::with_firmware(
         p.IPCC,

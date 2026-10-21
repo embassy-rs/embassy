@@ -28,6 +28,10 @@ static EP_IN_WAKERS: [AtomicWaker; 8] = [const { AtomicWaker::new() }; 8];
 static EP_OUT_WAKERS: [AtomicWaker; 8] = [const { AtomicWaker::new() }; 8];
 static READY_ENDPOINTS: AtomicU32 = AtomicU32::new(0);
 
+// nRF uses dedicated Endpoint 8 for ISO, not the EPIN/EPOUT arrays.
+const ISO_EP: usize = 8;
+const ISO_MAX_PACKET_SIZE: usize = 1023;
+
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
@@ -65,6 +69,16 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         if regs.events_usbevent().read() != 0 {
             regs.events_usbevent().write_value(0);
             BUS_WAKER.wake();
+        }
+
+        // Clear the SOF interrupt event independently of ISO IN state.
+        // ISO IN uses SOF instead of EPDATASTATUS to pace writes.
+        if regs.intenset().read().sof() && regs.events_sof().read() != 0 {
+            regs.events_sof().write_value(0);
+            if regs.epinen().read().isoin() {
+                READY_ENDPOINTS.fetch_or(In::mask(ISO_EP), Ordering::AcqRel);
+                In::waker(ISO_EP).wake();
+            }
         }
 
         if regs.events_epdata().read() != 0 {
@@ -165,6 +179,7 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
             Bus {
                 regs: self.regs,
                 power_available: false,
+                enable_sof: self.alloc_in.used & (1 << ISO_EP) != 0,
                 vbus_detect: self.vbus_detect,
                 _phantom: PhantomData,
             },
@@ -181,6 +196,7 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
 pub struct Bus<'d, V: VbusDetect> {
     regs: pac::usbd::Usbd,
     power_available: bool,
+    enable_sof: bool,
     vbus_detect: V,
     _phantom: PhantomData<&'d ()>,
 }
@@ -208,12 +224,18 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
 
         errata::post_enable();
 
+        if self.enable_sof {
+            regs.isoinconfig().write(|w| w.set_response(vals::Response::ZeroData));
+            regs.events_sof().write_value(0);
+        }
+
         unsafe { NVIC::unmask(pac::Interrupt::USBD) };
 
         regs.intenset().write(|w| {
             w.set_usbreset(true);
             w.set_usbevent(true);
             w.set_epdata(true);
+            w.set_sof(self.enable_sof);
         });
 
         if self.vbus_detect.wait_power_ready().await.is_ok() {
@@ -227,6 +249,7 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
 
     async fn disable(&mut self) {
         let regs = self.regs;
+        regs.intenclr().write(|w| w.set_sof(true));
         regs.enable().write(|x| x.set_enable(false));
     }
 
@@ -247,6 +270,7 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
                     In::waker(i).wake();
                     Out::waker(i).wake();
                 }
+                In::waker(ISO_EP).wake();
 
                 return Poll::Ready(Event::Reset);
             }
@@ -296,7 +320,8 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
             if stalled {
                 regs.tasks_ep0stall().write_value(1);
             }
-        } else {
+        } else if ep_addr.index() != ISO_EP {
+            // ISO endpoints cannot stall; EPSTALL only addresses endpoints 0..=7.
             regs.epstall().write(|w| {
                 w.set_ep(ep_addr.index() as u8 & 0b111);
                 w.set_io(match ep_addr.direction() {
@@ -311,6 +336,9 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
         let regs = self.regs;
         let i = ep_addr.index();
+        if i == ISO_EP {
+            return false;
+        }
         match ep_addr.direction() {
             Direction::Out => regs.halted().epout(i).read().getstatus() == vals::Getstatus::Halted,
             Direction::In => regs.halted().epin(i).read().getstatus() == vals::Getstatus::Halted,
@@ -426,7 +454,11 @@ impl EndpointDir for In {
 
     #[inline]
     fn is_enabled(regs: pac::usbd::Usbd, i: usize) -> bool {
-        regs.epinen().read().in_(i)
+        if i == ISO_EP {
+            regs.epinen().read().isoin()
+        } else {
+            regs.epinen().read().in_(i)
+        }
     }
 }
 
@@ -554,17 +586,40 @@ unsafe fn read_dma(regs: pac::usbd::Usbd, i: usize, buf: &mut [u8]) -> Result<us
 }
 
 unsafe fn write_dma(regs: pac::usbd::Usbd, i: usize, buf: &[u8]) {
-    assert!(buf.len() <= 64);
+    assert!(buf.len() <= if i == ISO_EP { ISO_MAX_PACKET_SIZE } else { 64 });
 
-    let mut ram_buf: MaybeUninit<[u8; 64]> = MaybeUninit::uninit();
-    let ptr = if !slice_in_ram(buf) {
-        // EasyDMA can't read FLASH, so we copy through RAM
-        let ptr = ram_buf.as_mut_ptr() as *mut u8;
-        core::ptr::copy_nonoverlapping(buf.as_ptr(), ptr, buf.len());
-        ptr
+    if slice_in_ram(buf) {
+        write_dma_inner(regs, i, buf);
+    } else if i == ISO_EP {
+        write_dma_buffered::<1024>(regs, i, buf);
     } else {
-        buf.as_ptr()
-    };
+        write_dma_buffered::<64>(regs, i, buf);
+    }
+}
+
+// Keep Flash staging buffers off the direct DMA path.
+#[inline(never)]
+unsafe fn write_dma_buffered<const SIZE: usize>(regs: pac::usbd::Usbd, i: usize, buf: &[u8]) {
+    assert!(buf.len() <= SIZE);
+
+    let mut ram_buf: MaybeUninit<[u8; SIZE]> = MaybeUninit::uninit();
+    let ptr = ram_buf.as_mut_ptr() as *mut u8;
+    core::ptr::copy_nonoverlapping(buf.as_ptr(), ptr, buf.len());
+    write_dma_inner(regs, i, core::slice::from_raw_parts(ptr, buf.len()));
+}
+
+unsafe fn write_dma_inner(regs: pac::usbd::Usbd, i: usize, buf: &[u8]) {
+    let ptr = buf.as_ptr();
+    if i == ISO_EP {
+        regs.isoin().ptr().write_value(ptr as u32);
+        regs.isoin().maxcnt().write(|w| w.set_maxcnt(buf.len() as u16));
+        regs.events_endisoin().write_value(0);
+        dma_start();
+        regs.tasks_startisoin().write_value(1);
+        while regs.events_endisoin().read() == 0 {}
+        dma_end();
+        return;
+    }
 
     // Set the buffer length so the right number of bytes are transmitted.
     // Safety: `buf.len()` has been checked to be <= the max buffer length.

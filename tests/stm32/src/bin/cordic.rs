@@ -12,7 +12,6 @@ use defmt_rtt as _;
 use dsp_fixedpoint::Q32;
 use embassy_executor::Spawner;
 use embassy_stm32::{cordic, rng};
-use num_traits::Float;
 use panic_probe as _;
 
 /* input value control, can be changed */
@@ -79,6 +78,9 @@ async fn main(_spawner: Spawner) {
     #[cfg(feature = "stm32g491re")]
     let (mut write_dma, mut read_dma) = (dp.DMA1_CH4, dp.DMA1_CH5);
 
+    #[cfg(feature = "stm32h723zg")]
+    let (mut write_dma, mut read_dma) = (dp.DMA1_CH0, dp.DMA1_CH1);
+
     #[cfg(any(
         feature = "stm32h563zi",
         feature = "stm32u585ai",
@@ -125,7 +127,7 @@ async fn main(_spawner: Spawner) {
     {
         let arg1 = arg1.as_f64();
 
-        let (raw_res1, raw_res2) = (arg1 * core::f64::consts::PI).sin_cos();
+        let (raw_res1, raw_res2) = libm::sincos(arg1 * core::f64::consts::PI);
         (res[0], res[1]) = (raw_res1 * arg2, raw_res2 * arg2);
     }
 
@@ -139,7 +141,7 @@ async fn main(_spawner: Spawner) {
     {
         for (cord_res, soft_res) in cordic_res.iter().zip(software_res.iter()) {
             // 2.0.powi(-19) is the max residual error for Sin function, in q1.31 format, with 24 iterations (aka PRECISION = 6)
-            defmt::assert!((cord_res - soft_res).abs() <= 2.0.powi(-19));
+            defmt::assert!(libm::fabs(cord_res - soft_res) <= libm::pow(2.0, -19.0));
         }
     }
 

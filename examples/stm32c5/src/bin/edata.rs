@@ -6,7 +6,8 @@ use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use defmt::{info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::flash::{Blocking, EDataBank, Flash};
+use embassy_stm32::flash::{EDataBank, Flash};
+use embassy_stm32::mode::Blocking;
 use panic_probe as _;
 
 /// The first half-word in the EDATA page used by this example.
@@ -30,7 +31,7 @@ static EDATA_ECCD_SEEN: AtomicBool = AtomicBool::new(false);
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    let mut f = Flash::new_blocking(p.FLASH);
+    let mut f = Flash::new_blocking(p.FLASH, Default::default());
 
     info!("STM32C5 EDATA example");
 

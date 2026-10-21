@@ -5,7 +5,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::crypto::rng::Rng;
 use panic_probe as _;
-use rand::Rng as _;
+use rand::RngExt as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

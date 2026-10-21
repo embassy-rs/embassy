@@ -333,9 +333,9 @@ mod tests {
     use embassy_crypto_rand as _;
     use embassy_crypto_rustcrypto as _;
     use embassy_embedded_hal::flash::partition::Partition;
+    use embassy_futures::block_on;
     use embassy_sync::blocking_mutex::raw::NoopRawMutex;
     use embassy_sync::mutex::Mutex;
-    use futures::executor::block_on;
 
     use super::*;
     use crate::mem_flash::MemFlash;

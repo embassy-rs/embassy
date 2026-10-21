@@ -4,8 +4,8 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
+use embassy_futures::select::{Either, select};
 use embedded_io_async::ReadReady;
-use futures_util::future::{Either, select};
 
 #[cfg(not(any(usart_v3, usart_v4)))]
 use super::rdr;
@@ -331,11 +331,11 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
 
             match select(uart, dma).await {
                 // UART woke with line idle
-                Either::Left((Ok(true), _)) => {
+                Either::First(Ok(true)) => {
                     return Ok(());
                 }
                 // UART woke without idle or error: word received
-                Either::Left((Ok(false), _)) => {
+                Either::First(Ok(false)) => {
                     let eager = self.state.eager_reads.load(Ordering::Relaxed);
                     if eager > 0 && self.ring_buf.len().unwrap_or(0) >= eager {
                         return Ok(());
@@ -344,11 +344,11 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
                     }
                 }
                 // UART woke with error
-                Either::Left((Err(e), _)) => {
+                Either::First(Err(e)) => {
                     return Err(e);
                 }
                 // DMA woke
-                Either::Right(((), _)) => return Ok(()),
+                Either::Second(()) => return Ok(()),
             }
         }
     }

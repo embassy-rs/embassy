@@ -11,7 +11,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mspm0::i2c::{Config, I2c};
 use embassy_time::Timer;
-use panic_halt as _;
+use panic_probe as _;
 
 const ADDRESS: u8 = 0x2c;
 

@@ -16,7 +16,7 @@ use embassy_stm32::{bind_interrupts, peripherals, usb};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_usb::{Builder, msos};
 use embassy_usb_dfu::consts::DfuAttributes;
-use embassy_usb_dfu::{ResetImmediate, new_state, usb_dfu};
+use embassy_usb_dfu::{Reset, new_state, usb_dfu};
 
 bind_interrupts!(struct Irqs {
     USB_LP => usb::InterruptHandler<peripherals::USB>;
@@ -33,6 +33,14 @@ const DEVICE_INTERFACE_GUIDS: &[&str] = &["{EAA9A5DC-30BA-44BC-9232-606CDC875321
 #[cfg(feature = "verify")]
 static PUBLIC_SIGNING_KEY: &[u8; 32] = include_bytes!("../secrets/key.pub.short");
 
+struct ResetImmediate;
+
+impl Reset for ResetImmediate {
+    fn reset(&self) {
+        cortex_m::peripheral::SCB::sys_reset()
+    }
+}
+
 #[entry]
 fn main() -> ! {
     let mut config = embassy_stm32::Config::default();
@@ -45,7 +53,7 @@ fn main() -> ! {
         cortex_m::asm::nop();
     }
 
-    let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
+    let layout = Flash::new_blocking(p.FLASH, Default::default()).into_blocking_regions();
     let flash = Mutex::new(RefCell::new(layout.bank1_region));
 
     let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);

@@ -12,7 +12,6 @@ use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::{Peri, bind_interrupts, pio};
 use embassy_time::Timer;
-use fixed::traits::ToFixed;
 use panic_probe as _;
 use pio::{Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftDirection, StateMachine};
 
@@ -81,7 +80,7 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         cfg.set_in_pins(&[&pin_a, &pin_b]);
         cfg.fifo_join = FifoJoin::RxAsStatus;
         cfg.shift_in.direction = ShiftDirection::Left;
-        cfg.clock_divider = 10_000.to_fixed();
+        cfg.clock_divider_x256 = 10_000 << 8;
         cfg.use_program(&pio.load_program(&prg.program), &[]);
         sm.set_config(&cfg);
 

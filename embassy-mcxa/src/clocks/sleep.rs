@@ -131,6 +131,10 @@ impl PowerMode {
         }
     }
 }
+use crate::pac::cmc::Ckmode;
+#[cfg(feature = "_mcxa2xx")]
+use crate::pac::scg::Fircvld;
+use crate::pac::scg::{Sircvld, SpllLock};
 
 /// Attempt to go to deep sleep if possible.
 ///
@@ -567,7 +571,8 @@ unsafe fn restart_active_only_clocks(scg: pac::scg::Scg, clocks: &Clocks, pll_st
         while scg.sirccsr().read().sircvld() != Sircvld::EnabledAndValid {}
     }
 
-    // Ensure FIRC is valid and accurate before restarting its consumers.
+    // Ensure FRO44M is up and running
+    #[cfg(feature = "_mcxa2xx")]
     if let Some(frohf) = clocks.fro_hf_root.as_ref()
         && !matches!(frohf.power, PoweredClock::AlwaysEnabled)
     {

@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TRNG: stop the block and disable the interrupt when `fill_bytes` is dropped.
 - TRNG: `Config::default()` now uses `sample_count: 200` (was 25).
 - TRNG: register the `embassy-crypto` random number driver behind the `embassy-crypto-rng` feature.
+- `Trng` and `RoscRng` implement the `rand_core` 0.10 traits instead of the 0.6 and 0.9 ones.
 - USB: support device-initiated remote wakeup on RP2040 and RP235x
 - USB device: clearing an endpoint halt now resets the data toggle to DATA0.
 - USB device: stalling an endpoint with a transfer in flight no longer lets that transfer complete, and the queued packet is no longer delivered once the halt is cleared.
@@ -53,8 +54,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - breaking: Remove `<T: Instance>` from `Spi`, `I2c` and `I2cSlave` ([#4900](https://github.com/embassy-rs/embassy/pull/4900))
 - Add set_baudrate() to BufferedUartTx.
 - USB host: debounce root-port connections and fail pending interrupt transfers on disconnect
-- PIO: Fix PIO programs driving pins above 31 on RP235xB, now call `StateMachine::set_config` before `set_pin_dirs` and `set_pins`. These now panic when given a pin outside the PIO's GPIOBASE window, rather than failing silently.
+- I2C: reject zero-length operations instead of hanging or leaving the bus locked.
+- I2C: add `Config::timeout` (default 1 s) and return `Error::Timeout` on timeout.
+- I2C: transfers started immediately after cancel now wait for bus to be released.
+- I2C: a blocking operation that times out aborts the transfer and releases the bus.
+- I2C: Ensure NACK during `blocking_write` is reported correctly.
+- PIO: Fix PIO programs driving pins above 31 on RP235xB, call `StateMachine::set_config` before `set_pin_dirs` and `set_pins`. These now panic when given a pin outside the PIO's GPIOBASE window, rather than failing silently.
 - UART: add `read_ready` to `Uart` and `UartRx`, reporting whether the RX FIFO holds data.
+- Removed the `fixed` dependency. Clock dividers are now plain integers holding the fixed-point bits:
+  - PWM: `pwm::Config::divider` is renamed to `divider_x16`, a `u16` with 8 integer and 4 fractional bits (the divider multiplied by 16).
+  - PIO: `pio::Config::clock_divider`, `StateMachine::set_clock_divider`, `calculate_pio_clock_divider` and `calculate_pio_clock_divider_value` are renamed to `clock_divider_x256`, `set_clock_divider_x256`, `calculate_pio_clock_divider_x256` and `calculate_pio_clock_divider_value_x256`, and use a `u32` with 16 integer and 8 fractional bits (the divider multiplied by 256).
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes

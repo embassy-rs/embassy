@@ -60,7 +60,7 @@ async fn main(spawner: Spawner) {
     config.frequency = spim::Frequency::M32;
     config.mode = spim::MODE_2; // !!!
     let spi = spim::Spim::new(p.SPI3, sck, mosi, miso, Irqs, config);
-    let spi = ExclusiveDevice::new(spi, cs, Delay);
+    let spi = ExclusiveDevice::new(spi, cs, Delay).unwrap();
 
     let iface = SpiInterface::new(spi, handshake, ready);
 

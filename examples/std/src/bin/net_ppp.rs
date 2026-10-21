@@ -3,7 +3,7 @@
 //!     echo myuser $(hostname) mypass 192.168.7.10 >> /etc/ppp/pap-secrets
 //!     socat -v -x PTY,link=pty1,rawer PTY,link=pty2,rawer
 //!     sudo pppd $PWD/pty1 115200 192.168.7.1: ms-dns 8.8.4.4 ms-dns 8.8.8.8 nodetach debug local persist silent noproxyarp
-//!     RUST_LOG=trace cargo run --bin net_ppp -- --device pty2
+//!     RUST_LOG=trace cargo run --bin net_ppp
 //!     ping 192.168.7.10
 //!     nc 192.168.7.10 1234
 
@@ -13,7 +13,6 @@
 mod serial_port;
 
 use async_io::Async;
-use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::iface::Iface;
 use embassy_net::tcp::{TcpListener, TcpSocket};
@@ -21,22 +20,15 @@ use embassy_net::wire::IpCidr;
 use embassy_net::{Stack, StackStorage, StaticPool};
 use embassy_net_ppp::Runner;
 use embedded_io_async::Write;
-use futures::io::BufReader;
+use futures_lite::io::BufReader;
+use getrandom::SysRng;
 use heapless::Vec;
 use log::*;
 use nix::sys::termios;
-use rand_core::{OsRng, TryRngCore};
+use rand_core::TryRng;
 use static_cell::StaticCell;
 
 use crate::serial_port::SerialPort;
-
-#[derive(Parser)]
-#[clap(version = "1.0")]
-struct Opts {
-    /// Serial port device name
-    #[clap(short, long)]
-    device: String,
-}
 
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
@@ -75,11 +67,9 @@ async fn ppp_task(iface: Iface<'static>, mut runner: Runner<'static>, port: Seri
 
 #[embassy_executor::task]
 async fn main_task(spawner: Spawner) {
-    let opts: Opts = Opts::parse();
-
     // Open serial port
     let baudrate = termios::BaudRate::B115200;
-    let port = SerialPort::new(opts.device.as_str(), baudrate).unwrap();
+    let port = SerialPort::new("pty2", baudrate).unwrap();
 
     // Init network device
     static STATE: StaticCell<embassy_net_ppp::State<4, 4>> = StaticCell::new();
@@ -88,7 +78,7 @@ async fn main_task(spawner: Spawner) {
 
     // Generate random seed
     let mut seed = [0; 8];
-    OsRng.try_fill_bytes(&mut seed).unwrap();
+    SysRng.try_fill_bytes(&mut seed).unwrap();
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack

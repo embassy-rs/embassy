@@ -130,7 +130,7 @@ pub struct ClocksConfig {
     /// FRO16K clock source
     pub fro16k: Option<Fro16KConfig>,
     /// OSC32K clock source
-    #[cfg(all(feature = "mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "_mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
     pub osc32k: Option<Osc32KConfig>,
     /// SOSC, clk_in clock source
     ///
@@ -152,7 +152,7 @@ pub enum VddLevel {
     MidDriveMode,
 
     /// "Normal" voltage, 1.1v VDD Core
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     NormalMode,
 
     /// Overdrive "OD" power, 1.2v VDD Core
@@ -301,10 +301,10 @@ pub enum MainClockSource {
     /// Clock derived from `fro_hf_root`, via the internal 45/60/90/180M clock source (45-180MHz)
     FircHfRoot,
     /// Clock derived from `clk_16k` (vdd core)
-    #[cfg(feature = "mcxa2xx")]
+    #[cfg(feature = "_mcxa2xx")]
     RoscFro16K,
     /// Clock derived from `clk_32k` (vdd core)
-    #[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     RoscOsc32K,
     /// Clock derived from `pll1_clk`, via the internal PLL
     SPll1,
@@ -479,7 +479,7 @@ pub struct FircConfig {
 }
 
 /// Selected FIRC frequency
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 #[derive(Debug, PartialEq)]
 pub enum FircFreqSel {
     /// 45MHz Output
@@ -493,7 +493,7 @@ pub enum FircFreqSel {
 }
 
 /// Selected FIRC frequency
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 #[derive(Debug, PartialEq)]
 pub enum FircFreqSel {
     /// 48MHz Output
@@ -507,7 +507,7 @@ pub enum FircFreqSel {
 }
 
 impl FircFreqSel {
-    #[cfg(feature = "mcxa2xx")]
+    #[cfg(feature = "_mcxa2xx")]
     pub(crate) fn to_freq_and_sel(&self) -> (u32, FreqSel) {
         match self {
             FircFreqSel::Mhz45 => {
@@ -520,7 +520,7 @@ impl FircFreqSel {
         }
     }
 
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub(crate) fn to_freq_and_sel(&self) -> (u32, FreqSel) {
         match self {
             FircFreqSel::Mhz48 => {
@@ -560,7 +560,7 @@ pub struct Fro16KConfig {
     /// is `clk_16k[1]` active?
     pub vdd_core_domain_active: bool,
     /// is `clk_16k[2]` active?
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     pub vbat_domain_active: bool,
 }
 
@@ -569,14 +569,14 @@ impl Default for Fro16KConfig {
         Self {
             vsys_domain_active: true,
             vdd_core_domain_active: true,
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             vbat_domain_active: true,
         }
     }
 }
 
 /// OSC32K Operational Mode
-#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+#[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
 pub enum Osc32KMode {
     ///  low power switched oscillator mode
     LowPower {
@@ -599,7 +599,7 @@ pub enum Osc32KMode {
 /// Coarse Gain Amplification
 ///
 /// See datasheet table 4.2.1.4, "32 kHz oscillation gain setting"
-#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+#[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
 pub enum Osc32KCoarseGain {
     /// Max ESR 50kOhms, Max Cx 14pF
     EsrRange0,
@@ -611,7 +611,7 @@ pub enum Osc32KCoarseGain {
     EsrRange3,
 }
 
-#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+#[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
 pub enum Osc32KCapSel {
     // NOTE: 0pF is not supported in non-low-power-modes
     /// 2pF
@@ -647,7 +647,7 @@ pub enum Osc32KCapSel {
 }
 
 /// OSC32K Configuration Items
-#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+#[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
 #[non_exhaustive]
 pub struct Osc32KConfig {
     /// Low/High Power Mode Selection
@@ -660,7 +660,7 @@ pub struct Osc32KConfig {
     pub vbat_domain_active: bool,
 }
 
-#[cfg(all(feature = "mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+#[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
 impl Default for Osc32KConfig {
     fn default() -> Self {
         Self {
@@ -678,9 +678,9 @@ impl Default for Osc32KConfig {
 impl Default for FircConfig {
     fn default() -> Self {
         FircConfig {
-            #[cfg(feature = "mcxa2xx")]
+            #[cfg(feature = "_mcxa2xx")]
             frequency: FircFreqSel::Mhz45,
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             frequency: FircFreqSel::Mhz48,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
             fro_hf_enabled: true,
@@ -712,9 +712,9 @@ impl Default for ClocksConfig {
                 ahb_clk_div: Div8::no_div(),
             },
             firc: Some(FircConfig {
-                #[cfg(feature = "mcxa2xx")]
+                #[cfg(feature = "_mcxa2xx")]
                 frequency: FircFreqSel::Mhz45,
-                #[cfg(feature = "mcxa5xx")]
+                #[cfg(feature = "_mcxa5xx")]
                 frequency: FircFreqSel::Mhz48,
                 power: PoweredClock::NormalEnabledDeepSleepDisabled,
                 fro_hf_enabled: true,
@@ -729,10 +729,10 @@ impl Default for ClocksConfig {
             fro16k: Some(Fro16KConfig {
                 vsys_domain_active: true,
                 vdd_core_domain_active: true,
-                #[cfg(feature = "mcxa5xx")]
+                #[cfg(feature = "_mcxa5xx")]
                 vbat_domain_active: true,
             }),
-            #[cfg(all(feature = "mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
+            #[cfg(all(feature = "_mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
             osc32k: None,
             #[cfg(not(feature = "sosc-as-gpio"))]
             sosc: None,

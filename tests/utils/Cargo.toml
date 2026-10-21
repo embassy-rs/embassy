@@ -6,5 +6,5 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-rand = "0.9"
+rand = "0.10"
 serial = "0.4"

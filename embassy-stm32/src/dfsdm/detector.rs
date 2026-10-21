@@ -253,12 +253,12 @@ where
 
     /// Whether the low-threshold flag is set for `channel`.
     pub fn flag_low(&self, channel: TransceiverChannel) -> bool {
-        self.flags_low().get_bit(channel.index())
+        self.flags_low() & (1 << channel.index()) != 0
     }
 
     /// Whether the high-threshold flag is set for `channel`.
     pub fn flag_high(&self, channel: TransceiverChannel) -> bool {
-        self.flags_high().get_bit(channel.index())
+        self.flags_high() & (1 << channel.index()) != 0
     }
 
     /// Low-threshold flag bitmap.
@@ -524,7 +524,7 @@ where
 
     /// Whether the short-circuit flag is set for `channel`.
     pub fn flag(&self, channel: TransceiverChannel) -> bool {
-        self.flags().get_bit(channel.index())
+        self.flags() & (1 << channel.index()) != 0
     }
 
     /// Clear the short-circuit flag for `channel`.
@@ -548,16 +548,15 @@ where
 
     pub(crate) fn unarm_channel(channel: TransceiverChannel) {
         let ch = channel.index();
-        Self::set_armed(*Self::hw_armed_mask().set_bit(ch, false));
+        Self::set_armed(Self::hw_armed_mask() & !(1 << ch));
     }
 
     /// Aggregate CFGR1 bit-word for one detector kind, over the channels this
     /// instance actually has.
     fn hw_armed_mask() -> u8 {
         let count = <T::Transceivers as capability::TransceiverCount>::COUNT;
-        (0..count).fold(0u8, |mut acc, y| {
-            acc.set_bit(y as usize, T::regs().ch(y as usize).cfgr1().read().scden());
-            acc
+        (0..count).fold(0u8, |acc, y| {
+            acc | (T::regs().ch(y as usize).cfgr1().read().scden() as u8) << y
         })
     }
 
@@ -565,7 +564,7 @@ where
     fn set_armed(mask: u8) {
         let mask = mask & channel_count_mask::<T>();
         for y in 0..<T::Transceivers as capability::TransceiverCount>::COUNT {
-            let want = mask.get_bit(y as usize);
+            let want = mask & (1 << y) != 0;
             T::regs().ch(y as usize).cfgr1().modify(|w| w.set_scden(want));
         }
         T::instance_state().short_circuit_armed.store(mask, Ordering::Relaxed);
@@ -650,7 +649,7 @@ where
 
     /// Whether the clock-absence flag is set for `channel`.
     pub fn flag(&self, channel: TransceiverChannel) -> bool {
-        self.flags().get_bit(channel.index())
+        self.flags() & (1 << channel.index()) != 0
     }
 
     /// Clear the clock-absence flag for `channel`.
@@ -680,7 +679,7 @@ where
 
     pub(crate) fn unarm_channel(channel: TransceiverChannel) {
         let ch = channel.index();
-        Self::set_armed(*Self::hw_armed_mask().set_bit(ch, false));
+        Self::set_armed(Self::hw_armed_mask() & !(1 << ch));
     }
 
     /// Aggregate CFGR1 bit-word for one detector kind, over the channels this
@@ -688,9 +687,8 @@ where
     fn hw_armed_mask() -> u8 {
         let count = <T::Transceivers as capability::TransceiverCount>::COUNT;
 
-        (0..count).fold(0u8, |mut acc, y| {
-            acc.set_bit(y as usize, T::regs().ch(y as usize).cfgr1().read().ckaben());
-            acc
+        (0..count).fold(0u8, |acc, y| {
+            acc | (T::regs().ch(y as usize).cfgr1().read().ckaben() as u8) << y
         })
     }
 
@@ -698,7 +696,7 @@ where
     fn set_armed(mask: u8) {
         let mask = mask & channel_count_mask::<T>();
         for y in 0..<T::Transceivers as capability::TransceiverCount>::COUNT {
-            let want = mask.get_bit(y as usize);
+            let want = mask & (1 << y) != 0;
             T::regs().ch(y as usize).cfgr1().modify(|w| w.set_ckaben(want));
         }
         T::instance_state().clock_absence_armed.store(mask, Ordering::Relaxed);
@@ -725,7 +723,7 @@ where
     /// Try to clear the repective channels flag
     pub(crate) fn try_clear_flag(channel: TransceiverChannel) -> bool {
         Self::clear_raw(1 << channel.index());
-        !Self::flags_raw().get_bit(channel.index())
+        Self::flags_raw() & (1 << channel.index()) == 0
     }
 
     /// Clears the provided channel flags in the clock-absence-detector
@@ -736,10 +734,7 @@ where
 
 /// filterword fold over a transceiver slice
 pub(crate) fn filterword_of<T: Instance>(transceivers: &[&dyn TransceiverTrait<T, Enabled>]) -> u8 {
-    transceivers.iter().fold(0u8, |mut acc, tcv| {
-        acc.set_bit(tcv.index(), true);
-        acc
-    })
+    transceivers.iter().fold(0u8, |acc, tcv| acc | 1 << tcv.index())
 }
 
 /// Valid-bits mask for this shape; every mask user passes gets intersected with it.

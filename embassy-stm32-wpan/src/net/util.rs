@@ -2,11 +2,11 @@
 
 use core::cell::RefCell;
 use core::future::poll_fn;
+use core::pin::Pin;
 
 use embassy_sync::blocking_mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::signal::Signal;
-use futures_util::FutureExt;
 
 use crate::net::iface::ControllerToHostPacketBox;
 
@@ -46,7 +46,7 @@ impl<'a, B: ControllerToHostPacketBox> Subscriber<'a, B> {
     }
 
     pub async fn wait(&self) -> B {
-        poll_fn(|cx| self.event.borrow().borrow_mut().as_ref().unwrap().wait().poll_unpin(cx)).await
+        poll_fn(|cx| Pin::new(&mut self.event.borrow().borrow_mut().as_ref().unwrap().wait()).poll(cx)).await
     }
 }
 
