@@ -15,69 +15,83 @@ use crate::interrupt::InterruptExt;
 use crate::pac::OSTIMER0;
 use crate::peripherals::OSTIMER0;
 
-struct AlarmState {
-    timestamp: Cell<u64>,
+const COUNTER_MASK: u64 = (1 << 42) - 1;
+// Half-wrap checkpoints leave a half-cycle margin for interrupt latency.
+const PERIOD_TICKS: u64 = 1 << 41;
+
+enum AlarmOutcome {
+    Armed,
+    AlreadyDue,
+    Maintenance,
 }
 
-unsafe impl Send for AlarmState {}
+/// A 42-bit binary counter value.
+#[derive(Copy, Clone)]
+struct EvTicks(u64);
 
-impl AlarmState {
-    const fn new() -> Self {
-        Self {
-            timestamp: Cell::new(u64::MAX),
-        }
+impl EvTicks {
+    // Select the hardware counter bits of a software timestamp.
+    fn from_timestamp(timestamp: u64) -> Self {
+        Self(timestamp & COUNTER_MASK)
+    }
+
+    fn value(self) -> u64 {
+        self.0
+    }
+
+    fn to_gray(self) -> GrayTicks {
+        GrayTicks(self.0 ^ (self.0 >> 1))
     }
 }
 
-/// Convert gray to decimal
-///
-/// Os Event provides a 64-bit timestamp gray-encoded. All we have to
-/// do here is read both 32-bit halves of the register and convert
-/// from gray to regular binary.
-fn gray_to_dec(gray: u64) -> u64 {
-    let mut dec = gray;
+/// A 42-bit Gray-coded counter value.
+#[derive(Copy, Clone)]
+struct GrayTicks(u64);
 
-    dec ^= dec >> 1;
-    dec ^= dec >> 2;
-    dec ^= dec >> 4;
-    dec ^= dec >> 8;
-    dec ^= dec >> 16;
-    dec ^= dec >> 32;
+impl GrayTicks {
+    fn from_registers(high: u16, low: u32) -> Self {
+        Self(((u64::from(high) << 32) | u64::from(low)) & COUNTER_MASK)
+    }
 
-    dec
-}
+    fn low(self) -> u32 {
+        self.0 as u32
+    }
 
-/// Convert decimal to gray
-///
-/// Before writing match value to the target register, we must convert
-/// it back into gray code.
-fn dec_to_gray(dec: u64) -> u64 {
-    let gray = dec;
-    gray ^ (gray >> 1)
+    fn high(self) -> u16 {
+        (self.0 >> 32) as u16
+    }
+
+    fn decode(self) -> EvTicks {
+        let mut binary = self.0;
+        binary ^= binary >> 1;
+        binary ^= binary >> 2;
+        binary ^= binary >> 4;
+        binary ^= binary >> 8;
+        binary ^= binary >> 16;
+        binary ^= binary >> 32;
+        EvTicks(binary)
+    }
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: OsTimer = OsTimer {
-    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
+    time: Mutex::new(Cell::new(0)),
     queue: Mutex::new(RefCell::new(Queue::new())),
 });
 
 struct OsTimer {
-    /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
-    alarms: Mutex<CriticalSectionRawMutex, AlarmState>,
+    time: Mutex<CriticalSectionRawMutex, Cell<u64>>,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
 
 impl OsTimer {
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
-        // init alarms
-        critical_section::with(|cs| {
-            let alarm = DRIVER.alarms.borrow(cs);
-            alarm.timestamp.set(u64::MAX);
-        });
+        critical_section::with(|cs| self.time.borrow(cs).set(0));
 
         let parts = unsafe {
             enable_and_reset::<OSTIMER0>(&OsTimerConfig {
                 power: PoweredClock::AlwaysEnabled,
+                // Split counter reads require bus >= 2 MHz, or the same 1 MHz source.
+                // MCXA2 RM 29.6.1.2; MCXA5 RM 36.6.1.2.
                 source: OstimerClockSel::Clk1M,
             })
             .expect("Enabling OsTimer clock should not fail")
@@ -92,62 +106,57 @@ impl OsTimer {
         // Make sure interrupt is masked
         OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
 
-        // Default to the end of time
-        OSTIMER0.match_l().write(|w| w.set_match_value(u32::MAX));
-        OSTIMER0.match_h().write(|w| w.set_match_value(u16::MAX));
-
         interrupt::OS_EVENT.unpend();
         interrupt::OS_EVENT.set_priority(irq_prio);
         unsafe { interrupt::OS_EVENT.enable() };
     }
 
-    /// Set an alarm for timestamp, returning false if the time has already expired.
-    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
-        let alarm = self.alarms.borrow(cs);
-        alarm.timestamp.set(timestamp);
-
-        // Disable the previous alarm and clear a potentially latched match before
-        // replacing MATCH_L/MATCH_H.
+    fn program_match(&self, _cs: CriticalSection, deadline: u64) -> AlarmOutcome {
+        // MCXA2 RM 29.3.2/29.6.1.8; MCXA5 RM 36.3.2/36.6.1.8.
         OSTIMER0.osevent_ctrl().modify(|w| {
             w.set_ostimer_intena(false);
             w.set_ostimer_intrflag(true);
         });
-
-        // Wait until any previous match-register synchronization completes.
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
 
-        let gray_timestamp = dec_to_gray(timestamp);
+        let gray_timestamp = EvTicks::from_timestamp(deadline).to_gray();
+        OSTIMER0.match_l().write(|w| w.set_match_value(gray_timestamp.low()));
+        OSTIMER0.match_h().write(|w| w.set_match_value(gray_timestamp.high()));
 
-        OSTIMER0.match_l().write(|w| w.set_match_value(gray_timestamp as u32));
-        OSTIMER0
-            .match_h()
-            .write(|w| w.set_match_value((gray_timestamp >> 32) as u16));
-
-        // Writing MATCH_H starts the transfer of the pair from the shadow registers into the
-        // active comparator. MATCH_WR_RDY reads 1 until that transfer completes, so wait for
-        // it to clear before sampling the timer. See section 36.6.1.8 of the MCXA5 Reference
-        // Manual for details
+        // MATCH_H transfers the shadow pair to the active comparator.
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
-
-        let t = self.now();
-        if timestamp <= t {
+        if deadline <= self.now() {
             OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
-            alarm.timestamp.set(u64::MAX);
-            return false;
+            return AlarmOutcome::AlreadyDue;
         }
 
-        // INTRFLAG is write-one-to-clear. Explicitly write zero while enabling
-        // the alarm so a match that races this register update remains latched.
+        // MCXA5 RM 36.6.1.8: INTENA enables; INTRFLAG is W1C.
+        // Section 36.5 step 4 names INTRFLAG instead; Figure 177 says write-zero.
+        // Write zero here to preserve a match latched before enabling.
         OSTIMER0.osevent_ctrl().modify(|w| {
             w.set_ostimer_intrflag(false);
             w.set_ostimer_intena(true);
         });
-        true
+        AlarmOutcome::Armed
+    }
+
+    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> AlarmOutcome {
+        // Keep the queue sentinel in software; idle queues still need wrap tracking.
+        let maintenance = (self.now() | (PERIOD_TICKS - 1)).saturating_add(1);
+        let target = timestamp.min(maintenance);
+        if matches!(self.program_match(cs, target), AlarmOutcome::AlreadyDue) {
+            return AlarmOutcome::AlreadyDue;
+        }
+        if target == timestamp {
+            AlarmOutcome::Armed
+        } else {
+            AlarmOutcome::Maintenance
+        }
     }
 
     fn trigger_alarm(&self, cs: CriticalSection) {
         let mut next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
-        while !self.set_alarm(cs, next) {
+        while matches!(self.set_alarm(cs, next), AlarmOutcome::AlreadyDue) {
             next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
         }
     }
@@ -177,10 +186,17 @@ impl Driver for OsTimer {
             return 0;
         }
 
-        let mut t = OSTIMER0.evtimerh().read().0 as u64;
-        t <<= 32;
-        t |= OSTIMER0.evtimerl().read().evtimer_count_value() as u64;
-        gray_to_dec(t)
+        // Keep interrupts from delaying the low-half read across multiple ticks.
+        critical_section::with(|cs| {
+            let high = OSTIMER0.evtimerh().read().evtimer_count_value();
+            let low = OSTIMER0.evtimerl().read().evtimer_count_value();
+            let counter = GrayTicks::from_registers(high, low).decode().value();
+            let time = self.time.borrow(cs);
+            let previous = time.get();
+            let now = previous + (counter.wrapping_sub(previous) & COUNTER_MASK);
+            time.set(now);
+            now
+        })
     }
 
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
@@ -189,7 +205,7 @@ impl Driver for OsTimer {
 
             if queue.schedule_wake(at, waker) {
                 let mut next = queue.next_expiration(self.now());
-                while !self.set_alarm(cs, next) {
+                while matches!(self.set_alarm(cs, next), AlarmOutcome::AlreadyDue) {
                     next = queue.next_expiration(self.now());
                 }
             }
@@ -205,5 +221,8 @@ fn OS_EVENT() {
 
 pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     DRIVER.init(irq_prio);
-    INIT.store(true, Ordering::Relaxed);
+    critical_section::with(|cs| {
+        INIT.store(true, Ordering::Relaxed);
+        DRIVER.trigger_alarm(cs);
+    });
 }

@@ -33,6 +33,7 @@ macro_rules! define_counters {
             #[cfg(feature = "perf")]
             pub fn clear_all() {
                 $(
+                    $(#[$attr])*
                     [<clear_ $name>]();
                 )*
             }
@@ -42,6 +43,7 @@ macro_rules! define_counters {
             pub fn get_report() -> Report {
                 Report {
                     $(
+                        $(#[$attr])*
                         $name: ([<get_ $name>])(),
                     )*
                 }
@@ -52,6 +54,7 @@ macro_rules! define_counters {
             pub fn get_report_and_clear() -> Report {
                 Report {
                     $(
+                        $(#[$attr])*
                         $name: ([<get_and_clear_ $name>])(),
                     )*
                 }
