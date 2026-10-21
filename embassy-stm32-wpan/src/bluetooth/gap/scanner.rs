@@ -3,50 +3,12 @@
 //! This module provides functionality for scanning (observer role) to discover
 //! nearby BLE devices that are advertising.
 
+pub use stm32wb_hci::aci::values::{ScanProcedure, ScanType, ScanningFilterPolicy};
+
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::gap::aci_gap;
 use crate::bluetooth::gap::types::OwnAddressType;
-
-/// Scan type
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ScanType {
-    /// Passive scanning - only listen for advertising packets
-    #[default]
-    Passive = 0x00,
-    /// Active scanning - send scan requests to get scan response data
-    Active = 0x01,
-}
-
-/// Scan filter policy
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ScanFilterPolicy {
-    /// Accept all advertising packets
-    #[default]
-    AcceptAll = 0x00,
-    /// Accept only advertising packets from devices in the filter accept list
-    AcceptFilterListOnly = 0x01,
-    /// Accept all advertising packets, but filter directed ads not addressed to us
-    AcceptAllFilterDirected = 0x02,
-    /// Accept only filter accept list, and filter directed ads
-    AcceptFilterListFilterDirected = 0x03,
-}
-
-/// Active GAP scan procedure.
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ScanProcedure {
-    /// Observer-only scanning procedure.
-    Observation = aci_gap::GAP_OBSERVATION_PROC,
-    /// Limited discovery procedure (reports limited discoverable devices only).
-    LimitedDiscovery = aci_gap::GAP_LIMITED_DISCOVERY_PROC,
-    /// General discovery procedure (reports all discoverable devices).
-    GeneralDiscovery = aci_gap::GAP_GENERAL_DISCOVERY_PROC,
-}
+use crate::controller::ControllerAdapter;
 
 /// Scan parameters
 #[derive(Debug, Clone)]
@@ -68,7 +30,7 @@ pub struct ScanParams {
     pub own_address_type: OwnAddressType,
 
     /// Scanning filter policy
-    pub filter_policy: ScanFilterPolicy,
+    pub filter_policy: ScanningFilterPolicy,
 
     /// Filter duplicate advertising reports
     pub filter_duplicates: bool,
@@ -81,7 +43,7 @@ impl Default for ScanParams {
             scan_interval: 0x0010, // 10ms
             scan_window: 0x0010,   // 10ms
             own_address_type: OwnAddressType::Public,
-            filter_policy: ScanFilterPolicy::AcceptAll,
+            filter_policy: ScanningFilterPolicy::BasicUnfiltered,
             filter_duplicates: true,
         }
     }
@@ -112,7 +74,7 @@ impl ScanParams {
     }
 
     /// Set filter policy
-    pub fn with_filter_policy(mut self, policy: ScanFilterPolicy) -> Self {
+    pub fn with_filter_policy(mut self, policy: ScanningFilterPolicy) -> Self {
         self.filter_policy = policy;
         self
     }
@@ -130,7 +92,7 @@ impl ScanParams {
             scan_interval: 0x0030, // 30ms
             scan_window: 0x0030,   // 30ms (100% duty cycle)
             own_address_type: OwnAddressType::Public,
-            filter_policy: ScanFilterPolicy::AcceptAll,
+            filter_policy: ScanningFilterPolicy::BasicUnfiltered,
             filter_duplicates: true,
         }
     }
@@ -142,7 +104,7 @@ impl ScanParams {
             scan_interval: 0x0800, // 1.28s
             scan_window: 0x0012,   // 11.25ms (~0.9% duty cycle)
             own_address_type: OwnAddressType::Public,
-            filter_policy: ScanFilterPolicy::AcceptAll,
+            filter_policy: ScanningFilterPolicy::BasicUnfiltered,
             filter_duplicates: true,
         }
     }
@@ -175,7 +137,7 @@ impl Scanner {
     ///
     /// ```no_run
     /// let mut scanner = ble.scanner();
-    /// scanner.start(ScanParams::fast())?;
+    /// scanner.start(ble.controller(), ScanParams::fast()).await?;
     ///
     /// // Advertising reports received in event loop
     /// loop {
@@ -187,9 +149,9 @@ impl Scanner {
     ///     }
     /// }
     /// ```
-    pub fn start(&mut self, params: ScanParams) -> Result<(), BleError> {
+    pub async fn start(&mut self, controller: &ControllerAdapter<'_>, params: ScanParams) -> Result<(), BleError> {
         if self.active_proc.is_some() {
-            self.stop()?;
+            self.stop(controller).await?;
         }
 
         // Use the GAP observation procedure instead of raw HCI scan commands.
@@ -197,32 +159,40 @@ impl Scanner {
         // never routes the resulting reports through BLECB_Indication; only
         // ACI_GAP_START_OBSERVATION_PROC does.
         aci_gap::start_observation(
+            controller,
             params.scan_interval,
             params.scan_window,
             params.scan_type as u8,
             params.own_address_type as u8,
             params.filter_duplicates,
             params.filter_policy as u8,
-        )?;
+        )
+        .await?;
 
-        self.active_proc = Some(ScanProcedure::Observation);
+        self.active_proc = Some(ScanProcedure::GenericScan);
         Ok(())
     }
 
     /// Start the GAP general discovery procedure.
     ///
     /// This runs active scanning and reports all discoverable devices.
-    pub fn start_general_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
+    pub async fn start_general_discovery(
+        &mut self,
+        controller: &ControllerAdapter<'_>,
+        params: ScanParams,
+    ) -> Result<(), BleError> {
         if self.active_proc.is_some() {
-            self.stop()?;
+            self.stop(controller).await?;
         }
 
         aci_gap::start_general_discovery(
+            controller,
             params.scan_interval,
             params.scan_window,
             params.own_address_type as u8,
             params.filter_duplicates,
-        )?;
+        )
+        .await?;
 
         self.active_proc = Some(ScanProcedure::GeneralDiscovery);
         Ok(())
@@ -231,26 +201,32 @@ impl Scanner {
     /// Start the GAP limited discovery procedure.
     ///
     /// This runs active scanning and reports only limited discoverable devices.
-    pub fn start_limited_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
+    pub async fn start_limited_discovery(
+        &mut self,
+        controller: &ControllerAdapter<'_>,
+        params: ScanParams,
+    ) -> Result<(), BleError> {
         if self.active_proc.is_some() {
-            self.stop()?;
+            self.stop(controller).await?;
         }
 
         aci_gap::start_limited_discovery(
+            controller,
             params.scan_interval,
             params.scan_window,
             params.own_address_type as u8,
             params.filter_duplicates,
-        )?;
+        )
+        .await?;
 
         self.active_proc = Some(ScanProcedure::LimitedDiscovery);
         Ok(())
     }
 
     /// Stop scanning
-    pub fn stop(&mut self) -> Result<(), BleError> {
+    pub async fn stop(&mut self, controller: &ControllerAdapter<'_>) -> Result<(), BleError> {
         if let Some(proc) = self.active_proc {
-            aci_gap::terminate_gap_proc(proc as u8)?;
+            aci_gap::terminate_gap_proc(controller, aci_gap::to_gap_procedure(proc)).await?;
             self.active_proc = None;
         }
         Ok(())
