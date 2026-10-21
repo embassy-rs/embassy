@@ -3,19 +3,19 @@
 #[cfg(usb_v4)]
 mod usb_host;
 
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 mod double_buffer;
 
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 use critical_section::Mutex;
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 use double_buffer::{RxQueue, TxQueue};
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -98,7 +98,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             let mut epr = regs.epr(index).read();
             // EP_KIND means DBL_BUF only for bulk endpoints, not EP0 STATUS_OUT
             // or isochronous endpoints. Normal transfers never borrow the queue.
-            #[cfg(any(usb_v1, usb_v4))]
+            #[cfg(any(usb_v1, usb_v3, usb_v4))]
             if epr.ep_type() == EpType::Bulk && epr.ep_kind() {
                 critical_section::with(|cs| {
                     let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
@@ -167,7 +167,7 @@ const USBRAM_ALIGN: usize = 4;
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP0_SETUP: AtomicBool = AtomicBool::new(false);
 
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 #[derive(Clone, Copy)]
 enum DoubleState {
     In(TxQueue),
@@ -175,7 +175,7 @@ enum DoubleState {
 }
 
 // Shared by allocation, Bus, endpoints and the CTR interrupt handler.
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 static DOUBLE_BUFFERED: Mutex<RefCell<[Option<DoubleState>; EP_COUNT]>> = Mutex::new(RefCell::new([None; EP_COUNT]));
 
 static TX_PENDING: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
@@ -213,7 +213,7 @@ fn invariant(mut r: regs::Epr) -> regs::Epr {
 // VALID by itself. Toggling STAT in that same write would turn it back into
 // NAK. After reset_* there is no such conflict NAK, so STAT must be set
 // explicitly.
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 fn release_bulk_in<T: Instance>(index: usize) {
     let reg = T::regs().epr(index);
     let mut w = invariant(reg.read());
@@ -229,7 +229,7 @@ fn release_bulk_in<T: Instance>(index: usize) {
 
 // Discard queued packets and reset DATA0 / buffer 0. Disable transfers first
 // so the peripheral cannot change DTOG while software resets ownership.
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 fn reset_bulk_in<T: Instance>(index: usize, stat: Stat, queue: &mut TxQueue) {
     let reg = T::regs().epr(index);
     loop {
@@ -252,7 +252,7 @@ fn reset_bulk_in<T: Instance>(index: usize, stat: Stat, queue: &mut TxQueue) {
     *queue = TxQueue::new();
 }
 
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 fn release_bulk_out<T: Instance>(index: usize) {
     let reg = T::regs().epr(index);
     let mut w = invariant(reg.read());
@@ -266,7 +266,7 @@ fn release_bulk_out<T: Instance>(index: usize) {
     }
 }
 
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 fn reset_bulk_out<T: Instance>(index: usize, stat: Stat, queue: &mut RxQueue) {
     let reg = T::regs().epr(index);
     loop {
@@ -335,7 +335,7 @@ mod btable {
         USBRAM.mem(index * 4 + 1).write_value(max_len_bits);
     }
 
-    #[cfg(any(usb_v1, usb_v4))]
+    #[cfg(any(usb_v1, usb_v3, usb_v4))]
     pub(super) fn reset_out_len(index: usize, buffer: usize) {
         let count = USBRAM.mem(index * 4 + buffer * 2 + 1);
         // Allocation bits persist in PMA; only the received byte count changes.
@@ -444,7 +444,7 @@ impl<T: Instance> EndpointBuffer<T> {
     }
 
     /// Packet buffer `n` of a double-buffered endpoint whose first buffer is `self`.
-    #[cfg(any(usb_v1, usb_v4))]
+    #[cfg(any(usb_v1, usb_v3, usb_v4))]
     fn double_buffer_half(&self, n: usize) -> Self {
         Self {
             addr: self.addr + n as u16 * self.len,
@@ -466,7 +466,7 @@ struct EndpointData {
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     alloc: [EndpointData; EP_COUNT],
-    #[cfg(any(usb_v1, usb_v4))]
+    #[cfg(any(usb_v1, usb_v3, usb_v4))]
     double_buffered: u16,
     ep_mem_free: u16, // first free address in EP mem, in bytes.
 }
@@ -530,7 +530,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 used_in: false,
                 used_out: false,
             }; EP_COUNT],
-            #[cfg(any(usb_v1, usb_v4))]
+            #[cfg(any(usb_v1, usb_v3, usb_v4))]
             double_buffered: 0,
             ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
         }
@@ -572,7 +572,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         !used || (ep.ep_type == ep_type && !used_dir)
     }
 
-    #[cfg(any(usb_v1, usb_v4))]
+    #[cfg(any(usb_v1, usb_v3, usb_v4))]
     fn alloc_double_buffered<D: Dir>(
         &mut self,
         ep_addr: Option<EndpointAddress>,
@@ -736,7 +736,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 interval_ms,
             },
             buf,
-            #[cfg(any(usb_v1, usb_v4))]
+            #[cfg(any(usb_v1, usb_v3, usb_v4))]
             double_buffered: false,
         })
     }
@@ -768,7 +768,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
-    #[cfg(any(usb_v1, usb_v4))]
+    #[cfg(any(usb_v1, usb_v3, usb_v4))]
     fn alloc_endpoint_bulk_out_double_buffered(
         &mut self,
         ep_addr: Option<EndpointAddress>,
@@ -777,7 +777,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         self.alloc_double_buffered(ep_addr, max_packet_size)
     }
 
-    #[cfg(any(usb_v1, usb_v4))]
+    #[cfg(any(usb_v1, usb_v3, usb_v4))]
     fn alloc_endpoint_bulk_in_double_buffered(
         &mut self,
         ep_addr: Option<EndpointAddress>,
@@ -824,7 +824,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             Bus {
                 phantom: PhantomData,
                 ep_types,
-                #[cfg(any(usb_v1, usb_v4))]
+                #[cfg(any(usb_v1, usb_v3, usb_v4))]
                 double_buffered: self.double_buffered,
                 inited: false,
             },
@@ -842,7 +842,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ep_types: [EpType; EP_COUNT - 1],
-    #[cfg(any(usb_v1, usb_v4))]
+    #[cfg(any(usb_v1, usb_v3, usb_v4))]
     double_buffered: u16,
     inited: bool,
 }
@@ -886,7 +886,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                         w.set_ep_type(self.ep_types[i - 1]);
                     });
                 }
-                #[cfg(any(usb_v1, usb_v4))]
+                #[cfg(any(usb_v1, usb_v3, usb_v4))]
                 if self.double_buffered != 0 {
                     critical_section::with(|cs| {
                         let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
@@ -929,9 +929,9 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        #[cfg(any(usb_v1, usb_v4))]
+        #[cfg(any(usb_v1, usb_v3, usb_v4))]
         let index = ep_addr.index();
-        #[cfg(any(usb_v1, usb_v4))]
+        #[cfg(any(usb_v1, usb_v3, usb_v4))]
         if self.double_buffered & (1 << index) != 0
             && critical_section::with(|cs| {
                 let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
@@ -1032,9 +1032,9 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         trace!("set_enabled {:?} {}", ep_addr, enabled);
-        #[cfg(any(usb_v1, usb_v4))]
+        #[cfg(any(usb_v1, usb_v3, usb_v4))]
         let index = ep_addr.index();
-        #[cfg(any(usb_v1, usb_v4))]
+        #[cfg(any(usb_v1, usb_v3, usb_v4))]
         if self.double_buffered & (1 << index) != 0
             && critical_section::with(|cs| {
                 let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
@@ -1169,11 +1169,11 @@ pub struct Endpoint<'d, T: Instance, D> {
     info: EndpointInfo,
     buf: EndpointBuffer<T>,
     /// Double-buffered bulk endpoint, see `alloc_double_buffered`.
-    #[cfg(any(usb_v1, usb_v4))]
+    #[cfg(any(usb_v1, usb_v3, usb_v4))]
     double_buffered: bool,
 }
 
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 impl<'d, T: Instance> Endpoint<'d, T, In> {
     async fn write_double_buffered(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
         let index = self.info.addr.index();
@@ -1312,7 +1312,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
     }
 }
 
-#[cfg(any(usb_v1, usb_v4))]
+#[cfg(any(usb_v1, usb_v3, usb_v4))]
 impl<'d, T: Instance> Endpoint<'d, T, Out> {
     async fn read_double_buffered(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let index = self.info.addr.index();
@@ -1353,7 +1353,7 @@ impl<'d, T: Instance> Endpoint<'d, T, Out> {
 
 impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        #[cfg(any(usb_v1, usb_v4))]
+        #[cfg(any(usb_v1, usb_v3, usb_v4))]
         if self.double_buffered {
             return self.read_double_buffered(buf).await;
         }
@@ -1426,7 +1426,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         if buf.len() > self.info.max_packet_size as usize {
             return Err(EndpointError::BufferOverflow);
         }
-        #[cfg(any(usb_v1, usb_v4))]
+        #[cfg(any(usb_v1, usb_v3, usb_v4))]
         if self.double_buffered {
             return self.write_double_buffered(buf).await;
         }
