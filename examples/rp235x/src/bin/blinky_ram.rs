@@ -6,6 +6,10 @@
 //!
 //! Compile, post-process and run with `run-blinky-ram.sh`.
 //!
+//! Picotool is required to be installed and in the system PATH.
+//! A compiled copy of picotool can be obtained at
+//! https://github.com/raspberrypi/pico-sdk-tools/releases.
+//!
 //! The example works by splitting SRAM into equally-sized regions, labelled "FLASH" and "RAM"
 //! as per cortex-m-rt's `link.x` convention, via a modified `memory.x` linker script,
 //! activated by the linker symbol `__run_from_ram=1`.
@@ -13,7 +17,7 @@
 //! This causes the binary to be linked to run from SRAM.
 //!
 //! Two picotool post-processing steps then:
-//!   1. add RP2350 boot load map metadata to the binary, telling the boot ROM wha
+//!   1. add RP2350 boot load map metadata to the binary, telling the boot ROM what
 //!      to copy to SRAM and where
 //!   2. "re-address" the image to the start of the real chip flash (`0x10000000`).
 //!
