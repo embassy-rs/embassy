@@ -339,6 +339,8 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
         self.state.read(0, &mut self.aligned)?;
 
         if self.aligned.iter().any(|&b| b != magic) {
+            let swap = !self.aligned.iter().any(|&b| b != SWAP_MAGIC);
+
             // Read progress validity
             self.state.read(STATE::WRITE_SIZE as u32, &mut self.aligned)?;
 
@@ -348,6 +350,12 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
                 // Invalidate progress
                 self.aligned.fill(!STATE_ERASE_VALUE);
                 self.state.write(STATE::WRITE_SIZE as u32, &self.aligned)?;
+            }
+
+            if swap {
+                // Invalidate magic, so a torn erase cannot leave SWAP with partially erased progress
+                self.aligned.fill(!STATE_ERASE_VALUE);
+                self.state.write(0, &self.aligned)?;
             }
 
             // Clear magic and progress

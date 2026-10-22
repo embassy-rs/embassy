@@ -10,6 +10,8 @@ pub struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE
     pub mem: [u8; SIZE],
     pub pending_read_successes: Option<usize>,
     pub pending_write_successes: Option<usize>,
+    /// Tear the next erase: words (of WRITE_SIZE) whose bit is set keep their contents, and the erase fails.
+    pub pending_erase_tear: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -23,6 +25,7 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const 
             mem: [fill; SIZE],
             pending_read_successes: None,
             pending_write_successes: None,
+            pending_erase_tear: None,
         }
     }
 
@@ -42,6 +45,7 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const 
             mem,
             pending_read_successes: None,
             pending_write_successes: None,
+            pending_erase_tear: None,
         }
     }
 
@@ -81,7 +85,8 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const 
             .take(bytes.len())
             .zip(bytes)
         {
-            assert_eq!(0xFF, *mem_byte, "Offset {} is not erased", offset);
+            // Programming all zeros over programmed bytes is allowed, like on most NOR flashes.
+            assert!(*mem_byte == 0xFF || *new_byte == 0, "Offset {} is not erased", offset);
             *mem_byte = *new_byte;
         }
 
@@ -93,8 +98,15 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const 
         let to = to as usize;
         assert!(from % ERASE_SIZE == 0);
         assert!(to % ERASE_SIZE == 0, "To: {}, erase size: {}", to, ERASE_SIZE);
+        let keep = self.pending_erase_tear.take();
         for i in from..to {
+            if keep.is_some_and(|keep| keep & (1u64 << ((i - from) / WRITE_SIZE)) != 0) {
+                continue;
+            }
             self.mem[i] = 0xFF;
+        }
+        if keep.is_some() {
+            return Err(MemFlashError);
         }
         Ok(())
     }
