@@ -93,14 +93,20 @@ impl TDes {
     ///
     /// FD: Contains first buffer of packet
     /// LD: Contains last buffer of packet
-    /// CIC_FULL: let the MAC compute and insert the IP/TCP/UDP checksums.
+    /// CIC_FULL: let the MAC compute and insert the IP/TCP/UDP checksums, when
+    /// [`TX_CHECKSUM_OFFLOAD`](super::TX_CHECKSUM_OFFLOAD) allows it.
     pub(crate) fn set_owned(&mut self) {
         // TDES3[14:0] is the total packet length. TDES2 carries the only
         // buffer's length, which is also the total length for this one-buffer
         // descriptor implementation.
         let frame_len = self.tdes2.get() & EMAC_TDES2_B1L;
+        let cic = if super::TX_CHECKSUM_OFFLOAD {
+            EMAC_TDES3_CIC_FULL
+        } else {
+            0
+        };
         self.tdes3
-            .set(EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_OWN | EMAC_TDES3_CIC_FULL | frame_len);
+            .set(EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_OWN | cic | frame_len);
     }
 
     #[cfg(feature = "ptp")]
