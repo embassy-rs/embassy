@@ -817,7 +817,10 @@ impl<'d> ControlMonitor<'d> {
         // the two entries only: the lock holds interrupts off
         let (muted, volume) = settings.lock(|x| {
             let s = x.borrow();
-            ([s.muted[0], s.muted[index]], [s.volume_8q8_db[0], s.volume_8q8_db[index]])
+            (
+                [s.muted[0], s.muted[index]],
+                [s.volume_8q8_db[0], s.volume_8q8_db[index]],
+            )
         });
         if (0..2).any(|i| muted[i] || volume[i] == VOLUME_SILENCE_8Q8_DB) {
             return Some(Volume::Muted);
