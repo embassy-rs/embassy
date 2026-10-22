@@ -29,8 +29,8 @@ use stm32wb_hci::aci::gatt::{
 use stm32wb_hci::aci::hal::{HalSetTxPowerLevel, HalWriteConfigData};
 use stm32wb_hci::aci::ranges::{AttAppError, EncKeySize, PaLevel, Passkey};
 use stm32wb_hci::aci::values::{
-    AddressType, AdvertisingType, ConfigDataOffset, IoCapability, OwnAddressType, PermitStatus, Privacy, ScSupport,
-    ServiceType, UseFixedPin,
+    AddressType, AdvertisingType, ConfigDataOffset, IoCapability, MitmMode, OwnAddressType, PermitStatus, Privacy,
+    ScSupport, ServiceType, UseFixedPin,
 };
 use stm32wb_hci::adv_data::{AdvData, local_name_structure};
 use stm32wb_hci::event::BleEvent;
@@ -155,7 +155,7 @@ async fn main(spawner: Spawner) {
     let response = ble
         .exec(&GapSetAuthenticationRequirement::new(
             false, // bonding
-            false, // MITM protection
+            MitmMode::NotRequired,
             ScSupport::Optional,
             false, // keypress notifications
             8,

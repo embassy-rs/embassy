@@ -46,7 +46,7 @@ heapless = { version = "0.9", features = ["defmt"] }
 aligned = "0.4.3"
 critical-section = "1.2"
 
-stm32wb-hci = { version = "0.20.1", default-features = false, optional = true }
+stm32wb-hci = { version = "0.21.0", default-features = false, optional = true }
 bitflags = { version = "2.3.3", optional = true }
 bt-hci = { version = "0.11.0", optional = true }
 embedded-io = { version = "0.7.1" }
