@@ -170,6 +170,7 @@ impl Instant {
     /// ## Panics
     ///
     /// Panics if the computed duration overflows.
+    #[inline]
     pub fn elapsed(&self) -> Duration {
         Instant::now() - *self
     }

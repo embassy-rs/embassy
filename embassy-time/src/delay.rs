@@ -11,6 +11,7 @@ use crate::Timer;
 ///
 /// Panics if the computed instant overflows.
 /// Avoid panics with [`try_block_for()`].
+#[inline]
 pub fn block_for(duration: Duration) {
     let expires_at = Instant::now() + duration;
     while Instant::now() < expires_at {}
@@ -21,6 +22,7 @@ pub fn block_for(duration: Duration) {
 /// This function may require interrupts to be enabled to work correctly.
 ///
 /// This is a panic-free [`block_for()`].
+#[inline]
 pub fn try_block_for(duration: Duration) -> Option<()> {
     let expires_at = Instant::now().checked_add(duration)?;
     while Instant::now() < expires_at {}
@@ -43,6 +45,7 @@ impl embedded_hal_1::delay::DelayNs for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_ns(&mut self, ns: u32) {
         block_for(Duration::from_nanos(ns as u64))
     }
@@ -52,6 +55,7 @@ impl embedded_hal_1::delay::DelayNs for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_us(&mut self, us: u32) {
         block_for(Duration::from_micros(us as u64))
     }
@@ -61,6 +65,7 @@ impl embedded_hal_1::delay::DelayNs for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_ms(&mut self, ms: u32) {
         block_for(Duration::from_millis(ms as u64))
     }
@@ -72,6 +77,7 @@ impl embedded_hal_async::delay::DelayNs for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_ns(&mut self, ns: u32) -> impl Future<Output = ()> {
         Timer::after_nanos(ns as _)
     }
@@ -81,6 +87,7 @@ impl embedded_hal_async::delay::DelayNs for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_us(&mut self, us: u32) -> impl Future<Output = ()> {
         Timer::after_micros(us as _)
     }
@@ -90,6 +97,7 @@ impl embedded_hal_async::delay::DelayNs for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_ms(&mut self, ms: u32) -> impl Future<Output = ()> {
         Timer::after_millis(ms as _)
     }
@@ -101,6 +109,7 @@ impl embedded_hal_02::blocking::delay::DelayMs<u8> for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_ms(&mut self, ms: u8) {
         block_for(Duration::from_millis(ms as u64))
     }
@@ -112,6 +121,7 @@ impl embedded_hal_02::blocking::delay::DelayMs<u16> for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_ms(&mut self, ms: u16) {
         block_for(Duration::from_millis(ms as u64))
     }
@@ -123,6 +133,7 @@ impl embedded_hal_02::blocking::delay::DelayMs<u32> for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_ms(&mut self, ms: u32) {
         block_for(Duration::from_millis(ms as u64))
     }
@@ -134,6 +145,7 @@ impl embedded_hal_02::blocking::delay::DelayUs<u8> for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_us(&mut self, us: u8) {
         block_for(Duration::from_micros(us as u64))
     }
@@ -145,6 +157,7 @@ impl embedded_hal_02::blocking::delay::DelayUs<u16> for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_us(&mut self, us: u16) {
         block_for(Duration::from_micros(us as u64))
     }
@@ -156,6 +169,7 @@ impl embedded_hal_02::blocking::delay::DelayUs<u32> for Delay {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn delay_us(&mut self, us: u32) {
         block_for(Duration::from_micros(us as u64))
     }
