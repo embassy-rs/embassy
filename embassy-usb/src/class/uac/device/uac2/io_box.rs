@@ -40,7 +40,7 @@
 //! let hz = io.control_monitor.sample_rate_hz();
 //! ```
 
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 #[cfg(target_has_atomic = "32")]
 use core::sync::atomic::AtomicU32;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -467,10 +467,10 @@ impl<'d, D: Driver<'d>> IoBox<'d, D> {
             (&shared.line_in_settings, line_in_volume_range),
         ] {
             settings.lock(|x| {
-                x.set(AudioSettings {
+                *x.borrow_mut() = AudioSettings {
                     muted: [false; MAX_AUDIO_CHANNEL_COUNT],
                     volume_8q8_db: [range.initial_8q8(); MAX_AUDIO_CHANNEL_COUNT],
-                })
+                }
             });
         }
         shared.sample_rates_hz = sample_rates_hz;
@@ -741,8 +741,8 @@ struct Pending {
 }
 
 struct SharedControl<'d> {
-    line_out_settings: CriticalSectionMutex<Cell<AudioSettings>>,
-    line_in_settings: CriticalSectionMutex<Cell<AudioSettings>>,
+    line_out_settings: CriticalSectionMutex<RefCell<AudioSettings>>,
+    line_in_settings: CriticalSectionMutex<RefCell<AudioSettings>>,
     line_out_channels: &'d [Channel],
     line_in_channels: &'d [Channel],
     line_out_controls: Vec<FeatureUnitControls, MAX_AUDIO_CHANNEL_COUNT, u8>,
@@ -760,8 +760,8 @@ struct SharedControl<'d> {
 impl<'d> Default for SharedControl<'d> {
     fn default() -> Self {
         SharedControl {
-            line_out_settings: CriticalSectionMutex::new(Cell::new(AudioSettings::default())),
-            line_in_settings: CriticalSectionMutex::new(Cell::new(AudioSettings::default())),
+            line_out_settings: CriticalSectionMutex::new(RefCell::new(AudioSettings::default())),
+            line_in_settings: CriticalSectionMutex::new(RefCell::new(AudioSettings::default())),
             line_out_channels: &[],
             line_in_channels: &[],
             line_out_controls: Vec::new(),
@@ -779,7 +779,7 @@ impl<'d> Default for SharedControl<'d> {
 }
 
 struct FeatureUnitRef<'a> {
-    settings: &'a CriticalSectionMutex<Cell<AudioSettings>>,
+    settings: &'a CriticalSectionMutex<RefCell<AudioSettings>>,
     controls: &'a [FeatureUnitControls],
     range: VolumeRange,
 }
@@ -803,7 +803,7 @@ pub struct ControlMonitor<'d> {
 
 impl<'d> ControlMonitor<'d> {
     fn volume(
-        settings: &CriticalSectionMutex<Cell<AudioSettings>>,
+        settings: &CriticalSectionMutex<RefCell<AudioSettings>>,
         channels: &[Channel],
         controls: &[FeatureUnitControls],
         channel: Channel,
@@ -814,15 +814,16 @@ impl<'d> ControlMonitor<'d> {
         if !has(0) && !has(index) {
             return None;
         }
-        let s = settings.lock(|x| x.get());
-        if [0, index]
-            .iter()
-            .any(|&i| s.muted[i] || s.volume_8q8_db[i] == VOLUME_SILENCE_8Q8_DB)
-        {
+        // the two entries only: the lock holds interrupts off
+        let (muted, volume) = settings.lock(|x| {
+            let s = x.borrow();
+            ([s.muted[0], s.muted[index]], [s.volume_8q8_db[0], s.volume_8q8_db[index]])
+        });
+        if (0..2).any(|i| muted[i] || volume[i] == VOLUME_SILENCE_8Q8_DB) {
             return Some(Volume::Muted);
         }
         Some(Volume::DeciBel(
-            (s.volume_8q8_db[0] as f32 + s.volume_8q8_db[index] as f32) / VOLUME_STEPS_PER_DB as f32,
+            (volume[0] as f32 + volume[1] as f32) / VOLUME_STEPS_PER_DB as f32,
         ))
     }
 
@@ -884,7 +885,7 @@ impl<'d> ControlMonitor<'d> {
 
     /// Returns the pending bits of the controls that changed.
     fn set_volume(
-        settings: &CriticalSectionMutex<Cell<AudioSettings>>,
+        settings: &CriticalSectionMutex<RefCell<AudioSettings>>,
         channels: &[Channel],
         controls: &[FeatureUnitControls],
         range: VolumeRange,
@@ -896,27 +897,27 @@ impl<'d> ControlMonitor<'d> {
         };
         let c = controls.get(index).copied().unwrap_or_else(FeatureUnitControls::empty);
         let (mute_bit, volume_bit) = (1u32 << (2 * index), 1u32 << (2 * index + 1));
+        // (mute, volume to set) worked out before the lock, which holds interrupts off
+        let (muted, v) = match volume {
+            Volume::Muted if c.contains(FeatureUnitControls::MUTE) => (true, None),
+            Volume::Muted => (false, Some(VOLUME_SILENCE_8Q8_DB)),
+            Volume::DeciBel(db) => {
+                let db = db.clamp(range.min_db as f32, range.max_db as f32);
+                // round half away from zero (no `f32::round` in core)
+                let steps = db * VOLUME_STEPS_PER_DB as f32;
+                (false, Some((steps + if steps < 0.0 { -0.5 } else { 0.5 }) as i16))
+            }
+        };
         settings.lock(|x| {
-            let mut s = x.get();
-            let mut set_muted = |muted: bool| {
-                let changed = c.contains(FeatureUnitControls::MUTE) && s.muted[index] != muted;
-                if changed {
-                    s.muted[index] = muted;
-                }
-                if changed { mute_bit } else { 0 }
-            };
-            let bits = match volume {
-                Volume::Muted if c.contains(FeatureUnitControls::MUTE) => set_muted(true),
-                Volume::Muted => set_muted(false) | Self::set_8q8(&mut s, c, index, VOLUME_SILENCE_8Q8_DB, volume_bit),
-                Volume::DeciBel(db) => {
-                    let db = db.clamp(range.min_db as f32, range.max_db as f32);
-                    // round half away from zero (no `f32::round` in core)
-                    let steps = db * VOLUME_STEPS_PER_DB as f32;
-                    let v = (steps + if steps < 0.0 { -0.5 } else { 0.5 }) as i16;
-                    set_muted(false) | Self::set_8q8(&mut s, c, index, v, volume_bit)
-                }
-            };
-            x.set(s);
+            let mut s = x.borrow_mut();
+            let mut bits = 0;
+            if c.contains(FeatureUnitControls::MUTE) && s.muted[index] != muted {
+                s.muted[index] = muted;
+                bits |= mute_bit;
+            }
+            if let Some(v) = v {
+                bits |= Self::set_8q8(&mut s, c, index, v, volume_bit);
+            }
             bits
         })
     }
@@ -1019,7 +1020,7 @@ impl<'d> Control<'d> {
                     return Some(OutResponse::Rejected);
                 }
                 let accepted = fu.settings.lock(|x| {
-                    let mut s = x.get();
+                    let mut s = x.borrow_mut();
                     if control == FeatureUnitControls::MUTE {
                         s.muted[channel as usize] = data[0] != 0;
                     } else {
@@ -1030,7 +1031,6 @@ impl<'d> Control<'d> {
                         }
                         s.volume_8q8_db[channel as usize] = volume;
                     }
-                    x.set(s);
                     true
                 });
                 if !accepted {
@@ -1093,19 +1093,22 @@ impl<'d> Control<'d> {
                 let Some(fu) = self.feature_unit(entity) else {
                     return Some(InResponse::Rejected);
                 };
-                let s = fu.settings.lock(|x| x.get());
+                let (muted, volume) = fu.settings.lock(|x| {
+                    let s = x.borrow();
+                    (s.muted[channel as usize], s.volume_8q8_db[channel as usize])
+                });
                 let controls = fu.controls(channel);
                 match (req.request, selector(&req)) {
                     (request_code::CUR, control_selector::feature_unit::MUTE_CONTROL)
                         if controls.contains(FeatureUnitControls::MUTE) && !buf.is_empty() =>
                     {
-                        buf[0] = s.muted[channel as usize] as u8;
+                        buf[0] = muted as u8;
                         Some(InResponse::Accepted(&buf[..1]))
                     }
                     (request_code::CUR, control_selector::feature_unit::VOLUME_CONTROL)
                         if controls.contains(FeatureUnitControls::VOLUME) && buf.len() >= 2 =>
                     {
-                        buf[..2].copy_from_slice(&s.volume_8q8_db[channel as usize].to_le_bytes());
+                        buf[..2].copy_from_slice(&volume.to_le_bytes());
                         Some(InResponse::Accepted(&buf[..2]))
                     }
                     // One sub-range: MIN, MAX, RES.
