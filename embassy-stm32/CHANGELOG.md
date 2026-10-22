@@ -27,6 +27,7 @@ Ethernet:
 - fix: bound v2 DMA shutdown waits and panic if DMA still owns descriptors, rather than releasing live buffers or waiting forever.
 - fix: stm32/eth: with the `time` feature, the bounded MAC, MDIO, PHY and DMA waits use the time driver instead of a cycle-counted delay.
 - fix: stm32/eth v2: advertise checksum offload on STM32C5 (eth_v2b).
+- fix: stm32/eth v1: drop received frames whose descriptor has the error summary set or holds only part of a frame. An operator-precedence mistake made the check always pass.
 
 Flash:
 - change: `Flash::new` and `Flash::new_blocking` take a `flash::Config`. On STM32F2/F4/F7/H7, `Config::erase_parallelism` selects the erase parallelism (default x32).

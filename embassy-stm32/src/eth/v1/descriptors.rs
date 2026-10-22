@@ -81,7 +81,7 @@ impl RDesInfo {
         //
         // Contains first buffer of packet AND contains last buf of
         // packet AND no errors
-        if !(rdes0 & (RXDESC_0_ES | RXDESC_0_FS | RXDESC_0_LS)) == (RXDESC_0_FS | RXDESC_0_LS) {
+        if (rdes0 & (RXDESC_0_ES | RXDESC_0_FS | RXDESC_0_LS)) != (RXDESC_0_FS | RXDESC_0_LS) {
             return false;
         }
 
@@ -416,5 +416,36 @@ impl TDes {
         {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rx_consts::*;
+    use super::*;
+
+    fn info(rdes0: u32) -> RDesInfo {
+        RDesInfo {
+            rdes0,
+            #[cfg(any(eth_v1b, eth_v1c))]
+            rdes4: 0,
+        }
+    }
+
+    #[test]
+    fn accepts_a_whole_frame_without_errors() {
+        assert!(info(RXDESC_0_FS | RXDESC_0_LS).valid());
+    }
+
+    #[test]
+    fn rejects_a_frame_with_the_error_summary_set() {
+        assert!(!info(RXDESC_0_FS | RXDESC_0_LS | RXDESC_0_ES).valid());
+    }
+
+    #[test]
+    fn rejects_the_segments_of_a_frame_split_across_descriptors() {
+        assert!(!info(RXDESC_0_FS).valid());
+        assert!(!info(0).valid());
+        assert!(!info(RXDESC_0_LS).valid());
     }
 }
