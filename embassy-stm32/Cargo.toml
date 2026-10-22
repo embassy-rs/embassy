@@ -269,6 +269,10 @@ defmt = [
 log = ["dep:log"]
 ## Enable Ethernet PTP hardware timestamping.
 ptp = ["xarxa-driver/packetmeta-timestamp", "dep:embassy-ptp-driver"]
+## Accept and send 2000-byte Ethernet frames, FCS included (IEEE 802.3as).
+eth-2k-frames = []
+## Accept and send 9018-byte jumbo Ethernet frames, FCS included.
+eth-jumbo-frames = []
 ## Enable chrono support
 chrono = ["dep:chrono"]
 
