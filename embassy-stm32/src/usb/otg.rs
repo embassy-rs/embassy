@@ -363,6 +363,12 @@ impl<'d, T: Instance> Bus<'d, T> {
                 });
             });
 
+            // RM0456 15.2.3 step 3: recommended disconnect and squelch thresholds.
+            crate::pac::SYSCFG.otghsphytuner2().modify(|w| {
+                w.set_compdistune(0b010);
+                w.set_sqrxtune(0b000);
+            });
+
             crate::pac::SYSCFG.otghsphycr().modify(|w| {
                 w.set_en(true);
             });
