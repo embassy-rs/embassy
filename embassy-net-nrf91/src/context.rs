@@ -24,6 +24,10 @@ pub struct Config<'a> {
     pub auth: Option<(&'a [u8], &'a [u8])>,
     /// SIM pin
     pub pin: Option<&'a [u8]>,
+    /// Keep the raw socket open across PDN loss and reactivation.
+    ///
+    /// Requires modem firmware v2.0.1 or later.
+    pub keep_open: bool,
 }
 
 /// Authentication protocol.
@@ -135,6 +139,9 @@ impl<'a> Control<'a> {
         let n = self.control.at_command(op, &mut buf).await;
         // info!("RES2: {}", unsafe { core::str::from_utf8_unchecked(&buf[..n]) });
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
+
+        // CFUN=0 above closed the raw socket, so this applies when it is reopened.
+        self.control.set_keep_open(config.keep_open);
 
         if let Some(pin) = config.pin {
             let op = CommandBuilder::create_set(&mut cmd, true)
@@ -353,7 +360,7 @@ impl<'a> Control<'a> {
         reattach(&status);
 
         loop {
-            // The modem closes the socket on CFUN=0 and on PDN loss.
+            // The modem closes the socket on CFUN=0, and on PDN loss unless keep_open is set.
             self.control.wait_raw_socket_closed().await;
             self.control.set_link_state(LinkState::Down);
             trace!("raw socket closed");

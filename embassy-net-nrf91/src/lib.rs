@@ -216,6 +216,7 @@ async fn new_internal<'a>(
         next_req_serial: 0x12345678,
         net_fd: None,
         net_fd_waker: WakerRegistration::new(),
+        keep_open: false,
 
         rx_control_list: ptr::null_mut(),
         rx_data_list: ptr::null_mut(),
@@ -329,6 +330,7 @@ struct StateInner {
 
     net_fd: Option<u32>,
     net_fd_waker: WakerRegistration,
+    keep_open: bool,
 
     rx_control_list: *mut List,
     rx_data_list: *mut List,
@@ -939,10 +941,36 @@ impl<'a> Control<'a> {
         assert_eq!(status, 0);
         assert_eq!(msg.param_len, 16);
         let fd = u32::from_le_bytes(msg.param[12..16].try_into().unwrap());
-        self.state.borrow_mut().net_fd.replace(fd);
+        let keep_open = {
+            let mut state = self.state.borrow_mut();
+            state.net_fd.replace(fd);
+            state.keep_open
+        };
 
         trace!("got FD: {}", fd);
+        // Keep the raw socket open across PDN loss and reactivation (NRF_SO_KEEPOPEN).
+        if keep_open {
+            let mut msg: Message = unsafe { mem::zeroed() };
+            msg.channel = 2; // data
+            msg.id = 0x7003_0004; // setsockopt
+            msg.param_len = 16;
+            msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
+            msg.param[8..12].copy_from_slice(&8u32.to_le_bytes()); // SOL_SOCKET
+            msg.param[12..16].copy_from_slice(&0x3012u32.to_le_bytes()); // SO_KEEPOPEN
+
+            self.request(&mut msg, &1u32.to_le_bytes(), &mut []).await;
+
+            let status = u32::from_le_bytes(msg.param[8..12].try_into().unwrap());
+            if msg.id != 0x8003_0004 || status != 0 {
+                warn!("set keep_open on fd {} failed: id {:08x} status {}", fd, msg.id, status);
+            }
+        }
         fd
+    }
+
+    /// Apply `NRF_SO_KEEPOPEN` to raw sockets opened from now on.
+    fn set_keep_open(&self, keep_open: bool) {
+        self.state.borrow_mut().keep_open = keep_open;
     }
 
     /// Wait until the modem closes the raw socket.
