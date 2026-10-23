@@ -219,6 +219,22 @@ pub enum InterruptTrigger {
     AnyEdge,
 }
 
+impl InterruptTrigger {
+    /// Swaps the level and edge triggers when the input is inverted.
+    pub(crate) const fn for_input_inversion(self, inverted: bool) -> Self {
+        if !inverted {
+            return self;
+        }
+        match self {
+            Self::LevelLow => Self::LevelHigh,
+            Self::LevelHigh => Self::LevelLow,
+            Self::EdgeLow => Self::EdgeHigh,
+            Self::EdgeHigh => Self::EdgeLow,
+            Self::AnyEdge => Self::AnyEdge,
+        }
+    }
+}
+
 pub(crate) unsafe fn init() {
     interrupt::IO_IRQ_BANK0.disable();
     interrupt::IO_IRQ_BANK0.set_priority(interrupt::Priority::P3);
@@ -283,7 +299,15 @@ struct InputFuture<'d> {
 }
 
 impl<'d> InputFuture<'d> {
-    fn new(pin: Peri<'d, AnyPin>, level: InterruptTrigger) -> Self {
+    fn new(pin: Peri<'d, AnyPin>, trigger: InterruptTrigger) -> Self {
+        // The level and edge detectors of the IO block observe the pad level, i.e.
+        // the level before the `INOVER` inversion that `is_high`/`is_low` see, so a
+        // pin whose input is inverted waits on the opposite trigger.
+        let trigger = trigger.for_input_inversion(matches!(
+            pin.gpio().ctrl().read().inover(),
+            pac::io::vals::Inover::Invert
+        ));
+
         let pin_group = (pin.pin() % 8) as usize;
         // first, clear the INTR register bits. without this INTR will still
         // contain reports of previous edges, causing the IRQ to fire early
@@ -303,7 +327,7 @@ impl<'d> InputFuture<'d> {
         // and EDGE_HIGH.
         pin.int_proc()
             .inte((pin.pin() / 8) as usize)
-            .write_set(|w| match level {
+            .write_set(|w| match trigger {
                 InterruptTrigger::LevelHigh => {
                     w.set_level_high(pin_group, true);
                 }
@@ -755,6 +779,8 @@ impl<'d> Flex<'d> {
     }
 
     /// Configure the input logic inversion of this pin.
+    ///
+    /// `is_high`, `is_low` and every `wait_for_*` method follow the inverted level.
     #[inline]
     pub fn set_input_inversion(&mut self, invert: bool) {
         self.pin.gpio().ctrl().modify(|w| {
@@ -1504,5 +1530,30 @@ impl<'d> embedded_hal_async::digital::Wait for OutputOpenDrain<'d> {
     async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
         self.wait_for_any_edge().await;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_inversion_flips_the_trigger() {
+        use InterruptTrigger::*;
+
+        for (trigger, inverted, expected) in [
+            (LevelHigh, false, LevelHigh),
+            (LevelLow, false, LevelLow),
+            (EdgeHigh, false, EdgeHigh),
+            (EdgeLow, false, EdgeLow),
+            (AnyEdge, false, AnyEdge),
+            (LevelHigh, true, LevelLow),
+            (LevelLow, true, LevelHigh),
+            (EdgeHigh, true, EdgeLow),
+            (EdgeLow, true, EdgeHigh),
+            (AnyEdge, true, AnyEdge),
+        ] {
+            assert_eq!(trigger.for_input_inversion(inverted), expected);
+        }
     }
 }
