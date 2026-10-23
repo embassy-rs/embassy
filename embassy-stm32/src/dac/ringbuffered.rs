@@ -19,6 +19,7 @@ pub struct RingBufferedDacChannel<'d, W: Word> {
     ring_buf: ManuallyDrop<WritableRingBuffer<'d, W::Word>>,
     info: &'static Info,
     state: &'static State,
+    #[cfg(not(dac_v9))]
     idx: usize,
 }
 
@@ -29,10 +30,14 @@ impl<'d, W: Word> RingBufferedDacChannel<'d, W> {
         state: &'static State,
         idx: usize,
     ) -> Self {
+        #[cfg(dac_v9)]
+        let _ = idx;
+
         Self {
             ring_buf: ManuallyDrop::new(ring_buf),
             info,
             state,
+            #[cfg(not(dac_v9))]
             idx,
         }
     }
@@ -86,6 +91,7 @@ impl<'d, W: Word> RingBufferedDacChannel<'d, W> {
     }
 }
 
+#[cfg(not(dac_v9))]
 impl<W: Word> Drop for RingBufferedDacChannel<'_, W> {
     fn drop(&mut self) {
         // Disable the DAC channel and DMA requests before stopping the engine.
@@ -99,6 +105,24 @@ impl<W: Word> Drop for RingBufferedDacChannel<'_, W> {
         unsafe { ManuallyDrop::drop(&mut self.ring_buf) };
 
         // Safe to touch RCC now that DMA has fully stopped.
+        let count = self.state.adjust_channel_count(ChannelEvent::Disable);
+        if count == 0 {
+            self.info.rcc.disable();
+        }
+    }
+}
+
+#[cfg(dac_v9)]
+impl<W: Word> Drop for RingBufferedDacChannel<'_, W> {
+    fn drop(&mut self) {
+        self.info.regs.cr().modify(|w| {
+            w.set_en(false);
+            w.set_dmaen(false);
+        });
+        compiler_fence(Ordering::SeqCst);
+
+        unsafe { ManuallyDrop::drop(&mut self.ring_buf) };
+
         let count = self.state.adjust_channel_count(ChannelEvent::Disable);
         if count == 0 {
             self.info.rcc.disable();

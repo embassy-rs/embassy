@@ -1856,9 +1856,7 @@ fn main() {
         let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
         let mut seen_lcd_seg_pins = HashSet::new();
 
-        if (matches!(regs.kind, "hash" | "opamp") || (regs.kind == "dac" && regs.version == "v9"))
-            && chip_name.starts_with("stm32c5")
-        {
+        if matches!(regs.kind, "hash" | "opamp") && chip_name.starts_with("stm32c5") {
             continue;
         }
 
@@ -2270,9 +2268,7 @@ fn main() {
 
     let mut has_dfsdm_adc = false;
     for (p, regs) in &peripheral_list {
-        if (matches!(regs.kind, "hash" | "opamp") || (regs.kind == "dac" && regs.version == "v9"))
-            && chip_name.starts_with("stm32c5")
-        {
+        if matches!(regs.kind, "hash" | "opamp") && chip_name.starts_with("stm32c5") {
             continue;
         }
 
