@@ -97,7 +97,8 @@ SECTIONS
   PROVIDE(_stext = ADDR(.vector_table) + SIZEOF(.vector_table));
 
   /* ### .text */
-  .text _stext :
+  /* Some input sections need 8-byte alignment; the end of the vector table only has 4. */
+  .text ALIGN(_stext, 8) :
   {
     __stext = .;
     *(.Reset);

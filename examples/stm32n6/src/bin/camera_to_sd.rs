@@ -13,6 +13,7 @@
 mod imx335;
 
 use core::cell::RefCell;
+use core::ops::ControlFlow;
 
 use aligned::Aligned;
 use block_device_driver::BlockDevice as _;
@@ -485,6 +486,7 @@ fn scan_next_index<'a, 'b>(volume_mgr: &mut VolumeManager<EmbassyBlockDevice<'a,
                     }
                 }
             }
+            ControlFlow::Continue(())
         })?;
         Ok(())
     })();

@@ -1,25 +1,13 @@
-use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::{TcpListener, TcpSocket};
-use embassy_net::wire::{IpCidr, Ipv4Addr};
 use embassy_net::{StackStorage, StaticPool};
 use embassy_net_tuntap::TunTapDevice;
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write as _;
+use getrandom::SysRng;
 use log::*;
-use rand_core::{OsRng, TryRngCore};
+use rand_core::TryRng;
 use static_cell::StaticCell;
-
-#[derive(Parser)]
-#[clap(version = "1.0")]
-struct Opts {
-    /// TAP device name
-    #[clap(long, default_value = "tap0")]
-    tap: String,
-    /// use a static IP instead of DHCP
-    #[clap(long)]
-    static_ip: bool,
-}
 
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
@@ -28,14 +16,12 @@ async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
 
 #[embassy_executor::task]
 async fn main_task(spawner: Spawner) {
-    let opts: Opts = Opts::parse();
-
     // Init network device
-    let device = TunTapDevice::new(&opts.tap).unwrap();
+    let device = TunTapDevice::new("tap99").unwrap();
 
     // Generate random seed
     let mut seed = [0; 8];
-    OsRng.try_fill_bytes(&mut seed).unwrap();
+    SysRng.try_fill_bytes(&mut seed).unwrap();
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
@@ -47,18 +33,8 @@ async fn main_task(spawner: Spawner) {
     static DEVICE: StaticCell<TunTapDevice> = StaticCell::new();
     let iface = stack.add_iface_borrowed(DEVICE.init(device)).unwrap();
 
-    // Choose between dhcp or static ip
-    if opts.static_ip {
-        iface
-            .add_ip_addr(IpCidr::new(Ipv4Addr::new(192, 168, 69, 2).into(), 24))
-            .unwrap();
-        stack
-            .routes()
-            .add_default_ipv4_route(Ipv4Addr::new(192, 168, 69, 1), iface.handle())
-            .unwrap();
-    } else {
-        iface.set_dhcpv4(Some(Default::default())).unwrap();
-    }
+    // Get an IP address over DHCP
+    iface.set_dhcpv4(Some(Default::default())).unwrap();
 
     // Launch network task
     spawner.spawn(net_task(runner).unwrap());

@@ -148,7 +148,7 @@ unsafe fn make_gic() -> gicv3::GicV3<'static> {
     // SAFETY: The GICD and GICR base addresses point to valid GICv3 MMIO regions as
     // obtained from the hardware CBAR register. This function is only called once
     // (via Board::new()'s atomic guard), ensuring exclusive ownership of the GIC.
-    let mut gic = unsafe { gicv3::GicV3::new(gicd, gicr_base, 2, false) };
+    let mut gic = unsafe { gicv3::GicV3::new(gicd, gicr_base, 2) }.unwrap();
     defmt::info!("Calling gic.setup(0)");
     gic.setup(0);
     defmt::info!("Calling gic.init_cpu(1)");
@@ -343,7 +343,7 @@ pub unsafe extern "C" fn _start() {
         mcr     p15, 0, r0, c12, c0, 0
         // set up our stacks - also switches to SYS mode
         movs    r0, #1
-        bl      _stack_setup_preallocated
+        bl      _asm_stack_setup_preallocated
         // Zero all registers before calling kmain2
         mov     r0, 0
         mov     r1, 0

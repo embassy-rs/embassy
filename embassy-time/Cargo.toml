@@ -65,7 +65,6 @@ cmsdk = [
   "dep:derive-mmio",
   "dep:bitbybit",
   "dep:arbitrary-int",
-  "dep:once_cell",
   "dep:embassy-time-queue-utils"
 ]
 cortex-m = ["dep:cortex-m"]
@@ -470,12 +469,9 @@ wasm-bindgen = { version = "0.2.81", optional = true }
 web-time = { version = "1.1.0", default-features = false, optional = true }
 
 # ARM CMSDK dependencies
-derive-mmio = { version = "0.6", optional = true }
+derive-mmio = { version = "0.8", optional = true }
 bitbybit = { version = "2", optional = true }
 arbitrary-int = { version = "2", optional = true }
-once_cell = { version = "1", default-features = false, features = [
-  "critical-section",
-], optional = true }
 cortex-m = { version = "0.7", optional = true }
 
 [dev-dependencies]

@@ -12,7 +12,7 @@ embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["de
 embassy-nrf = { version = "0.11.0", path = "../../embassy-nrf", features = ["defmt", "nrf54l15-app-s", "time-driver-grtc", "gpiote", "unstable-pac", "time"] }
 embedded-io-async = { version = "0.7.0", features = ["defmt"] }
 
-rand = { version = "0.9.0", default-features = false }
+rand = { version = "0.10", default-features = false }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"

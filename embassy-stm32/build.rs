@@ -508,8 +508,16 @@ fn main() {
     // ========
     // Generate FLASH regions
     cfgs.declare("flash");
+    cfgs.declare("flash_dual_bank");
     let mut has_flash = false;
-    if !chip_name.starts_with("stm32n6") {
+    // Only chips with a flash controller supported by the driver get the `flash` module.
+    let flash_supported = METADATA.peripherals.iter().any(|p| {
+        p.name == "FLASH"
+            && p.registers
+                .as_ref()
+                .is_some_and(|r| r.kind == "flash" && r.version.starts_with('v'))
+    });
+    if flash_supported {
         cfgs.enable("flash");
         has_flash = true;
 
@@ -518,16 +526,6 @@ fn main() {
             .iter()
             .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
             .collect();
-
-        let check_fb_mode = dual_bank_selected
-            && METADATA.peripherals.iter().any(|p| {
-                p.name == "SYSCFG"
-                    && p.registers.as_ref().is_some_and(|r| {
-                        r.ir.fieldsets
-                            .iter()
-                            .any(|f| f.name == "Memrmp" && f.fields.iter().any(|f| f.name == "fb_mode"))
-                    })
-            });
 
         let mut bank_1_base = None;
         let mut bank_2_base = None;
@@ -541,39 +539,25 @@ fn main() {
                 otp_base = Some(region.address);
             }
         }
-        let bank_1 = bank_1_base
-            .map(|a| quote!(#a))
-            .unwrap_or_else(|| quote!(panic!("Bank 1 not present")));
-        let bank_2 = bank_2_base
-            .map(|a| quote!(#a))
-            .unwrap_or_else(|| quote!(panic!("Bank 2 not present")));
-        let otp = otp_base
-            .map(|a| quote!(#a))
-            .unwrap_or_else(|| quote!(panic!("OTP not present")));
-
-        let (swap_check, bank1, bank2) = if check_fb_mode {
-            (
-                quote! { let is_swapped = crate::pac::SYSCFG.memrmp().read().fb_mode(); },
-                quote! { if is_swapped { #bank_2 } else { #bank_1 } },
-                quote! { if is_swapped { #bank_1 } else { #bank_2 } },
-            )
-        } else {
-            (quote! {}, quote! { #bank_1 }, quote! { #bank_2 })
+        let bank_1 = bank_1_base.unwrap();
+        let otp = match otp_base {
+            Some(a) => quote!(Some(#a)),
+            None => quote!(None),
         };
 
-        flash_regions.extend(quote! {
-            impl crate::flash::FlashBank {
-                /// Absolute base address.
-                pub fn base(&self) -> u32 {
-                    #swap_check
-                    match self {
-                        crate::flash::FlashBank::Bank1 => #bank1,
-                        crate::flash::FlashBank::Bank2 => #bank2,
-                        crate::flash::FlashBank::Otp => #otp,
-                    }
-                }
-            }
+        g.extend(quote! {
+            pub(crate) const FLASH_BANK1_BASE: u32 = #bank_1;
+            pub(crate) const FLASH_OTP_BASE: Option<u32> = #otp;
         });
+
+        // The selected memory layout has two banks: dual-bank chips, and chips with a
+        // selectable bank mode built with the `dual-bank` feature.
+        if let Some(bank_2) = bank_2_base {
+            cfgs.enable("flash_dual_bank");
+            g.extend(quote! {
+                pub(crate) const FLASH_BANK2_BASE: u32 = #bank_2;
+            });
+        }
 
         for region in flash_memory_regions.iter() {
             let region_name = format_ident!("{}", get_flash_region_name(region.name));
@@ -609,12 +593,11 @@ fn main() {
             let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
             flash_regions.extend(quote! {
                 #[cfg(flash)]
-                pub struct #region_type<'d, MODE = crate::flash::Async>(
+                pub struct #region_type<'d, M: crate::mode::Mode>(
                     pub &'static crate::flash::FlashRegion,
                     pub(crate) embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>,
-                    pub(crate) core::marker::PhantomData<MODE>,
-                    #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
-                    pub(crate) Option<crate::flash::EraseParallelism>,
+                    pub(crate) core::marker::PhantomData<M>,
+                    pub(crate) crate::flash::Config,
                 );
             });
         }
@@ -626,7 +609,7 @@ fn main() {
                 let field_name = format_ident!("{}", region_name.to_lowercase());
                 let field_type = format_ident!("{}", get_flash_region_type_name(f.name));
                 let field = quote! {
-                    pub #field_name: #field_type<'d, MODE>
+                    pub #field_name: #field_type<'d, M>
                 };
                 let region_name = format_ident!("{}", region_name);
                 let init = quote! {
@@ -634,8 +617,7 @@ fn main() {
                         &#region_name,
                         unsafe { p.clone_unchecked()},
                         core::marker::PhantomData,
-                        #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
-                        erase_parallelism,
+                        config,
                     )
                 };
 
@@ -646,17 +628,16 @@ fn main() {
         let regions_len = flash_memory_regions.len();
         flash_regions.extend(quote! {
             #[cfg(flash)]
-            pub struct FlashLayout<'d, MODE = crate::flash::Async> {
+            pub struct FlashLayout<'d, M: crate::mode::Mode> {
                 #(#fields),*,
-                _mode: core::marker::PhantomData<MODE>,
+                _mode: core::marker::PhantomData<M>,
             }
 
             #[cfg(flash)]
-            impl<'d, MODE> FlashLayout<'d, MODE> {
+            impl<'d, M: crate::mode::Mode> FlashLayout<'d, M> {
                 pub(crate) fn new(
                     p: embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>,
-                    #[cfg(any(flash_f2, flash_f4, flash_f7, flash_h7))]
-                    erase_parallelism: Option<crate::flash::EraseParallelism>,
+                    config: crate::flash::Config,
                 ) -> Self {
                     Self {
                         #(#inits),*,

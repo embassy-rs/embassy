@@ -10,7 +10,6 @@ use core::cell::RefCell;
 
 use defmt::*;
 use defmt_rtt as _;
-use display_interface_spi::SPIInterface;
 use embassy_embedded_hal::shared_bus::blocking::spi::SpiDeviceWithConfig;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
@@ -29,6 +28,7 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyleBuilder, Rectangle};
 use embedded_graphics::text::Text;
 use mipidsi::Builder;
+use mipidsi::interface::SpiInterface;
 use mipidsi::models::ST7789;
 use mipidsi::options::{Orientation, Rotation};
 use panic_probe as _;
@@ -79,7 +79,8 @@ async fn main(_spawner: Spawner) {
     let _bl = Output::new(bl, Level::High);
 
     // display interface abstraction from SPI and DC
-    let di = SPIInterface::new(display_spi, dcx);
+    let mut buffer = [0_u8; 512];
+    let di = SpiInterface::new(display_spi, dcx, &mut buffer);
 
     // Define the display from the display interface and initialize it
     let mut display = Builder::new(ST7789, di)

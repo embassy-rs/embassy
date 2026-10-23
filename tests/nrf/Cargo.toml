@@ -17,7 +17,7 @@ embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defm
 embassy-net-esp-hosted = { version = "0.3.0", path = "../../embassy-net-esp-hosted", features = ["defmt", "esp-hosted-fg"] }
 embassy-net-enc28j60 = { version = "0.3.0", path = "../../embassy-net-enc28j60", features = ["defmt"] }
 # Shrink the packet pool: the tests link everything into RAM, and the default 16 buffers don't fit.
-embedded-hal-bus = { version = "0.1", features = ["async"] }
+embedded-hal-bus = { version = "0.3", features = ["async"] }
 static_cell = "2"
 perf-client = { path = "../perf-client" }
 

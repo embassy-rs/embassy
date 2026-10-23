@@ -4,10 +4,13 @@
 
 #![no_std]
 
+use imxrt_boot_gen::Imxrt;
 use imxrt_boot_gen::flexspi::opcodes::sdr::*;
-use imxrt_boot_gen::flexspi::{self, FlashPadType, ReadSampleClockSource, SerialClockFrequency, SerialFlashRegion, *};
+use imxrt_boot_gen::flexspi::{self, FlashPadType, ReadSampleClockSource, SerialClockOption, SerialFlashRegion, *};
 use imxrt_boot_gen::serial_flash::*;
 pub use nor::ConfigurationBlock;
+
+const CHIP: Imxrt = Imxrt::Imxrt1060;
 
 const SEQ_READ: Sequence = SequenceBuilder::new()
     .instr(Instr::new(CMD, Pads::One, 0xEB))
@@ -46,14 +49,14 @@ const COMMON_CONFIGURATION_BLOCK: flexspi::ConfigurationBlock = flexspi::Configu
     .cs_setup_time(3)
     .controller_misc_options(0x10)
     .serial_flash_pad_type(FlashPadType::Quad)
-    .serial_clk_freq(SerialClockFrequency::MHz133)
+    .serial_clk_freq(CHIP.serial_clock_frequency(SerialClockOption::MHz133))
     .flash_size(SerialFlashRegion::A1, 8 * 1024 * 1024);
 
 pub const SERIAL_NOR_CONFIGURATION_BLOCK: nor::ConfigurationBlock =
-    nor::ConfigurationBlock::new(COMMON_CONFIGURATION_BLOCK)
+    nor::ConfigurationBlock::new(CHIP, COMMON_CONFIGURATION_BLOCK)
         .page_size(256)
         .sector_size(4096)
-        .ip_cmd_serial_clk_freq(nor::SerialClockFrequency::MHz30);
+        .ip_cmd_serial_clk_freq(Some(CHIP.ip_serial_clock_frequency(SerialClockOption::MHz30)));
 
 #[unsafe(no_mangle)]
 #[cfg_attr(all(target_arch = "arm", target_os = "none"), unsafe(link_section = ".fcb"))]

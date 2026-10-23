@@ -9,8 +9,8 @@ use hal::config::Config;
 use hal::peripherals::TRNG0;
 use hal::trng::{InterruptHandler, Trng};
 use panic_probe as _;
-use rand_core::RngCore;
-use rand_core::block::BlockRngCore;
+use rand_core::Rng;
+use rand_core::block::Generator;
 
 bind_interrupts!(
     struct Irqs {
@@ -49,7 +49,7 @@ async fn main(_spawner: Spawner) {
         defmt::info!("{:02x}", buf);
     }
 
-    defmt::info!("RngCore");
+    defmt::info!("Rng");
 
     for _ in 0..10 {
         defmt::info!("u32: {}", trng.next_u32());
@@ -88,7 +88,7 @@ async fn main(_spawner: Spawner) {
         defmt::info!("{:02x}", buf);
     }
 
-    defmt::info!("RngCore");
+    defmt::info!("Rng");
 
     for _ in 0..10 {
         defmt::info!("u32: {}", trng.next_u32());

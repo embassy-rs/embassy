@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_nrf::rng::Rng;
 use embassy_nrf::{bind_interrupts, peripherals, rng};
 use panic_probe as _;
-use rand::Rng as _;
+use rand::RngExt as _;
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;

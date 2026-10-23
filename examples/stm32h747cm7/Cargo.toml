@@ -20,10 +20,6 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 critical-section = "1.1"
 stm32-fmc = "0.4.0"
 static_cell = "2"
-embedded-alloc = "0.7.0"
-mousefood = { version = "0.5.0", default-features = false, features = ["fonts"] }
-ratatui = { version = "0.30.0", default-features = false }
-tui-big-text = "0.8.2"
 
 # cargo test
 [profile.test]

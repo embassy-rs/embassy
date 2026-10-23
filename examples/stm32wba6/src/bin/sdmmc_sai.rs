@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use core::ops::ControlFlow;
+
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -368,6 +370,7 @@ async fn main(_spawner: Spawner) {
                 let _ = names.push(de.name.clone());
             }
         }
+        ControlFlow::Continue(())
     });
 
     if names.is_empty() {

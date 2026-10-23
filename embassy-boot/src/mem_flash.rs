@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use core::ops::{Bound, Range, RangeBounds};
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
@@ -9,6 +10,8 @@ pub struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE
     pub mem: [u8; SIZE],
     pub pending_read_successes: Option<usize>,
     pub pending_write_successes: Option<usize>,
+    /// Tear the next erase: words (of WRITE_SIZE) whose bit is set keep their contents, and the erase fails.
+    pub pending_erase_tear: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -22,19 +25,27 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const 
             mem: [fill; SIZE],
             pending_read_successes: None,
             pending_write_successes: None,
+            pending_erase_tear: None,
         }
     }
 
     #[cfg(test)]
     pub fn random() -> Self {
+        // xorshift32, seeded differently on every call.
+        static SEED: AtomicU32 = AtomicU32::new(0x2545_f491);
+        let mut x = SEED.fetch_add(0x9e37_79b9, Ordering::Relaxed) | 1;
         let mut mem = [0; SIZE];
         for byte in mem.iter_mut() {
-            *byte = rand::random::<u8>();
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            *byte = x as u8;
         }
         Self {
             mem,
             pending_read_successes: None,
             pending_write_successes: None,
+            pending_erase_tear: None,
         }
     }
 
@@ -74,7 +85,8 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const 
             .take(bytes.len())
             .zip(bytes)
         {
-            assert_eq!(0xFF, *mem_byte, "Offset {} is not erased", offset);
+            // Programming all zeros over programmed bytes is allowed, like on most NOR flashes.
+            assert!(*mem_byte == 0xFF || *new_byte == 0, "Offset {} is not erased", offset);
             *mem_byte = *new_byte;
         }
 
@@ -86,8 +98,15 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize, const 
         let to = to as usize;
         assert!(from % ERASE_SIZE == 0);
         assert!(to % ERASE_SIZE == 0, "To: {}, erase size: {}", to, ERASE_SIZE);
+        let keep = self.pending_erase_tear.take();
         for i in from..to {
+            if keep.is_some_and(|keep| keep & (1u64 << ((i - from) / WRITE_SIZE)) != 0) {
+                continue;
+            }
             self.mem[i] = 0xFF;
+        }
+        if keep.is_some() {
+            return Err(MemFlashError);
         }
         Ok(())
     }

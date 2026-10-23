@@ -287,38 +287,6 @@ impl<'d, M: Mode> Drop for Rng<'d, M> {
     }
 }
 
-impl<'d, M: Mode> rand_core_06::RngCore for Rng<'d, M> {
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.blocking_fill_bytes(dest);
-    }
-    fn next_u32(&mut self) -> u32 {
-        self.blocking_next_u32()
-    }
-    fn next_u64(&mut self) -> u64 {
-        self.blocking_next_u64()
-    }
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
-        self.blocking_fill_bytes(dest);
-        Ok(())
-    }
-}
-
-impl<'d, M: Mode> rand_core_06::CryptoRng for Rng<'d, M> {}
-
-impl<'d, M: Mode> rand_core_09::RngCore for Rng<'d, M> {
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.blocking_fill_bytes(dest);
-    }
-    fn next_u32(&mut self) -> u32 {
-        self.blocking_next_u32()
-    }
-    fn next_u64(&mut self) -> u64 {
-        self.blocking_next_u64()
-    }
-}
-
-impl<'d, M: Mode> rand_core_09::CryptoRng for Rng<'d, M> {}
-
 impl<'d, M: Mode> rand_core_10::TryRng for Rng<'d, M> {
     type Error = core::convert::Infallible;
 

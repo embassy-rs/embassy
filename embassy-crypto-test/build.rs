@@ -21,6 +21,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
+use crypto_bigint::{BoxedUint, ConcatenatingMul, Resize};
 use serde_json::Value;
 
 // =============================================================================
@@ -762,10 +763,127 @@ fn ccm_long_aad(out: &mut Out, key_len: usize, msg: &[u8]) -> Vec<String> {
         .collect()
 }
 
+/// An unsigned integer of any size, for the reference computations below.
+///
+/// crypto-bigint's `BoxedUint` has a fixed precision per value and wants operands
+/// of matching precision, so every operation resizes its inputs as needed and
+/// trims its result to the limbs it uses.
+#[derive(Clone, Debug)]
+struct BigUint(BoxedUint);
+
+impl BigUint {
+    fn new(x: BoxedUint) -> Self {
+        let bits = x.bits_vartime().max(1);
+        Self(x.resize(bits))
+    }
+
+    fn from_bytes_be(bytes: &[u8]) -> Self {
+        Self::new(BoxedUint::from_be_slice_vartime(bytes))
+    }
+
+    fn to_bytes_be(&self) -> Vec<u8> {
+        self.0.to_be_bytes_trimmed_vartime().into()
+    }
+
+    fn bits(&self) -> usize {
+        self.0.bits_vartime() as usize
+    }
+
+    fn bit(&self, i: usize) -> bool {
+        self.0.bit_vartime(i as u32)
+    }
+
+    /// Both operands, at the same precision.
+    fn pair(&self, other: &Self) -> (BoxedUint, BoxedUint) {
+        let bits = self.0.bits_precision().max(other.0.bits_precision());
+        ((&self.0).resize(bits), (&other.0).resize(bits))
+    }
+
+    /// `self^e mod m`, for an odd `m`.
+    fn modpow(&self, e: &Self, m: &Self) -> Self {
+        let base = (self % m).0.resize(m.0.bits_precision());
+        Self::new(base.pow_mod(&e.0, &m.0.to_odd().unwrap()))
+    }
+
+    /// `self⁻¹ mod m`, for an odd `m`.
+    fn mod_inverse(&self, m: &Self) -> Self {
+        let x = (self % m).0.resize(m.0.bits_precision());
+        Self::new(x.invert_odd_mod_vartime(&m.0.to_odd().unwrap()).unwrap())
+    }
+}
+
+impl From<u8> for BigUint {
+    fn from(x: u8) -> Self {
+        Self::new(BoxedUint::from(x))
+    }
+}
+
+impl Default for BigUint {
+    fn default() -> Self {
+        Self::from(0)
+    }
+}
+
+impl PartialEq for BigUint {
+    fn eq(&self, other: &Self) -> bool {
+        let (a, b) = self.pair(other);
+        a == b
+    }
+}
+
+impl std::ops::Shr<usize> for BigUint {
+    type Output = Self;
+    fn shr(self, n: usize) -> Self {
+        Self::new(self.0.wrapping_shr_vartime(n as u32))
+    }
+}
+
+/// `impl $trait` for every combination of owned and borrowed operands.
+macro_rules! big_uint_op {
+    ($trait:ident, $method:ident, |$a:ident, $b:ident| $body:expr) => {
+        impl std::ops::$trait<&BigUint> for &BigUint {
+            type Output = BigUint;
+            fn $method(self, rhs: &BigUint) -> BigUint {
+                let ($a, $b) = (self, rhs);
+                $body
+            }
+        }
+        impl std::ops::$trait<BigUint> for &BigUint {
+            type Output = BigUint;
+            fn $method(self, rhs: BigUint) -> BigUint {
+                self.$method(&rhs)
+            }
+        }
+        impl std::ops::$trait<&BigUint> for BigUint {
+            type Output = BigUint;
+            fn $method(self, rhs: &BigUint) -> BigUint {
+                (&self).$method(rhs)
+            }
+        }
+        impl std::ops::$trait<BigUint> for BigUint {
+            type Output = BigUint;
+            fn $method(self, rhs: BigUint) -> BigUint {
+                (&self).$method(&rhs)
+            }
+        }
+    };
+}
+
+big_uint_op!(Add, add, |a, b| BigUint::new(a.0.concatenating_add(&b.0)));
+big_uint_op!(Mul, mul, |a, b| BigUint::new(a.0.concatenating_mul(&b.0)));
+big_uint_op!(Rem, rem, |a, b| BigUint::new(
+    a.0.rem_vartime(b.0.as_nz_vartime().expect("division by zero"))
+));
+big_uint_op!(Sub, sub, |a, b| {
+    let (a, b) = a.pair(b);
+    let (r, borrow) = a.underflowing_sub(&b);
+    assert!(!borrow.to_bool(), "subtraction underflow");
+    BigUint::new(r)
+});
+
 /// Raw RSA under the private keys of the Wycheproof PKCS#1 files, one suite per
 /// key size.
 fn rsa(out: &mut Out, w: &Wycheproof) {
-    use num_bigint_dig::BigUint;
     for bits in [2048usize, 3072, 4096] {
         let file = w.load(&format!("rsa_pkcs1_{bits}"));
         let key = &file["testGroups"][0]["privateKey"];
@@ -813,20 +931,19 @@ fn rsa(out: &mut Out, w: &Wycheproof) {
 /// (slow, non-constant-time) arithmetic: it computes reference values only.
 struct Weierstrass {
     name: &'static str,
-    p: num_bigint_dig::BigUint,
-    a: num_bigint_dig::BigUint,
-    b: num_bigint_dig::BigUint,
-    g: (num_bigint_dig::BigUint, num_bigint_dig::BigUint),
-    n: num_bigint_dig::BigUint,
+    p: BigUint,
+    a: BigUint,
+    b: BigUint,
+    g: (BigUint, BigUint),
+    n: BigUint,
     /// Size of a coordinate or scalar, in bytes.
     size: usize,
 }
 
-type Affine = Option<(num_bigint_dig::BigUint, num_bigint_dig::BigUint)>;
+type Affine = Option<(BigUint, BigUint)>;
 
 impl Weierstrass {
     fn new(name: &'static str, p: &str, a: &str, b: &str, gx: &str, gy: &str, n: &str) -> Self {
-        use num_bigint_dig::BigUint;
         let int = |s: &str| BigUint::from_bytes_be(&hex(s));
         let c = Self {
             name,
@@ -846,9 +963,8 @@ impl Weierstrass {
         c
     }
 
-    fn inv(x: &num_bigint_dig::BigUint, m: &num_bigint_dig::BigUint) -> num_bigint_dig::BigUint {
-        use num_bigint_dig::ModInverse;
-        x.clone().mod_inverse(m).unwrap().to_biguint().unwrap()
+    fn inv(x: &BigUint, m: &BigUint) -> BigUint {
+        x.mod_inverse(m)
     }
 
     fn add(&self, p: &Affine, q: &Affine) -> Affine {
@@ -857,11 +973,11 @@ impl Weierstrass {
         };
         let m = &self.p;
         let lambda = if x1 == x2 {
-            if (y1 + y2) % m == num_bigint_dig::BigUint::default() {
+            if (y1 + y2) % m == BigUint::default() {
                 return None;
             }
-            let num = (num_bigint_dig::BigUint::from(3u8) * x1 * x1 + &self.a) % m;
-            let den = Self::inv(&((num_bigint_dig::BigUint::from(2u8) * y1) % m), m);
+            let num = (BigUint::from(3u8) * x1 * x1 + &self.a) % m;
+            let den = Self::inv(&((BigUint::from(2u8) * y1) % m), m);
             (num * den) % m
         } else {
             let num = (y2 + m - y1) % m;
@@ -873,12 +989,11 @@ impl Weierstrass {
         Some((x3, y3))
     }
 
-    fn mul(&self, k: &num_bigint_dig::BigUint, p: &Affine) -> Affine {
+    fn mul(&self, k: &BigUint, p: &Affine) -> Affine {
         let mut r: Affine = None;
         let mut q = p.clone();
-        let bits = k.to_radix_le(2);
-        for &bit in &bits {
-            if bit == 1 {
+        for i in 0..k.bits() {
+            if k.bit(i) {
                 r = self.add(&r, &q);
             }
             q = self.add(&q, &q);
@@ -886,7 +1001,7 @@ impl Weierstrass {
         r
     }
 
-    fn scalar_bytes(&self, s: &num_bigint_dig::BigUint) -> Vec<u8> {
+    fn scalar_bytes(&self, s: &BigUint) -> Vec<u8> {
         let b = s.to_bytes_be();
         let mut v = vec![0u8; self.size - b.len()];
         v.extend_from_slice(&b);
@@ -903,14 +1018,13 @@ impl Weierstrass {
     }
 
     /// A scalar in `1..n` from `seed`.
-    fn scalar(&self, seed: u8) -> num_bigint_dig::BigUint {
-        use num_bigint_dig::BigUint;
+    fn scalar(&self, seed: u8) -> BigUint {
         BigUint::from_bytes_be(&pattern(seed, self.size)) % (&self.n - BigUint::from(1u8)) + BigUint::from(1u8)
     }
 
     /// The leftmost `bits(n)` bits of `digest`, as an integer (FIPS 186-4).
-    fn truncate(&self, digest: &[u8]) -> num_bigint_dig::BigUint {
-        let z = num_bigint_dig::BigUint::from_bytes_be(digest);
+    fn truncate(&self, digest: &[u8]) -> BigUint {
+        let z = BigUint::from_bytes_be(digest);
         let extra = (digest.len() * 8).saturating_sub(self.n.bits());
         z >> extra
     }
@@ -920,7 +1034,6 @@ impl Weierstrass {
 /// shared point, and a signature with a fixed nonce over digests of
 /// various lengths.
 fn ec_kat(out: &mut Out, msg: &[u8]) {
-    use num_bigint_dig::BigUint;
     use sha2::Digest;
 
     let curves = [

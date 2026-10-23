@@ -194,7 +194,21 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
                     unsafe { ::core::mem::transmute(t) }
                 }
 
+                // `executor` lives on this stack frame but is handed out as `&'static`. If a
+                // panic unwound out of `run`, the frame would be popped while those references
+                // are still reachable, e.g. from the panic payload. Unwinding out of a `Drop`
+                // during cleanup aborts, so this guard turns any such unwind into an abort. It is
+                // declared after `executor` so it is dropped first. The panic message has already
+                // been printed by the time it runs. Without unwinding it is never dropped.
+                struct __AbortOnUnwind;
+                impl ::core::ops::Drop for __AbortOnUnwind {
+                    fn drop(&mut self) {
+                        ::core::panic!("embassy_executor::main must not unwind, aborting");
+                    }
+                }
+
                 let mut executor = #executor::new();
+                let __abort_on_unwind = __AbortOnUnwind;
                 let executor = unsafe { __make_static(&mut executor) };
                 executor.run(|spawner| {
                     let main_task = __embassy_main(spawner).unwrap();

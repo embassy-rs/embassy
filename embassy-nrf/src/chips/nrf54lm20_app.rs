@@ -606,8 +606,8 @@ impl_pin!(P3_10, 3, 10);
 impl_pin!(P3_11, 3, 11);
 impl_pin!(P3_12, 3, 12);
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "gpiote")] {
+cfg_select! {
+    feature = "gpiote" => {
         impl_gpiote_pin!(P0_00, GPIOTE30);
         impl_gpiote_pin!(P0_01, GPIOTE30);
         impl_gpiote_pin!(P0_02, GPIOTE30);
@@ -668,6 +668,7 @@ cfg_if::cfg_if! {
         impl_gpiote_pin!(P3_11, GPIOTE20);
         impl_gpiote_pin!(P3_12, GPIOTE20);
     }
+    _ => {}
 }
 
 #[cfg(feature = "_ns")]

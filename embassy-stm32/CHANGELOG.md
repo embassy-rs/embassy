@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 RCC:
 - fix: stm32/rcc g0: enable the flash prefetch after setting the latency; with 2 wait states at 64 MHz and prefetch off code ran 8-16% slower.
+- fix: stm32/rcc g0: keep the flash prefetch off on G0B0/G0B1/G0C1 while the flash runs dual-bank (ES0547 2.2.8, ES0548/ES0549 2.2.10, prefetch fails on branches across the banks); `rcc::Config::flash_prefetch = FlashPrefetch::IfCodeInOneBank` turns it on for an application whose code stays in one bank.
+- feat: stm32/rcc u5: backup SRAM
 
 Time driver:
 - fix: stm32/time-driver-lptim: arm alarms that fall in the current counter cycle; they fired at the overflow, up to a quarter cycle late
@@ -24,10 +26,35 @@ Ethernet:
 - change: constructors, `Phy::phy_reset` / `phy_init`, and `StationManagement::smi_read` / `smi_write` return `Result` with `eth::Error` when MAC reset, MDIO, or PHY initialization cannot complete. `GenericPhy::new_auto` returns `PhyNotFound` when no address completes a PHY reset; link polls report down on MDIO error.
 - fix: bound v2 DMA shutdown waits and panic if DMA still owns descriptors, rather than releasing live buffers or waiting forever.
 - fix: stm32/eth: with the `time` feature, the bounded MAC, MDIO, PHY and DMA waits use the time driver instead of a cycle-counted delay.
+- fix: stm32/eth v2: advertise checksum offload on STM32C5 (eth_v2b).
+- fix: stm32/eth v1: drop received frames whose descriptor has the error summary set or holds only part of a frame. An operator-precedence mistake made the check always pass.
 
 Flash:
-- fix: stm32/flash: preserve F2/F4/F7/H7 PSIZE during programming cleanup so subsequent erases retain x32 parallelism.
-- add: `flash::Config` and `Flash::new_with_config` / `new_blocking_with_config` for optional erase parallelism on STM32F2/F4/F7 and `flash_h7`. Existing constructors keep their defaults; regions preserve the selection.
+- change: `Flash::new` and `Flash::new_blocking` take a `flash::Config`. On STM32F2/F4/F7/H7, `Config::erase_parallelism` selects the erase parallelism (default x32).
+- change: Use the `embassy_stm32::mode::{Blocking, Async}` markers, removed `flash::Blocking` and `flash::Async`.
+- add: async support on all families.
+- add: support for STM32H7R/S.
+- add: `flash::banks_swapped()`.
+- change: `flash::perform_bank_swap()` (H5, C5) is only available when the flash is in dual-bank mode.
+- change: `flash::Error` variants are `OutOfBounds`, `Unaligned`, `Protected`, `NotErased` and `Hardware` (plus `EdataDisabled` on C5). `Error` is `#[non_exhaustive]` and implements `Display` and `core::error::Error`.
+- change: `WRITE_SIZE` is the native program unit: 2 on F0/F1/F3, 4 on F7, 16 on H7A/B.
+- change: `FlashSector::index_in_bank` and `FlashRegion::sectors()` are `u32`.
+- change: `FlashBank` is the physical bank. With the banks swapped (`SWAP_BANK`/`FB_MODE`), `FlashBank::base()` and `FlashRegion::base()` return the address where the bank is currently mapped.
+- change: the EEPROM (L0/L1) and EDATA (C5) methods are available on `Flash<'_, Async>` too.
+- change: chips whose flash bank mode is selectable by option byte (G0B0, U5, U3, WBA6, C5 half-flash parts, L47x/L49x with 256/512 KB, L552xC) require the `single-bank` or `dual-bank` feature.
+- fix: H7, H7A/B and H5 clear the error flags after an error; before, every later operation failed until reset.
+- fix: on F76x/F77x in dual-bank mode, erasing a bank 2 sector erased the bank 1 sector with the same number.
+- fix: on U3B5/U3C5, erasing a page from 128 up erased the wrong page.
+- fix: async operations on L4, G0 and G4 returned `Ok` when they failed.
+- fix: the STM32F42x/F43x PA12 read corruption check (errata 2.2.11) panicked on reads from bank 1 too.
+- fix: L1 locks the flash again after each operation, and page erase writes 0 to the first word of the page.
+- fix: L0 returns `Error::NotErased` when programming a word that is not erased, which was silently dropped.
+- fix: C0, G0, U0, WB, WL and WBA wait for all busy flags (`CFGBSY`, `PESD`, `WDW`) before writing `FLASH_CR`.
+- fix: the STM32WL CM0+ core uses the `C2CR`/`C2SR` registers.
+- fix: the L4+ dual-bank check reads `DBANK` or `DB1M` depending on the flash size.
+- fix: G0 with swapped banks erases the requested bank.
+- fix: the caches are disabled during program and erase operations and flushed afterwards: the `FLASH_ACR` caches (F2/F4, L4, G0/G4, C0, U0, WB, WL), the F7 ART, the ICACHE (L5, U5, U3, WBA, H5, C5) and the Cortex-M7 caches (F7, H7).
+- fix: async operations prevent the low-power executor from entering Stop mode.
 
 Low power:
 - fix: stm32/low-power: fail to compile on chip families with no low-power implementation, instead of building a `sleep()` that set `SLEEPDEEP` and entered whatever `PWR` happened to default to, without clearing the wake-up flags or restoring the system clock on wake-up. Implemented families are F4, G4, L0, L4, L5, U0, U3, U5, H5, WB, WBA and WL.
@@ -86,6 +113,7 @@ USB:
 - fix: OTG_HS on STM32N6 no longer hangs the bus while bringing up the USB HS PHY: USBPHYC is now programmed with the OTG core clocked and the USBPHYC block out of reset, as in ST's own example.
 - feat: support double-buffered bulk endpoints on USB v1 (STM32F1, F3 and L1).
 - feat: support double-buffered bulk endpoints on USB v4 (STM32G0, C0, H5, U0, U3, U5 with the 32-bit packet memory); tested on an STM32G0B1.
+- feat: support double-buffered bulk endpoints on USB v3 (STM32F0, G4, L0, L4, L5 and WB with the 16-bit packet memory); tested on an STM32L552ZE.
 - fix: `ClearFeature(ENDPOINT_HALT)` on an endpoint that was not halted looped forever and hung the device; on a halted endpoint it left the halt set, and setting a halt while a transfer completed could disable the endpoint. Halt requests now apply only to bulk and interrupt endpoints.
 - fix: reset the data toggle to DATA0 when a halt is cleared and when `SET_CONFIGURATION` or `SET_INTERFACE` enables an endpoint (USB 2.0 §9.4.5, §9.1.1.5).
 - fix: the USB errata delay before reading a received packet now waits at least 800 ns, counted in CPU cycles, covers EP0 SETUP and control OUT data, and also applies to STM32U3, which has the same erratum. On STM32H5 it could end after less than 800 ns with the `time` feature and busy-waited 800 µs on every packet without it.
@@ -104,6 +132,7 @@ DMA:
 - fix: stm32/dma: compute GPDMA `BR1.BNDT` from the memory-side width regardless of direction, fixing destination overrun on reads with peripheral width > memory width
 - feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
 - feat: stm32/dma: add `TwoDItem`, `TwoDConfig`, and `LinkedListItem` trait; `Table` is now generic over item type
+- fix: stm32/dma: GPDMA: panic when a linked-list `Table` straddles a 64 KiB boundary
 
 I2S:
 - feat: stm32/i2s: add `I2S::rx_len()` returning the number of samples buffered in the RX DMA ring buffer
@@ -117,9 +146,11 @@ I2C:
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
+- fix: stm32/adc: account for the fixed /2 in front of the H7 ADC1/ADC2/ADC3 converter in the automatic prescaler, `clock()`, the maximum-clock check and `BOOST`, and set the single `BOOST` bit of revision Y H742/H743/H750/H753 above 20 MHz.
 
 RNG:
 - feat: stm32/rng: add configurable initialization policy (`RngConfig`) with `new_with_config` and health-test profile control
+- change: stm32/rng: `Rng` implements the `rand_core` 0.10 traits instead of the 0.6 and 0.9 ones.
 
 COMP:
 - feat: stm32/comp: add support for comp_v1 (used on G0)

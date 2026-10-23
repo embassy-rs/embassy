@@ -170,8 +170,8 @@ impl RpcBackend for FgBackend {
         const WIFI_BAND_MODE_AUTO: i32 = 3;
 
         let req = CtrlMsg_Req_ConnectAP {
-            ssid: unwrap!(String::try_from(ssid)),
-            pwd: unwrap!(String::try_from(pwd)),
+            ssid: String::try_from(ssid).map_err(|_| Error::Internal)?,
+            pwd: String::try_from(pwd).map_err(|_| Error::Internal)?,
             bssid: String::new(),
             listen_interval: 3,
             is_wpa3_supported: true,

@@ -78,6 +78,9 @@ async fn main(_spawner: Spawner) {
     #[cfg(feature = "stm32g491re")]
     let (mut write_dma, mut read_dma) = (dp.DMA1_CH4, dp.DMA1_CH5);
 
+    #[cfg(feature = "stm32h723zg")]
+    let (mut write_dma, mut read_dma) = (dp.DMA1_CH0, dp.DMA1_CH1);
+
     #[cfg(any(
         feature = "stm32h563zi",
         feature = "stm32u585ai",
