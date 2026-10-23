@@ -107,6 +107,8 @@ pub struct Network {
     pub ssid: String<32>,
     /// Basic Service Set Identifier.
     pub bssid: [u8; 6],
+    /// Received Signal Strength Indicator.
+    pub rssi: i32,
     /// Security mode.
     pub security: Security,
 }

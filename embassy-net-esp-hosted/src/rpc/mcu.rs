@@ -504,7 +504,7 @@ pub enum BufferType {
 
 struct StaConfig {
     pub ssid: Vec<u8, 32>,
-    pub password: Vec<u8, 32>,
+    pub password: Vec<u8, 64>,
     pub security: Security,
 }
 
@@ -551,6 +551,7 @@ impl TryFrom<&wifi_ap_record> for Network {
         Ok(Network {
             ssid: from_utf8_lossy(&value.ssid),
             bssid: (&value.bssid[..]).try_into().map_err(|_| Error::Internal)?,
+            rssi: value.rssi,
             security: map_mcu_security(value.authmode),
         })
     }

@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Bluetooth (BLE) support via the new `bluetooth` feature. `new` returns a `bluetooth::BtDriver` implementing `bt_hci::transport::Transport`/`bt_hci_transport::Transport`, exposing the ESP coprocessor's HCI controller over the ESP-Hosted HCI interface.
 - Added `FwVersion` struct and `Control::get_fw_version`.
 - Fixed compilation error with the `log` feature.
+- Added `Network::rssi`.
+- Fixed: `Control::connect` now accepts passwords up to 64 characters.
 - `Interface::transfer` now exchanges the buffer in place.
 - The SPI interface now waits for the handshake pin to be low before returning.
 - `Control::connect` now waits for a `StationConnectedToAP` event before marking the link up; a successful connect ioctl alone no longer sets `LinkState::Up`. Disconnect event during a pending connect returns `Error::Failed` with the firmware disconnect reason.
