@@ -215,6 +215,7 @@ async fn new_internal<'a>(
         requests: [const { None }; REQ_COUNT],
         next_req_serial: 0x12345678,
         net_fd: None,
+        net_fd_waker: WakerRegistration::new(),
 
         rx_control_list: ptr::null_mut(),
         rx_data_list: ptr::null_mut(),
@@ -327,6 +328,7 @@ struct StateInner {
     next_req_serial: u32,
 
     net_fd: Option<u32>,
+    net_fd_waker: WakerRegistration,
 
     rx_control_list: *mut List,
     rx_data_list: *mut List,
@@ -676,6 +678,17 @@ impl StateInner {
                             }
                             false
                         }
+                        // Socket closed by the modem, e.g. on PDN loss or CFUN=0.
+                        3 => {
+                            let fd = u32::from_le_bytes(msg.param[0..4].try_into().unwrap());
+                            let reason = u32::from_le_bytes(msg.param[4..8].try_into().unwrap());
+                            if self.net_fd == Some(fd) {
+                                warn!("raw socket {} closed by modem, reason {}", fd, reason);
+                                self.net_fd = None;
+                                self.net_fd_waker.wake();
+                            }
+                            false
+                        }
                         _ => false,
                     },
                     x => {
@@ -932,6 +945,18 @@ impl<'a> Control<'a> {
         fd
     }
 
+    /// Wait until the modem closes the raw socket.
+    fn wait_raw_socket_closed(&self) -> impl Future<Output = ()> + '_ {
+        poll_fn(|cx| {
+            let mut state = self.state.borrow_mut();
+            if state.net_fd.is_none() {
+                return Poll::Ready(());
+            }
+            state.net_fd_waker.register(cx.waker());
+            Poll::Pending
+        })
+    }
+
     async fn close_raw_socket(&self, fd: u32) {
         let mut msg: Message = unsafe { mem::zeroed() };
         msg.channel = 2; // data
@@ -944,7 +969,7 @@ impl<'a> Control<'a> {
         assert_eq!(msg.id, 0x80090004);
         assert!(msg.param_len >= 12);
         let status = u32::from_le_bytes(msg.param[8..12].try_into().unwrap());
-        assert_eq!(status, 0);
+        assert!(matches!(status, 0 | 6 | 13), "close fd {} failed: status {}", fd, status);
 
         self.state.borrow_mut().net_fd = None;
     }

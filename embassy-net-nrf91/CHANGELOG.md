@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- changed: update to nrf-pac 0.4.0
+- changed: update to nrf-pac 0.4.0.
+- fixed: reopen the raw socket when the modem closes it, instead of polling for a detach.
 
 ## 0.2.0 - 2026-03-10
 

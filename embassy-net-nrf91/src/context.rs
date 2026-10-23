@@ -353,18 +353,17 @@ impl<'a> Control<'a> {
         reattach(&status);
 
         loop {
-            if !self.attached().await? {
-                self.control.set_link_state(LinkState::Down);
-                trace!("detached");
+            // The modem closes the socket on CFUN=0 and on PDN loss.
+            self.control.wait_raw_socket_closed().await;
+            self.control.set_link_state(LinkState::Down);
+            trace!("raw socket closed");
 
-                self.control.close_raw_socket(fd).await;
-                let status = self.wait_attached().await?;
-                trace!("attached");
-                fd = self.control.open_raw_socket().await;
-                self.control.set_link_state(LinkState::Up);
-                reattach(&status);
-            }
-            Timer::after(Duration::from_secs(10)).await;
+            self.control.close_raw_socket(fd).await;
+            let status = self.wait_attached().await?;
+            trace!("attached");
+            fd = self.control.open_raw_socket().await;
+            self.control.set_link_state(LinkState::Up);
+            reattach(&status);
         }
     }
 }
