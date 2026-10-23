@@ -92,6 +92,8 @@ fn write_compare(r: Lptim, val: u16) {
     }
     #[cfg(any(stm32wba, stm32u5, stm32u3))]
     {
+        // As on STM32WL, clear the stale CMPOK.
+        r.icr().write(|w| w.set_cmpokcf(0, true));
         r.ccr(0).write(|w| w.set_ccr(val));
         while !r.isr().read().cmpok(0) {}
     }
