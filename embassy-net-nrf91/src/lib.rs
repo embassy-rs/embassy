@@ -1011,7 +1011,12 @@ impl<'a> Control<'a> {
         assert_eq!(msg.id, 0x80090004);
         assert!(msg.param_len >= 12);
         let status = u32::from_le_bytes(msg.param[8..12].try_into().unwrap());
-        assert!(matches!(status, 0 | 6 | 13), "close fd {} failed: status {}", fd, status);
+        assert!(
+            matches!(status, 0 | 6 | 13),
+            "close fd {} failed: status {}",
+            fd,
+            status
+        );
 
         self.state.borrow_mut().net_fd = None;
     }
