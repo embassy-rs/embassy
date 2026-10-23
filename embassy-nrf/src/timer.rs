@@ -17,6 +17,8 @@ use crate::ppi::{Event, Task};
 pub(crate) trait SealedInstance {
     /// The number of CC registers this instance has.
     const CCS: usize;
+    const INPUT_FREQUENCY: Frequency;
+    const MAX_PRESCALER: u8;
     fn regs() -> pac::timer::Timer;
 }
 
@@ -31,20 +33,33 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 pub trait ExtendedInstance: Instance {}
 
 macro_rules! impl_timer {
-    ($type:ident, $pac_type:ident, $irq:ident, $ccs:literal) => {
+    (
+        $type:ident, $pac_type:ident, $irq:ident,
+        $ccs:literal, $freq:ident, $max:literal
+    ) => {
         impl crate::timer::SealedInstance for peripherals::$type {
             const CCS: usize = $ccs;
+            const INPUT_FREQUENCY: crate::timer::Frequency = crate::timer::Frequency::$freq;
+            const MAX_PRESCALER: u8 = $max;
+
             fn regs() -> pac::timer::Timer {
                 unsafe { pac::timer::Timer::from_ptr(pac::$pac_type.as_ptr()) }
             }
         }
+
         impl crate::timer::Instance for peripherals::$type {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
+
+    ($type:ident, $pac_type:ident, $irq:ident, $ccs:literal) => {
+        impl_timer!($type, $pac_type, $irq, $ccs, F16MHz, 9);
+    };
+
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl_timer!($type, $pac_type, $irq, 4);
     };
+
     ($type:ident, $pac_type:ident, $irq:ident, extended) => {
         impl_timer!($type, $pac_type, $irq, 6);
         impl crate::timer::ExtendedInstance for peripherals::$type {}
@@ -54,6 +69,12 @@ macro_rules! impl_timer {
 /// Timer frequency
 #[repr(u8)]
 pub enum Frequency {
+    /// 128MHz
+    F128MHz = (-3i8) as u8,
+    /// 64MHz
+    F64MHz = (-2i8) as u8,
+    /// 32MHz
+    F32MHz = (-1i8) as u8,
     /// 16MHz
     F16MHz = 0,
     /// 8MHz
@@ -76,6 +97,19 @@ pub enum Frequency {
     F31250Hz = 9,
 }
 
+impl Frequency {
+    /// Returns the frequency in Hz.
+    pub const fn as_hz(self) -> u32 {
+        // Discriminants encode signed divider exponents relative to 16 MHz.
+        let step = self as u8 as i8;
+        if step < 0 {
+            16_000_000u32 << (-step as u32)
+        } else {
+            16_000_000u32 >> (step as u32)
+        }
+    }
+}
+
 /// nRF Timer driver.
 ///
 /// The timer has an internal counter, which is incremented for every tick of the timer.
@@ -86,6 +120,8 @@ pub enum Frequency {
 pub struct Timer<'d> {
     r: pac::timer::Timer,
     ccs: usize,
+    input_frequency: u8,
+    max_prescaler: u8,
     _p: PhantomData<&'d ()>,
 }
 
@@ -112,6 +148,8 @@ impl<'d> Timer<'d> {
         let this = Self {
             r: regs,
             ccs: T::CCS,
+            input_frequency: T::INPUT_FREQUENCY as u8,
+            max_prescaler: T::MAX_PRESCALER,
             _p: PhantomData,
         };
 
@@ -206,14 +244,19 @@ impl<'d> Timer<'d> {
     ///
     /// This will stop the timer if it isn't already stopped,
     /// because the timer may exhibit 'unpredictable behaviour' if it's frequency is changed while it's running.
+    ///
+    /// # Panics
+    /// Panics if the frequency is unsupported by this timer instance.
     pub fn set_frequency(&self, frequency: Frequency) {
+        let prescaler = (frequency as u8 as i8) - (self.input_frequency as i8);
+        assert!(
+            prescaler >= 0 && prescaler as u8 <= self.max_prescaler,
+            "unsupported timer frequency"
+        );
+
         self.stop();
 
-        self.r
-            .prescaler()
-            // SAFETY: `frequency` is a variant of `Frequency`,
-            // whose values are all in the range of 0-9 (the valid range of `prescaler`).
-            .write(|w| w.set_prescaler(frequency as u8))
+        self.r.prescaler().write(|w| w.set_prescaler(prescaler as u8));
     }
 
     /// Returns this timer's `n`th CC register.
