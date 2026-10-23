@@ -19,16 +19,16 @@ cargo install cargo-fuzz
 
 All commands run in `embassy-boot/fuzz`.
 
-Write the seed corpus (the sweep scenarios of `tests/power_fail.rs` on every model, plain and with a power cut at a few operations, into `corpus/power_fail/`; about 2800 small files):
+```sh
+cargo fuzz run -s none power_fail -- -max_total_time=300 -max_len=128 -dict=power_fail.dict
+```
+
+That is all: it fuzzes for five minutes from an empty corpus (`corpus/power_fail/` is created and filled as it goes). `-s none` means no AddressSanitizer: the code has no `unsafe` and it runs about 1.5 times faster.
+
+Optional, and faster to the first interesting inputs: write a seed corpus first (the sweep scenarios of `tests/power_fail.rs` on every model, plain and with a power cut at a few operations, into `corpus/power_fail/`; about 2800 small files):
 
 ```sh
 cargo run --bin seeds
-```
-
-Fuzz for five minutes (`-s none`: no AddressSanitizer, the code has no `unsafe` and it runs about 1.5 times faster):
-
-```sh
-cargo fuzz run -s none power_fail -- -max_total_time=300 -max_len=128 -dict=power_fail.dict
 ```
 
 A run on main prints only lines like `known class ecc-overwrite on H7: 64 runs (of 1902); example 0d01...` (the first example of each class and then every power of two). It stops on the first input that breaks an invariant, no known class explains, or that is of a class asked for below.
@@ -42,23 +42,19 @@ A run on main prints only lines like `known class ecc-overwrite on H7: 64 runs (
 
 libFuzzer prints the report (model, layout, steps, trace of every flash operation, the broken invariant) and writes the input to `artifacts/power_fail/crash-<hash>`.
 
-Make it small:
+Make it small (optional):
 
 ```sh
 cargo fuzz tmin -s none power_fail artifacts/power_fail/crash-<hash>
 ```
 
-Turn a file into the hex string the test takes (in `embassy-boot/fuzz`, where `artifacts/` is):
+Replay the crash file, or the minimized one, with its full trace (in `embassy-boot`; `POWER_FAIL_REPLAY` takes a path to such a file, relative to `embassy-boot`, or a hex string like the one the failure report prints):
 
 ```sh
-od -An -tx1 -v artifacts/power_fail/minimized-from-<hash> | tr -d ' \n'
+POWER_FAIL_REPLAY=fuzz/artifacts/power_fail/crash-<hash> cargo test --test power_fail replay -- --nocapture
 ```
 
-Replay it with its full trace, or keep it as a regression test (both in `embassy-boot`):
-
-```sh
-POWER_FAIL_REPLAY=<hex> cargo test --test power_fail replay -- --nocapture
-```
+To keep it as a regression test, put the hex string from the report into a test (both in `embassy-boot`):
 
 ```rust
 #[test]

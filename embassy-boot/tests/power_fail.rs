@@ -12,22 +12,32 @@
 //!
 //! # Running it
 //!
+//! All in `embassy-boot`; `--nocapture` shows the output of a passing run, which ends with one line per model
+//! (runs, known classes seen with counts, findings).
+//!
 //! ```text
-//! cd embassy-boot
-//! cargo test --test power_fail -- --nocapture             # sweep + random run, every model
-//! POWER_FAIL_MODEL=g0 cargo test --test power_fail -- --nocapture         # one model, by name
-//! POWER_FAIL_CASES=200000 cargo test --release --test power_fail random   # a longer random run
-//! cargo test --features flash-erase-zero --test power_fail -- --nocapture # the build for 0x00-erased flash
-//! POWER_FAIL_REPLAY=<hex> cargo test --test power_fail replay -- --nocapture
+//! cargo test --test power_fail -- --nocapture                              # sweep + random run, every model
+//! POWER_FAIL_MODEL=list cargo test --test power_fail -- --nocapture        # the models, each with its source
+//! POWER_FAIL_MODEL=g0 cargo test --test power_fail -- --nocapture          # one model, by name (any case)
+//! POWER_FAIL_CASES=200000 cargo test --release --test power_fail random    # a longer random run
+//! cargo test --features flash-erase-zero --test power_fail -- --nocapture  # the build for 0x00-erased flash
+//! POWER_FAIL_REPLAY=<hex or file> cargo test --test power_fail replay -- --nocapture
+//! cargo test --test power_fail issue_7235 -- --nocapture                   # a named regression test
 //! ```
 //!
+//! - A `POWER_FAIL_MODEL` that is not a model fails the test and lists the valid names.
+//! - `POWER_FAIL_REPLAY` takes the hex string a failure prints, or the path of a file holding the bytes (a
+//!   libFuzzer `crash-*` or `minimized-from-*` file, as `cargo fuzz` leaves it; a relative path is relative to
+//!   `embassy-boot`).
+//! - `issue_7235_torn_state_erase` replays the input that found embassy#7235. It passes on main; to see the bug,
+//!   revert 153d2e802 in `src/` and run the line above: it fails with the report of invariant I5.
 //! - `sweep` runs a few fixed scenarios (update and confirm, update and revert, update cancelled, two updates,
 //!   mark_dfu) and cuts power at every single flash operation of each, with three tear patterns.
 //! - `random` runs `POWER_FAIL_CASES` (default 1000) random scenarios with several cuts each.
 //! - A failure prints the model, layout, steps, a trace of every flash operation from the start (the download's
 //!   own writes left out) with the page map of ACTIVE, DFU and STATE after each boot, the broken invariant, and
-//!   the input as hex. It is first shrunk to a smaller input that fails the same way. Paste the hex into
-//!   `POWER_FAIL_REPLAY` to see it again, or into a `#[test]` calling `replay_hex`.
+//!   the input as hex. It is first shrunk to a smaller input that fails the same way. Give the hex to
+//!   `POWER_FAIL_REPLAY` to see it again, or to a `#[test]` calling `replay_hex`.
 //! - Models whose flash erases to 0x00 (L0, L1) are expected to fail, in both builds (see `zoo::expect`).
 //!   The default build is the configuration of the L0/L1 boot examples. The test checks that the failure
 //!   still reproduces and prints it; it is green as long as the zoo's expectations hold.
@@ -79,9 +89,7 @@ fn models() -> Vec<usize> {
     if only == "list" {
         return Vec::new();
     }
-    let found: Vec<usize> = (0..zoo::COUNT)
-        .filter(|&i| model(i).0.to_lowercase() == only)
-        .collect();
+    let found: Vec<usize> = (0..zoo::COUNT).filter(|&i| model(i).0.to_lowercase() == only).collect();
     if found.is_empty() {
         let names: Vec<&str> = (0..zoo::COUNT).map(|i| model(i).0).collect();
         panic!(
@@ -175,7 +183,7 @@ fn load_input(arg: &str) -> Vec<u8> {
     if std::path::Path::new(arg).is_file() {
         return std::fs::read(arg).unwrap_or_else(|e| panic!("cannot read {arg}: {e}"));
     }
-    if arg.is_empty() || arg.len() % 2 != 0 || !arg.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if arg.is_empty() || arg.len() % 2 == 1 || !arg.bytes().all(|b| b.is_ascii_hexdigit()) {
         panic!("{arg:?} is neither hex nor a file that exists (the path is relative to embassy-boot)");
     }
     unhex(arg)
@@ -552,5 +560,10 @@ fn many_downloads_keep_image_names() {
 /// `cargo test --test power_fail issue_7235 -- --nocapture`.
 #[test]
 fn issue_7235_torn_state_erase() {
+    // F1 erases to 0xFF: not a configuration of the `flash-erase-zero` build.
+    let (name, erased) = model(0);
+    if zoo::expect(name, erased) == Expect::Skip {
+        return;
+    }
     replay_hex("0001000001051800020000010203");
 }
