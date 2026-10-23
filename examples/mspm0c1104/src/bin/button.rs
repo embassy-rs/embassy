@@ -4,9 +4,9 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mspm0::gpio::{Input, Level, Output, Pull};
 use embassy_mspm0::peripherals::PA16;
 use embassy_mspm0::{Config, bind_interrupts, gpio};
-use embassy_mspm0::gpio::{Input, Level, Output, Pull};
 use panic_halt as _;
 
 bind_interrupts!(struct Irqs {

@@ -62,7 +62,6 @@ fn generate_code(cfgs: &mut CfgSet) {
     let mut g = TokenStream::new();
 
     g.extend(generate_singletons(&singletons));
-    g.extend(generate_pincm_mapping());
     g.extend(generate_pin());
     g.extend(generate_timers());
     g.extend(generate_interrupts());
@@ -359,34 +358,6 @@ fn make_valid_identifier(s: &str) -> Singleton {
     Singleton { name, cfg: None }
 }
 
-fn generate_pincm_mapping() -> TokenStream {
-    let pincms = METADATA.pins.iter().map(|mapping| {
-        let port_letter = mapping.pin.strip_prefix("P").unwrap();
-        let port_base = (port_letter.chars().next().unwrap() as u8 - b'A') * 32;
-        // This assumes all ports are single letter length.
-        // This is fine unless TI releases a part with 833+ GPIO pins.
-        let pin_number = mapping.pin[2..].parse::<u8>().unwrap();
-
-        let num = port_base + pin_number;
-
-        // But subtract 1 since pincm indices start from 0, not 1.
-        let pincm = Literal::u8_unsuffixed(mapping.pincm - 1);
-        quote! {
-            #num => #pincm
-        }
-    });
-
-    quote! {
-        #[doc = "Get the mapping from GPIO pin port to IOMUX PINCM index. This is required since the mapping from IO to PINCM index is not consistent across parts."]
-        pub(crate) fn gpio_pincm(pin_port: u8) -> u8 {
-            match pin_port {
-                #(#pincms),*,
-                _ => unreachable!(),
-            }
-        }
-    }
-}
-
 fn generate_pin() -> TokenStream {
     let pin_impls = METADATA.pins.iter().map(|pin| {
         let name = Ident::new(&pin.pin, Span::call_site());
@@ -395,11 +366,13 @@ fn generate_pin() -> TokenStream {
         let pin_number = Literal::u8_unsuffixed(pin.pin[2..].parse::<u8>().unwrap());
 
         let port = Ident::new(&format!("Port{}", port_letter), Span::call_site());
+        // Subtract 1 since pincm indices start from 0, not 1.
+        let pincm = Literal::u8_unsuffixed(pin.pincm - 1);
 
         // TODO: Feature gate pins that can be used as NRST
 
         quote! {
-            impl_pin!(#name, crate::gpio::Port::#port, #pin_number);
+            impl_pin!(#name, crate::gpio::Port::#port, #pin_number, #pincm);
         }
     });
 

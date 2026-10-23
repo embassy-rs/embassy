@@ -8,14 +8,13 @@ use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
-use maitake_sync::WaitMap;
 use mspm0_metapac::iomux::regs::Pincm;
 
 use crate::interrupt;
 use crate::interrupt::typelevel::Handler;
 use crate::pac::gpio::vals::*;
 use crate::pac::gpio::{self};
-// #[cfg(all(feature = "rt", any(gpioa_interrupt, gpiob_interrupt)))]
+// #[cfg(all(feature = "rt", any(gpioa_interrupt, gpiob_interrupt)))]f
 // use crate::pac::interrupt;
 use crate::pac::{self};
 
@@ -1036,6 +1035,24 @@ impl PinConfig {
         Self(Pincm(0))
     }
 
+    pub const fn input(pull: Pull, invert: bool) -> Self {
+        Self::default()
+            .pc(true)
+            .inena(true)
+            .pipu(matches!(pull, Pull::Up))
+            .pipd(matches!(pull, Pull::Down))
+            .inv(invert)
+    }
+
+    pub const fn output(pull: Pull, invert: bool) -> Self {
+        Self::default()
+            .pc(true)
+            .inena(false)
+            .pipu(matches!(pull, Pull::Up))
+            .pipd(matches!(pull, Pull::Down))
+            .inv(invert)
+    }
+
     #[inline(always)]
     pub const fn pf(mut self, pf: u8) -> Self {
         self.0.set_pf(pf);
@@ -1106,17 +1123,27 @@ impl<'d> PinBorrow<'d> {
     }
 
     #[inline]
-    pub fn with_config<T: Pin>(p: Peri<'d, T>, config: PinConfig) -> Self {
+    pub fn with_config(p: Peri<'d, impl Pin>, pf: u8, config: PinConfig) -> Self {
         let this = Self::new(p);
         let pincm_index = this.info.pincm_index();
-        pac::IOMUX.pincm(pincm_index).write_value(config.0);
+        let mut pincm = config.0;
+        pincm.set_pf(pf);
+        pac::IOMUX.pincm(pincm_index).write_value(pincm);
         this
+    }
+
+    /// Unsafely clone (duplicate) a PinBorrow.
+    pub const unsafe fn clone_unchecked(&self) -> PinBorrow<'d> {
+        PinBorrow { info: self.info }
     }
 
     #[inline]
     pub fn update_config(&mut self, config: PinConfig) {
         let pincm_index = self.info.pincm_index();
-        pac::IOMUX.pincm(pincm_index).write_value(config.0);
+        let pf = pac::IOMUX.pincm(pincm_index).read().pf();
+        let mut pincm = config.0;
+        pincm.set_pf(pf);
+        pac::IOMUX.pincm(pincm_index).write_value(pincm);
     }
 
     /// Get the current pin function set for this pin.
@@ -1172,7 +1199,7 @@ const DISCONNECT_PF: u8 = 0;
 const GPIO_PF: u8 = 1;
 
 macro_rules! impl_pin {
-    ($name: ident, $port: expr, $pin_num: expr) => {
+    ($name: ident, $port: expr, $pin_num: expr, $pin_cm: expr) => {
         impl crate::gpio::Pin for crate::peripherals::$name {
             type Interrupt = cfg_select! {
                 // FIXME: Pick the right one (just hardcoded to test C110x)
@@ -1184,7 +1211,8 @@ macro_rules! impl_pin {
         impl crate::gpio::SealedPin for crate::peripherals::$name {
             #[inline]
             fn info() -> &'static crate::gpio::Info {
-                todo!("implement this")
+                const INFO: crate::gpio::Info = crate::gpio::Info::new($port, $pin_num, $pin_cm);
+                &INFO
             }
 
             #[inline]
@@ -1300,11 +1328,6 @@ impl State {
     }
 }
 
-/// Wait map for GPIO wakers
-///
-/// This map must **never** be closed because gpio wakers may be used forever.
-static GPIO_WAIT_MAP: WaitMap<u8, ()> = WaitMap::new();
-
 pub(crate) trait SealedPin {
     fn info() -> &'static Info;
 
@@ -1314,11 +1337,7 @@ pub(crate) trait SealedPin {
 
     fn _pin_cm(&self) -> u8 {
         // Some parts like the MSPM0L222x have pincm mappings all over the place.
-        crate::gpio_pincm(self.pin_port())
-    }
-
-    fn bit_index(&self) -> usize {
-        (self.pin_port() % 32) as usize
+        todo!("Dead")
     }
 
     #[inline]
@@ -1340,7 +1359,7 @@ pub(crate) trait SealedPin {
         set_pf(self._pin_cm() as usize, pf, ty);
     }
 
-    #[cfg_attr(mspm0g518x, allow(dead_code))]
+    // #[cfg_attr(mspm0g518x, allow(dead_code))]
     fn set_as_pf(&self, pf: u8, ty: PfType) {
         set_pf(self._pin_cm() as usize, pf, ty)
     }
@@ -1353,21 +1372,9 @@ pub(crate) trait SealedPin {
     ///
     /// Note that this also disables the internal weak pull-up and pull-down resistors.
     #[inline]
-    #[cfg_attr(mspm0g518x, allow(dead_code))]
+    // #[cfg_attr(mspm0g518x, allow(dead_code))]
     fn set_as_disconnected(&self) {
         self.set_as_analog();
-    }
-
-    #[inline]
-    fn block(&self) -> gpio::Gpio {
-        match self.pin_port() / 32 {
-            0 => pac::GPIOA,
-            #[cfg(gpio_pb)]
-            1 => pac::GPIOB,
-            #[cfg(gpio_pc)]
-            2 => pac::GPIOC,
-            _ => unreachable!(),
-        }
     }
 }
 
