@@ -64,6 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the `fixed` dependency. Clock dividers are now plain integers holding the fixed-point bits:
   - PWM: `pwm::Config::divider` is renamed to `divider_x16`, a `u16` with 8 integer and 4 fractional bits (the divider multiplied by 16).
   - PIO: `pio::Config::clock_divider`, `StateMachine::set_clock_divider`, `calculate_pio_clock_divider` and `calculate_pio_clock_divider_value` are renamed to `clock_divider_x256`, `set_clock_divider_x256`, `calculate_pio_clock_divider_x256` and `calculate_pio_clock_divider_value_x256`, and use a `u32` with 16 integer and 8 fractional bits (the divider multiplied by 256).
+- RP235x: enable the RCP and initialize its salt at startup if the bootrom didn't. Fixes flash and multicore if a debugger starts the program directly after a reset.
+- RP235x: with the `run-from-ram` feature, the flash driver restores XIP with the bootrom's `flash_enter_cmd_xip` instead of the XIP setup function in boot RAM.
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes

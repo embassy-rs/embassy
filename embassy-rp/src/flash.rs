@@ -23,7 +23,7 @@ pub const BOOTRAM_BASE: *const u32 = 0x400e0000 as _;
 
 /// If running from RAM, we might have no boot2. Use bootrom `flash_enter_cmd_xip` instead.
 // TODO: when run-from-ram is set, completely skip the "pause cores and jumpp to RAM" dance.
-pub const USE_BOOT2: bool = !cfg!(feature = "run-from-ram") | cfg!(feature = "_rp235x");
+pub const USE_BOOT2: bool = !cfg!(feature = "run-from-ram");
 
 // **NOTE**:
 //
