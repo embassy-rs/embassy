@@ -1286,7 +1286,7 @@ impl<'d> Spi<'d, Async, Master> {
             return Ok(());
         }
 
-        #[cfg(not(spi_v1))]
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -1421,7 +1421,7 @@ impl<'d> Spi<'d, Async, Master> {
             return Ok(());
         }
 
-        #[cfg(not(spi_v1))]
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -1487,7 +1487,7 @@ impl<'d> Spi<'d, Async, Master> {
             return Ok(());
         }
 
-        #[cfg(not(spi_v1))]
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
