@@ -169,7 +169,9 @@ impl Driver for TunTapDevice {
 
     fn register_waker(&mut self, waker: &Waker) -> Result<(), NotSupported> {
         let mut cx = Context::from_waker(waker);
-        let _ = self.device.poll_readable(&mut cx);
+        if self.device.poll_readable(&mut cx).is_ready() {
+            waker.wake_by_ref();
+        }
         Ok(())
     }
 
