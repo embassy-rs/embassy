@@ -515,6 +515,7 @@ mod verification_tests {
     use embassy_crypto::ed25519::{SigningKey, VerifyingKey};
     use embassy_crypto_rand as _;
     use embassy_crypto_rustcrypto as _;
+    use embassy_sync::once_lock::OnceLock;
 
     use super::*;
     use crate::AlignedBuffer;
@@ -523,11 +524,18 @@ mod verification_tests {
     type Loader = BootLoader<MemFlash<96, 16, 4>, MemFlash<112, 16, 4, 4>, MemFlash<128, 128, 4>>;
 
     fn pending() -> (Loader, [u8; 32]) {
-        let key = SigningKey::from_bytes(&[1; 32]);
+        // Signing is slow in debug builds, and the torn-state tests call this tens of thousands of times.
+        static SIGNED: OnceLock<([u8; 64], [u8; 32])> = OnceLock::new();
+
+        let (signature, public_key) = *SIGNED.get_or_init(|| {
+            let key = SigningKey::from_bytes(&[1; 32]);
+            let signature = key.sign(&Sha512::digest(&[0xaa; 32])).unwrap();
+            (signature.to_bytes(), key.verifying_key().unwrap().to_bytes())
+        });
+
         let mut dfu = MemFlash::default();
         dfu.mem[..32].fill(0xaa);
-        let signature = key.sign(&Sha512::digest(&dfu.mem[..32])).unwrap();
-        dfu.mem[32..96].copy_from_slice(&signature.to_bytes());
+        dfu.mem[32..96].copy_from_slice(&signature);
         let mut state = MemFlash::default();
         state.mem[..4].fill(SWAP_MAGIC);
         (
@@ -536,7 +544,7 @@ mod verification_tests {
                 dfu,
                 state,
             }),
-            key.verifying_key().unwrap().to_bytes(),
+            public_key,
         )
     }
 
