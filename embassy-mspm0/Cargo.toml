@@ -84,7 +84,7 @@ proc-macro2 = "1.0.94"
 quote = "1.0.40"
 
 # mspm0-metapac = { version = "", default-features = false, features = ["metadata"] }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-f78bc71fcc6d74b25c2cae58220d8bf443fb12df", default-features = false, features = ["metadata"] }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-4be499610ef6e0d40ab18a5d362171e9a07310e1", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
