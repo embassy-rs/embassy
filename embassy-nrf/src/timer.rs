@@ -18,7 +18,6 @@ pub(crate) trait SealedInstance {
     /// The number of CC registers this instance has.
     const CCS: usize;
     const INPUT_FREQUENCY: Frequency;
-    const MAX_PRESCALER: u8;
     fn regs() -> pac::timer::Timer;
 }
 
@@ -35,12 +34,11 @@ pub trait ExtendedInstance: Instance {}
 macro_rules! impl_timer {
     (
         $type:ident, $pac_type:ident, $irq:ident,
-        $ccs:literal, $freq:ident, $max:literal
+        $ccs:literal, $freq:ident
     ) => {
         impl crate::timer::SealedInstance for peripherals::$type {
             const CCS: usize = $ccs;
             const INPUT_FREQUENCY: crate::timer::Frequency = crate::timer::Frequency::$freq;
-            const MAX_PRESCALER: u8 = $max;
 
             fn regs() -> pac::timer::Timer {
                 unsafe { pac::timer::Timer::from_ptr(pac::$pac_type.as_ptr()) }
@@ -53,7 +51,7 @@ macro_rules! impl_timer {
     };
 
     ($type:ident, $pac_type:ident, $irq:ident, $ccs:literal) => {
-        impl_timer!($type, $pac_type, $irq, $ccs, F16MHz, 9);
+        impl_timer!($type, $pac_type, $irq, $ccs, F16MHz);
     };
 
     ($type:ident, $pac_type:ident, $irq:ident) => {
@@ -121,7 +119,6 @@ pub struct Timer<'d> {
     r: pac::timer::Timer,
     ccs: usize,
     input_frequency: u8,
-    max_prescaler: u8,
     _p: PhantomData<&'d ()>,
 }
 
@@ -149,7 +146,6 @@ impl<'d> Timer<'d> {
             r: regs,
             ccs: T::CCS,
             input_frequency: T::INPUT_FREQUENCY as u8,
-            max_prescaler: T::MAX_PRESCALER,
             _p: PhantomData,
         };
 
@@ -249,10 +245,7 @@ impl<'d> Timer<'d> {
     /// Panics if the frequency is unsupported by this timer instance.
     pub fn set_frequency(&self, frequency: Frequency) {
         let prescaler = (frequency as u8 as i8) - (self.input_frequency as i8);
-        assert!(
-            prescaler >= 0 && prescaler as u8 <= self.max_prescaler,
-            "unsupported timer frequency"
-        );
+        assert!((0..=9).contains(&prescaler), "unsupported timer frequency");
 
         self.stop();
 
