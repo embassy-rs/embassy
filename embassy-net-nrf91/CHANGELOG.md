@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - changed: update to nrf-pac 0.4.0.
 - changed: add `keep_open` config option to keep sockets open across PDN loss/reattach.
+- changed: link state follows the PDN deactivated/activated socket status notifications rather than polling attach.
 - fixed: reopen the raw socket when the modem closes it, instead of polling for a detach.
 
 ## 0.2.0 - 2026-03-10

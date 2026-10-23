@@ -360,7 +360,8 @@ impl<'a> Control<'a> {
         reattach(&status);
 
         loop {
-            // The modem closes the socket on CFUN=0, and on PDN loss unless keep_open is set.
+            // The link state follows the PDN status notifications. The modem closes the socket on
+            // CFUN=0, and on PDN loss unless keep_open is set.
             self.control.wait_raw_socket_closed().await;
             self.control.set_link_state(LinkState::Down);
             trace!("raw socket closed");

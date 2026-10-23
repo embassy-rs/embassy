@@ -691,6 +691,20 @@ impl StateInner {
                             }
                             false
                         }
+                        // Socket status: flow control, rate control, PDN deactivated (7) / activated (8).
+                        4 => {
+                            let fd = u32::from_le_bytes(msg.param[0..4].try_into().unwrap());
+                            let status = u32::from_le_bytes(msg.param[4..8].try_into().unwrap());
+                            info!("socket {} status {}", fd, status);
+                            if self.net_fd == Some(fd) {
+                                match status {
+                                    7 => ch.set_link_state(ch::driver::LinkState::Down),
+                                    8 => ch.set_link_state(ch::driver::LinkState::Up),
+                                    _ => {}
+                                }
+                            }
+                            false
+                        }
                         _ => false,
                     },
                     x => {
