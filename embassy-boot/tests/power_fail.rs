@@ -70,12 +70,47 @@ fn env_usize(name: &str, default: usize) -> usize {
     std::env::var(name).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
 }
 
-/// Zoo entries to run: all, or the one `POWER_FAIL_MODEL` names.
+/// Zoo entries to run: all, or the one `POWER_FAIL_MODEL` names (any case). `list` selects none, the
+/// `models_list` test prints them; a name that is not a model panics with the valid names.
 fn models() -> Vec<usize> {
-    let only = std::env::var("POWER_FAIL_MODEL").ok().map(|s| s.to_lowercase());
-    (0..zoo::COUNT)
-        .filter(|&i| only.as_ref().is_none_or(|o| model(i).0.to_lowercase() == *o))
-        .collect()
+    let Some(only) = std::env::var("POWER_FAIL_MODEL").ok().map(|s| s.trim().to_lowercase()) else {
+        return (0..zoo::COUNT).collect();
+    };
+    if only == "list" {
+        return Vec::new();
+    }
+    let found: Vec<usize> = (0..zoo::COUNT)
+        .filter(|&i| model(i).0.to_lowercase() == only)
+        .collect();
+    if found.is_empty() {
+        let names: Vec<&str> = (0..zoo::COUNT).map(|i| model(i).0).collect();
+        panic!(
+            "POWER_FAIL_MODEL={only:?} is not a model; valid names (any case): {}; `list` shows them with their sources",
+            names.join(", ")
+        );
+    }
+    found
+}
+
+/// The source line of a zoo entry.
+struct Source;
+
+impl zoo::Visit for Source {
+    type Out = &'static str;
+
+    fn visit<M: flash::Model>(self) -> &'static str {
+        M::SOURCE
+    }
+}
+
+/// `POWER_FAIL_MODEL=list`: prints every model with its source and runs nothing else.
+#[test]
+fn models_list() {
+    if std::env::var("POWER_FAIL_MODEL").is_ok_and(|s| s.trim().eq_ignore_ascii_case("list")) {
+        for i in 0..zoo::COUNT {
+            println!("{:<9} {}", model(i).0, zoo::with_model(i, Source));
+        }
+    }
 }
 
 fn fails_like(data: &[u8], invariant: &str) -> bool {
@@ -133,6 +168,19 @@ fn unhex(s: &str) -> Vec<u8> {
         .collect()
 }
 
+/// An input given as hex, or as the path of a file holding the raw bytes (a libFuzzer crash or minimized file;
+/// a relative path is relative to `embassy-boot`).
+fn load_input(arg: &str) -> Vec<u8> {
+    let arg = arg.trim();
+    if std::path::Path::new(arg).is_file() {
+        return std::fs::read(arg).unwrap_or_else(|e| panic!("cannot read {arg}: {e}"));
+    }
+    if arg.is_empty() || arg.len() % 2 != 0 || !arg.bytes().all(|b| b.is_ascii_hexdigit()) {
+        panic!("{arg:?} is neither hex nor a file that exists (the path is relative to embassy-boot)");
+    }
+    unhex(arg)
+}
+
 /// Runs a reproduction printed by a failure and panics with its report if it still fails.
 #[allow(dead_code)]
 fn replay_hex(input: &str) {
@@ -186,8 +234,27 @@ impl Tally {
         }
     }
 
-    /// Prints what was found and panics on what was not expected.
-    fn finish(self, name: &str, expect: Expect) {
+    /// One line for the summary: runs, known classes with counts, findings.
+    fn summary(&self, name: &str, expect: Expect) -> String {
+        let known = if self.known.is_empty() {
+            "none".to_string()
+        } else {
+            self.known
+                .iter()
+                .map(|(class, (count, _))| format!("{class} x{count}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let findings = match expect {
+            Expect::Finding(_) => format!("expected: {} of {} runs fail", self.failed.len(), self.runs),
+            _ if self.unexpected.is_empty() => "none".to_string(),
+            _ => format!("UNEXPECTED: {} of {} runs fail", self.unexpected.len(), self.runs),
+        };
+        format!("{name:<9} runs {:>6}  known: {known}  findings: {findings}", self.runs)
+    }
+
+    /// Prints what was found; returns the message of what was not expected.
+    fn finish(self, name: &str, expect: Expect) -> Option<String> {
         println!("{name}: {} runs", self.runs);
         for (class, (count, data)) in &self.known {
             println!(
@@ -198,7 +265,9 @@ impl Tally {
         match expect {
             Expect::Finding(what) => {
                 let Some(first) = self.failed.iter().min_by_key(|d| d.len()) else {
-                    panic!("{name}: expected finding not reproduced ({what}): update the zoo");
+                    return Some(format!(
+                        "{name}: expected finding not reproduced ({what}): update the zoo"
+                    ));
                 };
                 println!(
                     "{name}: FINDING ({what}): {} of {} runs fail, for example:\n{}",
@@ -206,18 +275,44 @@ impl Tally {
                     self.runs,
                     reproduction(first)
                 );
+                None
             }
             _ => {
-                if let Some(first) = self.unexpected.iter().min_by_key(|d| d.len()) {
-                    panic!(
-                        "{name}: {} of {} runs failed:\n{}",
-                        self.unexpected.len(),
-                        self.runs,
-                        reproduction(first)
-                    );
-                }
+                let first = self.unexpected.iter().min_by_key(|d| d.len())?;
+                Some(format!(
+                    "{name}: {} of {} runs failed:\n{}",
+                    self.unexpected.len(),
+                    self.runs,
+                    reproduction(first)
+                ))
             }
         }
+    }
+}
+
+/// What a test run tells at its end, with `--nocapture`: one line per model, then a panic if any model
+/// had a failure nothing explains.
+#[derive(Default)]
+struct Summary {
+    lines: Vec<String>,
+    failures: Vec<String>,
+}
+
+impl Summary {
+    fn add(&mut self, label: &str, name: &str, tally: Tally, expect: Expect) {
+        let label = format!("{label} {name}");
+        self.lines.push(tally.summary(name, expect));
+        self.failures.extend(tally.finish(&label, expect));
+    }
+
+    fn finish(self, title: &str) {
+        if !self.lines.is_empty() {
+            println!("\n{title}: {} models", self.lines.len());
+        }
+        for line in &self.lines {
+            println!("  {line}");
+        }
+        assert!(self.failures.is_empty(), "{}", self.failures.join("\n"));
     }
 }
 
@@ -240,6 +335,7 @@ fn scenarios() -> Vec<(&'static str, Vec<Step>)> {
 #[test]
 fn sweep() {
     const TEARS: u8 = 3;
+    let mut summary = Summary::default();
     for m in models() {
         let (name, erased) = model(m);
         let expect = zoo::expect(name, erased);
@@ -262,8 +358,9 @@ fn sweep() {
                 }
             }
         }
-        tally.finish(&format!("sweep {name}"), expect);
+        summary.add("sweep", name, tally, expect);
     }
+    summary.finish("sweep");
 }
 
 fn random_steps(rng: &mut Rng) -> Vec<Step> {
@@ -305,6 +402,7 @@ fn random() {
         let outcome = run(&data);
         tallies.entry(m).or_default().add(data, &outcome);
     }
+    let mut summary = Summary::default();
     for m in wanted {
         let (name, erased) = model(m);
         let expect = zoo::expect(name, erased);
@@ -313,17 +411,18 @@ fn random() {
         }
         let tally = tallies.remove(&m).unwrap_or_default();
         assert!(tally.runs > 0 || cases < zoo::COUNT, "random: model {name} never ran");
-        tally.finish(&format!("random {name}"), expect);
+        summary.add("random", name, tally, expect);
     }
+    summary.finish("random");
 }
 
-/// `POWER_FAIL_REPLAY=<hex>`: runs that input and prints its whole trace.
+/// `POWER_FAIL_REPLAY=<hex or file>`: runs that input and prints its whole trace.
 #[test]
 fn replay() {
     let Ok(input) = std::env::var("POWER_FAIL_REPLAY") else {
         return;
     };
-    let outcome = run(&unhex(&input));
+    let outcome = run(&load_input(&input));
     println!("{}", outcome.report);
     assert!(outcome.failure.is_none(), "the replayed input fails");
 }
@@ -446,4 +545,12 @@ fn many_downloads_keep_image_names() {
             outcome.report
         );
     }
+}
+
+/// embassy#7235: a power cut during the erase of STATE left a magic and progress that made the next boot swap
+/// with an invalid progress state. Fixed by 153d2e802 (clear the magic before erasing); with that commit reverted in `src/` this fails with the I5 report:
+/// `cargo test --test power_fail issue_7235 -- --nocapture`.
+#[test]
+fn issue_7235_torn_state_erase() {
+    replay_hex("0001000001051800020000010203");
 }
