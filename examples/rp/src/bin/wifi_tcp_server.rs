@@ -22,7 +22,7 @@ use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Duration;
 use embedded_io_async::Write;
 use panic_probe as _;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -77,8 +77,8 @@ async fn main(spawner: Spawner) {
         dma::Channel::new(p.DMA_CH1, Irqs),
     );
 
-    static STATE: StaticCell<cyw43::State> = StaticCell::new();
-    let state = STATE.init(cyw43::State::new());
+    static STATE: ConstStaticCell<cyw43::State> = ConstStaticCell::new(cyw43::State::new());
+    let state = STATE.take();
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
     spawner.spawn(unwrap!(cyw43_task(runner)));
 

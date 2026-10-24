@@ -47,6 +47,12 @@ pub struct IoctlState {
     wakers: RefCell<Wakers>,
 }
 
+// SAFETY: the only non-`Send` fields are the `*mut [u8]` pointers, which stand in for the `&mut [u8]`
+// passed to `do_ioctl` (`&mut [u8]` is `Send`). `Control` and `Runner` hold `&IoctlState`, so it
+// cannot be moved to another thread while an ioctl is in flight, and `Control` calls `cancel_ioctl`
+// if the `do_ioctl` future is dropped early.
+unsafe impl Send for IoctlState {}
+
 impl IoctlState {
     pub const fn new() -> Self {
         Self {
