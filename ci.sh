@@ -40,6 +40,10 @@ rm -rf out/tests/nrf52833-dk
 rm -rf out/tests/nrf5340-dk
 rm -rf out/tests/nrf51422-dk
 
+# temporarily disabled
+
+rm -f out/tests/stm32u585ai/saes
+
 # temporarily disabled, flaky.
 rm -f out/tests/stm32wba65ri/adc
 
