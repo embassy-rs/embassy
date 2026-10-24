@@ -214,8 +214,7 @@ impl AdcRegs for Regs {
             };
             critical_section::with(|_| common.ccr().modify(|w| w.set_ckmode(ckmode)));
         }
-        // N6 and C5 have no `CCR` prescaler (PRESC/CKMODE): the RCC supplies the ADC clock,
-        // and on C5 the RCC prescaler in front of it is applied in `clock()`.
+        // N6 and C5 have no prescaler: the RCC clock is used as is.
         #[cfg(not(adc_v3_f3))]
         match config.clock {
             Clock::Auto => {
@@ -370,15 +369,6 @@ impl AdcRegs for Regs {
         #[cfg(any(adc_v3_n6, adc_v3_c5))]
         {
             let _ = common;
-            #[cfg(adc_v3_c5)]
-            {
-                // The ADC/DAC kernel clock prescaler (RCC_CCIPR2.ADCDACPRE) divides the value
-                // coming out of the clock mux, and it is not part of the generated clock table,
-                // so `kernel_clock` still carries the undivided mux output. Read the prescaler
-                // back and apply it, the same way the F3 branch handles its own modes.
-                return kernel_clock / crate::pac::RCC.ccipr2().read().adcdacpre();
-            }
-            #[cfg(adc_v3_n6)]
             kernel_clock
         }
     }
