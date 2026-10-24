@@ -41,6 +41,33 @@ macro_rules! ch0 {
     }};
 }
 
+// MTL queue sizes as programmed below. RM0433 (H7), RM0481 (H5) and RM0522 (C5) fix both
+// queues at 2048 bytes. On RM0486 (N6) the RX queue is set to 4096 bytes and the TX queue to
+// 2048.
+const TX_QUEUE_SIZE: usize = 2048;
+#[cfg(any(eth_v2, eth_v2b))]
+const RX_QUEUE_SIZE: usize = 2048;
+#[cfg(eth_v2a)]
+const RX_QUEUE_SIZE: usize = 4096;
+
+#[cfg(any(eth_v2, eth_v2b))]
+const TX_PBL: u8 = 1;
+#[cfg(eth_v2a)]
+const TX_PBL: u8 = 32;
+
+// The reference manuals allow TX checksum insertion only for packets shorter than
+// TxQSize - (PBL + 7) * 4 (RM0433, RM0481, RM0522) or TxQSize - (PBL + 5) * 9 (RM0486).
+#[cfg(any(eth_v2, eth_v2b))]
+const TX_CHECKSUM_LIMIT: usize = TX_QUEUE_SIZE - (TX_PBL as usize + 7) * 4;
+#[cfg(eth_v2a)]
+const TX_CHECKSUM_LIMIT: usize = TX_QUEUE_SIZE - (TX_PBL as usize + 5) * 9;
+
+/// Whether every frame up to [`MTU`] can use TX checksum insertion.
+pub(crate) const TX_CHECKSUM_OFFLOAD: bool = MTU < TX_CHECKSUM_LIMIT;
+/// Whether a whole frame, FCS included, fits the RX queue, so the RX queue can run in
+/// store-and-forward mode. RX checksum offload is only enabled together with it.
+pub(crate) const RX_STORE_AND_FORWARD: bool = MTU + 4 <= RX_QUEUE_SIZE;
+
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _marker: PhantomData<T>,
@@ -450,11 +477,16 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_ps(true);
             w.set_fes(true);
             w.set_dm(true);
-            // Enable RX IP header / payload checksum offload (COE). Requires RX
+            // Frames up to 2000 bytes (IEEE 802.3as) or 9018-byte jumbo frames, FCS included.
+            #[cfg(all(feature = "eth-2k-frames", not(feature = "eth-jumbo-frames")))]
+            w.set_s2kp(true);
+            #[cfg(feature = "eth-jumbo-frames")]
+            w.set_je(true);
+            // RX IP header / payload checksum offload (COE), used only with RX
             // store-and-forward (set below). TX insertion is requested per-frame
             // via TDES3.CIC; together with the driver `Capabilities` this lets
             // xarxa skip software checksums.
-            w.set_ipc(true);
+            w.set_ipc(RX_STORE_AND_FORWARD);
             // TODO: Carrier sense ? ECRSFD
         });
 
@@ -499,7 +531,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         });
 
         ch0!(mtl, mtl_rx_qomr).modify(|w| {
-            w.set_rsf(true);
+            // Frames bigger than the RX queue need cut-through (threshold) mode.
+            w.set_rsf(RX_STORE_AND_FORWARD);
             // 4096-byte RX queue
             #[cfg(eth_v2a)]
             w.set_rqs(15);
@@ -528,12 +561,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_wr_osr_lmt(3);
         });
 
-        ch0!(dma, dmac_tx_cr).modify(|w| {
-            #[cfg(any(eth_v2, eth_v2b))]
-            w.set_txpbl(1); // 32 ?
-            #[cfg(eth_v2a)]
-            w.set_txpbl(32);
-        });
+        ch0!(dma, dmac_tx_cr).modify(|w| w.set_txpbl(TX_PBL));
         ch0!(dma, dmac_rx_cr).modify(|w| {
             #[cfg(any(eth_v2, eth_v2b))]
             w.set_rxpbl(1); // 32 ?
