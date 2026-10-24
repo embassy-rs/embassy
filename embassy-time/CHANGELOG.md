@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Allow duration-only usage without a time driver on Windows/MSVC.
 - Add 27MHz tick rate support
 - Add 24.576MHz, 25.6MHz and 38.4MHz tick rate support
 - Implement `core::error::Error` for `TimeoutError`.

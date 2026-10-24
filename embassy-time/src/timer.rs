@@ -303,6 +303,7 @@ impl Unpin for Timer {}
 
 impl Future for Timer {
     type Output = ();
+    #[inline]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.yielded_once && self.expires_at <= Instant::now() {
             Poll::Ready(())
@@ -399,6 +400,7 @@ impl Ticker {
     ///
     /// Panics if the computed instant overflows.
     /// Avoid panics with [`Ticker::checked_reset()`].
+    #[inline]
     pub fn reset(&mut self) {
         self.expires_at = Instant::now() + self.duration;
     }
@@ -407,6 +409,7 @@ impl Ticker {
     /// This causes the ticker to go back to zero, even if the current tick isn't over yet.
     ///
     /// This is a panic-free [`Ticker::reset()`].
+    #[inline]
     pub fn checked_reset(&mut self) -> Option<()> {
         self.expires_at = Instant::now().checked_add(self.duration)?;
         Some(())
@@ -455,6 +458,7 @@ impl Ticker {
     }
 
     /// Resets the ticker to fire immediately.
+    #[inline]
     pub fn reset_to_now(&mut self) {
         self.expires_at = Instant::now();
     }
@@ -467,6 +471,7 @@ impl Ticker {
     ///
     /// ## Cancel safety
     /// The produced Future is cancel safe, meaning no tick is lost if the Future is dropped.
+    #[inline]
     pub fn next(&mut self) -> impl Future<Output = ()> + Send + Sync + '_ {
         poll_fn(|cx| {
             if self.expires_at <= Instant::now() {
@@ -493,6 +498,7 @@ impl Stream for Ticker {
     /// ## Panics
     ///
     /// Panics if the computed instant overflows.
+    #[inline]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.expires_at <= Instant::now() {
             let dur = self.duration;
