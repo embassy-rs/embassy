@@ -685,6 +685,10 @@ fn main() {
     struct ClockGen<'a> {
         rcc_registers: &'a PeripheralRegisters,
         chained_muxes: HashMap<&'a str, &'a PeripheralRccRegister>,
+        /// Kernel clock muxes that are followed by a divider which stm32-data does not model.
+        /// Maps `(register, field)` to the name of the `Clocks` entry holding the divided clock,
+        /// which the chip's `rcc` module computes.
+        mux_clock_overrides: HashMap<(&'a str, &'a str), &'a str>,
 
         clock_names: BTreeSet<String>,
         muxes: BTreeSet<(Ident, Ident, Ident)>,
@@ -693,6 +697,7 @@ fn main() {
     let mut clock_gen = ClockGen {
         rcc_registers,
         chained_muxes: HashMap::new(),
+        mux_clock_overrides: HashMap::new(),
 
         clock_names: BTreeSet::new(),
         muxes: BTreeSet::new(),
@@ -766,6 +771,13 @@ fn main() {
                 field: "CLK48SEL",
             },
         );
+    }
+
+    if chip_name.starts_with("stm32c5") {
+        // The ADC/DAC kernel clock goes through the ADCDACPRE prescaler after the ADCDACSEL
+        // mux. stm32-data models the mux but not the divider, so `rcc::c5` computes the
+        // divided clock and stores it as the `adcdac` clock instead.
+        clock_gen.mux_clock_overrides.insert(("CCIPR2", "ADCDACSEL"), "adcdac");
     }
 
     if chip_name.starts_with("stm32wba") {
@@ -944,7 +956,15 @@ fn main() {
             };
 
             let clock_frequency = match &rcc.kernel_clock {
-                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
+                PeripheralRccKernelClock::Mux(mux) => {
+                    // Register the mux even if the frequency comes from a dedicated clock: the
+                    // generated `ClockMux` must still expose the selector.
+                    let mux_frequency = clock_gen.gen_mux(p.name, mux);
+                    match clock_gen.mux_clock_overrides.get(&(mux.register, mux.field)).copied() {
+                        Some(clock) => clock_gen.gen_clock(p.name, clock),
+                        None => mux_frequency,
+                    }
+                }
                 PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
             };
 

@@ -21,7 +21,7 @@ I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
 
 ADC:
-- fix: stm32/adc c5: `Adc::clock` returned the clock mux output and ignored the ADC/DAC kernel clock prescaler (`RCC_CCIPR2.ADCDACPRE`), so the `MAX_CLOCK` check in `Adc::new` compared the undivided mux output and panicked: an HCLK1 of 144 MHz with the default /4 is a 36 MHz ADC clock, but the check saw 144 MHz against a 70 MHz limit. The prescaler is now read back and applied, and `Adc::clock` reports the divided value.
+- fix: stm32/adc c5: the ADC/DAC kernel clock prescaler (`RCC_CCIPR2.ADCDACPRE`) was not part of the clock tree, so `ADC1::frequency()`/`ADC2::frequency()`/`DAC1::frequency()` returned the undivided `ADCDACSEL` mux output and the `MAX_CLOCK` check in `Adc::new` panicked: an HCLK1 of 144 MHz with the default /4 is a 36 MHz ADC clock, but the check saw 144 MHz against a 70 MHz limit. `rcc::c5` now stores the divided clock as `Clocks::adcdac` and the generated `frequency()` uses it, so `T::frequency()` and `Adc::clock` report the real ADC clock.
 
 USART:
 - fix: stm32/usart: `BufferedUartTx::flush` could return before the last bytes left the UART when a write wrapped around the end of the TX buffer. The TC interrupt now reports done only when the TX buffer is empty, and every write pends the interrupt.
