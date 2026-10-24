@@ -13,8 +13,8 @@ pub enum IoctlType {
     Set = 2,
 }
 
-/// Largest ioctl payload: a `clmload` chunk plus its headers.
-const BUF_SIZE: usize = 8 + 12 + 1024;
+/// Largest ioctl request: a `clmload` chunk plus its 20 bytes of headers.
+pub(crate) const MAX_IOCTL_LEN: usize = 8 + 12 + 1024;
 
 #[derive(Clone, Copy)]
 pub struct PendingIoctl {
@@ -49,7 +49,7 @@ impl Wakers {
 pub struct IoctlState {
     state: Cell<IoctlStateInner>,
     /// Request data while an ioctl is pending or sent, response data once done.
-    buf: RefCell<[u8; BUF_SIZE]>,
+    buf: RefCell<[u8; MAX_IOCTL_LEN]>,
     wakers: RefCell<Wakers>,
 }
 
@@ -57,7 +57,7 @@ impl IoctlState {
     pub const fn new() -> Self {
         Self {
             state: Cell::new(IoctlStateInner::Done { resp_len: 0 }),
-            buf: RefCell::new([0; BUF_SIZE]),
+            buf: RefCell::new([0; MAX_IOCTL_LEN]),
             wakers: RefCell::new(Wakers::new()),
         }
     }
@@ -110,12 +110,13 @@ impl IoctlState {
         matches!(self.state.get(), IoctlStateInner::Done { .. })
     }
 
-    /// The request data of the pending ioctl, see [`PendingIoctl::len`].
+    /// The ioctl buffer; the pending request is its first [`PendingIoctl::len`] bytes.
     pub fn request(&self) -> Ref<'_, [u8]> {
         Ref::map(self.buf.borrow(), |buf| &buf[..])
     }
 
     pub async fn do_ioctl(&self, kind: IoctlType, cmd: Ioctl, iface: u32, buf: &mut [u8]) -> usize {
+        assert!(buf.len() <= MAX_IOCTL_LEN, "ioctl request too large");
         self.buf.borrow_mut()[..buf.len()].copy_from_slice(buf);
         self.state.set(IoctlStateInner::Pending(PendingIoctl {
             len: buf.len(),
@@ -133,7 +134,7 @@ impl IoctlState {
         if let IoctlStateInner::Sent = self.state.get() {
             trace!("IOCTL Response: {:02x}", Bytes(response));
 
-            let resp_len = response.len().min(BUF_SIZE);
+            let resp_len = response.len().min(MAX_IOCTL_LEN);
             self.buf.borrow_mut()[..resp_len].copy_from_slice(&response[..resp_len]);
 
             self.state.set(IoctlStateInner::Done { resp_len });
@@ -141,5 +142,36 @@ impl IoctlState {
         } else {
             warn!("IOCTL Response but no pending Ioctl");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::pin::pin;
+    use core::task::{Context, Poll, Waker};
+
+    use super::*;
+
+    #[test]
+    fn request_and_response_go_through_the_owned_buffer() {
+        let state = IoctlState::new();
+        let mut cx = Context::from_waker(Waker::noop());
+
+        let mut buf = [1, 2, 3, 4];
+        {
+            let mut ioctl = pin!(state.do_ioctl(IoctlType::Get, Ioctl::GetRssi, 0, &mut buf));
+            assert!(ioctl.as_mut().poll(&mut cx).is_pending());
+
+            let Poll::Ready(pending) = pin!(state.wait_pending()).as_mut().poll(&mut cx) else {
+                panic!("expected a pending ioctl");
+            };
+            assert_eq!(pending.len, 4);
+            assert_eq!(&state.request()[..pending.len], &[1, 2, 3, 4]);
+
+            // A response longer than the caller's buffer is truncated to it.
+            state.ioctl_done(&[5, 6, 7, 8, 9, 10]);
+            assert_eq!(ioctl.as_mut().poll(&mut cx), Poll::Ready(4));
+        }
+        assert_eq!(buf, [5, 6, 7, 8]);
     }
 }

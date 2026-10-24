@@ -822,8 +822,9 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                 match select4(select(ioctl, mcast), wifi_tx, bt_work, ev).await {
                     Either4::First(Either::First(PendingIoctl { len, kind, cmd, iface })) => {
-                        // Copy the request out before awaiting, so the borrow of the
-                        // ioctl state does not outlive this statement.
+                        // Copy the request into the frame before awaiting: after a cancel,
+                        // Control may start a new ioctl and write the ioctl buffer while
+                        // this write is in flight.
                         let total_len = {
                             let request = ioctl_state.request();
                             self.build_ioctl(kind, cmd, iface, &request[..len], &mut buf)
