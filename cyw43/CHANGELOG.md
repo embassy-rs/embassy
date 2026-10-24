@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `State` is now `Send`, so it can be stored in a `ConstStaticCell`.
 - Clear the scan event mask and subscription on cancellation.
 - Keep WiFi responsive when the Bluetooth RX queue is full; resume queued records when space frees.
 - Disassociate before retrying a failed or cancelled join.
