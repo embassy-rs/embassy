@@ -10,7 +10,7 @@ use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, Peripheral, PeripheralRccKernelClock,
-    PeripheralRccRegister, PeripheralRegisters, StopMode,
+    PeripheralRccMux, PeripheralRccRegister, PeripheralRegisters, StopMode,
 };
 
 #[path = "./build_common.rs"]
@@ -882,6 +882,63 @@ fn main() {
                 }
             }
         }
+
+        fn gen_prescaled_mux(&mut self, peripheral: &str, mux: &PeripheralRccMux) -> TokenStream {
+            let mux_expr = self.gen_mux(
+                peripheral,
+                &PeripheralRccRegister {
+                    register: mux.register,
+                    field: mux.field,
+                },
+            );
+
+            let ir = &self.rcc_registers.ir;
+            let fieldset_name = mux.prescaler.register.to_ascii_lowercase();
+            let fieldset = ir
+                .fieldsets
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
+                .unwrap();
+            let field_name = mux.prescaler.field.to_ascii_lowercase();
+            let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
+            let enum_name = field.enumm.unwrap();
+            let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
+
+            let fieldset_name = format_ident!("{}", fieldset_name);
+            let field_name = format_ident!("{}", field_name);
+            let enum_name = format_ident!("{}", enum_name);
+
+            let mut match_arms = TokenStream::new();
+            for v in enumm.variants.iter() {
+                let variant_name = format_ident!("{}", v.name);
+                let (op, val): (_, u32) =
+                    if let Some(n) = v.name.strip_prefix("Div").and_then(|x| x.parse::<u32>().ok()) {
+                        (quote!(/), n)
+                    } else if let Some(n) = v.name.strip_prefix("Mul").and_then(|x| x.parse::<u32>().ok()) {
+                        (quote!(*), n)
+                    } else {
+                        panic!("unsupported clock prescaler variant {} in {}", v.name, enum_name)
+                    };
+                match_arms.extend(quote! {
+                    crate::pac::rcc::vals::#enum_name::#variant_name => freq #op #val,
+                });
+            }
+
+            quote! {
+                {
+                    let freq = #mux_expr;
+                    match crate::pac::RCC.#fieldset_name().read().#field_name() {
+                        #match_arms
+                        #[allow(unreachable_patterns)]
+                        _ => panic!(
+                            "attempted to use peripheral '{}' but its clock prescaler is not set to \
+                             a valid value. Change 'config.rcc.mux' to another clock.",
+                            #peripheral
+                        )
+                    }
+                }
+            }
+        }
     }
 
     let mut refcount_idxs = BTreeSet::new();
@@ -946,6 +1003,7 @@ fn main() {
             let clock_frequency = match &rcc.kernel_clock {
                 PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
                 PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
+                PeripheralRccKernelClock::PrescaledMux(mux) => clock_gen.gen_prescaled_mux(p.name, mux),
             };
 
             let bus_clock_frequency = clock_gen.gen_clock(p.name, rcc.bus_clock);
