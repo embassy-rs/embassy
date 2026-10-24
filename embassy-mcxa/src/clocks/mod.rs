@@ -47,14 +47,21 @@ pub mod config;
 mod gate;
 mod operator;
 pub mod periph_helpers;
+#[cfg(feature = "retained-deep-sleep")]
+pub(crate) mod retention;
 mod sleep;
 mod types;
 
 // Re-exports
 pub use config::VddLevel;
-pub(crate) use gate::default_register_value;
 pub use gate::{Gate, assert_reset, disable, enable, enable_and_reset, is_reset_released, pulse_reset, release_reset};
-pub use sleep::deep_sleep_if_possible;
+pub(crate) use gate::{default_register_value, wait_for_enable_state};
+#[cfg(feature = "sleep-diagnostics")]
+pub use sleep::SleepDiagnostics;
+pub use sleep::{
+    PowerModeError, SleepStatus, deep_sleep_if_possible, go_to_deep_sleep, go_to_deep_sleep_with_status, go_to_sleep,
+    go_to_sleep_with_status,
+};
 pub use types::{Clock, ClockError, Clocks, PoweredClock, WakeGuard};
 
 //
@@ -63,7 +70,10 @@ pub use types::{Clock, ClockError, Clocks, PoweredClock, WakeGuard};
 
 /// The state of system core clocks.
 ///
-/// Initialized by [`init()`], and then unchanged for the remainder of the program.
+/// Configuration is initialized by [`init()`] and then unchanged. Optional sleep
+/// diagnostics are updated under the entry critical section. Driver-owned
+/// retention can temporarily strengthen the configured stop policy during entry
+/// without changing active frequencies or these baseline clock descriptions.
 pub(super) static CLOCKS: critical_section::Mutex<RefCell<Option<Clocks>>> =
     critical_section::Mutex::new(RefCell::new(None));
 pub(super) static LIVE_HP_TOKENS: AtomicUsize = AtomicUsize::new(0);

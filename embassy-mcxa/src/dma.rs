@@ -1718,6 +1718,46 @@ impl DmaChannel<'_> {
         });
     }
 
+    /// Pause requests and drain the accepted minor loop without changing the
+    /// descriptor, completion flags, or ping-pong ownership.
+    ///
+    /// The peripheral must stop issuing requests before calling this. Its
+    /// driver must prevent interrupt handlers from rearming the channel.
+    pub(crate) fn pause(&self) {
+        self.tcd()
+            .ch_csr()
+            .modify(|control| Self::set_request_control(control, false));
+        while self.tcd().ch_csr().read().active() {
+            core::hint::spin_loop();
+        }
+        fence(Ordering::SeqCst);
+    }
+
+    /// Resume a paused descriptor without acknowledging a pending completion.
+    ///
+    /// # Safety
+    ///
+    /// The paused descriptor and buffers must remain valid and exclusively owned
+    /// by this channel. The peripheral driver must restore its activity guard first.
+    pub(crate) unsafe fn resume(&self) {
+        self.tcd()
+            .ch_csr()
+            .modify(|control| Self::set_request_control(control, true));
+    }
+
+    fn set_request_control(control: &mut pac::edma_tcd::ChCsr, enabled: bool) {
+        control.set_erq(enabled);
+        control.set_earq(enabled);
+        // DONE is W1C: preserve a completion that resume still needs to observe.
+        control.set_done(false);
+    }
+
+    /// Whether a request is armed or a service is still touching channel buffers.
+    pub(crate) fn is_armed_or_active(&self) -> bool {
+        let control = self.tcd().ch_csr().read();
+        control.erq() || control.earq() || control.active()
+    }
+
     /// Abort the transfer.
     ///
     /// When this returns, DMA can no longer access the transfer's buffers or
@@ -1735,9 +1775,20 @@ impl DmaChannel<'_> {
     ///    dropped on the floor instead of running redundantly after CS
     ///    exit.
     pub(crate) fn stop(&self) {
+        Self::stop_registers(self.tcd(), self.channel.interrupt(), self.dma(), self.channel());
+    }
+
+    /// The owner must stop peripheral requests before this cleanup runs.
+    pub(crate) fn stop_on_drop(&self) -> impl Drop + use<> {
         let t = self.tcd();
         let irq = self.channel.interrupt();
+        let dma = self.dma();
+        let channel = self.channel();
+        embassy_hal_internal::drop::OnDrop::new(move || Self::stop_registers(t, irq, dma, channel))
+    }
 
+    #[inline(never)]
+    fn stop_registers(t: pac::edma_tcd::Tcd, irq: crate::interrupt::Interrupt, dma: usize, channel: usize) {
         critical_section::with(|_| {
             // 1. Stop accepting new requests.
             t.ch_csr().modify(|w| {
@@ -1768,10 +1819,10 @@ impl DmaChannel<'_> {
         // 5. Clear completion bookkeeping (W1C).
         t.ch_int().write(|w| w.set_int(true));
         t.ch_csr().modify(|w| w.set_done(true));
-        let state = &STATES[self.dma()][self.channel()];
+        let state = &STATES[dma][channel];
         state.peripheral_scatter_gather_active.store(false, Ordering::Release);
         state.peripheral_scatter_gather_done.store(false, Ordering::Release);
-        set_ping_pong_status(self.dma(), self.channel(), None);
+        set_ping_pong_status(dma, channel, None);
 
         fence(Ordering::SeqCst);
     }
@@ -3043,6 +3094,7 @@ pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
 /// Macro to generate DMA channel interrupt handlers.
 macro_rules! impl_dma_interrupt_handler {
     ($irq:ident, $dma:expr, $ch:expr) => {
+        #[cfg(all(target_os = "none", target_arch = "arm"))]
         #[cortex_m_rt::interrupt]
         fn $irq() {
             // SAFETY: The correct $ch is called as generated, We check that
@@ -3066,3 +3118,38 @@ macro_rules! impl_dma_interrupt_handler {
 // "in-band" DMA interrupt binding with `bind_interrupts!`.
 pub(crate) static CALLBACKS: [[AtomicPtr<()>; DMA_CHANNEL_COUNT]; DMA_INSTANCE_COUNT] =
     [const { [const { AtomicPtr::new(core::ptr::null_mut()) }; DMA_CHANNEL_COUNT] }; DMA_INSTANCE_COUNT];
+
+#[cfg(test)]
+mod power_tests {
+    use super::*;
+
+    #[test]
+    fn pause_disables_requests_without_acknowledging_done() {
+        let mut control = pac::edma_tcd::ChCsr(0);
+        control.set_erq(true);
+        control.set_earq(true);
+        control.set_done(true);
+        let original = control.0;
+        DmaChannel::set_request_control(&mut control, false);
+        assert!(!control.erq());
+        assert!(!control.earq());
+        assert!(!control.done());
+        // Writing zero to DONE preserves the hardware latch; no other CSR bits change.
+        let changed = original ^ control.0;
+        let mut expected = pac::edma_tcd::ChCsr(0);
+        expected.set_erq(true);
+        expected.set_earq(true);
+        expected.set_done(true);
+        assert_eq!(changed, expected.0);
+    }
+
+    #[test]
+    fn resume_enables_requests_without_acknowledging_done() {
+        let mut control = pac::edma_tcd::ChCsr(0);
+        control.set_done(true);
+        DmaChannel::set_request_control(&mut control, true);
+        assert!(control.erq());
+        assert!(control.earq());
+        assert!(!control.done());
+    }
+}

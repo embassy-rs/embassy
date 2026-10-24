@@ -102,6 +102,8 @@ pub enum SetupError {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum IOError {
+    /// Explicitly resume the target before listening or responding.
+    Suspended,
     /// Busy Busy
     BusBusy,
     /// Target Busy
@@ -308,6 +310,8 @@ pub struct I2c<'d, M: Mode> {
     general_call: Status,
     mode: M,
     _wg: Option<WakeGuard>,
+    power: PoweredClock,
+    suspended: bool,
 }
 
 impl<'d, M: Mode> I2c<'d, M> {
@@ -344,11 +348,67 @@ impl<'d, M: Mode> I2c<'d, M> {
             general_call: config.general_call,
             mode,
             _wg: parts.wake_guard,
+            power,
+            suspended: false,
         };
 
         inst.set_configuration(&config)?;
 
         Ok(inst)
+    }
+
+    /// Stop accepting addresses before releasing this target's requirement.
+    ///
+    /// Cancel the owning listen/response future first. A busy target or armed
+    /// DMA channel retains its requirement; no in-flight transaction is aborted.
+    pub fn suspend(&mut self) -> Result<(), IOError> {
+        if self.suspended {
+            return Ok(());
+        }
+        critical_section::with(|_| {
+            let regs = self.info.regs();
+            if regs.ssr().read().bbf().to_bits() != 0
+                || regs.ssr().read().sbf().to_bits() != 0
+                || regs.ssr().read().avf()
+                || regs.ssr().read().rdf()
+                || self.mode.dma_is_armed_or_active()
+                || regs.sder().read().0 != 0
+            {
+                return Err(IOError::TargetBusy);
+            }
+            regs.scr().modify(|w| w.set_sen(false));
+            if regs.scr().read().sen() || regs.ssr().read().sbf().to_bits() != 0 || regs.ssr().read().avf() {
+                regs.scr().modify(|w| w.set_sen(true));
+                return Err(IOError::TargetBusy);
+            }
+            regs.sier().write(|w| w.0 = 0);
+            self.reset_fifos();
+            self.suspended = true;
+            self._wg = None;
+            Ok(())
+        })
+    }
+
+    /// Restore this target's requirement before accepting new addresses.
+    pub fn resume(&mut self) -> Result<(), IOError> {
+        if self.suspended {
+            critical_section::with(|_| {
+                self._wg = WakeGuard::for_power(&self.power);
+                self.clear_status();
+                self.info.regs().scr().modify(|w| w.set_sen(true));
+                if !self.info.regs().scr().read().sen() {
+                    return Err(IOError::Other);
+                }
+                self.suspended = false;
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Whether the target has explicitly stopped listening.
+    pub fn is_suspended(&self) -> bool {
+        self.suspended
     }
 
     fn set_configuration(&self, config: &Config) -> Result<(), SetupError> {
@@ -522,6 +582,9 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// - `Ok(Request)` on success.
     /// - `Err(IOError)` if an error occurs.
     pub fn blocking_listen(&mut self) -> Result<Request, IOError> {
+        if self.suspended {
+            return Err(IOError::Suspended);
+        }
         self.clear_status();
 
         // Wait for Address Valid
@@ -570,6 +633,9 @@ impl<'d, M: Mode> I2c<'d, M> {
     ///   bytes the controller ACKed.
     /// - `Err(IOError)` if an error occurs.
     pub fn blocking_respond_to_read(&mut self, buf: &[u8]) -> Result<ReadStatus, IOError> {
+        if self.suspended {
+            return Err(IOError::Suspended);
+        }
         let mut count = 0;
 
         self.clear_status();
@@ -627,6 +693,9 @@ impl<'d, M: Mode> I2c<'d, M> {
     ///   bytes the target received.
     /// - `Err(IOError)` if an error occurs.
     pub fn blocking_respond_to_write(&mut self, buf: &mut [u8]) -> Result<WriteStatus, IOError> {
+        if self.suspended {
+            return Err(IOError::Suspended);
+        }
         let mut count = 0;
 
         self.clear_status();
@@ -806,6 +875,11 @@ impl<'d> I2c<'d, Dma<'d>> {
     }
 
     async fn read_dma_chunk(&mut self, data: &mut [u8]) -> Result<RxChunkOutcome, IOError> {
+        // Cancellation disables requests and drains DMA before releasing admission.
+        let _activity = matches!(self.power, PoweredClock::AlwaysEnabled).then(WakeGuard::new);
+        let _stop_dma = self.mode.rx_dma.stop_on_drop();
+        let regs = self.info.regs();
+        let _disable_request = OnDrop::new(|| regs.sder().modify(|w| w.set_rdde(false)));
         let peri_addr = self.info.regs().srdr().as_ptr() as *const u8;
         let chunk_len = data.len();
 
@@ -861,10 +935,7 @@ impl<'d> I2c<'d, Dma<'d>> {
 
         // Cleanup
         self.info.regs().sder().modify(|w| w.set_rdde(false));
-        unsafe {
-            self.mode.rx_dma.disable_request();
-            self.mode.rx_dma.clear_done();
-        }
+        drop(_stop_dma);
 
         // Ensure all writes by DMA are visible to the CPU
         fence(Ordering::Acquire);
@@ -887,6 +958,11 @@ impl<'d> I2c<'d, Dma<'d>> {
     }
 
     async fn write_dma_chunk(&mut self, data: &[u8]) -> Result<TxChunkOutcome, IOError> {
+        // These locals drop in reverse order, including cancellation/error paths.
+        let _activity = matches!(self.power, PoweredClock::AlwaysEnabled).then(WakeGuard::new);
+        let _stop_dma = self.mode.tx_dma.stop_on_drop();
+        let regs = self.info.regs();
+        let _disable_request = OnDrop::new(|| regs.sder().modify(|w| w.set_tdde(false)));
         let peri_addr = self.info.regs().stdr().as_ptr() as *mut u8;
         let chunk_len = data.len();
 
@@ -952,10 +1028,7 @@ impl<'d> I2c<'d, Dma<'d>> {
 
         // Cleanup
         self.info.regs().sder().modify(|w| w.set_tdde(false));
-        unsafe {
-            self.mode.tx_dma.disable_request();
-            self.mode.tx_dma.clear_done();
-        }
+        drop(_stop_dma);
 
         // DMA completion only means the final byte reached the TX FIFO. TDF
         // can assert before the controller's ninth-bit NACK and STOP, so a
@@ -1053,6 +1126,11 @@ where
     /// - `Ok(Request)` on success.
     /// - `Err(IOError)` if an error occurs.
     pub async fn async_listen(&mut self) -> Result<Request, IOError> {
+        if self.suspended {
+            return Err(IOError::Suspended);
+        }
+        let regs = self.info.regs();
+        let _disable_interrupts = OnDrop::new(|| regs.sier().write(|w| w.0 = 0));
         self.clear_status();
 
         self.info
@@ -1150,6 +1228,9 @@ trait AsyncEngine {
 
 impl<'d> AsyncEngine for I2c<'d, Async> {
     async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<ReadStatus, IOError> {
+        if self.suspended {
+            return Err(IOError::Suspended);
+        }
         let mut count = 0;
 
         self.clear_status();
@@ -1206,6 +1287,9 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
     }
 
     async fn async_respond_to_write_internal(&mut self, buf: &mut [u8]) -> Result<WriteStatus, IOError> {
+        if self.suspended {
+            return Err(IOError::Suspended);
+        }
         let mut count = 0;
 
         self.clear_status();
@@ -1245,6 +1329,9 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
 
 impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
     async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<ReadStatus, IOError> {
+        if self.suspended {
+            return Err(IOError::Suspended);
+        }
         let mut count = 0;
 
         // perform corrective action if the future is dropped
@@ -1294,6 +1381,9 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
     }
 
     async fn async_respond_to_write_internal<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<WriteStatus, IOError> {
+        if self.suspended {
+            return Err(IOError::Suspended);
+        }
         let mut count = 0;
 
         self.clear_status();
@@ -1338,8 +1428,112 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
 
 impl<'d, M: Mode> Drop for I2c<'d, M> {
     fn drop(&mut self) {
+        self.info.regs().sier().write(|w| w.0 = 0);
+        self.info.regs().sder().write(|w| w.0 = 0);
+        self.mode.stop_dma();
+        self.info.regs().scr().modify(|w| {
+            w.set_sen(false);
+            w.set_rst(true);
+        });
         self._scl.set_as_disabled();
         self._sda.set_as_disabled();
+    }
+}
+
+#[cfg(test)]
+mod power_tests {
+    extern crate std;
+
+    use super::*;
+    use std::boxed::Box;
+
+    fn target() -> I2c<'static, Blocking> {
+        let memory = Box::leak(Box::new([0u32; 256]));
+        // SAFETY: isolated aligned RAM covers all target registers.
+        let regs = unsafe { crate::pac::lpi2c::Lpi2c::from_ptr(memory.as_mut_ptr().cast()) };
+        regs.scr().modify(|w| w.set_sen(true));
+        I2c {
+            info: Box::leak(Box::new(Info {
+                regs,
+                wait_cell: maitake_sync::WaitCell::new(),
+            })),
+            _scl: crate::test_support::pin(),
+            _sda: crate::test_support::pin(),
+            smbus_alert: Status::Disabled,
+            general_call: Status::Disabled,
+            mode: Blocking,
+            _wg: Some(WakeGuard::new()),
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            suspended: false,
+        }
+    }
+
+    #[test]
+    fn target_suspension_and_resume_follow_hardware_lifetime() {
+        critical_section::with(|cs| {
+            let mut target = target();
+            target.suspend().unwrap();
+            assert!(!target.info.regs().scr().read().sen());
+            assert!(target.is_suspended());
+            assert!(!crate::clocks::active_wake_guards(&cs));
+            assert!(matches!(target.blocking_listen(), Err(IOError::Suspended)));
+            target.resume().unwrap();
+            assert!(target.info.regs().scr().read().sen());
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn busy_target_or_dma_keeps_listening_and_its_guard() {
+        critical_section::with(|cs| {
+            let mut target = target();
+            target
+                .info
+                .regs()
+                .ssr()
+                .modify(|w| w.set_sbf(crate::pac::lpi2c::Sbf::from_bits(1)));
+            assert_eq!(target.suspend(), Err(IOError::TargetBusy));
+            target.info.regs().ssr().write(|w| w.0 = 0);
+            target.info.regs().sder().write(|w| w.0 = 1);
+            assert_eq!(target.suspend(), Err(IOError::TargetBusy));
+            assert!(target.info.regs().scr().read().sen());
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn target_keeps_its_guard_until_listening_and_dma_are_stopped() {
+        critical_section::with(|cs| {
+            let memory = Box::leak(Box::new([0u32; 256]));
+            // SAFETY: isolated aligned RAM covers all target registers.
+            let regs = unsafe { crate::pac::lpi2c::Lpi2c::from_ptr(memory.as_mut_ptr().cast()) };
+            let info = Box::leak(Box::new(Info {
+                regs,
+                wait_cell: maitake_sync::WaitCell::new(),
+            }));
+            let config = Config::default();
+            let target = I2c {
+                info,
+                _scl: crate::test_support::pin(),
+                _sda: crate::test_support::pin(),
+                smbus_alert: config.smbus_alert,
+                general_call: config.general_call,
+                mode: Blocking,
+                _wg: Some(WakeGuard::new()),
+                power: PoweredClock::NormalEnabledDeepSleepDisabled,
+                suspended: false,
+            };
+            info.regs().scr().modify(|w| w.set_sen(true));
+            info.regs().sier().write(|w| w.0 = 1);
+            info.regs().sder().write(|w| w.0 = 1);
+            assert!(crate::clocks::active_wake_guards(&cs));
+            drop(target);
+            assert!(!info.regs().scr().read().sen());
+            assert!(info.regs().scr().read().rst());
+            assert_eq!(info.regs().sier().read().0, 0);
+            assert_eq!(info.regs().sder().read().0, 0);
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
     }
 }
 

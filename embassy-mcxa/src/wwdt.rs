@@ -8,6 +8,13 @@
 //! instead has a source mux and can additionally be driven from `clk_16k` or `fro_hf_div`; see
 //! [`ClockConfig`]. Both instances have a `CLKDIV` pre-divider, and both then divide by a further
 //! fixed factor of 4 inside the peripheral.
+//!
+//! An armed watchdog cannot be stopped by dropping its handle. Its active-only
+//! clock requirement therefore remains until reset, even if the handle is
+//! dropped. There is deliberately no watchdog suspension API.
+//!
+//! Reset-mode construction masks the selected instance's interrupt so its
+//! handler cannot interfere with reset. Warning mode enables that interrupt.
 
 #[cfg(feature = "embedded-mcu-hal")]
 use core::convert::Infallible;
@@ -23,7 +30,7 @@ use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
 use crate::pac::wwdt::{Wden, Wdprotect, Wdreset};
 
-/// WWDT0 Error types
+/// WWDT error types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -100,8 +107,8 @@ impl<'d> Watchdog<'d> {
     /// # Arguments
     ///
     /// * `_peri` - The WWDT peripheral instance
-    /// * `_irq` - Interrupt binding for WWDT0
-    /// * `config - WWDT config with timeout and optional warning value
+    /// * `_irq` - Interrupt binding for the selected WWDT instance
+    /// * `config` - WWDT config with timeout and optional warning value
     pub fn new<T: Instance>(
         _peri: Peri<'d, T>,
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -125,8 +132,7 @@ impl<'d> Watchdog<'d> {
             _wg: parts.wake_guard,
         };
 
-        let frequency = parts.freq / 4;
-        let timeout_cycles = (frequency as u64 * config.timeout.as_micros()) / 1_000_000;
+        let timeout_cycles = counter_ticks(parts.freq, config.timeout);
 
         // Ensure the value fits in u32 and is within valid range
         //
@@ -146,7 +152,7 @@ impl<'d> Watchdog<'d> {
         // Windows value is set to max at reset for no effect.
 
         if let Some(warning_value) = config.warning {
-            let warning_cycles = (frequency as u64 * warning_value.as_micros()) / 1_000_000;
+            let warning_cycles = counter_ticks(parts.freq, warning_value);
             if warning_cycles > 0x3FF {
                 return Err(Error::WarningTooLarge);
             }
@@ -157,13 +163,13 @@ impl<'d> Watchdog<'d> {
             watchdog.enable_reset();
         }
 
-        watchdog.lock_oscillator();
-
         T::Interrupt::unpend();
 
-        // Safety: `_irq` ensures an Interrupt Handler exists.
-        unsafe {
-            T::Interrupt::enable();
+        if config.warning.is_some() {
+            // SAFETY: `_irq` ensures an interrupt handler exists.
+            unsafe { T::Interrupt::enable() };
+        } else {
+            T::Interrupt::disable();
         }
 
         Ok(watchdog)
@@ -171,6 +177,7 @@ impl<'d> Watchdog<'d> {
 
     /// Start the watchdog timer with the specified timeout period.
     pub fn start(&mut self) {
+        self.lock_oscillator();
         self.enable();
         self.feed();
 
@@ -232,6 +239,91 @@ impl<'d> Watchdog<'d> {
     /// Lock the oscillator to prevent disabling or powering down the watchdog oscillator.
     fn lock_oscillator(&self) {
         self.info.regs().mod_().modify(|w| w.set_lock(true));
+    }
+}
+
+fn counter_ticks(clock_hz: u32, duration: Duration) -> u64 {
+    (u64::from(clock_hz / 4) * duration.as_micros()) / 1_000_000
+}
+
+impl Drop for Watchdog<'_> {
+    fn drop(&mut self) {
+        if self.info.regs().mod_().read().wden() == Wden::Run {
+            // Hardware outlives the handle and cannot be stopped until reset.
+            core::mem::forget(self._wg.take());
+        }
+    }
+}
+
+#[cfg(test)]
+mod power_tests {
+    extern crate std;
+
+    use super::*;
+    use std::boxed::Box;
+
+    fn test_watchdog(power: PoweredClock) -> Watchdog<'static> {
+        let memory = Box::leak(Box::new([0u32; 64]));
+        // SAFETY: this isolated aligned allocation covers the WWDT registers.
+        let regs = unsafe { crate::pac::wwdt::Wwdt::from_ptr(memory.as_mut_ptr().cast()) };
+        Watchdog {
+            info: Box::leak(Box::new(Info { regs })),
+            _phantom: PhantomData,
+            _wg: WakeGuard::for_power(&power),
+        }
+    }
+
+    #[test]
+    fn unarmed_watchdog_releases_its_requirement_on_drop() {
+        critical_section::with(|cs| {
+            let watchdog = test_watchdog(PoweredClock::NormalEnabledDeepSleepDisabled);
+            assert!(crate::clocks::active_wake_guards(&cs));
+            drop(watchdog);
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn armed_watchdog_keeps_its_requirement_after_handle_drop() {
+        critical_section::with(|cs| {
+            let watchdog = test_watchdog(PoweredClock::NormalEnabledDeepSleepDisabled);
+            watchdog.info.regs().mod_().modify(|w| w.set_wden(Wden::Run));
+            // SAFETY: the armed watchdog's Drop forgets the original guard.
+            // This copy is dropped only afterward to balance the test counter.
+            let cleanup = unsafe { core::ptr::read(watchdog._wg.as_ref().unwrap()) };
+            drop(watchdog);
+            assert!(crate::clocks::active_wake_guards(&cs));
+            drop(cleanup);
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn retained_watchdog_can_be_fed_without_inhibiting_deep_sleep() {
+        critical_section::with(|cs| {
+            let watchdog = test_watchdog(PoweredClock::AlwaysEnabled);
+            watchdog.info.regs().mod_().modify(|w| {
+                w.set_wden(Wden::Run);
+                w.set_wdreset(Wdreset::Reset);
+            });
+            watchdog.feed();
+            assert_eq!(watchdog.info.regs().mod_().read().wden(), Wden::Run);
+            assert_eq!(watchdog.info.regs().mod_().read().wdreset(), Wdreset::Reset);
+            assert!(!crate::clocks::active_wake_guards(&cs));
+            drop(watchdog);
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn fro16k_preserves_sixty_second_timeout_and_thirty_second_feed_margin() {
+        assert_eq!(counter_ticks(16_384, Duration::from_secs(60)), 245_760);
+        assert_eq!(counter_ticks(16_384, Duration::from_secs(30)), 122_880);
+    }
+
+    #[test]
+    fn clk1m_timeout_scaling_is_unchanged() {
+        assert_eq!(counter_ticks(1_000_000, Duration::from_secs(60)), 15_000_000);
     }
 }
 

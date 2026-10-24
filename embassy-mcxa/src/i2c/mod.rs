@@ -14,7 +14,13 @@ pub mod target;
 
 pub(crate) mod sealed {
     /// Seal a trait
-    pub trait Sealed {}
+    pub trait Sealed {
+        fn stop_dma(&self) {}
+
+        fn dma_is_armed_or_active(&self) -> bool {
+            false
+        }
+    }
     pub trait SealedPin<Instance> {}
 }
 
@@ -135,7 +141,16 @@ pub struct Dma<'d> {
     rx_request: DmaRequest,
     tx_request: DmaRequest,
 }
-impl sealed::Sealed for Dma<'_> {}
+impl sealed::Sealed for Dma<'_> {
+    fn dma_is_armed_or_active(&self) -> bool {
+        self.tx_dma.is_armed_or_active() || self.rx_dma.is_armed_or_active()
+    }
+
+    fn stop_dma(&self) {
+        self.tx_dma.stop();
+        self.rx_dma.stop();
+    }
+}
 impl Mode for Dma<'_> {}
 impl AsyncMode for Dma<'_> {}
 
