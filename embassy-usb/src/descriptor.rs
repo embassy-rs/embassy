@@ -375,6 +375,16 @@ pub(crate) fn device_qualifier_descriptor(config: &Config) -> [u8; 10] {
 }
 
 pub(crate) fn rewrite_config_descriptor_for_high_speed(buf: &mut [u8]) {
+    rewrite_periodic_intervals(buf, encode_high_speed_interval);
+}
+
+/// At full speed, `interval_ms` is the `bInterval`, except that 0 (every frame) becomes 1.
+pub(crate) fn rewrite_config_descriptor_for_full_speed(buf: &mut [u8]) {
+    rewrite_periodic_intervals(buf, |interval_ms| interval_ms.max(1));
+}
+
+/// Applies `f` to the `bInterval` of every interrupt and isochronous endpoint.
+fn rewrite_periodic_intervals(buf: &mut [u8], f: impl Fn(u8) -> u8) {
     let mut pos = 0;
     while pos < buf.len() {
         let len = buf[pos] as usize;
@@ -383,7 +393,7 @@ pub(crate) fn rewrite_config_descriptor_for_high_speed(buf: &mut [u8]) {
         if buf[pos + 1] == descriptor_type::ENDPOINT && len >= 7 {
             let transfer_type = buf[pos + 3] & 0x03;
             if transfer_type == EndpointType::Interrupt as u8 || transfer_type == EndpointType::Isochronous as u8 {
-                buf[pos + 6] = encode_high_speed_interval(buf[pos + 6]);
+                buf[pos + 6] = f(buf[pos + 6]);
             }
         }
 
@@ -391,8 +401,13 @@ pub(crate) fn rewrite_config_descriptor_for_high_speed(buf: &mut [u8]) {
     }
 }
 
+/// Returns the high-speed `bInterval` (2^(bInterval-1) microframes) for `interval_ms`.
+/// 0 is every microframe.
 fn encode_high_speed_interval(interval_ms: u8) -> u8 {
-    let microframes = u32::from(interval_ms.max(1)) * 8;
+    if interval_ms == 0 {
+        return 1;
+    }
+    let microframes = u32::from(interval_ms) * 8;
     let rounded = microframes.next_power_of_two().min(1 << 15);
     let exponent = (31 - rounded.leading_zeros()) as u8;
     exponent + 1
@@ -465,5 +480,32 @@ impl<'a> BosWriter<'a> {
         self.num_caps_mark = None;
         let position = self.writer.position as u16;
         self.writer.buf[2..4].copy_from_slice(&position.to_le_bytes());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn high_speed_interval() {
+        assert_eq!(encode_high_speed_interval(0), 1); // 125 us
+        assert_eq!(encode_high_speed_interval(1), 4); // 8 microframes
+        assert_eq!(encode_high_speed_interval(2), 5);
+        assert_eq!(encode_high_speed_interval(3), 6); // rounded up to 32 microframes
+        assert_eq!(encode_high_speed_interval(255), 12); // 2048 microframes
+    }
+
+    #[test]
+    fn periodic_intervals_only() {
+        // An interface, then a bulk and an isochronous endpoint, both with bInterval 0.
+        let mut buf = [
+            9, 4, 0, 0, 2, 0xff, 0, 0, 0, //
+            7, 5, 0x81, 0x02, 64, 0, 0, //
+            7, 5, 0x02, 0x05, 64, 0, 0,
+        ];
+        rewrite_config_descriptor_for_full_speed(&mut buf);
+        assert_eq!(buf[15], 0);
+        assert_eq!(buf[22], 1);
     }
 }
