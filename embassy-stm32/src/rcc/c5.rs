@@ -164,6 +164,9 @@ pub(crate) unsafe fn init(config: Config) {
     let apb3 = hclk / config.apb3_pre;
     assert!(max::PCLK.contains(&apb3));
 
+    // The ADC/DAC kernel clock is the output of the ADCDACSEL mux divided by ADCDACPRE.
+    // stm32-data only models the mux, so this divided value is what `frequency()` returns for
+    // ADC1/ADC2/DAC1 (see the `mux_clock_overrides` entry in `build.rs`).
     let adc_dac = match config.mux.adcdacsel {
         stm32_metapac::rcc::vals::Adcdacsel::Hclk1 => hclk,
         stm32_metapac::rcc::vals::Adcdacsel::Psi => unimplemented!(),
@@ -212,6 +215,7 @@ pub(crate) unsafe fn init(config: Config) {
         sys: Some(sys),
         hclk1: Some(hclk),
         hclk2: Some(hclk),
+        adcdac: Some(adc_dac),
         pclk1: Some(apb1),
         pclk1_tim: Some(hclk),
         pclk2: Some(apb2),
