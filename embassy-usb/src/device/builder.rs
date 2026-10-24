@@ -3,7 +3,8 @@ use heapless::Vec;
 use super::{Handler, Inner, Interface, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START, UsbDevice, UsbDeviceState};
 use crate::config::MAX_HANDLER_COUNT;
 use crate::descriptor::{
-    self, BosWriter, DescriptorWriter, SynchronizationType, UsageType, rewrite_config_descriptor_for_high_speed,
+    self, BosWriter, DescriptorWriter, SynchronizationType, UsageType, rewrite_config_descriptor_for_full_speed,
+    rewrite_config_descriptor_for_high_speed,
 };
 use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointInfo, EndpointType};
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
@@ -258,6 +259,8 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
                 "high-speed USB requires max_packet_size_0 = 64"
             );
             rewrite_config_descriptor_for_high_speed(config_descriptor);
+        } else {
+            rewrite_config_descriptor_for_full_speed(config_descriptor);
         }
 
         // Log the number of allocator bytes actually used in descriptor buffers
