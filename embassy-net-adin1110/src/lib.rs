@@ -1204,7 +1204,7 @@ mod tests {
         if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
-        // Packet FCS + optinal padding
+        // Packet FCS + optional padding
         tail.extend_from_slice(&[77, 241, 140, 244, DONT_CARE_BYTE, DONT_CARE_BYTE]);
 
         expectations.push(SpiTransaction::write_vec(tail));

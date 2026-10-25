@@ -264,7 +264,7 @@ impl<'d> Pdm<'d> {
     ///
     /// A sampler closure is provided that receives the buffer of samples, noting
     /// that the size of this buffer can be less than the original buffer's size.
-    /// A command is return from the closure that indicates whether the sampling
+    /// A command is returned from the closure that indicates whether the sampling
     /// should continue or stop.
     ///
     /// NOTE: The time spent within the callback supplied should not exceed the time

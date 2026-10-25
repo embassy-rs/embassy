@@ -587,7 +587,7 @@ impl<'a> Control<'a> {
             }
         }
 
-        // Change mutlicast rate from 1 Mbps to 11 Mbps
+        // Change multicast rate from 1 Mbps to 11 Mbps
         self.set_iovar_u32("2g_mrate", 11000000 / 500000).await;
 
         // Start AP

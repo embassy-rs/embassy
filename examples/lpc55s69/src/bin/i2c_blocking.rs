@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
         let res = i2c.blocking_write_read(MPU6500_ADDR, &[WHO_AM_I], &mut buf);
         match res {
             Ok(_) => {
-                info!("Read successfull! MPU6500 ID: {:#04x}", buf[0]); // should be 0x70
+                info!("Read successful! MPU6500 ID: {:#04x}", buf[0]); // should be 0x70
             }
             Err(e) => {
                 error!("Read error: {}", e);

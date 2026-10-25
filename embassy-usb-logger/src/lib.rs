@@ -219,7 +219,7 @@ impl<'d, const N: usize> core::fmt::Write for Writer<'d, N> {
 
 /// Initialize and run the USB serial logger, never returns.
 ///
-/// Arguments specify the buffer size, log level and the USB driver, respectively. You can optionally add a RecieverHandler.
+/// Arguments specify the buffer size, log level and the USB driver, respectively. You can optionally add a ReceiverHandler.
 ///
 /// # Usage
 ///
@@ -254,7 +254,7 @@ macro_rules! run {
 /// Initialize the USB serial logger from a serial class and return the future to run it.
 /// The future never returns.
 ///
-/// Arguments specify the buffer size, log level and the serial class, respectively. You can optionally add a RecieverHandler.
+/// Arguments specify the buffer size, log level and the serial class, respectively. You can optionally add a ReceiverHandler.
 ///
 /// # Usage
 ///
@@ -291,7 +291,7 @@ macro_rules! with_class {
 /// This version of the macro allows for a custom style function to be passed in.
 /// The custom style function will be called for each log record and is responsible for writing the log message to the buffer.
 ///
-/// Arguments specify the buffer size, log level, the serial class and the custom style function, respectively. You can optionally add a RecieverHandler.
+/// Arguments specify the buffer size, log level, the serial class and the custom style function, respectively. You can optionally add a ReceiverHandler.
 ///
 /// # Usage
 ///

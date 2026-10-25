@@ -102,7 +102,7 @@ crate::util::enum_from_u8! {
         /// WPA Handshake
         PSK_SUP = 46,
         COUNTRY_CODE_CHANGED = 47,
-        /// WMMAC excedded medium time
+        /// WMMAC exceeded medium time
         EXCEEDED_MEDIUM_TIME = 48,
         /// WEP ICV error occurred
         ICV_ERROR = 49,
@@ -260,7 +260,7 @@ crate::util::enum_from_u8! {
         PFN_GSCAN_FULL_RESULT = 134,
         /// Significant change in rssi of bssids being tracked
         PFN_SWC = 135,
-        /// a STA been authroized for traffic
+        /// a STA been authorized for traffic
         AUTHORIZED = 136,
         /// probe req with wl_event_rx_frame_data_t header
         PROBREQ_MSG_RX = 137,
