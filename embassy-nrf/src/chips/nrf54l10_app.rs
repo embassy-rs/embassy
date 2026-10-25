@@ -581,7 +581,30 @@ impl_ppi_channel!(PPI00_CH6, DPPIC00, 6 => configurable);
 impl_ppi_channel!(PPI00_CH7, DPPIC00, 7 => configurable);
 
 // DPPI10 channels
-impl_ppi_channel!(PPI10_CH0, DPPIC10, 0 => static);
+impl_ppi_channel!(PPI10_CH0, DPPIC10, 0 => configurable);
+impl_ppi_channel!(PPI10_CH1, DPPIC10, 1 => configurable);
+impl_ppi_channel!(PPI10_CH2, DPPIC10, 2 => configurable);
+impl_ppi_channel!(PPI10_CH3, DPPIC10, 3 => configurable);
+impl_ppi_channel!(PPI10_CH4, DPPIC10, 4 => configurable);
+impl_ppi_channel!(PPI10_CH5, DPPIC10, 5 => configurable);
+impl_ppi_channel!(PPI10_CH6, DPPIC10, 6 => configurable);
+impl_ppi_channel!(PPI10_CH7, DPPIC10, 7 => configurable);
+impl_ppi_channel!(PPI10_CH8, DPPIC10, 8 => configurable);
+impl_ppi_channel!(PPI10_CH9, DPPIC10, 9 => configurable);
+impl_ppi_channel!(PPI10_CH10, DPPIC10, 10 => configurable);
+impl_ppi_channel!(PPI10_CH11, DPPIC10, 11 => configurable);
+impl_ppi_channel!(PPI10_CH12, DPPIC10, 12 => configurable);
+impl_ppi_channel!(PPI10_CH13, DPPIC10, 13 => configurable);
+impl_ppi_channel!(PPI10_CH14, DPPIC10, 14 => configurable);
+impl_ppi_channel!(PPI10_CH15, DPPIC10, 15 => configurable);
+impl_ppi_channel!(PPI10_CH16, DPPIC10, 16 => configurable);
+impl_ppi_channel!(PPI10_CH17, DPPIC10, 17 => configurable);
+impl_ppi_channel!(PPI10_CH18, DPPIC10, 18 => configurable);
+impl_ppi_channel!(PPI10_CH19, DPPIC10, 19 => configurable);
+impl_ppi_channel!(PPI10_CH20, DPPIC10, 20 => configurable);
+impl_ppi_channel!(PPI10_CH21, DPPIC10, 21 => configurable);
+impl_ppi_channel!(PPI10_CH22, DPPIC10, 22 => configurable);
+impl_ppi_channel!(PPI10_CH23, DPPIC10, 23 => configurable);
 
 // DPPI20 channels
 impl_ppi_channel!(PPI20_CH0, DPPIC20, 0 => configurable);
@@ -613,6 +636,11 @@ impl_ppi_group!(PPI00_GROUP1, DPPIC00, 1);
 
 // DPPI10 groups
 impl_ppi_group!(PPI10_GROUP0, DPPIC10, 0);
+impl_ppi_group!(PPI10_GROUP1, DPPIC10, 1);
+impl_ppi_group!(PPI10_GROUP2, DPPIC10, 2);
+impl_ppi_group!(PPI10_GROUP3, DPPIC10, 3);
+impl_ppi_group!(PPI10_GROUP4, DPPIC10, 4);
+impl_ppi_group!(PPI10_GROUP5, DPPIC10, 5);
 
 // DPPI20 groups
 impl_ppi_group!(PPI20_GROUP0, DPPIC20, 0);
