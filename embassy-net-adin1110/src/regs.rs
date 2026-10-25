@@ -92,7 +92,7 @@ bitfield! {
     u32;
     /// Control Data Protection Error
     pub cdpe, _ : 12;
-    /// Transmit Frame Check Squence Error
+    /// Transmit Frame Check Sequence Error
     pub txfcse, _: 11;
     /// Transmit Time Stamp Capture Available C
     pub ttscac, _ : 10;

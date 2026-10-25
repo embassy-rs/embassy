@@ -240,7 +240,7 @@ impl<'a> Control<'a> {
         self.state_ch.get_hardware_address()
     }
 
-    /// Reset ESP and initialzation state
+    /// Reset ESP and initialization state
     ///
     /// `init` should be executed again after reset
     pub fn reset(&self) {

@@ -32,7 +32,7 @@ impl<'d, PIO: Instance> PioIrNecRxProgram<'d, PIO> {
             ; in order to permit timely detection of start of a burst. The initialisation function below sets
             ; the correct divisor to achieve this relative to the system clock.
             ;
-            ; Within the 'NEC' protocol frames consists of 32 bits sent least-siginificant bit first; so the
+            ; Within the 'NEC' protocol frames consists of 32 bits sent least-significant bit first; so the
             ; Input Shift Register should be configured to shift right and autopush after 32 bits, as in the
             ; initialisation function below.
             ;

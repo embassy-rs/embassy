@@ -777,7 +777,7 @@ pub unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> Wri
         return WriteResult::Failed;
     }
 
-    // Nrf9151 errata 7, need to disable interrups + use DSB https://docs.nordicsemi.com/bundle/errata_nRF9151_Rev2/page/ERR/nRF9151/Rev2/latest/anomaly_151_7.html
+    // Nrf9151 errata 7, need to disable interrupts + use DSB https://docs.nordicsemi.com/bundle/errata_nRF9151_Rev2/page/ERR/nRF9151/Rev2/latest/anomaly_151_7.html
     cortex_m::interrupt::free(|_cs| {
         let nvmc = pac::NVMC;
 

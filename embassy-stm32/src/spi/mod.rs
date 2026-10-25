@@ -1462,7 +1462,7 @@ impl<'d> Spi<'d, Async, Master> {
                 finish_dma(self.info.regs);
             } else {
                 rx_f.await;
-                // In receiving mode RXNE flag should be prefered over BSY flag.
+                // In receiving mode RXNE flag should be preferred over BSY flag.
                 // When using DMA the RXNE flag is cleared after DMA reads data.
                 // Since DMA has already finished reading previously specified
                 // amount of data, then there is no need to check for RXNE flag.

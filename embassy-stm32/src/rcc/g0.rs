@@ -90,7 +90,7 @@ pub enum FlashPrefetch {
     IfSingleBank,
 }
 
-/// Clocks configutation
+/// Clocks configuration
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub struct Config {

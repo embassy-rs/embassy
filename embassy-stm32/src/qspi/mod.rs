@@ -288,7 +288,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         });
     }
 
-    /// Automaticly poll until a desired status is received.
+    /// Automatically poll until a desired status is received.
     pub fn blocking_auto_poll(
         &mut self,
         // The transaction to send
@@ -832,7 +832,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         transfer
     }
 
-    /// Automaticly poll until a desired status is received.
+    /// Automatically poll until a desired status is received.
     /// In case the desired status is never received, it is advised to always use `WithTimeout::with_timeout()`.
     pub async fn auto_poll(
         &mut self,

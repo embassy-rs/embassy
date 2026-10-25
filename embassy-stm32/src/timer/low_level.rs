@@ -472,7 +472,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         ManuallyDrop::new(Self { tim })
     }
 
-    /// Get access to the virutal core 16bit timer registers.
+    /// Get access to the virtual core 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
     /// for the less capable timers are a subset. This allows writing a driver
@@ -808,7 +808,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
 }
 
 impl<'d, T: BasicNoCr2Instance> Timer<'d, T> {
-    /// Get access to the Baisc 16bit timer registers.
+    /// Get access to the Basic 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
     /// for the less capable timers are a subset. This allows writing a driver
@@ -830,7 +830,7 @@ impl<'d, T: BasicNoCr2Instance> Timer<'d, T> {
 }
 
 impl<'d, T: BasicInstance> Timer<'d, T> {
-    /// Get access to the Baisc 16bit timer registers.
+    /// Get access to the Basic 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
     /// for the less capable timers are a subset. This allows writing a driver

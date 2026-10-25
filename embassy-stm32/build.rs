@@ -3045,7 +3045,7 @@ fn main() {
         ));
     }
 
-    // Generate constants identifying Tighly Coupled Ram regions
+    // Generate constants identifying Tightly Coupled Ram regions
     if let Some(m) = memory.iter().find(|m| m.name == "ITCM") {
         let start = m.address;
         let end = m.address + m.size;

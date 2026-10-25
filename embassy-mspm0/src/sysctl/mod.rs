@@ -67,7 +67,7 @@ impl SleepLevel {
             // Needs MCLK
             Some(Self::Stop0)
         } else if clock_hz > LFCLK_HZ {
-            // Reqires MFCLK
+            // Requires MFCLK
             Some(Self::Stop2)
         } else if clock_hz > 0 {
             // LFCLK is enough, keep PD0 alive
@@ -231,7 +231,7 @@ impl<'d> Drop for ClkOut<'d> {
 
 /// ClkOut pin trait.
 pub trait ClkOutPin: Pin {
-    /// Get the PF number needed to use this pin aas ClkOut pin.
+    /// Get the PF number needed to use this pin as ClkOut pin.
     fn pf_num(&self) -> u8;
 }
 

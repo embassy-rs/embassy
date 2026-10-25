@@ -217,7 +217,7 @@ pub enum RifPeripheral {
     Otg1hs,
     /// Universal Serial Bus On-the-Go High-Speed 2
     Otg2hs,
-    /// Univeral Serial Bus Type-C Power Delivery interface 1
+    /// Universal Serial Bus Type-C Power Delivery interface 1
     Ucpd1,
     /// Ethernet 1
     Eth1,

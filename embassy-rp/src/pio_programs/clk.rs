@@ -60,12 +60,12 @@ impl<'d, T: Instance, const SM: usize> PioClk<'d, T, SM> {
         b.set_enable(&mut self.sm, false);
     }
 
-    /// Start emmiting clock
+    /// Start emitting clock
     pub fn start(&mut self) {
         self.sm.set_enable(true);
     }
 
-    /// Stop emmiting clock
+    /// Stop emitting clock
     pub fn stop(&mut self) {
         self.sm.set_enable(false);
     }

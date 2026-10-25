@@ -299,7 +299,7 @@ where
         });
     }
 
-    /// Returns whether the analog watchdog has been triggerd
+    /// Returns whether the analog watchdog has been triggered
     pub(crate) fn triggered() -> bool {
         T::regs().flt(M::CHANNEL.index()).isr().read().awdf()
     }

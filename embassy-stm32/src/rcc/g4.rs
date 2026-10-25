@@ -53,7 +53,7 @@ pub struct Pll {
     pub divr: Option<PllRDiv>,
 }
 
-/// Clocks configutation
+/// Clocks configuration
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub struct Config {

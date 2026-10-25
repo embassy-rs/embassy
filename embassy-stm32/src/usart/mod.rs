@@ -308,11 +308,11 @@ pub struct Config {
     pub de_deassertion_time: u8,
 
     #[cfg(usart_v4)]
-    /// Transmit FIFO thereshold: number of bytes that must be free for the buffered irq handler to run.
+    /// Transmit FIFO threshold: number of bytes that must be free for the buffered irq handler to run.
     pub tx_fifo_threshold: u8,
 
     #[cfg(usart_v4)]
-    /// Receive FIFO thereshold: number of bytes that must be available for the buffered irq handler to run.
+    /// Receive FIFO threshold: number of bytes that must be available for the buffered irq handler to run.
     pub rx_fifo_threshold: u8,
 
     // private: set by new_half_duplex, not by the user.

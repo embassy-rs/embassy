@@ -88,7 +88,7 @@ impl MetadataRef {
     }
 
     /// Remove this task's deadline.
-    /// This brings it back to the defaul where it's not scheduled ahead of other tasks.
+    /// This brings it back to the default where it's not scheduled ahead of other tasks.
     #[cfg(feature = "scheduler-deadline")]
     pub fn unset_deadline(&self) {
         self.set_deadline(Deadline::UNSET_TICKS);
@@ -151,7 +151,7 @@ impl Metadata {
             #[cfg(feature = "scheduler-priority")]
             priority: AtomicU8::new(0),
             // NOTE: The deadline is set to zero to allow the initializer to reside in `.bss`. This
-            // will be lazily initalized in `initialize_impl`
+            // will be lazily initialized in `initialize_impl`
             #[cfg(feature = "scheduler-deadline")]
             deadline: raw::Deadline::new_unset(),
         }

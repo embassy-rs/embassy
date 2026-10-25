@@ -5,7 +5,7 @@
 //! They can be used across both cores so that an interrupt executor
 //! on one core can be woken up by the other.
 //!
-//! When using this executors, they must be explicitely passed to the `main`
+//! When using this executors, they must be explicitly passed to the `main`
 //! macro using
 //!
 //! `#[embassy_executor::main(executor = "embassy_rp::executor::Executor",  entry = "cortex_m_rt::entry")]`

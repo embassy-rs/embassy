@@ -189,7 +189,7 @@ impl<'d> Channel<'d, Async> {
         Transfer::new(self.reborrow())
     }
 
-    /// Repetedly read from a peripheral to discard data.
+    /// Repeatedly read from a peripheral to discard data.
     ///
     /// SAFETY: `from` must point to a valid location reachable by DMA.
     pub unsafe fn read_discard<'a, W: Word>(
@@ -237,7 +237,7 @@ impl<'d> Channel<'d, Async> {
         Transfer::new(self.reborrow())
     }
 
-    /// Repetedly write 0 to peripeheral.
+    /// Repeatedly write 0 to peripheral.
     ///
     /// SAFETY: `to` must point to a valid location reachable by DMA.
     pub unsafe fn write_zeros<'a, W: Word>(

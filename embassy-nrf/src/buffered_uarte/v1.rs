@@ -157,7 +157,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                     let rx_started = s.rx_started_count.load(Ordering::Relaxed);
 
                     // If we started the same amount of transfers as ended, the last rxend has
-                    // already occured.
+                    // already occurred.
                     let rxend_happened = rx_started == rx_ended;
 
                     // Check if the PPI channel is still enabled. The PPI channel disables itself

@@ -211,7 +211,7 @@ impl<'d, M: Mode> Rng<'d, M> {
         self.r.rng_sw_reset().write(|w| w.set_reset(true));
 
         // Wait for calibration
-        // ROSC1 (ring oscillator lenght) chosen arbitrarly, can be later exposed as configuration.
+        // ROSC1 (ring oscillator length) chosen arbitrarily, can be later exposed as configuration.
         loop {
             self.r.rng_clk().write(|w| w.set_enable(true));
             self.r.sample_cnt().write_value(pac::FICR.trng90b().rosc1().read());

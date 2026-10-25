@@ -82,7 +82,7 @@ pub enum BbqRxMode {
     /// Max Frame mode, ensures that dma transfers always have exactly `size` bytes available
     ///
     /// In this mode, we will always make DMA transfers of the given size. This is intended for
-    /// cases where we are receving bursts of data <= `size`, ideally with a short gap between
+    /// cases where we are receiving bursts of data <= `size`, ideally with a short gap between
     /// bursts. This means that we will receive an IDLE interrupt, and switch over receiving grants
     /// in the quiet period, avoiding potentially latency-sensitive DMA transfer updates while
     /// data is still being transferred. This is especially useful at higher baudrates.
