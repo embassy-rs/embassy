@@ -17,17 +17,29 @@
 //! Both directions share one clock, so macOS groups them into one device. The clock selector
 //! is for Linux, which otherwise doesn't start the feedback endpoint.
 //!
-//! Stereo in and out at 48 or 96 kHz, 24-bit:
+//! Each direction has any number of channels the bandwidth allows: one packet of up to 1024
+//! bytes per microframe, so for example 13 channels of 24-bit audio at 192 kHz, 26 at 96 kHz.
+//! The channels are either numbered ([`Channels::Numbered`], the usual choice for an
+//! interface's inputs and outputs) or speaker positions ([`Channels::Spatial`]).
+//!
+//! `N`, a const generic on the class's types, is the room for Feature Unit settings: the
+//! master plus the channels of the direction with more of them. Without Feature Units it can
+//! be 0.
+//!
+//! Stereo in and out at 48 or 96 kHz, 24-bit, with a volume control on each output:
 //!
 //! ```rust,ignore
-//! use embassy_usb::class::uac::device::uac2::io_box::{Config, IoBox, State};
-//! use embassy_usb::class::uac::device::{Channel, SampleWidth};
+//! use embassy_usb::class::uac::device::SampleWidth;
+//! use embassy_usb::class::uac::device::uac2::io_box::{self, Channels, Config, FeatureUnitControls, IoBox, State};
 //!
-//! // 96 kHz: 12 frames per microframe, plus one for the rate to drift, 6 bytes each
-//! const MAX_PACKET: u16 = 13 * 6;
-//! static STEREO: [Channel; 2] = [Channel::LeftFront, Channel::RightFront];
+//! const RATES: [u32; 2] = [48_000, 96_000];
+//! // the stream buffers: frames of one microframe at 96 kHz, plus one, 6 bytes each
+//! const MAX_PACKET: usize = io_box::max_packet_size(96_000, SampleWidth::Width3Byte, 2);
 //!
-//! let config = Config::new(&[48_000, 96_000], SampleWidth::Width3Byte, &STEREO, &STEREO, MAX_PACKET, MAX_PACKET);
+//! // room for the Feature Unit: the master and two channels
+//! let mut config = Config::<3>::new(&RATES, SampleWidth::Width3Byte, Channels::Numbered(2), Channels::Numbered(2));
+//! let v = FeatureUnitControls::VOLUME;
+//! config.line_out_feature_unit = [FeatureUnitControls::empty(), v, v].into_iter().collect();
 //! let mut io = IoBox::new(&mut builder, state, config);
 //!
 //! // each in its own task, after `wait_connection()`:
@@ -36,8 +48,9 @@
 //! // the device's sample rate, 16.16 samples per microframe, every microframe or so
 //! io.feedback.write_packet((((rate_hz as u64) << 16) / 8000) as u32).await?;
 //!
-//! // the rate the host selected
+//! // the rate the host selected, and the first output's volume
 //! let hz = io.control_monitor.sample_rate_hz();
+//! let volume = io.control_monitor.line_out_volume(0);
 //! ```
 
 use core::cell::{Cell, RefCell};
@@ -54,7 +67,7 @@ use portable_atomic::AtomicU32;
 
 pub use super::super::Volume;
 pub use super::super::function::FeatureUnitControls;
-use super::super::{Channel, MAX_AUDIO_CHANNEL_COUNT, MAX_AUDIO_CHANNEL_INDEX, SampleWidth};
+use super::super::{Channel, SampleWidth};
 use super::channel_config;
 use crate::class::uac::terminal_type::TerminalType;
 use crate::class::uac::uac2_codes::{
@@ -97,6 +110,47 @@ const INTERRUPT_MESSAGE_LEN: usize = 6;
 const VOLUME_SILENCE_8Q8_DB: i16 = i16::MIN;
 
 const MAX_SAMPLE_RATE_COUNT: usize = 10;
+
+/// The isochronous packet limit at high speed (one transaction per microframe).
+const MAX_ISO_PACKET_SIZE: usize = 1024;
+
+/// A class-specific descriptor's body: bLength is a byte, and covers itself and bDescriptorType.
+const MAX_DESCRIPTOR_BODY: usize = 255 - 2;
+
+/// The channels of one direction, as the host is told about them.
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Channels<'d> {
+    /// Channels without speaker positions (`bmChannelConfig` 0), one to 255: an interface's
+    /// inputs and outputs. The host numbers them.
+    Numbered(u8),
+    /// One channel per speaker position, in stream order. Entries must be unique and follow
+    /// `bmChannelConfig` bit order, as listed in [`Channel`].
+    Spatial(&'d [Channel]),
+}
+
+impl Channels<'_> {
+    /// The number of channels.
+    pub const fn count(&self) -> usize {
+        match self {
+            Channels::Numbered(n) => *n as usize,
+            Channels::Spatial(c) => c.len(),
+        }
+    }
+
+    fn config(&self) -> u32 {
+        match self {
+            Channels::Numbered(_) => 0,
+            Channels::Spatial(c) => channel_config(c),
+        }
+    }
+}
+
+/// The isochronous packet size a direction needs: the frames of one microframe at the highest
+/// rate, plus one for the rate to drift, times the frame size. Size the stream buffers with it.
+pub const fn max_packet_size(max_rate_hz: u32, sample_width: SampleWidth, channels: usize) -> usize {
+    (max_rate_hz.div_ceil(8000) as usize + 1) * sample_width as usize * channels
+}
 
 /// The volume range a Feature Unit advertises, in whole dB.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -143,26 +197,26 @@ fn selector(req: &Request) -> u16 {
 
 /// I/O box stream settings and optional host controls.
 #[derive(Clone)]
-pub struct Config<'d> {
+pub struct Config<'d, const N: usize> {
     /// Supported sample rates in Hz, shared by both directions: one to ten discrete values, in
     /// any order. The first is reported before the host selects a rate.
     pub sample_rates_hz: &'d [u32],
     /// The audio sample resolution of both streams.
     pub sample_width: SampleWidth,
-    /// Line out channels in stream order (one to twelve). Entries must be unique and follow
-    /// `bmChannelConfig` bit order, as listed in [`Channel`].
-    pub line_out_channels: &'d [Channel],
-    /// Line in channels in stream order, as [`Self::line_out_channels`].
-    pub line_in_channels: &'d [Channel],
+    /// Line out channels.
+    pub line_out_channels: Channels<'d>,
+    /// Line in channels.
+    pub line_in_channels: Channels<'d>,
     /// Controls the USB host can change on each line out channel.
     ///
-    /// Use `heapless::Vec::new()` to omit the Feature Unit. Otherwise, provide
-    /// `line_out_channels.len() + 1` entries: the master first, then each channel in stream
-    /// order. Use [`FeatureUnitControls::empty`] for no controls on a channel.
-    pub line_out_feature_unit: Vec<FeatureUnitControls, MAX_AUDIO_CHANNEL_COUNT, u8>,
+    /// Use `heapless::Vec::new()` to omit the Feature Unit. Otherwise, provide one entry more
+    /// than there are channels: the master first, then each channel in stream order. Use
+    /// [`FeatureUnitControls::empty`] for no controls on a channel. At most 62 entries (the
+    /// descriptor's length is a byte).
+    pub line_out_feature_unit: Vec<FeatureUnitControls, N, u8>,
     /// Controls the USB host can change on each line in channel, as
     /// [`Self::line_out_feature_unit`].
-    pub line_in_feature_unit: Vec<FeatureUnitControls, MAX_AUDIO_CHANNEL_COUNT, u8>,
+    pub line_in_feature_unit: Vec<FeatureUnitControls, N, u8>,
     /// The volume range of the line out Feature Unit.
     pub line_out_volume_range: VolumeRange,
     /// The volume range of the line in Feature Unit.
@@ -170,22 +224,15 @@ pub struct Config<'d> {
     /// Add an AudioControl interrupt endpoint, so the host learns about volume and mute
     /// changes the device makes itself ([`ControlMonitor::set_line_out_volume`]).
     pub interrupt_endpoint: bool,
-    /// Maximum bytes per line out packet: frames per microframe at the highest rate, plus one,
-    /// times the frame size.
-    pub line_out_max_packet_size: u16,
-    /// Maximum bytes per line in packet, as [`Self::line_out_max_packet_size`].
-    pub line_in_max_packet_size: u16,
 }
 
-impl<'d> Config<'d> {
+impl<'d, const N: usize> Config<'d, N> {
     /// Creates an I/O box configuration without Feature Units.
     pub const fn new(
         sample_rates_hz: &'d [u32],
         sample_width: SampleWidth,
-        line_out_channels: &'d [Channel],
-        line_in_channels: &'d [Channel],
-        line_out_max_packet_size: u16,
-        line_in_max_packet_size: u16,
+        line_out_channels: Channels<'d>,
+        line_in_channels: Channels<'d>,
     ) -> Self {
         Self {
             sample_rates_hz,
@@ -197,20 +244,18 @@ impl<'d> Config<'d> {
             line_out_volume_range: VolumeRange::DEFAULT,
             line_in_volume_range: VolumeRange::DEFAULT,
             interrupt_endpoint: false,
-            line_out_max_packet_size,
-            line_in_max_packet_size,
         }
     }
 }
 
 /// Internal state for the I/O box.
 #[derive(Default)]
-pub struct State<'d> {
-    control: Option<Control<'d>>,
-    shared: SharedControl<'d>,
+pub struct State<'d, const N: usize> {
+    control: Option<Control<'d, N>>,
+    shared: SharedControl<'d, N>,
 }
 
-impl<'d> State<'d> {
+impl<'d, const N: usize> State<'d, N> {
     /// Create a new `State`.
     pub fn new() -> Self {
         Self::default()
@@ -218,7 +263,7 @@ impl<'d> State<'d> {
 }
 
 /// USB Audio Class 2.0 I/O box: line out + line in with explicit feedback.
-pub struct IoBox<'d, D: Driver<'d>> {
+pub struct IoBox<'d, D: Driver<'d>, const N: usize> {
     /// Line out stream (host to device).
     pub line_out: LineOutStream<'d, D>,
     /// Line in stream (device to host).
@@ -226,21 +271,21 @@ pub struct IoBox<'d, D: Driver<'d>> {
     /// Line out's explicit feedback endpoint.
     pub feedback: Feedback<'d, D>,
     /// The AudioControl interrupt endpoint, if [`Config::interrupt_endpoint`] is set.
-    pub interrupt: Option<Interrupt<'d, D>>,
+    pub interrupt: Option<Interrupt<'d, D, N>>,
     /// Control monitor.
-    pub control_monitor: ControlMonitor<'d>,
+    pub control_monitor: ControlMonitor<'d, N>,
 }
 
-impl<'d, D: Driver<'d>> IoBox<'d, D> {
+impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
     /// Creates a new [`IoBox`] function.
     ///
     /// # Panics
     ///
-    /// If there is no sample rate or more than ten, no channel or more than twelve in a
-    /// direction, a `max_packet_size` above the 1024-byte isochronous limit, a nonempty feature
-    /// unit without one entry for the master and each channel, unsupported control bits, or a
-    /// `control_buf` too small for the sample rate list.
-    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
+    /// If there is no sample rate or more than ten, no channel in a direction, a direction
+    /// whose packets ([`max_packet_size`]) exceed the 1024-byte isochronous limit, a nonempty
+    /// feature unit without one entry for the master and each channel, or with more than 62,
+    /// unsupported control bits, or a `control_buf` too small for the sample rate list.
+    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d, N>, config: Config<'d, N>) -> Self {
         let Config {
             sample_rates_hz,
             sample_width,
@@ -251,25 +296,29 @@ impl<'d, D: Driver<'d>> IoBox<'d, D> {
             line_out_volume_range,
             line_in_volume_range,
             interrupt_endpoint,
-            line_out_max_packet_size,
-            line_in_max_packet_size,
         } = config;
 
         assert!(
             (1..=MAX_SAMPLE_RATE_COUNT).contains(&sample_rates_hz.len()),
             "between one and ten sample rates"
         );
+        let max_rate_hz = sample_rates_hz.iter().copied().max().unwrap_or(0);
         for (channels, feature_unit) in [
             (line_out_channels, &line_out_feature_unit),
             (line_in_channels, &line_in_feature_unit),
         ] {
+            assert!(channels.count() > 0, "at least one channel");
             assert!(
-                (1..=MAX_AUDIO_CHANNEL_INDEX).contains(&channels.len()),
-                "between one and twelve channels"
+                max_packet_size(max_rate_hz, sample_width, channels.count()) <= MAX_ISO_PACKET_SIZE,
+                "the channels don't fit a 1024-byte isochronous packet at the highest rate"
             );
             assert!(
-                feature_unit.is_empty() || feature_unit.len() == channels.len() + 1,
+                feature_unit.is_empty() || feature_unit.len() == channels.count() + 1,
                 "a feature unit must be empty or contain the master and every audio channel"
+            );
+            assert!(
+                feature_unit_len(feature_unit.len()) <= MAX_DESCRIPTOR_BODY,
+                "at most 62 feature unit entries"
             );
             assert!(
                 feature_unit
@@ -284,10 +333,8 @@ impl<'d, D: Driver<'d>> IoBox<'d, D> {
                 "a volume range needs min < max and a positive step"
             );
         }
-        assert!(
-            line_out_max_packet_size <= 1024 && line_in_max_packet_size <= 1024,
-            "at most 1024 bytes per isochronous packet"
-        );
+        let line_out_max_packet_size = max_packet_size(max_rate_hz, sample_width, line_out_channels.count()) as u16;
+        let line_in_max_packet_size = max_packet_size(max_rate_hz, sample_width, line_in_channels.count()) as u16;
         assert!(
             builder.control_buf_len() >= 2 + 12 * sample_rates_hz.len(),
             "control_buf too small for the sample rate RANGE reply"
@@ -456,8 +503,6 @@ impl<'d, D: Driver<'d>> IoBox<'d, D> {
         drop(func);
 
         let shared = &mut state.shared;
-        shared.line_out_channels = line_out_channels;
-        shared.line_in_channels = line_in_channels;
         shared.line_out_controls = line_out_feature_unit;
         shared.line_in_controls = line_in_feature_unit;
         shared.line_out_volume_range = line_out_volume_range;
@@ -468,8 +513,8 @@ impl<'d, D: Driver<'d>> IoBox<'d, D> {
         ] {
             settings.lock(|x| {
                 *x.borrow_mut() = AudioSettings {
-                    muted: [false; MAX_AUDIO_CHANNEL_COUNT],
-                    volume_8q8_db: [range.initial_8q8(); MAX_AUDIO_CHANNEL_COUNT],
+                    muted: [false; N],
+                    volume_8q8_db: [range.initial_8q8(); N],
                 }
             });
         }
@@ -498,9 +543,9 @@ impl<'d, D: Driver<'d>> IoBox<'d, D> {
 
 // Descriptor bodies (without bLength / bDescriptorType).
 
-fn input_terminal(id: u8, terminal_type: TerminalType, channels: &[Channel]) -> [u8; 15] {
+fn input_terminal(id: u8, terminal_type: TerminalType, channels: Channels) -> [u8; 15] {
     let terminal_type: u16 = terminal_type.into();
-    let cfg = channel_config(channels);
+    let cfg = channels.config();
     [
         ac_descriptor::INPUT_TERMINAL,
         id,
@@ -508,7 +553,7 @@ fn input_terminal(id: u8, terminal_type: TerminalType, channels: &[Channel]) -> 
         (terminal_type >> 8) as u8,
         0x00, // bAssocTerminal
         CLOCK_SELECTOR_ID,
-        channels.len() as u8,
+        channels.count() as u8,
         cfg as u8,
         (cfg >> 8) as u8,
         (cfg >> 16) as u8,
@@ -536,10 +581,13 @@ fn output_terminal(id: u8, terminal_type: TerminalType, source_id: u8) -> [u8; 1
     ]
 }
 
-const FEATURE_UNIT_MAX_BODY: usize = 3 + 4 * MAX_AUDIO_CHANNEL_COUNT + 1;
+/// A Feature Unit descriptor's body for `entries` (the master and each channel).
+const fn feature_unit_len(entries: usize) -> usize {
+    3 + 4 * entries + 1
+}
 
 /// Feature Unit descriptor, with the master's controls first. Empty if there are no controls.
-fn feature_unit(id: u8, source_id: u8, controls: &[FeatureUnitControls]) -> Vec<u8, FEATURE_UNIT_MAX_BODY> {
+fn feature_unit(id: u8, source_id: u8, controls: &[FeatureUnitControls]) -> Vec<u8, MAX_DESCRIPTOR_BODY> {
     let mut v = Vec::new();
     if controls.is_empty() {
         return v;
@@ -559,8 +607,8 @@ fn feature_unit(id: u8, source_id: u8, controls: &[FeatureUnitControls]) -> Vec<
     v
 }
 
-fn as_general(terminal_link: u8, channels: &[Channel]) -> [u8; 14] {
-    let cfg = channel_config(channels);
+fn as_general(terminal_link: u8, channels: Channels) -> [u8; 14] {
+    let cfg = channels.config();
     let formats = format_type::Type1::PCM.bits();
     [
         as_descriptor::GENERAL,
@@ -571,7 +619,7 @@ fn as_general(terminal_link: u8, channels: &[Channel]) -> [u8; 14] {
         (formats >> 8) as u8,
         (formats >> 16) as u8,
         (formats >> 24) as u8,
-        channels.len() as u8,
+        channels.count() as u8,
         cfg as u8,
         (cfg >> 8) as u8,
         (cfg >> 16) as u8,
@@ -665,13 +713,13 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
 
 /// The AudioControl interrupt endpoint: tells the host which controls the device changed
 /// itself, so it reads them again. Keep [`Self::run`] running.
-pub struct Interrupt<'d, D: Driver<'d>> {
+pub struct Interrupt<'d, D: Driver<'d>, const N: usize> {
     ep: D::EndpointIn,
-    shared: &'d SharedControl<'d>,
+    shared: &'d SharedControl<'d, N>,
     interface: u8,
 }
 
-impl<'d, D: Driver<'d>> Interrupt<'d, D> {
+impl<'d, D: Driver<'d>, const N: usize> Interrupt<'d, D, N> {
     /// Sends a notification for each control changed through
     /// [`ControlMonitor::set_line_out_volume`] or [`ControlMonitor::set_line_in_volume`].
     pub async fn run(&mut self) -> ! {
@@ -679,12 +727,12 @@ impl<'d, D: Driver<'d>> Interrupt<'d, D> {
             self.ep.wait_enabled().await;
             loop {
                 let p = self.shared.pending.lock(|x| x.replace(Pending::default()));
-                if p.line_out | p.line_in == 0 {
+                if p.is_empty() {
                     self.shared.pending_signal.wait().await;
                     continue;
                 }
-                if self.notify(OUT_FEATURE_UNIT_ID, p.line_out).await.is_err()
-                    || self.notify(IN_FEATURE_UNIT_ID, p.line_in).await.is_err()
+                if self.notify(OUT_FEATURE_UNIT_ID, &p.line_out).await.is_err()
+                    || self.notify(IN_FEATURE_UNIT_ID, &p.line_in).await.is_err()
                 {
                     break;
                 }
@@ -692,24 +740,26 @@ impl<'d, D: Driver<'d>> Interrupt<'d, D> {
         }
     }
 
-    async fn notify(&mut self, entity: u8, bits: u32) -> Result<(), EndpointError> {
-        for bit in (0..2 * MAX_AUDIO_CHANNEL_COUNT as u32).filter(|b| bits & 1 << b != 0) {
-            let control = if bit % 2 == 0 {
-                control_selector::feature_unit::MUTE_CONTROL
-            } else {
-                control_selector::feature_unit::VOLUME_CONTROL
-            };
-            let channel = (bit / 2) as u8;
-            // bInfo: class-specific, interface; bAttribute: CUR; wValue: CS, CN; wIndex: entity, interface
-            let msg = [
-                0x00,
-                request_code::CUR,
-                channel,
-                (control >> 8) as u8,
-                self.interface,
-                entity,
-            ];
-            self.ep.write(&msg).await?;
+    async fn notify(&mut self, entity: u8, changed: &[u8; N]) -> Result<(), EndpointError> {
+        for (channel, &c) in changed.iter().enumerate() {
+            for (bit, control) in [
+                (PENDING_MUTE, control_selector::feature_unit::MUTE_CONTROL),
+                (PENDING_VOLUME, control_selector::feature_unit::VOLUME_CONTROL),
+            ] {
+                if c & bit == 0 {
+                    continue;
+                }
+                // bInfo: class-specific, interface; bAttribute: CUR; wValue: CS, CN; wIndex: entity, interface
+                let msg = [
+                    0x00,
+                    request_code::CUR,
+                    channel as u8,
+                    (control >> 8) as u8,
+                    self.interface,
+                    entity,
+                ];
+                self.ep.write(&msg).await?;
+            }
         }
         Ok(())
     }
@@ -718,38 +768,54 @@ impl<'d, D: Driver<'d>> Interrupt<'d, D> {
 /// Audio settings for a feature unit: mute and volume per channel, the master first.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-struct AudioSettings {
-    muted: [bool; MAX_AUDIO_CHANNEL_COUNT],
-    volume_8q8_db: [i16; MAX_AUDIO_CHANNEL_COUNT],
+struct AudioSettings<const N: usize> {
+    muted: [bool; N],
+    volume_8q8_db: [i16; N],
 }
 
-impl Default for AudioSettings {
+impl<const N: usize> Default for AudioSettings<N> {
     fn default() -> Self {
         AudioSettings {
-            muted: [false; MAX_AUDIO_CHANNEL_COUNT],
-            volume_8q8_db: [0; MAX_AUDIO_CHANNEL_COUNT],
+            muted: [false; N],
+            volume_8q8_db: [0; N],
         }
     }
 }
 
-/// Controls with changes for the host to read, per Feature Unit: bit `2 * channel` for mute,
-/// `2 * channel + 1` for volume.
-#[derive(Clone, Copy, Default)]
-struct Pending {
-    line_out: u32,
-    line_in: u32,
+const PENDING_MUTE: u8 = 0b01;
+const PENDING_VOLUME: u8 = 0b10;
+
+/// Controls with changes for the host to read, per Feature Unit and channel (the master
+/// first): [`PENDING_MUTE`], [`PENDING_VOLUME`].
+#[derive(Clone, Copy)]
+struct Pending<const N: usize> {
+    line_out: [u8; N],
+    line_in: [u8; N],
 }
 
-struct SharedControl<'d> {
-    line_out_settings: CriticalSectionMutex<RefCell<AudioSettings>>,
-    line_in_settings: CriticalSectionMutex<RefCell<AudioSettings>>,
-    line_out_channels: &'d [Channel],
-    line_in_channels: &'d [Channel],
-    line_out_controls: Vec<FeatureUnitControls, MAX_AUDIO_CHANNEL_COUNT, u8>,
-    line_in_controls: Vec<FeatureUnitControls, MAX_AUDIO_CHANNEL_COUNT, u8>,
+impl<const N: usize> Default for Pending<N> {
+    fn default() -> Self {
+        Pending {
+            line_out: [0; N],
+            line_in: [0; N],
+        }
+    }
+}
+
+impl<const N: usize> Pending<N> {
+    fn is_empty(&self) -> bool {
+        self.line_out.iter().chain(&self.line_in).all(|&c| c == 0)
+    }
+}
+
+struct SharedControl<'d, const N: usize> {
+    line_out_settings: CriticalSectionMutex<RefCell<AudioSettings<N>>>,
+    line_in_settings: CriticalSectionMutex<RefCell<AudioSettings<N>>>,
+    line_out_controls: Vec<FeatureUnitControls, N, u8>,
+    line_in_controls: Vec<FeatureUnitControls, N, u8>,
     line_out_volume_range: VolumeRange,
     line_in_volume_range: VolumeRange,
-    pending: CriticalSectionMutex<Cell<Pending>>,
+    pending: CriticalSectionMutex<Cell<Pending<N>>>,
     pending_signal: Signal<CriticalSectionRawMutex, ()>,
     sample_rates_hz: &'d [u32],
     sample_rate_hz: AtomicU32,
@@ -757,13 +823,11 @@ struct SharedControl<'d> {
     changed: Signal<CriticalSectionRawMutex, ()>,
 }
 
-impl<'d> Default for SharedControl<'d> {
+impl<'d, const N: usize> Default for SharedControl<'d, N> {
     fn default() -> Self {
         SharedControl {
             line_out_settings: CriticalSectionMutex::new(RefCell::new(AudioSettings::default())),
             line_in_settings: CriticalSectionMutex::new(RefCell::new(AudioSettings::default())),
-            line_out_channels: &[],
-            line_in_channels: &[],
             line_out_controls: Vec::new(),
             line_in_controls: Vec::new(),
             line_out_volume_range: VolumeRange::DEFAULT,
@@ -778,13 +842,13 @@ impl<'d> Default for SharedControl<'d> {
     }
 }
 
-struct FeatureUnitRef<'a> {
-    settings: &'a CriticalSectionMutex<RefCell<AudioSettings>>,
+struct FeatureUnitRef<'a, const N: usize> {
+    settings: &'a CriticalSectionMutex<RefCell<AudioSettings<N>>>,
     controls: &'a [FeatureUnitControls],
     range: VolumeRange,
 }
 
-impl FeatureUnitRef<'_> {
+impl<const N: usize> FeatureUnitRef<'_, N> {
     /// Controls for a USB channel number (0 = master). Missing entries have no controls.
     fn controls(&self, channel: u8) -> FeatureUnitControls {
         self.controls
@@ -796,22 +860,22 @@ impl FeatureUnitRef<'_> {
 
 /// Control status change monitor.
 ///
-/// Await [`Self::changed`], then read the updated settings.
-pub struct ControlMonitor<'d> {
-    shared: &'d SharedControl<'d>,
+/// Await [`Self::changed`], then read the updated settings. Channels are numbered from 0 in
+/// stream order.
+pub struct ControlMonitor<'d, const N: usize> {
+    shared: &'d SharedControl<'d, N>,
 }
 
-impl<'d> ControlMonitor<'d> {
+impl<'d, const N: usize> ControlMonitor<'d, N> {
     fn volume(
-        settings: &CriticalSectionMutex<RefCell<AudioSettings>>,
-        channels: &[Channel],
+        settings: &CriticalSectionMutex<RefCell<AudioSettings<N>>>,
         controls: &[FeatureUnitControls],
-        channel: Channel,
+        channel: usize,
     ) -> Option<Volume> {
         // The logical channels start at one (zero is the master channel).
-        let index = channels.iter().position(|&c| c == channel)? + 1;
+        let index = channel + 1;
         let has = |i: usize| controls.get(i).is_some_and(|c| !c.is_empty());
-        if !has(0) && !has(index) {
+        if index >= controls.len() || (!has(0) && !has(index)) {
             return None;
         }
         // the two entries only: the lock holds interrupts off
@@ -830,17 +894,17 @@ impl<'d> ControlMonitor<'d> {
         ))
     }
 
-    /// A line out channel's volume with the master applied. `None` if the channel is absent or
-    /// neither it nor the master has controls.
-    pub fn line_out_volume(&self, channel: Channel) -> Option<Volume> {
+    /// A line out channel's volume with the master applied. `None` without a Feature Unit, for
+    /// a channel past the last, or if neither the channel nor the master has controls.
+    pub fn line_out_volume(&self, channel: usize) -> Option<Volume> {
         let s = self.shared;
-        Self::volume(&s.line_out_settings, s.line_out_channels, &s.line_out_controls, channel)
+        Self::volume(&s.line_out_settings, &s.line_out_controls, channel)
     }
 
     /// A line in channel's volume with the master applied, as [`Self::line_out_volume`].
-    pub fn line_in_volume(&self, channel: Channel) -> Option<Volume> {
+    pub fn line_in_volume(&self, channel: usize) -> Option<Volume> {
         let s = self.shared;
-        Self::volume(&s.line_in_settings, s.line_in_channels, &s.line_in_controls, channel)
+        Self::volume(&s.line_in_settings, &s.line_in_controls, channel)
     }
 
     /// Get the sample rate in Hz. Before the host sets one, and again after a bus reset, it is
@@ -859,47 +923,43 @@ impl<'d> ControlMonitor<'d> {
     /// example from a front panel. The host is told through the interrupt endpoint, if there is
     /// one; [`Self::changed`] doesn't fire. Without a mute control, [`Volume::Muted`] sets the
     /// volume to silence. Out-of-range volumes are clamped to the advertised range.
-    pub fn set_line_out_volume(&self, channel: Channel, volume: Volume) {
+    pub fn set_line_out_volume(&self, channel: usize, volume: Volume) {
         let s = self.shared;
-        let bits = Self::set_volume(
+        let changed = Self::set_volume(
             &s.line_out_settings,
-            s.line_out_channels,
             &s.line_out_controls,
             s.line_out_volume_range,
             channel,
             volume,
         );
-        self.add_pending(bits, 0);
+        self.add_pending(true, channel + 1, changed);
     }
 
     /// Set a line in channel's own volume from the device side, as [`Self::set_line_out_volume`].
-    pub fn set_line_in_volume(&self, channel: Channel, volume: Volume) {
+    pub fn set_line_in_volume(&self, channel: usize, volume: Volume) {
         let s = self.shared;
-        let bits = Self::set_volume(
+        let changed = Self::set_volume(
             &s.line_in_settings,
-            s.line_in_channels,
             &s.line_in_controls,
             s.line_in_volume_range,
             channel,
             volume,
         );
-        self.add_pending(0, bits);
+        self.add_pending(false, channel + 1, changed);
     }
 
-    /// Returns the pending bits of the controls that changed.
+    /// Returns the controls that changed: [`PENDING_MUTE`], [`PENDING_VOLUME`].
     fn set_volume(
-        settings: &CriticalSectionMutex<RefCell<AudioSettings>>,
-        channels: &[Channel],
+        settings: &CriticalSectionMutex<RefCell<AudioSettings<N>>>,
         controls: &[FeatureUnitControls],
         range: VolumeRange,
-        channel: Channel,
+        channel: usize,
         volume: Volume,
-    ) -> u32 {
-        let Some(index) = channels.iter().position(|&c| c == channel).map(|i| i + 1) else {
+    ) -> u8 {
+        let index = channel + 1;
+        let Some(&c) = controls.get(index) else {
             return 0;
         };
-        let c = controls.get(index).copied().unwrap_or_else(FeatureUnitControls::empty);
-        let (mute_bit, volume_bit) = (1u32 << (2 * index), 1u32 << (2 * index + 1));
         // (mute, volume to set) worked out before the lock, which holds interrupts off
         let (muted, v) = match volume {
             Volume::Muted if c.contains(FeatureUnitControls::MUTE) => (true, None),
@@ -913,34 +973,30 @@ impl<'d> ControlMonitor<'d> {
         };
         settings.lock(|x| {
             let mut s = x.borrow_mut();
-            let mut bits = 0;
+            let mut changed = 0;
             if c.contains(FeatureUnitControls::MUTE) && s.muted[index] != muted {
                 s.muted[index] = muted;
-                bits |= mute_bit;
+                changed |= PENDING_MUTE;
             }
-            if let Some(v) = v {
-                bits |= Self::set_8q8(&mut s, c, index, v, volume_bit);
+            match v {
+                Some(v) if c.contains(FeatureUnitControls::VOLUME) && s.volume_8q8_db[index] != v => {
+                    s.volume_8q8_db[index] = v;
+                    changed |= PENDING_VOLUME;
+                }
+                _ => {}
             }
-            bits
+            changed
         })
     }
 
-    fn set_8q8(s: &mut AudioSettings, c: FeatureUnitControls, index: usize, v: i16, bit: u32) -> u32 {
-        if !c.contains(FeatureUnitControls::VOLUME) || s.volume_8q8_db[index] == v {
-            return 0;
-        }
-        s.volume_8q8_db[index] = v;
-        bit
-    }
-
-    fn add_pending(&self, line_out: u32, line_in: u32) {
-        if line_out | line_in == 0 {
+    fn add_pending(&self, line_out: bool, index: usize, changed: u8) {
+        if changed == 0 {
             return;
         }
         self.shared.pending.lock(|x| {
             let mut p = x.get();
-            p.line_out |= line_out;
-            p.line_in |= line_in;
+            let unit = if line_out { &mut p.line_out } else { &mut p.line_in };
+            unit[index] |= changed;
             x.set(p);
         });
         self.shared.pending_signal.signal(());
@@ -953,13 +1009,13 @@ impl<'d> ControlMonitor<'d> {
     }
 }
 
-struct Control<'d> {
+struct Control<'d, const N: usize> {
     control_interface_number: InterfaceNumber,
-    shared: &'d SharedControl<'d>,
+    shared: &'d SharedControl<'d, N>,
 }
 
-impl<'d> Control<'d> {
-    fn feature_unit(&self, entity: u8) -> Option<FeatureUnitRef<'d>> {
+impl<'d, const N: usize> Control<'d, N> {
+    fn feature_unit(&self, entity: u8) -> Option<FeatureUnitRef<'d, N>> {
         let s = self.shared;
         match entity {
             OUT_FEATURE_UNIT_ID if !s.line_out_controls.is_empty() => Some(FeatureUnitRef {
@@ -1096,11 +1152,15 @@ impl<'d> Control<'d> {
                 let Some(fu) = self.feature_unit(entity) else {
                     return Some(InResponse::Rejected);
                 };
+                // a channel without controls (past the last, too) is rejected below
+                let controls = fu.controls(channel);
+                if controls.is_empty() {
+                    return Some(InResponse::Rejected);
+                }
                 let (muted, volume) = fu.settings.lock(|x| {
                     let s = x.borrow();
                     (s.muted[channel as usize], s.volume_8q8_db[channel as usize])
                 });
-                let controls = fu.controls(channel);
                 match (req.request, selector(&req)) {
                     (request_code::CUR, control_selector::feature_unit::MUTE_CONTROL)
                         if controls.contains(FeatureUnitControls::MUTE) && !buf.is_empty() =>
@@ -1132,7 +1192,7 @@ impl<'d> Control<'d> {
     }
 }
 
-impl<'d> Handler for Control<'d> {
+impl<'d, const N: usize> Handler for Control<'d, N> {
     fn reset(&mut self) {
         // Volume and mute stay as they are: the device may keep them itself (a front panel,
         // settings in flash), and the host reads them back after enumeration.
