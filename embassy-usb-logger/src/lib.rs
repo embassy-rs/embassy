@@ -62,7 +62,7 @@ pub const MAX_PACKET_SIZE: u8 = 64;
 pub struct UsbLogger<const N: usize, T: ReceiverHandler + Send + Sync> {
     buffer: Pipe<CS, N>,
     custom_style: Option<fn(&Record, &mut Writer<'_, N>) -> ()>,
-    recieve_handler: Option<T>,
+    receive_handler: Option<T>,
 }
 
 impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
@@ -71,7 +71,7 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
         Self {
             buffer: Pipe::new(),
             custom_style: None,
-            recieve_handler: None,
+            receive_handler: None,
         }
     }
 
@@ -80,13 +80,13 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
         Self {
             buffer: Pipe::new(),
             custom_style: Some(custom_style),
-            recieve_handler: None,
+            receive_handler: None,
         }
     }
 
     /// Add a command handler to the logger
     pub fn with_handler(&mut self, handler: T) {
-        self.recieve_handler = Some(handler);
+        self.receive_handler = Some(handler);
     }
 
     /// Run the USB logger using the state and USB driver. Never returns.
@@ -140,11 +140,11 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
                 };
             }
         };
-        let reciever_fut = async {
-            let mut reciever_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
+        let receiver_fut = async {
+            let mut receiver_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             receiver.wait_connection().await;
             loop {
-                let n = match receiver.read_packet(&mut reciever_buf).await {
+                let n = match receiver.read_packet(&mut receiver_buf).await {
                     Err(EndpointError::Disabled) => {
                         receiver.wait_connection().await;
                         continue;
@@ -152,9 +152,9 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
                     Err(_) => continue,
                     Ok(n) => n,
                 };
-                match &self.recieve_handler {
+                match &self.receive_handler {
                     Some(handler) => {
-                        let data = &reciever_buf[..n];
+                        let data = &receiver_buf[..n];
                         handler.handle_data(data).await;
                     }
                     None => (),
@@ -162,7 +162,7 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
             }
         };
 
-        join(log_fut, reciever_fut).await;
+        join(log_fut, receiver_fut).await;
     }
 
     /// Creates the futures needed for the logger from a given class
