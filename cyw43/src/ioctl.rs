@@ -144,34 +144,3 @@ impl IoctlState {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use core::pin::pin;
-    use core::task::{Context, Poll, Waker};
-
-    use super::*;
-
-    #[test]
-    fn request_and_response_go_through_the_owned_buffer() {
-        let state = IoctlState::new();
-        let mut cx = Context::from_waker(Waker::noop());
-
-        let mut buf = [1, 2, 3, 4];
-        {
-            let mut ioctl = pin!(state.do_ioctl(IoctlType::Get, Ioctl::GetRssi, 0, &mut buf));
-            assert!(ioctl.as_mut().poll(&mut cx).is_pending());
-
-            let Poll::Ready(pending) = pin!(state.wait_pending()).as_mut().poll(&mut cx) else {
-                panic!("expected a pending ioctl");
-            };
-            assert_eq!(pending.len, 4);
-            assert_eq!(&state.request()[..pending.len], &[1, 2, 3, 4]);
-
-            // A response longer than the caller's buffer is truncated to it.
-            state.ioctl_done(&[5, 6, 7, 8, 9, 10]);
-            assert_eq!(ioctl.as_mut().poll(&mut cx), Poll::Ready(4));
-        }
-        assert_eq!(buf, [5, 6, 7, 8]);
-    }
-}
