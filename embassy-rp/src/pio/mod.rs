@@ -1258,7 +1258,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
                         Ok(r) => return Ok(r),
                         Err(addr_in_use) => {
                             if addr_in_use < origin {
-                                // wrapped around, theres no more space
+                                // wrapped around, there's no more space
                                 break;
                             }
 

@@ -186,7 +186,7 @@ impl<SPI: SpiDevice> Adin1110Protocol for GenericSpi<SPI> {
 
         // SPI HEADER + [OPTIONAL SPI CRC] + FRAME HEADER
         let mut head_data = Vec::<u8, HEAD_LEN>::new();
-        // [OPTIONAL PAD DATA] + FCS + [OPTINAL BYTES MAKE SPI FRAME EVEN]
+        // [OPTIONAL PAD DATA] + FCS + [OPTIONAL BYTES MAKE SPI FRAME EVEN]
         let mut tail_data = Vec::<u8, TAIL_LEN>::new();
 
         let mut spi_hdr = SpiHeader(0);

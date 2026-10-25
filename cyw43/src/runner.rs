@@ -210,7 +210,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             );
             if !ok {
                 return err!(
-                    "{} expected: {:02x} acutal: {:02x}",
+                    "{} expected: {:02x} actual: {:02x}",
                     label,
                     Bytes(expected),
                     Bytes(&actual[..])

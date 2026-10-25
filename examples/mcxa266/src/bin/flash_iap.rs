@@ -37,7 +37,7 @@ async fn main(_spawner: Spawner) {
     // -----------------------------------------------------------------------
     defmt::info!("\n Initializing flash driver.");
     let mut flash = defmt::unwrap!(hal::rom::get().flash());
-    defmt::info!("\n Flash init successfull!\n");
+    defmt::info!("\n Flash init successful!\n");
 
     defmt::info!("\n Config flash memory access time.\n");
 

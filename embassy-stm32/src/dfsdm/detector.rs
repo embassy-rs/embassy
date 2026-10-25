@@ -720,7 +720,7 @@ where
         Self::flags_raw() & T::instance_state().clock_absence_armed.load(Ordering::Relaxed)
     }
 
-    /// Try to clear the repective channels flag
+    /// Try to clear the respective channels flag
     pub(crate) fn try_clear_flag(channel: TransceiverChannel) -> bool {
         Self::clear_raw(1 << channel.index());
         Self::flags_raw() & (1 << channel.index()) == 0

@@ -553,7 +553,7 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
     }
 
     /// Create a new QSPI driver for a dual bank, in blocking mode.
-    /// NOTE: Both nss pins are optional, there are 3 mods of operation: (1)boths flashes share nss 1, (2)boths flashes share nss 2,(3)each flash have its own nss pin.
+    /// NOTE: Both nss pins are optional, there are 3 modes of operation: (1) both flashes share nss 1, (2) both flashes share nss 2, (3) each flash has its own nss pin.
     pub fn new_blocking_dual_bank(
         peri: Peri<'d, T>,
         bk1d0: Peri<'d, impl BK1D0Pin<T>>,

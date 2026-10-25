@@ -770,7 +770,7 @@ impl<'d> UartRx<'d, Async> {
                         // that there are "leftovers", and they'll catch the actual line break
                         // on the next call.
                         //
-                        // Doing it like this also avoids racyness: now whether you finished
+                        // Doing it like this also avoids races: now whether you finished
                         // the full read BEFORE the line break occurred or AFTER the line break
                         // occurs, you still get `MissingBreak(buffer.len())` instead of sometimes
                         // getting `Ok(buffer.len())` if you were "late enough" to observe the

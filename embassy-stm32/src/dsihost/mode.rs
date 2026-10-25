@@ -419,8 +419,8 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         T::regs().vvacr().modify(|w| w.set_va(Panel::ACTIVE_HEIGHT));
     }
 
-    /// Eneable video mode pattern generator.
-    /// The DSI host must be initialized in video more before enabling the pattern generator
+    /// Enable video mode pattern generator.
+    /// The DSI host must be initialized in video mode before enabling the pattern generator
     pub fn enable_pattern_generator(&mut self, enable: bool) {
         T::regs().vmcr().modify(|w| {
             w.set_pgm(false);

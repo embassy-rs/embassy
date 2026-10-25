@@ -1165,7 +1165,7 @@ impl embedded_hal_async::digital::Wait for Flex<'_, Async> {
 
 // Both embedded_hal 0.2 and 1.0 must be supported by embassy HALs.
 impl<M: Mode> embedded_hal_02::digital::v2::InputPin for Flex<'_, M> {
-    // GPIO operations on this block cannot fail, therefor we set the error type
+    // GPIO operations on this block cannot fail, therefore we set the error type
     // to Infallible to guarantee that we can only produce Ok variants.
     type Error = Infallible;
 

@@ -114,7 +114,7 @@ async fn main(spawner: Spawner) {
         .await;
 
     // Generate random seed
-    let seed = 0x0123_4567_89ab_cdef; // chosen by fair dice roll. guarenteed to be random.
+    let seed = 0x0123_4567_89ab_cdef; // chosen by fair dice roll. guaranteed to be random.
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();

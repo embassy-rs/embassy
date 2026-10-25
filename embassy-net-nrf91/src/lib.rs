@@ -849,7 +849,7 @@ impl<'a> Control<'a> {
                 }
             }
 
-            // If cancelation raced with actually receiving the response,
+            // If cancellation raced with actually receiving the response,
             // we own the data, so we have to free it.
             let msg = unsafe { &mut *msg_ptr };
             if msg.id != 0 {

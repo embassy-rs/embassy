@@ -477,7 +477,7 @@ async fn main(_spawner: Spawner) -> ! {
     info!("Write buffer: {:?}", data[0..32]);
 
     // Write it to the flash memory.
-    info!("Writting to flash");
+    info!("Writing to flash");
     flash.write_async(ADDRESS, &data).await;
 
     // Read it back.

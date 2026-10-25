@@ -231,7 +231,7 @@ impl Registers {
             // We will not drop a lower priority frame, we just report WouldBlock.
             return Err(nb::Error::WouldBlock);
         } else if !fifo_scheduling && frame_is_pending {
-            // Priority scheduling is enabled and atleast one mailbox is full.
+            // Priority scheduling is enabled and at least one mailbox is full.
             //
             // In this mode, the peripheral transmits high priority frames first.
             // Frames with identical priority should be transmitted in FIFO order,
