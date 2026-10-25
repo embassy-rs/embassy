@@ -1471,7 +1471,7 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
                 .wait_for(|| {
                     // enable interrupts
                     self.enable_tx_ints();
-                    // if the tx FIFO is empty, we're done transmiting
+                    // if the tx FIFO is empty, we're done transmitting
                     self.is_tx_fifo_empty_or_error()
                 })
                 .await

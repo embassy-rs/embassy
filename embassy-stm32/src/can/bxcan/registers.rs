@@ -151,15 +151,15 @@ impl Registers {
     pub fn curr_error(&self) -> Option<BusError> {
         if !self.0.msr().read().erri() {
             // This ensures that once a single error instance has
-            // been acknowledged and forwared to the bus message consumer
-            // we don't continue to re-forward the same error occurrance for an
+            // been acknowledged and forwarded to the bus message consumer
+            // we don't continue to re-forward the same error occurrence for an
             // in-definite amount of time.
             return None;
         }
 
         // Since we have not already acknowledge the error, and the interrupt was
         // disabled in the ISR, we will acknowledge the current error and re-enable the interrupt
-        // so futher errors are captured
+        // so further errors are captured
         self.0.msr().modify(|m| m.set_erri(true));
         self.0.ier().modify(|i| i.set_errie(true));
 
@@ -195,7 +195,7 @@ impl Registers {
 
     /// Puts a CAN frame in a transmit mailbox for transmission on the bus.
     ///
-    /// The behavior of this function depends on wheter or not FIFO scheduling is enabled.
+    /// The behavior of this function depends on whether or not FIFO scheduling is enabled.
     /// See [`Self::set_tx_fifo_scheduling()`] and [`Self::tx_fifo_scheduling_enabled()`].
     ///
     /// # Priority based scheduling
@@ -231,7 +231,7 @@ impl Registers {
             // We will not drop a lower priority frame, we just report WouldBlock.
             return Err(nb::Error::WouldBlock);
         } else if !fifo_scheduling && frame_is_pending {
-            // Priority scheduling is enabled and alteast one mailbox is full.
+            // Priority scheduling is enabled and atleast one mailbox is full.
             //
             // In this mode, the peripheral transmits high priority frames first.
             // Frames with identical priority should be transmitted in FIFO order,
@@ -514,7 +514,7 @@ impl IdReg {
         self.0 & Self::IDE_MASK != 0
     }
 
-    /// Returns `true` if the identifer is part of a remote frame (RTR bit set).
+    /// Returns `true` if the identifier is part of a remote frame (RTR bit set).
     fn rtr(self) -> bool {
         self.0 & Self::RTR_MASK != 0
     }

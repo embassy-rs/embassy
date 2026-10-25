@@ -207,7 +207,7 @@ impl LsConfig {
             while !csr.read().lsi1rdy() {}
         }
 
-        // Enable backup regulator for peristent battery backed sram
+        // Enable backup regulator for persistent battery backed sram
         #[cfg(backup_sram)]
         {
             #[cfg(stm32h7)]

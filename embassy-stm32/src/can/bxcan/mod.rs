@@ -307,7 +307,7 @@ impl<'d> Can<'d> {
 
     /// Put the peripheral in sleep mode
     ///
-    /// When the peripherial is in sleep mode, messages can still be queued for transmission
+    /// When the peripheral is in sleep mode, messages can still be queued for transmission
     /// and any previously received messages can be read from the receive FIFOs, however
     /// no messages will be transmitted and no additional messages will be received.
     ///

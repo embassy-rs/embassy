@@ -10,7 +10,7 @@ use super::Error;
 ///
 /// A partition holds an offset and a size of the flash,
 /// and is restricted to operate with that range.
-/// There is no guarantee that muliple partitions on the same flash
+/// There is no guarantee that multiple partitions on the same flash
 /// operate on mutually exclusive ranges - such a separation is up to
 /// the user to guarantee.
 pub struct BlockingPartition<'a, M: RawMutex, T: NorFlash> {

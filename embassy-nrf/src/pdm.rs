@@ -359,7 +359,7 @@ impl<'d> Pdm<'d> {
 
 /// PDM microphone driver Config
 pub struct Config {
-    /// Use stero or mono operation
+    /// Use stereo or mono operation
     pub operation_mode: OperationMode,
     /// On which edge the left channel should be samples
     pub edge: Edge,

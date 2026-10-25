@@ -332,7 +332,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         T::regs().vnpcr().modify(|w| w.set_npsize(Panel::NULL_PACKET_SIZE));
 
         // Calculate low power mode command timings
-        // See RM0399 34.9.2 - Tranmission of commands in low-power mode
+        // See RM0399 34.9.2 - Transmission of commands in low-power mode
 
         // Convert LTDC pixel timing into DSI lane-byte-clock domain
         // All t* values are expressed in lane byte clock cycles

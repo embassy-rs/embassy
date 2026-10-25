@@ -219,7 +219,7 @@ pub enum TimestampPrescaler {
 pub enum TimestampSource {
     /// The Timestamp counter is disabled
     None,
-    /// Using the FdCan input clock as the Timstamp counter's source,
+    /// Using the FdCan input clock as the Timestamp counter's source,
     /// and using a specific prescaler
     Prescaler(TimestampPrescaler),
     /// Using TIM3 as a source
@@ -268,7 +268,7 @@ impl GlobalFilter {
         self.handle_standard_frames = filter;
         self
     }
-    /// How to handle non-matching exteded frames
+    /// How to handle non-matching extended frames
     pub const fn set_handle_extended_frames(mut self, filter: NonMatchingFilter) -> Self {
         self.handle_extended_frames = filter;
         self
@@ -299,7 +299,7 @@ impl Default for GlobalFilter {
 /// TX buffer operation mode
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TxBufferMode {
-    /// TX FIFO operation - In this mode CAN frames are trasmitted strictly in write order.
+    /// TX FIFO operation - In this mode CAN frames are transmitted strictly in write order.
     Fifo,
     /// TX priority queue operation - In this mode CAN frames are transmitted according to CAN priority.
     Priority,

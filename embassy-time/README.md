@@ -27,7 +27,7 @@ For more details, check the [`embassy_time_driver`](https://crates.io/crates/emb
 
 [`Instant`] represents a given instant of time (relative to system boot), and [`Duration`]
 represents the duration of a span of time. They implement the math operations you'd expect,
-like addition and substraction.
+like addition and subtraction.
 
 ## Delays and timeouts
 

@@ -213,7 +213,7 @@ impl<P: Adin1110Protocol> ADIN1110<P> {
     }
 
     /// Programs the mac address in the mac filters.
-    /// Also set the boardcast address.
+    /// Also set the broadcast address.
     /// The chip supports 2 priority queues but current code doesn't support this mode.
     pub async fn set_mac_addr(&mut self, mac: &[u8; 6]) -> AEResult<(), P::SpiError> {
         // Apply to port 1.
@@ -367,7 +367,7 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, GenericSpi<SPI>, INT,
                             // Handle frames that needs to transmit from the wire.
                             // Note: rx_chan.rx_buf() doesn't complete while the
                             //       tx_chan is full. So these will be handled
-                            //       automaticly.
+                            //       automatically.
                             Either::First(mut frame) => {
                                 frame.set_len(MTU.min(frame.capacity()));
                                 match self.mac.read_fifo(&mut frame).await {
@@ -1240,7 +1240,7 @@ mod tests {
         if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
-        // Packet FCS + optinal padding
+        // Packet FCS + optional padding
         tail.extend_from_slice(&[DONT_CARE_BYTE, DONT_CARE_BYTE]);
 
         expectations.push(SpiTransaction::write_vec(tail));
@@ -1277,7 +1277,7 @@ mod tests {
         if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
-        // Packet FCS + optinal padding
+        // Packet FCS + optional padding
         tail.extend_from_slice(&[49, 196, 205, 160]);
 
         expectations.push(SpiTransaction::write_vec(tail));
@@ -1345,7 +1345,7 @@ mod tests {
         if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
-        // Packet FCS + optinal padding
+        // Packet FCS + optional padding
         tail.extend_from_slice(&[147, 149, 213, 68, DONT_CARE_BYTE, DONT_CARE_BYTE]);
 
         expectations.push(SpiTransaction::write_vec(tail));
@@ -1384,7 +1384,7 @@ mod tests {
         if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
-        // Packet FCS + optinal padding
+        // Packet FCS + optional padding
         tail.extend_from_slice(&[147, 149, 213, 68, DONT_CARE_BYTE, DONT_CARE_BYTE]);
 
         expectations.push(SpiTransaction::write_vec(tail));
@@ -1430,7 +1430,7 @@ mod tests {
         // Configure expectations
         let mut expectations = vec![];
 
-        // This value is importen for this test!
+        // This value is important for this test!
         assert_eq!(ETH_MIN_LEN, 64);
 
         // Packet data, size = `ETH_MIN_LEN` - `FCS_LEN` - 1
@@ -1508,7 +1508,7 @@ mod tests {
         // Need extra bytes?
         let pad = (packet.len() + FCS_LEN + FRAME_HEADER_LEN) & 0x03;
         if pad != 0 {
-            // Packet FCS + optinal padding
+            // Packet FCS + optional padding
             tail.resize(tail.len() + pad, DONT_CARE_BYTE);
         }
 
@@ -1576,7 +1576,7 @@ mod tests {
                 // Need extra bytes?
                 let pad = (packet_size + FCS_LEN + FRAME_HEADER_LEN) & 0x03;
                 if pad != 0 {
-                    // Packet FCS + optinal padding
+                    // Packet FCS + optional padding
                     tail.resize(tail.len() + pad, DONT_CARE_BYTE);
                 }
 

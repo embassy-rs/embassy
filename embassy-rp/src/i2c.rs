@@ -940,7 +940,7 @@ impl<'d, M: Mode> I2c<'d, M> {
 
             // Note the hardware issues a STOP automatically on an abort
             // condition. Note also the hardware clears RX FIFO as well as
-            // TX on abort, ecause we set hwparam
+            // TX on abort, because we set hwparam
             // IC_AVOID_RX_FIFO_FLUSH_ON_TX_ABRT to 0.
             abort_reason?;
         }

@@ -170,7 +170,7 @@ impl RxDroppedCount {
 
     /// Indicates the number of overflow events experienced by the FlexCAN hardware RX FIFO.
     ///
-    /// For context, an overflow event occurs when the FlexCAN recieves a message, but there is no room left in the hardware RX FIFO to store it. If this increases,
+    /// For context, an overflow event occurs when the FlexCAN receives a message, but there is no room left in the hardware RX FIFO to store it. If this increases,
     /// you are likely receiving messages at a higher rate than you are dequeuing/processing them.
     ///
     /// Note: The "number of overflow events in the hardware FIFO" is not exactly the same thing as "the number of RX frames dropped by the hardware FIFO". Technically,
@@ -184,7 +184,7 @@ impl RxDroppedCount {
 
     /// Indicates the total number of RX frames dropped from the software `RxQueue`, and the number of overflow events that have occurred for the FlexCAN hardware RX FIFO.
     ///
-    /// Note: This is analagous to `software_channel() + hardware_fifo()`.
+    /// Note: This is analogous to `software_channel() + hardware_fifo()`.
     pub fn total(&self) -> u32 {
         self.software_channel + self.hardware_fifo
     }

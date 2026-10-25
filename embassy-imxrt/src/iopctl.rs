@@ -166,7 +166,7 @@ pub trait IopctlPin: SealedPin {
     /// Disables the analog multiplexer of a pin.
     fn disable_analog_multiplex(&self) -> &Self;
 
-    /// Sets the ouput drive mode of a pin.
+    /// Sets the output drive mode of a pin.
     ///
     /// A pin configured as [`DriveMode::OpenDrain`] actually operates in
     /// a "pseudo" open-drain mode which is somewhat different than true open-drain.

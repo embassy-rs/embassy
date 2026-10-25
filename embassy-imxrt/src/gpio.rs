@@ -461,7 +461,7 @@ impl Future for InputFuture<'_> {
         }
         waker.unwrap().register(cx.waker());
 
-        // Double check that the pin interrut has been disabled by IRQ handler
+        // Double check that the pin interrupt has been disabled by IRQ handler
         if self.pin.block().intena(self.pin.port()).read().bits() & (1 << self.pin.pin()) == 0 {
             Poll::Ready(())
         } else {

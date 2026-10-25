@@ -775,7 +775,7 @@ pub(crate) unsafe fn init(config: Config) {
             while FLASH.sr().read().busy() {}
         }
 
-        // Set the HSLV option bits to enable HSLV mode configuratrion for all
+        // Set the HSLV option bits to enable HSLV mode configuration for all
         // three domains. (RM0477, p.272, 5.9.33 "FLASH option byte word 1
         // status register programming")
         FLASH.obw1srp().modify(|w| {

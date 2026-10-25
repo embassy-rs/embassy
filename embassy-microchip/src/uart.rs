@@ -680,7 +680,7 @@ impl<'d> UartRx<'d, Async> {
                 })?;
             }
 
-        // However, if a timeout occured, our assumptions about the number of bytes in the FIFO
+        // However, if a timeout occurred, our assumptions about the number of bytes in the FIFO
         // no longer holds (since we have to read a byte to clear the timeout interrupt), meaning
         // we have no choice but to unfortunately fall back on byte-by-byte interrupts
         } else {

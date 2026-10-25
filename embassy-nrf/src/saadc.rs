@@ -795,7 +795,7 @@ pub(crate) trait SealedInput {
     fn connect(&self) -> vals::PselpConnect;
 }
 
-/// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
+/// An input that can be used as either or negative end of a ADC differential in the SAADC peripheral.
 #[allow(private_bounds)]
 pub trait Input: SealedInput + Sized {
     /// Convert this SAADC input to a type-erased `AnyInput`.

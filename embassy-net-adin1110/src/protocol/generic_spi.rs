@@ -149,7 +149,7 @@ impl<SPI: SpiDevice> Adin1110Protocol for GenericSpi<SPI> {
         let mut frame_header = [0, 0];
         let mut fcs_and_extra = [0; TAIL_LEN];
 
-        // Packet read of write to the MAC packet buffer must be a multipul of 4!
+        // Packet read of write to the MAC packet buffer must be a multiple of 4!
         let tail_size = (fifo_frame_size & 0x03) + FCS_LEN;
 
         let mut spi_op = [
@@ -161,9 +161,9 @@ impl<SPI: SpiDevice> Adin1110Protocol for GenericSpi<SPI> {
 
         self.spi.transaction(&mut spi_op).await.map_err(AdinError::Spi)?;
 
-        // According to register `CONFIG2`, bit 5 `CRC_APPEND` discription:
+        // According to register `CONFIG2`, bit 5 `CRC_APPEND` description:
         // "Similarly, on receive, the CRC32 is forwarded with the frame to the host where the host must verify it is correct."
-        // The application must allways check the FCS. It seems that the MAC/PHY has no option to handle this.
+        // The application must always check the FCS. It seems that the MAC/PHY has no option to handle this.
         let fcs_calc = ETH_FCS::new(&frame[0..packet_size]);
 
         if fcs_calc.hton_bytes() == fcs_and_extra[0..4] {
@@ -232,7 +232,7 @@ impl<SPI: SpiDevice> Adin1110Protocol for GenericSpi<SPI> {
 
         let send_len = u32::try_from(send_len_orig).map_err(|_| AdinError::PACKET_TOO_BIG)?;
 
-        // Packet read of write to the MAC packet buffer must be a multipul of 4 bytes!
+        // Packet read of write to the MAC packet buffer must be a multiple of 4 bytes!
         let pad_len = send_len_orig & 0x03;
         if pad_len != 0 {
             let spi_pad_len = 4 - pad_len + tail_data.len();

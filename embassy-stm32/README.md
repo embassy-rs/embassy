@@ -30,7 +30,7 @@ embassy-time has a default tick rate of 1MHz, which is fast enough to cause prob
 
 When using the `low-power` feature and a timer that is not `low-power` capable to keep time, the precision of `Duration` may reduced to the RTC tick rate, which is most commmonly 256 Hz, if stop mode is entered between
 when two `Instant::now()` calls are made. If higher precision is required, then a `WakeGuard` can be held to prevent the chip from entering stop or a timer that is `low-power` capable can be used. If the user does not
-hold a `WakeGuard`, then embassy may enter low-power at any time depending on the internal implemenation of the `low-power` feature. HAL drivers should not be relied upon to block entering stop.
+hold a `WakeGuard`, then embassy may enter low-power at any time depending on the internal implementation of the `low-power` feature. HAL drivers should not be relied upon to block entering stop.
 
 ## Interoperability
 

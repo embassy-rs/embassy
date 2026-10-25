@@ -908,7 +908,7 @@ fn set_baudrate_inner(regs: Regs, clock: u32, baudrate: u32) -> Result<(), Confi
     //  maximum speed is limited to UARTclk/16."
     //
     // Based on these requirements, prioritize higher oversampling first to increase tolerance to clock
-    // deviation. If no valid BRD value can be found satisifying the highest sample rate, then reduce
+    // deviation. If no valid BRD value can be found satisfying the highest sample rate, then reduce
     // sample rate until valid parameters are found.
     const OVS: [(u8, vals::Hse); 3] = [(16, vals::Hse::Ovs16), (8, vals::Hse::Ovs8), (3, vals::Hse::Ovs3)];
 
