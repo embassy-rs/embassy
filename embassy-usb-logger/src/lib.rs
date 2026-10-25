@@ -140,11 +140,11 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
                 };
             }
         };
-        let reciever_fut = async {
-            let mut reciever_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
+        let receiver_fut = async {
+            let mut receiver_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             receiver.wait_connection().await;
             loop {
-                let n = match receiver.read_packet(&mut reciever_buf).await {
+                let n = match receiver.read_packet(&mut receiver_buf).await {
                     Err(EndpointError::Disabled) => {
                         receiver.wait_connection().await;
                         continue;
@@ -154,7 +154,7 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
                 };
                 match &self.receive_handler {
                     Some(handler) => {
-                        let data = &reciever_buf[..n];
+                        let data = &receiver_buf[..n];
                         handler.handle_data(data).await;
                     }
                     None => (),
@@ -162,7 +162,7 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
             }
         };
 
-        join(log_fut, reciever_fut).await;
+        join(log_fut, receiver_fut).await;
     }
 
     /// Creates the futures needed for the logger from a given class
