@@ -201,6 +201,9 @@ SPI:
 - change: sdmmc: removed the deprecated `sdmmc::sd` module (`StorageDevice`, `Card`, `Emmc`, `DataBlock`, `CmdBlock`). Use the `sdio` crate's `BlockDevice` with `Sdmmc` instead.
 - change: sdmmc: removed `Config::use_cmd23` and `Config::use_acmd23`, which only affected the `sdmmc::sd` module.
 
+LCD:
+- fix clock divider calculations when the target rate is not perfectly possible with ps+div registers
+
 ## 0.6.0 - 2026-03-10
 
 ADC:
