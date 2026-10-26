@@ -68,10 +68,13 @@ macro_rules! impl_timer {
 #[repr(u8)]
 pub enum Frequency {
     /// 128MHz
+    #[cfg(feature = "_nrf54l")]
     F128MHz = (-3i8) as u8,
     /// 64MHz
+    #[cfg(feature = "_nrf54l")]
     F64MHz = (-2i8) as u8,
     /// 32MHz
+    #[cfg(feature = "_nrf54l")]
     F32MHz = (-1i8) as u8,
     /// 16MHz
     F16MHz = 0,
@@ -245,7 +248,7 @@ impl<'d> Timer<'d> {
     /// Panics if the frequency is unsupported by this timer instance.
     pub fn set_frequency(&self, frequency: Frequency) {
         let prescaler = (frequency as u8 as i8) - (self.input_frequency as i8);
-        assert!((0..=9).contains(&prescaler), "unsupported timer frequency");
+        debug_assert!((0..=9).contains(&prescaler), "unsupported timer frequency");
 
         self.stop();
 
