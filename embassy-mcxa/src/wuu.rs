@@ -112,10 +112,10 @@ pub enum InternalModule {
     /// Tamper detect interrupt.
     TamperDetect,
     /// GPIO5 interrupt 0.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     Gpio5Interrupt0,
     /// GPIO5 interrupt 1.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     Gpio5Interrupt1,
     /// Low-Power Timer 0 interrupt.
     Lptmr0,
@@ -128,16 +128,16 @@ pub enum InternalModule {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InternalRequest {
     /// GPIO5 DMA request 0.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     Gpio5Dma0,
     /// GPIO5 DMA request 1.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     Gpio5Dma1,
     /// GPIO5 trigger 0.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     Gpio5Trigger0,
     /// GPIO5 trigger 1.
-    #[cfg(feature = "mcxa5xx")]
+    #[cfg(feature = "_mcxa5xx")]
     Gpio5Trigger1,
     /// LPTMR0 DMA request.
     Lptmr0Dma,
@@ -395,9 +395,9 @@ fn set_internal_module(module: InternalModule, enabled: bool) {
         InternalModule::Rtc => pac::WUU0.me().modify(|w| w.set_wume1(enabled)),
         InternalModule::WakeTimer => pac::WUU0.me().modify(|w| w.set_wume2(enabled)),
         InternalModule::TamperDetect => pac::WUU0.me().modify(|w| w.set_wume3(enabled)),
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         InternalModule::Gpio5Interrupt0 => pac::WUU0.me().modify(|w| w.set_wume4(enabled)),
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         InternalModule::Gpio5Interrupt1 => pac::WUU0.me().modify(|w| w.set_wume5(enabled)),
         InternalModule::Lptmr0 => pac::WUU0.me().modify(|w| w.set_wume6(enabled)),
         InternalModule::Comparator0 => pac::WUU0.me().modify(|w| w.set_wume8(enabled)),
@@ -406,13 +406,13 @@ fn set_internal_module(module: InternalModule, enabled: bool) {
 
 fn set_internal_request(request: InternalRequest, enabled: bool) {
     match request {
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         InternalRequest::Gpio5Dma0 => pac::WUU0.de().modify(|w| w.set_wude0(enabled)),
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         InternalRequest::Gpio5Dma1 => pac::WUU0.de().modify(|w| w.set_wude1(enabled)),
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         InternalRequest::Gpio5Trigger0 => pac::WUU0.de().modify(|w| w.set_wude2(enabled)),
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         InternalRequest::Gpio5Trigger1 => pac::WUU0.de().modify(|w| w.set_wude3(enabled)),
         InternalRequest::Lptmr0Dma => pac::WUU0.de().modify(|w| w.set_wude4(enabled)),
         InternalRequest::Lptmr0Trigger => pac::WUU0.de().modify(|w| w.set_wude6(enabled)),

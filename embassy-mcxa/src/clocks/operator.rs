@@ -439,7 +439,7 @@ impl ClockOperator<'_> {
                 reason: "clock output gate configuration rejected",
             });
         }
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         if gates.clke(2) != *vbat_domain_active {
             return Err(ClockError::BadConfig {
                 clock: "fro16k",
@@ -1665,7 +1665,7 @@ mod tests {
         configure_fro(&mut registers, &ClocksConfig::default(), &mut clocks)?;
         assert!(registers.control.fro_en());
         assert!(registers.lock.lock());
-        let expected_gates = if cfg!(feature = "mcxa5xx") { 7 } else { 3 };
+        let expected_gates = if cfg!(feature = "_mcxa5xx") { 7 } else { 3 };
         assert_eq!(registers.gates.0, expected_gates);
         assert_eq!(clocks.clk_16k_vsys.as_ref().map(|clock| clock.frequency), Some(16_384));
         assert_eq!(

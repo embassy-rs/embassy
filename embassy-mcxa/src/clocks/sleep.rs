@@ -28,9 +28,9 @@ use crate::pac::cmc::{Ckmode, PmctrlmainLpmode, PmprotLpmode};
 use crate::pac::scg::{
     Fircacc, Firccsr, Fircvld, Rccr, Scs, Sirccsr, SirccsrLk, Sircerr, Sircvld, SpllLock, Spllcsr, SpllcsrLk, Spllerr,
 };
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 use crate::pac::spc::Spc;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 use crate::pac::spc::Spc5xx as Spc;
 use crate::pac::spc::{PdLpReq, SpcLpReq};
 
@@ -131,11 +131,6 @@ impl PowerMode {
         }
     }
 }
-use crate::pac::cmc::Ckmode;
-#[cfg(feature = "_mcxa2xx")]
-use crate::pac::scg::Fircvld;
-use crate::pac::scg::{Sircvld, SpllLock};
-
 /// Attempt to go to deep sleep if possible.
 ///
 /// Returns `Ok(None)` when active `WakeGuard`s inhibit entry. `Ok(Some(status))`
@@ -571,8 +566,7 @@ unsafe fn restart_active_only_clocks(scg: pac::scg::Scg, clocks: &Clocks, pll_st
         while scg.sirccsr().read().sircvld() != Sircvld::EnabledAndValid {}
     }
 
-    // Ensure FRO44M is up and running
-    #[cfg(feature = "_mcxa2xx")]
+    // Ensure FIRC is valid and accurate before restarting its consumers.
     if let Some(frohf) = clocks.fro_hf_root.as_ref()
         && !matches!(frohf.power, PoweredClock::AlwaysEnabled)
     {
@@ -1114,9 +1108,9 @@ mod tests {
             let mut registers = Registers::new(Scs::Spll);
             let scg = registers.scg();
             let mut clocks = active_only_clocks();
-            #[cfg(feature = "mcxa2xx")]
+            #[cfg(feature = "_mcxa2xx")]
             let frequency = 45_000_000;
-            #[cfg(feature = "mcxa5xx")]
+            #[cfg(feature = "_mcxa5xx")]
             let frequency = 48_000_000;
             clocks.fro_hf_root = Some(Clock {
                 frequency,
@@ -1140,7 +1134,7 @@ mod tests {
             Ok(())
         }
 
-        #[cfg(feature = "mcxa5xx")]
+        #[cfg(feature = "_mcxa5xx")]
         #[test]
         fn pll_divide_by_two_setting_survives_stop_and_restart() -> Result<(), PowerModeError> {
             // MCXA5xx SPLLCSR bit 4 has no accessor in the pinned PAC.

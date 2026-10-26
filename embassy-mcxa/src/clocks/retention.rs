@@ -11,8 +11,8 @@ use super::Clocks;
 use crate::pac;
 use crate::pac::scg::{Firccsr, FirccsrLk, Fircerr, Fircsten, Scs};
 
-#[cfg(not(feature = "mcxa5xx"))]
-compile_error!("retained-deep-sleep currently requires mcxa5xx");
+#[cfg(not(feature = "_mcxa5xx"))]
+compile_error!("retained-deep-sleep currently requires an MCXA5xx chip");
 
 static LIVE_FIRC_REQUIREMENTS: AtomicUsize = AtomicUsize::new(0);
 

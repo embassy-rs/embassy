@@ -122,7 +122,7 @@ embassy-time-queue-utils = { path = "../embassy-time-queue-utils", version = "0.
 grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "6a4c80de6e0efcbdea813743e584a70bcc998d1c", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "6a4c80de6e0efcbdea813743e584a70bcc998d1c" }
 paste = "1.0.15"
 
 rand-core-10 = { package = "rand_core", version = "0.10" }
@@ -278,9 +278,10 @@ cortex-m = { features = [
 ], version = "0.7" }
 # If you would like "device" to be an optional feature, please open an issue.
 cortex-m-rt = { features = ["device"], version = "0.7" }
+# Keep the PAC revision aligned above; runtime vectors must stay ARM-only.
 nxp-pac = { features = [
   "rt",
-], git = "https://github.com/embassy-rs/nxp-pac.git", rev = "c4fc85c89f21bc256dee0af69885db539e403533" }
+], git = "https://github.com/embassy-rs/nxp-pac.git", rev = "6a4c80de6e0efcbdea813743e584a70bcc998d1c" }
 
 [target.'cfg(all(target_os = "none", target_arch = "arm"))'.dev-dependencies]
 embassy-executor = { features = [
