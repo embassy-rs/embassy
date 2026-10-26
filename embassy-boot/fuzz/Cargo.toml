@@ -4,9 +4,9 @@ version = "0.0.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Coverage-guided fuzzing of the embassy-boot power-fail test (libFuzzer). Not part of embassy CI."
+description = "Coverage-guided fuzzing of the embassy-boot power-fail test (libFuzzer)."
 
-# Not built by embassy CI (cargo embassy-devtool): it needs nightly and libFuzzer.
+# Not built by cargo embassy-devtool: it needs nightly and libFuzzer. .github/ci/fuzz.sh runs it.
 [package.metadata.embassy]
 skip = true
 

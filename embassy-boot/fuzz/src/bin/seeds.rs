@@ -1,5 +1,9 @@
 //! Writes the seed corpus: the fixed scenarios of the sweep in `tests/power_fail.rs` on every model, plain and
 //! with a power cut at a few operations, in `corpus/power_fail/` (or the folder given as the argument).
+//!
+//! Also writes `<folder>.list`, the files' absolute paths in the order written, for libFuzzer's `-seed_inputs=@<folder>.list`:
+//! libFuzzer loads a corpus folder in `readdir` order, which depends on the file system, and that order changes
+//! the run.
 
 use embassy_boot_fuzz::scenario::{Layout, Step, model, run};
 use embassy_boot_fuzz::zoo;
@@ -30,9 +34,10 @@ fn input(model: usize, steps: &[Step]) -> Vec<u8> {
 }
 
 fn main() {
-    let dir = std::env::args().nth(1).unwrap_or_else(|| "corpus/power_fail".into());
-    std::fs::create_dir_all(&dir).expect("create the corpus folder");
-    let mut count = 0;
+    let arg = std::env::args().nth(1).unwrap_or_else(|| "corpus/power_fail".into());
+    let dir = arg.trim_end_matches('/');
+    std::fs::create_dir_all(dir).expect("create the corpus folder");
+    let mut files = Vec::new();
     for m in 0..zoo::COUNT {
         let name = model(m).0;
         for (scenario, steps) in scenarios() {
@@ -48,10 +53,14 @@ fn main() {
                 }
             }
             for (file, data) in inputs {
-                std::fs::write(format!("{dir}/{file}"), data).expect("write a seed");
-                count += 1;
+                let path = format!("{dir}/{file}");
+                std::fs::write(&path, data).expect("write a seed");
+                // Absolute: libFuzzer skips a listed file it can't find without a word.
+                let path = std::fs::canonicalize(&path).expect("absolute seed path");
+                files.push(path.to_str().expect("UTF-8 seed path").to_string());
             }
         }
     }
-    println!("{count} seeds in {dir}");
+    std::fs::write(format!("{dir}.list"), files.join(",")).expect("write the seed list");
+    println!("{} seeds in {dir}, listed in {dir}.list", files.len());
 }
