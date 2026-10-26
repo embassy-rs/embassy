@@ -261,7 +261,7 @@ mod platform {
             let sr = crate::pac::PWR.sr().read();
             if sr.stopf() {
                 let lpms = crate::pac::PWR.cr1().read().lpms();
-                debug!("low power: U5/U3 woke from STOP (LPMS={})", lpms);
+                debug!("low power: U5/U3 woke from STOP (LPMS={:?})", lpms);
 
                 // HSE and all PLLs stop in any STOP mode on U5/U3.
                 // Full RCC restore from saved config on every STOP exit.
@@ -420,7 +420,7 @@ fn configure_pwr(cs: CriticalSection) -> bool {
         #[cfg(any(stm32l0, stm32f4))]
         trace!("low power: enter stop");
         #[cfg(not(any(stm32l0, stm32f4)))]
-        trace!("low power: enter stop: {}", stop_mode);
+        trace!("low power: enter stop: {:?}", stop_mode);
 
         #[cfg(not(feature = "low-power-debug-with-sleep"))]
         scb.set_sleepdeep();

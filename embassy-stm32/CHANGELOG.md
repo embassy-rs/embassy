@@ -16,6 +16,7 @@ RCC:
 Time driver:
 - fix: stm32/time-driver-lptim: arm alarms that fall in the current counter cycle; they fired at the overflow, up to a quarter cycle late
 - fix: stm32/time-driver-lptim: on U5, U3 and WBA, clear the previous `CMPOK` before a compare write, as on WL, so the wait is for this write
+- fix: stm32/low-power, stm32/time-driver-lptim: compile with the `log` feature
 
 I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
