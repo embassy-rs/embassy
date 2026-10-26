@@ -173,6 +173,28 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
         Ok(())
     }
 
+    /// Erase data from the DFU storage peripheral, starting the erase
+    /// operation at the given address from, and erasing until to.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the arguments are not aligned or out of bounds.
+    pub fn erase_dfu(&mut self, from: u32, to: u32) -> Result<(), FirmwareUpdaterError> {
+        self.dfu.erase(from, to)?;
+        Ok(())
+    }
+
+    /// Write a slice of data to the DFU storage peripheral, starting the write
+    /// operation at the given address offset, and writting `buf.len()` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the arguments are not aligned or out of bounds.
+    pub fn write_dfu(&mut self, offset: u32, buf: &[u8]) -> Result<(), FirmwareUpdaterError> {
+        self.dfu.write(offset, buf)?;
+        Ok(())
+    }
+
     /// Mark to trigger firmware swap on next boot.
     ///
     /// With signature support enabled, verify first or use a verifying bootloader.
