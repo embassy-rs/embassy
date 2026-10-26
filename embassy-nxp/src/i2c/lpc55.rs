@@ -33,7 +33,7 @@ pub enum Error {
     Bus,
     /// ACK not received (address)
     NackAddress,
-    /// ACK not recieved (data)
+    /// ACK not received (data)
     NackData,
     /// Zero-length transfers are not allowed
     ZeroLengthTransfer,
@@ -255,7 +255,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                 w.set_slew(iocon::vals::PioSlew::Standard);
                 w.set_invert(false);
                 w.set_digimode(iocon::vals::PioDigimode::Digital);
-                // OpenDrain = the line relies on PullUp resitors and should only be pulled low
+                // OpenDrain = the line relies on PullUp resistors and should only be pulled low
                 w.set_od(iocon::vals::PioOd::OpenDrain);
             });
         }
@@ -409,7 +409,7 @@ impl<'d> I2c<'d, Blocking> {
         Ok(())
     }
 
-    /// Read recieved data bytes from the register
+    /// Read received data bytes from the register
     fn receive_bytes(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         let i2c = self.info.i2c_reg;
         let len = buf.len();
@@ -441,7 +441,7 @@ impl<'d> I2c<'d, Blocking> {
     }
 }
 
-/// Embedded HAL trait implementatins
+/// Embedded HAL trait implementations
 impl<'d> embedded_hal_02::blocking::i2c::Write for I2c<'d, Blocking> {
     type Error = Error;
 
@@ -632,7 +632,7 @@ impl<'d> I2c<'d, Async> {
         Ok(())
     }
 
-    /// Read recieved data bytes from the register
+    /// Read received data bytes from the register
     async fn receive_bytes(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         let i2c = self.info.i2c_reg;
         let len = buf.len();

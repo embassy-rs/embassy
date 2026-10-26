@@ -19,7 +19,7 @@ pub enum BusError {
     /// The CRC check sum of a received message was incorrect. The CRC of an
     /// incoming message does not match with the CRC calculated from the received data.
     Crc,
-    /// A software error occured. Exclusive to BXCAN.
+    /// A software error occurred. Exclusive to BXCAN.
     Software,
 }
 

@@ -164,7 +164,7 @@ pub struct TransferOptions {
     pub complete_transfer_ir: bool,
     /// DMA packing configuration
     ///
-    /// If [`Packing::ZeroExtendOrLeftTruncate`], psize may be adjusted based on the platform to acheive no packing.
+    /// If [`Packing::ZeroExtendOrLeftTruncate`], psize may be adjusted based on the platform to achieve no packing.
     pub packing: Packing,
     #[cfg(mdma)]
     /// Max bytes to transfer at once, 1-64

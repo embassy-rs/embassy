@@ -1022,7 +1022,7 @@ impl<'d> Sdmmc<'d> {
             w.set_clken(true);
         });
 
-        // Power off, writen 00: Clock to the card is stopped;
+        // Power off, written 00: Clock to the card is stopped;
         // D[7:0], CMD, and CK are driven high.
         info.regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::Off as u8));
 

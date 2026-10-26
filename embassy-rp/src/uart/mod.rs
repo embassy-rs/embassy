@@ -763,14 +763,14 @@ impl<'d> UartRx<'d, Async> {
                         // character. This is an error.
                         //
                         // NOTE: we COULD potentially return Ok(buffer.len()) here, since we
-                        // know a line break occured at SOME POINT after the DMA completed.
+                        // know a line break occurred at SOME POINT after the DMA completed.
                         //
                         // However, we have no way of knowing if there was extra data BEFORE
                         // that line break, so instead return an Err to signal to the caller
                         // that there are "leftovers", and they'll catch the actual line break
                         // on the next call.
                         //
-                        // Doing it like this also avoids racyness: now whether you finished
+                        // Doing it like this also avoids races: now whether you finished
                         // the full read BEFORE the line break occurred or AFTER the line break
                         // occurs, you still get `MissingBreak(buffer.len())` instead of sometimes
                         // getting `Ok(buffer.len())` if you were "late enough" to observe the

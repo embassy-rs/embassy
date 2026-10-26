@@ -321,6 +321,9 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
                 state_word.fill(!STATE_ERASE_VALUE);
                 self.state.write(STATE::WRITE_SIZE as u32, state_word)?;
 
+                // Invalidate magic, so a torn erase cannot leave SWAP with partially erased progress
+                self.state.write(0, state_word)?;
+
                 // Clear magic and progress
                 self.state.erase(0, self.state.capacity() as u32)?;
 
@@ -512,6 +515,7 @@ mod verification_tests {
     use embassy_crypto::ed25519::{SigningKey, VerifyingKey};
     use embassy_crypto_rand as _;
     use embassy_crypto_rustcrypto as _;
+    use embassy_sync::once_lock::OnceLock;
 
     use super::*;
     use crate::AlignedBuffer;
@@ -520,11 +524,18 @@ mod verification_tests {
     type Loader = BootLoader<MemFlash<96, 16, 4>, MemFlash<112, 16, 4, 4>, MemFlash<128, 128, 4>>;
 
     fn pending() -> (Loader, [u8; 32]) {
-        let key = SigningKey::from_bytes(&[1; 32]);
+        // Signing is slow in debug builds, and the torn-state tests call this tens of thousands of times.
+        static SIGNED: OnceLock<([u8; 64], [u8; 32])> = OnceLock::new();
+
+        let (signature, public_key) = *SIGNED.get_or_init(|| {
+            let key = SigningKey::from_bytes(&[1; 32]);
+            let signature = key.sign(&Sha512::digest(&[0xaa; 32])).unwrap();
+            (signature.to_bytes(), key.verifying_key().unwrap().to_bytes())
+        });
+
         let mut dfu = MemFlash::default();
         dfu.mem[..32].fill(0xaa);
-        let signature = key.sign(&Sha512::digest(&dfu.mem[..32])).unwrap();
-        dfu.mem[32..96].copy_from_slice(&signature.to_bytes());
+        dfu.mem[32..96].copy_from_slice(&signature);
         let mut state = MemFlash::default();
         state.mem[..4].fill(SWAP_MAGIC);
         (
@@ -533,7 +544,7 @@ mod verification_tests {
                 dfu,
                 state,
             }),
-            key.verifying_key().unwrap().to_bytes(),
+            public_key,
         )
     }
 
@@ -658,6 +669,39 @@ mod verification_tests {
                 assert_eq!(boot.read_state(cbuf.as_mut()), Ok(State::Revert));
                 assert_eq!(boot.active.mem, [0x55; 96]);
             }
+        }
+    }
+
+    // Every subset of the programmed state words surviving a torn erase must read as Boot.
+    #[test]
+    fn torn_state_erase_after_revert_keeps_reverted_image() {
+        for keep in 0..1u64 << 16 {
+            let (mut boot, _) = pending();
+            let mut buf = AlignedBuffer([0; 4]);
+            assert_eq!(boot.prepare_boot(buf.as_mut()), Ok(State::Swap));
+            boot.state.pending_erase_tear = Some(keep);
+            assert!(boot.prepare_boot(buf.as_mut()).is_err());
+            assert_eq!(boot.prepare_boot(buf.as_mut()), Ok(State::Boot), "keep {keep:#x}");
+            assert_eq!(boot.active.mem, [0x55; 96], "keep {keep:#x}");
+        }
+    }
+
+    #[test]
+    fn torn_state_erase_in_mark_booted_keeps_swapped_image() {
+        for keep in 0..1u64 << 16 {
+            let (mut boot, _) = pending();
+            let candidate: [u8; 96] = boot.dfu.mem[..96].try_into().unwrap();
+            let mut buf = AlignedBuffer([0; 4]);
+            assert_eq!(boot.prepare_boot(buf.as_mut()), Ok(State::Swap));
+            boot.state.pending_erase_tear = Some(keep);
+            let mut aligned = AlignedBuffer([0; 4]);
+            assert!(
+                crate::BlockingFirmwareState::new(&mut boot.state, aligned.as_mut())
+                    .mark_booted()
+                    .is_err()
+            );
+            assert_eq!(boot.prepare_boot(buf.as_mut()), Ok(State::Boot), "keep {keep:#x}");
+            assert_eq!(boot.active.mem, candidate, "keep {keep:#x}");
         }
     }
 }

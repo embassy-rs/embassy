@@ -929,7 +929,7 @@ impl DmaChannel<'_> {
         t.tcd_doff().write(|w| w.set_doff(0));
         t.tcd_citer_elinkno().write(|w| *w = TcdCiterElinkno(0));
         t.tcd_dlast_sga().write(|w| w.set_dlast_sga(0));
-        t.tcd_csr().write(|w| *w = TcdCsr(0)); // Clear CSR completly
+        t.tcd_csr().write(|w| *w = TcdCsr(0)); // Clear CSR completely
         t.tcd_biter_elinkno().write(|w| *w = TcdBiterElinkno(0));
     }
 
@@ -1087,7 +1087,7 @@ impl DmaChannel<'_> {
         Self::set_major_loop_nbytes_without_minor(&t, minor);
         Self::set_major_loop_ct_elinkno(&t, major);
 
-        // Configure channel to be interruptable, to interrupt, with a set priority.
+        // Configure channel to be interruptible, to interrupt, with a set priority.
         Self::set_fixed_priority(&t, params.options.priority);
 
         if params.circular {

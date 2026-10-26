@@ -303,6 +303,7 @@ impl TryFrom<&ScanResult> for Network {
             bssid: str::from_utf8(&value.bssid)
                 .map_err(|_| Error::Internal)
                 .and_then(parse_mac)?,
+            rssi: value.rssi,
             security: map_fg_security(value.sec_prot.0),
         })
     }

@@ -91,7 +91,7 @@ pub struct Status {
     pub ssid: String<32>,
     /// Basic Service Set Identifier.
     pub bssid: [u8; 6],
-    /// Received Signal Strength Indicator.
+    /// Received Signal Strength Indicator, in dBm.
     pub rssi: i32,
     /// WiFi channel.
     pub channel: u32,
@@ -107,6 +107,8 @@ pub struct Network {
     pub ssid: String<32>,
     /// Basic Service Set Identifier.
     pub bssid: [u8; 6],
+    /// Received Signal Strength Indicator, in dBm.
+    pub rssi: i32,
     /// Security mode.
     pub security: Security,
 }
@@ -238,7 +240,7 @@ impl<'a> Control<'a> {
         self.state_ch.get_hardware_address()
     }
 
-    /// Reset ESP and initialzation state
+    /// Reset ESP and initialization state
     ///
     /// `init` should be executed again after reset
     pub fn reset(&self) {

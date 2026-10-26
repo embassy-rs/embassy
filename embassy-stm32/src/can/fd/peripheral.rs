@@ -229,7 +229,7 @@ impl Registers {
             // Wait for the abort request to be finished.
             loop {
                 if can.txbcf().read().cf(bufidx) {
-                    // Return false when a transmission has occured
+                    // Return false when a transmission has occurred
                     break !can.txbto().read().to(bufidx);
                 }
             }
@@ -369,7 +369,7 @@ impl Registers {
         self.enter_init_mode();
         self.reset_msg_ram();
 
-        // check the FDCAN core matches our expections
+        // check the FDCAN core matches our expectations
         assert!(
             self.regs.crel().read().rel() == 3,
             "Expected FDCAN core major release 3"

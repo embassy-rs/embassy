@@ -15,6 +15,7 @@ RCC:
 
 Time driver:
 - fix: stm32/time-driver-lptim: arm alarms that fall in the current counter cycle; they fired at the overflow, up to a quarter cycle late
+- fix: stm32/time-driver-lptim: on U5, U3 and WBA, clear the previous `CMPOK` before a compare write, as on WL, so the wait is for this write
 
 I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
@@ -26,6 +27,8 @@ Ethernet:
 - change: constructors, `Phy::phy_reset` / `phy_init`, and `StationManagement::smi_read` / `smi_write` return `Result` with `eth::Error` when MAC reset, MDIO, or PHY initialization cannot complete. `GenericPhy::new_auto` returns `PhyNotFound` when no address completes a PHY reset; link polls report down on MDIO error.
 - fix: bound v2 DMA shutdown waits and panic if DMA still owns descriptors, rather than releasing live buffers or waiting forever.
 - fix: stm32/eth: with the `time` feature, the bounded MAC, MDIO, PHY and DMA waits use the time driver instead of a cycle-counted delay.
+- fix: stm32/eth v2: advertise checksum offload on STM32C5 (eth_v2b).
+- fix: stm32/eth v1: drop received frames whose descriptor has the error summary set or holds only part of a frame. An operator-precedence mistake made the check always pass.
 
 Flash:
 - change: `Flash::new` and `Flash::new_blocking` take a `flash::Config`. On STM32F2/F4/F7/H7, `Config::erase_parallelism` selects the erase parallelism (default x32).
@@ -193,9 +196,13 @@ RCC:
 - fix: stm32/rcc/f247: report correct PLL output frequencies when the source clock is not evenly divisible by the PLL input divisor
 
 SPI:
+- fix: stm32/spi v2/v3: async `write`, `read` and `transfer` no longer clear SPE at the start of every operation, matching the blocking paths. Clearing SPE released SCK between the operations of one `SpiDevice` transaction (CS asserted); with SCK pulled high, a mode-0 device saw an extra clock edge and misframed the transfer.
 - change default NSS configuration from active-high to active-low
 - change: sdmmc: removed the deprecated `sdmmc::sd` module (`StorageDevice`, `Card`, `Emmc`, `DataBlock`, `CmdBlock`). Use the `sdio` crate's `BlockDevice` with `Sdmmc` instead.
 - change: sdmmc: removed `Config::use_cmd23` and `Config::use_acmd23`, which only affected the `sdmmc::sd` module.
+
+LCD:
+- fix clock divider calculations when the target rate is not perfectly possible with ps+div registers
 
 ## 0.6.0 - 2026-03-10
 

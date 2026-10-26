@@ -68,7 +68,7 @@ async fn main(_spawner: Spawner) -> ! {
     loop {
         let state = rx.receive(|| Some(LED_STATE.load(Ordering::SeqCst))).await;
         #[cfg(feature = "defmt")]
-        info!("CM0+ Recieve: {}", state);
+        info!("CM0+ Receive: {}", state);
         green_led.set_level(if state { Level::High } else { Level::Low });
     }
 }

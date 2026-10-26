@@ -264,7 +264,7 @@ impl<'d> Pdm<'d> {
     ///
     /// A sampler closure is provided that receives the buffer of samples, noting
     /// that the size of this buffer can be less than the original buffer's size.
-    /// A command is return from the closure that indicates whether the sampling
+    /// A command is returned from the closure that indicates whether the sampling
     /// should continue or stop.
     ///
     /// NOTE: The time spent within the callback supplied should not exceed the time
@@ -359,7 +359,7 @@ impl<'d> Pdm<'d> {
 
 /// PDM microphone driver Config
 pub struct Config {
-    /// Use stero or mono operation
+    /// Use stereo or mono operation
     pub operation_mode: OperationMode,
     /// On which edge the left channel should be samples
     pub edge: Edge,

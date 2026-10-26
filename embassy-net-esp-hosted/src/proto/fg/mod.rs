@@ -1940,7 +1940,7 @@ impl ::micropb::MessageEncode for CtrlMsg_Resp_GetAPConfig {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsg_Req_ConnectAP {
     pub r#ssid: ::heapless::String<32>,
-    pub r#pwd: ::heapless::String<32>,
+    pub r#pwd: ::heapless::String<64>,
     pub r#bssid: ::heapless::String<32>,
     pub r#is_wpa3_supported: bool,
     pub r#listen_interval: i32,
@@ -1971,23 +1971,23 @@ impl CtrlMsg_Req_ConnectAP {
     }
     /// Return a reference to `pwd`
     #[inline]
-    pub fn r#pwd(&self) -> &::heapless::String<32> {
+    pub fn r#pwd(&self) -> &::heapless::String<64> {
         &self.r#pwd
     }
     /// Return a mutable reference to `pwd`
     #[inline]
-    pub fn mut_pwd(&mut self) -> &mut ::heapless::String<32> {
+    pub fn mut_pwd(&mut self) -> &mut ::heapless::String<64> {
         &mut self.r#pwd
     }
     /// Set the value of `pwd`
     #[inline]
-    pub fn set_pwd(&mut self, value: ::heapless::String<32>) -> &mut Self {
+    pub fn set_pwd(&mut self, value: ::heapless::String<64>) -> &mut Self {
         self.r#pwd = value.into();
         self
     }
     /// Builder method that sets the value of `pwd`. Useful for initializing the message.
     #[inline]
-    pub fn init_pwd(mut self, value: ::heapless::String<32>) -> Self {
+    pub fn init_pwd(mut self, value: ::heapless::String<64>) -> Self {
         self.r#pwd = value.into();
         self
     }
@@ -2159,7 +2159,7 @@ impl ::micropb::MessageEncode for CtrlMsg_Req_ConnectAP {
                 break 'msg (::core::result::Result::<usize, _>::Err(err));
             }
         }
-        match ::micropb::const_map!(::core::result::Result::Ok(33usize), |size| size + 1usize) {
+        match ::micropb::const_map!(::core::result::Result::Ok(65usize), |size| size + 1usize) {
             ::core::result::Result::Ok(size) => {
                 max_size += size;
             }
@@ -2540,7 +2540,7 @@ impl ::micropb::MessageEncode for CtrlMsg_Req_GetSoftAPConfig {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsg_Resp_GetSoftAPConfig {
     pub r#ssid: ::heapless::Vec<u8, 32>,
-    pub r#pwd: ::heapless::Vec<u8, 32>,
+    pub r#pwd: ::heapless::Vec<u8, 64>,
     pub r#chnl: i32,
     pub r#sec_prot: Ctrl_WifiSecProt,
     pub r#max_conn: i32,
@@ -2574,23 +2574,23 @@ impl CtrlMsg_Resp_GetSoftAPConfig {
     }
     /// Return a reference to `pwd`
     #[inline]
-    pub fn r#pwd(&self) -> &::heapless::Vec<u8, 32> {
+    pub fn r#pwd(&self) -> &::heapless::Vec<u8, 64> {
         &self.r#pwd
     }
     /// Return a mutable reference to `pwd`
     #[inline]
-    pub fn mut_pwd(&mut self) -> &mut ::heapless::Vec<u8, 32> {
+    pub fn mut_pwd(&mut self) -> &mut ::heapless::Vec<u8, 64> {
         &mut self.r#pwd
     }
     /// Set the value of `pwd`
     #[inline]
-    pub fn set_pwd(&mut self, value: ::heapless::Vec<u8, 32>) -> &mut Self {
+    pub fn set_pwd(&mut self, value: ::heapless::Vec<u8, 64>) -> &mut Self {
         self.r#pwd = value.into();
         self
     }
     /// Builder method that sets the value of `pwd`. Useful for initializing the message.
     #[inline]
-    pub fn init_pwd(mut self, value: ::heapless::Vec<u8, 32>) -> Self {
+    pub fn init_pwd(mut self, value: ::heapless::Vec<u8, 64>) -> Self {
         self.r#pwd = value.into();
         self
     }
@@ -2862,7 +2862,7 @@ impl ::micropb::MessageEncode for CtrlMsg_Resp_GetSoftAPConfig {
                 break 'msg (::core::result::Result::<usize, _>::Err(err));
             }
         }
-        match ::micropb::const_map!(::core::result::Result::Ok(33usize), |size| size + 1usize) {
+        match ::micropb::const_map!(::core::result::Result::Ok(65usize), |size| size + 1usize) {
             ::core::result::Result::Ok(size) => {
                 max_size += size;
             }
@@ -3064,7 +3064,7 @@ impl ::micropb::MessageEncode for CtrlMsg_Resp_GetSoftAPConfig {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsg_Req_StartSoftAP {
     pub r#ssid: ::heapless::String<32>,
-    pub r#pwd: ::heapless::String<32>,
+    pub r#pwd: ::heapless::String<64>,
     pub r#chnl: i32,
     pub r#sec_prot: Ctrl_WifiSecProt,
     pub r#max_conn: i32,
@@ -3097,23 +3097,23 @@ impl CtrlMsg_Req_StartSoftAP {
     }
     /// Return a reference to `pwd`
     #[inline]
-    pub fn r#pwd(&self) -> &::heapless::String<32> {
+    pub fn r#pwd(&self) -> &::heapless::String<64> {
         &self.r#pwd
     }
     /// Return a mutable reference to `pwd`
     #[inline]
-    pub fn mut_pwd(&mut self) -> &mut ::heapless::String<32> {
+    pub fn mut_pwd(&mut self) -> &mut ::heapless::String<64> {
         &mut self.r#pwd
     }
     /// Set the value of `pwd`
     #[inline]
-    pub fn set_pwd(&mut self, value: ::heapless::String<32>) -> &mut Self {
+    pub fn set_pwd(&mut self, value: ::heapless::String<64>) -> &mut Self {
         self.r#pwd = value.into();
         self
     }
     /// Builder method that sets the value of `pwd`. Useful for initializing the message.
     #[inline]
-    pub fn init_pwd(mut self, value: ::heapless::String<32>) -> Self {
+    pub fn init_pwd(mut self, value: ::heapless::String<64>) -> Self {
         self.r#pwd = value.into();
         self
     }
@@ -3353,7 +3353,7 @@ impl ::micropb::MessageEncode for CtrlMsg_Req_StartSoftAP {
                 break 'msg (::core::result::Result::<usize, _>::Err(err));
             }
         }
-        match ::micropb::const_map!(::core::result::Result::Ok(33usize), |size| size + 1usize) {
+        match ::micropb::const_map!(::core::result::Result::Ok(65usize), |size| size + 1usize) {
             ::core::result::Result::Ok(size) => {
                 max_size += size;
             }

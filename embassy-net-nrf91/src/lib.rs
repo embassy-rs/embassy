@@ -215,6 +215,8 @@ async fn new_internal<'a>(
         requests: [const { None }; REQ_COUNT],
         next_req_serial: 0x12345678,
         net_fd: None,
+        net_fd_waker: WakerRegistration::new(),
+        keep_open: false,
 
         rx_control_list: ptr::null_mut(),
         rx_data_list: ptr::null_mut(),
@@ -327,6 +329,8 @@ struct StateInner {
     next_req_serial: u32,
 
     net_fd: Option<u32>,
+    net_fd_waker: WakerRegistration,
+    keep_open: bool,
 
     rx_control_list: *mut List,
     rx_data_list: *mut List,
@@ -676,6 +680,31 @@ impl StateInner {
                             }
                             false
                         }
+                        // Socket closed by the modem, e.g. on PDN loss or CFUN=0.
+                        3 => {
+                            let fd = u32::from_le_bytes(msg.param[0..4].try_into().unwrap());
+                            let reason = u32::from_le_bytes(msg.param[4..8].try_into().unwrap());
+                            if self.net_fd == Some(fd) {
+                                warn!("raw socket {} closed by modem, reason {}", fd, reason);
+                                self.net_fd = None;
+                                self.net_fd_waker.wake();
+                            }
+                            false
+                        }
+                        // Socket status: flow control, rate control, PDN deactivated (7) / activated (8).
+                        4 => {
+                            let fd = u32::from_le_bytes(msg.param[0..4].try_into().unwrap());
+                            let status = u32::from_le_bytes(msg.param[4..8].try_into().unwrap());
+                            info!("socket {} status {}", fd, status);
+                            if self.net_fd == Some(fd) {
+                                match status {
+                                    7 => ch.set_link_state(ch::driver::LinkState::Down),
+                                    8 => ch.set_link_state(ch::driver::LinkState::Up),
+                                    _ => {}
+                                }
+                            }
+                            false
+                        }
                         _ => false,
                     },
                     x => {
@@ -849,7 +878,7 @@ impl<'a> Control<'a> {
                 }
             }
 
-            // If cancelation raced with actually receiving the response,
+            // If cancellation raced with actually receiving the response,
             // we own the data, so we have to free it.
             let msg = unsafe { &mut *msg_ptr };
             if msg.id != 0 {
@@ -926,10 +955,48 @@ impl<'a> Control<'a> {
         assert_eq!(status, 0);
         assert_eq!(msg.param_len, 16);
         let fd = u32::from_le_bytes(msg.param[12..16].try_into().unwrap());
-        self.state.borrow_mut().net_fd.replace(fd);
+        let keep_open = {
+            let mut state = self.state.borrow_mut();
+            state.net_fd.replace(fd);
+            state.keep_open
+        };
 
         trace!("got FD: {}", fd);
+        // Keep the raw socket open across PDN loss and reactivation (NRF_SO_KEEPOPEN).
+        if keep_open {
+            let mut msg: Message = unsafe { mem::zeroed() };
+            msg.channel = 2; // data
+            msg.id = 0x7003_0004; // setsockopt
+            msg.param_len = 16;
+            msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
+            msg.param[8..12].copy_from_slice(&8u32.to_le_bytes()); // SOL_SOCKET
+            msg.param[12..16].copy_from_slice(&0x3012u32.to_le_bytes()); // SO_KEEPOPEN
+
+            self.request(&mut msg, &1u32.to_le_bytes(), &mut []).await;
+
+            let status = u32::from_le_bytes(msg.param[8..12].try_into().unwrap());
+            if msg.id != 0x8003_0004 || status != 0 {
+                warn!("set keep_open on fd {} failed: id {:08x} status {}", fd, msg.id, status);
+            }
+        }
         fd
+    }
+
+    /// Apply `NRF_SO_KEEPOPEN` to raw sockets opened from now on.
+    fn set_keep_open(&self, keep_open: bool) {
+        self.state.borrow_mut().keep_open = keep_open;
+    }
+
+    /// Wait until the modem closes the raw socket.
+    fn wait_raw_socket_closed(&self) -> impl Future<Output = ()> + '_ {
+        poll_fn(|cx| {
+            let mut state = self.state.borrow_mut();
+            if state.net_fd.is_none() {
+                return Poll::Ready(());
+            }
+            state.net_fd_waker.register(cx.waker());
+            Poll::Pending
+        })
     }
 
     async fn close_raw_socket(&self, fd: u32) {
@@ -944,7 +1011,12 @@ impl<'a> Control<'a> {
         assert_eq!(msg.id, 0x80090004);
         assert!(msg.param_len >= 12);
         let status = u32::from_le_bytes(msg.param[8..12].try_into().unwrap());
-        assert_eq!(status, 0);
+        assert!(
+            matches!(status, 0 | 6 | 13),
+            "close fd {} failed: status {}",
+            fd,
+            status
+        );
 
         self.state.borrow_mut().net_fd = None;
     }

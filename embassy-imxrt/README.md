@@ -28,7 +28,7 @@ family:
   ([examples](https://github.com/OpenDevicePartnership/embassy-imxrt/tree/main/examples/rt633))
 
 Several peripherals are supported and tested on both supported chip variants. To
-check what's available, make sure to the MCU you're targetting in the top menu
+check what's available, make sure to the MCU you're targeting in the top menu
 in the [documentation](https://docs.embassy.dev/embassy-imxrt).
 
 ## TrustZone support

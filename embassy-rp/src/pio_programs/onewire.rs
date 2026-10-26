@@ -28,7 +28,7 @@ impl<'a, PIO: Instance> PioOneWireProgram<'a, PIO> {
 
                 ; Tick rate is 1 tick per 6us, so all delays should be calculated back to that
                 ; All the instructions have a calculated delay XX in us as [(XX / CLK) - 1].
-                ; The - 1 is for the instruction which also takes one clock cyle.
+                ; The - 1 is for the instruction which also takes one clock cycle.
                 ; The delay can be 0 which will result in just 6us for the instruction itself
                 .define CLK 6
 

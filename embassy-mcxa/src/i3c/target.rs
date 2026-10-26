@@ -249,7 +249,7 @@ impl Default for ClockConfig {
     }
 }
 
-/// Possible completitions of a read transaction.
+/// Possible completions of a read transaction.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ReadStatus {

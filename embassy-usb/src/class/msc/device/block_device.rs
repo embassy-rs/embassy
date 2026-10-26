@@ -92,7 +92,7 @@ impl<T: BlockDevice + ?Sized> AsyncBlockDevice for T {
     }
 }
 
-/// A cacheing wrapper for `AsyncBlockDevice` that aggregates writes to a device
+/// A caching wrapper for `AsyncBlockDevice` that aggregates writes to a device
 /// with large blocks, eliminating multiple flash read-erase-write cycles.
 ///
 /// Reads and caches one device block in `buf`, written back when required or

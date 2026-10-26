@@ -131,7 +131,7 @@ pub struct FlexCanConfig<'a> {
     /// - `bitrate: 500_000` (500 kbps)
     /// - `bitrate: 250_000` (250 kbps)
     /// - `bitrate: 125_000` (125 kbps)
-    ///  
+    ///
     /// #### 48 MHz Source Clock:
     /// - `bitrate: 1_000_000` (1 Mbps)
     /// - `bitrate: 500_000` (500 kbps)
@@ -375,7 +375,7 @@ impl Info {
 /// Contains stuff related to tracking FlexCAN halves. Modelled after `TxRxRef` and `TxRxRefMask` from embassy-mcxa LPUART.
 ///
 /// A big part of this module is the tracking of the FlexCAN TX and RX pins (see `FlexCanPins`). Because CAN TX and RX are quite closely
-/// coupled, it isn't really possible to fully drop a TX or RX half independently by disabling its repsective pin as much of the rest of this HAL does,
+/// coupled, it isn't really possible to fully drop a TX or RX half independently by disabling its respective pin as much of the rest of this HAL does,
 /// since that would disrupt the remaining half's ability to ACK/detect bus errors. The solution to this is having `Info` store the `AnyPin` descriptors
 /// of the FlexCAN pins, while the actual TX/RX halves still hold the owned `Peri` instances. This is probably kind of janky, but it makes it possible to
 /// wait for the last TX/RX half to get dropped before actually disabling the pins.

@@ -8,7 +8,7 @@ pub enum State {
     Ready,
     /// In process of sensor acquisition
     Busy,
-    /// Error occured during acquisition
+    /// Error occurred during acquisition
     Error,
 }
 

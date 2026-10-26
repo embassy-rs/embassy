@@ -51,7 +51,7 @@ pub(crate) struct Info {
 pub trait PeriGpioExt<'d, T: HasGpioInstance> {
     /// Type erase the pin while also binding and Irq.
     ///
-    /// This means the [`AnyPin`] can be used to constuct an async [`Input`] with [`Flex::async_from_anypin`]
+    /// This means the [`AnyPin`] can be used to construct an async [`Input`] with [`Flex::async_from_anypin`]
     /// and an async [`Flex`] with [`Flex::async_from_anypin`].
     fn degrade_async(
         self,
@@ -62,7 +62,7 @@ pub trait PeriGpioExt<'d, T: HasGpioInstance> {
 impl<'d, T: HasGpioInstance> PeriGpioExt<'d, T> for Peri<'d, T> {
     /// Type erase the pin while also binding and Irq.
     ///
-    /// This means the [`AnyPin`] can be used to constuct an async [`Input`] with [`Flex::async_from_anypin`]
+    /// This means the [`AnyPin`] can be used to construct an async [`Input`] with [`Flex::async_from_anypin`]
     /// and an async [`Flex`] with [`Flex::async_from_anypin`].
     fn degrade_async(
         self,
@@ -77,7 +77,7 @@ pub trait HasGpioInstance: GpioPin {
 
     /// Type erase the pin while also binding and Irq.
     ///
-    /// This means the [`AnyPin`] can be used to constuct an async [`Input`] with [`Flex::async_from_anypin`]
+    /// This means the [`AnyPin`] can be used to construct an async [`Input`] with [`Flex::async_from_anypin`]
     /// and an async [`Flex`] with [`Flex::async_from_anypin`].
     fn degrade_async<'p>(
         this: Peri<'p, Self>,
@@ -755,7 +755,7 @@ impl<'d> Flex<'d, Async> {
     /// This enables the use of async functions like: [`Input::wait_for_high`] and [`Input::wait_for_falling_edge`].
     /// In order to use an [`AnyPin`] with this function it needs to be constructed by
     /// calling [`PeriGpioExt::degrade_async`] on the pin to bind the Irq.
-    /// If an [`AnyPin`] is provided that was not constucted with [`PeriGpioExt::degrade_async`],
+    /// If an [`AnyPin`] is provided that was not constructed with [`PeriGpioExt::degrade_async`],
     /// it will return the error: [`NoIrqBound`].
     pub fn async_from_anypin(pin: Peri<'d, AnyPin>) -> Result<Self, NoIrqBound> {
         pin.set_function(Mux::Mux0);
@@ -1069,7 +1069,7 @@ impl<'d> Input<'d, Async> {
     /// This enables the use of async functions like: [`Input::wait_for_high`] and [`Input::wait_for_falling_edge`].
     /// In order to use an [`AnyPin`] with this function it needs to be constructed by
     /// calling [`PeriGpioExt::degrade_async`] on the pin to bind the Irq.
-    /// If an [`AnyPin`] is provided that was not constucted with [`PeriGpioExt::degrade_async`],
+    /// If an [`AnyPin`] is provided that was not constructed with [`PeriGpioExt::degrade_async`],
     /// it will return the error: [`NoIrqBound`].
     pub fn async_from_anypin(pin: Peri<'d, AnyPin>, pull_select: Pull) -> Result<Self, NoIrqBound> {
         let mut flex = Flex::async_from_anypin(pin)?;
@@ -1165,7 +1165,7 @@ impl embedded_hal_async::digital::Wait for Flex<'_, Async> {
 
 // Both embedded_hal 0.2 and 1.0 must be supported by embassy HALs.
 impl<M: Mode> embedded_hal_02::digital::v2::InputPin for Flex<'_, M> {
-    // GPIO operations on this block cannot fail, therefor we set the error type
+    // GPIO operations on this block cannot fail, therefore we set the error type
     // to Infallible to guarantee that we can only produce Ok variants.
     type Error = Infallible;
 

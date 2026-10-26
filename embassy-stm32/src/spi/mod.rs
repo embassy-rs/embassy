@@ -1286,7 +1286,7 @@ impl<'d> Spi<'d, Async, Master> {
             return Ok(());
         }
 
-        #[cfg(not(spi_v1))]
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -1421,7 +1421,7 @@ impl<'d> Spi<'d, Async, Master> {
             return Ok(());
         }
 
-        #[cfg(not(spi_v1))]
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -1462,7 +1462,7 @@ impl<'d> Spi<'d, Async, Master> {
                 finish_dma(self.info.regs);
             } else {
                 rx_f.await;
-                // In receiving mode RXNE flag should be prefered over BSY flag.
+                // In receiving mode RXNE flag should be preferred over BSY flag.
                 // When using DMA the RXNE flag is cleared after DMA reads data.
                 // Since DMA has already finished reading previously specified
                 // amount of data, then there is no need to check for RXNE flag.
@@ -1487,7 +1487,7 @@ impl<'d> Spi<'d, Async, Master> {
             return Ok(());
         }
 
-        #[cfg(not(spi_v1))]
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });

@@ -311,7 +311,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
     ///
     /// A sampler closure is provided that receives the buffer of samples, noting
     /// that the size of this buffer can be less than the original buffer's size.
-    /// A command is return from the closure that indicates whether the sampling
+    /// A command is returned from the closure that indicates whether the sampling
     /// should continue or stop.
     ///
     /// NOTE: The time spent within the callback supplied should not exceed the time
@@ -490,7 +490,7 @@ impl<'d> Saadc<'d, 1> {
     ///
     /// A sampler closure is provided that receives the buffer of samples, noting
     /// that the size of this buffer can be less than the original buffer's size.
-    /// A command is return from the closure that indicates whether the sampling
+    /// A command is returned from the closure that indicates whether the sampling
     /// should continue or stop.
     pub async fn run_timer_sampler<S, const N0: usize>(
         &mut self,
@@ -795,7 +795,7 @@ pub(crate) trait SealedInput {
     fn connect(&self) -> vals::PselpConnect;
 }
 
-/// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
+/// An input that can be used as either or negative end of a ADC differential in the SAADC peripheral.
 #[allow(private_bounds)]
 pub trait Input: SealedInput + Sized {
     /// Convert this SAADC input to a type-erased `AnyInput`.

@@ -1399,7 +1399,7 @@ macro_rules! curve_suites {
                 }
                 let mut bytes = sig.to_bytes();
                 bytes[N + 3] ^= 1;
-                let bad = Signature::from_bytes(&bytes).map_err(|_| fail("modified signature unparseable"))?;
+                let bad = Signature::from_bytes(&bytes).map_err(|_| fail("modified signature unparsable"))?;
                 if vk.verify_prehash(digest, &bad) != Err(Error::InvalidSignature) {
                     return Err(fail("modified signature verifies"));
                 }

@@ -209,7 +209,7 @@ where
         let val = self.read32_swapped(FUNC_BUS, REG_BUS_CTRL).await;
         trace!("{:#010b}", (val & 0xff));
 
-        // 32-bit word length, little endian (which is the default endianess).
+        // 32-bit word length, little endian (which is the default endianness).
         // TODO: C library is uint32_t val = WORD_LENGTH_32 | HIGH_SPEED_MODE| ENDIAN_BIG | INTERRUPT_POLARITY_HIGH | WAKE_UP | 0x4 << (8 * SPI_RESPONSE_DELAY) | INTR_WITH_STATUS << (8 * SPI_STATUS_ENABLE);
         trace!("write REG_BUS_CTRL");
         self.write32_swapped(

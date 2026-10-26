@@ -3,7 +3,7 @@
 //! The actual system might have a variable amount of timers at different base addresses.
 //! This driver provides an own declaration of the register block in the [regs] module.
 //!
-//! It provides intialization methods which consume an instance of a [regs::MmioRegisters]
+//! It provides initialization methods which consume an instance of a [regs::MmioRegisters]
 //! register block to allow resource management.
 //!
 //! If you use this driver, you generally have to call [init] or [init_cortex_m] on `cortex-m`

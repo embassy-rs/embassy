@@ -1,4 +1,4 @@
-#[cfg(any(stm32l0, stm32l1))]
+#[cfg(any(stm32l0, stm32l1, stm32wl))]
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::regs::Cfgr;
 #[cfg(any(stm32wb, stm32wl))]
@@ -68,7 +68,7 @@ pub struct Config {
     #[cfg(dsihost)]
     pub dsi: Option<DsiHostPllConfig>,
 
-    #[cfg(any(stm32l0, stm32l1))]
+    #[cfg(any(stm32l0, stm32l1, stm32wl))]
     pub voltage_scale: VoltageScale,
 
     /// Per-peripheral kernel clock selection muxes
@@ -100,7 +100,7 @@ impl Config {
             #[cfg(crs)]
             hsi48: Some(crate::rcc::Hsi48Config::new()),
             ls: crate::rcc::LsConfig::new(),
-            #[cfg(any(stm32l0, stm32l1))]
+            #[cfg(any(stm32l0, stm32l1, stm32wl))]
             voltage_scale: VoltageScale::Range1,
             mux: super::mux::ClockMux::default(),
         }
@@ -224,6 +224,12 @@ pub(crate) unsafe fn init(config: Config) {
         while crate::pac::PWR.sr2().read().vosf() {}
     }
 
+    #[cfg(stm32wl)]
+    {
+        crate::pac::PWR.cr1().modify(|w| w.set_vos(config.voltage_scale));
+        while crate::pac::PWR.sr2().read().vosf() {}
+    }
+
     let rtc = config.ls.init();
 
     let lse = config.ls.lse.map(|l| l.frequency);
@@ -342,6 +348,13 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(stm32l5)]
     assert!(sys_clk.0 <= 110_000_000);
 
+    #[cfg(stm32wl)]
+    match config.voltage_scale {
+        VoltageScale::Range1 => assert!(sys_clk.0 <= 48_000_000),
+        VoltageScale::Range2 => assert!(sys_clk.0 <= 16_000_000),
+        _ => panic!("invalid voltage scale"),
+    }
+
     let hclk1 = sys_clk / config.ahb_pre;
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk1, config.apb1_pre);
     #[cfg(not(stm32u0))]
@@ -392,11 +405,15 @@ pub(crate) unsafe fn init(config: Config) {
         _ => 5,
     };
     #[cfg(stm32wl)]
-    let latency = match hclk3.0 {
-        // VOS RANGE1, others TODO.
-        ..=18_000_000 => 0,
-        ..=36_000_000 => 1,
-        _ => 2,
+    let latency = match (config.voltage_scale, hclk3.0) {
+        // RM0461 Table 5: Number of wait states according to flash clock (HCLK3) frequency
+        (VoltageScale::Range1, ..=18_000_000) => 0,
+        (VoltageScale::Range1, ..=36_000_000) => 1,
+        (VoltageScale::Range1, _) => 2,
+        (VoltageScale::Range2, ..=6_000_000) => 0,
+        (VoltageScale::Range2, ..=12_000_000) => 1,
+        (VoltageScale::Range2, _) => 2,
+        _ => unreachable!(),
     };
     #[cfg(stm32wb)]
     let latency = match hclk3.0 {

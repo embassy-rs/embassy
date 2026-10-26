@@ -30,7 +30,7 @@ impl<const BUFFER_SIZE_BYTES: usize> RramMode for Buffered<BUFFER_SIZE_BYTES> {}
 //
 // Export Nvmc alias and page size for downstream compatibility
 //
-/// RRAM-backed `Nvmc` compatibile driver.
+/// RRAM-backed `Nvmc` compatible driver.
 pub type Nvmc<'d> = Rramc<'d, Unbuffered>;
 /// Emulated page size.  RRAM does not use pages. This exists only for downstream compatibility.
 pub const PAGE_SIZE: usize = 4096;

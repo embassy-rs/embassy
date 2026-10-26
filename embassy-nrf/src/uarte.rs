@@ -899,7 +899,7 @@ impl<'d> UarteRx<'d, Blocking> {
 }
 
 impl<'d, M: Mode> UarteRx<'d, M> {
-    /// Check for errors and clear the error register if an error occured.
+    /// Check for errors and clear the error register if an error occurred.
     fn check_and_clear_errors(&mut self) -> Result<(), Error> {
         let r = self.r;
         let err_bits = r.errorsrc().read();

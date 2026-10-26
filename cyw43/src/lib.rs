@@ -374,7 +374,7 @@ pub enum PowerManagementMode {
     #[default]
     PowerSave,
 
-    /// Performance is prefered over power consumption but still some power is conserved as opposed to
+    /// Performance is preferred over power consumption but still some power is conserved as opposed to
     /// `None`.
     Performance,
 

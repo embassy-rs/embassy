@@ -345,7 +345,7 @@ impl<'d> NfcT<'d> {
             }
 
             if r.events_txframeend().read() != 0 {
-                trace!("Txframend hit, should be finished trasmitting");
+                trace!("Txframend hit, should be finished transmitting");
                 return Poll::Ready(Ok(()));
             }
 

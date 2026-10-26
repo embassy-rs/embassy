@@ -17,7 +17,7 @@ All examples will set all pins to analog mode before configuring pins for the ex
 - the `button_exti` example will sleep in STOP2 and the chip will only draw 1uA or less while sleeping
 - the `i2c` examples will sleep in STOP1 between reads and the chip only draw about 10uA while sleeping
 
-For each example you will need to start `defmt-print` with the example binary and the correct serial port in a seperate terminal.  Example:
+For each example you will need to start `defmt-print` with the example binary and the correct serial port in a separate terminal.  Example:
 ```
 defmt-print -w -v -e target/thumbv7em-none-eabi/debug/<module-name> serial --path /dev/cu.usbserial-00000000 --baud 115200
 ```

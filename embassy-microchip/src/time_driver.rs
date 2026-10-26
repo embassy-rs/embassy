@@ -26,7 +26,7 @@ use crate::pac::{CCT, ECIA};
 /// period start has raced us between reading `period` and `counter`,
 /// so we assume the `counter` value corresponds to the next period.
 ///
-/// `period` is a 32-bit integer, it overlows on 2^32 * 2^31 /
+/// `period` is a 32-bit integer, it overflows on 2^32 * 2^31 /
 /// 48_000_000 seconds of uptime, which is about 6093 years.
 fn calc_now(period: u32, counter: u32) -> u64 {
     ((period as u64) << 31) + ((counter ^ ((period & 1) << 31)) as u64)

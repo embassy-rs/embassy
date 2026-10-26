@@ -358,6 +358,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             Sender {
                 write_ep: self.write_ep,
                 control: self.control,
+                needs_zlp: false,
             },
             Receiver {
                 read_ep: self.read_ep,
@@ -375,6 +376,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             Sender {
                 write_ep: self.write_ep,
                 control: self.control,
+                needs_zlp: false,
             },
             Receiver {
                 read_ep: self.read_ep,
@@ -420,6 +422,7 @@ impl<'d> ControlChanged<'d> {
 pub struct Sender<'d, D: Driver<'d>> {
     write_ep: D::EndpointIn,
     control: &'d ControlShared,
+    needs_zlp: bool,
 }
 
 impl<'d, D: Driver<'d>> Sender<'d, D> {
@@ -447,7 +450,9 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
 
     /// Writes a single packet into the IN endpoint.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.write_ep.write(data).await
+        let _ = self.write_ep.write(data).await?;
+        self.needs_zlp = data.len() == self.max_packet_size() as usize;
+        Ok(())
     }
 
     /// Waits for the USB host to enable this interface
@@ -471,6 +476,12 @@ impl<'d, D: Driver<'d>> embedded_io_async::Write for Sender<'d, D> {
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
+        if self.needs_zlp {
+            self.write_packet(&[]).await.map_err(|e| match e {
+                EndpointError::BufferOverflow => unreachable!(),
+                EndpointError::Disabled => CdcAcmError::NotConnected,
+            })?;
+        }
         Ok(())
     }
 }

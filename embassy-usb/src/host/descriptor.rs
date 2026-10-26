@@ -920,7 +920,7 @@ pub struct EndpointDescriptor {
     /// Maximum packet size (11 bits).
     ///
     /// For high-speed isochronous and interrupt endpoints,
-    /// it also specifies aditional transaction opportunities.
+    /// it also specifies additional transaction opportunities.
     pub max_packet_size: u16,
     /// Polling interval.
     ///

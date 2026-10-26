@@ -1297,7 +1297,7 @@ impl<'d> TcpIo<'d> {
             self.with(|s| {
                 if !s.can_send() {
                     if s.may_send() {
-                        // socket buffer is full wait until it has atleast one byte free
+                        // socket buffer is full wait until it has at least one byte free
                         s.register_send_waker(cx.waker());
                         (Poll::Pending, NoWake)
                     } else {
@@ -1335,7 +1335,7 @@ impl<'d> TcpIo<'d> {
             self.with(|s| {
                 if !s.can_recv() {
                     if s.may_recv() {
-                        // socket buffer is empty wait until it has atleast one byte has arrived
+                        // socket buffer is empty wait until at least one byte has arrived
                         s.register_recv_waker(cx.waker());
                         (Poll::Pending, NoWake)
                     } else {

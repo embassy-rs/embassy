@@ -38,7 +38,7 @@ pub struct Hsi {
     pub ker_div: HsiKerDiv,
 }
 
-/// Clocks configutation
+/// Clocks configuration
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub struct Config {
