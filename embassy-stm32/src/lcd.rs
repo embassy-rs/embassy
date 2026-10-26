@@ -150,6 +150,66 @@ pub enum Drive {
     PermanentHighDrive = 0x09,
 }
 
+/// Clock dividers for the LCD frame control register, as computed by [`calc_clock_dividers`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ClockDividers {
+    /// `PS[3:0]`: `ck_ps = lcd_clk / 2^ps`
+    ps: u8,
+    /// `DIV[3:0]`: `ck_div = ck_ps / (16 + div)`
+    div: u8,
+}
+
+impl ClockDividers {
+    /// Frequency of `ck_div` in Hz.
+    fn ck_div(&self, lcd_clk: Hertz) -> u32 {
+        lcd_clk.0 / ((1 << self.ps) * (self.div as u32 + 16))
+    }
+
+    /// Resulting frame rate in Hz.
+    fn fps(&self, lcd_clk: Hertz, duty: Duty) -> u32 {
+        self.ck_div(lcd_clk) / duty.num_com_pins() as u32
+    }
+}
+
+/// Find the `PS`/`DIV` combination that gets closest to `target_fps` without going below it.
+///
+/// Returns `None` if no combination that fits the `PS`/`DIV` register fields reaches `target_fps`.
+fn calc_clock_dividers(lcd_clk: Hertz, target_fps: Hertz, duty: Duty) -> Option<ClockDividers> {
+    let duty_divider = duty.num_com_pins() as u32;
+    let target_clock = target_fps.0 * duty_divider;
+    let target_division = lcd_clk.0 / target_clock;
+
+    let mut best: Option<(ClockDividers, u32)> = None;
+
+    for trial_div in 0..0xFu8 {
+        // The largest power of two prescaler that doesn't push the frame rate below the target.
+        // Rounding *up* to the next power of two would overdivide the clock, which only ever
+        // yields a frame rate below the target.
+        // `PS` is a 4-bit field, so skip prescalers that don't fit.
+        let Some(trial_ps) = (target_division / (trial_div as u32 + 16))
+            .checked_ilog2()
+            .filter(|ps| *ps <= 0xF)
+        else {
+            continue;
+        };
+        let trial = ClockDividers {
+            ps: trial_ps as u8,
+            div: trial_div,
+        };
+        let fps = trial.fps(lcd_clk, duty);
+
+        if fps < target_fps.0 {
+            continue;
+        }
+
+        if best.is_none_or(|(_, best_fps)| fps < best_fps) {
+            best = Some((trial, fps));
+        }
+    }
+
+    best.map(|(dividers, _)| dividers)
+}
+
 /// LCD driver.
 pub struct Lcd<'d, T: Instance> {
     _peri: PhantomData<&'d mut T>,
@@ -200,52 +260,25 @@ impl<'d, T: Instance> Lcd<'d, T> {
         let Some(lcd_clk) = (unsafe { rcc::get_freqs().rtc.to_hertz() }) else {
             panic!("The LCD driver needs the RTC/LCD clock to be running");
         };
-        let duty_divider = match config.duty {
-            Duty::Static => 1,
-            Duty::Half => 2,
-            Duty::Third => 3,
-            Duty::Quarter => 4,
-            Duty::Eigth => 8,
+        let Some(dividers) = calc_clock_dividers(lcd_clk, config.target_fps, config.duty) else {
+            panic!("Lcd clock error");
         };
-        let target_clock = config.target_fps.0 * duty_divider;
-        let target_division = lcd_clk.0 / target_clock;
-
-        let mut ps = 0;
-        let mut div = 0;
-        let mut best_fps_match = u32::MAX;
-
-        for trial_div in 0..0xF {
-            let Some(trial_ps) = (target_division / (trial_div + 16)).checked_ilog2() else {
-                continue;
-            };
-            let fps = lcd_clk.0 / ((1 << trial_ps) * (trial_div + 16)) / duty_divider;
-
-            if fps < config.target_fps.0 {
-                continue;
-            }
-
-            if fps < best_fps_match {
-                ps = trial_ps;
-                div = trial_div;
-                best_fps_match = fps;
-            }
-        }
-
-        let ck_div = lcd_clk.0 / ((1 << ps) * (div + 16));
+        let ClockDividers { ps, div } = dividers;
+        let ck_div = dividers.ck_div(lcd_clk);
 
         trace!(
             "lcd_clk: {}, fps: {}, ps: {}, div: {}, ck_div: {}",
-            lcd_clk, best_fps_match, ps, div, ck_div
+            lcd_clk,
+            dividers.fps(lcd_clk, config.duty),
+            ps,
+            div,
+            ck_div
         );
-
-        if best_fps_match == u32::MAX || ps > 0xF {
-            panic!("Lcd clock error");
-        }
 
         // Set the frame control
         T::regs().fcr().modify(|w| {
-            w.set_ps(ps as u8);
-            w.set_div(div as u8);
+            w.set_ps(ps);
+            w.set_div(div);
             w.set_cc(0b100); // Init in the middle-ish
             w.set_dead(0b000);
             w.set_pon(config.drive as u8 & 0x07);
@@ -517,3 +550,76 @@ foreach_peripheral!(
         impl crate::lcd::Instance for peripherals::$inst {}
     };
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LSE: Hertz = Hertz(32_768);
+
+    fn check(clk: Hertz, fps: Hertz, duty: Duty, ps: u8, div: u8, expected_fps: u32) {
+        let d = calc_clock_dividers(clk, fps, duty).unwrap();
+        assert_eq!(d, ClockDividers { ps, div });
+        assert_eq!(d.fps(clk, duty), expected_fps);
+        assert!(expected_fps >= fps.0);
+    }
+
+    #[test]
+    fn derived_values() {
+        let d = ClockDividers { ps: 5, div: 1 };
+        assert_eq!(d.ck_div(LSE), 32_768 / (32 * 17));
+        assert_eq!(d.fps(LSE, Duty::Static), 60);
+        assert_eq!(d.fps(LSE, Duty::Quarter), 15);
+    }
+
+    #[test]
+    fn exact_power_of_two_division() {
+        // 32768 / 60 = 546; 546 / 17 = 32 = 2^5 -> fps = 32768 / (32 * 17) = 60
+        check(LSE, Hertz(60), Duty::Static, 5, 1, 60);
+        // 32768 / (64 * 4) = 128; 128 / 16 = 8 = 2^3 -> fps = 32768 / (8 * 16) / 4 = 64
+        check(LSE, Hertz(64), Duty::Quarter, 3, 0, 64);
+    }
+
+    #[test]
+    fn non_power_of_two_division() {
+        // Regression: 32768 / 61 = 537, and 537 / (div + 16) is never a power of two.
+        // Rounding up to the next power of two overdivided the clock for every `div`,
+        // leaving no candidate above the target and panicking with "Lcd clock error".
+        check(LSE, Hertz(61), Duty::Static, 5, 0, 64);
+        check(LSE, Hertz(31), Duty::Static, 6, 0, 32);
+        check(Hertz(1_000_000), Hertz(60), Duty::Quarter, 8, 0, 61);
+        check(Hertz(1_000_000), Hertz(100), Duty::Eigth, 6, 3, 102);
+    }
+
+    #[test]
+    fn picks_closest_fps_at_or_above_target() {
+        for clk in [LSE, Hertz(1_000_000), Hertz(4_000_000)] {
+            for duty in [Duty::Static, Duty::Half, Duty::Third, Duty::Quarter, Duty::Eigth] {
+                for fps in 30..=100 {
+                    let d = calc_clock_dividers(clk, Hertz(fps), duty).unwrap();
+                    let d_fps = d.fps(clk, duty);
+                    assert!(d_fps >= fps, "{clk} {fps} {duty:?}: {d:?}");
+
+                    // Brute force: no (ps, div) yields a frame rate closer to the target.
+                    for ps in 0..=0xFu8 {
+                        for div in 0..0xFu8 {
+                            let f = ClockDividers { ps, div }.fps(clk, duty);
+                            assert!(
+                                f < fps || f >= d_fps,
+                                "{clk} {fps} {duty:?}: ps={ps} div={div} gives {f} < {d_fps}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unreachable_target() {
+        // 32768 / 16 / 8 = 256 fps is the fastest possible frame rate at eighth duty.
+        assert!(calc_clock_dividers(LSE, Hertz(256), Duty::Eigth).is_some());
+        assert_eq!(calc_clock_dividers(LSE, Hertz(257), Duty::Eigth), None);
+        assert_eq!(calc_clock_dividers(LSE, Hertz(100_000), Duty::Static), None);
+    }
+}
