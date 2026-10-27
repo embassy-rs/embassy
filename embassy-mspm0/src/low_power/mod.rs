@@ -100,7 +100,7 @@ pub(crate) fn unblock(level: SleepLevel) {
 
     // M0+ does not support fetch_sub. Must emulate with critical section
     critical_section::with(|_cs| {
-        let count = SLEEP_BLOCKS[level as usize].load(Ordering::Relaxed);
+        let mut count = SLEEP_BLOCKS[level as usize].load(Ordering::Relaxed);
         count -= 1;
         SLEEP_BLOCKS[level as usize].store(count, Ordering::Relaxed);
     });
