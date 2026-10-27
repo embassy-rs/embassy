@@ -2011,8 +2011,8 @@ fn main() {
                         // XSPI NCS pin to CSSEL mapping
                         if pin.signal.contains("NCS") {
                             let slot: u8 = if pin.signal.ends_with("NCS1") { 0 } else { 1 };
-                            g.extend(quote! { 
-                                sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, #slot); 
+                            g.extend(quote! {
+                                sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, #slot);
                             });
                         }
                     }
@@ -2073,7 +2073,9 @@ fn main() {
                         quote!()
                     };
 
-                    if (p.name == "OCTOSPIM" && (pin.signal.starts_with("P1_") || pin.signal.starts_with("P2_"))) || p.name == "XSPIM" {
+                    if (p.name == "OCTOSPIM" && (pin.signal.starts_with("P1_") || pin.signal.starts_with("P2_")))
+                        || p.name == "XSPIM"
+                    {
                         // already handled above
                         None
                     } else {
