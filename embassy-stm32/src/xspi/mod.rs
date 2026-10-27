@@ -58,6 +58,8 @@ pub struct Config {
     pub max_transfer: u8,
     /// Enables the refresh feature, chip select is released every refresh + 1 clock cycles
     pub refresh: u32,
+    /// Configures the XSPI manager during initialization
+    pub initialize_manager: bool,
 }
 
 impl Default for Config {
@@ -79,6 +81,7 @@ impl Default for Config {
             chip_select_boundary: 0, // Acceptable range 0 to 31
             max_transfer: 0,
             refresh: 0,
+            initialize_manager: true,
         }
     }
 }
@@ -361,21 +364,23 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
 
             // Configure XSPI IO Manager
             // Note: ncs_cssel indicates which NCS pin is being used (0=NCS0, 1=NCS1)
-            T::SPIM_REGS.cr().modify(|w| {
-                w.set_muxen(false);
-                w.set_req2ack_time(1); // Match ST HAL (was 0xff, which is only relevant when muxen=true)
-                // H7RS and N6: Enable chip select override (required for proper NCS routing)
-                #[cfg(any(stm32h7rs, stm32n6))]
-                w.set_cssel_ovr_en(true);
-                // Set override value based on pin configuration (0=NCS0, 1=NCS1)
-                // Each XSPI has its own override field in XSPIM
-                match T::SPI_IDX {
-                    1 => w.set_cssel_ovr_o1(ncs_cssel != 0),
-                    2 => w.set_cssel_ovr_o2(ncs_cssel != 0),
-                    _ => {} // XSPI3 not supported in non-multiplexed mode
-                }
-            });
-            debug!("XSPI init: XSPIM configured");
+            if config.initialize_manager {
+                T::SPIM_REGS.cr().modify(|w| {
+                    w.set_muxen(false);
+                    w.set_req2ack_time(1); // Match ST HAL (was 0xff, which is only relevant when muxen=true)
+                    // H7RS and N6: Enable chip select override (required for proper NCS routing)
+                    #[cfg(any(stm32h7rs, stm32n6))]
+                    w.set_cssel_ovr_en(true);
+                    // Set override value based on pin configuration (0=NCS0, 1=NCS1)
+                    // Each XSPI has its own override field in XSPIM
+                    match T::SPI_IDX {
+                        1 => w.set_cssel_ovr_o1(ncs_cssel != 0),
+                        2 => w.set_cssel_ovr_o2(ncs_cssel != 0),
+                        _ => {} // XSPI3 not supported in non-multiplexed mode
+                    }
+                });
+                debug!("XSPI init: XSPIM configured");
+            }
 
             // H7RS: Enable XSPI clock after initial config (original sequence)
             #[cfg(rcc_h7rs)]
