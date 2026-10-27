@@ -6,7 +6,7 @@ use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use mspm0_metapac::iomux::regs::Pincm;
 
@@ -14,8 +14,6 @@ use crate::interrupt;
 use crate::interrupt::typelevel::Handler;
 use crate::pac::gpio::vals::*;
 use crate::pac::gpio::{self};
-// #[cfg(all(feature = "rt", any(gpioa_interrupt, gpiob_interrupt)))]f
-// use crate::pac::interrupt;
 use crate::pac::{self};
 
 pub struct Blocking {}
@@ -741,53 +739,15 @@ impl<'d> OutputOpenDrain<'d, Async> {
     }
 }
 
-// FIXME: Remove AnyPin once done
-/// Type-erased GPIO pin
-pub struct AnyPin {
-    pub(crate) pin_port: u8,
-}
-
-impl AnyPin {
-    /// Create an [AnyPin] for a specific pin.
-    ///
-    /// # Safety
-    /// - `pin_port` should not in use by another driver.
-    #[inline]
-    pub unsafe fn steal(pin_port: u8) -> Peri<'static, Self> {
-        Peri::new_unchecked(Self { pin_port })
-    }
-}
-
-impl_peripheral!(AnyPin);
-
-impl Pin for AnyPin {
-    // FIXME: Wrong, but remove AnyPin
-    type Interrupt = crate::interrupt::typelevel::GROUP0;
-}
-impl SealedPin for AnyPin {
-    fn info() -> &'static Info {
-        todo!("Remove AnyPin")
-    }
-
-    fn state() -> &'static State {
-        todo!("Remove AnyPin")
-    }
-
-    #[inline]
-    fn pin_port(&self) -> u8 {
-        self.pin_port
-    }
-}
-
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
 #[allow(private_bounds)]
-pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
+pub trait Pin: PeripheralType + SealedPin + Sized + 'static {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 
     /// The index of this pin in PINCM (pin control management) registers.
     #[inline]
     fn pin_cm(&self) -> u8 {
-        self._pin_cm()
+        Self::info().pincm_index() as u8
     }
 }
 
@@ -996,32 +956,6 @@ impl<'d> embedded_hal_async::digital::Wait for OutputOpenDrain<'d, Async> {
     }
 }
 
-#[cfg_attr(mspm0g518x, allow(dead_code))]
-#[derive(Copy, Clone)]
-pub struct PfType {
-    pull: Pull,
-    input: bool,
-    invert: bool,
-}
-
-impl PfType {
-    pub const fn input(pull: Pull, invert: bool) -> Self {
-        Self {
-            pull,
-            input: true,
-            invert,
-        }
-    }
-
-    pub const fn output(pull: Pull, invert: bool) -> Self {
-        Self {
-            pull,
-            input: false,
-            invert,
-        }
-    }
-}
-
 /// Pin configuration.
 ///
 /// This is a lower level interface to configure a pin.
@@ -1220,11 +1154,6 @@ macro_rules! impl_pin {
                 static STATE: crate::gpio::State = crate::gpio::State::new();
                 &STATE
             }
-
-            #[inline]
-            fn pin_port(&self) -> u8 {
-                ($port as u8) * 32 + $pin_num
-            }
         }
 
         impl From<crate::peripherals::$name> for crate::gpio::AnyPin {
@@ -1333,61 +1262,16 @@ pub(crate) trait SealedPin {
 
     fn state() -> &'static State;
 
-    fn pin_port(&self) -> u8;
-
-    fn _pin_cm(&self) -> u8 {
-        // Some parts like the MSPM0L222x have pincm mappings all over the place.
-        todo!("Dead")
-    }
-
     #[inline]
     fn set_as_analog(&self) {
-        let pincm = pac::IOMUX.pincm(self._pin_cm() as usize);
+        let pincm = pac::IOMUX.pincm(Self::info().pincm_index());
 
-        pincm.modify(|w| {
+        pincm.write(|w| {
             w.set_pf(DISCONNECT_PF);
             w.set_pipu(false);
             w.set_pipd(false);
         });
     }
-
-    #[cfg_attr(mspm0g518x, allow(dead_code))]
-    fn update_pf(&self, ty: PfType) {
-        let pincm = pac::IOMUX.pincm(self._pin_cm() as usize);
-        let pf = pincm.read().pf();
-
-        set_pf(self._pin_cm() as usize, pf, ty);
-    }
-
-    // #[cfg_attr(mspm0g518x, allow(dead_code))]
-    fn set_as_pf(&self, pf: u8, ty: PfType) {
-        set_pf(self._pin_cm() as usize, pf, ty)
-    }
-
-    /// Set the pin as "disconnected", ie doing nothing and consuming the lowest
-    /// amount of power possible.
-    ///
-    /// This is currently the same as [`Self::set_as_analog()`] but is semantically different
-    /// really. Drivers should `set_as_disconnected()` pins when dropped.
-    ///
-    /// Note that this also disables the internal weak pull-up and pull-down resistors.
-    #[inline]
-    // #[cfg_attr(mspm0g518x, allow(dead_code))]
-    fn set_as_disconnected(&self) {
-        self.set_as_analog();
-    }
-}
-
-#[inline(never)]
-fn set_pf(pincm: usize, pf: u8, ty: PfType) {
-    pac::IOMUX.pincm(pincm).modify(|w| {
-        w.set_pf(pf);
-        w.set_pc(true);
-        w.set_pipu(ty.pull == Pull::Up);
-        w.set_pipd(ty.pull == Pull::Down);
-        w.set_inena(ty.input);
-        w.set_inv(ty.invert);
-    });
 }
 
 pub(crate) fn init(gpio: gpio::Gpio) {
@@ -1408,65 +1292,7 @@ pub(crate) fn init(gpio: gpio::Gpio) {
     });
 }
 
-// #[cfg(feature = "rt")]
-// fn irq_handler(gpio: gpio::Gpio, port: Port) {
-//     use crate::BitIter;
-//     // Only consider pins which have interrupts unmasked.
-
-//     let bits = gpio.cpu_int().mis().read().0;
-
-//     for i in BitIter(bits) {
-//         let id = ((port as u8) * 32) + i as u8;
-//         let _ = GPIO_WAIT_MAP.wake(&id, ());
-
-//         // Notify the future that an edge event has occurred by masking the interrupt for this pin.
-//         gpio.cpu_int().imask().modify(|w| {
-//             w.set_dio(i as usize, false);
-//         });
-//     }
-// }
-
 #[cfg(all(gpioa_interrupt, gpioa_group))]
 compile_error!("gpioa_interrupt and gpioa_group are mutually exclusive cfgs");
 #[cfg(all(gpiob_interrupt, gpiob_group))]
 compile_error!("gpiob_interrupt and gpiob_group are mutually exclusive cfgs");
-
-// // C110x and L110x have a dedicated interrupts just for GPIOA.
-// //
-// // These chips do not have a GROUP1 interrupt.
-// #[cfg(all(feature = "rt", gpioa_interrupt))]
-// #[interrupt]
-// fn GPIOA() {
-//     irq_handler(pac::GPIOA, Port::PortA);
-// }
-
-// #[cfg(all(feature = "rt", gpiob_interrupt))]
-// #[interrupt]
-// fn GPIOB() {
-//     irq_handler(pac::GPIOB, Port::PortB);
-// }
-
-// // These symbols are weakly defined as DefaultHandler and are called by the interrupt group implementation.
-// //
-// // Defining these as no_mangle is required so that the linker will pick these over the default handler.
-
-// #[cfg(all(feature = "rt", gpioa_group))]
-// #[unsafe(no_mangle)]
-// #[allow(non_snake_case)]
-// fn GPIOA() {
-//     irq_handler(pac::GPIOA, Port::PortA);
-// }
-
-// #[cfg(all(feature = "rt", gpiob_group))]
-// #[unsafe(no_mangle)]
-// #[allow(non_snake_case)]
-// fn GPIOB() {
-//     irq_handler(pac::GPIOB, Port::PortB);
-// }
-
-// #[cfg(all(feature = "rt", gpioc_group))]
-// #[allow(non_snake_case)]
-// #[unsafe(no_mangle)]
-// fn GPIOC() {
-//     irq_handler(pac::GPIOC, Port::PortC);
-// }

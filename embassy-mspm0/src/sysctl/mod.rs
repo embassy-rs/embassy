@@ -2,7 +2,7 @@
 
 #![macro_use]
 
-use crate::gpio::{AnyPin, PfType, Pin, Pull, SealedPin};
+use crate::gpio::{Pin, PinBorrow, PinConfig, Pull};
 use crate::pac::sysctl::vals;
 use crate::peripherals::CLK_OUT;
 use crate::{Peri, pac};
@@ -192,16 +192,16 @@ pub enum ClkOutDiv {
 
 /// CLK_OUT pin driver.
 pub struct ClkOut<'d> {
-    pin: Peri<'d, AnyPin>,
+    pin: PinBorrow<'d>,
 }
 
 impl<'d> ClkOut<'d> {
     /// Create a bew CLK_OUT instance.
     pub fn new(_peri: Peri<'d, CLK_OUT>, pin: Peri<'d, impl ClkOutPin>, source: ClkOutSource) -> Self {
+        let pf = pin.pf_num();
         // FIXME: Config (pull, invert, etc?)
-        let pf = PfType::output(Pull::None, false);
-        // FIXME: Infallible operation
-        let pin = unwrap!(new_pin!(pin, pf));
+        let pin_config = PinConfig::output(Pull::None, false);
+        let pin = PinBorrow::with_config(pin, pf, pin_config);
 
         let (en_div, div) = source.convert_div();
         let src = source.convert_src();
@@ -225,7 +225,7 @@ impl<'d> Drop for ClkOut<'d> {
             w.set_exclken(false);
         });
 
-        self.pin.set_as_disconnected();
+        self.pin.disconnect();
     }
 }
 
