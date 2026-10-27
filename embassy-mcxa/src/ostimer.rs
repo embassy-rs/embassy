@@ -1,12 +1,10 @@
 //! Time Driver.
 //!
-//! # REVISIT: Power Down
-//!
-//! OSTIMER stops in Power Down and cannot wake the core. When adding Power Down:
-//! - Check task deadlines under the sleep-entry critical section.
-//! - Ignore epoch-maintenance matches; veto entry for pending task alarms.
-//! - With no task alarms, require explicit stopped-time semantics or account for
-//!   elapsed time using a Power Down-capable clock.
+//! OSTIMER stops in Power Down and cannot wake the core. The optional
+//! `sleep-time-bridge` feature exposes the next task deadline (not a wrap
+//! maintenance match) and stopped-time reconciliation. The caller owns sleep
+//! eligibility, a continuing wake/elapsed source, and clock recovery, and keeps
+//! interrupts masked across the snapshot, sleep, recovery and reconciliation.
 
 use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -85,11 +83,19 @@ impl GrayTicks {
 embassy_time_driver::time_driver_impl!(static DRIVER: OsTimer = OsTimer {
     time: Mutex::new(Cell::new(0)),
     queue: Mutex::new(RefCell::new(Queue::new())),
+    #[cfg(feature = "sleep-time-bridge")]
+    offset: Mutex::new(Cell::new(0)),
+    #[cfg(feature = "sleep-time-bridge")]
+    next_deadline: Mutex::new(Cell::new(u64::MAX)),
 });
 
 struct OsTimer {
     time: Mutex<CriticalSectionRawMutex, Cell<u64>>,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
+    #[cfg(feature = "sleep-time-bridge")]
+    offset: Mutex<CriticalSectionRawMutex, Cell<u64>>,
+    #[cfg(feature = "sleep-time-bridge")]
+    next_deadline: Mutex<CriticalSectionRawMutex, Cell<u64>>,
 }
 
 impl OsTimer {
@@ -126,14 +132,18 @@ impl OsTimer {
             w.set_ostimer_intena(false);
             w.set_ostimer_intrflag(true);
         });
-        while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
+        wait_for_match_sync();
 
-        let gray_timestamp = EvTicks::from_timestamp(deadline).to_gray();
+        #[cfg(feature = "sleep-time-bridge")]
+        let raw_deadline = deadline.saturating_sub(self.offset.borrow(_cs).get());
+        #[cfg(not(feature = "sleep-time-bridge"))]
+        let raw_deadline = deadline;
+        let gray_timestamp = EvTicks::from_timestamp(raw_deadline).to_gray();
         OSTIMER0.match_l().write(|w| w.set_match_value(gray_timestamp.low()));
         OSTIMER0.match_h().write(|w| w.set_match_value(gray_timestamp.high()));
 
         // MATCH_H transfers the shadow pair to the active comparator.
-        while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
+        wait_for_match_sync();
         if deadline <= self.now() {
             OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
             return AlarmOutcome::AlreadyDue;
@@ -150,6 +160,8 @@ impl OsTimer {
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> AlarmOutcome {
+        #[cfg(feature = "sleep-time-bridge")]
+        self.next_deadline.borrow(cs).set(timestamp);
         // Keep the queue sentinel in software; idle queues still need wrap tracking.
         let maintenance = (self.now() | (PERIOD_TICKS - 1)).saturating_add(1);
         let target = timestamp.min(maintenance);
@@ -183,6 +195,20 @@ impl OsTimer {
             }
         });
     }
+
+    fn raw_now(&self, cs: CriticalSection) -> u64 {
+        // Keep the existing 42-bit software epoch independent of sleep offset.
+        let high = OSTIMER0.evtimerh().read().evtimer_count_value();
+        let low = OSTIMER0.evtimerl().read().evtimer_count_value();
+        let counter = GrayTicks::from_registers(high, low).decode().value();
+        let time = self.time.borrow(cs);
+        let previous = time.get();
+        let now = previous
+            .checked_add(counter.wrapping_sub(previous) & COUNTER_MASK)
+            .unwrap_or_else(|| cortex_m::peripheral::SCB::sys_reset());
+        time.set(now);
+        now
+    }
 }
 
 static INIT: AtomicBool = AtomicBool::new(false);
@@ -197,13 +223,11 @@ impl Driver for OsTimer {
 
         // Keep interrupts from delaying the low-half read across multiple ticks.
         critical_section::with(|cs| {
-            let high = OSTIMER0.evtimerh().read().evtimer_count_value();
-            let low = OSTIMER0.evtimerl().read().evtimer_count_value();
-            let counter = GrayTicks::from_registers(high, low).decode().value();
-            let time = self.time.borrow(cs);
-            let previous = time.get();
-            let now = previous + (counter.wrapping_sub(previous) & COUNTER_MASK);
-            time.set(now);
+            let now = self.raw_now(cs);
+            #[cfg(feature = "sleep-time-bridge")]
+            let now = now
+                .checked_add(self.offset.borrow(cs).get())
+                .unwrap_or_else(|| cortex_m::peripheral::SCB::sys_reset());
             now
         })
     }
@@ -211,7 +235,6 @@ impl Driver for OsTimer {
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
         critical_section::with(|cs| {
             let mut queue = self.queue.borrow(cs).borrow_mut();
-
             if queue.schedule_wake(at, waker) {
                 let mut next = queue.next_expiration(self.now());
                 while matches!(self.set_alarm(cs, next), AlarmOutcome::AlreadyDue) {
@@ -220,6 +243,65 @@ impl Driver for OsTimer {
             }
         })
     }
+}
+
+fn wait_for_match_sync() {
+    for _ in 0..1_000_000 {
+        if !OSTIMER0.osevent_ctrl().read().match_wr_rdy() {
+            return;
+        }
+    }
+    cortex_m::peripheral::SCB::sys_reset();
+}
+
+/// A masked-entry observation of monotonic time and the next task alarm.
+#[cfg(feature = "sleep-time-bridge")]
+pub struct SleepSnapshot {
+    pub now: u64,
+    /// `u64::MAX` means no task deadline; excludes wrap-maintenance matches.
+    pub next_deadline: u64,
+    raw: u64,
+}
+
+/// Observe the active timer queue without changing it.
+///
+/// The caller must keep interrupts masked until `resume_from_sleep` completes.
+#[cfg(feature = "sleep-time-bridge")]
+pub fn sleep_snapshot() -> Option<SleepSnapshot> {
+    if !INIT.load(Ordering::Acquire) {
+        return None;
+    }
+    critical_section::with(|cs| {
+        let raw = DRIVER.raw_now(cs);
+        Some(SleepSnapshot {
+            now: raw.checked_add(DRIVER.offset.borrow(cs).get())?,
+            next_deadline: DRIVER.next_deadline.borrow(cs).get(),
+            raw,
+        })
+    })
+}
+
+/// Reconcile a stopped counter and service expired alarms before IRQs resume.
+///
+/// `elapsed_us` spans the snapshot through recovery, measured independently of
+/// mutable wall time. `uncertainty_us` bounds retained-clock drift/sampling error.
+/// Raw progress is subtracted; differences within uncertainty do not advance
+/// time on shallower wakes. The caller keeps interrupts masked throughout.
+/// Returns the added offset, or `None` for overflow or inconsistent raw progress.
+#[cfg(feature = "sleep-time-bridge")]
+pub fn resume_from_sleep(snapshot: SleepSnapshot, elapsed_us: u64, uncertainty_us: u64) -> Option<u64> {
+    critical_section::with(|cs| {
+        let (offset, missing) = crate::sleep_time::reconcile(
+            snapshot.raw,
+            DRIVER.raw_now(cs),
+            DRIVER.offset.borrow(cs).get(),
+            elapsed_us,
+            uncertainty_us,
+        )?;
+        DRIVER.offset.borrow(cs).set(offset);
+        DRIVER.trigger_alarm(cs);
+        Some(missing)
+    })
 }
 
 #[allow(non_snake_case)]

@@ -66,6 +66,8 @@ pub mod lpuart;
 #[cfg(all(mcxa_ostimer, time_driver_ostimer))]
 pub mod ostimer;
 pub mod perf_counters;
+#[cfg(feature = "sleep-time-bridge")]
+mod sleep_time;
 #[cfg(mcxa_cmc)]
 pub mod reset_reason;
 #[cfg(mcxa_rtc5xx)]

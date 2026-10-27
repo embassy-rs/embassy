@@ -55,6 +55,8 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "perf", "mcxa577"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa266", "time-driver-lptmr"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa577", "time-driver-lptmr"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa256", "sleep-time-bridge"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa577", "sleep-time-bridge"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -136,6 +138,8 @@ default = ["rt", "swd-swo-as-gpio", "dma-ipd-req", "time-driver-any"]
 time-driver-any = ["rt"]
 ## Explicitly use OSTIMER0 as the Embassy time driver, at 1 MHz.
 time-driver-ostimer = ["rt"]
+## Expose masked sleep snapshots and stopped-counter reconciliation for OSTIMER.
+sleep-time-bridge = ["time-driver-ostimer"]
 ## Use LPTMR0 as the Embassy time driver, at 1 MHz. Polls alarms every 1 ms.
 ## Overrides time-driver-any; incompatible with explicit time-driver-ostimer.
 time-driver-lptmr = ["rt"]
