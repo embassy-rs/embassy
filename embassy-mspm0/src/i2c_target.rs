@@ -11,13 +11,12 @@ use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 use mspm0_metapac::i2c::vals::CpuIntIidxStat;
 
-use crate::gpio::{AnyPin, SealedPin};
+use crate::gpio::{PinBorrow};
 // Re-use I2c controller types
 use crate::i2c::{ClockSel, ConfigError, Info, Instance, InterruptHandler, SclPin, SdaPin, State};
 use crate::interrupt::InterruptExt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::i2c::vals;
-use crate::pac::{self};
 use crate::{Peri, i2c, i2c_target, interrupt};
 
 #[non_exhaustive]
@@ -94,8 +93,8 @@ pub enum ReadStatus {
 pub struct I2cTarget<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
-    scl: Option<Peri<'d, AnyPin>>,
-    sda: Option<Peri<'d, AnyPin>>,
+    scl: PinBorrow<'d>,
+    sda: PinBorrow<'d>,
     config: i2c::Config,
     target_config: i2c_target::Config,
     _phantom: PhantomData<M>,
@@ -108,13 +107,8 @@ impl<'d> SetConfig for I2cTarget<'d, Async> {
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         self.info.interrupt.disable();
 
-        if let Some(ref sda) = self.sda {
-            sda.update_pf(config.0.sda_pf());
-        }
-
-        if let Some(ref scl) = self.scl {
-            scl.update_pf(config.0.scl_pf());
-        }
+        self.sda.update_config(config.0.sda_config());
+        self.scl.update_config(config.0.scl_config());
 
         self.config = config.0.clone();
         self.target_config = config.1.clone();
@@ -128,14 +122,8 @@ impl<'d> SetConfig for I2cTarget<'d, Blocking> {
     type ConfigError = ConfigError;
 
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
-        if let Some(ref sda) = self.sda {
-            sda.update_pf(config.0.sda_pf());
-        }
-
-        if let Some(ref scl) = self.scl {
-            scl.update_pf(config.0.scl_pf());
-        }
-
+        self.sda.update_config(config.0.sda_config());
+        self.scl.update_config(config.0.scl_config());
         self.config = config.0.clone();
         self.target_config = config.1.clone();
 
@@ -155,10 +143,18 @@ impl<'d> I2cTarget<'d, Async> {
         config: i2c::Config,
         target_config: i2c_target::Config,
     ) -> Result<Self, ConfigError> {
+        let scl_pf = scl.pf_num();
+        let sda_pf = sda.pf_num();
+        let scl_config = config.scl_config();
+        let sda_config = config.sda_config();
+
+        let scl = PinBorrow::with_config(scl, scl_pf, scl_config);
+        let sda = PinBorrow::with_config(sda, sda_pf, sda_config);
+
         let mut this = Self::new_inner(
             peri,
-            new_pin!(scl, config.scl_pf()),
-            new_pin!(sda, config.sda_pf()),
+            scl,
+            sda,
             config,
             target_config,
         );
@@ -187,10 +183,18 @@ impl<'d> I2cTarget<'d, Blocking> {
         config: i2c::Config,
         target_config: i2c_target::Config,
     ) -> Result<Self, ConfigError> {
+        let scl_pf = scl.pf_num();
+        let sda_pf = sda.pf_num();
+        let scl_config = config.scl_config();
+        let sda_config = config.sda_config();
+
+        let scl = PinBorrow::with_config(scl, scl_pf, scl_config);
+        let sda = PinBorrow::with_config(sda, sda_pf, sda_config);
+
         let mut this = Self::new_inner(
             peri,
-            new_pin!(scl, config.scl_pf()),
-            new_pin!(sda, config.sda_pf()),
+            scl,
+            sda,
             config,
             target_config,
         );
@@ -210,24 +214,11 @@ impl<'d> I2cTarget<'d, Blocking> {
 impl<'d, M: Mode> I2cTarget<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        scl: Option<Peri<'d, AnyPin>>,
-        sda: Option<Peri<'d, AnyPin>>,
+        scl: PinBorrow<'d>,
+        sda: PinBorrow<'d>,
         config: i2c::Config,
         target_config: i2c_target::Config,
     ) -> Self {
-        if let Some(ref scl) = scl {
-            let pincm = pac::IOMUX.pincm(scl._pin_cm() as usize);
-            pincm.modify(|w| {
-                w.set_hiz1(true);
-            });
-        }
-        if let Some(ref sda) = sda {
-            let pincm = pac::IOMUX.pincm(sda._pin_cm() as usize);
-            pincm.modify(|w| {
-                w.set_hiz1(true);
-            });
-        }
-
         Self {
             info: T::info(),
             state: T::state(),
@@ -504,7 +495,7 @@ impl<'d, M: Mode> Drop for I2cTarget<'d, M> {
         // Ensure peripheral is disabled and pins are reset
         self.info.regs.target(0).tctr().modify(|w| w.set_active(false));
 
-        self.scl.as_ref().map(|x| x.set_as_disconnected());
-        self.sda.as_ref().map(|x| x.set_as_disconnected());
+        self.scl.disconnect();
+        self.sda.disconnect();
     }
 }
