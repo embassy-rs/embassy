@@ -1,6 +1,6 @@
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicU8, Ordering, AtomicBool};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use core::task::Poll;
 use core::{mem, slice};
 

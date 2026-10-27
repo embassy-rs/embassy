@@ -202,7 +202,11 @@ impl<'d> Trng<'d, Fast> {
     ///
     /// <div class="warning"> The created TRNG is not suitable for cryptography. Use <a href="struct.Trng.html#method.new_secure"><code>Trng::new_secure</code></a> instead. </div>
     #[inline(always)]
-    pub fn new_fast(peripheral: Peri<'d, TRNG>, _irq: impl Binding<GROUP1, InterruptHandler>, rate: FastDecimRate) -> Result<Self, Error> {
+    pub fn new_fast(
+        peripheral: Peri<'d, TRNG>,
+        _irq: impl Binding<GROUP1, InterruptHandler>,
+        rate: FastDecimRate,
+    ) -> Result<Self, Error> {
         Self::new_with_rate(peripheral, rate)
     }
 }
@@ -210,7 +214,11 @@ impl<'d> Trng<'d, Fast> {
 impl<'d> Trng<'d, Crypto> {
     /// Setup a TRNG driver with a specific cryptographic decimation rate.
     #[inline(always)]
-    pub fn new_secure(peripheral: Peri<'d, TRNG>, _irq: impl Binding<GROUP1, InterruptHandler>, rate: CryptoDecimRate) -> Result<Self, Error> {
+    pub fn new_secure(
+        peripheral: Peri<'d, TRNG>,
+        _irq: impl Binding<GROUP1, InterruptHandler>,
+        rate: CryptoDecimRate,
+    ) -> Result<Self, Error> {
         Self::new_with_rate(peripheral, rate)
     }
 }

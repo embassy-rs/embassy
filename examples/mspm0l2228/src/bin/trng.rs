@@ -4,9 +4,9 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_mspm0::{Config, bind_interrupts, trng};
 use embassy_mspm0::gpio::{Level, Output};
 use embassy_mspm0::trng::{CryptoDecimRate, Trng};
+use embassy_mspm0::{Config, bind_interrupts, trng};
 use embassy_time::Timer;
 use panic_probe as _;
 use rand_core::TryRng;

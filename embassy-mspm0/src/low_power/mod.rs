@@ -80,7 +80,16 @@ static SLEEP_BLOCKS: [AtomicU8; 5] = [const { AtomicU8::new(0) }; 5];
 /// [`WakeGuard`](crate::sysctl::WakeGuard).
 pub(crate) fn block(level: SleepLevel) {
     trace!("Blocking sleep at level {:?}", level);
-    if SLEEP_BLOCKS[level as usize].fetch_add(1, Ordering::Relaxed) == (u8::MAX - 1) {
+
+    // M0+ does not support fetch_add. Must emulate with critical section
+    let count = critical_section::with(|_cs| {
+        let mut count = SLEEP_BLOCKS[level as usize].load(Ordering::Relaxed);
+        count += 1;
+        SLEEP_BLOCKS[level as usize].store(v, Ordering::Relaxed);
+        count
+    });
+
+    if count == (u8::MAX - 1) {
         panic!("Blocking at SleepLevel {:?} would overflow", level)
     };
 }
@@ -88,7 +97,13 @@ pub(crate) fn block(level: SleepLevel) {
 /// Remove a block previously added at `level`.
 pub(crate) fn unblock(level: SleepLevel) {
     trace!("Unblocking sleep at level {:?}", level);
-    SLEEP_BLOCKS[level as usize].fetch_sub(1, Ordering::Relaxed);
+
+    // M0+ does not support fetch_sub. Must emulate with critical section
+    critical_section::with(|_cs| {
+        let count = SLEEP_BLOCKS[level as usize].load(Ordering::Relaxed);
+        count -= 1;
+        SLEEP_BLOCKS[level as usize].store(v, Ordering::Relaxed);
+    });
 }
 
 /// Deepest mode currently permitted, or `None` if all deep sleep is blocked.
