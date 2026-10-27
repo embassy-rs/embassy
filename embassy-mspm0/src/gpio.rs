@@ -118,7 +118,6 @@ pub enum Port {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, Mode: GpioMode> {
-    // pin: Peri<'d, AnyPin>,
     pin: PinBorrow<'d>,
     mode: Mode,
 }
@@ -739,7 +738,7 @@ impl<'d> OutputOpenDrain<'d, Async> {
     }
 }
 
-/// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
+/// Interface for a Pin that can be configured by an [Input] or [Output] driver.
 #[allow(private_bounds)]
 pub trait Pin: PeripheralType + SealedPin + Sized + 'static {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
@@ -1153,14 +1152,6 @@ macro_rules! impl_pin {
             fn state() -> &'static crate::gpio::State {
                 static STATE: crate::gpio::State = crate::gpio::State::new();
                 &STATE
-            }
-        }
-
-        impl From<crate::peripherals::$name> for crate::gpio::AnyPin {
-            fn from(val: crate::peripherals::$name) -> Self {
-                Self {
-                    pin_port: crate::gpio::SealedPin::pin_port(&val),
-                }
             }
         }
     };
