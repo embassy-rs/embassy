@@ -85,7 +85,7 @@ pub(crate) fn block(level: SleepLevel) {
     let count = critical_section::with(|_cs| {
         let mut count = SLEEP_BLOCKS[level as usize].load(Ordering::Relaxed);
         count += 1;
-        SLEEP_BLOCKS[level as usize].store(v, Ordering::Relaxed);
+        SLEEP_BLOCKS[level as usize].store(count, Ordering::Relaxed);
         count
     });
 
@@ -102,7 +102,7 @@ pub(crate) fn unblock(level: SleepLevel) {
     critical_section::with(|_cs| {
         let count = SLEEP_BLOCKS[level as usize].load(Ordering::Relaxed);
         count -= 1;
-        SLEEP_BLOCKS[level as usize].store(v, Ordering::Relaxed);
+        SLEEP_BLOCKS[level as usize].store(count, Ordering::Relaxed);
     });
 }
 
