@@ -11,12 +11,11 @@
 //!   register and the pin configuration.
 //! - `UART_ERR_01` (L, G, H) — a start bit arriving while the chip is on its way back into STANDBY1
 //!   is not received.
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{AtomicU8, Ordering};
 
 use critical_section::CriticalSection;
 use pac::cpuss::vals::Prefetch;
 use pac::sysctl::vals::Dsleep;
-use portable_atomic::AtomicU8;
 
 use crate::pac;
 

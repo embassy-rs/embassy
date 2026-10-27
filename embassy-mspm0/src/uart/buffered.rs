@@ -1,6 +1,6 @@
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, Ordering, AtomicBool};
 use core::task::Poll;
 use core::{mem, slice};
 
@@ -9,7 +9,6 @@ use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_hal_nb::nb;
-use portable_atomic::AtomicBool;
 
 use crate::gpio::PinBorrow;
 use crate::interrupt::typelevel::Binding;

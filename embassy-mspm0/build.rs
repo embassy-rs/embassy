@@ -67,7 +67,6 @@ fn generate_code(cfgs: &mut CfgSet) {
     g.extend(generate_interrupts());
     g.extend(generate_peripheral_instances());
     g.extend(generate_pin_trait_impls());
-    g.extend(generate_groups());
     g.extend(generate_dma_channel_count());
     g.extend(generate_adc_constants(cfgs));
 
@@ -163,72 +162,6 @@ fn interrupt_group_linker_magic() {
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("interrupt_group.x");
     fs::write(&out_file, file).unwrap();
-}
-
-fn generate_groups() -> TokenStream {
-    let group_vectors = METADATA.interrupt_groups.iter().map(|group| {
-        let vectors = group.interrupts.iter().map(|interrupt| {
-            let fn_name = Ident::new(interrupt.name, Span::call_site());
-
-            quote! {
-                pub(crate) fn #fn_name();
-            }
-        });
-
-        quote! { #(#vectors)* }
-    });
-
-    let groups = METADATA.interrupt_groups.iter().map(|group| {
-        let interrupt_group_name = Ident::new(group.name, Span::call_site());
-        let group_enum = Ident::new(&format!("Group{}", &group.name[5..]), Span::call_site());
-        let group_number = Literal::u32_unsuffixed(group.number);
-
-        let matches = group.interrupts.iter().map(|interrupt| {
-            let variant = Ident::new(&interrupt.name, Span::call_site());
-
-            quote! {
-                #group_enum::#variant => unsafe { group_vectors::#variant() },
-            }
-        });
-
-        quote! {
-            #[cfg(feature = "rt")]
-            #[crate::pac::interrupt]
-            fn #interrupt_group_name() {
-                use crate::pac::#group_enum;
-
-                let group = crate::pac::CPUSS.int_group(#group_number);
-                let stat = group.iidx().read().stat();
-
-                // check for spurious interrupts
-                if stat == crate::pac::cpuss::vals::Iidx::NoIntr {
-                    return;
-                }
-
-                // MUST subtract by 1 because NoIntr offsets IIDX values.
-                let iidx = stat.to_bits() - 1;
-
-                let Ok(group) = #group_enum::try_from(iidx as u8) else {
-                    return;
-                };
-
-                match group {
-                    #(#matches)*
-                }
-            }
-        }
-    });
-
-    quote! {
-        #(#groups)*
-
-        #[cfg(feature = "rt")]
-        mod group_vectors {
-            unsafe extern "Rust" {
-                #(#group_vectors)*
-            }
-        }
-    }
 }
 
 fn generate_dma_channel_count() -> TokenStream {
