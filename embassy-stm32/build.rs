@@ -1996,31 +1996,31 @@ fn main() {
                 }
 
                 // XSPIM  is special
+                let xspi_controllers = METADATA
+                    .peripherals
+                    .iter()
+                    .filter(|p| p.name.starts_with("XSPI") && p.name != "XSPIM")
+                    .count();
                 if p.name == "XSPIM" {
-                    if pin.signal.starts_with("P1") {
-                        peri = format_ident!("{}", "XSPI1");
-                    } else if pin.signal.starts_with("P2") {
-                        peri = format_ident!("{}", "XSPI2");
-                    } else {
-                        panic! {"malformed XSPIM pin: {:?}", pin}
+                    // XSPI Controllers can be mapped to any port via the manager
+                    for controller in 1..=xspi_controllers {
+                        peri = format_ident!("XSPI{}", controller.to_string());
+                        g.extend(quote! {
+                            pin_trait_impl!(#tr, #peri, #pin_name, #af);
+                        });
+                        // XSPI NCS pin to CSSEL mapping
+                        if pin.signal.contains("NCS") {
+                            let slot: u8 = if pin.signal.ends_with("NCS1") { 0 } else { 1 };
+                            g.extend(quote! { 
+                                sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, #slot); 
+                            });
+                        }
                     }
                 }
 
                 // MDIO and MDC are special for ETH
                 if (pin.signal == "MDIO" || pin.signal == "MDC") && p.name.starts_with("ETH") {
                     peri = format_ident!("{}", "ETH_SMA");
-                }
-
-                // XSPI NCS pin to CSSEL mapping
-                if pin.signal.ends_with("NCS1") {
-                    g.extend(quote! {
-                        sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 0);
-                    })
-                }
-                if pin.signal.ends_with("NCS2") {
-                    g.extend(quote! {
-                        sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 1);
-                    })
                 }
 
                 // Many families have USB as an additional function, not an
@@ -2073,7 +2073,7 @@ fn main() {
                         quote!()
                     };
 
-                    if p.name == "OCTOSPIM" && (pin.signal.starts_with("P1_") || pin.signal.starts_with("P2_")) {
+                    if (p.name == "OCTOSPIM" && (pin.signal.starts_with("P1_") || pin.signal.starts_with("P2_"))) || p.name == "XSPIM"; {
                         // already handled above
                         None
                     } else {
