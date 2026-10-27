@@ -1132,11 +1132,12 @@ const DISCONNECT_PF: u8 = 0;
 const GPIO_PF: u8 = 1;
 
 macro_rules! impl_pin {
-    ($name: ident, $port: expr, $pin_num: expr, $pin_cm: expr) => {
+    ($name: ident, $port: ident, $pin_num: expr, $pin_cm: expr) => {
         impl crate::gpio::Pin for crate::peripherals::$name {
             type Interrupt = cfg_select! {
                 // FIXME: Pick the right one (just hardcoded to test C110x)
-                any(gpioa_interrupt, gpiob_interrupt) => crate::interrupt::typelevel::GPIOA, // compile_error!("Pick the right interrupt using macro magic"),
+                // any(gpioa_interrupt, gpiob_interrupt) => crate::interrupt::typelevel::GPIOA, // compile_error!("Pick the right interrupt using macro magic"),
+                any(gpioa_interrupt, gpiob_interrupt) => impl_pin!(@interrupt_for $port),
                 any(gpioa_group, gpiob_group, gpioc_group) => crate::interrupt::typelevel::GROUP1,
                 _ => compile_error!("No GPIO interrupt was picked"),
             };
@@ -1144,7 +1145,7 @@ macro_rules! impl_pin {
         impl crate::gpio::SealedPin for crate::peripherals::$name {
             #[inline]
             fn info() -> &'static crate::gpio::Info {
-                const INFO: crate::gpio::Info = crate::gpio::Info::new($port, $pin_num, $pin_cm);
+                const INFO: crate::gpio::Info = crate::gpio::Info::new(crate::gpio::Port::$port, $pin_num, $pin_cm);
                 &INFO
             }
 
@@ -1154,6 +1155,18 @@ macro_rules! impl_pin {
                 &STATE
             }
         }
+    };
+
+    (@interrupt_for PortA) => {
+        crate::interrupt::typelevel::GPIOA
+    };
+
+    (@interrupt_for PortB) => {
+        crate::interrupt::typelevel::GPIOB
+    };
+
+    (@interrupt_for PortC) => {
+        crate::interrupt::typelevel::GPIOC
     };
 }
 

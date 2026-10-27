@@ -372,7 +372,7 @@ fn generate_pin() -> TokenStream {
         // TODO: Feature gate pins that can be used as NRST
 
         quote! {
-            impl_pin!(#name, crate::gpio::Port::#port, #pin_number, #pincm);
+            impl_pin!(#name, #port, #pin_number, #pincm);
         }
     });
 
