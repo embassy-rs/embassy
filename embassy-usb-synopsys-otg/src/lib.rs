@@ -299,7 +299,7 @@ struct EpState {
     /// Buffers are ready when associated [State::ep_out_size] != [EP_OUT_BUFFER_EMPTY].
     out_buffer: UnsafeCell<*mut u8>,
     out_size: AtomicU16,
-    // Written once during endpoint allocation (before Driver::start), read-only afterward.
+    // Written during driver creation and endpoint allocation (before Driver::start), read-only afterward.
     in_alloc: UnsafeCell<Option<EndpointData>>,
     out_alloc: UnsafeCell<Option<EndpointData>>,
     /// RAM mirror of DIEPCTL/DOEPCTL.USBAEP. Endpoint futures check this
@@ -352,8 +352,8 @@ impl OutXfer {
 }
 
 // SAFETY: `out_buffer` access is synchronized via `out_size`, and `out_xfer` access via
-// `State::mutex`. `in_alloc`/`out_alloc` are written only during endpoint allocation before the
-// USB stack starts; afterward they are read-only.
+// `State::mutex`. `in_alloc`/`out_alloc` are written only when a driver is created and during
+// endpoint allocation, before the USB stack starts; afterward they are read-only.
 unsafe impl Send for EpState {}
 unsafe impl Sync for EpState {}
 
@@ -471,6 +471,21 @@ where
                 mask
             }
         })
+    }
+
+    /// Clears what a previous [`Driver`](crate::Driver) left in the state, so that a new one starts
+    /// from no allocated endpoints.
+    fn reset(&self) {
+        for ep in self.ep_states {
+            // SAFETY: no other driver uses this state.
+            unsafe {
+                *ep.in_alloc.get() = None;
+                *ep.out_alloc.get() = None;
+            }
+            ep.in_enabled.store(false, Ordering::Release);
+            ep.out_enabled.store(false, Ordering::Release);
+        }
+        self.cp_state.setup_ready.store(false, Ordering::Release);
     }
 
     /// # Safety
@@ -601,6 +616,8 @@ where
 {
     /// Initializes the USB OTG peripheral.
     ///
+    /// `instance.state` must not be in use by another driver.
+    ///
     /// # Arguments
     ///
     /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
@@ -609,6 +626,7 @@ where
     /// * `instance` - The USB OTG peripheral instance and its configuration.
     /// * `config` - The USB driver configuration.
     pub fn new(ep_out_buffer: &'d mut [u8], instance: OtgInstance<'d, M>, config: Config) -> Self {
+        instance.state.reset();
         Self {
             config,
             ep_out_buffer,
@@ -2283,4 +2301,47 @@ where
     pub tx_fifo_count: u8,
     /// Function to calculate TRDT value based on some internal clock speed.
     pub calculate_trdt_fn: fn(speed: vals::Dspd) -> u8,
+}
+
+#[cfg(test)]
+mod tests {
+    use embassy_usb_driver::Driver as _;
+
+    use super::*;
+
+    fn instance<'d>(state: State<'d>) -> OtgInstance<'d> {
+        OtgInstance {
+            regs: unsafe { Otg::from_ptr(core::ptr::null_mut()) },
+            state,
+            fifo_depth_words: 320,
+            phy_type: PhyType::InternalFullSpeed,
+            extra_rx_fifo_words: 30,
+            tx_fifo_count: 4,
+            calculate_trdt_fn: |_| 0,
+        }
+    }
+
+    #[test]
+    fn rebuilt_driver_starts_from_clean_state() {
+        let storage = StateStorage::<4>::new(CriticalSectionRawMutex::new());
+        let state = storage.as_state();
+
+        let mut buf = [0; 256];
+        let mut driver = Driver::new(&mut buf, instance(state), Config::default());
+        driver.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0).unwrap();
+        driver.alloc_endpoint_in(EndpointType::Bulk, None, 64, 0).unwrap();
+        let _ = driver.start(64);
+        state.ep_states[0].in_enabled.store(true, Ordering::Release);
+        state.ep_states[1].out_enabled.store(true, Ordering::Release);
+        state.cp_state.setup_ready.store(true, Ordering::Release);
+
+        let mut buf = [0; 256];
+        let mut driver = Driver::new(&mut buf, instance(state), Config::default());
+        let ep = driver.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0).unwrap();
+        assert_eq!(ep.info.addr.index(), 1);
+        assert!(!state.ep_states[0].in_enabled.load(Ordering::Acquire));
+        assert!(!state.ep_states[1].out_enabled.load(Ordering::Acquire));
+        assert!(!state.cp_state.setup_ready.load(Ordering::Acquire));
+        let _ = driver.start(64);
+    }
 }
