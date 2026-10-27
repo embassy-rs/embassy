@@ -4,19 +4,23 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_mspm0::Config;
+use embassy_mspm0::{Config, bind_interrupts, trng};
 use embassy_mspm0::gpio::{Level, Output};
 use embassy_mspm0::trng::{CryptoDecimRate, Trng};
 use embassy_time::Timer;
 use panic_probe as _;
 use rand_core::TryRng;
 
+bind_interrupts!(struct Irqs {
+    GROUP1 => trng::InterruptHandler;
+});
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     let p = embassy_mspm0::init(Config::default());
 
     let mut trng = expect!(
-        Trng::new_secure(p.TRNG, CryptoDecimRate::Decim6),
+        Trng::new_secure(p.TRNG, Irqs, CryptoDecimRate::Decim6),
         "Failed to initialize RNG"
     );
     // Alternatively, use the default crypto-secure decimation rate (Decim4).

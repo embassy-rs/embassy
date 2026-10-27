@@ -12,10 +12,25 @@ use mspm0_metapac::trng::vals::Cmd::*;
 use mspm0_metapac::trng::vals::{self, PwrenKey, Ratio, RstctlKey};
 use rand_core_10::{TryCryptoRng, TryRng};
 
+use crate::interrupt::typelevel::{Binding, GROUP1, Handler};
 use crate::peripherals::TRNG;
 use crate::sealed;
 
 static WAKER: AtomicWaker = AtomicWaker::new();
+
+pub struct InterruptHandler {}
+
+impl Handler<GROUP1> for InterruptHandler {
+    unsafe fn on_interrupt() {
+        let r = regs();
+        let mis = r.mis().read();
+
+        if mis.0 != 0 {
+            r.imask().write_value(mis);
+            WAKER.wake();
+        }
+    }
+}
 
 /// Decimation rate marker types. See [`DecimRate`].
 pub trait SecurityMarker: sealed::Sealed {
@@ -176,8 +191,8 @@ pub struct Trng<'d, L: SecurityMarker> {
 impl<'d> Trng<'d, Crypto> {
     /// Setup a TRNG driver with the default safe decimation rate (Decim4).
     #[inline(always)]
-    pub fn new(peripheral: Peri<'d, TRNG>) -> Result<Self, Error> {
-        Self::new_secure(peripheral, CryptoDecimRate::Decim4)
+    pub fn new(peripheral: Peri<'d, TRNG>, irq: impl Binding<GROUP1, InterruptHandler>) -> Result<Self, Error> {
+        Self::new_secure(peripheral, irq, CryptoDecimRate::Decim4)
     }
 }
 
@@ -187,7 +202,7 @@ impl<'d> Trng<'d, Fast> {
     ///
     /// <div class="warning"> The created TRNG is not suitable for cryptography. Use <a href="struct.Trng.html#method.new_secure"><code>Trng::new_secure</code></a> instead. </div>
     #[inline(always)]
-    pub fn new_fast(peripheral: Peri<'d, TRNG>, rate: FastDecimRate) -> Result<Self, Error> {
+    pub fn new_fast(peripheral: Peri<'d, TRNG>, _irq: impl Binding<GROUP1, InterruptHandler>, rate: FastDecimRate) -> Result<Self, Error> {
         Self::new_with_rate(peripheral, rate)
     }
 }
@@ -195,7 +210,7 @@ impl<'d> Trng<'d, Fast> {
 impl<'d> Trng<'d, Crypto> {
     /// Setup a TRNG driver with a specific cryptographic decimation rate.
     #[inline(always)]
-    pub fn new_secure(peripheral: Peri<'d, TRNG>, rate: CryptoDecimRate) -> Result<Self, Error> {
+    pub fn new_secure(peripheral: Peri<'d, TRNG>, _irq: impl Binding<GROUP1, InterruptHandler>, rate: CryptoDecimRate) -> Result<Self, Error> {
         Self::new_with_rate(peripheral, rate)
     }
 }
@@ -222,7 +237,6 @@ impl<'d, D: SecurityMarker> Trng<'d, D> {
     /// The synchronous counterpart is given by [`TryRng::try_next_u32`].
     ///
     /// As with the [`synchronous`](TryRng) methods, an [`Err`] may be retried up to two times after calling [`Trng::fail_reset`].
-    #[cfg(feature = "rt")]
     #[inline(always)]
     pub async fn async_read_u32(&mut self) -> Result<u32, Error> {
         self.inner.async_read_u32().await
@@ -233,7 +247,6 @@ impl<'d, D: SecurityMarker> Trng<'d, D> {
     /// The synchronous counterpart is given by [`TryRng::try_next_u64`].
     ///
     /// As with the [`synchronous`](TryRng) methods, an [`Err`] may be retried up to two times after calling [`Trng::fail_reset`].
-    #[cfg(feature = "rt")]
     #[inline(always)]
     pub async fn async_read_u64(&mut self) -> Result<u64, Error> {
         self.inner.async_read_u64().await
@@ -247,7 +260,6 @@ impl<'d, D: SecurityMarker> Trng<'d, D> {
     ///
     /// > **Note**
     /// When an error condition occurs, the buffer may be partially filled.
-    #[cfg(feature = "rt")]
     #[inline(always)]
     pub async fn async_read_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
         self.inner.async_read_bytes(dest).await
@@ -430,7 +442,6 @@ impl TrngInner<'_> {
         }
     }
 
-    #[cfg(feature = "rt")]
     async fn async_read_u32(&mut self) -> Result<u32, Error> {
         poll_fn(|cx| {
             WAKER.register(cx.waker());
@@ -447,14 +458,12 @@ impl TrngInner<'_> {
         .await
     }
 
-    #[cfg(feature = "rt")]
     async fn async_read_u64(&mut self) -> Result<u64, Error> {
         let v1 = u64::from(self.async_read_u32().await?);
         let v2 = u64::from(self.async_read_u32().await?);
         Ok(v2 << 32 | v1)
     }
 
-    #[cfg(feature = "rt")]
     async fn async_read_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
         let mut left = dest;
         while left.len() >= 4 {
@@ -511,14 +520,4 @@ impl TryRng for TrngInner<'_> {
 
 fn regs() -> crate::pac::trng::Trng {
     crate::pac::TRNG
-}
-
-// This symbol is weakly defined as DefaultHandler and is called by the interrupt group implementation.
-// Defining this as no_mangle is required so that the linker will pick this up.
-#[cfg(feature = "rt")]
-#[unsafe(no_mangle)]
-#[allow(non_snake_case)]
-fn TRNG() {
-    regs().imask().write_value(Int::default()); // Disable all interrupts.
-    WAKER.wake();
 }
