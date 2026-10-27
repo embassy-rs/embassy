@@ -821,13 +821,15 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                 let ev = self.bus.wait_for_event();
 
                 match select4(select(ioctl, mcast), wifi_tx, bt_work, ev).await {
-                    Either4::First(Either::First(PendingIoctl {
-                        buf: iobuf,
-                        kind,
-                        cmd,
-                        iface,
-                    })) => {
-                        self.send_ioctl(kind, cmd, iface, unsafe { &*iobuf }, &mut buf).await;
+                    Either4::First(Either::First(PendingIoctl { len, kind, cmd, iface })) => {
+                        // Copy the request into the frame before awaiting: after a cancel,
+                        // Control may start a new ioctl and write the ioctl buffer while
+                        // this write is in flight.
+                        let total_len = {
+                            let request = ioctl_state.request();
+                            self.build_ioctl(kind, cmd, iface, &request[..len], &mut buf)
+                        };
+                        self.write_ioctl(total_len, &mut buf).await;
                         self.check_status(&mut buf).await;
                     }
                     Either4::First(Either::Second(filter)) => {
@@ -1404,6 +1406,19 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         data: &[u8],
         buf: &mut Aligned<A4, [u8; 4 + 2048]>,
     ) {
+        let total_len = self.build_ioctl(kind, cmd, iface, data, buf);
+        self.write_ioctl(total_len, buf).await;
+    }
+
+    /// Writes the ioctl frame into `buf` and returns its length on the wire.
+    fn build_ioctl(
+        &mut self,
+        kind: IoctlType,
+        cmd: Ioctl,
+        iface: u32,
+        data: &[u8],
+        buf: &mut Aligned<A4, [u8; 4 + 2048]>,
+    ) -> usize {
         let write_buffer = WriteBuffer::new(buf);
         let buf8 = write_buffer.buf();
 
@@ -1441,7 +1456,11 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
         let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
+        total_len
+    }
 
+    async fn write_ioctl(&mut self, total_len: usize, buf: &mut Aligned<A4, [u8; 4 + 2048]>) {
+        let write_buffer = WriteBuffer::new(buf);
         let _ = self.wlan_write(&mut write_buffer[..total_len]).await;
     }
 }
