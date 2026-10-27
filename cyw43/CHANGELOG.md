@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add support for the CYW43455 over SDIO (`Cyw43455`, `new_43455_sdio`).
 - Fix `reset_core` waiting for the backplane to be busy instead of idle, which timed out on SDIO chips with a Cortex-R4.
 - `State` is now `Send`, so it can be stored in a `ConstStaticCell`.
 - Clear the scan event mask and subscription on cancellation.

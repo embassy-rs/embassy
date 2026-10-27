@@ -320,13 +320,17 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         self.enable_sdio_interrupts().await;
 
         // TODO: remove this after investigation
-        self.bus
-            .write8(
-                FUNC_BUS,
-                CCCR_IO_ENABLE,
-                (SDIO_FUNC_ENABLE_1 | SDIO_FUNC_ENABLE_2) as u8,
-            )
-            .await;
+        // The 43455's firmware takes F2 enabled before it runs as a reset, and traps
+        // ("sdpcmd_dpc: Reset", then a null pointer): it's enabled after, see `init`.
+        if !matches!(self.chip.id(), ChipId::C43455) {
+            self.bus
+                .write8(
+                    FUNC_BUS,
+                    CCCR_IO_ENABLE,
+                    (SDIO_FUNC_ENABLE_1 | SDIO_FUNC_ENABLE_2) as u8,
+                )
+                .await;
+        }
 
         // Enable f2 interrupt only
         self.bus
@@ -464,6 +468,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         match self.chip.id() {
             ChipId::C43439 => debug!("using cyw43439"),
             ChipId::C4373 => debug!("using cyw43437"),
+            ChipId::C43455 => debug!("using cyw43455"),
         }
 
         self.bus.init(bt_fw.is_some()).await?;
@@ -539,6 +544,14 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             .ctx("failed to write fw")?;
         self.verify_download("FW", ram_addr, wifi_fw, &mut buf).await?;
         if ram_addr != 0 {
+            // The 43455, as Linux's brcmfmac starts it (`brcmf_sdio_buscore_activate`): the
+            // SDIO core's interrupt status cleared first, or its firmware may find a function
+            // reset pending, take it as the host's ("sdpcmd_dpc: Reset"), and trap.
+            if matches!(self.chip.id(), ChipId::C43455) {
+                self.bus
+                    .bp_write32(self.chip.sdiod_core_base_address() + SDIO_INT_STATUS, 0xFFFF_FFFF)
+                    .await;
+            }
             self.write_reset_instruction(wifi_fw).await?;
         }
 
@@ -614,6 +627,30 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                 self.bus
                     .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, SDIO_F2_WATERMARK)
                     .await;
+
+                // The 43455, as Linux's brcmfmac brings it up (`brcmf_sdio_firmware_callback`):
+                // the HT clock forced on, the host's SDPCM protocol version (4) in the mailbox
+                // data, and only then F2 enabled; its firmware says "sdpcmd_dpc: Enable".
+                if matches!(self.chip.id(), ChipId::C43455) {
+                    let clock = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await;
+                    self.bus
+                        .write8(
+                            FUNC_BACKPLANE,
+                            REG_BACKPLANE_CHIP_CLOCK_CSR,
+                            clock | BACKPLANE_FORCE_HT as u8,
+                        )
+                        .await;
+                    self.bus
+                        .bp_write32(self.chip.sdiod_core_base_address() + SDIO_TO_SB_MAILBOX_DATA, 4 << 16)
+                        .await;
+                    self.bus
+                        .write8(
+                            FUNC_BUS,
+                            CCCR_IO_ENABLE,
+                            (SDIO_FUNC_ENABLE_1 | SDIO_FUNC_ENABLE_2) as u8,
+                        )
+                        .await;
+                }
             }
 
             BusType::Spi => {
@@ -655,7 +692,8 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         .ctx("timeout while waiting for function 2 to be ready")?;
 
         match self.chip.id() {
-            ChipId::C4373 => self.init_cyw4373().await?,
+            // Both have a Cortex-R4, and come up alike.
+            ChipId::C4373 | ChipId::C43455 => self.init_cyw4373().await?,
             ChipId::C43439 => self.init_cyw43439().await?,
         }
 

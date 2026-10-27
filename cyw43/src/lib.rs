@@ -126,6 +126,7 @@ impl<T: SealedChip> Chip for T {}
 enum ChipId {
     C43439,
     C4373,
+    C43455,
 }
 
 impl PartialEq<u16> for ChipId {
@@ -133,6 +134,8 @@ impl PartialEq<u16> for ChipId {
         (match *self {
             ChipId::C43439 => 43439,
             ChipId::C4373 => 4373,
+            // It reports itself as a BCM4345 (revision 6): its ChipCommon ID is 0x4345.
+            ChipId::C43455 => 0x4345,
         }) == *other
     }
 }
@@ -306,6 +309,41 @@ impl SealedChip for Cyw4373 {
         pmu_base_address: 0x18000000,
         chip_ram_size: 0xE0000,          // 896 KB
         atcm_ram_base_address: 0x160000, // ARM core vectors from here; firmware must go here
+        socram_srmem_size: 0,
+        chanspec_band_mask: 0xc000,
+        chanspec_band_2g: 0x0000,
+        chanspec_band_5g: 0xc000,
+        chanspec_band_shift: 14,
+        chanspec_bw_10: 0x0800,
+        chanspec_bw_20: 0x1000,
+        chanspec_bw_40: 0x1800,
+        chanspec_bw_mask: 0x3800,
+        chanspec_bw_shift: 11,
+        chanspec_ctl_sb_lower: 0x0000,
+        chanspec_ctl_sb_upper: 0x0100,
+        chanspec_ctl_sb_none: 0x0000,
+        chanspec_ctl_sb_mask: 0x0700,
+    };
+}
+
+/// CYW43455 Wi-Fi + Bluetooth combo chip (used on Raspberry Pi 3B+, 4B and CM4).
+///
+/// Core addresses as its EROM lists them; its Cortex-R4's RAM (800 KiB, at 0x198000)
+/// as Linux's brcmfmac (`brcmf_chip_tcm_rambase`) and the R4's bank registers say.
+#[derive(Clone, Copy, Debug)]
+pub struct Cyw43455;
+
+impl SealedChip for Cyw43455 {
+    const ID: ChipId = ChipId::C43455;
+    const INFO: ChipInfo = ChipInfo {
+        arm_core_base_address: 0x18002000 + WRAPPER_REGISTER_OFFSET,
+        socsram_base_address: 0,
+        bluetooth_base_address: 0x19000000,
+        socsram_wrapper_base_address: 0,
+        sdiod_core_base_address: 0x18004000,
+        pmu_base_address: 0x18000000,
+        chip_ram_size: 0xC8000,          // 800 KB
+        atcm_ram_base_address: 0x198000, // ARM core vectors from here; firmware must go here
         socram_srmem_size: 0,
         chanspec_band_mask: 0xc000,
         chanspec_band_2g: 0x0000,
@@ -563,6 +601,42 @@ where
         ch_runner,
         SdioBus::new(sdio, freq),
         Cyw4373,
+        &state.ioctl_state,
+        &state.net.events,
+        &state.net.secure_network,
+        #[cfg(feature = "bluetooth")]
+        None,
+    );
+
+    runner.init(firmware, nvram, None).await?;
+    let control = Control::new(
+        state_ch,
+        &state.net.events,
+        &state.ioctl_state,
+        &state.net.secure_network,
+    );
+
+    Ok((device, control, runner))
+}
+
+/// Create a new instance of the CYW43455 SDIO driver, returning an error on init failure.
+pub async fn new_43455_sdio<'a, SDIO>(
+    state: &'a mut State,
+    sdio: SDIO,
+    firmware: &Aligned<A4, [u8]>,
+    nvram: &Aligned<A4, [u8]>,
+    freq: u32,
+) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43455>)>
+where
+    SDIO: ::sdio::MmcBus,
+{
+    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]), MTU);
+    let state_ch = ch_runner.state_runner();
+
+    let mut runner = Runner::new(
+        ch_runner,
+        SdioBus::new(sdio, freq),
+        Cyw43455,
         &state.ioctl_state,
         &state.net.events,
         &state.net.secure_network,
