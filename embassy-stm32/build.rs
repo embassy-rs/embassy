@@ -2073,7 +2073,7 @@ fn main() {
                         quote!()
                     };
 
-                    if (p.name == "OCTOSPIM" && (pin.signal.starts_with("P1_") || pin.signal.starts_with("P2_"))) || p.name == "XSPIM"; {
+                    if (p.name == "OCTOSPIM" && (pin.signal.starts_with("P1_") || pin.signal.starts_with("P2_"))) || p.name == "XSPIM" {
                         // already handled above
                         None
                     } else {
