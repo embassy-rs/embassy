@@ -165,6 +165,7 @@ async fn main(_spawner: Spawner) {
         chip_select_boundary: 14, // 16KB boundary for row crossing
         max_transfer: 0,
         refresh: 0,
+        initialize_manager: true,
     };
     // Create XSPI driver for PSRAM (XSPI1, Port 1 pins)
     // Pin mapping:

@@ -127,6 +127,7 @@ fn main() -> ! {
         chip_select_boundary: 0,
         max_transfer: 0,
         refresh: 0,
+        initialize_manager: true,
     };
 
     let xspi = Xspi::new_blocking_xspi(
