@@ -1,6 +1,6 @@
-//! Blink the MCXA577 EVK's active-low blue LED (P2_14) using OSTIMER0 alarms.
+//! Blink the MCXA577 EVK's active-low blue LED (P2_23) using OSTIMER0 alarms.
 //! `FRDM_MCXA577.pdf`, sheet 10: D1 has a common anode at VDD_BOARD;
-//! its blue cathode connects through R2 (680 ohms) to P2_14.
+//! its blue cathode connects through R2 (680 ohms) to P2_23.
 //!
 //! Run from this example package with:
 //! `cargo run --release --bin ostimer --features time-driver-ostimer`.
