@@ -1135,8 +1135,6 @@ macro_rules! impl_pin {
     ($name: ident, $port: ident, $pin_num: expr, $pin_cm: expr) => {
         impl crate::gpio::Pin for crate::peripherals::$name {
             type Interrupt = cfg_select! {
-                // FIXME: Pick the right one (just hardcoded to test C110x)
-                // any(gpioa_interrupt, gpiob_interrupt) => crate::interrupt::typelevel::GPIOA, // compile_error!("Pick the right interrupt using macro magic"),
                 any(gpioa_interrupt, gpiob_interrupt) => impl_pin!(@interrupt_for $port),
                 any(gpioa_group, gpiob_group, gpioc_group) => crate::interrupt::typelevel::GROUP1,
                 _ => compile_error!("No GPIO interrupt was picked"),
