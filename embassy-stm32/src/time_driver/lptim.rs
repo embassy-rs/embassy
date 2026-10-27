@@ -150,7 +150,7 @@ impl RtcDriver {
         };
 
         trace!(
-            "init: setting presc: {} timer_freq: {}Hz TICK_HZ: {}",
+            "init: setting presc: {:?} timer_freq: {}Hz TICK_HZ: {}",
             psc, timer_freq, TICK_HZ
         );
         r.cfgr().modify(|w| w.set_presc(psc));

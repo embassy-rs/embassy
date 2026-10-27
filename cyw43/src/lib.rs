@@ -359,6 +359,12 @@ impl Default for State {
     }
 }
 
+// `State` must be `Send` so it can live in a `ConstStaticCell`.
+const _: () = {
+    const fn assert_send<T: Send>() {}
+    assert_send::<State>()
+};
+
 /// Power management modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PowerManagementMode {

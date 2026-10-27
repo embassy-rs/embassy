@@ -2283,6 +2283,9 @@ fn main() {
         (("mdf", "FLT5"), quote!(crate::mdf::RxDma<Flt5>)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
+        (("xspi", "XSPI1"), quote!(crate::xspi::XDma)),
+        (("xspi", "XSPI2"), quote!(crate::xspi::XDma)),
+        (("xspi", "XSPI3"), quote!(crate::xspi::XDma)),
         (("dfsdm", "FLT0"), quote!(crate::dfsdm::Dma<Flt0>)),
         (("dfsdm", "FLT1"), quote!(crate::dfsdm::Dma<Flt1>)),
         (("dfsdm", "FLT2"), quote!(crate::dfsdm::Dma<Flt2>)),
@@ -3045,7 +3048,7 @@ fn main() {
         ));
     }
 
-    // Generate constants identifying Tightly Coupled Ram regions
+    // Generate constants identifying Tightly Coupled RAM regions
     if let Some(m) = memory.iter().find(|m| m.name == "ITCM") {
         let start = m.address;
         let end = m.address + m.size;

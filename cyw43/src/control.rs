@@ -205,7 +205,8 @@ impl<'a> Control<'a> {
     }
 
     async fn load_clm(&mut self, clm: &[u8]) {
-        const CHUNK_SIZE: usize = 1024;
+        // The chunk plus its headers must fit the ioctl buffer.
+        const CHUNK_SIZE: usize = crate::ioctl::MAX_IOCTL_LEN - 8 - 12;
 
         debug!("Downloading CLM...");
 
