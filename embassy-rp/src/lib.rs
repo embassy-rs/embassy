@@ -34,6 +34,8 @@ pub mod executor;
 pub mod flash;
 #[cfg(feature = "rp2040")]
 mod float;
+#[cfg(all(feature = "_rp235x", feature = "dcp-intrinsics"))]
+mod float_dcp;
 pub mod gpio;
 pub mod i2c;
 pub mod i2c_slave;
@@ -771,6 +773,16 @@ __pre_init:
     // Wake core 1 if it's waiting for its salt.
     sev
 .Lrp235x_rcp_salt_valid:
+
+    // Enable full access to coprocessor 4 (DCP) in CPACR, and clear its engaged flag with RCMP,
+    // like pico-sdk's runtime_init does.
+    ldr r0, =0xe000ed88
+    ldr r1, [r0]
+    orr r1, r1, #0x300
+    str r1, [r0]
+    dsb
+    isb
+    mrc p4, #0, r0, c0, c0, #1
 
     // pac::SIO.spinlock(31).write_value(1);
     ldr r0, =0xd000017c
