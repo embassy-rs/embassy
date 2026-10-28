@@ -24,6 +24,9 @@ I2C:
 USART:
 - fix: stm32/usart: `BufferedUartTx::flush` could return before the last bytes left the UART when a write wrapped around the end of the TX buffer. The TC interrupt now reports done only when the TX buffer is empty, and every write pends the interrupt.
 
+SPI:
+- fix: stm32/spi: async slave transfers no longer busy-wait for TXC/BSY once their DMA completes. The master owns the clock, so the wait never ended if it stopped with frames left in the TX FIFO, and it starved the executor.
+
 Ethernet:
 - change: constructors, `Phy::phy_reset` / `phy_init`, and `StationManagement::smi_read` / `smi_write` return `Result` with `eth::Error` when MAC reset, MDIO, or PHY initialization cannot complete. `GenericPhy::new_auto` returns `PhyNotFound` when no address completes a PHY reset; link polls report down on MDIO error.
 - fix: bound v2 DMA shutdown waits and panic if DMA still owns descriptors, rather than releasing live buffers or waiting forever.

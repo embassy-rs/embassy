@@ -1632,7 +1632,7 @@ impl<'d> Spi<'d, Async, Slave> {
             let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
             match select(join(&mut tx_f, &mut rx_f), nss_fut).await {
                 Either::First(((), ())) => {
-                    finish_dma(regs);
+                    finish_slave_dma(regs);
                     (n_rx_total, n_tx_total)
                 }
                 Either::Second(()) => {
@@ -1729,7 +1729,7 @@ impl<'d> Spi<'d, Async, Slave> {
             match tx_f.as_mut() {
                 Some(tx_f) => match select(join(tx_f, &mut rx_f), nss_fut).await {
                     Either::First(((), ())) => {
-                        finish_dma(regs);
+                        finish_slave_dma(regs);
                     }
                     Either::Second(()) => {
                         deselect_count = Some(n - rx_f.get_remaining_transfers() as usize);
@@ -1737,7 +1737,7 @@ impl<'d> Spi<'d, Async, Slave> {
                 },
                 None => match select(&mut rx_f, nss_fut).await {
                     Either::First(()) => {
-                        finish_dma(regs);
+                        finish_slave_dma(regs);
                     }
                     Either::Second(()) => {
                         deselect_count = Some(n - rx_f.get_remaining_transfers() as usize);
@@ -2168,6 +2168,13 @@ pub(crate) fn set_rxdmaen(regs: Regs, val: bool) {
     regs.cfg1().modify(|reg| {
         reg.set_rxdmaen(val);
     });
+}
+
+/// Ends a slave DMA transfer whose buffers are exhausted. Unlike [`finish_dma`] this doesn't wait
+/// for TXC or BSY: the master owns the clock, so they clear only if it keeps clocking.
+fn finish_slave_dma(regs: Regs) {
+    set_txdmaen(regs, false);
+    set_rxdmaen(regs, false);
 }
 
 fn finish_dma(regs: Regs) {
