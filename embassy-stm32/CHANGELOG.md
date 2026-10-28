@@ -25,6 +25,7 @@ USART:
 - fix: stm32/usart: `BufferedUartTx::flush` could return before the last bytes left the UART when a write wrapped around the end of the TX buffer. The TC interrupt now reports done only when the TX buffer is empty, and every write pends the interrupt.
 
 SPI:
+- fix: stm32/spi: async slave `transfer`, `transfer_in_place` and `read` with an EXTI channel on NSS return when the master deselects, like `write`. Returning as soon as the buffers were full left that transaction's deselect edge to the next call, which then ended at once with nothing received, and the slave stayed one transaction behind.
 - fix: stm32/spi: async slave transfers no longer busy-wait for TXC/BSY once their DMA completes. The master owns the clock, so the wait never ended if it stopped with frames left in the TX FIFO, and it starved the executor.
 
 Ethernet:
