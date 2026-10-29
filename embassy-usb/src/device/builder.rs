@@ -305,6 +305,12 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         self.control_buf.len()
     }
 
+    /// Returns the fastest speed the configuration descriptor is built for, so that classes can
+    /// size their endpoints for it.
+    pub fn max_speed(&self) -> UsbDeviceSpeed {
+        self.config.max_speed
+    }
+
     /// Add an USB function.
     ///
     /// If [`Config::composite_with_iads`] is set, this will add an IAD descriptor
