@@ -43,7 +43,9 @@ macro_rules! impl_stream {
                 fn keystream(&mut self, mut buf: cipher::inout::InOutBuf<'_, '_, u8>) {
                     while !buf.is_empty() {
                         let blocks = buf.len() / BLOCK;
-                        let until_wrap = (u32::MAX - self.counter) as usize + 1;
+                        // 2^32 blocks (counter 0) does not fit a 32-bit usize. Saturating is exact
+                        // here: `blocks` is at most usize::MAX / 64.
+                        let until_wrap = ((u32::MAX - self.counter) as usize).saturating_add(1);
                         let n = blocks.min(until_wrap);
                         let (head, tail) = buf.split_at(n * BLOCK);
                         buf = tail;
