@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-# Change stm32c5a3zg to your chip name, if necessary.
+# Change stm32c562re to your chip name, if necessary.
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32c562re", "memory-x", "time-driver-any", "exti", "unstable-pac"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }

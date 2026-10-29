@@ -1090,10 +1090,11 @@ impl<'d, M: PeriMode> Dac<'d, M> {
     }
 
     #[cfg(dac_v9)]
-    /// Update channel with a new value
+    /// Update channel 1 with a new value.
     ///
-    /// If triggering is not enabled, the new values are immediately output;
-    /// otherwise, they will be output after the next trigger.
+    /// DAC v9 has a single channel and no dual-channel data holding registers.
+    /// If triggering is not enabled, the new value is immediately output;
+    /// otherwise, it will be output after the next trigger.
     pub fn set<W: Word>(&mut self, value: W) {
         W::set_value(self.info.regs, 0, value);
     }
