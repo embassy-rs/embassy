@@ -156,7 +156,7 @@ fn generate_peripherals_call() -> TokenStream {
         .zip(&singleton_tokens)
         .map(|(s, tokens)| match s.name.as_str() {
             "OSTIMER0" => quote! { #[cfg(not(time_driver_ostimer))] #tokens },
-            "LPTMR0" => quote! { #[cfg(not(time_driver_lptmr))] #tokens },
+            "LPTMR0" | "WAKETIMER0" => quote! { #[cfg(not(time_driver_lptmr))] #tokens },
             _ => tokens.clone(),
         })
         .collect();
