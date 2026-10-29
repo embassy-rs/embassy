@@ -30,6 +30,7 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 portable-atomic = { version = "1.6.0" }
 embassy-crypto = { version = "0.1.0", path = "../../embassy-crypto", features = ["defmt"] }
 embassy-crypto-test = { version = "0.1.0", path = "../../embassy-crypto-test", features = ["defmt", "rng"] }
+embassy-crypto-rustcrypto = { version = "0.1.0", path = "../../embassy-crypto-rustcrypto", features = ["embassy-crypto-chacha8", "embassy-crypto-chacha12", "embassy-crypto-chacha20"], optional = true }
 
 [features]
 nrf51422 = ["embassy-nrf/nrf51",         "embassy-nrf/time-driver-rtc1", "portable-atomic/unsafe-assume-single-core"]
@@ -51,6 +52,8 @@ two-uarts = []
 
 # The direct-API crypto tests.
 crypto = []
+# The `embassy-crypto-rustcrypto` software drivers.
+embassy-crypto-rustcrypto = ["dep:embassy-crypto-rustcrypto"]
 # The accelerator has AES-256 and AES-GCM, which the CryptoCell only has in its 312 version.
 aes256 = []
 # The accelerator has the SHA-512 family.
@@ -167,6 +170,11 @@ required-features = [ "embassy-crypto-aes256",]
 name = "crypto_chacha"
 path = "src/bin/crypto_chacha.rs"
 required-features = [ "embassy-crypto",]
+
+[[bin]]
+name = "crypto_chacha_rustcrypto"
+path = "src/bin/crypto_chacha_rustcrypto.rs"
+required-features = [ "embassy-crypto-rustcrypto",]
 
 [[bin]]
 name = "crypto_ec"
@@ -306,6 +314,6 @@ build = [
   { target = "thumbv8m.main-none-eabihf", features = ["nrf5340", "embassy-crypto-aes256"], artifact-dir = "out/tests/nrf5340-dk" },
   { target = "thumbv8m.main-none-eabihf", features = ["nrf9160", "crypto"], artifact-dir = "out/tests/nrf9160-dk" },
   { target = "thumbv8m.main-none-eabihf", features = ["nrf9160", "embassy-crypto"], artifact-dir = "out/tests/nrf9160-dk" },
-  { target = "thumbv8m.main-none-eabihf", features = ["nrf54l15", "crypto"], artifact-dir = "out/tests/nrf54l15-dk" },
+  { target = "thumbv8m.main-none-eabihf", features = ["nrf54l15", "crypto", "embassy-crypto-rustcrypto"], artifact-dir = "out/tests/nrf54l15-dk" },
   { target = "thumbv8m.main-none-eabihf", features = ["nrf54l15", "embassy-crypto-aes256", "embassy-crypto-sha512"], artifact-dir = "out/tests/nrf54l15-dk" }
 ]
