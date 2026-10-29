@@ -243,9 +243,6 @@ impl<'d> Timer<'d> {
     ///
     /// This will stop the timer if it isn't already stopped,
     /// because the timer may exhibit 'unpredictable behaviour' if it's frequency is changed while it's running.
-    ///
-    /// # Panics
-    /// Panics if the frequency is unsupported by this timer instance.
     pub fn set_frequency(&self, frequency: Frequency) {
         let prescaler = (frequency as u8 as i8) - (self.input_frequency as i8);
         debug_assert!((0..=9).contains(&prescaler), "unsupported timer frequency");
