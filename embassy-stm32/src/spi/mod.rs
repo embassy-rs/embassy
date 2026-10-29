@@ -334,6 +334,15 @@ impl<'d> CsPinType<'d> {
         matches!(self, Self::None)
     }
 
+    /// Whether [`Self::wait_for_edge`] can see the deselect. Without EXTI it never completes.
+    pub const fn tracks_deselect(&self) -> bool {
+        match self {
+            #[cfg(feature = "exti")]
+            Self::Exti(_) => true,
+            Self::Flex(_) | Self::None => false,
+        }
+    }
+
     #[cfg(feature = "exti")]
     pub const unsafe fn clone_unchecked(&self) -> Self {
         match self {
@@ -1563,9 +1572,12 @@ impl<'d> Spi<'d, Async, Slave> {
     /// non-empty and are transferred at the same time; the master clocks
     /// `max(read.len(), write.len())` frames.
     ///
-    /// Returns the number of frames transferred in each direction `(n_rx, n_tx)`.
-    /// If the master deselects the slave before the buffers are exhausted, the
-    /// number of frames transferred so far is returned, like `embassy-nrf`'s `Spis`.
+    /// Returns the number of frames transferred in each direction `(n_rx, n_tx)`
+    /// once the master deselects the slave, so one call spans one transaction. If
+    /// the master deselects the slave before the buffers are exhausted, the number
+    /// of frames transferred so far is returned, like `embassy-nrf`'s `Spis`.
+    /// Without an EXTI channel on NSS the deselect can't be seen, so the transfer
+    /// returns as soon as the buffers are exhausted.
     async fn slave_transfer_inner<W: Word>(
         &mut self,
         read: *mut [W],
@@ -1629,10 +1641,19 @@ impl<'d> Spi<'d, Async, Slave> {
                 w.set_cstart(true);
             });
 
-            let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
-            match select(join(&mut tx_f, &mut rx_f), nss_fut).await {
+            let tracks_deselect = self.nss.tracks_deselect();
+            let mut nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
+            match select(join(&mut tx_f, &mut rx_f), nss_fut.as_mut()).await {
                 Either::First(((), ())) => {
-                    finish_dma(regs);
+                    finish_slave_dma(regs);
+                    // The buffers are exhausted, but the master may still hold NSS. End with
+                    // the transaction, like `write`: returning now would leave its deselect
+                    // edge to the next transfer, which would then end before its own
+                    // transaction starts.
+                    if tracks_deselect {
+                        nss_fut.await;
+                        slave_abort(regs);
+                    }
                     (n_rx_total, n_tx_total)
                 }
                 Either::Second(()) => {
@@ -1663,11 +1684,12 @@ impl<'d> Spi<'d, Async, Slave> {
 
     /// Reads data from the SPI bus, using DMA.
     ///
-    /// Clocks out dummy bytes so the master can clock data in. Blocks until `data`
-    /// is full or the slave is deselected.
-    /// Returns the number of bytes read. If the master deselects the slave before
-    /// `data` is full, the number of bytes received so far is returned, like
-    /// `embassy-nrf`'s `Spis`.
+    /// Clocks out dummy bytes so the master can clock data in. Returns the number
+    /// of bytes read once the master deselects the slave, so one call spans one
+    /// transaction. If the master deselects the slave before `data` is full, the
+    /// number of bytes received so far is returned, like `embassy-nrf`'s `Spis`.
+    /// Without an EXTI channel on NSS the deselect can't be seen, so the read
+    /// returns as soon as `data` is full.
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<usize, Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
         if data.is_empty() {
@@ -1675,6 +1697,7 @@ impl<'d> Spi<'d, Async, Slave> {
         }
 
         let mut total = 0usize;
+        let len = data.len();
 
         for chunk in data.chunks_mut(u16::MAX as usize) {
             let regs = self.info.regs;
@@ -1724,25 +1747,21 @@ impl<'d> Spi<'d, Async, Slave> {
                 w.set_cstart(true);
             });
 
-            let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
+            let tracks_deselect = self.nss.tracks_deselect();
+            let last_chunk = total + n == len;
+            let mut nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
             let mut deselect_count = None;
             match tx_f.as_mut() {
-                Some(tx_f) => match select(join(tx_f, &mut rx_f), nss_fut).await {
-                    Either::First(((), ())) => {
-                        finish_dma(regs);
-                    }
-                    Either::Second(()) => {
+                Some(tx_f) => {
+                    if let Either::Second(()) = select(join(tx_f, &mut rx_f), nss_fut.as_mut()).await {
                         deselect_count = Some(n - rx_f.get_remaining_transfers() as usize);
                     }
-                },
-                None => match select(&mut rx_f, nss_fut).await {
-                    Either::First(()) => {
-                        finish_dma(regs);
-                    }
-                    Either::Second(()) => {
+                }
+                None => {
+                    if let Either::Second(()) = select(&mut rx_f, nss_fut.as_mut()).await {
                         deselect_count = Some(n - rx_f.get_remaining_transfers() as usize);
                     }
-                },
+                }
             }
 
             if let Some(got) = deselect_count {
@@ -1751,6 +1770,14 @@ impl<'d> Spi<'d, Async, Slave> {
                 slave_abort(regs);
                 total += got;
                 return Ok(total);
+            }
+            finish_slave_dma(regs);
+            if last_chunk && tracks_deselect {
+                // `data` is full; end with the transaction, as `slave_transfer_inner` does.
+                nss_fut.await;
+                drop(rx_f);
+                drop(tx_f);
+                slave_abort(regs);
             }
             total += n;
         }
@@ -1852,10 +1879,12 @@ impl<'d> Spi<'d, Async, Slave> {
     /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
     /// If `write` is shorter it is padded with zero bytes.
     ///
-    /// Blocks until the longest buffer is exhausted or the slave is deselected.
-    /// Returns the number of bytes transferred `(n_rx, n_tx)`. If the master
-    /// deselects the slave first, the number of bytes transferred so far is
-    /// returned, like `embassy-nrf`'s `Spis`.
+    /// Returns the number of bytes transferred `(n_rx, n_tx)` once the master
+    /// deselects the slave, so one call spans one transaction. If the master
+    /// deselects the slave before the longest buffer is exhausted, the number of
+    /// bytes transferred so far is returned, like `embassy-nrf`'s `Spis`. Without
+    /// an EXTI channel on NSS the deselect can't be seen, so the transfer returns
+    /// as soon as the longest buffer is exhausted.
     pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(usize, usize), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
@@ -1872,9 +1901,10 @@ impl<'d> Spi<'d, Async, Slave> {
     /// In-place bidirectional transfer, using DMA.
     ///
     /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
-    /// Returns the number of bytes transferred. If the master deselects the slave
-    /// before `data` is exhausted, the number of bytes transferred so far is
-    /// returned, like `embassy-nrf`'s `Spis`.
+    /// Returns the number of bytes transferred once the master deselects the slave,
+    /// or the number transferred so far if it deselects before `data` is exhausted,
+    /// like `embassy-nrf`'s `Spis`. Without an EXTI channel on NSS it returns as
+    /// soon as `data` is exhausted.
     pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<usize, Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
@@ -2168,6 +2198,13 @@ pub(crate) fn set_rxdmaen(regs: Regs, val: bool) {
     regs.cfg1().modify(|reg| {
         reg.set_rxdmaen(val);
     });
+}
+
+/// Ends a slave DMA transfer whose buffers are exhausted. Unlike [`finish_dma`] this doesn't wait
+/// for TXC or BSY: the master owns the clock, so they clear only if it keeps clocking.
+fn finish_slave_dma(regs: Regs) {
+    set_txdmaen(regs, false);
+    set_rxdmaen(regs, false);
 }
 
 fn finish_dma(regs: Regs) {
