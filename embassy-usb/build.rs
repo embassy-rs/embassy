@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::path::PathBuf;
 use std::{env, fs};
@@ -32,7 +32,7 @@ fn main() {
         println!("cargo:rerun-if-env-changed={crate_name}_{name}");
     }
 
-    let mut configs = HashMap::new();
+    let mut configs = BTreeMap::new();
     for (name, default) in CONFIGS {
         configs.insert(
             *name,
