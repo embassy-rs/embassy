@@ -27,9 +27,13 @@ pub mod pac {
 mod time_driver;
 
 #[cfg(feature = "asr6601")]
+pub mod adc;
+#[cfg(feature = "asr6601")]
 pub mod afec;
 #[cfg(feature = "asr6601")]
 pub mod bstimer;
+#[cfg(feature = "asr6601")]
+pub mod dac;
 #[cfg(feature = "asr6601")]
 pub mod dma;
 #[cfg(feature = "asr6601")]
