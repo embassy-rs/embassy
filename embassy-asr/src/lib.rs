@@ -37,6 +37,8 @@ pub mod rcc;
 #[cfg(feature = "asr6601")]
 mod serial;
 #[cfg(feature = "asr6601")]
+pub mod spi;
+#[cfg(feature = "asr6601")]
 pub mod syscfg;
 #[cfg(feature = "asr6601")]
 pub mod time;
