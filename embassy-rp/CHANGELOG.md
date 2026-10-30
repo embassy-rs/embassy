@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UART: `split_ref` now returns owned halves borrowed for the duration instead of `&mut`.
 - UART: remove the `nb`-based `embedded-hal` 0.2 and `embedded-hal-nb` `serial` impls.
 - UART: add inherent `read`, `fill_buf`, `consume`, `read_ready`, `write` and `flush` methods to `BufferedUart`, and the matching ones to `BufferedUartRx`/`BufferedUartTx`.
+- UART: fix TX-Only `BufferedUartTx` locking the core in the UART interrupt (also uniformity for RX-Only `BufferedUartRx`)
 - PIO UART: add inherent `write` and `flush` methods to `PioUartTx`, and `read` to `PioUartRx`.
 - UART: `BufferedUart`/`BufferedUartTx` `flush` and `blocking_flush` wait until the last byte has been transmitted, not just until the TX buffer is empty.
 - PIO UART: `flush` waits until the last byte has been transmitted.
