@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- added: `i2s` on the nRF91 family (nRF9120, nRF9151, nRF9160, nRF9161).
 - added: `gpio::Flex::is_input`, `Flex::is_output` and `Flex::is_disconnected`.
 - added: inherent `read_ready` method on `BufferedUarte` and `BufferedUarteRx`.
 - bugfix: buffered_uarte: `BufferedUarteRx::read_ready` no longer returns `true` when no data has been received, and returns overrun errors, like `BufferedUarte::read_ready`.
