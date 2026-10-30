@@ -56,7 +56,7 @@ optional = true
 features = ["critical-section", "rt"]
 
 [features]
-default = ["asr6601"]
+default = ["asr6601", "time-driver-lptim0"]
 
 defmt = [
     "dep:defmt",

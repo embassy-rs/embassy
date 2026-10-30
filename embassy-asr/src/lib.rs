@@ -23,15 +23,21 @@ pub mod pac {
     }
 }
 
+#[cfg(feature = "time-driver-lptim0")]
+mod time_driver;
 
 #[cfg(feature = "asr6601")]
 pub mod afec;
+#[cfg(feature = "asr6601")]
+pub mod bstimer;
 #[cfg(feature = "asr6601")]
 pub mod dma;
 #[cfg(feature = "asr6601")]
 pub mod gpio;
 #[cfg(feature = "asr6601")]
 pub mod i2c;
+#[cfg(feature = "asr6601")]
+pub mod lptimer;
 #[cfg(feature = "asr6601")]
 pub mod lpuart;
 #[cfg(feature = "asr6601")]
@@ -44,6 +50,8 @@ pub mod spi;
 pub mod syscfg;
 #[cfg(feature = "asr6601")]
 pub mod time;
+#[cfg(feature = "asr6601")]
+pub mod timer;
 #[cfg(feature = "asr6601")]
 pub mod uart;
 
@@ -249,6 +257,9 @@ pub fn init(config: Config) -> Peripherals {
 
     #[cfg(not(feature = "asr6601"))]
     let _ = config;
+
+    #[cfg(feature = "time-driver-lptim0")]
+    crate::time_driver::init();
 
     unsafe {
         // The thread-mode Cortex-M executor uses WFE and must not inherit deep
