@@ -113,11 +113,11 @@ trait SealedWatchBehavior<T> {
 
     /// Modify the value of the `Watch` using a closure. Returns `false` if the
     /// `Watch` does not already contain a value.
-    fn send_modify(&self, f: &mut dyn Fn(&mut Option<T>));
+    fn send_modify(&self, f: &mut dyn FnMut(&mut Option<T>));
 
     /// Modify the value of the `Watch` using a closure. Returns `false` if the
     /// `Watch` does not already contain a value.
-    fn send_if_modified(&self, f: &mut dyn Fn(&mut Option<T>) -> bool);
+    fn send_if_modified(&self, f: &mut dyn FnMut(&mut Option<T>) -> bool);
 }
 
 /// A trait representing the 'inner' behavior of the `Watch`.
@@ -248,7 +248,7 @@ impl<M: RawMutex, T: Clone, const N: usize> SealedWatchBehavior<T> for Watch<M, 
         })
     }
 
-    fn send_modify(&self, f: &mut dyn Fn(&mut Option<T>)) {
+    fn send_modify(&self, f: &mut dyn FnMut(&mut Option<T>)) {
         self.mutex.lock(|state| {
             let mut s = state.borrow_mut();
             f(&mut s.data);
@@ -257,7 +257,7 @@ impl<M: RawMutex, T: Clone, const N: usize> SealedWatchBehavior<T> for Watch<M, 
         })
     }
 
-    fn send_if_modified(&self, f: &mut dyn Fn(&mut Option<T>) -> bool) {
+    fn send_if_modified(&self, f: &mut dyn FnMut(&mut Option<T>) -> bool) {
         self.mutex.lock(|state| {
             let mut s = state.borrow_mut();
             if f(&mut s.data) {
