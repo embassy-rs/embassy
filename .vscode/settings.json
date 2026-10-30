@@ -20,12 +20,9 @@
   "rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
   "rust-analyzer.cargo.features": [
     // Comment out these features when working on the examples. Most example crates do not have any cargo features.
-    // "stm32c562re"
   ],
   "rust-analyzer.linkedProjects": [
-    // "examples/stm32h5/Cargo.toml",
-    "examples/stm32c5/Cargo.toml"
-    // "embassy-stm32/Cargo.toml"
+    "examples/stm32h5/Cargo.toml",
     // To work on the examples, comment the line above and all of the cargo.features lines,
     // then uncomment ONE line below to select the chip you want to work on.
     // This makes rust-analyzer work on the example crate and all its dependencies.
