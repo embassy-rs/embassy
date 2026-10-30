@@ -33,19 +33,31 @@ pub mod afec;
 #[cfg(feature = "asr6601")]
 pub mod bstimer;
 #[cfg(feature = "asr6601")]
+pub mod crc;
+#[cfg(feature = "asr6601")]
 pub mod dac;
 #[cfg(feature = "asr6601")]
 pub mod dma;
+#[cfg(feature = "asr6601")]
+pub mod flash;
 #[cfg(feature = "asr6601")]
 pub mod gpio;
 #[cfg(feature = "asr6601")]
 pub mod i2c;
 #[cfg(feature = "asr6601")]
+pub mod iwdg;
+#[cfg(feature = "asr6601")]
 pub mod lptimer;
 #[cfg(feature = "asr6601")]
 pub mod lpuart;
 #[cfg(feature = "asr6601")]
+pub mod pwr;
+#[cfg(feature = "asr6601")]
 pub mod rcc;
+#[cfg(feature = "asr6601")]
+pub mod rng;
+#[cfg(feature = "asr6601")]
+pub mod sec;
 #[cfg(feature = "asr6601")]
 mod serial;
 #[cfg(feature = "asr6601")]
@@ -58,6 +70,8 @@ pub mod time;
 pub mod timer;
 #[cfg(feature = "asr6601")]
 pub mod uart;
+#[cfg(feature = "asr6601")]
+pub mod wdg;
 
 pub use embassy_hal_internal::{Peri, PeripheralType};
 
