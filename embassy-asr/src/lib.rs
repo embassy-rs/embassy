@@ -31,11 +31,17 @@ pub mod dma;
 #[cfg(feature = "asr6601")]
 pub mod gpio;
 #[cfg(feature = "asr6601")]
+pub mod lpuart;
+#[cfg(feature = "asr6601")]
 pub mod rcc;
+#[cfg(feature = "asr6601")]
+mod serial;
 #[cfg(feature = "asr6601")]
 pub mod syscfg;
 #[cfg(feature = "asr6601")]
 pub mod time;
+#[cfg(feature = "asr6601")]
+pub mod uart;
 
 pub use embassy_hal_internal::{Peri, PeripheralType};
 

@@ -5,8 +5,6 @@
 //! helpers at the end of this module; their register updates are serialized by
 //! a critical section.
 
-#![allow(dead_code)]
-
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use crate::{Peri, pac, peripherals};
