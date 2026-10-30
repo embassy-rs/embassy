@@ -25,7 +25,7 @@ use embassy_stm32::rcc::{self};
 use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{
     CHAR_VALUE_HANDLE_OFFSET, CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions,
     ServiceHandle, ServiceType, Uuid, is_cccd_handle, is_value_handle,
@@ -35,9 +35,11 @@ use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, ne
 use panic_probe as _;
 use stm32wb_hci::aci::AciEvent;
 use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
+use stm32wb_hci::aci::values::AddressType;
+use stm32wb_hci::adv_data::AdvFlags;
 
 // ---- Test configuration ----
-const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
+const ADDR_TYPE: OwnAddressType = OwnAddressType::StaticRandom;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -98,26 +100,29 @@ async fn main(spawner: Spawner) {
     let mut gatt = ble.gatt_server();
 
     // Create custom service
-    let service_uuid = Uuid::from_u16(CUSTOM_SERVICE_UUID);
+    let service_uuid = Uuid::Uuid16(CUSTOM_SERVICE_UUID);
     let service_handle = gatt
-        .add_service(service_uuid, ServiceType::Primary, 6)
+        .add_service(ble.controller(), service_uuid, ServiceType::Primary, 6)
+        .await
         .expect("Failed to add service");
     info!("Service created: handle 0x{:04X}", service_handle.0);
 
     // Add data characteristic with read/write/notify
-    let char_uuid = Uuid::from_u16(DATA_CHAR_UUID);
+    let char_uuid = Uuid::Uuid16(DATA_CHAR_UUID);
     let char_properties = CharProperties::READ | CharProperties::WRITE | CharProperties::NOTIFY;
     let data_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
             char_uuid,
             32, // Max 32 bytes
             char_properties,
-            SecurityPermissions::NONE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::empty(),
+            GattEventMask::ATTRIBUTE_WRITE,
             0,
             true, // Variable length
         )
+        .await
         .expect("Failed to add characteristic");
     info!("Characteristic created: handle 0x{:04X}", data_char_handle.0);
     info!(
@@ -128,7 +133,8 @@ async fn main(spawner: Spawner) {
 
     // Set initial value
     let initial_value = b"Hello!";
-    gatt.update_characteristic_value(service_handle, data_char_handle, 0, initial_value)
+    gatt.update_characteristic_value(ble.controller(), service_handle, data_char_handle, 0, initial_value)
+        .await
         .expect("Failed to set initial value");
 
     // Application state
@@ -142,10 +148,14 @@ async fn main(spawner: Spawner) {
 
     // Create advertising data
     let mut adv_data = AdvData::new();
-    adv_data.add_flags(0x06).expect("Failed to add flags");
-    adv_data.add_name("Embassy-GATT").expect("Failed to add name");
-    adv_data
-        .add_service_uuid_16(CUSTOM_SERVICE_UUID)
+    adv_data = adv_data
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .expect("Failed to add flags");
+    adv_data = adv_data
+        .complete_local_name(b"Embassy-GATT")
+        .expect("Failed to add name");
+    adv_data = adv_data
+        .complete_uuid16_list(&[CUSTOM_SERVICE_UUID])
         .expect("Failed to add service UUID");
 
     let adv_params = AdvParams {
@@ -172,7 +182,7 @@ async fn main(spawner: Spawner) {
         let event = ble.read_event(&mut event_buf).await;
 
         // Process GAP events (connections)
-        if let Some(gap_event) = ble.process_event(&event) {
+        if let Some(gap_event) = ble.process_event(&event).await {
             match gap_event {
                 GapEvent::Connected(conn) => {
                     info!("Connected: handle 0x{:04X}", conn.handle.raw());
@@ -236,7 +246,16 @@ async fn main(spawner: Spawner) {
                             let _ = response.extend_from_slice(attribute.attr_data);
                             let _ = response.push(state.counter);
 
-                            match gatt.notify(conn, state.service_handle, state.data_char_handle, &response) {
+                            match gatt
+                                .notify(
+                                    ble.controller(),
+                                    conn,
+                                    state.service_handle,
+                                    state.data_char_handle,
+                                    &response,
+                                )
+                                .await
+                            {
                                 Ok(()) => {
                                     info!("Notification sent: {} bytes", response.len());
                                 }

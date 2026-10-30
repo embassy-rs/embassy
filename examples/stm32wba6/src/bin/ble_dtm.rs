@@ -106,11 +106,12 @@ async fn main(spawner: Spawner) {
 
             dtm_ble
                 .dtm_transmit(DTM_CHANNEL, DTM_DATA_LENGTH, DtmPacketPayload::Prbs9)
+                .await
                 .expect("DTM TX start failed");
 
             Timer::after_secs(DTM_TEST_DURATION_SECS).await;
 
-            match dtm_ble.dtm_end() {
+            match dtm_ble.dtm_end().await {
                 Ok(_) => info!("DTM TX test ended after {}s", DTM_TEST_DURATION_SECS),
                 Err(e) => error!("le_test_end failed: {:?}", e),
             }
@@ -127,11 +128,11 @@ async fn main(spawner: Spawner) {
                 expected, DTM_TEST_DURATION_SECS
             );
 
-            dtm_ble.dtm_receive(DTM_CHANNEL).expect("DTM RX start failed");
+            dtm_ble.dtm_receive(DTM_CHANNEL).await.expect("DTM RX start failed");
 
             Timer::after_secs(DTM_TEST_DURATION_SECS).await;
 
-            match dtm_ble.dtm_end() {
+            match dtm_ble.dtm_end().await {
                 Ok(received) => {
                     let received = received as u32;
                     // Packet Error Rate = lost / expected × 100
