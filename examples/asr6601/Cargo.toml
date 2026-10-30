@@ -1,0 +1,24 @@
+[package]
+name = "embassy-asr6601-examples"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabihf", artifact-dir = "out/examples/asr6601" }
+]
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.3"
+panic-halt = "1.0.0"
+
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time" }
+embassy-asr = { path = "../../embassy-asr", default-features = false, features = ["asr6601", "time-driver-lptim0"] }
+embedded-io-async = "0.7.0"
+
+[profile.release]
+debug = 2

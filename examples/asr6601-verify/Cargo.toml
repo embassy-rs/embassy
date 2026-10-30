@@ -1,0 +1,22 @@
+[package]
+name = "embassy-asr6601-verify"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabihf", artifact-dir = "out/examples/asr6601-verify" }
+]
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.3"
+panic-halt = "1.0.0"
+
+embassy-asr = { path = "../../embassy-asr", default-features = false, features = ["asr6601"] }
+embassy-futures = { path = "../../embassy-futures" }
+
+[profile.release]
+debug = 2
