@@ -31,6 +31,8 @@ pub mod dma;
 #[cfg(feature = "asr6601")]
 pub mod gpio;
 #[cfg(feature = "asr6601")]
+pub mod i2c;
+#[cfg(feature = "asr6601")]
 pub mod lpuart;
 #[cfg(feature = "asr6601")]
 pub mod rcc;
