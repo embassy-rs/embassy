@@ -49,7 +49,7 @@ const READ_PARAMS_BIT_ODS2: u8 = 1 << 7;
 // Memory array specifications as defined in the datasheet.
 const SECTOR_SIZE: u32 = 4096;
 const PAGE_SIZE: u32 = 256;
-const MAX_ADDRESS: u32 = 0x7FFFFF;
+const FLASH_SIZE: u32 = 8 * 1024 * 1024;
 
 // Max Sector Erase time is 300ms
 const SECTOR_ERASE_TIMEOUT: Duration = Duration::from_millis(600);
@@ -83,7 +83,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
     }
 
     pub fn read(&mut self, address: u32, buffer: &mut [u8]) {
-        assert!(address + buffer.len() as u32 <= MAX_ADDRESS);
+        assert!(address + buffer.len() as u32 <= FLASH_SIZE);
 
         let transaction = TransferConfig {
             iwidth: QspiWidth::SING,
@@ -113,7 +113,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
     }
 
     pub fn write(&mut self, mut address: u32, data: &[u8]) {
-        assert!(address <= MAX_ADDRESS);
+        assert!(address < FLASH_SIZE);
         assert!(!data.is_empty());
         self.erase(address, data.len() as u32);
 
@@ -150,12 +150,12 @@ impl<MODE: Mode> Flash<'_, MODE> {
 
             // Jump to the next page.
             address += page_remainder;
-            address %= MAX_ADDRESS;
+            address %= FLASH_SIZE;
         }
     }
 
     pub fn erase(&mut self, mut address: u32, mut length: u32) {
-        assert!(address <= MAX_ADDRESS);
+        assert!(address < FLASH_SIZE);
         assert!(length > 0);
 
         loop {
@@ -185,7 +185,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
 
             // Jump to the next sector.
             address += sector_remainder;
-            address %= MAX_ADDRESS;
+            address %= FLASH_SIZE;
         }
     }
 
@@ -335,7 +335,7 @@ impl<'a> Flash<'a, Async> {
     }
 
     pub async fn read_async(&mut self, address: u32, buffer: &mut [u8]) {
-        assert!(address + buffer.len() as u32 <= MAX_ADDRESS);
+        assert!(address + buffer.len() as u32 <= FLASH_SIZE);
 
         let transaction = TransferConfig {
             iwidth: QspiWidth::SING,
@@ -350,7 +350,7 @@ impl<'a> Flash<'a, Async> {
     }
 
     pub async fn write_async(&mut self, mut address: u32, data: &[u8]) {
-        assert!(address <= MAX_ADDRESS);
+        assert!(address < FLASH_SIZE);
         assert!(!data.is_empty());
         self.erase_async(address, data.len() as u32).await;
         let mut length = data.len() as u32;
@@ -387,12 +387,12 @@ impl<'a> Flash<'a, Async> {
 
             // Jump to the next page.
             address += page_remainder;
-            address %= MAX_ADDRESS;
+            address %= FLASH_SIZE;
         }
     }
 
     pub async fn erase_async(&mut self, mut address: u32, mut length: u32) {
-        assert!(address <= MAX_ADDRESS);
+        assert!(address < FLASH_SIZE);
         assert!(length > 0);
 
         loop {
@@ -422,7 +422,7 @@ impl<'a> Flash<'a, Async> {
 
             // Jump to the next sector.
             address += sector_remainder;
-            address %= MAX_ADDRESS;
+            address %= FLASH_SIZE;
         }
     }
 
