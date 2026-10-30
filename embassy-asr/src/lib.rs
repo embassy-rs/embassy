@@ -27,6 +27,8 @@ pub mod pac {
 #[cfg(feature = "asr6601")]
 pub mod afec;
 #[cfg(feature = "asr6601")]
+pub mod dma;
+#[cfg(feature = "asr6601")]
 pub mod gpio;
 #[cfg(feature = "asr6601")]
 pub mod rcc;
@@ -230,6 +232,9 @@ pub fn init(config: Config) -> Peripherals {
         // to use crate-private RCC helpers for clock/reset gates.
         rcc::init(unsafe { peripherals.RCC.clone_unchecked() }, config.rcc)
             .expect("embassy-asr: RCC initialization failed");
+        unsafe {
+            dma::init();
+        }
     }
 
     #[cfg(not(feature = "asr6601"))]
