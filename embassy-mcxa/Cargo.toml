@@ -54,6 +54,7 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "perf", "mcxa567"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "perf", "mcxa577"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa266", "time-driver-lptmr"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa287", "time-driver-lptmr"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa577", "time-driver-lptmr"]},
 ]
 
@@ -117,13 +118,13 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "6a4c80de6e0efcbdea813743e584a70bcc998d1c", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "3d488116d8377aa30b7ca1a201cf5e416a01547e", features = ["rt"] }
 paste = "1.0.15"
 
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 [build-dependencies]
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "6a4c80de6e0efcbdea813743e584a70bcc998d1c", default-features = false, features = ["metadata"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "3d488116d8377aa30b7ca1a201cf5e416a01547e", default-features = false, features = ["metadata"] }
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 convert_case = "0.12"
@@ -136,7 +137,9 @@ default = ["rt", "swd-swo-as-gpio", "dma-ipd-req", "time-driver-any"]
 time-driver-any = ["rt"]
 ## Explicitly use OSTIMER0 as the Embassy time driver, at 1 MHz.
 time-driver-ostimer = ["rt"]
-## Use LPTMR0 as the Embassy time driver, at 1 MHz. Polls alarms every 1 ms.
+## Use LPTMR0 for continuous 1 MHz timekeeping and WAKETIMER0 for one-shot alarms.
+## Reserves both peripherals. Requires the WAKETIMER FRO16K clock domain enabled;
+## alarm resolution is approximately 1 ms, while timestamp resolution remains 1 us.
 ## Overrides time-driver-any; incompatible with explicit time-driver-ostimer.
 time-driver-lptmr = ["rt"]
 

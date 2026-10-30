@@ -37,6 +37,11 @@ executor-platform = [
   "embassy-mcxa/executor-platform"
 ]
 
+[[bin]]
+name = "time-driver-lptmr"
+path = "src/bin/time-driver-lptmr.rs"
+required-features = ["time-driver-lptmr"]
+
 [profile.release]
 lto = true # better optimizations
 debug = 2  # enough information for defmt/rtt locations
