@@ -81,6 +81,8 @@ use crate::pac::lpi2c::{Alf, Cmd, Dmf, Dozen, Epf, McrRrf, McrRtf, Msr, MsrFef, 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum SetupError {
+    /// Resume the controller before changing its configuration.
+    Suspended,
     /// Clock configuration error.
     ClockSetup(ClockError),
     /// The requested duty cycle does not meet the selected bus mode's minimum tHIGH.
@@ -98,6 +100,10 @@ pub enum SetupError {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum IOError {
+    /// The controller is explicitly suspended.
+    Suspended,
+    /// A transfer, armed DMA, or unread FIFO data prevents suspension.
+    Busy,
     /// FIFO Error, the command in the FIFO queue expected the controller to be in a STARTed state, but it was not.
     ///
     /// Even though a START could have been issued earlier, the controller might now be in a different state.
@@ -119,6 +125,12 @@ pub enum IOError {
     InvalidReadBufferLength,
     /// Other internal errors or unexpected state.
     Other,
+}
+
+fn wait_for_module_enable(enabled: impl FnMut() -> bool, expected: bool) -> Result<(), IOError> {
+    crate::clocks::wait_for_enable_state(enabled, expected)
+        .then_some(())
+        .ok_or(IOError::Other)
 }
 
 impl From<crate::dma::InvalidParameters> for IOError {
@@ -620,6 +632,8 @@ pub struct I2c<'d, M: Mode> {
     /// changes the bus speed).
     freq: u32,
     _wg: Option<WakeGuard>,
+    power: PoweredClock,
+    suspended: bool,
 }
 
 impl<'d> I2c<'d, Blocking> {
@@ -697,11 +711,73 @@ impl<'d, M: Mode> I2c<'d, M> {
             is_hs: config.speed == Speed::UltraFast,
             freq: parts.freq,
             _wg: parts.wake_guard,
+            power,
+            suspended: false,
         };
 
         inst.set_configuration(&config)?;
 
         Ok(inst)
+    }
+
+    /// Stop an idle controller and release its Deep Sleep requirement.
+    ///
+    /// Cancel outstanding I/O first. Returns [`IOError::Busy`] without changing
+    /// hardware or its guard if a transfer or FIFO data remains. This does not
+    /// suspend the devices attached to the bus.
+    /// A rejected hardware disable inhibits further I/O and retains its guard
+    /// until the caller explicitly resumes or tears down the controller.
+    /// Enable acknowledgement is polled within a bounded limit; an immediate
+    /// read after the request need not yet reflect the requested state.
+    pub fn suspend(&mut self) -> Result<(), IOError> {
+        critical_section::with(|_| {
+            let fifo = self.info.regs().mfsr().read();
+            if self.info.regs().msr().read().mbf() == crate::pac::lpi2c::Mbf::Busy
+                || fifo.txcount() != 0
+                || fifo.rxcount() != 0
+                || self.info.regs().mder().read().0 != 0
+                || self.mode.dma_is_armed_or_active()
+            {
+                return Err(IOError::Busy);
+            }
+            self.suspended = true;
+            self.info.regs().mier().write(|w| w.0 = 0);
+            self.info.regs().mder().write(|w| w.0 = 0);
+            self.mode.stop_dma();
+            self.info.regs().mcr().modify(|w| w.set_men(false));
+            wait_for_module_enable(|| self.info.regs().mcr().read().men(), false)?;
+            self._wg = None;
+            Ok(())
+        })
+    }
+
+    /// Restore the requirement before enabling the controller.
+    pub fn resume(&mut self) -> Result<(), IOError> {
+        if self.suspended {
+            critical_section::with(|_| -> Result<(), IOError> {
+                self._wg = WakeGuard::for_power(&self.power);
+                self.info.regs().mcr().modify(|w| w.set_men(true));
+                wait_for_module_enable(|| self.info.regs().mcr().read().men(), true)?;
+                self.suspended = false;
+                Ok(())
+            })?;
+        }
+        self.ensure_active()
+    }
+
+    /// Whether I/O is inhibited until an explicit resume.
+    pub fn is_suspended(&self) -> bool {
+        self.suspended
+    }
+
+    fn ensure_active(&self) -> Result<(), IOError> {
+        if self.suspended {
+            Err(IOError::Suspended)
+        } else if !self.info.regs().mcr().read().men() {
+            Err(IOError::Other)
+        } else {
+            Ok(())
+        }
     }
 
     /// Returns the nominal frequency and high-phase share currently programmed.
@@ -723,6 +799,9 @@ impl<'d, M: Mode> I2c<'d, M> {
     }
 
     fn set_configuration(&mut self, config: &Config) -> Result<(), SetupError> {
+        if self.suspended {
+            return Err(SetupError::Suspended);
+        }
         let params = compute_baud_params(self.freq, config.speed, config.duty_cycle, config.relaxed_mode)?;
 
         // Disable the controller.
@@ -958,6 +1037,7 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// sends the command and blocks waiting for the FIFO to become
     /// empty ensuring the command was sent.
     fn start(&self, address: u8, read: bool) -> Result<(), IOError> {
+        self.ensure_active()?;
         if address >= 0x80 {
             return Err(IOError::AddressOutOfRange(address));
         }
@@ -995,6 +1075,7 @@ impl<'d, M: Mode> I2c<'d, M> {
     }
 
     fn blocking_read_internal(&self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<(), IOError> {
+        self.ensure_active()?;
         if read.is_empty() {
             return Err(IOError::InvalidReadBufferLength);
         }
@@ -1181,6 +1262,7 @@ where
     ///
     /// Does not indicate that the command was responded to.
     async fn async_start(&self, address: u8, read: bool) -> Result<(), IOError> {
+        self.ensure_active()?;
         if address >= 0x80 {
             return Err(IOError::AddressOutOfRange(address));
         }
@@ -1380,6 +1462,7 @@ impl<'d> I2c<'d, Async> {
 
 impl<'d> AsyncEngine for I2c<'d, Async> {
     async fn async_read_internal(&mut self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<(), IOError> {
+        self.ensure_active()?;
         if read.is_empty() {
             return Err(IOError::InvalidReadBufferLength);
         }
@@ -1566,6 +1649,7 @@ impl<'d> I2c<'d, Dma<'d>> {
 
 impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
     async fn async_read_internal(&mut self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<(), IOError> {
+        self.ensure_active()?;
         if read.is_empty() {
             return Err(IOError::InvalidReadBufferLength);
         }
@@ -1582,8 +1666,9 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         // return would invoke remediation a second time and corrupt
         // the controller state for the next transaction.
         let on_drop = OnDrop::new(|| {
-            self.remediation();
             self.info.regs().mder().modify(|w| w.set_rdde(false));
+            self.mode.rx_dma.stop();
+            self.remediation();
         });
 
         // Drain the *entire* read with a single continuous DMA transfer
@@ -1777,6 +1862,13 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
 
 impl<'d, M: Mode> Drop for I2c<'d, M> {
     fn drop(&mut self) {
+        self.info.regs().mier().write(|w| w.0 = 0);
+        self.info.regs().mder().write(|w| w.0 = 0);
+        self.mode.stop_dma();
+        self.info.regs().mcr().modify(|w| {
+            w.set_men(false);
+            w.set_rst(true);
+        });
         self._scl.set_as_disabled();
         self._sda.set_as_disabled();
     }
@@ -1814,6 +1906,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, M> {
         address: u8,
         operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
+        self.ensure_active()?;
         if let Some((last, rest)) = operations.split_last_mut() {
             for op in rest {
                 match op {
@@ -1862,6 +1955,7 @@ impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
         address: u8,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
+        self.ensure_active()?;
         let result = (|| {
             if let Some((last, rest)) = operations.split_last_mut() {
                 for op in rest {
@@ -1904,6 +1998,7 @@ where
         address: u8,
         operations: &mut [embedded_hal_async::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
+        self.ensure_active()?;
         let result = async {
             if let Some((last, rest)) = operations.split_last_mut() {
                 for op in rest {
@@ -1949,7 +2044,217 @@ impl<'d, M: Mode> embassy_embedded_hal::SetConfig for I2c<'d, M> {
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
+
     use super::*;
+    use embassy_futures::block_on;
+    use std::boxed::Box;
+
+    fn test_controller<M: Mode>(mode: M, power: PoweredClock) -> I2c<'static, M> {
+        let memory = Box::leak(Box::new([0u32; 256]));
+        // SAFETY: the isolated aligned block covers all controller registers.
+        let regs = unsafe { crate::pac::lpi2c::Lpi2c::from_ptr(memory.as_mut_ptr().cast()) };
+        let info = Box::leak(Box::new(Info {
+            regs,
+            wait_cell: maitake_sync::WaitCell::new(),
+        }));
+        info.regs().mcr().modify(|w| w.set_men(true));
+        I2c {
+            info,
+            _scl: crate::test_support::pin(),
+            _sda: crate::test_support::pin(),
+            mode,
+            is_hs: false,
+            freq: 12_000_000,
+            _wg: WakeGuard::for_power(&power),
+            power,
+            suspended: false,
+        }
+    }
+
+    #[test]
+    fn controller_suspension_releases_only_a_stopped_requirement() {
+        critical_section::with(|cs| {
+            let mut bus = test_controller(Blocking, PoweredClock::NormalEnabledDeepSleepDisabled);
+            assert!(crate::clocks::active_wake_guards(&cs));
+            bus.suspend().unwrap();
+            assert!(bus.is_suspended());
+            assert!(!bus.info.regs().mcr().read().men());
+            assert!(!crate::clocks::active_wake_guards(&cs));
+            assert_eq!(bus.blocking_write(0x20, &[]), Err(IOError::Suspended));
+            assert_eq!(bus.blocking_read(0x20, &mut [0]), Err(IOError::Suspended));
+            assert_eq!(
+                embedded_hal_1::i2c::I2c::transaction(&mut bus, 0x20, &mut []),
+                Err(IOError::Suspended)
+            );
+            assert_eq!(bus.set_configuration(&Config::default()), Err(SetupError::Suspended));
+            bus.suspend().unwrap();
+            bus.resume().unwrap();
+            assert!(!bus.is_suspended());
+            assert!(bus.info.regs().mcr().read().men());
+            assert!(crate::clocks::active_wake_guards(&cs));
+            bus.resume().unwrap();
+            let info = bus.info;
+            drop(bus);
+            assert!(info.regs().mcr().read().rst());
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn module_enable_acknowledgement_tolerates_delayed_readback_in_both_directions() {
+        for expected in [false, true] {
+            let mut reads = 0;
+            let result = wait_for_module_enable(
+                || {
+                    reads += 1;
+                    if reads <= 3 { !expected } else { expected }
+                },
+                expected,
+            );
+            assert_eq!(result, Ok(()));
+            assert_eq!(reads, 4);
+        }
+    }
+
+    #[test]
+    fn missing_module_enable_acknowledgement_returns_an_error_with_a_bound() {
+        let mut reads = 0;
+        let result = wait_for_module_enable(
+            || {
+                reads += 1;
+                true
+            },
+            false,
+        );
+        assert_eq!(result, Err(IOError::Other));
+        assert_eq!(reads, 1024);
+    }
+
+    #[test]
+    fn repeated_idle_cycles_do_not_retain_a_stopped_controllers_guard() {
+        critical_section::with(|cs| {
+            let mut bus = test_controller(Blocking, PoweredClock::NormalEnabledDeepSleepDisabled);
+            for _ in 0..16 {
+                bus.resume().unwrap();
+                assert!(!bus.is_suspended());
+                assert!(bus.info.regs().mcr().read().men());
+                assert!(crate::clocks::active_wake_guards(&cs));
+                bus.suspend().unwrap();
+                assert!(bus.is_suspended());
+                assert!(!bus.info.regs().mcr().read().men());
+                assert!(!crate::clocks::active_wake_guards(&cs));
+            }
+        });
+    }
+
+    #[test]
+    fn resume_recovers_a_partially_suspended_controller_without_leaking_its_guard() {
+        critical_section::with(|cs| {
+            let mut bus = test_controller(Blocking, PoweredClock::NormalEnabledDeepSleepDisabled);
+            // Model a disable whose readback has not yet acknowledged the request.
+            bus.suspended = true;
+            assert!(bus.info.regs().mcr().read().men());
+            assert!(crate::clocks::active_wake_guards(&cs));
+            bus.resume().unwrap();
+            assert!(!bus.is_suspended());
+            assert!(bus.info.regs().mcr().read().men());
+            assert!(crate::clocks::active_wake_guards(&cs));
+            bus.suspend().unwrap();
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn unexpectedly_disabled_hardware_does_not_report_ready_or_arm_io() {
+        critical_section::with(|cs| {
+            let mut bus = test_controller(Async, PoweredClock::NormalEnabledDeepSleepDisabled);
+            bus.info.regs().mcr().modify(|w| w.set_men(false));
+            assert_eq!(bus.resume(), Err(IOError::Other));
+            assert_eq!(block_on(bus.async_read(0x20, &mut [0])), Err(IOError::Other));
+            assert_eq!(block_on(bus.async_write(0x20, &[1])), Err(IOError::Other));
+            assert_eq!(bus.info.regs().mier().read().0, 0);
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn busy_controller_keeps_hardware_and_guard_unchanged() {
+        critical_section::with(|cs| {
+            let mut bus = test_controller(Blocking, PoweredClock::NormalEnabledDeepSleepDisabled);
+            bus.info
+                .regs()
+                .msr()
+                .modify(|w| w.set_mbf(crate::pac::lpi2c::Mbf::Busy));
+            assert_eq!(bus.suspend(), Err(IOError::Busy));
+            assert!(!bus.is_suspended());
+            assert!(bus.info.regs().mcr().read().men());
+            assert!(crate::clocks::active_wake_guards(&cs));
+            bus.info.regs().msr().write(|w| w.0 = 0);
+            let mut fifo = bus.info.regs().mfsr().read();
+            fifo.set_rxcount(1);
+            // SAFETY: the read-only hardware register is backed by writable test RAM.
+            unsafe { bus.info.regs().mfsr().as_ptr().write_volatile(fifo) };
+            assert_eq!(bus.suspend(), Err(IOError::Busy));
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn suspended_async_controller_does_not_arm_interrupts() {
+        let mut bus = test_controller(Async, PoweredClock::AlwaysEnabled);
+        bus.suspend().unwrap();
+        assert_eq!(block_on(bus.async_read(0x20, &mut [0])), Err(IOError::Suspended));
+        assert_eq!(block_on(bus.async_write(0x20, &[1])), Err(IOError::Suspended));
+        assert_eq!(bus.info.regs().mier().read().0, 0);
+        bus.resume().unwrap();
+        assert!(bus._wg.is_none());
+    }
+
+    #[test]
+    fn controller_stops_owned_dma_before_releasing_guard() {
+        struct StopProbe<'a>(&'a core::cell::Cell<bool>);
+        impl super::super::sealed::Sealed for StopProbe<'_> {
+            fn stop_dma(&self) {
+                self.0
+                    .set(critical_section::with(|cs| crate::clocks::active_wake_guards(&cs)));
+            }
+        }
+        impl super::super::Mode for StopProbe<'_> {}
+
+        critical_section::with(|cs| {
+            let guard_seen = core::cell::Cell::new(false);
+            let mut bus = test_controller(StopProbe(&guard_seen), PoweredClock::NormalEnabledDeepSleepDisabled);
+            bus.suspend().unwrap();
+            assert!(guard_seen.get());
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn armed_dma_rejects_suspend_even_when_controller_and_fifos_are_idle() {
+        struct ArmedMode<'a>(&'a core::cell::Cell<bool>);
+        impl super::super::sealed::Sealed for ArmedMode<'_> {
+            fn stop_dma(&self) {
+                self.0.set(true);
+            }
+
+            fn dma_is_armed_or_active(&self) -> bool {
+                true
+            }
+        }
+        impl super::super::Mode for ArmedMode<'_> {}
+
+        critical_section::with(|cs| {
+            let stopped = core::cell::Cell::new(false);
+            let mut bus = test_controller(ArmedMode(&stopped), PoweredClock::NormalEnabledDeepSleepDisabled);
+            assert_eq!(bus.suspend(), Err(IOError::Busy));
+            assert!(!stopped.get());
+            assert!(!bus.is_suspended());
+            assert!(bus.info.regs().mcr().read().men());
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
 
     #[test]
     fn duty_cycle_validation_depends_on_speed() {

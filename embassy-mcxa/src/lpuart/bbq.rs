@@ -1,4 +1,26 @@
-//! Buffered Lpuart driver powered by `bbqueue`
+//! Buffered Lpuart driver powered by `bbqueue`.
+//!
+//! TX and RX own independent activity requirements. Suspension stops hardware
+//! before releasing that half's WakeGuard; resume acquires it before restarting.
+//! Queues, DMA descriptors, and continuous-RX staging data survive suspension.
+//! Callers must quiesce the peer before suspending RX and resume before permitting
+//! new traffic. Suspension does not provide UART wake or retained operation in
+//! Deep Sleep, and bytes sent while RX is disabled cannot be received.
+//! With `retained-deep-sleep`, an explicit validated configuration can instead
+//! retain FIRC and receive through asynchronous DMA wakeups. Each live half
+//! owns that requirement until its hardware has stopped; WakeGuards still inhibit
+//! every public Deep Sleep entry.
+//!
+//! ```no_run
+//! use embassy_mcxa::lpuart::{BbqError, LpuartBbq};
+//!
+//! async fn suspend_and_resume(uart: &mut LpuartBbq) -> Result<(), BbqError> {
+//!     // The peer must stop sending before this call.
+//!     uart.suspend().await?;
+//!     // The executor may now try Deep Sleep, subject to all other guards.
+//!     uart.resume()
+//! }
+//! ```
 
 #![deny(clippy::undocumented_unsafe_blocks)]
 
@@ -15,7 +37,7 @@ use embassy_futures::select::{Either, select};
 use embassy_hal_internal::Peri;
 use grounded::uninit::GroundedCell;
 use maitake_sync::WaitCell;
-use nxp_pac::lpuart::Tc;
+use nxp_pac::lpuart::{Raf, Tc};
 
 use super::{CtsPin, DataBits, IdleConfig, Info, MsbFirst, Parity, RtsPin, RxPin, StopBits, TxPin, TxPins};
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel};
@@ -39,12 +61,79 @@ pub enum BbqError {
     Busy,
     /// Attempted to create an Rx half with Tx parts, or a Tx half with Rx parts
     WrongParts,
-    /// Requested an [`RxMode::MaxFrame`] too large for the provided buffer
+    /// Requested an [`BbqRxMode::MaxFrame`] too large for the provided buffer
     MaxFrameTooLarge,
     /// Requested an invalid continuous RX half size for the provided buffer
     InvalidContinuousRxSize,
     /// Continuous DMA reused a half before it was published
     Overrun,
+    /// This half is suspended; explicitly resume it before starting I/O.
+    Suspended,
+    /// The transceiver did not accept the requested enable state.
+    PowerStateRejected,
+    /// Retained operation requires MCXA5xx internal SRAM, running DMA, and
+    /// undivided FIRC system clocks at the same active/low-power voltage.
+    #[cfg(feature = "retained-deep-sleep")]
+    UnsupportedRetainedDeepSleep,
+}
+
+struct ActivityRequirement {
+    power: PoweredClock,
+    guard: Option<WakeGuard>,
+    #[cfg(feature = "retained-deep-sleep")]
+    retain_firc: bool,
+    #[cfg(feature = "retained-deep-sleep")]
+    retained_firc: Option<crate::clocks::retention::RetainedFirc>,
+}
+
+impl ActivityRequirement {
+    fn new(power: PoweredClock, guard: Option<WakeGuard>) -> Self {
+        Self {
+            power,
+            guard,
+            #[cfg(feature = "retained-deep-sleep")]
+            retain_firc: false,
+            #[cfg(feature = "retained-deep-sleep")]
+            retained_firc: None,
+        }
+    }
+
+    fn for_config(config: &BbqConfig, guard: Option<WakeGuard>) -> Self {
+        #[allow(unused_mut)]
+        let mut requirement = Self::new(config.power, guard);
+        #[cfg(feature = "retained-deep-sleep")]
+        if config.retain_in_deep_sleep {
+            requirement.retain_firc = true;
+            requirement.retained_firc = Some(crate::clocks::retention::RetainedFirc::new());
+            requirement.guard = None;
+        }
+        requirement
+    }
+
+    fn suspend(&mut self, hardware_disabled: bool) -> Result<(), BbqError> {
+        if !hardware_disabled {
+            return Err(BbqError::PowerStateRejected);
+        }
+        self.guard = None;
+        #[cfg(feature = "retained-deep-sleep")]
+        {
+            self.retained_firc = None;
+        }
+        Ok(())
+    }
+
+    fn resume(&mut self) {
+        #[cfg(feature = "retained-deep-sleep")]
+        if self.retain_firc {
+            if self.retained_firc.is_none() {
+                self.retained_firc = Some(crate::clocks::retention::RetainedFirc::new());
+            }
+            return;
+        }
+        if self.guard.is_none() {
+            self.guard = WakeGuard::for_power(&self.power);
+        }
+    }
 }
 
 impl core::fmt::Display for BbqError {
@@ -73,7 +162,7 @@ pub enum BbqRxMode {
     /// 10us, meaning that critical sections (including defmt logging) may cause us to
     /// lose data.
     ///
-    /// If you know your maximum frame/burst size, you can instead use [`RxMode::MaxFrame`],
+    /// If you know your maximum frame/burst size, you can instead use [`BbqRxMode::MaxFrame`],
     /// which will never allow "short" grants, with the trade off that we may reduce the
     /// total usable capacity temporarily if we need to wrap around the ring buffer early.
     #[default]
@@ -235,6 +324,12 @@ fn prepare_rx_buffer(buffer: &'static mut [u8], mode: BbqRxMode) -> Result<RxBuf
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub struct BbqConfig {
+    /// Retain UART/DMA operation through ordinary Deep Sleep, rather than
+    /// inhibiting it. Requires an active-only FIRC source, equal active/sleep
+    /// voltage and bus rates, and internal SRAM buffers. Invalid combinations
+    /// are rejected before changing hardware. Does not support Power Down.
+    #[cfg(feature = "retained-deep-sleep")]
+    pub retain_in_deep_sleep: bool,
     /// Power state required for this peripheral
     pub power: PoweredClock,
     /// Clock source
@@ -262,6 +357,8 @@ pub struct BbqConfig {
 impl Default for BbqConfig {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "retained-deep-sleep")]
+            retain_in_deep_sleep: false,
             baudrate_bps: 115_200u32,
             parity_mode: None,
             data_bits_count: DataBits::Data8,
@@ -277,10 +374,40 @@ impl Default for BbqConfig {
     }
 }
 
+#[cfg(feature = "retained-deep-sleep")]
+impl BbqConfig {
+    #[inline(never)]
+    fn validate_retention(&self, buffer: &[u8], dma: &DmaChannel<'_>) -> Result<(), BbqError> {
+        use crate::clocks::Gate;
+        use crate::clocks::retention::RetainedFirc;
+
+        if !self.retain_in_deep_sleep {
+            return Ok(());
+        }
+        let dma_ready = match dma.dma() {
+            0 => crate::peripherals::DMA0::is_clock_enabled() && crate::peripherals::DMA0::is_reset_released(),
+            1 => crate::peripherals::DMA1::is_clock_enabled() && crate::peripherals::DMA1::is_reset_released(),
+            _ => false,
+        };
+        if !matches!(self.power, PoweredClock::NormalEnabledDeepSleepDisabled)
+            || !matches!(self.source, LpuartClockSel::FroHfDiv)
+            || !dma_ready
+            || !RetainedFirc::buffer_supported(buffer.as_ptr() as usize, buffer.len())
+            || !RetainedFirc::hardware_supported()
+            || crate::clocks::with_clocks(RetainedFirc::configuration_supported) != Some(true)
+        {
+            return Err(BbqError::UnsupportedRetainedDeepSleep);
+        }
+        Ok(())
+    }
+}
+
 impl From<BbqConfig> for super::Config {
     fn from(value: BbqConfig) -> Self {
         let mut cfg = super::Config::default();
         let BbqConfig {
+            #[cfg(feature = "retained-deep-sleep")]
+                retain_in_deep_sleep: _,
             power,
             source,
             div,
@@ -636,6 +763,11 @@ impl BbqHalfParts {
 impl LpuartBbq {
     /// Create a new LpuartBbq with both transmit and receive halves
     pub fn new(parts: BbqParts, config: BbqConfig, mode: BbqRxMode) -> Result<Self, BbqError> {
+        #[cfg(feature = "retained-deep-sleep")]
+        {
+            config.validate_retention(parts.tx_buffer, &parts.tx_dma_ch)?;
+            config.validate_retention(parts.rx_buffer, &parts.rx_dma_ch)?;
+        }
         // Validate and split the RX allocation before changing shared peripheral state.
         let rx_layout = prepare_rx_buffer(parts.rx_buffer, mode)?;
 
@@ -712,7 +844,7 @@ impl LpuartBbq {
                     tx_pin: parts.tx_pin,
                     cts_pin: parts.cts_pin,
                 },
-                _wg: _wg.clone(),
+                activity: ActivityRequirement::for_config(&config, _wg.clone()),
             },
             rx: LpuartBbqRx {
                 state: parts.state,
@@ -725,7 +857,7 @@ impl LpuartBbq {
                     rx_pin: parts.rx_pin,
                     rts_pin: parts.rts_pin,
                 },
-                _wg,
+                activity: ActivityRequirement::for_config(&config, _wg),
             },
         })
     }
@@ -759,6 +891,33 @@ impl LpuartBbq {
     /// See [`LpuartBbqTx::blocking_flush`] for more information
     pub fn blocking_flush(&mut self) {
         self.tx.blocking_flush();
+    }
+
+    /// Drain TX, then suspend both halves without destroying their buffers.
+    ///
+    /// RX must have a quiescent peer. On error, one half may already be suspended;
+    /// retry or call [`Self::resume`]. Cancelling the TX drain leaves its activity
+    /// requirement held and RX unchanged.
+    pub async fn suspend(&mut self) -> Result<(), BbqError> {
+        self.tx.suspend().await?;
+        self.rx.suspend()
+    }
+
+    /// Resume RX before TX, acquiring each half's requirements before enabling it.
+    ///
+    /// Rejected hardware enables retain the activity requirement and inhibit I/O.
+    /// A continuous-RX overrun must be acknowledged with
+    /// [`Self::clear_overrun`] before resuming RX.
+    pub fn resume(&mut self) -> Result<(), BbqError> {
+        self.rx.resume()?;
+        self.tx.resume()
+    }
+
+    /// Whether both halves inhibit I/O, including after a rejected transition.
+    ///
+    /// Only a successful [`Self::suspend`] establishes hardware quiescence.
+    pub fn is_suspended(&self) -> bool {
+        self.tx.is_suspended() && self.rx.is_suspended()
     }
 
     /// Borrow split parts.
@@ -827,7 +986,7 @@ pub struct LpuartBbqTx {
     vtable: BbqVtable,
     mux: crate::pac::port::Mux,
     _tx_pins: TxPins<'static>,
-    _wg: Option<WakeGuard>,
+    activity: ActivityRequirement,
 }
 
 impl LpuartBbqTx {
@@ -870,6 +1029,8 @@ impl LpuartBbqTx {
     /// effectively leaked. Call [`LpuartBbqTx::teardown`] to reclaim the buffer along
     /// with the DMA channel and pin.
     pub fn new(parts: BbqHalfParts, config: BbqConfig) -> Result<Self, BbqError> {
+        #[cfg(feature = "retained-deep-sleep")]
+        config.validate_retention(parts.buffer, &parts.dma_ch)?;
         // Are these the right parts?
         if parts.which != WhichHalf::Tx {
             return Err(BbqError::WrongParts);
@@ -922,7 +1083,7 @@ impl LpuartBbqTx {
                 tx_pin: parts.pin,
                 cts_pin: parts.flow_pin,
             },
-            _wg,
+            activity: ActivityRequirement::for_config(&config, _wg),
             mux: parts.mux,
         })
     }
@@ -936,6 +1097,9 @@ impl LpuartBbqTx {
     ///
     /// This does NOT guarantee the bytes have been written to the wire. See [`Self::flush()`].
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, BbqError> {
+        if self.is_suspended() {
+            return Err(BbqError::Suspended);
+        }
         // TODO: we could have a version of this that gives the user the grant directly
         // to reduce the effort of copying.
 
@@ -955,26 +1119,81 @@ impl LpuartBbqTx {
 
     /// Wait for all bytes in the outgoing buffer to be flushed asynchronously.
     ///
-    /// When this method completes, the outgoing buffer is empty.
+    /// When this method completes, the outgoing buffer is empty and the final
+    /// byte has left the transmitter. A pending write is included even before
+    /// the LPUART interrupt has opened its first DMA grant.
     pub async fn flush(&mut self) {
+        if self.is_suspended() {
+            return;
+        }
+        (self.vtable.int_pend)();
         // Discard the result on wait_for as we never close the waiter.
-        let _ = self
-            .state
-            .tx_flushed
-            .wait_for(|| {
-                // We are idle when there is no TXGR active
-                (self.state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) == 0
-            })
-            .await;
+        let _ = self.state.tx_flushed.wait_for(|| self.is_idle()).await;
     }
 
     /// Busy wait until all transmitting has completed
     ///
     /// When this method completes, the outgoing buffer is empty.
     pub fn blocking_flush(&mut self) {
-        while (self.state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) != 0 {
+        if self.is_suspended() {
+            return;
+        }
+        (self.vtable.int_pend)();
+        while !self.is_idle() {
             core::hint::spin_loop()
         }
+    }
+
+    fn is_idle(&self) -> bool {
+        self.state.tx_is_empty() && self.info.regs().stat().read().tc() == Tc::Complete
+    }
+
+    /// Whether new writes are inhibited, including after a rejected transition.
+    pub fn is_suspended(&self) -> bool {
+        self.state.state.load(Ordering::Acquire) & STATE_TX_SUSPENDED != 0
+    }
+
+    /// Drain queued bytes, stop TX DMA and the transmitter, then release its guard.
+    ///
+    /// The exclusive borrow prevents new writes during the drain. Cancelling
+    /// this future before draining completes leaves TX running and protected.
+    /// CTS may indefinitely delay draining; callers may impose an async timeout.
+    /// Errors retain the guard and inhibit writes until retry or resume.
+    pub async fn suspend(&mut self) -> Result<(), BbqError> {
+        self.flush().await;
+        critical_section::with(|_| {
+            self.state.state.fetch_or(STATE_TX_SUSPENDED, Ordering::AcqRel);
+            self.info.regs().ctrl().modify(|w| {
+                w.set_tcie(false);
+                w.set_te(false);
+            });
+            self.info.regs().baud().modify(|w| w.set_tdmae(false));
+            // SAFETY: TX owns the channel, the ISR is masked and cannot rearm
+            // it after STATE_TX_SUSPENDED, and the request source is disabled.
+            unsafe { &*self.state.txdma.get() }.pause();
+            self.activity
+                .suspend(!self.info.regs().ctrl().read().te() && self.info.regs().stat().read().tc() == Tc::Complete)
+        })
+    }
+
+    /// Resume this half without resetting the UART, queues, or the RX half.
+    ///
+    /// This is idempotent. A rejected enable retains the guard and inhibits
+    /// writes, so neither failed resume nor a running sibling permits Deep Sleep.
+    pub fn resume(&mut self) -> Result<(), BbqError> {
+        critical_section::with(|_| {
+            if !self.is_suspended() {
+                return Ok(());
+            }
+            self.activity.resume();
+            self.info.regs().ctrl().modify(|w| w.set_te(true));
+            if !self.info.regs().ctrl().read().te() {
+                return Err(BbqError::PowerStateRejected);
+            }
+            self.state.state.fetch_and(!STATE_TX_SUSPENDED, Ordering::AcqRel);
+            (self.vtable.int_pend)();
+            Ok(())
+        })
     }
 
     /// Stop the TX side: disable TCIE, halt TX DMA, drop the tx_queue in place,
@@ -987,10 +1206,15 @@ impl LpuartBbqTx {
     fn teardown_inner(&mut self) -> (NonNull<u8>, usize, DmaChannel<'static>) {
         // First, disable relevant interrupts
         let state = critical_section::with(|_cs| {
-            self.info.regs.ctrl().modify(|w| w.set_tcie(false));
+            self.info.regs.ctrl().modify(|w| {
+                w.set_tcie(false);
+                w.set_te(false);
+            });
             // Clear the TXDMA present bit to prevent the ISR from touching anything.
             // Relaxed is okay here because CS::with has Acq/Rel semantics on entry and exit
-            self.state.state.fetch_and(!STATE_TXDMA_PRESENT, Ordering::Relaxed)
+            self.state
+                .state
+                .fetch_and(!(STATE_TXDMA_PRESENT | STATE_TX_SUSPENDED), Ordering::Relaxed)
         });
 
         // If there is an active grant, the TX DMA may be active. Stop it and release the grant
@@ -1003,8 +1227,7 @@ impl LpuartBbqTx {
 
                 // Stop the DMA
                 self.info.regs().baud().modify(|w| w.set_tdmae(false));
-                txdma.disable_request();
-                txdma.clear_done();
+                txdma.stop();
                 fence(Ordering::Acquire);
 
                 // Then take the grant by ownership, and drop it, which releases the grant
@@ -1012,6 +1235,12 @@ impl LpuartBbqTx {
             }
             self.state.state.fetch_and(!STATE_TXGR_ACTIVE, Ordering::AcqRel);
         }
+        // Aborted TX must not leave FIFO bytes clocking after its guard drops,
+        // including when the remaining RX half is suspended.
+        self.info
+            .regs()
+            .fifo()
+            .modify(|w| w.set_txflush(crate::pac::lpuart::Txflush::TxfifoRst));
 
         // Get a reference to the tx_queue to retrieve the Container
         //
@@ -1042,7 +1271,7 @@ impl LpuartBbqTx {
 
         // Now, if this was the last part of the lpuart, we are responsible for peripheral
         // cleanup.
-        if (state & !(STATE_TXGR_ACTIVE | STATE_TXDMA_PRESENT)) == STATE_INITED {
+        if (state & !(STATE_TXGR_ACTIVE | STATE_TXDMA_PRESENT | STATE_TX_SUSPENDED)) == STATE_INITED {
             (self.vtable.int_disable)();
             super::disable_peripheral(self.info);
             self.state.state.store(STATE_UNINIT, Ordering::Relaxed);
@@ -1063,14 +1292,14 @@ impl LpuartBbqTx {
         let tx_buffer = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), len) };
 
         // Move out the non-Copy fields by value before we mem::forget self below, so that
-        // their destructors run normally (TxPins -> reclaims via take(), Option<WakeGuard>
-        // -> releases the clock at end of scope).
+        // their destructors run normally (TxPins -> reclaims via take(), activity
+        // -> releases the guard at end of scope).
         //
         // SAFETY: We unconditionally `mem::forget(self)` before returning, so reading
         // these fields here cannot cause a double-drop.
         let tx_pins: TxPins<'static> = unsafe { core::ptr::read(&self._tx_pins) };
         // SAFETY: see above.
-        let _wg: Option<WakeGuard> = unsafe { core::ptr::read(&self._wg) };
+        let _activity = unsafe { core::ptr::read(&self.activity) };
 
         // Reclaim the data pin and (already-configured) CTS pin. The flow mux is
         // intentionally None: the reclaimed pin stays configured across a
@@ -1103,7 +1332,7 @@ impl Drop for LpuartBbqTx {
     fn drop(&mut self) {
         // Halt TX DMA, drop the tx_queue in place, and (if this is the last live half
         // of this LPUART) disable the peripheral. The returned DmaChannel is then
-        // dropped immediately, which releases the channel. _tx_pins and _wg fields
+        // dropped immediately, which releases the channel. Pins and activity fields
         // are dropped automatically after this function returns.
         let _ = self.teardown_inner();
     }
@@ -1119,6 +1348,10 @@ impl embedded_io_async::Error for BbqError {
             BbqError::MaxFrameTooLarge => embedded_io::ErrorKind::OutOfMemory,
             BbqError::InvalidContinuousRxSize => embedded_io::ErrorKind::InvalidInput,
             BbqError::Overrun => embedded_io::ErrorKind::Other,
+            BbqError::Suspended => embedded_io::ErrorKind::Other,
+            BbqError::PowerStateRejected => embedded_io::ErrorKind::Other,
+            #[cfg(feature = "retained-deep-sleep")]
+            BbqError::UnsupportedRetainedDeepSleep => embedded_io::ErrorKind::InvalidInput,
         }
     }
 }
@@ -1145,7 +1378,7 @@ pub struct LpuartBbqRx {
     buffer_addr: usize,
     buffer_len: usize,
     _rx_pins: RxPins<'static>,
-    _wg: Option<WakeGuard>,
+    activity: ActivityRequirement,
 }
 
 impl LpuartBbqRx {
@@ -1227,6 +1460,8 @@ impl LpuartBbqRx {
     /// effectively leaked. Call [`LpuartBbqRx::teardown`] to reclaim the buffer along
     /// with the DMA channel and pin.
     pub fn new(parts: BbqHalfParts, config: BbqConfig, mode: BbqRxMode) -> Result<Self, BbqError> {
+        #[cfg(feature = "retained-deep-sleep")]
+        config.validate_retention(parts.buffer, &parts.dma_ch)?;
         // Are these the right parts?
         if parts.which != WhichHalf::Rx {
             return Err(BbqError::WrongParts);
@@ -1294,7 +1529,7 @@ impl LpuartBbqRx {
                 rx_pin: parts.pin,
                 rts_pin: parts.flow_pin,
             },
-            _wg,
+            activity: ActivityRequirement::for_config(&config, _wg),
         })
     }
 
@@ -1313,8 +1548,103 @@ impl LpuartBbqRx {
         }
 
         self.state.rx_publish_pending.store(false, Ordering::Release);
-        (self.vtable.int_pend)();
+        if !self.is_suspended() {
+            (self.vtable.int_pend)();
+        }
         true
+    }
+
+    /// Whether new reads are inhibited, including after a rejected transition.
+    pub fn is_suspended(&self) -> bool {
+        self.state.state.load(Ordering::Acquire) & STATE_RX_SUSPENDED != 0
+    }
+
+    /// Stop reception and DMA without destroying queued or DMA-staged bytes.
+    ///
+    /// Quiesce the peer first. Returns [`BbqError::Busy`] without changing state
+    /// when a frame is being received. Traffic racing suspension or sent while
+    /// suspended is not guaranteed to survive. Cancel any pending read before
+    /// taking the exclusive borrow needed here.
+    ///
+    /// DMA descriptors, grants, FIFO contents, and overrun state are retained.
+    /// A rejected disable retains the guard and inhibits reads until retry or
+    /// resume. Only `Ok(())` establishes that this half no longer inhibits sleep.
+    pub fn suspend(&mut self) -> Result<(), BbqError> {
+        critical_section::with(|_| {
+            if self.info.regs().stat().read().raf() == Raf::Active {
+                return Err(BbqError::Busy);
+            }
+            self.state.state.fetch_or(STATE_RX_SUSPENDED, Ordering::AcqRel);
+            self.info.regs().ctrl().modify(|w| {
+                w.set_ilie(false);
+                w.set_neie(false);
+                w.set_feie(false);
+                w.set_orie(false);
+                w.set_re(false);
+            });
+            self.info.regs().baud().modify(|w| w.set_rdmae(false));
+            // SAFETY: RX owns the channel and its buffers; the critical section
+            // and suspended bit exclude UART rearming while requests drain.
+            unsafe { &*self.state.rxdma.get() }.pause();
+            self.activity
+                .suspend(!self.info.regs().ctrl().read().re() && self.info.regs().stat().read().raf() == Raf::Idle)
+        })
+    }
+
+    /// Resume the retained DMA transfer and receiver, acquiring its guard first.
+    ///
+    /// Queued and staged bytes remain ordered. A continuous overrun stays sticky
+    /// and returns [`BbqError::Overrun`] until [`Self::clear_overrun`] is called;
+    /// acknowledging while suspended does not restart hardware.
+    pub fn resume(&mut self) -> Result<(), BbqError> {
+        critical_section::with(|_| {
+            if !self.is_suspended() {
+                return Ok(());
+            }
+            if self.state.rx_overrun.load(Ordering::Acquire) {
+                return Err(BbqError::Overrun);
+            }
+            self.activity.resume();
+            let state = self.state.state.load(Ordering::Acquire);
+            if state & STATE_RXGR_ACTIVE != 0 {
+                // SAFETY: this half retains the initialized channel and buffers;
+                // interrupts are masked, requests were paused by suspend.
+                let dma = unsafe { &*self.state.rxdma.get() };
+                let continuous = RxDmaMode::from_state_bits(state).is_continuous();
+                if continuous
+                    && dma
+                        .ping_pong_status()
+                        .is_none_or(|status| status.granted_buffer().is_err())
+                {
+                    self.state.record_continuous_overrun();
+                    return Err(BbqError::Overrun);
+                }
+                if !continuous {
+                    // Publish the retained finite grant even if its IDLE event
+                    // was serviced while suspended. Never restart an old finite
+                    // descriptor: the UART ISR commits it before configuring RX.
+                    self.state.state.fetch_or(STATE_RXDMA_COMPLETE, Ordering::AcqRel);
+                } else {
+                    self.info.regs().baud().modify(|w| w.set_rdmae(true));
+                    // SAFETY: resume reuses the retained descriptor and buffers.
+                    unsafe { dma.resume() };
+                }
+            }
+            self.info.regs().ctrl().modify(|w| {
+                w.set_ilie(state & STATE_RXGR_ACTIVE != 0);
+                w.set_re(true);
+            });
+            if !self.info.regs().ctrl().read().re() {
+                self.info.regs().baud().modify(|w| w.set_rdmae(false));
+                // SAFETY: the owned channel remains initialized; no UART ISR
+                // can rearm it while STATE_RX_SUSPENDED remains set.
+                unsafe { &*self.state.rxdma.get() }.pause();
+                return Err(BbqError::PowerStateRejected);
+            }
+            self.state.state.fetch_and(!STATE_RX_SUSPENDED, Ordering::AcqRel);
+            (self.vtable.int_pend)();
+            Ok(())
+        })
     }
 
     /// Read some data from the incoming receive buffer
@@ -1332,6 +1662,9 @@ impl LpuartBbqRx {
     /// next boundary stops reception and returns [`BbqError::Overrun`]. Call
     /// [`Self::clear_overrun`] to acknowledge the data gap and restart reception.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, BbqError> {
+        if self.is_suspended() {
+            return Err(BbqError::Suspended);
+        }
         // TODO: we could have a version of this that gives the user the grant directly
         // to reduce the effort of copying.
 
@@ -1388,7 +1721,8 @@ impl LpuartBbqRx {
     fn teardown_inner(&mut self) -> (NonNull<u8>, usize, DmaChannel<'static>) {
         // First, mark the RXDMA as not present to halt the ISR from processing the state
         // machine
-        let rx_state_bits = STATE_RXDMA_PRESENT | STATE_RXGR_ACTIVE | STATE_RXDMA_COMPLETE | RxDmaMode::STATE_MASK;
+        let rx_state_bits =
+            STATE_RXDMA_PRESENT | STATE_RXGR_ACTIVE | STATE_RXDMA_COMPLETE | STATE_RX_SUSPENDED | RxDmaMode::STATE_MASK;
         let state = self.state.state.fetch_and(!rx_state_bits, Ordering::AcqRel);
         let continuous = RxDmaMode::from_state_bits(state).is_continuous();
 
@@ -1399,6 +1733,7 @@ impl LpuartBbqRx {
                 w.set_neie(false);
                 w.set_feie(false);
                 w.set_orie(false);
+                w.set_re(false);
             });
         });
 
@@ -1474,14 +1809,14 @@ impl LpuartBbqRx {
         let rx_buffer = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), len) };
 
         // Move out the non-Copy fields by value before we mem::forget self below, so that
-        // their destructors run normally (RxPins -> reclaims via take(), Option<WakeGuard>
-        // -> releases the clock at end of scope).
+        // their destructors run normally (RxPins -> reclaims via take(), activity
+        // -> releases the guard at end of scope).
         //
         // SAFETY: We unconditionally `mem::forget(self)` before returning, so reading
         // these fields here cannot cause a double-drop.
         let rx_pins: RxPins<'static> = unsafe { core::ptr::read(&self._rx_pins) };
         // SAFETY: see above.
-        let _wg: Option<WakeGuard> = unsafe { core::ptr::read(&self._wg) };
+        let _activity = unsafe { core::ptr::read(&self.activity) };
 
         // Reclaim the data pin and (already-configured) RTS pin. The flow mux is
         // intentionally None: the reclaimed pin stays configured across a
@@ -1514,7 +1849,7 @@ impl Drop for LpuartBbqRx {
     fn drop(&mut self) {
         // Halt RX DMA, drop the rx_queue in place, and (if this is the last live half
         // of this LPUART) disable the peripheral. The returned DmaChannel is then
-        // dropped immediately, which releases the channel. _rx_pins and _wg fields
+        // dropped immediately, which releases the channel. Pins and activity fields
         // are dropped automatically after this function returns.
         let _ = self.teardown_inner();
     }
@@ -1566,6 +1901,8 @@ pub(crate) const STATE_TXGR_ACTIVE: u32 = 0b0000_0000_0000_0000_0000_0000_0000_1
 pub(crate) const STATE_RXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0001_0000;
 pub(crate) const STATE_TXDMA_PRESENT: u32 = 0b0000_0000_0000_0000_0000_0000_0010_0000;
 pub(crate) const STATE_RXDMA_COMPLETE: u32 = 0b0000_0000_0000_0000_0000_0000_0100_0000;
+const STATE_TX_SUSPENDED: u32 = 1 << 9;
+const STATE_RX_SUSPENDED: u32 = 1 << 10;
 pub(crate) const STATE_RXGR_LEN_MASK: u32 = 0b1111_1111_1111_1111_0000_0000_0000_0000;
 
 pub(crate) struct BbqState {
@@ -1577,6 +1914,7 @@ pub(crate) struct BbqState {
     ///                                   ^--------> 0b0: No Tx DMA present, 0b1: Tx DMA present
     ///                                  ^---------> 0b0: Rx DMA not complete, 0b1: Rx DMA complete
     ///                                ^^----------> Encoded `RxDmaMode` kind
+    /// Bits 9/10 inhibit TX/RX ISR activity while retaining ownership.
     ///   ^^^^_^^^^_^^^^_^^^^----------------------> `RxDmaMode` transfer length
     pub(crate) state: AtomicU32,
 
@@ -1661,6 +1999,18 @@ impl BbqState {
             .map_err(|_| BbqError::Busy)
     }
 
+    /// Query the TX consumer only while the ISR has no active grant.
+    fn tx_is_empty(&self) -> bool {
+        critical_section::with(|_| {
+            if self.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE != 0 {
+                return false;
+            }
+            // SAFETY: the TX owner keeps the queue initialized. The critical
+            // section excludes the ISR while borrowing its consumer half.
+            unsafe { &*self.tx_queue.get() }.stream_consumer().read().is_err()
+        })
+    }
+
     /// Complete an active TX DMA transfer. Called from ISR context.
     ///
     /// After calling, the transmit half of the driver will be in the idle state.
@@ -1723,8 +2073,7 @@ impl BbqState {
             // Stop the active DMA.
             // The DMA may NOT be done yet if this was an idle interrupt
             info.regs().baud().modify(|w| w.set_rdmae(false));
-            rxdma.disable_request();
-            rxdma.clear_done();
+            rxdma.stop();
 
             // Fence to ensure all DMA written bytes are complete, and we can see
             // any writes to the DADDR
@@ -2235,13 +2584,14 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
 
     // Check DMA complete or idle interrupt occurred - we need to stop
     // the current RX transfer in either case.
-    let pre_clear = state.state.fetch_and(!STATE_RXDMA_COMPLETE, Ordering::AcqRel);
+    let pre_clear = state.state.load(Ordering::Acquire);
 
     // SAFETY NOTE: The RXDMA_PRESENT bit is used to mediate whether the interrupt should
     // act the shared RX data. This is used by functions like `teardown` to disable interrupt
     // access to shared data when tearing down.
-    let rx_present = (pre_clear & STATE_RXDMA_PRESENT) != 0;
+    let rx_present = (pre_clear & STATE_RXDMA_PRESENT) != 0 && (pre_clear & STATE_RX_SUSPENDED) == 0;
     if rx_present {
+        let pre_clear = state.state.fetch_and(!STATE_RXDMA_COMPLETE, Ordering::AcqRel);
         let rx_active = (pre_clear & STATE_RXGR_ACTIVE) != 0;
         let dma_complete = (pre_clear & STATE_RXDMA_COMPLETE) != 0;
         let continuous = RxDmaMode::from_state_bits(pre_clear).is_continuous();
@@ -2333,7 +2683,7 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
     // act the shared TX data. This is used by functions like `teardown` to disable interrupt
     // access to shared data when tearing down.
     let tx_state = state.state.load(Ordering::Acquire);
-    let tx_present = (tx_state & STATE_TXDMA_PRESENT) != 0;
+    let tx_present = (tx_state & STATE_TXDMA_PRESENT) != 0 && (tx_state & STATE_TX_SUSPENDED) == 0;
     if tx_present {
         // Handle TX data - TCIE is only enabled if we are transmitting, and we only
         // check that the outgoing transfer is complete. In the future, we might
@@ -2366,10 +2716,11 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
                 let started = state.start_write_transfer(info);
                 // Enable tcie if we started a transfer, otherwise (keep) disabled.
                 // TCIE - Transfer Complete Interrupt Enable
-                regs.ctrl().modify(|w| w.set_tcie(started));
+                regs.ctrl().modify(|w| w.set_tcie(started || !tc_complete));
 
-                // Did we go from "transmitting" to "idle" in this ISR? If so, wake any "flush" waiters.
-                if tx_did_finish && !started {
+                // Also notify a drain waiting for an empty transmitter's final
+                // wire completion, including immediately after resume.
+                if tc_complete && !started {
                     state.tx_flushed.wake();
                 }
             }
@@ -2419,4 +2770,406 @@ fn any_as_rts(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::Mux) {
     pin.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
     pin.set_function(mux);
     pin.set_enable_input_buffer(false);
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use super::*;
+    use core::mem::ManuallyDrop;
+    use core::pin::pin;
+    use core::sync::atomic::AtomicUsize;
+    use core::task::{Context, Poll, Waker};
+    use embassy_futures::block_on;
+    use std::boxed::Box;
+
+    static IRQ_PENDS: AtomicUsize = AtomicUsize::new(0);
+
+    fn test_state() -> &'static BbqState {
+        let state = Box::leak(Box::new(BbqState::new()));
+        let tx = Box::leak(Box::new([0; 128]));
+        let rx = Box::leak(Box::new([0; 128]));
+        // SAFETY: these isolated queues are initialized before any references or
+        // test interrupts use them; no real DMA channel is accessed by tests.
+        unsafe {
+            state
+                .tx_queue
+                .get()
+                .write(BBQueue::new_with_storage(Container::from(tx.as_mut_slice())));
+            state
+                .rx_queue
+                .get()
+                .write(BBQueue::new_with_storage(Container::from(rx.as_mut_slice())));
+        }
+        state.state.store(
+            STATE_INITED | STATE_TXDMA_PRESENT | STATE_RXDMA_PRESENT,
+            Ordering::Release,
+        );
+        state
+    }
+
+    fn test_info() -> &'static Info {
+        let registers = Box::leak(Box::new([0u32; 16]));
+        // SAFETY: this aligned, isolated RAM block covers every UART register
+        // read or written by the suspended ISR path.
+        let regs = unsafe { crate::pac::lpuart::Lpuart::from_ptr(registers.as_mut_ptr().cast()) };
+        Box::leak(Box::new(Info {
+            regs,
+            int_disable: || {},
+            mrcc_disable: || {},
+        }))
+    }
+
+    fn test_pin() -> Peri<'static, AnyPin> {
+        let gpio_memory = Box::leak(Box::new([0u32; 256]));
+        let port_memory = Box::leak(Box::new([0u32; 256]));
+        // SAFETY: isolated, aligned RAM replaces the GPIO and PORT registers;
+        // every fixture owns a distinct allocation, never a hardware singleton.
+        let gpio = unsafe { crate::pac::gpio::Gpio::from_ptr(gpio_memory.as_mut_ptr().cast()) };
+        // SAFETY: the block covers PORT and PCR0.
+        let port = unsafe { crate::pac::port::Port::from_ptr(port_memory.as_mut_ptr().cast()) };
+        let pin = AnyPin::new(0, 0, gpio, port, port.pcr(0), true);
+        // SAFETY: this pin describes only the uniquely allocated test registers.
+        unsafe { Peri::new_unchecked(pin) }
+    }
+
+    struct TestUart(ManuallyDrop<LpuartBbq>);
+
+    impl TestUart {
+        fn suspended() -> Self {
+            let state = test_state();
+            let info = test_info();
+            state
+                .state
+                .fetch_or(STATE_TX_SUSPENDED | STATE_RX_SUSPENDED, Ordering::Release);
+            let vtable = BbqVtable {
+                lpuart_init: |_, _, _, _, _| Err(super::super::Error::Other),
+                int_pend: || {
+                    IRQ_PENDS.fetch_add(1, Ordering::Relaxed);
+                },
+                int_unpend: || {},
+                int_disable: || {},
+                dma_rx_cb: || {},
+                int_enable: || {},
+            };
+            Self(ManuallyDrop::new(LpuartBbq {
+                tx: LpuartBbqTx {
+                    state,
+                    info,
+                    vtable,
+                    mux: crate::pac::port::Mux::Mux0,
+                    _tx_pins: TxPins {
+                        tx_pin: test_pin(),
+                        cts_pin: None,
+                    },
+                    activity: ActivityRequirement::new(PoweredClock::NormalEnabledDeepSleepDisabled, None),
+                },
+                rx: LpuartBbqRx {
+                    state,
+                    info,
+                    vtable,
+                    mux: crate::pac::port::Mux::Mux0,
+                    buffer_addr: 0,
+                    buffer_len: 0,
+                    _rx_pins: RxPins {
+                        rx_pin: test_pin(),
+                        rts_pin: None,
+                    },
+                    activity: ActivityRequirement::new(PoweredClock::NormalEnabledDeepSleepDisabled, None),
+                },
+            }))
+        }
+    }
+
+    impl Drop for TestUart {
+        fn drop(&mut self) {
+            // SAFETY: only non-DMA paths are exercised by this fixture. Its DMA
+            // cells are uninitialized, so drop only initialized owned fields.
+            unsafe {
+                core::ptr::drop_in_place(&mut self.0.tx.activity);
+                core::ptr::drop_in_place(&mut self.0.rx.activity);
+                core::ptr::drop_in_place(&mut self.0.tx._tx_pins);
+                core::ptr::drop_in_place(&mut self.0.rx._rx_pins);
+                core::ptr::drop_in_place(self.0.tx.state.tx_queue.get());
+                core::ptr::drop_in_place(self.0.rx.state.rx_queue.get());
+            }
+        }
+    }
+
+    #[test]
+    fn suspended_halves_reject_io_without_rearming() {
+        critical_section::with(|_| {
+            let mut uart = TestUart::suspended();
+            IRQ_PENDS.store(0, Ordering::Relaxed);
+            assert_eq!(block_on(uart.0.write(&[1, 2, 3])), Err(BbqError::Suspended));
+            assert_eq!(block_on(uart.0.read(&mut [0; 3])), Err(BbqError::Suspended));
+            assert_eq!(IRQ_PENDS.load(Ordering::Relaxed), 0);
+        });
+    }
+
+    #[test]
+    fn resume_reacquires_both_halves_without_resetting_the_uart() {
+        critical_section::with(|cs| {
+            let mut uart = TestUart::suspended();
+            uart.0.tx.info.regs().baud().write(|w| w.set_sbr(123));
+            assert_eq!(uart.0.resume(), Ok(()));
+            assert_eq!(uart.0.resume(), Ok(()));
+            assert!(uart.0.tx.info.regs().ctrl().read().te());
+            assert!(uart.0.rx.info.regs().ctrl().read().re());
+            assert_eq!(uart.0.tx.info.regs().baud().read().sbr(), 123);
+            assert!(!uart.0.tx.is_suspended());
+            assert!(!uart.0.rx.is_suspended());
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn cancelling_tx_suspend_keeps_queued_bytes_and_guard() -> Result<(), BbqError> {
+        critical_section::with(|cs| {
+            let mut uart = TestUart::suspended();
+            uart.0.tx.resume()?;
+            uart.0.tx.info.regs().stat().write(|w| w.set_tc(Tc::Complete));
+            assert_eq!(block_on(uart.0.tx.write(&[1, 2, 3])), Ok(3));
+            {
+                let mut suspend = pin!(uart.0.tx.suspend());
+                let mut cx = Context::from_waker(Waker::noop());
+                assert!(matches!(suspend.as_mut().poll(&mut cx), Poll::Pending));
+            }
+            assert!(!uart.0.tx.is_suspended());
+            assert!(uart.0.tx.info.regs().ctrl().read().te());
+            assert!(crate::clocks::active_wake_guards(&cs));
+            // SAFETY: the fixture initialized the queue and has no DMA or ISR.
+            let queue = unsafe { &*uart.0.tx.state.tx_queue.get() };
+            let consumer = queue.stream_consumer();
+            let grant = consumer.read().map_err(|_| BbqError::Busy)?;
+            assert_eq!(&*grant, &[1, 2, 3]);
+            grant.release(3);
+            assert_eq!(block_on(uart.0.tx.write(&[4])), Ok(1));
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn cancelling_aggregate_suspend_does_not_suspend_rx() -> Result<(), BbqError> {
+        critical_section::with(|cs| {
+            let mut uart = TestUart::suspended();
+            uart.0.resume()?;
+            assert_eq!(block_on(uart.0.write(&[1])), Ok(1));
+            {
+                let mut suspend = pin!(uart.0.suspend());
+                let mut cx = Context::from_waker(Waker::noop());
+                assert!(matches!(suspend.as_mut().poll(&mut cx), Poll::Pending));
+            }
+            assert!(!uart.0.tx.is_suspended());
+            assert!(!uart.0.rx.is_suspended());
+            assert!(uart.0.rx.info.regs().ctrl().read().re());
+            assert!(crate::clocks::active_wake_guards(&cs));
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn flush_waits_for_wire_completion_even_without_an_active_dma_grant() -> Result<(), BbqError> {
+        critical_section::with(|_| {
+            let mut uart = TestUart::suspended();
+            uart.0.tx.resume()?;
+            let info = uart.0.tx.info;
+            let state = uart.0.tx.state;
+            let mut flush = pin!(uart.0.tx.flush());
+            let mut cx = Context::from_waker(Waker::noop());
+            assert!(matches!(flush.as_mut().poll(&mut cx), Poll::Pending));
+            // SAFETY: RX is suspended, TX is empty, and the UART registers are
+            // isolated RAM. Neither handler call can touch an uninitialized DMA.
+            unsafe { handler(info, state) };
+            assert!(info.regs().ctrl().read().tcie());
+            info.regs().stat().write(|w| w.set_tc(Tc::Complete));
+            // SAFETY: same isolated, empty/suspended fixture as above.
+            unsafe { handler(info, state) };
+            assert!(!info.regs().ctrl().read().tcie());
+            assert!(matches!(flush.as_mut().poll(&mut cx), Poll::Ready(())));
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn active_rx_frame_rejects_suspend_without_changing_hardware_or_guard() -> Result<(), BbqError> {
+        critical_section::with(|cs| {
+            let mut uart = TestUart::suspended();
+            uart.0.rx.resume()?;
+            uart.0.rx.info.regs().stat().write(|w| w.set_raf(Raf::Active));
+            assert_eq!(uart.0.rx.suspend(), Err(BbqError::Busy));
+            assert!(!uart.0.rx.is_suspended());
+            assert!(uart.0.rx.info.regs().ctrl().read().re());
+            assert!(crate::clocks::active_wake_guards(&cs));
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn overrun_acknowledgement_cannot_resume_suspended_rx() {
+        critical_section::with(|cs| {
+            let mut uart = TestUart::suspended();
+            uart.0.rx.state.state.fetch_or(
+                RxDmaMode::Continuous { staging_len: 32 }.to_state_bits(),
+                Ordering::Release,
+            );
+            uart.0.rx.state.rx_overrun.store(true, Ordering::Release);
+            IRQ_PENDS.store(0, Ordering::Relaxed);
+            assert_eq!(uart.0.rx.resume(), Err(BbqError::Overrun));
+            assert!(!crate::clocks::active_wake_guards(&cs));
+            assert!(uart.0.clear_overrun());
+            assert!(uart.0.rx.is_suspended());
+            assert!(!uart.0.rx.info.regs().ctrl().read().re());
+            assert_eq!(IRQ_PENDS.load(Ordering::Relaxed), 0);
+            assert_eq!(uart.0.rx.resume(), Ok(()));
+            assert!(uart.0.rx.info.regs().ctrl().read().re());
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn each_half_retains_its_own_inhibitor() {
+        critical_section::with(|cs| {
+            let guard = WakeGuard::new();
+            let mut tx = ActivityRequirement::new(PoweredClock::NormalEnabledDeepSleepDisabled, Some(guard.clone()));
+            let mut rx = ActivityRequirement::new(PoweredClock::NormalEnabledDeepSleepDisabled, Some(guard));
+            assert_eq!(tx.suspend(true), Ok(()));
+            assert!(crate::clocks::active_wake_guards(&cs));
+            assert_eq!(rx.suspend(true), Ok(()));
+            assert!(!crate::clocks::active_wake_guards(&cs));
+
+            tx.resume();
+            assert!(crate::clocks::active_wake_guards(&cs));
+            tx.resume();
+            assert_eq!(tx.suspend(true), Ok(()));
+            assert!(!crate::clocks::active_wake_guards(&cs));
+            rx.resume();
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn rejected_disable_retains_the_inhibitor() {
+        critical_section::with(|cs| {
+            let mut activity =
+                ActivityRequirement::new(PoweredClock::NormalEnabledDeepSleepDisabled, Some(WakeGuard::new()));
+            assert_eq!(activity.suspend(false), Err(BbqError::PowerStateRejected));
+            assert!(crate::clocks::active_wake_guards(&cs));
+            activity.resume();
+            assert_eq!(activity.suspend(true), Ok(()));
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[cfg(feature = "retained-deep-sleep")]
+    #[test]
+    fn retained_requirement_is_released_only_after_acknowledged_stop() {
+        critical_section::with(|cs| {
+            let mut config = BbqConfig::default();
+            config.power = PoweredClock::NormalEnabledDeepSleepDisabled;
+            config.retain_in_deep_sleep = true;
+            let independent = WakeGuard::new();
+            let mut activity = ActivityRequirement::for_config(&config, Some(WakeGuard::new()));
+            assert!(activity.guard.is_none());
+            assert!(activity.retained_firc.is_some());
+            assert!(crate::clocks::active_wake_guards(&cs));
+            assert_eq!(activity.suspend(false), Err(BbqError::PowerStateRejected));
+            assert!(activity.retained_firc.is_some());
+            assert_eq!(activity.suspend(true), Ok(()));
+            assert!(activity.retained_firc.is_none());
+            activity.resume();
+            activity.resume();
+            assert!(activity.retained_firc.is_some());
+            assert!(activity.guard.is_none());
+            drop(independent);
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn already_retained_clock_does_not_gain_an_inhibitor() {
+        critical_section::with(|cs| {
+            let mut activity = ActivityRequirement::new(PoweredClock::AlwaysEnabled, None);
+            assert_eq!(activity.suspend(true), Ok(()));
+            activity.resume();
+            activity.resume();
+            assert!(!crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn queued_write_is_not_flushed_before_first_dma_grant() -> Result<(), BbqError> {
+        let state = test_state();
+        assert!(state.tx_is_empty());
+        // SAFETY: test_state initialized this queue, and no ISR is running.
+        let queue = unsafe { &*state.tx_queue.get() };
+        let producer = queue.stream_producer();
+        let mut grant = producer.grant_exact(3).map_err(|_| BbqError::Busy)?;
+        grant.copy_from_slice(&[1, 2, 3]);
+        grant.commit(3);
+        assert!(!state.tx_is_empty());
+
+        let consumer = queue.stream_consumer();
+        let grant = consumer.read().map_err(|_| BbqError::Busy)?;
+        assert_eq!(&*grant, &[1, 2, 3]);
+        grant.release(3);
+        assert!(state.tx_is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn active_tx_grant_is_not_flushed() {
+        let state = test_state();
+        state.state.fetch_or(STATE_TXGR_ACTIVE, Ordering::Release);
+        assert!(!state.tx_is_empty());
+    }
+
+    #[test]
+    fn suspended_isr_retains_completion_and_queued_data() -> Result<(), BbqError> {
+        let state = test_state();
+        let info = test_info();
+        let mode = RxDmaMode::Continuous { staging_len: 32 };
+        let flags = STATE_INITED
+            | STATE_TXDMA_PRESENT
+            | STATE_RXDMA_PRESENT
+            | STATE_RXGR_ACTIVE
+            | STATE_RXDMA_COMPLETE
+            | STATE_TX_SUSPENDED
+            | STATE_RX_SUSPENDED
+            | mode.to_state_bits();
+        state.state.store(flags, Ordering::Release);
+        state.rx_published_pos.store(9, Ordering::Release);
+        state.rx_publish_pending.store(true, Ordering::Release);
+        // SAFETY: the test owns the initialized queue and no DMA is running.
+        let queue = unsafe { &*state.rx_queue.get() };
+        let producer = queue.stream_producer();
+        let mut grant = producer.grant_exact(3).map_err(|_| BbqError::Busy)?;
+        grant.copy_from_slice(&[4, 5, 6]);
+        grant.commit(3);
+
+        // SAFETY: suspended flags prohibit all DMA/grant access. The UART
+        // registers are isolated RAM, and the queues are initialized above.
+        unsafe { handler(info, state) };
+        assert_eq!(state.state.load(Ordering::Acquire), flags);
+        assert_eq!(state.rx_published_pos.load(Ordering::Acquire), 9);
+        assert!(state.rx_publish_pending.load(Ordering::Acquire));
+        assert_eq!(RxDmaMode::from_state_bits(flags), mode);
+        let consumer = queue.stream_consumer();
+        let grant = consumer.read().map_err(|_| BbqError::Busy)?;
+        assert_eq!(&*grant, &[4, 5, 6]);
+        Ok(())
+    }
+
+    #[test]
+    fn suspension_bits_do_not_change_rx_mode_or_transfer_length() {
+        for mode in [
+            RxDmaMode::Efficiency { max_len: 512 },
+            RxDmaMode::MaxFrame { size: 256 },
+            RxDmaMode::Continuous { staging_len: 128 },
+        ] {
+            let state = STATE_INITED | mode.to_state_bits() | STATE_TX_SUSPENDED | STATE_RX_SUSPENDED;
+            assert_eq!(RxDmaMode::from_state_bits(state), mode);
+        }
+    }
 }

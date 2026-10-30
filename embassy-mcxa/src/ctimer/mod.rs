@@ -76,8 +76,10 @@ impl Default for Config {
 /// CTimer core driver.
 #[derive(Clone)]
 pub struct CTimer<'d> {
+    info: &'static Info,
     _freq: u32,
     _wg: Option<WakeGuard>,
+    power: PoweredClock,
     _phantom: PhantomData<&'d mut ()>,
 }
 
@@ -95,8 +97,10 @@ impl<'d> CTimer<'d> {
         let parts = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
 
         let inst = Self {
+            info: T::info(),
             _freq: parts.freq,
             _wg: parts.wake_guard,
+            power: config.power,
             _phantom: PhantomData,
         };
 
@@ -111,6 +115,14 @@ pub(crate) struct Info {
 }
 
 impl Info {
+    fn stop_if_unused(&self) {
+        let pwm_active = self.regs().pwmc().read().0 & 0x0f != 0;
+        let capture_active = self.regs().ccr().read().0 & 0b011_011_011_011 != 0;
+        if !pwm_active && !capture_active {
+            self.regs().tcr().modify(|w| w.set_cen(false));
+        }
+    }
+
     #[inline(always)]
     fn regs(&self) -> pac::ctimer::Ctimer {
         self.regs

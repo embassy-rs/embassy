@@ -1,13 +1,13 @@
 [package]
-name = "embassy-mcxa"
-version = "0.1.0"
-edition = "2024"
-license = "MIT OR Apache-2.0"
-description = "Embassy Hardware Abstraction Layer (HAL) for NXP MCXA series of MCUs"
-repository = "https://github.com/embassy-rs/embassy"
-keywords = ["embedded", "hal", "nxp", "mcxa", "embassy"]
 categories = ["embedded", "hardware-support", "no-std"]
+description = "Embassy Hardware Abstraction Layer (HAL) for NXP MCXA series of MCUs"
 documentation = "https://docs.embassy.dev/embassy-mcxa"
+edition = "2024"
+keywords = ["embassy", "embedded", "hal", "mcxa", "nxp"]
+license = "MIT OR Apache-2.0"
+name = "embassy-mcxa"
+repository = "https://github.com/embassy-rs/embassy"
+version = "0.1.0"
 
 publish = false
 
@@ -86,38 +86,43 @@ flavors = [
 ]
 
 [dependencies]
-bbqueue = { version = "0.7.0", features = ["disable-cache-padding"] }
-cortex-m = { version = "0.7", features = ["critical-section-single-core", "inline-asm"] }
-# If you would like "device" to be an optional feature, please open an issue.
-cortex-m-rt = { version = "0.7", features = ["device"] }
+bbqueue = { features = ["disable-cache-padding"], version = "0.7.0" }
+cortex-m = "0.7"
 critical-section = "1.2.0"
-defmt = { version = "1.0", optional = true }
-embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal" }
-embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
-embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
-embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
+defmt = { optional = true, version = "1.0" }
+embassy-embedded-hal = { path = "../embassy-embedded-hal", version = "0.6.0" }
+embassy-futures = { path = "../embassy-futures", version = "0.1.2" }
+embassy-hal-internal = { features = [
+  "cortex-m",
+  "prio-bits-3",
+], path = "../embassy-hal-internal", version = "0.5.0" }
+embassy-sync = { path = "../embassy-sync", version = "0.8.0" }
+embedded-can = "0.4.1"
+embedded-hal-02 = { features = [
+  "unproven",
+], package = "embedded-hal", version = "0.2.6" }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
-embedded-mcu-hal = { version = "0.3.0", optional = true }
+embedded-mcu-hal = { optional = true, version = "0.3.0" }
 embedded-storage = "0.3.1"
-embedded-can = "0.4.1"
 
 # Custom executor support
-embassy-executor = { version = "0.10.0", path = "../embassy-executor" }
+embassy-executor = { path = "../embassy-executor", version = "0.10.0" }
 
 # `time` dependencies
-embassy-time = { version = "0.5.1", path = "../embassy-time" }
-embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", features = ["tick-hz-1_000_000"] }
-embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils" }
+embassy-time = { path = "../embassy-time", version = "0.5.1" }
+embassy-time-driver = { features = [
+  "tick-hz-1_000_000",
+], path = "../embassy-time-driver", version = "0.2.2" }
+embassy-time-queue-utils = { path = "../embassy-time-queue-utils", version = "0.3.2" }
 
 grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "6a4c80de6e0efcbdea813743e584a70bcc998d1c", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "6a4c80de6e0efcbdea813743e584a70bcc998d1c" }
 paste = "1.0.15"
 
 rand-core-10 = { package = "rand_core", version = "0.10" }
@@ -130,7 +135,10 @@ convert_case = "0.12"
 indexmap = "2.14.0"
 
 [features]
-default = ["rt", "swd-swo-as-gpio", "dma-ipd-req", "time-driver-any"]
+default = ["dma-ipd-req", "rt", "swd-swo-as-gpio", "time-driver-any"]
+
+## Validated MCXA5xx BBQ UART operation through ordinary Deep Sleep.
+retained-deep-sleep = ["dma-ipd-req"]
 
 ## Default to OSTIMER0 unless an explicit time driver is selected.
 time-driver-any = ["rt"]
@@ -209,6 +217,9 @@ rt = []
 # Enable perf counters
 perf = []
 
+# Capture explicit shallow-Sleep CMC evidence without logging at entry.
+sleep-diagnostics = []
+
 # Enable irq tracing
 trace = []
 
@@ -216,6 +227,10 @@ trace = []
 #
 # If this feature is enabled, users should NOT enable `embassy-executor/platform-cortex-m` or any other executor platform.
 executor-platform = []
+
+# Mark that an executor outside embassy-mcxa performs the required deep-sleep
+# entry and wake recovery. This does not install an executor platform.
+external-deep-sleep-executor = []
 
 # This feature is not done yet, don't use it!
 unstable-osc32k = []
@@ -252,7 +267,32 @@ _mcxa2xx = []
 _mcxa5xx = []
 
 [dev-dependencies]
-embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"] }
 embedded-storage = "0.3.1"
 panic-halt = "1.0.0"
 static_cell = "2.1.1"
+
+[target.'cfg(all(target_os = "none", target_arch = "arm"))'.dependencies]
+cortex-m = { features = [
+  "critical-section-single-core",
+  "inline-asm",
+], version = "0.7" }
+# If you would like "device" to be an optional feature, please open an issue.
+cortex-m-rt = { features = ["device"], version = "0.7" }
+# Keep the PAC revision aligned above; runtime vectors must stay ARM-only.
+nxp-pac = { features = [
+  "rt",
+], git = "https://github.com/embassy-rs/nxp-pac.git", rev = "6a4c80de6e0efcbdea813743e584a70bcc998d1c" }
+
+[target.'cfg(all(target_os = "none", target_arch = "arm"))'.dev-dependencies]
+embassy-executor = { features = [
+  "executor-interrupt",
+  "executor-thread",
+  "platform-cortex-m",
+], path = "../embassy-executor", version = "0.10.0" }
+
+[target.'cfg(not(target_os = "none"))'.dev-dependencies]
+critical-section = { features = ["std"], version = "1.2.0" }
+embassy-executor = { features = [
+  "executor-thread",
+  "platform-std",
+], path = "../embassy-executor", version = "0.10.0" }

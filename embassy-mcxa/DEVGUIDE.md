@@ -20,9 +20,11 @@ please do one of the following:
 
 ### Recovering from a too-sleepy firmware
 
-If you have an example that is configured to the DeepSleep state, it will sever
-the debugger connection once it enters deep sleep. This can mean it will be hard
-to re-flash since the debugging core is disabled.
+By default, gated sleep modes disable CMC debug operation and can sever the
+debugger connection. Set `config.clock_cfg.vdd_power.debug_in_sleep = true`
+before HAL initialization to request debug retention independently of sleep
+depth. This can increase power consumption and does not guarantee debug access
+if required domains are powered down or debug authorization prevents it.
 
 To recover from this state, you can use the ISP mode, which triggers the ROM
 bootloader:
@@ -36,6 +38,276 @@ bootloader:
 
 You probably want to recover the device by flashing a simple example like the
 `blinky` example which doesn't attempt to go to deep sleep.
+
+### Explicit sleep entry and recovery
+
+`clocks::go_to_sleep()` and `clocks::go_to_deep_sleep()` return
+`Result<(), PowerModeError>`. Their `_with_status` variants return `SleepStatus`,
+captured before clock and idle-mode recovery. Handle configuration/recovery
+errors explicitly instead of attempting another WFE under a rejected setting.
+
+Hold a `critical_section::with` critical section through entry and recovery,
+then execute `cortex_m::asm::isb()` after the closure returns. Entry saves the
+SCR sleep-control bits, enables `SLEEPDEEP` and `SEVONPEND`, and restores those
+bits before returning. Recovery selects Active/Sleep for the power domain and
+restores the idle clock policy configured by `CoreSleep`.
+Clock initialization enables `SEVONPEND` for all idle policies so interrupt
+events are not missed between masking interrupts and the explicit entry call.
+
+The explicit entry APIs are independent of the `CoreSleep` automatic idle
+depth. All public Deep Sleep entry points honor `WakeGuard`s:
+`go_to_deep_sleep()` and its status variant return
+`PowerModeError::DeepSleepInhibited` before changing hardware when a guard is live.
+Shallow `go_to_sleep()` is not inhibited by these guards; peripherals remain
+subject to their normal clock gating and Doze policies. Inhibition permits a
+shallow-Sleep fallback, unlike a configuration/recovery failure.
+Callers must still independently quiesce incompatible consumers and keep a suitable
+wake interrupt and its clocks ready. Quiescing hardware through raw registers
+does not release guards held by driver objects; use supported driver teardown
+or suspension rather than bypassing those guards.
+A WUU guard owns a route, not a complete CPU-wake
+capability; DMA/trigger routes do not wake the CPU. The custom executor panics on
+an entry/recovery error while interrupts are still masked rather than retrying
+indefinitely or falling back to WFE under a rejected configuration. Recovery
+readiness waits remain unbounded; a clock that never becomes ready can still
+prevent the entry call from returning.
+
+Sleep and Deep Sleep use WFE to preserve Embassy's SEV-based wakeups. A pending
+event may make WFE return without sleeping; this is not an error.
+`deep_sleep_if_possible()` returns `Ok(None)` when wake guards inhibit entry,
+or `Ok(Some(status))` after an entry attempt. Poll runnable work again after an
+attempt rather than immediately waiting a second time.
+
+`SleepStatus::core_clock_was_gated()` reports CMC's clock-gated indication, not
+proof that a particular power-domain mode was reached. The HAL supports Sleep
+and Deep Sleep entry only; Power Down entry APIs are not provided.
+
+### Opt-in shallow-Sleep hardware evidence
+
+Enable `sleep-diagnostics` to collect cumulative evidence for explicit shallow
+`go_to_sleep*` calls. `with_clocks(|c| c.sleep_diagnostics)` returns a copy of
+the counters and the last CKSTAT samples. Storage is part of the existing clock
+state; the entry critical section protects updates and reads.
+
+Each attempt reads CKSTAT after the existing VALID-clear write, then samples
+it again after WFE and before recovery. `fresh_gated` increments only when
+VALID was clear before WFE and set afterward. `uncleared` records a prior VALID
+bit that failed to clear; those calls are not counted as fresh evidence.
+Counters saturate and are not reset when queried.
+
+This does not measure physical gated duration, prove a deeper power-domain
+mode, or include raw WFE in an external executor's logical Active path. With
+`CoreSleep::WfeGated` or `CoreSleep::DeepSleep`, the default idle policy already
+permits CMC mode 1, so logical Active-idle can also gate the core. Retained
+oscillators and peripherals can therefore dominate both power measurements.
+No DWT tracing or per-entry logging is enabled.
+
+Application diagnostics should distinguish current configuration readbacks
+from samples captured at entry. Debug-retention configuration alone does not
+establish whether debugger power requests are asserted.
+
+### BBQ UART suspension
+
+`LpuartBbqTx::suspend().await` drains the complete TX queue and wire before
+disabling TX and pausing its DMA channel. The drain includes writes that have
+not yet been picked up by the interrupt handler. A caller may apply an async
+timeout if CTS prevents progress; cancellation leaves TX running with its
+WakeGuard held.
+
+`LpuartBbqRx::suspend()` requires the peer to be quiescent and returns
+`BbqError::Busy` if a receive frame is active. It disables reception and DMA
+requests, drains any accepted DMA minor loop, and retains the descriptor,
+grants, FIFO, and continuous staging ring. It does not destroy the BBQueue or
+return its backing allocation. Bytes transmitted during suspension, or racing
+its boundary, are not guaranteed to be received.
+
+Each half releases only its own guard, and only after disabling hardware.
+`resume()` reacquires that requirement before enabling hardware, without
+resetting the shared UART or the other half. Only successful suspension permits
+the caller to rely on that half being quiescent. A rejected hardware transition
+retains the guard; `is_suspended()` reports I/O inhibition, including this error
+case. Retrying the transition or explicitly resuming can recover it.
+
+Reads and writes return `BbqError::Suspended` until resumed. Their exclusive
+borrows require cancelling an outstanding I/O future before suspending that
+half. Continuous-RX overrun remains sticky; acknowledge it with `clear_overrun()`
+before resuming. Acknowledgement while suspended does not restart reception.
+
+`LpuartBbq::suspend().await` drains/suspends TX then suspends RX. An error may
+leave only TX suspended, while the running RX still holds its requirement.
+`LpuartBbq::resume()` resumes RX before TX. These APIs do not supply UART wake
+from Deep Sleep, validate retained peripheral operation, or suspend other HAL
+drivers. The executor still makes the final WakeGuard admission check.
+
+### Opt-in retained UART and I2C address wake (MCXA5xx)
+
+With `retained-deep-sleep`, `BbqConfig::retain_in_deep_sleep` explicitly requests
+ordinary Deep Sleep operation, not suspension. Construction rejects unsupported
+configurations before changing hardware: FIRC-derived UART clocks, an undivided
+FIRC system clock, equal active/low-power voltage, retained bandgap, enabled DMA,
+internal SRAM buffers, and no software-disabled SRAM partitions are
+required. The feature enables the chip's DMA request routing. LPUART Doze remains
+disabled and DMA uses asynchronous requests. CMC partial wake restores buses and
+SRAM for DMA while the core remains gated (MCXA5xx RM 26.3.3.2, 30.3.3, 48.3.10).
+BBQ uses retained on-chip DMA TCD registers, not external scatter/gather descriptors.
+
+Each UART half owns a separate FIRC retention requirement. Failed suspension keeps
+it; successful suspension releases it only after hardware stops. Resume reacquires
+it before enabling I/O. Deep Sleep temporarily retains FIRC while any such
+requirement exists and restores the configured stop/lock policy after wake.
+With every owner stopped, the original active-only FIRC policy still applies.
+Existing WakeGuards retain their original meaning and still reject Deep Sleep.
+
+An I2C target with a validated retained functional clock may use `AlwaysEnabled`
+for address listening (RM 47.3.3). Its DMA responses acquire an activity guard
+before arming hardware. Completion, errors, and cancellation stop requests and
+drain DMA before releasing that guard. Address listening and clock stretching
+remain operational between responses. This does not validate arbitrary retained
+DMA transfers or add Power Down support.
+
+### I2C/SPI controller suspension
+
+`i2c::controller::I2c` and `spi::controller::Spi` provide explicit, synchronous
+`suspend()`, `resume()`, and `is_suspended()` operations. Cancel an outstanding
+I/O future before borrowing its driver for suspension. Suspension requires an
+idle controller and empty FIFOs. Both reject enabled peripheral DMA requests
+and armed or active owned DMA channels, even if the bus appears idle.
+`Busy` leaves hardware and its requirement unchanged. This is not a
+bus-error recovery operation, and it does not discard unread data.
+
+Successful suspension disables interrupt/DMA sources, stops the owned DMA
+channels, and disables the controller before releasing its guard. Resume
+reacquires the guard before enabling the controller. Transfers and configuration
+changes cannot implicitly resume it. Keep any externally managed SPI chip
+select inactive and independently quiesce the attached device before suspending.
+Dropping either controller aborts DMA and holds its peripheral in reset before
+its guard is released.
+
+After requesting a hardware disable, I/O remains inhibited even if readback is
+rejected; the guard remains held until recovery or teardown. Do not leave the
+software state "running" after such a partial transition.
+
+Both controllers wait for bounded `MEN` acknowledgement instead of assuming the
+first read after a write already reflects the requested state. I2C uses
+`MCR.MEN` and SPI uses `CR.MEN`, through the same internal bounded polling
+helper. The requirement is held throughout polling; a timeout does not release
+it or reopen I/O. An already-running I2C resume also verifies actual enablement
+instead of reporting a disabled module as ready.
+
+SPI's explicit resume
+also checks the real enable bit: an idle, still-configured controller with a
+stale running flag can be restored. Unexpected queued data is not replayed, and
+lost master configuration is rejected with the requirement held. Blocking FIFO
+and flush waits check disabled/error state so a disabled module cannot leave
+the caller spinning indefinitely waiting for receive data.
+
+Controller suspension does not suspend targets or ADCs. An I3C target still
+listening for an external controller must retain its requirement.
+
+### ADC and I2C target suspension
+
+`adc::Adc` and `i2c::target::I2c` now provide `suspend()`, fallible `resume()`,
+and `is_suspended()`. Cancel outstanding I/O before borrowing the driver.
+Guards are released only after the peripheral is disabled. Resume reacquires
+the requirement first and checks that hardware accepted enablement.
+
+ADC suspension rejects active conversion, unread FIFO results, and enabled
+hardware triggers. It disables conversion interrupts, ADCEN, and analog
+pre-power, while retaining commands and calibration. Resume restores the
+configured pre-power setting. `wait_conversion()` now returns
+`Result<Conversion, Error>` so suspended access is reported rather than hanging;
+software triggers and FIFO reads also reject suspended access.
+`wait_get_conversion()` returns `None` while suspended.
+
+I2C target suspension rejects bus/target activity, an unconsumed address or
+receive byte, peripheral DMA requests, and armed DMA channels. It stops accepting
+addresses before releasing the guard. Listening and responses reject suspended
+access; cancelling an async listener disables its interrupts. Busy or rejected
+transitions keep inhibition. The caller must make the peer quiescent; this is
+not an abort/recovery operation for a controller left mid-transaction.
+
+### Timer and watchdog requirements
+
+Each PWM output retains the consumed `CTimer` requirement, including outputs
+returned by `degrade()` or `split()`. A PWM/capture channel's `suspend()` stops
+that channel before releasing its requirement; `resume()` reacquires it first.
+PWM duty changes and capture waits reject suspended channels. Suspending or
+dropping one channel does not stop other PWM/capture channels sharing the
+timer. The counter stops after the last channel stops. A retained `CTimer`
+clone still owns its own guard.
+
+Timer suspension does not promise a safe external pin level or turn off an
+attached load. Make that product-specific state safe before suspending. Capture
+timestamps do not account for intervals with the shared counter stopped.
+Frequency/period configuration remains shared: create compatible channel
+configurations before starting consumers; suspension is not permission to
+reconfigure another user's timer.
+
+`Pwm::suspend_with_level(Level)` instead switches the owned pad to a GPIO output
+at the requested level before stopping PWM. It preserves the original mux for
+resume and does not affect sibling timer channels. The product selects the
+electrically safe level; an active-low load normally requires `High` when off.
+
+The watchdog deliberately has no suspend operation. Its oscillator is locked
+when it is started, not merely constructed. Dropping an unarmed watchdog
+releases its guard; dropping an armed watchdog cannot stop the hardware and
+therefore retains the active-only requirement until reset. Do not remove this
+inhibitor to obtain Deep Sleep. Retained watchdog operation requires validation
+of its source clock, power domains, wake/feed scheduling, and timeout margin.
+
+On MCXA5xx, WWDT1 can use `WwdtClockSel::Clk16kVddCore` with
+`PoweredClock::AlwaysEnabled` when the FRO16K VDD_CORE output is enabled.
+Clock setup validates that source; it is not permission to override an
+active-only watchdog's guard. At the nominal 16,384 Hz source frequency and
+no pre-divider, the counter runs at 4,096 Hz. A 60-second timeout therefore
+uses 245,760 ticks. The application must retain a wake source for feeding;
+restricting interrupts to GPIO/RTC can mask an OSTIMER-based feed deadline.
+Reset-mode construction masks that watchdog instance's interrupt, whereas
+warning-mode construction enables it.
+
+Register-model tests exercise software ordering, guard ownership, and channel
+independence. They do not establish live DMA drain timing, electrical pin
+levels, oscillator retention, or on-device sleep/wake behavior.
+
+### MCXA2xx compatibility
+
+The shared sequence is checked against **MCXAP144M240F61RM Rev. 2
+(2025-11-17)**, which includes MCXA256, the PAC selected by `mcxa2xx`.
+Sections 18.3.3, 18.6 and 18.7 specify the same CMC encodings used on MCXA5xx:
+
+| Mode | CKCTRL.CKMODE | PMPROT permission | PMCTRLMAIN.LPMODE |
+| --- | --- | --- | --- |
+| Sleep | `0x1` | None required | `0x0` |
+| Deep Sleep | `0xF` | `0x1` | `0x1` |
+
+CKMODE greater than zero requires `SCR.SLEEPDEEP`. WFE is supported as well as
+WFI; the executor retains WFE so pending task events cannot be lost.
+CMC/SPC write-one-to-clear acknowledgements write only their intended flag,
+without clearing unrelated isolation or busy status.
+
+Section 22.3.1 (page 859) requires an active-only SPLL to be powered off before
+Deep Sleep and powered on after `LDOCSR.VOUT_OK` returns. MCXA5xx section 29.3.1
+specifies the same sequence. On both families the HAL
+temporarily switches a PLL-clocked CPU to SIRC, saves PLL control policy,
+disables PLL output/power and monitoring, and restores them after reference
+clocks and the LDO are ready. It waits for PLL lock before restoring the CPU
+source and monitor policy. A disabled SIRC output is enabled temporarily and
+its gate/lock policy is restored afterward. An already-retained PLL is left running.
+
+MCXA2xx recovery waits for FIRC validity and accuracy before reusing it as a
+PLL reference. VBAT only supports FRO16K on this family (section 24.1.2):
+output zero feeds VDD_BAT/system consumers and output one feeds CORE_MAIN.
+The MCXA5xx-only OSC32K and VBAT LDO configuration is not executed on MCXA2xx.
+FRO16K enable and gate settings are checked against hardware before publishing
+the clock descriptors. An incompatible enable state retained behind the VBAT
+lock is reported as a configuration error; it requires a VBAT power-on reset
+rather than silently claiming that the requested clock is running.
+
+For debug retention, section 18.3.3.4 says `DBGCTL.SOD=0` plus an asserted
+debugger power request keeps the core clock running. Therefore connected-debugger
+tests can deliberately prevent clock gating; current measurements and live
+sleep/wakeup validation must account for that. Register-model tests cover
+software requests, not analog settling time or live CPU clock transitions.
 
 ## The `Cargo.toml` file
 

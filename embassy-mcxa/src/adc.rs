@@ -1,4 +1,8 @@
-//! ADC driver
+//! ADC driver.
+//!
+//! Explicit suspension requires an idle, software-triggered ADC with an empty
+//! FIFO. It disables conversion and analog pre-power before releasing its
+//! activity requirement. Resume before submitting another trigger.
 use core::marker::PhantomData;
 use core::ops::{Deref, RangeInclusive};
 
@@ -361,6 +365,12 @@ impl Default for Trigger {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Explicitly resume the ADC before performing I/O.
+    Suspended,
+    /// Conversion, unread results, or hardware triggers still require the ADC.
+    Busy,
+    /// Hardware did not acknowledge its requested power state.
+    PowerTransitionRejected,
     /// FIFO is empty, no conversion result available
     FifoEmpty,
     /// FIFO is empty, but the adc is active and a new conversion will be ready soon
@@ -399,6 +409,9 @@ pub struct Adc<'a, M: Mode> {
     num_triggers: u8,
     info: &'static Info,
     _wg: Option<WakeGuard>,
+    power: PoweredClock,
+    suspended: bool,
+    power_pre_enabled: bool,
     _mode: PhantomData<M>,
 }
 
@@ -463,6 +476,9 @@ impl<'a> Adc<'a, Async> {
     ///
     /// If no conversion is pending, None is returned.
     pub async fn wait_get_conversion(&mut self) -> Option<Conversion> {
+        if self.suspended {
+            return None;
+        }
         self.info
             .wait_cell()
             .wait_for_value(|| {
@@ -485,9 +501,13 @@ impl<'a> Adc<'a, Async> {
 
     /// Reads the current conversion result from the fifo or waits for the next one even if no conversion is currently pending.
     ///
-    /// If no conversion is pending, None is returned.
-    pub async fn wait_conversion(&mut self) -> Conversion {
-        self.info
+    /// A suspended ADC returns [`Error::Suspended`] without arming interrupts.
+    pub async fn wait_conversion(&mut self) -> Result<Conversion, Error> {
+        if self.suspended {
+            return Err(Error::Suspended);
+        }
+        Ok(self
+            .info
             .wait_cell()
             .wait_for_value(|| {
                 // Enable the interrupts. They get disabled in the interrupt handler
@@ -504,11 +524,62 @@ impl<'a> Adc<'a, Async> {
                 }
             })
             .await
-            .unwrap()
+            .unwrap())
     }
 }
 
 impl<'a, M: Mode> Adc<'a, M> {
+    /// Stop an idle ADC without losing commands, pin muxing, or calibration.
+    ///
+    /// Hardware triggers must be disabled by their owner. Unread results or a
+    /// running conversion return `Busy` with the requirement still held.
+    pub fn suspend(&mut self) -> Result<(), Error> {
+        if self.suspended {
+            return Ok(());
+        }
+        critical_section::with(|_| {
+            let regs = self.info.regs();
+            if regs.stat().read().adc_active() == AdcActive::Busy
+                || regs.fctrl0().read().fcount() != 0
+                || (0..usize::from(self.num_triggers)).any(|index| regs.tctrl(index).read().hten())
+            {
+                return Err(Error::Busy);
+            }
+            regs.ie().write(|w| w.0 = 0);
+            regs.ctrl().modify(|w| w.set_adcen(false));
+            if regs.ctrl().read().adcen() || regs.stat().read().adc_active() == AdcActive::Busy {
+                regs.ctrl().modify(|w| w.set_adcen(true));
+                return Err(Error::Busy);
+            }
+            regs.cfg().modify(|w| w.set_pwren(false));
+            self.suspended = true;
+            self._wg = None;
+            Ok(())
+        })
+    }
+
+    /// Restore the activity requirement before enabling conversion hardware.
+    pub fn resume(&mut self) -> Result<(), Error> {
+        if self.suspended {
+            critical_section::with(|_| {
+                self._wg = WakeGuard::for_power(&self.power);
+                self.info.regs().cfg().modify(|w| w.set_pwren(self.power_pre_enabled));
+                self.info.regs().ctrl().modify(|w| w.set_adcen(true));
+                if !self.info.regs().ctrl().read().adcen() {
+                    return Err(Error::PowerTransitionRejected);
+                }
+                self.suspended = false;
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Whether explicit suspension prevents new software triggers.
+    pub fn is_suspended(&self) -> bool {
+        self.suspended
+    }
+
     /// Trigger ADC conversion(s) via software.
     ///
     /// Initiates conversion(s) for the trigger(s) specified in the bitmask.
@@ -521,6 +592,9 @@ impl<'a, M: Mode> Adc<'a, M> {
     /// * `Ok(())` if the trigger mask was valid
     /// * [Error::NoTrigger] if the mask is calling a trigger that's not configured
     pub fn do_software_trigger(&mut self, trigger_id_mask: u8) -> Result<(), Error> {
+        if self.suspended {
+            return Err(Error::Suspended);
+        }
         if (8 - trigger_id_mask.leading_zeros()) > self.num_triggers as u32 {
             return Err(Error::NoTrigger);
         }
@@ -545,6 +619,9 @@ impl<'a, M: Mode> Adc<'a, M> {
     /// - [Error::FifoEmpty] if the FIFO is empty
     /// - [Error::FifoPending] if the FIFO is empty, but the adc is active
     pub fn try_get_conversion(&mut self) -> Result<Conversion, Error> {
+        if self.suspended {
+            return Err(Error::Suspended);
+        }
         if self.info.regs().fctrl0().read().fcount() == 0 {
             if self.info.regs().stat().read().adc_active() == AdcActive::Busy {
                 return Err(Error::FifoPending);
@@ -734,6 +811,9 @@ impl<'a, M: Mode> Adc<'a, M> {
             num_triggers: triggers.len() as u8,
             info,
             _wg: parts.wake_guard,
+            power: config.power,
+            suspended: false,
+            power_pre_enabled: config.power_pre_enabled,
             _mode: PhantomData,
         })
     }
@@ -804,6 +884,7 @@ impl<'a, M: Mode> Adc<'a, M> {
 
 impl<'a, M: Mode> Drop for Adc<'a, M> {
     fn drop(&mut self) {
+        self.info.regs().ie().write(|w| w.0 = 0);
         // Turn off the ADC
         self.info.regs().ctrl().modify(|reg| reg.set_adcen(false));
 
@@ -813,6 +894,74 @@ impl<'a, M: Mode> Drop for Adc<'a, M> {
                 channel.demux();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod power_tests {
+    extern crate std;
+
+    use super::*;
+    use std::boxed::Box;
+
+    fn adc() -> Adc<'static, Async> {
+        let memory = Box::leak(Box::new([0u32; 512]));
+        // SAFETY: this isolated aligned allocation covers the ADC registers.
+        let regs = unsafe { pac::adc::Adc::from_ptr(memory.as_mut_ptr().cast()) };
+        regs.ctrl().modify(|w| w.set_adcen(true));
+        regs.cfg().modify(|w| w.set_pwren(true));
+        Adc {
+            commands: &[],
+            num_triggers: 1,
+            info: Box::leak(Box::new(Info {
+                regs,
+                wait_cell: WaitCell::new(),
+            })),
+            _wg: Some(WakeGuard::new()),
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            suspended: false,
+            power_pre_enabled: true,
+            _mode: PhantomData,
+        }
+    }
+
+    #[test]
+    fn idle_adc_releases_guard_only_after_disabling_hardware() {
+        critical_section::with(|cs| {
+            let mut adc = adc();
+            assert!(crate::clocks::active_wake_guards(&cs));
+            adc.suspend().unwrap();
+            assert!(adc.is_suspended());
+            assert!(!adc.info.regs().ctrl().read().adcen());
+            assert!(!adc.info.regs().cfg().read().pwren());
+            assert_eq!(adc.info.regs().ie().read().0, 0);
+            assert!(!crate::clocks::active_wake_guards(&cs));
+            assert_eq!(adc.do_software_trigger(1), Err(Error::Suspended));
+            assert_eq!(adc.try_get_conversion().err(), Some(Error::Suspended));
+            adc.resume().unwrap();
+            assert!(!adc.is_suspended());
+            assert!(adc.info.regs().ctrl().read().adcen());
+            assert!(adc.info.regs().cfg().read().pwren());
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
+    }
+
+    #[test]
+    fn busy_adc_and_hardware_triggers_keep_inhibition() {
+        critical_section::with(|cs| {
+            let mut adc = adc();
+            adc.info.regs().stat().modify(|w| w.set_adc_active(AdcActive::Busy));
+            assert_eq!(adc.suspend(), Err(Error::Busy));
+            assert!(crate::clocks::active_wake_guards(&cs));
+            adc.info
+                .regs()
+                .stat()
+                .modify(|w| w.set_adc_active(AdcActive::from_bits(0)));
+            adc.info.regs().tctrl(0).modify(|w| w.set_hten(true));
+            assert_eq!(adc.suspend(), Err(Error::Busy));
+            assert!(adc.info.regs().ctrl().read().adcen());
+            assert!(crate::clocks::active_wake_guards(&cs));
+        });
     }
 }
 
