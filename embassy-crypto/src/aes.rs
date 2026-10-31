@@ -105,6 +105,9 @@ macro_rules! impl_cbc {
         }
 
         impl $enc {
+            /// Size of the initialization vector, in bytes.
+            pub const IV_SIZE: usize = 16;
+
             /// Initialize with `key` and `iv`.
             pub fn new(key: &[u8; $key_size], iv: &[u8; 16]) -> Self {
                 Self {
@@ -144,6 +147,9 @@ macro_rules! impl_cbc {
         }
 
         impl $dec {
+            /// Size of the initialization vector, in bytes.
+            pub const IV_SIZE: usize = 16;
+
             /// Initialize with `key` and `iv`.
             pub fn new(key: &[u8; $key_size], iv: &[u8; 16]) -> Self {
                 Self {
@@ -188,6 +194,9 @@ macro_rules! impl_ctr {
         }
 
         impl $name {
+            /// Size of the initialization vector, in bytes.
+            pub const IV_SIZE: usize = 16;
+
             /// Initialize with `key` and the initial counter block `iv`.
             pub fn new(key: &[u8; $key_size], iv: &[u8; 16]) -> Self {
                 Self {

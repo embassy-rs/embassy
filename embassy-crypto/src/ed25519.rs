@@ -24,6 +24,9 @@ use crate::{Error, ct};
 pub struct SigningKey(Ed25519SecretKey);
 
 impl SigningKey {
+    /// Size of the signing key, in bytes
+    pub const KEY_SIZE: usize = 32;
+
     /// Generate a random signing key from [`driver::RngImpl`].
     pub fn generate() -> Result<Self, Error> {
         let mut k = Ed25519SecretKey([0u8; 32]);
@@ -76,6 +79,9 @@ impl core::fmt::Debug for SigningKey {
 pub struct VerifyingKey(Ed25519PublicKey);
 
 impl VerifyingKey {
+    /// Size of the verifying key, in bytes
+    pub const KEY_SIZE: usize = 32;
+
     /// Load a verifying key.
     pub fn from_bytes(bytes: &[u8; 32]) -> Self {
         Self(Ed25519PublicKey(*bytes))
@@ -112,6 +118,9 @@ impl VerifyingKey {
 pub struct Signature(Ed25519Signature);
 
 impl Signature {
+    /// Size of the signature, in bytes
+    pub const SIGNATURE_SIZE: usize = 64;
+
     /// Load a signature.
     ///
     /// Not validated here: an `R` that is not a point on the curve or an `S`
