@@ -439,6 +439,10 @@ embassy_hal_internal::peripherals! {
     SERIAL22,
     SERIAL30,
 
+    // PDM
+    PDM20,
+    PDM21,
+
     // SAADC
     SAADC,
 
@@ -675,6 +679,9 @@ impl_twis!(SERIAL30, TWIS30, SERIAL30);
 impl_pwm!(PWM20, PWM20, PWM20);
 impl_pwm!(PWM21, PWM21, PWM21);
 impl_pwm!(PWM22, PWM22, PWM22);
+
+impl_pdm!(PDM20, PDM20, PDM20);
+impl_pdm!(PDM21, PDM21, PDM21);
 
 #[cfg(feature = "_s")]
 impl_spim!(

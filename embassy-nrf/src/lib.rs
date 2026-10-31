@@ -123,7 +123,6 @@ pub mod nvmc;
 pub mod rramc;
 #[cfg(all(feature = "_nrf54l", feature = "_s"))]
 pub use rramc as nvmc;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "nrf52810",
     feature = "nrf52811",
@@ -131,6 +130,7 @@ pub use rramc as nvmc;
     feature = "nrf52833",
     feature = "nrf52840",
     feature = "_nrf5340-app",
+    feature = "_nrf54l",
     feature = "_nrf91",
 ))]
 pub mod pdm;

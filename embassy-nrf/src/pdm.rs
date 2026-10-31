@@ -2,6 +2,7 @@
 
 #![macro_use]
 
+use core::cell::UnsafeCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
@@ -15,18 +16,30 @@ use crate::gpio::{AnyPin, DISCONNECTED, Pin as GpioPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::pdm::vals;
+#[cfg(not(feature = "_nrf54l"))]
 pub use crate::pac::pdm::vals::Freq as Frequency;
+#[cfg(feature = "_nrf54lm20")]
+pub use crate::pac::pdm::vals::Hppole as HighPassPole;
 #[cfg(any(
     feature = "nrf52840",
     feature = "nrf52833",
     feature = "_nrf5340-app",
+    feature = "_nrf54l",
     feature = "_nrf91",
 ))]
 pub use crate::pac::pdm::vals::Ratio;
 use crate::{interrupt, pac};
 
 /// The maximum buffer size (in 16-bit samples) that the PDM EasyDMA can transfer in one operation.
+#[cfg(not(feature = "_nrf54l"))]
 pub const DMA_SIZE: usize = crate::util::easy_dma_max!(crate::pac::pdm::regs::Maxcnt, set_buffsize, buffsize);
+/// The maximum buffer size (in 16-bit samples) that the PDM EasyDMA can transfer in one operation.
+#[cfg(feature = "_nrf54l")]
+pub const DMA_SIZE: usize = crate::util::easy_dma_max!(crate::pac::pdm::regs::Maxcnt, set_buffsize, buffsize) / 2;
+
+/// The lowest and highest values of [`Config::prescaler`].
+#[cfg(feature = "_nrf54l")]
+const PRESCALER_RANGE: core::ops::RangeInclusive<u8> = 4..=126;
 
 /// Interrupt handler
 pub struct InterruptHandler<T: Instance> {
@@ -69,6 +82,8 @@ pub enum Error {
     BufferTooLong,
     /// Buffer is empty
     BufferZeroLength,
+    /// Buffer is not aligned to a 32-bit word
+    BufferNotAligned,
     /// PDM is not running
     NotRunning,
     /// PDM is already running
@@ -80,6 +95,7 @@ impl core::fmt::Display for Error {
         match self {
             Self::BufferTooLong => f.write_str("buffer is too long"),
             Self::BufferZeroLength => f.write_str("buffer is empty"),
+            Self::BufferNotAligned => f.write_str("buffer is not aligned to a 32-bit word"),
             Self::NotRunning => f.write_str("PDM is not running"),
             Self::AlreadyRunning => f.write_str("PDM is already running"),
         }
@@ -88,7 +104,54 @@ impl core::fmt::Display for Error {
 
 impl core::error::Error for Error {}
 
-static DUMMY_BUFFER: [i16; 1] = [0; 1];
+/// Where samples go while nobody is collecting them. EasyDMA writes to this, so it has to be in RAM.
+#[repr(align(4))]
+struct DummyBuffer(UnsafeCell<[i16; 1]>);
+
+// Only EasyDMA ever touches the contents, which nothing reads.
+unsafe impl Sync for DummyBuffer {}
+
+static DUMMY_BUFFER: DummyBuffer = DummyBuffer(UnsafeCell::new([0; 1]));
+
+/// Points EasyDMA at `samples` 16-bit samples starting at `ptr`.
+fn set_buffer(r: pac::pdm::Pdm, ptr: *const i16, samples: usize) {
+    r.sample().ptr().write_value(ptr as u32);
+    // `MAXCNT` counts bytes on the nRF54L, and samples everywhere else.
+    #[cfg(feature = "_nrf54l")]
+    let maxcnt = samples * 2;
+    #[cfg(not(feature = "_nrf54l"))]
+    let maxcnt = samples;
+    r.sample().maxcnt().write(|w| w.set_buffsize(maxcnt as _));
+}
+
+fn set_dummy_buffer(r: pac::pdm::Pdm) {
+    let dummy = DUMMY_BUFFER.0.get();
+    set_buffer(r, dummy.cast(), unsafe { (*dummy).len() });
+}
+
+/// Starts sampling.
+fn trigger_start(r: pac::pdm::Pdm) {
+    // On the nRF54LM20A, stopping puts the prescaler back to its reset value of 4 although it goes
+    // on reading as written, so without this every run after the first has the wrong sample rate.
+    #[cfg(feature = "_nrf54l")]
+    r.prescaler().write_value(r.prescaler().read());
+    r.tasks_start().write_value(1);
+}
+
+/// Nordic requires PDM buffers to be word aligned. Enforced on the nRF54L only, because existing
+/// code on the older chips may be getting away with `[i16; N]`, which is only 2-byte aligned.
+#[cfg(feature = "_nrf54l")]
+fn check_alignment(ptr: *const i16) -> Result<(), Error> {
+    if !(ptr as usize).is_multiple_of(4) {
+        return Err(Error::BufferNotAligned);
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "_nrf54l"))]
+fn check_alignment(_ptr: *const i16) -> Result<(), Error> {
+    Ok(())
+}
 
 /// The state of a continuously running sampler. While it reflects
 /// the progress of a sampler, it also signals what should be done
@@ -125,11 +188,37 @@ impl<'d> Pdm<'d> {
         r.psel().clk().write_value(clk.psel_bits());
 
         // configure
+        #[cfg(not(feature = "_nrf54l"))]
         r.pdmclkctrl().write(|w| w.set_freq(config.frequency));
+        #[cfg(feature = "_nrf54l")]
+        {
+            assert!(
+                PRESCALER_RANGE.contains(&config.prescaler),
+                "PDM prescaler out of range"
+            );
+            r.prescaler().write(|w| w.set_divisor(config.prescaler));
+        }
+        #[cfg(feature = "_nrf54lm20")]
+        {
+            r.clkselect().write(|w| w.set_src(vals::Src::Pclk32m));
+            match config.high_pass {
+                Some(pole) => {
+                    r.filter().hppole().write(|w| w.set_hppole(pole));
+                    r.filter()
+                        .hpdisable()
+                        .write(|w| w.set_disable(vals::HpdisableDisable::Enable));
+                }
+                None => r
+                    .filter()
+                    .hpdisable()
+                    .write(|w| w.set_disable(vals::HpdisableDisable::Disable)),
+            }
+        }
         #[cfg(any(
             feature = "nrf52840",
             feature = "nrf52833",
             feature = "_nrf5340-app",
+            feature = "_nrf54l",
             feature = "_nrf91",
         ))]
         r.ratio().write(|w| w.set_ratio(config.ratio));
@@ -176,13 +265,9 @@ impl<'d> Pdm<'d> {
     /// Useful to start the microphone and keep it active between recording samples.
     pub async fn start(&mut self) {
         // start dummy sampling because microphone needs some setup time
-        self.r.sample().ptr().write_value(DUMMY_BUFFER.as_ptr() as u32);
-        self.r
-            .sample()
-            .maxcnt()
-            .write(|w| w.set_buffsize(DUMMY_BUFFER.len() as _));
+        set_dummy_buffer(self.r);
 
-        self.r.tasks_start().write_value(1);
+        trigger_start(self.r);
     }
 
     /// Stop sampling microphone data inta a dummy buffer
@@ -199,6 +284,7 @@ impl<'d> Pdm<'d> {
         if buffer.len() > DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
+        check_alignment(buffer.as_ptr())?;
 
         if self.r.events_started().read() == 0 {
             return Err(Error::NotRunning);
@@ -210,27 +296,19 @@ impl<'d> Pdm<'d> {
             r.events_stopped().write_value(0);
 
             // reset to dummy buffer
-            r.sample().ptr().write_value(DUMMY_BUFFER.as_ptr() as u32);
-            r.sample().maxcnt().write(|w| w.set_buffsize(DUMMY_BUFFER.len() as _));
+            set_dummy_buffer(r);
 
             while r.events_stopped().read() == 0 {}
         });
 
         // setup user buffer
-        let ptr = buffer.as_ptr();
-        let len = buffer.len();
-        self.r.sample().ptr().write_value(ptr as u32);
-        self.r.sample().maxcnt().write(|w| w.set_buffsize(len as _));
+        set_buffer(self.r, buffer.as_ptr(), buffer.len());
 
         // wait till the current sample is finished and the user buffer sample is started
         self.wait_for_sample().await;
 
         // reset the buffer back to the dummy buffer
-        self.r.sample().ptr().write_value(DUMMY_BUFFER.as_ptr() as u32);
-        self.r
-            .sample()
-            .maxcnt()
-            .write(|w| w.set_buffsize(DUMMY_BUFFER.len() as _));
+        set_dummy_buffer(self.r);
 
         // wait till the user buffer is sampled
         self.wait_for_sample().await;
@@ -279,12 +357,20 @@ impl<'d> Pdm<'d> {
     where
         S: FnMut(&[i16; N]) -> SamplerState,
     {
+        if N == 0 {
+            return Err(Error::BufferZeroLength);
+        }
+        if N > DMA_SIZE {
+            return Err(Error::BufferTooLong);
+        }
+        check_alignment(bufs[0].as_ptr())?;
+        check_alignment(bufs[1].as_ptr())?;
+
         if self.r.events_started().read() != 0 {
             return Err(Error::AlreadyRunning);
         }
 
-        self.r.sample().ptr().write_value(bufs[0].as_mut_ptr() as u32);
-        self.r.sample().maxcnt().write(|w| w.set_buffsize(N as _));
+        set_buffer(self.r, bufs[0].as_ptr(), N);
 
         // Reset and enable the events
         self.r.events_end().write_value(0);
@@ -300,7 +386,7 @@ impl<'d> Pdm<'d> {
         // wouldn't happen anyway
         compiler_fence(Ordering::SeqCst);
 
-        self.r.tasks_start().write_value(1);
+        trigger_start(self.r);
 
         let mut current_buffer = 0;
 
@@ -364,12 +450,20 @@ pub struct Config {
     /// On which edge the left channel should be samples
     pub edge: Edge,
     /// Clock frequency
+    #[cfg(not(feature = "_nrf54l"))]
     pub frequency: Frequency,
+    /// Clock prescaler, from 4 to 126: `PDM_CLK` is the 32 MHz peripheral clock divided by this.
+    ///
+    /// The sample rate is `PDM_CLK` divided by [`ratio`](Self::ratio). The default of 25, with
+    /// [`Ratio::Ratio80`], gives a 1.28 MHz `PDM_CLK` and 16 kHz exactly.
+    #[cfg(feature = "_nrf54l")]
+    pub prescaler: u8,
     /// Clock ratio
     #[cfg(any(
         feature = "nrf52840",
         feature = "nrf52833",
         feature = "_nrf5340-app",
+        feature = "_nrf54l",
         feature = "_nrf91",
     ))]
     pub ratio: Ratio,
@@ -377,6 +471,12 @@ pub struct Config {
     pub gain_left: i8,
     /// Gain right, in units of 0.5 dB, from -40 (-20 dB) to 40 (+20 dB). Values outside that range are clamped.
     pub gain_right: i8,
+    /// The corner of the hardware high-pass filter, or `None` to leave it off.
+    ///
+    /// PDM microphones commonly have a DC offset, which this removes without any software. The
+    /// named corners assume a 16 kHz sample rate and scale with it.
+    #[cfg(feature = "_nrf54lm20")]
+    pub high_pass: Option<HighPassPole>,
 }
 
 impl Default for Config {
@@ -384,16 +484,22 @@ impl Default for Config {
         Self {
             operation_mode: OperationMode::Mono,
             edge: Edge::LeftFalling,
+            #[cfg(not(feature = "_nrf54l"))]
             frequency: Frequency::Default,
+            #[cfg(feature = "_nrf54l")]
+            prescaler: 25,
             #[cfg(any(
                 feature = "nrf52840",
                 feature = "nrf52833",
                 feature = "_nrf5340-app",
+                feature = "_nrf54l",
                 feature = "_nrf91",
             ))]
             ratio: Ratio::Ratio80,
             gain_left: 0,
             gain_right: 0,
+            #[cfg(feature = "_nrf54lm20")]
+            high_pass: None,
         }
     }
 }
