@@ -42,7 +42,8 @@ Flash:
 - add: support for STM32H7R/S.
 - add: `flash::banks_swapped()`.
 - change: `flash::perform_bank_swap()` (H5, C5) is only available when the flash is in dual-bank mode.
-- change: `flash::Error` variants are `OutOfBounds`, `Unaligned`, `Protected`, `NotErased` and `Hardware` (plus `EdataDisabled` on C5). `Error` is `#[non_exhaustive]` and implements `Display` and `core::error::Error`.
+- change: `flash::Error` variants are `OutOfBounds`, `Unaligned`, `Protected`, `NotErased` and `Hardware` (plus `EdataDisabled` on C5, and `Ecc` on chips with flash ECC). `Error` is `#[non_exhaustive]` and implements `Display` and `core::error::Error`.
+- add: flash reads return `Error::Ecc` on an uncorrectable ECC error, instead of a bus fault (H7, H7A/B, H7R/S) or an NMI (L4, L4+, L5, G0, G4, WB, WL, WBA, U0, U3, U5, H5, C5).
 - change: `WRITE_SIZE` is the native program unit: 2 on F0/F1/F3, 4 on F7, 16 on H7A/B.
 - change: `FlashSector::index_in_bank` and `FlashRegion::sectors()` are `u32`.
 - change: `FlashBank` is the physical bank. With the banks swapped (`SWAP_BANK`/`FB_MODE`), `FlashBank::base()` and `FlashRegion::base()` return the address where the bank is currently mapped.

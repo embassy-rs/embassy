@@ -8,11 +8,22 @@
 //! The driver is shared by all families. Writes are done in units of [`WRITE_SIZE`] bytes,
 //! which is the native program unit of the chip (a half-word on F0/F1/F3, a 256-bit flash
 //! word on H7, ...), and erases are done per sector/page.
+//!
+//! # ECC
+//!
+//! Many families protect each flash word with an error correction code:
+//!
+//! - Single-bit errors are corrected transparently.
+//! - Two (or more) bit errors can't be corrected. The read fails with `Error::Ecc`.
+//!
+//! With the Cortex-M7 data cache enabled, a read also fails when another flash word of the same
+//! 32-byte cache line has an uncorrectable error.
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
 mod asynch;
 mod cache;
 mod common;
+mod ecc;
 #[cfg(flash_v5_c5)]
 mod edata;
 #[cfg(eeprom)]
@@ -216,6 +227,11 @@ pub enum Error {
     /// The EDATA area is not enabled in the option bytes.
     #[cfg(flash_v5_c5)]
     EdataDisabled,
+    /// The data read contains an uncorrectable ECC error: two or more bits of a flash word are
+    /// wrong. Program and erase operations interrupted by a reset or power loss leave such
+    /// errors behind, and so does programming a flash word twice without erasing it.
+    #[cfg(any(flash_ecc_bus_error, flash_ecc_nmi))]
+    Ecc,
 }
 
 impl core::fmt::Display for Error {
@@ -228,6 +244,8 @@ impl core::fmt::Display for Error {
             Self::Hardware => "flash hardware error",
             #[cfg(flash_v5_c5)]
             Self::EdataDisabled => "EDATA area disabled",
+            #[cfg(any(flash_ecc_bus_error, flash_ecc_nmi))]
+            Self::Ecc => "uncorrectable ECC error",
         };
         f.write_str(msg)
     }
