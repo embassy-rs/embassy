@@ -11,7 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use mspm0_metapac::i2c;
 
 use crate::Peri;
-use crate::gpio::{AnyPin, PfType, Pull, SealedPin};
+use crate::gpio::{PinBorrow, PinConfig, Pull};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
@@ -181,12 +181,14 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn sda_pf(&self) -> PfType {
-        PfType::input(self.sda_pull, self.invert_sda)
+    pub(crate) fn sda_config(&self) -> PinConfig {
+        PinConfig::input(self.scl_pull, self.invert_scl).hiz1(true)
     }
-    pub fn scl_pf(&self) -> PfType {
-        PfType::input(self.scl_pull, self.invert_scl)
+
+    pub(crate) fn scl_config(&self) -> PinConfig {
+        PinConfig::input(self.sda_pull, self.invert_sda).hiz1(true)
     }
+
     fn calculate_timer_period(&self) -> u8 {
         // Sets the timer period to bring the clock frequency to the selected I2C speed
         // From the documentation: TPR = (I2C_CLK / (I2C_FREQ * (SCL_LP + SCL_HP))) - 1 where:
@@ -319,8 +321,8 @@ impl core::error::Error for Error {}
 pub struct I2c<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
-    scl: Option<Peri<'d, AnyPin>>,
-    sda: Option<Peri<'d, AnyPin>>,
+    scl: PinBorrow<'d>,
+    sda: PinBorrow<'d>,
     _phantom: PhantomData<M>,
 }
 
@@ -378,14 +380,8 @@ impl<'d, M: Mode> I2c<'d, M> {
 
         self.info.interrupt.disable();
 
-        if let Some(ref sda) = self.sda {
-            sda.update_pf(config.sda_pf());
-        }
-
-        if let Some(ref scl) = self.scl {
-            scl.update_pf(config.scl_pf());
-        }
-
+        self.sda.update_config(config.sda_config());
+        self.scl.update_config(config.scl_config());
         self.init(&config)
     }
 
@@ -1066,28 +1062,19 @@ impl<'d, M: Mode> I2c<'d, M> {
         cortex_m::asm::delay(16);
 
         // Init GPIO
-        let scl_inner = new_pin!(scl, config.scl_pf());
-        let sda_inner = new_pin!(sda, config.sda_pf());
+        let scl_pf = scl.pf_num();
+        let sda_pf = sda.pf_num();
+        let scl_config = config.scl_config();
+        let sda_config = config.sda_config();
 
-        if let Some(ref scl) = scl_inner {
-            let pincm = pac::IOMUX.pincm(scl._pin_cm() as usize);
-            pincm.modify(|w| {
-                w.set_hiz1(true);
-            });
-        }
-
-        if let Some(ref sda) = sda_inner {
-            let pincm = pac::IOMUX.pincm(sda._pin_cm() as usize);
-            pincm.modify(|w| {
-                w.set_hiz1(true);
-            });
-        }
+        let scl = PinBorrow::with_config(scl, scl_pf, scl_config);
+        let sda = PinBorrow::with_config(sda, sda_pf, sda_config);
 
         let mut this = Self {
             info: T::info(),
             state: T::state(),
-            scl: scl_inner,
-            sda: sda_inner,
+            scl,
+            sda,
             _phantom: PhantomData,
         };
         this.init(&config)?;

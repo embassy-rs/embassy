@@ -62,13 +62,11 @@ fn generate_code(cfgs: &mut CfgSet) {
     let mut g = TokenStream::new();
 
     g.extend(generate_singletons(&singletons));
-    g.extend(generate_pincm_mapping());
     g.extend(generate_pin());
     g.extend(generate_timers());
     g.extend(generate_interrupts());
     g.extend(generate_peripheral_instances());
     g.extend(generate_pin_trait_impls());
-    g.extend(generate_groups());
     g.extend(generate_dma_channel_count());
     g.extend(generate_adc_constants(cfgs));
 
@@ -164,72 +162,6 @@ fn interrupt_group_linker_magic() {
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("interrupt_group.x");
     fs::write(&out_file, file).unwrap();
-}
-
-fn generate_groups() -> TokenStream {
-    let group_vectors = METADATA.interrupt_groups.iter().map(|group| {
-        let vectors = group.interrupts.iter().map(|interrupt| {
-            let fn_name = Ident::new(interrupt.name, Span::call_site());
-
-            quote! {
-                pub(crate) fn #fn_name();
-            }
-        });
-
-        quote! { #(#vectors)* }
-    });
-
-    let groups = METADATA.interrupt_groups.iter().map(|group| {
-        let interrupt_group_name = Ident::new(group.name, Span::call_site());
-        let group_enum = Ident::new(&format!("Group{}", &group.name[5..]), Span::call_site());
-        let group_number = Literal::u32_unsuffixed(group.number);
-
-        let matches = group.interrupts.iter().map(|interrupt| {
-            let variant = Ident::new(&interrupt.name, Span::call_site());
-
-            quote! {
-                #group_enum::#variant => unsafe { group_vectors::#variant() },
-            }
-        });
-
-        quote! {
-            #[cfg(feature = "rt")]
-            #[crate::pac::interrupt]
-            fn #interrupt_group_name() {
-                use crate::pac::#group_enum;
-
-                let group = crate::pac::CPUSS.int_group(#group_number);
-                let stat = group.iidx().read().stat();
-
-                // check for spurious interrupts
-                if stat == crate::pac::cpuss::vals::Iidx::NoIntr {
-                    return;
-                }
-
-                // MUST subtract by 1 because NoIntr offsets IIDX values.
-                let iidx = stat.to_bits() - 1;
-
-                let Ok(group) = #group_enum::try_from(iidx as u8) else {
-                    return;
-                };
-
-                match group {
-                    #(#matches)*
-                }
-            }
-        }
-    });
-
-    quote! {
-        #(#groups)*
-
-        #[cfg(feature = "rt")]
-        mod group_vectors {
-            unsafe extern "Rust" {
-                #(#group_vectors)*
-            }
-        }
-    }
 }
 
 fn generate_dma_channel_count() -> TokenStream {
@@ -359,34 +291,6 @@ fn make_valid_identifier(s: &str) -> Singleton {
     Singleton { name, cfg: None }
 }
 
-fn generate_pincm_mapping() -> TokenStream {
-    let pincms = METADATA.pins.iter().map(|mapping| {
-        let port_letter = mapping.pin.strip_prefix("P").unwrap();
-        let port_base = (port_letter.chars().next().unwrap() as u8 - b'A') * 32;
-        // This assumes all ports are single letter length.
-        // This is fine unless TI releases a part with 833+ GPIO pins.
-        let pin_number = mapping.pin[2..].parse::<u8>().unwrap();
-
-        let num = port_base + pin_number;
-
-        // But subtract 1 since pincm indices start from 0, not 1.
-        let pincm = Literal::u8_unsuffixed(mapping.pincm - 1);
-        quote! {
-            #num => #pincm
-        }
-    });
-
-    quote! {
-        #[doc = "Get the mapping from GPIO pin port to IOMUX PINCM index. This is required since the mapping from IO to PINCM index is not consistent across parts."]
-        pub(crate) fn gpio_pincm(pin_port: u8) -> u8 {
-            match pin_port {
-                #(#pincms),*,
-                _ => unreachable!(),
-            }
-        }
-    }
-}
-
 fn generate_pin() -> TokenStream {
     let pin_impls = METADATA.pins.iter().map(|pin| {
         let name = Ident::new(&pin.pin, Span::call_site());
@@ -395,11 +299,13 @@ fn generate_pin() -> TokenStream {
         let pin_number = Literal::u8_unsuffixed(pin.pin[2..].parse::<u8>().unwrap());
 
         let port = Ident::new(&format!("Port{}", port_letter), Span::call_site());
+        // Subtract 1 since pincm indices start from 0, not 1.
+        let pincm = Literal::u8_unsuffixed(pin.pincm - 1);
 
         // TODO: Feature gate pins that can be used as NRST
 
         quote! {
-            impl_pin!(#name, crate::gpio::Port::#port, #pin_number);
+            impl_pin!(#name, #port, #pin_number, #pincm);
         }
     });
 

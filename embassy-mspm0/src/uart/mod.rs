@@ -10,7 +10,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::PeripheralType;
 
 use crate::Peri;
-use crate::gpio::{AnyPin, PfType, Pull, SealedPin};
+use crate::gpio::{PinBorrow, PinConfig, Pull};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Blocking, Mode};
 use crate::pac::uart::{Uart as Regs, vals};
@@ -252,8 +252,8 @@ impl embedded_io::Error for Error {
 pub struct UartRx<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
-    rx: Option<Peri<'d, AnyPin>>,
-    rts: Option<Peri<'d, AnyPin>>,
+    rx: Option<PinBorrow<'d>>,
+    rts: Option<PinBorrow<'d>>,
     _phantom: PhantomData<M>,
 }
 
@@ -275,7 +275,11 @@ impl<'d> UartRx<'d, Blocking> {
         rx: Peri<'d, impl RxPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(rx, config.rx_pf()), None, config)
+        let rx_pf = rx.pf_num();
+        let rx_config = config.rx_config();
+
+        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+        Self::new_inner(peri, Some(rx), None, config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin
@@ -285,12 +289,14 @@ impl<'d> UartRx<'d, Blocking> {
         rts: Peri<'d, impl RtsPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            peri,
-            new_pin!(rx, config.rx_pf()),
-            new_pin!(rts, config.rts_pf()),
-            config,
-        )
+        let rx_pf = rx.pf_num();
+        let rts_pf = rts.pf_num();
+        let rx_config = config.rx_config();
+        let rts_config = config.rts_config();
+
+        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+        let rts = PinBorrow::with_config(rts, rts_pf, rts_config);
+        Self::new_inner(peri, Some(rx), Some(rts), config)
     }
 }
 
@@ -313,12 +319,12 @@ impl<'d, M: Mode> UartRx<'d, M> {
 
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        if let Some(ref rx) = self.rx {
-            rx.update_pf(config.rx_pf());
+        if let Some(ref mut rx) = self.rx {
+            rx.update_config(config.rx_config());
         }
 
-        if let Some(ref rts) = self.rts {
-            rts.update_pf(config.rts_pf());
+        if let Some(ref mut rts) = self.rts {
+            rts.update_config(config.rts_config());
         }
 
         reconfigure(self.info, self.state, config)
@@ -332,8 +338,8 @@ impl<'d, M: Mode> UartRx<'d, M> {
 
 impl<'d, M: Mode> Drop for UartRx<'d, M> {
     fn drop(&mut self) {
-        self.rx.as_ref().map(|x| x.set_as_disconnected());
-        self.rts.as_ref().map(|x| x.set_as_disconnected());
+        // self.rx.as_ref().map(|x| x.set_as_disconnected());
+        // self.rts.as_ref().map(|x| x.set_as_disconnected());
     }
 }
 
@@ -344,8 +350,8 @@ impl<'d, M: Mode> Drop for UartRx<'d, M> {
 pub struct UartTx<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
-    tx: Option<Peri<'d, AnyPin>>,
-    cts: Option<Peri<'d, AnyPin>>,
+    tx: Option<PinBorrow<'d>>,
+    cts: Option<PinBorrow<'d>>,
     _phantom: PhantomData<M>,
 }
 
@@ -367,7 +373,11 @@ impl<'d> UartTx<'d, Blocking> {
         tx: Peri<'d, impl TxPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(tx, config.tx_pf()), None, config)
+        let tx_pf = tx.pf_num();
+        let tx_config = config.tx_config();
+
+        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
+        Self::new_inner(peri, Some(tx), None, config)
     }
 
     /// Create a new blocking tx-only UART with a clear-to-send pin
@@ -377,12 +387,14 @@ impl<'d> UartTx<'d, Blocking> {
         cts: Peri<'d, impl CtsPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            peri,
-            new_pin!(tx, config.tx_pf()),
-            new_pin!(cts, config.cts_pf()),
-            config,
-        )
+        let tx_pf = tx.pf_num();
+        let cts_pf = cts.pf_num();
+        let tx_config = config.tx_config();
+        let cts_config = config.cts_config();
+
+        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
+        let cts = PinBorrow::with_config(cts, cts_pf, cts_config);
+        Self::new_inner(peri, Some(tx), Some(cts), config)
     }
 }
 
@@ -430,12 +442,12 @@ impl<'d, M: Mode> UartTx<'d, M> {
 
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        if let Some(ref tx) = self.tx {
-            tx.update_pf(config.tx_pf());
+        if let Some(ref mut tx) = self.tx {
+            tx.update_config(config.tx_config());
         }
 
-        if let Some(ref cts) = self.cts {
-            cts.update_pf(config.cts_pf());
+        if let Some(ref mut cts) = self.cts {
+            cts.update_config(config.cts_config());
         }
 
         reconfigure(self.info, self.state, config)
@@ -449,8 +461,8 @@ impl<'d, M: Mode> UartTx<'d, M> {
 
 impl<'d, M: Mode> Drop for UartTx<'d, M> {
     fn drop(&mut self) {
-        self.tx.as_ref().map(|x| x.set_as_disconnected());
-        self.cts.as_ref().map(|x| x.set_as_disconnected());
+        // self.tx.as_ref().map(|x| x.set_as_disconnected());
+        // self.cts.as_ref().map(|x| x.set_as_disconnected());
     }
 }
 
@@ -462,14 +474,14 @@ impl<'d> Uart<'d, Blocking> {
         tx: Peri<'d, impl TxPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            peri,
-            new_pin!(rx, config.rx_pf()),
-            new_pin!(tx, config.tx_pf()),
-            None,
-            None,
-            config,
-        )
+        let tx_pf = tx.pf_num();
+        let rx_pf = rx.pf_num();
+        let tx_config = config.tx_config();
+        let rx_config = config.rx_config();
+
+        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
+        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+        Self::new_inner(peri, Some(rx), Some(tx), None, None, config)
     }
 
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
@@ -481,14 +493,20 @@ impl<'d> Uart<'d, Blocking> {
         cts: Peri<'d, impl CtsPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            peri,
-            new_pin!(rx, config.rx_pf()),
-            new_pin!(tx, config.tx_pf()),
-            new_pin!(rts, config.rts_pf()),
-            new_pin!(cts, config.cts_pf()),
-            config,
-        )
+        let tx_pf = tx.pf_num();
+        let rx_pf = rx.pf_num();
+        let cts_pf = cts.pf_num();
+        let rts_pf = rts.pf_num();
+        let tx_config = config.tx_config();
+        let rx_config = config.rx_config();
+        let cts_config = config.cts_config();
+        let rts_config = config.rts_config();
+
+        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
+        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+        let cts = PinBorrow::with_config(cts, cts_pf, cts_config);
+        let rts = PinBorrow::with_config(rts, rts_pf, rts_config);
+        Self::new_inner(peri, Some(rx), Some(tx), Some(rts), Some(cts), config)
     }
 }
 
@@ -597,8 +615,8 @@ impl State {
 impl<'d, M: Mode> UartRx<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rx: Option<PinBorrow<'d>>,
+        rts: Option<PinBorrow<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         let mut this = Self {
@@ -626,8 +644,8 @@ impl<'d, M: Mode> UartRx<'d, M> {
 impl<'d, M: Mode> UartTx<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        tx: Option<Peri<'d, AnyPin>>,
-        cts: Option<Peri<'d, AnyPin>>,
+        tx: Option<PinBorrow<'d>>,
+        cts: Option<PinBorrow<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         let mut this = Self {
@@ -656,10 +674,10 @@ impl<'d, M: Mode> UartTx<'d, M> {
 impl<'d, M: Mode> Uart<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<Peri<'d, AnyPin>>,
-        tx: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
-        cts: Option<Peri<'d, AnyPin>>,
+        rx: Option<PinBorrow<'d>>,
+        tx: Option<PinBorrow<'d>>,
+        rts: Option<PinBorrow<'d>>,
+        cts: Option<PinBorrow<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         let info = T::info();
@@ -709,20 +727,20 @@ impl<'d, M: Mode> Uart<'d, M> {
 }
 
 impl Config {
-    fn tx_pf(&self) -> PfType {
-        PfType::output(self.tx_pull, self.invert_tx)
+    const fn tx_config(&self) -> PinConfig {
+        PinConfig::output(self.tx_pull, self.invert_tx)
     }
 
-    fn rx_pf(&self) -> PfType {
-        PfType::input(self.rx_pull, self.invert_rx)
+    const fn cts_config(&self) -> PinConfig {
+        PinConfig::input(self.cts_pull, self.invert_cts)
     }
 
-    fn rts_pf(&self) -> PfType {
-        PfType::output(self.rts_pull, self.invert_rts)
+    const fn rx_config(&self) -> PinConfig {
+        PinConfig::input(self.rx_pull, self.invert_rx)
     }
 
-    fn cts_pf(&self) -> PfType {
-        PfType::input(self.rts_pull, self.invert_rts)
+    const fn rts_config(&self) -> PinConfig {
+        PinConfig::output(self.rts_pull, self.invert_rts)
     }
 }
 

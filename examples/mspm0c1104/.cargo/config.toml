@@ -8,4 +8,4 @@ target = "thumbv6m-none-eabi"
 [env]
 DEFMT_LOG = "debug"
 # defmt's buffer needs to be shrunk since the MSPM0C1104 only has 1KB of ram.
-DEFMT_RTT_BUFFER_SIZE = "72"
+DEFMT_RTT_BUFFER_SIZE = "64"

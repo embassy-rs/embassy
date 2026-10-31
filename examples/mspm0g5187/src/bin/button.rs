@@ -4,9 +4,14 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_mspm0::Config;
 use embassy_mspm0::gpio::{Input, Level, Output, Pull};
+use embassy_mspm0::peripherals::PA7;
+use embassy_mspm0::{Config, bind_interrupts, gpio};
 use panic_probe as _;
+
+bind_interrupts!(struct Irqs {
+    GROUP1 => gpio::InterruptHandler<PA7>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -18,8 +23,7 @@ async fn main(_spawner: Spawner) -> ! {
     let s2 = p.PA7;
 
     let mut led1 = Output::new(led1, Level::Low);
-
-    let mut s2 = Input::new(s2, Pull::Up);
+    let mut s2 = Input::new(s2, Irqs, Pull::Up);
 
     // led1 is active low
     led1.set_high();

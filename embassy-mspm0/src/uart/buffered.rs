@@ -1,17 +1,16 @@
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
-use core::slice;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use core::task::Poll;
+use core::{mem, slice};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_hal_nb::nb;
-use portable_atomic::AtomicBool;
 
-use crate::gpio::{AnyPin, SealedPin};
+use crate::gpio::PinBorrow;
 use crate::interrupt::typelevel::Binding;
 use crate::pac::uart::Uart as Regs;
 use crate::uart::{Config, ConfigError, CtsPin, Error, Info, Instance, RtsPin, RxPin, State, TxPin};
@@ -54,16 +53,15 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            uart,
-            new_pin!(rx, config.rx_pf()),
-            new_pin!(tx, config.tx_pf()),
-            None,
-            None,
-            tx_buffer,
-            rx_buffer,
-            config,
-        )
+        let tx_pf = tx.pf_num();
+        let rx_pf = rx.pf_num();
+        let tx_config = config.tx_config();
+        let rx_config = config.rx_config();
+
+        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
+        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+
+        Self::new_inner(uart, Some(rx), Some(tx), None, None, tx_buffer, rx_buffer, config)
     }
 
     /// Create a new bidirectional buffered UART with request-to-send and clear-to-send pins
@@ -78,12 +76,26 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
+        let tx_pf = tx.pf_num();
+        let rx_pf = rx.pf_num();
+        let cts_pf = cts.pf_num();
+        let rts_pf = rts.pf_num();
+        let tx_config = config.tx_config();
+        let rx_config = config.rx_config();
+        let cts_config = config.cts_config();
+        let rts_config = config.rts_config();
+
+        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
+        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+        let cts = PinBorrow::with_config(cts, cts_pf, cts_config);
+        let rts = PinBorrow::with_config(rts, rts_pf, rts_config);
+
         Self::new_inner(
             uart,
-            new_pin!(rx, config.rx_pf()),
-            new_pin!(tx, config.tx_pf()),
-            new_pin!(rts, config.rts_pf()),
-            new_pin!(cts, config.cts_pf()),
+            Some(rx),
+            Some(tx),
+            Some(rts),
+            Some(cts),
             tx_buffer,
             rx_buffer,
             config,
@@ -169,22 +181,24 @@ impl<'d> BufferedUart<'d> {
 
     /// Split into separate RX and TX handles.
     pub fn split_ref(&mut self) -> (BufferedUartTx<'_>, BufferedUartRx<'_>) {
-        (
-            BufferedUartTx {
-                info: self.tx.info,
-                state: self.tx.state,
-                tx: self.tx.tx.as_mut().map(Peri::reborrow),
-                cts: self.tx.cts.as_mut().map(Peri::reborrow),
-                reborrowed: true,
-            },
-            BufferedUartRx {
-                info: self.rx.info,
-                state: self.rx.state,
-                rx: self.rx.rx.as_mut().map(Peri::reborrow),
-                rts: self.rx.rts.as_mut().map(Peri::reborrow),
-                reborrowed: true,
-            },
-        )
+        unsafe {
+            (
+                BufferedUartTx {
+                    info: self.tx.info,
+                    state: self.tx.state,
+                    tx: self.tx.tx.as_mut().map(|p| p.clone_unchecked()),
+                    cts: self.tx.cts.as_mut().map(|p| p.clone_unchecked()),
+                    is_borrowed: true,
+                },
+                BufferedUartRx {
+                    info: self.rx.info,
+                    state: self.rx.state,
+                    rx: self.rx.rx.as_mut().map(|p| p.clone_unchecked()),
+                    rts: self.rx.rts.as_mut().map(|p| p.clone_unchecked()),
+                    is_borrowed: true,
+                },
+            )
+        }
     }
 }
 
@@ -195,9 +209,9 @@ impl<'d> BufferedUart<'d> {
 pub struct BufferedUartRx<'d> {
     info: &'static Info,
     state: &'static BufferedState,
-    rx: Option<Peri<'d, AnyPin>>,
-    rts: Option<Peri<'d, AnyPin>>,
-    reborrowed: bool,
+    rx: Option<PinBorrow<'d>>,
+    rts: Option<PinBorrow<'d>>,
+    is_borrowed: bool,
 }
 
 impl SetConfig for BufferedUartRx<'_> {
@@ -220,7 +234,11 @@ impl<'d> BufferedUartRx<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(uart, new_pin!(rx, config.rx_pf()), None, rx_buffer, config)
+        let rx_pf = rx.pf_num();
+        let rx_config = config.rx_config();
+
+        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+        Self::new_inner(uart, Some(rx), None, rx_buffer, config)
     }
 
     /// Create a new rx-only buffered UART with a request-to-send pin
@@ -232,23 +250,25 @@ impl<'d> BufferedUartRx<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            uart,
-            new_pin!(rx, config.rx_pf()),
-            new_pin!(rts, config.rts_pf()),
-            rx_buffer,
-            config,
-        )
+        let rx_pf = rx.pf_num();
+        let rts_pf = rts.pf_num();
+        let rx_config = config.rx_config();
+        let rts_config = config.rts_config();
+
+        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+        let rts = PinBorrow::with_config(rts, rts_pf, rts_config);
+
+        Self::new_inner(uart, Some(rx), Some(rts), rx_buffer, config)
     }
 
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        if let Some(ref rx) = self.rx {
-            rx.update_pf(config.rx_pf());
+        if let Some(ref mut rx) = self.rx {
+            rx.update_config(config.rx_config());
         }
 
-        if let Some(ref rts) = self.rts {
-            rts.update_pf(config.rts_pf());
+        if let Some(ref mut rts) = self.rts {
+            rts.update_config(config.rts_config());
         }
 
         super::reconfigure(&self.info, &self.state.state, config)
@@ -291,7 +311,7 @@ impl<'d> BufferedUartRx<'d> {
 
 impl Drop for BufferedUartRx<'_> {
     fn drop(&mut self) {
-        if !self.reborrowed {
+        if !self.is_borrowed {
             let state = self.state;
 
             // SAFETY: RX is being dropped (and is not reborrowed), so the ring buffer must be deinitialized
@@ -305,9 +325,9 @@ impl Drop for BufferedUartRx<'_> {
             if state.tx_buf.len() == 0 {
                 self.info.interrupt.disable();
             }
-
-            self.rx.as_ref().map(|x| x.set_as_disconnected());
-            self.rts.as_ref().map(|x| x.set_as_disconnected());
+        } else {
+            mem::forget(self.rx.take());
+            mem::forget(self.rts.take());
         }
     }
 }
@@ -319,9 +339,9 @@ impl Drop for BufferedUartRx<'_> {
 pub struct BufferedUartTx<'d> {
     info: &'static Info,
     state: &'static BufferedState,
-    tx: Option<Peri<'d, AnyPin>>,
-    cts: Option<Peri<'d, AnyPin>>,
-    reborrowed: bool,
+    tx: Option<PinBorrow<'d>>,
+    cts: Option<PinBorrow<'d>>,
+    is_borrowed: bool,
 }
 
 impl SetConfig for BufferedUartTx<'_> {
@@ -344,7 +364,12 @@ impl<'d> BufferedUartTx<'d> {
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(uart, new_pin!(tx, config.tx_pf()), None, tx_buffer, config)
+        let tx_pf = tx.pf_num();
+        let tx_config = config.tx_config();
+
+        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
+
+        Self::new_inner(uart, Some(tx), None, tx_buffer, config)
     }
 
     /// Create a new tx-only buffered UART with a clear-to-send pin
@@ -356,23 +381,25 @@ impl<'d> BufferedUartTx<'d> {
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            uart,
-            new_pin!(tx, config.tx_pf()),
-            new_pin!(cts, config.cts_pf()),
-            tx_buffer,
-            config,
-        )
+        let tx_pf = tx.pf_num();
+        let cts_pf = cts.pf_num();
+        let tx_config = config.tx_config();
+        let cts_config = config.cts_config();
+
+        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
+        let cts = PinBorrow::with_config(cts, cts_pf, cts_config);
+
+        Self::new_inner(uart, Some(tx), Some(cts), tx_buffer, config)
     }
 
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        if let Some(ref tx) = self.tx {
-            tx.update_pf(config.tx_pf());
+        if let Some(ref mut tx) = self.tx {
+            tx.update_config(config.tx_config());
         }
 
-        if let Some(ref cts) = self.cts {
-            cts.update_pf(config.cts_pf());
+        if let Some(ref mut cts) = self.cts {
+            cts.update_config(config.cts_config());
         }
 
         super::reconfigure(self.info, &self.state.state, config)
@@ -425,7 +452,7 @@ impl<'d> BufferedUartTx<'d> {
 
 impl Drop for BufferedUartTx<'_> {
     fn drop(&mut self) {
-        if !self.reborrowed {
+        if !self.is_borrowed {
             let state = self.state;
 
             // SAFETY: TX is being dropped (and is not reborrowed), so the ring buffer must be deinitialized
@@ -439,9 +466,9 @@ impl Drop for BufferedUartTx<'_> {
             if state.rx_buf.len() == 0 {
                 self.info.interrupt.disable();
             }
-
-            self.tx.as_ref().map(|x| x.set_as_disconnected());
-            self.cts.as_ref().map(|x| x.set_as_disconnected());
+        } else {
+            mem::forget(self.tx.take());
+            mem::forget(self.cts.take());
         }
     }
 }
@@ -654,10 +681,10 @@ impl BufferedState {
 impl<'d> BufferedUart<'d> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<Peri<'d, AnyPin>>,
-        tx: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
-        cts: Option<Peri<'d, AnyPin>>,
+        rx: Option<PinBorrow<'d>>,
+        tx: Option<PinBorrow<'d>>,
+        rts: Option<PinBorrow<'d>>,
+        cts: Option<PinBorrow<'d>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -671,14 +698,14 @@ impl<'d> BufferedUart<'d> {
                 state,
                 tx,
                 cts,
-                reborrowed: false,
+                is_borrowed: false,
             },
             rx: BufferedUartRx {
                 info,
                 state,
                 rx,
                 rts,
-                reborrowed: false,
+                is_borrowed: false,
             },
         };
         this.enable_and_configure(tx_buffer, rx_buffer, &config)?;
@@ -724,8 +751,8 @@ impl<'d> BufferedUart<'d> {
 impl<'d> BufferedUartRx<'d> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rx: Option<PinBorrow<'d>>,
+        rts: Option<PinBorrow<'d>>,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -734,7 +761,7 @@ impl<'d> BufferedUartRx<'d> {
             state: T::buffered_state(),
             rx,
             rts,
-            reborrowed: false,
+            is_borrowed: false,
         };
         this.enable_and_configure(rx_buffer, &config)?;
 
@@ -909,8 +936,8 @@ impl<'d> BufferedUartRx<'d> {
 impl<'d> BufferedUartTx<'d> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        tx: Option<Peri<'d, AnyPin>>,
-        cts: Option<Peri<'d, AnyPin>>,
+        tx: Option<PinBorrow<'d>>,
+        cts: Option<PinBorrow<'d>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -919,7 +946,7 @@ impl<'d> BufferedUartTx<'d> {
             state: T::buffered_state(),
             tx,
             cts,
-            reborrowed: false,
+            is_borrowed: false,
         };
 
         this.enable_and_configure(tx_buffer, &config)?;
