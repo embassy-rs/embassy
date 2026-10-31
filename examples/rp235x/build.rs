@@ -39,6 +39,9 @@ fn main() {
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
+
+    // Only define `__run_from_ram=1` and link `memory-ram-data.x`
+    // for the blinky_ram bin.
     println!("cargo:rustc-link-arg-bin=blinky_ram=--defsym=__run_from_ram=1");
     println!("cargo:rustc-link-arg-bin=blinky_ram=-Tmemory-ram-data.x");
 }
