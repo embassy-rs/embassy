@@ -1,0 +1,40 @@
+[package]
+name = "embassy-boot-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Coverage-guided fuzzing of the embassy-boot power-fail test (libFuzzer)."
+
+# Not built by cargo embassy-devtool: it needs nightly and libFuzzer. .github/ci/fuzz.sh runs it.
+[package.metadata.embassy]
+skip = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+embassy-boot = { path = ".." }
+embassy-embedded-hal = { path = "../../embassy-embedded-hal" }
+embassy-sync = { path = "../../embassy-sync" }
+embedded-storage = "0.3.1"
+critical-section = { version = "1.1.1", features = ["std"] }
+libfuzzer-sys = "0.4"
+
+[features]
+## Build for flash that erases to 0x00 (embassy-boot's `flash-erase-zero`), like `cargo test --features flash-erase-zero`.
+flash-erase-zero = ["embassy-boot/flash-erase-zero"]
+
+[[bin]]
+name = "power_fail"
+path = "fuzz_targets/power_fail.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "seeds"
+path = "src/bin/seeds.rs"
+test = false
+doc = false
+
+[workspace]
