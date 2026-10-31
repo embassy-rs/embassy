@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- `UAC2`: Add `class::uac::device::uac2::io_box`, a USB Audio Class 2.0 I/O box (line out + line in, explicit feedback, optional feature units with an interrupt endpoint) for high-speed devices
+- `UAC2`: Add `class::uac::device::uac2::io_box`, a USB Audio Class 2.0 I/O box (line out + line in, explicit feedback, optional feature units with an interrupt endpoint), at full or high speed
 - Endpoint `interval_ms` 0 on an interrupt or isochronous endpoint now means every frame: `bInterval` 1 at full speed (was 0, invalid) and every microframe at high speed (was 1 ms)
 - Add `Builder::max_speed()`, so classes can size their endpoints for the speed the descriptors are built for
 - Add USB host support in the `host` module, migrated from `embassy-usb-host` 0.1.0: enumeration, hubs, descriptor parsing, and HID, CDC ACM, CP210x, MSC, MIDI, UAC, CCID and GIP class drivers

@@ -24,10 +24,10 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_usb::Builder;
 use embassy_usb::class::uac::device::SampleWidth;
 use embassy_usb::class::uac::device::uac2::io_box::{self, Channels, FeatureUnitControls, IoBox, State};
 use embassy_usb::driver::EndpointError;
+use embassy_usb::{Builder, UsbDeviceSpeed};
 use heapless::Deque;
 use panic_probe as _;
 
@@ -39,7 +39,9 @@ const RATES: [u32; 2] = [44_100, 48_000];
 const WIDTH: SampleWidth = SampleWidth::Width3Byte;
 const CHANNELS: u8 = 2;
 const FRAME: usize = WIDTH as usize * CHANNELS as usize;
-const MAX_PACKET: usize = io_box::max_packet_size(48_000, WIDTH, CHANNELS as usize);
+const SPEED: UsbDeviceSpeed = UsbDeviceSpeed::High;
+const PACKET_RATE: u32 = io_box::packet_rate_hz(SPEED);
+const MAX_PACKET: usize = io_box::max_packet_size(SPEED, 48_000, WIDTH, CHANNELS as usize);
 /// Feature Unit entries: the master and both channels.
 const FU: usize = 3;
 
@@ -76,6 +78,7 @@ async fn main(_spawner: Spawner) {
     config.manufacturer = Some("Embassy");
     config.product = Some("UAC2 loopback");
     config.serial_number = Some("12345678");
+    config.max_speed = SPEED;
 
     let mut config_descriptor = [0; 512];
     let mut bos_descriptor = [0; 256];
@@ -144,17 +147,19 @@ async fn main(_spawner: Spawner) {
             info!("line in: streaming");
             // frames per microframe: rate / 8000, the remainder carried
             let mut acc = 0u32;
+            // silence until 2 packets are buffered, so that packet size jitter doesn't run the FIFO dry
+            let mut primed = false;
             loop {
                 let rate = control_monitor.sample_rate_hz();
                 acc += rate;
-                let frames = (acc / 8000) as usize;
-                acc %= 8000;
+                let frames = (acc / PACKET_RATE) as usize;
+                acc %= PACKET_RATE;
                 let len = frames * FRAME;
                 fifo.lock(|f| {
                     let mut f = f.borrow_mut();
+                    primed = primed && f.len() >= len || f.len() >= 2 * MAX_PACKET;
                     for b in &mut packet[..len] {
-                        // nothing played (yet): silence
-                        *b = f.pop_front().unwrap_or(0);
+                        *b = if primed { f.pop_front().unwrap_or(0) } else { 0 };
                     }
                 });
                 if line_in.write_packet(&packet[..len]).await.is_err() {
@@ -171,7 +176,7 @@ async fn main(_spawner: Spawner) {
             // samples per microframe, 16.16
             loop {
                 let rate = control_monitor.sample_rate_hz();
-                let value = ((rate as u64) << 16) / 8000;
+                let value = ((rate as u64) << 16) / PACKET_RATE as u64;
                 if feedback.write_packet(value as u32).await.is_err() {
                     break;
                 }

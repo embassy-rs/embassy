@@ -4,8 +4,9 @@
 //! `IO_BOX` category. Both streams are asynchronous: line out reports the device's sample
 //! rate through an explicit feedback endpoint, and line in sizes its packets after it.
 //!
-//! High speed only: one packet per microframe, and the feedback value is 16.16 samples per
-//! microframe.
+//! It works at full and high speed, whichever [`Config::max_speed`](crate::Config::max_speed)
+//! builds the descriptors for: one packet per frame (1 ms) at full speed, one per microframe
+//! (125 µs) at high speed.
 //!
 //! ```text
 //! CLOCK_SOURCE (internal programmable)
@@ -17,8 +18,11 @@
 //! Both directions share one clock, so macOS groups them into one device. The clock selector
 //! is for Linux, which otherwise doesn't start the feedback endpoint.
 //!
-//! Each direction has any number of channels the bandwidth allows: one packet of up to 1024
-//! bytes per microframe, so for example 13 channels of 24-bit audio at 192 kHz, 26 at 96 kHz.
+//! Each direction has any number of channels the bandwidth allows. At high speed that's one
+//! packet of up to 1024 bytes per microframe, so for example 13 channels of 24-bit audio at
+//! 192 kHz, 26 at 96 kHz. At full speed it's one packet of up to 1023 bytes per frame, and all
+//! periodic endpoints share 90 % of a frame (1350 bytes), so for example stereo 24-bit audio at
+//! 96 kHz both ways.
 //! The channels are either numbered ([`Channels::Numbered`], the usual choice for an
 //! interface's inputs and outputs) or speaker positions ([`Channels::Spatial`]).
 //!
@@ -31,10 +35,12 @@
 //! ```rust,ignore
 //! use embassy_usb::class::uac::device::SampleWidth;
 //! use embassy_usb::class::uac::device::uac2::io_box::{self, Channels, Config, FeatureUnitControls, IoBox, State};
+//! use embassy_usb::UsbDeviceSpeed;
 //!
 //! const RATES: [u32; 2] = [48_000, 96_000];
+//! const SPEED: UsbDeviceSpeed = UsbDeviceSpeed::High;
 //! // the stream buffers: frames of one microframe at 96 kHz, plus one, 6 bytes each
-//! const MAX_PACKET: usize = io_box::max_packet_size(96_000, SampleWidth::Width3Byte, 2);
+//! const MAX_PACKET: usize = io_box::max_packet_size(SPEED, 96_000, SampleWidth::Width3Byte, 2);
 //!
 //! // room for the Feature Unit: the master and two channels
 //! let mut config = Config::<3>::new(&RATES, SampleWidth::Width3Byte, Channels::Numbered(2), Channels::Numbered(2));
@@ -44,9 +50,9 @@
 //!
 //! // each in its own task, after `wait_connection()`:
 //! let n = io.line_out.read_packet(&mut buf).await?; // what the host plays
-//! io.line_in.write_packet(&frames).await?; // what the device records, one microframe's worth
-//! // the device's sample rate, 16.16 samples per microframe, every microframe or so
-//! io.feedback.write_packet((((rate_hz as u64) << 16) / 8000) as u32).await?;
+//! io.line_in.write_packet(&frames).await?; // what the device records, one packet's worth
+//! // the device's sample rate, 16.16 samples per packet, every packet or so
+//! io.feedback.write_packet((((rate_hz as u64) << 16) / io_box::packet_rate_hz(SPEED) as u64) as u32).await?;
 //!
 //! // the rate the host selected, and the first output's volume
 //! let hz = io.control_monitor.sample_rate_hz();
@@ -78,7 +84,7 @@ use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestT
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler};
+use crate::{Builder, Handler, UsbDeviceSpeed};
 
 const CLOCK_SOURCE_ID: u8 = 0x01;
 const CLOCK_SELECTOR_ID: u8 = 0x02;
@@ -111,8 +117,14 @@ const VOLUME_SILENCE_8Q8_DB: i16 = i16::MIN;
 
 const MAX_SAMPLE_RATE_COUNT: usize = 10;
 
-/// The isochronous packet limit at high speed (one transaction per microframe).
-const MAX_ISO_PACKET_SIZE: usize = 1024;
+/// The isochronous packet limit: 1023 bytes at full speed, 1024 at high speed (one
+/// transaction per microframe).
+const fn max_iso_packet_size(speed: UsbDeviceSpeed) -> usize {
+    match speed {
+        UsbDeviceSpeed::Full => 1023,
+        UsbDeviceSpeed::High => 1024,
+    }
+}
 
 /// A class-specific descriptor's body: bLength is a byte, and covers itself and bDescriptorType.
 const MAX_DESCRIPTOR_BODY: usize = 255 - 2;
@@ -146,10 +158,24 @@ impl Channels<'_> {
     }
 }
 
-/// The isochronous packet size a direction needs: the frames of one microframe at the highest
+/// Packets per second on each streaming endpoint: one per frame at full speed, one per
+/// microframe at high speed.
+pub const fn packet_rate_hz(speed: UsbDeviceSpeed) -> u32 {
+    match speed {
+        UsbDeviceSpeed::Full => 1000,
+        UsbDeviceSpeed::High => 8000,
+    }
+}
+
+/// The isochronous packet size a direction needs: the audio frames of one packet at the highest
 /// rate, plus one for the rate to drift, times the frame size. Size the stream buffers with it.
-pub const fn max_packet_size(max_rate_hz: u32, sample_width: SampleWidth, channels: usize) -> usize {
-    (max_rate_hz.div_ceil(8000) as usize + 1) * sample_width as usize * channels
+pub const fn max_packet_size(
+    speed: UsbDeviceSpeed,
+    max_rate_hz: u32,
+    sample_width: SampleWidth,
+    channels: usize,
+) -> usize {
+    (max_rate_hz.div_ceil(packet_rate_hz(speed)) as usize + 1) * sample_width as usize * channels
 }
 
 /// The volume range a Feature Unit advertises, in whole dB.
@@ -282,9 +308,10 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
     /// # Panics
     ///
     /// If there is no sample rate or more than ten, no channel in a direction, a direction
-    /// whose packets ([`max_packet_size`]) exceed the 1024-byte isochronous limit, a nonempty
-    /// feature unit without one entry for the master and each channel, or with more than 62,
-    /// unsupported control bits, or a `control_buf` too small for the sample rate list.
+    /// whose packets ([`max_packet_size`]) exceed the isochronous limit (1023 bytes at full
+    /// speed, 1024 at high speed), a nonempty feature unit without one entry for the master and
+    /// each channel, or with more than 62, unsupported control bits, or a `control_buf` too
+    /// small for the sample rate list.
     pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d, N>, config: Config<'d, N>) -> Self {
         let Config {
             sample_rates_hz,
@@ -302,6 +329,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
             (1..=MAX_SAMPLE_RATE_COUNT).contains(&sample_rates_hz.len()),
             "between one and ten sample rates"
         );
+        let speed = builder.max_speed();
         let max_rate_hz = sample_rates_hz.iter().copied().max().unwrap_or(0);
         for (channels, feature_unit) in [
             (line_out_channels, &line_out_feature_unit),
@@ -309,8 +337,8 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         ] {
             assert!(channels.count() > 0, "at least one channel");
             assert!(
-                max_packet_size(max_rate_hz, sample_width, channels.count()) <= MAX_ISO_PACKET_SIZE,
-                "the channels don't fit a 1024-byte isochronous packet at the highest rate"
+                max_packet_size(speed, max_rate_hz, sample_width, channels.count()) <= max_iso_packet_size(speed),
+                "the channels don't fit an isochronous packet at the highest rate"
             );
             assert!(
                 feature_unit.is_empty() || feature_unit.len() == channels.count() + 1,
@@ -333,8 +361,10 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
                 "a volume range needs min < max and a positive step"
             );
         }
-        let line_out_max_packet_size = max_packet_size(max_rate_hz, sample_width, line_out_channels.count()) as u16;
-        let line_in_max_packet_size = max_packet_size(max_rate_hz, sample_width, line_in_channels.count()) as u16;
+        let line_out_max_packet_size =
+            max_packet_size(speed, max_rate_hz, sample_width, line_out_channels.count()) as u16;
+        let line_in_max_packet_size =
+            max_packet_size(speed, max_rate_hz, sample_width, line_in_channels.count()) as u16;
         assert!(
             builder.control_buf_len() >= 2 + 12 * sample_rates_hz.len(),
             "control_buf too small for the sample rate RANGE reply"
@@ -452,7 +482,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         );
         out_alt.descriptor(descriptor_type::CS_INTERFACE, &format_type_i(sample_width));
 
-        // Every microframe.
+        // Every frame or microframe.
         let out_ep = out_alt.alloc_endpoint_out(EndpointType::Isochronous, None, line_out_max_packet_size, 0);
         // Allocated before the feedback endpoint, so that drivers allocating in order don't
         // give the feedback endpoint line out's endpoint number.
@@ -466,7 +496,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         );
         out_alt.descriptor(descriptor_type::CS_ENDPOINT, &iso_data_endpoint());
 
-        let feedback_ep = out_alt.alloc_endpoint_in(EndpointType::Isochronous, None, 4, 1);
+        let feedback_ep = out_alt.alloc_endpoint_in(EndpointType::Isochronous, None, feedback_len(speed) as u16, 1);
         out_alt.endpoint_descriptor(
             feedback_ep.info(),
             SynchronizationType::NoSynchronization,
@@ -530,7 +560,10 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         Self {
             line_out: LineOutStream { ep: out_ep },
             line_in: LineInStream { ep: in_ep },
-            feedback: Feedback { ep: feedback_ep },
+            feedback: Feedback {
+                ep: feedback_ep,
+                len: feedback_len(speed),
+            },
             interrupt: interrupt_ep.map(|ep| Interrupt {
                 ep,
                 shared: &state.shared,
@@ -637,6 +670,14 @@ fn format_type_i(sample_width: SampleWidth) -> [u8; 4] {
     ]
 }
 
+/// The feedback value's size: 10.14 in 3 bytes at full speed, 16.16 in 4 at high speed.
+const fn feedback_len(speed: UsbDeviceSpeed) -> usize {
+    match speed {
+        UsbDeviceSpeed::Full => 3,
+        UsbDeviceSpeed::High => 4,
+    }
+}
+
 /// Lock delay of 8 samples.
 fn iso_data_endpoint() -> [u8; 6] {
     [endpoint_descriptor::EP_GENERAL, 0x00, 0x00, 0x02, 0x08, 0x00]
@@ -686,18 +727,23 @@ impl<'d, D: Driver<'d>> LineInStream<'d, D> {
     }
 }
 
-/// Line out's explicit feedback endpoint: 16.16 samples per microframe.
+/// Line out's explicit feedback endpoint: the device's sample rate in samples per packet
+/// ([`packet_rate_hz`]).
 ///
 /// Write it with [`Self::write_packet`], or from the SOF interrupt through
-/// [`Self::endpoint_index`] if the driver supports that.
+/// [`Self::endpoint_index`] if the driver supports that. There the value goes on the wire as
+/// is: 16.16 in 4 bytes at high speed, 10.14 in 3 bytes at full speed.
 pub struct Feedback<'d, D: Driver<'d>> {
     ep: D::EndpointIn,
+    len: usize,
 }
 
 impl<'d, D: Driver<'d>> Feedback<'d, D> {
-    /// Writes one feedback value.
+    /// Writes one feedback value: 16.16 samples per packet, at either speed. At full speed it is
+    /// sent as 10.14.
     pub async fn write_packet(&mut self, value: u32) -> Result<(), EndpointError> {
-        self.ep.write(&value.to_le_bytes()).await
+        let value = if self.len == 3 { value >> 2 } else { value };
+        self.ep.write(&value.to_le_bytes()[..self.len]).await
     }
 
     /// Waits for the host to select line out's streaming alternate setting.
