@@ -396,7 +396,7 @@ impl<'d> Pdm<'d> {
         let drop = OnDrop::new(move || {
             r.tasks_stop().write_value(1);
             // N.B. It would be better if this were async, but Drop only support sync code
-            while r.events_stopped().read() != 0 {}
+            while r.events_stopped().read() == 0 {}
         });
 
         let state = self.state;
