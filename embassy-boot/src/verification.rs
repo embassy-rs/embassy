@@ -83,7 +83,7 @@ pub trait VerifyingKey: sealed::Sealed {
 }
 
 macro_rules! impl_signature_p {
-    ($(($t:ident, $n: literal)),*) => {$(
+    ($($t:ident),*) => {$(
         impl Signature for embassy_crypto::$t::Signature {
             const SIGNATURE_SIZE: usize = <embassy_crypto::$t::Signature>::SIGNATURE_SIZE;
             fn from_bytes(b: &[u8]) -> Result<embassy_crypto::$t::Signature, embassy_crypto::Error>  {
@@ -104,7 +104,7 @@ macro_rules! impl_signature_p {
     )*};
 }
 
-impl_signature_p!((p256, 32), (p384, 48));
+impl_signature_p!(p256, p384);
 
 impl sealed::Sealed for embassy_crypto::ed25519::Signature {}
 impl Signature for embassy_crypto::ed25519::Signature {
