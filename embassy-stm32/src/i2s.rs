@@ -647,7 +647,10 @@ impl<'d, W: Word> I2S<'d, W> {
     ) -> Self {
         let spi = Spi::new_internal(peri, None, None, {
             let mut spi_config = SpiConfig::default();
-            spi_config.frequency = config.frequency;
+            // The bit clock comes from I2SDIV and ODD below; the SPI baud rate divider is unused.
+            // Request the kernel clock, which the SPI always accepts. The sample rate would be
+            // rejected as too low whenever the kernel clock exceeds 256 times it.
+            spi_config.frequency = T::frequency();
             spi_config
         });
 
