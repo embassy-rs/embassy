@@ -403,25 +403,34 @@ impl Driver for RtcDriver {
         // a whole period in the past, causing time to go backwards, and any
         // `Instant::duration_since` spanning that window panics.
         critical_section::with(|_| {
-            // RM0456 says: "When the LPTIM is running, reading the LPTIM_CNT register may return
-            // unreliable values. In this case it is necessary to perform consecutive reads until
-            // two returned values are identical."
-            let mut counter = r.cnt().read().cnt();
             loop {
-                let again = r.cnt().read().cnt();
-                if again == counter {
-                    break;
+                // With the period-incrementing, a pending update event unambiguously means
+                // the counter has wrapped and `next_period` has not yet accounted for it. NB: we DO
+                // NOT clear the ue bit, that (and consequently incrementing self.period) is for the
+                // ISR to do once we release this CS.
+                //
+                // The CS masks the interrupt but not the flag: the counter can still wrap between
+                // reading LPTIM_CNT and LPTIM_ISR, pairing 0xFFFF with a pending update event, a
+                // whole period in the future. Sample the flag on both sides and retry if it changed.
+                let pending = r.isr().read().ue();
+
+                // RM0456 says: "When the LPTIM is running, reading the LPTIM_CNT register may return
+                // unreliable values. In this case it is necessary to perform consecutive reads until
+                // two returned values are identical."
+                let mut counter = r.cnt().read().cnt();
+                loop {
+                    let again = r.cnt().read().cnt();
+                    if again == counter {
+                        break;
+                    }
+                    counter = again;
                 }
-                counter = again;
+
+                if r.isr().read().ue() == pending {
+                    let period = self.period.load(Ordering::Relaxed) + pending as u32;
+                    break ((period as u64) << 16) + counter as u64;
+                }
             }
-
-            // With the period-incrementing, a pending update event unambiguously means
-            // the counter has wrapped and `next_period` has not yet accounted for it. NB: we DO
-            // NOT clear the ue bit, that (and consequently incrementing self.period) is for the
-            // ISR to do once we release this CS.
-            let period = self.period.load(Ordering::Relaxed) + r.isr().read().ue() as u32;
-
-            ((period as u64) << 16) + counter as u64
         })
     }
 
