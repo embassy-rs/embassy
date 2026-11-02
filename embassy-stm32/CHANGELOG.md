@@ -20,6 +20,7 @@ Time driver:
 
 I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
+- fix: stm32/i2c v2: a blocking controller transfer that times out (e.g. SCL held low by the target) now resets the peripheral (PE toggle, as for BERR/ARLO) instead of requesting STOP and abandoning the transfer. The abandoned transfer's NACKF/STOPF arrived later and the next call returned them after it had started its own transfer, which then ran unserved, so every later blocking transfer timed out until PE was toggled by hand.
 
 USART:
 - fix: stm32/usart: `BufferedUartTx::flush` could return before the last bytes left the UART when a write wrapped around the end of the TX buffer. The TC interrupt now reports done only when the TX buffer is empty, and every write pends the interrupt.
