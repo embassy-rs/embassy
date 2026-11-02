@@ -2,6 +2,7 @@
 #![no_main]
 
 teleprobe_meta::target!(b"frdm-mcx-a266");
+teleprobe_meta::timeout!(30);
 
 use defmt_rtt as _;
 use embassy_executor::Spawner;
