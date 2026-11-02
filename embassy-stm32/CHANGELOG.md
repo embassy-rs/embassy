@@ -24,6 +24,7 @@ I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
 - fix: stm32/i2c v2: a blocking controller transfer that times out (e.g. SCL held low by the target) now resets the peripheral (PE toggle, as for BERR/ARLO) instead of requesting STOP and abandoning the transfer. The abandoned transfer's NACKF/STOPF arrived later and the next call returned them after it had started its own transfer, which then ran unserved, so every later blocking transfer timed out until PE was toggled by hand.
 - fix: stm32/i2c v2: an async slave `respond_to_write` that received more than its buffer holds timed out while discarding the extra bytes, because nothing woke it for them, and could leave the last one in RXDR. It now wakes on every byte and reads a byte that arrived with the STOP.
+- fix: stm32/i2c v2: the async master and slave transfers of a driver from `I2c::new_no_dma` panicked on `Option::unwrap()` for its missing DMA channel whenever they moved data. They now move each byte on the TXIS/RXNE interrupt. v1 still panics.
 
 USART:
 - fix: stm32/usart: `BufferedUartTx::flush` could return before the last bytes left the UART when a write wrapped around the end of the TX buffer. The TC interrupt now reports done only when the TX buffer is empty, and every write pends the interrupt.
