@@ -218,7 +218,6 @@ impl<'d> Pdm<'d> {
             r.sample().maxcnt().write(|w| w.set_buffsize(DUMMY_BUFFER.len() as _));
 
             r.tasks_stop().write_value(1);
-            // N.B. It would be better if this were async, but Drop only support sync code
             while r.events_stopped().read() == 0 {}
 
             // Sampling is over, so `sample` must not find it still marked as running.
