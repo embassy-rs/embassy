@@ -44,6 +44,10 @@ use critical_section::CriticalSection;
 use crate::pac;
 
 pub mod config;
+#[cfg(any(mcxa_eim0, mcxa_erm0))]
+pub(crate) mod ecc;
+#[cfg(any(mcxa_eim0, mcxa_erm0))]
+pub(crate) use ecc::enable_ecc_ram_a_clock;
 mod gate;
 mod operator;
 pub mod periph_helpers;
