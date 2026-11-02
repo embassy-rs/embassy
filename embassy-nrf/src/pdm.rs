@@ -302,7 +302,7 @@ impl<'d> Pdm<'d> {
         });
 
         // setup user buffer
-        set_buffer(self.r, buffer.as_ptr(), buffer.len());
+        set_buffer(self.r, buffer.as_mut_ptr(), buffer.len());
 
         // wait till the current sample is finished and the user buffer sample is started
         self.wait_for_sample().await;
@@ -370,7 +370,7 @@ impl<'d> Pdm<'d> {
             return Err(Error::AlreadyRunning);
         }
 
-        set_buffer(self.r, bufs[0].as_ptr(), N);
+        set_buffer(self.r, bufs[0].as_mut_ptr(), N);
 
         // Reset and enable the events
         self.r.events_end().write_value(0);
