@@ -49,6 +49,8 @@ pub(crate) mod ecc;
 #[cfg(any(mcxa_eim0, mcxa_erm0))]
 pub(crate) use ecc::enable_ecc_ram_a_clock;
 mod gate;
+#[cfg(mcxa_gdet)]
+mod gdet;
 mod operator;
 pub mod periph_helpers;
 mod sleep;
@@ -58,6 +60,8 @@ mod types;
 pub use config::VddLevel;
 pub(crate) use gate::default_register_value;
 pub use gate::{Gate, assert_reset, disable, enable, enable_and_reset, is_reset_released, pulse_reset, release_reset};
+#[cfg(mcxa_gdet)]
+pub(crate) use gdet::gdet_access_ready;
 pub use sleep::deep_sleep_if_possible;
 pub use types::{Clock, ClockError, Clocks, PoweredClock, WakeGuard};
 

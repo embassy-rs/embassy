@@ -55,6 +55,8 @@ pub mod flexcan;
 pub mod flexspi;
 #[cfg(mcxa_freqme)]
 pub mod freqme;
+#[cfg(mcxa_gdet)]
+pub mod gdet;
 #[cfg(mcxa_gpio)]
 pub mod gpio;
 #[cfg(mcxa_lpi2c)]

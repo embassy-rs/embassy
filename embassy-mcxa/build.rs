@@ -118,6 +118,16 @@ fn generate_peripherals_call() -> TokenStream {
             .map(|peripheral| Singleton::just_name(peripheral.name)),
     );
 
+    // Narrow ownership of the digital detector's control register in SECCON.
+    if METADATA
+        .peripherals
+        .iter()
+        .any(|peripheral| peripheral.name == "DGDET0")
+        && !singletons.iter().any(|singleton| singleton.name == "GDET0_CTRL")
+    {
+        singletons.push(Singleton::just_name("GDET0_CTRL"));
+    }
+
     // Add DMA channels
     for (dma_num, dma_peripheral) in METADATA
         .peripherals
