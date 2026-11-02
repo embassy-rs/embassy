@@ -8,6 +8,7 @@ use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usart::{Config, Error, Uart};
+use embassy_time::{Duration, with_timeout};
 
 #[cfg_attr(
     feature = "stop",
@@ -68,6 +69,36 @@ async fn main(_spawner: Spawner) {
     }
 
     defmt::assert!(noise_count < 3);
+
+    // A read running alongside a write must not swallow the transmission complete the write's
+    // `flush` waits for. The first flush completes while the read still waits for the second half.
+    for n in 0..8 {
+        for i in 0..LEN {
+            tx_buf[i] = (i ^ n) as u8;
+        }
+        let tx_fut = async {
+            let (first, second) = tx_buf.split_at(LEN / 2);
+            tx.write(first).await.unwrap();
+            tx.flush().await.unwrap();
+            tx.write(second).await.unwrap();
+            tx.flush().await.unwrap();
+        };
+        let mut is_noisy = false;
+        let rx_fut = async {
+            match rx.read(&mut rx_buf).await {
+                Ok(()) => {}
+                Err(Error::Noise) => is_noisy = true,
+                _ => defmt::panic!(),
+            }
+        };
+        defmt::unwrap!(
+            with_timeout(Duration::from_secs(1), join(rx_fut, tx_fut)).await,
+            "flush hung while a read ran"
+        );
+        if !is_noisy {
+            assert_eq!(tx_buf, rx_buf);
+        }
+    }
 
     // Test flush doesn't hang. Check multiple combinations of async+blocking.
     tx.write(&tx_buf).await.unwrap();
