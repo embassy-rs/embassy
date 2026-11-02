@@ -10,6 +10,7 @@
 - [x] CRC
 - [x] TRNG blocking/async reads, mixed-mode calls, and stale-IRQ rejection
 - [x] Watchdog
+- [x] RTC datetime readback, free-running rollover, resetting a running counter, and repeated async alarms (no wiring)
 - [ ] Flash
 - [x] CTimer PWM
 - [x] CTimer capture
@@ -36,3 +37,13 @@
   - `MOSI`/`SDO`: `P1_0` -> `P3_8`
 
 That's 9 wire connections in total.
+
+## RTC
+
+The tests in this crate target MCXA266 only. Build the RTC regression with
+`cargo build --release --bin rtc_alarm`, then run it with
+`teleprobe local run --chip MCXA266 --probe <probe-serial> --protocol swd --elf target/thumbv8m.main-none-eabihf/release/rtc_alarm`.
+
+MCXA287 uses the MCXA5-family calendar RTC, not this crate's seconds-counter RTC.
+Its RTC rollover and repeated-alarm checks live in
+`examples/mcxa287/src/bin/rtc-alarm.rs`.
