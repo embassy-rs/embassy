@@ -31,18 +31,6 @@ fn regs_lptim() -> Lptim {
 // instead of Icr/Ier. The compare register also changes from a single `cmp()`
 // to an indexed `ccr(n)`.
 
-/// Read the interrupt enable register value as a raw u32.
-fn ier_read(r: Lptim) -> u32 {
-    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
-    {
-        r.ier().read().0
-    }
-    #[cfg(any(stm32wba, stm32u5, stm32u3))]
-    {
-        r.dier().read().0
-    }
-}
-
 /// Check if the compare-capture interrupt is enabled for channel `n`.
 fn ier_ccie(r: Lptim, n: usize) -> bool {
     #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
@@ -241,10 +229,10 @@ impl RtcDriver {
 
         critical_section::with(|cs| {
             let sr = r.isr().read();
-            let ier = ier_read(r);
 
-            // Clear all interrupt flags. Bits in ICR are "write 1 to clear"
-            icr_write_raw(r, ier);
+            // Clear the flags read, and only those. Bits in ICR are "write 1 to clear". A flag set
+            // since the read stays set and enters this handler again: clearing it here would lose
+            // it, and a lost UE loses a counter period.
             icr_write_raw(r, sr.0);
 
             // Overflow
