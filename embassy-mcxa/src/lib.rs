@@ -43,6 +43,10 @@ pub mod ctimer;
 pub mod dac;
 #[cfg(mcxa_dma)]
 pub mod dma;
+#[cfg(mcxa_eim0)]
+pub mod eim;
+#[cfg(mcxa_erm0)]
+pub mod erm;
 #[cfg(feature = "executor-platform")]
 pub mod executor;
 #[cfg(mcxa_can)]
@@ -51,6 +55,8 @@ pub mod flexcan;
 pub mod flexspi;
 #[cfg(mcxa_freqme)]
 pub mod freqme;
+#[cfg(mcxa_gdet)]
+pub mod gdet;
 #[cfg(mcxa_gpio)]
 pub mod gpio;
 #[cfg(mcxa_lpi2c)]
