@@ -29,3 +29,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Add inherent async `read`, `write`, `flush`, `fill_buf`, `consume` and `read_ready` methods to `BufferedUart`, `BufferedUartRx`, `BufferedUartTx`
 - fix: `embedded_hal_nb::serial::Read` for `BufferedUart`/`BufferedUartRx` reads from the RX buffer instead of the hardware FIFO
 - fix: `BufferedUart`/`BufferedUartTx` `flush` and `blocking_flush` wait until the last byte has been transmitted, not just until the TX buffer is empty
+- feat: Add `adc::TempSenseChannel` and `factoryregion::read_temp_calibration_constant()` for the internal temperature sensor
