@@ -42,8 +42,7 @@ impl MetadataRef {
     /// Get this task's name
     ///
     /// Tasks declared with `#[task]` default to their function name, or to the macro's
-    /// `name = "..."` argument. These defaults are NUL-terminated (`"mytask\0"`).
-    /// [`set_name`](Self::set_name) replaces the default with the name given, verbatim.
+    /// `name = "..."` argument. [`set_name`](Self::set_name) replaces the default.
     ///
     /// `None` only for tasks spawned without the macros.
     ///
@@ -54,9 +53,6 @@ impl MetadataRef {
     }
 
     /// Set this task's name, replacing the default from `#[task]` or `#[main]`.
-    ///
-    /// The name is stored as given. The macro defaults are NUL-terminated for C trace
-    /// backends (see [`name`](Self::name)).
     ///
     /// NOTE: this takes a critical section.
     #[cfg(feature = "metadata-name")]

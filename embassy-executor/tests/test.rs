@@ -359,11 +359,11 @@ fn task_metadata() {
 
     // check the default task name
     let (executor, _) = setup();
-    executor.spawner().spawn(task1(Some("task1\0")).unwrap());
+    executor.spawner().spawn(task1(Some("task1")).unwrap());
     unsafe { executor.poll() };
 
     // check the `name` argument
-    executor.spawner().spawn(task2(Some("custom\0")).unwrap());
+    executor.spawner().spawn(task2(Some("custom")).unwrap());
     unsafe { executor.poll() };
 
     // check setting task name
@@ -379,6 +379,6 @@ fn task_metadata() {
 
     // check the name goes back to the default if the task pool slot is recycled.
     let (executor, _) = setup();
-    executor.spawner().spawn(task1(Some("task1\0")).unwrap());
+    executor.spawner().spawn(task1(Some("task1")).unwrap());
     unsafe { executor.poll() };
 }

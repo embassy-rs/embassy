@@ -18,8 +18,7 @@ use macros::*;
 /// * The optional `pool_size` attribute must be 1 or greater.
 ///
 /// With the `metadata-name` feature, the task is named after the function, or after the optional
-/// `name` argument. The name is NUL-terminated (`"mytask\0"`). See `MetadataRef::set_name` to
-/// replace it at runtime.
+/// `name` argument. See `MetadataRef::set_name` to replace it at runtime.
 ///
 /// ## Examples
 ///
@@ -42,7 +41,7 @@ use macros::*;
 /// ```
 ///
 /// Declaring a task with an explicit name. With the `metadata-name` feature it is named
-/// `"blinker\0"`; without it, the argument is ignored:
+/// `"blinker"`; without it, the argument is ignored:
 ///
 /// ``` rust
 /// #[embassy_executor::task(name = "blinker")]

@@ -252,7 +252,6 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     // afterwards overrides it.
     if cfg!(feature = "metadata-name") {
         let name = task_name.unwrap_or_else(|| task_ident.to_string());
-        let name = format!("{name}\0");
         task_outer_body = quote! {
             let token = { #task_outer_body }?;
             token.metadata().set_name(#name);
