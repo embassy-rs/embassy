@@ -7,8 +7,8 @@ external assembler executable, runtime parser, or assembler allocation on the MC
 
 The macros currently produce **unloaded program descriptions only**. They do not
 reserve SRAM, configure pins, initialize a stack, launch SmartDMA, or provide
-completion/cancellation. No emitted program has yet been executed on MCXA
-hardware. Encodings do not prove memory safety or waveform timing: SmartDMA is
+completion/cancellation. The HAL's separate `smartdma-waveform` examples exercise
+loading and execution. Encodings do not prove memory safety or waveform timing: SmartDMA is
 an independent bus master, not an RP PIO-style memory sandbox.
 
 ## Inline and file-based source

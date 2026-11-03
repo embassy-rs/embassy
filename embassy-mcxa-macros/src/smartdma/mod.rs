@@ -87,11 +87,15 @@ pub(super) fn expand(input: TokenStream, from_file: bool) -> syn::Result<TokenSt
         .map(|(name, offset)| quote!(#program_path::Entry::new(#name, #offset)));
     Ok(quote! {{
         #dependency
-        #program_path::Program::from_parts(
+        // Force constant evaluation even when the invocation is used in a
+        // runtime `let`: arrays containing const-constructor calls otherwise
+        // need not be promoted to the static lifetime required by Program.
+        const PROGRAM: #program_path::Program = #program_path::Program::from_parts(
             #program_path::Isa::EzhB,
             &[#(#words),*],
             &[#(#entries),*],
             &[#(#relocations),*],
-        )
+        );
+        PROGRAM
     }})
 }
