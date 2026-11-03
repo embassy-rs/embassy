@@ -14,6 +14,9 @@ pub struct Hsi48Config {
     /// Enable CRS Sync from USB Start Of Frame (SOF) events.
     /// Required if HSI48 is going to be used as USB clock.
     ///
+    /// On STM32H7 the CRS syncs to OTG_HS here; the OTG driver switches it to OTG_FS when
+    /// that port is the one started.
+    ///
     /// Other use cases of CRS are not supported yet.
     pub sync_from_usb: bool,
 }

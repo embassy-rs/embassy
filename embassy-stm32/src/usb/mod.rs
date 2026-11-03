@@ -63,6 +63,8 @@ fn common_init<T: Instance>() {
 
         // Wait for USB power to stabilize
         while !crate::pac::PWR.cr3().read().usb33rdy() {}
+
+        crs_sync_from::<T>();
     }
 
     #[cfg(stm32h7rs)]
@@ -163,4 +165,35 @@ fn common_init<T: Instance>() {
     unsafe { T::Interrupt::enable() };
 
     rcc::enable_and_reset::<T>();
+}
+
+/// H7: point the CRS at this port's start-of-frame packets.
+///
+/// `Hsi48Config::sync_from_usb` selects `Syncsrc::Usb` (0b10), which is OTG_HS (USB1) only.
+/// OTG_FS (USB2) is 0b11: RM0433 table 98 has USB1 SOF on crs_sync2 and USB2 SOF on
+/// crs_sync3, though 9.8.2 lists 0b11 as reserved. Measured on an STM32H753: with 0b10 and
+/// OTG_FS no SYNC ever arrives and HSI48 stays untrimmed; with 0b11 the CRS locks.
+/// Only a CRS left by `sync_from_usb` is changed, so the first port started wins.
+#[cfg(stm32h7)]
+fn crs_sync_from<T: Instance>() {
+    use crate::pac::CRS;
+    use crate::pac::crs::vals::Syncsrc;
+
+    let src = if T::HIGH_SPEED {
+        Syncsrc::Usb
+    } else {
+        Syncsrc::from_bits(0b11)
+    };
+    critical_section::with(|_| {
+        if !crate::pac::RCC.apb1henr().read().crsen()
+            || !CRS.cr().read().cen()
+            || CRS.cfgr().read().syncsrc() != Syncsrc::Usb
+        {
+            return;
+        }
+        // CRS_CFGR is write-protected while CEN is set (RM0433 9.8.2).
+        CRS.cr().modify(|w| w.set_cen(false));
+        CRS.cfgr().modify(|w| w.set_syncsrc(src));
+        CRS.cr().modify(|w| w.set_cen(true));
+    });
 }
