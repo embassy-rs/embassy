@@ -13,6 +13,8 @@ fn main() {
         .unwrap();
 
     println!("cargo:rustc-link-search={}", out.display());
+    // CI overrides target rustflags, so required linker scripts belong here.
+    println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
     println!("cargo:rerun-if-changed=memory.x");
     std::fs::write(out.join("ecc-scratch.x"), include_bytes!("ecc-scratch.x")).unwrap();
     println!("cargo:rerun-if-changed=ecc-scratch.x");
