@@ -44,7 +44,9 @@ use stm32wb_hci::aci::general::AciWriteConfigData;
 use stm32wb_hci::aci::ranges::Passkey;
 /// The ACI value types the security manager shares with its callers.
 pub use stm32wb_hci::aci::values::AddressType as IdentityAddressType;
-use stm32wb_hci::aci::values::{AddDevicesMode, AddressType, AuthorizationResponse, ConfigDataOffset, UseFixedPin};
+use stm32wb_hci::aci::values::{
+    AddDevicesMode, AddressType, AuthorizationResponse, ConfigDataOffset, MitmMode, UseFixedPin,
+};
 pub use stm32wb_hci::aci::values::{
     IoCapability, PairingFailureReason, PairingStatus, PasskeyInputType, ScSupport as SecureConnectionsSupport,
 };
@@ -396,7 +398,11 @@ impl SecurityManager {
         // the deprecated fixed-PIN pairing, not enable it with PIN 000000.
         GapSetAuthenticationRequirement::new(
             params.bonding_mode == BondingMode::Bonding,
-            params.mitm_protection,
+            if params.mitm_protection {
+                MitmMode::Required
+            } else {
+                MitmMode::NotRequired
+            },
             params.secure_connections,
             params.keypress_notification,
             params.min_encryption_key_size,

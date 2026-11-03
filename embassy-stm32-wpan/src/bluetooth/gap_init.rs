@@ -15,7 +15,7 @@ use stm32wb_hci::aci::general::{AciReadConfigData, AciWriteConfigData};
 use stm32wb_hci::aci::hal::HalSetTxPowerLevel;
 use stm32wb_hci::aci::ranges::{PaLevel, Passkey};
 use stm32wb_hci::aci::values::{
-    AddressType, ConfigDataOffset, IoCapability, Privacy, ReadableConfigDataOffset, ScSupport, UseFixedPin,
+    AddressType, ConfigDataOffset, IoCapability, MitmMode, Privacy, ReadableConfigDataOffset, ScSupport, UseFixedPin,
 };
 
 use crate::bluetooth::error::BleError;
@@ -309,7 +309,11 @@ pub async fn init_gap_and_hal(
     if !params.skip_authentication_setup {
         let _ = GapSetAuthenticationRequirement::new(
             params.security.bonding_mode,
-            params.security.mitm_mode,
+            if params.security.mitm_mode {
+                MitmMode::Required
+            } else {
+                MitmMode::NotRequired
+            },
             params.security.sc_support,
             params.security.key_press_notification_support,
             params.security.min_encryption_key_size,
