@@ -24,7 +24,54 @@ mod mcxa5xx_exclusive {
 }
 
 pub mod rom;
+pub mod smartdma;
 pub mod trace;
+
+#[doc(hidden)]
+pub use embassy_mcxa_macros as __macros;
+
+/// Assemble an application-authored EZH Architecture B program at compile time.
+///
+/// The argument is one assembly string literal. Instructions use lowercase NXP
+/// names without the `E_` prefix, comma-separated operands, and optional
+/// condition suffixes such as `goto.nz`. Labels are case-sensitive; `.entry`
+/// exports a label. See [`smartdma::program`] and the `embassy-mcxa-macros`
+/// README for the supported instruction subset and operand restrictions.
+///
+/// ```no_run
+/// let program = embassy_mcxa::smartdma_asm!(r#"
+///     .entry start
+/// start:
+///     load_imm r0, 7
+/// again:
+///     sub_imms r0, r0, 1
+///     goto.nz again
+///     hold
+/// "#);
+/// ```
+///
+/// The returned [`smartdma::program::Program`] is unrelocated metadata, not an
+/// executable handle. This macro does not initialize a stack, load or start
+/// SmartDMA, prove memory safety, or verify waveform timing.
+#[macro_export]
+macro_rules! smartdma_asm {
+    ($source:literal $(,)?) => {
+        $crate::__macros::smartdma_asm!(($crate::smartdma::program), $source)
+    };
+}
+
+/// Assemble a UTF-8 EZH assembly file at compile time.
+///
+/// The single string-literal path is relative to the application's
+/// `CARGO_MANIFEST_DIR`, not the calling Rust source file. File changes are
+/// tracked through an emitted `include_str!`. The language and safety limits
+/// are the same as [`smartdma_asm!`].
+#[macro_export]
+macro_rules! smartdma_asm_file {
+    ($path:literal $(,)?) => {
+        $crate::__macros::smartdma_asm_file!(($crate::smartdma::program), $path)
+    };
+}
 
 #[cfg(mcxa_adc)]
 pub mod adc;
