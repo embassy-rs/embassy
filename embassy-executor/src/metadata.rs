@@ -41,13 +41,22 @@ impl MetadataRef {
 
     /// Get this task's name
     ///
+    /// Tasks declared with `#[task]` default to their function name, or to the macro's
+    /// `name = "..."` argument. These defaults are NUL-terminated (`"mytask\0"`).
+    /// [`set_name`](Self::set_name) replaces the default with the name given, verbatim.
+    ///
+    /// `None` only for tasks spawned without the macros.
+    ///
     /// NOTE: this takes a critical section.
     #[cfg(feature = "metadata-name")]
     pub fn name(&self) -> Option<&'static str> {
         self.metadata().name()
     }
 
-    /// Set this task's name
+    /// Set this task's name, replacing the default from `#[task]` or `#[main]`.
+    ///
+    /// The name is stored as given. The macro defaults are NUL-terminated for C trace
+    /// backends (see [`name`](Self::name)).
     ///
     /// NOTE: this takes a critical section.
     #[cfg(feature = "metadata-name")]
@@ -135,6 +144,7 @@ impl MetadataRef {
 
 /// Metadata associated with a task.
 pub(crate) struct Metadata {
+    /// The macro default or the name given to `set_name`, see [`MetadataRef::name`].
     #[cfg(feature = "metadata-name")]
     name: Mutex<Cell<Option<&'static str>>>,
     #[cfg(feature = "scheduler-priority")]

@@ -10,6 +10,8 @@ use crate::util::*;
 #[derive(Default)]
 struct Args {
     pool_size: Option<syn::Expr>,
+    /// Task name with the `metadata-name` feature. Defaults to the function name.
+    name: Option<String>,
     /// Use this to override the `embassy_executor` crate path. Defaults to `::embassy_executor`.
     embassy_executor: Option<syn::Expr>,
 }
@@ -22,6 +24,8 @@ impl Args {
                 set_arg(&meta, &mut res.pool_size, parse_expr_arg(&meta)?)
             } else if meta.path.is_ident("embassy_executor") {
                 set_arg(&meta, &mut res.embassy_executor, parse_expr_arg(&meta)?)
+            } else if meta.path.is_ident("name") {
+                set_arg(&meta, &mut res.name, parse_str_arg(&meta)?)
             } else {
                 Err(meta.error("unknown argument"))
             }
@@ -58,6 +62,9 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     let embassy_executor = args
         .embassy_executor
         .unwrap_or(Expr::Verbatim(TokenStream::from_str("::embassy_executor").unwrap()));
+
+    // Taken out before `args` is shadowed by the function arguments below.
+    let task_name = args.name;
 
     let returns_impl_trait = match &f.sig.output {
         ReturnType::Type(_, ty) => matches!(**ty, Type::ImplTrait(_)),
@@ -239,6 +246,19 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         > = unsafe { ::core::mem::transmute(#embassy_executor::_export::task_pool_new::<_, _, _, __POOL_SIZE>(#task_inner_ident)) };
         unsafe { __task_pool_get(#task_inner_ident).#spawn(move || #task_inner_ident(#(#full_args,)*)) }
     };
+
+    // With `metadata-name`, the task is named after its function unless `name = "..."` was
+    // given; `#[main]` uses that to name the main task "main". A name set on the token
+    // afterwards overrides it.
+    if cfg!(feature = "metadata-name") {
+        let name = task_name.unwrap_or_else(|| task_ident.to_string());
+        let name = format!("{name}\0");
+        task_outer_body = quote! {
+            let token = { #task_outer_body }?;
+            token.metadata().set_name(#name);
+            ::core::result::Result::Ok(token)
+        };
+    }
 
     let task_outer_attrs = &f.attrs;
 

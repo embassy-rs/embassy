@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- With the `metadata-name` feature, `#[task]` names the task after its function, or after the
+  new `name = "..."` argument. The names are NUL-terminated (`"blink\0"`). A name set on the
+  token afterwards overrides it.
 - The pender is now defined as a trait using the `unitrait` crate: implement
   `embassy_executor::pender::Pender` and register it with `embassy_executor::pender_impl!`.
   The `__pender` extern symbol and signature are unchanged, so existing manual
