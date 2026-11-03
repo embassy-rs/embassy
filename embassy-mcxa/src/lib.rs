@@ -28,6 +28,8 @@ pub mod trace;
 
 #[cfg(mcxa_adc)]
 pub mod adc;
+#[cfg(mcxa_aoi)]
+pub mod aoi;
 #[cfg(mcxa_cdog)]
 pub mod cdog;
 #[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
