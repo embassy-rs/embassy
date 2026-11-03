@@ -45,6 +45,7 @@ use panic_probe as _;
 use static_cell::StaticCell;
 use stm32wb_hci::aci::AciEvent;
 use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
+use stm32wb_hci::adv_data::AdvFlags;
 
 bind_interrupts!(struct Irqs {
     USART1 => usart::BufferedInterruptHandler<USART1>;
@@ -154,33 +155,43 @@ async fn main(spawner: Spawner) {
     let mut gatt = ble.gatt_server();
 
     let service_handle = gatt
-        .add_service(Uuid::from_u128_le(NUS_SERVICE_UUID), ServiceType::Primary, 10)
+        .add_service(
+            ble.controller(),
+            Uuid::Uuid128(NUS_SERVICE_UUID),
+            ServiceType::Primary,
+            10,
+        )
+        .await
         .expect("Failed to add NUS service");
 
     let rx_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u128_le(NUS_RX_CHAR_UUID),
+            Uuid::Uuid128(NUS_RX_CHAR_UUID),
             MAX_DATA_LEN as u16,
             CharProperties::WRITE | CharProperties::WRITE_WITHOUT_RESPONSE,
-            SecurityPermissions::NONE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::empty(),
+            GattEventMask::ATTRIBUTE_WRITE,
             0,
             true,
         )
+        .await
         .expect("Failed to add RX characteristic");
 
     let tx_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u128_le(NUS_TX_CHAR_UUID),
+            Uuid::Uuid128(NUS_TX_CHAR_UUID),
             MAX_DATA_LEN as u16,
             CharProperties::NOTIFY,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(),
             0,
             true,
         )
+        .await
         .expect("Failed to add TX characteristic");
 
     info!("NUS service ready");
@@ -195,11 +206,13 @@ async fn main(spawner: Spawner) {
     };
 
     let mut adv_data = AdvData::new();
-    adv_data.add_flags(0x06).unwrap();
-    adv_data.add_name("Serial_Com").unwrap();
+    adv_data = adv_data
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .unwrap();
+    adv_data = adv_data.complete_local_name(b"Serial_Com").unwrap();
 
     let mut scan_rsp = AdvData::new();
-    scan_rsp.add_service_uuid_128(&NUS_SERVICE_UUID).unwrap();
+    scan_rsp = scan_rsp.complete_uuid128_list(&[NUS_SERVICE_UUID]).unwrap();
 
     let adv_params = AdvParams {
         interval_min: 0x0050,
@@ -220,7 +233,16 @@ async fn main(spawner: Spawner) {
         if state.tx_notifications_enabled {
             if let Ok(data) = UART_TO_BLE.try_receive() {
                 if let Some(conn) = state.current_conn_handle {
-                    if let Err(e) = gatt.notify(conn, state.service_handle, state.tx_char_handle, &data) {
+                    if let Err(e) = gatt
+                        .notify(
+                            ble.controller(),
+                            conn,
+                            state.service_handle,
+                            state.tx_char_handle,
+                            &data,
+                        )
+                        .await
+                    {
                         error!("Notify failed: {:?}", e);
                     }
                 }
@@ -229,7 +251,7 @@ async fn main(spawner: Spawner) {
 
         let event = ble.read_event(&mut event_buf).await;
 
-        if let Some(gap_event) = ble.process_event(&event) {
+        if let Some(gap_event) = ble.process_event(&event).await {
             match gap_event {
                 GapEvent::Connected(conn) => {
                     info!("Connected: 0x{:04X}", conn.handle.raw());

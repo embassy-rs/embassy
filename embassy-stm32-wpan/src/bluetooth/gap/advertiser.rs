@@ -4,10 +4,13 @@
 //! `Ble::stop_advertising()`, and related methods in `ble.rs`.
 //! State management (is_advertising flag, LL enable/disable) lives in `ble.rs`.
 
+use bt_hci::cmd::SyncCmd;
+use bt_hci::cmd::le::{LeSetAdvData, LeSetScanResponseData};
+
 use super::aci_gap::{ADV_DIRECT_IND, ADV_DIRECT_IND_LOW_DUTY, ADV_IND, ADV_NONCONN_IND, ADV_SCAN_IND};
 use super::types::{AdvData, AdvParams, AdvType, BdAddrType};
 use crate::bluetooth::error::BleError;
-use crate::bluetooth::hci::CommandSender;
+use crate::controller::ControllerAdapter;
 
 /// Configure advertising parameters and data in the host stack.
 ///
@@ -25,14 +28,14 @@ use crate::bluetooth::hci::CommandSender;
 /// it with `le_set_advertise_enable`: ST forbids raw HCI advertising control while
 /// the host stack is active, and doing it anyway desynchronises the controller's
 /// advertising and filter state from GAP's.
-pub(crate) fn configure(
-    cmd: &CommandSender,
+pub(crate) async fn configure(
+    controller: &ControllerAdapter<'_>,
     params: &AdvParams,
     adv_data: &AdvData,
     scan_rsp_data: Option<&AdvData>,
 ) -> Result<(), BleError> {
     // Validate advertising data length
-    if adv_data.len() > 31 {
+    if adv_data.as_bytes().len() > 31 {
         return Err(BleError::InvalidParameter);
     }
     if let Some(scan_rsp) = scan_rsp_data {
@@ -56,36 +59,40 @@ pub(crate) fn configure(
             _ => ADV_DIRECT_IND_LOW_DUTY,
         };
         super::aci_gap::set_direct_connectable(
+            controller,
             params.own_addr_type as u8,
             directed_type,
             peer_type,
             &peer_addr,
             params.interval_min,
             params.interval_max,
-        )?;
+        )
+        .await?;
         return Ok(());
     }
 
-    let adv_bytes = adv_data.build();
+    let adv_bytes = adv_data.as_bytes();
 
     // Scan response data goes down over raw HCI, so it must be programmed before a
     // GAP command puts the radio on the air: ST's reference sets it once during
     // init, well before advertising starts, and never touches the link layer once
     // the host stack is driving. See `HCI::start_advertising`.
     if let Some(scan_rsp) = scan_rsp_data {
-        update_scan_rsp_data(cmd, scan_rsp)?;
+        update_scan_rsp_data(controller, scan_rsp).await?;
     }
 
     if params.privacy_undirected {
         // ST BLE_Privacy_Peripheral: undirected connectable + explicit AD bytes
         // via the GAP layer (this path already carries the full payload).
         super::aci_gap::set_undirected_connectable(
+            controller,
             params.interval_min,
             params.interval_max,
             params.own_addr_type as u8,
             params.filter_policy as u8,
-        )?;
-        super::aci_gap::update_adv_data(adv_bytes)?;
+        )
+        .await?;
+        super::aci_gap::update_adv_data(controller, adv_bytes).await?;
     } else {
         // Use aci_gap_set_discoverable - the high-level ACI command. It only
         // understands the local name and 16-bit service UUID fields; the full
@@ -101,6 +108,7 @@ pub(crate) fn configure(
             }
         };
         super::aci_gap::set_discoverable(
+            controller,
             aci_adv_type,
             params.interval_min,
             params.interval_max,
@@ -108,11 +116,12 @@ pub(crate) fn configure(
             params.filter_policy as u8,
             local_name,
             service_uuid_bytes,
-        )?;
+        )
+        .await?;
 
         // Overwrite the auto-generated payload with the caller's exact AD
         // bytes (manufacturer data, 128-bit UUIDs, service data, flags, ...).
-        update_adv_data(cmd, adv_data)?;
+        update_adv_data(controller, adv_data).await?;
     }
 
     Ok(())
@@ -128,8 +137,8 @@ fn split_addr(addr: &BdAddrType) -> (u8, [u8; 6]) {
 ///
 /// Calls `aci_gap_set_non_discoverable`, which also takes the radio off the air.
 /// Do not pair this with `le_set_advertise_enable(false)`; see [`configure`].
-pub(crate) fn unconfigure() -> Result<(), BleError> {
-    super::aci_gap::set_non_discoverable()
+pub(crate) async fn unconfigure(controller: &ControllerAdapter<'_>) -> Result<(), BleError> {
+    super::aci_gap::set_non_discoverable(controller).await
 }
 
 /// Update advertising data while advertising is active.
@@ -137,11 +146,15 @@ pub(crate) fn unconfigure() -> Result<(), BleError> {
 /// Note: Some BLE controllers may not support updating advertising data
 /// while advertising is active. If this fails, consider stopping and
 /// restarting advertising with new data.
-pub(crate) fn update_adv_data(cmd: &CommandSender, adv_data: &AdvData) -> Result<(), BleError> {
-    if adv_data.len() > 31 {
+pub(crate) async fn update_adv_data(controller: &ControllerAdapter<'_>, adv_data: &AdvData) -> Result<(), BleError> {
+    if adv_data.as_bytes().len() > 31 {
         return Err(BleError::InvalidParameter);
     }
-    cmd.le_set_advertising_data(adv_data.build())
+    let bytes = adv_data.as_bytes();
+    let mut data = [0u8; 31];
+    data[..bytes.len()].copy_from_slice(&bytes);
+    LeSetAdvData::new(bytes.len() as u8, data).exec(controller).await?;
+    Ok(())
 }
 
 /// Update scan response data while advertising is active.
@@ -149,11 +162,20 @@ pub(crate) fn update_adv_data(cmd: &CommandSender, adv_data: &AdvData) -> Result
 /// Note: Some BLE controllers may not support updating scan response data
 /// while advertising is active. If this fails, consider stopping and
 /// restarting advertising with new data.
-pub(crate) fn update_scan_rsp_data(cmd: &CommandSender, scan_rsp_data: &AdvData) -> Result<(), BleError> {
-    if scan_rsp_data.len() > 31 {
+pub(crate) async fn update_scan_rsp_data(
+    controller: &ControllerAdapter<'_>,
+    scan_rsp_data: &AdvData,
+) -> Result<(), BleError> {
+    if scan_rsp_data.as_bytes().len() > 31 {
         return Err(BleError::InvalidParameter);
     }
-    cmd.le_set_scan_response_data(scan_rsp_data.build())
+    let bytes = scan_rsp_data.as_bytes();
+    let mut data = [0u8; 31];
+    data[..bytes.len()].copy_from_slice(&bytes);
+    LeSetScanResponseData::new(bytes.len() as u8, data)
+        .exec(controller)
+        .await?;
+    Ok(())
 }
 
 /// Extract local name AD field from advertising data.
