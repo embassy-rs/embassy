@@ -1,7 +1,13 @@
-#![allow(unused)]
+//! Countries, for [`Control::init_with_country`](crate::Control::init_with_country): the radio's
+//! rules for each come from the CLM.
 
+/// A country, by its ISO 3166 code, and the revision of its rules in the CLM.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Country {
+    /// The two-letter code, as `*b"NL"`.
     pub code: [u8; 2],
+    /// The revision; 0 for the CLM's default.
     pub rev: u16,
 }
 

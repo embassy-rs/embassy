@@ -15,7 +15,7 @@ pub mod bluetooth;
 mod chip;
 mod consts;
 mod control;
-mod countries;
+pub mod countries;
 mod events;
 mod ioctl;
 mod runner;

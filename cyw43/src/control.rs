@@ -239,8 +239,15 @@ impl<'a> Control<'a> {
         assert_eq!(self.get_iovar_u32("clmload_status").await, 0);
     }
 
-    /// Initialize WiFi controller.
+    /// Initialize WiFi controller, with the worldwide rules ([`countries::WORLD_WIDE_XX`]),
+    /// under which some channels are closed, such as 5 GHz's DFS channels.
     pub async fn init(&mut self, clm: &[u8]) {
+        self.init_with_country(clm, countries::WORLD_WIDE_XX).await;
+    }
+
+    /// Initialize WiFi controller, with a country's rules, from the CLM: the channels and
+    /// transmit power allowed there.
+    pub async fn init_with_country(&mut self, clm: &[u8], country: countries::Country) {
         self.load_clm(clm).await;
 
         debug!("Configuring misc stuff...");
@@ -255,7 +262,6 @@ impl<'a> Control<'a> {
         let mac_addr = self.address().await;
         debug!("mac addr: {:02x}", Bytes(&mac_addr));
 
-        let country = countries::WORLD_WIDE_XX;
         let country_info = CountryInfo {
             country_abbrev: [country.code[0], country.code[1], 0, 0],
             country_code: [country.code[0], country.code[1], 0, 0],
