@@ -36,6 +36,8 @@ pub mod cdog;
 pub mod clkout; // TODO: Add dummy driver to metadata
 #[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
 pub mod clocks;
+#[cfg(mcxa_cmp)]
+pub mod cmp;
 pub mod config;
 #[cfg(mcxa_crc)]
 pub mod crc;

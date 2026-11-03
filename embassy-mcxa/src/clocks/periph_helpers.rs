@@ -241,6 +241,54 @@ impl SPConfHelper for Clk1MConfig {
 }
 
 //
+// CMP
+//
+
+/// Comparator instance; its FRO16K input belongs to a chip-specific domain.
+#[derive(Debug, Copy, Clone)]
+pub enum CmpInstance {
+    /// CMP0 uses the VSYS FRO16K output.
+    Cmp0,
+    /// CMP1 uses the VDD_CORE FRO16K output on A2 devices.
+    #[cfg(feature = "_mcxa2xx")]
+    Cmp1,
+}
+
+/// Comparator clock validation. Only FRO16K filtering is currently supported.
+pub struct CmpConfig {
+    /// Comparator whose clock domain is checked.
+    pub instance: CmpInstance,
+    /// Whether the digital filter needs a functional clock.
+    pub filtered: bool,
+}
+
+impl SPConfHelper for CmpConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let freq = if self.filtered {
+            let power = PoweredClock::NormalEnabledDeepSleepDisabled;
+            match self.instance {
+                CmpInstance::Cmp0 => clocks.ensure_clk_16k_vsys_active(&power)?,
+                #[cfg(feature = "_mcxa2xx")]
+                CmpInstance::Cmp1 => clocks.ensure_clk_16k_vdd_core_active(&power)?,
+            }
+        } else {
+            0 // The continuous, unfiltered signal path is unclocked.
+        };
+        if self.filtered && freq == 0 {
+            return Err(ClockError::BadConfig {
+                clock: "cmp filter",
+                reason: "FRO16K functional clock is not running",
+            });
+        }
+        Ok(PreEnableParts {
+            freq,
+            // This first driver does not implement deep-sleep/wakeup sequencing.
+            wake_guard: Some(WakeGuard::new()),
+        })
+    }
+}
+
+//
 // FREQME
 //
 
