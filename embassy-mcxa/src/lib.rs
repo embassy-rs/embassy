@@ -61,6 +61,8 @@ pub mod flexspi;
 pub mod freqme;
 #[cfg(mcxa_gdet)]
 pub mod gdet;
+#[cfg(mcxa_glikey)]
+pub mod glikey;
 #[cfg(mcxa_gpio)]
 pub mod gpio;
 #[cfg(mcxa_lpi2c)]

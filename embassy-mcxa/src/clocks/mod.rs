@@ -62,6 +62,19 @@ pub(crate) use gate::default_register_value;
 pub use gate::{Gate, assert_reset, disable, enable, enable_and_reset, is_reset_released, pulse_reset, release_reset};
 #[cfg(mcxa_gdet)]
 pub(crate) use gdet::gdet_access_ready;
+#[cfg(mcxa_glikey)]
+pub(crate) fn glikey_access_ready() -> bool {
+    #[cfg(feature = "_mcxa5xx")]
+    {
+        <crate::peripherals::GLIKEY0 as Gate>::is_clock_enabled()
+            && <crate::peripherals::GLIKEY0 as Gate>::is_reset_released()
+    }
+    #[cfg(feature = "_mcxa2xx")]
+    {
+        // No named GLIKEY MRCC gate/reset on A2. System/bus clocks must be live.
+        true
+    }
+}
 pub use sleep::deep_sleep_if_possible;
 pub use types::{Clock, ClockError, Clocks, PoweredClock, WakeGuard};
 
