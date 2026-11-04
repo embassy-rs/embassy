@@ -1145,7 +1145,7 @@ impl<'d> UartRx<'d, Async> {
             let sr = sr(r).read();
             // This read also clears the error and idle interrupt flags on v1.
             unsafe { rdr(r).read_volatile() };
-            clear_interrupt_flags(r, sr);
+            clear_rx_interrupt_flags(r, sr);
         }
 
         r.cr1().clear_bits(|w| {
@@ -1183,7 +1183,7 @@ impl<'d> UartRx<'d, Async> {
             let sr = sr(r).read();
             // This read also clears the error and idle interrupt flags on v1.
             unsafe { rdr(r).read_volatile() };
-            clear_interrupt_flags(r, sr);
+            clear_rx_interrupt_flags(r, sr);
 
             if sr.pe() {
                 return Err(Error::Parity);
@@ -1206,7 +1206,7 @@ impl<'d> UartRx<'d, Async> {
             let sr = sr(r).read();
             // This read also clears the error and idle interrupt flags on v1.
             unsafe { rdr(r).read_volatile() };
-            clear_interrupt_flags(r, sr);
+            clear_rx_interrupt_flags(r, sr);
 
             // enable idle interrupt
             r.cr1().set_bits(|w| {
@@ -1225,7 +1225,7 @@ impl<'d> UartRx<'d, Async> {
 
             // This read also clears the error and idle interrupt flags on v1.
             unsafe { rdr(r).read_volatile() };
-            clear_interrupt_flags(r, sr);
+            clear_rx_interrupt_flags(r, sr);
 
             if enable_idle_line_detection {
                 // enable idle interrupt
@@ -2940,6 +2940,11 @@ fn clear_interrupt_flags(_r: Regs, _sr: regs::Sr) {
     // On v1 the flags are cleared implicitly by reads and writes to DR.
 }
 
+#[cfg(any(usart_v1, usart_v2))]
+fn clear_rx_interrupt_flags(_r: Regs, _sr: regs::Sr) {
+    // On v1 the receive flags are cleared by reading DR; TC needs a write to DR, so it stays.
+}
+
 #[cfg(any(usart_v3, usart_v4))]
 fn tdr(r: Regs) -> *mut u8 {
     r.tdr().as_ptr() as _
@@ -2959,6 +2964,16 @@ fn sr(r: Regs) -> crate::pac::common::Reg<regs::Isr, crate::pac::common::R> {
 #[allow(unused)]
 fn clear_interrupt_flags(r: Regs, sr: regs::Isr) {
     r.icr().write(|w| *w = regs::Icr(sr.0));
+}
+
+/// [`clear_interrupt_flags`] for the receiver: leaves TC set. TC belongs to the transmitter, and a
+/// one-shot read runs alongside writes: clearing TC here swallows the transmission complete a
+/// concurrent `flush()` waits for, whose interrupt has already fired and woken this read's poll.
+#[cfg(any(usart_v3, usart_v4))]
+fn clear_rx_interrupt_flags(r: Regs, sr: regs::Isr) {
+    let mut icr = regs::Icr(sr.0);
+    icr.set_tc(false);
+    r.icr().write_value(icr);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
