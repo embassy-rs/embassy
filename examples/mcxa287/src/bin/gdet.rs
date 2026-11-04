@@ -27,7 +27,7 @@ use panic_probe as _;
 fn controls() -> (bool, u8) {
     (
         pac::DGDET0.gdet_enable1().read().en1(),
-        pac::seccon.gdet0_ctrl().read().gdet_iso_sw() as u8,
+        pac::SECCON0.gdet0_ctrl().read().gdet_iso_sw() as u8,
     )
 }
 
@@ -45,7 +45,7 @@ fn assert_stable(gdet: &Gdet<'_>, expected: State) {
         }
         State::Unknown => panic!("expected a stable control state"),
     }
-    let control = pac::seccon.gdet0_ctrl().read();
+    let control = pac::SECCON0.gdet0_ctrl().read();
     assert_eq!(control.gdet_evtcnt_clr() as u8, 0);
     assert_eq!(control.gdet_err_clr() as u8, 0);
     // Counter/status preservation across the driver's soft reset is not assumed.

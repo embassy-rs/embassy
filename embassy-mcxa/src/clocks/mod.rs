@@ -44,9 +44,9 @@ use critical_section::CriticalSection;
 use crate::pac;
 
 pub mod config;
-#[cfg(any(mcxa_eim0, mcxa_erm0))]
+#[cfg(any(mcxa_eim, mcxa_erm))]
 pub(crate) mod ecc;
-#[cfg(any(mcxa_eim0, mcxa_erm0))]
+#[cfg(any(mcxa_eim, mcxa_erm))]
 pub(crate) use ecc::enable_ecc_ram_a_clock;
 mod gate;
 #[cfg(mcxa_gdet)]
