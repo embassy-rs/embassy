@@ -22,13 +22,13 @@
 //! security.set_authentication_requirements(ble.controller(), params).await?;
 //! ```
 
-use bt_hci::cmd::le::{
-    LeClearFilterAcceptList, LeClearResolvingList, LeSetAddrResolutionEnable, LeSetResolvablePrivateAddrTimeout,
-};
+use bt_hci::cmd::le::LeSetResolvablePrivateAddrTimeout;
+#[cfg(feature = "ble-stack-full")]
+use bt_hci::cmd::le::{LeClearFilterAcceptList, LeClearResolvingList, LeSetAddrResolutionEnable};
 // Reading the resolving list back is what the `defmt` diagnostics do; the
 // `not(defmt)` stubs of the `log_*` helpers skip it.
 #[cfg(feature = "defmt")]
-use bt_hci::cmd::le::{LeReadLocalResolvableAddr, LeReadPeerResolvableAddr, LeReadResolvingListSize};
+use bt_hci::cmd::le::{LeReadLocalResolvableAddr, LeReadPeerResolvableAddr};
 use bt_hci::cmd::{AsyncCmd, SyncCmd};
 #[cfg(feature = "defmt")]
 use bt_hci::param::AddrKind;
@@ -37,8 +37,8 @@ use stm32wb_hci::aci::AciEvent;
 use stm32wb_hci::aci::gap::{
     GapAddDevicesToList, GapAllowRebond, GapAuthorizationResp, GapCheckBondedDevice, GapClearSecurityDb,
     GapGetBondedDevices, GapNumericComparisonValueConfirmYesno, GapPairingRequestReply, GapPassKeyResp,
-    GapPasskeyInput, GapPeripheralSecurityReq, GapRemoveBondedDevice, GapSendPairingReq,
-    GapSetAuthenticationRequirement, GapSetIoCapability, ListEntry,
+    GapPasskeyInput, GapPeripheralSecurityReq, GapRemoveBondedDevice, GapSetAuthenticationRequirement,
+    GapSetIoCapability, ListEntry,
 };
 use stm32wb_hci::aci::general::AciWriteConfigData;
 use stm32wb_hci::aci::ranges::Passkey;
@@ -520,23 +520,6 @@ impl SecurityManager {
         Ok(())
     }
 
-    /// Request pairing/encryption from the central side.
-    ///
-    /// Sends a pairing request to the peer peripheral. Set `force_rebond` to
-    /// restart pairing even when a bond entry exists.
-    pub async fn request_pairing_central(
-        &self,
-        controller: &ControllerAdapter<'_>,
-        conn_handle: u16,
-        force_rebond: bool,
-    ) -> Result<(), BleError> {
-        GapSendPairingReq::new(ConnHandle::new(conn_handle), force_rebond)
-            .exec(controller)
-            .await?;
-
-        Ok(())
-    }
-
     /// Reply to a pairing request signaled via `SecurityEvent::PairingRequest`.
     ///
     /// Set `accept` to `true` to continue pairing, or `false` to reject it.
@@ -570,30 +553,6 @@ impl SecurityManager {
     /// This removes all stored bonds. Use with caution.
     pub async fn clear_security_database(&self, controller: &ControllerAdapter<'_>) -> Result<(), BleError> {
         GapClearSecurityDb::new().exec(controller).await?;
-
-        Ok(())
-    }
-
-    /// Drop the controller-side copies of every bond: address resolution, the
-    /// resolving list and the Filter Accept List.
-    ///
-    /// [`clear_security_database`](Self::clear_security_database) only empties
-    /// the host bond database. The controller keeps its own IRK table, accept
-    /// list and per-peer privacy modes, and
-    /// [`configure_filter_and_resolving_list`](Self::configure_filter_and_resolving_list)
-    /// returns early once the database is empty, so nothing ever tells the
-    /// controller to forget them. Call this alongside `clear_security_database`
-    /// to leave the stack in the same state a reset would.
-    ///
-    /// Address resolution is disabled first because the Core Spec forbids
-    /// clearing the resolving list while translation is enabled and the radio is
-    /// active (Vol 4, Part E, 7.8.40).
-    ///
-    /// Must NOT be called while advertising, scanning, or initiating is active.
-    pub async fn clear_bond_lists(&self, controller: &ControllerAdapter<'_>) -> Result<(), BleError> {
-        LeSetAddrResolutionEnable::new(false).exec(controller).await?;
-        LeClearResolvingList::new().exec(controller).await?;
-        LeClearFilterAcceptList::new().exec(controller).await?;
 
         Ok(())
     }
@@ -710,20 +669,6 @@ impl SecurityManager {
         Ok(bonded)
     }
 
-    /// Enable or disable address resolution
-    ///
-    /// When enabled, the controller will automatically resolve resolvable
-    /// private addresses (RPA) using stored IRKs.
-    pub async fn set_address_resolution_enable(
-        &self,
-        controller: &ControllerAdapter<'_>,
-        enable: bool,
-    ) -> Result<(), BleError> {
-        LeSetAddrResolutionEnable::new(enable).exec(controller).await?;
-
-        Ok(())
-    }
-
     /// Set RPA (Resolvable Private Address) timeout
     ///
     /// Sets the time interval after which a new RPA is generated.
@@ -741,47 +686,6 @@ impl SecurityManager {
             .await?;
 
         Ok(())
-    }
-
-    /// Populate the controller's resolving list with bonded peer identities so
-    /// that reconnections from RPA-using peers (e.g. iOS) can be recognised as
-    /// the bonded peer.
-    ///
-    /// Without this, `set_address_resolution_enable(true)` only enables resolution
-    /// in the controller — there are no IRKs to resolve against. Incoming
-    /// `LL_ENC_REQ` from a bonded peer will fail with "SMP unexpected LTK request"
-    /// because the host cannot match an LTK to the unresolved peer identity.
-    ///
-    /// Uses `AddDevicesMode::SetResolvingList` (clear and set the **resolving list
-    /// only**), leaving the Filter Accept List untouched, so it is idempotent and
-    /// won't interfere with `GapSetDiscoverable` advertising. Safe to call
-    /// repeatedly, e.g. after every disconnect before re-advertising.
-    ///
-    /// Must NOT be called while advertising, scanning, or connecting are active
-    /// when address resolution is enabled (Core Spec restriction). Returns the
-    /// number of bonded devices restored to the resolving list.
-    pub async fn populate_resolving_list_from_bonds(
-        &self,
-        controller: &ControllerAdapter<'_>,
-    ) -> Result<usize, BleError> {
-        let bonded = GapGetBondedDevices::new().exec(controller).await?;
-
-        if bonded.bonded_device_entry.is_empty() {
-            // Clear rather than return: leaving the previous entries in place
-            // would keep the controller resolving against IRKs whose bonds are
-            // gone. Translation must be off to mutate the list, and with no
-            // bonds there is nothing to resolve against anyway.
-            LeSetAddrResolutionEnable::new(false).exec(controller).await?;
-            LeClearResolvingList::new().exec(controller).await?;
-            return Ok(0);
-        }
-
-        let (entries, count) = bonded_list_entries(&bonded);
-        let cmd = GapAddDevicesToList::try_new(&entries[..count], AddDevicesMode::SetResolvingList)
-            .map_err(|_| BleError::InvalidParameter)?;
-        cmd.exec(controller).await?;
-
-        Ok(count)
     }
 
     /// Populate the controller's Filter Accept List with all bonded devices'
@@ -814,45 +718,6 @@ impl SecurityManager {
     /// Compatibility alias for ST guide naming (`configure_whitelist`).
     pub async fn configure_whitelist(&self, controller: &ControllerAdapter<'_>) -> Result<(), BleError> {
         self.configure_filter_accept_list(controller).await
-    }
-
-    /// Rebuild the controller's resolving list from the bonds currently in the
-    /// security database, and clear the Filter Accept List.
-    ///
-    /// CubeWBA 1.10 mode 0x0D ("clear and add the bonded devices plus the devices
-    /// provided as parameters to both lists") atomically clears both lists and
-    /// repopulates them from the security database. GAP therefore owns the full
-    /// operation and keeps its internal privacy state synchronized with the
-    /// controller. stm32wb-hci's `AddDevicesMode` has no variant for the 1.10 SDB
-    /// modes, so this passes the bonded devices read back from
-    /// `GapGetBondedDevices` explicitly with the equivalent `SetBoth` (0x05)
-    /// mode, which clears both lists and adds the given entries to both.
-    ///
-    /// Address resolution is then enabled iff at least one bond was programmed,
-    /// so the controller's translation state always matches the list contents.
-    ///
-    /// Must NOT be called while advertising, scanning, or initiating is active.
-    /// Returns the number of bonds programmed.
-    pub async fn configure_filter_and_resolving_list(
-        &self,
-        controller: &ControllerAdapter<'_>,
-    ) -> Result<usize, BleError> {
-        let bonded = GapGetBondedDevices::new().exec(controller).await?;
-        let count = bonded.bonded_device_entry.len();
-
-        let (entries, n) = bonded_list_entries(&bonded);
-        let cmd = GapAddDevicesToList::try_new(&entries[..n], AddDevicesMode::SetBoth)
-            .map_err(|_| BleError::InvalidParameter)?;
-        cmd.exec(controller).await?;
-
-        // Mode 0x05/0x0D only loads the list; it does not touch the translation
-        // enable. `clear_bond_lists` has to disable resolution to mutate the
-        // list at all, so without this the controller keeps a correctly
-        // populated resolving list that it is not permitted to use, and every
-        // bonded reconnect arrives as an unresolved RPA.
-        LeSetAddrResolutionEnable::new(count > 0).exec(controller).await?;
-
-        Ok(count)
     }
 
     /// Log bonded peer identity addresses from the stack database (debug).
@@ -906,7 +771,9 @@ impl SecurityManager {
         controller: &ControllerAdapter<'_>,
         connected_peer: Option<(u8, [u8; 6])>,
     ) {
-        match LeReadResolvingListSize::new().exec(controller).await {
+        // Only the full BLE stack has HCI_LE_Read_Resolving_List_Size.
+        #[cfg(feature = "ble-stack-full")]
+        match bt_hci::cmd::le::LeReadResolvingListSize::new().exec(controller).await {
             Ok(list_size) => info!("Resolving list capacity: {} entries", list_size),
             Err(e) => warn!("hci_le_read_resolving_list_size failed: {:?}", BleError::from(e)),
         }
@@ -1053,6 +920,133 @@ impl SecurityManager {
         Ok(count)
     }
 
+    /// ST HAL firmware warning: SMP unexpected LTK request (bond lookup failed).
+    pub const FW_ERROR_SMP_UNEXPECTED_LTK: u8 = 0x06;
+
+    /// Check if security has been initialized
+    pub fn is_initialized(&self) -> bool {
+        self.initialized
+    }
+}
+
+// Address resolution and list clearing: these need HCI commands only the
+// full BLE stack provides.
+#[cfg(feature = "ble-stack-full")]
+impl SecurityManager {
+    /// Drop the controller-side copies of every bond: address resolution, the
+    /// resolving list and the Filter Accept List.
+    ///
+    /// [`clear_security_database`](Self::clear_security_database) only empties
+    /// the host bond database. The controller keeps its own IRK table, accept
+    /// list and per-peer privacy modes, and
+    /// [`configure_filter_and_resolving_list`](Self::configure_filter_and_resolving_list)
+    /// returns early once the database is empty, so nothing ever tells the
+    /// controller to forget them. Call this alongside `clear_security_database`
+    /// to leave the stack in the same state a reset would.
+    ///
+    /// Address resolution is disabled first because the Core Spec forbids
+    /// clearing the resolving list while translation is enabled and the radio is
+    /// active (Vol 4, Part E, 7.8.40).
+    ///
+    /// Must NOT be called while advertising, scanning, or initiating is active.
+    pub async fn clear_bond_lists(&self, controller: &ControllerAdapter<'_>) -> Result<(), BleError> {
+        LeSetAddrResolutionEnable::new(false).exec(controller).await?;
+        LeClearResolvingList::new().exec(controller).await?;
+        LeClearFilterAcceptList::new().exec(controller).await?;
+
+        Ok(())
+    }
+    /// Enable or disable address resolution
+    ///
+    /// When enabled, the controller will automatically resolve resolvable
+    /// private addresses (RPA) using stored IRKs.
+    pub async fn set_address_resolution_enable(
+        &self,
+        controller: &ControllerAdapter<'_>,
+        enable: bool,
+    ) -> Result<(), BleError> {
+        LeSetAddrResolutionEnable::new(enable).exec(controller).await?;
+
+        Ok(())
+    }
+    /// Populate the controller's resolving list with bonded peer identities so
+    /// that reconnections from RPA-using peers (e.g. iOS) can be recognised as
+    /// the bonded peer.
+    ///
+    /// Without this, `set_address_resolution_enable(true)` only enables resolution
+    /// in the controller — there are no IRKs to resolve against. Incoming
+    /// `LL_ENC_REQ` from a bonded peer will fail with "SMP unexpected LTK request"
+    /// because the host cannot match an LTK to the unresolved peer identity.
+    ///
+    /// Uses `AddDevicesMode::SetResolvingList` (clear and set the **resolving list
+    /// only**), leaving the Filter Accept List untouched, so it is idempotent and
+    /// won't interfere with `GapSetDiscoverable` advertising. Safe to call
+    /// repeatedly, e.g. after every disconnect before re-advertising.
+    ///
+    /// Must NOT be called while advertising, scanning, or connecting are active
+    /// when address resolution is enabled (Core Spec restriction). Returns the
+    /// number of bonded devices restored to the resolving list.
+    pub async fn populate_resolving_list_from_bonds(
+        &self,
+        controller: &ControllerAdapter<'_>,
+    ) -> Result<usize, BleError> {
+        let bonded = GapGetBondedDevices::new().exec(controller).await?;
+
+        if bonded.bonded_device_entry.is_empty() {
+            // Clear rather than return: leaving the previous entries in place
+            // would keep the controller resolving against IRKs whose bonds are
+            // gone. Translation must be off to mutate the list, and with no
+            // bonds there is nothing to resolve against anyway.
+            LeSetAddrResolutionEnable::new(false).exec(controller).await?;
+            LeClearResolvingList::new().exec(controller).await?;
+            return Ok(0);
+        }
+
+        let (entries, count) = bonded_list_entries(&bonded);
+        let cmd = GapAddDevicesToList::try_new(&entries[..count], AddDevicesMode::SetResolvingList)
+            .map_err(|_| BleError::InvalidParameter)?;
+        cmd.exec(controller).await?;
+
+        Ok(count)
+    }
+    /// Rebuild the controller's resolving list from the bonds currently in the
+    /// security database, and clear the Filter Accept List.
+    ///
+    /// CubeWBA 1.10 mode 0x0D ("clear and add the bonded devices plus the devices
+    /// provided as parameters to both lists") atomically clears both lists and
+    /// repopulates them from the security database. GAP therefore owns the full
+    /// operation and keeps its internal privacy state synchronized with the
+    /// controller. stm32wb-hci's `AddDevicesMode` has no variant for the 1.10 SDB
+    /// modes, so this passes the bonded devices read back from
+    /// `GapGetBondedDevices` explicitly with the equivalent `SetBoth` (0x05)
+    /// mode, which clears both lists and adds the given entries to both.
+    ///
+    /// Address resolution is then enabled iff at least one bond was programmed,
+    /// so the controller's translation state always matches the list contents.
+    ///
+    /// Must NOT be called while advertising, scanning, or initiating is active.
+    /// Returns the number of bonds programmed.
+    pub async fn configure_filter_and_resolving_list(
+        &self,
+        controller: &ControllerAdapter<'_>,
+    ) -> Result<usize, BleError> {
+        let bonded = GapGetBondedDevices::new().exec(controller).await?;
+        let count = bonded.bonded_device_entry.len();
+
+        let (entries, n) = bonded_list_entries(&bonded);
+        let cmd = GapAddDevicesToList::try_new(&entries[..n], AddDevicesMode::SetBoth)
+            .map_err(|_| BleError::InvalidParameter)?;
+        cmd.exec(controller).await?;
+
+        // Mode 0x05/0x0D only loads the list; it does not touch the translation
+        // enable. `clear_bond_lists` has to disable resolution to mutate the
+        // list at all, so without this the controller keeps a correctly
+        // populated resolving list that it is not permitted to use, and every
+        // bonded reconnect arrives as an unresolved RPA.
+        LeSetAddrResolutionEnable::new(count > 0).exec(controller).await?;
+
+        Ok(count)
+    }
     /// Restore resolving-list IRKs for bonded RPAs without touching the filter accept list.
     ///
     /// Use before advertising with `AdvFilterPolicy::All` so centrals can still discover
@@ -1067,7 +1061,6 @@ impl SecurityManager {
         }
         Ok(count)
     }
-
     /// Compatibility alias for ST guide naming (`add_devices_to_resolving_list`-style flow).
     ///
     /// Restores bonded peer IRKs into the resolving list.
@@ -1077,20 +1070,34 @@ impl SecurityManager {
     ) -> Result<usize, BleError> {
         self.populate_resolving_list_from_bonds(controller).await
     }
-
     /// Restore bond-based connection filtering for RPA centrals (e.g. iOS).
     ///
     /// Alias for [`configure_filter_and_resolving_list`](Self::configure_filter_and_resolving_list).
     pub async fn restore_bond_lists(&self, controller: &ControllerAdapter<'_>) -> Result<usize, BleError> {
         self.configure_filter_and_resolving_list(controller).await
     }
+}
 
-    /// ST HAL firmware warning: SMP unexpected LTK request (bond lookup failed).
-    pub const FW_ERROR_SMP_UNEXPECTED_LTK: u8 = 0x06;
+// Central-side pairing: not available in the peripheral-only stack.
+#[cfg(not(feature = "ble-stack-po"))]
+impl SecurityManager {
+    /// Request pairing/encryption from the central side.
+    ///
+    /// Sends a pairing request to the peer peripheral. Set `force_rebond` to
+    /// restart pairing even when a bond entry exists.
+    pub async fn request_pairing_central(
+        &self,
+        controller: &ControllerAdapter<'_>,
+        conn_handle: u16,
+        force_rebond: bool,
+    ) -> Result<(), BleError> {
+        use stm32wb_hci::aci::gap::GapSendPairingReq;
 
-    /// Check if security has been initialized
-    pub fn is_initialized(&self) -> bool {
-        self.initialized
+        GapSendPairingReq::new(ConnHandle::new(conn_handle), force_rebond)
+            .exec(controller)
+            .await?;
+
+        Ok(())
     }
 }
 

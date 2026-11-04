@@ -15,6 +15,9 @@ publish = false
 build = [
     {target = "thumbv7em-none-eabi", features = ["stm32wb55rg"]},
     {target = "thumbv8m.main-none-eabihf", features = ["stm32wba65ri", "wba-ble", "ble-stack-full", "linklayer-ble-full", "direct"]},
+    # The smaller stack profiles hide commands the full one has: build them too.
+    {target = "thumbv8m.main-none-eabihf", features = ["stm32wba65ri", "wba-ble", "ble-stack-basic", "linklayer-ble-basic", "direct", "defmt"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["stm32wba65ri", "wba-ble", "ble-stack-po", "linklayer-ble-peripheral-only", "direct", "defmt"]},
 ]
 
 [package.metadata.embassy_docs]

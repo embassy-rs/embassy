@@ -32,6 +32,7 @@ use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
+use stm32wb_hci::aci::flags::Role;
 use stm32wb_hci::aci::values::AddressType;
 
 bind_interrupts!(struct Irqs {
@@ -73,11 +74,13 @@ async fn main(spawner: Spawner) {
             let gap_params = GapInitParams {
                 bd_addr: [0x01, 0x00, 0x00, 0xE1, 0x80, 0x00],
                 address_type: AddressType::Public,
+                // `connect` needs the GAP central role.
+                role: Role::CENTRAL,
                 ..GapInitParams::default()
             };
             HCI::new_with_gap_params(platform, runtime, Irqs, gap_params).await
         }
-        _ => HCI::new(platform, runtime, Irqs).await,
+        _ => HCI::new_with_role(platform, runtime, Irqs, Role::CENTRAL).await,
     }
     .expect("BLE initialization failed");
 

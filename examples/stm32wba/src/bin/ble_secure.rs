@@ -107,11 +107,8 @@ async fn main(spawner: Spawner) {
         .expect("Failed to set security parameters");
     info!("Security configured: Bonding + MITM + SC");
 
-    // Enable address resolution (for bonded devices using RPA)
-    security
-        .set_address_resolution_enable(ble.controller(), true)
-        .await
-        .expect("Failed to enable address resolution");
+    // Address resolution (`set_address_resolution_enable`) needs the full BLE
+    // stack; this example uses the basic one.
 
     // Initialize GATT server
     let mut gatt = ble.gatt_server();

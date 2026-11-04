@@ -5,10 +5,9 @@
 
 pub use stm32wb_hci::aci::values::{ScanProcedure, ScanType, ScanningFilterPolicy};
 
-use crate::bluetooth::error::BleError;
-use crate::bluetooth::gap::aci_gap;
 use crate::bluetooth::gap::types::OwnAddressType;
-use crate::controller::ControllerAdapter;
+#[cfg(not(feature = "ble-stack-po"))]
+use crate::{bluetooth::error::BleError, bluetooth::gap::aci_gap, controller::ControllerAdapter};
 
 /// Scan parameters
 #[derive(Debug, Clone)]
@@ -124,6 +123,20 @@ impl Scanner {
         Self { active_proc: None }
     }
 
+    /// Check if currently scanning
+    pub fn is_scanning(&self) -> bool {
+        self.active_proc.is_some()
+    }
+
+    /// Return the currently active GAP scan procedure.
+    pub fn active_procedure(&self) -> Option<ScanProcedure> {
+        self.active_proc
+    }
+}
+
+// Scanning: not available in the peripheral-only stack.
+#[cfg(not(feature = "ble-stack-po"))]
+impl Scanner {
     /// Start scanning with the given parameters
     ///
     /// Advertising reports will be received as `LeAdvertisingReport` events
@@ -230,16 +243,6 @@ impl Scanner {
             self.active_proc = None;
         }
         Ok(())
-    }
-
-    /// Check if currently scanning
-    pub fn is_scanning(&self) -> bool {
-        self.active_proc.is_some()
-    }
-
-    /// Return the currently active GAP scan procedure.
-    pub fn active_procedure(&self) -> Option<ScanProcedure> {
-        self.active_proc
     }
 }
 
