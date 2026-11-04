@@ -160,6 +160,7 @@ ADC:
 - fix: stm32/adc: account for the fixed /2 in front of the H7 ADC1/ADC2/ADC3 converter in the automatic prescaler, `clock()`, the maximum-clock check and `BOOST`, and set the single `BOOST` bit of revision Y H742/H743/H750/H753 above 20 MHz.
 
 RNG:
+- fix: stm32/rng h7: recover from a seed error as RM0433 34.3.7 says: clear SEIS, discard 12 words, check SEIS. A reset discarded only one word, so the next words could be ones generated before or during the error.
 - feat: stm32/rng: add configurable initialization policy (`RngConfig`) with `new_with_config` and health-test profile control
 - change: stm32/rng: `Rng` implements the `rand_core` 0.10 traits instead of the 0.6 and 0.9 ones.
 

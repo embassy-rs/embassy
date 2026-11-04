@@ -363,8 +363,20 @@ impl<'d, M: Mode> Rng<'d, M> {
 
     /// Try to recover from a seed error.
     pub fn recover_seed_error(&mut self) {
+        // RM0433 34.3.7: clear SEIS, read and discard 12 words to clean the pipeline,
+        // then confirm SEIS is still clear. A reset does not empty the pipeline: the
+        // post-processing logic and the output buffer keep running while RNGEN = 0
+        // (34.3.8), so the words after it can be the ones that must not be used.
+        #[cfg(all(rng_v1, stm32h7))]
+        {
+            self.regs().sr().modify(|reg| reg.set_seis(false));
+            for _ in 0..12 {
+                let _ = self.poll_word();
+            }
+        }
+        #[cfg(not(all(rng_v1, stm32h7)))]
         self.reset();
-        // reset should also clear the SEIS flag
+        // SEIS must be clear now
         if self.regs().sr().read().seis() {
             warn!("recovering from seed error failed");
             return;
@@ -418,6 +430,11 @@ impl<'d, M: Mode> Rng<'d, M> {
                 panic!("RNG error persists after reset; check the RCC clock configuration");
             }
             retries += 1;
+            #[cfg(all(rng_v1, stm32h7))]
+            if self.regs().sr().read().seis() {
+                self.recover_seed_error();
+                continue;
+            }
             self.reset();
         }
     }
