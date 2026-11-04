@@ -75,6 +75,8 @@ pub mod inputmux;
 pub mod lptmr;
 #[cfg(mcxa_lpuart)]
 pub mod lpuart;
+#[cfg(mcxa_mbc)]
+pub mod mbc;
 #[cfg(all(mcxa_ostimer, time_driver_ostimer))]
 pub mod ostimer;
 pub mod perf_counters;
