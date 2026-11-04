@@ -10,10 +10,10 @@ pub mod security;
 use bt_hci::cmd::controller_baseband::{Reset, SetEventMask};
 use bt_hci::cmd::info::ReadLocalVersionInformation;
 use bt_hci::cmd::le::{
-    LeConnCteRequestEnable, LeConnCteResponseEnable, LeCreateConn, LeCreateConnCancel, LeReadAntennaInformation,
-    LeReadBufferSizeV2, LeReadLocalSupportedFeatures, LeReadPhy, LeReceiverTest, LeReceiverTestV2,
-    LeRemoteConnectionParameterRequestReply, LeSetConnCteReceiveParams, LeSetConnCteTransmitParams, LeSetDataLength,
-    LeSetEventMask, LeSetPhy, LeSetRandomAddr, LeTestEnd, LeTransmitterTest, LeTransmitterTestV2,
+    LeConnCteRequestEnable, LeConnCteResponseEnable, LeReadAntennaInformation, LeReadBufferSizeV2,
+    LeReadLocalSupportedFeatures, LeReadPhy, LeReceiverTest, LeReceiverTestV2, LeRemoteConnectionParameterRequestReply,
+    LeSetConnCteReceiveParams, LeSetConnCteTransmitParams, LeSetDataLength, LeSetEventMask, LeSetPhy, LeSetRandomAddr,
+    LeTestEnd, LeTransmitterTest, LeTransmitterTestV2,
 };
 use bt_hci::cmd::{AsyncCmd, SyncCmd};
 use bt_hci::controller::Controller as _;
@@ -22,7 +22,7 @@ use bt_hci::event::le::{
     LePhyUpdateComplete, LeRemoteConnectionParameterRequest,
 };
 use bt_hci::event::{DisconnectionComplete, Event, EventKind, EventPacket};
-use bt_hci::param::{AddrKind, BdAddr, ConnHandle, CteKind, CteMask, Duration, EventMask, LeEventMask, PhyOptions};
+use bt_hci::param::{BdAddr, ConnHandle, CteKind, CteMask, Duration, EventMask, LeEventMask, PhyOptions};
 use bt_hci::{ControllerToHostPacket, FromHciBytes};
 use embassy_futures::yield_now;
 use embassy_stm32::interrupt;
@@ -38,8 +38,7 @@ pub use stm32wb_hci::event::BleEvent;
 
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::gap::connection::{
-    Connection, ConnectionInitParams, ConnectionInterval, ConnectionManager, DisconnectReason, GapEvent,
-    MAX_CONNECTIONS, PhyKind,
+    Connection, ConnectionInterval, ConnectionManager, DisconnectReason, GapEvent, MAX_CONNECTIONS, PhyKind,
 };
 use crate::bluetooth::gap::scanner::{ScanProcedure, Scanner};
 use crate::bluetooth::gap::types::{AdvData, AdvParams, BdAddrType};
@@ -50,10 +49,15 @@ use crate::bluetooth::gatt::{
 use crate::bluetooth::hci::types::DtmPacketPayload;
 use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy, all_phys_from_raw, phy_mask_from_raw};
 use crate::bluetooth::security::{SecurityEvent, SecurityManager, from_vendor_event as security_from_vendor_event};
-#[cfg(not(feature = "ble-stack-po"))]
-use crate::bluetooth::{gap::scanner::ScanParams, gatt::GattClient};
 use crate::controller::{Controller, ControllerAdapter};
 use crate::{HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
+#[cfg(not(feature = "ble-stack-po"))]
+use {
+    crate::bluetooth::{gap::connection::ConnectionInitParams, gap::scanner::ScanParams, gatt::GattClient},
+    stm32wb_hci::aci::durations::{ExtScanInterval, ExtScanWindow},
+    stm32wb_hci::aci::gap::{GapCreateConnection, GapTerminateGapProc},
+    stm32wb_hci::aci::values::{AddressType, ConnectableOwnAddressType, GapProcedure},
+};
 
 trait SealedMode {}
 #[allow(private_bounds)]
@@ -497,41 +501,6 @@ impl<'d> HCI<'d, Normal> {
         Ok(())
     }
 
-    /// Initiate a connection to a peripheral device (Central role)
-    ///
-    /// This starts the connection process. The connection complete event
-    /// will be received when the connection is established.
-    ///
-    /// # Parameters
-    ///
-    /// - `params`: Connection initiation parameters
-    pub async fn connect(&self, params: &ConnectionInitParams) -> Result<(), BleError> {
-        let peer_addr = params.peer_address.bytes();
-        LeCreateConn::new(
-            Duration::<625>::from_u16(params.scan_interval),
-            Duration::<625>::from_u16(params.scan_window),
-            params.use_filter_accept_list,
-            AddrKind::new(params.peer_address.kind()),
-            BdAddr::new(peer_addr),
-            AddrKind::new(params.own_address_type as u8),
-            Duration::<1_250>::from_u16(params.conn_interval_min),
-            Duration::<1_250>::from_u16(params.conn_interval_max),
-            params.max_latency,
-            Duration::<10_000>::from_u16(params.supervision_timeout),
-            Duration::<625>::from_u16(params.min_ce_length),
-            Duration::<625>::from_u16(params.max_ce_length),
-        )
-        .exec(&self.controller)
-        .await?;
-        Ok(())
-    }
-
-    /// Cancel an ongoing connection attempt
-    pub async fn cancel_connect(&self) -> Result<(), BleError> {
-        LeCreateConnCancel::new().exec(&self.controller).await?;
-        Ok(())
-    }
-
     /// Request connection parameter update
     ///
     /// # Parameters
@@ -937,9 +906,101 @@ impl<'d> HCI<'d, Normal> {
     }
 }
 
-// Scanning and GATT client: not available in the peripheral-only stack.
+// Scanning, central connections and GATT client: not available in the
+// peripheral-only stack.
 #[cfg(not(feature = "ble-stack-po"))]
 impl<'d> HCI<'d, Normal> {
+    /// Initiate a connection to a peripheral device (Central role)
+    ///
+    /// This starts the connection process. The connection complete event
+    /// will be received when the connection is established.
+    ///
+    /// The GAP layer must have been initialized with the central role
+    /// ([`GapInitParams::role`](crate::bluetooth::gap_init::GapInitParams::role)
+    /// including `Role::CENTRAL`); otherwise the stack answers
+    /// `Command Disallowed`.
+    ///
+    /// Connecting to the Filter Accept List (`use_filter_accept_list`) has no
+    /// ACI equivalent and is only available with the full BLE stack; other
+    /// stacks return [`BleError::InvalidParameter`].
+    ///
+    /// # Parameters
+    ///
+    /// - `params`: Connection initiation parameters
+    pub async fn connect(&self, params: &ConnectionInitParams) -> Result<(), BleError> {
+        if params.use_filter_accept_list {
+            #[cfg(feature = "ble-stack-full")]
+            return self.connect_filter_accept_list(params).await;
+            #[cfg(not(feature = "ble-stack-full"))]
+            return Err(BleError::InvalidParameter);
+        }
+
+        GapCreateConnection::new(
+            ExtScanInterval::from_units(params.scan_interval).ok_or(BleError::InvalidParameter)?,
+            ExtScanWindow::from_units(params.scan_window).ok_or(BleError::InvalidParameter)?,
+            AddressType::try_from(params.peer_address.kind()).map_err(|_| BleError::InvalidParameter)?,
+            BdAddr::new(params.peer_address.bytes()),
+            ConnectableOwnAddressType::try_from(params.own_address_type as u8)
+                .map_err(|_| BleError::InvalidParameter)?,
+            ConnInterval::from_units(params.conn_interval_min).ok_or(BleError::InvalidParameter)?,
+            ConnInterval::from_units(params.conn_interval_max).ok_or(BleError::InvalidParameter)?,
+            ConnLatency::new(params.max_latency).ok_or(BleError::InvalidParameter)?,
+            SupervisionTimeout::from_units(params.supervision_timeout).ok_or(BleError::InvalidParameter)?,
+            CeLength::from_units(params.min_ce_length).ok_or(BleError::InvalidParameter)?,
+            CeLength::from_units(params.max_ce_length).ok_or(BleError::InvalidParameter)?,
+        )
+        .exec(&self.controller)
+        .await?;
+        Ok(())
+    }
+
+    /// Connect to any device of the Filter Accept List, through HCI.
+    #[cfg(feature = "ble-stack-full")]
+    async fn connect_filter_accept_list(&self, params: &ConnectionInitParams) -> Result<(), BleError> {
+        use bt_hci::cmd::le::LeCreateConn;
+        use bt_hci::param::AddrKind;
+
+        LeCreateConn::new(
+            Duration::<625>::from_u16(params.scan_interval),
+            Duration::<625>::from_u16(params.scan_window),
+            true,
+            AddrKind::new(params.peer_address.kind()),
+            BdAddr::new(params.peer_address.bytes()),
+            AddrKind::new(params.own_address_type as u8),
+            Duration::<1_250>::from_u16(params.conn_interval_min),
+            Duration::<1_250>::from_u16(params.conn_interval_max),
+            params.max_latency,
+            Duration::<10_000>::from_u16(params.supervision_timeout),
+            Duration::<625>::from_u16(params.min_ce_length),
+            Duration::<625>::from_u16(params.max_ce_length),
+        )
+        .exec(&self.controller)
+        .await?;
+        Ok(())
+    }
+
+    /// Cancel an ongoing connection attempt
+    pub async fn cancel_connect(&self) -> Result<(), BleError> {
+        let result = GapTerminateGapProc::new(GapProcedure::DirectConnectionEstablishment)
+            .exec(&self.controller)
+            .await;
+
+        // No direct connection procedure running: the attempt may be a Filter
+        // Accept List connection, which goes through HCI.
+        #[cfg(feature = "ble-stack-full")]
+        if let Err(bt_hci::cmd::Error::Hci(e)) = &result
+            && *e == bt_hci::param::Error::CMD_DISALLOWED
+        {
+            bt_hci::cmd::le::LeCreateConnCancel::new()
+                .exec(&self.controller)
+                .await?;
+            return Ok(());
+        }
+
+        result?;
+        Ok(())
+    }
+
     /// Create a new minimal GATT client instance.
     pub fn gatt_client(&self) -> GattClient {
         GattClient::new()
