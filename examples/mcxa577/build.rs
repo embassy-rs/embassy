@@ -20,6 +20,8 @@ fn main() {
     println!("cargo:rerun-if-changed=ecc-scratch.x");
     std::fs::write(out.join("ram.x"), include_bytes!("ram.x")).unwrap();
     println!("cargo:rerun-if-changed=ram.x");
+    std::fs::write(out.join("mbc-data.x"), include_bytes!("mbc-data.x")).unwrap();
+    println!("cargo:rerun-if-changed=mbc-data.x");
     println!("cargo:rerun-if-changed=src/bin");
     // Keep every other binary's RAM layout unchanged. flip-link needs literal
     // RAM bounds, so select complete scripts rather than conditional expressions.
@@ -30,6 +32,9 @@ fn main() {
             let script = if bin == "erm-eim" { "ecc-scratch.x" } else { "ram.x" };
             println!("cargo:rustc-link-arg-bin={bin}=-T{script}");
             println!("cargo:rustc-link-arg-bin={bin}=-Tlink.x");
+            if bin == "mbc" {
+                println!("cargo:rustc-link-arg-bin={bin}=-Tmbc-data.x");
+            }
         }
     }
 }
