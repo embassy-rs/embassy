@@ -6,10 +6,7 @@
 
 use crate::clocks::periph_helpers::NoConfig;
 use crate::clocks::{ClockError, WakeGuard, default_register_value, enable_and_reset, enable_ecc_ram_a_clock};
-#[cfg(feature = "_mcxa5xx")]
 use crate::pac::eim::Eim as Regs;
-#[cfg(not(feature = "_mcxa5xx"))]
-use crate::pac::eim0::Eim0 as Regs;
 use crate::{Peri, pac, peripherals};
 
 struct Info {

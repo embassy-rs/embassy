@@ -47,9 +47,9 @@ pub mod ctimer;
 pub mod dac;
 #[cfg(mcxa_dma)]
 pub mod dma;
-#[cfg(mcxa_eim0)]
+#[cfg(mcxa_eim)]
 pub mod eim;
-#[cfg(mcxa_erm0)]
+#[cfg(mcxa_erm)]
 pub mod erm;
 #[cfg(feature = "executor-platform")]
 pub mod executor;

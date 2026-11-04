@@ -337,10 +337,10 @@ impl AsyncMode for Async {}
 pub(crate) enum Registers {
     Cmp0(pac::cmp::Cmp),
     #[cfg(feature = "_mcxa2xx")]
-    Cmp1(pac::cmp1::Cmp1),
+    Cmp1(pac::cmp::Cmp1),
 }
 
-// CMP1's generated fieldset types are distinct even where the layouts agree.
+// CMP0 and CMP1 retain distinct views of the external-trigger configuration.
 // Dispatch operations through each actual PAC type rather than casting handles.
 macro_rules! with_regs {
     ($this:expr, $r:ident, $body:expr) => {

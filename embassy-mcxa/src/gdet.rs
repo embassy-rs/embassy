@@ -25,7 +25,7 @@ struct Info {
 
 static INFO: Info = Info {
     regs: pac::DGDET0,
-    control: pac::seccon,
+    control: pac::SECCON0,
 };
 
 /// Observed core clock gate and software isolation controls.

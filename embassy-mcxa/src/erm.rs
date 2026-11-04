@@ -14,10 +14,7 @@ use maitake_sync::WaitCell;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::clocks::{ClockError, Gate, WakeGuard, enable_and_reset, enable_ecc_ram_a_clock};
 use crate::interrupt::typelevel::{Binding, Interrupt};
-#[cfg(feature = "_mcxa5xx")]
 use crate::pac::erm::Erm as Regs;
-#[cfg(not(feature = "_mcxa5xx"))]
-use crate::pac::erm0::Erm0 as Regs;
 use crate::peripherals::ERM0;
 use crate::{interrupt, pac};
 
