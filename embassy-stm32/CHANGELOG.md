@@ -30,6 +30,7 @@ I2C:
 USART:
 - fix: stm32/usart: `BufferedUartTx::flush` could return before the last bytes left the UART when a write wrapped around the end of the TX buffer. The TC interrupt now reports done only when the TX buffer is empty, and every write pends the interrupt.
 - fix: stm32/usart v3/v4: a DMA `UartRx::read` or `read_until_idle` no longer clears TC along with its own flags, so a `UartTx::flush` running alongside it no longer hangs after the transmission completes.
+- fix: stm32/usart: a DMA `UartRx::read` or `read_until_idle` no longer drops a byte received before it started: it takes the bytes already waiting (the RX FIFO's on v3/v4) into the front of its buffer and DMAs the rest, and `read_until_idle` returns them at once when their frame already ended. On v3/v4 it also no longer reads RDR while its DMA runs, which could take a byte from the DMA.
 
 SPI:
 - fix: stm32/spi: async slave `transfer`, `transfer_in_place` and `read` with an EXTI channel on NSS return when the master deselects, like `write`. Returning as soon as the buffers were full left that transaction's deselect edge to the next call, which then ended at once with nothing received, and the slave stayed one transaction behind.

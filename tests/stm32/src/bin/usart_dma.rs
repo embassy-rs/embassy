@@ -8,7 +8,7 @@ use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usart::{Config, Error, Uart};
-use embassy_time::{Duration, with_timeout};
+use embassy_time::{Duration, Timer, with_timeout};
 
 #[cfg_attr(
     feature = "stop",
@@ -99,6 +99,18 @@ async fn main(_spawner: Spawner) {
             assert_eq!(tx_buf, rx_buf);
         }
     }
+
+    // A byte received before a read starts is that read's first byte, not dropped.
+    tx.blocking_write(&[0xA5]).unwrap();
+    tx.blocking_flush().unwrap();
+    Timer::after_millis(1).await;
+    let mut first = [0; 1];
+    defmt::unwrap!(
+        with_timeout(Duration::from_millis(100), rx.read(&mut first)).await,
+        "the byte received before the read was dropped"
+    )
+    .unwrap();
+    assert_eq!(first, [0xA5]);
 
     // Test flush doesn't hang. Check multiple combinations of async+blocking.
     tx.write(&tx_buf).await.unwrap();
