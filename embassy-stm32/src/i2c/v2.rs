@@ -167,6 +167,23 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         self.info.regs.cr2().write(|w| w.set_stop(true));
     }
 
+    /// Aborts the transfer of a blocking call that returned [`Error::Timeout`], leaving the
+    /// peripheral idle.
+    ///
+    /// The timeout abandons the transfer halfway: its START (and STOP, if one was requested) can
+    /// still be pending in CR2, the peripheral can still wait for TXDR/RXDR, and NACKF/STOPF
+    /// arrive once the target lets go of SCL. The next transfer would run into all of that: it
+    /// returns the old transfer's NACK after starting its own transfer, which then runs with
+    /// nobody serving it, and the peripheral stays stuck until PE is toggled. So toggle PE now,
+    /// as `error_occurred` does for BERR and ARLO.
+    fn abort_on_timeout<R>(&self, result: Result<R, Error>) -> Result<R, Error> {
+        if matches!(result, Err(Error::Timeout)) {
+            trace!("Timeout, resetting the peripheral.");
+            self.soft_reset();
+        }
+        result
+    }
+
     /// Resets the I2C peripheral state machine while preserving configuration.
     ///
     /// This can be used to recover from a spurious start condition that leaves the BUSY flag set
@@ -566,7 +583,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         // I2C start
         //
         // ST SAD+W
-        if let Err(err) = Self::master_write(
+        Self::master_write(
             self.info,
             address,
             write.len().min(255),
@@ -574,12 +591,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             last_chunk_idx != 0,
             false, // restart
             timeout,
-        ) {
-            if send_stop {
-                self.master_stop();
-            }
-            return Err(err);
-        }
+        )?;
 
         for (number, chunk) in write.chunks(255).enumerate() {
             if number != 0 {
@@ -597,8 +609,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                 // (START has been ACKed or last byte when
                 // through)
                 if let Err(err) = self.wait_txis(timeout) {
-                    if send_stop && err != Error::Nack {
-                        // STOP is sent automatically if a NACK was received
+                    // STOP is sent automatically if a NACK was received, and a timeout is
+                    // aborted by resetting the peripheral instead (see `abort_on_timeout`).
+                    if send_stop && !matches!(err, Error::Nack | Error::Timeout) {
                         self.master_stop();
                     }
                     return Err(err);
@@ -622,13 +635,15 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
     /// Blocking read.
     pub fn blocking_read(&mut self, address: impl Into<Address>, read: &mut [u8]) -> Result<(), Error> {
-        self.read_internal(address.into(), read, false, self.timeout())
+        let result = self.read_internal(address.into(), read, false, self.timeout());
         // Automatic Stop
+        self.abort_on_timeout(result)
     }
 
     /// Blocking write.
     pub fn blocking_write(&mut self, address: impl Into<Address>, write: &[u8]) -> Result<(), Error> {
-        self.write_internal(address.into(), write, true, self.timeout())
+        let result = self.write_internal(address.into(), write, true, self.timeout());
+        self.abort_on_timeout(result)
     }
 
     /// Blocking write, restart, read.
@@ -640,9 +655,11 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     ) -> Result<(), Error> {
         let address = address.into();
         let timeout = self.timeout();
-        self.write_internal(address, write, false, timeout)?;
-        self.read_internal(address, read, true, timeout)
+        let result = self
+            .write_internal(address, write, false, timeout)
+            .and_then(|()| self.read_internal(address, read, true, timeout));
         // Automatic Stop
+        self.abort_on_timeout(result)
     }
 
     /// Blocking transaction with operations.
@@ -665,7 +682,16 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     ) -> Result<(), Error> {
         let address = addr.into();
         let timeout = self.timeout();
+        let result = self.execute_groups(address, operations, timeout);
+        self.abort_on_timeout(result)
+    }
 
+    fn execute_groups<O: TransactionOp>(
+        &mut self,
+        address: Address,
+        operations: &mut [O],
+        timeout: Timeout,
+    ) -> Result<(), Error> {
         // Group consecutive operations of the same type
         let mut op_idx = 0;
         let mut is_first_group = true;
@@ -876,6 +902,11 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     ///
     /// The buffers are concatenated in a single write transaction.
     pub fn blocking_write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
+        let result = self.write_vectored_internal(address, write);
+        self.abort_on_timeout(result)
+    }
+
+    fn write_vectored_internal(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
         if write.is_empty() {
             return self.write_internal(address.into(), &[], true, self.timeout());
         }
@@ -885,7 +916,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         let first_length = write[0].len();
         let last_slice_index = write.len() - 1;
 
-        if let Err(err) = Self::master_write(
+        Self::master_write(
             self.info,
             address.into(),
             first_length.min(255),
@@ -893,10 +924,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             (first_length > 255) || (last_slice_index != 0),
             false, // restart
             timeout,
-        ) {
-            self.master_stop();
-            return Err(err);
-        }
+        )?;
 
         for (idx, slice) in write.iter().enumerate() {
             let slice_len = slice.len();
@@ -908,35 +936,26 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             };
             let last_chunk_idx = total_chunks.saturating_sub(1);
 
-            if idx != 0
-                && let Err(err) = Self::reload(
+            if idx != 0 {
+                // Only fails with a timeout, which the caller resets the peripheral for.
+                Self::reload(
                     self.info,
                     slice_len.min(255),
                     (idx != last_slice_index) || (slice_len > 255),
                     Stop::Software,
                     timeout,
-                )
-            {
-                if err != Error::Nack {
-                    self.master_stop();
-                }
-                return Err(err);
+                )?;
             }
 
             for (number, chunk) in slice.chunks(255).enumerate() {
-                if number != 0
-                    && let Err(err) = Self::reload(
+                if number != 0 {
+                    Self::reload(
                         self.info,
                         chunk.len(),
                         (number != last_chunk_idx) || (idx != last_slice_index),
                         Stop::Software,
                         timeout,
-                    )
-                {
-                    if err != Error::Nack {
-                        self.master_stop();
-                    }
-                    return Err(err);
+                    )?;
                 }
 
                 for byte in chunk {
@@ -944,7 +963,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                     // (START has been ACKed or last byte when
                     // through)
                     if let Err(err) = self.wait_txis(timeout) {
-                        if err != Error::Nack {
+                        if !matches!(err, Error::Nack | Error::Timeout) {
                             self.master_stop();
                         }
                         return Err(err);
