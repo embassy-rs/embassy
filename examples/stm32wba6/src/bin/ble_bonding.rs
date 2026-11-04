@@ -50,7 +50,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams, IoCapability as GapIoCapability};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::hci::AdvFilterPolicy;
 use embassy_stm32_wpan::bluetooth::security::{
@@ -63,7 +63,8 @@ use embassy_stm32_wpan::{
 use panic_probe as _;
 use stm32wb_hci::aci::AciEvent;
 use stm32wb_hci::aci::gap::GapPairingCompleteEvent;
-use stm32wb_hci::aci::values::PairingStatus;
+use stm32wb_hci::aci::values::{AddressType, PairingStatus};
+use stm32wb_hci::adv_data::AdvFlags;
 use stm32wb_hci::wire::OrUnknown;
 
 bind_interrupts!(struct Irqs {
@@ -113,7 +114,7 @@ async fn main(spawner: Spawner) {
         address_type: AddressType::Public,
         bd_addr: st_public_bd_addr(),
         device_name: b"Embassy-Bond",
-        io_capability: GapIoCapability::DisplayYesNo,
+        io_capability: stm32wb_hci::aci::values::IoCapability::DisplayYesNo,
         skip_authentication_setup: true,
         ..GapInitParams::default()
     };
@@ -134,21 +135,26 @@ async fn main(spawner: Spawner) {
         .with_identity_address_type(IdentityAddressType::Public);
 
     security
-        .set_authentication_requirements(params)
+        .set_authentication_requirements(ble.controller(), params)
+        .await
         .expect("set security params");
 
     // ST: initialize whitelist when bonding is enabled.
     security
-        .configure_filter_accept_list()
+        .configure_filter_accept_list(ble.controller())
+        .await
         .expect("configure_filter_accept_list");
 
     if ERASE_BONDS_ON_BOOT {
-        security.clear_security_database().expect("clear_security_database");
+        security
+            .clear_security_database(ble.controller())
+            .await
+            .expect("clear_security_database");
         info!("Bond RAM database cleared (ERASE_BONDS_ON_BOOT)");
     }
 
     // Cold boot with bonds in NVM: program FAL + resolving list (ST privacy flow).
-    match security.configure_filter_and_resolving_list() {
+    match security.configure_filter_and_resolving_list(ble.controller()).await {
         Ok(count) => {
             if count > 0 {
                 info!("Bond lists configured at boot ({} peer(s))", count);
@@ -161,7 +167,7 @@ async fn main(spawner: Spawner) {
     // the bond's IRK made it into the LL resolving list — if `peer_rpa` here matches the
     // identity address (instead of being a valid RPA), the LL has `peer_irk = 0` and will
     // silently drop incoming CONNECT_INDs from a bonded RPA-using peer like iOS.
-    security.log_resolving_list_diagnostics(None);
+    security.log_resolving_list_diagnostics(ble.controller(), None).await;
 
     // ── GATT ──────────────────────────────────────────────────────────────────
     //
@@ -170,23 +176,32 @@ async fn main(spawner: Spawner) {
     let mut gatt = ble.gatt_server();
 
     let svc = gatt
-        .add_service(Uuid::from_u16(BOND_SERVICE_UUID), ServiceType::Primary, 4)
+        .add_service(
+            ble.controller(),
+            Uuid::Uuid16(BOND_SERVICE_UUID),
+            ServiceType::Primary,
+            4,
+        )
+        .await
         .expect("add service");
 
     let ch = gatt
         .add_characteristic(
+            ble.controller(),
             svc,
-            Uuid::from_u16(BOND_CHAR_UUID),
+            Uuid::Uuid16(BOND_CHAR_UUID),
             20,
             CharProperties::READ | CharProperties::WRITE,
-            SecurityPermissions::ENCRY_READ | SecurityPermissions::ENCRY_WRITE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::ENCRYPTED_READ | SecurityPermissions::ENCRYPTED_WRITE,
+            GattEventMask::ATTRIBUTE_WRITE,
             0,
             true,
         )
+        .await
         .expect("add characteristic");
 
-    gatt.update_characteristic_value(svc, ch, 0, b"Hello, bonded!")
+    gatt.update_characteristic_value(ble.controller(), svc, ch, 0, b"Hello, bonded!")
+        .await
         .expect("set initial value");
 
     // ── Advertising ───────────────────────────────────────────────────────────
@@ -194,14 +209,16 @@ async fn main(spawner: Spawner) {
 
     fn make_adv_data() -> AdvData {
         let mut d = AdvData::new();
-        d.add_flags(0x06).unwrap();
-        d.add_name("Embassy-Bond").unwrap();
-        d.add_service_uuid_16(BOND_SERVICE_UUID).unwrap();
+        d = d
+            .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+            .unwrap();
+        d = d.complete_local_name(b"Embassy-Bond").unwrap();
+        d = d.complete_uuid16_list(&[BOND_SERVICE_UUID]).unwrap();
         d
     }
 
     let mut scan_rsp = AdvData::new();
-    scan_rsp.add_name("Embassy-Bond").expect("scan rsp name");
+    scan_rsp = scan_rsp.complete_local_name(b"Embassy-Bond").expect("scan rsp name");
 
     ble.start_advertising(adv_params.clone(), make_adv_data(), Some(scan_rsp))
         .await
@@ -214,7 +231,7 @@ async fn main(spawner: Spawner) {
     loop {
         let event = ble.read_event(&mut event_buf).await;
 
-        if let Some(gap_event) = ble.process_event(&event) {
+        if let Some(gap_event) = ble.process_event(&event).await {
             match gap_event {
                 GapEvent::Connected(conn) => {
                     if let Some(rpa) = conn.peer_rpa {
@@ -263,7 +280,10 @@ async fn main(spawner: Spawner) {
                 info!("║  CONFIRM ON PHONE: {:06}          ║", ev.numeric_value);
                 info!("╚══════════════════════════════════╝");
                 info!("");
-                if let Err(e) = security.numeric_comparison_response(ev.connection_handle.raw(), true) {
+                if let Err(e) = security
+                    .numeric_comparison_response(ble.controller(), ev.connection_handle.raw(), true)
+                    .await
+                {
                     error!("numeric_comparison_response error: {:?}", e);
                 }
             }
@@ -279,7 +299,7 @@ async fn main(spawner: Spawner) {
                         "PAIRING COMPLETE: handle=0x{:04X} — encrypted and bonded",
                         conn_handle.raw()
                     );
-                    security.log_bonded_devices();
+                    security.log_bonded_devices(ble.controller()).await;
                 }
                 OrUnknown::Known(PairingStatus::SmpTimeout) => {
                     warn!(
@@ -318,12 +338,12 @@ async fn main(spawner: Spawner) {
             BleEvent::Vendor(AciEvent::GapBondLost(_)) => {
                 info!("Bond lost — allowing rebond and restarting advertising");
                 let conn_handle = ble.connections().iter().next().map(|c| c.handle.raw()).unwrap_or(0);
-                let _ = security.allow_rebond(conn_handle);
+                let _ = security.allow_rebond(ble.controller(), conn_handle).await;
                 if ble.is_advertising() {
                     let _ = ble.stop_advertising().await;
                 }
                 let mut scan_rsp = AdvData::new();
-                scan_rsp.add_name("Embassy-Bond").expect("scan rsp name");
+                scan_rsp = scan_rsp.complete_local_name(b"Embassy-Bond").expect("scan rsp name");
                 let _ = ble
                     .start_advertising(make_adv_params(), make_adv_data(), Some(scan_rsp))
                     .await;
@@ -356,7 +376,7 @@ fn make_adv_params() -> AdvParams {
         interval_max: 0x0080,
         adv_type: AdvType::ConnectableUndirected,
         // 0x02 = resolvable private address when controller privacy is enabled.
-        own_addr_type: OwnAddressType::PrivateFallbackPublic,
+        own_addr_type: OwnAddressType::ResolvablePrivate,
         filter_policy: AdvFilterPolicy::All,
         peer_addr: None,
         channel_map: 0x07,

@@ -3,8 +3,6 @@ runner = 'probe-rs run --chip MCXA287 --preverify --verify --protocol swd --spee
 
 rustflags = [
   "-C", "linker=flip-link",
-  "-C", "link-arg=-Tlink.x",
-  "-C", "link-arg=-Tdefmt.x",
   "-C", "link-arg=--nmagic",
 ]
 

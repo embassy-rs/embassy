@@ -28,12 +28,16 @@ pub mod trace;
 
 #[cfg(mcxa_adc)]
 pub mod adc;
+#[cfg(mcxa_aoi)]
+pub mod aoi;
 #[cfg(mcxa_cdog)]
 pub mod cdog;
 #[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
 pub mod clkout; // TODO: Add dummy driver to metadata
 #[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
 pub mod clocks;
+#[cfg(mcxa_cmp)]
+pub mod cmp;
 pub mod config;
 #[cfg(mcxa_crc)]
 pub mod crc;
@@ -43,6 +47,10 @@ pub mod ctimer;
 pub mod dac;
 #[cfg(mcxa_dma)]
 pub mod dma;
+#[cfg(mcxa_eim0)]
+pub mod eim;
+#[cfg(mcxa_erm0)]
+pub mod erm;
 #[cfg(feature = "executor-platform")]
 pub mod executor;
 #[cfg(mcxa_can)]
@@ -51,6 +59,8 @@ pub mod flexcan;
 pub mod flexspi;
 #[cfg(mcxa_freqme)]
 pub mod freqme;
+#[cfg(mcxa_gdet)]
+pub mod gdet;
 #[cfg(mcxa_gpio)]
 pub mod gpio;
 #[cfg(mcxa_lpi2c)]

@@ -18,6 +18,7 @@
 - [x] LPTMR Embassy time backend (additional `time-driver-lptmr` build)
 - [x] FREQME blocking/async one-shot and continuous internal clocks including SLOW_CLK, cancellation, IRQs and reconstruction (no wiring)
 - [x] FREQME runtime scale/source/power reconfiguration and threshold-error recovery
+- [x] ERM/EIM single-bit SRAM ECC diagnostics, counter saturation, async IRQs, cancellation and reconstruction (no wiring)
 - [ ] SPI
 
 ## Wiring:
@@ -47,3 +48,22 @@ The tests in this crate target MCXA266 only. Build the RTC regression with
 MCXA287 uses the MCXA5-family calendar RTC, not this crate's seconds-counter RTC.
 Its RTC rollover and repeated-alarm checks live in
 `examples/mcxa287/src/bin/rtc-alarm.rs`.
+
+## ERM/EIM
+
+Build from this directory with `cargo build --release --bin erm_eim`. This
+RAM-linked binary alone places vectors, code, data, RTT and stack above SRAM A0
+(`0x20002000`, 120 KiB). Its linker reserves two scratch words at `0x20000000`
+and `0x20000004`, initialized with full-word writes before injection. Other
+binaries retain the original layout; the build script selects `ecc-scratch.x`
+for this binary and `ram.x` for the others using bin-scoped linker arguments.
+
+ECC must already be enabled in `SYSCON.RAM_CTRL`; the test checks but never
+changes this policy. No DMA or other tasks run. Do not use debugger memory
+views or polling in `0x20000000..0x20002000`; RTT lives outside that bank.
+Only bounded single-bit pulses are armed. Double-bit descriptors are checked
+only while disabled; no uncorrectable events or flash faults are generated.
+Every assertion, timeout, log and await occurs with injection disabled.
+
+Source, final ELF layout and injection disassembly require independent review
+before any hardware run. The test finishes with `Test OK` and a breakpoint.
