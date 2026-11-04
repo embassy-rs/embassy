@@ -10,12 +10,11 @@ pub mod security;
 use bt_hci::cmd::controller_baseband::{Reset, SetEventMask};
 use bt_hci::cmd::info::ReadLocalVersionInformation;
 use bt_hci::cmd::le::{
-    LeConnCteRequestEnable, LeConnCteResponseEnable, LeConnUpdate, LeCreateConn, LeCreateConnCancel,
-    LeReadAntennaInformation, LeReadBufferSizeV2, LeReadLocalSupportedFeatures, LeReadPhy, LeReceiverTest,
-    LeReceiverTestV2, LeRemoteConnectionParameterRequestReply, LeSetConnCteReceiveParams, LeSetConnCteTransmitParams,
-    LeSetDataLength, LeSetEventMask, LeSetPhy, LeSetRandomAddr, LeTestEnd, LeTransmitterTest, LeTransmitterTestV2,
+    LeConnCteRequestEnable, LeConnCteResponseEnable, LeCreateConn, LeCreateConnCancel, LeReadAntennaInformation,
+    LeReadBufferSizeV2, LeReadLocalSupportedFeatures, LeReadPhy, LeReceiverTest, LeReceiverTestV2,
+    LeRemoteConnectionParameterRequestReply, LeSetConnCteReceiveParams, LeSetConnCteTransmitParams, LeSetDataLength,
+    LeSetEventMask, LeSetPhy, LeSetRandomAddr, LeTestEnd, LeTransmitterTest, LeTransmitterTestV2,
 };
-use bt_hci::cmd::link_control::Disconnect;
 use bt_hci::cmd::{AsyncCmd, SyncCmd};
 use bt_hci::controller::Controller as _;
 use bt_hci::event::le::{
@@ -23,17 +22,18 @@ use bt_hci::event::le::{
     LePhyUpdateComplete, LeRemoteConnectionParameterRequest,
 };
 use bt_hci::event::{DisconnectionComplete, Event, EventKind, EventPacket};
-use bt_hci::param::{
-    AddrKind, BdAddr, ConnHandle, CteKind, CteMask, DisconnectReason as HciDisconnectReason, Duration, EventMask,
-    LeEventMask, PhyOptions,
-};
+use bt_hci::param::{AddrKind, BdAddr, ConnHandle, CteKind, CteMask, Duration, EventMask, LeEventMask, PhyOptions};
 use bt_hci::{ControllerToHostPacket, FromHciBytes};
 use embassy_futures::yield_now;
 use embassy_stm32::interrupt;
+use stm32wb_hci::aci::durations::{CeLength, ConnInterval, SupervisionTimeout};
 use stm32wb_hci::aci::flags::{RadioActivityMask, Role};
+use stm32wb_hci::aci::gap::{GapStartConnectionUpdate, GapTerminate};
 use stm32wb_hci::aci::gatt::GattInit;
 use stm32wb_hci::aci::hal::{HalLeTxTestPacketNumber, HalReadRssi, HalRssi, HalSetRadioActivityMask};
 use stm32wb_hci::aci::l2cap::L2capConnectionParameterUpdateReq;
+use stm32wb_hci::aci::ranges::ConnLatency;
+use stm32wb_hci::aci::values::DisconnectReason as AciDisconnectReason;
 pub use stm32wb_hci::event::BleEvent;
 
 use crate::bluetooth::error::BleError;
@@ -492,9 +492,8 @@ impl<'d> HCI<'d, Normal> {
     /// - `handle`: Connection handle to disconnect
     /// - `reason`: Reason for disconnection
     pub async fn disconnect(&self, handle: ConnHandle, reason: DisconnectReason) -> Result<(), BleError> {
-        let reason =
-            HciDisconnectReason::from_hci_bytes_complete(&[reason.as_u8()]).map_err(|_| BleError::InvalidParameter)?;
-        Disconnect::new(handle, reason).exec(&self.controller).await?;
+        let reason = AciDisconnectReason::try_from(reason.as_u8()).map_err(|_| BleError::InvalidParameter)?;
+        GapTerminate::new(handle, reason).exec(&self.controller).await?;
         Ok(())
     }
 
@@ -550,14 +549,14 @@ impl<'d> HCI<'d, Normal> {
         latency: u16,
         supervision_timeout: u16,
     ) -> Result<(), BleError> {
-        LeConnUpdate::new(
+        GapStartConnectionUpdate::new(
             handle,
-            Duration::<1_250>::from_u16(interval_min),
-            Duration::<1_250>::from_u16(interval_max),
-            latency,
-            Duration::<10_000>::from_u16(supervision_timeout),
-            Duration::<625>::from_u16(0),      // min CE length
-            Duration::<625>::from_u16(0xFFFF), // max CE length
+            ConnInterval::from_units(interval_min).ok_or(BleError::InvalidParameter)?,
+            ConnInterval::from_units(interval_max).ok_or(BleError::InvalidParameter)?,
+            ConnLatency::new(latency).ok_or(BleError::InvalidParameter)?,
+            SupervisionTimeout::from_units(supervision_timeout).ok_or(BleError::InvalidParameter)?,
+            CeLength::from_units(0).ok_or(BleError::InvalidParameter)?, // min CE length
+            CeLength::from_units(0xFFFF).ok_or(BleError::InvalidParameter)?, // max CE length
         )
         .exec(&self.controller)
         .await?;
@@ -590,9 +589,6 @@ impl<'d> HCI<'d, Normal> {
         latency: u16,
         timeout_multiplier: u16,
     ) -> Result<(), BleError> {
-        use stm32wb_hci::aci::durations::ConnInterval;
-        use stm32wb_hci::aci::ranges::ConnLatency;
-
         L2capConnectionParameterUpdateReq::new(
             handle,
             ConnInterval::from_units(interval_min).ok_or(BleError::InvalidParameter)?,
@@ -1172,10 +1168,11 @@ impl<'d, M: Mode> HCI<'d, M> {
     pub async fn deinit(mut self) -> Result<(), BleError> {
         // Terminate all active connections cleanly
         for conn in self.connections.iter() {
-            // 0x16 = "connection terminated by local host"
-            if let Ok(reason) = HciDisconnectReason::from_hci_bytes_complete(&[0x16]) {
-                let _ = Disconnect::new(conn.handle, reason).exec(&self.controller).await;
-            }
+            // 0x16 "terminated by local host" is not a reason the host may send; use
+            // 0x13 "remote user terminated", as ST's reference applications do.
+            let _ = GapTerminate::new(conn.handle, AciDisconnectReason::RemoteUserTerminated)
+                .exec(&self.controller)
+                .await;
         }
 
         // Reset the HCI controller — this resets the radio hardware to its
