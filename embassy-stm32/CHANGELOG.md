@@ -17,6 +17,7 @@ Time driver:
 - fix: stm32/time-driver-lptim: arm alarms that fall in the current counter cycle; they fired at the overflow, up to a quarter cycle late
 - fix: stm32/time-driver-lptim: on U5, U3 and WBA, clear the previous `CMPOK` before a compare write, as on WL, so the wait is for this write
 - fix: stm32/low-power, stm32/time-driver-lptim: compile with the `log` feature
+- fix: stm32/time-driver-lptim: the interrupt handler clears only the flags it read; it also cleared every enabled flag, so an overflow that arrived during the handler was lost and time fell back one counter period
 - fix: stm32/time-driver-lptim: on U5, U3 and WBA, wait for `DIEROK` after each `DIER` change; a `CCIE` write still in flight when entering Stop lost the alarm wakeup until the next overflow
 
 I2C:
