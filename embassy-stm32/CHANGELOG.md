@@ -244,6 +244,7 @@ DAC:
 - feat: stm32/dac: add HRTIM DAC triggers
 - feat: stm32/dac: type-erase DAC
 - feat: stm32/dac: add trigger trait impl
+- feat: stm32/dac: add DAC v9 (STM32C5) support. DMA, triggered output, and ring-buffered output have not been hardware tested.
 
 OPAMP:
 - feat: stm32/opamp: allow VINM0 as bias input

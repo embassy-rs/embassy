@@ -159,8 +159,8 @@ impl State {
 }
 /// Driver for a single DAC channel.
 ///
-/// If you want to use both channels, either together or independently,
-/// create a [`Dac`] first and use it to access each channel.
+/// On devices with two DAC channels, create a `Dac` first to use both channels,
+/// either together or independently.
 pub struct DacChannel<'d, M: PeriMode> {
     phantom: PhantomData<&'d mut M>,
     #[allow(unused)]
@@ -731,12 +731,14 @@ impl<'d, M: PeriMode> Drop for DacChannel<'d, M> {
 /// // Pins may need to be changed for your specific device.
 /// let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new_blocking(p.DAC1, p.PA4, p.PA5).split();
 /// ```
+#[cfg(not(dac_v9))]
 pub struct Dac<'d, M: PeriMode> {
     info: &'static Info,
     ch1: DacChannel<'d, M>,
     ch2: DacChannel<'d, M>,
 }
 
+#[cfg(not(dac_v9))]
 impl<'d> Dac<'d, Async> {
     /// Create a new `Dac` instance, consuming the underlying DAC peripheral.
     ///
@@ -910,10 +912,7 @@ impl<'d> Dac<'d, Async> {
     ///
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
-    #[cfg(all(
-        any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9),
-        not(any(stm32h56x, stm32h57x))
-    ))]
+    #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8), not(any(stm32h56x, stm32h57x))))]
     pub fn new_internal<T: Instance, D1: Dma<T, Ch1>, D2: Dma<T, Ch2>>(
         peri: Peri<'d, T>,
         dma_ch1: Peri<'d, D1>,
@@ -971,6 +970,7 @@ impl<'d> Dac<'d, Async> {
     }
 }
 
+#[cfg(not(dac_v9))]
 impl<'d> Dac<'d, Blocking> {
     /// Create a new `Dac` instance, consuming the underlying DAC peripheral.
     ///
@@ -1025,6 +1025,7 @@ impl<'d> Dac<'d, Blocking> {
     }
 }
 
+#[cfg(not(dac_v9))]
 impl<'d, M: PeriMode> Dac<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
@@ -1087,16 +1088,6 @@ impl<'d, M: PeriMode> Dac<'d, M> {
     /// otherwise, they will be output after the next trigger.
     pub fn set<W: Word>(&mut self, values: (W, W)) {
         W::set_values(self.info.regs, values);
-    }
-
-    #[cfg(dac_v9)]
-    /// Update channel 1 with a new value.
-    ///
-    /// DAC v9 has a single channel and no dual-channel data holding registers.
-    /// If triggering is not enabled, the new value is immediately output;
-    /// otherwise, it will be output after the next trigger.
-    pub fn set<W: Word>(&mut self, value: W) {
-        W::set_value(self.info.regs, 0, value);
     }
 }
 
