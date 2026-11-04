@@ -44,6 +44,7 @@ use embassy_time::{Duration, Ticker};
 use panic_probe as _;
 use stm32wb_hci::aci::AciEvent;
 use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
+use stm32wb_hci::adv_data::AdvFlags;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -136,52 +137,71 @@ async fn main(spawner: Spawner) {
 
     // HTS: 1 service + 3 chars + 2 CCCDs = 8 attribute records
     let service_handle = gatt
-        .add_service(Uuid::from_u16(HTS_SERVICE_UUID), ServiceType::Primary, 8)
+        .add_service(
+            ble.controller(),
+            Uuid::Uuid16(HTS_SERVICE_UUID),
+            ServiceType::Primary,
+            8,
+        )
+        .await
         .expect("Failed to add HTS service");
 
     // Temperature Measurement: INDICATE, variable length up to 13 bytes (full format)
     let temm_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u16(TEMM_CHAR_UUID),
+            Uuid::Uuid16(TEMM_CHAR_UUID),
             13,
             CharProperties::INDICATE,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(),
             0,
             true,
         )
+        .await
         .expect("Failed to add Temperature Measurement characteristic");
 
     // Temperature Type: READ only, 1 byte constant
     let temp_type_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u16(TEMP_TYPE_CHAR_UUID),
+            Uuid::Uuid16(TEMP_TYPE_CHAR_UUID),
             1,
             CharProperties::READ,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(),
             0,
             false,
         )
+        .await
         .expect("Failed to add Temperature Type characteristic");
 
-    gatt.update_characteristic_value(service_handle, temp_type_char_handle, 0, &[TEMP_TYPE_BODY])
-        .expect("Failed to set Temperature Type value");
+    gatt.update_characteristic_value(
+        ble.controller(),
+        service_handle,
+        temp_type_char_handle,
+        0,
+        &[TEMP_TYPE_BODY],
+    )
+    .await
+    .expect("Failed to set Temperature Type value");
 
     // Intermediate Temperature: NOTIFY, same encoding
     let interm_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u16(INTERM_TEMP_CHAR_UUID),
+            Uuid::Uuid16(INTERM_TEMP_CHAR_UUID),
             13,
             CharProperties::NOTIFY,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(),
             0,
             true,
         )
+        .await
         .expect("Failed to add Intermediate Temperature characteristic");
 
     info!("Health Thermometer Service created (handle 0x{:04X})", service_handle.0);
@@ -203,9 +223,11 @@ async fn main(spawner: Spawner) {
 
     // ── Advertising ──────────────────────────────────────────────────────────
     let mut adv_data = AdvData::new();
-    adv_data.add_flags(0x06).unwrap();
-    adv_data.add_name("HT_WBA6").unwrap();
-    adv_data.add_service_uuid_16(HTS_SERVICE_UUID).unwrap();
+    adv_data = adv_data
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .unwrap();
+    adv_data = adv_data.complete_local_name(b"HT_WBA6").unwrap();
+    adv_data = adv_data.complete_uuid16_list(&[HTS_SERVICE_UUID]).unwrap();
 
     let adv_params = AdvParams {
         interval_min: 0x0050,
@@ -232,7 +254,7 @@ async fn main(spawner: Spawner) {
         match select(ble.read_event(&mut event_buf), ticker.next()).await {
             Either::First(event) => {
                 // ── GAP events ────────────────────────────────────────────────
-                if let Some(gap_event) = ble.process_event(&event) {
+                if let Some(gap_event) = ble.process_event(&event).await {
                     match gap_event {
                         GapEvent::Connected(conn) => {
                             info!("Connected: 0x{:04X}", conn.handle.raw());
@@ -313,7 +335,16 @@ async fn main(spawner: Spawner) {
                 if let Some(conn) = state.conn_handle {
                     // Intermediate Temperature: notify every second
                     if state.interm_notifications_enabled {
-                        if let Err(e) = gatt.notify(conn, state.service_handle, state.interm_char_handle, &temp_value) {
+                        if let Err(e) = gatt
+                            .notify(
+                                ble.controller(),
+                                conn,
+                                state.service_handle,
+                                state.interm_char_handle,
+                                &temp_value,
+                            )
+                            .await
+                        {
                             error!("INT notify failed: {:?}", e);
                         }
                     }
@@ -321,7 +352,16 @@ async fn main(spawner: Spawner) {
                     // Temperature Measurement: indicate every 5 seconds
                     // Only send if no indication is already pending confirmation.
                     if tick_count % 5 == 0 && state.indications_enabled && !state.indication_pending {
-                        match gatt.indicate(conn, state.service_handle, state.temm_char_handle, &temp_value) {
+                        match gatt
+                            .indicate(
+                                ble.controller(),
+                                conn,
+                                state.service_handle,
+                                state.temm_char_handle,
+                                &temp_value,
+                            )
+                            .await
+                        {
                             Ok(()) => {
                                 info!(
                                     "TEMM indication sent: {}.{} °C",

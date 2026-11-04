@@ -88,8 +88,20 @@ fn debug_print_interrupts(isr: stm32_metapac::i2c::regs::Isr) {
 pub(crate) unsafe fn on_interrupt<T: Instance>() {
     let regs = T::info().regs;
     let isr = regs.isr().read();
+    let cr1 = regs.cr1().read();
 
-    if isr.tcr() || isr.tc() || isr.addr() || isr.stopf() || isr.nackf() || isr.berr() || isr.arlo() || isr.ovr() {
+    // RXNE is set all the time while data waits, so it only counts while a routine has
+    // armed RXIE to be woken by it.
+    if isr.tcr()
+        || isr.tc()
+        || isr.addr()
+        || isr.stopf()
+        || isr.nackf()
+        || isr.berr()
+        || isr.arlo()
+        || isr.ovr()
+        || (isr.rxne() && cr1.rxie())
+    {
         debug_print_interrupts(isr);
 
         T::state().waker.wake();
@@ -104,6 +116,8 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
             // Error flags are to be read in the routines, so we also don't clear them here
             w.set_nackie(false);
             w.set_errie(false);
+            // Cleared by reading RXDR, which the routines do
+            w.set_rxie(false);
 
             // WUPEN keep triggering ADDR interrupt, it seems to override ADDRIE
             #[cfg(feature = "low-power")]
@@ -1131,23 +1145,32 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Async version of [`I2c::drain_rxdr_until_stop`].
     ///
     /// The wait depends only on ISR flags (STOPF/ADDR/RXNE and the error flags), so it
-    /// is woken by the I2C event/error interrupts (armed here for the duration of the
-    /// drain, since the DMA teardown has disabled them) instead of polling, and bounded
-    /// by `timeout`.
+    /// is woken by the I2C event/error interrupts instead of polling, and bounded
+    /// by `timeout`. `on_interrupt` disables every enable when it fires, and RXNE does
+    /// not end the drain, so the enables are armed again each time it goes to sleep.
     async fn drain_rxdr_until_stop_async(&self, timeout: Timeout) -> Result<usize, Error> {
-        // The DMA transfer is done and its OnDrop has run, so no context expects these
-        // enabled anymore. Make sure they are off on every exit (the interrupt handler
-        // already disables them when it wakes us).
-        let _irq = self.info.regs.cr1().enable_interrupts(|w| {
+        let arm = |w: &mut i2c::regs::Cr1| {
             w.set_stopie(true);
             w.set_addrie(true);
             w.set_nackie(true);
             w.set_errie(true);
-        });
+            w.set_rxie(true);
+        };
+        // The DMA transfer is done and its OnDrop has run, so no context expects these
+        // enabled anymore. Make sure they are off on every exit.
+        let _irq = self.info.regs.cr1().enable_interrupts(arm);
 
         let mut discarded = 0;
         loop {
             let isr = self.info.regs.isr().read();
+
+            if isr.rxne() {
+                // First: the last byte can still be in RXDR when STOP (or a repeated START)
+                // arrives, and it must not be left there for the next transfer.
+                let _ = self.info.regs.rxdr().read().rxdata();
+                discarded += 1;
+                continue;
+            }
 
             if isr.stopf() {
                 self.info.regs.icr().write(|w| w.set_stopcf(true));
@@ -1163,12 +1186,6 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 return Ok(discarded);
             }
 
-            if isr.rxne() {
-                let _ = self.info.regs.rxdr().read().rxdata();
-                discarded += 1;
-                continue;
-            }
-
             // Nothing pending yet: sleep until a relevant flag changes, then re-check errors.
             let isr = timeout
                 .with(poll_fn(|cx| -> Poll<Result<Isr, Error>> {
@@ -1177,6 +1194,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     if isr.stopf() || isr.addr() || isr.rxne() || isr.nackf() || isr.berr() || isr.arlo() || isr.ovr() {
                         Poll::Ready(Ok(isr))
                     } else {
+                        self.info.regs.cr1().set_bits(arm);
                         Poll::Pending
                     }
                 }))

@@ -2,7 +2,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 
 use crate::pac::common::{RW, Reg};
 // For the H7, the Retention features live in the pwr registers
-#[cfg(all(backup_sram, not(any(stm32h7, stm32u5))))]
+#[cfg(all(backup_sram, not(any(stm32h7, stm32u5, stm32f4))))]
 use crate::pac::pwr::vals::Retention;
 #[cfg(all(stm32h7, backup_sram))]
 use crate::pac::pwr::vals::Retention;
@@ -218,7 +218,7 @@ impl LsConfig {
             unsafe {
                 super::BKSRAM_RETAINED = crate::pac::PWR.bdcr1().read().bren()
             };
-            #[cfg(not(any(stm32h7, stm32u5)))]
+            #[cfg(not(any(stm32h7, stm32u5, stm32f4)))]
             unsafe {
                 super::BKSRAM_RETAINED = crate::pac::PWR.bdcr().read().bren() == Retention::Preserved
             };
@@ -245,7 +245,7 @@ impl LsConfig {
             });
             #[cfg(stm32u5)]
             crate::pac::PWR.bdcr1().modify(|w| w.set_bren(self.enable_backup_sram));
-            #[cfg(not(any(stm32h7, stm32u5)))]
+            #[cfg(not(any(stm32h7, stm32u5, stm32f4)))]
             crate::pac::PWR.bdcr().modify(|w| {
                 w.set_bren(match self.enable_backup_sram {
                     true => Retention::Preserved,
@@ -256,7 +256,7 @@ impl LsConfig {
             // Wait for backup regulator voltage to stabilize
             #[cfg(stm32h7)]
             while self.enable_backup_sram && !crate::pac::PWR.cr2().read().brrdy() {}
-            #[cfg(not(any(stm32h7, stm32u5)))]
+            #[cfg(not(any(stm32h7, stm32u5, stm32f4)))]
             while self.enable_backup_sram && !crate::pac::PWR.bdsr().read().brrdy() {}
         }
 

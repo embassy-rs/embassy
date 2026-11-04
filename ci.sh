@@ -41,6 +41,8 @@ rm -rf out/tests/nrf5340-dk
 rm -rf out/tests/nrf51422-dk
 
 # temporarily disabled
+rm -rf out/tests/stm32f767zi
+rm -rf out/tests/stm32f429zi
 
 rm -f out/tests/stm32u585ai/saes
 

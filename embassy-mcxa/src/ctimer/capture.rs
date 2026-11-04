@@ -6,6 +6,7 @@ use core::ops::{Add, Sub};
 use core::sync::atomic::Ordering;
 
 use embassy_hal_internal::Peri;
+use embassy_hal_internal::drop::OnDrop;
 
 use super::{AnyChannel, CTimer, CTimerChannel, Channel, Info, InputPin, Instance};
 use crate::clocks::WakeGuard;
@@ -18,6 +19,8 @@ use crate::interrupt::typelevel::Interrupt;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum CaptureError {
+    /// Internal input routing could not enable its register-interface clock.
+    ClockSetup(crate::clocks::ClockError),
     /// Other
     Other,
 }
@@ -157,7 +160,9 @@ impl Sub<TicksDiff> for Timestamp {
 pub struct Capture<'d> {
     info: &'static Info,
     ch: Peri<'d, AnyChannel>,
-    pin: Peri<'d, AnyPin>,
+    pin: Option<Peri<'d, AnyPin>>,
+    #[cfg(mcxa_aoi)]
+    _aoi: Option<crate::aoi::Output<'d>>,
     source_freq: u32,
     _wg: Option<WakeGuard>,
 }
@@ -183,7 +188,9 @@ impl<'d> Capture<'d> {
         let mut inst = Self {
             info: T::info(),
             ch: ch.into(),
-            pin: pin.into(),
+            pin: Some(pin.into()),
+            #[cfg(mcxa_aoi)]
+            _aoi: None,
             source_freq: ctimer._freq,
             _wg: ctimer._wg.clone(),
         };
@@ -201,58 +208,61 @@ impl<'d> Capture<'d> {
         Ok(inst)
     }
 
+    /// Capture an AOI0 event through the internal INPUTMUX route, without a pin.
+    ///
+    /// The borrowed output keeps its AOI owner alive until this capture driver
+    /// is dropped. Dropping capture disables its channel before releasing that
+    /// borrow. Configure AOI before constructing this downstream consumer.
+    #[cfg(mcxa_aoi)]
+    pub fn new_with_aoi<T: Instance, CH: CTimerChannel<T>>(
+        ctimer: CTimer<'d>,
+        ch: Peri<'d, CH>,
+        source: crate::aoi::Output<'d>,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, CaptureError> {
+        let channel: Peri<'d, AnyChannel> = ch.into();
+        crate::inputmux::configure_ctimer_aoi(T::NUMBER, channel.number().into(), source.event)
+            .map_err(CaptureError::ClockSetup)?;
+        let mut inst = Self {
+            info: T::info(),
+            ch: channel,
+            pin: None,
+            _aoi: Some(source),
+            source_freq: ctimer._freq,
+            _wg: ctimer._wg.clone(),
+        };
+        inst.set_configuration(&config)?;
+        inst.clear_pending();
+        T::Interrupt::unpend();
+        // SAFETY: the binding provides this timer's capture interrupt handler.
+        unsafe { T::Interrupt::enable() };
+        inst.info.regs().tcr().modify(|w| w.set_cen(true));
+        Ok(inst)
+    }
+
     fn set_configuration(&mut self, config: &Config) -> Result<(), CaptureError> {
-        self.info.regs().ccr().modify(|w| {
-            match self.ch.number() {
-                Channel::Zero => match config.edge {
-                    Edge::Both => {
-                        w.set_cap0re(true);
-                        w.set_cap0fe(true);
-                    }
-                    Edge::RisingEdge => {
-                        w.set_cap0re(true);
-                    }
-                    Edge::FallingEdge => {
-                        w.set_cap0fe(true);
-                    }
-                },
-                Channel::One => match config.edge {
-                    Edge::Both => {
-                        w.set_cap1re(true);
-                        w.set_cap1fe(true);
-                    }
-                    Edge::RisingEdge => {
-                        w.set_cap1re(true);
-                    }
-                    Edge::FallingEdge => {
-                        w.set_cap1fe(true);
-                    }
-                },
-                Channel::Two => match config.edge {
-                    Edge::Both => {
-                        w.set_cap2re(true);
-                        w.set_cap2fe(true);
-                    }
-                    Edge::RisingEdge => {
-                        w.set_cap2re(true);
-                    }
-                    Edge::FallingEdge => {
-                        w.set_cap2fe(true);
-                    }
-                },
-                Channel::Three => match config.edge {
-                    Edge::Both => {
-                        w.set_cap3re(true);
-                        w.set_cap3fe(true);
-                    }
-                    Edge::RisingEdge => {
-                        w.set_cap3re(true);
-                    }
-                    Edge::FallingEdge => {
-                        w.set_cap3fe(true);
-                    }
-                },
-            };
+        let rising = matches!(config.edge, Edge::Both | Edge::RisingEdge);
+        let falling = matches!(config.edge, Edge::Both | Edge::FallingEdge);
+        critical_section::with(|_| {
+            self.info.regs().ccr().modify(|w| match self.ch.number() {
+                Channel::Zero => {
+                    w.set_cap0re(rising);
+                    w.set_cap0fe(falling);
+                }
+                Channel::One => {
+                    w.set_cap1re(rising);
+                    w.set_cap1fe(falling);
+                }
+                Channel::Two => {
+                    w.set_cap2re(rising);
+                    w.set_cap2fe(falling);
+                }
+                Channel::Three => {
+                    w.set_cap3re(rising);
+                    w.set_cap3fe(falling);
+                }
+            });
         });
 
         Ok(())
@@ -262,28 +272,47 @@ impl<'d> Capture<'d> {
         self.source_freq
     }
 
-    pub async fn capture(&mut self) -> Result<Timestamp, CaptureError> {
-        self.info
-            .wait_cell()
-            .wait_for(|| {
-                self.info.regs().ccr().modify(|w| match self.ch.number() {
-                    Channel::Zero => {
-                        w.set_cap0i(true);
-                    }
-                    Channel::One => {
-                        w.set_cap1i(true);
-                    }
-                    Channel::Two => {
-                        w.set_cap2i(true);
-                    }
-                    Channel::Three => {
-                        w.set_cap3i(true);
-                    }
-                });
+    fn set_interrupt(&self, enabled: bool) {
+        critical_section::with(|_| {
+            self.info.regs().ccr().modify(|w| match self.ch.number() {
+                Channel::Zero => w.set_cap0i(enabled),
+                Channel::One => w.set_cap1i(enabled),
+                Channel::Two => w.set_cap2i(enabled),
+                Channel::Three => w.set_cap3i(enabled),
+            });
+        });
+    }
 
+    fn clear_pending(&self) {
+        critical_section::with(|_| {
+            self.info.regs().ir().write(|w| match self.ch.number() {
+                Channel::Zero => w.set_cr0int(true),
+                Channel::One => w.set_cr1int(true),
+                Channel::Two => w.set_cr2int(true),
+                Channel::Three => w.set_cr3int(true),
+            });
+            let n: usize = self.ch.number().into();
+            self.info.irq_flags().fetch_and(!(1 << n), Ordering::AcqRel);
+        });
+    }
+
+    /// Wait for a fresh capture; cancellation masks this channel's interrupt.
+    ///
+    /// Hardware retains only the latest timestamp, not a lossless edge queue.
+    pub async fn capture(&mut self) -> Result<Timestamp, CaptureError> {
+        self.set_interrupt(false);
+        self.clear_pending();
+        let _cleanup = OnDrop::new(|| {
+            self.set_interrupt(false);
+            self.clear_pending();
+        });
+        self.info
+            .wait_cell(self.ch.number())
+            .wait_for(|| {
+                self.set_interrupt(true);
                 let n: usize = self.ch.number().into();
                 let mask = 1 << n;
-                (self.info.irq_flags().fetch_and(!mask, Ordering::AcqRel)) != 0
+                (self.info.irq_flags().fetch_and(!mask, Ordering::AcqRel) & mask) != 0
             })
             .await
             .map_err(|_| CaptureError::Other)?;
@@ -295,7 +324,35 @@ impl<'d> Capture<'d> {
 
 impl<'d> Drop for Capture<'d> {
     fn drop(&mut self) {
-        self.pin.set_as_disabled();
+        critical_section::with(|_| {
+            self.info.regs().ccr().modify(|w| match self.ch.number() {
+                Channel::Zero => {
+                    w.set_cap0re(false);
+                    w.set_cap0fe(false);
+                    w.set_cap0i(false);
+                }
+                Channel::One => {
+                    w.set_cap1re(false);
+                    w.set_cap1fe(false);
+                    w.set_cap1i(false);
+                }
+                Channel::Two => {
+                    w.set_cap2re(false);
+                    w.set_cap2fe(false);
+                    w.set_cap2i(false);
+                }
+                Channel::Three => {
+                    w.set_cap3re(false);
+                    w.set_cap3fe(false);
+                    w.set_cap3i(false);
+                }
+            });
+            self.clear_pending();
+            cortex_m::asm::dsb();
+        });
+        if let Some(pin) = &self.pin {
+            pin.set_as_disabled();
+        }
     }
 }
 
@@ -307,36 +364,50 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         T::PERF_INT_INCR();
-        // Clear interrupt status
-        let ir = T::info().regs().ir().read();
-        T::info().regs().ir().write(|w| w.0 = ir.0);
+        // Keep status acknowledgement, CCR updates, and completion publication
+        // atomic against higher-priority tasks cancelling/dropping a channel.
+        // Otherwise a preempted CCR RMW could resurrect a released channel.
+        critical_section::with(|_| {
+            let ir = T::info().regs().ir().read();
+            T::info().regs().ir().write(|w| {
+                w.set_cr0int(ir.cr0int());
+                w.set_cr1int(ir.cr1int());
+                w.set_cr2int(ir.cr2int());
+                w.set_cr3int(ir.cr3int());
+            });
 
-        let mut mask = 0;
-        T::info().regs().ccr().modify(|w| {
-            if ir.cr0int() {
-                w.set_cap0i(false);
-                mask |= 1 << 0;
-            }
+            let mut mask = 0;
+            T::info().regs().ccr().modify(|w| {
+                if ir.cr0int() {
+                    w.set_cap0i(false);
+                    mask |= 1 << 0;
+                }
 
-            if ir.cr1int() {
-                w.set_cap1i(false);
-                mask |= 1 << 1;
-            }
+                if ir.cr1int() {
+                    w.set_cap1i(false);
+                    mask |= 1 << 1;
+                }
 
-            if ir.cr2int() {
-                w.set_cap2i(false);
-                mask |= 1 << 2;
-            }
+                if ir.cr2int() {
+                    w.set_cap2i(false);
+                    mask |= 1 << 2;
+                }
 
-            if ir.cr3int() {
-                w.set_cap3i(false);
-                mask |= 1 << 3;
+                if ir.cr3int() {
+                    w.set_cap3i(false);
+                    mask |= 1 << 3;
+                }
+            });
+            T::info().irq_flags().fetch_or(mask, Ordering::Release);
+
+            for channel in [Channel::Zero, Channel::One, Channel::Two, Channel::Three] {
+                let index: usize = channel.into();
+                if mask & (1 << index) != 0 {
+                    T::PERF_INT_WAKE_INCR();
+                    T::info().wait_cell(channel).wake();
+                }
             }
         });
-        T::info().irq_flags().fetch_or(mask, Ordering::Release);
-
-        T::PERF_INT_WAKE_INCR();
-        T::info().wait_cell().wake();
     }
 }
 

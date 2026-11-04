@@ -60,14 +60,41 @@ fn ier_set_ueie(r: Lptim, val: bool) {
     #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
     r.ier().modify(|w| w.set_ueie(val));
     #[cfg(any(stm32wba, stm32u5, stm32u3))]
-    r.dier().modify(|w| w.set_ueie(val));
+    dier_modify(r, |w| w.set_ueie(val));
 }
 
 fn ier_set_ccie(r: Lptim, n: usize, val: bool) {
     #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
     r.ier().modify(|w| w.set_ccie(n, val));
     #[cfg(any(stm32wba, stm32u5, stm32u3))]
-    r.dier().modify(|w| w.set_ccie(n, val));
+    dier_modify(r, |w| w.set_ccie(n, val));
+}
+
+/// Modify DIER and wait for `DIEROK`. RM0456: "Any successive write before the DIEROK flag is
+/// set, leads to unpredictable results." A write still in flight when the chip enters Stop can
+/// also lose the compare wakeup. A write that changes nothing is skipped, so it costs no wait.
+#[cfg(any(stm32wba, stm32u5, stm32u3))]
+fn dier_modify(r: Lptim, f: impl FnOnce(&mut stm32_metapac::lptim::regs::DierAdv)) {
+    let old = r.dier().read();
+    let mut new = old;
+    f(&mut new);
+    if new == old {
+        return;
+    }
+    r.icr().write(|w| w.set_dierokcf(true));
+    r.dier().write_value(new);
+
+    // DIEROK takes a few kernel clock cycles. A poll takes at least one CPU cycle, so this waits
+    // at least 64 of them. If it never comes, carry on rather than hang in a critical section:
+    // a lost CCIE enable delays the alarm to the next overflow, where `next_period` enables CCIE
+    // again, and a lost disable is an interrupt that finds no alarm due.
+    let sys = unwrap!(unsafe { crate::rcc::get_freqs() }.sys.to_hertz()).0;
+    let polls = (sys / T::frequency().0 + 1) * 64;
+    for _ in 0..polls {
+        if r.isr().read().dierok() {
+            return;
+        }
+    }
 }
 
 /// Write a raw value to the ICR (interrupt clear register).
