@@ -34,6 +34,14 @@ use stm32wb_hci::aci::l2cap::L2capConnectionParameterUpdateReq;
 use stm32wb_hci::aci::ranges::ConnLatency;
 use stm32wb_hci::aci::values::DisconnectReason as AciDisconnectReason;
 pub use stm32wb_hci::event::BleEvent;
+#[cfg(not(feature = "ble-stack-po"))]
+use {
+    crate::bluetooth::{gap::connection::ConnectionInitParams, gap::scanner::ScanParams, gatt::GattClient},
+    bt_hci::param::BdAddr,
+    stm32wb_hci::aci::durations::{ExtScanInterval, ExtScanWindow},
+    stm32wb_hci::aci::gap::{GapCreateConnection, GapTerminateGapProc},
+    stm32wb_hci::aci::values::{AddressType, ConnectableOwnAddressType, GapProcedure},
+};
 #[cfg(feature = "ble-stack-full")]
 use {
     bt_hci::cmd::le::{
@@ -58,14 +66,6 @@ use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy, all_phys_from_raw, phy_mask_from
 use crate::bluetooth::security::{SecurityEvent, SecurityManager, from_vendor_event as security_from_vendor_event};
 use crate::controller::{Controller, ControllerAdapter};
 use crate::{HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
-#[cfg(not(feature = "ble-stack-po"))]
-use {
-    crate::bluetooth::{gap::connection::ConnectionInitParams, gap::scanner::ScanParams, gatt::GattClient},
-    bt_hci::param::BdAddr,
-    stm32wb_hci::aci::durations::{ExtScanInterval, ExtScanWindow},
-    stm32wb_hci::aci::gap::{GapCreateConnection, GapTerminateGapProc},
-    stm32wb_hci::aci::values::{AddressType, ConnectableOwnAddressType, GapProcedure},
-};
 
 trait SealedMode {}
 #[allow(private_bounds)]
