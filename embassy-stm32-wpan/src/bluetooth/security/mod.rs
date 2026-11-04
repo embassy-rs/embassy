@@ -28,7 +28,7 @@ use bt_hci::cmd::le::{LeClearFilterAcceptList, LeClearResolvingList, LeSetAddrRe
 // Reading the resolving list back is what the `defmt` diagnostics do; the
 // `not(defmt)` stubs of the `log_*` helpers skip it.
 #[cfg(feature = "defmt")]
-use bt_hci::cmd::le::{LeReadLocalResolvableAddr, LeReadPeerResolvableAddr, LeReadResolvingListSize};
+use bt_hci::cmd::le::{LeReadLocalResolvableAddr, LeReadPeerResolvableAddr};
 use bt_hci::cmd::{AsyncCmd, SyncCmd};
 #[cfg(feature = "defmt")]
 use bt_hci::param::AddrKind;
@@ -771,7 +771,9 @@ impl SecurityManager {
         controller: &ControllerAdapter<'_>,
         connected_peer: Option<(u8, [u8; 6])>,
     ) {
-        match LeReadResolvingListSize::new().exec(controller).await {
+        // Only the full BLE stack has HCI_LE_Read_Resolving_List_Size.
+        #[cfg(feature = "ble-stack-full")]
+        match bt_hci::cmd::le::LeReadResolvingListSize::new().exec(controller).await {
             Ok(list_size) => info!("Resolving list capacity: {} entries", list_size),
             Err(e) => warn!("hci_le_read_resolving_list_size failed: {:?}", BleError::from(e)),
         }

@@ -10,11 +10,10 @@ pub mod security;
 use bt_hci::cmd::controller_baseband::{Reset, SetEventMask};
 use bt_hci::cmd::info::ReadLocalVersionInformation;
 use bt_hci::cmd::le::{
-    LeConnCteRequestEnable, LeConnCteResponseEnable, LeReadAntennaInformation, LeReadBufferSizeV2,
-    LeReadLocalSupportedFeatures, LeReadPhy, LeReceiverTest, LeReceiverTestV2, LeRemoteConnectionParameterRequestReply,
-    LeSetConnCteReceiveParams, LeSetConnCteTransmitParams, LeSetDataLength, LeSetEventMask, LeSetPhy, LeTestEnd,
-    LeTransmitterTest, LeTransmitterTestV2,
+    LeReadPhy, LeReceiverTest, LeReceiverTestV2, LeRemoteConnectionParameterRequestReply, LeSetDataLength,
+    LeSetEventMask, LeSetPhy, LeTestEnd, LeTransmitterTest, LeTransmitterTestV2,
 };
+// HCI commands only the full BLE stack provides.
 use bt_hci::cmd::{AsyncCmd, SyncCmd};
 use bt_hci::controller::Controller as _;
 use bt_hci::event::le::{
@@ -22,7 +21,7 @@ use bt_hci::event::le::{
     LePhyUpdateComplete, LeRemoteConnectionParameterRequest,
 };
 use bt_hci::event::{DisconnectionComplete, Event, EventKind, EventPacket};
-use bt_hci::param::{ConnHandle, CteKind, CteMask, Duration, EventMask, LeEventMask, PhyOptions};
+use bt_hci::param::{ConnHandle, Duration, EventMask, LeEventMask, PhyOptions};
 use bt_hci::{ControllerToHostPacket, FromHciBytes};
 use embassy_futures::yield_now;
 use embassy_stm32::interrupt;
@@ -35,6 +34,14 @@ use stm32wb_hci::aci::l2cap::L2capConnectionParameterUpdateReq;
 use stm32wb_hci::aci::ranges::ConnLatency;
 use stm32wb_hci::aci::values::DisconnectReason as AciDisconnectReason;
 pub use stm32wb_hci::event::BleEvent;
+#[cfg(feature = "ble-stack-full")]
+use {
+    bt_hci::cmd::le::{
+        LeConnCteRequestEnable, LeConnCteResponseEnable, LeReadAntennaInformation, LeReadBufferSizeV2,
+        LeReadLocalSupportedFeatures, LeSetConnCteReceiveParams, LeSetConnCteTransmitParams,
+    },
+    bt_hci::param::{CteKind, CteMask},
+};
 
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::gap::connection::{
@@ -235,31 +242,36 @@ impl<'d> HCI<'d, Normal> {
             info!("le_set_event_mask OK");
         }
 
-        // 4. Read buffer sizes (optional - skip if not available)
-        info!("Calling le_read_buffer_size...");
-        match LeReadBufferSizeV2::new().exec(&self.controller).await {
-            Ok(r) => {
-                // The return parameters are packed: copy them out before
-                // borrowing the fields to log them.
-                let (acl_len, acl_packets, iso_len, iso_packets) = (
-                    r.le_acl_data_packet_length,
-                    r.total_num_le_acl_data_packets,
-                    r.iso_data_packet_length,
-                    r.total_num_iso_data_packets,
-                );
-                info!(
-                    "Buffer sizes - ACL: {} bytes x {} packets, ISO: {} bytes x {} packets",
-                    acl_len, acl_packets, iso_len, iso_packets
-                );
+        // 4-5. Read buffer sizes and supported features, for the log only.
+        // These HCI commands are only in the full BLE stack.
+        #[cfg(feature = "ble-stack-full")]
+        {
+            // 4. Read buffer sizes (optional - skip if not available)
+            info!("Calling le_read_buffer_size...");
+            match LeReadBufferSizeV2::new().exec(&self.controller).await {
+                Ok(r) => {
+                    // The return parameters are packed: copy them out before
+                    // borrowing the fields to log them.
+                    let (acl_len, acl_packets, iso_len, iso_packets) = (
+                        r.le_acl_data_packet_length,
+                        r.total_num_le_acl_data_packets,
+                        r.iso_data_packet_length,
+                        r.total_num_iso_data_packets,
+                    );
+                    info!(
+                        "Buffer sizes - ACL: {} bytes x {} packets, ISO: {} bytes x {} packets",
+                        acl_len, acl_packets, iso_len, iso_packets
+                    );
+                }
+                Err(e) => warn!("le_read_buffer_size failed: {:?} (skipping)", BleError::from(e)),
             }
-            Err(e) => warn!("le_read_buffer_size failed: {:?} (skipping)", BleError::from(e)),
-        }
 
-        // 5. Read supported features (optional - skip if not available)
-        info!("Calling le_read_local_supported_features...");
-        match LeReadLocalSupportedFeatures::new().exec(&self.controller).await {
-            Ok(features) => info!("Supported LE features: {}", features),
-            Err(e) => warn!("le_read_local_supported_features failed: {:?} (skipping)", e),
+            // 5. Read supported features (optional - skip if not available)
+            info!("Calling le_read_local_supported_features...");
+            match LeReadLocalSupportedFeatures::new().exec(&self.controller).await {
+                Ok(features) => info!("Supported LE features: {}", features),
+                Err(e) => warn!("le_read_local_supported_features failed: {:?} (skipping)", e),
+            }
         }
 
         // 6. Initialize GATT layer (MUST be done BEFORE GAP initialization!)
@@ -589,107 +601,6 @@ impl<'d> HCI<'d, Normal> {
 
     // ===== Direction Finding / CTE Commands =====
 
-    /// Set CTE transmit parameters for a connection (peripheral/tag side).
-    ///
-    /// Call this after connecting, before `le_set_connection_cte_transmit_enable`.
-    ///
-    /// - `cte_types`: Bit field — bit 0=AoA, bit 1=AoD 1μs slots, bit 2=AoD 2μs slots
-    /// - `antenna_ids`: Antenna switching pattern IDs (2–75 elements)
-    pub async fn le_set_connection_cte_transmit_parameters(
-        &self,
-        handle: ConnHandle,
-        cte_types: u8,
-        antenna_ids: &[u8],
-    ) -> Result<(), BleError> {
-        if antenna_ids.len() < 2 || antenna_ids.len() > 75 {
-            return Err(BleError::InvalidParameter);
-        }
-        // The setters take and return the mask by value.
-        let mask = CteMask::new()
-            .set_aoa_cte(cte_types & 0x01 != 0)
-            .set_aod_1us_cte(cte_types & 0x02 != 0)
-            .set_aod_2us_cte(cte_types & 0x04 != 0);
-        LeSetConnCteTransmitParams::new(handle, mask, antenna_ids)
-            .exec(&self.controller)
-            .await?;
-        Ok(())
-    }
-
-    /// Enable or disable CTE response for a connection (peripheral/tag side).
-    ///
-    /// BT spec 7.8.86 `HCI_LE_Connection_CTE_Response_Enable`. Call
-    /// `le_set_connection_cte_transmit_parameters` before enabling.
-    pub async fn le_connection_cte_response_enable(&self, handle: ConnHandle, enable: bool) -> Result<(), BleError> {
-        LeConnCteResponseEnable::new(handle, enable)
-            .exec(&self.controller)
-            .await?;
-        Ok(())
-    }
-
-    /// Set CTE receive (IQ sampling) parameters for a connection (central/locator side).
-    ///
-    /// - `slot_durations`: 0x01 = 1μs slots, 0x02 = 2μs slots
-    /// - `antenna_ids`: Antenna switching pattern (2–75 elements; ignored if sampling disabled)
-    pub async fn le_set_connection_cte_receive_parameters(
-        &self,
-        handle: ConnHandle,
-        sampling_enable: bool,
-        slot_durations: u8,
-        antenna_ids: &[u8],
-    ) -> Result<(), BleError> {
-        if sampling_enable && (antenna_ids.len() < 2 || antenna_ids.len() > 75) {
-            return Err(BleError::InvalidParameter);
-        }
-        LeSetConnCteReceiveParams::new(handle, sampling_enable, slot_durations, antenna_ids)
-            .exec(&self.controller)
-            .await?;
-        Ok(())
-    }
-
-    /// Enable or disable CTE requests for a connection (central/locator side).
-    ///
-    /// - `request_interval`: 0 = request once; N = request every N connection events
-    /// - `requested_cte_length`: Requested CTE length in 8μs units (range: 2–20)
-    /// - `requested_cte_type`: 0x00=AoA, 0x01=AoD 1μs, 0x02=AoD 2μs
-    pub async fn le_connection_cte_request_enable(
-        &self,
-        handle: ConnHandle,
-        enable: bool,
-        request_interval: u16,
-        requested_cte_length: u8,
-        requested_cte_type: u8,
-    ) -> Result<(), BleError> {
-        let requested_cte_kind = match requested_cte_type {
-            0x00 => CteKind::AoA,
-            0x01 => CteKind::AoD1Us,
-            0x02 => CteKind::AoD2Us,
-            _ => return Err(BleError::InvalidParameter),
-        };
-        LeConnCteRequestEnable::new(
-            handle,
-            enable,
-            request_interval,
-            requested_cte_length,
-            requested_cte_kind,
-        )
-        .exec(&self.controller)
-        .await?;
-        Ok(())
-    }
-
-    /// Read antenna information from the controller.
-    ///
-    /// Returns `(switching_sampling_rates, num_antennae, max_pattern_length, max_cte_length)`.
-    pub async fn le_read_antenna_information(&self) -> Result<(u8, u8, u8, u8), BleError> {
-        let resp = LeReadAntennaInformation::new().exec(&self.controller).await?;
-        Ok((
-            resp.supported_switching_sampling_rates.into_inner(),
-            resp.num_antennae,
-            resp.max_switching_pattern_len,
-            resp.max_cte_len,
-        ))
-    }
-
     /// Process an HCI event and update internal state
     ///
     /// This method processes connection-related events and updates the
@@ -894,8 +805,8 @@ impl<'d> HCI<'d, Normal> {
     }
 }
 
-// Setting the random address needs an HCI command only the full BLE stack
-// provides.
+// Setting the random address and direction finding (CTE) need HCI commands
+// only the full BLE stack provides.
 #[cfg(feature = "ble-stack-full")]
 impl<'d> HCI<'d, Normal> {
     /// Set a random address for the device
@@ -911,6 +822,103 @@ impl<'d> HCI<'d, Normal> {
             .exec(&self.controller)
             .await?;
         Ok(())
+    }
+
+    /// Set CTE transmit parameters for a connection (peripheral/tag side).
+    ///
+    /// Call this after connecting, before `le_set_connection_cte_transmit_enable`.
+    ///
+    /// - `cte_types`: Bit field — bit 0=AoA, bit 1=AoD 1μs slots, bit 2=AoD 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern IDs (2–75 elements)
+    pub async fn le_set_connection_cte_transmit_parameters(
+        &self,
+        handle: ConnHandle,
+        cte_types: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        if antenna_ids.len() < 2 || antenna_ids.len() > 75 {
+            return Err(BleError::InvalidParameter);
+        }
+        // The setters take and return the mask by value.
+        let mask = CteMask::new()
+            .set_aoa_cte(cte_types & 0x01 != 0)
+            .set_aod_1us_cte(cte_types & 0x02 != 0)
+            .set_aod_2us_cte(cte_types & 0x04 != 0);
+        LeSetConnCteTransmitParams::new(handle, mask, antenna_ids)
+            .exec(&self.controller)
+            .await?;
+        Ok(())
+    }
+    /// Enable or disable CTE response for a connection (peripheral/tag side).
+    ///
+    /// BT spec 7.8.86 `HCI_LE_Connection_CTE_Response_Enable`. Call
+    /// `le_set_connection_cte_transmit_parameters` before enabling.
+    pub async fn le_connection_cte_response_enable(&self, handle: ConnHandle, enable: bool) -> Result<(), BleError> {
+        LeConnCteResponseEnable::new(handle, enable)
+            .exec(&self.controller)
+            .await?;
+        Ok(())
+    }
+    /// Set CTE receive (IQ sampling) parameters for a connection (central/locator side).
+    ///
+    /// - `slot_durations`: 0x01 = 1μs slots, 0x02 = 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern (2–75 elements; ignored if sampling disabled)
+    pub async fn le_set_connection_cte_receive_parameters(
+        &self,
+        handle: ConnHandle,
+        sampling_enable: bool,
+        slot_durations: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        if sampling_enable && (antenna_ids.len() < 2 || antenna_ids.len() > 75) {
+            return Err(BleError::InvalidParameter);
+        }
+        LeSetConnCteReceiveParams::new(handle, sampling_enable, slot_durations, antenna_ids)
+            .exec(&self.controller)
+            .await?;
+        Ok(())
+    }
+    /// Enable or disable CTE requests for a connection (central/locator side).
+    ///
+    /// - `request_interval`: 0 = request once; N = request every N connection events
+    /// - `requested_cte_length`: Requested CTE length in 8μs units (range: 2–20)
+    /// - `requested_cte_type`: 0x00=AoA, 0x01=AoD 1μs, 0x02=AoD 2μs
+    pub async fn le_connection_cte_request_enable(
+        &self,
+        handle: ConnHandle,
+        enable: bool,
+        request_interval: u16,
+        requested_cte_length: u8,
+        requested_cte_type: u8,
+    ) -> Result<(), BleError> {
+        let requested_cte_kind = match requested_cte_type {
+            0x00 => CteKind::AoA,
+            0x01 => CteKind::AoD1Us,
+            0x02 => CteKind::AoD2Us,
+            _ => return Err(BleError::InvalidParameter),
+        };
+        LeConnCteRequestEnable::new(
+            handle,
+            enable,
+            request_interval,
+            requested_cte_length,
+            requested_cte_kind,
+        )
+        .exec(&self.controller)
+        .await?;
+        Ok(())
+    }
+    /// Read antenna information from the controller.
+    ///
+    /// Returns `(switching_sampling_rates, num_antennae, max_pattern_length, max_cte_length)`.
+    pub async fn le_read_antenna_information(&self) -> Result<(u8, u8, u8, u8), BleError> {
+        let resp = LeReadAntennaInformation::new().exec(&self.controller).await?;
+        Ok((
+            resp.supported_switching_sampling_rates.into_inner(),
+            resp.num_antennae,
+            resp.max_switching_pattern_len,
+            resp.max_cte_len,
+        ))
     }
 }
 
