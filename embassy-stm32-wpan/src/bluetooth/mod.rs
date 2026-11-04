@@ -41,15 +41,17 @@ use crate::bluetooth::gap::connection::{
     Connection, ConnectionInitParams, ConnectionInterval, ConnectionManager, DisconnectReason, GapEvent,
     MAX_CONNECTIONS, PhyKind,
 };
-use crate::bluetooth::gap::scanner::{ScanParams, ScanProcedure, Scanner};
+use crate::bluetooth::gap::scanner::{ScanProcedure, Scanner};
 use crate::bluetooth::gap::types::{AdvData, AdvParams, BdAddrType};
 use crate::bluetooth::gap_init::{GapInitParams, init_gap_and_hal};
 use crate::bluetooth::gatt::{
-    GattClient, GattClientEvent, GattEvent, GattServer, client_events_from_vendor_event, from_vendor_event,
+    GattClientEvent, GattEvent, GattServer, client_events_from_vendor_event, from_vendor_event,
 };
 use crate::bluetooth::hci::types::DtmPacketPayload;
 use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy, all_phys_from_raw, phy_mask_from_raw};
 use crate::bluetooth::security::{SecurityEvent, SecurityManager, from_vendor_event as security_from_vendor_event};
+#[cfg(not(feature = "ble-stack-po"))]
+use crate::bluetooth::{gap::scanner::ScanParams, gatt::GattClient};
 use crate::controller::{Controller, ControllerAdapter};
 use crate::{HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
 
@@ -287,11 +289,6 @@ impl<'d> HCI<'d, Normal> {
         GattServer::new()
     }
 
-    /// Create a new minimal GATT client instance.
-    pub fn gatt_client(&self) -> GattClient {
-        GattClient::new()
-    }
-
     /// Create a new security manager
     pub fn security_manager(&mut self) -> SecurityManager {
         SecurityManager::new()
@@ -459,69 +456,6 @@ impl<'d> HCI<'d, Normal> {
     /// as `LeAdvertisingReport` events.
     pub fn scanner(&self) -> Scanner {
         Scanner::new()
-    }
-
-    /// Start observer scanning (observation procedure).
-    pub async fn start_scan_observation(&mut self, params: ScanParams) -> Result<(), BleError> {
-        if self.active_scan_proc.is_some() {
-            self.stop_scan().await?;
-        }
-        gap::aci_gap::start_observation(
-            &self.controller,
-            params.scan_interval,
-            params.scan_window,
-            params.scan_type as u8,
-            params.own_address_type as u8,
-            params.filter_duplicates,
-            params.filter_policy as u8,
-        )
-        .await?;
-        self.active_scan_proc = Some(ScanProcedure::GenericScan);
-        Ok(())
-    }
-
-    /// Start active general discovery procedure.
-    pub async fn start_scan_general_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
-        if self.active_scan_proc.is_some() {
-            self.stop_scan().await?;
-        }
-        gap::aci_gap::start_general_discovery(
-            &self.controller,
-            params.scan_interval,
-            params.scan_window,
-            params.own_address_type as u8,
-            params.filter_duplicates,
-        )
-        .await?;
-        self.active_scan_proc = Some(ScanProcedure::GeneralDiscovery);
-        Ok(())
-    }
-
-    /// Start active limited discovery procedure.
-    pub async fn start_scan_limited_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
-        if self.active_scan_proc.is_some() {
-            self.stop_scan().await?;
-        }
-        gap::aci_gap::start_limited_discovery(
-            &self.controller,
-            params.scan_interval,
-            params.scan_window,
-            params.own_address_type as u8,
-            params.filter_duplicates,
-        )
-        .await?;
-        self.active_scan_proc = Some(ScanProcedure::LimitedDiscovery);
-        Ok(())
-    }
-
-    /// Stop whichever GAP scanning/discovery procedure is currently active.
-    pub async fn stop_scan(&mut self) -> Result<(), BleError> {
-        if let Some(proc) = self.active_scan_proc {
-            let proc = gap::aci_gap::to_gap_procedure(proc);
-            gap::aci_gap::terminate_gap_proc(&self.controller, proc).await?;
-            self.active_scan_proc = None;
-        }
-        Ok(())
     }
 
     /// Return whether a scan/discovery procedure is currently active.
@@ -1004,6 +938,78 @@ impl<'d> HCI<'d, Normal> {
             BleEvent::Vendor(v) => security_from_vendor_event(v),
             _ => None,
         }
+    }
+}
+
+// Scanning and GATT client: not available in the peripheral-only stack.
+#[cfg(not(feature = "ble-stack-po"))]
+impl<'d> HCI<'d, Normal> {
+    /// Create a new minimal GATT client instance.
+    pub fn gatt_client(&self) -> GattClient {
+        GattClient::new()
+    }
+
+    /// Start observer scanning (observation procedure).
+    pub async fn start_scan_observation(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_scan_proc.is_some() {
+            self.stop_scan().await?;
+        }
+        gap::aci_gap::start_observation(
+            &self.controller,
+            params.scan_interval,
+            params.scan_window,
+            params.scan_type as u8,
+            params.own_address_type as u8,
+            params.filter_duplicates,
+            params.filter_policy as u8,
+        )
+        .await?;
+        self.active_scan_proc = Some(ScanProcedure::GenericScan);
+        Ok(())
+    }
+
+    /// Start active general discovery procedure.
+    pub async fn start_scan_general_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_scan_proc.is_some() {
+            self.stop_scan().await?;
+        }
+        gap::aci_gap::start_general_discovery(
+            &self.controller,
+            params.scan_interval,
+            params.scan_window,
+            params.own_address_type as u8,
+            params.filter_duplicates,
+        )
+        .await?;
+        self.active_scan_proc = Some(ScanProcedure::GeneralDiscovery);
+        Ok(())
+    }
+
+    /// Start active limited discovery procedure.
+    pub async fn start_scan_limited_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_scan_proc.is_some() {
+            self.stop_scan().await?;
+        }
+        gap::aci_gap::start_limited_discovery(
+            &self.controller,
+            params.scan_interval,
+            params.scan_window,
+            params.own_address_type as u8,
+            params.filter_duplicates,
+        )
+        .await?;
+        self.active_scan_proc = Some(ScanProcedure::LimitedDiscovery);
+        Ok(())
+    }
+
+    /// Stop whichever GAP scanning/discovery procedure is currently active.
+    pub async fn stop_scan(&mut self) -> Result<(), BleError> {
+        if let Some(proc) = self.active_scan_proc {
+            let proc = gap::aci_gap::to_gap_procedure(proc);
+            gap::aci_gap::terminate_gap_proc(&self.controller, proc).await?;
+            self.active_scan_proc = None;
+        }
+        Ok(())
     }
 }
 

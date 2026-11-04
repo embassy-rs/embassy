@@ -37,8 +37,8 @@ use stm32wb_hci::aci::AciEvent;
 use stm32wb_hci::aci::gap::{
     GapAddDevicesToList, GapAllowRebond, GapAuthorizationResp, GapCheckBondedDevice, GapClearSecurityDb,
     GapGetBondedDevices, GapNumericComparisonValueConfirmYesno, GapPairingRequestReply, GapPassKeyResp,
-    GapPasskeyInput, GapPeripheralSecurityReq, GapRemoveBondedDevice, GapSendPairingReq,
-    GapSetAuthenticationRequirement, GapSetIoCapability, ListEntry,
+    GapPasskeyInput, GapPeripheralSecurityReq, GapRemoveBondedDevice, GapSetAuthenticationRequirement,
+    GapSetIoCapability, ListEntry,
 };
 use stm32wb_hci::aci::general::AciWriteConfigData;
 use stm32wb_hci::aci::ranges::Passkey;
@@ -514,23 +514,6 @@ impl SecurityManager {
     /// in BLE_HeartRate).
     pub async fn request_pairing(&self, controller: &ControllerAdapter<'_>, conn_handle: u16) -> Result<(), BleError> {
         GapPeripheralSecurityReq::new(ConnHandle::new(conn_handle))
-            .exec(controller)
-            .await?;
-
-        Ok(())
-    }
-
-    /// Request pairing/encryption from the central side.
-    ///
-    /// Sends a pairing request to the peer peripheral. Set `force_rebond` to
-    /// restart pairing even when a bond entry exists.
-    pub async fn request_pairing_central(
-        &self,
-        controller: &ControllerAdapter<'_>,
-        conn_handle: u16,
-        force_rebond: bool,
-    ) -> Result<(), BleError> {
-        GapSendPairingReq::new(ConnHandle::new(conn_handle), force_rebond)
             .exec(controller)
             .await?;
 
@@ -1091,6 +1074,29 @@ impl SecurityManager {
     /// Check if security has been initialized
     pub fn is_initialized(&self) -> bool {
         self.initialized
+    }
+}
+
+// Central-side pairing: not available in the peripheral-only stack.
+#[cfg(not(feature = "ble-stack-po"))]
+impl SecurityManager {
+    /// Request pairing/encryption from the central side.
+    ///
+    /// Sends a pairing request to the peer peripheral. Set `force_rebond` to
+    /// restart pairing even when a bond entry exists.
+    pub async fn request_pairing_central(
+        &self,
+        controller: &ControllerAdapter<'_>,
+        conn_handle: u16,
+        force_rebond: bool,
+    ) -> Result<(), BleError> {
+        use stm32wb_hci::aci::gap::GapSendPairingReq;
+
+        GapSendPairingReq::new(ConnHandle::new(conn_handle), force_rebond)
+            .exec(controller)
+            .await?;
+
+        Ok(())
     }
 }
 
