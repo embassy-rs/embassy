@@ -12,8 +12,8 @@ use bt_hci::cmd::info::ReadLocalVersionInformation;
 use bt_hci::cmd::le::{
     LeConnCteRequestEnable, LeConnCteResponseEnable, LeReadAntennaInformation, LeReadBufferSizeV2,
     LeReadLocalSupportedFeatures, LeReadPhy, LeReceiverTest, LeReceiverTestV2, LeRemoteConnectionParameterRequestReply,
-    LeSetConnCteReceiveParams, LeSetConnCteTransmitParams, LeSetDataLength, LeSetEventMask, LeSetPhy, LeSetRandomAddr,
-    LeTestEnd, LeTransmitterTest, LeTransmitterTestV2,
+    LeSetConnCteReceiveParams, LeSetConnCteTransmitParams, LeSetDataLength, LeSetEventMask, LeSetPhy, LeTestEnd,
+    LeTransmitterTest, LeTransmitterTestV2,
 };
 use bt_hci::cmd::{AsyncCmd, SyncCmd};
 use bt_hci::controller::Controller as _;
@@ -22,7 +22,7 @@ use bt_hci::event::le::{
     LePhyUpdateComplete, LeRemoteConnectionParameterRequest,
 };
 use bt_hci::event::{DisconnectionComplete, Event, EventKind, EventPacket};
-use bt_hci::param::{BdAddr, ConnHandle, CteKind, CteMask, Duration, EventMask, LeEventMask, PhyOptions};
+use bt_hci::param::{ConnHandle, CteKind, CteMask, Duration, EventMask, LeEventMask, PhyOptions};
 use bt_hci::{ControllerToHostPacket, FromHciBytes};
 use embassy_futures::yield_now;
 use embassy_stm32::interrupt;
@@ -54,6 +54,7 @@ use crate::{HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
 #[cfg(not(feature = "ble-stack-po"))]
 use {
     crate::bluetooth::{gap::connection::ConnectionInitParams, gap::scanner::ScanParams, gatt::GattClient},
+    bt_hci::param::BdAddr,
     stm32wb_hci::aci::durations::{ExtScanInterval, ExtScanWindow},
     stm32wb_hci::aci::gap::{GapCreateConnection, GapTerminateGapProc},
     stm32wb_hci::aci::values::{AddressType, ConnectableOwnAddressType, GapProcedure},
@@ -376,19 +377,6 @@ impl<'d> HCI<'d, Normal> {
     /// Update scan response data without stopping advertising.
     pub async fn update_scan_rsp_data(&mut self, scan_rsp_data: AdvData) -> Result<(), BleError> {
         gap::advertiser::update_scan_rsp_data(&self.controller, &scan_rsp_data).await
-    }
-
-    /// Set a random address for the device
-    ///
-    /// This must be called before advertising with `OwnAddressType::StaticRandom`.
-    /// The random address must follow Bluetooth specification requirements.
-    ///
-    /// # Parameters
-    ///
-    /// - `address`: 6-byte random address
-    pub async fn set_random_address(&self, address: BdAddr) -> Result<(), BleError> {
-        LeSetRandomAddr::new(address).exec(&self.controller).await?;
-        Ok(())
     }
 
     /// Get a reference to the controller.
@@ -903,6 +891,26 @@ impl<'d> HCI<'d, Normal> {
             BleEvent::Vendor(v) => security_from_vendor_event(v),
             _ => None,
         }
+    }
+}
+
+// Setting the random address needs an HCI command only the full BLE stack
+// provides.
+#[cfg(feature = "ble-stack-full")]
+impl<'d> HCI<'d, Normal> {
+    /// Set a random address for the device
+    ///
+    /// This must be called before advertising with `OwnAddressType::StaticRandom`.
+    /// The random address must follow Bluetooth specification requirements.
+    ///
+    /// # Parameters
+    ///
+    /// - `address`: 6-byte random address
+    pub async fn set_random_address(&self, address: BdAddr) -> Result<(), BleError> {
+        bt_hci::cmd::le::LeSetRandomAddr::new(address)
+            .exec(&self.controller)
+            .await?;
+        Ok(())
     }
 }
 
