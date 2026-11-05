@@ -29,6 +29,8 @@ pub mod bootsel;
 pub mod clocks;
 pub(crate) mod datetime;
 pub mod dma;
+pub(crate) mod dma_ring;
+pub mod dma_ring_tx;
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 pub mod executor;
 pub mod flash;

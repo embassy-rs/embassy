@@ -22,6 +22,9 @@ use crate::{RegExt, dma, interrupt, mode, pac, peripherals};
 mod buffered;
 pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
 
+mod ring_buffered;
+pub use ring_buffered::{RingBufferedUart, RingBufferedUartRx, RingBufferedUartTx};
+
 /// Word length.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -1289,6 +1292,8 @@ trait SealedInstance {
     fn buffered_state() -> &'static buffered::State;
 
     fn dma_state() -> &'static DmaState;
+
+    fn ring_buffered_state() -> &'static crate::dma_ring::State;
 }
 
 /// UART instance.
@@ -1321,6 +1326,11 @@ macro_rules! impl_instance {
                     rx_err_waker: AtomicWaker::new(),
                     rx_errs: AtomicU16::new(0),
                 };
+                &STATE
+            }
+
+            fn ring_buffered_state() -> &'static crate::dma_ring::State {
+                static STATE: crate::dma_ring::State = crate::dma_ring::State::new();
                 &STATE
             }
         }
