@@ -49,8 +49,8 @@ impl<'d, T: Instance> Timer<'d, T> {
         T::regs().cr().modify(|w| w.set_cntstrt(true));
     }
 
-    /// Set the frequency of how many times per second the timer counts up to the max value or down to 0.
-    pub fn set_frequency(&self, frequency: Hertz) {
+    /// Compute the prescaler and auto-reload value for the given frequency.
+    fn prescaler_and_arr(frequency: Hertz) -> (Prescaler, u16) {
         let f = frequency.0;
         assert!(f > 0);
 
@@ -60,6 +60,15 @@ impl<'d, T: Instance> Timer<'d, T> {
 
         let psc = Prescaler::from_ticks(pclk_ticks_per_timer_period);
         let arr = psc.scale_down(pclk_ticks_per_timer_period);
+        (psc, arr)
+    }
+
+    /// Set the prescaler for the given frequency.
+    ///
+    /// This writes `CFGR`, so the timer must be disabled. Call [`set_period`](Self::set_period)
+    /// with the same frequency after enabling the timer to complete the frequency change.
+    pub fn set_prescaler(&self, frequency: Hertz) {
+        let (psc, _) = Self::prescaler_and_arr(frequency);
         let presc = vals::Presc::from(&psc);
 
         T::regs().cfgr().modify(|r| {
@@ -68,6 +77,14 @@ impl<'d, T: Instance> Timer<'d, T> {
             #[cfg(lptim_n6)]
             r.set_presc(presc.to_bits());
         });
+    }
+
+    /// Set the auto-reload value for the given frequency.
+    ///
+    /// This writes `ARR`, so the timer must be enabled. Call [`set_prescaler`](Self::set_prescaler)
+    /// with the same frequency before enabling the timer.
+    pub fn set_period(&self, frequency: Hertz) {
+        let (_, arr) = Self::prescaler_and_arr(frequency);
         T::regs().arr().modify(|r| r.set_arr(arr));
     }
 
