@@ -509,17 +509,29 @@ fn main() {
     // Generate FLASH regions
     cfgs.declare("flash");
     cfgs.declare("flash_dual_bank");
+    // How an uncorrectable (double) ECC error on a flash read is reported: a bus error on the
+    // read, or an NMI.
+    cfgs.declare("flash_ecc_bus_error");
+    cfgs.declare("flash_ecc_nmi");
     let mut has_flash = false;
     // Only chips with a flash controller supported by the driver get the `flash` module.
-    let flash_supported = METADATA.peripherals.iter().any(|p| {
-        p.name == "FLASH"
-            && p.registers
-                .as_ref()
-                .is_some_and(|r| r.kind == "flash" && r.version.starts_with('v'))
+    let flash_version = METADATA.peripherals.iter().find_map(|p| {
+        let r = p.registers.as_ref()?;
+        (p.name == "FLASH" && r.kind == "flash" && r.version.starts_with('v')).then_some(r.version)
     });
-    if flash_supported {
+    if let Some(flash_version) = flash_version {
         cfgs.enable("flash");
         has_flash = true;
+
+        match flash_version {
+            "v5_h7" | "v5_h7ab" | "v5_h7rs" => cfgs.enable("flash_ecc_bus_error"),
+            // C0 has no ECC.
+            "v4_c0" => {}
+            v if v.starts_with("v4_") || matches!(v, "v5_h5" | "v5_h50" | "v5_c5") => cfgs.enable("flash_ecc_nmi"),
+            // F0/F1/F3/F2/F4/F7 have no ECC. L0/L1 correct single errors, but don't report
+            // double errors.
+            _ => {}
+        }
 
         let mut flash_regions = TokenStream::new();
         let flash_memory_regions: Vec<_> = memory
