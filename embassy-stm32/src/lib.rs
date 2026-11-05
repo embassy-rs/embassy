@@ -19,6 +19,8 @@ include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 mod atomic;
 mod macros;
 pub mod time;
+#[cfg(feature = "trustzone-secure")]
+pub mod trustzone;
 mod wait;
 /// Operating modes for peripherals.
 pub mod mode {
