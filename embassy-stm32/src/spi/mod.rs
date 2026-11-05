@@ -153,6 +153,9 @@ pub struct Config {
     /// 2, 4, ..., 256. A frequency below the kernel clock divided by 256 cannot be met: `set_config`
     /// returns [`ConfigError::FrequencyTooLow`] and leaves the driver unchanged, the constructors
     /// panic.
+    ///
+    /// The master's SCK clocks a slave, which never uses the divider, so a slave takes any
+    /// frequency: below the kernel clock divided by 256 it gets the divider of 256.
     pub frequency: Hertz,
     /// Enable internal pullup on input pin.
     ///
@@ -414,7 +417,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     }
 
     fn enable_and_init(&mut self, config: Config) {
-        let br = unwrap!(compute_baud_rate(self.kernel_clock, config.frequency));
+        let br = unwrap!(baud_rate::<CM>(self.kernel_clock, config.frequency));
         let cpha = config.raw_phase();
         let cpol = config.raw_polarity();
         let lsbfirst = config.raw_byte_order();
@@ -556,12 +559,12 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     ///
     /// A config that is rejected leaves the driver unchanged.
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        compute_baud_rate(self.kernel_clock, config.frequency)?;
+        baud_rate::<CM>(self.kernel_clock, config.frequency)?;
         self.gpio_speed = config.gpio_speed;
         self.crc_enabled = !matches!(config.crc, CrcConfig::Disabled);
         #[cfg(gpio_v2)]
         set_speed(&self._sck, &self._mosi, config.gpio_speed);
-        reconfigure(self.info, self.kernel_clock, config)
+        reconfigure::<CM>(self.info, self.kernel_clock, config)
     }
 
     /// Enable or disable hardware CRC calculation.
@@ -1969,6 +1972,20 @@ fn compute_baud_rate(kernel_clock: Hertz, freq: Hertz) -> Result<Br, ConfigError
     Err(ConfigError::FrequencyTooLow)
 }
 
+/// The divider for `freq` on a driver in mode `CM`. The master's SCK clocks a slave, which never
+/// uses the divider, so a slave takes any `freq`: below the kernel clock / 256 it gets /256.
+fn baud_rate<CM: CommunicationMode>(kernel_clock: Hertz, freq: Hertz) -> Result<Br, ConfigError> {
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    let master = CM::MASTER == vals::Mstr::Master;
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    let master = CM::MASTER == vals::Master::Master;
+
+    match compute_baud_rate(kernel_clock, freq) {
+        Err(ConfigError::FrequencyTooLow) if !master => Ok(Br::Div256),
+        result => result,
+    }
+}
+
 fn compute_frequency(kernel_clock: Hertz, br: Br) -> Hertz {
     let div: u16 = match br {
         Br::Div2 => 2,
@@ -1996,13 +2013,13 @@ fn set_speed(sck: &Option<Flex<'_>>, mosi: &Option<Flex<'_>>, gpio_speed: Speed)
     }
 }
 
-fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), ConfigError> {
+fn reconfigure<CM: CommunicationMode>(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), ConfigError> {
     let cpha = config.raw_phase();
     let cpol = config.raw_polarity();
 
     let lsbfirst = config.raw_byte_order();
 
-    let br = compute_baud_rate(kernel_clock, config.frequency)?;
+    let br = baud_rate::<CM>(kernel_clock, config.frequency)?;
 
     #[cfg(any(spi_v1, spi_v2, spi_v3))]
     {
