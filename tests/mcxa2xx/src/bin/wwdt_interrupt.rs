@@ -60,11 +60,13 @@ async fn main(_spawner: Spawner) {
         watchdog.feed();
     }
 
-    for _ in 1..=5 {
-        assert!(!INTERRUPT_TRIGGERED.load(Ordering::Relaxed));
-        Timer::after_millis(10).await;
-    }
+    // The warning is due 46ms after feeding. Check comfortably before it;
+    // repeated relative sleeps can accumulate coarse-alarm rounding past it.
+    Timer::after_millis(20).await;
+    assert!(!INTERRUPT_TRIGGERED.load(Ordering::Relaxed));
 
+    // Then wait beyond the warning without feeding.
+    Timer::after_millis(40).await;
     assert!(INTERRUPT_TRIGGERED.load(Ordering::Relaxed));
     defmt::info!("Test OK");
     cortex_m::asm::bkpt();

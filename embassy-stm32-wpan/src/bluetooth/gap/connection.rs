@@ -11,37 +11,14 @@ use crate::bluetooth::gap::types::{BdAddrType, OwnAddressType};
 /// Maximum number of simultaneous BLE connections supported
 pub const MAX_CONNECTIONS: usize = 4;
 
-/// Physical layer type for BLE connections
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum LePhy {
-    /// 1 Mbps PHY
-    #[default]
-    Phy1M = 0x01,
-    /// 2 Mbps PHY
-    Phy2M = 0x02,
-    /// Coded PHY (long range)
-    PhyCoded = 0x03,
-}
-
-impl LePhy {
-    /// Create from raw u8 value
-    pub fn from_u8(value: u8) -> Self {
-        match value {
-            0x01 => LePhy::Phy1M,
-            0x02 => LePhy::Phy2M,
-            0x03 => LePhy::PhyCoded,
-            _ => LePhy::Phy1M,
-        }
-    }
-}
-
 /// Reason for disconnection
 ///
 /// Represents the HCI status code reported when a connection terminates, or the
 /// reason supplied by the local host when initiating a disconnection. Codes that
 /// are not explicitly mapped are preserved via [`DisconnectReason::Unknown`].
+///
+/// bt-hci's `DisconnectReason` names only the codes a Disconnect command sends
+/// and carries no catch-all, so the decoded set stays here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DisconnectReason {

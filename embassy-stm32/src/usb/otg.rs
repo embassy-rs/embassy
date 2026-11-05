@@ -972,6 +972,15 @@ mod host_impl {
             // The ULPI clock has to be disabled for an internal PHY.
             // Left enabled, the OTG_HS core waits on an absent external ULPI PHY
             // and never enters host mode, so no downstream device is ever detected.
+            #[cfg(any(stm32f2, stm32f4, stm32f7))]
+            if T::HIGH_SPEED {
+                critical_section::with(|_| {
+                    let rcc = crate::pac::RCC;
+                    rcc.ahb1enr().modify(|w| w.set_usb_otg_hsulpien(false));
+                    rcc.ahb1lpenr().modify(|w| w.set_usb_otg_hsulpilpen(false));
+                });
+            }
+
             #[cfg(stm32h7)]
             critical_section::with(|_| {
                 let rcc = crate::pac::RCC;

@@ -195,8 +195,11 @@ where
         let frame_number = r.dsts().read().fnsof();
         let frame_is_odd = frame_number & 0x01 == 1;
 
-        // Switch the packet polarity of the endpoints that missed their frame, in the hope that it will be polled for
-        // in the next frame.
+        // Discard the packets of the endpoints that missed their frame. Isochronous data is only worth sending in its
+        // own frame, so there is nothing to gain from keeping the late packet. Keeping it in the FIFO and sending it
+        // again in a later frame left the FIFO and the core out of step: the next transfer completed without sending
+        // its packet, which stayed in the FIFO, so that the writer waited for room in the FIFO for ever. The writer
+        // queues the next packet, with the polarity of the frame it is written in.
         for ep_num in (0..ep_count).into_iter().filter(|ep_num| {
             let diepctl = r.diepctl(*ep_num).read();
             // Find iso endpoints
@@ -208,26 +211,12 @@ where
         }) {
             trace!("Unsent message at EOF for ep: {}, frame: {}", ep_num, frame_number);
 
-            let ep_diepctl = r.diepctl(ep_num);
-
-            // Set NAK and disable the endpoint. Do not flush the transmit FIFO: the packet in
-            // that FIFO is the packet that this function sends again in the next frame.
+            // Set NAK and disable the endpoint, then discard the packet.
             abort_in_endpoint(r, ep_num);
+            flush_tx_fifo(r, r.diepctl(ep_num).read().txfnum());
 
-            // Switch the packet polarity
-            ep_diepctl.modify(|r| {
-                if frame_is_odd {
-                    r.set_sd0pid_sevnfrm(true);
-                } else {
-                    r.set_soddfrm_sd1pid(true);
-                }
-            });
-
-            // Enable the endpoint again
-            ep_diepctl.modify(|w| {
-                w.set_cnak(true);
-                w.set_epena(true);
-            });
+            // Let the writer queue the next packet.
+            state.ep_states[ep_num].in_waker.wake();
         }
     }
 }

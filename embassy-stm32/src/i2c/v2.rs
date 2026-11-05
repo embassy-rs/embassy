@@ -88,8 +88,21 @@ fn debug_print_interrupts(isr: stm32_metapac::i2c::regs::Isr) {
 pub(crate) unsafe fn on_interrupt<T: Instance>() {
     let regs = T::info().regs;
     let isr = regs.isr().read();
+    let cr1 = regs.cr1().read();
 
-    if isr.tcr() || isr.tc() || isr.addr() || isr.stopf() || isr.nackf() || isr.berr() || isr.arlo() || isr.ovr() {
+    // TXIS and RXNE are set all the time, so they only count while a transfer without DMA has
+    // armed TXIE / RXIE to be woken by them.
+    if isr.tcr()
+        || isr.tc()
+        || isr.addr()
+        || isr.stopf()
+        || isr.nackf()
+        || isr.berr()
+        || isr.arlo()
+        || isr.ovr()
+        || (isr.txis() && cr1.txie())
+        || (isr.rxne() && cr1.rxie())
+    {
         debug_print_interrupts(isr);
 
         T::state().waker.wake();
@@ -104,6 +117,9 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
             // Error flags are to be read in the routines, so we also don't clear them here
             w.set_nackie(false);
             w.set_errie(false);
+            // Cleared by loading TXDR / reading RXDR, which the routines do
+            w.set_txie(false);
+            w.set_rxie(false);
 
             // WUPEN keep triggering ADDR interrupt, it seems to override ADDRIE
             #[cfg(feature = "low-power")]
@@ -151,6 +167,23 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
     fn master_stop(&mut self) {
         self.info.regs.cr2().write(|w| w.set_stop(true));
+    }
+
+    /// Aborts the transfer of a blocking call that returned [`Error::Timeout`], leaving the
+    /// peripheral idle.
+    ///
+    /// The timeout abandons the transfer halfway: its START (and STOP, if one was requested) can
+    /// still be pending in CR2, the peripheral can still wait for TXDR/RXDR, and NACKF/STOPF
+    /// arrive once the target lets go of SCL. The next transfer would run into all of that: it
+    /// returns the old transfer's NACK after starting its own transfer, which then runs with
+    /// nobody serving it, and the peripheral stays stuck until PE is toggled. So toggle PE now,
+    /// as `error_occurred` does for BERR and ARLO.
+    fn abort_on_timeout<R>(&self, result: Result<R, Error>) -> Result<R, Error> {
+        if matches!(result, Err(Error::Timeout)) {
+            trace!("Timeout, resetting the peripheral.");
+            self.soft_reset();
+        }
+        result
     }
 
     /// Resets the I2C peripheral state machine while preserving configuration.
@@ -552,7 +585,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         // I2C start
         //
         // ST SAD+W
-        if let Err(err) = Self::master_write(
+        Self::master_write(
             self.info,
             address,
             write.len().min(255),
@@ -560,12 +593,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             last_chunk_idx != 0,
             false, // restart
             timeout,
-        ) {
-            if send_stop {
-                self.master_stop();
-            }
-            return Err(err);
-        }
+        )?;
 
         for (number, chunk) in write.chunks(255).enumerate() {
             if number != 0 {
@@ -583,8 +611,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                 // (START has been ACKed or last byte when
                 // through)
                 if let Err(err) = self.wait_txis(timeout) {
-                    if send_stop && err != Error::Nack {
-                        // STOP is sent automatically if a NACK was received
+                    // STOP is sent automatically if a NACK was received, and a timeout is
+                    // aborted by resetting the peripheral instead (see `abort_on_timeout`).
+                    if send_stop && !matches!(err, Error::Nack | Error::Timeout) {
                         self.master_stop();
                     }
                     return Err(err);
@@ -608,13 +637,15 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
     /// Blocking read.
     pub fn blocking_read(&mut self, address: impl Into<Address>, read: &mut [u8]) -> Result<(), Error> {
-        self.read_internal(address.into(), read, false, self.timeout())
+        let result = self.read_internal(address.into(), read, false, self.timeout());
         // Automatic Stop
+        self.abort_on_timeout(result)
     }
 
     /// Blocking write.
     pub fn blocking_write(&mut self, address: impl Into<Address>, write: &[u8]) -> Result<(), Error> {
-        self.write_internal(address.into(), write, true, self.timeout())
+        let result = self.write_internal(address.into(), write, true, self.timeout());
+        self.abort_on_timeout(result)
     }
 
     /// Blocking write, restart, read.
@@ -626,9 +657,11 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     ) -> Result<(), Error> {
         let address = address.into();
         let timeout = self.timeout();
-        self.write_internal(address, write, false, timeout)?;
-        self.read_internal(address, read, true, timeout)
+        let result = self
+            .write_internal(address, write, false, timeout)
+            .and_then(|()| self.read_internal(address, read, true, timeout));
         // Automatic Stop
+        self.abort_on_timeout(result)
     }
 
     /// Blocking transaction with operations.
@@ -651,7 +684,16 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     ) -> Result<(), Error> {
         let address = addr.into();
         let timeout = self.timeout();
+        let result = self.execute_groups(address, operations, timeout);
+        self.abort_on_timeout(result)
+    }
 
+    fn execute_groups<O: TransactionOp>(
+        &mut self,
+        address: Address,
+        operations: &mut [O],
+        timeout: Timeout,
+    ) -> Result<(), Error> {
         // Group consecutive operations of the same type
         let mut op_idx = 0;
         let mut is_first_group = true;
@@ -862,6 +904,11 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     ///
     /// The buffers are concatenated in a single write transaction.
     pub fn blocking_write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
+        let result = self.write_vectored_internal(address, write);
+        self.abort_on_timeout(result)
+    }
+
+    fn write_vectored_internal(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
         if write.is_empty() {
             return self.write_internal(address.into(), &[], true, self.timeout());
         }
@@ -871,7 +918,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         let first_length = write[0].len();
         let last_slice_index = write.len() - 1;
 
-        if let Err(err) = Self::master_write(
+        Self::master_write(
             self.info,
             address.into(),
             first_length.min(255),
@@ -879,10 +926,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             (first_length > 255) || (last_slice_index != 0),
             false, // restart
             timeout,
-        ) {
-            self.master_stop();
-            return Err(err);
-        }
+        )?;
 
         for (idx, slice) in write.iter().enumerate() {
             let slice_len = slice.len();
@@ -894,35 +938,26 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             };
             let last_chunk_idx = total_chunks.saturating_sub(1);
 
-            if idx != 0
-                && let Err(err) = Self::reload(
+            if idx != 0 {
+                // Only fails with a timeout, which the caller resets the peripheral for.
+                Self::reload(
                     self.info,
                     slice_len.min(255),
                     (idx != last_slice_index) || (slice_len > 255),
                     Stop::Software,
                     timeout,
-                )
-            {
-                if err != Error::Nack {
-                    self.master_stop();
-                }
-                return Err(err);
+                )?;
             }
 
             for (number, chunk) in slice.chunks(255).enumerate() {
-                if number != 0
-                    && let Err(err) = Self::reload(
+                if number != 0 {
+                    Self::reload(
                         self.info,
                         chunk.len(),
                         (number != last_chunk_idx) || (idx != last_slice_index),
                         Stop::Software,
                         timeout,
-                    )
-                {
-                    if err != Error::Nack {
-                        self.master_stop();
-                    }
-                    return Err(err);
+                    )?;
                 }
 
                 for byte in chunk {
@@ -930,7 +965,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                     // (START has been ACKed or last byte when
                     // through)
                     if let Err(err) = self.wait_txis(timeout) {
-                        if err != Error::Nack {
+                        if !matches!(err, Error::Nack | Error::Timeout) {
                             self.master_stop();
                         }
                         return Err(err);
@@ -1112,23 +1147,32 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Async version of [`I2c::drain_rxdr_until_stop`].
     ///
     /// The wait depends only on ISR flags (STOPF/ADDR/RXNE and the error flags), so it
-    /// is woken by the I2C event/error interrupts (armed here for the duration of the
-    /// drain, since the DMA teardown has disabled them) instead of polling, and bounded
-    /// by `timeout`.
+    /// is woken by the I2C event/error interrupts instead of polling, and bounded
+    /// by `timeout`. `on_interrupt` disables every enable when it fires, and RXNE does
+    /// not end the drain, so the enables are armed again each time it goes to sleep.
     async fn drain_rxdr_until_stop_async(&self, timeout: Timeout) -> Result<usize, Error> {
-        // The DMA transfer is done and its OnDrop has run, so no context expects these
-        // enabled anymore. Make sure they are off on every exit (the interrupt handler
-        // already disables them when it wakes us).
-        let _irq = self.info.regs.cr1().enable_interrupts(|w| {
+        let arm = |w: &mut i2c::regs::Cr1| {
             w.set_stopie(true);
             w.set_addrie(true);
             w.set_nackie(true);
             w.set_errie(true);
-        });
+            w.set_rxie(true);
+        };
+        // The DMA transfer is done and its OnDrop has run, so no context expects these
+        // enabled anymore. Make sure they are off on every exit.
+        let _irq = self.info.regs.cr1().enable_interrupts(arm);
 
         let mut discarded = 0;
         loop {
             let isr = self.info.regs.isr().read();
+
+            if isr.rxne() {
+                // First: the last byte can still be in RXDR when STOP (or a repeated START)
+                // arrives, and it must not be left there for the next transfer.
+                let _ = self.info.regs.rxdr().read().rxdata();
+                discarded += 1;
+                continue;
+            }
 
             if isr.stopf() {
                 self.info.regs.icr().write(|w| w.set_stopcf(true));
@@ -1144,12 +1188,6 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 return Ok(discarded);
             }
 
-            if isr.rxne() {
-                let _ = self.info.regs.rxdr().read().rxdata();
-                discarded += 1;
-                continue;
-            }
-
             // Nothing pending yet: sleep until a relevant flag changes, then re-check errors.
             let isr = timeout
                 .with(poll_fn(|cx| -> Poll<Result<Isr, Error>> {
@@ -1158,6 +1196,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     if isr.stopf() || isr.addr() || isr.rxne() || isr.nackf() || isr.berr() || isr.arlo() || isr.ovr() {
                         Poll::Ready(Ok(isr))
                     } else {
+                        self.info.regs.cr1().set_bits(arm);
                         Poll::Pending
                     }
                 }))
@@ -1205,6 +1244,103 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             }
         }
     }
+
+    // =========================
+    //  Interrupt-driven transfers (no DMA)
+    //
+    // A driver from `new_no_dma` has no DMA channel to move the data, so these helpers wait for TXIS
+    // or RXNE on every byte instead. The event interrupt wakes them through TXIE / RXIE, the way
+    // TCIE / STOPIE / NACKIE wake the waits above. `on_interrupt` disables every interrupt enable
+    // when it fires, so each wait arms the enables it needs each time it goes to sleep.
+
+    /// Sleeps until `ready` accepts the ISR, with the interrupt enables set by `arm` armed meanwhile.
+    ///
+    /// Every enable `arm` sets must belong to a flag `ready` accepts. Otherwise that flag would
+    /// keep raising the interrupt without ending the wait.
+    async fn wait_isr<R>(&self, arm: impl Fn(&mut i2c::regs::Cr1), mut ready: impl FnMut(Isr) -> Option<R>) -> R {
+        poll_fn(|cx| {
+            self.state.waker.register(cx.waker());
+            if let Some(result) = ready(self.info.regs.isr().read()) {
+                return Poll::Ready(result);
+            }
+            self.info.regs.cr1().set_bits(&arm);
+            Poll::Pending
+        })
+        .await
+    }
+
+    /// Async [`I2c::wait_txis`]: sleeps until the next byte can be loaded into TXDR.
+    async fn wait_txis_async(&self, timeout: Timeout) -> Result<(), Error> {
+        let isr = self
+            .wait_isr(
+                |w| {
+                    w.set_txie(true);
+                    w.set_nackie(true);
+                    w.set_errie(true);
+                },
+                |isr| (isr.txis() || Self::error_flags(&isr).is_err()).then_some(isr),
+            )
+            .await;
+        self.error_occurred(&isr, timeout)
+    }
+
+    /// Master receive: sleeps until a byte is in RXDR.
+    async fn wait_rxne_async(&self, timeout: Timeout) -> Result<(), Error> {
+        let isr = self
+            .wait_isr(
+                |w| {
+                    w.set_rxie(true);
+                    w.set_nackie(true);
+                    w.set_errie(true);
+                },
+                |isr| (isr.rxne() || Self::error_flags(&isr).is_err()).then_some(isr),
+            )
+            .await;
+        self.error_occurred(&isr, timeout)
+    }
+
+    /// Sends `chunk`, one byte per TXIS. The chunk must not exceed what NBYTES was programmed for.
+    async fn write_chunk_async(&self, chunk: &[u8], timeout: Timeout) -> Result<(), Error> {
+        for &byte in chunk {
+            self.wait_txis_async(timeout).await?;
+            self.info.regs.txdr().write(|w| w.set_txdata(byte));
+        }
+        Ok(())
+    }
+
+    /// Receives `chunk`, one byte per RXNE. The chunk must not exceed what NBYTES was programmed for.
+    async fn read_chunk_async(&self, chunk: &mut [u8], timeout: Timeout) -> Result<(), Error> {
+        for byte in chunk {
+            self.wait_rxne_async(timeout).await?;
+            *byte = self.info.regs.rxdr().read().rxdata();
+        }
+        Ok(())
+    }
+
+    /// What the DMA transfers' `OnDrop` does, minus the DMA enables: disarms the interrupt
+    /// enables the transfer used and clears the error flags it may have left.
+    fn finish_irq_transfer(regs: Regs) {
+        let isr = regs.isr().read();
+        regs.cr1().modify(|w| {
+            w.set_txie(false);
+            w.set_rxie(false);
+            w.set_tcie(false);
+            w.set_stopie(false);
+            w.set_nackie(false);
+            w.set_errie(false);
+        });
+        regs.icr().write(|w| {
+            w.set_nackcf(true);
+            w.set_berrcf(true);
+            w.set_arlocf(true);
+            w.set_ovrcf(true);
+        });
+        if isr.berr() || isr.arlo() {
+            regs.cr1().modify(|w| w.set_pe(false));
+            while regs.cr1().read().pe() {}
+            regs.cr1().modify(|w| w.set_pe(true));
+        }
+    }
 }
 
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
@@ -1218,6 +1354,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         restart: bool,
         timeout: Timeout,
     ) -> Result<(), Error> {
+        if self.tx_dma.is_none() {
+            return self
+                .write_irq_internal(address, write, first_slice, last_slice, send_stop, restart, timeout)
+                .await;
+        }
+
         let total_len = write.len();
 
         // SAFETY: the DMA channel is not used for anything else until `dma_transfer` is dropped.
@@ -1348,6 +1490,10 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         restart: bool,
         timeout: Timeout,
     ) -> Result<(), Error> {
+        if self.rx_dma.is_none() {
+            return self.read_irq_internal(address, buffer, restart, timeout).await;
+        }
+
         let total_len = buffer.len();
 
         // SAFETY: the DMA channel is not used for anything else until `dma_transfer` is dropped.
@@ -1436,6 +1582,93 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         drop(on_drop);
 
         Ok(())
+    }
+
+    /// [`I2c::write_dma_internal`] for a driver without a TX DMA channel: the same chunking, but
+    /// each byte is loaded on its TXIS interrupt.
+    async fn write_irq_internal(
+        &mut self,
+        address: Address,
+        write: &[u8],
+        first_slice: bool,
+        last_slice: bool,
+        send_stop: bool,
+        restart: bool,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        let regs = self.info.regs;
+        let _on_drop = OnDrop::new(|| Self::finish_irq_transfer(regs));
+
+        // Surface any error left over from a previous transfer before initiating.
+        Self::error_flags(&regs.isr().read())?;
+
+        let chunks = write.len().div_ceil(255);
+        for (number, chunk) in write.chunks(255).enumerate() {
+            let reload = number + 1 < chunks || !last_slice;
+            if number == 0 && first_slice {
+                Self::master_write_async(
+                    self.info,
+                    address,
+                    chunk.len(),
+                    Stop::Software,
+                    reload,
+                    restart,
+                    timeout,
+                )
+                .await?;
+            } else {
+                self.reload_async(chunk.len(), reload, Stop::Software, timeout).await?;
+            }
+            self.write_chunk_async(chunk, timeout).await?;
+        }
+
+        self.wait_tc_async(timeout).await?;
+
+        if last_slice && send_stop {
+            self.master_stop();
+            self.wait_stop_async(timeout).await?;
+        }
+
+        Ok(())
+    }
+
+    /// [`I2c::read_dma_internal`] for a driver without an RX DMA channel: the same chunking, but
+    /// each byte is read on its RXNE interrupt.
+    async fn read_irq_internal(
+        &mut self,
+        address: Address,
+        buffer: &mut [u8],
+        restart: bool,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        let regs = self.info.regs;
+        let _on_drop = OnDrop::new(|| Self::finish_irq_transfer(regs));
+
+        // Surface any error left over from a previous transfer before initiating.
+        Self::error_flags(&regs.isr().read())?;
+
+        let chunks = buffer.len().div_ceil(255);
+        for (number, chunk) in buffer.chunks_mut(255).enumerate() {
+            let reload = number + 1 < chunks;
+            if number == 0 {
+                Self::master_read_async(
+                    self.info,
+                    address,
+                    chunk.len(),
+                    Stop::Automatic,
+                    reload,
+                    restart,
+                    timeout,
+                )
+                .await?;
+            } else {
+                self.reload_async(chunk.len(), reload, Stop::Automatic, timeout).await?;
+            }
+            self.read_chunk_async(chunk, timeout).await?;
+        }
+
+        // Unlike the DMA transfer, leave no STOPF set for the next user of the peripheral.
+        self.wait_stop_async(timeout).await
     }
     // =========================
     //  Async public API
@@ -1678,6 +1911,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             return Ok(());
         }
 
+        if self.rx_dma.is_none() {
+            return timeout
+                .with(self.read_group_irq(address, operations, is_first_group, is_last_group, timeout))
+                .await;
+        }
+
         // Use DMA for read operations - need to handle multiple buffers
         let restart = !is_first_group;
         let mut total_remaining = total_bytes;
@@ -1821,6 +2060,67 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         // real error instead of letting the outer timeout fire.
         self.dma_transfer_with_errors(dma_transfer, timeout).await?;
         drop(on_drop);
+
+        Ok(())
+    }
+
+    /// [`I2c::execute_read_group_async`] for a driver without an RX DMA channel, for a group with
+    /// at least one byte to read. The group's buffers are one continuous read, as in
+    /// [`I2c::execute_read_group`].
+    async fn read_group_irq(
+        &mut self,
+        address: Address,
+        operations: &mut [Operation<'_>],
+        is_first_group: bool,
+        is_last_group: bool,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        let regs = self.info.regs;
+        let _on_drop = OnDrop::new(|| Self::finish_irq_transfer(regs));
+
+        // Surface any error left over from a previous transfer before initiating.
+        Self::error_flags(&regs.isr().read())?;
+
+        let mut remaining = Self::total_operation_bytes(operations);
+        let mut first_chunk = true;
+
+        for operation in operations {
+            let Operation::Read(buffer) = operation else {
+                continue;
+            };
+            for chunk in buffer.chunks_mut(255) {
+                remaining -= chunk.len();
+                let last_chunk = remaining == 0;
+                let stop = if is_last_group && last_chunk {
+                    Stop::Automatic
+                } else {
+                    Stop::Software
+                };
+
+                if first_chunk {
+                    // A group after the first starts with a repeated START.
+                    Self::master_read_async(
+                        self.info,
+                        address,
+                        chunk.len(),
+                        stop,
+                        !last_chunk,
+                        !is_first_group,
+                        timeout,
+                    )
+                    .await?;
+                    first_chunk = false;
+                } else {
+                    self.reload_async(chunk.len(), !last_chunk, stop, timeout).await?;
+                }
+                self.read_chunk_async(chunk, timeout).await?;
+            }
+        }
+
+        // A group that is not the last ends in a repeated START, which the next group issues.
+        if is_last_group {
+            self.wait_stop_async(timeout).await?;
+        }
 
         Ok(())
     }
@@ -2314,6 +2614,10 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     // returns the total number of bytes received (stored in buffer)
     // If master sends more data than buffer can hold, excess bytes are drained and discarded.
     async fn read_dma_internal_slave(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
+        if self.rx_dma.is_none() {
+            return self.read_irq_internal_slave(buffer, timeout).await;
+        }
+
         let total_len = buffer.len();
         let mut remaining_len = total_len;
 
@@ -2492,6 +2796,10 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     }
 
     async fn write_dma_internal_slave(&mut self, buffer: &[u8], timeout: Timeout) -> Result<SendStatus, Error> {
+        if self.tx_dma.is_none() {
+            return self.write_irq_internal_slave(buffer, timeout).await;
+        }
+
         let total_len = buffer.len();
         let mut remaining_len = total_len;
 
@@ -2630,6 +2938,208 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         drop(on_drop);
 
         Ok(size)
+    }
+
+    /// Slave receive: sleeps until a byte is in RXDR, the master ended the transfer (STOP) or
+    /// started a new one (ADDR).
+    async fn wait_slave_rxne_async(&self, timeout: Timeout) -> Result<ReceiveResult, Error> {
+        let isr = self
+            .wait_isr(
+                |w| {
+                    w.set_rxie(true);
+                    w.set_stopie(true);
+                    w.set_addrie(true);
+                    w.set_nackie(true);
+                    w.set_errie(true);
+                },
+                |isr| (isr.rxne() || isr.stopf() || isr.addr() || Self::error_flags(&isr).is_err()).then_some(isr),
+            )
+            .await;
+        self.error_occurred(&isr, timeout)?;
+
+        if isr.stopf() {
+            if self.info.regs.isr().read().rxne() {
+                trace!("Data received with STOP.");
+                Ok(ReceiveResult::DataAvailable)
+            } else {
+                trace!("STOP triggered without data.");
+                Ok(ReceiveResult::StopReceived)
+            }
+        } else if isr.rxne() {
+            Ok(ReceiveResult::DataAvailable)
+        } else {
+            // ADDR: START was sent again. Leave it set so `listen` can catch it.
+            trace!("START when waiting for RXNE. Ending receive loop.");
+            Ok(ReceiveResult::NewStart)
+        }
+    }
+
+    /// [`I2c::read_dma_internal_slave`] for a driver without an RX DMA channel: the logic of
+    /// [`I2c::slave_read_internal`], with every wait on an interrupt.
+    async fn read_irq_internal_slave(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
+        let regs = self.info.regs;
+        let _on_drop = OnDrop::new(|| {
+            regs.cr1().modify(|w| {
+                w.set_rxie(false);
+                w.set_tcie(false);
+                w.set_stopie(false);
+                w.set_addrie(false);
+                w.set_nackie(false);
+                w.set_errie(false);
+            });
+        });
+
+        if buffer.is_empty() {
+            // Release the clock stretch ADDR holds, then wait out the frame.
+            trace!("--- Slave RX zero-length, releasing clock stretch");
+            Self::slave_start(self.info, 0, false);
+            self.drain_rxdr_until_stop_async(timeout).await?;
+            return Ok(0);
+        }
+
+        let chunks = buffer.len().div_ceil(255);
+        let mut received = 0;
+        let mut stop_received = false;
+
+        'chunks: for (number, chunk) in buffer.chunks_mut(255).enumerate() {
+            let reload = number + 1 < chunks;
+            if number == 0 {
+                Self::slave_start(self.info, chunk.len(), reload);
+            } else {
+                // The master may have ended the transfer instead of sending another chunk.
+                if regs.isr().read().stopf() {
+                    stop_received = true;
+                    break;
+                }
+                self.reload_async(chunk.len(), reload, Stop::Software, timeout).await?;
+            }
+
+            for byte in chunk {
+                match self.wait_slave_rxne_async(timeout).await? {
+                    ReceiveResult::DataAvailable => {
+                        *byte = regs.rxdr().read().rxdata();
+                        received += 1;
+                    }
+                    ReceiveResult::StopReceived => {
+                        stop_received = true;
+                        break 'chunks;
+                    }
+                    ReceiveResult::NewStart => return Ok(received),
+                }
+            }
+        }
+
+        if stop_received {
+            regs.icr().write(|w| w.set_stopcf(true));
+        } else {
+            // The buffer is full: acknowledge and discard whatever the master still sends.
+            self.drain_rxdr_until_stop_async(timeout).await?;
+        }
+
+        Ok(received)
+    }
+
+    /// [`I2c::write_dma_internal_slave`] for a driver without a TX DMA channel: the logic of
+    /// [`I2c::slave_write_internal`], with every wait on an interrupt, and the leftover count the
+    /// DMA path reports: the bytes the master did not clock out, including a byte loaded into TXDR
+    /// that it never took.
+    async fn write_irq_internal_slave(&mut self, buffer: &[u8], timeout: Timeout) -> Result<SendStatus, Error> {
+        let regs = self.info.regs;
+        let total_len = buffer.len();
+        let _on_drop = OnDrop::new(|| {
+            regs.cr1().modify(|w| {
+                w.set_txie(false);
+                w.set_tcie(false);
+                w.set_stopie(false);
+                w.set_addrie(false);
+                w.set_nackie(false);
+                w.set_errie(false);
+            });
+            regs.isr().write(|w| w.set_txe(true));
+        });
+
+        // The bytes NBYTES covers so far, and how many of them are in TXDR or gone.
+        let mut programmed = total_len.min(255);
+        let mut sent = 0;
+        // The master NACKed a byte: it wants no more, and the transfer ends at STOP or a new START.
+        let mut nacked = false;
+
+        Self::slave_start(self.info, programmed, total_len > programmed);
+
+        loop {
+            let want_txis = !nacked && sent < programmed;
+            let want_tcr = programmed < total_len;
+            let isr = self
+                .wait_isr(
+                    |w| {
+                        w.set_txie(want_txis);
+                        w.set_tcie(want_tcr);
+                        w.set_stopie(true);
+                        w.set_addrie(true);
+                        w.set_nackie(true);
+                        w.set_errie(true);
+                    },
+                    |isr| {
+                        (isr.stopf()
+                            || isr.addr()
+                            || isr.nackf()
+                            || isr.berr()
+                            || isr.arlo()
+                            || isr.ovr()
+                            || (want_txis && isr.txis())
+                            || (want_tcr && isr.tcr()))
+                        .then_some(isr)
+                    },
+                )
+                .await;
+
+            if isr.arlo() || isr.ovr() {
+                // A NACK is how a master ends a read, not an error: keep it from `error_occurred`.
+                let mut errors = isr;
+                errors.set_nackf(false);
+                errors.set_berr(false);
+                self.error_occurred(&errors, timeout)?;
+            }
+
+            if isr.berr() {
+                // BERR: misplaced START, the master issued a repeated START while we were
+                // transmitting. ADDR is set with it; leave that for `listen`.
+                regs.icr().write(|w| w.set_berrcf(true));
+                break;
+            }
+
+            if isr.nackf() {
+                regs.icr().write(|w| w.set_nackcf(true));
+                nacked = true;
+            }
+
+            if isr.stopf() || isr.addr() {
+                // The master is done. A STOP is cleared here; an ADDR is left for `listen`.
+                regs.icr().write(|w| {
+                    w.set_stopcf(isr.stopf());
+                    w.set_nackcf(true);
+                });
+                break;
+            }
+
+            if want_tcr && isr.tcr() {
+                let length = (total_len - programmed).min(255);
+                Self::program_reload(self.info, length, total_len - programmed > length, Stop::Software);
+                programmed += length;
+            } else if want_txis && !nacked && isr.txis() {
+                regs.txdr().write(|w| w.set_txdata(buffer[sent]));
+                sent += 1;
+            }
+        }
+
+        // A byte still in TXDR was loaded, but never went out on the wire.
+        let in_txdr = usize::from(!regs.isr().read().txe());
+        let leftover = total_len - sent.saturating_sub(in_txdr);
+        if leftover > 0 {
+            Ok(SendStatus::LeftoverBytes(leftover))
+        } else {
+            Ok(SendStatus::Done)
+        }
     }
 }
 
