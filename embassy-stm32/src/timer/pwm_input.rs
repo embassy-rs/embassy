@@ -9,6 +9,7 @@ use super::{CaptureCompareInterruptHandler, Ch1, Ch2, Channel, GeneralInstance4C
 use crate::Peri;
 use crate::gpio::{AfType, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
+use crate::pac::timer::vals::Urs;
 use crate::rcc::WakeGuard;
 use crate::time::Hertz;
 
@@ -57,6 +58,8 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         inner.set_tick_freq(freq);
         inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
         inner.generate_update_event();
+        // Only let counter overflows set UIF, so that UIF means no rising edge for ARR+1 ticks.
+        inner.set_update_request_source(Urs::CounterOnly);
         inner.start();
 
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.6
@@ -107,28 +110,51 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     }
 
     /// Get the period tick count
-    pub fn get_period_ticks(&self) -> u32 {
-        self.inner.get_capture_value(self.channel).into()
+    ///
+    /// Returns `None` if no edge was captured for maximum ticks.
+    pub fn get_period_ticks(&self) -> Option<u32> {
+        if self.stopped() {
+            return None;
+        }
+        Some(self.inner.get_capture_value(self.channel).into())
     }
 
     /// Get the pulse width tick count
-    pub fn get_width_ticks(&self) -> u32 {
-        self.inner
-            .get_capture_value(match self.channel {
-                Channel::Ch1 => Channel::Ch2,
-                Channel::Ch2 => Channel::Ch1,
-                _ => panic!("Invalid channel for PWM input"),
-            })
-            .into()
+    ///
+    /// Returns `None` if no edge was captured for maximum ticks.
+    pub fn get_width_ticks(&self) -> Option<u32> {
+        if self.stopped() {
+            return None;
+        }
+        Some(
+            self.inner
+                .get_capture_value(match self.channel {
+                    Channel::Ch1 => Channel::Ch2,
+                    Channel::Ch2 => Channel::Ch1,
+                    _ => panic!("Invalid channel for PWM input"),
+                })
+                .into(),
+        )
     }
 
     /// Get the duty cycle in 100%
-    pub fn get_duty_cycle(&self) -> f32 {
-        let period = self.get_period_ticks();
-        if period == 0 {
-            return 0.;
+    ///
+    /// Returns `None` if there is no signal, see [`Self::get_period_ticks`].
+    pub fn get_duty_cycle(&self) -> Option<f32> {
+        let period = self.get_period_ticks()?;
+        let width = self.get_width_ticks()?;
+        (period != 0).then(|| 100. * (width as f32) / (period as f32))
+    }
+
+    /// Whether the counter overflowed without an edge since the last call.
+    fn stopped(&self) -> bool {
+        // An edge reset the counter since the last call.
+        if self.inner.clear_trigger_interrupt() {
+            self.inner.clear_update_interrupt();
+            return false;
         }
-        100. * (self.get_width_ticks() as f32) / (period as f32)
+        // The counter overflowed, so no edge for ARR+1 ticks.
+        self.inner.get_update_interrupt()
     }
 
     fn new_future(&self, channel: Channel) -> PwmInputFuture<T> {

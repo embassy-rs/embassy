@@ -182,6 +182,8 @@ Timer:
 - feat: stm32/timer: add `low_level::Timer::get_counter()` to read the counter register as `T::Word`
 - feat: stm32/timer/complementary_pwm: add `set_main_output_enable`, `set_complementary_output_enable`, `main_output_enabled` and `complementary_output_enabled` to switch and read a channel's `CCxE` and `CCxNE` independently; `enable`/`disable` still switch both. `low_level::Timer::get_complementary_channel_enable_state` reads `CCxNE`.
 - fix: stm32/timer/input_capture: `receive_waveform` forced configuration of edges and source selection
+- feat: stm32/timer: add `low_level::Timer::set_update_request_source()`, `get_update_interrupt()` and `clear_trigger_interrupt()`
+- fix: stm32/timer/pwm_input: Fix `get_period_ticks`, `get_width_ticks` and `get_duty_cycle` returning the stale value after the input signal stopped. `get_period_ticks`, `get_width_ticks` and `get_duty_cycle` now return `Option`. Returns `None` if no edge has been captured for maximum ticks. (breaking change)
 
 LPTIM:
 - fix: stm32/lptim: `Timer::set_frequency` wrote `CFGR` and `ARR` in one call, but the RM requires `CFGR` to be written only while the timer is disabled and `ARR` only while it is enabled, so one write was always out of spec. It is replaced by `set_prescaler` (call while disabled) and `set_period` (call while enabled) (breaking change). `Pwm::new` now follows this order; `Pwm::set_frequency` briefly disables and restarts the timer.
