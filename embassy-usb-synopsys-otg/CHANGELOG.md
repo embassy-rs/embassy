@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed: Periodic IN transfer future can no longer park forever.
 - Fixed: Later events no longer override earlier ones.
 - Fixed: Correctly work with low-speed devices over high-speed hubs.
+- Fixed: A driver created after a previous one was dropped no longer panics at start.
 - Fixed: An isochronous IN packet that the host did not poll for in its frame is now discarded, with the endpoint disabled and its TX FIFO flushed. Before, the endpoint was enabled again with the packet still in the FIFO, which left the FIFO and the core out of step, and the writer could wait for room in the FIFO for ever.
 
 ## 0.4.0 - 2026-05-28
