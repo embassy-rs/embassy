@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+VREFBUF:
+- feat: stm32/vrefbuf g0x1: enable the VREFBUF clock. On G0x1, including G0B1, it is `SYSCFGEN` in `RCC_APBENR2`, shared with SYSCFG and COMP (RM0444 5.4.16). Without it `VoltageReferenceBuffer::new` never sees `VRR` and waits forever.
+
 RCC:
 - fix: stm32/rcc g0: enable the flash prefetch after setting the latency; with 2 wait states at 64 MHz and prefetch off code ran 8-16% slower.
 - fix: stm32/rcc g0: keep the flash prefetch off on G0B0/G0B1/G0C1 while the flash runs dual-bank (ES0547 2.2.8, ES0548/ES0549 2.2.10, prefetch fails on branches across the banks); `rcc::Config::flash_prefetch = FlashPrefetch::IfCodeInOneBank` turns it on for an application whose code stays in one bank.
