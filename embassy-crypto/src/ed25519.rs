@@ -24,7 +24,7 @@ use crate::{Error, ct};
 pub struct SigningKey(Ed25519SecretKey);
 
 impl SigningKey {
-    /// Size of the signing key, in bytes
+    /// Size of the signing key, in bytes.
     pub const KEY_SIZE: usize = 32;
 
     /// Generate a random signing key from [`driver::RngImpl`].
@@ -79,7 +79,7 @@ impl core::fmt::Debug for SigningKey {
 pub struct VerifyingKey(Ed25519PublicKey);
 
 impl VerifyingKey {
-    /// Size of the verifying key, in bytes
+    /// Size of the verifying key, in bytes.
     pub const KEY_SIZE: usize = 32;
 
     /// Load a verifying key.
@@ -118,7 +118,7 @@ impl VerifyingKey {
 pub struct Signature(Ed25519Signature);
 
 impl Signature {
-    /// Size of the signature, in bytes
+    /// Size of the signature, in bytes.
     pub const SIGNATURE_SIZE: usize = 64;
 
     /// Load a signature.

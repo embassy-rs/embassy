@@ -27,10 +27,10 @@ macro_rules! curve_api {
         /// Size of a field element, key, scalar and coordinate, in bytes.
         pub const FIELD_SIZE: usize = $n;
 
-        /// Size of a point in sec1 format
+        /// Size of a point in sec1 format.
         pub const SEC1_SIZE: usize = 2 * $n + 1;
 
-        /// Size of a point in compressed sec1 format
+        /// Size of a point in compressed sec1 format.
         pub const COMPRESSED_SEC1_SIZE: usize = $n + 1;
 
         /// Draw a scalar uniformly from `[1, n)` by rejection sampling.
@@ -631,7 +631,7 @@ macro_rules! curve_api {
         pub struct Signature($dsig);
 
         impl Signature {
-            /// Size of the signature
+            /// Size of the signature.
             pub const SIGNATURE_SIZE: usize = 2 * $n;
 
             /// Parse the fixed-size encoding `r || s`, big-endian. Fails if either

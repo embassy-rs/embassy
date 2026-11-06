@@ -24,7 +24,7 @@ use crate::{Error, ct};
 pub struct SecretKey(X25519SecretKey);
 
 impl SecretKey {
-    /// Size of the secret key, in bytes
+    /// Size of the secret key, in bytes.
     pub const KEY_SIZE: usize = 32;
 
     /// Generate a random private key from [`driver::RngImpl`].
@@ -81,7 +81,7 @@ impl core::fmt::Debug for SecretKey {
 pub struct PublicKey(X25519PublicKey);
 
 impl PublicKey {
-    /// Size of the public key, in bytes
+    /// Size of the public key, in bytes.
     pub const KEY_SIZE: usize = 32;
 
     /// Load a public key. Every 32-byte string is a valid X25519 public key.
@@ -111,7 +111,7 @@ impl PublicKey {
 pub struct SharedSecret([u8; 32]);
 
 impl SharedSecret {
-    /// Size of the shared secret, in bytes
+    /// Size of the shared secret, in bytes.
     pub const SECRET_SIZE: usize = 32;
 
     /// The raw shared secret.
