@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 
 ## Unreleased - ReleaseDate
+- USB: support double-buffered bulk IN and OUT endpoints.
 - All drivers now use the shared `embassy_rp::mode::{Mode, Blocking, Async}` instead of per-module copies.
 - Add `embassy_rp::time::Hertz`.
 - GPIO: rename `get_level` to `level` and `get_output_level` to `output_level`.
