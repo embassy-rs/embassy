@@ -1031,8 +1031,8 @@ impl<'d, M: Mode> Uart<'d, M> {
 
         r.uartcr().write(|w| {
             w.set_uarten(true);
-            w.set_rxe(true);
-            w.set_txe(true);
+            w.set_rxe(rx.is_some());
+            w.set_txe(tx.is_some());
             w.set_ctsen(cts.is_some());
             w.set_rtsen(rts.is_some());
         });
