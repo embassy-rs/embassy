@@ -130,6 +130,7 @@ Ethernet:
 - fix: stm32/eth: skip MDIO addresses whose PHY ID registers both read all-ones when probing for a PHY, instead of resetting and waiting on every address that has no device.
 
 USB:
+- fix: stm32/usb h7/h7rs: with `Hsi48Config { sync_from_usb: true }`, the CRS now syncs to the SOFs of the OTG port in use. It was left at the SVD's `USB` value, which only covers USB1 (OTG_HS) on H7 and OTG_FS on H7R/S, so the other port never trimmed HSI48.
 - perf: copy packet memory a word at a time instead of calling `memcpy` for every word.
 - fix: OTG_FS on STM32F1 uses 4 endpoints and 320 FIFO words.
 - fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
