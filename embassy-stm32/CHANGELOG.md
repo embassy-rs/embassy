@@ -242,6 +242,9 @@ LCD:
 FMAC:
 - fix: stm32/fmac: give the Y buffer one free slot on top of the stored outputs. With exactly M slots (`controller_2p2z`, `controller_3p3z`, or `iir` with `Data::Prefilled` of M values) the IIR outputs were wrong from the second sample on.
 
+CORDIC:
+- fix: stm32/cordic: the q1.15 `blocking_calc` and `async_calc` sized the result slice from the argument buffer, so `ResultLengthNotEnough` was never returned and a result buffer shorter than the arguments was written past its end. The result slice now uses the length of the result buffer.
+
 ## 0.6.0 - 2026-03-10
 
 ADC:
