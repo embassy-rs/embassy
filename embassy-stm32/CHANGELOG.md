@@ -239,6 +239,10 @@ SPI:
 LCD:
 - fix clock divider calculations when the target rate is not perfectly possible with ps+div registers
 
+FMAC:
+- fix: stm32/fmac: give the Y buffer one free slot on top of the stored outputs. With exactly M slots (`controller_2p2z`, `controller_3p3z`, or `iir` with `Data::Prefilled` of M values) the IIR outputs were wrong from the second sample on.
+- fix: stm32/fmac: dropping an `Fmac` now turns its clock off, so the next `Fmac::new` resets the peripheral. Before, the dropped filter kept running and the new instance's coefficient loads were ignored. `FromAdc` takes the `Fmac` lifetime as a separate parameter so it still compiles with the new `Drop`.
+
 CORDIC:
 - fix: stm32/cordic: the q1.15 `blocking_calc` and `async_calc` sized the result slice from the argument buffer, so `ResultLengthNotEnough` was never returned and a result buffer shorter than the arguments was written past its end. The result slice now uses the length of the result buffer.
 
