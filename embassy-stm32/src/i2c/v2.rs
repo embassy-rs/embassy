@@ -3252,9 +3252,11 @@ impl Timings {
         // Sanity check
         assert!(presc_reg < 16);
 
-        // Keep values within reasonable limits for fast per_ck
-        let sdadel = cmp::max(sdadel, 2);
-        let scldel = cmp::max(scldel, 4);
+        // Keep values within reasonable limits for fast per_ck. SDADEL and SCLDEL
+        // are 4-bit fields, so anything above 15 would be cut to its low 4 bits
+        // when written, which can leave a data setup time below the I2C minimum.
+        let sdadel = sdadel.clamp(2, 15);
+        let scldel = scldel.clamp(4, 15);
 
         //(presc_reg, scll, sclh, sdadel, scldel)
         Self {
