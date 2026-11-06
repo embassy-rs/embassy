@@ -85,14 +85,14 @@ pub trait VerifyingKey: sealed::Sealed {
 macro_rules! impl_signature_p {
     ($($t:ident),*) => {$(
         impl Signature for embassy_crypto::$t::Signature {
-            const SIGNATURE_SIZE: usize = <embassy_crypto::$t::Signature>::SIGNATURE_SIZE;
+            const SIGNATURE_SIZE: usize = embassy_crypto::$t::Signature::SIGNATURE_SIZE;
             fn from_bytes(b: &[u8]) -> Result<embassy_crypto::$t::Signature, embassy_crypto::Error>  {
                 embassy_crypto::$t::Signature::from_bytes(b.try_into().map_err(|_| embassy_crypto::Error::InvalidSignature)?)
             }
         }
         impl sealed::Sealed for embassy_crypto::$t::VerifyingKey {}
         impl VerifyingKey for embassy_crypto::$t::VerifyingKey {
-            const KEY_SIZE: usize = embassy_crypto::$t::FIELD_SIZE;
+            const KEY_SIZE: usize = embassy_crypto::$t::SEC1_SIZE;
             type Signature = embassy_crypto::$t::Signature;
             fn from_bytes(b: &[u8]) -> Result<embassy_crypto::$t::VerifyingKey, embassy_crypto::Error> {
                 embassy_crypto::$t::VerifyingKey::from_sec1(b.try_into().map_err(|_| embassy_crypto::Error::InvalidKey)?)
