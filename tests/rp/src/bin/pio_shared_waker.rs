@@ -13,14 +13,15 @@ use core::future::{Future, poll_fn};
 use core::pin::pin;
 
 use defmt::{assert_eq, info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::{PIO0, PIO1};
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Config, InterruptHandler, Irq, Pio};
 use embassy_time::{Duration, with_timeout};
+use panic_probe as _;
 use portable_atomic::{AtomicU32, Ordering};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
