@@ -11,7 +11,7 @@ use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
-use core::task::Poll;
+use core::task::{Context, Poll};
 
 #[cfg(any(usb_v1, usb_v3, usb_v4))]
 use critical_section::Mutex;
@@ -867,6 +867,13 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
             if IRQ_RESET.load(Ordering::Acquire) {
                 IRQ_RESET.store(false, Ordering::Relaxed);
+                // A SETUP received before the reset belongs to a transfer the host abandoned.
+                EP0_SETUP.store(false, Ordering::Relaxed);
+                // A suspend from before the reset no longer applies: the reset ends the suspend
+                // state. When a control transfer held up this poll, both flags can be pending, and
+                // reporting the suspend after the reset makes embassy-usb wait for a resume
+                // instead of answering SETUPs.
+                IRQ_SUSPEND.store(false, Ordering::Relaxed);
 
                 trace!("RESET");
                 regs.daddr().write(|w| {
@@ -874,10 +881,13 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                     w.set_add(0);
                 });
 
+                // The reset zeroed EP0, but a control transfer that the reset aborted may have
+                // written STAT since. Toggle to NAK from whatever STAT holds now.
+                let epr0 = regs.epr(0).read();
                 regs.epr(0).write(|w| {
                     w.set_ep_type(EpType::Control);
-                    w.set_stat_rx(Stat::Nak);
-                    w.set_stat_tx(Stat::Nak);
+                    w.set_stat_rx(Stat::from_bits(epr0.stat_rx().to_bits() ^ Stat::Nak.to_bits()));
+                    w.set_stat_tx(Stat::from_bits(epr0.stat_tx().to_bits() ^ Stat::Nak.to_bits()));
                 });
 
                 for i in 1..EP_COUNT {
@@ -1500,6 +1510,22 @@ pub struct ControlPipe<'d, T: Instance> {
     ep_out: Endpoint<'d, T, Out>,
 }
 
+/// Tells if the control transfer in progress can no longer complete, because the host abandoned
+/// it with a new SETUP or reset the bus. A reset zeroes EP0's STAT, so without this a stage waits
+/// forever, and the reset is never handled: embassy-usb doesn't poll the bus during a control
+/// transfer.
+fn control_aborted() -> bool {
+    // Leave both flags set: setup() consumes EP0_SETUP and Bus::poll consumes IRQ_RESET.
+    EP0_SETUP.load(Ordering::Relaxed) || IRQ_RESET.load(Ordering::Acquire)
+}
+
+/// Wake on the stage completing, a new SETUP, or a bus reset.
+fn register_ep0_wakers(cx: &mut Context) {
+    EP_IN_WAKERS[0].register(cx.waker());
+    EP_OUT_WAKERS[0].register(cx.waker());
+    BUS_WAKER.register(cx.waker());
+}
+
 impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     fn max_packet_size(&self) -> usize {
         usize::from(self.max_packet_size)
@@ -1566,9 +1592,9 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         trace!("data_out WAITING, buf.len() = {}", buf.len());
         poll_fn(|cx| {
-            EP_OUT_WAKERS[0].register(cx.waker());
+            register_ep0_wakers(cx);
             let regs = T::regs();
-            if regs.epr(0).read().stat_rx() == Stat::Nak {
+            if control_aborted() || regs.epr(0).read().stat_rx() == Stat::Nak {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -1576,8 +1602,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         })
         .await;
 
-        if EP0_SETUP.load(Ordering::Relaxed) {
-            trace!("received another SETUP, aborting data_out.");
+        if control_aborted() {
+            trace!("received another SETUP or a bus reset, aborting data_out.");
             return Err(EndpointError::Disabled);
         }
 
@@ -1634,10 +1660,9 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         trace!("WRITE WAITING");
         poll_fn(|cx| {
-            EP_IN_WAKERS[0].register(cx.waker());
-            EP_OUT_WAKERS[0].register(cx.waker());
+            register_ep0_wakers(cx);
             let regs = T::regs();
-            if regs.epr(0).read().stat_tx() == Stat::Nak {
+            if control_aborted() || regs.epr(0).read().stat_tx() == Stat::Nak {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -1645,8 +1670,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         })
         .await;
 
-        if EP0_SETUP.load(Ordering::Relaxed) {
-            trace!("received another SETUP, aborting data_in.");
+        if control_aborted() {
+            trace!("received another SETUP or a bus reset, aborting data_in.");
             return Err(EndpointError::Disabled);
         }
 
@@ -1686,9 +1711,10 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         // Wait is needed, so that we don't set the address too soon, breaking the status stage.
         // (embassy-usb sets the address after accept() returns)
         poll_fn(|cx| {
-            EP_IN_WAKERS[0].register(cx.waker());
+            register_ep0_wakers(cx);
             let regs = T::regs();
-            if regs.epr(0).read().stat_tx() == Stat::Nak {
+            // accept() has no error channel, returning early is enough.
+            if control_aborted() || regs.epr(0).read().stat_tx() == Stat::Nak {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -1716,6 +1742,13 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
     async fn accept_set_address(&mut self, addr: u8) {
         self.accept().await;
+
+        // The address changes only after a completed status stage (USB 2.0 §9.4.6). After a bus
+        // reset, Bus::poll sets address 0.
+        if control_aborted() {
+            trace!("control: SET_ADDRESS aborted, keeping the address");
+            return;
+        }
 
         let regs = T::regs();
         trace!("setting addr: {}", addr);
