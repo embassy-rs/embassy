@@ -242,6 +242,9 @@ LCD:
 CORDIC:
 - fix: stm32/cordic: the q1.15 `blocking_calc` and `async_calc` sized the result slice from the argument buffer, so `ResultLengthNotEnough` was never returned and a result buffer shorter than the arguments was written past its end. The result slice now uses the length of the result buffer.
 
+SDMMC:
+- fix: stm32/sdmmc v1: a divisor of 258 was accepted and written as CLKDIV 256, which the 8-bit field stores as 0, so the card clock ran at half the kernel clock instead of 1/258 of it. 257 is now the largest divisor.
+
 ## 0.6.0 - 2026-03-10
 
 ADC:
