@@ -234,6 +234,16 @@ where
             p.SCB.cpacr.modify(|cpacr| cpacr | (3 << 20) | (3 << 22));
         }
 
+        // Enable the DCP (coprocessor 4), and clear its engaged flag with RCMP.
+        #[cfg(feature = "_rp235x")]
+        unsafe {
+            let p = cortex_m::Peripherals::steal();
+            p.SCB.cpacr.modify(|cpacr| cpacr | (3 << 8));
+            cortex_m::asm::dsb();
+            cortex_m::asm::isb();
+            core::arch::asm!("mrc p4, #0, {0}, c0, c0, #1", out(reg) _, options(nomem, nostack));
+        }
+
         entry()
     }
 

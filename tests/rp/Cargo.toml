@@ -19,7 +19,7 @@ teleprobe-meta = "1.1"
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", ] }
-embassy-rp = { version = "0.10.0", path = "../../embassy-rp", features = [ "defmt", "unstable-pac", "time-driver", "critical-section-impl", "intrinsics", "rom-v2-intrinsics", "run-from-ram"]  }
+embassy-rp = { version = "0.10.0", path = "../../embassy-rp", features = [ "defmt", "unstable-pac", "time-driver", "critical-section-impl", "intrinsics", "rom-v2-intrinsics", "dcp-intrinsics", "run-from-ram"]  }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 embassy-net-wiznet = { version = "0.3.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
@@ -58,6 +58,12 @@ required-features = [ "rp2040",]
 name = "float"
 path = "src/bin/float.rs"
 required-features = [ "rp2040",]
+
+# The DCP is only available on RP235x
+[[bin]]
+name = "float_dcp"
+path = "src/bin/float_dcp.rs"
+required-features = [ "rp235xb",]
 
 # RTC is only available on RP2040
 [[bin]]
