@@ -239,6 +239,9 @@ SPI:
 LCD:
 - fix clock divider calculations when the target rate is not perfectly possible with ps+div registers
 
+CORDIC:
+- fix: stm32/cordic: the q1.15 `blocking_calc` and `async_calc` sized the result slice from the argument buffer, so `ResultLengthNotEnough` was never returned and a result buffer shorter than the arguments was written past its end. The result slice now uses the length of the result buffer.
+
 ## 0.6.0 - 2026-03-10
 
 ADC:
