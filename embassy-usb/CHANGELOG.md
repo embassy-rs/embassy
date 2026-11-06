@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add `class::uvc::device`, a USB Video Class 1.1 camera: MJPEG, YUY2 or NV12 over an isochronous IN endpoint, with probe/commit negotiation of format, frame size and frame interval
 - `UAC2`: Add `class::uac::device::uac2::io_box`, a USB Audio Class 2.0 I/O box (line out + line in, explicit feedback, optional feature units with an interrupt endpoint), at full or high speed
 - Endpoint `interval_ms` 0 on an interrupt or isochronous endpoint now means every frame: `bInterval` 1 at full speed (was 0, invalid) and every microframe at high speed (was 1 ms)
 - Add `Builder::max_speed()`, so classes can size their endpoints for the speed the descriptors are built for
