@@ -374,7 +374,7 @@ impl<'d, T: Instance> CcPhy<'d, T> {
             if vstate != prev_vstate {
                 Poll::Ready(vstate)
             } else {
-                T::state().waker.register(cx.waker());
+                T::state().cc_waker.register(cx.waker());
                 self.enable_cc_interrupts(true);
                 Poll::Pending
             }
@@ -529,7 +529,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 };
                 Poll::Ready(ret)
             } else {
-                T::state().waker.register(cx.waker());
+                T::state().rx_waker.register(cx.waker());
                 Self::enable_rx_interrupt(true);
                 Poll::Pending
             }
@@ -622,7 +622,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             } else if sr.txmsgsent() {
                 Poll::Ready(Ok(()))
             } else {
-                T::state().waker.register(cx.waker());
+                T::state().tx_waker.register(cx.waker());
                 Self::enable_tx_interrupts(true);
                 Poll::Pending
             }
@@ -673,7 +673,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             } else if sr.hrstsent() {
                 Poll::Ready(Ok(()))
             } else {
-                T::state().waker.register(cx.waker());
+                T::state().tx_waker.register(cx.waker());
                 self.enable_hardreset_interrupts(true);
                 Poll::Pending
             }
@@ -704,6 +704,7 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::REGS;
+        let state = T::state();
         let sr = r.sr().read();
 
         if sr.typecevt1() || sr.typecevt2() {
@@ -711,14 +712,19 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 w.set_typecevt1cf(true);
                 w.set_typecevt2cf(true);
             });
+            state.cc_waker.wake();
         }
 
         if sr.rxhrstdet() {
             r.imr().clear_bits(|w| w.set_rxhrstdetie(false));
+            // A received Hard Reset ends both a pending reception and a pending transmission.
+            state.rx_waker.wake();
+            state.tx_waker.wake();
         }
 
         if sr.rxmsgend() {
             r.imr().clear_bits(|w| w.set_rxmsgendie(false));
+            state.rx_waker.wake();
         }
 
         if sr.txmsgdisc() || sr.txmsgsent() {
@@ -726,6 +732,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 w.set_txmsgdiscie(false);
                 w.set_txmsgsentie(false);
             });
+            state.tx_waker.wake();
         }
 
         if sr.hrstdisc() || sr.hrstsent() {
@@ -733,15 +740,19 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 w.set_hrstdiscie(false);
                 w.set_hrstsentie(false);
             });
+            state.tx_waker.wake();
         }
 
-        // Wake the task to clear and re-enabled interrupts.
-        T::state().waker.wake();
+        // Wake the tasks to clear and re-enabled interrupts.
     }
 }
 
 struct State {
-    waker: AtomicWaker,
+    // CcPhy and PdPhy can be used from different tasks at the same time, and an AtomicWaker only
+    // holds one waker, so each wait has its own.
+    cc_waker: AtomicWaker,
+    rx_waker: AtomicWaker,
+    tx_waker: AtomicWaker,
     // Inverted logic for a default state of 0 so that the data goes into the .bss section.
     drop_not_ready: AtomicBool,
 }
@@ -749,7 +760,9 @@ struct State {
 impl State {
     pub const fn new() -> Self {
         Self {
-            waker: AtomicWaker::new(),
+            cc_waker: AtomicWaker::new(),
+            rx_waker: AtomicWaker::new(),
+            tx_waker: AtomicWaker::new(),
             drop_not_ready: AtomicBool::new(false),
         }
     }
