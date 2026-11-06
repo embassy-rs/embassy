@@ -323,6 +323,14 @@ impl<'d, T: Instance> Fmac<'d, T> {
     }
 }
 
+impl<'d, T: Instance> Drop for Fmac<'d, T> {
+    fn drop(&mut self) {
+        // Stop the clock so the next Fmac::new resets the peripheral; otherwise
+        // the filter of the dropped instance keeps running.
+        rcc::disable::<T>();
+    }
+}
+
 foreach_interrupt!(
     ($inst:ident, fmac, $block:ident, GLOBAL, $irq:ident) => {
         impl Instance for peripherals::$inst {
