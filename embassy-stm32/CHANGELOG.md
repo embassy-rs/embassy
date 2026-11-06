@@ -130,6 +130,7 @@ USB:
 - perf: copy packet memory a word at a time instead of calling `memcpy` for every word.
 - fix: OTG_FS on STM32F1 uses 4 endpoints and 320 FIFO words.
 - fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
+- fix: OTG_HS on STM32U5 sets the PHY's disconnect and squelch thresholds to the values RM0456 recommends before enabling the PHY, as on WBA. Applies to both device and host mode.
 - fix: OTG_HS on STM32N6 no longer hangs the bus while bringing up the USB HS PHY: USBPHYC is now programmed with the OTG core clocked and the USBPHYC block out of reset, as in ST's own example.
 - feat: support double-buffered bulk endpoints on USB v1 (STM32F1, F3 and L1).
 - feat: support double-buffered bulk endpoints on USB v4 (STM32G0, C0, H5, U0, U3, U5 with the 32-bit packet memory); tested on an STM32G0B1.
