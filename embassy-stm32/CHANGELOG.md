@@ -239,6 +239,9 @@ SPI:
 LCD:
 - fix clock divider calculations when the target rate is not perfectly possible with ps+div registers
 
+FMAC:
+- fix: stm32/fmac: give the Y buffer one free slot on top of the stored outputs. With exactly M slots (`controller_2p2z`, `controller_3p3z`, or `iir` with `Data::Prefilled` of M values) the IIR outputs were wrong from the second sample on.
+
 ## 0.6.0 - 2026-03-10
 
 ADC:
