@@ -366,13 +366,24 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     }
 
     /// Waits for a change in voltage state on either CC line.
+    ///
+    /// Returns the current voltage state once the hardware has reported a change on CC1 or CC2.
+    /// Changes are latched: a change that happened before this call, since the previous call
+    /// returned, makes it return immediately. The returned state can therefore be equal to the
+    /// one seen before, for example if the line changed and changed back.
     pub async fn wait_for_vstate_change(&self) -> (CcVState, CcVState) {
         let _on_drop = OnDrop::new(|| self.enable_cc_interrupts(false));
-        let prev_vstate = self.vstate();
         poll_fn(|cx| {
-            let vstate = self.vstate();
-            if vstate != prev_vstate {
-                Poll::Ready(vstate)
+            let r = T::REGS;
+            let sr = r.sr().read();
+            if sr.typecevt1() || sr.typecevt2() {
+                // Clear the flags before reading the state, so that a change after the read sets
+                // them again instead of being lost. Only clear the flags that were seen.
+                r.icr().write(|w| {
+                    w.set_typecevt1cf(sr.typecevt1());
+                    w.set_typecevt2cf(sr.typecevt2());
+                });
+                Poll::Ready(self.vstate())
             } else {
                 T::state().cc_waker.register(cx.waker());
                 self.enable_cc_interrupts(true);
@@ -708,9 +719,11 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let sr = r.sr().read();
 
         if sr.typecevt1() || sr.typecevt2() {
-            r.icr().write(|w| {
-                w.set_typecevt1cf(true);
-                w.set_typecevt2cf(true);
+            // Leave the event flags set, `wait_for_vstate_change` clears them. This way a change is
+            // not lost if the state has changed back by the time the task runs.
+            r.imr().clear_bits(|w| {
+                w.set_typecevt1ie(false);
+                w.set_typecevt2ie(false);
             });
             state.cc_waker.wake();
         }
