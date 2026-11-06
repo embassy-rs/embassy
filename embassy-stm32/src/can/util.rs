@@ -23,6 +23,15 @@ pub fn calc_can_timings(
     periph_clock: crate::time::Hertz,
     can_bitrate: u32,
 ) -> Result<NominalBitTiming, TimingCalcError> {
+    calc_can_timings_with_max_prescaler(periph_clock, can_bitrate, 1024)
+}
+
+/// Like [`calc_can_timings`], but with the largest prescaler the target register can hold.
+pub(crate) fn calc_can_timings_with_max_prescaler(
+    periph_clock: crate::time::Hertz,
+    can_bitrate: u32,
+    max_prescaler: u32,
+) -> Result<NominalBitTiming, TimingCalcError> {
     const BS1_MAX: u8 = 16;
     const BS2_MAX: u8 = 8;
     const MAX_SAMPLE_POINT_PERMILL: u16 = 900;
@@ -64,7 +73,7 @@ pub fn calc_can_timings(
     }
 
     let prescaler = prescaler_bs / (1 + bs1_bs2_sum) as u32;
-    if !(1..=1024).contains(&prescaler) {
+    if !(1..=max_prescaler).contains(&prescaler) {
         return Err(TimingCalcError::InvalidPrescaler { prescaler }); // No solution
     }
 

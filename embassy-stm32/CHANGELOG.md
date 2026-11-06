@@ -113,6 +113,7 @@ Crypto:
 - feat: stm32/aes: enable the driver on STM32U3 and STM32U5
 
 CAN:
+- fix: stm32/fdcan: `set_bitrate` and `set_fd_data_bitrate` accepted prescalers up to 1024, the bxCAN limit, but NBRP holds 1 to 512 and DBRP 1 to 32, so a larger prescaler was cut to its low bits and the bus ran at a different bitrate (10 kbit/s nominal at a 100 MHz kernel clock became 55.3 kbit/s). They now fail like any other unreachable bitrate. The largest valid values of a `NominalBitTiming` or `DataBitTiming` (prescaler 512 or 32, and so on) no longer overflow when they are written.
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
 - fix: stm32/fdcan: apply `FdCanConfig::timestamp_source`. It was ignored and the timestamp counter always ran from the kernel clock, and `TimestampPrescaler` wrote the prescaler value instead of `TCP = prescaler - 1`.
 - fix: stm32/fdcan: the TX buffer element kept only 7 of the 8 message marker bits.

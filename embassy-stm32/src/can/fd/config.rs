@@ -30,19 +30,19 @@ pub struct NominalBitTiming {
 impl NominalBitTiming {
     #[inline]
     pub(crate) fn nbrp(&self) -> u16 {
-        u16::from(self.prescaler) & 0x1FF
+        (u16::from(self.prescaler) - 1) & 0x1FF
     }
     #[inline]
     pub(crate) fn ntseg1(&self) -> u8 {
-        u8::from(self.seg1)
+        u8::from(self.seg1) - 1
     }
     #[inline]
     pub(crate) fn ntseg2(&self) -> u8 {
-        u8::from(self.seg2) & 0x7F
+        (u8::from(self.seg2) - 1) & 0x7F
     }
     #[inline]
     pub(crate) fn nsjw(&self) -> u8 {
-        u8::from(self.sync_jump_width) & 0x7F
+        (u8::from(self.sync_jump_width) - 1) & 0x7F
     }
 }
 
@@ -85,19 +85,19 @@ pub struct DataBitTiming {
 impl DataBitTiming {
     #[inline]
     pub(crate) fn dbrp(&self) -> u8 {
-        (u16::from(self.prescaler) & 0x001F) as u8
+        ((u16::from(self.prescaler) - 1) & 0x001F) as u8
     }
     #[inline]
     pub(crate) fn dtseg1(&self) -> u8 {
-        u8::from(self.seg1) & 0x1F
+        (u8::from(self.seg1) - 1) & 0x1F
     }
     #[inline]
     pub(crate) fn dtseg2(&self) -> u8 {
-        u8::from(self.seg2) & 0x0F
+        (u8::from(self.seg2) - 1) & 0x0F
     }
     #[inline]
     pub(crate) fn dsjw(&self) -> u8 {
-        u8::from(self.sync_jump_width) & 0x0F
+        (u8::from(self.sync_jump_width) - 1) & 0x0F
     }
     #[inline]
     pub(crate) fn tdco(&self) -> u8 {
