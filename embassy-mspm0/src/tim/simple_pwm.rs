@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
 
-use crate::gpio::{AnyPin, PfType, Pull, SealedPin};
+use crate::gpio::{PinBorrow, PinConfig, Pull};
 use crate::pac::tim::{Tim as Regs, vals};
 use crate::tim::{
     self, Ch0, Ch1, Ch2, Ch3, ClockSel, CounterWidth, CountingMode, General2ChannelInstance, General4ChannelInstance,
@@ -94,10 +94,10 @@ impl Default for Config {
 #[must_use = "Dropping a simple pwm will disable the timer and all channels"]
 pub struct SimplePwm<'d, Channels, Bits> {
     info: &'static Info,
-    ch0: Option<Peri<'d, AnyPin>>,
-    ch1: Option<Peri<'d, AnyPin>>,
-    ch2: Option<Peri<'d, AnyPin>>,
-    ch3: Option<Peri<'d, AnyPin>>,
+    ch0: Option<PinBorrow<'d>>,
+    ch1: Option<PinBorrow<'d>>,
+    ch2: Option<PinBorrow<'d>>,
+    ch3: Option<PinBorrow<'d>>,
     _marker: PhantomData<(Channels, Bits)>,
 }
 
@@ -422,19 +422,19 @@ impl<'d> SimplePwm<'d, FourChannels, u16> {
 impl<'d, Channels, Bits> Drop for SimplePwm<'d, Channels, Bits> {
     fn drop(&mut self) {
         if let Some(ref mut ch0) = self.ch0 {
-            ch0.set_as_disconnected();
+            ch0.disconnect();
         }
 
         if let Some(ref mut ch1) = self.ch1 {
-            ch1.set_as_disconnected();
+            ch1.disconnect();
         }
 
         if let Some(ref mut ch2) = self.ch2 {
-            ch2.set_as_disconnected();
+            ch2.disconnect();
         }
 
         if let Some(ref mut ch3) = self.ch3 {
-            ch3.set_as_disconnected();
+            ch3.disconnect();
         }
 
         // Normally a write to CCLKCTL.CLKEN would stop the timer.
@@ -608,7 +608,7 @@ pub struct SimplePwm4Channels<'d, Bits: TimerBits> {
 pub struct PwmPin<'d, T: Instance, Channel: tim::TimerChannel> {
     /// Pin is wrapped by an [`Option`]. This is because [`SimplePwm`] when created will [`Option::take`] the value.
     /// This prevents the pins from being disconnected when moved into the pwm.
-    pin: Option<Peri<'d, AnyPin>>,
+    pin: Option<PinBorrow<'d>>,
     _marker: PhantomData<(T, Channel)>,
 }
 
@@ -616,10 +616,12 @@ impl<'d, T: Instance, Channel: tim::TimerChannel> PwmPin<'d, T, Channel> {
     /// Create and configure the pin to act as a PWM output pin.
     pub fn new(pin: Peri<'d, impl TimerPin<T, Channel>>, pull: Pull, invert: bool) -> Self {
         // TODO: PfType config.
-        let pin = new_pin!(pin, PfType::output(pull, invert));
+        let pf = pin.pf_num();
+        let pin_config = PinConfig::output(pull, invert);
+        let pin = PinBorrow::with_config(pin, pf, pin_config);
 
         Self {
-            pin,
+            pin: Some(pin),
             _marker: PhantomData,
         }
     }
@@ -628,7 +630,7 @@ impl<'d, T: Instance, Channel: tim::TimerChannel> PwmPin<'d, T, Channel> {
 impl<'d, T: Instance, Channel: tim::TimerChannel> Drop for PwmPin<'d, T, Channel> {
     fn drop(&mut self) {
         if let Some(ref mut pin) = self.pin {
-            pin.set_as_disconnected();
+            pin.disconnect();
         }
     }
 }
@@ -637,10 +639,10 @@ impl<'d, Channels, Bits: TimerBits> SimplePwm<'d, Channels, Bits> {
     fn new_inner(
         info: &'static Info,
         config: Config,
-        ch0: Option<Peri<'d, AnyPin>>,
-        ch1: Option<Peri<'d, AnyPin>>,
-        ch2: Option<Peri<'d, AnyPin>>,
-        ch3: Option<Peri<'d, AnyPin>>,
+        ch0: Option<PinBorrow<'d>>,
+        ch1: Option<PinBorrow<'d>>,
+        ch2: Option<PinBorrow<'d>>,
+        ch3: Option<PinBorrow<'d>>,
     ) -> Result<Self, InitError> {
         let regs = info.regs;
 

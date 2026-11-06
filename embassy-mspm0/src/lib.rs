@@ -66,8 +66,6 @@ pub(crate) mod _generated {
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
 
-// Reexports
-pub(crate) use _generated::gpio_pincm;
 pub use _generated::{Peripherals, peripherals};
 pub use embassy_hal_internal::Peri;
 #[cfg(feature = "unstable-pac")]
