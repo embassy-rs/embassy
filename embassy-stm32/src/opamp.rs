@@ -7,7 +7,7 @@ use crate::Peri;
 use crate::pac::opamp::vals::*;
 #[cfg(not(any(stm32g4, stm32f3)))]
 use crate::rcc::RccInfo;
-#[cfg(opamp_v5)]
+#[cfg(any(opamp_v5, opamp_c5))]
 use crate::wait::block_for_us;
 
 /// Gain
@@ -24,7 +24,7 @@ pub enum OpAmpGain {
     Mul64,
 }
 
-#[cfg(opamp_v5)]
+#[cfg(any(opamp_v5, opamp_c5))]
 enum OpAmpDifferentialPair {
     P,
     N,
@@ -62,10 +62,10 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// Create a new driver instance.
     ///
     /// Does not enable the opamp, but does set the speed mode on some families.
-    pub fn new(opamp: Peri<'d, T>, #[cfg(opamp_v5)] speed: OpAmpSpeed) -> Self {
+    pub fn new(opamp: Peri<'d, T>, #[cfg(any(opamp_v5, opamp_c5))] speed: OpAmpSpeed) -> Self {
         #[cfg(not(any(stm32g4, stm32f3)))]
         T::info().rcc.enable_and_reset();
-        #[cfg(opamp_v5)]
+        #[cfg(any(opamp_v5, opamp_c5))]
         T::regs().csr().modify(|w| {
             w.set_opahsm(speed == OpAmpSpeed::HighSpeed);
         });
@@ -91,15 +91,15 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         in_pin.set_as_analog();
         out_pin.set_as_analog();
 
-        #[cfg(opamp_v5)]
+        #[cfg(any(opamp_v5, opamp_c5))]
         let vm_sel = VmSel::Output;
-        #[cfg(not(opamp_v5))]
+        #[cfg(not(any(opamp_v5, opamp_c5)))]
         let vm_sel = VmSel::from_bits(0b11);
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(in_pin.channel()));
             w.set_vm_sel(vm_sel);
-            #[cfg(opamp_v5)]
+            #[cfg(any(opamp_v5, opamp_c5))]
             w.set_opaintoen(false);
             w.set_opampen(true);
         });
@@ -126,21 +126,23 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         in_pin.set_as_analog();
         out_pin.set_as_analog();
 
-        #[cfg(opamp_v5)]
+        #[cfg(any(opamp_v5, opamp_c5))]
         let vm_sel = VmSel::Pga;
-        #[cfg(not(opamp_v5))]
+        #[cfg(not(any(opamp_v5, opamp_c5)))]
         let vm_sel = VmSel::from_bits(0b10);
 
-        #[cfg(opamp_v5)]
+        #[cfg(any(opamp_v5, opamp_c5))]
         let pga_gain = match gain {
             OpAmpGain::Mul2 => PgaGain::Gain2,
             OpAmpGain::Mul4 => PgaGain::Gain4,
             OpAmpGain::Mul8 => PgaGain::Gain8,
             OpAmpGain::Mul16 => PgaGain::Gain16,
+            #[cfg(opamp_v5)]
             OpAmpGain::Mul32 => PgaGain::Gain32,
+            #[cfg(opamp_v5)]
             OpAmpGain::Mul64 => PgaGain::Gain64,
         };
-        #[cfg(not(opamp_v5))]
+        #[cfg(not(any(opamp_v5, opamp_c5)))]
         let pga_gain = PgaGain::from_bits(match gain {
             OpAmpGain::Mul2 => 0b00,
             OpAmpGain::Mul4 => 0b01,
@@ -152,7 +154,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             w.set_vp_sel(VpSel::from_bits(in_pin.channel()));
             w.set_vm_sel(vm_sel);
             w.set_pga_gain(pga_gain);
-            #[cfg(opamp_v5)]
+            #[cfg(any(opamp_v5, opamp_c5))]
             w.set_opaintoen(false);
             w.set_opampen(true);
         });
@@ -172,7 +174,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// preventing it being used elsewhere. The `OpAmpOutput` can then be
     /// directly used as an ADC input. The opamp will be disabled when the
     /// [`OpAmpOutput`] is dropped.
-    #[cfg(opamp_v5)]
+    #[cfg(any(opamp_v5, opamp_c5))]
     pub fn pga_biased_ext(
         &mut self,
         in_pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
@@ -189,7 +191,9 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             OpAmpGain::Mul4 => PgaGain::Gain4InputVinm0,
             OpAmpGain::Mul8 => PgaGain::Gain8InputVinm0,
             OpAmpGain::Mul16 => PgaGain::Gain16InputVinm0,
+            #[cfg(opamp_v5)]
             OpAmpGain::Mul32 => PgaGain::Gain32InputVinm0,
+            #[cfg(opamp_v5)]
             OpAmpGain::Mul64 => PgaGain::Gain64InputVinm0,
         };
 
@@ -396,7 +400,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// The output pin is held within the returned [`OpAmpOutput`] struct,
     /// preventing it being used elsewhere. The opamp will be disabled when
     /// the [`OpAmpOutput`] is dropped.
-    #[cfg(opamp_v5)]
+    #[cfg(any(opamp_v5, opamp_c5))]
     pub fn standalone_ext(
         &mut self,
         p_pin: Peri<'d, impl NonInvertingPin<T> + crate::gpio::Pin>,
@@ -455,7 +459,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// while for high-speed mode, only the P differential pair is calibrated.
     ///
     /// Calibrating a differential pair requires waiting 12ms in the worst case (binary method).
-    #[cfg(opamp_v5)]
+    #[cfg(any(opamp_v5, opamp_c5))]
     pub fn calibrate(&mut self) {
         T::regs().csr().modify(|w| {
             w.set_opampen(true);
@@ -484,7 +488,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// The calibration range is from 0 to 31.
     ///
     /// The result is stored in the OPAMP_CSR register.
-    #[cfg(opamp_v5)]
+    #[cfg(any(opamp_v5, opamp_c5))]
     fn calibrate_differential_pair(&mut self, pair: OpAmpDifferentialPair) {
         let mut low = 0;
         let mut high = 31;
