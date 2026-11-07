@@ -1,14 +1,12 @@
 use stm32_metapac::pwr::vals::{
     Vddio2rdy, Vddio2sv, Vddio2vrsel, Vddio3rdy, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv, Vos,
 };
-use stm32_metapac::rcc::vals::{
-    Cpusw, Cpusws, Hsediv2sel, Hseext, Hsitrim, Msifreqsel, Persel, Pllmodssdis, Syssw, Syssws, Timpre,
-};
+use stm32_metapac::rcc::vals::{Cpusw, Hsediv2sel, Hseext, Hsitrim, Msifreqsel, Persel, Pllmodssdis, Syssw, Timpre};
 pub use stm32_metapac::rcc::vals::{
-    Hpre as AhbPrescaler, Hsidiv as HsiPrescaler, Hsitrim as HsiCalibration, Icint, Icsel, Plldivm, Pllpdiv, Pllsel,
-    Ppre as ApbPrescaler, Xspisel as XspiClkSrc,
+    Fmcsel as XspiClkSrc, Hpre as AhbPrescaler, Hsidiv as HsiPrescaler, Hsitrim as HsiCalibration, Icint, Icsel,
+    Plldivm, Pllpdiv, Pllsel, Ppre as ApbPrescaler,
 };
-use stm32_metapac::syscfg::vals::{Vddio2cccrCs, Vddio3cccrCs, Vddio4cccrCs};
+use stm32_metapac::syscfg::vals::VddiOxCccrCs;
 
 use crate::pac::{GPDMA1, HPDMA1, PWR, RCC, RISAF3, SYSCFG};
 use crate::rcc::LSI_FREQ;
@@ -362,7 +360,7 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
     let cpusw = Cpusw::from_bits(config.cpu.to_bits());
     RCC.cfgr().modify(|w| w.set_cpusw(cpusw));
     // wait for changes to take effect
-    while RCC.cfgr().read().cpusws() != Cpusws::from_bits(config.cpu.to_bits()) {}
+    while RCC.cfgr().read().cpusws() != Cpusw::from_bits(config.cpu.to_bits()) {}
 
     // sysclk
     debug!("configuring sysclk");
@@ -379,7 +377,7 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
     let syssw = Syssw::from_bits(config.sys.to_bits());
     RCC.cfgr().modify(|w| w.set_syssw(syssw));
     // wait for changes to be applied
-    while RCC.cfgr().read().syssws() != Syssws::from_bits(config.sys.to_bits()) {}
+    while RCC.cfgr().read().syssws() != Syssw::from_bits(config.sys.to_bits()) {}
 
     // decreasing dividers
     debug!("configuring decreasing pclk dividers");
@@ -690,8 +688,8 @@ fn power_supply_config(supply_config: SupplyConfig, voltage_scale: VoltageScale)
     // Voltage scale setting
     PWR.voscr().modify(|w| {
         w.set_vos(match voltage_scale {
-            VoltageScale::Scale0 => Vos::B0x1,
-            VoltageScale::Scale1 => Vos::B0x0,
+            VoltageScale::Scale0 => Vos::High,
+            VoltageScale::Scale1 => Vos::Low,
         });
     });
 
@@ -927,8 +925,8 @@ fn init_osc(config: Config) -> OscOutput {
         while !RCC.sr().read().hserdy() {}
 
         Some(hse.freq)
-    } else if cpu_src == Cpusws::Hse
-        || sys_src == Syssws::Hse
+    } else if cpu_src == Cpusw::Hse
+        || sys_src == Syssw::Hse
         || (pll1_src == Pllsel::Hse && rcc_sr.pllrdy(0))
         || (pll2_src == Pllsel::Hse && rcc_sr.pllrdy(1))
         || (pll3_src == Pllsel::Hse && rcc_sr.pllrdy(2))
@@ -986,8 +984,8 @@ fn init_osc(config: Config) -> OscOutput {
         });
 
         (Some(HSI_FREQ), Some(HSI_FREQ / hsi.pre))
-    } else if cpu_src == Cpusws::Hsi
-        || sys_src == Syssws::Hsi
+    } else if cpu_src == Cpusw::Hsi
+        || sys_src == Syssw::Hsi
         || (pll1_src == Pllsel::Hsi && rcc_sr.pllrdy(0))
         || (pll2_src == Pllsel::Hsi && rcc_sr.pllrdy(1))
         || (pll3_src == Pllsel::Hsi && rcc_sr.pllrdy(2))
@@ -1017,8 +1015,8 @@ fn init_osc(config: Config) -> OscOutput {
             Msifreqsel::_4mhz => Hertz::mhz(4),
             Msifreqsel::_16mhz => Hertz::mhz(16),
         })
-    } else if cpu_src == Cpusws::Msi
-        || sys_src == Syssws::Msi
+    } else if cpu_src == Cpusw::Msi
+        || sys_src == Syssw::Msi
         || (pll1_src == Pllsel::Msi && rcc_sr.pllrdy(0))
         || (pll2_src == Pllsel::Msi && rcc_sr.pllrdy(1))
         || (pll3_src == Pllsel::Msi && rcc_sr.pllrdy(2))
@@ -1062,12 +1060,12 @@ fn init_osc(config: Config) -> OscOutput {
     // If config wants a non-IC1 CPU source (HSI/HSE/MSI), switch now before
     // touching PLLs. This prevents panicking when trying to reconfigure a PLL
     // that's currently in use by IC1.
-    let mut cpu_src = if cpu_src == Cpusws::Ic1 && !matches!(config.cpu, CpuClk::Ic1 { .. }) {
+    let mut cpu_src = if cpu_src == Cpusw::Ic1 && !matches!(config.cpu, CpuClk::Ic1 { .. }) {
         // Switch CPU clock to the target source first
         debug!("switching CPU away from IC1 before PLL reconfiguration");
         let cpusw = Cpusw::from_bits(config.cpu.to_bits());
         RCC.cfgr().modify(|w| w.set_cpusw(cpusw));
-        while RCC.cfgr().read().cpusws() != Cpusws::from_bits(config.cpu.to_bits()) {}
+        while RCC.cfgr().read().cpusws() != Cpusw::from_bits(config.cpu.to_bits()) {}
         // Return the new CPU source
         RCC.cfgr().read().cpusws()
     } else {
@@ -1077,12 +1075,12 @@ fn init_osc(config: Config) -> OscOutput {
     // If config wants a non-IC2 sys source (HSI/HSE/MSI), switch now before
     // touching PLLs. This prevents panicking when trying to reconfigure a PLL
     // that's currently in use by IC2, IC6, or IC11.
-    let mut sys_src = if sys_src == Syssws::Ic2 && !matches!(config.sys, SysClk::Ic2 { .. }) {
+    let mut sys_src = if sys_src == Syssw::Ic2 && !matches!(config.sys, SysClk::Ic2 { .. }) {
         // Switch system clock to the target source first
         debug!("switching sys clock away from IC2 before PLL reconfiguration");
         let syssw = Syssw::from_bits(config.sys.to_bits());
         RCC.cfgr().modify(|w| w.set_syssw(syssw));
-        while RCC.cfgr().read().syssws() != Syssws::from_bits(config.sys.to_bits()) {}
+        while RCC.cfgr().read().syssws() != Syssw::from_bits(config.sys.to_bits()) {}
         // Return the new sys source
         RCC.cfgr().read().syssws()
     } else {
@@ -1099,9 +1097,9 @@ fn init_osc(config: Config) -> OscOutput {
         }
 
         let this_pll = Icsel::from_bits(n as u8);
-        let needs_cpu_switch = cpu_src == Cpusws::Ic1 && ic1_src == this_pll;
+        let needs_cpu_switch = cpu_src == Cpusw::Ic1 && ic1_src == this_pll;
         let needs_sys_switch =
-            sys_src == Syssws::Ic2 && (ic2_src == this_pll || ic6_src == this_pll || ic11_src == this_pll);
+            sys_src == Syssw::Ic2 && (ic2_src == this_pll || ic6_src == this_pll || ic11_src == this_pll);
 
         if !needs_cpu_switch && !needs_sys_switch {
             continue;
@@ -1115,14 +1113,14 @@ fn init_osc(config: Config) -> OscOutput {
 
         if needs_cpu_switch {
             RCC.cfgr().modify(|w| w.set_cpusw(Cpusw::Hsi));
-            while RCC.cfgr().read().cpusws() != Cpusws::Hsi {}
-            cpu_src = Cpusws::Hsi;
+            while RCC.cfgr().read().cpusws() != Cpusw::Hsi {}
+            cpu_src = Cpusw::Hsi;
         }
 
         if needs_sys_switch {
             RCC.cfgr().modify(|w| w.set_syssw(Syssw::Hsi));
-            while RCC.cfgr().read().syssws() != Syssws::Hsi {}
-            sys_src = Syssws::Hsi;
+            while RCC.cfgr().read().syssws() != Syssw::Hsi {}
+            sys_src = Syssw::Hsi;
         }
     }
 
@@ -1295,35 +1293,35 @@ pub(crate) unsafe fn init(config: Config) {
 
         // SVMCR1: VddIO4
         PWR.svmcr1().modify(|w| {
-            w.set_vddio4sv(Vddio4sv::B0x1);
+            w.set_vddio4sv(Vddio4sv::Valid);
         });
         // SVMCR2: VddIO5
         PWR.svmcr2().modify(|w| {
-            w.set_vddio5sv(Vddio5sv::B0x1);
+            w.set_vddio5sv(Vddio5sv::Valid);
         });
         // SVMCR3: VddIO2 and VddIO3 (for XSPI1 and XSPI2)
         PWR.svmcr3().modify(|w| {
-            w.set_vddio2sv(Vddio2sv::B0x1);
+            w.set_vddio2sv(Vddio2sv::Valid);
             w.set_vddio2vmen(true); // Enable voltage monitoring
-            w.set_vddio3sv(Vddio3sv::B0x1);
+            w.set_vddio3sv(Vddio3sv::Valid);
             w.set_vddio3vmen(true); // Enable voltage monitoring
             // Set voltage range based on config
             if config.vddio2_1v8 {
-                w.set_vddio2vrsel(Vddio2vrsel::B0x1); // 1.8V mode
+                w.set_vddio2vrsel(Vddio2vrsel::Range1v8); // 1.8V mode
             }
             if config.vddio3_1v8 {
-                w.set_vddio3vrsel(Vddio3vrsel::B0x1); // 1.8V mode
+                w.set_vddio3vrsel(Vddio3vrsel::Range1v8); // 1.8V mode
             }
         });
 
         // Wait for VddIO domains to be ready
-        while PWR.svmcr3().read().vddio2rdy() != Vddio2rdy::B0x1 {}
-        while PWR.svmcr3().read().vddio3rdy() != Vddio3rdy::B0x1 {}
+        while PWR.svmcr3().read().vddio2rdy() != Vddio2rdy::Ready {}
+        while PWR.svmcr3().read().vddio3rdy() != Vddio3rdy::Ready {}
 
         // Debug VddIO status after configuration
         let svmcr3 = PWR.svmcr3().read();
-        debug!("VddIO2 ready: {}", svmcr3.vddio2rdy() == Vddio2rdy::B0x1);
-        debug!("VddIO3 ready: {}", svmcr3.vddio3rdy() == Vddio3rdy::B0x1);
+        debug!("VddIO2 ready: {}", svmcr3.vddio2rdy() == Vddio2rdy::Ready);
+        debug!("VddIO3 ready: {}", svmcr3.vddio3rdy() == Vddio3rdy::Ready);
         debug!("SVMCR3 raw = 0x{:08x}", svmcr3.0);
 
         // Configure compensation cells per errata ES0620
@@ -1334,17 +1332,17 @@ pub(crate) unsafe fn init(config: Config) {
         SYSCFG.vddio2cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_cs(Vddio2cccrCs::B0x1);
+            w.set_cs(VddiOxCccrCs::Cccr);
         });
         SYSCFG.vddio3cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_cs(Vddio3cccrCs::B0x1);
+            w.set_cs(VddiOxCccrCs::Cccr);
         });
         SYSCFG.vddio4cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_cs(Vddio4cccrCs::B0x1);
+            w.set_cs(VddiOxCccrCs::Cccr);
         });
     }
 
