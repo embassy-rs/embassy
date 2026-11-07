@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - bugfix: twis: apply `scl_pullup` instead of `sda_pullup` to the SCL pin.
 - changed: removed the `fixed` dependency. `temp::Temp::read` is renamed to `read_celsius_x4` and returns an `i32` in units of 0.25 °C. `pdm::Config::gain_left`, `gain_right` and `Pdm::set_gain` take an `i8` in units of 0.5 dB.
 - removed: `rand_core` 0.6 and 0.9 trait impls for `rng::Rng`. It implements the `rand_core` 0.10 traits only.
+- bugfix: `power::set_system_off` clears the `RESETREAS` register on the nRF54L before entering System OFF.
+- added: `reset` module for the nRF54L series (`read_reasons`, `clear_reasons`).
 
 ## 0.11.0 - 2026-06-16
 
