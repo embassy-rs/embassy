@@ -109,12 +109,12 @@ pub mod gpiote;
 pub mod i2s;
 #[cfg(feature = "_nrf5340")]
 pub mod ipc;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "nrf52832",
     feature = "nrf52833",
     feature = "nrf52840",
-    feature = "_nrf5340-app"
+    feature = "_nrf5340-app",
+    feature = "_nrf54l"
 ))]
 pub mod nfct;
 #[cfg(not(feature = "_nrf54l"))]

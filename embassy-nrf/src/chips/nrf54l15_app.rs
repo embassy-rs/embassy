@@ -476,6 +476,9 @@ embassy_hal_internal::peripherals! {
     // RRAMC
     RRAMC,
 
+    // NFC
+    NFCT,
+
     // TEMP
     TEMP,
 
