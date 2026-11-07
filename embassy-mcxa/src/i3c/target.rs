@@ -325,6 +325,7 @@ struct TxDmaGuard<'a> {
     dma: DmaChannel<'a>,
     info: &'static Info,
     dma_active: bool,
+    flush_fifo_on_drop: bool,
 }
 
 impl<'a> TxDmaGuard<'a> {
@@ -333,6 +334,7 @@ impl<'a> TxDmaGuard<'a> {
             dma,
             info,
             dma_active: true,
+            flush_fifo_on_drop: true,
         }
     }
 
@@ -343,6 +345,10 @@ impl<'a> TxDmaGuard<'a> {
             .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
         self.dma.stop();
         self.dma_active = false;
+    }
+
+    fn complete(mut self) {
+        self.flush_fifo_on_drop = false;
     }
 }
 
@@ -355,7 +361,49 @@ impl Drop for TxDmaGuard<'_> {
                 .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
             self.dma.stop();
         }
-        self.info.regs().sctrl().modify(|w| w.set_event(SctrlEvent::NormalMode));
+        let regs = self.info.regs();
+        regs.sctrl().modify(|w| w.set_event(SctrlEvent::NormalMode));
+        if self.flush_fifo_on_drop {
+            regs.sdatactrl().modify(|w| w.set_flushtb(true));
+        }
+    }
+}
+
+fn check_status(info: &'static Info) -> Result<(), IOError> {
+    let status = info.regs().sstatus().read();
+    let errwarn = info.regs().serrwarn().read();
+
+    if status.errwarn() {
+        // Clear all set error/warning flags (W1C register)
+        info.regs().serrwarn().write(|w| w.0 = errwarn.0);
+
+        if errwarn.orun() {
+            Err(IOError::Overrun)
+        } else if errwarn.urun() {
+            Err(IOError::Underrun)
+        } else if errwarn.urunnack() {
+            Err(IOError::UnderrunNack)
+        } else if errwarn.term() {
+            Err(IOError::Terminated)
+        } else if errwarn.invstart() {
+            Err(IOError::InvalidStart)
+        } else if errwarn.spar() {
+            Err(IOError::SdrParity)
+        } else if errwarn.hpar() {
+            Err(IOError::HdrParity)
+        } else if errwarn.hcrc() {
+            Err(IOError::HdrDdrCrc)
+        } else if errwarn.s0s1() {
+            Err(IOError::TE0TE1)
+        } else if errwarn.oread() {
+            Err(IOError::Overread)
+        } else if errwarn.owrite() {
+            Err(IOError::Overwrite)
+        } else {
+            Err(IOError::Other)
+        }
+    } else {
+        Ok(())
     }
 }
 
@@ -400,44 +448,6 @@ impl<'d> I3c<'d> {
         inst.set_configuration(&inst.config);
 
         Ok(inst)
-    }
-
-    fn check_status(&self) -> Result<(), IOError> {
-        let status = self.info.regs().sstatus().read();
-        let errwarn = self.info.regs().serrwarn().read();
-
-        if status.errwarn() {
-            // Clear all set error/warning flags (W1C register)
-            self.info.regs().serrwarn().write(|w| w.0 = errwarn.0);
-
-            if errwarn.orun() {
-                Err(IOError::Overrun)
-            } else if errwarn.urun() {
-                Err(IOError::Underrun)
-            } else if errwarn.urunnack() {
-                Err(IOError::UnderrunNack)
-            } else if errwarn.term() {
-                Err(IOError::Terminated)
-            } else if errwarn.invstart() {
-                Err(IOError::InvalidStart)
-            } else if errwarn.spar() {
-                Err(IOError::SdrParity)
-            } else if errwarn.hpar() {
-                Err(IOError::HdrParity)
-            } else if errwarn.hcrc() {
-                Err(IOError::HdrDdrCrc)
-            } else if errwarn.s0s1() {
-                Err(IOError::TE0TE1)
-            } else if errwarn.oread() {
-                Err(IOError::Overread)
-            } else if errwarn.owrite() {
-                Err(IOError::Overwrite)
-            } else {
-                Err(IOError::Other)
-            }
-        } else {
-            Ok(())
-        }
     }
 
     fn clear_status(&self) -> Sstatus {
@@ -755,7 +765,7 @@ impl<'d> I3c<'d> {
         let dma_done = self.dma_tx_run(buf).await?;
         // If the controller terminated early, surface that as `EarlyStop` so
         // callers can react.
-        match self.check_status() {
+        match check_status(self.info) {
             Ok(()) => {}
             Err(IOError::Terminated) => return Ok(ReadStatus::EarlyStop(dma_done)),
             Err(e) => return Err(e),
@@ -785,7 +795,7 @@ impl<'d> I3c<'d> {
         }
 
         // Surface any errwarn that happened since the last call.
-        self.check_status()?;
+        check_status(self.info)?;
 
         // SAFETY: A live `I3c` implies the BbqState has been moved
         // through INITED + RXDMA_PRESENT in `new_dma`. The rx_queue
@@ -814,7 +824,7 @@ impl<'d> I3c<'d> {
         // Surface any errwarn (e.g. ORUN from RX overflow) that happened
         // during this write phase so it gets pinned to the right call
         // rather than leaking into a later operation.
-        self.check_status()?;
+        check_status(self.info)?;
 
         Ok(n)
     }
@@ -914,7 +924,7 @@ impl<'d> I3c<'d> {
 
         _on_drop.defuse();
 
-        self.check_status()?;
+        check_status(self.info)?;
 
         if status.event() && status.evdet() == Evdet::Nacked {
             return Err(IOError::IbiNacked);
@@ -942,8 +952,9 @@ impl<'d> I3c<'d> {
     /// # Cancellation safety
     ///
     /// Dropping the future aborts the DMA transfer, disables target TX DMA,
-    /// and restores `SCTRL.EVENT` to `NormalMode`. Bytes already queued or
-    /// transmitted cannot be recalled.
+    /// restores `SCTRL.EVENT` to `NormalMode`, and flushes bytes that remain
+    /// queued in the target TX FIFO. Bytes already transmitted cannot be
+    /// recalled.
     pub async fn dma_respond_to_read_with_ibi(
         &mut self,
         ibi_payload: &[u8],
@@ -1095,24 +1106,32 @@ impl<'d> I3c<'d> {
             .await
             .map_err(|_| IOError::Other)?;
 
-        drop(guard);
-
         // Treat `Terminated` as success: the controller is free to chunk this
         // logical response into multiple wire-level reads (each bounded by
         // RDTERM and separated by Sr or Stop). Every chunk boundary that
         // falls mid-T=1-stream latches SERRWARN.TERM on the target, even
-        // though the IP keeps draining the TX FIFO across the Sr. By the
-        // time we reach this check, DMA has streamed `rest` into the FIFO
-        // and SWDATABE has emitted the final T=0 byte — so the wire-level
-        // payload is fully delivered regardless of how many TERM warnings
-        // got latched along the way. Mirrors `dma_respond_to_read`, which
-        // exposes the same condition as `ReadStatus::EarlyStop`.
+        // though the IP keeps draining the TX FIFO across the Sr. DMA has
+        // streamed `rest` into the FIFO and SWDATABE has queued the final T=0
+        // byte, so the hardware can finish delivering the response regardless
+        // of how many TERM warnings got latched along the way. Mirrors
+        // `dma_respond_to_read`, which exposes the same condition as
+        // `ReadStatus::EarlyStop`.
         //
         // Genuine controller-side aborts surface as Underrun/UnderrunNack.
-        match self.check_status() {
+        let result = match check_status(info) {
             Ok(()) | Err(IOError::Terminated) => Ok(()),
             Err(e) => Err(e),
+        };
+
+        if result.is_ok() {
+            // Accepted completion, including a TERM chunk boundary: do not
+            // flush bytes that the controller may read in a later chunk.
+            // Cancellation and fatal errors skip complete(), so Drop flushes
+            // any bytes they leave queued.
+            guard.complete();
         }
+
+        result
     }
 
     /// Diagnostic: measure the TX FIFO depth by pushing bytes until full.
@@ -1320,7 +1339,7 @@ impl<'d> I3c<'d> {
                 .map_err(|_| IOError::Other)?;
 
             // Errors are surfaced first — they are W1C'd inside check_status().
-            self.check_status().inspect_err(|_e| {
+            check_status(self.info).inspect_err(|_e| {
                 #[cfg(feature = "defmt")]
                 defmt::error!("[tgt listen] check_status err {:?}", _e);
             })?;
