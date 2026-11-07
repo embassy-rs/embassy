@@ -32,6 +32,10 @@ pub mod hub {
 pub mod midi;
 pub mod msc;
 pub mod uac;
+pub mod uvc {
+    //! USB Video Class (UVC).
+    pub mod device;
+}
 pub mod vcp {
     //! Vendor-specific serial (VCP) adapters.
     pub mod host;

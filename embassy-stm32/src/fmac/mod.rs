@@ -60,12 +60,13 @@ pub enum OutputMode {
 pub enum Data<'a> {
     /// Prefill with values
     Prefilled {
-        /// Prefill data. The capacity of the buffer will be set to the length of this data
+        /// Prefill data. The capacity of the buffer will be set to the length of this data,
+        /// plus the one free slot the FMAC needs
         data: &'a [Q16<15>],
     },
     /// Do not prefill. Output may be delayed until data is filled the regular way
     Empty {
-        /// Capacity of buffer
+        /// Capacity of buffer, not counting the one free slot the FMAC needs
         capacity: usize,
     },
 }
@@ -149,7 +150,8 @@ impl<'d, T: Instance> Fmac<'d, T> {
         x2_fb: &[Q16<15>],
         y: Data,
     ) -> Self {
-        assert!(2 * (x2_ff.len() + x2_fb.len()) + y.capacity() <= 256);
+        // X1 and X2, plus the Y capacity and its free slot, must fit in the 256 words
+        assert!(2 * (x2_ff.len() + x2_fb.len()) + y.capacity() < 256);
         if let Some(data) = x1 {
             assert_eq!(data.len(), x2_ff.len() + x2_fb.len());
         }
@@ -160,7 +162,9 @@ impl<'d, T: Instance> Fmac<'d, T> {
         // TODO: Consider adding watermark support. If so {x1,x2,y}_buf_size will need to be enlarged
         let x2_len = x2_ff.len() as u8 + x2_fb.len() as u8;
         let x1_len = x2_len;
-        let y_len = y.capacity() as u8;
+        // The Y buffer needs at least one free slot on top of the M previous outputs an IIR
+        // filter reads back; with exactly M the outputs are wrong from the second one on.
+        let y_len = y.capacity() as u8 + 1;
 
         T::regs().x1bufcfg().write(|w| {
             w.set_full_wm(0); // 0: Threshold = 1 // Must be 0 when using DMA to write X1
@@ -316,6 +320,14 @@ impl<'d, T: Instance> Fmac<'d, T> {
                 Ok(())
             }
         }
+    }
+}
+
+impl<'d, T: Instance> Drop for Fmac<'d, T> {
+    fn drop(&mut self) {
+        // Stop the clock so the next Fmac::new resets the peripheral; otherwise
+        // the filter of the dropped instance keeps running.
+        rcc::disable::<T>();
     }
 }
 

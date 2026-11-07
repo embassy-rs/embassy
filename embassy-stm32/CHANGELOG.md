@@ -31,6 +31,7 @@ Time driver:
 - fix: stm32/time-driver-lptim: `now()` retries if the update event flag changes while it reads the counter; a wrap between the two reads returned a time one counter period ahead, then time went backwards
 
 I2C:
+- fix: stm32/i2c v2: clamp SDADEL and SCLDEL to 15. They are 4-bit fields in TIMINGR and the computed values were often larger, so only their low 4 bits were written. With a 100 MHz I2C kernel clock, 400 kHz got a data setup time of 20 ns instead of at least 100 ns, and 100 kHz got 80 ns instead of at least 250 ns.
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
 - fix: stm32/i2c v2: a blocking controller transfer that times out (e.g. SCL held low by the target) now resets the peripheral (PE toggle, as for BERR/ARLO) instead of requesting STOP and abandoning the transfer. The abandoned transfer's NACKF/STOPF arrived later and the next call returned them after it had started its own transfer, which then ran unserved, so every later blocking transfer timed out until PE was toggled by hand.
 - fix: stm32/i2c v2: an async slave `respond_to_write` that received more than its buffer holds timed out while discarding the extra bytes, because nothing woke it for them, and could leave the last one in RXDR. It now wakes on every byte and reads a byte that arrived with the STOP.
@@ -239,11 +240,18 @@ SPI:
 LCD:
 - fix clock divider calculations when the target rate is not perfectly possible with ps+div registers
 
+FMAC:
+- fix: stm32/fmac: give the Y buffer one free slot on top of the stored outputs. With exactly M slots (`controller_2p2z`, `controller_3p3z`, or `iir` with `Data::Prefilled` of M values) the IIR outputs were wrong from the second sample on.
+- fix: stm32/fmac: dropping an `Fmac` now turns its clock off, so the next `Fmac::new` resets the peripheral. Before, the dropped filter kept running and the new instance's coefficient loads were ignored. `FromAdc` takes the `Fmac` lifetime as a separate parameter so it still compiles with the new `Drop`.
+
 CORDIC:
 - fix: stm32/cordic: the q1.15 `blocking_calc` and `async_calc` sized the result slice from the argument buffer, so `ResultLengthNotEnough` was never returned and a result buffer shorter than the arguments was written past its end. The result slice now uses the length of the result buffer.
 
 RTC:
 - fix: stm32/rtc: compute the prescalers so the calendar advances once per second. PREDIV_A is 7 bits, but the asynchronous divider was taken as clock / `RtcConfig::frequency` without a limit, so with the default 256 Hz and a 40 kHz LSI (F0, F3) 155 was written as 27 and the RTC ran about 5.6 times too fast. A requested frequency the clock cannot produce exactly is now rounded to the nearest lower divider that divides the clock evenly.
+
+SDMMC:
+- fix: stm32/sdmmc v1: a divisor of 258 was accepted and written as CLKDIV 256, which the 8-bit field stores as 0, so the card clock ran at half the kernel clock instead of 1/258 of it. 257 is now the largest divisor.
 
 ## 0.6.0 - 2026-03-10
 
