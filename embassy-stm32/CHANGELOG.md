@@ -251,6 +251,9 @@ CORDIC:
 SDMMC:
 - fix: stm32/sdmmc v1: a divisor of 258 was accepted and written as CLKDIV 256, which the 8-bit field stores as 0, so the card clock ran at half the kernel clock instead of 1/258 of it. 257 is now the largest divisor.
 
+Watchdog:
+- fix: stm32/wdg: an `IndependentWatchdog` timeout shorter than one prescaled LSI tick (125 us with a 32 kHz LSI) made the reload value underflow, which panics in debug builds and in release wraps to the longest timeout (512 ms). It now gets the shortest timeout instead.
+
 ## 0.6.0 - 2026-03-10
 
 ADC:
