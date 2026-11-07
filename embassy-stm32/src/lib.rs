@@ -798,9 +798,7 @@ fn init_hw(config: Config) -> Peripherals {
         {
             crate::pac::RCC.miscensr().write(|w| w.set_dbgens(true));
             crate::pac::RCC.miscenr().read(); // volatile read
-            crate::pac::DBGMCU
-                .cr()
-                .modify(|w| w.set_dbgclken(stm32_metapac::dbgmcu::vals::Dbgclken::B0x1));
+            crate::pac::DBGMCU.cr().modify(|w| w.set_dbgclken(true));
             crate::pac::DBGMCU.cr().read();
         }
 
