@@ -1,4 +1,4 @@
-/* Loaded by blinky_ram only (memory.x is shared and selects its regions).
+/* Loaded by run-blinky-ram.sh only (memory.x is shared and selects its regions).
  * Link .data at its load address, so the boot ROM loads it and there is nothing to copy. */
 OVERWRITE_SECTIONS
 {
