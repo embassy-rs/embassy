@@ -729,6 +729,11 @@ pub(crate) mod driver {
                             return Err(CryptoError::HardwareError);
                         }
                         retries += 1;
+                        #[cfg(all(rng_v1, any(stm32h7, stm32g4, stm32wb)))]
+                        if rng.regs().sr().read().seis() {
+                            rng.recover_seed_error();
+                            continue;
+                        }
                         rng.reset();
                     };
                     chunk.copy_from_slice(&word.to_ne_bytes()[..chunk.len()]);

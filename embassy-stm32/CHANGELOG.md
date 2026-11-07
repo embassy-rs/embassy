@@ -180,6 +180,7 @@ RNG:
 - fix: stm32/rng h7: recover from a seed error as RM0433 34.3.7 says: clear SEIS, discard 12 words, check SEIS. A reset discarded only one word, so the next words could be ones generated before or during the error.
 - fix: stm32/rng g4, wb: use that same seed-error recovery. RM0440 and the WB manuals (RM0434, RM0471, RM0473, RM0478) specify the same clear-SEIS, discard-12-words sequence.
 - fix: stm32/rng h7, g4, wb: the seed-error recovery waits for DRDY before each of the 12 discards (bounded). Plain back-to-back reads return zero once the 8-word output buffer is empty and take nothing out, so the last 4 pipeline words reached the caller.
+- fix: stm32/rng h7, g4, wb: the `embassy-crypto` RNG driver uses the seed-error recovery too. It still reset the RNG, which discards 1 word.
 - feat: stm32/rng: add configurable initialization policy (`RngConfig`) with `new_with_config` and health-test profile control
 - change: stm32/rng: `Rng` implements the `rand_core` 0.10 traits instead of the 0.6 and 0.9 ones.
 
