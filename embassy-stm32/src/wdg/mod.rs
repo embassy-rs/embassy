@@ -22,7 +22,9 @@ const fn get_timeout_us(prescaler: u16, reload_value: u16) -> u32 {
 
 /// Calculates watchdog reload value for the given prescaler and desired timeout
 const fn reload_value(prescaler: u16, timeout_us: u32) -> u16 {
-    (timeout_us / prescaler as u32 * LSI_FREQ.0 / 1_000_000) as u16 - 1
+    // A timeout shorter than one prescaled tick gets the shortest one (reload 0)
+    // instead of wrapping around to the longest.
+    ((timeout_us / prescaler as u32 * LSI_FREQ.0 / 1_000_000) as u16).saturating_sub(1)
 }
 
 impl<'d, T: Instance> IndependentWatchdog<'d, T> {
@@ -259,6 +261,10 @@ mod tests {
         assert_eq!(0xFFF, reload_value(256, 32_768_000));
 
         assert_eq!(3999, reload_value(64, 8_000_000));
+
+        // shorter than one tick (125 us at prescaler 4)
+        assert_eq!(0, reload_value(4, 100));
+        assert_eq!(0, reload_value(4, 125));
     }
 }
 
