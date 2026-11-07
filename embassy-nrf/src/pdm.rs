@@ -192,6 +192,10 @@ impl<'d> Pdm<'d> {
     }
 
     /// Sample data into the given buffer
+    ///
+    /// Dropping the returned future before it completes stops sampling, so [`start`](Self::start)
+    /// has to be called again before the next `sample`. The drop blocks until the peripheral has
+    /// stopped writing to `buffer`.
     pub async fn sample(&mut self, buffer: &mut [i16]) -> Result<(), Error> {
         if buffer.is_empty() {
             return Err(Error::BufferZeroLength);
@@ -213,7 +217,11 @@ impl<'d> Pdm<'d> {
             r.sample().ptr().write_value(DUMMY_BUFFER.as_ptr() as u32);
             r.sample().maxcnt().write(|w| w.set_buffsize(DUMMY_BUFFER.len() as _));
 
+            r.tasks_stop().write_value(1);
             while r.events_stopped().read() == 0 {}
+
+            // Sampling is over, so `sample` must not find it still marked as running.
+            r.events_started().write_value(0);
         });
 
         // setup user buffer
