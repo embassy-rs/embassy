@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - added: `i2s` on the nRF91 family (nRF9120, nRF9151, nRF9160, nRF9161).
+- added: `pdm` on the nRF54L family. Buffers must be word aligned there, or `pdm::Error::BufferNotAligned` is returned.
+- added: `pdm::Config::prescaler` on the nRF54L, replacing `frequency`, and `pdm::Config::high_pass` on the nRF54LM20A.
+- bugfix: pdm: `run_task_sampler` returns `BufferTooLong` or `BufferZeroLength` for a buffer EasyDMA cannot take.
+- bugfix: pdm: the dummy buffer is in RAM, since EasyDMA cannot write anywhere else.
+- bugfix: pdm: cancelling `run_task_sampler` waits for EasyDMA to stop before the buffers can be reused.
 - added: `gpio::Flex::is_input`, `Flex::is_output` and `Flex::is_disconnected`.
 - added: inherent `read_ready` method on `BufferedUarte` and `BufferedUarteRx`.
 - bugfix: buffered_uarte: `BufferedUarteRx::read_ready` no longer returns `true` when no data has been received, and returns overrun errors, like `BufferedUarte::read_ready`.
