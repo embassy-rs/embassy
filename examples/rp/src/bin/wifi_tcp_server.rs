@@ -82,7 +82,7 @@ async fn main(spawner: Spawner) {
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
     spawner.spawn(unwrap!(cyw43_task(runner)));
 
-    control.init(clm).await;
+    control.init(clm, cyw43::Config::default()).await;
     control
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
