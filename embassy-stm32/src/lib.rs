@@ -241,7 +241,8 @@ pub mod mdf;
 pub mod mdios;
 #[cfg(npu)]
 pub mod npu;
-#[cfg(all(opamp, not(stm32c5)))]
+#[cfg(opamp)]
+#[cfg_attr(opamp_c5, path = "opamp_c5.rs")]
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
