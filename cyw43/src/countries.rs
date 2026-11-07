@@ -1,5 +1,5 @@
-//! Countries, for [`Control::init_with_country`](crate::Control::init_with_country): the radio's
-//! rules for each come from the CLM.
+//! Countries, for [`Config::country`](crate::Config::country): the radio's rules for each
+//! come from the CLM.
 
 /// A country, by its ISO 3166 code, and the revision of its rules in the CLM.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

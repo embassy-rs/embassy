@@ -49,6 +49,25 @@ pub enum ScanType {
     Passive,
 }
 
+/// Options for [`Control::init`].
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct Config {
+    /// The country whose rules the radio follows, from the CLM: the channels and transmit
+    /// power allowed there. Default [`countries::WORLD_WIDE_XX`], under which some channels
+    /// are closed, such as 5 GHz's DFS channels.
+    pub country: countries::Country,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            country: countries::WORLD_WIDE_XX,
+        }
+    }
+}
+
 /// Scan options.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -239,15 +258,8 @@ impl<'a> Control<'a> {
         assert_eq!(self.get_iovar_u32("clmload_status").await, 0);
     }
 
-    /// Initialize WiFi controller, with the worldwide rules ([`countries::WORLD_WIDE_XX`]),
-    /// under which some channels are closed, such as 5 GHz's DFS channels.
-    pub async fn init(&mut self, clm: &[u8]) {
-        self.init_with_country(clm, countries::WORLD_WIDE_XX).await;
-    }
-
-    /// Initialize WiFi controller, with a country's rules, from the CLM: the channels and
-    /// transmit power allowed there.
-    pub async fn init_with_country(&mut self, clm: &[u8], country: countries::Country) {
+    /// Initialize WiFi controller.
+    pub async fn init(&mut self, clm: &[u8], config: Config) {
         self.load_clm(clm).await;
 
         debug!("Configuring misc stuff...");
@@ -262,6 +274,7 @@ impl<'a> Control<'a> {
         let mac_addr = self.address().await;
         debug!("mac addr: {:02x}", Bytes(&mac_addr));
 
+        let country = config.country;
         let country_info = CountryInfo {
             country_abbrev: [country.code[0], country.code[1], 0, 0],
             country_code: [country.code[0], country.code[1], 0, 0],
