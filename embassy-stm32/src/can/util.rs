@@ -133,3 +133,35 @@ pub(crate) fn calc_can_timings_with_max_prescaler(
         seg2,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fdcan_limits_reject_prescalers_bxcan_accepts() {
+        let clock = crate::time::Hertz(100_000_000);
+
+        // 10 kbit/s needs prescaler 625: inside bxCAN's 1024, outside NBRP's 512.
+        let bxcan = calc_can_timings(clock, 10_000).unwrap();
+        assert_eq!(u16::from(bxcan.prescaler), 625);
+        assert!(matches!(
+            calc_can_timings_with_max_prescaler(clock, 10_000, 512),
+            Err(TimingCalcError::InvalidPrescaler { prescaler: 625 })
+        ));
+
+        // 125 kbit/s needs prescaler 50: inside NBRP's 512, outside DBRP's 32.
+        let nominal = calc_can_timings_with_max_prescaler(clock, 125_000, 512).unwrap();
+        assert_eq!(u16::from(nominal.prescaler), 50);
+        assert!(matches!(
+            calc_can_timings_with_max_prescaler(clock, 125_000, 32),
+            Err(TimingCalcError::InvalidPrescaler { prescaler: 50 })
+        ));
+
+        // 500 kbit/s at 100 MHz is prescaler 20 and 10 quanta, which both FDCAN fields can hold.
+        let fast = calc_can_timings_with_max_prescaler(clock, 500_000, 512).unwrap();
+        assert_eq!(u16::from(fast.prescaler), 20);
+        assert_eq!(u8::from(fast.seg1), 8);
+        assert_eq!(u8::from(fast.seg2), 1);
+    }
+}
