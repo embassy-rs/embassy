@@ -23,7 +23,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::atomic::AtomicModify;
+use crate::atomic::{AtomicClear, AtomicModify};
 use crate::dma::{ChannelAndRequest, TransferOptions};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
@@ -273,10 +273,7 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
         });
 
         // Check if the PdPhy part was dropped already.
-        let drop_not_ready = &T::state().drop_not_ready;
-        if drop_not_ready.load(Ordering::Relaxed) {
-            drop_not_ready.store(false, Ordering::Relaxed);
-        } else {
+        if !T::state().drop_not_ready.clear() {
             r.cfgr1().write(|w| w.set_ucpden(false));
             rcc::disable::<T>();
             T::Interrupt::disable();
@@ -485,10 +482,7 @@ impl<'d, T: Instance> Drop for PdPhy<'d, T> {
         let r = T::REGS;
         r.cr().modify(|w| w.set_phyrxen(false));
         // Check if the CcPhy part was dropped already.
-        let drop_not_ready = &T::state().drop_not_ready;
-        if drop_not_ready.load(Ordering::Relaxed) {
-            drop_not_ready.store(false, Ordering::Relaxed);
-        } else {
+        if !T::state().drop_not_ready.clear() {
             r.cfgr1().write(|w| w.set_ucpden(false));
             rcc::disable::<T>();
             T::Interrupt::disable();
