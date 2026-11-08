@@ -2310,6 +2310,8 @@ fn main() {
         (("timer", "TIMX_TI2_IN"), quote!(crate::timer::TimerInputTrigger<Ch2>)),
         (("timer", "TIMX_TI3_IN"), quote!(crate::timer::TimerInputTrigger<Ch3>)),
         (("timer", "TIMX_TI4_IN"), quote!(crate::timer::TimerInputTrigger<Ch4>)),
+        (("gpdma", "GPDMA_TRG"), quote!(crate::dma::Trigger)),
+        (("lpdma", "LPDMA_TRG"), quote!(crate::dma::Trigger)),
     ]
     .into();
 

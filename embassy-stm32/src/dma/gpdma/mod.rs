@@ -231,6 +231,9 @@ impl From<TriggerMode> for vals::Trigm {
     }
 }
 
+// `T` is the DMA controller whose trigger table the signal indexes.
+trigger_trait!(Trigger, crate::PeripheralType);
+
 /// Optional hardware trigger input for a GPDMA channel.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -241,6 +244,22 @@ pub struct TriggerConfig {
     pub polarity: TriggerPolarity,
     /// Trigger gating mode.
     pub mode: TriggerMode,
+}
+
+impl TriggerConfig {
+    /// A trigger from a typed source in controller `T`'s table, e.g.
+    /// `TriggerConfig::new::<peripherals::GPDMA1>(triggers::EXTI6_TRG, polarity, mode)`.
+    pub fn new<T: crate::PeripheralType>(
+        source: impl Trigger<T>,
+        polarity: TriggerPolarity,
+        mode: TriggerMode,
+    ) -> Self {
+        Self {
+            signal: source.signal(),
+            polarity,
+            mode,
+        }
+    }
 }
 
 /// GPDMA burst length (beats per burst on a port).
