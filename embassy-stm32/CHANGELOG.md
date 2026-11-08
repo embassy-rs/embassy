@@ -248,6 +248,9 @@ FMAC:
 CORDIC:
 - fix: stm32/cordic: the q1.15 `blocking_calc` and `async_calc` sized the result slice from the argument buffer, so `ResultLengthNotEnough` was never returned and a result buffer shorter than the arguments was written past its end. The result slice now uses the length of the result buffer.
 
+RTC:
+- fix: stm32/rtc: compute the prescalers so the calendar advances once per second. PREDIV_A is 7 bits, but the asynchronous divider was taken as clock / `RtcConfig::frequency` without a limit, so with the default 256 Hz and a 40 kHz LSI (F0, F3) 155 was written as 27 and the RTC ran about 5.6 times too fast. A requested frequency the clock cannot produce exactly is now rounded to the nearest lower divider that divides the clock evenly.
+
 SDMMC:
 - fix: stm32/sdmmc v1: a divisor of 258 was accepted and written as CLKDIV 256, which the 8-bit field stores as 0, so the card clock ran at half the kernel clock instead of 1/258 of it. 257 is now the largest divisor.
 

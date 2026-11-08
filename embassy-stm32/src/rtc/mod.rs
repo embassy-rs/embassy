@@ -174,6 +174,10 @@ pub struct Rtc {
 pub struct RtcConfig {
     /// The subsecond counter frequency; default is 256
     ///
+    /// If the RTC clock cannot be divided down to exactly this frequency with the 7-bit
+    /// asynchronous prescaler, the nearest lower divider that divides the clock evenly is
+    /// used instead, so the calendar still advances once per second.
+    ///
     /// A high counter frequency may impact stop power consumption
     pub frequency: Hertz,
 }
@@ -199,6 +203,19 @@ pub enum RtcCalibrationCyclePeriod {
     Seconds32,
 }
 
+/// Prescaler register values (PREDIV_A, PREDIV_S) for an RTC clock of `clk` and a requested
+/// subsecond frequency. The two dividers must multiply to exactly `clk` for the calendar to
+/// advance once per second, and PREDIV_A is 7 bits, so the asynchronous divider is at most 128.
+fn prescalers(clk: Hertz, subsecond: Hertz) -> (u8, u16) {
+    let mut async_div = (clk.0 / subsecond.0).clamp(1, 128);
+    while !clk.0.is_multiple_of(async_div) {
+        async_div -= 1;
+    }
+    let sync_div = clk.0 / async_div;
+    assert!(sync_div <= 1 << 15, "RTC clock too fast for the RTC prescalers");
+    ((async_div - 1) as u8, (sync_div - 1) as u16)
+}
+
 impl Rtc {
     #[cfg(any(not(feature = "low-power"), feature = "_lp-time-driver"))]
     /// Create a new RTC instance.
@@ -222,9 +239,7 @@ impl Rtc {
             _private: (),
         };
 
-        let frequency = Self::frequency();
-        let async_psc = ((frequency / rtc_config.frequency) - 1) as u8;
-        let sync_psc = (rtc_config.frequency.0 - 1) as u16;
+        let (async_psc, sync_psc) = prescalers(Self::frequency(), rtc_config.frequency);
 
         this.configure(async_psc, sync_psc);
 
@@ -488,4 +503,25 @@ pub(crate) fn init_rtc(cs: CriticalSection, config: RtcConfig, min_stop_pause: e
     get_driver().set_min_stop_pause(cs, min_stop_pause);
 
     trace!("low power: stop with rtc configured");
+}
+
+#[cfg(test)]
+mod prescaler_tests {
+    use super::*;
+
+    #[test]
+    fn prescalers_keep_one_hertz() {
+        // the usual cases are unchanged: LSE, and a 32 kHz LSI
+        assert_eq!(prescalers(Hertz(32_768), Hertz(256)), (127, 255));
+        assert_eq!(prescalers(Hertz(32_000), Hertz(256)), (124, 255));
+        // a 40 kHz LSI (F0, F1, F3) needs 156.25 for 256 Hz, more than PREDIV_A holds
+        assert_eq!(prescalers(Hertz(40_000), Hertz(256)), (124, 319));
+        // a ratio that is not a whole number
+        assert_eq!(prescalers(Hertz(32_768), Hertz(1000)), (31, 1023));
+        for (clk, sub) in [(40_000, 256), (32_768, 1000), (1_000_000, 256), (37_000, 256)] {
+            let (a, s) = prescalers(Hertz(clk), Hertz(sub));
+            assert!(a <= 127);
+            assert_eq!((a as u32 + 1) * (s as u32 + 1), clk);
+        }
+    }
 }
