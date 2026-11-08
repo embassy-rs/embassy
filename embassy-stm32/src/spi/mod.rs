@@ -139,6 +139,18 @@ pub enum CrcConfig {
     },
 }
 
+/// CRC initial value.
+#[cfg(any(spi_v4, spi_v5, spi_v6))]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum CrcInit {
+    /// All zeros.
+    #[default]
+    Zeros,
+    /// All ones (e.g. CRC-16/CCITT-FALSE, MODBUS).
+    Ones,
+}
+
 /// SPI configuration.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
@@ -174,7 +186,12 @@ pub struct Config {
     /// NSS output disabled (SSM = 0, SSOE = 0): For devices set as slave, the NSS pin acts as a classical NSS input: the slave is selected when NSS is low and deselected when NSS high.
     pub nss_output_disable: bool,
     /// Hardware CRC configuration.
+    ///
+    /// The polynomial is given without its top bit, e.g. `0x1021`.
     pub crc: CrcConfig,
+    /// CRC initial value.
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    pub crc_init: CrcInit,
     /// Slave Select (SS) pin polarity.
     #[cfg(any(spi_v4, spi_v5, spi_v6))]
     pub nss_polarity: SlaveSelectPolarity,
@@ -191,6 +208,8 @@ impl Default for Config {
             gpio_speed: Speed::VeryHigh,
             nss_output_disable: false,
             crc: CrcConfig::default(),
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            crc_init: CrcInit::default(),
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
             nss_polarity: SlaveSelectPolarity::ActiveLow,
         }
@@ -540,7 +559,6 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_ssiop(ssiop);
             });
             regs.cfg1().modify(|w| {
-                w.set_crcen(self.crc_enabled);
                 w.set_mbr(br);
                 w.set_dsize(<u8 as SealedWord>::CONFIG);
                 w.set_fthlv(vals::Fthlv::OneFrame);
@@ -548,15 +566,11 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             regs.cr2().modify(|w| {
                 w.set_tsize(0);
             });
+            write_crc(regs, config.crc, config.crc_init);
             regs.cr1().modify(|w| {
                 w.set_ssi(false);
                 w.set_spe(true);
             });
-            match config.crc {
-                CrcConfig::Crc8 { polynomial } => regs.crcpoly().write(|w| w.set_crcpoly(polynomial as u32)),
-                CrcConfig::Crc16 { polynomial } => regs.crcpoly().write(|w| w.set_crcpoly(polynomial as u32)),
-                CrcConfig::Disabled => {}
-            }
         }
     }
 
@@ -598,18 +612,12 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         regs.cr1().modify(|w| w.set_crcen(self.crc_enabled));
 
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        regs.cfg1().modify(|w| w.set_crcen(self.crc_enabled));
+        write_crc(regs, config, read_crc_init(regs));
 
         #[cfg(any(spi_v1, spi_v2, spi_v3))]
         match config {
             CrcConfig::Crc8 { polynomial } => regs.crcpoly().write(|w| w.set_crcpoly(polynomial as u16)),
             CrcConfig::Crc16 { polynomial } => regs.crcpoly().write(|w| w.set_crcpoly(polynomial)),
-            CrcConfig::Disabled => {}
-        }
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        match config {
-            CrcConfig::Crc8 { polynomial } => regs.crcpoly().write(|w| w.set_crcpoly(polynomial as u32)),
-            CrcConfig::Crc16 { polynomial } => regs.crcpoly().write(|w| w.set_crcpoly(polynomial as u32)),
             CrcConfig::Disabled => {}
         }
 
@@ -798,7 +806,11 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             #[cfg(any(spi_v1, spi_v2, spi_v3))]
             let poly = self.info.regs.crcpoly().read().crcpoly() as u16;
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
-            let poly = self.info.regs.crcpoly().read().crcpoly() as u16;
+            let (bits, poly) = {
+                let bits = u32::from(cfg1.crcsize()) + 1;
+                let poly = self.info.regs.crcpoly().read().crcpoly() & !(1u32.checked_shl(bits).unwrap_or(0));
+                (bits, poly as u16)
+            };
 
             #[cfg(all(any(spi_v1, spi_v2), not(spi_v2_i2s)))]
             {
@@ -812,9 +824,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             }
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
             {
-                // spi_v4/v5/v6 do not expose CRC width in a readable register.
-                // Heuristic: if the polynomial fits in u8, assume CRC-8.
-                if poly <= u8::MAX as u16 {
+                if bits <= 8 {
                     CrcConfig::Crc8 { polynomial: poly as u8 }
                 } else {
                     CrcConfig::Crc16 { polynomial: poly }
@@ -835,6 +845,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
             nss_polarity,
             crc,
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            crc_init: read_crc_init(self.info.regs),
         }
     }
 
@@ -2143,19 +2155,71 @@ fn reconfigure<CM: CommunicationMode>(info: &Info, kernel_clock: Hertz, config: 
         });
         info.regs.cfg1().modify(|w| {
             w.set_mbr(br);
-            w.set_crcen(!matches!(config.crc, CrcConfig::Disabled));
         });
-        match config.crc {
-            CrcConfig::Crc8 { polynomial } => info.regs.crcpoly().write(|w| w.set_crcpoly(polynomial as u32)),
-            CrcConfig::Crc16 { polynomial } => info.regs.crcpoly().write(|w| w.set_crcpoly(polynomial as u32)),
-            CrcConfig::Disabled => {}
-        }
+        write_crc(info.regs, config.crc, config.crc_init);
 
         info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
     }
     Ok(())
+}
+
+/// Program the CRC (length, polynomial, initial value, enable). Call with SPE clear.
+///
+/// The top bit goes in `CRCPOLY`, or in `CRC33_17` when the CRC is as wide as the register (16
+/// bits on limited instances, which are found by reading the bit back). Disabled restores the
+/// reset values; the SPI does not clock with other CRC settings left behind.
+#[cfg(any(spi_v4, spi_v5, spi_v6))]
+fn write_crc(regs: Regs, crc: CrcConfig, init: CrcInit) {
+    let (bits, polynomial) = match crc {
+        CrcConfig::Disabled => (0, 0),
+        CrcConfig::Crc8 { polynomial } => (8u8, u32::from(polynomial)),
+        CrcConfig::Crc16 { polynomial } => (16, u32::from(polynomial)),
+    };
+    let on = bits != 0;
+
+    let full_size = if on {
+        let top = 1u32 << bits;
+        regs.crcpoly().write(|w| w.set_crcpoly(polynomial | top));
+        let full_size = regs.crcpoly().read().crcpoly() & top == 0;
+        if full_size {
+            regs.crcpoly().write(|w| w.set_crcpoly(polynomial));
+        }
+        full_size
+    } else {
+        regs.crcpoly().write(|w| w.set_crcpoly(0x107));
+        false
+    };
+
+    regs.cfg1().modify(|w| {
+        w.set_crcen(on);
+        w.set_crcsize(if on { bits - 1 } else { 7 });
+    });
+
+    let ones = on && init == CrcInit::Ones;
+    regs.cr1().modify(|w| {
+        w.set_crc33_17(full_size);
+        w.set_tcrcini(if ones {
+            vals::Tcrcini::AllOnes
+        } else {
+            vals::Tcrcini::AllZeros
+        });
+        w.set_rcrcini(if ones {
+            vals::Rcrcini::AllOnes
+        } else {
+            vals::Rcrcini::AllZeros
+        });
+    });
+}
+
+#[cfg(any(spi_v4, spi_v5, spi_v6))]
+fn read_crc_init(regs: Regs) -> CrcInit {
+    if regs.cr1().read().tcrcini() == vals::Tcrcini::AllOnes {
+        CrcInit::Ones
+    } else {
+        CrcInit::Zeros
+    }
 }
 
 pub(crate) trait RegsExt {
