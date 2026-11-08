@@ -526,6 +526,8 @@ pub(crate) struct LLiState {
     index: AtomicUsize,
     /// The total transfer count of all linked-list items in number of words.
     transfer_count: AtomicUsize,
+    /// Items completed since the transfer was configured, wrapping.
+    completed: AtomicUsize,
 }
 
 pub(crate) struct ChannelState {
@@ -543,6 +545,7 @@ impl ChannelState {
             count: AtomicUsize::new(0),
             index: AtomicUsize::new(0),
             transfer_count: AtomicUsize::new(0),
+            completed: AtomicUsize::new(0),
         },
     };
 }
@@ -616,6 +619,7 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
         let complete = if lli_count > 0 {
             let next_lli_index = state.lli_state.index.load(Ordering::Acquire) + 1;
             let complete = next_lli_index >= lli_count;
+            state.lli_state.completed.fetch_add(1, Ordering::Release);
 
             state
                 .lli_state
@@ -881,6 +885,7 @@ impl<'d> Channel<'d> {
         let state = &STATE[self.channel as usize];
         state.lli_state.count.store(item_count, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
+        state.lli_state.completed.store(0, Ordering::Relaxed);
         state
             .lli_state
             .transfer_count
@@ -1211,6 +1216,33 @@ impl<'a> LinkedListTransfer<'a> {
     pub fn clear_trigger_overrun(&self) {
         let info = self.channel.info();
         info.dma.ch(info.num).fcr().write(|w| w.set_tof(true));
+    }
+
+    /// Items completed since the transfer started, wrapping.
+    ///
+    /// Counted on transfer-complete interrupts: needs [`TransferOptions::complete_transfer_ir`]
+    /// and one per item, as linear items with [`TransferCompleteMode::EachBlock`] raise.
+    pub fn completed_items(&self) -> usize {
+        STATE[self.channel.channel as usize]
+            .lli_state
+            .completed
+            .load(Ordering::Acquire)
+    }
+
+    /// Wait until [`completed_items`](Self::completed_items) differs from `seen` or the transfer
+    /// stops. Returns the count.
+    pub async fn wait_completed_items(&mut self, seen: usize) -> usize {
+        core::future::poll_fn(|cx| {
+            // Register before reading, so a completion in between still wakes.
+            STATE[self.channel.channel as usize].waker.register(cx.waker());
+            let completed = self.completed_items();
+            if completed != seen || !self.is_running() {
+                Poll::Ready(completed)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
     }
 
     /// Gets the total remaining transfers for the channel

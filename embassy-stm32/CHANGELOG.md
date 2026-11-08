@@ -174,6 +174,7 @@ DMA:
 - feat: stm32/dma: GPDMA: per-item hardware triggers (`ItemConfig::trigger`)
 - feat: stm32/dma: GPDMA: memory-to-memory linked-list items (`LinearItem::new_copy`), software-requested
 - feat: stm32/dma: GPDMA: `LinkedListTransfer::trigger_overrun` and `clear_trigger_overrun`
+- feat: stm32/dma: GPDMA: `LinkedListTransfer::completed_items` and `wait_completed_items`
 
 I2S:
 - feat: stm32/i2s: add `I2S::rx_len()` returning the number of samples buffered in the RX DMA ring buffer
