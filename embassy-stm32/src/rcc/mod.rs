@@ -15,6 +15,12 @@ pub const LSI_FREQ: crate::time::Hertz = crate::time::Hertz(40_000);
 #[cfg(not(any(stm32f0, stm32f1, stm32f3)))]
 pub const LSI_FREQ: crate::time::Hertz = crate::time::Hertz(32_000);
 
+// No N6 yet, TODO. Use bool for its reset flags instead of enums in the PAC.
+#[cfg(not(stm32n6))]
+mod reset_flags;
+#[cfg(not(stm32n6))]
+pub use reset_flags::*;
+
 #[cfg(any(mco, mco1, mco2))]
 mod mco;
 use critical_section::CriticalSection;
