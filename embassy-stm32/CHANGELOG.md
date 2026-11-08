@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+Atomic:
+- fix: stm32/atomic: make `AtomicClear::clear` atomic on targets without 8-bit atomic RMW (thumbv6m)
+
 UCPD:
 - fix: stm32/ucpd: update the interrupt enable register atomically. The CC part, the PD part and the interrupt handler could overwrite each other's enable bits, leaving a waiting future without its interrupt.
 - fix: stm32/ucpd: give `CcPhy::wait_for_vstate_change`, `PdPhy` receptions and `PdPhy` transmissions their own wakers. They shared one, so with `CcPhy` and `PdPhy` in different tasks one task's wake could be lost.
