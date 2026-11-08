@@ -455,19 +455,46 @@ embassy_hal_internal::peripherals! {
     P3_11,
     P3_12,
 
-    // GRTC
+    // GRTC. The time driver's channel is not handed out: the one a
+    // `time-driver-grtc-ccN` feature selects, else CC11.
+    #[cfg(not(feature = "time-driver-grtc-cc0"))]
     GRTC_CH0,
+    #[cfg(not(feature = "time-driver-grtc-cc1"))]
     GRTC_CH1,
+    #[cfg(not(feature = "time-driver-grtc-cc2"))]
     GRTC_CH2,
+    #[cfg(not(feature = "time-driver-grtc-cc3"))]
     GRTC_CH3,
+    #[cfg(not(feature = "time-driver-grtc-cc4"))]
     GRTC_CH4,
+    #[cfg(not(feature = "time-driver-grtc-cc5"))]
     GRTC_CH5,
+    #[cfg(not(feature = "time-driver-grtc-cc6"))]
     GRTC_CH6,
+    #[cfg(not(feature = "time-driver-grtc-cc7"))]
     GRTC_CH7,
+    #[cfg(not(feature = "time-driver-grtc-cc8"))]
     GRTC_CH8,
+    #[cfg(not(feature = "time-driver-grtc-cc9"))]
     GRTC_CH9,
+    #[cfg(not(feature = "time-driver-grtc-cc10"))]
     GRTC_CH10,
-    #[cfg(not(feature = "time-driver-grtc"))]
+    #[cfg(not(all(
+        feature = "time-driver-grtc",
+        not(any(
+            feature = "time-driver-grtc-cc0",
+            feature = "time-driver-grtc-cc1",
+            feature = "time-driver-grtc-cc2",
+            feature = "time-driver-grtc-cc3",
+            feature = "time-driver-grtc-cc4",
+            feature = "time-driver-grtc-cc5",
+            feature = "time-driver-grtc-cc6",
+            feature = "time-driver-grtc-cc7",
+            feature = "time-driver-grtc-cc8",
+            feature = "time-driver-grtc-cc9",
+            feature = "time-driver-grtc-cc10",
+        ))
+    )))]
     GRTC_CH11,
 
     // PWM

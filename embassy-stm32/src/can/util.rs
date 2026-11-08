@@ -23,6 +23,15 @@ pub fn calc_can_timings(
     periph_clock: crate::time::Hertz,
     can_bitrate: u32,
 ) -> Result<NominalBitTiming, TimingCalcError> {
+    calc_can_timings_with_max_prescaler(periph_clock, can_bitrate, 1024)
+}
+
+/// Like [`calc_can_timings`], but with the largest prescaler the target register can hold.
+pub(crate) fn calc_can_timings_with_max_prescaler(
+    periph_clock: crate::time::Hertz,
+    can_bitrate: u32,
+    max_prescaler: u32,
+) -> Result<NominalBitTiming, TimingCalcError> {
     const BS1_MAX: u8 = 16;
     const BS2_MAX: u8 = 8;
     const MAX_SAMPLE_POINT_PERMILL: u16 = 900;
@@ -64,7 +73,7 @@ pub fn calc_can_timings(
     }
 
     let prescaler = prescaler_bs / (1 + bs1_bs2_sum) as u32;
-    if !(1..=1024).contains(&prescaler) {
+    if !(1..=max_prescaler).contains(&prescaler) {
         return Err(TimingCalcError::InvalidPrescaler { prescaler }); // No solution
     }
 
@@ -123,4 +132,36 @@ pub fn calc_can_timings(
         seg1,
         seg2,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fdcan_limits_reject_prescalers_bxcan_accepts() {
+        let clock = crate::time::Hertz(100_000_000);
+
+        // 10 kbit/s needs prescaler 625: inside bxCAN's 1024, outside NBRP's 512.
+        let bxcan = calc_can_timings(clock, 10_000).unwrap();
+        assert_eq!(u16::from(bxcan.prescaler), 625);
+        assert!(matches!(
+            calc_can_timings_with_max_prescaler(clock, 10_000, 512),
+            Err(TimingCalcError::InvalidPrescaler { prescaler: 625 })
+        ));
+
+        // 125 kbit/s needs prescaler 50: inside NBRP's 512, outside DBRP's 32.
+        let nominal = calc_can_timings_with_max_prescaler(clock, 125_000, 512).unwrap();
+        assert_eq!(u16::from(nominal.prescaler), 50);
+        assert!(matches!(
+            calc_can_timings_with_max_prescaler(clock, 125_000, 32),
+            Err(TimingCalcError::InvalidPrescaler { prescaler: 50 })
+        ));
+
+        // 500 kbit/s at 100 MHz is prescaler 20 and 10 quanta, which both FDCAN fields can hold.
+        let fast = calc_can_timings_with_max_prescaler(clock, 500_000, 512).unwrap();
+        assert_eq!(u16::from(fast.prescaler), 20);
+        assert_eq!(u8::from(fast.seg1), 8);
+        assert_eq!(u8::from(fast.seg2), 1);
+    }
 }

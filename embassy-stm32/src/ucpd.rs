@@ -23,6 +23,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::atomic::AtomicModify;
 use crate::dma::{ChannelAndRequest, TransferOptions};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
@@ -236,7 +237,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         r.cr().modify(|w| w.set_phyccsel(cc_sel));
 
         // Enable hard reset receive interrupt.
-        r.imr().modify(|w| w.set_rxhrstdetie(true));
+        r.imr().set_bits(|w| w.set_rxhrstdetie(true));
 
         // Enable PD packet reception
         r.cr().modify(|w| w.set_phyrxen(true));
@@ -359,21 +360,44 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     ///
     /// Interpretation of the voltage levels depends on the configured CC line
     /// pull-up/pull-down resistance.
+    ///
+    /// This also marks the current state as seen: [`wait_for_vstate_change`](Self::wait_for_vstate_change)
+    /// returns once the state changes after this call.
     pub fn vstate(&self) -> (CcVState, CcVState) {
+        // Clear the event flags before reading the state, so that a change after the read sets
+        // them again instead of being lost.
+        T::REGS.icr().write(|w| {
+            w.set_typecevt1cf(true);
+            w.set_typecevt2cf(true);
+        });
         let sr = T::REGS.sr().read();
         (sr.typec_vstate_cc1(), sr.typec_vstate_cc2())
     }
 
     /// Waits for a change in voltage state on either CC line.
-    pub async fn wait_for_vstate_change(&self) -> (CcVState, CcVState) {
+    ///
+    /// Returns the current voltage state once the hardware has reported a change on CC1 or CC2
+    /// since the state was last read, by [`vstate`](Self::vstate) or by this function. Changes
+    /// are latched: one that happened before this call makes it return immediately, so a loop like
+    ///
+    /// ```ignore
+    /// let (mut cc1, _) = cc_phy.vstate();
+    /// while cc1 != wanted {
+    ///     (cc1, _) = cc_phy.wait_for_vstate_change().await;
+    /// }
+    /// ```
+    ///
+    /// can't miss a change. The returned state can be equal to the one seen before, for example
+    /// if the line changed and changed back.
+    pub async fn wait_for_vstate_change(&mut self) -> (CcVState, CcVState) {
         let _on_drop = OnDrop::new(|| self.enable_cc_interrupts(false));
-        let prev_vstate = self.vstate();
         poll_fn(|cx| {
-            let vstate = self.vstate();
-            if vstate != prev_vstate {
-                Poll::Ready(vstate)
+            let sr = T::REGS.sr().read();
+            if sr.typecevt1() || sr.typecevt2() {
+                // Clears the flags, then reads the state.
+                Poll::Ready(self.vstate())
             } else {
-                T::state().waker.register(cx.waker());
+                T::state().cc_waker.register(cx.waker());
                 self.enable_cc_interrupts(true);
                 Poll::Pending
             }
@@ -382,10 +406,17 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     }
 
     fn enable_cc_interrupts(&self, enable: bool) {
-        T::REGS.imr().modify(|w| {
-            w.set_typecevt1ie(enable);
-            w.set_typecevt2ie(enable);
-        });
+        if enable {
+            T::REGS.imr().set_bits(|w| {
+                w.set_typecevt1ie(true);
+                w.set_typecevt2ie(true);
+            });
+        } else {
+            T::REGS.imr().clear_bits(|w| {
+                w.set_typecevt1ie(false);
+                w.set_typecevt2ie(false);
+            });
+        }
     }
 }
 
@@ -505,7 +536,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
                 // Clean and re-enable hard reset receive interrupt.
                 r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().modify(|w| w.set_rxhrstdetie(true));
+                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
                 Poll::Ready(Err(RxError::HardReset))
             } else if sr.rxmsgend() {
                 dma.request_pause();
@@ -521,7 +552,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 };
                 Poll::Ready(ret)
             } else {
-                T::state().waker.register(cx.waker());
+                T::state().rx_waker.register(cx.waker());
                 Self::enable_rx_interrupt(true);
                 Poll::Pending
             }
@@ -550,7 +581,11 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     }
 
     fn enable_rx_interrupt(enable: bool) {
-        T::REGS.imr().modify(|w| w.set_rxmsgendie(enable));
+        if enable {
+            T::REGS.imr().set_bits(|w| w.set_rxmsgendie(true));
+        } else {
+            T::REGS.imr().clear_bits(|w| w.set_rxmsgendie(false));
+        }
     }
 
     /// Transmits an SOP PD message.
@@ -603,14 +638,14 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             if sr.rxhrstdet() {
                 // Clean and re-enable hard reset receive interrupt.
                 r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().modify(|w| w.set_rxhrstdetie(true));
+                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
                 Poll::Ready(Err(TxError::HardReset))
             } else if sr.txmsgdisc() {
                 Poll::Ready(Err(TxError::Discarded))
             } else if sr.txmsgsent() {
                 Poll::Ready(Ok(()))
             } else {
-                T::state().waker.register(cx.waker());
+                T::state().tx_waker.register(cx.waker());
                 Self::enable_tx_interrupts(true);
                 Poll::Pending
             }
@@ -619,10 +654,17 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     }
 
     fn enable_tx_interrupts(enable: bool) {
-        T::REGS.imr().modify(|w| {
-            w.set_txmsgdiscie(enable);
-            w.set_txmsgsentie(enable);
-        });
+        if enable {
+            T::REGS.imr().set_bits(|w| {
+                w.set_txmsgdiscie(true);
+                w.set_txmsgsentie(true);
+            });
+        } else {
+            T::REGS.imr().clear_bits(|w| {
+                w.set_txmsgdiscie(false);
+                w.set_txmsgsentie(false);
+            });
+        }
     }
 
     /// Transmit a hard reset.
@@ -647,14 +689,14 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             if sr.rxhrstdet() {
                 // Clean and re-enable hard reset receive interrupt.
                 r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().modify(|w| w.set_rxhrstdetie(true));
+                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
                 Poll::Ready(Err(TxError::HardReset))
             } else if sr.hrstdisc() {
                 Poll::Ready(Err(TxError::Discarded))
             } else if sr.hrstsent() {
                 Poll::Ready(Ok(()))
             } else {
-                T::state().waker.register(cx.waker());
+                T::state().tx_waker.register(cx.waker());
                 self.enable_hardreset_interrupts(true);
                 Poll::Pending
             }
@@ -663,10 +705,17 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     }
 
     fn enable_hardreset_interrupts(&self, enable: bool) {
-        T::REGS.imr().modify(|w| {
-            w.set_hrstdiscie(enable);
-            w.set_hrstsentie(enable);
-        });
+        if enable {
+            T::REGS.imr().set_bits(|w| {
+                w.set_hrstdiscie(true);
+                w.set_hrstsentie(true);
+            });
+        } else {
+            T::REGS.imr().clear_bits(|w| {
+                w.set_hrstdiscie(false);
+                w.set_hrstsentie(false);
+            });
+        }
     }
 }
 
@@ -678,44 +727,57 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::REGS;
+        let state = T::state();
         let sr = r.sr().read();
 
         if sr.typecevt1() || sr.typecevt2() {
-            r.icr().write(|w| {
-                w.set_typecevt1cf(true);
-                w.set_typecevt2cf(true);
+            // Leave the event flags set, `wait_for_vstate_change` clears them. This way a change is
+            // not lost if the state has changed back by the time the task runs.
+            r.imr().clear_bits(|w| {
+                w.set_typecevt1ie(false);
+                w.set_typecevt2ie(false);
             });
+            state.cc_waker.wake();
         }
 
         if sr.rxhrstdet() {
-            r.imr().modify(|w| w.set_rxhrstdetie(false));
+            r.imr().clear_bits(|w| w.set_rxhrstdetie(false));
+            // A received Hard Reset ends both a pending reception and a pending transmission.
+            state.rx_waker.wake();
+            state.tx_waker.wake();
         }
 
         if sr.rxmsgend() {
-            r.imr().modify(|w| w.set_rxmsgendie(false));
+            r.imr().clear_bits(|w| w.set_rxmsgendie(false));
+            state.rx_waker.wake();
         }
 
         if sr.txmsgdisc() || sr.txmsgsent() {
-            r.imr().modify(|w| {
+            r.imr().clear_bits(|w| {
                 w.set_txmsgdiscie(false);
                 w.set_txmsgsentie(false);
             });
+            state.tx_waker.wake();
         }
 
         if sr.hrstdisc() || sr.hrstsent() {
-            r.imr().modify(|w| {
+            r.imr().clear_bits(|w| {
                 w.set_hrstdiscie(false);
                 w.set_hrstsentie(false);
             });
+            state.tx_waker.wake();
         }
 
-        // Wake the task to clear and re-enabled interrupts.
-        T::state().waker.wake();
+        // Wake the tasks to clear and re-enabled interrupts.
     }
 }
 
 struct State {
-    waker: AtomicWaker,
+    // CcPhy and PdPhy can be used from different tasks at the same time, and an AtomicWaker only
+    // holds one waker, so each wait has its own.
+    cc_waker: AtomicWaker,
+    rx_waker: AtomicWaker,
+    tx_waker: AtomicWaker,
     // Inverted logic for a default state of 0 so that the data goes into the .bss section.
     drop_not_ready: AtomicBool,
 }
@@ -723,7 +785,9 @@ struct State {
 impl State {
     pub const fn new() -> Self {
         Self {
-            waker: AtomicWaker::new(),
+            cc_waker: AtomicWaker::new(),
+            rx_waker: AtomicWaker::new(),
+            tx_waker: AtomicWaker::new(),
             drop_not_ready: AtomicBool::new(false),
         }
     }

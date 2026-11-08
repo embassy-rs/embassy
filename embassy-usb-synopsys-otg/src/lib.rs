@@ -12,8 +12,9 @@ mod fmt;
 
 use core::cell::UnsafeCell;
 use core::cmp::min;
-use core::future::poll_fn;
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
+use core::pin::pin;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use core::task::Poll;
 
@@ -52,6 +53,10 @@ where
             w.set_rxflvlm(true);
         });
         state.bus_waker.wake();
+
+        // A control transfer stage waits on EP0. Wake it to check for a reset, and to unmask
+        // USBRST if this masked it before the reset.
+        state.ep_states[0].out_waker.wake();
     }
 
     // Handle RX
@@ -2194,29 +2199,37 @@ where
 
     async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
         trace!("control: data_out");
-        let len = self.ep_out.read(buf).await?;
+        let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
+        let len = abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_out.read(buf)).await?;
         trace!("control: data_out read: {:?}", Bytes(&buf[..len]));
         Ok(len)
     }
 
     async fn data_in(&mut self, data: &[u8], _first: bool, last: bool) -> Result<(), EndpointError> {
         trace!("control: data_in write: {:?}", Bytes(data));
-        self.ep_in.write(data).await?;
+        let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
+        abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, async {
+            self.ep_in.write(data).await?;
 
-        // wait for status response from host after sending the last packet
-        if last {
-            trace!("control: data_in waiting for status");
-            self.ep_out.read(&mut []).await?;
-            trace!("control: complete");
-        }
+            // wait for status response from host after sending the last packet
+            if last {
+                trace!("control: data_in waiting for status");
+                self.ep_out.read(&mut []).await?;
+                trace!("control: complete");
+            }
 
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn accept(&mut self) {
         trace!("control: accept");
 
-        self.ep_in.write(&[]).await.ok();
+        let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
+        abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_in.write(&[]))
+            .await
+            .ok();
 
         trace!("control: accept OK");
     }
@@ -2244,6 +2257,39 @@ where
         // synopsys driver requires accept to be sent after changing address
         self.accept().await
     }
+}
+
+/// Runs a control transfer stage until it completes or the host abandons the transfer with a new
+/// SETUP or a bus reset. EP0's EPENA and enabled flags survive a reset, so without this a stage can
+/// wait forever, and the reset is never handled: embassy-usb doesn't poll the bus during a control
+/// transfer. Returns `EndpointError::Disabled` when the transfer was abandoned.
+async fn abort_on_new_setup_or_reset<T, M: RawMutex>(
+    regs: Otg,
+    mutex: M,
+    setup_state: &ControlPipeSetupState,
+    ep0_out: &EpState,
+    stage: impl Future<Output = Result<T, EndpointError>>,
+) -> Result<T, EndpointError> {
+    let mut stage = pin!(stage);
+    poll_fn(|cx| {
+        // The interrupt wakes this waker on a SETUP and on any bus event.
+        ep0_out.out_waker.register(cx.waker());
+        // Check before polling the stage, so that it does not start a transfer after a reset.
+        // Leave both set: setup() consumes `setup_ready` and Bus::poll clears USBRST.
+        if setup_state.setup_ready.load(Ordering::Acquire) || regs.gintsts().read().usbrst() {
+            trace!("control: received another SETUP or a bus reset, aborting");
+            return Poll::Ready(Err(EndpointError::Disabled));
+        }
+
+        // A bus event masks USBRST until Bus::poll runs, so a reset after a suspend would raise
+        // no interrupt.
+        if !regs.gintmsk().read().usbrst() {
+            mutex.lock(|| regs.gintmsk().modify(|w| w.set_usbrst(true)));
+        }
+
+        stage.as_mut().poll(cx)
+    })
+    .await
 }
 
 /// Translates HAL [EndpointType] into PAC [vals::Eptyp]

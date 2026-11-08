@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Atomic:
 - fix: stm32/atomic: make `AtomicClear::clear` atomic on targets without 8-bit atomic RMW (thumbv6m)
 
+UCPD:
+- fix: stm32/ucpd: update the interrupt enable register atomically. The CC part, the PD part and the interrupt handler could overwrite each other's enable bits, leaving a waiting future without its interrupt.
+- fix: stm32/ucpd: give `CcPhy::wait_for_vstate_change`, `PdPhy` receptions and `PdPhy` transmissions their own wakers. They shared one, so with `CcPhy` and `PdPhy` in different tasks one task's wake could be lost.
+- fix: stm32/ucpd: `CcPhy::wait_for_vstate_change` no longer misses CC changes. It compared against a state read when it was called, so a change just before or at the start of the call was ignored, and so was a change that reverted before the task ran. It now uses the latched TYPECEVT flags, and returns immediately if a change happened since the previous call.
+- change: stm32/ucpd: `CcPhy::wait_for_vstate_change` takes `&mut self`. Two concurrent waits disabled each other's interrupt when the first one finished.
+- change: stm32/ucpd: `CcPhy::vstate` marks the state as seen, so `CcPhy::wait_for_vstate_change` reports changes since the last `vstate()` call instead of since its own last return ([#6394](https://github.com/embassy-rs/embassy/issues/6394)).
+
 VREFBUF:
 - feat: stm32/vrefbuf g0x1: enable the VREFBUF clock. On G0x1, including G0B1, it is `SYSCFGEN` in `RCC_APBENR2`, shared with SYSCFG and COMP (RM0444 5.4.16). Without it `VoltageReferenceBuffer::new` never sees `VRR` and waits forever.
 
@@ -34,6 +41,7 @@ Time driver:
 - fix: stm32/time-driver-lptim: `now()` retries if the update event flag changes while it reads the counter; a wrap between the two reads returned a time one counter period ahead, then time went backwards
 
 I2C:
+- fix: stm32/i2c v2: clamp SDADEL and SCLDEL to 15. They are 4-bit fields in TIMINGR and the computed values were often larger, so only their low 4 bits were written. With a 100 MHz I2C kernel clock, 400 kHz got a data setup time of 20 ns instead of at least 100 ns, and 100 kHz got 80 ns instead of at least 250 ns.
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
 - fix: stm32/i2c v2: a blocking controller transfer that times out (e.g. SCL held low by the target) now resets the peripheral (PE toggle, as for BERR/ARLO) instead of requesting STOP and abandoning the transfer. The abandoned transfer's NACKF/STOPF arrived later and the next call returned them after it had started its own transfer, which then ran unserved, so every later blocking transfer timed out until PE was toggled by hand.
 - fix: stm32/i2c v2: an async slave `respond_to_write` that received more than its buffer holds timed out while discarding the extra bytes, because nothing woke it for them, and could leave the last one in RXDR. It now wakes on every byte and reads a byte that arrived with the STOP.
@@ -116,6 +124,7 @@ Crypto:
 - feat: stm32/aes: enable the driver on STM32U3 and STM32U5
 
 CAN:
+- fix: stm32/fdcan: `set_bitrate` and `set_fd_data_bitrate` accepted prescalers up to 1024, the bxCAN limit, but NBRP holds 1 to 512 and DBRP 1 to 32, so a larger prescaler was cut to its low bits and the bus ran at a different bitrate (10 kbit/s nominal at a 100 MHz kernel clock became 55.3 kbit/s). They now fail like any other unreachable bitrate. The largest valid values of a `NominalBitTiming` or `DataBitTiming` (prescaler 512 or 32, and so on) no longer overflow when they are written.
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
 - fix: stm32/fdcan: apply `FdCanConfig::timestamp_source`. It was ignored and the timestamp counter always ran from the kernel clock, and `TimestampPrescaler` wrote the prescaler value instead of `TCP = prescaler - 1`.
 - fix: stm32/fdcan: the TX buffer element kept only 7 of the 8 message marker bits.
@@ -133,6 +142,7 @@ Ethernet:
 - fix: stm32/eth: skip MDIO addresses whose PHY ID registers both read all-ones when probing for a PHY, instead of resetting and waiting on every address that has no device.
 
 USB:
+- fix: stm32/usb h7/h7rs: with `Hsi48Config { sync_from_usb: true }`, the CRS now syncs to the SOFs of the OTG port in use. It was left at the SVD's `USB` value, which only covers USB1 (OTG_HS) on H7 and OTG_FS on H7R/S, so the other port never trimmed HSI48.
 - perf: copy packet memory a word at a time instead of calling `memcpy` for every word.
 - fix: OTG_FS on STM32F1 uses 4 endpoints and 320 FIFO words.
 - fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
@@ -179,6 +189,8 @@ ADC:
 RNG:
 - fix: stm32/rng h7: recover from a seed error as RM0433 34.3.7 says: clear SEIS, discard 12 words, check SEIS. A reset discarded only one word, so the next words could be ones generated before or during the error.
 - fix: stm32/rng g4, wb: use that same seed-error recovery. RM0440 and the WB manuals (RM0434, RM0471, RM0473, RM0478) specify the same clear-SEIS, discard-12-words sequence.
+- fix: stm32/rng h7, g4, wb: the seed-error recovery waits for DRDY before each of the 12 discards (bounded). Plain back-to-back reads return zero once the 8-word output buffer is empty and take nothing out, so the last 4 pipeline words reached the caller.
+- fix: stm32/rng h7, g4, wb: the `embassy-crypto` RNG driver uses the seed-error recovery too. It still reset the RNG, which discards 1 word.
 - feat: stm32/rng: add configurable initialization policy (`RngConfig`) with `new_with_config` and health-test profile control
 - change: stm32/rng: `Rng` implements the `rand_core` 0.10 traits instead of the 0.6 and 0.9 ones.
 
@@ -214,6 +226,8 @@ PKA:
 - fix: stm32/pka: `point_check` writes the Montgomery parameter the operation needs, and no longer reports points off the curve as on it
 
 CRYP:
+- fix: stm32/cryp: set FFLUSH when flushing the FIFOs; GCM hung on the first operation.
+- fix: stm32/cryp: clear NPBLB when an operation starts; a partial last block gave the next operation a wrong tag.
 - feat: stm32/cryp: batch full-block DMA in payload and use 4-beat bursts on GPDMA
 - perf: stm32/cryp: aad/payload async API takes a faster path when user buffers are 4-byte aligned
 
@@ -240,6 +254,22 @@ SPI:
 
 LCD:
 - fix clock divider calculations when the target rate is not perfectly possible with ps+div registers
+
+FMAC:
+- fix: stm32/fmac: give the Y buffer one free slot on top of the stored outputs. With exactly M slots (`controller_2p2z`, `controller_3p3z`, or `iir` with `Data::Prefilled` of M values) the IIR outputs were wrong from the second sample on.
+- fix: stm32/fmac: dropping an `Fmac` now turns its clock off, so the next `Fmac::new` resets the peripheral. Before, the dropped filter kept running and the new instance's coefficient loads were ignored. `FromAdc` takes the `Fmac` lifetime as a separate parameter so it still compiles with the new `Drop`.
+
+CORDIC:
+- fix: stm32/cordic: the q1.15 `blocking_calc` and `async_calc` sized the result slice from the argument buffer, so `ResultLengthNotEnough` was never returned and a result buffer shorter than the arguments was written past its end. The result slice now uses the length of the result buffer.
+
+RTC:
+- fix: stm32/rtc: compute the prescalers so the calendar advances once per second. PREDIV_A is 7 bits, but the asynchronous divider was taken as clock / `RtcConfig::frequency` without a limit, so with the default 256 Hz and a 40 kHz LSI (F0, F3) 155 was written as 27 and the RTC ran about 5.6 times too fast. A requested frequency the clock cannot produce exactly is now rounded to the nearest lower divider that divides the clock evenly.
+
+SDMMC:
+- fix: stm32/sdmmc v1: a divisor of 258 was accepted and written as CLKDIV 256, which the 8-bit field stores as 0, so the card clock ran at half the kernel clock instead of 1/258 of it. 257 is now the largest divisor.
+
+Watchdog:
+- fix: stm32/wdg: an `IndependentWatchdog` timeout shorter than one prescaled LSI tick (125 us with a 32 kHz LSI) made the reload value underflow, which panics in debug builds and in release wraps to the longest timeout (512 ms). It now gets the shortest timeout instead.
 
 ## 0.6.0 - 2026-03-10
 

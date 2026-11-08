@@ -876,6 +876,32 @@ pub fn init(config: config::Config) -> Peripherals {
         }
     }
 
+    // Workaround for nRF52832 anomaly 108 "RAM: RAM content cannot be trusted upon waking up
+    // from System ON Idle or System OFF mode". Applies to all nRF52832 revisions.
+    // Same write as Nordic's SystemInit (nrfx mdk system_nrf52.c).
+    #[cfg(feature = "nrf52832")]
+    unsafe {
+        let trim = (0x1000_0258 as *const u32).read_volatile() & 0x0000_004F;
+        (0x4000_0EE4 as *mut u32).write_volatile(trim);
+    }
+
+    // Workaround for anomaly 217 "RAM: RAM calibration values are not correctly loaded from
+    // FICR at reset". Applies to all nRF52805 and nRF52811 revisions, and to nRF52810
+    // revision 1 only. Same write as Nordic's SystemInit (nrfx mdk system_nrf52.c).
+    #[cfg(any(feature = "nrf52805", feature = "nrf52810", feature = "nrf52811"))]
+    {
+        #[cfg(feature = "nrf52810")]
+        let affected = unsafe { (0x1000_0134 as *const u32).read_volatile() } == 0x01;
+        #[cfg(not(feature = "nrf52810"))]
+        let affected = true;
+        if affected {
+            unsafe {
+                let reg = 0x4000_0EE4 as *mut u32;
+                reg.write_volatile(reg.read_volatile() | 0x0000_000F);
+            }
+        }
+    }
+
     // Workaround for anomaly 66
     #[cfg(feature = "_nrf52")]
     {

@@ -241,7 +241,7 @@ pub mod mdf;
 pub mod mdios;
 #[cfg(npu)]
 pub mod npu;
-#[cfg(all(opamp, not(stm32c5)))]
+#[cfg(opamp)]
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
@@ -798,9 +798,7 @@ fn init_hw(config: Config) -> Peripherals {
         {
             crate::pac::RCC.miscensr().write(|w| w.set_dbgens(true));
             crate::pac::RCC.miscenr().read(); // volatile read
-            crate::pac::DBGMCU
-                .cr()
-                .modify(|w| w.set_dbgclken(stm32_metapac::dbgmcu::vals::Dbgclken::B0x1));
+            crate::pac::DBGMCU.cr().modify(|w| w.set_dbgclken(true));
             crate::pac::DBGMCU.cr().read();
         }
 
@@ -827,7 +825,7 @@ fn init_hw(config: Config) -> Peripherals {
                 cr.set_dbg_stop(config.enable_debug_during_sleep);
                 cr.set_dbg_standby(config.enable_debug_during_sleep);
             }
-            #[cfg(dbgmcu_h7)]
+            #[cfg(any(dbgmcu_h7, dbgmcu_h7rm0399))]
             {
                 cr.set_d1dbgcken(config.enable_debug_during_sleep);
                 cr.set_d3dbgcken(config.enable_debug_during_sleep);

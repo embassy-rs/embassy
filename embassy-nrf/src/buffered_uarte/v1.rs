@@ -914,6 +914,9 @@ impl<'a> Drop for BufferedUarteRx<'a> {
         if let Some(resources) = &mut self.resources {
             resources.ppi_group.disable_all();
             resources.timer.stop();
+            // workaround errata 78
+            #[cfg(any(feature = "_nrf51", feature = "_nrf52", feature = "_nrf5340", feature = "_nrf91"))]
+            resources.timer.shutdown();
         }
 
         let r = self.r;

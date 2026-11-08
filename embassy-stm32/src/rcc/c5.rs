@@ -212,6 +212,7 @@ pub(crate) unsafe fn init(config: Config) {
         sys: Some(sys),
         hclk1: Some(hclk),
         hclk2: Some(hclk),
+        hclk4: Some(hclk),
         pclk1: Some(apb1),
         pclk1_tim: Some(hclk),
         pclk2: Some(apb2),
