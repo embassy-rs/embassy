@@ -214,6 +214,8 @@ PKA:
 - fix: stm32/pka: `point_check` writes the Montgomery parameter the operation needs, and no longer reports points off the curve as on it
 
 CRYP:
+- fix: stm32/cryp: set FFLUSH when flushing the FIFOs; GCM hung on the first operation.
+- fix: stm32/cryp: clear NPBLB when an operation starts; a partial last block gave the next operation a wrong tag.
 - feat: stm32/cryp: batch full-block DMA in payload and use 4-beat bursts on GPDMA
 - perf: stm32/cryp: aad/payload async API takes a faster path when user buffers are 4-byte aligned
 
