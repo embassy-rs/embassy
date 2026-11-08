@@ -32,6 +32,7 @@ pub mod hub {
 pub mod midi;
 pub mod msc;
 pub mod uac;
+pub mod usbtmc;
 pub mod uvc {
     //! USB Video Class (UVC).
     pub mod device;
