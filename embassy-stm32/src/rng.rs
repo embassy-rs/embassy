@@ -21,6 +21,14 @@ static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 /// the infallible API surfaces by panicking, rather than spinning or recursing.
 const MAX_RESET_RETRIES: u32 = 3;
 
+/// How many RNG_SR reads [`recover_seed_error`](Rng::recover_seed_error) waits for each of the
+/// 12 pipeline words. The conditioning stage makes 4 words at most every 16 * fAHB / fRNG AHB
+/// cycles (RM0433 34.5), and with clock error detection on fRNG > fAHB / 32 (34.7.2), so a
+/// word takes at most a few hundred AHB cycles; this only stops a noise source that never
+/// recovers from hanging the discard.
+#[cfg(all(rng_v1, any(stm32h7, stm32g4, stm32wb)))]
+const SEED_ERROR_DISCARD_POLLS: u32 = 1 << 16;
+
 #[cfg(not(rng_v1))]
 /// Health-test programming profile used during RNG conditioning reset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -365,16 +373,22 @@ impl<'d, M: Mode> Rng<'d, M> {
     pub fn recover_seed_error(&mut self) {
         // RM0433 (H7), RM0440 (G4), and the WB manuals (RM0434, RM0471, RM0473,
         // RM0478): clear SEIS, read and discard 12 words to clean the pipeline,
-        // then confirm SEIS is still clear. A seed error stops generation, so these
-        // are plain RNG_DR reads. Waiting for DRDY can stall once the pipeline is
-        // empty; a read while DRDY is clear returns zero. A reset does not empty
-        // the pipeline: the post-processing logic and the output buffer keep
-        // running while RNGEN = 0.
+        // then confirm SEIS is still clear. A reset does not empty the pipeline:
+        // the post-processing logic and the output buffer keep running while
+        // RNGEN = 0.
+        //
+        // Each discard waits for DRDY. A read while DRDY is clear returns zero and
+        // takes nothing out (RM0433 34.7.3): the output buffer holds 8 words, and
+        // the last 4 of the 12 come from the conditioning stage after it. Plain
+        // back-to-back reads would leave those 4 for the caller. The wait is
+        // bounded so a noise source that never recovers cannot hang it.
         #[cfg(all(rng_v1, any(stm32h7, stm32g4, stm32wb)))]
         {
             self.regs().sr().modify(|reg| reg.set_seis(false));
             for _ in 0..12 {
-                let _ = self.regs().dr().read();
+                if self.discard_word_bounded().is_none() {
+                    break;
+                }
             }
         }
         #[cfg(not(all(rng_v1, any(stm32h7, stm32g4, stm32wb))))]
@@ -403,6 +417,24 @@ impl<'d, M: Mode> Rng<'d, M> {
                 return Some(self.regs().dr().read());
             }
         }
+    }
+
+    /// Read and discard one word for [`recover_seed_error`](Self::recover_seed_error), waiting
+    /// on DRDY for at most [`SEED_ERROR_DISCARD_POLLS`] status reads. `None` if no word came or
+    /// a new error flag is set.
+    #[cfg(all(rng_v1, any(stm32h7, stm32g4, stm32wb)))]
+    fn discard_word_bounded(&mut self) -> Option<()> {
+        for _ in 0..SEED_ERROR_DISCARD_POLLS {
+            let sr = self.regs().sr().read();
+            if sr.seis() | sr.ceis() {
+                return None;
+            }
+            if sr.drdy() {
+                let _ = self.regs().dr().read();
+                return Some(());
+            }
+        }
+        None
     }
 
     /// Wait for the first random word after a reset and discard it, as the
@@ -697,6 +729,11 @@ pub(crate) mod driver {
                             return Err(CryptoError::HardwareError);
                         }
                         retries += 1;
+                        #[cfg(all(rng_v1, any(stm32h7, stm32g4, stm32wb)))]
+                        if rng.regs().sr().read().seis() {
+                            rng.recover_seed_error();
+                            continue;
+                        }
                         rng.reset();
                     };
                     chunk.copy_from_slice(&word.to_ne_bytes()[..chunk.len()]);
