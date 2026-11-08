@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- bugfix: apply the nRF52832 anomaly 108 and nRF52805/nRF52810/nRF52811 anomaly 217 RAM workarounds in `init()`, as Nordic's `SystemInit` does.
 - added: `i2s` on the nRF91 family (nRF9120, nRF9151, nRF9160, nRF9161).
 - added: `gpio::Flex::is_input`, `Flex::is_output` and `Flex::is_disconnected`.
 - added: inherent `read_ready` method on `BufferedUarte` and `BufferedUarteRx`.
