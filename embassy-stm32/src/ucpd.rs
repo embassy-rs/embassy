@@ -371,7 +371,7 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     /// Changes are latched: a change that happened before this call, since the previous call
     /// returned, makes it return immediately. The returned state can therefore be equal to the
     /// one seen before, for example if the line changed and changed back.
-    pub async fn wait_for_vstate_change(&self) -> (CcVState, CcVState) {
+    pub async fn wait_for_vstate_change(&mut self) -> (CcVState, CcVState) {
         let _on_drop = OnDrop::new(|| self.enable_cc_interrupts(false));
         poll_fn(|cx| {
             let r = T::REGS;
