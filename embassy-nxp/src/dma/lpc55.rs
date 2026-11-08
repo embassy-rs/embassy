@@ -242,7 +242,7 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
     }
 }
 
-// Total number of channles including both DMA0 and DMA1.
+// Total number of channels including both DMA0 and DMA1.
 // In spite of using only DMA0 channels, the descriptor table
 // should be of this size.
 pub(crate) const CHANNEL_COUNT: usize = 32;

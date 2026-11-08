@@ -93,10 +93,15 @@ impl TDes {
     ///
     /// FD: Contains first buffer of packet
     /// LD: Contains last buffer of packet
-    /// CIC_FULL: let the MAC compute and insert the IP/TCP/UDP checksums.
+    /// CIC_FULL: let the MAC compute and insert the IP/TCP/UDP checksums, when
+    /// [`TX_CHECKSUM_OFFLOAD`](super::TX_CHECKSUM_OFFLOAD) allows it.
     pub(crate) fn set_owned(&mut self) {
-        self.tdes3
-            .set(EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_OWN | EMAC_TDES3_CIC_FULL);
+        let cic = if super::TX_CHECKSUM_OFFLOAD {
+            EMAC_TDES3_CIC_FULL
+        } else {
+            0
+        };
+        self.tdes3.set(EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_OWN | cic);
     }
 
     #[cfg(feature = "ptp")]

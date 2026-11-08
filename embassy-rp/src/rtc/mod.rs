@@ -260,9 +260,9 @@ impl<'d, T: Instance> Rtc<'d, T> {
                 self.clear_interrupt();
 
                 compiler_fence(Ordering::SeqCst);
-                return Poll::Ready(());
+                Poll::Ready(())
             } else {
-                return Poll::Pending;
+                Poll::Pending
             }
         })
         .await;

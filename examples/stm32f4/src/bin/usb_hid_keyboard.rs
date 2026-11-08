@@ -12,13 +12,11 @@ use embassy_stm32::gpio::Pull;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals, usb};
-use embassy_usb::class::hid::{
-    HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State,
-};
+use embassy_usb::class::hid::device::{HidReaderWriter, RequestHandler, State};
+use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, KeyboardReport, ReportId};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Handler};
 use panic_probe as _;
-use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
@@ -106,8 +104,8 @@ async fn main(_spawner: Spawner) {
     builder.handler(&mut device_handler);
 
     // Create classes on the builder.
-    let config = embassy_usb::class::hid::Config {
-        report_descriptor: KeyboardReport::desc(),
+    let config = embassy_usb::class::hid::device::Config {
+        report_descriptor: KeyboardReport::DESCRIPTOR,
         request_handler: None,
         poll_ms: 60,
         max_packet_size: 8,
@@ -141,13 +139,11 @@ async fn main(_spawner: Spawner) {
             } else {
                 // Create a report with the A key pressed. (no shift modifier)
                 let report = KeyboardReport {
+                    modifiers: 0,
                     keycodes: [4, 0, 0, 0, 0, 0],
-                    leds: 0,
-                    modifier: 0,
-                    reserved: 0,
                 };
                 // Send the report.
-                match writer.write_serialize(&report).await {
+                match writer.write(&report.to_bytes()).await {
                     Ok(()) => {}
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 };
@@ -163,12 +159,10 @@ async fn main(_spawner: Spawner) {
                 };
             } else {
                 let report = KeyboardReport {
+                    modifiers: 0,
                     keycodes: [0, 0, 0, 0, 0, 0],
-                    leds: 0,
-                    modifier: 0,
-                    reserved: 0,
                 };
-                match writer.write_serialize(&report).await {
+                match writer.write(&report.to_bytes()).await {
                     Ok(()) => {}
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 };

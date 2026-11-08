@@ -8,7 +8,6 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::pdm::{self, Config, Frequency, OperationMode, Pdm, Ratio, SamplerState};
 use embassy_nrf::{bind_interrupts, peripherals};
-use fixed::types::I7F1;
 use microfft::real::rfft_1024;
 use num_integer::Roots;
 use panic_probe as _;
@@ -27,7 +26,7 @@ async fn main(_p: Spawner) {
     config.frequency = Frequency::_1280k; // 16 kHz sample rate
     config.ratio = Ratio::Ratio80;
     config.operation_mode = OperationMode::Mono;
-    config.gain_left = I7F1::from_bits(5); // 2.5 dB
+    config.gain_left = 5; // 2.5 dB
     let mut pdm = Pdm::new(p.PDM, p.P0_00, p.P0_01, Irqs, config);
 
     let mut bufs = [[0; 1024]; 2];

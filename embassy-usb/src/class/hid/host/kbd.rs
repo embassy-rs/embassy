@@ -8,6 +8,9 @@ use bitflags::bitflags;
 use embassy_usb_driver::host::{HostError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
 
+use crate::class::hid::{
+    HID_DESC_TYPE_HID, HID_REQ_SET_IDLE, HID_REQ_SET_PROTOCOL, HID_REQ_SET_REPORT, HidProtocolMode, ReportId,
+};
 use crate::host::control::ControlPipeExt;
 use crate::host::descriptor::{
     DEFAULT_MAX_DESCRIPTOR_SIZE, DescriptorError, InterfaceDescriptor, USBDescriptor, VariableSizeDescriptor,
@@ -98,18 +101,20 @@ impl<'d, A: UsbHostAllocator<'d>> KbdHandler<'d, A> {
         )?;
 
         debug!("[kbd]: Setting PROTOCOL & idle");
-        const SET_PROTOCOL: u8 = 0x0B;
-        const BOOT_PROTOCOL: u16 = 0x0000;
         if let Err(err) = control_channel
-            .class_request_out(SET_PROTOCOL, BOOT_PROTOCOL, iface.interface_number as u16, &[])
+            .class_request_out(
+                HID_REQ_SET_PROTOCOL,
+                HidProtocolMode::Boot as u16,
+                iface.interface_number as u16,
+                &[],
+            )
             .await
         {
             error!("[kbd]: Failed to set protocol: {:?}", err);
         }
 
-        const SET_IDLE: u8 = 0x0A;
         if let Err(err) = control_channel
-            .class_request_out(SET_IDLE, 0, iface.interface_number as u16, &[])
+            .class_request_out(HID_REQ_SET_IDLE, 0, iface.interface_number as u16, &[])
             .await
         {
             error!("[kbd]: Failed to set idle: {:?}", err);
@@ -135,10 +140,8 @@ impl<'d, A: UsbHostAllocator<'d>> KbdHandler<'d, A> {
 
     /// SET_REPORT — update keyboard LEDs.
     pub async fn set_state(&mut self, state: &KeyboardState) -> Result<(), HostError> {
-        const SET_REPORT: u8 = 0x09;
-        const OUTPUT_REPORT: u16 = 2 << 8;
         self.control_channel
-            .class_request_out(SET_REPORT, OUTPUT_REPORT, 0, &[state.bits()])
+            .class_request_out(HID_REQ_SET_REPORT, ReportId::Out(0).to_value(), 0, &[state.bits()])
             .await
     }
 }
@@ -198,7 +201,7 @@ impl VariableSizeDescriptor for HIDDescriptor {
 
 impl USBDescriptor for HIDDescriptor {
     const BUF_SIZE: usize = 6 + 3 * Self::SUPPORTED_DESCRIPTORS as usize;
-    const DESC_TYPE: u8 = 0x21;
+    const DESC_TYPE: u8 = HID_DESC_TYPE_HID;
     type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {

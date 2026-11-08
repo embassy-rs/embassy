@@ -33,21 +33,25 @@
 #![no_std]
 #![no_main]
 
+use bt_hci::event::Event;
+use bt_hci::event::le::LeEvent;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
     CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType,
     Uuid, is_cccd_handle, is_value_handle,
 };
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::{Duration, Ticker};
 use panic_probe as _;
-use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
+use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
+use stm32wb_hci::adv_data::AdvFlags;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -107,39 +111,50 @@ async fn main(spawner: Spawner) {
 
     // DF Tag service: 1 service + 2 chars + 1 CCCD + 1 write permit = 7 records
     let service_handle = gatt
-        .add_service(Uuid::from_u128_le(DF_SERVICE_UUID), ServiceType::Primary, 7)
+        .add_service(
+            ble.controller(),
+            Uuid::Uuid128(DF_SERVICE_UUID),
+            ServiceType::Primary,
+            7,
+        )
+        .await
         .expect("Failed to add DF service");
 
     // LED_C: locator writes 0x00/0x01 to control the tag's LED
     let led_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u128_le(LED_CHAR_UUID),
+            Uuid::Uuid128(LED_CHAR_UUID),
             1,
             CharProperties::READ | CharProperties::WRITE_WITHOUT_RESPONSE,
-            SecurityPermissions::NONE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::empty(),
+            GattEventMask::ATTRIBUTE_WRITE,
             0,
             false,
         )
+        .await
         .expect("Failed to add LED_C characteristic");
 
     // Set initial LED value (off)
-    gatt.update_characteristic_value(service_handle, led_char_handle, 0, &[LED_OFF])
+    gatt.update_characteristic_value(ble.controller(), service_handle, led_char_handle, 0, &[LED_OFF])
+        .await
         .expect("Failed to set LED_C initial value");
 
     // SWITCH_C: tag notifies the locator of button-state changes
     let switch_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u128_le(SWITCH_CHAR_UUID),
+            Uuid::Uuid128(SWITCH_CHAR_UUID),
             1,
             CharProperties::NOTIFY,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(),
             0,
             false,
         )
+        .await
         .expect("Failed to add SWITCH_C characteristic");
 
     info!(
@@ -162,12 +177,14 @@ async fn main(spawner: Spawner) {
     // ── Advertising ──────────────────────────────────────────────────────────
     // Main advertisement: device name
     let mut adv_data = AdvData::new();
-    adv_data.add_flags(0x06).unwrap();
-    adv_data.add_name("DF_WBA6").unwrap();
+    adv_data = adv_data
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .unwrap();
+    adv_data = adv_data.complete_local_name(b"DF_WBA6").unwrap();
 
     // Scan response: DF service UUID (lets locators identify us during active scan)
     let mut scan_rsp = AdvData::new();
-    scan_rsp.add_service_uuid_128(&DF_SERVICE_UUID).unwrap();
+    scan_rsp = scan_rsp.complete_uuid128_list(&[DF_SERVICE_UUID]).unwrap();
 
     let adv_params = AdvParams {
         interval_min: 0x0050,
@@ -194,36 +211,40 @@ async fn main(spawner: Spawner) {
     const ANTENNA_IDS: [u8; 2] = [0x00, 0x00];
 
     // ── Main loop ────────────────────────────────────────────────────────────
+    let mut event_buf = EventBuffer::new();
     loop {
-        match select(ble.read_event(), ticker.next()).await {
+        match select(ble.read_event(&mut event_buf), ticker.next()).await {
             Either::First(event) => {
                 // ── CTE events ────────────────────────────────────────────────
-                if let stm32wb_hci::Event::LeConnectionIqReport(r) = &event {
+                if let BleEvent::Core(Event::Le(LeEvent::LeConnectionIqReport(r))) = &event {
                     info!(
                         "CTE IQ Report: conn=0x{:04X} ch={} rssi={} samples={}",
-                        r.conn_handle.0, r.data_channel_index, r.rssi, r.sample_count
+                        r.handle.raw(),
+                        r.data_channel_index,
+                        r.rssi,
+                        r.iq_samples.len()
                     );
-                } else if let stm32wb_hci::Event::LeCteRequestFailed(f) = &event {
+                } else if let BleEvent::Core(Event::Le(LeEvent::LeCteRequestFailed(f))) = &event {
                     warn!(
                         "CTE Request Failed: conn=0x{:04X} status={:?}",
-                        f.conn_handle.0, f.status
+                        f.handle.raw(),
+                        f.status
                     );
                 } else {
                     // ── GAP events ────────────────────────────────────────────────
-                    if let Some(gap_event) = ble.process_event(&event) {
+                    if let Some(gap_event) = ble.process_event(&event).await {
                         match gap_event {
                             GapEvent::Connected(conn) => {
-                                info!("Connected: 0x{:04X}", conn.handle.0);
-                                state.conn_handle = Some(conn.handle.0);
+                                info!("Connected: 0x{:04X}", conn.handle.raw());
+                                state.conn_handle = Some(conn.handle.raw());
                                 state.switch_notifications_enabled = false;
 
                                 // Enable CTE transmit: configure AoA type, then enable response
-                                match ble.le_set_connection_cte_transmit_parameters(
-                                    conn.handle,
-                                    CTE_TYPES_AOA,
-                                    &ANTENNA_IDS,
-                                ) {
-                                    Ok(()) => match ble.le_connection_cte_response_enable(conn.handle, true) {
+                                match ble
+                                    .le_set_connection_cte_transmit_parameters(conn.handle, CTE_TYPES_AOA, &ANTENNA_IDS)
+                                    .await
+                                {
+                                    Ok(()) => match ble.le_connection_cte_response_enable(conn.handle, true).await {
                                         Ok(()) => info!("CTE TX enabled (AoA)"),
                                         Err(e) => warn!("CTE TX enable failed: {:?}", e),
                                     },
@@ -233,7 +254,7 @@ async fn main(spawner: Spawner) {
                             GapEvent::Disconnected { handle, reason } => {
                                 info!(
                                     "Disconnected: 0x{:04X}, reason 0x{:02X} ({})",
-                                    handle.0,
+                                    handle.raw(),
                                     reason.as_u8(),
                                     Display2Format(&reason)
                                 );
@@ -249,23 +270,25 @@ async fn main(spawner: Spawner) {
 
                     // ── GATT events ───────────────────────────────────────────────
                     match &event {
-                        stm32wb_hci::Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
-                            if is_cccd_handle(state.switch_char_handle.0, attr.attr_handle.0) {
-                                let cccd = CccdValue::from_bytes(attr.data());
+                        BleEvent::Vendor(AciEvent::GattAttributeModified(attr)) => {
+                            if is_cccd_handle(state.switch_char_handle.0, attr.attr_handle) {
+                                let cccd = CccdValue::from_bytes(attr.attr_data);
                                 state.switch_notifications_enabled = cccd.notifications;
                                 info!(
                                     "SWITCH_C notifications {}",
                                     if cccd.notifications { "ENABLED" } else { "DISABLED" }
                                 );
-                            } else if is_value_handle(state.led_char_handle.0, attr.attr_handle.0) {
-                                let new_val = attr.data().first().copied().unwrap_or(0);
+                            } else if is_value_handle(state.led_char_handle.0, attr.attr_handle) {
+                                let new_val = attr.attr_data.first().copied().unwrap_or(0);
                                 state.led_value = new_val;
                                 gatt.update_characteristic_value(
+                                    ble.controller(),
                                     state.service_handle,
                                     state.led_char_handle,
                                     0,
                                     &[new_val],
                                 )
+                                .await
                                 .ok();
                                 info!(
                                     "LED_C write: {} ({})",
@@ -274,12 +297,12 @@ async fn main(spawner: Spawner) {
                                 );
                             }
                         }
-                        stm32wb_hci::Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
-                            conn_handle,
+                        BleEvent::Vendor(AciEvent::AttExchangeMtuResp(AttExchangeMtuRespEvent {
+                            connection_handle: conn_handle,
                             server_rx_mtu,
                         })) => {
                             if let Some(conn) = ble.get_connection_mut(*conn_handle) {
-                                conn.update_mtu(*server_rx_mtu as u16);
+                                conn.update_mtu(*server_rx_mtu);
                             }
                         }
                         _ => {}
@@ -293,12 +316,16 @@ async fn main(spawner: Spawner) {
 
                 if let Some(conn) = state.conn_handle {
                     if state.switch_notifications_enabled {
-                        match gatt.notify(
-                            conn,
-                            state.service_handle,
-                            state.switch_char_handle,
-                            &[state.switch_value],
-                        ) {
+                        match gatt
+                            .notify(
+                                ble.controller(),
+                                conn,
+                                state.service_handle,
+                                state.switch_char_handle,
+                                &[state.switch_value],
+                            )
+                            .await
+                        {
                             Ok(()) => info!(
                                 "SWITCH_C: button {}",
                                 if state.switch_value == 1 { "PRESSED" } else { "RELEASED" }

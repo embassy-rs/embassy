@@ -8,7 +8,6 @@ publish = false
 [dependencies]
 embassy-stm32 = { version = "0.6.0", path = "../../../embassy-stm32", features = ["stm32n657x0", "unstable-pac"] }
 embassy-boot-stm32 = { version = "0.8.0", path = "../../../embassy-boot-stm32" }
-embassy-boot = { version = "0.7.0", path = "../../../embassy-boot" }
 embassy-sync = { version = "0.8.0", path = "../../../embassy-sync" }
 
 cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }

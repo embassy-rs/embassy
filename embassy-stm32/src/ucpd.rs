@@ -2,7 +2,7 @@
 
 // Implementation Notes
 //
-// As of Feb. 2024 the UCPD peripheral is availalbe on: G0, G4, H5, L5, U5
+// As of Feb. 2024 the UCPD peripheral is available on: G0, G4, H5, L5, U5
 //
 // Cube HAL LL Driver (g0):
 // https://github.com/STMicroelectronics/stm32g0xx_hal_driver/blob/v1.4.6/Inc/stm32g0xx_ll_ucpd.h
@@ -257,7 +257,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
     }
 }
 
-/// Control and monitoring of TypeC CC pin functionailty.
+/// Control and monitoring of TypeC CC pin functionality.
 pub struct CcPhy<'d, T: Instance> {
     _lifetime: PhantomData<&'d mut T>,
 }

@@ -11,7 +11,7 @@ use embassy_executor::Spawner;
 use embassy_mspm0::gpio::{Level, Output};
 use embassy_mspm0::wwdt::{ClosedWindowPercentage, Config, Timeout, Watchdog};
 use embassy_time::Timer;
-use panic_halt as _;
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {

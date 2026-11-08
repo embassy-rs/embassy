@@ -7,27 +7,22 @@ use core::mem::{self, MaybeUninit};
 
 use crate::gpio::{Level, Output, Pin as GpioPin};
 use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, Pin as PioPinHandle, PioPin, StateMachine};
-use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider_x256;
 use crate::{Peri, clocks};
 
 /// Default pulse frequency used during initialization.
 const DEFAULT_FREQUENCY_HZ: u32 = 100;
 
 /// Configure the STEP pulse timing (cycles per pulse).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StepPulseTiming {
     /// 34 cycles high + 34 cycles low + 2 jump cycles = 68 total.
+    #[default]
     Cycles68,
     /// 66 cycles high + 66 cycles low + 2 jump cycles = 132 total.
     Cycles132,
     /// 130 cycles high + 130 cycles low + 2 jump cycles = 260 total.
     Cycles260,
-}
-
-impl Default for StepPulseTiming {
-    fn default() -> Self {
-        StepPulseTiming::Cycles68
-    }
 }
 
 impl StepPulseTiming {
@@ -168,14 +163,14 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
         program: &PioStepDirProgram<'d, T>,
     ) -> Self {
         let step = pio.make_pio_pin(step_pin);
-        sm.set_pins(Level::Low, &[&step]);
-        sm.set_pin_dirs(Direction::Out, &[&step]);
 
         let mut cfg = Config::default();
         cfg.set_set_pins(&[&step]);
-        cfg.clock_divider = calculate_pio_clock_divider(DEFAULT_FREQUENCY_HZ * program.cycles_per_pulse());
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(DEFAULT_FREQUENCY_HZ * program.cycles_per_pulse());
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);
+        sm.set_pins(Level::Low, &[&step]);
+        sm.set_pin_dirs(Direction::Out, &[&step]);
         sm.set_enable(true);
 
         let dir = Output::new(dir_pin, Level::Low);
@@ -197,8 +192,8 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
 
     fn calc_min_frequency(cycles_per_pulse: u32) -> u32 {
         let max_clkdiv_int: u32 = 0xffff;
-        let min_pio_hz = (clocks::clk_sys_freq() + max_clkdiv_int - 1) / max_clkdiv_int;
-        (min_pio_hz + cycles_per_pulse - 1) / cycles_per_pulse
+        let min_pio_hz = clocks::clk_sys_freq().div_ceil(max_clkdiv_int);
+        min_pio_hz.div_ceil(cycles_per_pulse)
     }
 
     /// Set output pulse frequency in Hz.
@@ -216,8 +211,8 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
         }
 
         self.frequency_hz = freq_hz;
-        let clock_divider = calculate_pio_clock_divider(freq_hz * self.cycles_per_pulse);
-        self.sm.set_clock_divider(clock_divider);
+        let clock_divider = calculate_pio_clock_divider_x256(freq_hz * self.cycles_per_pulse);
+        self.sm.set_clock_divider_x256(clock_divider);
         self.sm.clkdiv_restart();
         Ok(())
     }

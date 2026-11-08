@@ -82,11 +82,12 @@ async fn main(_spawner: Spawner) {
     });
 
     // Standard packing: one 16-bit sample per CPU write.
-    let ch = split
-        .ch0
-        .build_parallel_standard(&common)
-        .set_data_right_shift(DataRightShift::new(0))
-        .enable();
+    let (ch, filters) = split.build(&common, |tb| {
+        tb.ch0
+            .build_parallel_standard(&common)
+            .set_data_right_shift(DataRightShift::new(0))
+            .enable()
+    });
 
     // Disabled order: each conversion output = sum of the last IOSR samples.
     let flt_cfg = FilterConfig {
@@ -96,7 +97,7 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    let mut flt0 = split.flt0.build(&common, Irqs).enable_no_dma(&ch, [&ch], &flt_cfg);
+    let mut flt0 = filters.flt0.build(&common, Irqs).enable_no_dma(&ch, [&ch], &flt_cfg);
     flt0.regular.start_conversion();
     flt0.awd.assign_transceivers([&ch]);
 

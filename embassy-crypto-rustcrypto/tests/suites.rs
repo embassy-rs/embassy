@@ -22,7 +22,7 @@ suites! {
     aes128_ecb, aes256_ecb, aes128_cbc, aes256_cbc, aes128_ctr, aes256_ctr,
     aes128_gcm, aes256_gcm, aes128_ccm, aes256_ccm, aes128_cmac, aes256_cmac,
     chacha8, chacha12, chacha20, chacha8_poly1305, chacha12_poly1305, chacha20_poly1305,
-    p256_arith, p256_ecdh, p256_ecdsa, p384_arith, p384_ecdh, p384_ecdsa,
+    p256_arith, p256_ecdh, p256_ecdsa, p256_decompress, p384_arith, p384_ecdh, p384_ecdsa, p384_decompress,
     x25519_dh, x25519_keygen,
     ed25519_verify, ed25519_sign,
 }

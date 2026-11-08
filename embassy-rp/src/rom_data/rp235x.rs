@@ -771,7 +771,7 @@ pub fn reset_to_usb_boot(mut usb_activity_gpio_pin_mask: u32, disable_interface_
     let mut flags = disable_interface_mask;
 
     if usb_activity_gpio_pin_mask != 0 {
-        flags = flags | BOOTSEL_FLAG_GPIO_PIN_SPECIFIED;
+        flags |= BOOTSEL_FLAG_GPIO_PIN_SPECIFIED;
         usb_activity_gpio_pin_mask = usb_activity_gpio_pin_mask.trailing_zeros()
     }
 

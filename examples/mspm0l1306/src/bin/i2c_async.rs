@@ -12,7 +12,7 @@ use embassy_mspm0::bind_interrupts;
 use embassy_mspm0::i2c::{Config, I2c, InterruptHandler};
 use embassy_mspm0::peripherals::I2C0;
 use embassy_time::Timer;
-use panic_halt as _;
+use panic_probe as _;
 
 const ADDRESS: u8 = 0x6a;
 

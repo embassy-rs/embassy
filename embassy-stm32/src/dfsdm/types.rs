@@ -8,28 +8,10 @@ use super::*;
 // Sealed
 // =============================================================================
 
-pub(crate) mod sealed {
-    pub trait Sealed {}
-}
+/// Supertrait for the macro-generated transceiver/filter index markers.
+pub(crate) trait SealedMarker {}
 
-/// Impls [`sealed::Sealed`] only.
-macro_rules! impl_sealed {
-    ($($m:path),* $(,)?) => {
-        $( impl sealed::Sealed for $m {} )*
-    };
-}
-
-/// Impls [`sealed::Sealed`] + a target trait.
-macro_rules! impl_sealed_and {
-    ($trait_:path => $($m:path),* $(,)?) => {
-        $(
-            impl sealed::Sealed for $m {}
-            impl $trait_ for $m {}
-        )*
-    };
-}
-
-/// Impls [`sealed::Sealed`] + a target trait.
+/// Impls a target trait for each listed type.
 macro_rules! impl_trait {
     ($trait_:path => $($m:path),* $(,)?) => {
         $(
@@ -72,7 +54,7 @@ pub(crate) trait SealedInstance: crate::rcc::RccPeripheral {
 
 /// A DFSDM peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Number of transceivers on this instance.
     type Transceivers: capability::TransceiverCount;
     /// Number of filters on this instance.
@@ -80,104 +62,130 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
 
     /// Shared instance-level state.
     fn instance_state() -> &'static InstanceState;
-    // type Split<C: ClockOutputMode>;
-
-    // fn split<C: ClockOutputMode>(dfsdm: Dfsdm<Self, C>) -> Self::Split<C>
-    // where
-    //     Self: Sized;
 }
 
 /// Type-level capability tags for a DFSDM instance shape.
-pub(crate) mod capability {
+#[doc(hidden)]
+pub mod capability {
     /// Two transceivers.
-    pub struct Tcv2;
+    pub struct TcvCnt2;
     /// Four transceivers.
-    pub struct Tcv4;
+    pub struct TcvCnt4;
     /// Eight transceivers.
-    pub struct Tcv8;
+    pub struct TcvCnt8;
 
     /// One filter.
-    pub struct Flt1;
+    pub struct FltCnt1;
     /// Two filters.
-    pub struct Flt2;
+    pub struct FltCnt2;
     /// Four filters.
-    pub struct Flt4;
+    pub struct FltCnt4;
     /// Six filters.
-    pub struct Flt6;
+    pub struct FltCnt6;
     /// Eight filters.
-    pub struct Flt8;
+    pub struct FltCnt8;
+
+    pub(crate) trait SealedHasDelay {}
 
     /// Has a per-transceiver pulse-skipper block (DLY).
-    pub trait HasDelay {}
+    #[allow(private_bounds)]
+    pub trait HasDelay: SealedHasDelay {}
+
+    pub(crate) trait SealedHasHwid {}
 
     /// Has the HWID hardware-information-register block.
-    pub trait HasHwid {}
+    #[allow(private_bounds)]
+    pub trait HasHwid: SealedHasHwid {}
+
+    pub(crate) trait SealedAdcInput {}
 
     /// Accepts a parallel ADC input path (DATMPX = 1).
     ///
     /// The ADC must also be configured to route its results to the DFSDM; use
     /// [`crate::adc::Adc::start_dfsdm`].
-    pub trait AdcInput {}
+    #[allow(private_bounds)]
+    pub trait AdcInput: SealedAdcInput {}
+
+    pub(crate) trait SealedTransceiverCount {}
 
     /// Transceiver count of a shape.
-    pub trait TransceiverCount: super::Shape {
+    #[allow(private_bounds)]
+    pub trait TransceiverCount: super::Shape + SealedTransceiverCount {
         /// Number of transceivers.
         const COUNT: u8;
     }
-    impl TransceiverCount for Tcv2 {
+    impl SealedTransceiverCount for TcvCnt2 {}
+    impl SealedTransceiverCount for TcvCnt4 {}
+    impl SealedTransceiverCount for TcvCnt8 {}
+    impl TransceiverCount for TcvCnt2 {
         const COUNT: u8 = 2;
     }
-    impl TransceiverCount for Tcv4 {
+    impl TransceiverCount for TcvCnt4 {
         const COUNT: u8 = 4;
     }
-    impl TransceiverCount for Tcv8 {
+    impl TransceiverCount for TcvCnt8 {
         const COUNT: u8 = 8;
     }
+
+    pub(crate) trait SealedFilterCount {}
+
     /// Filter count of a shape.
-    pub trait FilterCount {
+    #[allow(private_bounds)]
+    pub trait FilterCount: SealedFilterCount {
         /// Number of filters.
         const COUNT: u8;
     }
-    impl FilterCount for Flt1 {
+    impl SealedFilterCount for FltCnt1 {}
+    impl SealedFilterCount for FltCnt2 {}
+    impl SealedFilterCount for FltCnt4 {}
+    impl SealedFilterCount for FltCnt6 {}
+    impl SealedFilterCount for FltCnt8 {}
+    impl FilterCount for FltCnt1 {
         const COUNT: u8 = 1;
     }
-    impl FilterCount for Flt2 {
+    impl FilterCount for FltCnt2 {
         const COUNT: u8 = 2;
     }
-    impl FilterCount for Flt4 {
+    impl FilterCount for FltCnt4 {
         const COUNT: u8 = 4;
     }
-    impl FilterCount for Flt6 {
+    impl FilterCount for FltCnt6 {
         const COUNT: u8 = 6;
     }
-    impl FilterCount for Flt8 {
+    impl FilterCount for FltCnt8 {
         const COUNT: u8 = 8;
     }
 }
 
+pub(crate) trait SealedShape {}
+
 /// Configuration shape: maps a transceiver count to its selector bundle.
 #[allow(private_bounds)]
-pub trait Shape: sealed::Sealed {
+pub trait Shape: SealedShape {
     /// Selector bundle `configure_pins` hands to its closure.
     type Selectors<T: Instance>;
     /// Fresh selector bundle.
     fn selectors<T: Instance>() -> Self::Selectors<T>;
 }
 
-impl_sealed!(capability::Tcv2, capability::Tcv4, capability::Tcv8);
+impl SealedShape for capability::TcvCnt2 {}
+impl SealedShape for capability::TcvCnt4 {}
+impl SealedShape for capability::TcvCnt8 {}
+
+pub(crate) trait SealedClockOutputMode {}
 
 /// Marker trait for clock-output modes.
-pub trait ClockOutputMode: sealed::Sealed {}
+#[allow(private_bounds)]
+pub trait ClockOutputMode: SealedClockOutputMode {}
 /// Clock output enabled
 pub struct OutputEnabled;
 /// Clock output disabled
 pub struct OutputDisabled;
 
-impl_sealed_and! {
-    ClockOutputMode =>
-    OutputEnabled,
-    OutputDisabled,
-}
+impl SealedClockOutputMode for OutputEnabled {}
+impl SealedClockOutputMode for OutputDisabled {}
+impl ClockOutputMode for OutputEnabled {}
+impl ClockOutputMode for OutputDisabled {}
 
 /// Generalized pin traits
 ///
@@ -216,10 +224,12 @@ define_dfsdm_pin_trait!(DatinPin, "Associates a DFSDM data-input pin with a tran
 // Pin presence markers (PinSet)
 // =============================================================================
 
+pub(crate) trait SealedPinSet {}
+
 /// Type-level pin presence of one transceiver. Exactly three states exist;
 /// "clock without data" has no representative and is therefore inexpressible.
 #[allow(private_bounds)]
-pub trait PinSet: sealed::Sealed {
+pub trait PinSet: SealedPinSet {
     /// Transceiver owns a DATIN pin.
     const HAS_DATA: bool;
     /// Transceiver owns a CKIN pin.
@@ -243,7 +253,9 @@ pub struct DataOnly;
 /// Transceiver has a DATIN and a CKIN pin.
 pub struct DataClk;
 
-impl_sealed!(NoPins, DataOnly, DataClk);
+impl SealedPinSet for NoPins {}
+impl SealedPinSet for DataOnly {}
+impl SealedPinSet for DataClk {}
 
 impl PinSet for NoPins {
     const HAS_DATA: bool = false;
@@ -287,13 +299,22 @@ impl PinSet for DataClk {
     }
 }
 
+pub(crate) trait SealedHasData {}
+
 /// Pin sets that include a DATIN pin.
-pub trait HasData: PinSet {}
+#[allow(private_bounds)]
+pub trait HasData: PinSet + SealedHasData {}
+impl SealedHasData for DataOnly {}
+impl SealedHasData for DataClk {}
 impl HasData for DataOnly {}
 impl HasData for DataClk {}
 
+pub(crate) trait SealedHasDataAndClk {}
+
 /// Pin sets that include a DATIN and a CKIN pin.
-pub trait HasDataAndClk: PinSet {}
+#[allow(private_bounds)]
+pub trait HasDataAndClk: PinSet + SealedHasDataAndClk {}
+impl SealedHasDataAndClk for DataClk {}
 impl HasDataAndClk for DataClk {}
 
 // =============================================================================
@@ -317,6 +338,8 @@ pub struct DckCfg<'d, T: Instance, M: TransceiverMarker> {
     pub(crate) _m: PhantomData<(T, M)>,
 }
 
+pub(crate) trait SealedChannelCfg {}
+
 /// Accepted by one `configure_pins` slot. `Presence` is the type-level pin
 /// state that flows into the split.
 #[diagnostic::on_unimplemented(
@@ -324,7 +347,8 @@ pub struct DckCfg<'d, T: Instance, M: TransceiverMarker> {
     label = "this token doesn't belong to transceiver `{M}`",
     note = "return the token from the matching `creator.chN` selector - a token for one transceiver can't be reused on another"
 )]
-pub trait ChannelCfg<'d, T: Instance, M: TransceiverMarker> {
+#[allow(private_bounds)]
+pub trait ChannelCfg<'d, T: Instance, M: TransceiverMarker>: SealedChannelCfg {
     /// Pin presence of the declaring transceiver.
     type Presence: PinSet;
     /// Consume the token, yielding its pins in storage form
@@ -336,6 +360,10 @@ pub trait ChannelCfg<'d, T: Instance, M: TransceiverMarker> {
         <Self::Presence as PinSet>::Ckin<'d>,
     );
 }
+
+impl SealedChannelCfg for NoPinsCfg {}
+impl<'d, T: Instance, M: TransceiverMarker> SealedChannelCfg for DatinCfg<'d, T, M> {}
+impl<'d, T: Instance, M: TransceiverMarker> SealedChannelCfg for DckCfg<'d, T, M> {}
 
 // NoPinsCfg is valid at ANY position:
 impl<'d, T: Instance, M: TransceiverMarker> ChannelCfg<'d, T, M> for NoPinsCfg {
@@ -369,7 +397,6 @@ macro_rules! define_indexed_channels {
     (
         $enum:ident,
         $marker_trait:ident,
-        $index_trait:ident,
         $channel_string:expr,
         $(
             $channel:ident => $index:expr
@@ -396,7 +423,8 @@ macro_rules! define_indexed_channels {
         }
 
         #[allow(missing_docs)]
-        pub trait $marker_trait: sealed::Sealed {
+        #[allow(private_bounds)]
+        pub trait $marker_trait: SealedMarker {
             const CHANNEL: $enum;
         }
 
@@ -405,7 +433,7 @@ macro_rules! define_indexed_channels {
             pub struct $channel;
 
             #[allow(missing_docs)]
-            impl sealed::Sealed for $channel {}
+            impl SealedMarker for $channel {}
 
 
             #[allow(missing_docs)]
@@ -419,7 +447,6 @@ macro_rules! define_indexed_channels {
 define_indexed_channels!(
     TransceiverChannel,
     TransceiverMarker,
-    TransceiverIndex,
     "DFSDM transceiver",
     Tcv0 => 0,
     Tcv1 => 1,
@@ -434,7 +461,6 @@ define_indexed_channels!(
 define_indexed_channels!(
     FilterChannel,
     FilterMarker,
-    FilterIndex,
     "DFSDM filter",
     Flt0 => 0,
     Flt1 => 1,
@@ -450,6 +476,8 @@ define_indexed_channels!(
 // Trigger types
 // =============================================================================
 
+pub(crate) trait SealedTriggerSource<T: Instance, M: FilterMarker> {}
+
 /// A trigger source that can drive filter `M` on instance `T`.
 ///
 /// Implemented by `build.rs` for each (instance, filter, source) combination the
@@ -460,7 +488,8 @@ define_indexed_channels!(
     label = "invalid trigger selection",
     note = "check the TRM for valid trigger signals for this variant/filter combination"
 )]
-pub trait TriggerSource<T: Instance, M: FilterMarker> {
+#[allow(private_bounds)]
+pub trait TriggerSource<T: Instance, M: FilterMarker>: SealedTriggerSource<T, M> {
     /// JEXTSEL register value for this (instance, filter, source) combination.
     fn jextsel(&self) -> u8;
 }
@@ -483,7 +512,7 @@ pub enum InjectedTrigger<T: Instance, M: FilterMarker> {
 
 impl<T: Instance, M: FilterMarker> InjectedTrigger<T, M> {
     /// Enable the injected trigger from `trigger` on the given edge.
-    pub fn from<TR: TriggerSource<T, M>>(trigger: TR, edge: config::TriggerEdge) -> Self {
+    pub fn new<TR: TriggerSource<T, M>>(trigger: TR, edge: config::TriggerEdge) -> Self {
         Self::Enabled {
             jextsel: trigger.jextsel(),
             edge,
@@ -496,18 +525,20 @@ impl<T: Instance, M: FilterMarker> InjectedTrigger<T, M> {
 // General-purpose markertraits
 // =============================================================================
 
+pub(crate) trait SealedPowerState {}
+
 /// Marker trait for power-state
-pub trait PowerState: sealed::Sealed {}
+#[allow(private_bounds)]
+pub trait PowerState: SealedPowerState {}
 /// Powered down
 pub struct Disabled;
 /// Powered up
 pub struct Enabled;
 
-impl_sealed_and! {
-    PowerState =>
-    Disabled,
-    Enabled,
-}
+impl SealedPowerState for Disabled {}
+impl SealedPowerState for Enabled {}
+impl PowerState for Disabled {}
+impl PowerState for Enabled {}
 
 // =============================================================================
 // Channel-level markertraits
@@ -519,7 +550,8 @@ impl_sealed_and! {
     label = "`{Self}` is odd - dual mode requires an even transceiver",
     note = "call `new_parallel_dma_dual` on the even transceiver instead"
 )]
-pub trait DualPackingAllowed: sealed::Sealed {}
+#[allow(private_bounds)]
+pub trait DualPackingAllowed: SealedMarker {}
 
 impl_trait! {
     DualPackingAllowed =>
@@ -529,9 +561,12 @@ impl_trait! {
     Tcv6,
 }
 
+pub(crate) trait SealedChannelMode {}
+
 /// Operational mode of a built [`Transceiver`]. Determined by which builder
 /// constructor was used; encodes the SITP/SPICKSEL/DATMPX semantics.
-pub trait ChannelMode: sealed::Sealed {}
+#[allow(private_bounds)]
+pub trait ChannelMode: SealedChannelMode {}
 /// SPI input, clock from own CKIN pin (SPICKSEL = 0).
 pub struct SpiExtMode;
 /// SPI input, clock derived from CKOUT (SPICKSEL = 1..3).
@@ -550,16 +585,20 @@ pub struct ParallelPaired;
 /// 16-bit parallel input from ADC writes (DATMPX = 1).
 pub struct ParallelAdcMode;
 
-impl_sealed_and! {
-    ChannelMode =>
-    SpiExtMode,
-    SpiCkoutMode,
-    ManchesterMode,
-    ParallelStandard,
-    ParallelInterleaved,
-    ParallelPaired,
-    ParallelAdcMode,
-}
+impl SealedChannelMode for SpiExtMode {}
+impl SealedChannelMode for SpiCkoutMode {}
+impl SealedChannelMode for ManchesterMode {}
+impl SealedChannelMode for ParallelStandard {}
+impl SealedChannelMode for ParallelInterleaved {}
+impl SealedChannelMode for ParallelPaired {}
+impl SealedChannelMode for ParallelAdcMode {}
+impl ChannelMode for SpiExtMode {}
+impl ChannelMode for SpiCkoutMode {}
+impl ChannelMode for ManchesterMode {}
+impl ChannelMode for ParallelStandard {}
+impl ChannelMode for ParallelInterleaved {}
+impl ChannelMode for ParallelPaired {}
+impl ChannelMode for ParallelAdcMode {}
 
 /// Marker for modes that carry a serial stream a delay-block pulse skipper
 /// can act on. Not implemented for the parallel-input modes
@@ -586,11 +625,14 @@ impl_trait! {
 // ParallelAdcMode, ParallelStandard, ParallelInterleaved, ParallelPaired
 // deliberately excluded
 
+pub(crate) trait SealedPinSource {}
+
 /// Which transceiver's serial pins this transceiver's interface consumes
 /// (CFGR1.CHINSEL). Pins are borrowed from that transceiver's slot; the
 /// reservation is released by the transceiver's drop guard (see
 /// [`ChannelGuard`]).
-pub trait PinSource: sealed::Sealed {
+#[allow(private_bounds)]
+pub trait PinSource: SealedPinSource {
     /// Consume the next transceiver's pins instead of this transceiver's own.
     const FROM_NEIGHBOR: bool;
 }
@@ -599,7 +641,8 @@ pub struct OwnPins;
 /// CHINSEL = 1, pins live on M::Next's slot
 pub struct NeighborPins;
 
-impl_sealed!(OwnPins, NeighborPins);
+impl SealedPinSource for OwnPins {}
+impl SealedPinSource for NeighborPins {}
 
 impl PinSource for OwnPins {
     const FROM_NEIGHBOR: bool = false;
@@ -643,13 +686,13 @@ macro_rules! impl_next_channel {
 }
 
 // For 2-channel instances: wraps 1 -> 0
-impl_next_channel!(capability::Tcv2,
+impl_next_channel!(capability::TcvCnt2,
     Tcv0 => Tcv1,
     Tcv1 => Tcv0,
 );
 
 // For 4-channel instances: wraps 3 -> 0
-impl_next_channel!(capability::Tcv4,
+impl_next_channel!(capability::TcvCnt4,
     Tcv0 => Tcv1,
     Tcv1 => Tcv2,
     Tcv2 => Tcv3,
@@ -657,7 +700,7 @@ impl_next_channel!(capability::Tcv4,
 );
 
 // For 8-channel instances: wraps 7 -> 0
-impl_next_channel!(capability::Tcv8,
+impl_next_channel!(capability::TcvCnt8,
     Tcv0 => Tcv1,
     Tcv1 => Tcv2,
     Tcv2 => Tcv3,
@@ -681,15 +724,20 @@ pub struct RegDma;
 /// Injected-conversion DMA.
 pub struct InjDma;
 
+pub(crate) trait SealedDmaMode {}
+
 /// DMA mode of a filter half.
-pub trait DmaMode: sealed::Sealed {
+#[allow(private_bounds)]
+pub trait DmaMode: SealedDmaMode {
     /// Whether regular conversions use DMA.
     const REG_ENABLED: bool;
     /// Whether injected conversions use DMA.
     const INJ_ENABLED: bool;
 }
 
-impl_sealed!(NoDma, RegDma, InjDma);
+impl SealedDmaMode for NoDma {}
+impl SealedDmaMode for RegDma {}
+impl SealedDmaMode for InjDma {}
 
 impl DmaMode for NoDma {
     const REG_ENABLED: bool = false;
@@ -704,8 +752,11 @@ impl DmaMode for InjDma {
     const INJ_ENABLED: bool = true;
 }
 
+pub(crate) trait SealedFilterDma {}
+
 /// DMA half of a filter, erased over the concrete half type.
-pub trait FilterDma<T, M>
+#[allow(private_bounds)]
+pub trait FilterDma<T, M>: SealedFilterDma
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
@@ -725,9 +776,12 @@ where
 // Generification traits
 // =============================================================================
 
+pub(crate) trait SealedTransceiverTrait {}
+
 /// Erases all transceivers of an instance into one type, for filter
 /// configuration.
-pub trait TransceiverTrait<T, P>: sealed::Sealed
+#[allow(private_bounds)]
+pub trait TransceiverTrait<T, P>: SealedTransceiverTrait
 where
     T: Instance,
     P: PowerState,
@@ -736,7 +790,7 @@ where
     fn index(&self) -> usize;
 }
 
-impl<'a, 'd, T, M, S, MODE, PS, P> sealed::Sealed for Transceiver<'a, 'd, T, M, S, MODE, PS, P>
+impl<'a, 'd, T, M, S, MODE, PS, P> SealedTransceiverTrait for Transceiver<'a, 'd, T, M, S, MODE, PS, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
@@ -759,19 +813,6 @@ where
         M::CHANNEL.index()
     }
 }
-
-// =============================================================================
-// NonEmpty
-// =============================================================================
-
-/// Marker trait to enforce that a const generic `N` is greater than 0.
-pub trait NonEmpty {}
-// Only implement `NonEmpty` for arrays of unit type `()`
-// with lengths 1 through 8.
-macro_rules! impl_non_empty {
-    ($($n:expr),+) => { $( impl NonEmpty for [(); $n] {} )+ };
-}
-impl_non_empty!(1, 2, 3, 4, 5, 6, 7, 8);
 
 /// Snapshot of the DFSDM version/ID register cluster @0x7F0 (RM0475 29.9 / RM0436/RM0441/RM0442).
 /// Present only on instances whose silicon carries the HWID cluster; see `capability::HasHwid`.

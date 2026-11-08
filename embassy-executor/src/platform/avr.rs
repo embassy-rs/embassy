@@ -5,6 +5,7 @@ compile_error!("`executor-interrupt` is not supported with `platform-avr`.");
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
 mod thread {
+    use core::arch::asm;
     use core::marker::PhantomData;
 
     pub use embassy_executor_macros::main_avr as main;
@@ -62,13 +63,13 @@ mod thread {
 
             loop {
                 unsafe {
-                    avr_device::interrupt::disable();
+                    asm!("cli");
                     if !SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
-                        avr_device::interrupt::enable();
+                        asm!("sei");
                         crate::trace_idle();
-                        avr_device::asm::sleep();
+                        asm!("sleep", options(preserves_flags));
                     } else {
-                        avr_device::interrupt::enable();
+                        asm!("sei");
                         self.inner.poll();
                     }
                 }

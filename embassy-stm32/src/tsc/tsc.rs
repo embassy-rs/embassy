@@ -269,7 +269,7 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
 
         // Set the groups to be acquired
         // Lower bits of `iogcsr` are for enabling groups, while the higher bits are for reading
-        // status of acquisiton for a group, see method `Tsc::group_get_status`.
+        // status of acquisition for a group, see method `Tsc::group_get_status`.
         T::regs()
             .iogcsr()
             .write(|w| w.0 = Self::extract_groups(masks.channel_ios));
@@ -381,7 +381,7 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
         }
     }
 
-    /// Get the count for the acquisiton, valid once group status is set
+    /// Get the count for the acquisition, valid once group status is set
     pub fn group_get_value(&self, index: Group) -> u16 {
         T::regs().iogcr(index.into()).read().cnt()
     }
@@ -412,7 +412,7 @@ impl<'d, T: Instance> Tsc<'d, T, Async> {
         Self::new_inner(peri, pin_groups, config)
     }
 
-    /// Asyncronously wait for the end of an acquisition
+    /// Asynchronously wait for the end of an acquisition
     pub async fn pend_for_acquisition(&mut self) {
         poll_fn(|cx| match self.get_state() {
             State::Busy => {

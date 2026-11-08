@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner) {
 
     let cfg = {
         let mut c = Config::default();
-        c.divider = 125.into();
+        c.divider_x16 = 125 << 4;
         c.top = 10000;
         c.compare_a = 5000;
         c.compare_b = 5000;
@@ -168,7 +168,7 @@ async fn main(_spawner: Spawner) {
     // pull-down
     {
         let pin2 = Input::new(p11.reborrow(), Pull::None);
-        Pwm::new_input(
+        let _pwm = Pwm::new_input(
             p.PWM_SLICE3.reborrow(),
             p7.reborrow(),
             Pull::Down,
@@ -182,7 +182,7 @@ async fn main(_spawner: Spawner) {
     // pull-up
     {
         let pin2 = Input::new(p11.reborrow(), Pull::None);
-        Pwm::new_input(
+        let _pwm = Pwm::new_input(
             p.PWM_SLICE3.reborrow(),
             p7.reborrow(),
             Pull::Up,

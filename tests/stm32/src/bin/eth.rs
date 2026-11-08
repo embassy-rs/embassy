@@ -7,7 +7,7 @@ mod common;
 use common::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
+use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
 #[cfg(feature = "stop")]
@@ -19,12 +19,22 @@ use static_cell::StaticCell;
 
 teleprobe_meta::timeout!(120);
 
-#[cfg(not(any(feature = "stm32h563zi", feature = "stm32f767zi", feature = "stm32f207zg")))]
+#[cfg(not(any(
+    feature = "stm32h563zi",
+    feature = "stm32f767zi",
+    feature = "stm32f207zg",
+    feature = "stm32h723zg"
+)))]
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler<ETH>;
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
 });
-#[cfg(any(feature = "stm32h563zi", feature = "stm32f767zi", feature = "stm32f207zg"))]
+#[cfg(any(
+    feature = "stm32h563zi",
+    feature = "stm32f767zi",
+    feature = "stm32f207zg",
+    feature = "stm32h723zg"
+))]
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler<ETH>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
@@ -66,6 +76,8 @@ async fn main(spawner: Spawner) {
     let n = 5;
     #[cfg(feature = "stm32h753zi")]
     let n = 6;
+    #[cfg(feature = "stm32h723zg")]
+    let n = 7;
 
     let mac_addr = [0x00, n, 0xDE, 0xAD, 0xBE, 0xEF];
 
@@ -77,7 +89,7 @@ async fn main(spawner: Spawner) {
 
     static PACKETS: StaticCell<PacketQueue<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>> = StaticCell::new();
 
-    let device = Ethernet::new(
+    let device = unwrap!(Ethernet::new(
         PACKETS.init(PacketQueue::<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>::new()),
         p.ETH,
         p.PA1,
@@ -95,11 +107,18 @@ async fn main(spawner: Spawner) {
         p.PA2,
         p.PC1,
         Irqs,
-    );
+    ));
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    // F2 runs out of RAM
+    #[cfg(feature = "stm32f207zg")]
+    const POOL_COUNT: usize = 4;
+    #[cfg(not(feature = "stm32f207zg"))]
+    const POOL_COUNT: usize = 16;
+    // The ethernet DMA needs 8-byte aligned buffers, sized in multiples of 8.
+    static POOL: StaticPool<1520, POOL_COUNT, 8> = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the ethernet interface to the stack.
     static ETH: StaticCell<Device> = StaticCell::new();

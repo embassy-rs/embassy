@@ -324,6 +324,44 @@ fn verify<const N: usize>(
     })
 }
 
+/// The point with X coordinate `x` and a Y coordinate of parity `y_is_odd`, or `None` if `x`
+/// is not in the field or not the X coordinate of a point on the curve.
+///
+/// Runs on the host. The square root of `x³ + a·x + b` is its power `(p + 1) / 4`, which needs
+/// `p = 3 mod 4`, as for P-256 and P-384.
+#[cfg(any(feature = "embassy-crypto-p256-arith", feature = "embassy-crypto-p384-arith"))]
+fn decompress<const N: usize, const L: usize>(
+    curve: &Curve,
+    field: &FixedMontyParams<L>,
+    x: &[u8; N],
+    y_is_odd: bool,
+) -> Option<Aff<N>> {
+    if !less_than(x, curve.p) {
+        return None;
+    }
+    let fe = |v: &[u8]| FixedMontyForm::new(&Uint::from_be_slice(v), field);
+    let x_fe = fe(x);
+    let rhs = x_fe.square().add(&fe(curve.a)).mul(&x_fe).add(&fe(curve.b));
+    let e = field.modulus().shr_vartime(2).wrapping_add(&Uint::ONE);
+    let mut y = rhs.pow_vartime(&e);
+    // For a non-residue the power is a root of `-rhs` instead.
+    if y.square().retrieve() != rhs.retrieve() {
+        return None;
+    }
+    let root: [u8; N] = bytes(&y.retrieve());
+    if (root[N - 1] & 1 == 1) != y_is_odd {
+        // A zero Y has no odd counterpart.
+        if is_zero(&root) {
+            return None;
+        }
+        y = y.neg();
+    }
+    Some(Aff {
+        x: *x,
+        y: bytes(&y.retrieve()),
+    })
+}
+
 macro_rules! impl_curve {
     (
         $curve_mod:ident, $curve:expr, $n:literal,
@@ -424,6 +462,10 @@ macro_rules! impl_curve {
 
                     fn point_to_affine(p: &Pt<N>) -> Option<$point> {
                         p.as_ref().map(to_point)
+                    }
+
+                    fn point_decompress(x: &[u8; N], y_is_odd: bool) -> Option<$point> {
+                        decompress(CURVE, &FIELD, x, y_is_odd).map(|p| to_point(&p))
                     }
 
                     fn point_is_identity(p: &Pt<N>) -> bool {

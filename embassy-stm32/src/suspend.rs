@@ -3,11 +3,10 @@
 use core::ops::{Deref, DerefMut};
 use core::ptr;
 
-trait_set::trait_set! {
-    /// Peripheral that can be suspended
-    #[allow(private_bounds)]
-    pub trait SuspendablePeripheral = SealedSuspendablePeripheral;
-}
+/// Peripheral that can be suspended
+#[allow(private_bounds)]
+pub trait SuspendablePeripheral: SealedSuspendablePeripheral {}
+impl<T: SealedSuspendablePeripheral> SuspendablePeripheral for T {}
 
 pub(crate) trait SealedSuspendablePeripheral {
     type InternalState;

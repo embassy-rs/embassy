@@ -1,16 +1,15 @@
 //! Generic SMI Ethernet PHY
 
+#[cfg(feature = "time")]
+use core::pin::Pin;
 use core::task::Context;
 #[cfg(feature = "time")]
 use core::task::Poll;
 
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Timer};
-#[cfg(feature = "time")]
-use futures_util::FutureExt;
 
-use crate::eth::{Phy, StationManagement};
-use crate::wait::block_for_us;
+use crate::eth::{Error, PHY_RESET_TIMEOUT_US, Phy, StationManagement, wait_for};
 
 #[allow(dead_code)]
 mod phy_consts {
@@ -78,8 +77,10 @@ impl<SM: StationManagement> GenericPhy<SM> {
 
     /// Construct the PHY. Try to probe all addresses from 0 to 31 during initialization
     ///
-    /// # Panics
-    /// Initialization panics if PHY didn't respond on any address
+    /// Addresses whose PHY ID registers both read all-ones are skipped, because nothing drives
+    /// the MDIO line there.
+    ///
+    /// Ethernet initialization returns [`Error::PhyNotFound`] if no address completes a PHY reset.
     pub fn new_auto(sm: SM) -> Self {
         Self {
             sm,
@@ -93,42 +94,46 @@ impl<SM: StationManagement> GenericPhy<SM> {
 }
 
 impl<SM: StationManagement> Phy for GenericPhy<SM> {
-    fn phy_reset(&mut self) {
+    fn phy_reset(&mut self) -> Result<(), Error> {
         // Detect SMI address
         if self.phy_addr == 0xFF {
             for addr in 0..32 {
-                self.sm.smi_write(addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
-                for _ in 0..10 {
-                    if self.sm.smi_read(addr, PHY_REG_BCR) & PHY_REG_BCR_RESET != PHY_REG_BCR_RESET {
+                let id1 = self.sm.smi_read(addr, PHY_REG_ID1)?;
+                let id2 = self.sm.smi_read(addr, PHY_REG_ID2)?;
+                if (id1, id2) == (u16::MAX, u16::MAX) {
+                    continue;
+                }
+
+                match self.reset_at(addr) {
+                    Ok(()) => {
                         trace!("Found ETH PHY on address {}", addr);
                         self.phy_addr = addr;
-                        return;
+                        return Ok(());
                     }
-                    // Give PHY a total of 100ms to respond
-                    block_for_us(10000);
+                    Err(Error::PhyResetTimeout) => {}
+                    Err(error) => return Err(error),
                 }
             }
-            panic!("PHY did not respond");
+            return Err(Error::PhyNotFound);
         }
 
-        self.sm.smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
-        while self.sm.smi_read(self.phy_addr, PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
+        self.reset_at(self.phy_addr)
     }
 
-    fn phy_init(&mut self) {
+    fn phy_init(&mut self) -> Result<(), Error> {
         // Clear WU CSR
-        self.smi_write_ext(PHY_REG_WUCSR, 0);
+        self.smi_write_ext(PHY_REG_WUCSR, 0)?;
 
         #[cfg(eth_v2a)]
         {
             // The v2a MAC is fixed at 100M full duplex; advertise only that.
-            let antx = self.sm.smi_read(self.phy_addr, PHY_REG_ANTX);
+            let antx = self.sm.smi_read(self.phy_addr, PHY_REG_ANTX)?;
             let antx = (antx & !PHY_REG_ANTX_TECH) | PHY_REG_ANTX_100BTX_FD;
-            self.sm.smi_write(self.phy_addr, PHY_REG_ANTX, antx);
-            self.sm.smi_write(self.phy_addr, PHY_REG_GBCR, 0);
+            self.sm.smi_write(self.phy_addr, PHY_REG_ANTX, antx)?;
+            self.sm.smi_write(self.phy_addr, PHY_REG_GBCR, 0)?;
         }
         self.sm
-            .smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_AN | PHY_REG_BCR_ANRST);
+            .smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_AN | PHY_REG_BCR_ANRST)
     }
 
     fn poll_link(&mut self, cx: &mut Context) -> Option<bool> {
@@ -136,17 +141,40 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
         cx.waker().wake_by_ref();
 
         #[cfg(feature = "time")]
-        if matches!(self.timer.poll_unpin(cx), Poll::Ready(())) {
+        if matches!(Pin::new(&mut self.timer).poll(cx), Poll::Ready(())) {
             self.timer = Timer::after(self.poll_interval);
 
-            let _ = self.timer.poll_unpin(cx);
+            let _ = Pin::new(&mut self.timer).poll(cx);
         } else {
             return None;
         }
 
-        let bsr = self.sm.smi_read(self.phy_addr, PHY_REG_BSR);
+        match self.sm.smi_read(self.phy_addr, PHY_REG_BSR) {
+            Ok(bsr) => Some(bsr & PHY_REG_BSR_UP != 0),
+            Err(_) => Some(false),
+        }
+    }
+}
 
-        Some(bsr & PHY_REG_BSR_UP != 0)
+impl<SM: StationManagement> GenericPhy<SM> {
+    fn reset_at(&mut self, address: u8) -> Result<(), Error> {
+        self.sm.smi_write(address, PHY_REG_BCR, PHY_REG_BCR_RESET)?;
+        let mut read_error = None;
+        let finished = wait_for(
+            || match self.sm.smi_read(address, PHY_REG_BCR) {
+                Ok(bcr) => bcr & PHY_REG_BCR_RESET == 0,
+                Err(error) => {
+                    read_error = Some(error);
+                    true
+                }
+            },
+            PHY_RESET_TIMEOUT_US,
+        );
+        match read_error {
+            Some(error) => Err(error),
+            None if finished => Ok(()),
+            None => Err(Error::PhyResetTimeout),
+        }
     }
 }
 
@@ -159,11 +187,11 @@ impl<SM: StationManagement> GenericPhy<SM> {
     }
 
     // Writes a value to an extended PHY register in MMD address space
-    fn smi_write_ext(&mut self, reg_addr: u16, reg_data: u16) {
-        self.sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x0003); // set address
-        self.sm.smi_write(self.phy_addr, PHY_REG_ADDAR, reg_addr);
-        self.sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x4003); // set data
-        self.sm.smi_write(self.phy_addr, PHY_REG_ADDAR, reg_data);
+    fn smi_write_ext(&mut self, reg_addr: u16, reg_data: u16) -> Result<(), Error> {
+        self.sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x0003)?; // set address
+        self.sm.smi_write(self.phy_addr, PHY_REG_ADDAR, reg_addr)?;
+        self.sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x4003)?; // set data
+        self.sm.smi_write(self.phy_addr, PHY_REG_ADDAR, reg_data)
     }
 
     /// Access the underlying station management.

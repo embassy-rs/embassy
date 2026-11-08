@@ -105,7 +105,7 @@ pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
 #[cfg(not(feature = "_nrf54l"))] // TODO
-#[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
+#[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840", feature = "_nrf91"))]
 pub mod i2s;
 #[cfg(feature = "_nrf5340")]
 pub mod ipc;
@@ -777,7 +777,7 @@ pub unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> Wri
         return WriteResult::Failed;
     }
 
-    // Nrf9151 errata 7, need to disable interrups + use DSB https://docs.nordicsemi.com/bundle/errata_nRF9151_Rev2/page/ERR/nRF9151/Rev2/latest/anomaly_151_7.html
+    // Nrf9151 errata 7, need to disable interrupts + use DSB https://docs.nordicsemi.com/bundle/errata_nRF9151_Rev2/page/ERR/nRF9151/Rev2/latest/anomaly_151_7.html
     cortex_m::interrupt::free(|_cs| {
         let nvmc = pac::NVMC;
 
@@ -872,6 +872,32 @@ pub fn init(config: config::Config) -> Peripherals {
             }
             unsafe {
                 (addr as *mut u32).write_volatile(info.data().read());
+            }
+        }
+    }
+
+    // Workaround for nRF52832 anomaly 108 "RAM: RAM content cannot be trusted upon waking up
+    // from System ON Idle or System OFF mode". Applies to all nRF52832 revisions.
+    // Same write as Nordic's SystemInit (nrfx mdk system_nrf52.c).
+    #[cfg(feature = "nrf52832")]
+    unsafe {
+        let trim = (0x1000_0258 as *const u32).read_volatile() & 0x0000_004F;
+        (0x4000_0EE4 as *mut u32).write_volatile(trim);
+    }
+
+    // Workaround for anomaly 217 "RAM: RAM calibration values are not correctly loaded from
+    // FICR at reset". Applies to all nRF52805 and nRF52811 revisions, and to nRF52810
+    // revision 1 only. Same write as Nordic's SystemInit (nrfx mdk system_nrf52.c).
+    #[cfg(any(feature = "nrf52805", feature = "nrf52810", feature = "nrf52811"))]
+    {
+        #[cfg(feature = "nrf52810")]
+        let affected = unsafe { (0x1000_0134 as *const u32).read_volatile() } == 0x01;
+        #[cfg(not(feature = "nrf52810"))]
+        let affected = true;
+        if affected {
+            unsafe {
+                let reg = 0x4000_0EE4 as *mut u32;
+                reg.write_volatile(reg.read_volatile() | 0x0000_000F);
             }
         }
     }

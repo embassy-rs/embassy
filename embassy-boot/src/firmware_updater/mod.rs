@@ -3,9 +3,9 @@ mod blocking;
 
 pub use asynch::{FirmwareState, FirmwareUpdater};
 pub use blocking::{BlockingFirmwareState, BlockingFirmwareUpdater};
-#[cfg(feature = "_verify")]
-pub(crate) use blocking::{VerificationError, verify};
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
+
+use crate::verification::VerificationError;
 
 /// Firmware updater flash configuration holding the two flashes used by the updater
 ///
@@ -25,7 +25,7 @@ pub enum FirmwareUpdaterError {
     /// Error from flash.
     Flash(NorFlashErrorKind),
     /// Signature errors.
-    Signature(signature::Error),
+    Signature(embassy_crypto::Error),
     /// Bad state.
     BadState,
 }
@@ -47,5 +47,14 @@ where
 {
     fn from(error: E) -> Self {
         FirmwareUpdaterError::Flash(error.kind())
+    }
+}
+
+impl From<VerificationError> for FirmwareUpdaterError {
+    fn from(error: VerificationError) -> Self {
+        match error {
+            VerificationError::Flash(e) => FirmwareUpdaterError::Flash(e),
+            VerificationError::Signature(e) => FirmwareUpdaterError::Signature(e),
+        }
     }
 }

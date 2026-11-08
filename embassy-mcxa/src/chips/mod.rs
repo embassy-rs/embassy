@@ -1,12 +1,12 @@
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 pub mod mcxa2xx;
 
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 pub mod mcxa5xx;
 
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 pub(crate) use mcxa2xx::clock_limits;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 pub(crate) use mcxa5xx::clock_limits;
 
 // From Table 165 - Max Clock Frequencies (mcxa2xx)

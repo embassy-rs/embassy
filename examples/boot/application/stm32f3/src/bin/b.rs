@@ -6,7 +6,6 @@ use defmt_rtt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_time::Timer;
-use panic_reset as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -20,4 +19,9 @@ async fn main(_spawner: Spawner) {
         led.set_low();
         Timer::after_millis(500).await;
     }
+}
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    cortex_m::peripheral::SCB::sys_reset();
 }

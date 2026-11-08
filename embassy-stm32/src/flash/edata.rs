@@ -2,9 +2,9 @@ use core::ops::Range;
 use core::ptr::read_volatile;
 
 use embassy_hal_internal::drop::OnDrop;
-use stm32_metapac::flash::vals::Bksel;
 
-use super::{Blocking, Error, Flash, family};
+use super::{Error, Flash, FlashBank, family};
+use crate::mode::Mode;
 use crate::pac;
 
 /// Size in bytes of one physical EDATA bank.
@@ -32,21 +32,25 @@ pub enum EDataBank {
 
 impl EDataBank {
     fn base(self) -> u32 {
-        match (self, family::banks_swapped()) {
+        #[cfg(flash_dual_bank)]
+        let swapped = super::banks_swapped();
+        #[cfg(not(flash_dual_bank))]
+        let swapped = false;
+        match (self, swapped) {
             (Self::Bank1, false) | (Self::Bank2, true) => EDATA_BASE,
             (Self::Bank2, false) | (Self::Bank1, true) => EDATA_BANK2_BASE,
         }
     }
 
-    fn selector(self) -> Bksel {
+    fn physical(self) -> FlashBank {
         match self {
-            Self::Bank1 => Bksel::Bank1,
-            Self::Bank2 => Bksel::Bank2,
+            Self::Bank1 => FlashBank::Bank1,
+            Self::Bank2 => FlashBank::Bank2,
         }
     }
 }
 
-impl<'d> Flash<'d, Blocking> {
+impl<'d, M: Mode> Flash<'d, M> {
     /// Returns whether the EDATA area is enabled by the option bytes.
     pub fn edata_is_enabled(&self) -> bool {
         pac::FLASH.optsr_cur().read().edata_en()
@@ -157,7 +161,7 @@ impl<'d> Flash<'d, Blocking> {
             return Err(Error::Unaligned);
         }
 
-        let byte_len = output.len().checked_mul(2).ok_or(Error::Size)?;
+        let byte_len = output.len().checked_mul(2).ok_or(Error::OutOfBounds)?;
 
         let mut address = checked_address(bank, offset, byte_len)?;
 
@@ -186,7 +190,7 @@ impl<'d> Flash<'d, Blocking> {
         unsafe { family::unlock() };
         let _lock = OnDrop::new(|| unsafe { family::lock() });
 
-        unsafe { family::blocking_write_edata_u16(address, value) }
+        unsafe { family::edata_write(address, value) }
     }
 
     /// Writes 16-bit values to an EDATA bank.
@@ -200,14 +204,19 @@ impl<'d> Flash<'d, Blocking> {
             return Err(Error::Unaligned);
         }
 
-        let byte_len = values.len().checked_mul(2).ok_or(Error::Size)?;
+        let byte_len = values.len().checked_mul(2).ok_or(Error::OutOfBounds)?;
 
         let address = checked_address(bank, offset, byte_len)?;
 
         unsafe { family::unlock() };
         let _lock = OnDrop::new(|| unsafe { family::lock() });
 
-        unsafe { family::blocking_write_edata_u16_slice(address, values) }
+        let mut address = address;
+        for &value in values {
+            unsafe { family::edata_write(address, value)? };
+            address += 2;
+        }
+        Ok(())
     }
 
     /// Writes a 32-bit value to an EDATA bank.
@@ -226,7 +235,9 @@ impl<'d> Flash<'d, Blocking> {
         unsafe { family::unlock() };
         let _lock = OnDrop::new(|| unsafe { family::lock() });
 
-        unsafe { family::blocking_write_edata_u32(address, value) }
+        let bytes = value.to_le_bytes();
+        unsafe { family::edata_write(address, u16::from_le_bytes([bytes[0], bytes[1]]))? };
+        unsafe { family::edata_write(address + 2, u16::from_le_bytes([bytes[2], bytes[3]])) }
     }
 
     /// Writes bytes to an EDATA bank using 16-bit programming operations.
@@ -245,7 +256,12 @@ impl<'d> Flash<'d, Blocking> {
         unsafe { family::unlock() };
         let _lock = OnDrop::new(|| unsafe { family::lock() });
 
-        unsafe { family::blocking_write_edata(address, data) }
+        let mut address = address;
+        for chunk in data.chunks_exact(2) {
+            unsafe { family::edata_write(address, u16::from_le_bytes([chunk[0], chunk[1]]))? };
+            address += 2;
+        }
+        Ok(())
     }
 
     /// Erases one page in an EDATA bank.
@@ -255,26 +271,26 @@ impl<'d> Flash<'d, Blocking> {
         self.check_edata_enabled()?;
 
         if page >= EDATA_PAGE_COUNT {
-            return Err(Error::Size);
+            return Err(Error::OutOfBounds);
         }
 
         unsafe { family::unlock() };
         let _lock = OnDrop::new(|| unsafe { family::lock() });
-        unsafe { family::blocking_erase_edata_page(bank.selector(), page) }
+        unsafe { family::edata_erase(bank.physical(), page) }
     }
 }
 
 fn checked_address(bank: EDataBank, offset: u32, size: usize) -> Result<u32, Error> {
     let range = checked_range(offset, size, EDATA_BANK_SIZE)?;
-    bank.base().checked_add(range.start).ok_or(Error::Size)
+    bank.base().checked_add(range.start).ok_or(Error::OutOfBounds)
 }
 
 fn checked_range(offset: u32, len: usize, bank_size: u32) -> Result<Range<u32>, Error> {
-    let len = u32::try_from(len).map_err(|_| Error::Size)?;
-    let end = offset.checked_add(len).ok_or(Error::Size)?;
+    let len = u32::try_from(len).map_err(|_| Error::OutOfBounds)?;
+    let end = offset.checked_add(len).ok_or(Error::OutOfBounds)?;
 
     if end > bank_size {
-        return Err(Error::Size);
+        return Err(Error::OutOfBounds);
     }
 
     Ok(offset..end)
@@ -295,13 +311,16 @@ mod tests {
 
     #[test]
     fn checked_range_rejects_out_of_bounds() {
-        assert_eq!(checked_range(15, 2, 16), Err(Error::Size));
-        assert_eq!(checked_range(u32::MAX, 1, u32::MAX), Err(Error::Size));
+        assert_eq!(checked_range(15, 2, 16), Err(Error::OutOfBounds));
+        assert_eq!(checked_range(u32::MAX, 1, u32::MAX), Err(Error::OutOfBounds));
     }
 
     #[cfg(target_pointer_width = "64")]
     #[test]
     fn checked_range_rejects_lengths_larger_than_u32() {
-        assert_eq!(checked_range(0, u32::MAX as usize + 1, u32::MAX), Err(Error::Size));
+        assert_eq!(
+            checked_range(0, u32::MAX as usize + 1, u32::MAX),
+            Err(Error::OutOfBounds)
+        );
     }
 }

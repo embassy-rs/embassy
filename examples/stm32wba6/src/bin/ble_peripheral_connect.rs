@@ -21,17 +21,19 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
+use embassy_stm32_wpan::bluetooth::gap::connection::LeConnRole;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
+use embassy_stm32_wpan::bluetooth::{EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
-use stm32wb_hci::event::ConnectionRole;
+use stm32wb_hci::aci::values::AddressType;
+use stm32wb_hci::adv_data::AdvFlags;
 
 // ---- Test configuration ----
-const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
+const ADDR_TYPE: OwnAddressType = OwnAddressType::StaticRandom;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -81,38 +83,46 @@ async fn main(spawner: Spawner) {
     let mut gatt = ble.gatt_server();
 
     // Create a simple service for demonstration
-    let service_uuid = Uuid::from_u16(0x180F); // Battery Service UUID
+    let service_uuid = Uuid::Uuid16(0x180F); // Battery Service UUID
     let service_handle = gatt
-        .add_service(service_uuid, ServiceType::Primary, 4)
+        .add_service(ble.controller(), service_uuid, ServiceType::Primary, 4)
+        .await
         .expect("Failed to add service");
 
     // Add battery level characteristic
-    let char_uuid = Uuid::from_u16(0x2A19); // Battery Level UUID
+    let char_uuid = Uuid::Uuid16(0x2A19); // Battery Level UUID
     let char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
             char_uuid,
             1, // 1 byte for battery level
             CharProperties::READ | CharProperties::NOTIFY,
-            SecurityPermissions::NONE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::empty(),
+            GattEventMask::ATTRIBUTE_WRITE,
             0,
             false,
         )
+        .await
         .expect("Failed to add characteristic");
 
     // Set initial battery level (100%)
-    gatt.update_characteristic_value(service_handle, char_handle, 0, &[100])
+    gatt.update_characteristic_value(ble.controller(), service_handle, char_handle, 0, &[100])
+        .await
         .expect("Failed to set battery level");
 
     info!("GATT service created (Battery Service)");
 
     // Create advertising data
     let mut adv_data = AdvData::new();
-    adv_data.add_flags(0x06).expect("Failed to add flags");
-    adv_data.add_name("Embassy-Peripheral").expect("Failed to add name");
-    adv_data
-        .add_service_uuid_16(0x180F)
+    adv_data = adv_data
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .expect("Failed to add flags");
+    adv_data = adv_data
+        .complete_local_name(b"Embassy-Peripheral")
+        .expect("Failed to add name");
+    adv_data = adv_data
+        .complete_uuid16_list(&[0x180F])
         .expect("Failed to add service UUID");
 
     // Configure advertising parameters for connectable advertising
@@ -135,20 +145,21 @@ async fn main(spawner: Spawner) {
     info!("Waiting for connections...");
 
     // Main event loop
+    let mut event_buf = EventBuffer::new();
     loop {
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
 
         // Process the event and update connection state
-        if let Some(gap_event) = ble.process_event(&event) {
+        if let Some(gap_event) = ble.process_event(&event).await {
             match gap_event {
                 GapEvent::Connected(conn) => {
                     info!("=== CONNECTION ESTABLISHED ===");
-                    info!("  Handle: 0x{:04X}", conn.handle.0);
+                    info!("  Handle: 0x{:04X}", conn.handle.raw());
                     info!(
                         "  Role: {}",
                         match conn.role {
-                            ConnectionRole::Central => "Central",
-                            ConnectionRole::Peripheral => "Peripheral",
+                            LeConnRole::Central => "Central",
+                            LeConnRole::Peripheral => "Peripheral",
                         }
                     );
                     info!("  Peer Address: {}", conn.peer_address);
@@ -163,7 +174,7 @@ async fn main(spawner: Spawner) {
 
                 GapEvent::Disconnected { handle, reason } => {
                     info!("=== DISCONNECTION ===");
-                    info!("  Handle: 0x{:04X}", handle.0);
+                    info!("  Handle: 0x{:04X}", handle.raw());
                     info!("  Reason: 0x{:02X} ({})", reason.as_u8(), Display2Format(&reason));
                     info!("  Active connections: {}", ble.connections().count());
 
@@ -178,7 +189,7 @@ async fn main(spawner: Spawner) {
 
                 GapEvent::ConnectionParamsUpdated { handle, interval } => {
                     info!("=== CONNECTION PARAMS UPDATED ===");
-                    info!("  Handle: 0x{:04X}", handle.0);
+                    info!("  Handle: 0x{:04X}", handle.raw());
                     info!("  New Interval: {}", interval.interval());
                     info!("  New Latency: {}", interval.conn_latency());
                     info!("  New Timeout: {}", interval.supervision_timeout());
@@ -186,7 +197,7 @@ async fn main(spawner: Spawner) {
 
                 GapEvent::PhyUpdated { handle, tx_phy, rx_phy } => {
                     info!("=== PHY UPDATED ===");
-                    info!("  Handle: 0x{:04X}", handle.0);
+                    info!("  Handle: 0x{:04X}", handle.raw());
                     info!("  TX PHY: {:?}", tx_phy);
                     info!("  RX PHY: {:?}", rx_phy);
                 }
@@ -198,7 +209,7 @@ async fn main(spawner: Spawner) {
                     ..
                 } => {
                     info!("=== DATA LENGTH CHANGED ===");
-                    info!("  Handle: 0x{:04X}", handle.0);
+                    info!("  Handle: 0x{:04X}", handle.raw());
                     info!("  Max TX: {} bytes", max_tx_octets);
                     info!("  Max RX: {} bytes", max_rx_octets);
                 }

@@ -114,17 +114,26 @@ impl<'d> Vpr<'d> {
 }
 
 /// Error
-#[derive(Debug, Copy, Clone, Eq, PartialEq, thiserror::Error)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Unaligned address
-    #[error("unaligned address")]
     NotAligned,
     /// Core is already running
-    #[error("core is already running")]
     Running,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NotAligned => f.write_str("unaligned address"),
+            Self::Running => f.write_str("core is already running"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 pub(crate) trait SealedInstance {
     fn regs() -> pac::vpr::Vpr;

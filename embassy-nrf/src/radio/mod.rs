@@ -25,26 +25,37 @@ pub use pac::radio::vals::Txpower as TxPower;
 use crate::{interrupt, pac};
 
 /// RADIO error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Buffer was too long.
-    #[error("buffer was too long")]
     BufferTooLong,
     /// Buffer was too short.
-    #[error("buffer was too short")]
     BufferTooShort,
     /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
-    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
     /// Clear channel assessment reported channel in use
-    #[error("channel in use")]
     ChannelInUse,
     /// CRC check failed
-    #[error("CRC check failed: {0:#06x}")]
     CrcFailed(u16),
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BufferTooLong => f.write_str("buffer was too long"),
+            Self::BufferTooShort => f.write_str("buffer was too short"),
+            Self::BufferNotInRAM => {
+                f.write_str("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")
+            }
+            Self::ChannelInUse => f.write_str("channel in use"),
+            Self::CrcFailed(v0) => write!(f, "CRC check failed: {v0:#06x}"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// Interrupt handler
 pub struct InterruptHandler<T: Instance> {

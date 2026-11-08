@@ -125,6 +125,7 @@ impl<'d> BufferedUart<'d> {
     }
 
     /// Create a buffered UART instance with flow control.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_rtscts<T: Instance>(
         _uart: Peri<'d, T>,
         tx: Peri<'d, impl TxPin<T>>,
@@ -338,10 +339,7 @@ impl<'d> BufferedUartRx<'d> {
         });
 
         let result = if n == 0 {
-            match Self::get_rx_error(state) {
-                None => None,
-                Some(e) => Some(Err(e)),
-            }
+            Self::get_rx_error(state).map(Err)
         } else {
             Some(Ok(n))
         };
@@ -607,7 +605,7 @@ impl<'d> BufferedUartTx<'d> {
         let divx64 = (((regs.uartibrd().read().baud_divint() as u32) << 6)
             + regs.uartfbrd().read().baud_divfrac() as u32) as u64;
         let div_clk = clk_peri_freq() as u64 * 64;
-        let wait_usecs = (1_000_000 * bits as u64 * divx64 * 16 + div_clk - 1) / div_clk;
+        let wait_usecs = (1_000_000 * bits as u64 * divx64 * 16).div_ceil(div_clk);
 
         self.flush().await.unwrap();
         regs.uartlcr_h().write_set(|w| w.set_brk(true));

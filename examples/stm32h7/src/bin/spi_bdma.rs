@@ -2,6 +2,7 @@
 #![no_main]
 
 use core::fmt::Write;
+use core::mem::MaybeUninit;
 use core::str::from_utf8;
 
 use cortex_m_rt::entry;
@@ -11,14 +12,13 @@ use embassy_executor::Executor;
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals, spi};
-use grounded::uninit::GroundedArrayCell;
 use heapless::String;
 use panic_probe as _;
 use static_cell::StaticCell;
 
 // Defined in memory.x
 #[unsafe(link_section = ".ram_d3")]
-static mut RAM_D3: GroundedArrayCell<u8, 256> = GroundedArrayCell::uninit();
+static mut RAM_D3: MaybeUninit<[u8; 256]> = MaybeUninit::uninit();
 
 bind_interrupts!(struct Irqs {
     BDMA_CHANNEL0 => dma::InterruptHandler<peripherals::BDMA_CH0>;
@@ -27,14 +27,9 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::task]
 async fn main_task(mut spi: spi::Spi<'static, Async, spi::mode::Master>) {
-    let (read_buffer, write_buffer) = unsafe {
-        let ram = &mut *core::ptr::addr_of_mut!(RAM_D3);
-        ram.initialize_all_copied(0);
-        (
-            ram.get_subslice_mut_unchecked(0, 128),
-            ram.get_subslice_mut_unchecked(128, 128),
-        )
-    };
+    // SAFETY: the task runs once, so this is the only reference to the buffer.
+    let ram = unsafe { (*core::ptr::addr_of_mut!(RAM_D3)).write([0; 256]) };
+    let (read_buffer, write_buffer) = ram.split_at_mut(128);
 
     for n in 0u32.. {
         let mut write: String<128> = String::new();

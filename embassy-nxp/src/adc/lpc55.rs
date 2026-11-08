@@ -305,7 +305,7 @@ impl<'d> Adc<'d, Async> {
         adc
     }
 
-    /// Read the channel asyncronously
+    /// Read the channel asynchronously
     pub async fn read<P: AdcPin>(&mut self, pin: &mut Peri<'_, P>) -> u16 {
         let adc: Adc0 = pac::ADC0;
         pin.configure_iocon();

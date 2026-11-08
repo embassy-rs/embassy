@@ -4,6 +4,12 @@ The link:https://github.com/embassy-rs/embassy/tree/main/embassy-mcxa[Embassy MC
 
 * link:https://github.com/embassy-rs/nxp-pac[nxp-pac]
 
+== Chip selection
+
+Select the chip feature, for example `mcxa266` or `mcxa577`.
+The compatibility aliases `mcxa2xx` and `mcxa5xx` select those two chips respectively.
+The `_mcxa2xx` and `_mcxa5xx` features are internal register-map groups.
+
 == Peripherals
 
 The following peripherals have a HAL implementation at present
@@ -16,6 +22,7 @@ The following peripherals have a HAL implementation at present
 * I3C
 * LPUart
 * OSTimer
+* LPTMR (time-counter mode)
 * RTC
 * SPI controller
 * TRNG
@@ -24,3 +31,33 @@ The following peripherals have a HAL implementation at present
 * CTIMER
 * CRC
 * DMA
+
+== Time driver selection
+
+The default `time-driver-any` feature selects OSTIMER0, preserving the existing
+1 MHz time base. Enable `time-driver-lptmr` to use LPTMR0 instead, or explicitly
+select `time-driver-ostimer`. The two explicit choices are mutually exclusive.
+Disable default features and omit all three time-driver features to provide an
+external time driver.
+
+The selected peripheral is reserved: its singleton is not returned by `init()`.
+The LPTMR backend uses a free-running 1 MHz counter and checks the alarm queue
+every 1 ms. Alarm wakeups are never early, but may be delayed by one polling
+interval plus interrupt scheduling latency. It produces periodic interrupts
+even when no alarms are queued. It requires an always-enabled `clk_1m` and an
+active slow bus clock of at least 2 MHz. Service it (or read the time) at least
+once per 32-bit counter wrap, approximately 71 minutes. Like the hardware
+counter, this time base pauses while the debugger halts the core.
+
+The standalone LPTMR driver supports polling and interrupt-backed async waits,
+free-running or reset-on-compare mode, direct FRO16K or MRCC clock selection,
+and counter prescaling. Dropping a pending wait stops the timer. Pulse counting
+and DMA are not part of this driver. Configurations producing fractional-Hz
+counter clocks are rejected, so duration conversion cannot round a faster
+hardware clock down and wake early. Functional clock limits are 22.5 MHz on
+MCXA2 and 24 MHz on MCXA5, with the counter increment rate limited to half the
+active slow bus clock for reliable snapshots.
+
+Run the `lptmr` example in `examples/mcxa266` or `examples/mcxa577` normally to
+exercise the standalone driver, or add `--features time-driver-lptmr` to
+exercise the Embassy time backend.

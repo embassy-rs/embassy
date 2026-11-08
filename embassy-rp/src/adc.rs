@@ -336,7 +336,7 @@ impl<'d> Adc<'d, Async> {
         let _ = self
             .read_many_inner(
                 ch.iter().map(|c| c.channel()),
-                unsafe { mem::transmute::<_, &mut [u16]>(buf) },
+                unsafe { mem::transmute::<&mut [Sample], &mut [u16]>(buf) },
                 true,
                 div,
                 dma,
@@ -374,7 +374,7 @@ impl<'d> Adc<'d, Async> {
         let _ = self
             .read_many_inner(
                 [ch.channel()].into_iter(),
-                unsafe { mem::transmute::<_, &mut [u16]>(buf) },
+                unsafe { mem::transmute::<&mut [Sample], &mut [u16]>(buf) },
                 true,
                 div,
                 dma,

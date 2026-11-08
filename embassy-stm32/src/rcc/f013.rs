@@ -84,7 +84,7 @@ pub enum HrtimClockSource {
     PllClk,
 }
 
-/// Clocks configutation
+/// Clocks configuration
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub struct Config {
@@ -340,7 +340,7 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(stm32f1)]
     rcc_assert!(max::ADC.contains(&adc));
 
-    // Set latency based on HCLK frquency
+    // Set latency based on HCLK frequency
     #[cfg(stm32f0)]
     let latency = match hclk.0 {
         ..=24_000_000 => Latency::Ws0,

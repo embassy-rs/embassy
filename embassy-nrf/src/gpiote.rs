@@ -791,8 +791,8 @@ macro_rules! impl_channel {
     };
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "_nrf54l")] {
+cfg_select! {
+    feature = "_nrf54l" => {
         trait SealedGpioteInstance {}
         /// Represents a GPIOTE instance.
         #[allow(private_bounds)]
@@ -838,12 +838,14 @@ cfg_if::cfg_if! {
         impl_channel!(GPIOTE30_CH1, GPIOTE30, 1, 9);
         impl_channel!(GPIOTE30_CH2, GPIOTE30, 2, 10);
         impl_channel!(GPIOTE30_CH3, GPIOTE30, 3, 11);
-    } else if #[cfg(feature = "_nrf51")] {
+    }
+    feature = "_nrf51" => {
         impl_channel!(GPIOTE_CH0, GPIOTE, 0, 0);
         impl_channel!(GPIOTE_CH1, GPIOTE, 1, 1);
         impl_channel!(GPIOTE_CH2, GPIOTE, 2, 2);
         impl_channel!(GPIOTE_CH3, GPIOTE, 3, 3);
-    } else if #[cfg(all(feature = "_s", any(feature = "_nrf91", feature = "_nrf5340")))] {
+    }
+    all(feature = "_s", any(feature = "_nrf91", feature = "_nrf5340")) => {
         impl_channel!(GPIOTE_CH0, GPIOTE0, 0, 0);
         impl_channel!(GPIOTE_CH1, GPIOTE0, 1, 1);
         impl_channel!(GPIOTE_CH2, GPIOTE0, 2, 2);
@@ -852,7 +854,8 @@ cfg_if::cfg_if! {
         impl_channel!(GPIOTE_CH5, GPIOTE0, 5, 5);
         impl_channel!(GPIOTE_CH6, GPIOTE0, 6, 6);
         impl_channel!(GPIOTE_CH7, GPIOTE0, 7, 7);
-    } else if #[cfg(all(feature = "_ns", any(feature = "_nrf91", feature = "_nrf5340")))] {
+    }
+    all(feature = "_ns", any(feature = "_nrf91", feature = "_nrf5340")) => {
         impl_channel!(GPIOTE_CH0, GPIOTE1, 0, 0);
         impl_channel!(GPIOTE_CH1, GPIOTE1, 1, 1);
         impl_channel!(GPIOTE_CH2, GPIOTE1, 2, 2);
@@ -861,7 +864,8 @@ cfg_if::cfg_if! {
         impl_channel!(GPIOTE_CH5, GPIOTE1, 5, 5);
         impl_channel!(GPIOTE_CH6, GPIOTE1, 6, 6);
         impl_channel!(GPIOTE_CH7, GPIOTE1, 7, 7);
-    } else {
+    }
+    _ => {
         impl_channel!(GPIOTE_CH0, GPIOTE, 0, 0);
         impl_channel!(GPIOTE_CH1, GPIOTE, 1, 1);
         impl_channel!(GPIOTE_CH2, GPIOTE, 2, 2);

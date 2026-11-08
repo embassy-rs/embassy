@@ -81,33 +81,84 @@ impl Default for Backend {
 }
 
 #[cfg(all(feature = "esp-hosted-fg", feature = "esp-hosted-mcu"))]
-impl RpcBackend for Backend {
-    delegate::delegate! {
-        to match self {
-            Backend::Auto(backend) => backend,
-            Backend::Fg(backend) => backend,
-            Backend::Mcu(backend) => backend,
-        } {
-            fn encode_ioctl(&self, buffer: &mut [u8], req: &[u8]) -> usize;
-
-            fn encode_iface_type(&self, iface_type: InterfaceType) -> Option<u8>;
-            fn decode_iface_type(&self, iface_type: u8) -> Option<InterfaceType>;
-
-            async fn start_wifi(&self, _ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
-            async fn config_heartbeat(&self, ctx: &mut IoctlCtx<'_>, secs: u32) -> Result<(), Error>;
-            async fn init_radio(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
-            async fn set_mode(&self, ctx: &mut IoctlCtx<'_>, mode: WifiMode) -> Result<(), Error>;
-            async fn get_mac_addr(&self, ctx: &mut IoctlCtx<'_>) -> Result<[u8; 6], Error>;
-            async fn scan<const N: usize>(&self, ctx: &mut IoctlCtx<'_>, result: &mut Vec<Network, N>) -> Result<(), Error>;
-            async fn connect_ap(&self, ctx: &mut IoctlCtx<'_>, ssid: &str, pwd: &str) -> Result<(), Error>;
-            async fn disconnect_ap(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
-            async fn get_status(&self, ctx: &mut IoctlCtx<'_>) -> Result<Status, Error>;
-            async fn get_fw_version(&self, ctx: &mut IoctlCtx<'_>) -> Result<FwVersion, Error>;
-            async fn ota_begin(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
-            async fn ota_write(&self, ctx: &mut IoctlCtx<'_>, chunk: &[u8]) -> Result<(), Error>;
-            async fn ota_end(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error>;
-            fn normalize_event(&self, raw: &[u8]) -> Option<HostedEvent>;
+macro_rules! each_backend {
+    ($self:ident, $b:ident => $e:expr) => {
+        match $self {
+            Backend::Auto($b) => $e,
+            Backend::Fg($b) => $e,
+            Backend::Mcu($b) => $e,
         }
+    };
+}
+
+#[cfg(all(feature = "esp-hosted-fg", feature = "esp-hosted-mcu"))]
+impl RpcBackend for Backend {
+    fn encode_ioctl(&self, buffer: &mut [u8], req: &[u8]) -> usize {
+        each_backend!(self, b => b.encode_ioctl(buffer, req))
+    }
+
+    fn encode_iface_type(&self, iface_type: InterfaceType) -> Option<u8> {
+        each_backend!(self, b => b.encode_iface_type(iface_type))
+    }
+
+    fn decode_iface_type(&self, iface_type: u8) -> Option<InterfaceType> {
+        each_backend!(self, b => b.decode_iface_type(iface_type))
+    }
+
+    async fn start_wifi(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
+        each_backend!(self, b => b.start_wifi(ctx).await)
+    }
+
+    async fn config_heartbeat(&self, ctx: &mut IoctlCtx<'_>, secs: u32) -> Result<(), Error> {
+        each_backend!(self, b => b.config_heartbeat(ctx, secs).await)
+    }
+
+    async fn init_radio(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
+        each_backend!(self, b => b.init_radio(ctx).await)
+    }
+
+    async fn set_mode(&self, ctx: &mut IoctlCtx<'_>, mode: WifiMode) -> Result<(), Error> {
+        each_backend!(self, b => b.set_mode(ctx, mode).await)
+    }
+
+    async fn get_mac_addr(&self, ctx: &mut IoctlCtx<'_>) -> Result<[u8; 6], Error> {
+        each_backend!(self, b => b.get_mac_addr(ctx).await)
+    }
+
+    async fn scan<const N: usize>(&self, ctx: &mut IoctlCtx<'_>, result: &mut Vec<Network, N>) -> Result<(), Error> {
+        each_backend!(self, b => b.scan(ctx, result).await)
+    }
+
+    async fn connect_ap(&self, ctx: &mut IoctlCtx<'_>, ssid: &str, pwd: &str) -> Result<(), Error> {
+        each_backend!(self, b => b.connect_ap(ctx, ssid, pwd).await)
+    }
+
+    async fn disconnect_ap(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
+        each_backend!(self, b => b.disconnect_ap(ctx).await)
+    }
+
+    async fn get_status(&self, ctx: &mut IoctlCtx<'_>) -> Result<Status, Error> {
+        each_backend!(self, b => b.get_status(ctx).await)
+    }
+
+    async fn get_fw_version(&self, ctx: &mut IoctlCtx<'_>) -> Result<FwVersion, Error> {
+        each_backend!(self, b => b.get_fw_version(ctx).await)
+    }
+
+    async fn ota_begin(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
+        each_backend!(self, b => b.ota_begin(ctx).await)
+    }
+
+    async fn ota_write(&self, ctx: &mut IoctlCtx<'_>, chunk: &[u8]) -> Result<(), Error> {
+        each_backend!(self, b => b.ota_write(ctx, chunk).await)
+    }
+
+    async fn ota_end(&self, ctx: &mut IoctlCtx<'_>) -> Result<(), Error> {
+        each_backend!(self, b => b.ota_end(ctx).await)
+    }
+
+    fn normalize_event(&self, raw: &[u8]) -> Option<HostedEvent> {
+        each_backend!(self, b => b.normalize_event(raw))
     }
 
     fn process_serial_data<'pl>(&mut self, payload: &'pl [u8]) -> Option<(bool, &'pl [u8])> {

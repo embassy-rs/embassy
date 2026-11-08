@@ -14,6 +14,8 @@ use embassy_nrf::crypto::symmetric::{AesEcb, Direction, Symmetric};
 use embassy_nrf::mode::Blocking;
 use panic_probe as _;
 
+teleprobe_meta::timeout!(30);
+
 type Rng<'d> = embassy_nrf::crypto::rng::Rng<'d, Blocking>;
 
 /// Number of distinct byte values in a buffer.

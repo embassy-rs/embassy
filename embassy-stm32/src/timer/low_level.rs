@@ -472,7 +472,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         ManuallyDrop::new(Self { tim })
     }
 
-    /// Get access to the virutal core 16bit timer registers.
+    /// Get access to the virtual core 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
     /// for the less capable timers are a subset. This allows writing a driver
@@ -759,6 +759,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         }
     }
 
+    /// Get update interrupt.
+    pub fn get_update_interrupt(&self) -> bool {
+        self.regs_core().sr().read().uif()
+    }
+
     /// Enable/disable the update interrupt.
     pub fn enable_update_interrupt(&self, enable: bool) {
         self.regs_core().dier().modify(|r| r.set_uie(enable));
@@ -767,6 +772,14 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     /// Enable/disable autoreload preload.
     pub fn set_autoreload_preload(&self, enable: bool) {
         self.regs_core().cr1().modify(|r| r.set_arpe(enable));
+    }
+
+    /// Set which events set the update interrupt flag and request DMA.
+    ///
+    /// Note: [`Self::generate_update_event`] and `set_max_compare_value` set this back to
+    /// [`vals::Urs::AnyEvent`].
+    pub fn set_update_request_source(&self, source: vals::Urs) {
+        self.regs_core().cr1().modify(|r| r.set_urs(source));
     }
 
     /// Enable/disable UIF status remapping.
@@ -808,7 +821,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
 }
 
 impl<'d, T: BasicNoCr2Instance> Timer<'d, T> {
-    /// Get access to the Baisc 16bit timer registers.
+    /// Get access to the Basic 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
     /// for the less capable timers are a subset. This allows writing a driver
@@ -830,7 +843,7 @@ impl<'d, T: BasicNoCr2Instance> Timer<'d, T> {
 }
 
 impl<'d, T: BasicInstance> Timer<'d, T> {
-    /// Get access to the Baisc 16bit timer registers.
+    /// Get access to the Basic 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
     /// for the less capable timers are a subset. This allows writing a driver
@@ -965,6 +978,23 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Get input interrupt.
     pub fn get_input_interrupt(&self, channel: Channel) -> bool {
         self.regs_gp16().sr().read().ccif(channel.index())
+    }
+
+    /// Clear trigger interrupt.
+    ///
+    /// Returns whether the trigger interrupt flag was set.
+    pub fn clear_trigger_interrupt(&self) -> bool {
+        let regs = self.regs_gp16();
+        let sr = regs.sr().read();
+        if sr.tif() {
+            regs.sr().write(|r| {
+                r.0 = 0xFFFF_FFFF;
+                r.set_tif(false);
+            });
+            true
+        } else {
+            false
+        }
     }
 
     /// Enable input interrupt.
@@ -1613,6 +1643,11 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
         self.regs_advanced()
             .ccer()
             .modify(|w| w.set_ccne(channel.index(), enable));
+    }
+
+    /// Get enable/disable state of a complementary channel.
+    pub fn get_complementary_channel_enable_state(&self, channel: Channel) -> bool {
+        self.regs_advanced().ccer().read().ccne(channel.index())
     }
 
     /// Set Output Idle State

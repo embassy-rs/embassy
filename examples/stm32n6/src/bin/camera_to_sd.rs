@@ -13,7 +13,10 @@
 mod imx335;
 
 use core::cell::RefCell;
+use core::ops::ControlFlow;
 
+use aligned::Aligned;
+use block_device_driver::BlockDevice as _;
 use defmt::{error, info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -33,10 +36,9 @@ use embassy_stm32::rcc::mux::{Dcmippsel, Ltdcsel};
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk};
 use embassy_stm32::rif::{RifMaster, RifMasterAttributes, RifPeripheral, RifPeripheralAttributes};
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::sdmmc::sd::{Addressable, Card, CmdBlock, DataBlock, StorageDevice};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, interrupt, pac, peripherals};
-use embassy_time::Timer;
+use embassy_time::{Delay, Timer};
 use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx, Mode, TimeSource, Timestamp, VolumeIdx, VolumeManager};
 use panic_probe as _;
 
@@ -173,13 +175,13 @@ async fn main(_spawner: Spawner) {
     let mut sd_cfg = embassy_stm32::sdmmc::Config::default();
     sd_cfg.data_transfer_timeout = 200_000_000;
     let mut sd = Sdmmc::new_4bit(p.SDMMC2, p.PC2, p.PC3, p.PC4, p.PC5, p.PC0, p.PE4, Irqs, sd_cfg);
-    let mut cmd_block = CmdBlock::new();
-    #[allow(deprecated)]
-    let mut sd_state = match StorageDevice::new_sd_card(&mut sd, &mut cmd_block, Hertz(24_000_000)).await {
-        Ok(storage) => {
-            info!("sd: card ready, {} blocks", storage.card().size());
+    let mut sd_state = match SdCard::new_sd_card(&mut sd, 24_000_000, Delay).await {
+        Ok(mut storage) => {
+            let num_blocks = (unwrap!(storage.size().await) / 512) as u32;
+            info!("sd: card ready, {} blocks", num_blocks);
             let block_dev = EmbassyBlockDevice {
                 inner: RefCell::new(storage),
+                num_blocks,
             };
             let mut volume_mgr: VolumeManager<_, _> = VolumeManager::new(block_dev, FixedTime);
             let next_idx = scan_next_index(&mut volume_mgr);
@@ -394,7 +396,7 @@ fn write_bmp_to_sd<'a, 'b>(
     volume_mgr: &mut VolumeManager<EmbassyBlockDevice<'a, 'b>, FixedTime>,
     file_idx: u32,
     pixels: &[u16],
-) -> Result<(), embedded_sdmmc::Error<embassy_stm32::sdmmc::Error>> {
+) -> Result<(), embedded_sdmmc::Error<sdio::MmcError>> {
     let volume = volume_mgr.open_volume(VolumeIdx(0))?;
     let root = volume.open_root_dir()?;
     let mut name = heapless::String::<13>::new();
@@ -469,7 +471,7 @@ fn write_bmp_to_sd<'a, 'b>(
 
 fn scan_next_index<'a, 'b>(volume_mgr: &mut VolumeManager<EmbassyBlockDevice<'a, 'b>, FixedTime>) -> u32 {
     let mut max: i64 = -1;
-    let res: Result<(), embedded_sdmmc::Error<embassy_stm32::sdmmc::Error>> = (|| {
+    let res: Result<(), embedded_sdmmc::Error<sdio::MmcError>> = (|| {
         let volume = volume_mgr.open_volume(VolumeIdx(0))?;
         let root = volume.open_root_dir()?;
         root.iterate_dir(|entry| {
@@ -484,6 +486,7 @@ fn scan_next_index<'a, 'b>(volume_mgr: &mut VolumeManager<EmbassyBlockDevice<'a,
                     }
                 }
             }
+            ControlFlow::Continue(())
         })?;
         Ok(())
     })();
@@ -495,23 +498,22 @@ fn scan_next_index<'a, 'b>(volume_mgr: &mut VolumeManager<EmbassyBlockDevice<'a,
 
 // ---- BlockDevice glue ----
 
+type SdCard<'a, 'b> = sdio::BlockDevice<sdio::sd::Card, &'a mut Sdmmc<'b>, Delay, 512>;
+
 struct EmbassyBlockDevice<'a, 'b> {
-    inner: RefCell<StorageDevice<'a, 'b, Card>>,
+    inner: RefCell<SdCard<'a, 'b>>,
+    num_blocks: u32,
 }
 
 impl<'a, 'b> BlockDevice for EmbassyBlockDevice<'a, 'b> {
-    type Error = embassy_stm32::sdmmc::Error;
+    type Error = sdio::MmcError;
 
     fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
         let mut inner = self.inner.borrow_mut();
         for (i, block) in blocks.iter_mut().enumerate() {
-            let mut data = DataBlock([0u32; 128]);
-            block_on(inner.read_block(start_block_idx.0 + i as u32, &mut data))?;
-            // DataBlock is repr-transparent over [u32; 128] = 512 bytes.
-            // SAFETY: same size, properly aligned.
-            unsafe {
-                core::ptr::copy_nonoverlapping(data.0.as_ptr() as *const u8, block.contents.as_mut_ptr(), 512);
-            }
+            let mut data = [Aligned([0u8; 512])];
+            block_on(inner.read(start_block_idx.0 + i as u32, &mut data))?;
+            block.contents.copy_from_slice(&*data[0]);
         }
         Ok(())
     }
@@ -519,19 +521,14 @@ impl<'a, 'b> BlockDevice for EmbassyBlockDevice<'a, 'b> {
     fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
         let mut inner = self.inner.borrow_mut();
         for (i, block) in blocks.iter().enumerate() {
-            let mut data = DataBlock([0u32; 128]);
-            unsafe {
-                core::ptr::copy_nonoverlapping(block.contents.as_ptr(), data.0.as_mut_ptr() as *mut u8, 512);
-            }
-            block_on(inner.write_block(start_block_idx.0 + i as u32, &data))?;
+            let data = [Aligned(block.contents)];
+            block_on(inner.write(start_block_idx.0 + i as u32, &data))?;
         }
         Ok(())
     }
 
     fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
-        let inner = self.inner.borrow();
-        let bytes = inner.card().size();
-        Ok(BlockCount((bytes / 512) as u32))
+        Ok(BlockCount(self.num_blocks))
     }
 }
 

@@ -19,6 +19,8 @@ include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 mod atomic;
 mod macros;
 pub mod time;
+#[cfg(feature = "trustzone-secure")]
+pub mod trustzone;
 mod wait;
 /// Operating modes for peripherals.
 pub mod mode {
@@ -137,10 +139,9 @@ mod crypto_driver;
 pub mod comp {
     //! Comp stub module to provide consistent API
 
-    trait_set::trait_set! {
-        /// Comp stub peripheral type
-        pub trait Instance = embassy_hal_internal::PeripheralType + 'static;
-    }
+    /// Comp stub peripheral type
+    pub trait Instance: embassy_hal_internal::PeripheralType + 'static {}
+    impl<T: embassy_hal_internal::PeripheralType + 'static> Instance for T {}
 
     pin_trait!(OutputPin, Instance);
 }
@@ -168,7 +169,7 @@ pub mod crc;
 pub mod cryp;
 #[cfg(csi)]
 pub mod csi;
-#[cfg(all(dac, not(stm32c5)))]
+#[cfg(dac)]
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
@@ -797,9 +798,7 @@ fn init_hw(config: Config) -> Peripherals {
         {
             crate::pac::RCC.miscensr().write(|w| w.set_dbgens(true));
             crate::pac::RCC.miscenr().read(); // volatile read
-            crate::pac::DBGMCU
-                .cr()
-                .modify(|w| w.set_dbgclken(stm32_metapac::dbgmcu::vals::Dbgclken::B0x1));
+            crate::pac::DBGMCU.cr().modify(|w| w.set_dbgclken(true));
             crate::pac::DBGMCU.cr().read();
         }
 
@@ -826,7 +825,7 @@ fn init_hw(config: Config) -> Peripherals {
                 cr.set_dbg_stop(config.enable_debug_during_sleep);
                 cr.set_dbg_standby(config.enable_debug_during_sleep);
             }
-            #[cfg(dbgmcu_h7)]
+            #[cfg(any(dbgmcu_h7, dbgmcu_h7rm0399))]
             {
                 cr.set_d1dbgcken(config.enable_debug_during_sleep);
                 cr.set_d3dbgcken(config.enable_debug_during_sleep);

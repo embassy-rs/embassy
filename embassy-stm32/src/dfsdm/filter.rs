@@ -154,11 +154,9 @@ where
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
         config: &FilterConfig<T, M>,
-    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, NoDma>
-    where
-        [(); N]: NonEmpty,
-    {
-        self.enable_int(regular, injected, config)
+    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, NoDma> {
+        const { core::assert!(N > 0, "at least one element is required") };
+        self.enable_inner(regular, injected, config)
     }
 
     /// Enable the filter and set the regular-conversion DMA request flag (RDMAEN).
@@ -167,11 +165,9 @@ where
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
         config: &FilterConfig<T, M>,
-    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, RegDma>
-    where
-        [(); N]: NonEmpty,
-    {
-        self.enable_int(regular, injected, config)
+    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, RegDma> {
+        const { core::assert!(N > 0, "at least one element is required") };
+        self.enable_inner(regular, injected, config)
     }
 
     /// Enable the filter and set the injected-conversion DMA request flag (JDMAEN).
@@ -180,14 +176,12 @@ where
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
         config: &FilterConfig<T, M>,
-    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, InjDma>
-    where
-        [(); N]: NonEmpty,
-    {
-        self.enable_int(regular, injected, config)
+    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, InjDma> {
+        const { core::assert!(N > 0, "at least one element is required") };
+        self.enable_inner(regular, injected, config)
     }
 
-    fn enable_int<'tr, 'ti, const N: usize, D>(
+    fn enable_inner<'tr, 'ti, const N: usize, D>(
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
@@ -195,8 +189,8 @@ where
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, D>
     where
         D: DmaMode,
-        [(); N]: NonEmpty,
     {
+        const { core::assert!(N > 0, "at least one element is required") };
         let filter = Filter {
             _guard: FilterGuard(PhantomData),
             common: self.common,
@@ -220,7 +214,7 @@ where
     }
 
     fn configure(config: &FilterConfig<T, M>) {
-        Self::set_filter_parameters(config.filter_params);
+        Self::set_parameters(config.filter_params);
         Self::set_continuous(config.enable_continuous_regular);
         Self::set_fastmode(config.enable_fast_regular);
         Self::set_regular_synchronization(config.enable_regular_sync);
@@ -230,7 +224,7 @@ where
     }
 
     /// Writes the filter order, FOSR and IOSR into the filter registers.
-    fn set_filter_parameters(params: config::FilterParameters) {
+    fn set_parameters(params: config::FilterParameters) {
         let (order, fosr, iosr) = params.register_values();
         T::regs().flt(M::CHANNEL.index()).fcr().modify(|w| {
             w.set_ford(order);
@@ -255,7 +249,7 @@ where
     /// conversion request. Disabling it while a continuous conversion is in
     /// progress stops the conversion immediately.
     fn set_continuous(enabled: bool) {
-        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rcont(enabled));
+        RegularRegs::<T, M>::set_continuous(enabled);
     }
 
     /// Configures the trigger for injected conversions.
@@ -268,13 +262,10 @@ where
             InjectedTrigger::Enabled { jextsel, edge, _m } => (*jextsel, *edge as u8),
         };
 
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr1()
-            .modify(|w: &mut stm32_metapac::dfsdm::regs::Cr1| {
-                w.set_jextsel(jextsel);
-                w.set_jexten(jexten);
-            });
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| {
+            w.set_jextsel(jextsel);
+            w.set_jexten(jexten);
+        });
     }
 
     /// Enables or disables synchronization for regular conversions.
@@ -341,7 +332,7 @@ where
     /// rather than mutating in place. This is pure borrow-checker bookkeeping,
     /// not a hardware requirement - see [`FilterRegular::assign_transceiver`]
     /// for the in-place alternative when the lifetime doesn't need to change.
-    pub fn replace_regular_transceiver<'new_reg>(
+    pub fn replace_regular<'new_reg>(
         self,
         transceiver: &'new_reg dyn TransceiverTrait<T, Enabled>,
     ) -> Filter<'new_reg, 'ti, 'a, 'd, T, M, D> {
@@ -362,15 +353,13 @@ where
     /// rather than mutating in place. This is pure borrow-checker bookkeeping,
     /// not a hardware requirement - see [`FilterInjected::assign_transceivers`]
     /// for the in-place alternative when the lifetime doesn't need to change.
-    pub fn replace_injected_transceivers<'new_inj, const N: usize>(
+    pub fn replace_injected<'new_inj, const N: usize>(
         self,
         transceivers: [&'new_inj dyn TransceiverTrait<T, Enabled>; N],
-    ) -> Filter<'tr, 'new_inj, 'a, 'd, T, M, D>
-    where
-        [(); N]: NonEmpty,
-    {
+    ) -> Filter<'tr, 'new_inj, 'a, 'd, T, M, D> {
+        const { core::assert!(N > 0, "at least one element is required") };
         let (slots, filterword) = FilterInjected::<'a, 'd, 'ti, T, M, D>::build_slots(transceivers);
-        FilterInjected::<'a, 'd, 'ti, T, M, D>::set_channels(filterword);
+        FilterInjected::<'a, 'd, 'ti, T, M, D>::set_channel_group(filterword);
 
         Filter {
             injected: FilterInjected {
@@ -383,7 +372,9 @@ where
 }
 
 /// Regular conversion result.
-pub struct ResultRegular {
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct RegularResult {
     /// Sign-extended 24-bit sample.
     pub data: i32,
     /// Transceiver the sample came from.
@@ -392,14 +383,14 @@ pub struct ResultRegular {
     pub pending: bool,
 }
 
-impl ResultRegular {
+impl RegularResult {
     /// Decode a raw `u32` RDATAR word, e.g. read from a DMA ring buffer.
     ///
     /// The word layout is `RDATA[23:8]` (24-bit data), `RPEND` (bit 4) and
     /// `RDATACH[2:0]` (channel).
     pub fn from_word(word: u32) -> Self {
         let reg = crate::pac::dfsdm::regs::Rdatar(word);
-        ResultRegular {
+        RegularResult {
             data: sign_extend_24(reg.rdata()),
             channel: reg.rdatach(),
             pending: reg.rpend(),
@@ -408,21 +399,23 @@ impl ResultRegular {
 }
 
 /// Injected conversion result.
-pub struct ResultInjected {
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct InjectedResult {
     /// Sign-extended 24-bit sample.
     pub data: i32,
     /// Transceiver the sample came from.
     pub channel: u8,
 }
 
-impl ResultInjected {
+impl InjectedResult {
     /// Decode a raw `u32` JDATAR word, e.g. read from a DMA ring buffer.
     ///
     /// The word layout is `JDATA[23:8]` (24-bit data) and `JDATACH[2:0]`
     /// (channel).
     pub fn from_word(word: u32) -> Self {
         let reg = crate::pac::dfsdm::regs::Jdatar(word);
-        ResultInjected {
+        InjectedResult {
             data: sign_extend_24(reg.jdata()),
             channel: reg.jdatach(),
         }
@@ -450,7 +443,7 @@ where
     ///
     /// The new transceiver must live at least as long as the previous one
     /// (`'t`), since this does not change the `Filter`'s lifetime parameter.
-    /// Use [`Filter::replace_regular_transceiver`] if you need to assign a
+    /// Use [`Filter::replace_regular`] if you need to assign a
     /// transceiver with a shorter/different lifetime and get the old one back
     /// for further mutation.
     ///
@@ -472,7 +465,7 @@ where
     /// # Note
     /// The request is ignored while a regular conversion is in progress (RCIP).
     /// An injected conversion preempts a running regular conversion, which is
-    /// restarted and flagged via [`ResultRegular::pending`].
+    /// restarted and flagged via [`RegularResult::pending`].
     pub fn start_conversion(&mut self) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rswstart(true));
     }
@@ -482,7 +475,7 @@ where
     /// Does not start a conversion: the conversion must already be running,
     /// started by an external trigger, or started via
     /// [`start_and_read`](Self::start_and_read). Resolves with the next
-    /// [`ResultRegular`] once a conversion completes.
+    /// [`RegularResult`] once a conversion completes.
     ///
     /// # Note
     /// A starved filter hangs forever: if the assigned transceiver produces no
@@ -495,20 +488,22 @@ where
     /// - [`ClockAbsenceDetector`] flags a missing or failed source clock;
     /// - [`Error::Overrun`] is returned when data *is* arriving, faster than it
     ///   is read.
-    pub async fn read(&mut self) -> Result<ResultRegular, Error> {
+    pub async fn read(&mut self) -> Result<RegularResult, Error> {
         poll_fn(|cx| {
-            FilterRegs::<T, M>::set_regular_end_of_conversion_interrupt(false);
-            FilterRegs::<T, M>::set_regular_overrun_interrupt(false);
+            RegularRegs::<T, M>::set_eoc_interrupt(false);
+            RegularRegs::<T, M>::set_overrun_interrupt(false);
             T::state().regular_waker.register(cx.waker());
-            match self.try_get_result() {
+            match self.try_read() {
                 Ok(result) => Poll::Ready(Ok(result)),
                 Err(Error::Overrun) => Poll::Ready(Err(Error::Overrun)),
                 Err(Error::NotReady) => {
-                    FilterRegs::<T, M>::set_regular_end_of_conversion_interrupt(true);
-                    FilterRegs::<T, M>::set_regular_overrun_interrupt(true);
+                    RegularRegs::<T, M>::set_eoc_interrupt(true);
+                    RegularRegs::<T, M>::set_overrun_interrupt(true);
                     Poll::Pending
                 }
-                Err(_) => unreachable!("Other errors invalid"),
+                Err(Error::InvalidFilterParameters | Error::InvalidConfig) => {
+                    unreachable!("try_read cannot produce config errors")
+                }
             }
         })
         .await
@@ -519,33 +514,33 @@ where
     /// Equivalent to [`start_conversion`](Self::start_conversion) followed by
     /// [`read`](Self::read): the read future waits for the conversion it just
     /// launched.
-    pub async fn start_and_read(&mut self) -> Result<ResultRegular, Error> {
+    pub async fn start_and_read(&mut self) -> Result<RegularResult, Error> {
         self.start_conversion();
         self.read().await
     }
 
     /// Attempts to read the current regular conversion result.
     ///
-    /// Returns [`ResultRegular`] if `REOCF` is set, [`Error::Overrun`] if an
+    /// Returns [`RegularResult`] if `REOCF` is set, [`Error::Overrun`] if an
     /// overrun occurred, or [`Error::NotReady`] if no conversion result is
     /// available.
     ///
     /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
     ///
-    /// [`ResultRegular::pending`] is set if the regular conversion was delayed
+    /// [`RegularResult::pending`] is set if the regular conversion was delayed
     /// by an injected conversion.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_get_result(&mut self) -> Result<ResultRegular, Error> {
+    pub fn try_read(&mut self) -> Result<RegularResult, Error> {
         if self.get_and_clear_overrun() {
             // Drain the sample left over by the overrun so it is not served
             // out of order by a later read.
             if self.end_of_conversion() {
-                let _ = self.get_result_unchecked();
+                let _ = self.read_unchecked();
             }
             return Err(Error::Overrun);
         } else if self.end_of_conversion() {
-            return Ok(self.get_result_unchecked());
+            return Ok(self.read_unchecked());
         }
         Err(Error::NotReady)
     }
@@ -555,37 +550,37 @@ where
     ///
     /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
     ///
-    /// [`ResultRegular::pending`] is set if the regular conversion was delayed
+    /// [`RegularResult::pending`] is set if the regular conversion was delayed
     /// by an injected conversion.
     ///
     /// The returned data is only valid if `REOCF` was set before reading.
     ///
     /// # Note
     /// This path does not check or clear the overrun flag; use
-    /// [`try_get_result`](Self::try_get_result) to propagate overruns.
-    pub fn get_result_unchecked(&mut self) -> ResultRegular {
+    /// [`try_read`](Self::try_read) to propagate overruns.
+    pub fn read_unchecked(&mut self) -> RegularResult {
         let word = T::regs().flt(M::CHANNEL.index()).rdatar().read().0;
-        ResultRegular::from_word(word)
+        RegularResult::from_word(word)
     }
 
     /// Returns whether a regular conversion result is available.
     pub fn end_of_conversion(&self) -> bool {
-        FilterRegs::<T, M>::end_of_regular_conversion()
+        RegularRegs::<T, M>::end_of_conversion()
     }
 
     /// Whether the regular overrun flag is set.
     pub fn overrun(&self) -> bool {
-        FilterRegs::<T, M>::regular_overrun()
+        RegularRegs::<T, M>::overrun()
     }
 
     /// Clear the regular overrun flag.
     pub fn clear_overrun(&self) {
-        FilterRegs::<T, M>::clear_regular_overrun();
+        RegularRegs::<T, M>::clear_overrun();
     }
 
     /// Returns whether a regular conversion is currently in progress or pending.
     pub fn conversion_in_progress(&self) -> bool {
-        FilterRegs::<T, M>::regular_conversion_in_progress()
+        RegularRegs::<T, M>::conversion_in_progress()
     }
 
     /// Enables or disables continuous conversion mode.
@@ -598,12 +593,12 @@ where
     /// Writing CR1 while continuous mode is enabled (RCONT=1) mid-conversion
     /// restarts the conversion.
     pub fn set_continuous(&mut self, enabled: bool) {
-        FilterDisabled::<T, M>::set_continuous(enabled);
+        RegularRegs::<T, M>::set_continuous(enabled);
     }
 
     fn get_and_clear_overrun(&mut self) -> bool {
-        let overrun = FilterRegs::<T, M>::regular_overrun();
-        FilterRegs::<T, M>::clear_regular_overrun();
+        let overrun = RegularRegs::<T, M>::overrun();
+        RegularRegs::<T, M>::clear_overrun();
         overrun
     }
 }
@@ -631,12 +626,10 @@ where
     pub(crate) fn new<const N: usize>(
         _common: &'a DfsdmCommon<'d, T, Enabled>,
         transceivers: [&'t dyn TransceiverTrait<T, Enabled>; N],
-    ) -> Self
-    where
-        [(); N]: NonEmpty,
-    {
+    ) -> Self {
+        const { core::assert!(N > 0, "at least one element is required") };
         let (slots, filterword) = Self::build_slots(transceivers);
-        Self::set_channels(filterword);
+        Self::set_channel_group(filterword);
 
         Self {
             _common: PhantomData,
@@ -648,19 +641,17 @@ where
     ///
     /// The new transceiver must live at least as long as the previous one
     /// (`'t`), since this does not change the `FilterInjected`'s lifetime parameter.
-    /// Use [`Filter::replace_injected_transceivers`] if you need to assign a
+    /// Use [`Filter::replace_injected`] if you need to assign a
     /// transceiver with a shorter/different lifetime and get the old one back
     /// for further mutation.
     ///
     /// # Note
     /// Unlike the regular channel select, the injected select (JCHGR) takes
     /// effect immediately and resets any injected scan in progress.
-    pub fn assign_transceivers<const N: usize>(&mut self, transceivers: [&'t dyn TransceiverTrait<T, Enabled>; N])
-    where
-        [(); N]: NonEmpty,
-    {
+    pub fn assign_transceivers<const N: usize>(&mut self, transceivers: [&'t dyn TransceiverTrait<T, Enabled>; N]) {
+        const { core::assert!(N > 0, "at least one element is required") };
         let (slots, filterword) = Self::build_slots(transceivers);
-        Self::set_channels(filterword);
+        Self::set_channel_group(filterword);
         self.injected = slots;
     }
 
@@ -668,21 +659,23 @@ where
     /// from a caller-provided transceiver array of any lifetime.
     fn build_slots<'tcv, const N: usize>(
         transceivers: [&'tcv dyn TransceiverTrait<T, Enabled>; N],
-    ) -> ([Option<&'tcv dyn TransceiverTrait<T, Enabled>>; 8], u8)
-    where
-        [(); N]: NonEmpty,
-    {
+    ) -> ([Option<&'tcv dyn TransceiverTrait<T, Enabled>>; 8], u8) {
+        const { core::assert!(N > 0, "at least one element is required") };
         let filterword = filterword_of(&transceivers);
 
+        // Slots are keyed by channel index, not by argument order: the injected
+        // scan visits selected channels in ascending channel order regardless of
+        // how the caller ordered them, so the argument order carries no meaning.
+        // Keying by index also makes duplicate channels idempotent.
         let mut slots: [Option<&'tcv dyn TransceiverTrait<T, Enabled>>; 8] = [None; 8];
-        for (i, tcv) in transceivers.iter().enumerate() {
-            slots[i] = Some(*tcv);
+        for tcv in transceivers {
+            slots[tcv.index()] = Some(tcv);
         }
 
         (slots, filterword)
     }
 
-    fn set_channels(channels: u8) {
+    fn set_channel_group(channels: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .jchgr()
@@ -694,7 +687,7 @@ where
     /// # Note
     /// The request is ignored while an injected conversion is in progress
     /// (JCIP). An injected conversion preempts a running regular conversion
-    /// (flagged via [`ResultRegular::pending`]).
+    /// (flagged via [`RegularResult::pending`]).
     pub fn start_conversion(&mut self) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jswstart(true));
     }
@@ -704,27 +697,29 @@ where
     /// Does not start a conversion: the conversion must already be running,
     /// started by an external trigger, or started via
     /// [`start_and_read`](Self::start_and_read). Resolves with the next
-    /// [`ResultInjected`] once a conversion completes.
+    /// [`InjectedResult`] once a conversion completes.
     ///
     /// # Note
     /// Like [`FilterRegular::read`], this hangs forever if the filter is
     /// starved (no data produced, or no trigger); see that method for the
     /// layered starvation detection.
-    pub async fn read(&mut self) -> Result<ResultInjected, Error> {
+    pub async fn read(&mut self) -> Result<InjectedResult, Error> {
         poll_fn(|cx| {
-            FilterRegs::<T, M>::set_injected_end_of_conversion_interrupt(false);
-            FilterRegs::<T, M>::set_injected_overrun_interrupt(false);
+            InjectedRegs::<T, M>::set_eoc_interrupt(false);
+            InjectedRegs::<T, M>::set_overrun_interrupt(false);
 
             T::state().injected_waker.register(cx.waker());
-            match self.try_get_result() {
+            match self.try_read() {
                 Ok(result) => Poll::Ready(Ok(result)),
                 Err(Error::Overrun) => Poll::Ready(Err(Error::Overrun)),
                 Err(Error::NotReady) => {
-                    FilterRegs::<T, M>::set_injected_end_of_conversion_interrupt(true);
-                    FilterRegs::<T, M>::set_injected_overrun_interrupt(true);
+                    InjectedRegs::<T, M>::set_eoc_interrupt(true);
+                    InjectedRegs::<T, M>::set_overrun_interrupt(true);
                     Poll::Pending
                 }
-                Err(_) => unreachable!("Other errors invalid"),
+                Err(Error::InvalidFilterParameters | Error::InvalidConfig) => {
+                    unreachable!("try_read cannot produce config errors")
+                }
             }
         })
         .await
@@ -735,30 +730,30 @@ where
     /// Equivalent to [`start_conversion`](Self::start_conversion) followed by
     /// [`read`](Self::read): the read future waits for the conversion it just
     /// launched.
-    pub async fn start_and_read(&mut self) -> Result<ResultInjected, Error> {
+    pub async fn start_and_read(&mut self) -> Result<InjectedResult, Error> {
         self.start_conversion();
         self.read().await
     }
 
     /// Attempts to read the current injected conversion result.
     ///
-    /// Returns [`ResultInjected`] if `JEOCF` is set, [`Error::Overrun`] if an
+    /// Returns [`InjectedResult`] if `JEOCF` is set, [`Error::Overrun`] if an
     /// overrun occurred, or [`Error::NotReady`] if no conversion result is
     /// available.
     ///
     /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_get_result(&mut self) -> Result<ResultInjected, Error> {
+    pub fn try_read(&mut self) -> Result<InjectedResult, Error> {
         if self.get_and_clear_overrun() {
             // Drain the sample left over by the overrun so it is not served
             // out of order by a later read.
             if self.end_of_conversion() {
-                let _ = self.get_result_unchecked();
+                let _ = self.read_unchecked();
             }
             return Err(Error::Overrun);
         } else if self.end_of_conversion() {
-            return Ok(self.get_result_unchecked());
+            return Ok(self.read_unchecked());
         }
         Err(Error::NotReady)
     }
@@ -772,35 +767,35 @@ where
     ///
     /// # Note
     /// This path does not check or clear the overrun flag; use
-    /// [`try_get_result`](Self::try_get_result) to propagate overruns.
-    pub fn get_result_unchecked(&mut self) -> ResultInjected {
+    /// [`try_read`](Self::try_read) to propagate overruns.
+    pub fn read_unchecked(&mut self) -> InjectedResult {
         let word = T::regs().flt(M::CHANNEL.index()).jdatar().read().0;
-        ResultInjected::from_word(word)
+        InjectedResult::from_word(word)
     }
 
     /// Returns whether an injected conversion result is available.
     pub fn end_of_conversion(&self) -> bool {
-        FilterRegs::<T, M>::end_of_injected_conversion()
+        InjectedRegs::<T, M>::end_of_conversion()
     }
 
     /// Whether the injected overrun flag is set.
     pub fn overrun(&self) -> bool {
-        FilterRegs::<T, M>::injected_overrun()
+        InjectedRegs::<T, M>::overrun()
     }
 
     /// Clear the injected overrun flag.
     pub fn clear_overrun(&self) {
-        FilterRegs::<T, M>::clear_injected_overun()
+        InjectedRegs::<T, M>::clear_overrun()
     }
 
     /// Returns whether an injected conversion is currently in progress or pending.
     pub fn conversion_in_progress(&self) -> bool {
-        FilterRegs::<T, M>::injected_conversion_in_progress()
+        InjectedRegs::<T, M>::conversion_in_progress()
     }
 
     fn get_and_clear_overrun(&mut self) -> bool {
-        let overrun = FilterRegs::<T, M>::injected_overrun();
-        FilterRegs::<T, M>::clear_injected_overun();
+        let overrun = InjectedRegs::<T, M>::overrun();
+        InjectedRegs::<T, M>::clear_overrun();
         overrun
     }
 }
@@ -817,6 +812,13 @@ where
     pub fn data_register(&mut self) -> *mut u32 {
         T::regs().flt(M::CHANNEL.index()).jdatar().as_ptr() as *mut u32
     }
+}
+
+impl<'a, 'd, 't, T, M> SealedFilterDma for FilterRegular<'a, 'd, 't, T, M, RegDma>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
 }
 
 impl<'a, 'd, 't, T, M> FilterDma<T, M> for FilterRegular<'a, 'd, 't, T, M, RegDma>
@@ -837,6 +839,13 @@ where
     }
 }
 
+impl<'a, 'd, 't, T, M> SealedFilterDma for FilterInjected<'a, 'd, 't, T, M, InjDma>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+}
+
 impl<'a, 'd, 't, T, M> FilterDma<T, M> for FilterInjected<'a, 'd, 't, T, M, InjDma>
 where
     T: Instance + FilterInterrupt<M>,
@@ -855,6 +864,7 @@ where
     }
 }
 
+/// Whole-filter register access: DFEN is not regular- or injected-specific.
 pub(crate) struct FilterRegs<T, M>(PhantomData<(T, M)>);
 
 impl<T, M> FilterRegs<T, M>
@@ -866,19 +876,47 @@ where
     pub(crate) fn set_enabled(enabled: bool) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(enabled));
     }
+}
+
+/// Regular-conversion register access.
+pub(crate) struct RegularRegs<T, M>(PhantomData<(T, M)>);
+
+impl<T, M> RegularRegs<T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    /// Enables or disables continuous conversion mode.
+    ///
+    /// When enabled, the regular transceiver is converted repeatedly after each
+    /// conversion request. Disabling it while a continuous conversion is in
+    /// progress stops the conversion immediately.
+    pub(crate) fn set_continuous(enabled: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rcont(enabled));
+    }
 
     /// Returns whether a regular conversion result is available.
-    pub(crate) fn end_of_regular_conversion() -> bool {
+    pub(crate) fn end_of_conversion() -> bool {
         T::regs().flt(M::CHANNEL.index()).isr().read().reocf()
     }
 
-    /// Returns whether an injected conversion result is available.
-    pub(crate) fn end_of_injected_conversion() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().jeocf()
+    /// Returns whether a regular conversion is in progress.
+    pub(crate) fn conversion_in_progress() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().rcip()
+    }
+
+    /// Returns whether the regular overrun flag is set.
+    pub(crate) fn overrun() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().rovrf()
+    }
+
+    /// Clears the regular overrun flag.
+    pub(crate) fn clear_overrun() {
+        T::regs().flt(M::CHANNEL.index()).icr().modify(|w| w.set_clrrovrf(true));
     }
 
     /// Enables or disables regular end-of-conversion interrupts.
-    pub(crate) fn set_regular_end_of_conversion_interrupt(enabled: bool) {
+    pub(crate) fn set_eoc_interrupt(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs()
@@ -888,8 +926,48 @@ where
         });
     }
 
+    /// Enables or disables regular overrun interrupts.
+    pub(crate) fn set_overrun_interrupt(enabled: bool) {
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
+        critical_section::with(|_cs| {
+            T::regs()
+                .flt(M::CHANNEL.index())
+                .cr2()
+                .modify(|w| w.set_rovrie(enabled));
+        });
+    }
+}
+
+/// Injected-conversion register access.
+pub(crate) struct InjectedRegs<T, M>(PhantomData<(T, M)>);
+
+impl<T, M> InjectedRegs<T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    /// Returns whether an injected conversion result is available.
+    pub(crate) fn end_of_conversion() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jeocf()
+    }
+
+    /// Returns whether an injected conversion is in progress.
+    pub(crate) fn conversion_in_progress() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jcip()
+    }
+
+    /// Returns whether the injected overrun flag is set.
+    pub(crate) fn overrun() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jovrf()
+    }
+
+    /// Clears the injected overrun flag.
+    pub(crate) fn clear_overrun() {
+        T::regs().flt(M::CHANNEL.index()).icr().modify(|w| w.set_clrjovrf(true));
+    }
+
     /// Enables or disables injected end-of-conversion interrupts.
-    pub(crate) fn set_injected_end_of_conversion_interrupt(enabled: bool) {
+    pub(crate) fn set_eoc_interrupt(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs()
@@ -899,27 +977,8 @@ where
         });
     }
 
-    pub(crate) fn regular_conversion_in_progress() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().rcip()
-    }
-
-    pub(crate) fn injected_conversion_in_progress() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().jcip()
-    }
-
-    /// Enables or disables regular overrun interrupts.
-    pub(crate) fn set_regular_overrun_interrupt(enabled: bool) {
-        // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
-        critical_section::with(|_cs| {
-            T::regs()
-                .flt(M::CHANNEL.index())
-                .cr2()
-                .modify(|w| w.set_rovrie(enabled));
-        });
-    }
-
     /// Enables or disables injected overrun interrupts.
-    pub(crate) fn set_injected_overrun_interrupt(enabled: bool) {
+    pub(crate) fn set_overrun_interrupt(enabled: bool) {
         // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs()
@@ -928,22 +987,6 @@ where
                 .modify(|w| w.set_jovrie(enabled));
         });
     }
-
-    pub(crate) fn regular_overrun() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().rovrf()
-    }
-
-    pub(crate) fn injected_overrun() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().jovrf()
-    }
-
-    pub(crate) fn clear_regular_overrun() {
-        T::regs().flt(M::CHANNEL.index()).icr().modify(|w| w.set_clrrovrf(true));
-    }
-
-    pub(crate) fn clear_injected_overun() {
-        T::regs().flt(M::CHANNEL.index()).icr().modify(|w| w.set_clrjovrf(true));
-    }
 }
 
 // =============================================================================
@@ -951,17 +994,19 @@ where
 // =============================================================================
 
 // Implement properly only for Flt0 as Flt0 Handles instance-level events
+impl SealedInstanceEvents for Flt0 {}
+
 impl<T> InstanceEvents<T> for Flt0
 where
     T: Instance + FilterInterrupt<Flt0>,
 {
     unsafe fn handle_instance_events() {
-        if ShortCircuitDetector::<T>::channel_flags_masked() != 0u8 {
-            ShortCircuitDetector::<T>::set_interrupt_enable(false);
+        if ShortCircuitDetector::<T>::flags_masked() != 0u8 {
+            ShortCircuitDetector::<T>::set_irq(false);
             T::instance_state().short_circuit_waker.wake();
         }
-        if ClockAbsenceDetector::<T>::channel_flags_masked() != 0u8 {
-            ClockAbsenceDetector::<T>::set_interrupt_enable(false);
+        if ClockAbsenceDetector::<T>::flags_masked() != 0u8 {
+            ClockAbsenceDetector::<T>::set_irq(false);
             T::instance_state().clock_absence_waker.wake();
         }
     }
@@ -977,18 +1022,18 @@ where
 {
     unsafe fn on_interrupt() {
         // Per-filter common logic
-        if FilterRegs::<T, F>::end_of_injected_conversion() || FilterRegs::<T, F>::injected_overrun() {
-            FilterRegs::<T, F>::set_injected_end_of_conversion_interrupt(false);
-            FilterRegs::<T, F>::set_injected_overrun_interrupt(false);
+        if InjectedRegs::<T, F>::end_of_conversion() || InjectedRegs::<T, F>::overrun() {
+            InjectedRegs::<T, F>::set_eoc_interrupt(false);
+            InjectedRegs::<T, F>::set_overrun_interrupt(false);
             <T as FilterInterrupt<F>>::state().injected_waker.wake();
         }
-        if FilterRegs::<T, F>::end_of_regular_conversion() || FilterRegs::<T, F>::regular_overrun() {
-            FilterRegs::<T, F>::set_regular_end_of_conversion_interrupt(false);
-            FilterRegs::<T, F>::set_regular_overrun_interrupt(false);
+        if RegularRegs::<T, F>::end_of_conversion() || RegularRegs::<T, F>::overrun() {
+            RegularRegs::<T, F>::set_eoc_interrupt(false);
+            RegularRegs::<T, F>::set_overrun_interrupt(false);
             <T as FilterInterrupt<F>>::state().regular_waker.wake();
         }
         if AnalogWatchdog::<T, F>::triggered() {
-            AnalogWatchdog::<T, F>::set_interrupt_enable(false);
+            AnalogWatchdog::<T, F>::set_irq(false);
             <T as FilterInterrupt<F>>::state().watchdog_waker.wake();
         }
 
@@ -1053,18 +1098,24 @@ where
 // Interrupthandler
 // =============================================================================
 
+pub(crate) trait SealedFilterInterrupt<F: FilterMarker> {}
+
 /// Per-filter interrupt binding: maps a filter marker to its interrupt type
 /// and state.
-pub trait FilterInterrupt<F: FilterMarker> {
+#[allow(private_bounds)]
+pub trait FilterInterrupt<F: FilterMarker>: SealedFilterInterrupt<F> {
     /// Interrupt type for this filter.
     type Interrupt: interrupt::typelevel::Interrupt;
 
     /// Filter-interrupt state.
     fn state() -> &'static State;
 }
+pub(crate) trait SealedInstanceEvents {}
+
 /// Instance-level interrupt handling for a filter marker. [`Flt0`] performs the
 /// real handling; the other markers yield no-ops.
-pub trait InstanceEvents<T: Instance> {
+#[allow(private_bounds)]
+pub trait InstanceEvents<T: Instance>: SealedInstanceEvents {
     /// Handles the instance-level events.
     ///
     /// # Safety
@@ -1077,6 +1128,7 @@ pub trait InstanceEvents<T: Instance> {
 macro_rules! impl_noop_instance_events {
     ($($flt:ident),*) => {
         $(
+            impl SealedInstanceEvents for $flt {}
             impl<T: Instance> InstanceEvents<T> for $flt {
                 #[inline(always)]
                 unsafe fn handle_instance_events() {}
@@ -1090,7 +1142,7 @@ impl_noop_instance_events!(Flt1, Flt2, Flt3, Flt4, Flt5, Flt6, Flt7);
 
 // Ready bundles: one per filter-count capability, bundling the
 // `FilterInterrupt<FltN>` chain for all filters the shape has. The chain
-// matches the unconditional `foreach_interrupt!` binding in associations.rs.
+// matches the unconditional `foreach_interrupt!` binding below.
 macro_rules! define_dfsdm_ready {
     ($name:ident, [$($flt:ident),+ $(,)?]) => {
         /// IRQ readiness bundle: all the `FilterInterrupt`s a filter-count
@@ -1178,6 +1230,7 @@ impl InstanceState {
 // Implement single IRQ for a single filter
 macro_rules! impl_dfsdm_filter_irq {
     ($inst:ident, $filter:ty, $irq:ident) => {
+        impl SealedFilterInterrupt<$filter> for crate::peripherals::$inst {}
         impl FilterInterrupt<$filter> for crate::peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
 

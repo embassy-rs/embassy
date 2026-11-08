@@ -107,7 +107,7 @@ pub trait Cipher<'c> {
 /// This trait enables restriction of ciphers to specific key sizes.
 pub trait CipherSized {}
 
-/// This trait enables restriction of initialization vectors to sizes compatibile with a cipher mode.
+/// This trait enables restriction of initialization vectors to sizes compatible with a cipher mode.
 pub trait IVSized {}
 
 /// This trait enables restriction of a header phase to authenticated ciphers only.

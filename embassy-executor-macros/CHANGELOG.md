@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `main`: abort instead of unwinding out of the generated `main`, which would leave dangling `'static` references to the executor on its stack frame ([#5277](https://github.com/embassy-rs/embassy/issues/5277)).
+
 ## 0.8.0 - 2026-03-12
 
 - Update rust release id

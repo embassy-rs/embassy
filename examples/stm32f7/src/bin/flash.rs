@@ -18,7 +18,9 @@ async fn main(_spawner: Spawner) {
     // wait a bit before accessing the flash
     Timer::after_millis(300).await;
 
-    let mut f = Flash::new_blocking(p.FLASH).into_blocking_regions().bank1_region3;
+    let mut f = Flash::new_blocking(p.FLASH, Default::default())
+        .into_blocking_regions()
+        .bank1_region3;
 
     info!("Reading...");
     let mut buf = [0u8; 32];

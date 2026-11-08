@@ -32,21 +32,23 @@ use embassy_executor::Spawner;
 use embassy_stm32::rcc::{self};
 use embassy_stm32::usart::{self, BufferedUart, BufferedUartRx, BufferedUartTx, Config as UartConfig};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{
     CHAR_VALUE_HANDLE_OFFSET, CccdValue, CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions,
     ServiceHandle, ServiceType, Uuid, is_cccd_handle, is_value_handle,
 };
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use panic_probe as _;
 use static_cell::StaticCell;
-use stm32wb_hci::Event;
-use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
+use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
+use stm32wb_hci::aci::values::AddressType;
+use stm32wb_hci::adv_data::AdvFlags;
 
 // Interrupt bindings
 bind_interrupts!(struct Irqs {
@@ -81,7 +83,7 @@ const NUS_TX_CHAR_UUID: [u8; 16] = [
 const MAX_DATA_LEN: usize = 244;
 
 // ---- Test configuration ----
-const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
+const ADDR_TYPE: OwnAddressType = OwnAddressType::StaticRandom;
 
 /// Channel for UART -> BLE data flow
 static UART_TO_BLE: Channel<CriticalSectionRawMutex, heapless::Vec<u8, MAX_DATA_LEN>, 4> = Channel::new();
@@ -209,42 +211,47 @@ async fn main(spawner: Spawner) {
     let mut gatt = ble.gatt_server();
 
     // Add NUS Service (128-bit UUID)
-    let service_uuid = Uuid::from_u128_le(NUS_SERVICE_UUID);
+    let service_uuid = Uuid::Uuid128(NUS_SERVICE_UUID);
     let service_handle = gatt
-        .add_service(service_uuid, ServiceType::Primary, 10)
+        .add_service(ble.controller(), service_uuid, ServiceType::Primary, 10)
+        .await
         .expect("Failed to add NUS service");
     info!("NUS Service created: handle 0x{:04X}", service_handle.0);
 
     // Add RX Characteristic (client writes to this)
     // Write without response for faster throughput
-    let rx_char_uuid = Uuid::from_u128_le(NUS_RX_CHAR_UUID);
+    let rx_char_uuid = Uuid::Uuid128(NUS_RX_CHAR_UUID);
     let rx_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
             rx_char_uuid,
             MAX_DATA_LEN as u16,
             CharProperties::WRITE | CharProperties::WRITE_WITHOUT_RESPONSE,
-            SecurityPermissions::NONE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::empty(),
+            GattEventMask::ATTRIBUTE_WRITE,
             0,
             true, // Variable length
         )
+        .await
         .expect("Failed to add RX characteristic");
     info!("RX Characteristic: handle 0x{:04X}", rx_char_handle.0);
 
     // Add TX Characteristic (server notifies on this)
-    let tx_char_uuid = Uuid::from_u128_le(NUS_TX_CHAR_UUID);
+    let tx_char_uuid = Uuid::Uuid128(NUS_TX_CHAR_UUID);
     let tx_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
             tx_char_uuid,
             MAX_DATA_LEN as u16,
             CharProperties::NOTIFY,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(), // No events needed, we only send
             0,
             true, // Variable length
         )
+        .await
         .expect("Failed to add TX characteristic");
     info!("TX Characteristic: handle 0x{:04X}", tx_char_handle.0);
     info!("  Value handle: 0x{:04X}", tx_char_handle.0 + CHAR_VALUE_HANDLE_OFFSET);
@@ -260,13 +267,15 @@ async fn main(spawner: Spawner) {
 
     // Create advertising data
     let mut adv_data = AdvData::new();
-    adv_data.add_flags(0x06).expect("Failed to add flags"); // General discoverable, no BR/EDR
-    adv_data.add_name("Serial_Com").expect("Failed to add name");
+    adv_data = adv_data
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .expect("Failed to add flags"); // General discoverable, no BR/EDR
+    adv_data = adv_data.complete_local_name(b"Serial_Com").expect("Failed to add name");
 
     // Create scan response with full service UUID
     let mut scan_rsp = AdvData::new();
-    scan_rsp
-        .add_service_uuid_128(&NUS_SERVICE_UUID)
+    scan_rsp = scan_rsp
+        .complete_uuid128_list(&[NUS_SERVICE_UUID])
         .expect("Failed to add service UUID");
 
     let adv_params = AdvParams {
@@ -294,12 +303,22 @@ async fn main(spawner: Spawner) {
     info!("===========================================");
 
     // Main event loop
+    let mut event_buf = EventBuffer::new();
     loop {
         // Check for UART data to send via BLE (non-blocking)
         if state.tx_notifications_enabled {
             if let Ok(data) = UART_TO_BLE.try_receive() {
                 if let Some(conn) = state.current_conn_handle {
-                    match gatt.notify(conn, state.service_handle, state.tx_char_handle, &data) {
+                    match gatt
+                        .notify(
+                            ble.controller(),
+                            conn,
+                            state.service_handle,
+                            state.tx_char_handle,
+                            &data,
+                        )
+                        .await
+                    {
                         Ok(()) => {
                             debug!("Sent {} bytes via BLE notification", data.len());
                         }
@@ -312,20 +331,20 @@ async fn main(spawner: Spawner) {
         }
 
         // Wait for BLE event
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
 
         // Process GAP events (connections)
-        if let Some(gap_event) = ble.process_event(&event) {
+        if let Some(gap_event) = ble.process_event(&event).await {
             match gap_event {
                 GapEvent::Connected(conn) => {
-                    info!("Connected: handle 0x{:04X}", conn.handle.0);
-                    state.current_conn_handle = Some(conn.handle.0);
+                    info!("Connected: handle 0x{:04X}", conn.handle.raw());
+                    state.current_conn_handle = Some(conn.handle.raw());
                     state.tx_notifications_enabled = false; // Reset on new connection
                 }
                 GapEvent::Disconnected { handle, reason } => {
                     info!(
                         "Disconnected: handle 0x{:04X}, reason 0x{:02X} ({})",
-                        handle.0,
+                        handle.raw(),
                         reason.as_u8(),
                         Display2Format(&reason)
                     );
@@ -344,10 +363,10 @@ async fn main(spawner: Spawner) {
 
         // Process GATT events
         match &event {
-            Event::Vendor(VendorEvent::GattAttributeModified(attribute)) => {
+            BleEvent::Vendor(AciEvent::GattAttributeModified(attribute)) => {
                 // Check if this is a CCCD write (notification enable/disable) for TX char
-                if is_cccd_handle(state.tx_char_handle.0, attribute.attr_handle.0) {
-                    let cccd = CccdValue::from_bytes(attribute.data());
+                if is_cccd_handle(state.tx_char_handle.0, attribute.attr_handle) {
+                    let cccd = CccdValue::from_bytes(attribute.attr_data);
                     state.tx_notifications_enabled = cccd.notifications;
                     info!(
                         "TX notifications {}",
@@ -355,16 +374,16 @@ async fn main(spawner: Spawner) {
                     );
                 }
                 // Check if this is a write to RX characteristic (data from BLE client)
-                else if is_value_handle(state.rx_char_handle.0, attribute.attr_handle.0) {
+                else if is_value_handle(state.rx_char_handle.0, attribute.attr_handle) {
                     debug!(
                         "Received {} bytes via BLE from conn 0x{:04X}",
-                        attribute.data().len(),
-                        attribute.conn_handle.0
+                        attribute.attr_data.len(),
+                        attribute.connection_handle.raw()
                     );
 
                     // Forward to UART
                     let mut uart_data: heapless::Vec<u8, MAX_DATA_LEN> = heapless::Vec::new();
-                    let _ = uart_data.extend_from_slice(attribute.data());
+                    let _ = uart_data.extend_from_slice(attribute.attr_data);
 
                     if BLE_TO_UART.try_send(uart_data).is_err() {
                         warn!("BLE->UART channel full, dropping data");
@@ -372,17 +391,17 @@ async fn main(spawner: Spawner) {
                 }
             }
 
-            Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
-                conn_handle,
+            BleEvent::Vendor(AciEvent::AttExchangeMtuResp(AttExchangeMtuRespEvent {
+                connection_handle: conn_handle,
                 server_rx_mtu,
             })) => {
-                info!("MTU exchanged: conn 0x{:04X}, MTU={}", conn_handle.0, server_rx_mtu);
+                info!("MTU exchanged: conn 0x{:04X}, MTU={}", conn_handle.raw(), server_rx_mtu);
                 if let Some(conn) = ble.get_connection_mut(*conn_handle) {
-                    conn.update_mtu(*server_rx_mtu as u16);
+                    conn.update_mtu(*server_rx_mtu);
                 }
             }
 
-            Event::Vendor(VendorEvent::GattNotificationComplete(attr_handle)) => {
+            BleEvent::Vendor(AciEvent::GattNotificationComplete(attr_handle)) => {
                 debug!("Notification complete: attr 0x{:04X}", attr_handle);
             }
 

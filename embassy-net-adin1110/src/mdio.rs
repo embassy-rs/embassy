@@ -37,7 +37,7 @@ enum Reg13Op {
 /// Driver needs to implement the Clause 22
 /// Optional Clause 45 is the device supports this.
 ///
-/// Clause 45 methodes are bases on <https://www.ieee802.org/3/efm/public/nov02/oam/pannell_oam_1_1102.pdf>
+/// Clause 45 methods are bases on <https://www.ieee802.org/3/efm/public/nov02/oam/pannell_oam_1_1102.pdf>
 pub trait MdioBus {
     /// Error type.
     type Error;

@@ -4,7 +4,7 @@ use stm32_metapac::eth::regs;
 use stm32_metapac::eth::vals::{Cr, MbProgress, Mw};
 
 use super::{Instance, StationManagement};
-use crate::eth::{MDCPin, MDIOPin};
+use crate::eth::{Error, MDCPin, MDIOPin, wait_for};
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 
 /// Station Management Agent.
@@ -65,8 +65,18 @@ impl<'d, T: Instance> Sma<'d, T> {
     }
 }
 
+fn wait_for_idle<T: Instance>() -> Result<(), Error> {
+    let (address, _) = T::regs();
+    if wait_for(|| address.read().mb() != MbProgress::Busy, 1_000) {
+        Ok(())
+    } else {
+        Err(Error::MdioTimeout)
+    }
+}
+
 impl<T: Instance> StationManagement for Sma<'_, T> {
-    fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16 {
+    fn smi_read(&mut self, phy_addr: u8, reg: u8) -> Result<u16, Error> {
+        wait_for_idle::<T>()?;
         let (macmiiar, macmiidr) = T::regs();
 
         macmiiar.modify(|w| {
@@ -76,11 +86,12 @@ impl<T: Instance> StationManagement for Sma<'_, T> {
             w.set_cr(self.clock_range);
             w.set_mb(MbProgress::Busy); // indicate that operation is in progress
         });
-        while macmiiar.read().mb() == MbProgress::Busy {}
-        macmiidr.read().md()
+        wait_for_idle::<T>()?;
+        Ok(macmiidr.read().md())
     }
 
-    fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16) {
+    fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16) -> Result<(), Error> {
+        wait_for_idle::<T>()?;
         let (macmiiar, macmiidr) = T::regs();
 
         macmiidr.write(|w| w.set_md(val));
@@ -91,6 +102,6 @@ impl<T: Instance> StationManagement for Sma<'_, T> {
             w.set_cr(self.clock_range);
             w.set_mb(MbProgress::Busy);
         });
-        while macmiiar.read().mb() == MbProgress::Busy {}
+        wait_for_idle::<T>()
     }
 }

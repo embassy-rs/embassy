@@ -20,7 +20,7 @@ async fn run() {
 
     // Use async_io's reactor for async IO.
     // This demonstrates how embassy's executor can drive futures from another IO library.
-    // Essentially, async_io::Async converts from AsRawFd+Read+Write to futures's AsyncRead+AsyncWrite
+    // Essentially, async_io::Async converts from AsFd+Read+Write to futures's AsyncRead+AsyncWrite
     let port = Async::new(port).unwrap();
 
     // We can then use FromStdIo to convert from futures's AsyncRead+AsyncWrite

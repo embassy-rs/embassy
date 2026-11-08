@@ -1,6 +1,5 @@
 use embassy_futures::join;
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::PacketBuf;
 
 use crate::net::commands::DataRequest;
 use crate::net::iface::{Controller, ControllerToHostPacket, ControllerToHostPacketBox, mcps};
@@ -37,12 +36,8 @@ impl<'a, C: Controller> Runner<'a, C> {
                         ControllerToHostPacket::Mlme(_) => self.events.publish(pkt),
                         ControllerToHostPacket::Mcps(pkt) => match pkt {
                             mcps::Packet::Indication(mcps::IndicationPacket::Data(ind)) => {
-                                rx.rx_ready().await;
-                                let Some(mut rx_buf) = PacketBuf::try_new() else {
-                                    warn!("packet pool empty, dropping received frame");
-                                    continue;
-                                };
-                                rx_buf.set_len(MTU);
+                                let mut rx_buf = rx.rx_buf().await;
+                                rx_buf.set_len(MTU.min(rx_buf.capacity()));
                                 let len = write_frame_from_data_indication(ind, &mut rx_buf);
                                 rx_buf.set_len(len);
 

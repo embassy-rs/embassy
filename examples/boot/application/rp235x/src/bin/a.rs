@@ -14,8 +14,6 @@ use embassy_time::{Duration, Timer};
 use embedded_storage::nor_flash::NorFlash;
 #[cfg(feature = "panic-probe")]
 use panic_probe as _;
-#[cfg(feature = "panic-reset")]
-use panic_reset as _;
 
 #[cfg(feature = "skip-include")]
 static APP_B: &[u8] = &[0, 1, 2, 3];
@@ -70,5 +68,11 @@ async fn main(_s: Spawner) {
     Timer::after_secs(2).await;
     led.set_low();
     defmt::info!("update marked, resetting");
+    cortex_m::peripheral::SCB::sys_reset();
+}
+
+#[cfg(not(feature = "panic-probe"))]
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
     cortex_m::peripheral::SCB::sys_reset();
 }

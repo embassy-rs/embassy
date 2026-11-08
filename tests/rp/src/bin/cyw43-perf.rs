@@ -7,7 +7,7 @@ use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::{panic, *};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackStorage;
+use embassy_net::{StackStorage, StaticPool};
 use embassy_rp::dma::{self, Channel};
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
@@ -108,17 +108,18 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(wifi_task(runner)));
 
-    control.init(clm).await;
+    control.init(clm, cyw43::Config::default()).await;
     control
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
 
     // Generate random seed
-    let seed = 0x0123_4567_89ab_cdef; // chosen by fair dice roll. guarenteed to be random.
+    let seed = 0x0123_4567_89ab_cdef; // chosen by fair dice roll. guaranteed to be random.
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+    static POOL: StaticPool<{ cyw43::RX_BUF_SIZE }, 16, { cyw43::RX_BUF_ALIGN }> = StaticPool::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();

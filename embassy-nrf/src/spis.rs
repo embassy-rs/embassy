@@ -27,20 +27,31 @@ use crate::{interrupt, pac};
 pub const DMA_SIZE: usize = crate::util::easy_dma_max!(RxMaxcnt, set_maxcnt, maxcnt);
 
 /// SPIS error
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// TX buffer was too long.
-    #[error("tx buffer was too long")]
     TxBufferTooLong,
     /// RX buffer was too long.
-    #[error("rx buffer was too long")]
     RxBufferTooLong,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
-    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::TxBufferTooLong => f.write_str("tx buffer was too long"),
+            Self::RxBufferTooLong => f.write_str("rx buffer was too long"),
+            Self::BufferNotInRAM => {
+                f.write_str("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")
+            }
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// SPIS configuration.
 #[non_exhaustive]

@@ -41,7 +41,7 @@ pub struct Config {
     pub phase: Phase,
     /// Polarity.
     pub polarity: Polarity,
-    /// Binary representaion of sent data.
+    /// Binary representation of sent data.
     pub data_format: DataFormat,
 }
 

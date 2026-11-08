@@ -14,7 +14,7 @@ When releasing a crate, keep in mind that you may need to recursively release de
 ## Crate release
 
 Check if there are changes to the public API since the last release. If there is a breaking change, follow
-the process for creating a minor release. Otherewise, follow the process for creating a new patch release.
+the process for creating a minor release. Otherwise, follow the process for creating a new patch release.
 
 Keep in mind that some crates may need the --features and --target flags passed to cargo release. For more information on that,
 look at the `Cargo.toml` files.

@@ -1,9 +1,9 @@
 use embassy_hal_internal::drop::OnDrop;
 
-use super::{Blocking, EEPROM_BASE, EEPROM_SIZE, Error, Flash, family};
+use super::{EEPROM_BASE, EEPROM_SIZE, Error, Flash, family};
+use crate::mode::Mode;
 
-#[cfg(eeprom)]
-impl<'d> Flash<'d, Blocking> {
+impl<'d, M: Mode> Flash<'d, M> {
     // --- Internal helpers ---
 
     /// Checks if the given offset and size are within the EEPROM bounds.
@@ -15,7 +15,7 @@ impl<'d> Flash<'d, Blocking> {
         {
             Ok(())
         } else {
-            Err(Error::Size)
+            Err(Error::OutOfBounds)
         }
     }
 
@@ -28,9 +28,7 @@ impl<'d> Flash<'d, Blocking> {
     unsafe fn eeprom_write_u8_slice_unlocked(&self, offset: u32, data: &[u8]) -> Result<(), Error> {
         for (i, &byte) in data.iter().enumerate() {
             let addr = EEPROM_BASE as u32 + offset + i as u32;
-            core::ptr::write_volatile(addr as *mut u8, byte);
-            family::wait_ready_blocking()?;
-            family::clear_all_err();
+            family::eeprom_write(addr, byte)?;
         }
         Ok(())
     }
@@ -42,9 +40,7 @@ impl<'d> Flash<'d, Blocking> {
     unsafe fn eeprom_write_u16_slice_unlocked(&self, offset: u32, data: &[u16]) -> Result<(), Error> {
         for (i, &value) in data.iter().enumerate() {
             let addr = EEPROM_BASE as u32 + offset + i as u32 * 2;
-            core::ptr::write_volatile(addr as *mut u16, value);
-            family::wait_ready_blocking()?;
-            family::clear_all_err();
+            family::eeprom_write(addr, value)?;
         }
         Ok(())
     }
@@ -56,9 +52,7 @@ impl<'d> Flash<'d, Blocking> {
     unsafe fn eeprom_write_u32_slice_unlocked(&self, offset: u32, data: &[u32]) -> Result<(), Error> {
         for (i, &value) in data.iter().enumerate() {
             let addr = EEPROM_BASE as u32 + offset + i as u32 * 4;
-            core::ptr::write_volatile(addr as *mut u32, value);
-            family::wait_ready_blocking()?;
-            family::clear_all_err();
+            family::eeprom_write(addr, value)?;
         }
         Ok(())
     }
@@ -181,9 +175,7 @@ impl<'d> Flash<'d, Blocking> {
                     // Safely read a u32 from a potentially unaligned pointer into the chunk.
                     let value = (chunk.as_ptr() as *const u32).read_unaligned();
                     let current_eeprom_addr = base_eeprom_addr + (i * 4) as u32;
-                    core::ptr::write_volatile(current_eeprom_addr as *mut u32, value);
-                    family::wait_ready_blocking()?;
-                    family::clear_all_err();
+                    family::eeprom_write(current_eeprom_addr, value)?;
                 }
             }
             if !suffix.is_empty() {

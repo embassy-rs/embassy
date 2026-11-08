@@ -29,17 +29,18 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::{Config, bind_interrupts, rcc};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
     CharProperties, CharacteristicHandle, GattEventMask, SecurityPermissions, ServiceHandle, ServiceType, Uuid,
     is_cccd_handle, is_value_handle,
 };
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::{Duration, Ticker};
 use panic_probe as _;
-use stm32wb_hci::Event;
-use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
+use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
+use stm32wb_hci::adv_data::AdvFlags;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -118,53 +119,72 @@ async fn main(spawner: Spawner) {
 
     // Heart Rate Service: 1 service + 3 chars + 1 CCCD + 1 write permit = 8 attribute records
     let service_handle = gatt
-        .add_service(Uuid::from_u16(HRS_SERVICE_UUID), ServiceType::Primary, 8)
+        .add_service(
+            ble.controller(),
+            Uuid::Uuid16(HRS_SERVICE_UUID),
+            ServiceType::Primary,
+            8,
+        )
+        .await
         .expect("Failed to add HRS service");
 
     // Heart Rate Measurement: NOTIFY, variable length (max 5 bytes for minimal format)
     let hrm_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u16(HRM_CHAR_UUID),
+            Uuid::Uuid16(HRM_CHAR_UUID),
             5,
             CharProperties::NOTIFY,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(),
             0,
             true,
         )
+        .await
         .expect("Failed to add HRM characteristic");
 
     // Body Sensor Location: READ only, 1 byte constant
     let bsl_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u16(BSL_CHAR_UUID),
+            Uuid::Uuid16(BSL_CHAR_UUID),
             1,
             CharProperties::READ,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(),
             0,
             false,
         )
+        .await
         .expect("Failed to add BSL characteristic");
 
     // Set body sensor location to Wrist
-    gatt.update_characteristic_value(service_handle, bsl_char_handle, 0, &[BODY_SENSOR_LOCATION_WRIST])
-        .expect("Failed to set BSL value");
+    gatt.update_characteristic_value(
+        ble.controller(),
+        service_handle,
+        bsl_char_handle,
+        0,
+        &[BODY_SENSOR_LOCATION_WRIST],
+    )
+    .await
+    .expect("Failed to set BSL value");
 
     // HR Control Point: WRITE (requires write permission for validation)
     let hrcp_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u16(HRCP_CHAR_UUID),
+            Uuid::Uuid16(HRCP_CHAR_UUID),
             1,
             CharProperties::WRITE,
-            SecurityPermissions::NONE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::empty(),
+            GattEventMask::ATTRIBUTE_WRITE,
             0,
             false,
         )
+        .await
         .expect("Failed to add HRCP characteristic");
 
     info!("Heart Rate Service created (handle 0x{:04X})", service_handle.0);
@@ -184,9 +204,11 @@ async fn main(spawner: Spawner) {
 
     // ── Advertising ──────────────────────────────────────────────────────────
     let mut adv_data = AdvData::new();
-    adv_data.add_flags(0x06).unwrap();
-    adv_data.add_name("HRS_WBA6").unwrap();
-    adv_data.add_service_uuid_16(HRS_SERVICE_UUID).unwrap();
+    adv_data = adv_data
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .unwrap();
+    adv_data = adv_data.complete_local_name(b"HRS_WBA6").unwrap();
+    adv_data = adv_data.complete_uuid16_list(&[HRS_SERVICE_UUID]).unwrap();
 
     let adv_params = AdvParams {
         interval_min: 0x0050, // 50 ms
@@ -204,21 +226,22 @@ async fn main(spawner: Spawner) {
     // ── Main loop: send HR notifications every 1 s ───────────────────────────
     let mut ticker = Ticker::every(Duration::from_secs(1));
 
+    let mut event_buf = EventBuffer::new();
     loop {
-        match select(ble.read_event(), ticker.next()).await {
+        match select(ble.read_event(&mut event_buf), ticker.next()).await {
             Either::First(event) => {
                 // ── GAP events ────────────────────────────────────────────────
-                if let Some(gap_event) = ble.process_event(&event) {
+                if let Some(gap_event) = ble.process_event(&event).await {
                     match gap_event {
                         GapEvent::Connected(conn) => {
-                            info!("Connected: 0x{:04X}", conn.handle.0);
-                            state.conn_handle = Some(conn.handle.0);
+                            info!("Connected: 0x{:04X}", conn.handle.raw());
+                            state.conn_handle = Some(conn.handle.raw());
                             state.notifications_enabled = false;
                         }
                         GapEvent::Disconnected { handle, reason } => {
                             info!(
                                 "Disconnected: 0x{:04X}, reason 0x{:02X} ({})",
-                                handle.0,
+                                handle.raw(),
                                 reason.as_u8(),
                                 Display2Format(&reason)
                             );
@@ -234,28 +257,28 @@ async fn main(spawner: Spawner) {
 
                 // ── GATT events ───────────────────────────────────────────────
                 match &event {
-                    Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
+                    BleEvent::Vendor(AciEvent::GattAttributeModified(attr)) => {
                         // CCCD write → enable/disable notifications
-                        if is_cccd_handle(state.hrm_char_handle.0, attr.attr_handle.0) {
-                            let enabled = attr.data().first().copied().unwrap_or(0) & 0x01 != 0;
+                        if is_cccd_handle(state.hrm_char_handle.0, attr.attr_handle) {
+                            let enabled = attr.attr_data.first().copied().unwrap_or(0) & 0x01 != 0;
                             state.notifications_enabled = enabled;
                             info!("HR notifications {}", if enabled { "ENABLED" } else { "DISABLED" });
                         }
                         // HRCP write → validate and handle reset command
-                        else if is_value_handle(state.hrcp_char_handle.0, attr.attr_handle.0) {
-                            if attr.data().first().copied() == Some(HRCP_RESET_ENERGY_EXPENDED) {
+                        else if is_value_handle(state.hrcp_char_handle.0, attr.attr_handle) {
+                            if attr.attr_data.first().copied() == Some(HRCP_RESET_ENERGY_EXPENDED) {
                                 info!("Energy expended reset");
                             } else {
-                                info!("Unknown HRCP command: {:?}", attr.data());
+                                info!("Unknown HRCP command: {:?}", attr.attr_data);
                             }
                         }
                     }
-                    Event::Vendor(VendorEvent::AttExchangeMtuResponse(AttExchangeMtuResponse {
-                        conn_handle,
+                    BleEvent::Vendor(AciEvent::AttExchangeMtuResp(AttExchangeMtuRespEvent {
+                        connection_handle: conn_handle,
                         server_rx_mtu,
                     })) => {
                         if let Some(conn) = ble.get_connection_mut(*conn_handle) {
-                            conn.update_mtu(*server_rx_mtu as u16);
+                            conn.update_mtu(*server_rx_mtu);
                         }
                     }
                     _ => {}
@@ -270,7 +293,16 @@ async fn main(spawner: Spawner) {
 
                 if state.notifications_enabled {
                     if let Some(conn) = state.conn_handle {
-                        if let Err(e) = gatt.notify(conn, state.service_handle, state.hrm_char_handle, &hrm) {
+                        if let Err(e) = gatt
+                            .notify(
+                                ble.controller(),
+                                conn,
+                                state.service_handle,
+                                state.hrm_char_handle,
+                                &hrm,
+                            )
+                            .await
+                        {
                             error!("HRM notify failed: {:?}", e);
                         }
                     }

@@ -37,7 +37,7 @@ async fn main(_spawner: Spawner) {
 
     let _pwm = Pwm::new_output_b(p.PWM_SLICE7, p.PIN_15, {
         let mut c = pwm::Config::default();
-        c.divider = 125.into();
+        c.divider_x16 = 125 << 4;
         c.top = 100;
         c.compare_b = 50;
         c

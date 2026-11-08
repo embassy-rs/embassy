@@ -41,6 +41,33 @@ macro_rules! ch0 {
     }};
 }
 
+// MTL queue sizes as programmed below. RM0433 (H7), RM0481 (H5) and RM0522 (C5) fix both
+// queues at 2048 bytes. On RM0486 (N6) the RX queue is set to 4096 bytes and the TX queue to
+// 2048.
+const TX_QUEUE_SIZE: usize = 2048;
+#[cfg(any(eth_v2, eth_v2b))]
+const RX_QUEUE_SIZE: usize = 2048;
+#[cfg(eth_v2a)]
+const RX_QUEUE_SIZE: usize = 4096;
+
+#[cfg(any(eth_v2, eth_v2b))]
+const TX_PBL: u8 = 1;
+#[cfg(eth_v2a)]
+const TX_PBL: u8 = 32;
+
+// The reference manuals allow TX checksum insertion only for packets shorter than
+// TxQSize - (PBL + 7) * 4 (RM0433, RM0481, RM0522) or TxQSize - (PBL + 5) * 9 (RM0486).
+#[cfg(any(eth_v2, eth_v2b))]
+const TX_CHECKSUM_LIMIT: usize = TX_QUEUE_SIZE - (TX_PBL as usize + 7) * 4;
+#[cfg(eth_v2a)]
+const TX_CHECKSUM_LIMIT: usize = TX_QUEUE_SIZE - (TX_PBL as usize + 5) * 9;
+
+/// Whether every frame up to [`MTU`] can use TX checksum insertion.
+pub(crate) const TX_CHECKSUM_OFFLOAD: bool = MTU < TX_CHECKSUM_LIMIT;
+/// Whether a whole frame, FCS included, fits the RX queue, so the RX queue can run in
+/// store-and-forward mode. RX checksum offload is only enabled together with it.
+pub(crate) const RX_STORE_AND_FORWARD: bool = MTU + 4 <= RX_QUEUE_SIZE;
+
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _marker: PhantomData<T>,
@@ -112,6 +139,9 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     ///
     /// See [`Ethernet::new_with_phy`] for creating an RMII ethernet
     /// river with a non-standard PHY.
+    ///
+    /// Returns an error if the MAC reset, MDIO transaction, or PHY initialization times out,
+    /// or if no PHY responds during detection.
     #[allow(clippy::too_many_arguments)]
     pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
@@ -128,7 +158,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
         mdio: Peri<'d, impl MDIOPin<SMA>>,
         mdc: Peri<'d, impl MDCPin<SMA>>,
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         let sma = Sma::new(sma, mdio, mdc);
         let phy = GenericPhy::new_auto(sma);
 
@@ -144,6 +174,9 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     ///
     /// See [`Ethernet::new_mii_with_phy`] for creating an RMII ethernet
     /// river with a non-standard PHY.
+    ///
+    /// Returns an error if the MAC reset, MDIO transaction, or PHY initialization times out,
+    /// or if no PHY responds during detection.
     #[cfg(any(eth_v2, eth_v2b))]
     pub fn new_mii<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
@@ -165,7 +198,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
         mdio: Peri<'d, impl MDIOPin<SMA>>,
         mdc: Peri<'d, impl MDCPin<SMA>>,
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         let sma = Sma::new(sma, mdio, mdc);
         let phy = GenericPhy::new_auto(sma);
 
@@ -188,6 +221,9 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     ///
     /// See [`Ethernet::new_rgmii_with_phy`] for creating an RGMII ethernet
     /// driver with a non-standard PHY.
+    ///
+    /// Returns an error if the MAC reset, MDIO transaction, or PHY initialization times out,
+    /// or if no PHY responds during detection.
     #[allow(clippy::too_many_arguments)]
     pub fn new_rgmii<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
@@ -210,7 +246,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
         mdio: Peri<'d, impl MDIOPin<SMA>>,
         mdc: Peri<'d, impl MDCPin<SMA>>,
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         let sma = Sma::new(sma, mdio, mdc);
         let phy = GenericPhy::new_auto(sma);
 
@@ -223,6 +259,8 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     /// Create a new RMII ethernet driver using 7 pins.
+    ///
+    /// Returns an error if the MAC reset or PHY initialization fails.
     pub fn new_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
@@ -236,7 +274,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         mac_addr: [u8; 6],
         phy: P,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         config_pins!(ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         let pins = Pins::Rmii([
@@ -262,6 +300,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     }
 
     /// Create a new MII ethernet driver using 12 pins.
+    ///
+    /// Returns an error if the MAC reset or PHY initialization fails.
     #[cfg(any(eth_v2, eth_v2b))]
     pub fn new_mii_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
@@ -281,7 +321,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         mac_addr: [u8; 6],
         phy: P,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         config_pins!(
             rx_clk, tx_clk, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en
         );
@@ -305,6 +345,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     }
 
     /// Create a new RGMII ethernet driver using 13 pins.
+    ///
+    /// Returns an error if the MAC reset or PHY initialization fails.
     #[cfg(eth_v2a)]
     #[allow(clippy::too_many_arguments)]
     pub fn new_rgmii_with_phy<const TX: usize, const RX: usize>(
@@ -326,7 +368,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         mac_addr: [u8; 6],
         phy: P,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         // ST's example configures every ETH pin at VERY_HIGH speed
         config_pins!(
             tx_ctl, tx_d0, tx_d1, tx_d2, tx_d3, rx_clk, rx_ctl, rx_d0, rx_d1, rx_d2, rx_d3, clk125
@@ -361,7 +403,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
         #[cfg(any(eth_v2, eth_v2b))] eth_sel_phy: EthSelPhy,
-    ) -> Self {
+    ) -> Result<Self, crate::eth::Error> {
         // Enable the necessary clocks
         rcc::enable_and_reset::<SYSCFG>();
 
@@ -412,8 +454,11 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         let mtl = T::regs().ethernet_mtl();
 
         // Reset and wait
+        // A missing MAC reference clock prevents the software reset from clearing.
         dma.dmamr().modify(|w| w.set_swr(true));
-        while dma.dmamr().read().swr() {}
+        if !crate::eth::wait_for(|| !dma.dmamr().read().swr(), crate::eth::MAC_RESET_TIMEOUT_US) {
+            return Err(crate::eth::Error::DmaResetTimeout);
+        }
 
         // Program the 1µs tick counter, used as a time base for internal MAC timeouts.
         #[cfg(eth_v2a)]
@@ -432,11 +477,16 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_ps(true);
             w.set_fes(true);
             w.set_dm(true);
-            // Enable RX IP header / payload checksum offload (COE). Requires RX
+            // Frames up to 2000 bytes (IEEE 802.3as) or 9018-byte jumbo frames, FCS included.
+            #[cfg(all(feature = "eth-2k-frames", not(feature = "eth-jumbo-frames")))]
+            w.set_s2kp(true);
+            #[cfg(feature = "eth-jumbo-frames")]
+            w.set_je(true);
+            // RX IP header / payload checksum offload (COE), used only with RX
             // store-and-forward (set below). TX insertion is requested per-frame
             // via TDES3.CIC; together with the driver `Capabilities` this lets
             // xarxa skip software checksums.
-            w.set_ipc(true);
+            w.set_ipc(RX_STORE_AND_FORWARD);
             // TODO: Carrier sense ? ECRSFD
         });
 
@@ -481,7 +531,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         });
 
         ch0!(mtl, mtl_rx_qomr).modify(|w| {
-            w.set_rsf(true);
+            // Frames bigger than the RX queue need cut-through (threshold) mode.
+            w.set_rsf(RX_STORE_AND_FORWARD);
             // 4096-byte RX queue
             #[cfg(eth_v2a)]
             w.set_rqs(15);
@@ -510,21 +561,19 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_wr_osr_lmt(3);
         });
 
-        ch0!(dma, dmac_tx_cr).modify(|w| {
-            #[cfg(any(eth_v2, eth_v2b))]
-            w.set_txpbl(1); // 32 ?
-            #[cfg(eth_v2a)]
-            w.set_txpbl(32);
-        });
+        ch0!(dma, dmac_tx_cr).modify(|w| w.set_txpbl(TX_PBL));
         ch0!(dma, dmac_rx_cr).modify(|w| {
             #[cfg(any(eth_v2, eth_v2b))]
             w.set_rxpbl(1); // 32 ?
             #[cfg(eth_v2a)]
             w.set_rxpbl(32);
-            w.set_rbsz(xarxa_driver::config::PACKET_BUF_SIZE as u16);
         });
 
-        let mut this = Self {
+        // Initialize the PHY before DMA can own descriptors; errors can then release the queue safely.
+        let mut phy = phy;
+        phy.phy_reset()?;
+        phy.phy_init()?;
+        let this = Self {
             _peri: peri,
             wake_guard: T::RCC_INFO.wake_guard().into(),
             tx: TDesRing::new(
@@ -564,9 +613,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_tie(true);
         });
 
-        this.phy.phy_reset();
-        this.phy.phy_init();
-
         #[cfg(eth_v2)]
         {
             interrupt::ETH.unpend();
@@ -578,7 +624,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             unsafe { interrupt::ETH1.enable() };
         }
 
-        this
+        Ok(this)
     }
 
     /// Start the Ethernet MAC PTP clock.
@@ -594,18 +640,47 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     }
 }
 
+impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
+    // DMADSR channel 0 process state, 0b000 is Stopped.
+    fn dma_tx_stopped() -> bool {
+        let dsr = T::regs().ethernet_dma().dmadsr().read();
+        #[cfg(eth_v2)]
+        return dsr.tps0() == 0;
+        #[cfg(eth_v2a)]
+        return dsr.tps(0) == 0;
+        #[cfg(eth_v2b)]
+        return dsr.tps().to_bits() == 0;
+    }
+
+    fn dma_rx_stopped() -> bool {
+        let dsr = T::regs().ethernet_dma().dmadsr().read();
+        #[cfg(eth_v2)]
+        return dsr.rps0() == 0;
+        #[cfg(eth_v2a)]
+        return dsr.rps(0) == 0;
+        #[cfg(eth_v2b)]
+        return dsr.rps().to_bits() == 0;
+    }
+}
+
 impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
     fn drop(&mut self) {
         let dma = T::regs().ethernet_dma();
         let mac = T::regs().ethernet_mac();
         let mtl = T::regs().ethernet_mtl();
 
-        // Disable the TX DMA and wait for any previous transmissions to be completed
+        // Disable the TX DMA and wait for any previous transmissions to be completed.
         ch0!(dma, dmac_tx_cr).modify(|w| w.set_st(false));
-        while {
-            let txqueue = ch0!(mtl, mtl_tx_qdr).read();
-            txqueue.trcsts() == 0b01 || txqueue.txqsts()
-        } {}
+        if !crate::eth::wait_for(
+            || {
+                let txqueue = ch0!(mtl, mtl_tx_qdr).read();
+                txqueue.trcsts() != 0b01 && !txqueue.txqsts() && Self::dma_tx_stopped()
+            },
+            crate::eth::DMA_STOP_TIMEOUT_US,
+        ) {
+            // Returning would release descriptors that the stalled DMA might still access.
+            panic!("Ethernet TX DMA failed to stop");
+        }
 
         // Disable MAC transmitter and receiver
         mac.maccr().modify(|w| {
@@ -613,11 +688,12 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
             w.set_te(false);
         });
 
-        // Wait for previous receiver transfers to be completed and then disable the RX DMA
-        while {
-            let rxqueue = ch0!(mtl, mtl_rx_qdr).read();
-            rxqueue.rxqsts() != 0b00 || rxqueue.prxq() != 0
-        } {}
+        // Stop the RX DMA. Frames still queued are discarded, and waiting for them to drain
+        // would never finish when the RX ring is full and the DMA is suspended.
         ch0!(dma, dmac_rx_cr).modify(|w| w.set_sr(false));
+        if !crate::eth::wait_for(Self::dma_rx_stopped, crate::eth::DMA_STOP_TIMEOUT_US) {
+            // Returning would release descriptors that the stalled DMA might still access.
+            panic!("Ethernet RX DMA failed to stop");
+        }
     }
 }

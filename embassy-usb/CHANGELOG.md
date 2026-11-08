@@ -8,13 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add `class::uvc::device`, a USB Video Class 1.1 camera: MJPEG, YUY2 or NV12 over an isochronous IN endpoint, with probe/commit negotiation of format, frame size and frame interval
+- `UAC2`: Add `class::uac::device::uac2::io_box`, a USB Audio Class 2.0 I/O box (line out + line in, explicit feedback, optional feature units with an interrupt endpoint), at full or high speed
+- Endpoint `interval_ms` 0 on an interrupt or isochronous endpoint now means every frame: `bInterval` 1 at full speed (was 0, invalid) and every microframe at high speed (was 1 ms)
+- Add `Builder::max_speed()`, so classes can size their endpoints for the speed the descriptors are built for
 - Add USB host support in the `host` module, migrated from `embassy-usb-host` 0.1.0: enumeration, hubs, descriptor parsing, and HID, CDC ACM, CP210x, MSC, MIDI, UAC, CCID and GIP class drivers
 - Add `block-device-driver` feature, implementing `BlockDevice` for the host MSC class
-- Organize classes as `class::<name>::{device, host}`; existing device paths are unchanged, host drivers move from `embassy_usb_host::class::<name>` to `embassy_usb::class::<name>::host`
+- **Breaking:** organize classes as `class::<name>::{device, host}`. Device implementations move to `class::<name>::device` (e.g. `class::cdc_acm::CdcAcmClass` is now `class::cdc_acm::device::CdcAcmClass`, `class::uac1` is now `class::uac::device`); items shared by both sides stay at `class::<name>` (e.g. `cdc_acm::LineCoding`, `hid::ReportId`, `midi::MidiPacket`, `uac::terminal_type::TerminalType`). Host drivers move from `embassy_usb_host::class::<name>` to `embassy_usb::class::<name>::host`
 - Deprecate `embassy-usb-host`: it is superseded by this crate and is no longer maintained. Migrate to `embassy_usb::host` and `embassy_usb::class::<name>::host`
-- Bump usbd-hid from 0.9.0 to 0.10.0
+- Add `InterfaceAltBuilder::endpoint_bulk_in_double_buffered()` and `endpoint_bulk_out_double_buffered()`
+- `CDC-ACM`: Add `CdcAcmClass::new_double_buffered()`
+- **Breaking:** Remove the `usbd-hid` feature, and `write_serialize()` from `HidWriter` and `HidReaderWriter`
+- `HID`: Add `KeyboardReport` and `MouseReport` at `class::hid`, with report descriptors (`DESCRIPTOR`) and `to_bytes()` for sending them from a device
 - `UAC1`: Add audio source
-- `UAC1`: `Speaker::new` now returns `Self` with the parts inside instead of a tuple
+- `UAC1`: BREAKING: `AudioSource::new(builder, state, config)` replaces the positional arguments and the manual handler registration; `AudioSource` now has `stream` and `control_monitor` (with `muted()`), `Volume` moved to `class::uac::device`. Internally `Speaker` and `AudioSource` share one implementation of the descriptors and control handler
+- `UAC1`: BREAKING: `Speaker::new(builder, state, config)` takes `speaker::Config` and returns `Self` with the parts inside instead of a tuple
+- `UAC1`: Source and speaker configurations default to no Feature Unit. Set `Config::feature_unit` to a vector of `FeatureUnitControls` flags, with one entry for the master and each audio channel, to enable mute or volume controls
 - `CDC-NCM`: Handle `SetEthernetPacketFilter` and advertise it in `bmNetworkCapabilities`, which also works around a macOS bug that intermittently left the data interface disabled
 - `MIDI`: Allow sender-only or receiver-only configuration
 - `MIDI`: Change constructor to take a configuration struct instead of discrete arguments
@@ -23,8 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MIDI`: Add packet encoding and decoding
 - Make `InterfaceAltBuilder::endpoint_in` and `InterfaceAltBuilder::endpoint_out` public
 - Fix various typos in comments and internal variable names
+- Added portable-atomic for targets not supporting core::sync::AtomicU32
 - Add USB Mass Storage Class (MSC) implementation (Bulk-Only Transport + SCSI transparent commands)
 - `MSC`: Add `SectorCache`, optimizing read-erase-write cycles in large block devices (flash), and `BlockDeviceAdapter` for `block_device_driver::BlockDevice` (feature `block-device-driver`)
+- `GUD`: Add Generic USB Display support.
+- USB host: debounce hub port connections and cleanup addresses after hub removal
+- USB host: call `UsbHostAllocator::device_removed` for each address freed on device removal
+- Generate `config.rs` in a deterministic order, so builds of the same source produce the same crate
 
 ## 0.6.0 - 2026-03-10
 

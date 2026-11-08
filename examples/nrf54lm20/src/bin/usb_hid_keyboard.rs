@@ -11,14 +11,12 @@ use embassy_nrf::config::{ClockSpeed, Config as NrfConfig, HfclkSource};
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::usb::{self, Driver};
 use embassy_nrf::{bind_interrupts, peripherals};
-use embassy_usb::class::hid::{
-    HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State,
-};
+use embassy_usb::class::hid::device::{HidReaderWriter, RequestHandler, State};
+use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, KeyboardReport, ReportId};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler, UsbDeviceSpeed};
 use panic_probe as _;
 use static_cell::StaticCell;
-use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 
 static CONFIGURED: AtomicBool = AtomicBool::new(false);
 static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
@@ -74,8 +72,8 @@ async fn main(_spawner: Spawner) {
     );
     builder.handler(&mut device_handler);
 
-    let hid_config = embassy_usb::class::hid::Config {
-        report_descriptor: KeyboardReport::desc(),
+    let hid_config = embassy_usb::class::hid::device::Config {
+        report_descriptor: KeyboardReport::DESCRIPTOR,
         request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 64,
@@ -103,12 +101,10 @@ async fn main(_spawner: Spawner) {
                 }
             } else {
                 let report = KeyboardReport {
+                    modifiers: 0,
                     keycodes: [4, 0, 0, 0, 0, 0],
-                    leds: 0,
-                    modifier: 0,
-                    reserved: 0,
                 };
-                match writer.write_serialize(&report).await {
+                match writer.write(&report.to_bytes()).await {
                     Ok(()) => {}
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 }
@@ -127,12 +123,10 @@ async fn main(_spawner: Spawner) {
                 }
             } else {
                 let report = KeyboardReport {
+                    modifiers: 0,
                     keycodes: [0, 0, 0, 0, 0, 0],
-                    leds: 0,
-                    modifier: 0,
-                    reserved: 0,
                 };
-                match writer.write_serialize(&report).await {
+                match writer.write(&report.to_bytes()).await {
                     Ok(()) => {}
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 }

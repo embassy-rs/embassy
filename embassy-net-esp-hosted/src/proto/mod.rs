@@ -35,6 +35,10 @@ fn main() {
         ".CtrlMsg_Req_VendorIEData.payload",
         micropb_gen::Config::new().max_bytes(64),
     );
+    // WPA passphrase is up to 63 characters, or 64 hex digits
+    g.configure(".CtrlMsg_Req_ConnectAP.pwd", micropb_gen::Config::new().max_bytes(64));
+    g.configure(".CtrlMsg_Resp_GetSoftAPConfig.pwd", micropb_gen::Config::new().max_bytes(64));
+    g.configure(".CtrlMsg_Req_StartSoftAP.pwd", micropb_gen::Config::new().max_bytes(64));
     // Scan result is extremely big
     g.configure(
         ".CtrlMsg_Resp_ScanResult.entries",
@@ -61,6 +65,10 @@ fn main() {
     // Special config for things that need to be larger
     g.configure(".Rpc_Req_OTAWrite.ota_data", micropb_gen::Config::new().max_bytes(256));
     g.configure(".Rpc_Event_ESPInit.init_data", micropb_gen::Config::new().max_bytes(64));
+    // WPA passphrase is up to 63 characters, or 64 hex digits
+    g.configure(".wifi_ap_config.password", micropb_gen::Config::new().max_bytes(64));
+    g.configure(".wifi_sta_config.password", micropb_gen::Config::new().max_bytes(64));
+    g.configure(".ap_cred.passphrase", micropb_gen::Config::new().max_bytes(64));
     // Scan result is extremely big, skip unused fields
     g.configure(".wifi_ap_record.second", micropb_gen::Config::new().skip(true));
     g.configure(".wifi_ap_record.pairwise_cipher", micropb_gen::Config::new().skip(true));

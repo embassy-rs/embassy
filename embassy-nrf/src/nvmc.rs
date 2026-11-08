@@ -21,16 +21,25 @@ pub const PAGE_SIZE: usize = 2048;
 pub const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;
 
 /// Error type for NVMC operations.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Operation using a location not in flash.
-    #[error("out of bounds")]
     OutOfBounds,
     /// Unaligned operation or using unaligned buffers.
-    #[error("unaligned operation or buffer")]
     Unaligned,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::OutOfBounds => f.write_str("out of bounds"),
+            Self::Unaligned => f.write_str("unaligned operation or buffer"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 impl NorFlashError for Error {
     fn kind(&self) -> NorFlashErrorKind {

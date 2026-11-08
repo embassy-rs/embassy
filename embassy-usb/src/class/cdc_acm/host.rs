@@ -5,61 +5,12 @@
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
+use super::{
+    CDC_SUBCLASS_ACM, LineCoding, REQ_SET_CONTROL_LINE_STATE, REQ_SET_LINE_CODING, USB_CLASS_CDC, USB_CLASS_CDC_DATA,
+};
 use crate::host::control::SetupPacket;
 use crate::host::descriptor::ConfigurationDescriptorChain;
 use crate::host::handler::EnumerationInfo;
-
-/// CDC class code.
-const USB_CLASS_CDC: u8 = 0x02;
-/// CDC Data class code.
-const USB_CLASS_CDC_DATA: u8 = 0x0A;
-/// CDC ACM subclass.
-const CDC_SUBCLASS_ACM: u8 = 0x02;
-
-/// CDC ACM class request: SET_LINE_CODING.
-const REQ_SET_LINE_CODING: u8 = 0x20;
-/// CDC ACM class request: SET_CONTROL_LINE_STATE.
-const REQ_SET_CONTROL_LINE_STATE: u8 = 0x22;
-
-/// USB line coding (serial parameters).
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct LineCoding {
-    /// Baud rate in bits per second.
-    pub baud_rate: u32,
-    /// Stop bits: 0=1, 1=1.5, 2=2.
-    pub stop_bits: u8,
-    /// Parity: 0=None, 1=Odd, 2=Even.
-    pub parity: u8,
-    /// Data bits (5, 6, 7, 8).
-    pub data_bits: u8,
-}
-
-impl Default for LineCoding {
-    fn default() -> Self {
-        Self {
-            baud_rate: 115200,
-            stop_bits: 0,
-            parity: 0,
-            data_bits: 8,
-        }
-    }
-}
-
-impl LineCoding {
-    fn to_bytes(&self) -> [u8; 7] {
-        let baud = self.baud_rate.to_le_bytes();
-        [
-            baud[0],
-            baud[1],
-            baud[2],
-            baud[3],
-            self.stop_bits,
-            self.parity,
-            self.data_bits,
-        ]
-    }
-}
 
 /// CDC ACM host class driver error.
 #[derive(Debug)]

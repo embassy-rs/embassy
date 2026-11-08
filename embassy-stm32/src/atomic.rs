@@ -183,14 +183,14 @@ pub trait InterruptRegister<T: Sized + Copy> {
     /// Atomically enable interrupts and return a guard that disables them
     ///
     /// Call `set_xxx(true)` inside the closure
-    fn enable_interrupts<'a>(&'a self, f: impl FnOnce(&mut T)) -> ActiveInterrupt<Self, T>
+    fn enable_interrupts(&self, f: impl FnOnce(&mut T)) -> ActiveInterrupt<Self, T>
     where
         Self: Sized + Copy + AtomicModify<T>;
 }
 
 impl<T: Sized + Copy, A: Read + Write> InterruptRegister<T> for Reg<T, A> {
     #[inline]
-    fn enable_interrupts<'a>(&'a self, f: impl FnOnce(&mut T)) -> ActiveInterrupt<Self, T>
+    fn enable_interrupts(&self, f: impl FnOnce(&mut T)) -> ActiveInterrupt<Self, T>
     where
         Self: Sized + AtomicModify<T>,
     {

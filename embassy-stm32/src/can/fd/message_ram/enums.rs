@@ -67,7 +67,7 @@ impl From<DataLength> for FrameFormat {
     }
 }
 
-/// Wheter or not to generate an Tx Event
+/// Whether or not to generate an Tx Event
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
     /// Do not generate an Tx Event

@@ -22,7 +22,7 @@ teleprobe_meta::timeout!(60);
 async fn main(_spawner: Spawner) {
     let _rng = crypto_pka::init();
 
-    crypto_pka::suites!(p256_arith, p384_arith);
+    crypto_pka::suites!(p256_arith, p256_decompress, p384_arith, p384_decompress);
 
     info!("Test OK");
     cortex_m::asm::bkpt();

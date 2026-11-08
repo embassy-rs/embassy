@@ -185,7 +185,7 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
     pub fn blocking_listen(&mut self) {
         let core = CoreId::current();
 
-        // Clear the interupt
+        // Clear the interrupt
         T::regs()
             .icr(core.to_index().into())
             .write(|w| w.set_isc(self.index.into(), true));

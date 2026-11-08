@@ -95,7 +95,7 @@ impl interrupt::typelevel::Handler<UsbRegIrq> for InterruptHandler {
 
 /// [`VbusDetect`] implementation using the native hardware POWER peripheral.
 ///
-/// Unsuitable for usage with the nRF softdevice, since it reserves exclusive acces
+/// Unsuitable for usage with the nRF softdevice, since it reserves exclusive access
 /// to POWER. In that case, use [SoftwareVbusDetect].
 pub struct HardwareVbusDetect {
     _private: (),

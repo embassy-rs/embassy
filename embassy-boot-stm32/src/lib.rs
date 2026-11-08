@@ -45,6 +45,10 @@ impl BootLoader {
     /// # Safety
     ///
     /// This modifies the stack pointer and reset vector and will run code placed in the active partition.
+    ///
+    /// On a dual-bank STM32G0B0/G0B1/G0C1 the jump into an active partition in flash bank 2 is a branch across
+    /// the banks, which can fail with the flash prefetch on (ES0547 2.2.8, ES0548/ES0549 2.2.10): keep the
+    /// bootloader's `config.rcc.flash_prefetch` at its default, `FlashPrefetch::IfSingleBank`.
     pub unsafe fn load(self, start: u32) -> ! {
         trace!("Loading app at 0x{:x}", start);
         #[allow(unused_mut)]

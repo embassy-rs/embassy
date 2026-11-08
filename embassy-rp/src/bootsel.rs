@@ -47,7 +47,6 @@ pub fn is_bootsel_pressed(_p: Peri<'_, crate::peripherals::BOOTSEL>) -> bool {
 mod ram_helpers {
 
     /// Temporally reconfigures the CS gpio and returns the GpioStatus.
-
     /// This function runs from RAM so it can disable flash XIP.
     ///
     /// # Safety
@@ -93,6 +92,7 @@ mod ram_helpers {
     }
 
     #[cfg(not(target_arch = "arm"))]
+    #[allow(unused_variables)]
     pub unsafe fn read_cs_status(cs_gpio: *mut (), cs_ctrl: u32) -> u32 {
         unimplemented!()
     }

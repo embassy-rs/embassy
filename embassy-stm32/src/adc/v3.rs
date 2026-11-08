@@ -3,7 +3,7 @@
 //!
 //! Chips: F30x (`adc_v3_f3`), L4/L5/WB55 (`adc_v3_l4`), G4/H5/H7RS (`adc_v3_g4`), H7 (`adc_v3_h7`), U5 `ADC1`/
 //! `ADC2` (`adc_v3_u5`), U3 (`adc_v3_u3`), N6 (`adc_v3_n6`), C5 (`adc_v3_c5`). The common registers live in
-//! the `ADCx_COMMON` block.
+//! the `ADCx_COMMON` block. The 12-bit `ADC3` of the H72x/H73x is in [`super::v3_h7_adc3`].
 
 use core::sync::atomic::Ordering;
 
@@ -63,6 +63,30 @@ const MAX_CLOCK: Hertz = Hertz::mhz(70);
 #[cfg(stm32c5)]
 const MAX_CLOCK: Hertz = Hertz::mhz(70);
 
+/// Whether this is a revision Y (or older) H742/H743/H750/H753, which has no /2 in front of the
+/// converter and a single `BOOST` bit. RM0433 §25.4.3.
+#[cfg(adc_v3_h7)]
+fn rev_y() -> bool {
+    #[cfg(any(stm32h742, stm32h743, stm32h750, stm32h753))]
+    return crate::pac::DBGMCU.idc().read().rev_id() <= 0x1003;
+    #[cfg(not(any(stm32h742, stm32h743, stm32h750, stm32h753)))]
+    false
+}
+
+/// The clock of the converter, from the clock selected by `CKMODE`/`PRESC`.
+///
+/// On the H7 a fixed /2 sits in between, except on revision Y. `MAX_CLOCK`, `BOOST` and the sample
+/// and conversion times all refer to the divided clock. RM0433 §25.4.3, RM0399 §26.4.3, RM0455
+/// §27.4.3, RM0468 §28.4.3.
+#[cfg(any(adc_v3_l4, adc_v3_g4, adc_v3_h7, adc_v3_u5, adc_v3_u3))]
+fn analog_clock(clock: Hertz) -> Hertz {
+    #[cfg(adc_v3_h7)]
+    if !rev_y() {
+        return clock / 2u32;
+    }
+    clock
+}
+
 /// Sample times as half ADC clock cycles, indexed by the `SMP` field value.
 #[cfg(adc_v3_f3)]
 const SAMPLE_TIME_HALF_CYCLES: [u32; 8] = [3, 5, 9, 15, 39, 123, 363, 1203];
@@ -98,8 +122,9 @@ fn to_res(res: Resolution) -> Res {
         Resolution::Bits8 => Res::Bits8,
         #[cfg(not(any(adc_v3_h7, adc_v3_u5)))]
         Resolution::Bits6 => Res::Bits6,
-        // On the U5 the 6-bit resolution belongs to ADC4, not to ADC1/ADC2.
-        #[cfg(adc_v3_u5)]
+        // On the U5 the 6-bit resolution belongs to ADC4, and on the H72x/H73x to ADC3, not to
+        // ADC1/ADC2.
+        #[cfg(all(adc_res6, any(adc_v3_h7, adc_v3_u5)))]
         Resolution::Bits6 => panic!("this ADC has no 6-bit resolution"),
     }
 }
@@ -198,7 +223,7 @@ impl AdcRegs for Regs {
                     let presc = PRESCALERS
                         .iter()
                         .copied()
-                        .find(|p| kernel_clock / p.divisor() <= MAX_CLOCK)
+                        .find(|p| analog_clock(kernel_clock / p.divisor()) <= MAX_CLOCK)
                         .expect("ADC kernel clock too fast, change 'config.rcc.mux' to a slower clock");
                     critical_section::with(|_| {
                         common.ccr().modify(|w| {
@@ -238,11 +263,14 @@ impl AdcRegs for Regs {
 
         #[cfg(adc_v3_h7)]
         self.cr().modify(|w| {
-            w.set_boost(if clock < Hertz::khz(6_250) {
+            w.set_boost(if rev_y() {
+                // A single bit, the low bit of the field, required above 20 MHz.
+                Boost::from_bits((clock > Hertz::mhz(20)) as u8)
+            } else if clock <= Hertz::khz(6_250) {
                 Boost::Lt625
-            } else if clock < Hertz::khz(12_500) {
+            } else if clock <= Hertz::khz(12_500) {
                 Boost::Lt125
-            } else if clock < Hertz::mhz(25) {
+            } else if clock <= Hertz::mhz(25) {
                 Boost::Lt25
             } else {
                 Boost::Lt50
@@ -318,9 +346,9 @@ impl AdcRegs for Regs {
     fn clock(self, common: AdcCommon, kernel_clock: Hertz) -> Hertz {
         #[cfg(any(adc_v3_l4, adc_v3_g4, adc_v3_h7))]
         match common.ccr().read().ckmode() {
-            Ckmode::SyncDiv1 => return kernel_clock,
-            Ckmode::SyncDiv2 => return kernel_clock / 2u32,
-            Ckmode::SyncDiv4 => return kernel_clock / 4u32,
+            Ckmode::SyncDiv1 => return analog_clock(kernel_clock),
+            Ckmode::SyncDiv2 => return analog_clock(kernel_clock / 2u32),
+            Ckmode::SyncDiv4 => return analog_clock(kernel_clock / 4u32),
             Ckmode::Asynchronous => {}
         }
         #[cfg(adc_v3_f3)]
@@ -336,7 +364,7 @@ impl AdcRegs for Regs {
         }
         #[cfg(any(adc_v3_l4, adc_v3_g4, adc_v3_h7, adc_v3_u5, adc_v3_u3))]
         {
-            kernel_clock / PRESCALERS[common.ccr().read().presc().to_bits() as usize].divisor()
+            analog_clock(kernel_clock / PRESCALERS[common.ccr().read().presc().to_bits() as usize].divisor())
         }
         #[cfg(any(adc_v3_n6, adc_v3_c5))]
         {

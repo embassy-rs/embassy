@@ -13,7 +13,6 @@ use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::{SharedData, bind_interrupts, interrupt};
 use embassy_sync::mutex::Mutex;
-use panic_reset as _;
 
 #[cfg(feature = "skip-include")]
 static APP_B: &[u8] = &[0, 1, 2, 3];
@@ -31,7 +30,7 @@ static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init_primary(Default::default(), &SHARED_DATA);
-    let flash = Flash::new_blocking(p.FLASH);
+    let flash = Flash::new_blocking(p.FLASH, Default::default());
     let flash = Mutex::new(BlockingAsync::new(flash));
 
     let mut button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up, Irqs);
@@ -55,5 +54,10 @@ async fn main(_spawner: Spawner) {
     updater.mark_updated().await.unwrap();
     //defmt::info!("Marked as updated");
     led.set_low();
+    cortex_m::peripheral::SCB::sys_reset();
+}
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
     cortex_m::peripheral::SCB::sys_reset();
 }

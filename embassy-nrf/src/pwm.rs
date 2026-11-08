@@ -26,20 +26,31 @@ pub struct SequencePwm<'d> {
 }
 
 /// PWM error
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Sequence is longer than `MAX_SEQUENCE_LEN`.
-    #[error("sequence too long")]
     SequenceTooLong,
     /// Min Sequence count is 1
-    #[error("sequence must play at least once")]
     SequenceTimesAtLeastOne,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
-    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::SequenceTooLong => f.write_str("sequence too long"),
+            Self::SequenceTimesAtLeastOne => f.write_str("sequence must play at least once"),
+            Self::BufferNotInRAM => {
+                f.write_str("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")
+            }
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// The maximum number of words in a PWM sequence.
 pub const MAX_SEQUENCE_LEN: usize =

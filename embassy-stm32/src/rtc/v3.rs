@@ -139,29 +139,35 @@ impl SealedInstance for crate::peripherals::RTC {
 
     #[cfg(feature = "low-power")]
     #[cfg(not(feature = "_lp-time-driver"))]
-    cfg_if::cfg_if!(
-        if #[cfg(any(stm32g4, stm32wl))] {
+    cfg_select! {
+        any(stm32g4, stm32wl) => {
             const EXTI_WAKEUP_LINE: usize = 20;
-        } else if #[cfg(stm32g0)] {
+        }
+        stm32g0 => {
             const EXTI_WAKEUP_LINE: usize = 19;
-        } else if #[cfg(any(stm32l5, stm32h5))] {
+        }
+        any(stm32l5, stm32h5) => {
             const EXTI_WAKEUP_LINE: usize = 17;
         }
-    );
+        _ => {}
+    }
 
     #[cfg(feature = "low-power")]
-    cfg_if::cfg_if!(
-        if #[cfg(any(stm32g4, stm32wl))] {
+    cfg_select! {
+        any(stm32g4, stm32wl) => {
             #[cfg(not(feature = "_core-cm0p"))]
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
             #[cfg(feature = "_core-cm0p")]
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_LSECSS;
-        } else if #[cfg(any(stm32g0, stm32u0))] {
+        }
+        any(stm32g0, stm32u0) => {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
-        } else if #[cfg(any(stm32l5, stm32h5, stm32u3, stm32u5, stm32wba))] {
+        }
+        any(stm32l5, stm32h5, stm32u3, stm32u5, stm32wba) => {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC;
         }
-    );
+        _ => {}
+    }
 
     fn shpf() -> bool {
         Self::regs().icsr().read().shpf()

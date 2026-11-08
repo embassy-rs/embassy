@@ -20,6 +20,7 @@ use crate::host::descriptor::{
 };
 use crate::host::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
 use crate::host::{BusHandle, EnumerationError};
+use crate::{DEVICE_DEBOUNCE_STABLE, DEVICE_DEBOUNCE_TIMEOUT};
 
 /// How many times a port is polled for `ENABLED` after a reset before
 /// enumeration gives up waiting and proceeds with the speed it has.
@@ -35,6 +36,9 @@ pub struct HubHandler<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> {
     desc: HubDescriptor,
     device_address: u8,
     device_lut: [Option<NonZeroU8>; MAX_PORTS],
+    fast_reconnect_port: Option<u8>,
+    /// Port being debounced, so a dropped `wait_for_event` can resume it.
+    debouncing_port: Option<u8>,
     route: BusRoute,
 }
 
@@ -122,6 +126,8 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             desc,
             device_address: enum_info.device_address,
             device_lut: [None; MAX_PORTS],
+            fast_reconnect_port: None,
+            debouncing_port: None,
             route: enum_info.route,
         };
 
@@ -135,11 +141,25 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
 
     /// Wait for a hub port status change event.
     pub async fn wait_for_event(&mut self) -> Result<HandlerEvent<HubEvent>, HostError> {
+        if let Some(port) = self.debouncing_port.take()
+            && let Some(speed) = self.debounce_port(port).await?
+        {
+            return Ok(HandlerEvent::HandlerEvent(HubEvent::DeviceDetected { port, speed }));
+        }
         loop {
             // 1 hub + maximum of 255 ports (USB 2.0 Spec 11.12.3 and 11.23.2.1)
             let mut buf = [0u8; (1 + 255) / u8::BITS as usize];
             let slice = &mut buf[..(self.desc.port_num as usize / 8) + 1];
-            self.interrupt_channel.request_in(slice).await?;
+            // Fast path - device disconnected and reconnected between polls
+            match self.fast_reconnect_port.take() {
+                Some(port) => {
+                    // Forge a status change for the port, avoiding polling interrupt ep
+                    slice[(port as usize + 1) / 8] |= 1 << ((port as usize + 1) % 8)
+                }
+                None => {
+                    self.interrupt_channel.request_in(slice).await?;
+                }
+            }
 
             let mut hub_changes = HubInterrupt(slice);
             if hub_changes.take_hub_change() {
@@ -199,10 +219,23 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
 
                 if change.contains(PortStatusChange::CONNECT) {
                     change.toggle(PortStatusChange::CONNECT);
+                    let connected = status.contains(PortStatus::CONNECTED);
+                    if connected && let Some(address) = self.device_lut.get_mut(port as usize).and_then(|v| v.take()) {
+                        // The device disconnected and reconnected between two polls.
+                        // Report removal and prime fast path to report reconnect on next poll.
+                        self.fast_reconnect_port = Some(port);
+                        self.bus.free_address(address.get());
+                        return Ok(HandlerEvent::HandlerEvent(HubEvent::DeviceRemoved {
+                            address: Some(address),
+                            port,
+                        }));
+                    }
                     self.port_feature(false, PortFeature::ChangeConnection, port, 0).await?;
-                    match status.contains(PortStatus::CONNECTED) {
+                    match connected {
                         true => {
-                            let speed: Speed = status.into();
+                            let Some(speed) = self.debounce_port(port).await? else {
+                                continue;
+                            };
                             debug!(
                                 "HUB {}: Device connected to port {} at {:?}",
                                 self.device_address, port, speed
@@ -211,11 +244,11 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                         }
                         false => {
                             debug!("HUB {}: Device disconnected from port {}", self.device_address, port);
-                            let device_ref = self.device_lut.get_mut(port as usize);
-                            return Ok(HandlerEvent::HandlerEvent(HubEvent::DeviceRemoved {
-                                address: device_ref.and_then(|v| v.take()),
-                                port,
-                            }));
+                            let address = self.device_lut.get_mut(port as usize).and_then(|v| v.take());
+                            if let Some(address) = address {
+                                self.bus.free_address(address.get());
+                            }
+                            return Ok(HandlerEvent::HandlerEvent(HubEvent::DeviceRemoved { address, port }));
                         }
                     }
                 }
@@ -358,6 +391,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
         };
 
         let (info, config_len) = self.bus.enumerate(route, config_buffer).await?;
+        self.bus.state().set_parent(info.device_address, self.device_address);
 
         // Store the device address in the LUT for later retrieval on disconnect.
         // A hub may report more ports than MAX_PORTS; devices on the excess
@@ -368,6 +402,33 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
         }
 
         Ok((info, config_len))
+    }
+
+    /// Debounce `port` connection, waiting to ensure stable. Returns `None` if the device went away.
+    async fn debounce_port(&mut self, port: u8) -> Result<Option<Speed>, HostError> {
+        self.debouncing_port = Some(port);
+        let mut elapsed = 0;
+        let speed = loop {
+            Timer::after_millis(DEVICE_DEBOUNCE_STABLE).await;
+            elapsed += DEVICE_DEBOUNCE_STABLE;
+
+            // The change bit latches glitches since it was last cleared.
+            let (status, change) = self.get_port_status(port).await?;
+            if !status.contains(PortStatus::CONNECTED) {
+                break None;
+            }
+            if !change.contains(PortStatusChange::CONNECT) || elapsed >= DEVICE_DEBOUNCE_TIMEOUT {
+                break Some(status.into());
+            }
+            self.port_feature(false, PortFeature::ChangeConnection, port, 0).await?;
+        };
+        self.port_feature(false, PortFeature::ChangeConnection, port, 0).await?;
+        self.debouncing_port = None;
+        Ok(speed)
+    }
+
+    pub async fn set_port_power(&mut self, port: u8, on: bool) -> Result<(), HostError> {
+        self.port_feature(on, PortFeature::Power, port, 0).await
     }
 
     async fn port_feature(&mut self, set: bool, feature: PortFeature, port: u8, selector: u8) -> Result<(), HostError> {

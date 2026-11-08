@@ -1,3 +1,14 @@
+//! NBOOT image authentication and memory-encryption services for MCXA5xx.
+//!
+//! Construct [`Nboot`] through [`super::RomApi::nboot`] to initialize its ROM
+//! context. The interface supports SB4 manifest/block processing, image
+//! authentication, NPX/IPED region configuration and background hashing.
+//! Dropping the handle calls the ROM context deinitializer.
+//!
+//! Address arguments refer to caller-prepared memory described by the ROM
+//! contract. Check the returned authentication marker as well as call success;
+//! successful execution alone does not establish that an image was authenticated.
+
 use core::sync::atomic::{AtomicBool, Ordering};
 
 #[repr(C)]

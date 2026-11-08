@@ -9,7 +9,7 @@ use crate::gpio::Level;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
 };
-use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider_x256;
 
 ///This struct is a unification of the PioRx and PioTx state machines.
 pub struct PioUart<'d, P: Instance, const TX_SM: usize, const RX_SM: usize> {
@@ -97,8 +97,6 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
         program: &PioUartTxProgram<'d, PIO>,
     ) -> Self {
         let tx_pin = common.make_pio_pin(tx_pin);
-        sm_tx.set_pins(Level::High, &[&tx_pin]);
-        sm_tx.set_pin_dirs(PioDirection::Out, &[&tx_pin]);
 
         let mut cfg = Config::default();
 
@@ -107,8 +105,10 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
         cfg.shift_out.auto_fill = false;
         cfg.shift_out.direction = ShiftDirection::Right;
         cfg.fifo_join = FifoJoin::TxOnly;
-        cfg.clock_divider = calculate_pio_clock_divider(8 * baud);
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(8 * baud);
         sm_tx.set_config(&cfg);
+        sm_tx.set_pins(Level::High, &[&tx_pin]);
+        sm_tx.set_pin_dirs(PioDirection::Out, &[&tx_pin]);
         sm_tx.set_enable(true);
 
         Self { sm_tx }
@@ -144,11 +144,11 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
 
     /// Change baud rate on run time  
     pub fn set_baudrate(&mut self, baud: u32) {
-        let clock_divider = calculate_pio_clock_divider(8 * baud);
+        let clock_divider = calculate_pio_clock_divider_x256(8 * baud);
         self.sm_tx.set_enable(false);
         self.sm_tx.clear_fifos();
         self.sm_tx.restart();
-        self.sm_tx.set_clock_divider(clock_divider);
+        self.sm_tx.set_clock_divider_x256(clock_divider);
         self.sm_tx.set_enable(true);
     }
 }
@@ -228,15 +228,15 @@ impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
         rx_pin.set_pull(crate::gpio::Pull::Up);
         cfg.set_in_pins(&[&rx_pin]);
         cfg.set_jmp_pin(&rx_pin);
-        sm_rx.set_pins(Level::High, &[&rx_pin]);
 
-        cfg.clock_divider = calculate_pio_clock_divider(8 * baud);
+        cfg.clock_divider_x256 = calculate_pio_clock_divider_x256(8 * baud);
         cfg.shift_in.auto_fill = false;
         cfg.shift_in.direction = ShiftDirection::Right;
         cfg.shift_in.threshold = 32;
         cfg.fifo_join = FifoJoin::RxOnly;
-        sm_rx.set_pin_dirs(PioDirection::In, &[&rx_pin]);
         sm_rx.set_config(&cfg);
+        sm_rx.set_pins(Level::High, &[&rx_pin]);
+        sm_rx.set_pin_dirs(PioDirection::In, &[&rx_pin]);
         sm_rx.set_enable(true);
 
         Self { sm_rx }
@@ -256,11 +256,11 @@ impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
 
     /// Change Baud rate on runtime
     pub fn set_baudrate(&mut self, baud: u32) {
-        let clock_divider = calculate_pio_clock_divider(8 * baud);
+        let clock_divider = calculate_pio_clock_divider_x256(8 * baud);
         self.sm_rx.set_enable(false);
         self.sm_rx.clear_fifos();
         self.sm_rx.restart();
-        self.sm_rx.set_clock_divider(clock_divider);
+        self.sm_rx.set_clock_divider_x256(clock_divider);
         self.sm_rx.set_enable(true);
     }
 }

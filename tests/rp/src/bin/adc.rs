@@ -29,8 +29,17 @@ async fn main(_spawner: Spawner) {
 
     #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
     let (mut a, mut b, mut c, mut d) = (p.PIN_26, p.PIN_27, p.PIN_28, p.PIN_29);
+    // On the Pimoroni Pico Plus 2, GP40..42 are wired to the GP26..28 header pins through 1k
+    // resistors, and GP43 is connected to vsys through a 150k/75k divider.
     #[cfg(feature = "rp235xb")]
-    let (mut a, mut b, mut c, mut d) = (p.PIN_44, p.PIN_45, p.PIN_46, p.PIN_47);
+    let (mut a, mut b, mut c, mut d) = (p.PIN_40, p.PIN_41, p.PIN_42, p.PIN_43);
+    // Disconnect GP26..28 so their default pull-downs don't fight the pulls we test with.
+    #[cfg(feature = "rp235xb")]
+    let _gp26_28 = (
+        embassy_rp::gpio::Flex::new(p.PIN_26),
+        embassy_rp::gpio::Flex::new(p.PIN_27),
+        embassy_rp::gpio::Flex::new(p.PIN_28),
+    );
 
     {
         {
@@ -66,7 +75,7 @@ async fn main(_spawner: Spawner) {
         }
     }
     {
-        // gp29 is connected to vsys through a 200k/100k divider,
+        // d is connected to vsys through a divider,
         // adding pulls should change the value
         let low = {
             let mut p = Channel::new_pin(d.reborrow(), Pull::Down);
@@ -93,10 +102,10 @@ async fn main(_spawner: Spawner) {
         defmt::assert!(temp < 60.0);
     }
 
-    // run a bunch of conversions. we'll only check gp29 and the temp
+    // run a bunch of conversions. we'll only check d and the temp
     // sensor here for brevity, if those two work the rest will too.
     {
-        // gp29 is connected to vsys through a 200k/100k divider,
+        // d is connected to vsys through a divider,
         // adding pulls should change the value
         let mut low = [0u16; 16];
         let mut none = [0u8; 16];

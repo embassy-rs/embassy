@@ -56,13 +56,13 @@ impl<'d, T: Instance, const SM: usize> PioPwm<'d, T, SM> {
         program: &PioPwmProgram<'d, T>,
     ) -> Self {
         let pin = pio.make_pio_pin(pin);
-        sm.set_pins(Level::High, &[&pin]);
-        sm.set_pin_dirs(Direction::Out, &[&pin]);
 
         let mut cfg = Config::default();
         cfg.use_program(&program.prg, &[&pin]);
 
         sm.set_config(&cfg);
+        sm.set_pins(Level::High, &[&pin]);
+        sm.set_pin_dirs(Direction::Out, &[&pin]);
 
         Self { sm, pin }
     }

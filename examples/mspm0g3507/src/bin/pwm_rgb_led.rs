@@ -11,7 +11,7 @@ use embassy_mspm0::gpio::Pull;
 use embassy_mspm0::tim::simple_pwm::{self, PwmPin, SimplePwm, SimplePwm2Channels};
 use embassy_mspm0::tim::{ClockSel, CountingMode};
 use embassy_time::Timer;
-use panic_halt as _;
+use panic_probe as _;
 
 const PWM_FREQUENCY: u32 = 25_000;
 

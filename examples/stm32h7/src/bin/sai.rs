@@ -3,10 +3,12 @@
 #![no_std]
 #![no_main]
 
+use core::mem::MaybeUninit;
+use core::ptr::addr_of_mut;
+
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32 as hal;
-use grounded::uninit::GroundedArrayCell;
 use hal::rcc::*;
 use hal::sai::*;
 use hal::time::Hertz;
@@ -20,9 +22,9 @@ const SAMPLE_RATE: u32 = 48000;
 
 //DMA buffer must be in special region. Refer https://embassy.dev/book/#_stm32_bdma_only_working_out_of_some_ram_regions
 #[unsafe(link_section = ".sram1_bss")]
-static mut TX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
+static mut TX_BUFFER: MaybeUninit<[u32; DMA_BUFFER_LENGTH]> = MaybeUninit::uninit();
 #[unsafe(link_section = ".sram1_bss")]
-static mut RX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
+static mut RX_BUFFER: MaybeUninit<[u32; DMA_BUFFER_LENGTH]> = MaybeUninit::uninit();
 
 bind_interrupts!(struct Irqs {
     DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
@@ -90,12 +92,8 @@ async fn main(_spawner: Spawner) {
     rx_config.clock_strobe = ClockStrobe::Rising;
     rx_config.sync_output = false;
 
-    let tx_buffer: &mut [u32] = unsafe {
-        let buf = &mut *core::ptr::addr_of_mut!(TX_BUFFER);
-        buf.initialize_all_copied(0);
-        let (ptr, len) = buf.get_ptr_len();
-        core::slice::from_raw_parts_mut(ptr, len)
-    };
+    // SAFETY: main runs once, so this is the only reference to the buffer.
+    let tx_buffer: &mut [u32] = unsafe { (*addr_of_mut!(TX_BUFFER)).write([0; DMA_BUFFER_LENGTH]) };
 
     let mut sai_transmitter = Sai::new_asynchronous_with_mclk(
         sub_block_tx,
@@ -109,16 +107,12 @@ async fn main(_spawner: Spawner) {
         tx_config,
     );
 
-    let rx_buffer: &mut [u32] = unsafe {
-        let buf = &mut *core::ptr::addr_of_mut!(RX_BUFFER);
-        buf.initialize_all_copied(0);
-        let (ptr, len) = buf.get_ptr_len();
-        core::slice::from_raw_parts_mut(ptr, len)
-    };
+    // SAFETY: main runs once, so this is the only reference to the buffer.
+    let rx_buffer: &mut [u32] = unsafe { (*addr_of_mut!(RX_BUFFER)).write([0; DMA_BUFFER_LENGTH]) };
 
     let mut sai_receiver = Sai::new_synchronous(sub_block_rx, p.PE3, p.DMA1_CH1, Irqs, rx_buffer, rx_config);
 
-    sai_receiver.start().unwrap();
+    sai_receiver.start();
 
     let mut buf = [0u32; HALF_DMA_BUFFER_LENGTH];
 

@@ -15,7 +15,7 @@ pub trait Writable {}
 ///Reset value of the register
 ///
 ///This value is initial value for `write` method.
-///It can be also directly writed to register by `reset` method.
+///It can be also directly written to register by `reset` method.
 pub trait ResetValue {
     ///Register size
     type Type;

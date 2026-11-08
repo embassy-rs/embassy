@@ -19,8 +19,8 @@ async fn main(_spawner: Spawner) {
     let mut temp = Temp::new(p.TEMP, Irqs);
 
     loop {
-        let value = temp.read().await;
-        info!("temperature: {}℃", value.to_num::<u16>());
+        let value = temp.read_celsius_x4().await;
+        info!("temperature: {}℃", value as f32 / 4.0);
         Timer::after_secs(1).await;
     }
 }

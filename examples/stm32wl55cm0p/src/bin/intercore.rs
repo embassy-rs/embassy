@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     loop {
         let state = rx.receive(|| Some(LED_STATE.load(Ordering::Relaxed))).await;
-        info!("CM0+ Recieve: {}", state);
+        info!("CM0+ Receive: {}", state);
         blue_led.set_level(if state { Level::High } else { Level::Low });
     }
 }

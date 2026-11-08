@@ -83,7 +83,7 @@ impl From<Pull> for crate::pac::Pull {
     }
 }
 
-/// Drive strenght of an output.
+/// Drive strength of an output.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Drive {
     /// 2mA for PIO-12, 4mA for PIO-24,
@@ -144,7 +144,7 @@ impl<'d> Input<'d> {
         Self { pin }
     }
 
-    /// Get wheter the pin input level is high.
+    /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
@@ -626,7 +626,7 @@ impl<'d> Flex<'d> {
         });
     }
 
-    /// Set the pin's drive stength
+    /// Set the pin's drive strength
     #[inline]
     pub fn set_drive_strength(&mut self, strength: Drive) {
         critical_section::with(|_| {

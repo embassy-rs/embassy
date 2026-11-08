@@ -4,7 +4,7 @@ use core::convert::Infallible;
 use dfu_core::DfuIo;
 use embassy_boot::{BlockingFirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_usb::Handler;
-use embassy_usb::class::dfu::dfu_mode::Handler as DfuModeHandler;
+use embassy_usb::class::dfu::device::dfu_mode::Handler as DfuModeHandler;
 use embassy_usb::control::{InResponse, OutResponse, Recipient, Request as ControlRequest, RequestType};
 use embassy_usb::driver::Direction;
 use embassy_usb_dfu::consts::DfuAttributes;
@@ -56,7 +56,7 @@ impl<'a, const SIZE: usize> NorFlash for InMemoryFlashPartition<'a, SIZE> {
 struct NoopReset {}
 
 impl Reset for NoopReset {
-    fn sys_reset(&self) {
+    fn reset(&self) {
         // noop
     }
 }
@@ -66,6 +66,26 @@ struct InMemoryDfu<H: DfuModeHandler> {
     dfu_state: RefCell<UsbDfuState<H>>,
 }
 
+#[derive(Debug)]
+#[allow(dead_code)]
+enum TestError {
+    Dfu(dfu_core::Error),
+    Io(std::io::Error),
+    Control(&'static str),
+}
+
+impl From<std::io::Error> for TestError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<dfu_core::Error> for TestError {
+    fn from(e: dfu_core::Error) -> Self {
+        Self::Dfu(e)
+    }
+}
+
 impl<H: DfuModeHandler> DfuIo for InMemoryDfu<H> {
     type Read = usize;
 
@@ -73,7 +93,7 @@ impl<H: DfuModeHandler> DfuIo for InMemoryDfu<H> {
 
     type Reset = ();
 
-    type Error = anyhow::Error;
+    type Error = TestError;
 
     type MemoryLayout = dfu_core::memory_layout::MemoryLayout;
 
@@ -96,8 +116,8 @@ impl<H: DfuModeHandler> DfuIo for InMemoryDfu<H> {
         let mut state = self.dfu_state.borrow_mut();
         match state.control_in(req, buffer) {
             Some(InResponse::Accepted(data)) => Ok(data.len()),
-            Some(InResponse::Rejected) => Err(anyhow::anyhow!("control in rejected")),
-            None => Err(anyhow::anyhow!("control in returned None")),
+            Some(InResponse::Rejected) => Err(TestError::Control("control in rejected")),
+            None => Err(TestError::Control("control in returned None")),
         }
     }
 
@@ -120,12 +140,12 @@ impl<H: DfuModeHandler> DfuIo for InMemoryDfu<H> {
         let mut state = self.dfu_state.borrow_mut();
         match state.control_out(req, buffer) {
             Some(OutResponse::Accepted) => Ok(buffer.len()),
-            Some(OutResponse::Rejected) => Err(anyhow::anyhow!("control out rejected")),
-            None => Err(anyhow::anyhow!("control out returned None")),
+            Some(OutResponse::Rejected) => Err(TestError::Control("control out rejected")),
+            None => Err(TestError::Control("control out returned None")),
         }
     }
 
-    fn usb_reset(&mut self) -> Result<Self::Reset, Self::Error> {
+    fn usb_reset(self) -> Result<Self::Reset, Self::Error> {
         Ok(())
     }
 
@@ -163,13 +183,13 @@ fn usb_dfu(dfu_attributes: DfuAttributes) {
         dfu_version: (1, 1),
     };
     let dfu_state = new_state::<_, _, _, BLOCK_SIZE>(updater, dfu_attributes, NoopReset {});
-    let mut dfu = dfu_core::sync::DfuSync::new(InMemoryDfu {
+    let dfu = dfu_core::synchronous::DfuSync::new(InMemoryDfu {
         functional_descriptor,
         dfu_state: RefCell::new(dfu_state),
     });
 
     let firmware = [42; BLOCK_SIZE];
-    let err = dfu.download_from_slice(&firmware);
+    let err = dfu.download_from_slice(&firmware).map(|_| ());
     println!("{:?}", err);
     assert_eq!(&dfu_buffer.borrow()[..firmware.len()], firmware);
     assert!(err.is_ok());

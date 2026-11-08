@@ -5,7 +5,9 @@ teleprobe_meta::target!(b"rpi-pico");
 #[cfg(feature = "rp235xb")]
 teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
-use defmt::{assert_eq, info, panic};
+use core::future::Future;
+
+use defmt::{assert_eq, error, info, panic};
 use defmt_rtt as _;
 use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
@@ -14,6 +16,7 @@ use embassy_rp::config::Config as rpConfig;
 use embassy_rp::peripherals::{I2C0, I2C1};
 use embassy_rp::time::Hertz;
 use embassy_rp::{bind_interrupts, i2c, i2c_slave, mode};
+use embedded_hal::blocking::i2c::{Operation as Op02, Transactional};
 use embedded_hal_1::i2c::Operation;
 use panic_probe as _;
 
@@ -102,6 +105,109 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, mode::Async>) -> ! {
             },
         }
     }
+}
+
+/// Bound an operation so a hang is reported: `Ok(true)` if it hung.
+async fn bounded(op: impl Future<Output = Result<(), i2c::Error>>) -> Result<bool, i2c::Error> {
+    match embassy_time::with_timeout(embassy_time::Duration::from_millis(500), op).await {
+        Ok(r) => r.map(|()| false),
+        Err(_) => Ok(true),
+    }
+}
+
+fn bus_idle() -> bool {
+    !embassy_rp::pac::I2C0.ic_status().read().mst_activity()
+}
+
+fn nack() -> Result<bool, i2c::Error> {
+    Err(i2c::Error::Abort(AbortReason::NoAcknowledge))
+}
+
+async fn set_freq(con: &mut i2c::I2c<'static, mode::Async>, hz: u32) {
+    let mut cfg = i2c::Config::default();
+    cfg.frequency = Hertz(hz);
+    con.set_config(&cfg).unwrap();
+    embassy_time::Timer::after_millis(30).await;
+}
+
+/// Reports every check, then fails the test if any did not hold.
+struct ErrorReporter {
+    failed: u32,
+}
+
+impl ErrorReporter {
+    fn check(&mut self, name: &str, got: Result<bool, i2c::Error>, want: Result<bool, i2c::Error>) {
+        if got == want {
+            info!("PASS {}", name);
+        } else {
+            error!("FAIL {}: got {:?}", name, got);
+            self.failed += 1;
+        }
+    }
+
+    fn finish(self) {
+        if self.failed > 0 {
+            panic!("{} i2c error checks failed", self.failed);
+        }
+    }
+}
+
+async fn error_checks(con: &mut i2c::I2c<'static, mode::Async>) {
+    const ABSENT: u8 = 0x43;
+    let mut t = ErrorReporter { failed: 0 };
+
+    set_freq(con, 100_000).await;
+    let r = con.blocking_write(ABSENT, &[1]).map(|()| false);
+    t.check("blocking write to an absent address is NACKed", r, nack());
+
+    let r = con.blocking_write(DEV_ADDR, &[0xAA]).map(|()| false);
+    t.check("blocking write after a NACK succeeds", r, Ok(false));
+    // Drain RX FIFO.
+    embassy_futures::yield_now().await;
+
+    // STOP after NACK takes 1ms@1 kHz.
+    set_freq(con, 1000).await;
+    let _ = bounded(con.write(ABSENT, &[1])).await;
+    let r = bounded(con.write(ABSENT, &[1])).await;
+    t.check("1 kHz write straight after a NACK is NACKed", r, nack());
+
+    // Absent address - device task would panic during cancel.
+    set_freq(con, 10_000).await;
+    let cancel = con.write(ABSENT, &[1, 2, 3, 4]);
+    let _ = embassy_time::with_timeout(embassy_time::Duration::from_micros(300), cancel).await;
+    let r = bounded(con.write(ABSENT, &[1])).await;
+    t.check("write straight after a cancelled one is NACKed", r, nack());
+
+    let r = bounded(con.write(DEV_ADDR, &[])).await;
+    t.check(
+        "async zero-length write is rejected",
+        r,
+        Err(i2c::Error::InvalidWriteBufferLength),
+    );
+
+    let ops = &mut [Op02::Write(&[1]), Op02::Write(&[])];
+    let r = con.exec(DEV_ADDR, ops).map(|()| false);
+    let want = Err(i2c::Error::InvalidWriteBufferLength);
+    t.check("0.2 transaction rejects an empty operation", r, want);
+    embassy_time::Timer::after_millis(3).await;
+    t.check("0.2 transaction leaves the bus idle", Ok(bus_idle()), Ok(true));
+
+    // A 10 kHz transfer cannot finish in 300 us.
+    let mut slow = i2c::Config::default();
+    slow.frequency = Hertz(10_000);
+    slow.timeout = embassy_time::Duration::from_micros(300);
+    con.set_config(&slow).unwrap();
+    let r = bounded(con.write(ABSENT, &[1, 2, 3, 4])).await;
+    t.check("async write times out", r, Err(i2c::Error::Timeout));
+    for _ in 0..3 {
+        let r = bounded(con.write(ABSENT, &[1, 2, 3, 4])).await;
+        t.check("write straight after a timed out one", r, Err(i2c::Error::Timeout));
+    }
+    let r = con.blocking_write(ABSENT, &[1, 2, 3, 4]).map(|()| false);
+    t.check("blocking write times out", r, Err(i2c::Error::Timeout));
+    t.check("blocking timeout leaves the bus idle", Ok(bus_idle()), Ok(true));
+
+    t.finish();
 }
 
 async fn controller_task(con: &mut i2c::I2c<'static, mode::Async>) {
@@ -222,6 +328,8 @@ async fn controller_task(con: &mut i2c::I2c<'static, mode::Async>) {
             controller.set_config(&config).unwrap();
             controller_task(&mut controller).await;
         }
+
+        error_checks(&mut controller).await;
 
         info!("Test OK");
         cortex_m::asm::bkpt();

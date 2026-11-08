@@ -3,8 +3,6 @@
 use core::convert::Infallible;
 use core::slice;
 
-use cfg_if::cfg_if;
-
 use crate::can::enums::*;
 use crate::can::fd::config::*;
 use crate::can::fd::message_ram::enums::*;
@@ -119,12 +117,9 @@ impl Registers {
 
     #[cfg(time_driver_tim3)]
     fn timestamp_source_is_tim3(&self) -> bool {
-        cfg_if! {
-            if #[cfg(can_fdcan_v2)] {
-                self.regs.tscc().read().tss() == 2
-            } else {
-                self.regs.tscc().read().tss() == stm32_metapac::can::vals::Tss::External
-            }
+        cfg_select! {
+            can_fdcan_v2 => self.regs.tscc().read().tss() == 2,
+            _ => self.regs.tscc().read().tss() == stm32_metapac::can::vals::Tss::External,
         }
     }
 
@@ -169,10 +164,11 @@ impl Registers {
 
     pub fn curr_error(&self) -> Option<BusError> {
         let err = { self.regs.psr().read() };
-        cfg_if! {
-            if #[cfg(can_fdcan_v2)] {
+        cfg_select! {
+            can_fdcan_v2 => {
                 let lec = err.lec();
-            } else {
+            }
+            _ => {
                 let lec = err.lec().to_bits();
             }
         }
@@ -233,7 +229,7 @@ impl Registers {
             // Wait for the abort request to be finished.
             loop {
                 if can.txbcf().read().cf(bufidx) {
-                    // Return false when a transmission has occured
+                    // Return false when a transmission has occurred
                     break !can.txbto().read().to(bufidx);
                 }
             }
@@ -373,7 +369,7 @@ impl Registers {
         self.enter_init_mode();
         self.reset_msg_ram();
 
-        // check the FDCAN core matches our expections
+        // check the FDCAN core matches our expectations
         assert!(
             self.regs.crel().read().rel() == 3,
             "Expected FDCAN core major release 3"
@@ -487,10 +483,10 @@ impl Registers {
     #[inline]
     pub fn set_nominal_bit_timing(&self, btr: NominalBitTiming) {
         self.regs.nbtp().write(|w| {
-            w.set_nbrp(btr.nbrp() - 1);
-            w.set_ntseg1(btr.ntseg1() - 1);
-            w.set_ntseg2(btr.ntseg2() - 1);
-            w.set_nsjw(btr.nsjw() - 1);
+            w.set_nbrp(btr.nbrp());
+            w.set_ntseg1(btr.ntseg1());
+            w.set_ntseg2(btr.ntseg2());
+            w.set_nsjw(btr.nsjw());
         });
     }
 
@@ -499,10 +495,10 @@ impl Registers {
     #[inline]
     pub fn set_data_bit_timing(&self, btr: DataBitTiming) {
         self.regs.dbtp().write(|w| {
-            w.set_dbrp(btr.dbrp() - 1);
-            w.set_dtseg1(btr.dtseg1() - 1);
-            w.set_dtseg2(btr.dtseg2() - 1);
-            w.set_dsjw(btr.dsjw() - 1);
+            w.set_dbrp(btr.dbrp());
+            w.set_dtseg1(btr.dtseg1());
+            w.set_dtseg2(btr.dtseg2());
+            w.set_dsjw(btr.dsjw());
             w.set_tdc(btr.transceiver_delay_compensation);
         });
     }

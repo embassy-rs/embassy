@@ -15,7 +15,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::dfsdm::config::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{Detectors, FilterConfig, Flt0, ResultInjected, ShortCircuitAssignment};
+use embassy_stm32::dfsdm::{Detectors, FilterConfig, Flt0, InjectedResult, ShortCircuitAssignment};
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
@@ -112,17 +112,18 @@ async fn main(_spawner: Spawner) {
     let filter_params =
         FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 100 }, 50).expect("This is inside the bounds");
 
-    let channel_mic = split
-        .ch1
-        .build_spi_int(&common, InternalSpiMode::SpiRising)
-        .set_data_right_shift(filter_params.recommended_shift().try_into().unwrap())
-        .enable();
+    let (channel_mic, filters) = split.build(&common, |tb| {
+        tb.ch1
+            .build_spi_int(&common, InternalSpiMode::SpiRising)
+            .set_data_right_shift(filter_params.recommended_shift().try_into().unwrap())
+            .enable()
+    });
 
     let flt_cfg = FilterConfig {
         filter_params,
         ..Default::default()
     };
-    let mut flt0 = split
+    let mut flt0 = filters
         .flt0
         .build(&common, Irqs)
         .enable_no_dma(&channel_mic, [&channel_mic], &flt_cfg);
@@ -130,8 +131,8 @@ async fn main(_spawner: Spawner) {
     let Detectors {
         mut short_circuit,
         clock_absence: _,
-    } = split.detectors.build(&common, Irqs);
-    short_circuit.assign_transceivers([ShortCircuitAssignment::new(&channel_mic, 12)]);
+    } = filters.detectors.build(&common, Irqs);
+    short_circuit.assign_thresholds([ShortCircuitAssignment::new(&channel_mic, 12)]);
     short_circuit.clear_flags();
 
     let mut dsp = LevelDsp::new();
@@ -142,7 +143,7 @@ async fn main(_spawner: Spawner) {
     loop {
         match select(flt0.injected.read(), short_circuit.wait_for_event()).await {
             Either::First(result) => {
-                let ResultInjected { data, .. } = result.expect("Error");
+                let InjectedResult { data, .. } = result.expect("Error");
                 let ready_at = Instant::now();
 
                 let duty = dsp.process(data, pwm_ld2.max_duty_cycle());

@@ -60,7 +60,7 @@ pub struct GetConfirm {
     pub status: MacStatus,
     /// The name of the PIB attribute attempted to read
     pub pib_attribute: PibId,
-    /// The lenght of the PIB attribute Value return
+    /// The length of the returned PIB attribute value
     pub pib_attribute_value_len: u8,
     /// byte stuffing to keep 32 bit alignment
     a_stuffing: [u8; 1],

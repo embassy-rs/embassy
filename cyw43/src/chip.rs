@@ -35,8 +35,9 @@ pub async fn reset_core(
     let base = chip.base_addr(core);
 
     async fn wait_for_backplane_idle(bus: &mut impl Bus, base: u32) -> crate::Result<()> {
+        // Idle is a reset status of 0: WHD's `whd_reset_core` spins while it isn't.
         try_until(
-            async || bus.bp_read8(base + AI_RESETSTATUS_OFFSET).await != 0,
+            async || bus.bp_read8(base + AI_RESETSTATUS_OFFSET).await == 0,
             Duration::from_millis(300),
         )
         .await

@@ -16,7 +16,7 @@ fn wildcard(port: u16) -> String {
 }
 
 fn main() {
-    pretty_env_logger::init();
+    env_logger::init();
     spawn(rx_listen);
     spawn(rxtx_listen);
     spawn(tls_rx_listen);
@@ -30,7 +30,7 @@ fn main() {
 fn tls_server_config() -> Arc<ServerConfig> {
     let cert = rcgen::generate_simple_self_signed(["localhost".to_string()]).unwrap();
     let cert_der = CertificateDer::from(cert.cert.der().to_owned());
-    let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der()));
+    let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der()));
     Arc::new(
         ServerConfig::builder()
             .with_no_client_auth()

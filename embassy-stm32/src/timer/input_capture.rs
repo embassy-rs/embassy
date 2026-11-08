@@ -131,6 +131,10 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
                 };
 
                 this.inner.set_input_ti_seletion(*ch, tisel);
+
+                this.inner
+                    .set_input_capture_selection(*ch, InputCaptureSelection::Normal);
+                this.inner.set_input_capture_mode(*ch, InputCaptureMode::Rising);
             }
 
             this.inner.set_input_capture_filter(*ch, FilterValue::NoFilter);
@@ -311,11 +315,6 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
 
         let original_enable_state = self.is_enabled(M::CHANNEL);
         let original_cc_dma_enable_state = self.inner.get_cc_dma_enable_state(M::CHANNEL);
-
-        self.inner
-            .set_input_capture_selection(M::CHANNEL, InputCaptureSelection::Normal);
-        self.inner
-            .set_input_capture_mode(M::CHANNEL, InputCaptureMode::BothEdges);
 
         if !original_cc_dma_enable_state {
             self.inner.set_cc_dma_enable_state(M::CHANNEL, true);

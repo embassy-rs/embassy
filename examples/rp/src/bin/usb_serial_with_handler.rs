@@ -35,7 +35,7 @@ impl ReceiverHandler for Handler {
             } else if data.eq_ignore_ascii_case("hello") {
                 log::info!("World!");
             } else {
-                log::info!("Recieved: {:?}", data);
+                log::info!("Received: {:?}", data);
             }
         }
     }

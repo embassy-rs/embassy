@@ -14,7 +14,7 @@ purposes and allows not having to worry about overflows.
 
 ## Global time driver
 
-The `time` module is backed by a global "time driver" specified at build time.
+The `embassy-time` crate is backed by a global "time driver" specified at build time.
 Only one driver can be active in a program.
 
 All methods and structs transparently call into the active driver. This makes it
@@ -27,7 +27,7 @@ For more details, check the [`embassy_time_driver`](https://crates.io/crates/emb
 
 [`Instant`] represents a given instant of time (relative to system boot), and [`Duration`]
 represents the duration of a span of time. They implement the math operations you'd expect,
-like addition and substraction.
+like addition and subtraction.
 
 ## Delays and timeouts
 
@@ -38,7 +38,7 @@ with libraries from the ecosystem.
 
 ## Wall-clock time
 
-The `time` module deals exclusively with a monotonically increasing tick count.
+The `embassy-time` crate deals exclusively with a monotonically increasing tick count.
 Therefore it has no direct support for wall-clock time ("real life" datetimes
 like `2021-08-24 13:33:21`).
 

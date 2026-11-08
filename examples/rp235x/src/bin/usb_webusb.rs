@@ -24,7 +24,7 @@ use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler};
-use embassy_usb::class::web_usb::{Config as WebUsbConfig, State, Url, WebUsb};
+use embassy_usb::class::web_usb::device::{Config as WebUsbConfig, State, Url, WebUsb};
 use embassy_usb::driver::{Driver, Endpoint, EndpointIn, EndpointOut};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::types::InterfaceNumber;

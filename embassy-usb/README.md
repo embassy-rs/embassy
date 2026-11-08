@@ -14,6 +14,7 @@ Async USB device and host stack for embedded devices in Rust.
     - Ethernet (CDC NCM)
     - Human Interface Devices (HID)
     - MIDI
+    - Generic USB Display (GUD)
     - Mass Storage (MSC)
 
 The [`host`](https://docs.embassy.dev/embassy-usb/git/default/host/index.html) module provides USB host enumeration,

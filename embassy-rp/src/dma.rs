@@ -125,6 +125,7 @@ impl<'d> Channel<'d, Async> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     unsafe fn configure(
         &self,
         from: *const u32,
@@ -188,7 +189,7 @@ impl<'d> Channel<'d, Async> {
         Transfer::new(self.reborrow())
     }
 
-    /// Repetedly read from a peripheral to discard data.
+    /// Repeatedly read from a peripheral to discard data.
     ///
     /// SAFETY: `from` must point to a valid location reachable by DMA.
     pub unsafe fn read_discard<'a, W: Word>(
@@ -202,7 +203,7 @@ impl<'d> Channel<'d, Async> {
 
         self.configure(
             from as *mut u32,
-            core::ptr::addr_of_mut!(DUMMY) as *mut u32,
+            &raw mut DUMMY,
             len,
             W::size(),
             false,
@@ -236,7 +237,7 @@ impl<'d> Channel<'d, Async> {
         Transfer::new(self.reborrow())
     }
 
-    /// Repetedly write 0 to peripeheral.
+    /// Repeatedly write 0 to peripheral.
     ///
     /// SAFETY: `to` must point to a valid location reachable by DMA.
     pub unsafe fn write_zeros<'a, W: Word>(

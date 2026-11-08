@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
     // Initialize the board and obtain a Peripherals instance
     let p: embassy_stm32::Peripherals = init();
 
-    let mut f = Flash::new_blocking(p.FLASH);
+    let mut f = Flash::new_blocking(p.FLASH, Default::default());
     const ADDR: u32 = 0x0;
 
     unwrap!(f.eeprom_write_slice(ADDR, &[1, 2, 3, 4, 5, 6, 7, 8]));

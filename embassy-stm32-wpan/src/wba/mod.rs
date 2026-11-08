@@ -1,5 +1,7 @@
 mod context;
 pub mod controller;
+#[cfg(feature = "direct")]
+mod direct;
 mod host_if;
 mod linklayer_plat;
 mod ll_sys;

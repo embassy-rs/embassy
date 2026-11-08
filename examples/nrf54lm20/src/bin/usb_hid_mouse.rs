@@ -12,14 +12,12 @@ use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::usb::{self, Driver};
 use embassy_nrf::{Peri, bind_interrupts, peripherals};
 use embassy_time::Timer;
-use embassy_usb::class::hid::{
-    HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State,
-};
+use embassy_usb::class::hid::device::{HidReaderWriter, RequestHandler, State};
+use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, MouseReport, ReportId};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler, UsbDeviceSpeed};
 use panic_probe as _;
 use static_cell::StaticCell;
-use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 
 static CONFIGURED: AtomicBool = AtomicBool::new(false);
 static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Report as u8);
@@ -69,8 +67,8 @@ async fn main(_spawner: Spawner) {
     );
     builder.handler(&mut device_handler);
 
-    let config = embassy_usb::class::hid::Config {
-        report_descriptor: MouseReport::desc(),
+    let config = embassy_usb::class::hid::device::Config {
+        report_descriptor: MouseReport::DESCRIPTOR,
         request_handler: Some(&mut control_handler),
         poll_ms: 60,
         max_packet_size: 64,
@@ -104,9 +102,8 @@ async fn main(_spawner: Spawner) {
                     x: 0,
                     y,
                     wheel: 0,
-                    pan: 0,
                 };
-                match writer.write_serialize(&report).await {
+                match writer.write(&report.to_bytes()).await {
                     Ok(()) => {}
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 }

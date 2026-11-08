@@ -4022,7 +4022,7 @@ pub struct r#wifi_ap_config {
     ///*< SSID of ESP32 soft-AP. If ssid_len field is 0, this must be a Null terminated string. Otherwise, length is set according to ssid_len. 32 char
     pub r#ssid: ::heapless::Vec<u8, 32>,
     ///*< Password of ESP32 soft-AP. 64 char
-    pub r#password: ::heapless::Vec<u8, 32>,
+    pub r#password: ::heapless::Vec<u8, 64>,
     ///*< Optional length of SSID field.
     pub r#ssid_len: u32,
     ///*< Channel of ESP32 soft-AP
@@ -4113,23 +4113,23 @@ impl r#wifi_ap_config {
     }
     /// Return a reference to `password`
     #[inline]
-    pub fn r#password(&self) -> &::heapless::Vec<u8, 32> {
+    pub fn r#password(&self) -> &::heapless::Vec<u8, 64> {
         &self.r#password
     }
     /// Return a mutable reference to `password`
     #[inline]
-    pub fn mut_password(&mut self) -> &mut ::heapless::Vec<u8, 32> {
+    pub fn mut_password(&mut self) -> &mut ::heapless::Vec<u8, 64> {
         &mut self.r#password
     }
     /// Set the value of `password`
     #[inline]
-    pub fn set_password(&mut self, value: ::heapless::Vec<u8, 32>) -> &mut Self {
+    pub fn set_password(&mut self, value: ::heapless::Vec<u8, 64>) -> &mut Self {
         self.r#password = value.into();
         self
     }
     /// Builder method that sets the value of `password`. Useful for initializing the message.
     #[inline]
-    pub fn init_password(mut self, value: ::heapless::Vec<u8, 32>) -> Self {
+    pub fn init_password(mut self, value: ::heapless::Vec<u8, 64>) -> Self {
         self.r#password = value.into();
         self
     }
@@ -4714,7 +4714,7 @@ impl ::micropb::MessageEncode for r#wifi_ap_config {
                 break 'msg (::core::result::Result::<usize, _>::Err(err));
             }
         }
-        match ::micropb::const_map!(::core::result::Result::Ok(33usize), |size| size + 1usize) {
+        match ::micropb::const_map!(::core::result::Result::Ok(65usize), |size| size + 1usize) {
             ::core::result::Result::Ok(size) => {
                 max_size += size;
             }
@@ -5176,7 +5176,7 @@ pub struct r#wifi_sta_config {
     ///*< SSID of target AP. 32char
     pub r#ssid: ::heapless::Vec<u8, 32>,
     ///*< Password of target AP. 64char
-    pub r#password: ::heapless::Vec<u8, 32>,
+    pub r#password: ::heapless::Vec<u8, 64>,
     ///*< do all channel scan or fast scan
     pub r#scan_method: i32,
     ///*< whether set MAC address of target AP or not. Generally, station_config.bssid_set needs to be 0,
@@ -5282,23 +5282,23 @@ impl r#wifi_sta_config {
     }
     /// Return a reference to `password`
     #[inline]
-    pub fn r#password(&self) -> &::heapless::Vec<u8, 32> {
+    pub fn r#password(&self) -> &::heapless::Vec<u8, 64> {
         &self.r#password
     }
     /// Return a mutable reference to `password`
     #[inline]
-    pub fn mut_password(&mut self) -> &mut ::heapless::Vec<u8, 32> {
+    pub fn mut_password(&mut self) -> &mut ::heapless::Vec<u8, 64> {
         &mut self.r#password
     }
     /// Set the value of `password`
     #[inline]
-    pub fn set_password(&mut self, value: ::heapless::Vec<u8, 32>) -> &mut Self {
+    pub fn set_password(&mut self, value: ::heapless::Vec<u8, 64>) -> &mut Self {
         self.r#password = value.into();
         self
     }
     /// Builder method that sets the value of `password`. Useful for initializing the message.
     #[inline]
-    pub fn init_password(mut self, value: ::heapless::Vec<u8, 32>) -> Self {
+    pub fn init_password(mut self, value: ::heapless::Vec<u8, 64>) -> Self {
         self.r#password = value.into();
         self
     }
@@ -5811,7 +5811,7 @@ impl ::micropb::MessageEncode for r#wifi_sta_config {
                 break 'msg (::core::result::Result::<usize, _>::Err(err));
             }
         }
-        match ::micropb::const_map!(::core::result::Result::Ok(33usize), |size| size + 1usize) {
+        match ::micropb::const_map!(::core::result::Result::Ok(65usize), |size| size + 1usize) {
             ::core::result::Result::Ok(size) => {
                 max_size += size;
             }
@@ -11263,7 +11263,7 @@ pub struct r#ap_cred {
     ///*< 32bytes SSID of AP
     pub r#ssid: ::heapless::Vec<u8, 32>,
     ///*< 64bytes Passphrase for the AP
-    pub r#passphrase: ::heapless::Vec<u8, 32>,
+    pub r#passphrase: ::heapless::Vec<u8, 64>,
 }
 impl r#ap_cred {
     /// Return a reference to `ssid`
@@ -11290,23 +11290,23 @@ impl r#ap_cred {
     }
     /// Return a reference to `passphrase`
     #[inline]
-    pub fn r#passphrase(&self) -> &::heapless::Vec<u8, 32> {
+    pub fn r#passphrase(&self) -> &::heapless::Vec<u8, 64> {
         &self.r#passphrase
     }
     /// Return a mutable reference to `passphrase`
     #[inline]
-    pub fn mut_passphrase(&mut self) -> &mut ::heapless::Vec<u8, 32> {
+    pub fn mut_passphrase(&mut self) -> &mut ::heapless::Vec<u8, 64> {
         &mut self.r#passphrase
     }
     /// Set the value of `passphrase`
     #[inline]
-    pub fn set_passphrase(&mut self, value: ::heapless::Vec<u8, 32>) -> &mut Self {
+    pub fn set_passphrase(&mut self, value: ::heapless::Vec<u8, 64>) -> &mut Self {
         self.r#passphrase = value.into();
         self
     }
     /// Builder method that sets the value of `passphrase`. Useful for initializing the message.
     #[inline]
-    pub fn init_passphrase(mut self, value: ::heapless::Vec<u8, 32>) -> Self {
+    pub fn init_passphrase(mut self, value: ::heapless::Vec<u8, 64>) -> Self {
         self.r#passphrase = value.into();
         self
     }
@@ -11354,7 +11354,7 @@ impl ::micropb::MessageEncode for r#ap_cred {
                 break 'msg (::core::result::Result::<usize, _>::Err(err));
             }
         }
-        match ::micropb::const_map!(::core::result::Result::Ok(33usize), |size| size + 1usize) {
+        match ::micropb::const_map!(::core::result::Result::Ok(65usize), |size| size + 1usize) {
             ::core::result::Result::Ok(size) => {
                 max_size += size;
             }

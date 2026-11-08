@@ -13,8 +13,6 @@ use embassy_rp::gpio::{Drive, Level, Output, Pull, SlewRate};
 use embassy_rp::mode::Async;
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
-use fixed::FixedU32;
-use fixed::types::extra::U8;
 
 /// SPI comms driven by PIO.
 pub struct PioSpi<'d, PIO: Instance, const SM: usize> {
@@ -31,7 +29,7 @@ pub struct PioSpi<'d, PIO: Instance, const SM: usize> {
 /// With default core clock configuration:
 /// RP2350: 150Mhz / 2 = 75Mhz pio clock -> 37.5Mhz GSPI clock
 /// RP2040: 133Mhz / 2 = 66.5Mhz pio clock -> 33.25Mhz GSPI clock
-pub const DEFAULT_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0200);
+pub const DEFAULT_CLOCK_DIVIDER: u32 = 2 << 8;
 
 /// Clock divider used to overclock the cyw43
 /// With default core clock configuration:
@@ -39,23 +37,26 @@ pub const DEFAULT_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0200);
 /// recommended 50Mhz)
 /// RP2040: 133Mhz / 1 = 133Mhz pio clock -> 66.5Mhz GSPI clock (33% greater that manufacturer
 /// recommended 50Mhz)
-pub const OVERCLOCK_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0100);
+pub const OVERCLOCK_CLOCK_DIVIDER: u32 = 1 << 8;
 
 /// Clock divider used with the RM2
 /// With default core clock configuration:
 /// RP2350: 150Mhz / 3 = 50Mhz pio clock -> 25Mhz GSPI clock
 /// RP2040: 133Mhz / 3 = 44.33Mhz pio clock -> 22.16Mhz GSPI clock
-pub const RM2_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0300);
+pub const RM2_CLOCK_DIVIDER: u32 = 3 << 8;
 
 impl<'d, PIO, const SM: usize> PioSpi<'d, PIO, SM>
 where
     PIO: Instance,
 {
     /// Create a new instance of PioSpi.
+    ///
+    /// `clock_divider` is the PIO clock divider as a fixed-point number with 16 integer bits
+    /// and 8 fractional bits (the divider multiplied by 256), see [`DEFAULT_CLOCK_DIVIDER`].
     pub fn new(
         common: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
-        clock_divider: FixedU32<U8>,
+        clock_divider: u32,
         irq: Irq<'d, PIO, 0>,
         cs: Output<'d>,
         dio: Peri<'d, impl PioPin>,
@@ -63,7 +64,7 @@ where
         dma_tx: Channel<'d, Async>,
         dma_rx: Channel<'d, Async>,
     ) -> Self {
-        let effective_pio_frequency = (clk_sys_freq() as f32 / clock_divider.to_num::<f32>()) as u32;
+        let effective_pio_frequency = (clk_sys_freq() as f32 / (clock_divider as f32 / 256.0)) as u32;
 
         #[cfg(feature = "defmt")]
         defmt::trace!("Effective pio frequency: {}Hz", effective_pio_frequency);
@@ -74,7 +75,7 @@ where
         // This can be a problem for peripherals that expect a consistent clock / have a clock
         // speed upper bound that is violated by the short cycles. The cyw43 seems to handle the
         // jitter well, but we emit a warning to recommend an integer divider anyway.
-        if clock_divider.frac() != FixedU32::<U8>::ZERO {
+        if clock_divider & 0xFF != 0 {
             #[cfg(feature = "defmt")]
             defmt::trace!(
                 "Configured clock divider is not a whole number. Some clock cycles may violate the maximum recommended GSPI speed. Use at your own risk."
@@ -207,7 +208,7 @@ where
         cfg.shift_in.direction = ShiftDirection::Left;
         cfg.shift_in.auto_fill = true;
         //cfg.shift_in.threshold = 32;
-        cfg.clock_divider = clock_divider;
+        cfg.clock_divider_x256 = clock_divider;
         cfg.set_input_sync_bypass(&[&pin_io]);
 
         sm.set_config(&cfg);

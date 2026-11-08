@@ -5,8 +5,8 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
+use embassy_futures::select::select;
 use embedded_io_async::ReadReady;
-use futures_util::future::select;
 
 use crate::dma::{ReadableRingBuffer, RingBufferError};
 use crate::gpio::Flex;
@@ -127,7 +127,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         #[cfg(gpio_v2)]
         super::set_speed(&self._sck, &self._mosi, config.gpio_speed);
-        reconfigure(self.info, self.kernel_clock, config)
+        reconfigure::<Slave>(self.info, self.kernel_clock, config)
     }
 
     /// Configure and start the DMA backed SPI receiver

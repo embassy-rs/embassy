@@ -130,6 +130,7 @@ impl io::Write for TunTap {
 pub struct TunTapDevice {
     device: Async<TunTap>,
     hardware_address: [u8; 6],
+    rx_buf: Option<PacketBuf>,
 }
 
 impl TunTapDevice {
@@ -138,6 +139,7 @@ impl TunTapDevice {
         Ok(Self {
             device: Async::new(TunTap::new(name)?)?,
             hardware_address: [0x02, 0x03, 0x04, 0x05, 0x06, 0x07],
+            rx_buf: None,
         })
     }
 
@@ -167,12 +169,22 @@ impl Driver for TunTapDevice {
 
     fn register_waker(&mut self, waker: &Waker) -> Result<(), NotSupported> {
         let mut cx = Context::from_waker(waker);
-        let _ = self.device.poll_readable(&mut cx);
+        if self.device.poll_readable(&mut cx).is_ready() {
+            waker.wake_by_ref();
+        }
         Ok(())
     }
 
+    fn rx_wanted(&mut self) -> usize {
+        self.rx_buf.is_none() as usize
+    }
+
+    fn rx_give(&mut self, buf: PacketBuf) {
+        self.rx_buf = Some(buf);
+    }
+
     fn receive(&mut self) -> Option<PacketBuf> {
-        let mut buf = PacketBuf::try_new()?;
+        let mut buf = self.rx_buf.take()?;
         let mtu = self.device.get_ref().mtu.min(buf.capacity());
         buf.set_len(mtu);
         match unsafe { self.device.get_mut() }.read(&mut buf) {
@@ -180,7 +192,10 @@ impl Driver for TunTapDevice {
                 buf.set_len(n);
                 Some(buf)
             }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => None,
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                self.rx_buf = Some(buf);
+                None
+            }
             Err(e) => panic!("read error: {:?}", e),
         }
     }

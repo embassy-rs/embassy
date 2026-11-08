@@ -2,12 +2,41 @@ use std::fmt::Display;
 
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, TokenStreamExt};
+use syn::meta::ParseNestedMeta;
 use syn::parse::{Parse, ParseStream};
-use syn::{AttrStyle, Attribute, Signature, Token, Visibility, braced, bracketed, token};
+use syn::{AttrStyle, Attribute, Expr, ExprLit, Lit, LitStr, Signature, Token, Visibility, braced, bracketed, token};
 
 pub fn token_stream_with_error(mut tokens: TokenStream, error: syn::Error) -> TokenStream {
     tokens.extend(error.into_compile_error());
     tokens
+}
+
+/// Parse the value of a `name = value` macro argument, which is either an expression
+/// or a string literal containing one.
+pub fn parse_expr_arg(meta: &ParseNestedMeta) -> syn::Result<Expr> {
+    let mut expr: Expr = meta.value()?.parse()?;
+    while let Expr::Group(g) = expr {
+        expr = *g.expr;
+    }
+    match expr {
+        Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) => s.parse(),
+        expr => Ok(expr),
+    }
+}
+
+/// Parse the value of a `name = "value"` macro argument.
+pub fn parse_str_arg(meta: &ParseNestedMeta) -> syn::Result<String> {
+    let s: LitStr = meta.value()?.parse()?;
+    Ok(s.value())
+}
+
+/// Store a parsed macro argument, erroring if it was already given.
+pub fn set_arg<T>(meta: &ParseNestedMeta, slot: &mut Option<T>, value: T) -> syn::Result<()> {
+    if slot.is_some() {
+        return Err(meta.error("duplicate argument"));
+    }
+    *slot = Some(value);
+    Ok(())
 }
 
 pub fn error<A: ToTokens, T: Display>(s: &mut TokenStream, obj: A, msg: T) {
@@ -19,7 +48,7 @@ pub fn error<A: ToTokens, T: Display>(s: &mut TokenStream, obj: A, msg: T) {
 /// Same as `syn`'s `ItemFn` except we keep the body as a TokenStream instead of
 /// parsing it. This makes the macro not error if there's a syntax error in the body,
 /// which helps IDE autocomplete work better.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ItemFn {
     pub attrs: Vec<Attribute>,
     pub vis: Visibility,

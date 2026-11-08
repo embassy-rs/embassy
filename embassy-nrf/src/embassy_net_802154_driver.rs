@@ -1,7 +1,7 @@
 //! embassy-net IEEE 802.15.4 driver
 
 use embassy_futures::select::{Either3, select3};
-use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
+use embassy_net_driver_channel::driver::LinkState;
 use embassy_net_driver_channel::{self as ch};
 use embassy_time::{Duration, Ticker};
 
@@ -47,20 +47,16 @@ impl<'d> Runner<'d> {
         loop {
             match select3(
                 async {
-                    rx_chan.rx_ready().await;
-                    self.radio.receive(&mut packet).await.ok()
+                    let rx_buf = rx_chan.rx_buf().await;
+                    self.radio.receive(&mut packet).await.ok().map(|()| rx_buf)
                 },
                 tx_chan.tx(),
                 tick.next(),
             )
             .await
             {
-                Either3::First(Some(())) => {
-                    let Some(mut rx_buf) = PacketBuf::try_new() else {
-                        warn!("packet pool empty, dropping received packet");
-                        continue;
-                    };
-                    let len = MTU.min(packet.len() as usize);
+                Either3::First(Some(mut rx_buf)) => {
+                    let len = MTU.min(rx_buf.capacity()).min(packet.len() as usize);
                     rx_buf.set_len(len);
                     rx_buf.copy_from_slice(&packet[..len]);
                     rx_chan.rx(rx_buf).await;

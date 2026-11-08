@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     unwrap!(rng.async_fill_bytes(&mut buf).await);
     info!("random bytes: {:02x}", buf);
 
-    // RngCore interface
+    // Blocking interface
     let mut random_bytes = [0; 16];
 
     let random_u32 = rng.blocking_next_u32();

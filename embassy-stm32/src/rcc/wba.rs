@@ -44,7 +44,7 @@ pub struct Pll {
     pub divp: Option<PllDiv>,
     /// The divider for the Q output.
     ///
-    /// The Q ouput is one of severals options that can be used to feed the 48MHz clocks
+    /// The Q output is one of severals options that can be used to feed the 48MHz clocks
     /// and the OCTOSPI clock. It may also be used on the MDF/ADF clock mux's.
     pub divq: Option<PllDiv>,
     /// The divider for the R output.

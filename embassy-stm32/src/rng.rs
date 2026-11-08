@@ -363,8 +363,23 @@ impl<'d, M: Mode> Rng<'d, M> {
 
     /// Try to recover from a seed error.
     pub fn recover_seed_error(&mut self) {
+        // RM0433 (H7), RM0440 (G4), and the WB manuals (RM0434, RM0471, RM0473,
+        // RM0478): clear SEIS, read and discard 12 words to clean the pipeline,
+        // then confirm SEIS is still clear. A seed error stops generation, so these
+        // are plain RNG_DR reads. Waiting for DRDY can stall once the pipeline is
+        // empty; a read while DRDY is clear returns zero. A reset does not empty
+        // the pipeline: the post-processing logic and the output buffer keep
+        // running while RNGEN = 0.
+        #[cfg(all(rng_v1, any(stm32h7, stm32g4, stm32wb)))]
+        {
+            self.regs().sr().modify(|reg| reg.set_seis(false));
+            for _ in 0..12 {
+                let _ = self.regs().dr().read();
+            }
+        }
+        #[cfg(not(all(rng_v1, any(stm32h7, stm32g4, stm32wb))))]
         self.reset();
-        // reset should also clear the SEIS flag
+        // SEIS must be clear now
         if self.regs().sr().read().seis() {
             warn!("recovering from seed error failed");
             return;
@@ -418,6 +433,11 @@ impl<'d, M: Mode> Rng<'d, M> {
                 panic!("RNG error persists after reset; check the RCC clock configuration");
             }
             retries += 1;
+            #[cfg(all(rng_v1, any(stm32h7, stm32g4, stm32wb)))]
+            if self.regs().sr().read().seis() {
+                self.recover_seed_error();
+                continue;
+            }
             self.reset();
         }
     }
@@ -553,43 +573,6 @@ impl<'d, M: Mode> crate::suspend::SealedSuspendablePeripheral for Rng<'d, M> {
         }
     }
 }
-
-impl<'d, M: Mode> rand_core_06::RngCore for Rng<'d, M> {
-    fn next_u32(&mut self) -> u32 {
-        self.blocking_next_u32()
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.blocking_next_u64()
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.blocking_fill_bytes(dest);
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
-        self.blocking_fill_bytes(dest);
-        Ok(())
-    }
-}
-
-impl<'d, M: Mode> rand_core_06::CryptoRng for Rng<'d, M> {}
-
-impl<'d, M: Mode> rand_core_09::RngCore for Rng<'d, M> {
-    fn next_u32(&mut self) -> u32 {
-        self.blocking_next_u32()
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.blocking_next_u64()
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.blocking_fill_bytes(dest);
-    }
-}
-
-impl<'d, M: Mode> rand_core_09::CryptoRng for Rng<'d, M> {}
 
 impl<'d, M: Mode> rand_core_10::TryRng for Rng<'d, M> {
     type Error = Infallible;

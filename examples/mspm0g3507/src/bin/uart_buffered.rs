@@ -10,7 +10,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mspm0::uart::{self, BufferedUart, Config};
 use embassy_mspm0::{bind_interrupts, peripherals};
-use panic_halt as _;
+use panic_probe as _;
 
 bind_interrupts!(
     struct Irqs {

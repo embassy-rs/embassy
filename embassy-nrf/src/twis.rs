@@ -83,32 +83,43 @@ enum Status {
 }
 
 /// TWIS error.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, thiserror::Error)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// TX buffer was too long.
-    #[error("tx buffer was too long")]
     TxBufferTooLong,
     /// RX buffer was too long.
-    #[error("rx buffer was too long")]
     RxBufferTooLong,
     /// Didn't receive an ACK bit after a data byte.
-    #[error("data NACK: no ACK received after data byte")]
     DataNack,
     /// Bus error.
-    #[error("bus error")]
     Bus,
     /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
-    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
     /// Overflow
-    #[error("overflow error")]
     Overflow,
     /// Timeout
-    #[error("timeout error")]
     Timeout,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::TxBufferTooLong => f.write_str("tx buffer was too long"),
+            Self::RxBufferTooLong => f.write_str("rx buffer was too long"),
+            Self::DataNack => f.write_str("data NACK: no ACK received after data byte"),
+            Self::Bus => f.write_str("bus error"),
+            Self::BufferNotInRAM => {
+                f.write_str("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")
+            }
+            Self::Overflow => f.write_str("overflow error"),
+            Self::Timeout => f.write_str("timeout error"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// Received command
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

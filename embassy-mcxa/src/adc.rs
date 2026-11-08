@@ -182,7 +182,7 @@ impl Compare {
     }
 }
 
-/// Type that specifies the function used for the compare featue of the ADC.
+/// Type that specifies the function used for the compare feature of the ADC.
 ///
 /// This determines the `CVL` & `CVH` values.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -518,7 +518,7 @@ impl<'a, M: Mode> Adc<'a, M> {
     /// * `trigger_id_mask` - Bitmask of trigger IDs to activate (bit N = trigger N)
     ///
     /// # Returns
-    /// * `Ok(())` if the triger mask was valid
+    /// * `Ok(())` if the trigger mask was valid
     /// * [Error::NoTrigger] if the mask is calling a trigger that's not configured
     pub fn do_software_trigger(&mut self, trigger_id_mask: u8) -> Result<(), Error> {
         if (8 - trigger_id_mask.leading_zeros()) > self.num_triggers as u32 {

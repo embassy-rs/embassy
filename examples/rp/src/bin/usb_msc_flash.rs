@@ -17,7 +17,7 @@ use embassy_rp::mode::Async;
 use embassy_rp::peripherals::{DMA_CH0, USB};
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_usb::Builder;
-use embassy_usb::class::msc::{BlockDeviceAdapter, Config as MscConfig, MscClass, State};
+use embassy_usb::class::msc::device::{BlockDeviceAdapter, Config as MscConfig, MscClass, State};
 use panic_probe as _;
 
 const BLOCK_SIZE: u32 = 512;

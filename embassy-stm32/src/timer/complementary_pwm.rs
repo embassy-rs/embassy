@@ -501,6 +501,41 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.enable_channel(channel, false);
     }
 
+    /// Enable or disable the main output (`CCxE`) of the given channel on its own.
+    ///
+    /// The complementary output (`CCxNE`) is left exactly as it is, so a channel's
+    /// two outputs can be switched independently. While only one of the two is
+    /// enabled the hardware drives it straight from `OCxREF`, with no dead time
+    /// inserted, and the complementary output on its own is not inverted; the
+    /// output that is disabled is released by the timer, so its pin floats unless
+    /// `OSSR`/`OSSI` select an off-state level. Dead time is inserted again as soon
+    /// as both outputs of the channel are enabled.
+    ///
+    /// [`enable`](Self::enable) and [`disable`](Self::disable) keep switching both
+    /// outputs of a channel together.
+    pub fn set_main_output_enable(&mut self, channel: Channel, enable: bool) {
+        self.inner.enable_channel(channel, enable);
+    }
+
+    /// Enable or disable the complementary output (`CCxNE`) of the given channel on its own.
+    ///
+    /// The main output (`CCxE`) is left exactly as it is. See
+    /// [`set_main_output_enable`](Self::set_main_output_enable) for what the
+    /// hardware drives while only one output of a channel is enabled.
+    pub fn set_complementary_output_enable(&mut self, channel: Channel, enable: bool) {
+        self.inner.enable_complementary_channel(channel, enable);
+    }
+
+    /// Whether the main output (`CCxE`) of the given channel is enabled.
+    pub fn main_output_enabled(&self, channel: Channel) -> bool {
+        self.inner.get_channel_enable_state(channel)
+    }
+
+    /// Whether the complementary output (`CCxNE`) of the given channel is enabled.
+    pub fn complementary_output_enabled(&self, channel: Channel) -> bool {
+        self.inner.get_complementary_channel_enable_state(channel)
+    }
+
     /// Set PWM frequency.
     ///
     /// In the edge-aligned mode, the timer will wrap-around at the same frequency as is being set

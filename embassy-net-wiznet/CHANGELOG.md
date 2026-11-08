@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Fixed the runner starving other tasks while waiting for TX buffer space, or while INTn is asserted but no frame can be read (e.g. controller held in reset or SPI failing)
+
 ## 0.3.0 - 2026-03-10
 
 - Added experimental W6100 driver with disabled MAC filter (does not currently work with it enabled)

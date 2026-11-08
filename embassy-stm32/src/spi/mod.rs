@@ -10,8 +10,8 @@ use core::sync::atomic::{Ordering, fence};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
+use embassy_futures::select::{Either, select};
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
-use futures_util::future::{Either, select};
 #[cfg(feature = "exti")]
 pub use ringbuffered::RingBufferedSpiRx;
 
@@ -32,7 +32,13 @@ use crate::time::Hertz;
 #[non_exhaustive]
 pub enum ConfigError {
     /// The requested frequency is higher than the peripheral's kernel clock can divide down to.
+    ///
+    /// No longer returned by the clock selection: a request at or above half the kernel clock
+    /// gets the fastest SCK, half the kernel clock, which does not exceed it.
     FrequencyTooHigh,
+    /// The requested frequency is lower than the slowest SCK the kernel clock can be divided
+    /// down to (the kernel clock divided by 256).
+    FrequencyTooLow,
 }
 
 /// SPI error.
@@ -141,7 +147,15 @@ pub struct Config {
     pub mode: Mode,
     /// Bit order.
     pub bit_order: BitOrder,
-    /// Clock frequency.
+    /// Clock frequency: the highest SCK frequency the bus may run at.
+    ///
+    /// The driver selects the fastest SCK that does not exceed it, the kernel clock divided by
+    /// 2, 4, ..., 256. A frequency below the kernel clock divided by 256 cannot be met: `set_config`
+    /// returns [`ConfigError::FrequencyTooLow`] and leaves the driver unchanged, the constructors
+    /// panic.
+    ///
+    /// The master's SCK clocks a slave, which never uses the divider, so a slave takes any
+    /// frequency: below the kernel clock divided by 256 it gets the divider of 256.
     pub frequency: Hertz,
     /// Enable internal pullup on input pin.
     ///
@@ -334,6 +348,15 @@ impl<'d> CsPinType<'d> {
         matches!(self, Self::None)
     }
 
+    /// Whether [`Self::wait_for_edge`] can see the deselect. Without EXTI it never completes.
+    pub const fn tracks_deselect(&self) -> bool {
+        match self {
+            #[cfg(feature = "exti")]
+            Self::Exti(_) => true,
+            Self::Flex(_) | Self::None => false,
+        }
+    }
+
     #[cfg(feature = "exti")]
     pub const unsafe fn clone_unchecked(&self) -> Self {
         match self {
@@ -394,7 +417,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     }
 
     fn enable_and_init(&mut self, config: Config) {
-        let br = unwrap!(compute_baud_rate(self.kernel_clock, config.frequency));
+        let br = unwrap!(baud_rate::<CM>(self.kernel_clock, config.frequency));
         let cpha = config.raw_phase();
         let cpol = config.raw_polarity();
         let lsbfirst = config.raw_byte_order();
@@ -533,12 +556,15 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     }
 
     /// Reconfigures it with the supplied config.
+    ///
+    /// A config that is rejected leaves the driver unchanged.
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        baud_rate::<CM>(self.kernel_clock, config.frequency)?;
         self.gpio_speed = config.gpio_speed;
         self.crc_enabled = !matches!(config.crc, CrcConfig::Disabled);
         #[cfg(gpio_v2)]
         set_speed(&self._sck, &self._mosi, config.gpio_speed);
-        reconfigure(self.info, self.kernel_clock, config)
+        reconfigure::<CM>(self.info, self.kernel_clock, config)
     }
 
     /// Enable or disable hardware CRC calculation.
@@ -1286,7 +1312,7 @@ impl<'d> Spi<'d, Async, Master> {
             return Ok(());
         }
 
-        #[cfg(not(spi_v1))]
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -1421,7 +1447,7 @@ impl<'d> Spi<'d, Async, Master> {
             return Ok(());
         }
 
-        #[cfg(not(spi_v1))]
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -1462,7 +1488,7 @@ impl<'d> Spi<'d, Async, Master> {
                 finish_dma(self.info.regs);
             } else {
                 rx_f.await;
-                // In receiving mode RXNE flag should be prefered over BSY flag.
+                // In receiving mode RXNE flag should be preferred over BSY flag.
                 // When using DMA the RXNE flag is cleared after DMA reads data.
                 // Since DMA has already finished reading previously specified
                 // amount of data, then there is no need to check for RXNE flag.
@@ -1487,7 +1513,7 @@ impl<'d> Spi<'d, Async, Master> {
             return Ok(());
         }
 
-        #[cfg(not(spi_v1))]
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -1563,9 +1589,12 @@ impl<'d> Spi<'d, Async, Slave> {
     /// non-empty and are transferred at the same time; the master clocks
     /// `max(read.len(), write.len())` frames.
     ///
-    /// Returns the number of frames transferred in each direction `(n_rx, n_tx)`.
-    /// If the master deselects the slave before the buffers are exhausted, the
-    /// number of frames transferred so far is returned, like `embassy-nrf`'s `Spis`.
+    /// Returns the number of frames transferred in each direction `(n_rx, n_tx)`
+    /// once the master deselects the slave, so one call spans one transaction. If
+    /// the master deselects the slave before the buffers are exhausted, the number
+    /// of frames transferred so far is returned, like `embassy-nrf`'s `Spis`.
+    /// Without an EXTI channel on NSS the deselect can't be seen, so the transfer
+    /// returns as soon as the buffers are exhausted.
     async fn slave_transfer_inner<W: Word>(
         &mut self,
         read: *mut [W],
@@ -1629,13 +1658,22 @@ impl<'d> Spi<'d, Async, Slave> {
                 w.set_cstart(true);
             });
 
-            let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
-            match select(join(&mut tx_f, &mut rx_f), nss_fut).await {
-                Either::Left((((), ()), _)) => {
-                    finish_dma(regs);
+            let tracks_deselect = self.nss.tracks_deselect();
+            let mut nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
+            match select(join(&mut tx_f, &mut rx_f), nss_fut.as_mut()).await {
+                Either::First(((), ())) => {
+                    finish_slave_dma(regs);
+                    // The buffers are exhausted, but the master may still hold NSS. End with
+                    // the transaction, like `write`: returning now would leave its deselect
+                    // edge to the next transfer, which would then end before its own
+                    // transaction starts.
+                    if tracks_deselect {
+                        nss_fut.await;
+                        slave_abort(regs);
+                    }
                     (n_rx_total, n_tx_total)
                 }
-                Either::Right(((), _)) => {
+                Either::Second(()) => {
                     // Deselect before the buffers were exhausted: report how much was
                     // transferred, then stop the DMA channels (dropping the futures
                     // resets them) and clean up.
@@ -1663,11 +1701,12 @@ impl<'d> Spi<'d, Async, Slave> {
 
     /// Reads data from the SPI bus, using DMA.
     ///
-    /// Clocks out dummy bytes so the master can clock data in. Blocks until `data`
-    /// is full or the slave is deselected.
-    /// Returns the number of bytes read. If the master deselects the slave before
-    /// `data` is full, the number of bytes received so far is returned, like
-    /// `embassy-nrf`'s `Spis`.
+    /// Clocks out dummy bytes so the master can clock data in. Returns the number
+    /// of bytes read once the master deselects the slave, so one call spans one
+    /// transaction. If the master deselects the slave before `data` is full, the
+    /// number of bytes received so far is returned, like `embassy-nrf`'s `Spis`.
+    /// Without an EXTI channel on NSS the deselect can't be seen, so the read
+    /// returns as soon as `data` is full.
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<usize, Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
         if data.is_empty() {
@@ -1675,6 +1714,7 @@ impl<'d> Spi<'d, Async, Slave> {
         }
 
         let mut total = 0usize;
+        let len = data.len();
 
         for chunk in data.chunks_mut(u16::MAX as usize) {
             let regs = self.info.regs;
@@ -1724,25 +1764,21 @@ impl<'d> Spi<'d, Async, Slave> {
                 w.set_cstart(true);
             });
 
-            let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
+            let tracks_deselect = self.nss.tracks_deselect();
+            let last_chunk = total + n == len;
+            let mut nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
             let mut deselect_count = None;
             match tx_f.as_mut() {
-                Some(tx_f) => match select(join(tx_f, &mut rx_f), nss_fut).await {
-                    Either::Left((((), ()), _)) => {
-                        finish_dma(regs);
-                    }
-                    Either::Right(((), _)) => {
+                Some(tx_f) => {
+                    if let Either::Second(()) = select(join(tx_f, &mut rx_f), nss_fut.as_mut()).await {
                         deselect_count = Some(n - rx_f.get_remaining_transfers() as usize);
                     }
-                },
-                None => match select(&mut rx_f, nss_fut).await {
-                    Either::Left(((), _)) => {
-                        finish_dma(regs);
-                    }
-                    Either::Right(((), _)) => {
+                }
+                None => {
+                    if let Either::Second(()) = select(&mut rx_f, nss_fut.as_mut()).await {
                         deselect_count = Some(n - rx_f.get_remaining_transfers() as usize);
                     }
-                },
+                }
             }
 
             if let Some(got) = deselect_count {
@@ -1751,6 +1787,14 @@ impl<'d> Spi<'d, Async, Slave> {
                 slave_abort(regs);
                 total += got;
                 return Ok(total);
+            }
+            finish_slave_dma(regs);
+            if last_chunk && tracks_deselect {
+                // `data` is full; end with the transaction, as `slave_transfer_inner` does.
+                nss_fut.await;
+                drop(rx_f);
+                drop(tx_f);
+                slave_abort(regs);
             }
             total += n;
         }
@@ -1814,7 +1858,7 @@ impl<'d> Spi<'d, Async, Slave> {
 
             let mut nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
             match select(&mut tx_f, nss_fut.as_mut()).await {
-                Either::Left(((), _)) => {
+                Either::First(()) => {
                     // The TX DMA is done, which only means every byte reached the
                     // TX FIFO. The frames are clocked out by the external master,
                     // which may be another task on this executor: busy-waiting for
@@ -1822,7 +1866,7 @@ impl<'d> Spi<'d, Async, Slave> {
                     // edge instead, then count what was actually sent.
                     nss_fut.await;
                 }
-                Either::Right(((), _)) => {}
+                Either::Second(()) => {}
             }
 
             // The transaction is over (deselected). Count the bytes the DMA
@@ -1852,10 +1896,12 @@ impl<'d> Spi<'d, Async, Slave> {
     /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
     /// If `write` is shorter it is padded with zero bytes.
     ///
-    /// Blocks until the longest buffer is exhausted or the slave is deselected.
-    /// Returns the number of bytes transferred `(n_rx, n_tx)`. If the master
-    /// deselects the slave first, the number of bytes transferred so far is
-    /// returned, like `embassy-nrf`'s `Spis`.
+    /// Returns the number of bytes transferred `(n_rx, n_tx)` once the master
+    /// deselects the slave, so one call spans one transaction. If the master
+    /// deselects the slave before the longest buffer is exhausted, the number of
+    /// bytes transferred so far is returned, like `embassy-nrf`'s `Spis`. Without
+    /// an EXTI channel on NSS the deselect can't be seen, so the transfer returns
+    /// as soon as the longest buffer is exhausted.
     pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(usize, usize), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
@@ -1872,9 +1918,10 @@ impl<'d> Spi<'d, Async, Slave> {
     /// In-place bidirectional transfer, using DMA.
     ///
     /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
-    /// Returns the number of bytes transferred. If the master deselects the slave
-    /// before `data` is exhausted, the number of bytes transferred so far is
-    /// returned, like `embassy-nrf`'s `Spis`.
+    /// Returns the number of bytes transferred once the master deselects the slave,
+    /// or the number transferred so far if it deselects before `data` is exhausted,
+    /// like `embassy-nrf`'s `Spis`. Without an EXTI channel on NSS it returns as
+    /// soon as `data` is exhausted.
     pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<usize, Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
@@ -1913,20 +1960,30 @@ use vals::Br;
 #[cfg(any(spi_v4, spi_v5, spi_v6))]
 use vals::Mbr as Br;
 
+/// The smallest divider (2, 4, ..., 256) whose SCK frequency does not exceed `freq`.
 fn compute_baud_rate(kernel_clock: Hertz, freq: Hertz) -> Result<Br, ConfigError> {
-    let val = match kernel_clock.0 / freq.0 {
-        0 => return Err(ConfigError::FrequencyTooHigh),
-        1..=2 => 0b000,
-        3..=5 => 0b001,
-        6..=11 => 0b010,
-        12..=23 => 0b011,
-        24..=39 => 0b100,
-        40..=95 => 0b101,
-        96..=191 => 0b110,
-        _ => 0b111,
-    };
+    for val in 0..8u8 {
+        // kernel_clock / 2^(val + 1) <= freq, without rounding.
+        if u64::from(kernel_clock.0) <= u64::from(freq.0) << (val + 1) {
+            return Ok(Br::from_bits(val));
+        }
+    }
 
-    Ok(Br::from_bits(val))
+    Err(ConfigError::FrequencyTooLow)
+}
+
+/// The divider for `freq` on a driver in mode `CM`. The master's SCK clocks a slave, which never
+/// uses the divider, so a slave takes any `freq`: below the kernel clock / 256 it gets /256.
+fn baud_rate<CM: CommunicationMode>(kernel_clock: Hertz, freq: Hertz) -> Result<Br, ConfigError> {
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    let master = CM::MASTER == vals::Mstr::Master;
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    let master = CM::MASTER == vals::Master::Master;
+
+    match compute_baud_rate(kernel_clock, freq) {
+        Err(ConfigError::FrequencyTooLow) if !master => Ok(Br::Div256),
+        result => result,
+    }
 }
 
 fn compute_frequency(kernel_clock: Hertz, br: Br) -> Hertz {
@@ -1956,13 +2013,13 @@ fn set_speed(sck: &Option<Flex<'_>>, mosi: &Option<Flex<'_>>, gpio_speed: Speed)
     }
 }
 
-fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), ConfigError> {
+fn reconfigure<CM: CommunicationMode>(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), ConfigError> {
     let cpha = config.raw_phase();
     let cpol = config.raw_polarity();
 
     let lsbfirst = config.raw_byte_order();
 
-    let br = compute_baud_rate(kernel_clock, config.frequency)?;
+    let br = baud_rate::<CM>(kernel_clock, config.frequency)?;
 
     #[cfg(any(spi_v1, spi_v2, spi_v3))]
     {
@@ -2168,6 +2225,13 @@ pub(crate) fn set_rxdmaen(regs: Regs, val: bool) {
     regs.cfg1().modify(|reg| {
         reg.set_rxdmaen(val);
     });
+}
+
+/// Ends a slave DMA transfer whose buffers are exhausted. Unlike [`finish_dma`] this doesn't wait
+/// for TXC or BSY: the master owns the clock, so they clear only if it keeps clocking.
+fn finish_slave_dma(regs: Regs) {
+    set_txdmaen(regs, false);
+    set_rxdmaen(regs, false);
 }
 
 fn finish_dma(regs: Regs) {

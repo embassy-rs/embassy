@@ -344,22 +344,17 @@ embedded-hal-async = { version = "1.0" }
 embedded-io = { version = "0.7.1" }
 embedded-io-async = { version = "0.7.0" }
 
-rand-core-06 = { package = "rand_core", version = "0.6" }
-rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 # nrf-pac = "0.4.0"
 nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "4499375510e2fdb3a5426911beb846d8d2dbbb80" }
 
 defmt = { version = "1.0.1", optional = true }
-thiserror = { version = "2", default-features = false }
 bitflags = "2.10.0"
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 critical-section = "1.1"
-fixed = "1.10.0"
 embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.1"
-cfg-if = "1.0.0"
 document-features = "0.2.7"

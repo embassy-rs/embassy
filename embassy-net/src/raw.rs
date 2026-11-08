@@ -25,7 +25,7 @@ pub use xarxa::wire::EthernetProtocol;
 pub use xarxa::wire::{IpProtocol, IpVersion};
 
 use crate::error::Full;
-use crate::{NoWake, Stack, TryError, Wake, WakeRunner, wake_if};
+use crate::{NoWake, Stack, TryError, Wake, WakeRunner, wake_if, wake_if_ok};
 
 /// Error returned by [`RawSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -417,20 +417,38 @@ impl<'d> RawSocket<'d> {
         })
     }
 
-    /// Make one send attempt with `f`, without waiting. Like
-    /// [`poll_send`](Self::poll_send), only a packet that went out wakes the runner.
-    fn try_send_inner<R>(
-        &self,
-        f: impl FnOnce(&mut raw::RawSocket<'_, 'd>) -> Result<R, raw::SendError>,
-    ) -> Result<R, TryError<SendError>> {
-        self.with(|s| match f(s) {
-            Ok(r) => (Ok(r), Wake),
-            Err(raw::SendError::DeviceBusy | raw::SendError::NoBuffer) => (Err(TryError::WouldBlock), NoWake),
-            Err(raw::SendError::BufferFull) => (Err(TryError::Other(SendError::BufferFull)), NoWake),
-            Err(raw::SendError::InvalidState) => (Err(TryError::Other(SendError::InvalidState)), NoWake),
-            Err(raw::SendError::Unaddressable) => (Err(TryError::Other(SendError::Unaddressable)), NoWake),
-            Err(raw::SendError::Malformed) => (Err(TryError::Other(SendError::Malformed)), NoWake),
+    /// Send an owned packet, preserving its packet metadata.
+    ///
+    /// The buffer contains a complete Ethernet frame or IP packet, according to
+    /// the socket's mode, as in [`send_with`](Self::send_with). Use
+    /// [`try_alloc`](Self::try_alloc) to allocate a buffer with suitable headroom.
+    ///
+    /// Errors also return the buffer unchanged.
+    ///
+    /// See [`try_send_packet`](Self::try_send_packet) for errors.
+    pub async fn send_packet(&self, buf: PacketBuf) -> Result<(), (SendError, PacketBuf)> {
+        // Each pending attempt restores the packet; success transfers it once.
+        let mut buf = Some(buf);
+        poll_fn(|cx| {
+            self.poll_send(cx, |s| {
+                s.send_packet(unwrap!(buf.take())).map_err(|(err, packet)| {
+                    buf = Some(packet);
+                    err
+                })
+            })
         })
+        .await
+        .map_err(|err| (err, unwrap!(buf)))
+    }
+
+    /// Try to send an owned packet without waiting or allocating a replacement
+    /// payload buffer.
+    ///
+    /// See [`send_packet`](Self::send_packet) for buffer layout and ownership.
+    /// Every error returns the buffer unchanged. `WouldBlock` means transmission
+    /// is temporarily blocked; other errors match [`send_with`](Self::send_with).
+    pub fn try_send_packet(&self, buf: PacketBuf) -> Result<(), (TryError<SendError>, PacketBuf)> {
+        self.with(|s| wake_if_ok(s.send_packet(buf).map_err(|(err, buf)| (err.into(), buf))))
     }
 
     /// Send a packet, copying it from a slice.
@@ -464,7 +482,7 @@ impl<'d> RawSocket<'d> {
     /// - `WouldBlock`: if every packet buffer is in use, or the interface the
     ///   packet would go out of has no room for it right now.
     pub fn try_send(&self, buf: &[u8]) -> Result<(), TryError<SendError>> {
-        self.try_send_inner(|s| s.send_slice(buf))
+        self.with(|s| wake_if_ok(s.send_slice(buf).map_err(Into::into)))
     }
 
     /// Send a packet with the given [`PacketMeta`] attached, copying it from a slice.
@@ -523,19 +541,28 @@ impl<'d> RawSocket<'d> {
         max_size: usize,
         f: impl FnOnce(&mut [u8]) -> (usize, R),
     ) -> Result<R, SendError> {
-        let mut f = Some(f);
-        poll_fn(move |cx| {
-            self.poll_send(cx, |s| {
-                let mut ret = None;
-                s.send_with(max_size, |buf| {
-                    let (size, r) = unwrap!(f.take())(buf);
-                    ret = Some(r);
-                    size
-                })
-                .map(|()| unwrap!(ret))
-            })
+        if !self.is_open() {
+            return Err(SendError::InvalidState);
+        }
+        let mut buf = poll_fn(|cx| match self.try_alloc() {
+            Some(buf) => Poll::Ready(buf),
+            None => {
+                // Yield to let other tasks release buffers.
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
         })
-        .await
+        .await;
+        if max_size > buf.tailroom() {
+            return Err(SendError::BufferFull);
+        }
+        buf.set_len(max_size);
+        let (size, ret) = f(&mut buf);
+        assert!(size <= max_size);
+        buf.set_len(size);
+
+        self.send_packet(buf).await.map_err(|(err, _)| err)?;
+        Ok(ret)
     }
 
     /// Check whether the socket is open (bound to a mode).
@@ -556,6 +583,14 @@ impl<'d> RawSocket<'d> {
             ((), wake_if(freed))
         })
     }
+
+    /// Allocate an empty packet buffer with headroom for this socket.
+    ///
+    /// Allocation works before binding. Returns `None` if every packet buffer
+    /// is in use. Set the payload length with [`PacketBuf::set_len`] before writing.
+    pub fn try_alloc(&self) -> Option<PacketBuf> {
+        self.with(|s| (s.alloc(), NoWake))
+    }
 }
 
 impl Drop for RawSocket<'_> {
@@ -565,6 +600,18 @@ impl Drop for RawSocket<'_> {
             i.stack.remove_raw_socket(self.handle);
             ((), wake_if(freed))
         });
+    }
+}
+
+impl From<raw::SendError> for TryError<SendError> {
+    fn from(err: raw::SendError) -> TryError<SendError> {
+        match err {
+            raw::SendError::DeviceBusy | raw::SendError::NoBuffer => TryError::WouldBlock,
+            raw::SendError::BufferFull => TryError::Other(SendError::BufferFull),
+            raw::SendError::InvalidState => TryError::Other(SendError::InvalidState),
+            raw::SendError::Unaddressable => TryError::Other(SendError::Unaddressable),
+            raw::SendError::Malformed => TryError::Other(SendError::Malformed),
+        }
     }
 }
 

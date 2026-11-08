@@ -22,7 +22,7 @@ fn main() -> ! {
         }
     */
 
-    let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
+    let layout = Flash::new_blocking(p.FLASH, Default::default()).into_blocking_regions();
     let flash_bank1 = Mutex::new(RefCell::new(layout.bank1_region));
     let flash_bank2 = Mutex::new(RefCell::new(layout.bank2_region));
 

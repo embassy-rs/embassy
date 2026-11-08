@@ -207,14 +207,14 @@ macro_rules! error {
 }
 
 #[cfg(feature = "defmt")]
-trait_set::trait_set! {
-    pub trait Debuggable = Debug + defmt::Format;
-}
+pub trait Debuggable: Debug + defmt::Format {}
+#[cfg(feature = "defmt")]
+impl<T: Debug + defmt::Format> Debuggable for T {}
 
 #[cfg(not(feature = "defmt"))]
-trait_set::trait_set! {
-    pub trait Debuggable = Debug;
-}
+pub trait Debuggable: Debug {}
+#[cfg(not(feature = "defmt"))]
+impl<T: Debug> Debuggable for T {}
 
 #[cfg(feature = "defmt")]
 #[collapse_debuginfo(yes)]

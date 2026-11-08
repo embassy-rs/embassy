@@ -164,7 +164,7 @@ pub struct TransferOptions {
     pub complete_transfer_ir: bool,
     /// DMA packing configuration
     ///
-    /// If [`Packing::ZeroExtendOrLeftTruncate`], psize may be adjusted based on the platform to acheive no packing.
+    /// If [`Packing::ZeroExtendOrLeftTruncate`], psize may be adjusted based on the platform to achieve no packing.
     pub packing: Packing,
     #[cfg(mdma)]
     /// Max bytes to transfer at once, 1-64
@@ -563,22 +563,28 @@ impl<'d> Channel<'d> {
 
                 assert!(ndtr > 0 && ndtr <= 0xFFFF);
 
+                if ch.cr().read().en() {
+                    warn!("DMA channel is still enabled after previous transfer. Make sure that transfer was dropped.");
+                    ch.cr().modify(|w| w.set_en(false));
+                    while ch.cr().read().en() {}
+                }
+
                 ch.par().write_value(peri_addr as u32);
                 ch.m0ar().write_value(mem_addr as u32);
                 ch.ndtr().write_value(pac::dma::regs::Ndtr(ndtr as _));
                 ch.fcr().write(|w| {
                     if let Some(fth) = options.fifo_threshold {
                         // FIFO mode
-                        w.set_dmdis(pac::dma::vals::Dmdis::Disabled);
+                        w.set_dmdis(true);
                         w.set_fth(fth.into());
                     } else if mem_size != peri_size {
                         // force FIFO mode if msize != psize
                         // packing/unpacking doesn't work in direct mode.
-                        w.set_dmdis(pac::dma::vals::Dmdis::Disabled);
+                        w.set_dmdis(true);
                         w.set_fth(FifoThreshold::Half.into());
                     } else {
                         // Direct mode
-                        w.set_dmdis(pac::dma::vals::Dmdis::Enabled);
+                        w.set_dmdis(false);
                     }
                 });
                 ch.cr().write(|w| {
@@ -631,6 +637,12 @@ impl<'d> Channel<'d> {
                 state.complete_count.store(0, Ordering::Release);
                 self.clear_irqs();
 
+                if ch.cr().read().en() {
+                    warn!("DMA channel is still enabled after previous transfer. Make sure that transfer was dropped.");
+                    ch.cr().modify(|w| w.set_en(false));
+                    while ch.cr().read().en() {}
+                }
+
                 ch.par().write_value(peri_addr as u32);
                 ch.mar().write_value(mem_addr as u32);
                 ch.ndtr().write(|w| w.set_ndt(mem_len as u16));
@@ -655,6 +667,7 @@ impl<'d> Channel<'d> {
                             w.set_pinc(true);
                         }
                     }
+                    w.set_mem2mem(dir == Dir::MemoryToMemory);
                     w.set_dir(dir.into());
                     w.set_teie(true);
                     w.set_tcie(options.complete_transfer_ir);
@@ -680,6 +693,12 @@ impl<'d> Channel<'d> {
 
                 state.complete_count.store(0, Ordering::Release);
                 self.clear_irqs();
+
+                if ch.cr().read().en() {
+                    warn!("DMA channel is still enabled after previous transfer. Make sure that transfer was dropped.");
+                    ch.cr().modify(|w| w.set_en(false));
+                    while ch.cr().read().en() {}
+                }
 
                 match dir {
                     Dir::MemoryToPeripheral => {
@@ -716,13 +735,14 @@ impl<'d> Channel<'d> {
                     }
                 }
 
-                // MDMA requires BNDT (block_size) to be a multiple of TLEN+1 (buffer_size).
-                // Auto-decrease buffer_size until it divides cleanly into block_size.
-                let mut buffer_size = options.buffer_size as usize;
-                while block_size % buffer_size != 0 && buffer_size > 1 {
-                    buffer_size -= 1;
-                }
-                // Update the options so the TCR write uses the correct value
+                // TLEN+1 (buffer_size) must be a multiple of the source and destination data size.
+                // It does not need to divide BNDT (block_size): the last transfer of a block is
+                // shortened to the remaining data.
+                let data_size = mem_size.bytes().max(peri_size.bytes());
+                let requested = options.buffer_size as usize;
+                // Round `requested` down to the nearest multiple of `data_size`, but
+                // least `data_size`.
+                let buffer_size = (requested - requested % data_size).max(data_size);
 
                 let (sinc, dinc) = match (incr_mem, dir) {
                     (Increment::None, _) => (Incmode::Fixed, Incmode::Fixed),

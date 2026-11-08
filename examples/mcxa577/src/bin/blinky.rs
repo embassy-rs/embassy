@@ -1,0 +1,38 @@
+#![no_std]
+#![no_main]
+
+use defmt_rtt as _;
+use embassy_executor::Spawner;
+use embassy_mcxa as hal;
+use embassy_time::Timer;
+use hal::gpio::{DriveStrength, Level, Output, SlewRate};
+use panic_probe as _;
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = hal::init(hal::config::Config::default());
+
+    defmt::info!("Blink example");
+
+    let mut red = Output::new(p.P2_14, Level::High, DriveStrength::Normal, SlewRate::Fast);
+    let mut green = Output::new(p.P2_22, Level::High, DriveStrength::Normal, SlewRate::Fast);
+    let mut blue = Output::new(p.P2_23, Level::High, DriveStrength::Normal, SlewRate::Fast);
+
+    loop {
+        defmt::info!("Toggle LEDs");
+
+        red.toggle();
+        Timer::after_millis(500).await;
+
+        red.toggle();
+        green.toggle();
+        Timer::after_millis(500).await;
+
+        green.toggle();
+        blue.toggle();
+        Timer::after_millis(500).await;
+        blue.toggle();
+
+        Timer::after_millis(500).await;
+    }
+}

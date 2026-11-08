@@ -133,6 +133,67 @@ impl From<PipeError> for HostError {
     }
 }
 
+/// Set of USB device addresses, 0 to 127.
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct AddressSet(u128);
+
+#[allow(missing_docs)]
+impl AddressSet {
+    pub const fn new() -> Self {
+        Self(0)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn insert(&mut self, addr: u8) {
+        self.0 |= Self::bit(addr);
+    }
+
+    pub fn union(&mut self, addrs: Self) {
+        self.0 |= addrs.0;
+    }
+
+    pub fn exclude(self, addrs: Self) -> Self {
+        Self(self.0 & !addrs.0)
+    }
+
+    pub fn contains(&self, addr: u8) -> bool {
+        self.0 & Self::bit(addr) != 0
+    }
+
+    fn bit(addr: u8) -> u128 {
+        1u128.checked_shl(addr.into()).unwrap_or(0)
+    }
+}
+
+impl IntoIterator for AddressSet {
+    type Item = u8;
+    type IntoIter = AddressSetIter;
+
+    fn into_iter(self) -> AddressSetIter {
+        AddressSetIter(self.0)
+    }
+}
+
+/// Iterates set-bits in [`AddressSet`] in ascending order.
+pub struct AddressSetIter(u128);
+
+impl Iterator for AddressSetIter {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<u8> {
+        if self.0 == 0 {
+            return None;
+        }
+        let addr = self.0.trailing_zeros() as u8;
+        self.0 &= self.0 - 1;
+        Some(addr)
+    }
+}
+
 /// Pipe allocator trait for USB host drivers.
 ///
 /// Implementations are expected to back allocator state with `'d`-lifetime
@@ -158,6 +219,14 @@ pub trait UsbHostAllocator<'d>: Sized + Clone {
         endpoint: &EndpointInfo,
         split: Option<SplitInfo>,
     ) -> Result<Self::Pipe<T, D>, HostError>;
+
+    /// Called when the devices in `addrs` are removed.
+    ///
+    /// This allows the allocator to release any resources, and specifically
+    /// to fail any pipes that have active transactions. Called on root-port
+    /// detach and on hub-removal, before the addresses are freed.
+    ///
+    fn device_removed(&self, _addrs: AddressSet) {}
 }
 
 /// Main USB host controller trait.
@@ -408,4 +477,28 @@ pub trait UsbPipe<T: pipe::Type, D: pipe::Direction> {
     fn reset_data_toggle(&mut self)
     where
         T: pipe::IsBulkOrInterrupt;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn address_set_iterates_in_order() {
+        let mut set = AddressSet::default();
+        for addr in [127, 3, 0, 64, 3] {
+            set.insert(addr);
+        }
+        assert!(set.contains(64) && !set.contains(65));
+        assert!(!AddressSet::default().contains(0));
+        assert!(set.into_iter().eq([0, 3, 64, 127]));
+    }
+
+    #[test]
+    fn address_set_ignores_out_of_range() {
+        let mut set = AddressSet::default();
+        set.insert(128);
+        set.insert(255);
+        assert!(set.into_iter().next().is_none() && !set.contains(200));
+    }
 }

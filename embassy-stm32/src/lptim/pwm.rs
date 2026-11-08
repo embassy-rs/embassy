@@ -187,8 +187,10 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
 impl<'d, T: Instance> Pwm<'d, T> {
     fn init(&mut self, freq: Hertz) {
+        // CFGR must be written while the timer is disabled, ARR while it is enabled.
+        self.inner.set_prescaler(freq);
         self.inner.enable();
-        self.set_frequency(freq);
+        self.inner.set_period(freq);
 
         self.post_init();
 
@@ -197,10 +199,16 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
     /// Set PWM frequency.
     ///
+    /// The timer is briefly disabled to change the prescaler, then restarted.
+    ///
     /// Note: when you call this, the max duty value changes, so you will have to
     /// call `set_duty` on all channels with the duty calculated based on the new max duty.
     pub fn set_frequency(&mut self, frequency: Hertz) {
-        self.inner.set_frequency(frequency);
+        self.inner.disable();
+        self.inner.set_prescaler(frequency);
+        self.inner.enable();
+        self.inner.set_period(frequency);
+        self.inner.continuous_mode_start();
     }
 
     /// Get max duty value.

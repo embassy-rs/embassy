@@ -1,0 +1,126 @@
+= Time crates
+
+Time support in Embassy uses four crates. This page shows how they connect, and which crates you need for a given task.
+
+== Overview
+
+[source]
+----
+                 application, libraries
+                          |
+                          v
+                    embassy-time
+                          |
+                          v
+                 embassy-time-driver
+                          ^
+                          | implements
+                          |
+              time driver (HAL, esp-rtos)  ----uses---->  embassy-time-queue-utils
+                                                                   |
+                                                                   v
+  embassy-executor  ------------provides items------------>  embassy-executor-timer-queue
+----
+
+[cols="1,3,2"]
+|===
+|Crate |Function |Used by
+
+|`embassy-time`
+|User API: `Instant`, `Duration`, `Timer`, `Ticker`, `Delay`, timeouts. Contains some drivers for `std`, WASM, tests and the ARM CMSDK timer.
+|Applications and libraries.
+
+|`embassy-time-driver`
+|The `Driver` trait, the `time_driver_impl!` macro and the tick rate (`TICK_HZ`).
+|Time driver implementations, usually in a HAL.
+
+|`embassy-time-queue-utils`
+|Ready-made timer queues for time drivers.
+|Time driver implementations.
+
+|`embassy-executor-timer-queue`
+|The `TimerQueueItem` storage type and the trait that gets it from a `Waker`.
+|`embassy-executor`, and timer queue implementations.
+|===
+
+== `embassy-time` and `embassy-time-driver`
+
+`embassy-time` has no hardware code. All its types call two functions of `embassy-time-driver`:
+
+- `now()` returns the current tick count.
+- `schedule_wake(at, waker)` wakes `waker` at tick `at`.
+
+These functions are `extern "Rust"` declarations. The `time_driver_impl!` macro defines them. The linker connects the two. Thus:
+
+- A program has exactly one time driver. If there is no driver, or more than one, linking fails.
+- Libraries can use `embassy-time` without generic parameters.
+- All `Instant` values come from the same clock.
+
+A driver depends only on `embassy-time-driver`, not on `embassy-time`. The driver trait changes less often than the user API. Thus a driver can work with a new major version of `embassy-time` without a change.
+
+=== Tick rate
+
+The `tick-hz-*` features of `embassy-time-driver` set `TICK_HZ`. `embassy-time` forwards the same features. The default is 1 MHz. At most one feature can be enabled.
+
+- If the hardware has a fixed tick rate, the driver enables the feature. For example, the nRF RTC driver enables `tick-hz-32_768`.
+- If the driver supports any tick rate, the application enables the feature.
+- Libraries must not enable a tick rate feature.
+
+== Timer queues
+
+A driver usually has a single hardware alarm, but many tasks can wait at the same time. The timer queue keeps the list of waiting wakers. The driver sets the alarm to the earliest expiration time.
+
+=== `embassy-time-queue-utils`
+
+This crate gives the `Queue` type. A driver usually keeps one `Queue` behind a mutex:
+
+- In `schedule_wake`, call `Queue::schedule_wake`. If it returns `true`, set a new alarm.
+- When the alarm fires, call `Queue::next_expiration(now)`. This wakes expired wakers and returns the next alarm time.
+
+The crate features select the queue implementation:
+
+- Integrated queue (default). It keeps no list of its own. It stores the queue links inside each task of `embassy-executor`. It has no capacity limit, but it works only with wakers from `embassy-executor`. Other wakers cause a panic.
+- Generic queue (`generic-queue-N` features). It keeps up to `N` wakers in a fixed-size list. It works with all executors.
+
+A driver can use the queue in two ways:
+
+- The `Queue` type. The crate features select its implementation. The application can enable a `generic-queue-N` feature on `embassy-time`, which forwards it to `embassy-time-queue-utils`. Cargo feature unification then changes the queue in the driver. Libraries and HALs must not enable these features.
+- A specific implementation: `queue_generic::Queue`, or `queue_integrated::Queue` with the `integrated-timers` feature. The driver selects the queue, and the `generic-queue-N` features do not change it.
+
+See the `embassy-time-driver` documentation for an example driver with a queue.
+
+=== Example: `esp-rtos`
+
+On ESP32 devices, the `esp-rtos` runtime implements `embassy-time-driver`, not `esp-hal`. The timer queue is part of the runtime. `esp-rtos` uses only the integrated queue of `embassy-time-queue-utils`. Thus the application cannot select a generic queue, and `esp-rtos` enables the queue features itself.
+
+=== `embassy-executor-timer-queue`
+
+The integrated queue needs memory in each task. `embassy-executor` cannot depend on the queue crate, and the queue crate cannot depend on `embassy-executor`. This crate is between them, so that each can release on its own schedule.
+
+- `TimerQueueItem` is opaque storage. Its size comes from a `timer-item-size-N-words` feature. `embassy-time-queue-utils` enables `timer-item-size-6-words`.
+- `embassy-executor` puts one `TimerQueueItem` in each task header. It registers the provider with `timer_queue_item_provider_impl!`.
+- A queue gets the item of a task with `TimerQueueItem::from_embassy_waker`. It reads the item as its own type with `as_ref` or `as_mut`. The type must fit in the item and be valid when zeroed.
+
+Depend on this crate only if you write your own integrated queue.
+
+== Which crates to use
+
+[cols="1,2"]
+|===
+|Task |Dependencies
+
+|Write an application or a library
+|`embassy-time`. In a library, do not enable `tick-hz-*` or `generic-queue-*` features.
+
+|Run on `std`, WASM, or in tests
+|`embassy-time` with the `std`, `wasm` or `mock-driver` feature.
+
+|Write a time driver for a HAL
+|`embassy-time-driver` and `embassy-time-queue-utils`. Do not depend on `embassy-time`.
+
+|Write a time driver for a runtime that selects its own queue, like `esp-rtos`
+|`embassy-time-driver` and `embassy-time-queue-utils` with the features for that queue. Do not depend on `embassy-time`.
+
+|Write a custom integrated timer queue
+|`embassy-executor-timer-queue`, with a `timer-item-size-N-words` feature.
+|===

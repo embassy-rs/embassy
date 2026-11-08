@@ -26,6 +26,78 @@ pub use crate::eth::generic_phy::*;
 pub use crate::eth::sma::{Instance as SmaInstance, Sma, StationManagement};
 use crate::pac::eth::Eth as Regs;
 
+/// Failure to initialize or access the Ethernet MAC or PHY.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    /// The MAC DMA software reset did not complete.
+    DmaResetTimeout,
+    /// An MDIO transaction did not complete.
+    MdioTimeout,
+    /// No MDIO address completed a PHY software reset.
+    PhyNotFound,
+    /// The PHY did not complete its software reset.
+    PhyResetTimeout,
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::DmaResetTimeout => "MAC DMA software reset timed out",
+            Self::MdioTimeout => "MDIO transaction timed out",
+            Self::PhyNotFound => "no MDIO address completed a PHY software reset",
+            Self::PhyResetTimeout => "PHY software reset timed out",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
+
+// ST's F4/H7 HAL gives Ethernet DMA reset 500 ms. Use the same limit so
+// a slow reset is not rejected before the vendor driver would time out.
+pub(crate) const MAC_RESET_TIMEOUT_US: u64 = 500_000;
+
+// IEEE 802.3 allows a PHY reset to take up to 500 ms.
+pub(crate) const PHY_RESET_TIMEOUT_US: u64 = 500_000;
+
+// DMA shutdown has no universal completion time across MACs and traffic loads.
+// The 100 ms wait is a failure budget: if it expires, Drop must not release
+// buffers the DMA might still own.
+pub(crate) const DMA_STOP_TIMEOUT_US: u64 = 100_000;
+
+// With `time` the deadline is a real clock. Without it the budget is a cycle count, which
+// depends on the core and can run shorter than `timeout_us`.
+pub(crate) fn wait_for(mut ready: impl FnMut() -> bool, timeout_us: u64) -> bool {
+    if ready() {
+        return true;
+    }
+    #[cfg(feature = "time")]
+    {
+        let timeout = crate::wait::Timeout::from_micros(timeout_us);
+        while timeout.check().is_ok() {
+            if ready() {
+                return true;
+            }
+        }
+        ready()
+    }
+    #[cfg(not(feature = "time"))]
+    {
+        // SAFETY: Ethernet operations run after RCC initializes CLOCK_FREQS; the
+        // configured system clock is not changed during this synchronous wait.
+        let sys_hz = unsafe { crate::rcc::get_freqs().sys.to_hertz().unwrap().0 };
+        let cycles_per_us = sys_hz.div_ceil(1_000_000).max(1);
+        for _ in 0..timeout_us {
+            cortex_m::asm::delay(cycles_per_us);
+            if ready() {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 #[cfg(feature = "ptp")]
 fn adjusted_ptp_addend(nominal: u32, adjustment: embassy_ptp_driver::ScaledPpm) -> u32 {
     let scale = 1.0 + f64::from(adjustment.raw()) / ((1i32 << 16) as f64 * 1e6);
@@ -34,7 +106,18 @@ fn adjusted_ptp_addend(nominal: u32, adjustment: embassy_ptp_driver::ScaledPpm) 
 }
 
 /// Maximum Ethernet frame size, header included, FCS excluded.
+#[cfg(not(any(feature = "eth-2k-frames", feature = "eth-jumbo-frames")))]
 const MTU: usize = 1514;
+#[cfg(all(feature = "eth-2k-frames", not(feature = "eth-jumbo-frames")))]
+const MTU: usize = 1996;
+#[cfg(feature = "eth-jumbo-frames")]
+const MTU: usize = 9014;
+
+#[cfg(all(
+    any(feature = "eth-2k-frames", feature = "eth-jumbo-frames"),
+    any(eth_v1a, eth_v1b, eth_v1c)
+))]
+compile_error!("`eth-2k-frames` and `eth-jumbo-frames` need the v2 Ethernet MAC (STM32H5, H7, N6, C5).");
 
 /// Ethernet descriptor rings.
 ///
@@ -48,8 +131,12 @@ const MTU: usize = 1514;
 /// ring. A bigger ring allows the hardware to receive more frames while the
 /// CPU is busy doing other things, which may increase performance (especially
 /// for RX), at the cost of pinning more packet buffers. Make sure the packet
-/// pool (the `packet-buf-count-N` feature of `xarxa`) is bigger than
-/// `TX + RX`, with room to spare for the stack and sockets.
+/// pool is bigger than `TX + RX`, with room to spare for the stack and sockets.
+/// The pool's buffers must be 8-byte aligned, and the DMA uses their size
+/// rounded down to a multiple of 8. To receive full 1514-byte frames, use
+/// `StaticPool<1520, N, 8>`. With `eth-2k-frames` (1996-byte frames) use
+/// `StaticPool<2000, N, 8>`, and with `eth-jumbo-frames` (9014-byte frames)
+/// `StaticPool<9016, N, 8>`.
 /// The v2 driver reserves one descriptor in each ring as a DMA tail guard.
 /// It requires at least two TX/RX descriptors, or three RX descriptors with PTP.
 pub struct PacketQueue<const TX: usize, const RX: usize> {
@@ -121,8 +208,22 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
         caps.max_transmission_unit = MTU;
         // The v2/v1b/v1c MAC offloads the IPv4 header and TCP/UDP payload
         // checksums in hardware (MACCR.IPC + TDES3.CIC; bad RX frames are dropped
-        // in the descriptor ring), so xarxa can skip them.
-        #[cfg(any(eth_v2, eth_v2a, eth_v1b, eth_v1c))]
+        // in the descriptor ring), so xarxa can skip them. On v2 each direction is
+        // only offloaded when frames up to `MTU` fit the MTL queue it needs.
+        #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
+        {
+            use xarxa_driver::ChecksumOffload;
+            let offload = ChecksumOffload {
+                rx: _version::RX_STORE_AND_FORWARD,
+                tx: _version::TX_CHECKSUM_OFFLOAD,
+            };
+            caps.checksum.ipv4 = offload;
+            caps.checksum.tcp = offload;
+            caps.checksum.udp = offload;
+            caps.checksum.icmpv4 = offload;
+            caps.checksum.icmpv6 = offload;
+        }
+        #[cfg(any(eth_v1b, eth_v1c))]
         {
             use xarxa_driver::ChecksumOffload;
             caps.checksum.ipv4 = ChecksumOffload::BOTH;
@@ -132,6 +233,14 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
             caps.checksum.icmpv6 = ChecksumOffload::BOTH;
         }
         caps
+    }
+
+    fn rx_wanted(&mut self) -> usize {
+        self.rx.wanted()
+    }
+
+    fn rx_give(&mut self, buf: PacketBuf) {
+        self.rx.give(buf);
     }
 
     fn receive(&mut self) -> Option<PacketBuf> {
@@ -231,9 +340,11 @@ mod tests {
 /// Trait for an Ethernet PHY
 pub trait Phy {
     /// Reset PHY and wait for it to come out of reset.
-    fn phy_reset(&mut self);
+    /// Returns an error if reset or MDIO access fails.
+    fn phy_reset(&mut self) -> Result<(), Error>;
     /// PHY initialisation.
-    fn phy_init(&mut self);
+    /// Returns an error if initialization fails.
+    fn phy_init(&mut self) -> Result<(), Error>;
     /// Poll link to see if it is up and FD with 100Mbps
     fn poll_link(&mut self, cx: &mut Context) -> Option<bool>;
 }

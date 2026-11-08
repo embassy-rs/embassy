@@ -6,6 +6,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::flash::{Flash, InterruptHandler};
 use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
+use embassy_stm32::mode::Async;
 use embassy_stm32::{Peri, bind_interrupts};
 use embassy_time::Timer;
 use panic_probe as _;
@@ -19,7 +20,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello Flash!");
 
-    let mut f = Flash::new(p.FLASH, Irqs);
+    let mut f = Flash::new(p.FLASH, Irqs, Default::default());
 
     // Led should blink uninterrupted during erase operation
     spawner.spawn(unwrap!(blinky(p.PA5.into())));
@@ -45,7 +46,7 @@ async fn blinky(p: Peri<'static, AnyPin>) {
     }
 }
 
-async fn test_flash(f: &mut Flash<'_>, offset: u32, size: u32) {
+async fn test_flash(f: &mut Flash<'_, Async>, offset: u32, size: u32) {
     info!("Testing offset: {=u32:#X}, size: {=u32:#X}", offset, size);
 
     info!("Reading...");

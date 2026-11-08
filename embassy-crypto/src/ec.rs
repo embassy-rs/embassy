@@ -24,8 +24,14 @@ macro_rules! curve_api {
         /// The curve order `n`, big-endian.
         pub const ORDER: [u8; $n] = $order;
 
-        /// Size of a field element, scalar and coordinate, in bytes.
+        /// Size of a field element, key, scalar and coordinate, in bytes.
         pub const FIELD_SIZE: usize = $n;
+
+        /// Size of a point in sec1 format.
+        pub const SEC1_SIZE: usize = 2 * $n + 1;
+
+        /// Size of a point in compressed sec1 format.
+        pub const COMPRESSED_SEC1_SIZE: usize = $n + 1;
 
         /// Draw a scalar uniformly from `[1, n)` by rejection sampling.
         fn random_nonzero_scalar() -> Result<$dscalar, Error> {
@@ -36,6 +42,26 @@ macro_rules! curve_api {
                     return Ok(k);
                 }
             }
+        }
+
+        /// Recover the affine point from a compressed SEC1 encoding
+        /// (`0x02 || x` or `0x03 || x`), checking that it is on the curve.
+        fn decompress(bytes: &[u8; $n + 1]) -> Result<$dpoint, Error> {
+            let y_is_odd = match bytes[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => return Err(Error::InvalidKey),
+            };
+            let mut x = [0u8; $n];
+            x.copy_from_slice(&bytes[1..]);
+            driver::$arith::point_decompress(&x, y_is_odd).ok_or(Error::InvalidKey)
+        }
+
+        fn compress(p: &$dpoint) -> [u8; $n + 1] {
+            let mut out = [0u8; $n + 1];
+            out[0] = 0x02 | (p.y[$n - 1] & 1);
+            out[1..].copy_from_slice(&p.x);
+            out
         }
 
         fn checked_scalar(bytes: &[u8; $n]) -> Result<$dscalar, Error> {
@@ -165,6 +191,12 @@ macro_rules! curve_api {
                 Self::from_xy(&x, &y)
             }
 
+            /// Parse a compressed SEC1 encoding (`0x02 || x` or `0x03 || x`),
+            /// checking that the point is on the curve.
+            pub fn from_sec1_compressed(bytes: &[u8; $n + 1]) -> Result<Self, Error> {
+                decompress(bytes).map(|p| Self(driver::$arith::point_from_affine_unchecked(&p)))
+            }
+
             /// Import an affine point, checking that it is on the curve.
             pub fn from_affine(p: &$dpoint) -> Result<Self, Error> {
                 driver::$arith::point_from_affine(p)
@@ -186,6 +218,12 @@ macro_rules! curve_api {
                 out[1..1 + $n].copy_from_slice(&p.x);
                 out[1 + $n..].copy_from_slice(&p.y);
                 Some(out)
+            }
+
+            /// The compressed SEC1 encoding (`0x02 || x` or `0x03 || x`), or
+            /// `None` for the point at infinity.
+            pub fn to_sec1_compressed(&self) -> Option<[u8; $n + 1]> {
+                self.to_affine().map(|p| compress(&p))
             }
 
             /// Whether this is the point at infinity.
@@ -363,6 +401,14 @@ macro_rules! curve_api {
                 Ok(Self::from_xy(&x, &y))
             }
 
+            /// Parse a compressed SEC1 encoding (`0x02 || x` or `0x03 || x`).
+            ///
+            /// Unlike the uncompressed form, this does validate the point:
+            /// decompression fails for an X coordinate not on the curve.
+            pub fn from_sec1_compressed(bytes: &[u8; $n + 1]) -> Result<Self, Error> {
+                decompress(bytes).map(Self)
+            }
+
             /// The uncompressed SEC1 encoding (`0x04 || x || y`).
             pub fn to_sec1(&self) -> [u8; 2 * $n + 1] {
                 let mut out = [0u8; 2 * $n + 1];
@@ -370,6 +416,11 @@ macro_rules! curve_api {
                 out[1..1 + $n].copy_from_slice(&self.0.x);
                 out[1 + $n..].copy_from_slice(&self.0.y);
                 out
+            }
+
+            /// The compressed SEC1 encoding (`0x02 || x` or `0x03 || x`).
+            pub fn to_sec1_compressed(&self) -> [u8; $n + 1] {
+                compress(&self.0)
             }
 
             /// The X coordinate, big-endian.
@@ -518,9 +569,20 @@ macro_rules! curve_api {
                 PublicKey::from_sec1(bytes).map(|p| Self(p.0))
             }
 
+            /// Parse a compressed SEC1 encoding (`0x02 || x` or `0x03 || x`),
+            /// which validates the point.
+            pub fn from_sec1_compressed(bytes: &[u8; $n + 1]) -> Result<Self, Error> {
+                decompress(bytes).map(Self)
+            }
+
             /// The uncompressed SEC1 encoding (`0x04 || x || y`).
             pub fn to_sec1(&self) -> [u8; 2 * $n + 1] {
                 PublicKey(self.0).to_sec1()
+            }
+
+            /// The compressed SEC1 encoding (`0x02 || x` or `0x03 || x`).
+            pub fn to_sec1_compressed(&self) -> [u8; $n + 1] {
+                compress(&self.0)
             }
 
             /// The X coordinate, big-endian.
@@ -569,6 +631,9 @@ macro_rules! curve_api {
         pub struct Signature($dsig);
 
         impl Signature {
+            /// Size of the signature.
+            pub const SIGNATURE_SIZE: usize = 2 * $n;
+
             /// Parse the fixed-size encoding `r || s`, big-endian. Fails if either
             /// component is zero or not less than `n`.
             pub fn from_bytes(bytes: &[u8; 2 * $n]) -> Result<Self, Error> {

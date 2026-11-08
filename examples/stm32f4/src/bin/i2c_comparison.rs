@@ -10,10 +10,10 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_futures::join::join3;
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
 use embassy_time::Instant;
-use futures_util::future::try_join3;
 use panic_probe as _;
 
 const ADDRESS: u8 = 96;
@@ -95,9 +95,9 @@ async fn main(_spawner: Spawner) {
         let i2c2_result = i2c2.write_read(ADDRESS, &a1454_read_sensor_command, &mut i2c2_buffer);
         let i2c3_result = i2c3.write_read(ADDRESS, &a1454_read_sensor_command, &mut i2c3_buffer);
 
-        // Wait for all three transactions to finish, or any one of them to fail.
-        match try_join3(i2c1_result, i2c2_result, i2c3_result).await {
-            Ok(_) => {
+        // Wait for all three transactions to finish.
+        match join3(i2c1_result, i2c2_result, i2c3_result).await {
+            (Ok(()), Ok(()), Ok(())) => {
                 let async_read_total_us = Instant::now().as_micros() - async_read_start_us;
                 info!(
                     "Async reads completed in {}us: i2c1: {} i2c2: {} i2c3: {}",
@@ -107,7 +107,7 @@ async fn main(_spawner: Spawner) {
                     a1454_buf_to_i16(&i2c3_buffer)
                 );
             }
-            Err(e) => error!("I2C Error during async write-read: {}", e),
+            (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => error!("I2C Error during async write-read: {}", e),
         };
     }
 }

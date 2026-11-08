@@ -6,6 +6,13 @@ license = "MIT OR Apache-2.0"
 
 publish = false
 
+[features]
+blinky-ram = ["embassy-rp/boot2-ram-memcpy", "embassy-rp/run-from-ram"]
+
+[[bin]]
+name = "blinky_ram"
+required-features = ["blinky-ram"]
+
 [dependencies]
 embassy-embedded-hal = { version = "0.6.0", path = "../../embassy-embedded-hal", features = ["defmt"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
@@ -23,13 +30,8 @@ cyw43-pio = { version = "0.10.0", path = "../../cyw43-pio", features = ["defmt"]
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
-fixed = "1.23.1"
-fixed-macro = "1.2"
 
 # for web request example
-reqwless = { git = "https://github.com/drogue-iot/reqwless", rev = "68f703dfc16e6f7f964b7238c922c0d433118872", features = ["defmt"] }
-serde = { version = "1.0.203", default-features = false, features = ["derive"] }
-serde-json-core = "0.5.1"
 
 # for assign resources example
 assign-resources = { git = "https://github.com/adamgreig/assign-resources", rev = "bd22cb7a92031fb16f74a5da42469d466c33383e" }
@@ -39,27 +41,22 @@ cortex-m = { version = "0.7.6", features = ["inline-asm"] }
 cortex-m-rt = "0.7.0"
 critical-section = "1.1"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-display-interface-spi = "0.5.0"
 embedded-graphics = "0.8.1"
-mipidsi = "0.8.0"
-display-interface = "0.5.0"
-byte-slice-cast = { version = "1.2.0", default-features = false }
+mipidsi = "0.10.0"
 smart-leds = "0.4.0"
 heapless = "0.9"
-usbd-hid = "0.10.0"
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = "1.0"
 aligned = "0.4.3"
 block-device-driver = "0.2.0"
-embedded-hal-bus = { version = "0.1", features = ["async"] }
+embedded-hal-bus = { version = "0.3", features = ["async"] }
 embedded-io-async = { version = "0.7.0", features = ["defmt"] }
-embedded-storage = { version = "0.3" }
 static_cell = "2.1"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
 log = "0.4"
-rand = { version = "0.9.0", default-features = false }
-embedded-sdmmc = "0.7.0"
+rand = { version = "0.10", default-features = false }
+embedded-sdmmc = "0.10.0"
 
 [profile.release]
 # Enable generation of debug symbols even on release builds

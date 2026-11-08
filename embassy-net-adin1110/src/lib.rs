@@ -23,7 +23,7 @@ mod regs;
 #[cfg(feature = "tc6")]
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use ch::driver::{LinkState, PacketBuf};
+use ch::driver::LinkState;
 pub use crc32::ETH_FCS;
 use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
@@ -213,7 +213,7 @@ impl<P: Adin1110Protocol> ADIN1110<P> {
     }
 
     /// Programs the mac address in the mac filters.
-    /// Also set the boardcast address.
+    /// Also set the broadcast address.
     /// The chip supports 2 priority queues but current code doesn't support this mode.
     pub async fn set_mac_addr(&mut self, mac: &[u8; 6]) -> AEResult<(), P::SpiError> {
         // Apply to port 1.
@@ -363,19 +363,13 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, GenericSpi<SPI>, INT,
 
                     while status1.p1_rx_rdy() {
                         debug!("alloc RX packet buffer");
-                        match select(rx_chan.rx_ready(), tx_chan.tx()).await {
+                        match select(rx_chan.rx_buf(), tx_chan.tx()).await {
                             // Handle frames that needs to transmit from the wire.
-                            // Note: rx_chan.rx_ready() doesn't complete while the
+                            // Note: rx_chan.rx_buf() doesn't complete while the
                             //       tx_chan is full. So these will be handled
-                            //       automaticly.
-                            Either::First(()) => {
-                                let Some(mut frame) = PacketBuf::try_new() else {
-                                    error!("packet pool empty, can't receive");
-                                    // Back off, so we don't spin until the stack frees a buffer.
-                                    Timer::after_millis(1).await;
-                                    continue;
-                                };
-                                frame.set_len(MTU);
+                            //       automatically.
+                            Either::First(mut frame) => {
+                                frame.set_len(MTU.min(frame.capacity()));
                                 match self.mac.read_fifo(&mut frame).await {
                                     Ok(n) => {
                                         frame.set_len(n);
@@ -562,14 +556,8 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, Tc6<SPI>, INT, RS
 
             while mac.protocol.rx_available() {
                 debug!("alloc RX packet buffer");
-                rx_chan.rx_ready().await;
-                let Some(mut frame) = PacketBuf::try_new() else {
-                    error!("packet pool empty, can't receive");
-                    // Back off, so we don't spin until the stack frees a buffer.
-                    Timer::after_millis(1).await;
-                    continue;
-                };
-                frame.set_len(MTU);
+                let mut frame = rx_chan.rx_buf().await;
+                frame.set_len(MTU.min(frame.capacity()));
                 #[cfg(not(feature = "packetmeta-id"))]
                 let result = mac.read_fifo(&mut frame).await;
                 #[cfg(feature = "packetmeta-id")]
@@ -1088,7 +1076,7 @@ mod tests {
             let delay = MockDelay {};
             let spi = SpiMock::new(expectations);
             let spi_dev: ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay> =
-                ExclusiveDevice::new(spi.clone(), cs, delay);
+                ExclusiveDevice::new(spi.clone(), cs, delay).unwrap();
             let spe = ADIN1110::new_generic(spi_dev, spi_crc, append_fcs_on_tx);
 
             Self { spe, spi }
@@ -1216,7 +1204,7 @@ mod tests {
         if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
-        // Packet FCS + optinal padding
+        // Packet FCS + optional padding
         tail.extend_from_slice(&[77, 241, 140, 244, DONT_CARE_BYTE, DONT_CARE_BYTE]);
 
         expectations.push(SpiTransaction::write_vec(tail));
@@ -1252,7 +1240,7 @@ mod tests {
         if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
-        // Packet FCS + optinal padding
+        // Packet FCS + optional padding
         tail.extend_from_slice(&[DONT_CARE_BYTE, DONT_CARE_BYTE]);
 
         expectations.push(SpiTransaction::write_vec(tail));
@@ -1289,7 +1277,7 @@ mod tests {
         if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
-        // Packet FCS + optinal padding
+        // Packet FCS + optional padding
         tail.extend_from_slice(&[49, 196, 205, 160]);
 
         expectations.push(SpiTransaction::write_vec(tail));
@@ -1357,7 +1345,7 @@ mod tests {
         if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
-        // Packet FCS + optinal padding
+        // Packet FCS + optional padding
         tail.extend_from_slice(&[147, 149, 213, 68, DONT_CARE_BYTE, DONT_CARE_BYTE]);
 
         expectations.push(SpiTransaction::write_vec(tail));
@@ -1396,7 +1384,7 @@ mod tests {
         if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
-        // Packet FCS + optinal padding
+        // Packet FCS + optional padding
         tail.extend_from_slice(&[147, 149, 213, 68, DONT_CARE_BYTE, DONT_CARE_BYTE]);
 
         expectations.push(SpiTransaction::write_vec(tail));
@@ -1442,7 +1430,7 @@ mod tests {
         // Configure expectations
         let mut expectations = vec![];
 
-        // This value is importen for this test!
+        // This value is important for this test!
         assert_eq!(ETH_MIN_LEN, 64);
 
         // Packet data, size = `ETH_MIN_LEN` - `FCS_LEN` - 1
@@ -1520,7 +1508,7 @@ mod tests {
         // Need extra bytes?
         let pad = (packet.len() + FCS_LEN + FRAME_HEADER_LEN) & 0x03;
         if pad != 0 {
-            // Packet FCS + optinal padding
+            // Packet FCS + optional padding
             tail.resize(tail.len() + pad, DONT_CARE_BYTE);
         }
 
@@ -1588,7 +1576,7 @@ mod tests {
                 // Need extra bytes?
                 let pad = (packet_size + FCS_LEN + FRAME_HEADER_LEN) & 0x03;
                 if pad != 0 {
-                    // Packet FCS + optinal padding
+                    // Packet FCS + optional padding
                     tail.resize(tail.len() + pad, DONT_CARE_BYTE);
                 }
 

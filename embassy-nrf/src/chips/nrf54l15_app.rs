@@ -412,19 +412,46 @@ embassy_hal_internal::peripherals! {
     P2_09,
     P2_10,
 
-    // GRTC
+    // GRTC. The time driver's channel is not handed out: the one a
+    // `time-driver-grtc-ccN` feature selects, else CC11.
+    #[cfg(not(feature = "time-driver-grtc-cc0"))]
     GRTC_CH0,
-    #[cfg(not(feature = "time-driver-grtc"))]
+    #[cfg(not(feature = "time-driver-grtc-cc1"))]
     GRTC_CH1,
+    #[cfg(not(feature = "time-driver-grtc-cc2"))]
     GRTC_CH2,
+    #[cfg(not(feature = "time-driver-grtc-cc3"))]
     GRTC_CH3,
+    #[cfg(not(feature = "time-driver-grtc-cc4"))]
     GRTC_CH4,
+    #[cfg(not(feature = "time-driver-grtc-cc5"))]
     GRTC_CH5,
+    #[cfg(not(feature = "time-driver-grtc-cc6"))]
     GRTC_CH6,
+    #[cfg(not(feature = "time-driver-grtc-cc7"))]
     GRTC_CH7,
+    #[cfg(not(feature = "time-driver-grtc-cc8"))]
     GRTC_CH8,
+    #[cfg(not(feature = "time-driver-grtc-cc9"))]
     GRTC_CH9,
+    #[cfg(not(feature = "time-driver-grtc-cc10"))]
     GRTC_CH10,
+    #[cfg(not(all(
+        feature = "time-driver-grtc",
+        not(any(
+            feature = "time-driver-grtc-cc0",
+            feature = "time-driver-grtc-cc1",
+            feature = "time-driver-grtc-cc2",
+            feature = "time-driver-grtc-cc3",
+            feature = "time-driver-grtc-cc4",
+            feature = "time-driver-grtc-cc5",
+            feature = "time-driver-grtc-cc6",
+            feature = "time-driver-grtc-cc7",
+            feature = "time-driver-grtc-cc8",
+            feature = "time-driver-grtc-cc9",
+            feature = "time-driver-grtc-cc10",
+        ))
+    )))]
     GRTC_CH11,
 
     // PWM
@@ -531,8 +558,8 @@ impl_pin!(P2_08, 2, 8);
 impl_pin!(P2_09, 2, 9);
 impl_pin!(P2_10, 2, 10);
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "gpiote")] {
+cfg_select! {
+    feature = "gpiote" => {
         impl_gpiote_pin!(P0_00, GPIOTE30);
         impl_gpiote_pin!(P0_01, GPIOTE30);
         impl_gpiote_pin!(P0_02, GPIOTE30);
@@ -561,6 +588,7 @@ cfg_if::cfg_if! {
         impl_gpiote_pin!(P1_15, GPIOTE20);
         impl_gpiote_pin!(P1_16, GPIOTE20);
     }
+    _ => {}
 }
 
 #[cfg(feature = "_ns")]
@@ -580,7 +608,30 @@ impl_ppi_channel!(PPI00_CH6, DPPIC00, 6 => configurable);
 impl_ppi_channel!(PPI00_CH7, DPPIC00, 7 => configurable);
 
 // DPPI10 channels
-impl_ppi_channel!(PPI10_CH0, DPPIC10, 0 => static);
+impl_ppi_channel!(PPI10_CH0, DPPIC10, 0 => configurable);
+impl_ppi_channel!(PPI10_CH1, DPPIC10, 1 => configurable);
+impl_ppi_channel!(PPI10_CH2, DPPIC10, 2 => configurable);
+impl_ppi_channel!(PPI10_CH3, DPPIC10, 3 => configurable);
+impl_ppi_channel!(PPI10_CH4, DPPIC10, 4 => configurable);
+impl_ppi_channel!(PPI10_CH5, DPPIC10, 5 => configurable);
+impl_ppi_channel!(PPI10_CH6, DPPIC10, 6 => configurable);
+impl_ppi_channel!(PPI10_CH7, DPPIC10, 7 => configurable);
+impl_ppi_channel!(PPI10_CH8, DPPIC10, 8 => configurable);
+impl_ppi_channel!(PPI10_CH9, DPPIC10, 9 => configurable);
+impl_ppi_channel!(PPI10_CH10, DPPIC10, 10 => configurable);
+impl_ppi_channel!(PPI10_CH11, DPPIC10, 11 => configurable);
+impl_ppi_channel!(PPI10_CH12, DPPIC10, 12 => configurable);
+impl_ppi_channel!(PPI10_CH13, DPPIC10, 13 => configurable);
+impl_ppi_channel!(PPI10_CH14, DPPIC10, 14 => configurable);
+impl_ppi_channel!(PPI10_CH15, DPPIC10, 15 => configurable);
+impl_ppi_channel!(PPI10_CH16, DPPIC10, 16 => configurable);
+impl_ppi_channel!(PPI10_CH17, DPPIC10, 17 => configurable);
+impl_ppi_channel!(PPI10_CH18, DPPIC10, 18 => configurable);
+impl_ppi_channel!(PPI10_CH19, DPPIC10, 19 => configurable);
+impl_ppi_channel!(PPI10_CH20, DPPIC10, 20 => configurable);
+impl_ppi_channel!(PPI10_CH21, DPPIC10, 21 => configurable);
+impl_ppi_channel!(PPI10_CH22, DPPIC10, 22 => configurable);
+impl_ppi_channel!(PPI10_CH23, DPPIC10, 23 => configurable);
 
 // DPPI20 channels
 impl_ppi_channel!(PPI20_CH0, DPPIC20, 0 => configurable);
@@ -612,6 +663,11 @@ impl_ppi_group!(PPI00_GROUP1, DPPIC00, 1);
 
 // DPPI10 groups
 impl_ppi_group!(PPI10_GROUP0, DPPIC10, 0);
+impl_ppi_group!(PPI10_GROUP1, DPPIC10, 1);
+impl_ppi_group!(PPI10_GROUP2, DPPIC10, 2);
+impl_ppi_group!(PPI10_GROUP3, DPPIC10, 3);
+impl_ppi_group!(PPI10_GROUP4, DPPIC10, 4);
+impl_ppi_group!(PPI10_GROUP5, DPPIC10, 5);
 
 // DPPI20 groups
 impl_ppi_group!(PPI20_GROUP0, DPPIC20, 0);
@@ -625,13 +681,13 @@ impl_ppi_group!(PPI20_GROUP5, DPPIC20, 5);
 impl_ppi_group!(PPI30_GROUP0, DPPIC30, 0);
 impl_ppi_group!(PPI30_GROUP1, DPPIC30, 1);
 
-impl_timer!(TIMER00, TIMER00, TIMER00, 6);
-impl_timer!(TIMER10, TIMER10, TIMER10, 8);
-impl_timer!(TIMER20, TIMER20, TIMER20, 6);
-impl_timer!(TIMER21, TIMER21, TIMER21, 6);
-impl_timer!(TIMER22, TIMER22, TIMER22, 6);
-impl_timer!(TIMER23, TIMER23, TIMER23, 6);
-impl_timer!(TIMER24, TIMER24, TIMER24, 6);
+impl_timer!(TIMER00, TIMER00, TIMER00, 6, F128MHz);
+impl_timer!(TIMER10, TIMER10, TIMER10, 8, F32MHz);
+impl_timer!(TIMER20, TIMER20, TIMER20, 6, F16MHz);
+impl_timer!(TIMER21, TIMER21, TIMER21, 6, F16MHz);
+impl_timer!(TIMER22, TIMER22, TIMER22, 6, F16MHz);
+impl_timer!(TIMER23, TIMER23, TIMER23, 6, F16MHz);
+impl_timer!(TIMER24, TIMER24, TIMER24, 6, F16MHz);
 
 impl_twim!(SERIAL20, TWIM20, SERIAL20);
 impl_twim!(SERIAL21, TWIM21, SERIAL21);

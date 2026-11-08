@@ -562,7 +562,7 @@ impl<'d, M: Mode> Usart<'d, M> {
         // Write values to the registers
 
         // FCLK =  (clock selected via FCCLKSEL) / (1+ MULT / DIV)
-        // Remark: To use the fractional baud rate generator, 0xFF must be wirtten to the DIV value
+        // Remark: To use the fractional baud rate generator, 0xFF must be written to the DIV value
         // to yield a denominator vale of 256. All other values are not supported
         SYSCON.flexfrgctrl(T::instance_number()).modify(|w| {
             w.set_div(0xFF);
@@ -1020,7 +1020,7 @@ macro_rules! impl_usart_sck_pin {
 /// Marker trait indicating a DMA channel may be used for USART transmit.
 pub trait TxChannel<T: Instance>: crate::dma::Channel {}
 
-/// Marker trait indicating a DMA channel may be used for USART recieve.
+/// Marker trait indicating a DMA channel may be used for USART receive.
 pub trait RxChannel<T: Instance>: crate::dma::Channel {}
 
 macro_rules! impl_usart_tx_channel {

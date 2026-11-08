@@ -280,6 +280,80 @@ async fn main(_spawner: Spawner) {
         assert!(b.is_low());
     }
 
+    // Test is_input / is_output / is_disconnected and set_as_disconnected
+    {
+        let mut b = Flex::new(b.reborrow());
+        assert!(b.is_disconnected());
+        assert!(!b.is_input());
+        assert!(!b.is_output());
+
+        b.set_as_input();
+        b.set_pull(Pull::Up);
+        assert!(b.is_input());
+        assert!(!b.is_output());
+        assert!(!b.is_disconnected());
+
+        let mut a = Flex::new(a.reborrow());
+        a.set_low();
+        a.set_as_output();
+        assert!(a.is_output());
+        assert!(!a.is_input());
+        assert!(!a.is_disconnected());
+        delay();
+        assert!(b.is_low());
+
+        // A disconnected pin doesn't drive the line.
+        a.set_as_disconnected();
+        assert!(a.is_disconnected());
+        assert!(!a.is_input());
+        assert!(!a.is_output());
+        delay();
+        assert!(b.is_high());
+        // Its input buffer is off, so it reads low even though the line is high.
+        assert!(a.is_low());
+
+        // set_as_input must turn the input buffer back on.
+        a.set_as_input();
+        assert!(a.is_input());
+        assert!(!a.is_disconnected());
+        delay();
+        assert!(a.is_high());
+
+        // set_as_output must turn the input buffer back on, so the pin can read its own level.
+        a.set_as_disconnected();
+        a.set_high();
+        a.set_as_output();
+        assert!(a.is_output());
+        assert!(!a.is_disconnected());
+        delay();
+        assert!(a.is_high());
+        assert!(b.is_high());
+
+        // Same for toggle_set_as_output.
+        a.set_as_disconnected();
+        a.toggle_set_as_output();
+        assert!(a.is_output());
+        delay();
+        assert!(a.is_high());
+
+        // Leave the pin driving low when dropped.
+        a.set_low();
+        delay();
+        assert!(b.is_low());
+    }
+
+    // A new Flex is disconnected even if the previous owner left the pin as an output.
+    {
+        let mut b = Flex::new(b.reborrow());
+        b.set_as_input();
+        b.set_pull(Pull::Up);
+
+        let a = Flex::new(a.reborrow());
+        assert!(a.is_disconnected());
+        delay();
+        assert!(b.is_high());
+    }
+
     info!("Test OK");
     cortex_m::asm::bkpt();
 }

@@ -1,7 +1,5 @@
 use std::str::FromStr;
 
-use darling::FromMeta;
-use darling::export::NestedMeta;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::visit::{self, Visit};
@@ -9,13 +7,28 @@ use syn::{Expr, ExprLit, Lit, LitInt, ReturnType, Type, Visibility};
 
 use crate::util::*;
 
-#[derive(Debug, FromMeta, Default)]
+#[derive(Default)]
 struct Args {
-    #[darling(default)]
     pool_size: Option<syn::Expr>,
     /// Use this to override the `embassy_executor` crate path. Defaults to `::embassy_executor`.
-    #[darling(default)]
     embassy_executor: Option<syn::Expr>,
+}
+
+impl Args {
+    fn parse(args: TokenStream) -> syn::Result<Self> {
+        let mut res = Self::default();
+        let parser = syn::meta::parser(|meta| {
+            if meta.path.is_ident("pool_size") {
+                set_arg(&meta, &mut res.pool_size, parse_expr_arg(&meta)?)
+            } else if meta.path.is_ident("embassy_executor") {
+                set_arg(&meta, &mut res.embassy_executor, parse_expr_arg(&meta)?)
+            } else {
+                Err(meta.error("unknown argument"))
+            }
+        });
+        syn::parse::Parser::parse2(parser, args)?;
+        Ok(res)
+    }
 }
 
 pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
@@ -29,15 +42,10 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         Err(e) => return token_stream_with_error(item, e),
     };
 
-    let args = match NestedMeta::parse_meta_list(args) {
-        Ok(x) => x,
-        Err(e) => return token_stream_with_error(item, e),
-    };
-
-    let args = match Args::from_list(&args) {
+    let args = match Args::parse(args) {
         Ok(x) => x,
         Err(e) => {
-            errors.extend(e.write_errors());
+            errors.extend(e.into_compile_error());
             Args::default()
         }
     };
@@ -115,7 +123,10 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     // Copy the generics + where clause to avoid more spurious errors.
     let generics = &f.sig.generics;
     let where_clause = &f.sig.generics.where_clause;
-    let unsafety = &f.sig.unsafety;
+    let unsafety = match &f.sig.safety {
+        syn::Safety::Unsafe(token) => Some(token),
+        _ => None,
+    };
     let visibility = &f.vis;
 
     // assemble the original input arguments,

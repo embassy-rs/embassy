@@ -553,7 +553,7 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
     }
 
     /// Computes a digest for the given context.
-    /// The digest buffer must be large enough to accomodate a digest for the selected algorithm.
+    /// The digest buffer must be large enough to accommodate a digest for the selected algorithm.
     /// The largest returned digest size is 128 bytes for SHA-512.
     /// Panics if the supplied digest buffer is too short.
     pub fn finish_blocking<A: AlgorithmSpec, H: HmacMode<A>>(
@@ -939,7 +939,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
     }
 
     /// Computes a digest for the given context.
-    /// The digest buffer must be large enough to accomodate a digest for the selected algorithm.
+    /// The digest buffer must be large enough to accommodate a digest for the selected algorithm.
     /// The largest returned digest size is 128 bytes for SHA-512.
     /// Panics if the supplied digest buffer is too short.
     pub async fn finish<A: AlgorithmSpec, H: HmacMode<A>>(

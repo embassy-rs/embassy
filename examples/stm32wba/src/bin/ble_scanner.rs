@@ -15,21 +15,24 @@
 #![no_std]
 #![no_main]
 
+use bt_hci::event::Event;
+use bt_hci::event::le::LeEvent;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{self};
 use embassy_stm32::{Config, bind_interrupts};
-use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{ParsedAdvData, ScanParams, ScanType};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams, GapRole};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
-use stm32wb_hci::Event;
+use stm32wb_hci::aci::flags::Role;
+use stm32wb_hci::aci::values::AddressType;
 
 // ---- Test configuration ----
-const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
+const ADDR_TYPE: OwnAddressType = OwnAddressType::StaticRandom;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -63,14 +66,14 @@ async fn main(spawner: Spawner) {
     let mut ble = match ADDR_TYPE {
         OwnAddressType::Public => {
             let gap_params = GapInitParams {
-                role: GapRole::Observer,
+                role: Role::OBSERVER,
                 bd_addr: [0x01, 0x00, 0x00, 0xE1, 0x80, 0x00],
                 address_type: AddressType::Public,
                 ..GapInitParams::default()
             };
             HCI::new_with_gap_params(platform, runtime, Irqs, gap_params).await
         }
-        _ => HCI::new_with_role(platform, runtime, Irqs, GapRole::Observer).await,
+        _ => HCI::new_with_role(platform, runtime, Irqs, Role::OBSERVER).await,
     }
     .expect("BLE initialization failed");
 
@@ -86,7 +89,10 @@ async fn main(spawner: Spawner) {
 
     // Start scanning
     let mut scanner = ble.scanner();
-    scanner.start(scan_params).expect("Failed to start scanning");
+    scanner
+        .start(ble.controller(), scan_params)
+        .await
+        .expect("Failed to start scanning");
 
     info!("=== BLE Scanning Started ===");
     info!("Looking for nearby devices...");
@@ -95,27 +101,28 @@ async fn main(spawner: Spawner) {
     let mut device_count = 0u32;
 
     // Main event loop - process advertising reports
+    let mut event_buf = EventBuffer::new();
     loop {
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
 
         // Check for advertising reports
-        if let Event::LeAdvertisingReport(reports) = &event {
-            for report in reports.iter() {
+        if let BleEvent::Core(Event::Le(LeEvent::LeAdvertisingReport(adv))) = &event {
+            for report in adv.reports.iter().flatten() {
                 device_count += 1;
 
                 // Parse the advertising data
-                let parsed = ParsedAdvData::parse(&report.data);
+                let parsed = ParsedAdvData::parse(report.data);
 
                 info!("--- Device #{} ---", device_count);
 
                 // Display device address
-                info!("  Address: {}", report.address);
+                info!("  Address: {}", report.addr);
 
                 // Display RSSI
                 info!("  RSSI: {} dBm", report.rssi);
 
                 // Display event type
-                info!("  Type: {}", report.event_type);
+                info!("  Type: {}", report.event_kind);
 
                 // Display parsed name if available
                 if let Some(name) = parsed.name {

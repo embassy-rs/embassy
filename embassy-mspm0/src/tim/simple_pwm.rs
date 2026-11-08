@@ -518,7 +518,7 @@ impl<'d> SimplePwmChannel<'d, u16> {
     ///
     /// This value is equivalent to a 100% duty cycle.
     pub fn max_duty_cycle(&self) -> u16 {
-        // This will never return a value greater than u16::MAX becauses Bits = u16
+        // This will never return a value greater than u16::MAX because Bits = u16
         max_duty_cycle_inner(self.info.regs) as u16
     }
 
@@ -531,7 +531,7 @@ impl<'d> SimplePwmChannel<'d, u16> {
 
     /// Get the current duty cycle of this channel.
     pub fn current_duty_cycle(&self) -> u16 {
-        // This will never return a value greater than u16::MAX becauses Bits = u16
+        // This will never return a value greater than u16::MAX because Bits = u16
         current_duty_cycle_inner(self.info.regs, self.index) as u16
     }
 }

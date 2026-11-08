@@ -133,14 +133,25 @@ impl Into<pac::spim::vals::Frequency> for Frequency {
 }
 
 /// SPIM error
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
-    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BufferNotInRAM => {
+                f.write_str("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")
+            }
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// SPIM configuration.
 #[non_exhaustive]

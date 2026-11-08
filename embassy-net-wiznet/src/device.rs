@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 
+use embassy_futures::yield_now;
 use embedded_hal_async::spi::SpiDevice;
 
 use crate::chip::Chip;
@@ -240,7 +241,10 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
 
     /// Write an ethernet frame to the device. Returns number of bytes written
     pub async fn write_frame(&mut self, frame: &[u8]) -> Result<usize, SPI::Error> {
-        while self.get_tx_free_size().await? < frame.len() as u16 {}
+        while self.get_tx_free_size().await? < frame.len() as u16 {
+            // The free size read can complete without suspending, so yield to let other tasks run.
+            yield_now().await;
+        }
         let write_ptr = self.get_tx_write_ptr().await?;
 
         if C::AUTO_WRAP {

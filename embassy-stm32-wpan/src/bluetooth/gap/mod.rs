@@ -12,8 +12,8 @@ pub mod scanner;
 pub mod types;
 
 pub use connection::{
-    Connection, ConnectionInitParams, ConnectionManager, ConnectionParams, DisconnectReason, GapEvent, LePhy,
-    MAX_CONNECTIONS,
+    Connection, ConnectionInitParams, ConnectionInterval, ConnectionManager, ConnectionParams, DisconnectReason,
+    GapEvent, MAX_CONNECTIONS,
 };
-pub use scanner::{ParsedAdvData, ScanFilterPolicy, ScanParams, ScanProcedure, ScanType, Scanner};
-pub use types::{AdvData, AdvParams, AdvType, OwnAddressType};
+pub use scanner::{ParsedAdvData, ScanParams, ScanProcedure, ScanType, Scanner, ScanningFilterPolicy};
+pub use types::{AdvData, AdvParams, AdvType, BdAddr, BdAddrType, OwnAddressType};

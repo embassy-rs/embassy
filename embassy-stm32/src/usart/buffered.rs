@@ -6,7 +6,7 @@ use core::{mem, slice};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
+use embassy_hal_internal::atomic_ring_buffer::{RingBuffer, Writer};
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(any(usart_v1, usart_v2)))]
@@ -107,14 +107,21 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
         #[cfg(any(usart_v1, usart_v2))]
         sr(r).modify(|w| w.set_tc(false));
 
-        r.cr1().modify(|w| {
-            w.set_tcie(false);
-            // Reenable receiver for half-duplex if it was disabled
-            w.set_re(true);
-        });
+        // TCIE is armed when the TX code below sends the last byte in the buffer, but a writer can add more data
+        // before TC fires. Only report the transmission as done when nothing is left to send: otherwise the TX code
+        // below sends the rest and arms TCIE again.
+        if state.tx_buf.is_empty() {
+            r.cr1().modify(|w| {
+                w.set_tcie(false);
+                // Reenable receiver for half-duplex if it was disabled
+                w.set_re(true);
+            });
 
-        state.tx_done.store(true, Ordering::Release);
-        state.tx_waker.wake();
+            state.tx_done.store(true, Ordering::Release);
+            state.tx_waker.wake();
+        } else {
+            r.cr1().modify(|w| w.set_tcie(false));
+        }
     }
 
     // TX
@@ -161,6 +168,15 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
             });
         }
     }
+}
+
+/// Clear `tx_done` and commit `n` bytes to the TX buffer in one critical section. Otherwise a TC interrupt for earlier
+/// data can report done between the two steps, and `flush` returns before the new bytes go out.
+fn commit_tx(state: &State, tx_writer: &mut Writer<'_>, n: usize) {
+    critical_section::with(|_| {
+        state.tx_done.store(false, Ordering::Release);
+        tx_writer.push_done(n);
+    });
 }
 
 pub(super) struct State {
@@ -838,9 +854,6 @@ impl<'d> BufferedUartTx<'d> {
             }
 
             let state = self.state;
-            state.tx_done.store(false, Ordering::Release);
-
-            let empty = state.tx_buf.is_empty();
 
             let mut tx_writer = unsafe { state.tx_buf.writer() };
             let data = tx_writer.push_slice();
@@ -851,11 +864,8 @@ impl<'d> BufferedUartTx<'d> {
 
             let n = data.len().min(buf.len());
             data[..n].copy_from_slice(&buf[..n]);
-            tx_writer.push_done(n);
-
-            if empty {
-                self.info.interrupt.pend();
-            }
+            commit_tx(state, &mut tx_writer, n);
+            self.info.interrupt.pend();
 
             Poll::Ready(Ok(n))
         })
@@ -887,9 +897,6 @@ impl<'d> BufferedUartTx<'d> {
 
         loop {
             let state = self.state;
-            state.tx_done.store(false, Ordering::Release);
-
-            let empty = state.tx_buf.is_empty();
 
             let mut tx_writer = unsafe { state.tx_buf.writer() };
             let data = tx_writer.push_slice();
@@ -899,11 +906,8 @@ impl<'d> BufferedUartTx<'d> {
 
             let n = data.len().min(buf.len());
             data[..n].copy_from_slice(&buf[..n]);
-            tx_writer.push_done(n);
-
-            if empty {
-                self.info.interrupt.pend();
-            }
+            commit_tx(state, &mut tx_writer, n);
+            self.info.interrupt.pend();
 
             return Ok(n);
         }

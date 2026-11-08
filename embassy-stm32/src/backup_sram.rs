@@ -1,11 +1,11 @@
-//! Battary backed SRAM
+//! Battery backed SRAM
 
 use embassy_hal_internal::Peri;
 
 use crate::_generated::{BKPSRAM_BASE, BKPSRAM_SIZE};
 use crate::peripherals::BKPSRAM;
 
-/// Struct used to initilize backup sram
+/// Struct used to initialize backup sram
 pub struct BackupMemory {
     // true if the sram was retained across last reset
     retained: bool,
@@ -17,8 +17,10 @@ impl BackupMemory {
     /// Returns slice to sram and whether the sram was retained
     pub fn new(_backup_sram: Peri<'static, BKPSRAM>) -> Self {
         // Assert bksram has been enabled in rcc
-        #[cfg(not(stm32h7))]
+        #[cfg(not(any(stm32h7, stm32u5, stm32f4)))]
         assert!(crate::pac::PWR.bdcr().read().bren() == crate::pac::pwr::vals::Retention::Preserved);
+        #[cfg(stm32u5)]
+        assert!(crate::pac::PWR.bdcr1().read().bren());
         #[cfg(stm32h7)]
         assert!(crate::pac::PWR.cr2().read().bren() == crate::pac::pwr::vals::Retention::Preserved);
 
@@ -35,7 +37,7 @@ impl BackupMemory {
 
     /// Get raw pointer to the battery backed memory
     ///
-    /// Note that this is not necesserily normal memory, so please do use volatile
+    /// Note that this is not necessarily normal memory, so please do use volatile
     /// and aligned reads/writes unless you know what you are doing.
     pub fn as_ptr(&self) -> *mut u8 {
         BKPSRAM_BASE as *mut u8

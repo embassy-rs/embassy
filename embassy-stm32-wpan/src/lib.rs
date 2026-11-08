@@ -8,8 +8,9 @@
 //! STM32WB MCUs"; several of the startup procedures laid out in Annex 14.1 are implemented using
 //! inline copies of the code contained within the `stm32wb_copro` C library.
 //!
-//! BLE commands are implemented via use of the [stm32wb_hci] crate, for which the
-//! [stm32wb_hci::Controller] trait has been implemented.
+//! BLE commands are sent through [bt_hci]'s controller traits, which the BLE
+//! `ControllerAdapter` implements. The ST vendor (ACI) commands and events are
+//! declared by the `stm32wb_hci` crate.
 
 #![no_std]
 #![allow(async_fn_in_trait)]
@@ -21,7 +22,8 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-#[cfg(all(feature = "wba", feature = "wb-hci"))]
+// The high-level API needs the BLE host stack, which the link-layer-only library lacks.
+#[cfg(all(feature = "wba", feature = "wb-hci", not(feature = "ble-stack-llo")))]
 pub mod bluetooth;
 
 #[cfg(all(feature = "wb", feature = "wb-mac"))]

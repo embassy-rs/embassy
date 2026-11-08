@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `idle` trace callback (`_embassy_trace_v2_idle`), called by thread-mode executors right before sleeping.
 - Added `embassy_executor::trace_idle()` for custom thread-mode executors to emit the `idle` trace callback.
 - Added a `portable-atomic` feature for more targets without atomics.
+- Removed the `avr-device` dependency from `platform-avr`.
 
 ## 0.10.0 - 2026-03-10
 
@@ -95,7 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.6.1 - 2024-10-21
 
 - Soundness fix: Deny using `impl Trait` in task arguments. This was previously accidentally allowed when not using the `nightly` feature,
-  and could cause out of bounds memory accesses if spawning the same task mulitple times with different underlying types
+  and could cause out of bounds memory accesses if spawning the same task multiple times with different underlying types
   for the `impl Trait`. Affected versions are 0.4.x, 0.5.0 and 0.6.0, which have been yanked.
 - Add an architecture-agnostic executor that spins waiting for tasks to run, enabled with the `arch-spin` feature.
 - Update for breaking change in the nightly waker_getters API. The `nightly` feature now requires `nightly-2024-09-06` or newer.
@@ -110,7 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.5.1 - 2024-10-21
 
 - Soundness fix: Deny using `impl Trait` in task arguments. This was previously accidentally allowed when not using the `nightly` feature,
-  and could cause out of bounds memory accesses if spawning the same task mulitple times with different underlying types
+  and could cause out of bounds memory accesses if spawning the same task multiple times with different underlying types
   for the `impl Trait`. Affected versions are 0.4.x, 0.5.0 and 0.6.0, which have been yanked.
 
 ## 0.5.0 - 2024-01-11

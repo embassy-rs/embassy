@@ -8,7 +8,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nxp::gpio::{Input, Level, Output, Pull};
-use panic_halt as _;
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {

@@ -1,7 +1,6 @@
 //! [ws2812](https://www.sparkfun.com/categories/tags/ws2812)
 
 use embassy_time::{Duration, Timer};
-use fixed::types::U24F8;
 use smart_leds_trait::{RGB8, RGBW, SmartLedsWriteAsync};
 
 use crate::clocks::clk_sys_freq;
@@ -149,10 +148,10 @@ where
         cfg.use_program(&program.prg, &[&out_pin]);
 
         // Clock config, measured in kHz to avoid overflows
-        let clock_freq = U24F8::from_num(clk_sys_freq() / 1000);
-        let ws2812_freq = U24F8::from_num(800);
+        let clock_freq = clk_sys_freq() / 1000;
+        let ws2812_freq = 800;
         let bit_freq = ws2812_freq * CYCLES_PER_BIT;
-        cfg.clock_divider = clock_freq / bit_freq;
+        cfg.clock_divider_x256 = (clock_freq << 8) / bit_freq;
 
         // FIFO config
         cfg.fifo_join = FifoJoin::TxOnly;
@@ -258,10 +257,10 @@ where
         cfg.use_program(&program.prg, &[&out_pin]);
 
         // Clock config, measured in kHz to avoid overflows
-        let clock_freq = U24F8::from_num(clk_sys_freq() / 1000);
-        let ws2812_freq = U24F8::from_num(800);
+        let clock_freq = clk_sys_freq() / 1000;
+        let ws2812_freq = 800;
         let bit_freq = ws2812_freq * CYCLES_PER_BIT;
-        cfg.clock_divider = clock_freq / bit_freq;
+        cfg.clock_divider_x256 = (clock_freq << 8) / bit_freq;
 
         // FIFO config
         cfg.fifo_join = FifoJoin::TxOnly;

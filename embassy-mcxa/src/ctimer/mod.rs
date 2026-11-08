@@ -106,7 +106,7 @@ impl<'d> CTimer<'d> {
 
 pub(crate) struct Info {
     pub(crate) regs: pac::ctimer::Ctimer,
-    pub(crate) wait_cell: WaitCell,
+    pub(crate) wait_cells: [WaitCell; 4],
     pub(crate) irq_flags: AtomicU8,
 }
 
@@ -117,8 +117,9 @@ impl Info {
     }
 
     #[inline(always)]
-    fn wait_cell(&self) -> &WaitCell {
-        &self.wait_cell
+    fn wait_cell(&self, channel: Channel) -> &WaitCell {
+        let index: usize = channel.into();
+        &self.wait_cells[index]
     }
 
     #[inline(always)]
@@ -131,6 +132,8 @@ unsafe impl Sync for Info {}
 
 pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = CTimerConfig> {
     fn info() -> &'static Info;
+    #[cfg(mcxa_aoi)]
+    const NUMBER: usize;
 
     /// Clock instance
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::CTimerInstance;
@@ -151,10 +154,12 @@ macro_rules! impl_ctimer_instance {
     ($n:literal) => {
         paste::paste! {
             impl $crate::ctimer::SealedInstance for $crate::peripherals::[<CTIMER $n>] {
+                #[cfg(mcxa_aoi)]
+                const NUMBER: usize = $n;
                 fn info() -> &'static $crate::ctimer::Info {
                     static INFO: $crate::ctimer::Info = $crate::ctimer::Info {
                         regs: $crate::pac::[<CTIMER $n>],
-                        wait_cell: maitake_sync::WaitCell::new(),
+                        wait_cells: [const { maitake_sync::WaitCell::new() }; 4],
                         irq_flags: core::sync::atomic::AtomicU8::new(0),
                     };
                     &INFO

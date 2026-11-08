@@ -18,6 +18,12 @@ pub struct SpinlockRawMutex<const N: usize> {
 unsafe impl<const N: usize> Send for SpinlockRawMutex<N> {}
 unsafe impl<const N: usize> Sync for SpinlockRawMutex<N> {}
 
+impl<const N: usize> Default for SpinlockRawMutex<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const N: usize> SpinlockRawMutex<N> {
     /// Create a new `SpinlockRawMutex`.
     pub const fn new() -> Self {

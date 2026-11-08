@@ -131,7 +131,7 @@ pub enum ConfigError {
 
     /// Clock source not enabled.
     ///
-    /// The clock soure is not enabled is SYSCTL.
+    /// The clock source is not enabled is SYSCTL.
     ClockSourceNotEnabled,
 
     /// Invalid target address.
@@ -1158,7 +1158,7 @@ macro_rules! impl_i2c_scl_pin {
 mod tests {
     use crate::i2c::{BusSpeed, ClockDiv, ClockSel, Config};
 
-    /// These tests are based on TI's reference caluclation.
+    /// These tests are based on TI's reference calculation.
     #[test]
     fn ti_calculate_timer_period() {
         let mut config = Config::default();

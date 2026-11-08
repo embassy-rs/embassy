@@ -6,7 +6,8 @@
 //! # Usage
 //!
 //! ```ignore
-//! use embassy_usb::class::hid::host::{HidHost, PROTOCOL_BOOT};
+//! use embassy_usb::class::hid::HidProtocolMode;
+//! use embassy_usb::class::hid::host::HidHost;
 //! use embassy_usb::class::hid::host::hid_report::{ReportDescriptor, usage_page, usage};
 //!
 //! // After enumeration, fetch the HID report descriptor:

@@ -42,25 +42,30 @@
 #![no_std]
 #![no_main]
 
+use bt_hci::event::{EncryptionChangeV1, Event};
+use bt_hci::param::EncryptionEnabledLevel;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams, IoCapability as GapIoCapability};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::hci::AdvFilterPolicy;
 use embassy_stm32_wpan::bluetooth::security::{
     IdentityAddressType, IoCapability, SecureConnectionsSupport, SecurityParams,
 };
+use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer};
 use embassy_stm32_wpan::{
     HighInterruptHandler, LowInterruptHandler, Platform, erase_bond_nvm_flash, new_platform, set_nvm_base_address,
 };
 use panic_probe as _;
-use stm32wb_hci::Event;
-use stm32wb_hci::event::{Encryption, EncryptionChange};
-use stm32wb_hci::vendor::event::{GapPairingComplete, GapPairingStatus, VendorEvent};
+use stm32wb_hci::aci::AciEvent;
+use stm32wb_hci::aci::gap::GapPairingCompleteEvent;
+use stm32wb_hci::aci::values::{AddressType, PairingStatus};
+use stm32wb_hci::adv_data::AdvFlags;
+use stm32wb_hci::wire::OrUnknown;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -109,7 +114,7 @@ async fn main(spawner: Spawner) {
         address_type: AddressType::Public,
         bd_addr: st_public_bd_addr(),
         device_name: b"Embassy-Bond",
-        io_capability: GapIoCapability::DisplayYesNo,
+        io_capability: stm32wb_hci::aci::values::IoCapability::DisplayYesNo,
         skip_authentication_setup: true,
         ..GapInitParams::default()
     };
@@ -130,21 +135,26 @@ async fn main(spawner: Spawner) {
         .with_identity_address_type(IdentityAddressType::Public);
 
     security
-        .set_authentication_requirements(params)
+        .set_authentication_requirements(ble.controller(), params)
+        .await
         .expect("set security params");
 
     // ST: initialize whitelist when bonding is enabled.
     security
-        .configure_filter_accept_list()
+        .configure_filter_accept_list(ble.controller())
+        .await
         .expect("configure_filter_accept_list");
 
     if ERASE_BONDS_ON_BOOT {
-        security.clear_security_database().expect("clear_security_database");
+        security
+            .clear_security_database(ble.controller())
+            .await
+            .expect("clear_security_database");
         info!("Bond RAM database cleared (ERASE_BONDS_ON_BOOT)");
     }
 
     // Cold boot with bonds in NVM: program FAL + resolving list (ST privacy flow).
-    match security.configure_filter_and_resolving_list() {
+    match security.configure_filter_and_resolving_list(ble.controller()).await {
         Ok(count) => {
             if count > 0 {
                 info!("Bond lists configured at boot ({} peer(s))", count);
@@ -157,7 +167,7 @@ async fn main(spawner: Spawner) {
     // the bond's IRK made it into the LL resolving list — if `peer_rpa` here matches the
     // identity address (instead of being a valid RPA), the LL has `peer_irk = 0` and will
     // silently drop incoming CONNECT_INDs from a bonded RPA-using peer like iOS.
-    security.log_resolving_list_diagnostics(None);
+    security.log_resolving_list_diagnostics(ble.controller(), None).await;
 
     // ── GATT ──────────────────────────────────────────────────────────────────
     //
@@ -166,23 +176,32 @@ async fn main(spawner: Spawner) {
     let mut gatt = ble.gatt_server();
 
     let svc = gatt
-        .add_service(Uuid::from_u16(BOND_SERVICE_UUID), ServiceType::Primary, 4)
+        .add_service(
+            ble.controller(),
+            Uuid::Uuid16(BOND_SERVICE_UUID),
+            ServiceType::Primary,
+            4,
+        )
+        .await
         .expect("add service");
 
     let ch = gatt
         .add_characteristic(
+            ble.controller(),
             svc,
-            Uuid::from_u16(BOND_CHAR_UUID),
+            Uuid::Uuid16(BOND_CHAR_UUID),
             20,
             CharProperties::READ | CharProperties::WRITE,
-            SecurityPermissions::ENCRY_READ | SecurityPermissions::ENCRY_WRITE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::ENCRYPTED_READ | SecurityPermissions::ENCRYPTED_WRITE,
+            GattEventMask::ATTRIBUTE_WRITE,
             0,
             true,
         )
+        .await
         .expect("add characteristic");
 
-    gatt.update_characteristic_value(svc, ch, 0, b"Hello, bonded!")
+    gatt.update_characteristic_value(ble.controller(), svc, ch, 0, b"Hello, bonded!")
+        .await
         .expect("set initial value");
 
     // ── Advertising ───────────────────────────────────────────────────────────
@@ -190,14 +209,16 @@ async fn main(spawner: Spawner) {
 
     fn make_adv_data() -> AdvData {
         let mut d = AdvData::new();
-        d.add_flags(0x06).unwrap();
-        d.add_name("Embassy-Bond").unwrap();
-        d.add_service_uuid_16(BOND_SERVICE_UUID).unwrap();
+        d = d
+            .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+            .unwrap();
+        d = d.complete_local_name(b"Embassy-Bond").unwrap();
+        d = d.complete_uuid16_list(&[BOND_SERVICE_UUID]).unwrap();
         d
     }
 
     let mut scan_rsp = AdvData::new();
-    scan_rsp.add_name("Embassy-Bond").expect("scan rsp name");
+    scan_rsp = scan_rsp.complete_local_name(b"Embassy-Bond").expect("scan rsp name");
 
     ble.start_advertising(adv_params.clone(), make_adv_data(), Some(scan_rsp))
         .await
@@ -206,26 +227,33 @@ async fn main(spawner: Spawner) {
     info!("Advertising as 'Embassy-Bond' — waiting for connection");
 
     // ── Event loop ────────────────────────────────────────────────────────────
+    let mut event_buf = EventBuffer::new();
     loop {
-        let event = ble.read_event().await;
+        let event = ble.read_event(&mut event_buf).await;
 
-        if let Some(gap_event) = ble.process_event(&event) {
+        if let Some(gap_event) = ble.process_event(&event).await {
             match gap_event {
                 GapEvent::Connected(conn) => {
                     if let Some(rpa) = conn.peer_rpa {
                         info!(
                             "Connected: handle=0x{:04X} peer={} peer_rpa={}",
-                            conn.handle.0, conn.peer_address, rpa
+                            conn.handle.raw(),
+                            conn.peer_address,
+                            rpa
                         );
                     } else {
-                        info!("Connected: handle=0x{:04X} peer={}", conn.handle.0, conn.peer_address);
+                        info!(
+                            "Connected: handle=0x{:04X} peer={}",
+                            conn.handle.raw(),
+                            conn.peer_address
+                        );
                     }
                 }
 
                 GapEvent::Disconnected { handle, reason } => {
                     info!(
                         "Disconnected: handle=0x{:04X} reason=0x{:02X} ({})",
-                        handle.0,
+                        handle.raw(),
                         reason.as_u8(),
                         Display2Format(&reason)
                     );
@@ -246,78 +274,86 @@ async fn main(spawner: Spawner) {
             // Both sides computed the same 6-digit value from the ECDH
             // exchange. We auto-confirm; iOS shows a popup asking the user
             // to confirm the same value shown here.
-            Event::Vendor(VendorEvent::GapNumericComparisonValue(ev)) => {
+            BleEvent::Vendor(AciEvent::GapNumericComparisonValue(ev)) => {
                 info!("");
                 info!("╔══════════════════════════════════╗");
                 info!("║  CONFIRM ON PHONE: {:06}          ║", ev.numeric_value);
                 info!("╚══════════════════════════════════╝");
                 info!("");
-                if let Err(e) = security.numeric_comparison_response(ev.connection_handle.0, true) {
+                if let Err(e) = security
+                    .numeric_comparison_response(ble.controller(), ev.connection_handle.raw(), true)
+                    .await
+                {
                     error!("numeric_comparison_response error: {:?}", e);
                 }
             }
 
             // ── Pairing result ──────────────────────────────────────────────
-            Event::Vendor(VendorEvent::GapPairingComplete(GapPairingComplete { conn_handle, status })) => {
-                match status {
-                    GapPairingStatus::Success => {
-                        info!(
-                            "PAIRING COMPLETE: handle=0x{:04X} — encrypted and bonded",
-                            conn_handle.0
-                        );
-                        security.log_bonded_devices();
-                    }
-                    GapPairingStatus::Timeout(reason) => {
-                        warn!("Pairing timed out: handle=0x{:04X} reason={:?}", conn_handle.0, reason);
-                    }
-                    GapPairingStatus::Failed(reason) => {
-                        warn!(
-                            "Pairing failed: handle=0x{:04X} reason={:?} — wrong code entered?",
-                            conn_handle.0, reason
-                        );
-                    }
-                    GapPairingStatus::EncryptionFailed(reason) => {
-                        warn!("Encryption failed: handle=0x{:04X} reason={:?}", conn_handle.0, reason);
-                    }
+            BleEvent::Vendor(AciEvent::GapPairingComplete(GapPairingCompleteEvent {
+                connection_handle: conn_handle,
+                status,
+                reason,
+            })) => match status {
+                OrUnknown::Known(PairingStatus::Success) => {
+                    info!(
+                        "PAIRING COMPLETE: handle=0x{:04X} — encrypted and bonded",
+                        conn_handle.raw()
+                    );
+                    security.log_bonded_devices(ble.controller()).await;
                 }
-            }
+                OrUnknown::Known(PairingStatus::SmpTimeout) => {
+                    warn!(
+                        "Pairing timed out: handle=0x{:04X} reason={:?}",
+                        conn_handle.raw(),
+                        reason
+                    );
+                }
+                OrUnknown::Known(PairingStatus::PairingFailed) | OrUnknown::Unknown(_) => {
+                    warn!(
+                        "Pairing failed: handle=0x{:04X} reason={:?} — wrong code entered?",
+                        conn_handle.raw(),
+                        reason
+                    );
+                }
+                OrUnknown::Known(PairingStatus::EncryptionFailed) => {
+                    warn!(
+                        "Encryption failed: handle=0x{:04X} reason={:?}",
+                        conn_handle.raw(),
+                        reason
+                    );
+                }
+            },
 
             // ── Encryption state (also fires on reconnect with stored bond) ─
-            Event::EncryptionChange(EncryptionChange {
-                conn_handle,
-                encryption,
-                ..
-            }) => match encryption {
-                Encryption::On | Encryption::OnAesCcmForBrEdr => {
-                    info!("Link encrypted: handle=0x{:04X}", conn_handle.0);
+            BleEvent::Core(Event::EncryptionChangeV1(EncryptionChangeV1 { handle, enabled, .. })) => match enabled {
+                EncryptionEnabledLevel::OnE0OrAesCcm | EncryptionEnabledLevel::OnAesCcm => {
+                    info!("Link encrypted: handle=0x{:04X}", handle.raw());
                 }
-                Encryption::Off => {
-                    warn!("Encryption disabled: handle=0x{:04X}", conn_handle.0);
+                EncryptionEnabledLevel::Off => {
+                    warn!("Encryption disabled: handle=0x{:04X}", handle.raw());
                 }
             },
 
             // ── Bond lost / LTK mismatch: allow re-pair and restart open advertising ─
-            Event::Vendor(VendorEvent::GapBondLost(_)) => {
+            BleEvent::Vendor(AciEvent::GapBondLost(_)) => {
                 info!("Bond lost — allowing rebond and restarting advertising");
-                let conn_handle = ble.connections().iter().next().map(|c| c.handle.0).unwrap_or(0);
-                let _ = security.allow_rebond(conn_handle);
+                let conn_handle = ble.connections().iter().next().map(|c| c.handle.raw()).unwrap_or(0);
+                let _ = security.allow_rebond(ble.controller(), conn_handle).await;
                 if ble.is_advertising() {
                     let _ = ble.stop_advertising().await;
                 }
                 let mut scan_rsp = AdvData::new();
-                scan_rsp.add_name("Embassy-Bond").expect("scan rsp name");
+                scan_rsp = scan_rsp.complete_local_name(b"Embassy-Bond").expect("scan rsp name");
                 let _ = ble
                     .start_advertising(make_adv_params(), make_adv_data(), Some(scan_rsp))
                     .await;
             }
 
             // ── Authenticated write received from bonded peer ─────────────
-            Event::Vendor(VendorEvent::GattAttributeModified(attr)) => {
+            BleEvent::Vendor(AciEvent::GattAttributeModified(attr)) => {
                 info!(
                     "Authenticated write: conn=0x{:04X} attr=0x{:04X} data={:?}",
-                    attr.conn_handle,
-                    attr.attr_handle,
-                    attr.data()
+                    attr.connection_handle, attr.attr_handle, attr.attr_data
                 );
             }
 
@@ -340,7 +376,7 @@ fn make_adv_params() -> AdvParams {
         interval_max: 0x0080,
         adv_type: AdvType::ConnectableUndirected,
         // 0x02 = resolvable private address when controller privacy is enabled.
-        own_addr_type: OwnAddressType::PrivateFallbackPublic,
+        own_addr_type: OwnAddressType::ResolvablePrivate,
         filter_policy: AdvFilterPolicy::All,
         peer_addr: None,
         channel_map: 0x07,

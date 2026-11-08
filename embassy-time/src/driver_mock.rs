@@ -99,21 +99,23 @@ impl InnerMockDriver {
 #[cfg(test)]
 mod tests {
     use core::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex, MutexGuard};
     use std::task::Wake;
-
-    use serial_test::serial;
 
     use super::*;
 
-    fn setup() {
+    /// The tests share the global mock driver, so they must not run in parallel.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    fn setup() -> MutexGuard<'static, ()> {
+        let guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         DRIVER.reset();
+        guard
     }
 
     #[test]
-    #[serial]
     fn test_advance() {
-        setup();
+        let _guard = setup();
 
         let driver = MockDriver::get();
         let reference = driver.now();
@@ -122,9 +124,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_schedule_wake() {
-        setup();
+        let _guard = setup();
 
         static CALLBACK_CALLED: AtomicBool = AtomicBool::new(false);
 

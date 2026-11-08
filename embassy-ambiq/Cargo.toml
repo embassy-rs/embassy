@@ -31,9 +31,6 @@ cortex-m = "0.7"
 cortex-m-rt = "0.7"
 critical-section = "1.1"
 
-# Logging
-defmt = { version = "0.3", optional = true }
-
 # Macro helpers
 paste = "1.0"
 
@@ -76,4 +73,4 @@ apollo3 = ["dep:apollo3-pac"]
 svl-vtor = []
 
 # Other features
-defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "apollo3-pac?/defmt"]
+defmt = ["embassy-hal-internal/defmt", "embassy-sync/defmt", "apollo3-pac?/defmt"]

@@ -141,10 +141,11 @@ impl generic::Readable for TxBufferElementHeader {}
 impl generic::Writable for TxBufferElementHeader {}
 
 // Ensure the RegisterBlock is the same size as on pg 1957 of RM0440.
-static_assertions::assert_eq_size!(Filters, [u32; 28 + 16]);
-static_assertions::assert_eq_size!(Receive, [u32; 54]);
-static_assertions::assert_eq_size!(Transmit, [u32; 6 + 54]);
-static_assertions::assert_eq_size!(
-    RegisterBlock,
-    [u32; 28 /*Standard Filters*/ +16 /*Extended Filters*/ +54 /*RxFifo0*/ +54 /*RxFifo1*/ +6 /*TxEvent*/ +54 /*TxFifo */]
+const _: () = core::assert!(size_of::<Filters>() == (28 + 16) * 4);
+const _: () = core::assert!(size_of::<Receive>() == 54 * 4);
+const _: () = core::assert!(size_of::<Transmit>() == (6 + 54) * 4);
+const _: () = core::assert!(
+    size_of::<RegisterBlock>()
+        == (28 /*Standard Filters*/ + 16 /*Extended Filters*/ + 54 /*RxFifo0*/ + 54 /*RxFifo1*/ + 6 /*TxEvent*/ + 54/*TxFifo*/)
+            * 4
 );

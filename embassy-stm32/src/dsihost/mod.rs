@@ -380,7 +380,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
                 self.wait_command_fifo_empty().unwrap();
             }
 
-            // If the remaining data was not devisible by 4 we get a remainder
+            // If the remaining data was not divisible by 4 we get a remainder
             if remainder.len() >= 1 {
                 self.wait_command_fifo_not_full()?;
                 T::regs().gpdr().write(|w| {

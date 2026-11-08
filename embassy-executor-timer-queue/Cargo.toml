@@ -14,6 +14,11 @@ categories = [
     "asynchronous",
 ]
 
+# Prevent multiple copies of this crate in the same binary.
+# Needed because different copies might get different features set
+# like the word size, causing unsoundness.
+links = "embassy-executor-timer-queue"
+
 [dependencies]
 unitrait = { git = "https://github.com/embassy-rs/unitrait", rev = "bb96601b3d293fa27d1ca2891f6ea148e534e433" }
 

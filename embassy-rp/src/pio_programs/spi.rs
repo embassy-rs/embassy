@@ -5,8 +5,6 @@ use core::marker::PhantomData;
 use embassy_futures::join::join;
 use embassy_hal_internal::Peri;
 use embedded_hal_02::spi::{Phase, Polarity};
-use fixed::traits::ToFixed;
-use fixed::types::extra::U8;
 
 use crate::clocks::clk_sys_freq;
 use crate::gpio::Level;
@@ -136,7 +134,7 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
         cfg.shift_out.direction = ShiftDirection::Left;
         cfg.shift_out.threshold = 8;
 
-        cfg.clock_divider = calculate_clock_divider(config.frequency.0);
+        cfg.clock_divider_x256 = calculate_clock_divider(config.frequency.0);
 
         sm.set_config(&cfg);
 
@@ -241,8 +239,8 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
         // save into the config for later but dont use sm.set_config() since
         // that operation is relatively more expensive than just setting the
         // clock divider
-        self.cfg.clock_divider = divider;
-        self.sm.set_clock_divider(divider);
+        self.cfg.clock_divider_x256 = divider;
+        self.sm.set_clock_divider_x256(divider);
 
         self.sm.set_enable(true);
     }
@@ -255,7 +253,7 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
     pub fn set_config(&mut self, pio: &mut Common<'d, PIO>, config: &Config) {
         self.sm.set_enable(false);
 
-        self.cfg.clock_divider = calculate_clock_divider(config.frequency.0);
+        self.cfg.clock_divider_x256 = calculate_clock_divider(config.frequency.0);
 
         if let Polarity::IdleHigh = config.polarity {
             self.clk_pin.set_output_inversion(true);
@@ -282,12 +280,11 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
     }
 }
 
-fn calculate_clock_divider(frequency_hz: u32) -> fixed::FixedU32<U8> {
+/// Returns the PIO clock divider in 16.8 fixed point.
+fn calculate_clock_divider(frequency_hz: u32) -> u32 {
     // we multiply by 4 since each clock period is equal to 4 instructions
-
-    let sys_freq = clk_sys_freq().to_fixed::<fixed::FixedU64<U8>>();
-    let target_freq = (frequency_hz * 4).to_fixed::<fixed::FixedU64<U8>>();
-    (sys_freq / target_freq).to_fixed()
+    let divider = ((clk_sys_freq() as u64) << 8) / (frequency_hz as u64 * 4);
+    divider.try_into().unwrap()
 }
 
 impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Blocking> {

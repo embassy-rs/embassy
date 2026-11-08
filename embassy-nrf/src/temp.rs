@@ -5,7 +5,6 @@ use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
-use fixed::types::I30F2;
 
 use crate::interrupt::InterruptExt;
 use crate::peripherals::TEMP;
@@ -47,6 +46,8 @@ impl<'d> Temp<'d> {
     /// Perform an asynchronous temperature measurement. The returned future
     /// can be awaited to obtain the measurement.
     ///
+    /// The result is in units of 0.25 °C, i.e. divide by 4 to get °C.
+    ///
     /// If the future is dropped, the measurement is cancelled.
     ///
     /// # Example
@@ -62,10 +63,10 @@ impl<'d> Temp<'d> {
     /// # async {
     /// # let p: embassy_nrf::Peripherals = todo!();
     /// let mut t = Temp::new(p.TEMP, Irqs);
-    /// let v: u16 = t.read().await.to_num::<u16>();
+    /// let celsius: i32 = t.read_celsius_x4().await / 4;
     /// # };
     /// ```
-    pub async fn read(&mut self) -> I30F2 {
+    pub async fn read_celsius_x4(&mut self) -> i32 {
         // In case the future is dropped, stop the task and reset events.
         let on_drop = OnDrop::new(|| {
             let t = Self::regs();
@@ -84,7 +85,7 @@ impl<'d> Temp<'d> {
             } else {
                 t.events_datardy().write_value(0);
                 let raw = t.temp().read();
-                Poll::Ready(I30F2::from_bits(raw as i32))
+                Poll::Ready(raw as i32)
             }
         })
         .await;

@@ -241,7 +241,7 @@ impl PixelFormat {
             PixelFormat::ARGB8888 | PixelFormat::ABGR8888 | PixelFormat::RGBA8888 | PixelFormat::BGRA8888 => 4,
             PixelFormat::RGB888 => 3,
             PixelFormat::RGB565 | PixelFormat::BGR565 => 2,
-            PixelFormat::FLEXIBLE => todo!("Flexable pixels are not yet implemented"),
+            PixelFormat::FLEXIBLE => todo!("Flexible pixels are not yet implemented"),
         }
     }
 }

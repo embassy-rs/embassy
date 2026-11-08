@@ -10,14 +10,14 @@
 ///
 /// NOTE: *for now*, some items are here because we haven't validated them on the MCXA5xx yet.
 /// This note will be removed when the two reach parity.
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 #[path = "."]
 mod mcxa2xx_exclusive {
     pub use crate::chips::mcxa2xx::init;
 }
 
 /// Module for MCXA5xx-specific HAL drivers
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 #[path = "."]
 mod mcxa5xx_exclusive {
     pub use crate::chips::mcxa5xx::init;
@@ -28,12 +28,16 @@ pub mod trace;
 
 #[cfg(mcxa_adc)]
 pub mod adc;
+#[cfg(mcxa_aoi)]
+pub mod aoi;
 #[cfg(mcxa_cdog)]
 pub mod cdog;
 #[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
 pub mod clkout; // TODO: Add dummy driver to metadata
 #[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
 pub mod clocks;
+#[cfg(mcxa_cmp)]
+pub mod cmp;
 pub mod config;
 #[cfg(mcxa_crc)]
 pub mod crc;
@@ -43,12 +47,22 @@ pub mod ctimer;
 pub mod dac;
 #[cfg(mcxa_dma)]
 pub mod dma;
+#[cfg(mcxa_eim)]
+pub mod eim;
+#[cfg(mcxa_erm)]
+pub mod erm;
 #[cfg(feature = "executor-platform")]
 pub mod executor;
 #[cfg(mcxa_can)]
 pub mod flexcan;
 #[cfg(mcxa_flexspi)]
 pub mod flexspi;
+#[cfg(mcxa_freqme)]
+pub mod freqme;
+#[cfg(mcxa_gdet)]
+pub mod gdet;
+#[cfg(mcxa_glikey)]
+pub mod glikey;
 #[cfg(mcxa_gpio)]
 pub mod gpio;
 #[cfg(mcxa_lpi2c)]
@@ -57,9 +71,13 @@ pub mod i2c;
 pub mod i3c;
 #[cfg(mcxa_inputmux)]
 pub mod inputmux;
+#[cfg(mcxa_lptmr)]
+pub mod lptmr;
 #[cfg(mcxa_lpuart)]
 pub mod lpuart;
-#[cfg(mcxa_ostimer)]
+#[cfg(mcxa_mbc)]
+pub mod mbc;
+#[cfg(all(mcxa_ostimer, time_driver_ostimer))]
 pub mod ostimer;
 pub mod perf_counters;
 #[cfg(mcxa_cmc)]
@@ -79,9 +97,9 @@ pub mod trng;
 #[cfg(mcxa_wwdt)]
 pub mod wwdt;
 
-#[cfg(feature = "mcxa2xx")]
+#[cfg(feature = "_mcxa2xx")]
 pub use mcxa2xx_exclusive::*;
-#[cfg(feature = "mcxa5xx")]
+#[cfg(feature = "_mcxa5xx")]
 pub use mcxa5xx_exclusive::*;
 
 pub(crate) mod chips;
@@ -106,7 +124,19 @@ pub(crate) use nxp_pac as pac;
 
 pub use crate::_generated::{Peripherals, interrupt, peripherals};
 
-const HALS_SELECTED: usize = const { cfg!(feature = "mcxa2xx") as usize + cfg!(feature = "mcxa5xx") as usize };
+#[cfg(all(feature = "time-driver-ostimer", feature = "time-driver-lptmr"))]
+compile_error!("Select at most one explicit time driver: time-driver-ostimer or time-driver-lptmr");
+
+pub(crate) fn init_time_driver(priority: interrupt::Priority) {
+    #[cfg(time_driver_ostimer)]
+    ostimer::init(priority);
+    #[cfg(time_driver_lptmr)]
+    lptmr::time_driver::init(priority);
+    #[cfg(not(any(time_driver_ostimer, time_driver_lptmr)))]
+    let _ = priority;
+}
+
+const HALS_SELECTED: usize = const { cfg!(feature = "_mcxa2xx") as usize + cfg!(feature = "_mcxa5xx") as usize };
 
 /// Ensure exactly one chip feature is set.
 #[doc(hidden)]

@@ -9,144 +9,25 @@ use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 pub use self::hid_report::{ReportDescriptor, ReportField};
+use super::{
+    HID_DESC_TYPE_HID, HID_DESC_TYPE_REPORT, HID_REQ_GET_REPORT, HID_REQ_SET_IDLE, HID_REQ_SET_PROTOCOL,
+    HID_REQ_SET_REPORT, HidProtocolMode, KeyboardReport, MouseReport, ReportId, USB_CLASS_HID,
+};
 use crate::host::control::SetupPacket;
 use crate::host::descriptor::ConfigurationDescriptorChain;
 use crate::host::handler::EnumerationInfo;
 
-/// HID class code.
-const USB_CLASS_HID: u8 = 0x03;
 /// Interrupt transfer type.
 const TRANSFER_INTERRUPT: u8 = 0x03;
 
-/// HID class request: GET_REPORT.
-const GET_REPORT: u8 = 0x01;
-/// HID class request: SET_REPORT;
-const SET_REPORT: u8 = 0x09;
-/// HID class request: SET_IDLE.
-const SET_IDLE: u8 = 0x0A;
-/// HID class request: SET_PROTOCOL.
-const SET_PROTOCOL: u8 = 0x0B;
-
-/// Boot protocol.
-pub const PROTOCOL_BOOT: u8 = 0;
-/// Report protocol.
-pub const PROTOCOL_REPORT: u8 = 1;
-
-// ── Boot-protocol report structs ─────────────────────────────────────────────
-
-/// Decoded keyboard report (USB HID boot protocol, 8 bytes).
-///
-/// All standard USB keyboards support this layout when placed in boot protocol
-/// mode via [`HidHost::set_protocol`] with [`PROTOCOL_BOOT`].
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct KeyboardReport {
-    /// Modifier keys bitmask.
+impl SetupPacket {
+    /// Build a GET_DESCRIPTOR(HID Report Descriptor) SETUP packet.
     ///
-    /// Bit 0: Left Ctrl  | Bit 1: Left Shift  | Bit 2: Left Alt  | Bit 3: Left GUI
-    /// Bit 4: Right Ctrl | Bit 5: Right Shift | Bit 6: Right Alt | Bit 7: Right GUI
-    pub modifiers: u8,
-    /// Up to 6 simultaneously pressed key codes (HID usage page 0x07).
-    /// A value of 0x00 means "no key"; 0x01 means "rollover error".
-    pub keycodes: [u8; 6],
-}
-
-impl KeyboardReport {
-    /// Parse a boot-protocol keyboard report from an 8-byte buffer.
-    /// Returns `None` if the buffer is shorter than 8 bytes.
-    pub fn parse(buf: &[u8]) -> Option<Self> {
-        if buf.len() < 8 {
-            return None;
-        }
-        Some(Self {
-            modifiers: buf[0],
-            // buf[1] is reserved
-            keycodes: [buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]],
-        })
-    }
-
-    /// Returns `true` if the given HID key code is currently pressed.
-    pub fn is_pressed(&self, keycode: u8) -> bool {
-        keycode != 0 && self.keycodes.contains(&keycode)
-    }
-
-    /// Returns `true` if Left Ctrl or Right Ctrl is held.
-    pub fn ctrl(&self) -> bool {
-        self.modifiers & 0x11 != 0
-    }
-    /// Returns `true` if Left Shift or Right Shift is held.
-    pub fn shift(&self) -> bool {
-        self.modifiers & 0x22 != 0
-    }
-    /// Returns `true` if Left Alt or Right Alt is held.
-    pub fn alt(&self) -> bool {
-        self.modifiers & 0x44 != 0
-    }
-    /// Returns `true` if Left GUI (Win/Cmd) or Right GUI is held.
-    pub fn gui(&self) -> bool {
-        self.modifiers & 0x88 != 0
+    /// `interface` is the HID interface number; `len` is from `HidInfo::report_descriptor_len`.
+    pub const fn get_hid_report_descriptor(interface: u8, len: u16) -> Self {
+        Self::get_interface_descriptor(HID_DESC_TYPE_REPORT, interface as u16, len)
     }
 }
-
-/// Mouse button bitmask used in [`MouseReport`].
-///
-/// Bit 0: left button | Bit 1: right button | Bit 2: middle button
-pub type MouseButtons = u8;
-
-/// Decoded mouse report (USB HID boot protocol, 4 bytes).
-///
-/// All standard USB mice support this layout in boot protocol mode.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct MouseReport {
-    /// Button state. Use the [`MouseButtons`] constants or check bits directly.
-    pub buttons: MouseButtons,
-    /// Horizontal movement since last report (signed, positive = right).
-    pub x: i8,
-    /// Vertical movement since last report (signed, positive = down).
-    pub y: i8,
-    /// Scroll wheel movement (signed, positive = scroll up / away from user).
-    pub wheel: i8,
-}
-
-impl MouseReport {
-    /// Left mouse button.
-    pub const BUTTON_LEFT: MouseButtons = 1 << 0;
-    /// Right mouse button.
-    pub const BUTTON_RIGHT: MouseButtons = 1 << 1;
-    /// Middle mouse button (scroll wheel click).
-    pub const BUTTON_MIDDLE: MouseButtons = 1 << 2;
-
-    /// Parse a boot-protocol mouse report from a buffer (minimum 3 bytes; 4 for wheel).
-    /// Returns `None` if the buffer is shorter than 3 bytes.
-    pub fn parse(buf: &[u8]) -> Option<Self> {
-        if buf.len() < 3 {
-            return None;
-        }
-        Some(Self {
-            buttons: buf[0],
-            x: buf[1] as i8,
-            y: buf[2] as i8,
-            wheel: if buf.len() >= 4 { buf[3] as i8 } else { 0 },
-        })
-    }
-
-    /// Returns `true` if the left button is pressed.
-    pub fn left(&self) -> bool {
-        self.buttons & Self::BUTTON_LEFT != 0
-    }
-    /// Returns `true` if the right button is pressed.
-    pub fn right(&self) -> bool {
-        self.buttons & Self::BUTTON_RIGHT != 0
-    }
-    /// Returns `true` if the middle button is pressed.
-    pub fn middle(&self) -> bool {
-        self.buttons & Self::BUTTON_MIDDLE != 0
-    }
-}
-
-/// HID class descriptor type (appears inside the configuration descriptor).
-const DESC_HID: u8 = 0x21;
 
 /// Information about a HID interface found in a configuration descriptor.
 #[derive(Clone, Debug)]
@@ -180,7 +61,7 @@ pub fn find_hid(config_desc: &[u8]) -> Option<HidInfo> {
         let report_desc_len = iface
             .iter_descriptors()
             .find_map(|(_, data)| {
-                if data.len() >= 9 && data[1] == DESC_HID {
+                if data.len() >= 9 && data[1] == HID_DESC_TYPE_HID {
                     Some(u16::from_le_bytes([data[7], data[8]]))
                 } else {
                     None
@@ -317,7 +198,7 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
     /// A STALL is treated as success per the HID specification.
     pub async fn set_idle(&mut self, report_id: u8, idle_duration: u8) -> Result<(), HidError> {
         let value = (idle_duration as u16) << 8 | report_id as u16;
-        let setup = SetupPacket::class_interface_out(SET_IDLE, value, self.interface as u16, 0);
+        let setup = SetupPacket::class_interface_out(HID_REQ_SET_IDLE, value, self.interface as u16, 0);
         match self.ctrl_ch.control_out(&setup.to_bytes(), &[]).await {
             Ok(_) => Ok(()),
             Err(PipeError::Stall) => Ok(()),
@@ -326,8 +207,8 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
     }
 
     /// Set the protocol (boot or report).
-    pub async fn set_protocol(&mut self, protocol: u8) -> Result<(), HidError> {
-        let setup = SetupPacket::class_interface_out(SET_PROTOCOL, protocol as u16, self.interface as u16, 0);
+    pub async fn set_protocol(&mut self, protocol: HidProtocolMode) -> Result<(), HidError> {
+        let setup = SetupPacket::class_interface_out(HID_REQ_SET_PROTOCOL, protocol as u16, self.interface as u16, 0);
         self.ctrl_ch.control_out(&setup.to_bytes(), &[]).await?;
         Ok(())
     }
@@ -342,7 +223,7 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
 
     /// Read and parse a boot-protocol keyboard report.
     ///
-    /// Call [`HidHost::set_protocol`] with [`PROTOCOL_BOOT`] first.
+    /// Call [`HidHost::set_protocol`] with [`HidProtocolMode::Boot`] first.
     /// Returns `None` if the report is malformed (shorter than 8 bytes).
     pub async fn read_keyboard(&mut self) -> Result<Option<KeyboardReport>, HidError> {
         let mut buf = [0u8; 8];
@@ -352,7 +233,7 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
 
     /// Read and parse a boot-protocol mouse report.
     ///
-    /// Call [`HidHost::set_protocol`] with [`PROTOCOL_BOOT`] first.
+    /// Call [`HidHost::set_protocol`] with [`HidProtocolMode::Boot`] first.
     /// Returns `None` if the report is malformed (shorter than 3 bytes).
     pub async fn read_mouse(&mut self) -> Result<Option<MouseReport>, HidError> {
         let mut buf = [0u8; 4];
@@ -363,25 +244,30 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
 
     /// Issue a GET_REPORT control request.
     ///
-    /// `report_type`: 1=Input, 2=Output, 3=Feature.
-    /// `report_id`: 0 if the device uses a single report.
+    /// Use report ID 0 if the device uses a single report.
     ///
     /// Returns the number of bytes received.
-    pub async fn get_report(&mut self, report_type: u8, report_id: u8, buf: &mut [u8]) -> Result<usize, HidError> {
-        let value = (report_type as u16) << 8 | report_id as u16;
-        let setup = SetupPacket::class_interface_in(GET_REPORT, value, self.interface as u16, buf.len() as u16);
+    pub async fn get_report(&mut self, report: ReportId, buf: &mut [u8]) -> Result<usize, HidError> {
+        let setup = SetupPacket::class_interface_in(
+            HID_REQ_GET_REPORT,
+            report.to_value(),
+            self.interface as u16,
+            buf.len() as u16,
+        );
         let n = self.ctrl_ch.control_in(&setup.to_bytes(), buf).await?;
         Ok(n)
     }
 
     /// Issue a SET_REPORT control request.
     ///
-    /// `report_type`: 1=Input, 2=Output, 3=Feature.
-    /// `report_id`: 0 if the device uses a single report.
-    /// `buf`: the report body
-    pub async fn set_report(&mut self, report_type: u8, report_id: u8, buf: &[u8]) -> Result<(), HidError> {
-        let value = (report_type as u16) << 8 | report_id as u16;
-        let setup = SetupPacket::class_interface_out(SET_REPORT, value, self.interface as u16, buf.len() as u16);
+    /// Use report ID 0 if the device uses a single report; `buf` is the report body.
+    pub async fn set_report(&mut self, report: ReportId, buf: &[u8]) -> Result<(), HidError> {
+        let setup = SetupPacket::class_interface_out(
+            HID_REQ_SET_REPORT,
+            report.to_value(),
+            self.interface as u16,
+            buf.len() as u16,
+        );
         self.ctrl_ch.control_out(&setup.to_bytes(), buf).await?;
         Ok(())
     }
