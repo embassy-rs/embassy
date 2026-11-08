@@ -20,6 +20,7 @@ pub mod mlme {
         AssociateConfirm, CalibrateConfirm, DisassociateConfirm, DpsConfirm, GetConfirm, GtsConfirm, PollConfirm,
         ResetConfirm, RxEnableConfirm, ScanConfirm, SetConfirm, SoundingConfirm, StartConfirm,
     };
+    use crate::net::typedefs::{AssociationStatus, MacError, MacStatus};
 
     #[derive(Clone, Copy, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -51,6 +52,37 @@ pub mod mlme {
         Dps(&'a DpsConfirm),
         Sounding(&'a SoundingConfirm),
         Calibrate(&'a CalibrateConfirm),
+    }
+
+    impl ConfirmPacket<'_> {
+        /// Turn the status carried by this confirm into a `Result`.
+        pub(crate) fn result(&self) -> Result<(), MacError> {
+            let status = match self {
+                Self::Associate(c) => {
+                    return match c.status {
+                        AssociationStatus::Success => Ok(()),
+                        status => Err(MacError::Association(status)),
+                    };
+                }
+                Self::Sounding(c) => c.status,
+                Self::Disassociate(c) => c.status,
+                Self::Get(c) => c.status,
+                Self::Gts(c) => c.status,
+                Self::Reset(c) => c.status,
+                Self::RxEnable(c) => c.status,
+                Self::Scan(c) => c.status,
+                Self::Set(c) => c.status,
+                Self::Start(c) => c.status,
+                Self::Poll(c) => c.status,
+                Self::Dps(c) => c.status,
+                Self::Calibrate(c) => c.status,
+            };
+
+            match status {
+                MacStatus::Success => Ok(()),
+                status => Err(MacError::Status(status)),
+            }
+        }
     }
 
     /// Type representing valid deserialized HCI packets.
