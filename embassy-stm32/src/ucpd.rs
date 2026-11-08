@@ -234,13 +234,13 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         let r = T::REGS;
 
         // Enable the receiver on one of the two CC lines.
-        r.cr().modify(|w| w.set_phyccsel(cc_sel));
+        modify_cr::<T>(|w| w.set_phyccsel(cc_sel));
 
         // Enable hard reset receive interrupt.
         r.imr().set_bits(|w| w.set_rxhrstdetie(true));
 
         // Enable PD packet reception
-        r.cr().modify(|w| w.set_phyrxen(true));
+        modify_cr::<T>(|w| w.set_phyrxen(true));
 
         // Both parts must be dropped before the peripheral can be disabled.
         T::state().drop_not_ready.store(true, Ordering::Relaxed);
@@ -266,7 +266,7 @@ pub struct CcPhy<'d, T: Instance> {
 impl<'d, T: Instance> Drop for CcPhy<'d, T> {
     fn drop(&mut self) {
         let r = T::REGS;
-        r.cr().modify(|w| {
+        modify_cr::<T>(|w| {
             w.set_cc1tcdis(true);
             w.set_cc2tcdis(true);
             w.set_ccenable(Ccenable::Disabled);
@@ -284,7 +284,7 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
 impl<'d, T: Instance> CcPhy<'d, T> {
     /// Sets the pull-up/pull-down resistor values exposed on the CC pins.
     pub fn set_pull(&mut self, cc_pull: CcPull) {
-        T::REGS.cr().modify(|w| {
+        modify_cr::<T>(|w| {
             w.set_anamode(if cc_pull == CcPull::Sink {
                 Anamode::Sink
             } else {
@@ -480,7 +480,7 @@ pub struct PdPhy<'d, T: Instance> {
 impl<'d, T: Instance> Drop for PdPhy<'d, T> {
     fn drop(&mut self) {
         let r = T::REGS;
-        r.cr().modify(|w| w.set_phyrxen(false));
+        modify_cr::<T>(|w| w.set_phyrxen(false));
         // Check if the CcPhy part was dropped already.
         if !T::state().drop_not_ready.clear() {
             r.cfgr1().write(|w| w.set_ucpden(false));
@@ -616,7 +616,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
         // Configure and start the transmission.
         r.tx_payszr().write(|w| w.set_txpaysz(buf.len() as _));
-        r.cr().modify(|w| {
+        modify_cr::<T>(|w| {
             w.set_txmode(Txmode::Packet);
             w.set_txsend(true);
         });
@@ -663,8 +663,6 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
     /// Transmit a hard reset.
     pub async fn transmit_hardreset(&mut self) -> Result<(), TxError> {
-        let r = T::REGS;
-
         // Clear the hardreset interrupt flags.
         T::REGS.icr().write(|w| {
             w.set_hrstdisccf(true);
@@ -672,7 +670,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         });
 
         // Trigger hard reset transmission.
-        r.cr().modify(|w| {
+        modify_cr::<T>(|w| {
             w.set_txhrst(true);
         });
 
@@ -711,6 +709,25 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             });
         }
     }
+}
+
+/// Modifies CR.
+///
+/// CR is written by both the CC part and the PD part, which may run at different priorities, so
+/// the read-modify-write runs in a critical section to keep them from overwriting each other.
+///
+/// TXSEND, TXHRST and FRSTX are commands that the hardware clears once it acts on them. A value
+/// read while one of them was still set must not be written back, as that would issue the command
+/// again (e.g. send a message twice), so they are written as 0 unless `f` sets them.
+fn modify_cr<T: Instance>(f: impl FnOnce(&mut crate::pac::ucpd::regs::Cr)) {
+    critical_section::with(|_| {
+        T::REGS.cr().modify(|w| {
+            w.set_txsend(false);
+            w.set_txhrst(false);
+            w.set_frstx(false);
+            f(w);
+        });
+    });
 }
 
 /// Interrupt handler.

@@ -18,6 +18,7 @@ UCPD:
 - change: stm32/ucpd: `CcPhy::wait_for_vstate_change` takes `&mut self`. Two concurrent waits disabled each other's interrupt when the first one finished.
 - change: stm32/ucpd: `CcPhy::vstate` marks the state as seen, so `CcPhy::wait_for_vstate_change` reports changes since the last `vstate()` call instead of since its own last return ([#6394](https://github.com/embassy-rs/embassy/issues/6394)).
 - fix: stm32/ucpd: when `CcPhy` and `PdPhy` were dropped at the same time from different priority levels, the peripheral could be left enabled.
+- fix: stm32/ucpd: update the control register (CR) without lost updates or repeated commands. `CcPhy` and `PdPhy` could overwrite each other's settings, and any CR update could write back a `TXSEND` or `TXHRST` the hardware had just cleared, sending a message or Hard Reset twice.
 
 VREFBUF:
 - feat: stm32/vrefbuf g0x1: enable the VREFBUF clock. On G0x1, including G0B1, it is `SYSCFGEN` in `RCC_APBENR2`, shared with SYSCFG and COMP (RM0444 5.4.16). Without it `VoltageReferenceBuffer::new` never sees `VRR` and waits forever.
