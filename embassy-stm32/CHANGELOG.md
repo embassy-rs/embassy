@@ -28,6 +28,7 @@ RCC:
 - fix: stm32/rcc g0: enable the flash prefetch after setting the latency; with 2 wait states at 64 MHz and prefetch off code ran 8-16% slower.
 - fix: stm32/rcc g0: keep the flash prefetch off on G0B0/G0B1/G0C1 while the flash runs dual-bank (ES0547 2.2.8, ES0548/ES0549 2.2.10, prefetch fails on branches across the banks); `rcc::Config::flash_prefetch = FlashPrefetch::IfCodeInOneBank` turns it on for an application whose code stays in one bank.
 - feat: stm32/rcc u5: backup SRAM
+- feat: stm32/rcc: add `rcc::reset_flags()` to read what caused the last reset.
 
 LPTIM:
 - fix: stm32/lptim: a period whose tick count is at least 65536 no longer panics when rounding the divider up to a power of two still leaves the reload above 65535. The prescaler is the smallest of /1, /2, ..., /128 for which the reload fits in 16 bits. A period that does not fit even at /128 still panics.
