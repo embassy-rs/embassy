@@ -172,8 +172,9 @@ impl<'d, T: Instance> Ucpd<'d, T> {
                 | (config.sop_double_prime as u16) << 2
                 // Hard reset
                 | 0x1 << 3
-                | (config.sop_prime_debug as u16) << 4
-                | (config.sop_double_prime_debug as u16) << 5;
+                // Bit 4 is Cable Reset, which is not enabled.
+                | (config.sop_prime_debug as u16) << 5
+                | (config.sop_double_prime_debug as u16) << 6;
             w.set_rxordseten(rxordset);
 
             // Enable DMA
