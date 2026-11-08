@@ -152,9 +152,9 @@ fn common_init<T: Instance>() {
         critical_section::with(|_| crate::pac::PWR.svmcr3().modify(|w| w.set_usb33vmen(true)));
 
         // Wait for USB power to stabilize
-        while crate::pac::PWR.svmcr3().read().usb33rdy() != Usb33rdy::B0x1 {}
+        while crate::pac::PWR.svmcr3().read().usb33rdy() != Usb33rdy::Ready {}
 
-        critical_section::with(|_| crate::pac::PWR.svmcr3().modify(|w| w.set_usb33sv(Usb33sv::B0x1)));
+        critical_section::with(|_| crate::pac::PWR.svmcr3().modify(|w| w.set_usb33sv(Usb33sv::Valid)));
     }
 
     // Bring the PHY up before the core. On the N6 this selects the reference clock
