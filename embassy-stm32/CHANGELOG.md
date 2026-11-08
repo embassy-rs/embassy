@@ -270,6 +270,7 @@ SDMMC:
 
 Watchdog:
 - fix: stm32/wdg: an `IndependentWatchdog` timeout shorter than one prescaled LSI tick (125 us with a 32 kHz LSI) made the reload value underflow, which panics in debug builds and in release wraps to the longest timeout (512 ms). It now gets the shortest timeout instead.
+- feat: stm32: `Config::freeze_iwdg_when_halted`, stops the IWDG while a debugger halts the core
 
 EXTI:
 - feat: stm32/exti: `ExtiInput::enable_event`, `disable_event` and `line`, for EXTI events

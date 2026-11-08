@@ -422,6 +422,10 @@ pub struct Config {
     #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
 
+    /// Stop the IWDG while a debugger halts the core. Defaults to false.
+    #[cfg(dbgmcu)]
+    pub freeze_iwdg_when_halted: bool,
+
     /// On low-power boards (eg. `stm32l4`, `stm32l5`, `stm32wba` and `stm32u5`),
     /// some GPIO pins are powered by an auxiliary, independent power supply (`VDDIO2`),
     /// which needs to be enabled before these pins can be used.
@@ -547,6 +551,8 @@ impl Default for Config {
             min_stop_pause: embassy_time::Duration::from_millis(250),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
+            #[cfg(dbgmcu)]
+            freeze_iwdg_when_halted: false,
             #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba))]
             enable_independent_io_supply: true,
             #[cfg(stm32wba)]
@@ -834,6 +840,35 @@ fn init_hw(config: Config) -> Peripherals {
                 cr.set_dbgstop_d1(config.enable_debug_during_sleep);
             }
         });
+
+        // Only ever set, so a freeze set by a debugger is kept.
+        #[cfg(dbgmcu)]
+        if config.freeze_iwdg_when_halted {
+            #[cfg(any(dbgmcu_c0, dbgmcu_f3, dbgmcu_f4, dbgmcu_f7, dbgmcu_g0, dbgmcu_l0))]
+            crate::pac::DBGMCU.apb1fzr().modify(|w| w.set_iwdg(true));
+            #[cfg(any(dbgmcu_f0, dbgmcu_f2))]
+            crate::pac::DBGMCU.apb1_fz().modify(|w| w.set_iwdg(true));
+            #[cfg(dbgmcu_f1)]
+            crate::pac::DBGMCU.cr().modify(|w| w.set_iwdg(true));
+            #[cfg(dbgmcu_g4)]
+            crate::pac::DBGMCU.apb1lfzr().modify(|w| w.set_iwdg(true));
+            #[cfg(dbgmcu_h5)]
+            crate::pac::DBGMCU.apb1lfzr().modify(|w| w.set_iwdg_stop(true));
+            #[cfg(dbgmcu_c5)]
+            crate::pac::DBGMCU.dbgmcu_apb1lfzr().modify(|w| w.set_iwdg_stop(true));
+            #[cfg(any(dbgmcu_h7, dbgmcu_h7rm0399))]
+            crate::pac::DBGMCU.apb4fzr1().modify(|w| w.set_iwdg1(true));
+            #[cfg(dbgmcu_l1)]
+            crate::pac::DBGMCU.apb1_fz().modify(|w| w.set_dbg_iwdg_stop(true));
+            #[cfg(any(dbgmcu_l4, dbgmcu_l5, dbgmcu_wb, dbgmcu_wl))]
+            crate::pac::DBGMCU.apb1fzr1().modify(|w| w.set_iwdg(true));
+            #[cfg(dbgmcu_n6)]
+            crate::pac::DBGMCU.apb4fz1().modify(|w| w.set_dbg_iwdg_stop(true));
+            #[cfg(dbgmcu_u0)]
+            crate::pac::DBGMCU.apb1fzr().modify(|w| w.set_dbg_iwdg_stop(true));
+            #[cfg(any(dbgmcu_u3, dbgmcu_u5, dbgmcu_wba))]
+            crate::pac::DBGMCU.apb1lfzr().modify(|w| w.set_dbg_iwdg_stop(true));
+        }
 
         #[cfg(any(stm32h7rs))]
         // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
