@@ -360,29 +360,41 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     ///
     /// Interpretation of the voltage levels depends on the configured CC line
     /// pull-up/pull-down resistance.
+    ///
+    /// This also marks the current state as seen: [`wait_for_vstate_change`](Self::wait_for_vstate_change)
+    /// returns once the state changes after this call.
     pub fn vstate(&self) -> (CcVState, CcVState) {
+        // Clear the event flags before reading the state, so that a change after the read sets
+        // them again instead of being lost.
+        T::REGS.icr().write(|w| {
+            w.set_typecevt1cf(true);
+            w.set_typecevt2cf(true);
+        });
         let sr = T::REGS.sr().read();
         (sr.typec_vstate_cc1(), sr.typec_vstate_cc2())
     }
 
     /// Waits for a change in voltage state on either CC line.
     ///
-    /// Returns the current voltage state once the hardware has reported a change on CC1 or CC2.
-    /// Changes are latched: a change that happened before this call, since the previous call
-    /// returned, makes it return immediately. The returned state can therefore be equal to the
-    /// one seen before, for example if the line changed and changed back.
+    /// Returns the current voltage state once the hardware has reported a change on CC1 or CC2
+    /// since the state was last read, by [`vstate`](Self::vstate) or by this function. Changes
+    /// are latched: one that happened before this call makes it return immediately, so a loop like
+    ///
+    /// ```ignore
+    /// let (mut cc1, _) = cc_phy.vstate();
+    /// while cc1 != wanted {
+    ///     (cc1, _) = cc_phy.wait_for_vstate_change().await;
+    /// }
+    /// ```
+    ///
+    /// can't miss a change. The returned state can be equal to the one seen before, for example
+    /// if the line changed and changed back.
     pub async fn wait_for_vstate_change(&mut self) -> (CcVState, CcVState) {
         let _on_drop = OnDrop::new(|| self.enable_cc_interrupts(false));
         poll_fn(|cx| {
-            let r = T::REGS;
-            let sr = r.sr().read();
+            let sr = T::REGS.sr().read();
             if sr.typecevt1() || sr.typecevt2() {
-                // Clear the flags before reading the state, so that a change after the read sets
-                // them again instead of being lost. Only clear the flags that were seen.
-                r.icr().write(|w| {
-                    w.set_typecevt1cf(sr.typecevt1());
-                    w.set_typecevt2cf(sr.typecevt2());
-                });
+                // Clears the flags, then reads the state.
                 Poll::Ready(self.vstate())
             } else {
                 T::state().cc_waker.register(cx.waker());
