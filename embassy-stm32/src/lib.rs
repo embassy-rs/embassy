@@ -434,6 +434,12 @@ pub struct Config {
     #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba))]
     pub enable_independent_io_supply: bool,
 
+    /// Enable the I/O compensation cells for the VDD pins, and for the VDDIO2 pins with
+    /// [`enable_independent_io_supply`](Self::enable_independent_io_supply). For pins switching
+    /// at high speed. Defaults to false.
+    #[cfg(any(stm32u5, stm32u3, stm32wba))]
+    pub enable_io_compensation: bool,
+
     /// Enable ultra-low-power BOR0 mode (discontinuous BOR monitoring) in
     /// Stop 1 and Standby modes.
     ///
@@ -555,6 +561,8 @@ impl Default for Config {
             freeze_iwdg_when_halted: false,
             #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba))]
             enable_independent_io_supply: true,
+            #[cfg(any(stm32u5, stm32u3, stm32wba))]
+            enable_io_compensation: false,
             #[cfg(stm32wba)]
             enable_ulpmen: false,
             #[cfg(stm32wba)]
@@ -991,6 +999,15 @@ fn init_hw(config: Config) -> Peripherals {
                     w.set_avm2en(false);
                 });
             }
+        }
+
+        // RDY1/RDY2 not waited for, as in ST's HAL.
+        #[cfg(any(stm32u5, stm32u3, stm32wba))]
+        if config.enable_io_compensation {
+            crate::pac::SYSCFG.cccsr().modify(|w| {
+                w.set_en1(true);
+                w.set_en2(config.enable_independent_io_supply);
+            });
         }
 
         // I/O analog switch voltage booster. The bit lives in a different peripheral on almost
