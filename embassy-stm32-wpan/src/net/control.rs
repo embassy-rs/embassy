@@ -93,7 +93,7 @@ impl<'a, C: Controller> Control<'a, C> {
             let resp = self
                 .send_command_and_get_response(&SetRequest {
                     pib_attribute_ptr: &short_addr as *const _ as *const u8,
-                    pib_attribute: PibId::ExtendedAddress,
+                    pib_attribute: PibId::ShortAddress,
                 })
                 .await
                 .unwrap();
