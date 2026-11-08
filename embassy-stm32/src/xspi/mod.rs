@@ -217,17 +217,17 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         // Configure WRITE registers first (matching C HAL order)
         // Use write() for clean initialization instead of modify()
         reg.wccr().write(|w| {
-            w.set_imode(WccrImode::from_bits(write_config.iwidth.into()));
+            w.set_imode(CcrImode::from_bits(write_config.iwidth.into()));
             w.set_idtr(write_config.idtr);
-            w.set_isize(WccrIsize::from_bits(write_config.isize.into()));
+            w.set_isize(CcrIsize::from_bits(write_config.isize.into()));
 
-            w.set_admode(WccrAdmode::from_bits(write_config.adwidth.into()));
+            w.set_admode(CcrAdmode::from_bits(write_config.adwidth.into()));
             w.set_addtr(write_config.addtr);
-            w.set_adsize(WccrAdsize::from_bits(write_config.adsize.into()));
+            w.set_adsize(CcrAdsize::from_bits(write_config.adsize.into()));
 
             w.set_abmode(WccrAbmode::from_bits(write_config.abwidth.into()));
             w.set_abdtr(write_config.abdtr);
-            w.set_absize(WccrAbsize::from_bits(write_config.absize.into()));
+            w.set_absize(CcrAbsize::from_bits(write_config.absize.into()));
 
             w.set_dmode(WccrDmode::from_bits(write_config.dwidth.into()));
             w.set_ddtr(write_config.ddtr);
@@ -259,7 +259,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
 
         // Enable memory mapped mode
         reg.cr().modify(|r| {
-            r.set_fmode(Fmode::B0x3);
+            r.set_fmode(Fmode::MemoryMapped);
             r.set_tcen(false);
         });
         Ok(())
@@ -270,7 +270,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         let reg = T::REGS;
 
         reg.cr().modify(|r| {
-            r.set_fmode(Fmode::B0x0);
+            r.set_fmode(Fmode::IndirectWrite);
             r.set_abort(true);
             r.set_dmaen(false);
             r.set_en(false);
@@ -435,7 +435,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             w.set_dmm(dual_quad);
 
             assert!(_ncs_alt.is_none(), "ncs_alt TODO");
-            let cssel = if ncs_cssel == 0 { Cssel::B0x0 } else { Cssel::B0x1 };
+            let cssel = if ncs_cssel == 0 { Cssel::Ncs1 } else { Cssel::Ncs2 };
             w.set_cssel(cssel);
         });
 
@@ -508,7 +508,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         } else {
             T::REGS.ccr().modify(|w| {
                 // disable alternate bytes
-                w.set_abmode(CcrAbmode::B0x0);
+                w.set_abmode(CcrAbmode::None);
             })
         }
 
@@ -652,7 +652,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectRead.into())));
-        if T::REGS.ccr().read().admode() == CcrAdmode::B0x0 {
+        if T::REGS.ccr().read().admode() == CcrAdmode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
@@ -717,8 +717,8 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             w.set_csht(Csht::from_bits(config.chip_select_high_time.into()));
             w.set_frck(false);
             w.set_ckmode(match config.clock_mode {
-                true => Ckmode::B0x1,
-                false => Ckmode::B0x0,
+                true => Ckmode::Mode3,
+                false => Ckmode::Mode0,
             });
         });
 
@@ -1735,7 +1735,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectRead.into())));
-        if T::REGS.ccr().read().admode() == CcrAdmode::B0x0 {
+        if T::REGS.ccr().read().admode() == CcrAdmode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
@@ -1811,7 +1811,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectRead.into())));
-        if T::REGS.ccr().read().admode() == CcrAdmode::B0x0 {
+        if T::REGS.ccr().read().admode() == CcrAdmode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));

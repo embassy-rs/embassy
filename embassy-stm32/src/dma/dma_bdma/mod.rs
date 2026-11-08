@@ -575,16 +575,16 @@ impl<'d> Channel<'d> {
                 ch.fcr().write(|w| {
                     if let Some(fth) = options.fifo_threshold {
                         // FIFO mode
-                        w.set_dmdis(pac::dma::vals::Dmdis::Disabled);
+                        w.set_dmdis(true);
                         w.set_fth(fth.into());
                     } else if mem_size != peri_size {
                         // force FIFO mode if msize != psize
                         // packing/unpacking doesn't work in direct mode.
-                        w.set_dmdis(pac::dma::vals::Dmdis::Disabled);
+                        w.set_dmdis(true);
                         w.set_fth(FifoThreshold::Half.into());
                     } else {
                         // Direct mode
-                        w.set_dmdis(pac::dma::vals::Dmdis::Enabled);
+                        w.set_dmdis(false);
                     }
                 });
                 ch.cr().write(|w| {
