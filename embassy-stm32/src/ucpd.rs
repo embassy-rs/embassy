@@ -23,6 +23,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::atomic::AtomicModify;
 use crate::dma::{ChannelAndRequest, TransferOptions};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
@@ -236,7 +237,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         r.cr().modify(|w| w.set_phyccsel(cc_sel));
 
         // Enable hard reset receive interrupt.
-        r.imr().modify(|w| w.set_rxhrstdetie(true));
+        r.imr().set_bits(|w| w.set_rxhrstdetie(true));
 
         // Enable PD packet reception
         r.cr().modify(|w| w.set_phyrxen(true));
@@ -382,10 +383,17 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     }
 
     fn enable_cc_interrupts(&self, enable: bool) {
-        T::REGS.imr().modify(|w| {
-            w.set_typecevt1ie(enable);
-            w.set_typecevt2ie(enable);
-        });
+        if enable {
+            T::REGS.imr().set_bits(|w| {
+                w.set_typecevt1ie(true);
+                w.set_typecevt2ie(true);
+            });
+        } else {
+            T::REGS.imr().clear_bits(|w| {
+                w.set_typecevt1ie(false);
+                w.set_typecevt2ie(false);
+            });
+        }
     }
 }
 
@@ -505,7 +513,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
                 // Clean and re-enable hard reset receive interrupt.
                 r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().modify(|w| w.set_rxhrstdetie(true));
+                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
                 Poll::Ready(Err(RxError::HardReset))
             } else if sr.rxmsgend() {
                 dma.request_pause();
@@ -550,7 +558,11 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     }
 
     fn enable_rx_interrupt(enable: bool) {
-        T::REGS.imr().modify(|w| w.set_rxmsgendie(enable));
+        if enable {
+            T::REGS.imr().set_bits(|w| w.set_rxmsgendie(true));
+        } else {
+            T::REGS.imr().clear_bits(|w| w.set_rxmsgendie(false));
+        }
     }
 
     /// Transmits an SOP PD message.
@@ -603,7 +615,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             if sr.rxhrstdet() {
                 // Clean and re-enable hard reset receive interrupt.
                 r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().modify(|w| w.set_rxhrstdetie(true));
+                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
                 Poll::Ready(Err(TxError::HardReset))
             } else if sr.txmsgdisc() {
                 Poll::Ready(Err(TxError::Discarded))
@@ -619,10 +631,17 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     }
 
     fn enable_tx_interrupts(enable: bool) {
-        T::REGS.imr().modify(|w| {
-            w.set_txmsgdiscie(enable);
-            w.set_txmsgsentie(enable);
-        });
+        if enable {
+            T::REGS.imr().set_bits(|w| {
+                w.set_txmsgdiscie(true);
+                w.set_txmsgsentie(true);
+            });
+        } else {
+            T::REGS.imr().clear_bits(|w| {
+                w.set_txmsgdiscie(false);
+                w.set_txmsgsentie(false);
+            });
+        }
     }
 
     /// Transmit a hard reset.
@@ -647,7 +666,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             if sr.rxhrstdet() {
                 // Clean and re-enable hard reset receive interrupt.
                 r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().modify(|w| w.set_rxhrstdetie(true));
+                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
                 Poll::Ready(Err(TxError::HardReset))
             } else if sr.hrstdisc() {
                 Poll::Ready(Err(TxError::Discarded))
@@ -663,10 +682,17 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     }
 
     fn enable_hardreset_interrupts(&self, enable: bool) {
-        T::REGS.imr().modify(|w| {
-            w.set_hrstdiscie(enable);
-            w.set_hrstsentie(enable);
-        });
+        if enable {
+            T::REGS.imr().set_bits(|w| {
+                w.set_hrstdiscie(true);
+                w.set_hrstsentie(true);
+            });
+        } else {
+            T::REGS.imr().clear_bits(|w| {
+                w.set_hrstdiscie(false);
+                w.set_hrstsentie(false);
+            });
+        }
     }
 }
 
@@ -688,22 +714,22 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         }
 
         if sr.rxhrstdet() {
-            r.imr().modify(|w| w.set_rxhrstdetie(false));
+            r.imr().clear_bits(|w| w.set_rxhrstdetie(false));
         }
 
         if sr.rxmsgend() {
-            r.imr().modify(|w| w.set_rxmsgendie(false));
+            r.imr().clear_bits(|w| w.set_rxmsgendie(false));
         }
 
         if sr.txmsgdisc() || sr.txmsgsent() {
-            r.imr().modify(|w| {
+            r.imr().clear_bits(|w| {
                 w.set_txmsgdiscie(false);
                 w.set_txmsgsentie(false);
             });
         }
 
         if sr.hrstdisc() || sr.hrstsent() {
-            r.imr().modify(|w| {
+            r.imr().clear_bits(|w| {
                 w.set_hrstdiscie(false);
                 w.set_hrstsentie(false);
             });
