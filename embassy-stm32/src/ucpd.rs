@@ -158,12 +158,12 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             w.set_hbitclkdiv(13 - 1);
 
             // Time window for detecting non-idle (12-20us).
-            // 1.75us * 8 = 14us.
+            // 1.625us * 8 = 13us.
             w.set_transwin(8 - 1);
 
             // Time from the end of last bit of a Frame until the start of the first bit of the
             // next Preamble (min 25us).
-            // 1.75us * 17 = ~30us
+            // 1.625us * 17 = ~27.6us
             w.set_ifrgap(17 - 1);
 
             // UNDOCUMENTED: This register can only be written while UCPDEN=0 (found by testing).
