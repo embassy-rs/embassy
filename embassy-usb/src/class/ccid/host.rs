@@ -6,27 +6,12 @@
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
+use super::types::*;
+pub use super::types::{CardState, SlotStatus};
 use crate::host::descriptor::ConfigurationDescriptorChain;
 use crate::host::handler::EnumerationInfo;
 
-const USB_CLASS_CCID: u8 = 0x0b;
 const TRANSFER_BULK: u8 = 0x02;
-/// `bDescriptorType` of the CCID class-specific (functional) descriptor. Shares its
-/// value with the HID descriptor, so its length is what tells the two apart.
-const CCID_FUNCTIONAL_DESCRIPTOR: u8 = 0x21;
-/// `bLength` of the CCID functional descriptor.
-const CCID_FUNCTIONAL_LEN: usize = 54;
-/// Offset of `bMaxSlotIndex` within the CCID functional descriptor.
-const CCID_MAX_SLOT_INDEX: usize = 4;
-const PC_TO_RDR_ICC_POWER_ON: u8 = 0x62;
-const PC_TO_RDR_ICC_POWER_OFF: u8 = 0x63;
-const PC_TO_RDR_GET_SLOT_STATUS: u8 = 0x65;
-const PC_TO_RDR_XFR_BLOCK: u8 = 0x6f;
-const RDR_TO_PC_DATA_BLOCK: u8 = 0x80;
-const RDR_TO_PC_SLOT_STATUS: u8 = 0x81;
-const HEADER_LEN: usize = 10;
-const MAX_APDU_LEN: usize = 261;
-const MAX_CCID_MESSAGE_LEN: usize = HEADER_LEN + MAX_APDU_LEN;
 
 /// CCID interface and endpoint information.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,38 +69,6 @@ pub fn find_ccid(config_desc: &[u8]) -> Option<CcidInfo> {
         }
     }
     None
-}
-
-/// Smart-card presence reported by a CCID slot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum CardState {
-    /// A card is present and active.
-    PresentActive,
-    /// A card is present but inactive.
-    PresentInactive,
-    /// No card is present.
-    NotPresent,
-    /// The reader returned the reserved ICC status value.
-    Reserved,
-}
-
-/// Decoded `RDR_to_PC_SlotStatus` response.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct SlotStatus {
-    /// Slot number returned by the reader.
-    pub slot: u8,
-    /// Command sequence returned by the reader.
-    pub sequence: u8,
-    /// Card presence and activation state.
-    pub card_state: CardState,
-    /// CCID command-status field (zero means processed without error).
-    pub command_status: u8,
-    /// CCID error byte.
-    pub error: u8,
-    /// Reader clock-status byte.
-    pub clock_status: u8,
 }
 
 /// CCID host error.
@@ -223,12 +176,7 @@ impl<'d, A: UsbHostAllocator<'d>> CcidHost<'d, A> {
         }
 
         let status = response[7];
-        let card_state = match status & 0x03 {
-            0 => CardState::PresentActive,
-            1 => CardState::PresentInactive,
-            2 => CardState::NotPresent,
-            _ => CardState::Reserved,
-        };
+        let card_state = CardState::from_icc_status(status);
         Ok(SlotStatus {
             slot,
             sequence,
