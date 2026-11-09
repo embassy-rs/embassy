@@ -2,7 +2,6 @@ extern crate std;
 
 use core::cell::Cell;
 use core::future::pending;
-
 use std::rc::Rc;
 
 use embassy_futures::block_on;

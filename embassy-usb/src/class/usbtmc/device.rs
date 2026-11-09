@@ -799,7 +799,6 @@ mod tests {
     extern crate std;
 
     use core::cell::RefCell;
-
     use std::boxed::Box;
     use std::rc::Rc;
     use std::vec::Vec;
