@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `HID`: Add `GamepadReport`, `ConsumerReport`, and composite multi-report presets (`COMPOSITE_DESCRIPTOR`, `IdKeyboardReport`, `IdMouseReport`, `IdConsumerReport`, `IdGamepadReport`) at `class::hid`
 - Add `class::ccid::device`, implementing USB Chip/Smart Card Interface Device (CCID) with 54-byte functional descriptor, APDU transfer chunking, and reader/writer split
 - `CCID`: Extract shared CCID constants, commands, responses, and status types into `class::ccid::types`
 - Add `class::uvc::device`, a USB Video Class 1.1 camera: MJPEG, YUY2 or NV12 over an isochronous IN endpoint, with probe/commit negotiation of format, frame size and frame interval
