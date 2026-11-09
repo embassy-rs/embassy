@@ -49,6 +49,9 @@ pub mod mode {
         /// `T` in async mode, `()` in blocking mode.
         #[allow(dead_code)]
         type IfAsync<T>;
+        /// `Some(v)` in async mode, `None` in blocking mode.
+        #[allow(dead_code)]
+        fn if_async_ref<T>(v: &Self::IfAsync<T>) -> Option<&T>;
     }
 
     /// Operating mode for a peripheral.
@@ -56,11 +59,14 @@ pub mod mode {
     pub trait Mode: SealedMode {}
 
     macro_rules! impl_mode {
-        ($name:ident, $async: expr, $if_blocking:ty, $if_async:ty) => {
+        ($name:ident, $async: expr, $if_blocking:ty, $if_async:ty, |$v:ident| $if_async_ref:expr) => {
             impl SealedMode for $name {
                 const ASYNC: bool = $async;
                 type IfBlocking<T> = $if_blocking;
                 type IfAsync<T> = $if_async;
+                fn if_async_ref<T>($v: &Self::IfAsync<T>) -> Option<&T> {
+                    $if_async_ref
+                }
             }
             impl Mode for $name {}
         };
@@ -73,8 +79,8 @@ pub mod mode {
     #[derive(Clone, Copy)]
     pub struct Async;
 
-    impl_mode!(Blocking, false, T, ());
-    impl_mode!(Async, true, (), T);
+    impl_mode!(Blocking, false, T, (), |_v| None);
+    impl_mode!(Async, true, (), T, |v| Some(v));
 }
 
 // Always-present hardware

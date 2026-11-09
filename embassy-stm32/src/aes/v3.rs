@@ -74,9 +74,9 @@ pub struct Aes<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
     _marker: PhantomData<M>,
     #[allow(dead_code)] // Reserved for future async/DMA implementation
-    dma_in: Option<ChannelAndRequest<'d>>,
+    dma_in: M::IfAsync<ChannelAndRequest<'d>>,
     #[allow(dead_code)] // Reserved for future async/DMA implementation
-    dma_out: Option<ChannelAndRequest<'d>>,
+    dma_out: M::IfAsync<ChannelAndRequest<'d>>,
 }
 
 impl<'d, T: Instance> Aes<'d, T, Blocking> {
@@ -89,8 +89,8 @@ impl<'d, T: Instance> Aes<'d, T, Blocking> {
         let instance = Self {
             _peripheral: peripheral,
             _marker: PhantomData,
-            dma_in: None,
-            dma_out: None,
+            dma_in: (),
+            dma_out: (),
         };
 
         T::Interrupt::unpend();
@@ -110,8 +110,8 @@ impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Aes<'d, T,
         Self {
             _peripheral: state,
             _marker: PhantomData,
-            dma_in: None,
-            dma_out: None,
+            dma_in: (),
+            dma_out: (),
         }
     }
 
@@ -136,8 +136,8 @@ impl<'d, T: Instance> Aes<'d, T, Async> {
         let instance = Self {
             _peripheral: peripheral,
             _marker: PhantomData,
-            dma_in: new_dma!(dma_in, _irq),
-            dma_out: new_dma!(dma_out, _irq),
+            dma_in: new_dma_nonopt!(dma_in, _irq),
+            dma_out: new_dma_nonopt!(dma_out, _irq),
         };
 
         T::Interrupt::unpend();

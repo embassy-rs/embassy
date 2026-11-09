@@ -310,7 +310,7 @@ pub struct Hash<'d, T: Instance, M: Mode> {
     _marker: PhantomData<M>,
     current_id: Option<u32>,
     #[cfg(any(hash_v2, hash_v3, hash_v4))]
-    dma: Option<ChannelAndRequest<'d>>,
+    dma: M::IfAsync<ChannelAndRequest<'d>>,
     next_id: u32,
 }
 
@@ -361,7 +361,7 @@ impl<'d, T: Instance> Hash<'d, T, Blocking> {
             _marker: PhantomData,
             current_id: None,
             #[cfg(any(hash_v2, hash_v3, hash_v4))]
-            dma: None,
+            dma: (),
             next_id: 1,
         }
     }
@@ -832,7 +832,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
             _peripheral: peripheral,
             _marker: PhantomData,
             current_id: None,
-            dma: new_dma!(dma, _irq),
+            dma: new_dma_nonopt!(dma, _irq),
             next_id: 1,
         };
 
@@ -1043,8 +1043,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         }
         let src_ptr: *const [u8] = ptr::slice_from_raw_parts(input.as_ptr().cast(), num_words * 4);
 
-        let dma = self.dma.as_mut().unwrap();
-        let dma_transfer = unsafe { dma.write_raw(src_ptr, dst_ptr as *mut u32, Default::default()) };
+        let dma_transfer = unsafe { self.dma.write_raw(src_ptr, dst_ptr as *mut u32, Default::default()) };
         T::regs().cr().modify(|w| w.set_dmae(true));
 
         // Wait for the transfer to complete.
@@ -1068,7 +1067,7 @@ impl<'d> SealedSuspendablePeripheral for Hash<'d, HASH, Blocking> {
             _marker: PhantomData,
             current_id: state.0,
             #[cfg(any(hash_v2, hash_v3, hash_v4))]
-            dma: None,
+            dma: (),
             next_id: state.1,
         }
     }

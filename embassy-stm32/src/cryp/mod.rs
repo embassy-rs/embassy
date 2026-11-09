@@ -393,7 +393,7 @@ impl<'c, C: crate::crypto::Cipher<'c>> Cipher<'c> for C {
             if <C as crate::crypto::Cipher<'c>>::is_ccm_mode(self) {
                 let b0: [u8; 16] = self.iv().try_into().unwrap();
                 let words = Cryp::<T, Async>::phase_block_words(&b0);
-                Cryp::<T, Async>::write_words(cryp.indma.as_mut().unwrap(), Self::BLOCK_SIZE, &words).await;
+                Cryp::<T, Async>::write_words(&mut cryp.indma, Self::BLOCK_SIZE, &words).await;
             }
             while p.cr().read().crypen() {}
         }
@@ -539,7 +539,7 @@ impl<'c, C: crate::crypto::Cipher<'c>> Cipher<'c> for C {
                         in_data[i] = int_word;
                         in_data[i] = in_data[i] ^ temp1[i] ^ temp2[i];
                     }
-                    Cryp::<T, Async>::write_words(cryp.indma.as_mut().unwrap(), Self::BLOCK_SIZE, &in_data).await;
+                    Cryp::<T, Async>::write_words(&mut cryp.indma, Self::BLOCK_SIZE, &in_data).await;
                 }
             } else if <C as crate::crypto::Cipher<'c>>::uses_gcm_phases(self) && dir == Direction::Encrypt {
                 // Handle special GCM partial block process.
@@ -554,8 +554,8 @@ impl<'c, C: crate::crypto::Cipher<'c>> Cipher<'c> for C {
 
                 let mut out_data: [u8; AES_BLOCK_SIZE] = [0; AES_BLOCK_SIZE];
 
-                let read = Cryp::<T, Async>::read_bytes(cryp.outdma.as_mut().unwrap(), Self::BLOCK_SIZE, &mut out_data);
-                let write = Cryp::<T, Async>::write_bytes(cryp.indma.as_mut().unwrap(), Self::BLOCK_SIZE, int_data);
+                let read = Cryp::<T, Async>::read_bytes(&mut cryp.outdma, Self::BLOCK_SIZE, &mut out_data);
+                let write = Cryp::<T, Async>::write_bytes(&mut cryp.indma, Self::BLOCK_SIZE, int_data);
 
                 embassy_futures::join::join(read, write).await;
 
@@ -615,8 +615,8 @@ pub struct Context<'c, C: Cipher<'c> + CipherSized> {
 pub struct Cryp<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
     _marker: PhantomData<M>,
-    indma: Option<ChannelAndRequest<'d>>,
-    outdma: Option<ChannelAndRequest<'d>>,
+    indma: M::IfAsync<ChannelAndRequest<'d>>,
+    outdma: M::IfAsync<ChannelAndRequest<'d>>,
 }
 
 impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Cryp<'d, T, Blocking> {
@@ -628,8 +628,8 @@ impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Cryp<'d, T
         Self {
             _peripheral: state,
             _marker: PhantomData,
-            indma: None,
-            outdma: None,
+            indma: (),
+            outdma: (),
         }
     }
 
@@ -648,8 +648,8 @@ impl<'d, T: Instance> Cryp<'d, T, Blocking> {
         let instance = Self {
             _peripheral: peri,
             _marker: PhantomData,
-            indma: None,
-            outdma: None,
+            indma: (),
+            outdma: (),
         };
 
         T::Interrupt::unpend();
@@ -1217,8 +1217,8 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         let instance = Self {
             _peripheral: peri,
             _marker: PhantomData,
-            indma: new_dma!(indma, _irq),
-            outdma: new_dma!(outdma, _irq),
+            indma: new_dma_nonopt!(indma, _irq),
+            outdma: new_dma_nonopt!(outdma, _irq),
         };
 
         T::Interrupt::unpend();
@@ -1362,7 +1362,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         if ctx.aad_buffer_len < C::BLOCK_SIZE {
             // The buffer isn't full and this is the last buffer, so process it as is (already padded).
             if last_aad_block {
-                Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &ctx.aad_buffer[..]).await;
+                Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &ctx.aad_buffer[..]).await;
                 assert_eq!(T::regs().sr().read().ifem(), true);
 
                 // Switch to payload phase.
@@ -1376,7 +1376,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
             }
         } else {
             // Load the full block from the buffer.
-            Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &ctx.aad_buffer[..]).await;
+            Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &ctx.aad_buffer[..]).await;
             assert_eq!(T::regs().sr().read().ifem(), true);
         }
 
@@ -1393,16 +1393,11 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         let num_full_blocks = aad_len_remaining / C::BLOCK_SIZE;
         let start_index = len_to_copy;
         let end_index = start_index + (C::BLOCK_SIZE * num_full_blocks);
-        Self::write_bytes(
-            self.indma.as_mut().unwrap(),
-            C::BLOCK_SIZE,
-            &aad[start_index..end_index],
-        )
-        .await;
+        Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &aad[start_index..end_index]).await;
 
         if last_aad_block {
             if leftovers > 0 {
-                Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &ctx.aad_buffer[..]).await;
+                Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &ctx.aad_buffer[..]).await;
                 assert_eq!(T::regs().sr().read().ifem(), true);
             }
             // Switch to payload phase.
@@ -1489,16 +1484,8 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         let mut offset = 0;
         while offset < bulk_len {
             let chunk = (bulk_len - offset).min(max_chunk);
-            let read = Self::read_bytes(
-                self.outdma.as_mut().unwrap(),
-                C::BLOCK_SIZE,
-                &mut output[offset..offset + chunk],
-            );
-            let write = Self::write_bytes(
-                self.indma.as_mut().unwrap(),
-                C::BLOCK_SIZE,
-                &input[offset..offset + chunk],
-            );
+            let read = Self::read_bytes(&mut self.outdma, C::BLOCK_SIZE, &mut output[offset..offset + chunk]);
+            let write = Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &input[offset..offset + chunk]);
             embassy_futures::join::join(read, write).await;
             offset += chunk;
         }
@@ -1512,8 +1499,8 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
             let mut intermediate_data: Aligned<A4, [u8; AES_BLOCK_SIZE]> = Aligned([0; AES_BLOCK_SIZE]);
             let mut last_block: Aligned<A4, [u8; AES_BLOCK_SIZE]> = Aligned([0; AES_BLOCK_SIZE]);
             last_block[..last_block_remainder].copy_from_slice(&input[input.len() - last_block_remainder..input.len()]);
-            let read = Self::read_bytes(self.outdma.as_mut().unwrap(), C::BLOCK_SIZE, &mut *intermediate_data);
-            let write = Self::write_bytes(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &*last_block);
+            let read = Self::read_bytes(&mut self.outdma, C::BLOCK_SIZE, &mut *intermediate_data);
+            let write = Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &*last_block);
             embassy_futures::join::join(read, write).await;
 
             // Handle the last block depending on mode.
@@ -1567,10 +1554,10 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
 
         let ccm_ctr0 = ctx.cipher.ccm_ctr0().map(|ctr0| Self::phase_block_words(&ctr0));
         let block = ccm_ctr0.as_ref().unwrap_or(&footer);
-        let write = Self::write_words(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, block);
+        let write = Self::write_words(&mut self.indma, C::BLOCK_SIZE, block);
 
         let mut full_tag: Aligned<A4, [u8; 16]> = Aligned([0; 16]);
-        let read = Self::read_bytes(self.outdma.as_mut().unwrap(), C::BLOCK_SIZE, &mut *full_tag);
+        let read = Self::read_bytes(&mut self.outdma, C::BLOCK_SIZE, &mut *full_tag);
 
         embassy_futures::join::join(read, write).await;
 
