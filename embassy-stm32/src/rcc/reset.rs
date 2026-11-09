@@ -130,6 +130,28 @@ impl ResetFlags {
         Raw(self.0).borrstf()
     }
 
+    /// A power reset: power-on, power-down or brownout (POR/PDR or BOR).
+    #[cfg(any(stm32c0, stm32g0, stm32u0))]
+    pub fn power_reset(&self) -> bool {
+        Raw(self.0).pwrrstf()
+    }
+
+    /// The option bytes were reloaded, for example by setting `OBL_LAUNCH` in the
+    /// flash interface.
+    #[cfg(any(
+        stm32c0, stm32f0, stm32f3, stm32g0, stm32g4, stm32h7rs, stm32l0, stm32l4, stm32l5, stm32u0, stm32u3, stm32u5,
+        stm32wb, stm32wba, stm32wl
+    ))]
+    pub fn option_load(&self) -> bool {
+        Raw(self.0).oblrstf()
+    }
+
+    /// The firewall detected an illegal access and reset the chip.
+    #[cfg(any(stm32l0, stm32l4))]
+    pub fn firewall(&self) -> bool {
+        Raw(self.0).fwrstf()
+    }
+
     // The flag combinations described below follow RM0433, Table 56.
 
     /// The CPU was reset. On dual-core chips, this is the Cortex-M7.
