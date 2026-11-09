@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MIDI`: Add optional names for the jacks
 - `MIDI`: Add packet encoding and decoding
 - Add `Endpoint::set_stall()` and `Endpoint::is_stalled()`, so a class driver can stall or unstall its own endpoint. Until now the device stack could only be stalled by the host, via `SET_FEATURE(ENDPOINT_HALT)`. **Breaking** for out-of-tree `embassy-usb-driver` implementations
-- `USBTMC`: stall Bulk-OUT when a message cannot be parsed, so the host aborts the transfer instead of the device misreading the following bytes; `UsbtmcClass::clear_stall()` and `check_clear()` recover the endpoint, and a message that ends early is now reported as `UsbtmcError::MessageTruncated` instead of a short payload
+- `USBTMC`: stall Bulk-OUT when a message cannot be parsed, so the host aborts the transfer instead of the device misreading the following bytes; `UsbtmcClass::stall()`, `clear_stall()` and `is_stalled()` are exposed for applications, `check_clear()` recovers the endpoint on `viClear()`, and a message that ends early is now reported as `UsbtmcError::MessageTruncated` instead of a short payload
 - Make `InterfaceAltBuilder::endpoint_in` and `InterfaceAltBuilder::endpoint_out` public
 - Fix various typos in comments and internal variable names
 - Added portable-atomic for targets not supporting core::sync::AtomicU32

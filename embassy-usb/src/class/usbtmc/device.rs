@@ -742,6 +742,22 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         }
     }
 
+    /// Stalls both bulk endpoints.
+    ///
+    /// The class does this itself when a Bulk-OUT message cannot be parsed; see
+    /// [`UsbtmcError`]. Call it to reject a transfer deliberately, for example for a
+    /// command the instrument does not support: the host sees the failed transfer
+    /// instead of an empty reply, and can abort it with [`Self::clear_stall`],
+    /// `CLEAR_FEATURE(ENDPOINT_HALT)` or `viClear()`.
+    ///
+    /// While the endpoints are stalled, reads and writes do not complete, so the
+    /// application has to call [`Self::clear_stall`] (or wait for the host to clear the
+    /// halt) before using the class again.
+    pub fn stall(&mut self) {
+        self.read_ep.set_stall(true);
+        self.write_ep.set_stall(true);
+    }
+
     /// Clears the STALL condition on the bulk endpoints.
     ///
     /// Bulk-OUT is stalled when the class cannot parse a message from the host; see
@@ -993,7 +1009,8 @@ mod tests {
 
     #[derive(Default)]
     struct MockState {
-        stalled: Cell<bool>,
+        out_stalled: Cell<bool>,
+        in_stalled: Cell<bool>,
         fail_read: Cell<bool>,
         packets: RefCell<Vec<Vec<u8>>>,
         written: RefCell<Vec<Vec<u8>>>,
@@ -1002,6 +1019,7 @@ mod tests {
     struct MockEndpoint {
         info: EndpointInfo,
         state: Rc<MockState>,
+        dir: Direction,
     }
 
     impl Endpoint for MockEndpoint {
@@ -1012,11 +1030,17 @@ mod tests {
         async fn wait_enabled(&mut self) {}
 
         fn set_stall(&mut self, stalled: bool) {
-            self.state.stalled.set(stalled);
+            match self.dir {
+                Direction::Out => self.state.out_stalled.set(stalled),
+                Direction::In => self.state.in_stalled.set(stalled),
+            }
         }
 
         fn is_stalled(&self) -> bool {
-            self.state.stalled.get()
+            match self.dir {
+                Direction::Out => self.state.out_stalled.get(),
+                Direction::In => self.state.in_stalled.get(),
+            }
         }
     }
 
@@ -1175,10 +1199,12 @@ mod tests {
             read_ep: MockEndpoint {
                 info: info(EndpointAddress::from(0x01)),
                 state: state.clone(),
+                dir: Direction::Out,
             },
             write_ep: MockEndpoint {
                 info: info(EndpointAddress::from(0x81)),
                 state: state.clone(),
+                dir: Direction::In,
             },
             int_ep: None,
             shared,
@@ -1317,5 +1343,21 @@ mod tests {
         tmc.shared.set_clear_pending(true);
         assert!(tmc.check_clear());
         assert!(!tmc.is_stalled());
+    }
+
+    #[test]
+    fn stall_halts_both_endpoints() {
+        let state = Rc::new(MockState::default());
+        let mut tmc = class(&state);
+
+        tmc.stall();
+        assert!(tmc.is_stalled());
+        assert!(state.out_stalled.get());
+        assert!(state.in_stalled.get());
+
+        tmc.clear_stall();
+        assert!(!tmc.is_stalled());
+        assert!(!state.out_stalled.get());
+        assert!(!state.in_stalled.get());
     }
 }

@@ -92,6 +92,15 @@ async fn main(_spawner: Spawner) {
             tmc.wait_connection().await;
             info!("USBTMC device connected");
 
+            // Endpoint-halt self-test: stall and un-stall the bulk endpoints once, and log
+            // what the driver reads back. This exercises the real halt feature (registers,
+            // not just class bookkeeping) before the host starts a transfer, and leaves the
+            // endpoints usable.
+            tmc.stall();
+            info!("self-test: stalled = {}", tmc.is_stalled());
+            tmc.clear_stall();
+            info!("self-test: stalled after clear = {}", tmc.is_stalled());
+
             let mut buf = [0u8; 256];
             loop {
                 let msg = match tmc.read_message(&mut buf).await {
@@ -121,6 +130,16 @@ async fn main(_spawner: Spawner) {
                     let _ = tmc.write_message(b"+3.3000E+00\n", true).await;
                 } else if cmd.eq_ignore_ascii_case("*RST") {
                     info!("Instrument reset");
+                } else if cmd.eq_ignore_ascii_case(":TEST:STALL") {
+                    // Reject the transfer the way an instrument that cannot serve a
+                    // command would: halt the bulk endpoints instead of replying. The
+                    // host sees the failed transfer and clears the halt with
+                    // CLEAR_FEATURE(ENDPOINT_HALT) or `viClear()`; the device recovers
+                    // on its own once that happens.
+                    info!("Stalling the bulk endpoints on request");
+                    tmc.stall();
+                    info!("Stalled = {}", tmc.is_stalled());
+                    continue;
                 } else {
                     info!("Unknown command: {}", cmd);
                 }
