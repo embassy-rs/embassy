@@ -351,7 +351,17 @@ impl<'d, M: Mode> Spi<'d, M> {
         Ok(())
     }
 
-    // TODO: write a function that updates SPI configuration (phase, polarity, frequency) settings
+    /// Update SPI configuration (phase, polarity, frequency) after the driver has
+    /// already been constructed.
+    ///
+    /// The peripheral is disabled before re-applying settings and re-enabled after,
+    /// same sequence `init()` already does at construction time.
+    pub fn set_config<T: Instance>(&mut self, config: Config) {
+        self.info.spi_reg.cfg().modify(|w| w.set_enable(false));
+        Self::configure_clock(self.info, T::instance_number(), &config);
+        Self::configure_spi(self.info, &config);
+        self.info.spi_reg.cfg().modify(|w| w.set_enable(true));
+    }
 }
 
 impl<'d> Spi<'d, Blocking> {
