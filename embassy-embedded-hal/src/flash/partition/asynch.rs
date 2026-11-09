@@ -60,7 +60,7 @@ impl<M: RawMutex, T: NorFlash> ReadNorFlash for Partition<'_, M, T> {
     const READ_SIZE: usize = T::READ_SIZE;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        if offset + bytes.len() as u32 > self.size {
+        if offset > self.size || bytes.len() > (self.size - offset) as usize {
             return Err(Error::OutOfBounds);
         }
 
@@ -78,7 +78,7 @@ impl<M: RawMutex, T: NorFlash> NorFlash for Partition<'_, M, T> {
     const ERASE_SIZE: usize = T::ERASE_SIZE;
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        if offset + bytes.len() as u32 > self.size {
+        if offset > self.size || bytes.len() > (self.size - offset) as usize {
             return Err(Error::OutOfBounds);
         }
 
@@ -147,5 +147,39 @@ mod tests {
 
         let flash = flash.try_lock().unwrap();
         assert!(!flash.mem[128..256].iter().any(|&x| x != 0xFF));
+    }
+
+    #[futures_test::test]
+    async fn read_write_at_end() {
+        let flash = MemFlash::<1024, 128, 4>::default();
+
+        let flash = Mutex::<NoopRawMutex, _>::new(flash);
+        let mut partition = Partition::new(&flash, 128, 256);
+
+        let mut read_buf = [0; 8];
+        partition.read(248, &mut read_buf).await.unwrap();
+        partition.write(248, &[0xAA; 8]).await.unwrap();
+
+        assert_eq!(partition.read(249, &mut read_buf).await, Err(Error::OutOfBounds));
+        assert_eq!(partition.write(249, &[0xAA; 8]).await, Err(Error::OutOfBounds));
+    }
+
+    #[futures_test::test]
+    async fn offset_overflow_is_out_of_bounds() {
+        let flash = MemFlash::<1024, 128, 4>::default();
+
+        let flash = Mutex::<NoopRawMutex, _>::new(flash);
+        let mut partition = Partition::new(&flash, 128, 256);
+
+        // offset + len wraps around u32::MAX
+        let mut read_buf = [0; 8];
+        assert_eq!(
+            partition.read(u32::MAX - 3, &mut read_buf).await,
+            Err(Error::OutOfBounds)
+        );
+        assert_eq!(partition.write(u32::MAX - 3, &[0xAA; 8]).await, Err(Error::OutOfBounds));
+
+        let flash = flash.try_lock().unwrap();
+        assert!(flash.writes.is_empty());
     }
 }
