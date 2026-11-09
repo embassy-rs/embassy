@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `HID`: Notify `RequestHandler::reset()` on USB bus reset, allowing handlers to restore default Report protocol mode
+
 - `HID`: Add `GamepadReport`, `ConsumerReport`, and composite multi-report presets (`COMPOSITE_DESCRIPTOR`, `IdKeyboardReport`, `IdMouseReport`, `IdConsumerReport`, `IdGamepadReport`) at `class::hid`
 - Add `class::ccid::device`, implementing USB Chip/Smart Card Interface Device (CCID) with 54-byte functional descriptor, APDU transfer chunking, and reader/writer split
 - `CCID`: Extract shared CCID constants, commands, responses, and status types into `class::ccid::types`
