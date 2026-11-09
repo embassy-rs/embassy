@@ -449,3 +449,32 @@ fn test_ccid_device_and_host_interop() {
     assert_eq!(info.bulk_in.1, 64);
     assert_eq!(info.bulk_out.1, 64);
 }
+
+#[test]
+fn test_bluetooth_hci_device_descriptors() {
+    let mut state = crate::class::bth::State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+
+    let bth = crate::class::bth::BluetoothHci::new(&mut builder, &mut state, crate::class::bth::Config::default());
+    let _ = bth;
+    let usb = builder.build();
+    drop(usb);
+
+    let desc = &config_descriptor[..];
+    // Find Interface descriptor (bLength = 9, bDescriptorType = 4, class = 0xE0, subclass = 0x01, proto = 0x01)
+    let iface = desc
+        .windows(9)
+        .find(|w| w[0] == 9 && w[1] == 4 && w[5] == 0xE0 && w[6] == 0x01 && w[7] == 0x01)
+        .expect("Bluetooth HCI interface descriptor not found");
+    assert_eq!(iface[4], 3); // 3 endpoints (Event IN, ACL OUT, ACL IN)
+}
