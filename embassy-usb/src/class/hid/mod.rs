@@ -1,12 +1,21 @@
 //! Human Interface Device (HID) class.
 
 mod boot;
+pub mod composite;
+pub mod consumer;
+pub mod gamepad;
 mod types;
 
 pub mod device;
 pub mod host;
 
 pub use boot::{KeyboardReport, MouseButtons, MouseReport};
+pub use composite::{
+    COMPOSITE_DESCRIPTOR, IdConsumerReport, IdGamepadReport, IdKeyboardReport, IdMouseReport, REPORT_ID_CONSUMER,
+    REPORT_ID_GAMEPAD, REPORT_ID_KEYBOARD, REPORT_ID_MOUSE,
+};
+pub use consumer::ConsumerReport;
+pub use gamepad::{GamepadButtons, GamepadReport};
 pub use types::*;
 
 pub(crate) const USB_CLASS_HID: u8 = 0x03;
