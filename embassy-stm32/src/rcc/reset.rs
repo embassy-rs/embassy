@@ -75,17 +75,17 @@ impl ResetFlags {
     /// On many STM32 chips, internal reset sources can also drive NRST low,
     /// so this flag is commonly set together with other flags.
     /// Check the more specific flags first.
-    pub fn nrst(&self) -> bool {
+    pub fn nrst_pin(&self) -> bool {
         Raw(self.0).pinrstf()
     }
 
     /// A software reset was requested, for example with `SCB::sys_reset()`.
-    pub fn sw_reset(&self) -> bool {
+    pub fn software(&self) -> bool {
         Raw(self.0).sftrstf()
     }
 
     /// The independent watchdog expired.
-    pub fn iwdg(&self) -> bool {
+    pub fn independent_watchdog(&self) -> bool {
         #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468))]
         return Raw(self.0).iwdg1rstf();
         #[cfg(not(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468)))]
@@ -93,7 +93,7 @@ impl ResetFlags {
     }
 
     /// The window watchdog expired.
-    pub fn wwdg(&self) -> bool {
+    pub fn window_watchdog(&self) -> bool {
         #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468))]
         return Raw(self.0).wwdg1rstf();
         #[cfg(not(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468)))]
@@ -114,19 +114,19 @@ impl ResetFlags {
     #[cfg(any(
         stm32f0, stm32f1, stm32f2, stm32f3, stm32f4, stm32f7, stm32h7, stm32h7rs, stm32l0, stm32l1, stm32n6
     ))]
-    pub fn por(&self) -> bool {
+    pub fn power_on(&self) -> bool {
         Raw(self.0).porrstf()
     }
 
     /// A brownout reset (BOR).
     ///
-    /// On many families a power-on reset also sets this flag. Where `por()` is
+    /// On many families a power-on reset also sets this flag. Where `power_on()` is
     /// available, check it first.
     #[cfg(any(
         stm32c5, stm32f2, stm32f4, stm32f7, stm32g4, stm32h5, stm32h7, stm32h7rs, stm32l4, stm32l5, stm32n6, stm32u3,
         stm32u5, stm32wb, stm32wba, stm32wl
     ))]
-    pub fn bor(&self) -> bool {
+    pub fn brownout(&self) -> bool {
         Raw(self.0).borrstf()
     }
 
@@ -146,7 +146,7 @@ impl ResetFlags {
     /// A power-on reset sets this along with other flags. It is set on its own when
     /// the D1 domain exits DStandby mode.
     #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468))]
-    pub fn d1(&self) -> bool {
+    pub fn d1_domain(&self) -> bool {
         Raw(self.0).d1rstf()
     }
 
@@ -155,7 +155,7 @@ impl ResetFlags {
     /// A power-on reset sets this along with other flags. It is set on its own when
     /// the D2 domain exits DStandby mode.
     #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468))]
-    pub fn d2(&self) -> bool {
+    pub fn d2_domain(&self) -> bool {
         Raw(self.0).d2rstf()
     }
 }
