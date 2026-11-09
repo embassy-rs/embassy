@@ -61,7 +61,7 @@ impl<M: RawMutex, T: NorFlash> ReadNorFlash for BlockingPartition<'_, M, T> {
     const READ_SIZE: usize = T::READ_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        if offset + bytes.len() as u32 > self.size {
+        if offset > self.size || bytes.len() > (self.size - offset) as usize {
             return Err(Error::OutOfBounds);
         }
 
@@ -83,7 +83,7 @@ impl<M: RawMutex, T: NorFlash> NorFlash for BlockingPartition<'_, M, T> {
     const ERASE_SIZE: usize = T::ERASE_SIZE;
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        if offset + bytes.len() as u32 > self.size {
+        if offset > self.size || bytes.len() > (self.size - offset) as usize {
             return Err(Error::OutOfBounds);
         }
 
@@ -157,5 +157,36 @@ mod tests {
 
         let flash = flash.into_inner().take();
         assert!(!flash.mem[128..256].iter().any(|&x| x != 0xFF));
+    }
+
+    #[test]
+    fn read_write_at_end() {
+        let flash = MemFlash::<1024, 128, 4>::default();
+
+        let flash = Mutex::<NoopRawMutex, _>::new(RefCell::new(flash));
+        let mut partition = BlockingPartition::new(&flash, 128, 256);
+
+        let mut read_buf = [0; 8];
+        partition.read(248, &mut read_buf).unwrap();
+        partition.write(248, &[0xAA; 8]).unwrap();
+
+        assert_eq!(partition.read(249, &mut read_buf), Err(Error::OutOfBounds));
+        assert_eq!(partition.write(249, &[0xAA; 8]), Err(Error::OutOfBounds));
+    }
+
+    #[test]
+    fn offset_overflow_is_out_of_bounds() {
+        let flash = MemFlash::<1024, 128, 4>::default();
+
+        let flash = Mutex::<NoopRawMutex, _>::new(RefCell::new(flash));
+        let mut partition = BlockingPartition::new(&flash, 128, 256);
+
+        // offset + len wraps around u32::MAX
+        let mut read_buf = [0; 8];
+        assert_eq!(partition.read(u32::MAX - 3, &mut read_buf), Err(Error::OutOfBounds));
+        assert_eq!(partition.write(u32::MAX - 3, &[0xAA; 8]), Err(Error::OutOfBounds));
+
+        let flash = flash.into_inner().take();
+        assert!(flash.writes.is_empty());
     }
 }
