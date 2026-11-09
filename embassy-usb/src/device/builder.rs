@@ -2,10 +2,7 @@ use heapless::Vec;
 
 use super::{Handler, Inner, Interface, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START, UsbDevice, UsbDeviceState};
 use crate::config::MAX_HANDLER_COUNT;
-use crate::descriptor::{
-    self, BosWriter, DescriptorWriter, EndpointInterval, SynchronizationType, UsageType,
-    rewrite_config_descriptor_for_full_speed, rewrite_config_descriptor_for_high_speed,
-};
+use crate::descriptor::{self, BosWriter, DescriptorWriter, EndpointInterval, SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointInfo, EndpointType};
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
 use crate::types::{InterfaceNumber, StringIndex};
@@ -161,6 +158,12 @@ impl<'a> Config<'a> {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OtherSpeedPatch {
+    pub offset: u16,
+    pub interval: u8,
+}
+
 /// [`UsbDevice`] builder.
 pub struct Builder<'d, D: Driver<'d>> {
     config: Config<'d>,
@@ -173,6 +176,7 @@ pub struct Builder<'d, D: Driver<'d>> {
 
     config_descriptor: DescriptorWriter<'d>,
     other_speed_config_descriptor_buf: Option<&'d mut [u8]>,
+    other_speed_patches: Vec<OtherSpeedPatch, 32>,
     bos_descriptor: BosWriter<'d>,
 
     msos_descriptor: MsOsDescriptorWriter<'d>,
@@ -227,6 +231,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
 
             config_descriptor,
             other_speed_config_descriptor_buf: None,
+            other_speed_patches: Vec::new(),
             bos_descriptor,
 
             msos_descriptor: MsOsDescriptorWriter::new(msos_descriptor_buf),
@@ -258,12 +263,13 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             mut bos_descriptor,
             msos_descriptor,
             other_speed_config_descriptor_buf,
+            other_speed_patches,
         } = self;
 
         let msos_descriptor = msos_descriptor.build(&mut bos_descriptor);
 
         config_descriptor.end_configuration();
-        let (config_descriptor, endpoint_intervals) = config_descriptor.into_parts();
+        let config_descriptor = config_descriptor.into_buf();
 
         bos_descriptor.end_bos();
         let bos_descriptor = bos_descriptor.writer.into_buf();
@@ -279,7 +285,9 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
                 let slice = &mut buf[..config_descriptor.len()];
                 slice.copy_from_slice(config_descriptor);
                 slice[1] = descriptor::descriptor_type::OTHER_SPEED_CONFIGURATION;
-                rewrite_config_descriptor_for_full_speed(slice, &endpoint_intervals);
+                for patch in &other_speed_patches {
+                    slice[patch.offset as usize] = patch.interval;
+                }
                 Some(&*slice)
             } else {
                 None
@@ -293,9 +301,6 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
                 config.max_packet_size_0 == 64,
                 "high-speed USB requires max_packet_size_0 = 64"
             );
-            rewrite_config_descriptor_for_high_speed(config_descriptor, &endpoint_intervals);
-        } else {
-            rewrite_config_descriptor_for_full_speed(config_descriptor, &endpoint_intervals);
         }
 
         // Log the number of allocator bytes actually used in descriptor buffers
@@ -575,9 +580,13 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         usage_type: UsageType,
         extra_fields: &[u8],
     ) {
-        self.builder
-            .config_descriptor
-            .endpoint(endpoint, synchronization_type, usage_type, extra_fields);
+        self.endpoint_descriptor_with_interval(
+            endpoint,
+            EndpointInterval::Milliseconds(endpoint.interval_ms),
+            synchronization_type,
+            usage_type,
+            extra_fields,
+        );
     }
 
     /// Write a custom endpoint descriptor for a certain endpoint with a specific [`EndpointInterval`].
@@ -589,13 +598,31 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         usage_type: UsageType,
         extra_fields: &[u8],
     ) {
-        self.builder.config_descriptor.endpoint_with_interval(
+        let max_speed = self.builder.config.max_speed;
+        let b_interval = match max_speed {
+            UsbDeviceSpeed::High => interval.to_high_speed_b_interval(endpoint.ep_type),
+            _ => interval.to_full_speed_b_interval(endpoint.ep_type),
+        };
+
+        let interval_offset = (self.builder.config_descriptor.position() + 6) as u16;
+
+        self.builder.config_descriptor.endpoint_raw(
             endpoint,
-            interval,
+            b_interval,
             synchronization_type,
             usage_type,
             extra_fields,
         );
+
+        if max_speed == UsbDeviceSpeed::High {
+            let fs_interval = interval.to_full_speed_b_interval(endpoint.ep_type);
+            if fs_interval != b_interval {
+                let _ = self.builder.other_speed_patches.push(OtherSpeedPatch {
+                    offset: interval_offset,
+                    interval: fs_interval,
+                });
+            }
+        }
     }
 
     /// Write a custom endpoint descriptor with a raw `bInterval` byte.

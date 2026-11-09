@@ -1,6 +1,5 @@
 //! Utilities for writing USB descriptors.
 use embassy_usb_driver::EndpointType;
-use heapless::Vec;
 
 use crate::driver::EndpointInfo;
 use crate::types::{InterfaceNumber, StringIndex};
@@ -175,20 +174,12 @@ impl From<u8> for EndpointInterval {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub(crate) struct EndpointIntervalInfo {
-    pub offset: usize,
-    pub ep_type: EndpointType,
-    pub interval: EndpointInterval,
-}
-
 /// A writer for USB descriptors.
 pub(crate) struct DescriptorWriter<'a> {
     pub buf: &'a mut [u8],
     position: usize,
     num_interfaces_mark: Option<usize>,
     num_endpoints_mark: Option<usize>,
-    pub(crate) endpoint_intervals: Vec<EndpointIntervalInfo, 32>,
 }
 
 pub(crate) struct DescriptorMark(usize);
@@ -200,16 +191,11 @@ impl<'a> DescriptorWriter<'a> {
             position: 0,
             num_interfaces_mark: None,
             num_endpoints_mark: None,
-            endpoint_intervals: Vec::new(),
         }
     }
 
     pub fn into_buf(self) -> &'a mut [u8] {
         &mut self.buf[..self.position]
-    }
-
-    pub(crate) fn into_parts(self) -> (&'a mut [u8], Vec<EndpointIntervalInfo, 32>) {
-        (&mut self.buf[..self.position], self.endpoint_intervals)
     }
 
     /// Gets the current position in the buffer, i.e. the number of bytes written so far.
@@ -372,6 +358,7 @@ impl<'a> DescriptorWriter<'a> {
     /// * `synchronization_type` - The synchronization type of the endpoint.
     /// * `usage_type` - The usage type of the endpoint.
     /// * `extra_fields` - Additional, class-specific entries at the end of the endpoint descriptor.
+    #[allow(unused)]
     pub fn endpoint(
         &mut self,
         endpoint: &EndpointInfo,
@@ -379,20 +366,20 @@ impl<'a> DescriptorWriter<'a> {
         usage_type: UsageType,
         extra_fields: &[u8],
     ) {
-        self.endpoint_with_interval(
+        self.endpoint_raw(
             endpoint,
-            EndpointInterval::Milliseconds(endpoint.interval_ms),
+            endpoint.interval_ms,
             synchronization_type,
             usage_type,
             extra_fields,
         );
     }
 
-    /// Writes an endpoint descriptor with a specific [`EndpointInterval`].
-    pub fn endpoint_with_interval(
+    /// Writes an endpoint descriptor with a raw `bInterval` byte.
+    pub fn endpoint_raw(
         &mut self,
         endpoint: &EndpointInfo,
-        interval: EndpointInterval,
+        b_interval: u8,
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
@@ -421,24 +408,6 @@ impl<'a> DescriptorWriter<'a> {
             bm_attributes |= usage_bm_attributes | synchronization_bm_attributes;
         }
 
-        let initial_interval = match interval {
-            EndpointInterval::Raw(val) => val,
-            EndpointInterval::Milliseconds(ms) => ms,
-            EndpointInterval::Microframes(uframes) => ((uframes + 7) / 8).min(255) as u8,
-        };
-
-        let interval_offset = self.position + 6;
-        if endpoint.ep_type == EndpointType::Interrupt
-            || endpoint.ep_type == EndpointType::Isochronous
-            || matches!(interval, EndpointInterval::Raw(_))
-        {
-            let _ = self.endpoint_intervals.push(EndpointIntervalInfo {
-                offset: interval_offset,
-                ep_type: endpoint.ep_type,
-                interval,
-            });
-        }
-
         self.write(
             descriptor_type::ENDPOINT,
             &[
@@ -446,29 +415,8 @@ impl<'a> DescriptorWriter<'a> {
                 bm_attributes,        // bmAttributes
                 endpoint.max_packet_size as u8,
                 (endpoint.max_packet_size >> 8) as u8, // wMaxPacketSize
-                initial_interval,                      // bInterval
+                b_interval,                            // bInterval
             ],
-            extra_fields,
-        );
-    }
-
-    /// Writes an endpoint descriptor with a raw `bInterval` byte.
-    ///
-    /// The `bInterval` byte is written directly to the descriptor and will NOT be modified
-    /// by full-speed or high-speed rewriting passes.
-    pub fn endpoint_raw(
-        &mut self,
-        endpoint: &EndpointInfo,
-        b_interval: u8,
-        synchronization_type: SynchronizationType,
-        usage_type: UsageType,
-        extra_fields: &[u8],
-    ) {
-        self.endpoint_with_interval(
-            endpoint,
-            EndpointInterval::Raw(b_interval),
-            synchronization_type,
-            usage_type,
             extra_fields,
         );
     }
@@ -542,23 +490,6 @@ pub(crate) fn device_qualifier_descriptor(config: &Config) -> [u8; 10] {
         1,                                  // bNumConfigurations
         0,                                  // Reserved
     ]
-}
-
-pub(crate) fn rewrite_config_descriptor_for_high_speed(buf: &mut [u8], endpoints: &[EndpointIntervalInfo]) {
-    for ep in endpoints {
-        if ep.offset < buf.len() {
-            buf[ep.offset] = ep.interval.to_high_speed_b_interval(ep.ep_type);
-        }
-    }
-}
-
-/// At full speed, `interval_ms` is the `bInterval`, except that 0 (every frame) becomes 1.
-pub(crate) fn rewrite_config_descriptor_for_full_speed(buf: &mut [u8], endpoints: &[EndpointIntervalInfo]) {
-    for ep in endpoints {
-        if ep.offset < buf.len() {
-            buf[ep.offset] = ep.interval.to_full_speed_b_interval(ep.ep_type);
-        }
-    }
 }
 
 /// Returns the high-speed `bInterval` (2^(bInterval-1) microframes) for `interval_ms`.
@@ -735,23 +666,5 @@ mod tests {
         assert_eq!(ep_raw.to_full_speed_b_interval(EndpointType::Isochronous), 7);
         assert_eq!(ep_raw.to_high_speed_b_interval(EndpointType::Interrupt), 7);
         assert_eq!(ep_raw.to_high_speed_b_interval(EndpointType::Isochronous), 7);
-    }
-
-    #[test]
-    fn periodic_intervals_only() {
-        // An interface, then a bulk and an isochronous endpoint, both with bInterval 0.
-        let mut buf = [
-            9, 4, 0, 0, 2, 0xff, 0, 0, 0, //
-            7, 5, 0x81, 0x02, 64, 0, 0, //
-            7, 5, 0x02, 0x05, 64, 0, 0,
-        ];
-        let endpoints = [EndpointIntervalInfo {
-            offset: 22,
-            ep_type: EndpointType::Isochronous,
-            interval: EndpointInterval::Milliseconds(0),
-        }];
-        rewrite_config_descriptor_for_full_speed(&mut buf, &endpoints);
-        assert_eq!(buf[15], 0);
-        assert_eq!(buf[22], 1);
     }
 }
