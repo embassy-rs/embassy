@@ -9,11 +9,11 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::pac::RCC;
 use crate::pac::common::{RW, Reg};
-#[cfg(not(any(stm32c0, stm32c5, stm32h5, stm32h7, stm32h7rs)))]
+#[cfg(not(any(stm32c0, stm32c5, stm32h5, stm32h7, stm32h7rs, stm32n6)))]
 use crate::pac::rcc::regs::Csr as Raw;
 #[cfg(stm32c0)]
 use crate::pac::rcc::regs::Csr2 as Raw;
-#[cfg(any(stm32c5, stm32h5, stm32h7, stm32h7rs))]
+#[cfg(any(stm32c5, stm32h5, stm32h7, stm32h7rs, stm32n6))]
 use crate::pac::rcc::regs::Rsr as Raw;
 
 #[cfg(stm32c0)]
@@ -21,12 +21,12 @@ fn reg() -> Reg<Raw, RW> {
     RCC.csr2()
 }
 
-#[cfg(any(stm32c5, stm32h5, stm32h7, stm32h7rs))]
+#[cfg(any(stm32c5, stm32h5, stm32h7, stm32h7rs, stm32n6))]
 fn reg() -> Reg<Raw, RW> {
     RCC.rsr()
 }
 
-#[cfg(not(any(stm32c0, stm32c5, stm32h5, stm32h7, stm32h7rs)))]
+#[cfg(not(any(stm32c0, stm32c5, stm32h5, stm32h7, stm32h7rs, stm32n6)))]
 fn reg() -> Reg<Raw, RW> {
     RCC.csr()
 }
@@ -76,10 +76,7 @@ impl ResetFlags {
     /// so this flag is commonly set together with other flags.
     /// Check the more specific flags first.
     pub fn nrst(&self) -> bool {
-        #[cfg(any(stm32f2, stm32f4, stm32f7))]
-        return Raw(self.0).padrstf();
-        #[cfg(not(any(stm32f2, stm32f4, stm32f7)))]
-        return Raw(self.0).pinrstf();
+        Raw(self.0).pinrstf()
     }
 
     /// A software reset was requested, for example with `SCB::sys_reset()`.
@@ -89,19 +86,17 @@ impl ResetFlags {
 
     /// The independent watchdog expired.
     pub fn iwdg(&self) -> bool {
-        #[cfg(any(stm32f2, stm32f4, stm32f7))]
-        return Raw(self.0).wdgrstf();
-        #[cfg(stm32h7)]
+        #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468))]
         return Raw(self.0).iwdg1rstf();
-        #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32h7)))]
+        #[cfg(not(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468)))]
         return Raw(self.0).iwdgrstf();
     }
 
     /// The window watchdog expired.
     pub fn wwdg(&self) -> bool {
-        #[cfg(stm32h7)]
+        #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468))]
         return Raw(self.0).wwdg1rstf();
-        #[cfg(not(stm32h7))]
+        #[cfg(not(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468)))]
         return Raw(self.0).wwdgrstf();
     }
 
