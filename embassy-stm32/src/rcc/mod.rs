@@ -15,8 +15,8 @@ pub const LSI_FREQ: crate::time::Hertz = crate::time::Hertz(40_000);
 #[cfg(not(any(stm32f0, stm32f1, stm32f3)))]
 pub const LSI_FREQ: crate::time::Hertz = crate::time::Hertz(32_000);
 
-mod reset_flags;
-pub use reset_flags::*;
+mod reset;
+pub use reset::*;
 
 #[cfg(any(mco, mco1, mco2))]
 mod mco;
