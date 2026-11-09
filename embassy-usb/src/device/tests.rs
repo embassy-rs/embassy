@@ -26,7 +26,10 @@ impl<'d> Driver<'d> for TestDriver {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<TestEndpoint, EndpointAllocError> {
-        let addr = ep_addr.unwrap();
+        let addr = ep_addr.unwrap_or_else(|| {
+            let index = (1..9).find(|&i| self.bus.endpoints[i * 2 + 1].is_none()).unwrap();
+            EndpointAddress::from_parts(index, Direction::In)
+        });
         assert!(addr.is_in());
         self.bus.allocate(EndpointInfo {
             addr,
@@ -43,7 +46,10 @@ impl<'d> Driver<'d> for TestDriver {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<TestEndpoint, EndpointAllocError> {
-        let addr = ep_addr.unwrap();
+        let addr = ep_addr.unwrap_or_else(|| {
+            let index = (1..9).find(|&i| self.bus.endpoints[i * 2].is_none()).unwrap();
+            EndpointAddress::from_parts(index, Direction::Out)
+        });
         assert!(addr.is_out());
         self.bus.allocate(EndpointInfo {
             addr,
@@ -409,4 +415,37 @@ fn test_handle_control_endpoint_request_fields() {
         }
         assert_eq!(usb.inner.bus.halt_calls, 0);
     });
+}
+
+#[test]
+fn test_ccid_device_and_host_interop() {
+    let driver = TestDriver::default();
+    let config = Config::new(0x1209, 0x0001);
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 256];
+    let mut control_buf = [0; 64];
+
+    let mut state = crate::class::ccid::device::State::new();
+    let mut builder = Builder::new(
+        driver,
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+
+    let ccid_config = crate::class::ccid::device::Config {
+        max_packet_size: 64,
+        ..Default::default()
+    };
+    let _ccid = crate::class::ccid::device::CcidDevice::new(&mut builder, &mut state, ccid_config);
+    let usb = builder.build();
+    drop(usb);
+
+    let info = crate::class::ccid::host::find_ccid(&config_descriptor).expect("CCID interface should be found");
+    assert_eq!(info.interface_number, 0);
+    assert_eq!(info.slots, 1);
+    assert_eq!(info.bulk_in.1, 64);
+    assert_eq!(info.bulk_out.1, 64);
 }

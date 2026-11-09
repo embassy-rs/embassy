@@ -1,8 +1,5 @@
 //! Implementations of well-known USB classes.
-pub mod ccid {
-    //! Smart card (CCID) class.
-    pub mod host;
-}
+pub mod ccid;
 pub mod cdc_acm;
 pub mod cdc_ncm {
     //! CDC NCM (Ethernet over USB) class.
