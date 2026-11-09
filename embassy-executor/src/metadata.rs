@@ -163,9 +163,9 @@ impl Metadata {
         }
     }
 
-    /// Reset the metadata for a freshly spawned task, `name` being its default name
-    /// (see [`MetadataRef::name`]).
-    pub(crate) fn reset(&self, name: Option<&'static str>) {
+    /// Initialize the metadata for a freshly spawned task: `name` is its default name
+    /// (see [`MetadataRef::name`]), priority and deadline start unset.
+    pub(crate) fn init(&self, name: Option<&'static str>) {
         #[cfg(feature = "metadata-name")]
         critical_section::with(|cs| self.name.borrow(cs).set(name));
         #[cfg(not(feature = "metadata-name"))]

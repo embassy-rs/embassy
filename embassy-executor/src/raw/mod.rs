@@ -325,7 +325,7 @@ impl<F: Future + 'static> AvailableTask<F> {
 
     fn initialize_impl<S>(self, name: Option<&'static str>, future: impl FnOnce() -> F) -> SpawnToken<S> {
         unsafe {
-            self.task.raw.metadata.reset(name);
+            self.task.raw.metadata.init(name);
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write_in_place(future);
 
