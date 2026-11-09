@@ -48,9 +48,10 @@
 //! - `:MEAS:VOLT?` - a fixed measurement.
 //! - `*RST` - logged, state unchanged.
 //! - `:TEST:STALL` - halts both bulk endpoints instead of replying, to exercise the
-//!   endpoint-halt path. The host's next transfer fails with `EPIPE`; clear it with
-//!   `usb_clear_halt()`/`CLEAR_FEATURE(ENDPOINT_HALT)` or `viClear()`, and the instrument
-//!   starts answering again.
+//!   endpoint-halt path. Host libraries surface this as an I/O error, not a return value
+//!   (`VisaIOError` in PyVISA, `USBError` with `EPIPE` in pyusb), so the host has to catch
+//!   it and clear the halt with `usb_clear_halt()`/`CLEAR_FEATURE(ENDPOINT_HALT)` or
+//!   `viClear()`. The instrument then starts answering again.
 //!
 //! Any other command is logged and ignored. A Bulk-OUT message that cannot be parsed
 //! halts Bulk-OUT on its own; see the `usbtmc` module docs.

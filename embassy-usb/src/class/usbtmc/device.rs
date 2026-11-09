@@ -750,6 +750,11 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
     /// instead of an empty reply, and can abort it with [`Self::clear_stall`],
     /// `CLEAR_FEATURE(ENDPOINT_HALT)` or `viClear()`.
     ///
+    /// Host software sees this as an I/O error rather than a reply: VISA raises a
+    /// `VisaIOError`, libusb-based stacks an `EPIPE`/`USBError`. There is no way to
+    /// report a protocol failure other than failing the transfer, so host code has to
+    /// handle the error and clear the halt.
+    ///
     /// While the endpoints are stalled, reads and writes do not complete, so the
     /// application has to call [`Self::clear_stall`] (or wait for the host to clear the
     /// halt) before using the class again.
