@@ -1,8 +1,6 @@
 //! Implementations of well-known USB classes.
-pub mod ccid {
-    //! Smart card (CCID) class.
-    pub mod host;
-}
+pub mod bth;
+pub mod ccid;
 pub mod cdc_acm;
 pub mod cdc_ncm {
     //! CDC NCM (Ethernet over USB) class.
@@ -32,6 +30,11 @@ pub mod hub {
 pub mod midi;
 pub mod msc;
 pub mod uac;
+pub mod usbtmc;
+pub mod uvc {
+    //! USB Video Class (UVC).
+    pub mod device;
+}
 pub mod vcp {
     //! Vendor-specific serial (VCP) adapters.
     pub mod host;

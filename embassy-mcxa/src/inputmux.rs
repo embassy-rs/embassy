@@ -27,6 +27,54 @@ pub(crate) fn init() {
     }
 }
 
+/// Route one AOI0 event's inputs without resetting other INPUTMUX users.
+#[cfg(mcxa_aoi)]
+pub(crate) fn configure_aoi0(
+    event: usize,
+    inputs: [crate::aoi::InputSource; 4],
+) -> Result<(), crate::clocks::ClockError> {
+    critical_section::with(|_| {
+        // SAFETY: every shared INPUTMUX gate access is serialized.
+        let _parts = unsafe { enable::<INPUTMUX0>(&NoConfig)? };
+        for (input, source) in inputs.iter().enumerate() {
+            // A2 RM 13.6.1.60 / A5 RM 21.6.1.26: A/B/C/D for EVENTn
+            // occupy input connections 4*n through 4*n+3.
+            pac::INPUTMUX0
+                .aoi0_input(event * 4 + input)
+                .write(|w| w.set_inp(source.selector()));
+        }
+        // SAFETY: the routes persist without the register-interface clock.
+        unsafe { disable::<INPUTMUX0>() };
+        Ok(())
+    })
+}
+
+/// Connect one capture channel to AOI0; the caller retains its borrowed output.
+#[cfg(all(mcxa_aoi, mcxa_ctimer))]
+pub(crate) fn configure_ctimer_aoi(
+    timer: usize,
+    channel: usize,
+    event: crate::aoi::Event,
+) -> Result<(), crate::clocks::ClockError> {
+    critical_section::with(|_| {
+        // SAFETY: every shared INPUTMUX gate access is serialized.
+        let _parts = unsafe { enable::<INPUTMUX0>(&NoConfig)? };
+        // AOI0_OUT0..3 select 22..25 in each CTIMER capture mux on A2/A5.
+        let source = 22 + event.index() as u8;
+        match timer {
+            0 => pac::INPUTMUX0.ctimer0cap(channel).write(|w| w.set_inp(source.into())),
+            1 => pac::INPUTMUX0.ctimer1cap(channel).write(|w| w.set_inp(source.into())),
+            2 => pac::INPUTMUX0.ctimer2cap(channel).write(|w| w.set_inp(source.into())),
+            3 => pac::INPUTMUX0.ctimer3cap(channel).write(|w| w.set_inp(source.into())),
+            4 => pac::INPUTMUX0.ctimer4cap(channel).write(|w| w.set_inp(source.into())),
+            _ => unreachable!(),
+        }
+        // SAFETY: the route persists without the register-interface clock.
+        unsafe { disable::<INPUTMUX0>() };
+        Ok(())
+    })
+}
+
 /// Configure both FREQME inputs while serializing the shared INPUTMUX gate.
 #[cfg(mcxa_freqme)]
 pub(crate) fn configure_freqme(reference: u8, target: u8) -> Result<(), crate::clocks::ClockError> {

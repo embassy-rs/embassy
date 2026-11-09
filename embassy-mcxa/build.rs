@@ -70,6 +70,7 @@ fn main() {
         generate_instance_calls(),
         generate_gpio_pin_impls(),
         generate_adc_pin_impls(),
+        generate_cmp_pin_impls(),
         generate_clkout_impls(),
         generate_lpi2c_pin_impls(),
         generate_i3c_pin_impls(),
@@ -118,6 +119,16 @@ fn generate_peripherals_call() -> TokenStream {
             .map(|peripheral| Singleton::just_name(peripheral.name)),
     );
 
+    // Narrow ownership of the digital detector's control register in SECCON.
+    if METADATA
+        .peripherals
+        .iter()
+        .any(|peripheral| peripheral.name == "DGDET0")
+        && !singletons.iter().any(|singleton| singleton.name == "GDET0_CTRL")
+    {
+        singletons.push(Singleton::just_name("GDET0_CTRL"));
+    }
+
     // Add DMA channels
     for (dma_num, dma_peripheral) in METADATA
         .peripherals
@@ -156,7 +167,7 @@ fn generate_peripherals_call() -> TokenStream {
         .zip(&singleton_tokens)
         .map(|(s, tokens)| match s.name.as_str() {
             "OSTIMER0" => quote! { #[cfg(not(time_driver_ostimer))] #tokens },
-            "LPTMR0" => quote! { #[cfg(not(time_driver_lptmr))] #tokens },
+            "LPTMR0" | "WAKETIMER0" => quote! { #[cfg(not(time_driver_lptmr))] #tokens },
             _ => tokens.clone(),
         })
         .collect();
@@ -194,7 +205,9 @@ fn generate_cc_gates() -> TokenStream {
         let reset = gate.reset.map(|reset| format_ident!("{reset}"));
         let config = gate.config.map(|config| format_ident!("{config}")).unwrap_or_else(|| {
             // FREQME's PAC metadata predates its HAL clock helper.
-            if peripheral.driver_name == "mcxa/FREQME" {
+            if is_numbered(peripheral.name, "CMP") {
+                format_ident!("CmpConfig")
+            } else if peripheral.driver_name == "mcxa/FREQME" {
                 format_ident!("FreqmeConfig")
             } else {
                 format_ident!("NoConfig")
@@ -230,7 +243,8 @@ fn generate_instance_calls() -> TokenStream {
     let mut generated = TokenStream::new();
 
     const REQUIRES_INSTANCE: &[&str] = &[
-        "adc", "crc", "dac", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi", "can",
+        "adc", "cmp", "crc", "dac", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi",
+        "can",
     ];
 
     for peripheral in METADATA.peripherals {
@@ -314,6 +328,48 @@ fn generate_adc_pin_impls() -> TokenStream {
         }
     }
 
+    generated
+}
+
+fn generate_cmp_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+    let a2 = env::var_os("CARGO_FEATURE__MCXA2XX").is_some();
+    for cmp in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "CMP")) {
+        let peripheral = format_ident!("{}", cmp.name);
+        for signal in cmp.signals {
+            let (number, positive, negative) = if let Some(n) = signal.name.strip_prefix("INP") {
+                (n, true, false)
+            } else if let Some(n) = signal.name.strip_prefix("INN") {
+                (n, false, true)
+            } else if let Some(n) = signal.name.strip_prefix("IN") {
+                (n, true, true)
+            } else {
+                continue;
+            };
+            let channel: u8 = number.parse().expect("Unexpected comparator input signal");
+            // A2 RM46.1.2: channel4 is internal despite external-pin metadata.
+            // A5 RM56.1.2: channels4/5 have separate positive/negative pins.
+            if (a2 && channel >= 4) || channel >= 6 {
+                continue;
+            }
+            for pin in signal.pins {
+                let pin_name = format_ident!("{}", pin.pin);
+                let gate = pin_feature_gate(pin.pin);
+                if positive {
+                    generated.extend(quote! {
+                        #gate
+                        crate::impl_cmp_positive_pin!(#pin_name, #peripheral, #channel);
+                    });
+                }
+                if negative {
+                    generated.extend(quote! {
+                        #gate
+                        crate::impl_cmp_negative_pin!(#pin_name, #peripheral, #channel);
+                    });
+                }
+            }
+        }
+    }
     generated
 }
 

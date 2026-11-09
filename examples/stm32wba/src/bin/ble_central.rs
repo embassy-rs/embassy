@@ -28,10 +28,12 @@ use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{
     BdAddrType, ConnectionInitParams, GapEvent, ParsedAdvData, ScanParams, ScanType,
 };
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::{BleEvent, EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
+use stm32wb_hci::aci::flags::Role;
+use stm32wb_hci::aci::values::AddressType;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -48,7 +50,7 @@ async fn ble_runner_task(platform: &'static Platform) {
 const TARGET_DEVICE_NAME: Option<&str> = None; // e.g., Some("Embassy-Peripheral")
 
 // ---- Test configuration ----
-const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
+const ADDR_TYPE: OwnAddressType = OwnAddressType::StaticRandom;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -73,11 +75,13 @@ async fn main(spawner: Spawner) {
             let gap_params = GapInitParams {
                 bd_addr: [0x01, 0x00, 0x00, 0xE1, 0x80, 0x00],
                 address_type: AddressType::Public,
+                // `connect` needs the GAP central role.
+                role: Role::CENTRAL,
                 ..GapInitParams::default()
             };
             HCI::new_with_gap_params(platform, runtime, Irqs, gap_params).await
         }
-        _ => HCI::new(platform, runtime, Irqs).await,
+        _ => HCI::new_with_role(platform, runtime, Irqs, Role::CENTRAL).await,
     }
     .expect("BLE initialization failed");
 
@@ -93,6 +97,7 @@ async fn main(spawner: Spawner) {
 
     // Start scanning
     ble.start_scan_observation(scan_params.clone())
+        .await
         .expect("Failed to start scanning");
 
     info!("=== BLE Central Started ===");
@@ -150,7 +155,7 @@ async fn main(spawner: Spawner) {
                             info!("  RSSI: {} dBm", report.rssi);
 
                             // Stop scanning
-                            ble.stop_scan().expect("Failed to stop scanning");
+                            ble.stop_scan().await.expect("Failed to stop scanning");
                             info!("Scanning stopped");
 
                             // Initiate connection
@@ -160,10 +165,11 @@ async fn main(spawner: Spawner) {
                             };
 
                             info!("Initiating connection...");
-                            if let Err(e) = ble.connect(&conn_params) {
+                            if let Err(e) = ble.connect(&conn_params).await {
                                 error!("Failed to initiate connection: {:?}", e);
                                 // Restart scanning on failure
                                 ble.start_scan_observation(scan_params.clone())
+                                    .await
                                     .expect("Failed to restart scanning");
                             } else {
                                 state = CentralState::Connecting;
@@ -183,7 +189,7 @@ async fn main(spawner: Spawner) {
 
             CentralState::Connecting => {
                 // Wait for connection complete event
-                if let Some(gap_event) = ble.process_event(&event) {
+                if let Some(gap_event) = ble.process_event(&event).await {
                     match gap_event {
                         GapEvent::Connected(conn) => {
                             info!("=== CONNECTED ===");
@@ -208,7 +214,10 @@ async fn main(spawner: Spawner) {
 
                             // Kick off a simple GATT client procedure for demo purposes.
                             let gatt_client = ble.gatt_client();
-                            if let Err(e) = gatt_client.discover_all_primary_services(conn.handle.raw()) {
+                            if let Err(e) = gatt_client
+                                .discover_all_primary_services(ble.controller(), conn.handle.raw())
+                                .await
+                            {
                                 warn!("Failed to start primary service discovery: {:?}", e);
                             }
                         }
@@ -224,6 +233,7 @@ async fn main(spawner: Spawner) {
 
                             // Go back to scanning
                             ble.start_scan_observation(scan_params.clone())
+                                .await
                                 .expect("Failed to restart scanning");
                             state = CentralState::Scanning;
                             info!("Restarted scanning...");
@@ -236,7 +246,7 @@ async fn main(spawner: Spawner) {
 
             CentralState::Connected => {
                 // Handle events while connected
-                if let Some(gap_event) = ble.process_event(&event) {
+                if let Some(gap_event) = ble.process_event(&event).await {
                     match gap_event {
                         GapEvent::Disconnected { handle, reason } => {
                             info!("=== DISCONNECTED ===");
@@ -245,6 +255,7 @@ async fn main(spawner: Spawner) {
 
                             // Go back to scanning
                             ble.start_scan_observation(scan_params.clone())
+                                .await
                                 .expect("Failed to restart scanning");
                             state = CentralState::Scanning;
                             info!("Restarted scanning...");

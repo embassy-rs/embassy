@@ -3,10 +3,13 @@
 //! Contains:
 //! - The `speaker` class with a single audio streaming interface (host to device)
 //! - Audio `source` device implementation with isochronous endpoints (device to host)
+//! - USB Audio Class 2.0 classes in [`uac2`]
 
 pub mod speaker;
 
 pub mod source;
+
+pub mod uac2;
 
 mod function;
 

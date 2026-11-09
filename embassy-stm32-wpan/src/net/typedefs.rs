@@ -7,11 +7,14 @@ use crate::numeric_enum;
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MacError {
-    Error = 0x01,
-    NotImplemented = 0x02,
-    NotSupported = 0x03,
-    HardwareNotSupported = 0x04,
-    Undefined = 0x05,
+    Error,
+    NotImplemented,
+    NotSupported,
+    HardwareNotSupported,
+    Undefined,
+    Status(MacStatus),
+    Association(AssociationStatus),
+    UnexpectedResponse,
 }
 
 impl From<u8> for MacError {

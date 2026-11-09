@@ -471,7 +471,7 @@ impl<'d, 'a, T: Instance> Cordic16<'d, 'a, T> {
         let (arg, res) = unsafe {
             (
                 slice::from_raw_parts(arg as *const _ as *const u32, size_of_val(arg) / 4),
-                slice::from_raw_parts_mut(res as *mut _ as *mut u32, size_of_val(arg) / 4),
+                slice::from_raw_parts_mut(res as *mut _ as *mut u32, size_of_val(res) / 4),
             )
         };
 
@@ -533,7 +533,7 @@ impl<'d, 'a, T: Instance> Cordic16<'d, 'a, T> {
         let (arg, res) = unsafe {
             (
                 slice::from_raw_parts(arg as *const _ as *const u32, size_of_val(arg) / 4),
-                slice::from_raw_parts_mut(res as *mut _ as *mut u32, size_of_val(arg) / 4),
+                slice::from_raw_parts_mut(res as *mut _ as *mut u32, size_of_val(res) / 4),
             )
         };
 

@@ -16,6 +16,7 @@ Async USB device and host stack for embedded devices in Rust.
     - MIDI
     - Generic USB Display (GUD)
     - Mass Storage (MSC)
+    - Test & Measurement (USBTMC)
 
 The [`host`](https://docs.embassy.dev/embassy-usb/git/default/host/index.html) module provides USB host enumeration,
 descriptor parsing, and class drivers for devices including HID, CDC ACM, mass storage, MIDI, and USB Audio Class.

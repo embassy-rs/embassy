@@ -115,6 +115,29 @@ impl<'d, Mode: PeriMode> ExtiInput<'d, Mode> {
         self.pin.level()
     }
 
+    /// The pin's EXTI line, as trigger tables number it.
+    pub fn line(&self) -> u8 {
+        self.pin.pin.pin.pin() as u8
+    }
+
+    /// Enable the line's event output on `trigger_edge`.
+    ///
+    /// An event wakes `WFE` and can trigger DMA or timers; the interrupt is left as it is. Waiting
+    /// on this input also sets the edge. Disable the event before dropping the input.
+    pub fn enable_event(&mut self, trigger_edge: TriggerEdge) {
+        let pin_num = self.pin.pin.pin.pin();
+        let port_num = self.pin.pin.pin.port();
+        critical_section::with(|_| {
+            low_level::configure_exti_pin(pin_num, port_num, trigger_edge);
+            low_level::set_exti_event_enabled(pin_num, true);
+        });
+    }
+
+    /// Disable the line's event output.
+    pub fn disable_event(&mut self) {
+        low_level::set_exti_event_enabled(self.pin.pin.pin.pin(), false);
+    }
+
     /// Unsafely clone (duplicate) an ExtiInput.
     pub const unsafe fn clone_unchecked(&self) -> Self {
         Self {

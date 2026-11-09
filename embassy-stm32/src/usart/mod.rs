@@ -1131,22 +1131,7 @@ impl<'d> UartRx<'d, Async> {
             });
         });
 
-        let ch = self.rx_dma.as_mut().unwrap();
-
         let buffer_len = buffer.len();
-
-        // Start USART DMA
-        // will not do anything yet because DMAR is not yet set
-        // future which will complete when DMA Read request completes
-        let transfer = unsafe { ch.read(W::rdr_ptr(r), buffer, Default::default()) };
-
-        // clear ORE flag just before enabling DMA Rx Request: can be mandatory for the second transfer
-        if !self.detect_previous_overrun {
-            let sr = sr(r).read();
-            // This read also clears the error and idle interrupt flags on v1.
-            unsafe { rdr(r).read_volatile() };
-            clear_interrupt_flags(r, sr);
-        }
 
         r.cr1().clear_bits(|w| {
             // disable RXNE interrupt
@@ -1158,6 +1143,27 @@ impl<'d> UartRx<'d, Async> {
             // enable parity interrupt if not ParityNone
             w.set_peie(pce);
         });
+
+        // A frame that already ended: what it left waiting is this read's whole result.
+        let idle_pending = enable_idle_line_detection && sr(r).read().idle();
+        // Bytes received before DMAR is set raise no DMA request (#1426), so they can't be left for
+        // the DMA. Take them into the front of the buffer, rather than drop them, and DMA the rest.
+        // Clear ORE just before enabling the DMA request too: it can be mandatory for the second
+        // transfer.
+        let taken = take_received(r, buffer, !self.detect_previous_overrun);
+        if taken == buffer_len {
+            return Ok(ReadCompletionEvent::DmaCompleted);
+        }
+        if idle_pending && taken > 0 {
+            return Ok(ReadCompletionEvent::Idle(taken));
+        }
+
+        let ch = self.rx_dma.as_mut().unwrap();
+
+        // Start USART DMA
+        // will not do anything yet because DMAR is not yet set
+        // future which will complete when DMA Read request completes
+        let transfer = unsafe { ch.read(W::rdr_ptr(r), &mut buffer[taken..], Default::default()) };
 
         r.cr3().set_bits(|w| {
             // enable Error Interrupt: (Frame error, Noise error, Overrun error)
@@ -1181,9 +1187,7 @@ impl<'d> UartRx<'d, Async> {
             // DMA will be stopped when transfer is dropped
 
             let sr = sr(r).read();
-            // This read also clears the error and idle interrupt flags on v1.
-            unsafe { rdr(r).read_volatile() };
-            clear_interrupt_flags(r, sr);
+            clear_rx_flags(r, sr);
 
             if sr.pe() {
                 return Err(Error::Parity);
@@ -1204,9 +1208,7 @@ impl<'d> UartRx<'d, Async> {
         if enable_idle_line_detection {
             // clear idle flag
             let sr = sr(r).read();
-            // This read also clears the error and idle interrupt flags on v1.
-            unsafe { rdr(r).read_volatile() };
-            clear_interrupt_flags(r, sr);
+            clear_rx_flags(r, sr);
 
             // enable idle interrupt
             r.cr1().set_bits(|w| {
@@ -1223,9 +1225,7 @@ impl<'d> UartRx<'d, Async> {
 
             let sr = sr(r).read();
 
-            // This read also clears the error and idle interrupt flags on v1.
-            unsafe { rdr(r).read_volatile() };
-            clear_interrupt_flags(r, sr);
+            clear_rx_flags(r, sr);
 
             if enable_idle_line_detection {
                 // enable idle interrupt
@@ -2940,6 +2940,36 @@ fn clear_interrupt_flags(_r: Regs, _sr: regs::Sr) {
     // On v1 the flags are cleared implicitly by reads and writes to DR.
 }
 
+/// Clears the receiver's error and idle flags after `sr` was read, while its DMA may be running.
+///
+/// On v1 that takes a read of DR, which also consumes a byte waiting there; TC needs a write to
+/// DR, so it stays.
+#[cfg(any(usart_v1, usart_v2))]
+fn clear_rx_flags(r: Regs, _sr: regs::Sr) {
+    unsafe { rdr(r).read_volatile() };
+}
+
+/// Before a one-shot DMA read: moves the byte already received into `buffer[0]`, and clears the
+/// receiver's flags if `clear`. Returns the bytes taken.
+///
+/// v1 has no FIFO, so at most one byte waits. Reading DR after SR is what clears the flags anyway;
+/// a byte read that way is kept rather than dropped. Without `clear`, ORE must survive for the read
+/// to report, and taking the byte would clear it, so nothing is touched.
+#[cfg(any(usart_v1, usart_v2))]
+fn take_received<W: UsartWord>(r: Regs, buffer: &mut [W], clear: bool) -> usize {
+    if !clear {
+        return 0;
+    }
+    let received = sr(r).read().rxne();
+    let byte = unsafe { W::rdr_ptr(r).read_volatile() };
+    if received {
+        buffer[0] = byte;
+        1
+    } else {
+        0
+    }
+}
+
 #[cfg(any(usart_v3, usart_v4))]
 fn tdr(r: Regs) -> *mut u8 {
     r.tdr().as_ptr() as _
@@ -2959,6 +2989,42 @@ fn sr(r: Regs) -> crate::pac::common::Reg<regs::Isr, crate::pac::common::R> {
 #[allow(unused)]
 fn clear_interrupt_flags(r: Regs, sr: regs::Isr) {
     r.icr().write(|w| *w = regs::Icr(sr.0));
+}
+
+/// Clears the receiver's error and idle flags after `sr` was read, while its DMA may be running.
+///
+/// The clear register does it alone, so RDR is not read: a byte the running DMA has yet to take is
+/// not stolen from it. TC belongs to the transmitter and stays set: a one-shot read runs alongside
+/// writes, and clearing it swallows the transmission complete a concurrent `flush()` waits for,
+/// whose interrupt has already fired and woken this read's poll.
+#[cfg(any(usart_v3, usart_v4))]
+fn clear_rx_flags(r: Regs, sr: regs::Isr) {
+    let mut icr = regs::Icr(sr.0);
+    icr.set_tc(false);
+    r.icr().write_value(icr);
+}
+
+/// Before a one-shot DMA read: moves the bytes already received (the FIFO's, if it is on) into the
+/// front of `buffer`, as many as fit, and clears the receiver's flags if `clear`. Returns the bytes
+/// taken.
+///
+/// Without `clear` an error flagged before the read is the read's to report, for the bytes it came
+/// with, so nothing is taken while one is set.
+#[cfg(any(usart_v3, usart_v4))]
+fn take_received<W: UsartWord>(r: Regs, buffer: &mut [W], clear: bool) -> usize {
+    let isr = sr(r).read();
+    if !clear && (isr.pe() || isr.fe() || isr.ne() || isr.ore()) {
+        return 0;
+    }
+    let mut taken = 0;
+    while taken < buffer.len() && sr(r).read().rxne() {
+        buffer[taken] = unsafe { W::rdr_ptr(r).read_volatile() };
+        taken += 1;
+    }
+    if clear {
+        clear_rx_flags(r, sr(r).read());
+    }
+    taken
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

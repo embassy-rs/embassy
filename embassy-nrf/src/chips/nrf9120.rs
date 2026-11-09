@@ -239,6 +239,9 @@ embassy_hal_internal::peripherals! {
     // PDM
     PDM,
 
+    // I2S
+    I2S,
+
     // EGU
     EGU0,
     EGU1,
@@ -287,6 +290,8 @@ impl_pwm!(PWM2, PWM2, PWM2);
 impl_pwm!(PWM3, PWM3, PWM3);
 
 impl_pdm!(PDM, PDM, PDM);
+
+impl_i2s!(I2S, I2S, I2S);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);

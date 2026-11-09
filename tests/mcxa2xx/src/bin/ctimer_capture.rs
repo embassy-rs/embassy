@@ -5,10 +5,12 @@
 
 teleprobe_meta::target!(b"frdm-mcx-a266");
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mcxa as hal;
-use embassy_time::Timer;
+use embassy_time::{Duration, Instant, Timer};
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::config::Config;
@@ -22,6 +24,8 @@ bind_interrupts!(struct Irqs {
     CTIMER2 => InterruptHandler<CTIMER2>;
 });
 
+static PULSE_INTERVAL_US: AtomicU32 = AtomicU32::new(0);
+
 fn within(x: f32, target: f32, epsilon: f32) -> bool {
     (x - target).abs() <= epsilon
 }
@@ -33,7 +37,7 @@ async fn main(spawner: Spawner) {
 
     let p = hal::init(config);
 
-    let pin = Output::new(p.P1_8, Level::High, DriveStrength::Normal, SlewRate::Fast);
+    let pin = Output::new(p.P1_8, Level::Low, DriveStrength::Normal, SlewRate::Fast);
 
     let ctimer = CTimer::new(p.CTIMER2, Default::default()).unwrap();
     let mut config = capture::Config::default();
@@ -45,8 +49,13 @@ async fn main(spawner: Spawner) {
     let one = capture.capture().await.unwrap();
     let two = capture.capture().await.unwrap();
     let diff = two - one;
-    let freq = diff.to_period(capture.frequency());
-    assert!(within(freq, 1.0, 1e-3));
+    let period = diff.to_period(capture.frequency());
+    let pulse_interval_us = PULSE_INTERVAL_US.load(Ordering::Acquire);
+    assert!(pulse_interval_us >= 1_000_000);
+    let expected_period = pulse_interval_us as f32 / 1_000_000.0;
+    // Test capture accuracy, not the wakeup precision of the timer driving the
+    // GPIO. Keep the 1ms tolerance against the independently measured interval.
+    assert!(within(period, expected_period, 1e-3));
 
     defmt::info!("Test OK");
     cortex_m::asm::bkpt();
@@ -56,11 +65,17 @@ async fn main(spawner: Spawner) {
 async fn pin_task(mut pin: Output<'static>) {
     Timer::after_secs(1).await;
 
+    let first_pulse = Instant::now();
     pin.set_high();
+    // Hold the level long enough for capture input sampling before generating
+    // the second rising edge. Start low so both edges are explicit GPIO writes.
+    Timer::after_millis(1).await;
     pin.set_low();
-    Timer::after_secs(1).await;
+    Timer::at(first_pulse + Duration::from_secs(1)).await;
+    let pulse_interval = first_pulse.elapsed().as_micros();
+    PULSE_INTERVAL_US.store(pulse_interval as u32, Ordering::Release);
     pin.set_high();
-    pin.set_low();
 
+    // Keep ownership of the output until the capture task finishes.
     Timer::after_secs(1).await;
 }

@@ -106,7 +106,18 @@ fn adjusted_ptp_addend(nominal: u32, adjustment: embassy_ptp_driver::ScaledPpm) 
 }
 
 /// Maximum Ethernet frame size, header included, FCS excluded.
+#[cfg(not(any(feature = "eth-2k-frames", feature = "eth-jumbo-frames")))]
 const MTU: usize = 1514;
+#[cfg(all(feature = "eth-2k-frames", not(feature = "eth-jumbo-frames")))]
+const MTU: usize = 1996;
+#[cfg(feature = "eth-jumbo-frames")]
+const MTU: usize = 9014;
+
+#[cfg(all(
+    any(feature = "eth-2k-frames", feature = "eth-jumbo-frames"),
+    any(eth_v1a, eth_v1b, eth_v1c)
+))]
+compile_error!("`eth-2k-frames` and `eth-jumbo-frames` need the v2 Ethernet MAC (STM32H5, H7, N6, C5).");
 
 /// Ethernet descriptor rings.
 ///
@@ -123,7 +134,9 @@ const MTU: usize = 1514;
 /// pool is bigger than `TX + RX`, with room to spare for the stack and sockets.
 /// The pool's buffers must be 8-byte aligned, and the DMA uses their size
 /// rounded down to a multiple of 8. To receive full 1514-byte frames, use
-/// `StaticPool<1520, N, 8>`.
+/// `StaticPool<1520, N, 8>`. With `eth-2k-frames` (1996-byte frames) use
+/// `StaticPool<2000, N, 8>`, and with `eth-jumbo-frames` (9014-byte frames)
+/// `StaticPool<9016, N, 8>`.
 /// The v2 driver reserves one descriptor in each ring as a DMA tail guard.
 /// It requires at least two TX/RX descriptors, or three RX descriptors with PTP.
 pub struct PacketQueue<const TX: usize, const RX: usize> {
@@ -195,8 +208,22 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
         caps.max_transmission_unit = MTU;
         // The v2/v1b/v1c MAC offloads the IPv4 header and TCP/UDP payload
         // checksums in hardware (MACCR.IPC + TDES3.CIC; bad RX frames are dropped
-        // in the descriptor ring), so xarxa can skip them.
-        #[cfg(any(eth_v2, eth_v2a, eth_v2b, eth_v1b, eth_v1c))]
+        // in the descriptor ring), so xarxa can skip them. On v2 each direction is
+        // only offloaded when frames up to `MTU` fit the MTL queue it needs.
+        #[cfg(any(eth_v2, eth_v2a, eth_v2b))]
+        {
+            use xarxa_driver::ChecksumOffload;
+            let offload = ChecksumOffload {
+                rx: _version::RX_STORE_AND_FORWARD,
+                tx: _version::TX_CHECKSUM_OFFLOAD,
+            };
+            caps.checksum.ipv4 = offload;
+            caps.checksum.tcp = offload;
+            caps.checksum.udp = offload;
+            caps.checksum.icmpv4 = offload;
+            caps.checksum.icmpv6 = offload;
+        }
+        #[cfg(any(eth_v1b, eth_v1c))]
         {
             use xarxa_driver::ChecksumOffload;
             caps.checksum.ipv4 = ChecksumOffload::BOTH;

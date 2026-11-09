@@ -1,6 +1,6 @@
 //! DMA driver.
 //!
-//! This module provides a typed channel abstraction over the EDMA_0_TCD0 array
+//! This module provides a typed channel abstraction over the EDMA_TCD0 array
 //! and helpers for configuring the channel MUX. The driver supports
 //! higher-level async transfer APIs.
 //!
@@ -530,7 +530,7 @@ pub(crate) mod sealed {
 }
 
 /// Marker trait implemented by HAL peripheral tokens that map to a DMA0
-/// channel backed by one EDMA_0_TCD0 TCD slot.
+/// channel backed by one EDMA_TCD0 TCD slot.
 #[allow(private_bounds)]
 pub trait Channel: sealed::SealedChannel + PeripheralType + Into<AnyChannel> + 'static {}
 
@@ -840,7 +840,7 @@ impl DmaChannel<'_> {
         }
     }
 
-    /// Channel index in the EDMA_0_TCD0 array.
+    /// Channel index in the EDMA_TCD0 array.
     #[inline]
     pub(crate) fn channel(&self) -> usize {
         self.channel.channel()
@@ -856,9 +856,9 @@ impl DmaChannel<'_> {
     #[inline]
     pub(crate) fn tcd(&self) -> pac::edma_tcd::Tcd {
         match self.dma() {
-            0 => pac::EDMA_0_TCD.tcd(self.channel.channel()),
+            0 => pac::EDMA_TCD0.tcd(self.channel.channel()),
             #[cfg(feature = "_mcxa5xx")]
-            1 => pac::EDMA_1_TCD.tcd(self.channel.channel()),
+            1 => pac::EDMA_TCD1.tcd(self.channel.channel()),
             _ => unreachable!(),
         }
     }
@@ -2939,9 +2939,9 @@ pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
     crate::perf_counters::incr_interrupt_edma0();
 
     let t = match dma {
-        0 => pac::EDMA_0_TCD.tcd(channel),
+        0 => pac::EDMA_TCD0.tcd(channel),
         #[cfg(feature = "_mcxa5xx")]
-        1 => pac::EDMA_1_TCD.tcd(channel),
+        1 => pac::EDMA_TCD1.tcd(channel),
         _ => unreachable!(),
     };
 

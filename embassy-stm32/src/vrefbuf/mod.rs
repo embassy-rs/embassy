@@ -56,6 +56,13 @@ impl<'d, T: Instance> VoltageReferenceBuffer<'d, T> {
             use crate::pac::RCC;
             RCC.apb4enr().modify(|w| w.set_vrefen(true));
         }
+        // RM0444 5.4.16: on G0x1 (including G0B1) VREFBUF has no clock bit of its own.
+        // It is clocked by SYSCFGEN in RCC_APBENR2, shared with SYSCFG and COMP.
+        #[cfg(rcc_g0x1)]
+        {
+            use crate::pac::RCC;
+            RCC.apbenr2().modify(|w| w.set_syscfgen(true));
+        }
         let vrefbuf = T::regs();
         vrefbuf.csr().modify(|w| {
             w.set_hiz(impedance_mode);

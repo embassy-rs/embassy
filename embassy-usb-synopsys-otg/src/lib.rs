@@ -12,8 +12,9 @@ mod fmt;
 
 use core::cell::UnsafeCell;
 use core::cmp::min;
-use core::future::poll_fn;
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
+use core::pin::pin;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use core::task::Poll;
 
@@ -52,6 +53,10 @@ where
             w.set_rxflvlm(true);
         });
         state.bus_waker.wake();
+
+        // A control transfer stage waits on EP0. Wake it to check for a reset, and to unmask
+        // USBRST if this masked it before the reset.
+        state.ep_states[0].out_waker.wake();
     }
 
     // Handle RX
@@ -195,8 +200,11 @@ where
         let frame_number = r.dsts().read().fnsof();
         let frame_is_odd = frame_number & 0x01 == 1;
 
-        // Switch the packet polarity of the endpoints that missed their frame, in the hope that it will be polled for
-        // in the next frame.
+        // Discard the packets of the endpoints that missed their frame. Isochronous data is only worth sending in its
+        // own frame, so there is nothing to gain from keeping the late packet. Keeping it in the FIFO and sending it
+        // again in a later frame left the FIFO and the core out of step: the next transfer completed without sending
+        // its packet, which stayed in the FIFO, so that the writer waited for room in the FIFO for ever. The writer
+        // queues the next packet, with the polarity of the frame it is written in.
         for ep_num in (0..ep_count).into_iter().filter(|ep_num| {
             let diepctl = r.diepctl(*ep_num).read();
             // Find iso endpoints
@@ -208,26 +216,12 @@ where
         }) {
             trace!("Unsent message at EOF for ep: {}, frame: {}", ep_num, frame_number);
 
-            let ep_diepctl = r.diepctl(ep_num);
-
-            // Set NAK and disable the endpoint. Do not flush the transmit FIFO: the packet in
-            // that FIFO is the packet that this function sends again in the next frame.
+            // Set NAK and disable the endpoint, then discard the packet.
             abort_in_endpoint(r, ep_num);
+            flush_tx_fifo(r, r.diepctl(ep_num).read().txfnum());
 
-            // Switch the packet polarity
-            ep_diepctl.modify(|r| {
-                if frame_is_odd {
-                    r.set_sd0pid_sevnfrm(true);
-                } else {
-                    r.set_soddfrm_sd1pid(true);
-                }
-            });
-
-            // Enable the endpoint again
-            ep_diepctl.modify(|w| {
-                w.set_cnak(true);
-                w.set_epena(true);
-            });
+            // Let the writer queue the next packet.
+            state.ep_states[ep_num].in_waker.wake();
         }
     }
 }
@@ -299,7 +293,7 @@ struct EpState {
     /// Buffers are ready when associated [State::ep_out_size] != [EP_OUT_BUFFER_EMPTY].
     out_buffer: UnsafeCell<*mut u8>,
     out_size: AtomicU16,
-    // Written once during endpoint allocation (before Driver::start), read-only afterward.
+    // Written during driver creation and endpoint allocation (before Driver::start), read-only afterward.
     in_alloc: UnsafeCell<Option<EndpointData>>,
     out_alloc: UnsafeCell<Option<EndpointData>>,
     /// RAM mirror of DIEPCTL/DOEPCTL.USBAEP. Endpoint futures check this
@@ -352,8 +346,8 @@ impl OutXfer {
 }
 
 // SAFETY: `out_buffer` access is synchronized via `out_size`, and `out_xfer` access via
-// `State::mutex`. `in_alloc`/`out_alloc` are written only during endpoint allocation before the
-// USB stack starts; afterward they are read-only.
+// `State::mutex`. `in_alloc`/`out_alloc` are written only when a driver is created and during
+// endpoint allocation, before the USB stack starts; afterward they are read-only.
 unsafe impl Send for EpState {}
 unsafe impl Sync for EpState {}
 
@@ -471,6 +465,21 @@ where
                 mask
             }
         })
+    }
+
+    /// Clears what a previous [`Driver`](crate::Driver) left in the state, so that a new one starts
+    /// from no allocated endpoints.
+    fn reset(&self) {
+        for ep in self.ep_states {
+            // SAFETY: no other driver uses this state.
+            unsafe {
+                *ep.in_alloc.get() = None;
+                *ep.out_alloc.get() = None;
+            }
+            ep.in_enabled.store(false, Ordering::Release);
+            ep.out_enabled.store(false, Ordering::Release);
+        }
+        self.cp_state.setup_ready.store(false, Ordering::Release);
     }
 
     /// # Safety
@@ -601,6 +610,8 @@ where
 {
     /// Initializes the USB OTG peripheral.
     ///
+    /// `instance.state` must not be in use by another driver.
+    ///
     /// # Arguments
     ///
     /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
@@ -609,6 +620,7 @@ where
     /// * `instance` - The USB OTG peripheral instance and its configuration.
     /// * `config` - The USB driver configuration.
     pub fn new(ep_out_buffer: &'d mut [u8], instance: OtgInstance<'d, M>, config: Config) -> Self {
+        instance.state.reset();
         Self {
             config,
             ep_out_buffer,
@@ -2187,29 +2199,37 @@ where
 
     async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
         trace!("control: data_out");
-        let len = self.ep_out.read(buf).await?;
+        let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
+        let len = abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_out.read(buf)).await?;
         trace!("control: data_out read: {:?}", Bytes(&buf[..len]));
         Ok(len)
     }
 
     async fn data_in(&mut self, data: &[u8], _first: bool, last: bool) -> Result<(), EndpointError> {
         trace!("control: data_in write: {:?}", Bytes(data));
-        self.ep_in.write(data).await?;
+        let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
+        abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, async {
+            self.ep_in.write(data).await?;
 
-        // wait for status response from host after sending the last packet
-        if last {
-            trace!("control: data_in waiting for status");
-            self.ep_out.read(&mut []).await?;
-            trace!("control: complete");
-        }
+            // wait for status response from host after sending the last packet
+            if last {
+                trace!("control: data_in waiting for status");
+                self.ep_out.read(&mut []).await?;
+                trace!("control: complete");
+            }
 
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn accept(&mut self) {
         trace!("control: accept");
 
-        self.ep_in.write(&[]).await.ok();
+        let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
+        abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_in.write(&[]))
+            .await
+            .ok();
 
         trace!("control: accept OK");
     }
@@ -2237,6 +2257,39 @@ where
         // synopsys driver requires accept to be sent after changing address
         self.accept().await
     }
+}
+
+/// Runs a control transfer stage until it completes or the host abandons the transfer with a new
+/// SETUP or a bus reset. EP0's EPENA and enabled flags survive a reset, so without this a stage can
+/// wait forever, and the reset is never handled: embassy-usb doesn't poll the bus during a control
+/// transfer. Returns `EndpointError::Disabled` when the transfer was abandoned.
+async fn abort_on_new_setup_or_reset<T, M: RawMutex>(
+    regs: Otg,
+    mutex: M,
+    setup_state: &ControlPipeSetupState,
+    ep0_out: &EpState,
+    stage: impl Future<Output = Result<T, EndpointError>>,
+) -> Result<T, EndpointError> {
+    let mut stage = pin!(stage);
+    poll_fn(|cx| {
+        // The interrupt wakes this waker on a SETUP and on any bus event.
+        ep0_out.out_waker.register(cx.waker());
+        // Check before polling the stage, so that it does not start a transfer after a reset.
+        // Leave both set: setup() consumes `setup_ready` and Bus::poll clears USBRST.
+        if setup_state.setup_ready.load(Ordering::Acquire) || regs.gintsts().read().usbrst() {
+            trace!("control: received another SETUP or a bus reset, aborting");
+            return Poll::Ready(Err(EndpointError::Disabled));
+        }
+
+        // A bus event masks USBRST until Bus::poll runs, so a reset after a suspend would raise
+        // no interrupt.
+        if !regs.gintmsk().read().usbrst() {
+            mutex.lock(|| regs.gintmsk().modify(|w| w.set_usbrst(true)));
+        }
+
+        stage.as_mut().poll(cx)
+    })
+    .await
 }
 
 /// Translates HAL [EndpointType] into PAC [vals::Eptyp]
@@ -2283,4 +2336,47 @@ where
     pub tx_fifo_count: u8,
     /// Function to calculate TRDT value based on some internal clock speed.
     pub calculate_trdt_fn: fn(speed: vals::Dspd) -> u8,
+}
+
+#[cfg(test)]
+mod tests {
+    use embassy_usb_driver::Driver as _;
+
+    use super::*;
+
+    fn instance<'d>(state: State<'d>) -> OtgInstance<'d> {
+        OtgInstance {
+            regs: unsafe { Otg::from_ptr(core::ptr::null_mut()) },
+            state,
+            fifo_depth_words: 320,
+            phy_type: PhyType::InternalFullSpeed,
+            extra_rx_fifo_words: 30,
+            tx_fifo_count: 4,
+            calculate_trdt_fn: |_| 0,
+        }
+    }
+
+    #[test]
+    fn rebuilt_driver_starts_from_clean_state() {
+        let storage = StateStorage::<4>::new(CriticalSectionRawMutex::new());
+        let state = storage.as_state();
+
+        let mut buf = [0; 256];
+        let mut driver = Driver::new(&mut buf, instance(state), Config::default());
+        driver.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0).unwrap();
+        driver.alloc_endpoint_in(EndpointType::Bulk, None, 64, 0).unwrap();
+        let _ = driver.start(64);
+        state.ep_states[0].in_enabled.store(true, Ordering::Release);
+        state.ep_states[1].out_enabled.store(true, Ordering::Release);
+        state.cp_state.setup_ready.store(true, Ordering::Release);
+
+        let mut buf = [0; 256];
+        let mut driver = Driver::new(&mut buf, instance(state), Config::default());
+        let ep = driver.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0).unwrap();
+        assert_eq!(ep.info.addr.index(), 1);
+        assert!(!state.ep_states[0].in_enabled.load(Ordering::Acquire));
+        assert!(!state.ep_states[1].out_enabled.load(Ordering::Acquire));
+        assert!(!state.cp_state.setup_ready.load(Ordering::Acquire));
+        let _ = driver.start(64);
+    }
 }

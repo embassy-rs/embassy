@@ -328,20 +328,23 @@ impl<'d> DualPwm<'d> {
             }
         });
 
-        // Configure PWM period
-        let period = self.pwm0.source_freq / u32::from(self.pwm0.pwm_freq) - 1;
+        // MR uses period_ticks - 1 because the counter includes zero. The duty
+        // range includes period_ticks so 0% can use an unreachable match value.
+        let period_ticks = self.pwm0.source_freq / u32::from(self.pwm0.pwm_freq);
+        let max_duty = u16::try_from(period_ticks).map_err(|_| PwmError::InvalidDutyCycle)?;
+        let period_match = period_ticks - 1;
 
-        self.pwm0.max_period = period as u16;
-        self.pwm1.max_period = period as u16;
+        self.pwm0.max_period = max_duty;
+        self.pwm1.max_period = max_duty;
 
         self.pwm0
             .info
             .regs()
             .mr(self.period_ch.number().into())
-            .write(|w| w.set_match_(period));
+            .write(|w| w.set_match_(period_match));
 
         // Configure PWM duty cycle
-        let duty_cycle = ((period + 1) * (100 - u32::from(config.duty_cycle))) / 100;
+        let duty_cycle = (period_ticks * (100 - u32::from(config.duty_cycle))) / 100;
         self.pwm0.configure_duty_cycle(duty_cycle);
         self.pwm1.configure_duty_cycle(duty_cycle);
 
@@ -464,21 +467,24 @@ impl<'d> TriplePwm<'d> {
             }
         });
 
-        // Configure PWM period
-        let period = self.pwm0.source_freq / u32::from(self.pwm0.pwm_freq) - 1;
+        // MR uses period_ticks - 1 because the counter includes zero. The duty
+        // range includes period_ticks so 0% can use an unreachable match value.
+        let period_ticks = self.pwm0.source_freq / u32::from(self.pwm0.pwm_freq);
+        let max_duty = u16::try_from(period_ticks).map_err(|_| PwmError::InvalidDutyCycle)?;
+        let period_match = period_ticks - 1;
 
-        self.pwm0.max_period = period as u16;
-        self.pwm1.max_period = period as u16;
-        self.pwm2.max_period = period as u16;
+        self.pwm0.max_period = max_duty;
+        self.pwm1.max_period = max_duty;
+        self.pwm2.max_period = max_duty;
 
         self.pwm0
             .info
             .regs()
             .mr(self.period_ch.number().into())
-            .write(|w| w.set_match_(period));
+            .write(|w| w.set_match_(period_match));
 
         // Configure PWM duty cycle
-        let duty_cycle = ((period + 1) * (100 - u32::from(config.duty_cycle))) / 100;
+        let duty_cycle = (period_ticks * (100 - u32::from(config.duty_cycle))) / 100;
         self.pwm0.configure_duty_cycle(duty_cycle);
         self.pwm1.configure_duty_cycle(duty_cycle);
         self.pwm2.configure_duty_cycle(duty_cycle);

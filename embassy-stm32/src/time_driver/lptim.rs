@@ -31,18 +31,6 @@ fn regs_lptim() -> Lptim {
 // instead of Icr/Ier. The compare register also changes from a single `cmp()`
 // to an indexed `ccr(n)`.
 
-/// Read the interrupt enable register value as a raw u32.
-fn ier_read(r: Lptim) -> u32 {
-    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
-    {
-        r.ier().read().0
-    }
-    #[cfg(any(stm32wba, stm32u5, stm32u3))]
-    {
-        r.dier().read().0
-    }
-}
-
 /// Check if the compare-capture interrupt is enabled for channel `n`.
 fn ier_ccie(r: Lptim, n: usize) -> bool {
     #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
@@ -60,14 +48,41 @@ fn ier_set_ueie(r: Lptim, val: bool) {
     #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
     r.ier().modify(|w| w.set_ueie(val));
     #[cfg(any(stm32wba, stm32u5, stm32u3))]
-    r.dier().modify(|w| w.set_ueie(val));
+    dier_modify(r, |w| w.set_ueie(val));
 }
 
 fn ier_set_ccie(r: Lptim, n: usize, val: bool) {
     #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
     r.ier().modify(|w| w.set_ccie(n, val));
     #[cfg(any(stm32wba, stm32u5, stm32u3))]
-    r.dier().modify(|w| w.set_ccie(n, val));
+    dier_modify(r, |w| w.set_ccie(n, val));
+}
+
+/// Modify DIER and wait for `DIEROK`. RM0456: "Any successive write before the DIEROK flag is
+/// set, leads to unpredictable results." A write still in flight when the chip enters Stop can
+/// also lose the compare wakeup. A write that changes nothing is skipped, so it costs no wait.
+#[cfg(any(stm32wba, stm32u5, stm32u3))]
+fn dier_modify(r: Lptim, f: impl FnOnce(&mut stm32_metapac::lptim::regs::DierAdv)) {
+    let old = r.dier().read();
+    let mut new = old;
+    f(&mut new);
+    if new == old {
+        return;
+    }
+    r.icr().write(|w| w.set_dierokcf(true));
+    r.dier().write_value(new);
+
+    // DIEROK takes a few kernel clock cycles. A poll takes at least one CPU cycle, so this waits
+    // at least 64 of them. If it never comes, carry on rather than hang in a critical section:
+    // a lost CCIE enable delays the alarm to the next overflow, where `next_period` enables CCIE
+    // again, and a lost disable is an interrupt that finds no alarm due.
+    let sys = unwrap!(unsafe { crate::rcc::get_freqs() }.sys.to_hertz()).0;
+    let polls = (sys / T::frequency().0 + 1) * 64;
+    for _ in 0..polls {
+        if r.isr().read().dierok() {
+            return;
+        }
+    }
 }
 
 /// Write a raw value to the ICR (interrupt clear register).
@@ -241,10 +256,10 @@ impl RtcDriver {
 
         critical_section::with(|cs| {
             let sr = r.isr().read();
-            let ier = ier_read(r);
 
-            // Clear all interrupt flags. Bits in ICR are "write 1 to clear"
-            icr_write_raw(r, ier);
+            // Clear the flags read, and only those. Bits in ICR are "write 1 to clear". A flag set
+            // since the read stays set and enters this handler again: clearing it here would lose
+            // it, and a lost UE loses a counter period.
             icr_write_raw(r, sr.0);
 
             // Overflow
@@ -388,25 +403,34 @@ impl Driver for RtcDriver {
         // a whole period in the past, causing time to go backwards, and any
         // `Instant::duration_since` spanning that window panics.
         critical_section::with(|_| {
-            // RM0456 says: "When the LPTIM is running, reading the LPTIM_CNT register may return
-            // unreliable values. In this case it is necessary to perform consecutive reads until
-            // two returned values are identical."
-            let mut counter = r.cnt().read().cnt();
             loop {
-                let again = r.cnt().read().cnt();
-                if again == counter {
-                    break;
+                // With the period-incrementing, a pending update event unambiguously means
+                // the counter has wrapped and `next_period` has not yet accounted for it. NB: we DO
+                // NOT clear the ue bit, that (and consequently incrementing self.period) is for the
+                // ISR to do once we release this CS.
+                //
+                // The CS masks the interrupt but not the flag: the counter can still wrap between
+                // reading LPTIM_CNT and LPTIM_ISR, pairing 0xFFFF with a pending update event, a
+                // whole period in the future. Sample the flag on both sides and retry if it changed.
+                let pending = r.isr().read().ue();
+
+                // RM0456 says: "When the LPTIM is running, reading the LPTIM_CNT register may return
+                // unreliable values. In this case it is necessary to perform consecutive reads until
+                // two returned values are identical."
+                let mut counter = r.cnt().read().cnt();
+                loop {
+                    let again = r.cnt().read().cnt();
+                    if again == counter {
+                        break;
+                    }
+                    counter = again;
                 }
-                counter = again;
+
+                if r.isr().read().ue() == pending {
+                    let period = self.period.load(Ordering::Relaxed) + pending as u32;
+                    break ((period as u64) << 16) + counter as u64;
+                }
             }
-
-            // With the period-incrementing, a pending update event unambiguously means
-            // the counter has wrapped and `next_period` has not yet accounted for it. NB: we DO
-            // NOT clear the ue bit, that (and consequently incrementing self.period) is for the
-            // ISR to do once we release this CS.
-            let period = self.period.load(Ordering::Relaxed) + r.isr().read().ue() as u32;
-
-            ((period as u64) << 16) + counter as u64
         })
     }
 

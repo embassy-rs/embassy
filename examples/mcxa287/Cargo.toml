@@ -26,6 +26,11 @@ default-executor = ["embassy-executor/platform-cortex-m"]
 executor-platform = ["embassy-mcxa/executor-platform"]
 time-driver-lptmr = ["embassy-mcxa/time-driver-lptmr"]
 
+[[bin]]
+name = "time-driver-lptmr"
+path = "src/bin/time-driver-lptmr.rs"
+required-features = ["time-driver-lptmr"]
+
 [profile.release]
 lto = true
 debug = 2
