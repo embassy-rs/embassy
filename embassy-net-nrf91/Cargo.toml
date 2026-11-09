@@ -19,7 +19,7 @@ defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
 # nrf-pac = "0.4.0"
-nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "4499375510e2fdb3a5426911beb846d8d2dbbb80" }
+nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "8a9f841b2378f0697d2831670eda515cda990d1c" }
 cortex-m = "0.7.7"
 
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
