@@ -57,7 +57,7 @@ use cortex_m::peripheral::NVIC;
 
 use crate::interrupt::InterruptExt;
 use crate::peripherals::CORE1;
-use crate::{Peri, gpio, install_stack_guard, interrupt, pac};
+use crate::{Peri, install_stack_guard, interrupt, pac};
 
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
@@ -97,10 +97,6 @@ unsafe fn core1_setup(stack_bottom: *mut usize) {
 
     #[cfg(feature = "_rp235x")]
     crate::enable_actlr_extexclall();
-
-    unsafe {
-        gpio::init();
-    }
 }
 
 /// Data type for a properly aligned stack of N bytes
