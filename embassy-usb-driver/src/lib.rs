@@ -247,9 +247,13 @@ pub trait Bus {
     /// Set or clear the STALL condition for an endpoint.
     ///
     /// If the endpoint is an OUT endpoint, it should be prepared to receive data again.
+    ///
+    /// Class drivers that only hold endpoint handles can use [`Endpoint::set_stall`] instead.
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool);
 
     /// Get whether the STALL condition is set for an endpoint.
+    ///
+    /// Class drivers that only hold endpoint handles can use [`Endpoint::is_stalled`] instead.
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool;
 
     /// Simulate a disconnect from the USB bus, causing the host to reset and re-enumerate the
@@ -283,6 +287,32 @@ pub trait Endpoint {
 
     /// Wait for the endpoint to be enabled.
     async fn wait_enabled(&mut self);
+
+    /// Set or clear the STALL handshake on this endpoint.
+    ///
+    /// This lets a class driver reject traffic by itself, without going through
+    /// [`Bus::endpoint_set_stalled`]: the endpoint answers every following token with
+    /// STALL until the stall is cleared, either with this method or by the host
+    /// issuing `CLEAR_FEATURE(ENDPOINT_HALT)` (which embassy-usb handles and forwards
+    /// to [`Bus::endpoint_set_stalled`]).
+    ///
+    /// Only bulk and interrupt endpoints have the halt feature. EP0 does not implement
+    /// it, and STALL is undefined on isochronous endpoints; implementations must make
+    /// this a no-op for them.
+    ///
+    /// Clearing the stall must reset the data toggle to DATA0 (USB 2.0 §9.4.5), whether
+    /// or not the endpoint was actually stalled, and must wake any future currently
+    /// waiting in [`EndpointOut::read`] or [`EndpointIn::write`].
+    ///
+    /// Before the endpoint is enabled by `SET_CONFIGURATION`/`SET_INTERFACE`, stalling is
+    /// best-effort: implementations may not be able to apply it yet, and enabling the
+    /// endpoint afterwards clears it.
+    fn set_stall(&mut self, stalled: bool);
+
+    /// Get whether the STALL handshake is currently set on this endpoint.
+    ///
+    /// Returns `false` for endpoints that do not have the halt feature.
+    fn is_stalled(&self) -> bool;
 }
 
 /// OUT Endpoint trait.

@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MIDI`: Add extra fields to endpoint descriptors
 - `MIDI`: Add optional names for the jacks
 - `MIDI`: Add packet encoding and decoding
+- Add `Endpoint::set_stall()` and `Endpoint::is_stalled()`, so a class driver can stall or unstall its own endpoint. Until now the device stack could only be stalled by the host, via `SET_FEATURE(ENDPOINT_HALT)`. **Breaking** for out-of-tree `embassy-usb-driver` implementations
 - Make `InterfaceAltBuilder::endpoint_in` and `InterfaceAltBuilder::endpoint_out` public
 - Fix various typos in comments and internal variable names
 - Added portable-atomic for targets not supporting core::sync::AtomicU32

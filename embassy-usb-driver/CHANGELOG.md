@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed: `EndpointOut::read_transfer()` now returns when the buffer is full.
 - Add `ControlPipe::data_out_transfer()` and `ControlPipe::data_in_transfer()` provided methods.
 - Add `UsbHostAllocator::device_removed()` trait method with default.
+- Add `Endpoint::set_stall()` and `Endpoint::is_stalled()` required trait methods, letting class drivers stall and unstall an endpoint without access to the `Bus`. **Breaking** for out-of-tree drivers.
 
 ## 0.2.2 - 2026-05-28
 
