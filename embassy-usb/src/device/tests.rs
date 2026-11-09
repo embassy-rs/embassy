@@ -82,7 +82,9 @@ impl<'d> Driver<'d> for TestDriver {
         interval_ms: u8,
     ) -> Result<TestEndpoint, EndpointAllocError> {
         let addr = ep_addr.unwrap_or_else(|| {
-            let index = (1..9).find(|&i| self.shared.endpoints[i * 2 + 1].get().is_none()).unwrap();
+            let index = (1..9)
+                .find(|&i| self.shared.endpoints[i * 2 + 1].get().is_none())
+                .unwrap();
             EndpointAddress::from_parts(index, Direction::In)
         });
         assert!(addr.is_in());
@@ -128,12 +130,13 @@ impl Endpoint for TestEndpoint {
         unreachable!()
     }
 
-    fn set_stall(&mut self, stalled: bool) {
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         self.shared.set_stalled(self.info.addr, stalled);
+        Ok(())
     }
 
-    fn is_stalled(&self) -> bool {
-        self.shared.is_stalled(self.info.addr)
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(self.shared.is_stalled(self.info.addr))
     }
 }
 
@@ -504,11 +507,11 @@ fn test_endpoint_stall_from_class() {
     let mut usb = builder.build();
 
     configure(&mut usb);
-    assert!(!ep_out.is_stalled());
+    assert!(!ep_out.is_stalled().unwrap());
 
     // A class driver can reject traffic on its own endpoint...
-    ep_out.set_stall(true);
-    assert!(ep_out.is_stalled());
+    ep_out.set_stall(true).unwrap();
+    assert!(ep_out.is_stalled().unwrap());
     // ...and the host sees the halt.
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(1));
 
@@ -517,12 +520,12 @@ fn test_endpoint_stall_from_class() {
         endpoint_request(&mut usb, Request::CLEAR_FEATURE, 1),
         Response::Accepted
     );
-    assert!(!ep_out.is_stalled());
+    assert!(!ep_out.is_stalled().unwrap());
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(0));
 
     // The class can also clear its own stall.
-    ep_out.set_stall(true);
+    ep_out.set_stall(true).unwrap();
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(1));
-    ep_out.set_stall(false);
+    ep_out.set_stall(false).unwrap();
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(0));
 }

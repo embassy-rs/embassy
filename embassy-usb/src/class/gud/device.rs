@@ -1231,11 +1231,11 @@ mod tests {
             unreachable!()
         }
 
-        fn set_stall(&mut self, _stalled: bool) {
+        fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
             unreachable!()
         }
 
-        fn is_stalled(&self) -> bool {
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
             unreachable!()
         }
     }
@@ -1294,11 +1294,11 @@ mod tests {
             unreachable!()
         }
 
-        fn set_stall(&mut self, _stalled: bool) {
+        fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
             unreachable!()
         }
 
-        fn is_stalled(&self) -> bool {
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
             unreachable!()
         }
     }

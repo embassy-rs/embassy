@@ -516,12 +516,13 @@ impl<'d, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, Dir> {
         self.wait_enabled_state(true).await
     }
 
-    fn set_stall(&mut self, stalled: bool) {
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled(self.regs, self.info.addr, stalled);
+        Ok(())
     }
 
-    fn is_stalled(&self) -> bool {
-        is_endpoint_stalled(self.regs, self.info.addr)
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled(self.regs, self.info.addr))
     }
 }
 

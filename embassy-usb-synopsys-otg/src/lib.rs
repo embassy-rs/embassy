@@ -1784,7 +1784,7 @@ where
         .await
     }
 
-    fn set_stall(&mut self, stalled: bool) {
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled(
             self.regs,
             self.mutex,
@@ -1793,10 +1793,11 @@ where
             Direction::In,
             stalled,
         );
+        Ok(())
     }
 
-    fn is_stalled(&self) -> bool {
-        is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::In)
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::In))
     }
 }
 
@@ -1821,7 +1822,7 @@ where
         .await
     }
 
-    fn set_stall(&mut self, stalled: bool) {
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled(
             self.regs,
             self.mutex,
@@ -1830,10 +1831,11 @@ where
             Direction::Out,
             stalled,
         );
+        Ok(())
     }
 
-    fn is_stalled(&self) -> bool {
-        is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::Out)
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::Out))
     }
 }
 

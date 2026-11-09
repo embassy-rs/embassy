@@ -1462,12 +1462,13 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         trace!("wait_enabled IN OK");
     }
 
-    fn set_stall(&mut self, stalled: bool) {
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled::<T>(self.info.addr, self.double_buffered_flag(), stalled);
+        Ok(())
     }
 
-    fn is_stalled(&self) -> bool {
-        is_endpoint_stalled::<T>(self.info.addr)
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled::<T>(self.info.addr))
     }
 }
 
@@ -1492,12 +1493,13 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         trace!("wait_enabled OUT OK");
     }
 
-    fn set_stall(&mut self, stalled: bool) {
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled::<T>(self.info.addr, self.double_buffered_flag(), stalled);
+        Ok(())
     }
 
-    fn is_stalled(&self) -> bool {
-        is_endpoint_stalled::<T>(self.info.addr)
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled::<T>(self.info.addr))
     }
 }
 

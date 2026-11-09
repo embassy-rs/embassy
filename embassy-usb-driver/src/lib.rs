@@ -307,12 +307,31 @@ pub trait Endpoint {
     /// Before the endpoint is enabled by `SET_CONFIGURATION`/`SET_INTERFACE`, stalling is
     /// best-effort: implementations may not be able to apply it yet, and enabling the
     /// endpoint afterwards clears it.
-    fn set_stall(&mut self, stalled: bool);
+    ///
+    /// The default implementation returns [`Unsupported`], so drivers without the halt
+    /// feature do not have to implement it.
+    ///
+    /// # Errors
+    ///
+    /// * [`Unsupported`] - This driver cannot halt endpoints.
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+        let _ = stalled;
+        Err(Unsupported)
+    }
 
     /// Get whether the STALL handshake is currently set on this endpoint.
     ///
-    /// Returns `false` for endpoints that do not have the halt feature.
-    fn is_stalled(&self) -> bool;
+    /// Returns `Ok(false)` for endpoints that do not have the halt feature.
+    ///
+    /// The default implementation returns [`Unsupported`], so drivers without the halt
+    /// feature do not have to implement it.
+    ///
+    /// # Errors
+    ///
+    /// * [`Unsupported`] - This driver cannot halt endpoints.
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Err(Unsupported)
+    }
 }
 
 /// OUT Endpoint trait.

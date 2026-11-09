@@ -7,7 +7,7 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 
 use super::types::*;
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
-use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointIn, EndpointOut};
+use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointIn, EndpointOut, Unsupported};
 use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Builder, Handler};
 
@@ -504,7 +504,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
                 | UsbtmcError::BufferTooSmall
                 | UsbtmcError::MessageTruncated
         ) {
-            self.read_ep.set_stall(true);
+            let _ = self.read_ep.set_stall(true);
         }
         e
     }
@@ -758,9 +758,13 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
     /// While the endpoints are stalled, reads and writes do not complete, so the
     /// application has to call [`Self::clear_stall`] (or wait for the host to clear the
     /// halt) before using the class again.
-    pub fn stall(&mut self) {
-        self.read_ep.set_stall(true);
-        self.write_ep.set_stall(true);
+    ///
+    /// # Errors
+    ///
+    /// * [`Unsupported`] - The driver cannot halt endpoints, so nothing was stalled.
+    pub fn stall(&mut self) -> Result<(), Unsupported> {
+        self.read_ep.set_stall(true)?;
+        self.write_ep.set_stall(true)
     }
 
     /// Clears the STALL condition on the bulk endpoints that are actually stalled.
@@ -775,17 +779,19 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
     /// retransmission. Only call this when the host is going to clear the halt as well,
     /// or after a bus reset, which resets both sides.
     pub fn clear_stall(&mut self) {
-        if self.read_ep.is_stalled() {
-            self.read_ep.set_stall(false);
+        if self.read_ep.is_stalled().unwrap_or(false) {
+            let _ = self.read_ep.set_stall(false);
         }
-        if self.write_ep.is_stalled() {
-            self.write_ep.set_stall(false);
+        if self.write_ep.is_stalled().unwrap_or(false) {
+            let _ = self.write_ep.set_stall(false);
         }
     }
 
     /// Returns whether a bulk endpoint is currently stalled.
+    ///
+    /// Returns `false` when the driver cannot halt endpoints.
     pub fn is_stalled(&self) -> bool {
-        self.read_ep.is_stalled() || self.write_ep.is_stalled()
+        self.read_ep.is_stalled().unwrap_or(false) || self.write_ep.is_stalled().unwrap_or(false)
     }
 
     /// Gets the count of indicator pulse requests received.
@@ -1045,7 +1051,7 @@ mod tests {
 
         async fn wait_enabled(&mut self) {}
 
-        fn set_stall(&mut self, stalled: bool) {
+        fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
             match self.dir {
                 Direction::Out => {
                     self.state.out_stall_calls.set(self.state.out_stall_calls.get() + 1);
@@ -1056,13 +1062,14 @@ mod tests {
                     self.state.in_stalled.set(stalled);
                 }
             }
+            Ok(())
         }
 
-        fn is_stalled(&self) -> bool {
-            match self.dir {
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
+            Ok(match self.dir {
                 Direction::Out => self.state.out_stalled.get(),
                 Direction::In => self.state.in_stalled.get(),
-            }
+            })
         }
     }
 
@@ -1128,11 +1135,11 @@ mod tests {
             unreachable!()
         }
 
-        fn set_stall(&mut self, _: bool) {
+        fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
             unreachable!()
         }
 
-        fn is_stalled(&self) -> bool {
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
             unreachable!()
         }
     }
@@ -1393,7 +1400,7 @@ mod tests {
         let state = Rc::new(MockState::default());
         let mut tmc = class(&state);
 
-        tmc.stall();
+        tmc.stall().unwrap();
         assert!(tmc.is_stalled());
         assert!(state.out_stalled.get());
         assert!(state.in_stalled.get());
