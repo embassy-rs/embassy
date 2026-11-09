@@ -323,7 +323,7 @@ impl<'d> CsPinType<'d> {
         pin: Peri<'d, C>,
         irq: impl crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
-            exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
+            exti::InterruptHandler<<C as ExtiPin>::ExtiChannel>,
         >,
         exti: Option<Peri<'d, C::ExtiChannel>>,
         af_type: AfType,
@@ -1127,7 +1127,7 @@ impl<'d> Spi<'d, Async, Slave> {
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
-            exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
+            exti::InterruptHandler<<C as ExtiPin>::ExtiChannel>,
         > + 'd,
         exti: Option<Peri<'d, C::ExtiChannel>>,
         config: Config,
@@ -1160,7 +1160,7 @@ impl<'d> Spi<'d, Async, Slave> {
         irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
-            exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
+            exti::InterruptHandler<<C as ExtiPin>::ExtiChannel>,
         > + 'd,
         exti: Option<Peri<'d, C::ExtiChannel>>,
         config: Config,

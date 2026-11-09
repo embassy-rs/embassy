@@ -8,14 +8,14 @@ use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::{Config, bind_interrupts, exti, interrupt, peripherals, sdmmc};
+use embassy_stm32::{Config, bind_interrupts, exti, peripherals, sdmmc};
 use embassy_time::Timer;
 use panic_probe as _;
 use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {
     SDMMC1 => sdmmc::InterruptHandler<peripherals::SDMMC1>;
-    EXTI1 => exti::InterruptHandler<interrupt::typelevel::EXTI1>;
+    EXTI1 => exti::InterruptHandler<peripherals::EXTI1>;
 });
 
 #[embassy_executor::task]
@@ -63,7 +63,7 @@ async fn main(spawner: Spawner) {
     let mut _bt_reg = Output::new(p.PG3, Level::Low, Speed::High);
     let mut _sdio_reset = Output::new(p.PD11, Level::Low, Speed::High);
 
-    let _wl_wake_host = ExtiInput::new(p.PD1, p.EXTI1, Pull::Down, Irqs);
+    let _wl_wake_host = ExtiInput::new_async(p.PD1, p.EXTI1, Pull::Down, Irqs);
 
     let sdio_clk = Input::new(unsafe { p.PC12.clone_unchecked() }, Pull::None);
     let sdio_cmd = Input::new(unsafe { p.PD2.clone_unchecked() }, Pull::None);

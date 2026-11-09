@@ -20,7 +20,7 @@ use embassy_stm32::gpio::{Flex, Input, Level, Output, Pull, Speed};
 use embassy_stm32::peripherals::USB_OTG_HS as UsbOtgHs;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver as Stm32UsbDriver;
-use embassy_stm32::{bind_interrupts, usb};
+use embassy_stm32::{bind_interrupts, peripherals, usb};
 use embassy_time::{Duration, Timer};
 use embassy_usb::msos::{CompatibleIdFeatureDescriptor, PropertyData, RegistryPropertyFeatureDescriptor};
 use embassy_usb::{Builder, Config as USBConfig};
@@ -38,7 +38,7 @@ static CMD_BUF: StaticCell<[u8; 128]> = StaticCell::new();
 
 bind_interrupts!(pub struct Irqs {
     USB_OTG_HS => usb::InterruptHandler<UsbOtgHs>;
-    EXTI9 => exti::InterruptHandler<embassy_stm32::interrupt::typelevel::EXTI9>;
+    EXTI9 => exti::InterruptHandler<peripherals::EXTI9>;
 });
 
 pub enum TaskState {
@@ -112,7 +112,7 @@ async fn main(_spawner: Spawner) {
     let _gpio_ph3 = Output::new(p.PH3, Level::Low, Speed::Low);
 
     let _power_rail = Output::new(p.PB15, Level::Low, Speed::Low);
-    let mut vbus_sns = ExtiInput::new(p.PD9, p.EXTI9, Pull::None, Irqs);
+    let mut vbus_sns = ExtiInput::new_async(p.PD9, p.EXTI9, Pull::None, Irqs);
 
     let mut drv_cfg = embassy_stm32::usb::Config::default();
     drv_cfg.vbus_detection = true; // TODO: Make true later, we are battery powered

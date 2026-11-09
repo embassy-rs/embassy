@@ -106,23 +106,6 @@ macro_rules! cfg_no_rpr_fpr {
     };
 }
 
-/// Read pending EXTI interrupt flags
-#[inline(always)]
-pub(super) fn read_pending() -> u32 {
-    #[cfg(all(stm32h7, feature = "_dual-core"))]
-    return cpu_regs().pr(0).read().0;
-
-    #[cfg(not(all(stm32h7, feature = "_dual-core")))]
-    {
-        cfg_no_rpr_fpr! {
-            return EXTI.pr(0).read().0;
-        }
-        cfg_has_rpr_fpr! {
-            return EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
-        }
-    }
-}
-
 /// Clears any pending EXTI interrupt flag for a specific bit mask
 pub(super) fn clear_exti_pending_mask(mask: u32) {
     #[cfg(all(stm32h7, feature = "_dual-core"))]

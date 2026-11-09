@@ -43,6 +43,12 @@ pub mod mode {
     pub(crate) trait SealedMode {
         #[allow(dead_code)]
         const ASYNC: bool;
+        /// `T` in blocking mode, `()` in async mode.
+        #[allow(dead_code)]
+        type IfBlocking<T>;
+        /// `T` in async mode, `()` in blocking mode.
+        #[allow(dead_code)]
+        type IfAsync<T>;
     }
 
     /// Operating mode for a peripheral.
@@ -50,9 +56,11 @@ pub mod mode {
     pub trait Mode: SealedMode {}
 
     macro_rules! impl_mode {
-        ($name:ident, $async: expr) => {
+        ($name:ident, $async: expr, $if_blocking:ty, $if_async:ty) => {
             impl SealedMode for $name {
                 const ASYNC: bool = $async;
+                type IfBlocking<T> = $if_blocking;
+                type IfAsync<T> = $if_async;
             }
             impl Mode for $name {}
         };
@@ -65,8 +73,8 @@ pub mod mode {
     #[derive(Clone, Copy)]
     pub struct Async;
 
-    impl_mode!(Blocking, false);
-    impl_mode!(Async, true);
+    impl_mode!(Blocking, false, T, ());
+    impl_mode!(Async, true, (), T);
 }
 
 // Always-present hardware
@@ -747,9 +755,6 @@ mod dual_core {
                     #[cfg(mdma)]
                     config.mdma_interrupt_priority,
                 );
-
-                #[cfg(feature = "exti")]
-                exti::init(cs);
             }
 
             #[cfg(feature = "_time-driver")]
@@ -1091,9 +1096,6 @@ fn init_hw(config: Config) -> Peripherals {
                 #[cfg(mdma)]
                 config.mdma_interrupt_priority,
             );
-            #[cfg(feature = "exti")]
-            exti::init(cs);
-
             rcc::init_rcc(cs, config.rcc);
 
             // must be before time_driver init to allow refcount reset

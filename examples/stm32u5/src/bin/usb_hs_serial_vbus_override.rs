@@ -8,7 +8,7 @@ use embassy_futures::join::join3;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{Config, bind_interrupts, interrupt, pac, peripherals, usb};
+use embassy_stm32::{Config, bind_interrupts, pac, peripherals, usb};
 use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
@@ -16,7 +16,7 @@ use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     OTG_HS => usb::InterruptHandler<peripherals::USB_OTG_HS>;
-    EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
+    EXTI13 => exti::InterruptHandler<peripherals::EXTI13>;
 });
 
 #[embassy_executor::main]
@@ -103,7 +103,7 @@ async fn main(_spawner: Spawner) {
     };
 
     // Create the VBUS interrupt input
-    let mut vbus = ExtiInput::new(p.PC13, p.EXTI13, Pull::None, Irqs);
+    let mut vbus = ExtiInput::new_async(p.PC13, p.EXTI13, Pull::None, Irqs);
 
     // Run the VBUS override
     let vbus_fut = async {
