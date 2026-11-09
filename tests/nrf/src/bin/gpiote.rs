@@ -7,14 +7,15 @@ mod common;
 use defmt::{assert, info};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::gpio::{self, Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::peripherals;
 use embassy_time::{Duration, Instant, Timer};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
 
-    let mut input = Input::new(peri!(p, PIN_A), Pull::Up);
+    let mut input = Input::new_async(peri!(p, PIN_A), irqs!(PIN_A), Pull::Up);
     let mut output = Output::new(peri!(p, PIN_B), Level::Low, OutputDrive::Standard);
 
     let fut1 = async {

@@ -4,10 +4,14 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_nrf::Peri;
-use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::gpio::{self, AnyPin, Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::{Peri, bind_interrupts, peripherals};
 use embassy_time::Timer;
 use panic_probe as _;
+
+bind_interrupts!(struct Irqs {
+    GPIOTE => gpio::InterruptHandler<peripherals::P0_11>;
+});
 
 // Declare async tasks
 #[embassy_executor::task]
@@ -32,7 +36,7 @@ async fn main(spawner: Spawner) {
     // Spawned tasks run in the background, concurrently.
     spawner.spawn(blink(p.P0_13.into()).unwrap());
 
-    let mut button = Input::new(p.P0_11, Pull::Up);
+    let mut button = Input::new_async(p.P0_11, Irqs, Pull::Up);
     loop {
         // Asynchronously wait for GPIO events, allowing other tasks
         // to run, or the core to sleep.

@@ -561,38 +561,33 @@ impl_pin!(P2_08, 2, 8);
 impl_pin!(P2_09, 2, 9);
 impl_pin!(P2_10, 2, 10);
 
-cfg_select! {
-    feature = "gpiote" => {
-        impl_gpiote_pin!(P0_00, GPIOTE30);
-        impl_gpiote_pin!(P0_01, GPIOTE30);
-        impl_gpiote_pin!(P0_02, GPIOTE30);
-        impl_gpiote_pin!(P0_03, GPIOTE30);
-        impl_gpiote_pin!(P0_04, GPIOTE30);
-        impl_gpiote_pin!(P0_05, GPIOTE30);
-        impl_gpiote_pin!(P0_06, GPIOTE30);
+impl_gpiote_pin!(P0_00, 0, 0, GPIOTE30);
+impl_gpiote_pin!(P0_01, 0, 1, GPIOTE30);
+impl_gpiote_pin!(P0_02, 0, 2, GPIOTE30);
+impl_gpiote_pin!(P0_03, 0, 3, GPIOTE30);
+impl_gpiote_pin!(P0_04, 0, 4, GPIOTE30);
+impl_gpiote_pin!(P0_05, 0, 5, GPIOTE30);
+impl_gpiote_pin!(P0_06, 0, 6, GPIOTE30);
 
-        impl_gpiote_pin!(P1_00, GPIOTE20);
-        impl_gpiote_pin!(P1_01, GPIOTE20);
-        #[cfg(feature = "nfc-pins-as-gpio")]
-        impl_gpiote_pin!(P1_02, GPIOTE20);
-        #[cfg(feature = "nfc-pins-as-gpio")]
-        impl_gpiote_pin!(P1_03, GPIOTE20);
-        impl_gpiote_pin!(P1_04, GPIOTE20);
-        impl_gpiote_pin!(P1_05, GPIOTE20);
-        impl_gpiote_pin!(P1_06, GPIOTE20);
-        impl_gpiote_pin!(P1_07, GPIOTE20);
-        impl_gpiote_pin!(P1_08, GPIOTE20);
-        impl_gpiote_pin!(P1_09, GPIOTE20);
-        impl_gpiote_pin!(P1_10, GPIOTE20);
-        impl_gpiote_pin!(P1_11, GPIOTE20);
-        impl_gpiote_pin!(P1_12, GPIOTE20);
-        impl_gpiote_pin!(P1_13, GPIOTE20);
-        impl_gpiote_pin!(P1_14, GPIOTE20);
-        impl_gpiote_pin!(P1_15, GPIOTE20);
-        impl_gpiote_pin!(P1_16, GPIOTE20);
-    }
-    _ => {}
-}
+impl_gpiote_pin!(P1_00, 1, 0, GPIOTE20);
+impl_gpiote_pin!(P1_01, 1, 1, GPIOTE20);
+#[cfg(feature = "nfc-pins-as-gpio")]
+impl_gpiote_pin!(P1_02, 1, 2, GPIOTE20);
+#[cfg(feature = "nfc-pins-as-gpio")]
+impl_gpiote_pin!(P1_03, 1, 3, GPIOTE20);
+impl_gpiote_pin!(P1_04, 1, 4, GPIOTE20);
+impl_gpiote_pin!(P1_05, 1, 5, GPIOTE20);
+impl_gpiote_pin!(P1_06, 1, 6, GPIOTE20);
+impl_gpiote_pin!(P1_07, 1, 7, GPIOTE20);
+impl_gpiote_pin!(P1_08, 1, 8, GPIOTE20);
+impl_gpiote_pin!(P1_09, 1, 9, GPIOTE20);
+impl_gpiote_pin!(P1_10, 1, 10, GPIOTE20);
+impl_gpiote_pin!(P1_11, 1, 11, GPIOTE20);
+impl_gpiote_pin!(P1_12, 1, 12, GPIOTE20);
+impl_gpiote_pin!(P1_13, 1, 13, GPIOTE20);
+impl_gpiote_pin!(P1_14, 1, 14, GPIOTE20);
+impl_gpiote_pin!(P1_15, 1, 15, GPIOTE20);
+impl_gpiote_pin!(P1_16, 1, 16, GPIOTE20);
 
 #[cfg(feature = "_ns")]
 impl_wdt!(WDT, WDT31, WDT31, 0);
