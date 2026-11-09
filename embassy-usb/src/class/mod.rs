@@ -1,4 +1,5 @@
 //! Implementations of well-known USB classes.
+pub mod bth;
 pub mod ccid;
 pub mod cdc_acm;
 pub mod cdc_ncm {
