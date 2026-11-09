@@ -108,11 +108,11 @@ async fn main(_spawner: Spawner) {
                     Err(UsbtmcError::Endpoint(_)) => break,
                     Err(e) => {
                         info!("Read error: {:?}", defmt::Debug2Format(&e));
-                        // A message that could not be parsed stalls Bulk-OUT, so the host
-                        // notices instead of having us misread the rest of the stream.
-                        // Clear it to keep accepting commands (the host can also clear it
-                        // itself with CLEAR_FEATURE(ENDPOINT_HALT), and viClear() does too).
-                        tmc.clear_stall();
+                        // The class has halted Bulk-OUT, so the host sees a failed
+                        // transfer instead of us misreading the rest of the stream. It now
+                        // clears the halt with CLEAR_FEATURE(ENDPOINT_HALT) or `viClear()`,
+                        // and this read resumes. Clearing the stall here would reset the
+                        // data toggle behind the host's back, so don't.
                         continue;
                     }
                 };

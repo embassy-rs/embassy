@@ -758,15 +758,24 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         self.write_ep.set_stall(true);
     }
 
-    /// Clears the STALL condition on the bulk endpoints.
+    /// Clears the STALL condition on the bulk endpoints that are actually stalled.
     ///
     /// Bulk-OUT is stalled when the class cannot parse a message from the host; see
     /// [`UsbtmcError`]. The host normally clears it with `CLEAR_FEATURE(ENDPOINT_HALT)`,
-    /// and [`Self::check_clear`] clears it when the host issues `viClear()`. Call this
-    /// directly to recover without waiting for either.
+    /// and [`Self::check_clear`] clears it when the host issues `viClear()`.
+    ///
+    /// Clearing a halt resets the endpoint's data toggle to DATA0 (USB 2.0 §9.4.5).
+    /// The host does not see that, so clearing a stall the host itself did not clear
+    /// leaves the two sides out of step and the next transfer gets discarded as a
+    /// retransmission. Only call this when the host is going to clear the halt as well,
+    /// or after a bus reset, which resets both sides.
     pub fn clear_stall(&mut self) {
-        self.read_ep.set_stall(false);
-        self.write_ep.set_stall(false);
+        if self.read_ep.is_stalled() {
+            self.read_ep.set_stall(false);
+        }
+        if self.write_ep.is_stalled() {
+            self.write_ep.set_stall(false);
+        }
     }
 
     /// Returns whether a bulk endpoint is currently stalled.
@@ -1011,6 +1020,9 @@ mod tests {
     struct MockState {
         out_stalled: Cell<bool>,
         in_stalled: Cell<bool>,
+        /// Number of `set_stall` calls, so a test can tell "not called" from "cleared".
+        out_stall_calls: Cell<u32>,
+        in_stall_calls: Cell<u32>,
         fail_read: Cell<bool>,
         packets: RefCell<Vec<Vec<u8>>>,
         written: RefCell<Vec<Vec<u8>>>,
@@ -1031,8 +1043,14 @@ mod tests {
 
         fn set_stall(&mut self, stalled: bool) {
             match self.dir {
-                Direction::Out => self.state.out_stalled.set(stalled),
-                Direction::In => self.state.in_stalled.set(stalled),
+                Direction::Out => {
+                    self.state.out_stall_calls.set(self.state.out_stall_calls.get() + 1);
+                    self.state.out_stalled.set(stalled);
+                }
+                Direction::In => {
+                    self.state.in_stall_calls.set(self.state.in_stall_calls.get() + 1);
+                    self.state.in_stalled.set(stalled);
+                }
             }
         }
 
@@ -1343,6 +1361,27 @@ mod tests {
         tmc.shared.set_clear_pending(true);
         assert!(tmc.check_clear());
         assert!(!tmc.is_stalled());
+    }
+
+    #[test]
+    fn clear_stall_leaves_the_other_direction_alone() {
+        // Clearing a halt resets that endpoint's data toggle. Clearing Bulk-IN after a
+        // Bulk-OUT-only stall would reset the IN toggle behind the host's back, and the
+        // host would discard the next reply as a retransmission.
+        let state = Rc::new(MockState::default());
+        state.packets.borrow_mut().push(Vec::from([0x42_u8; 12]));
+        let mut tmc = class(&state);
+
+        let mut buf = [0u8; 64];
+        assert!(matches!(
+            read_fails(&mut tmc, &mut buf),
+            UsbtmcError::UnexpectedMsgId(0x42)
+        ));
+        let in_calls = state.in_stall_calls.get();
+
+        tmc.clear_stall();
+        assert!(!state.out_stalled.get());
+        assert_eq!(state.in_stall_calls.get(), in_calls);
     }
 
     #[test]
