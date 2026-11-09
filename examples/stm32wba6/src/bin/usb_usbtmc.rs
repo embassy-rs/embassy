@@ -20,7 +20,7 @@ use embassy_futures::join::join;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb::Builder;
-use embassy_usb::class::usbtmc::{Config as TmcConfig, State, UsbtmcClass};
+use embassy_usb::class::usbtmc::{Config as TmcConfig, State, UsbtmcClass, UsbtmcError};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -96,9 +96,15 @@ async fn main(_spawner: Spawner) {
             loop {
                 let msg = match tmc.read_message(&mut buf).await {
                     Ok(msg) => msg,
+                    Err(UsbtmcError::Endpoint(_)) => break,
                     Err(e) => {
                         info!("Read error: {:?}", defmt::Debug2Format(&e));
-                        break;
+                        // A message that could not be parsed stalls Bulk-OUT, so the host
+                        // notices instead of having us misread the rest of the stream.
+                        // Clear it to keep accepting commands (the host can also clear it
+                        // itself with CLEAR_FEATURE(ENDPOINT_HALT), and viClear() does too).
+                        tmc.clear_stall();
+                        continue;
                     }
                 };
 
