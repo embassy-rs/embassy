@@ -41,6 +41,7 @@ mod config {
     include!(concat!(env!("OUT_DIR"), "/config.rs"));
 }
 
+pub use descriptor::EndpointInterval;
 pub use device::{
     Builder, CONFIGURATION_NONE, CONFIGURATION_VALUE, Config, FunctionBuilder, Handler, InterfaceAltBuilder,
     InterfaceBuilder, RemoteWakeupError, UsbBufferReport, UsbDevice, UsbDeviceSpeed, UsbDeviceState, UsbVersion, msos,

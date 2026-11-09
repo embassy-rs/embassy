@@ -1,5 +1,6 @@
 //! Utilities for writing USB descriptors.
 use embassy_usb_driver::EndpointType;
+use heapless::Vec;
 
 use crate::driver::EndpointInfo;
 use crate::types::{InterfaceNumber, StringIndex};
@@ -75,12 +76,119 @@ pub enum UsageType {
     Reserved = 0b11,
 }
 
+/// USB endpoint interval configuration.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum EndpointInterval {
+    /// Interval in milliseconds.
+    ///
+    /// - At Full Speed:
+    ///   - For interrupt endpoints: linear polling period in frames (1..=255 ms). 0 is treated as 1 ms.
+    ///   - For isochronous endpoints: exponential period $2^{(bInterval-1)}$ frames (1..=16, representing 1, 2, 4, ... ms).
+    /// - At High Speed:
+    ///   - For periodic endpoints (interrupt and isochronous): exponential period $2^{(bInterval-1)}$ microframes (125 µs units).
+    ///     0 is treated as 1 microframe (125 µs).
+    Milliseconds(u8),
+
+    /// Interval in microframes (125 µs units).
+    ///
+    /// Valid range for high-speed periodic endpoints is 1 to 32768 microframes ($2^{(bInterval-1)}$ microframes, where bInterval is 1..=16).
+    /// Non-power-of-two values are rounded up to the next power of two.
+    ///
+    /// At Full Speed:
+    /// - Microframe intervals <= 8 (1 ms) map to 1 frame (1 ms).
+    /// - Intervals > 8 map to frames: `(uframes + 7) / 8`.
+    Microframes(u32),
+
+    /// Raw `bInterval` byte to write directly to the endpoint descriptor without transformation or rewriting.
+    ///
+    /// This value will not be modified by full-speed or high-speed descriptor rewriting passes.
+    Raw(u8),
+}
+
+impl EndpointInterval {
+    /// Create an interval in milliseconds.
+    pub const fn from_ms(ms: u8) -> Self {
+        Self::Milliseconds(ms)
+    }
+
+    /// Create an interval in microframes (125 µs units).
+    pub const fn from_microframes(microframes: u32) -> Self {
+        Self::Microframes(microframes)
+    }
+
+    /// Create a raw `bInterval` byte that will not be rewritten.
+    pub const fn raw(val: u8) -> Self {
+        Self::Raw(val)
+    }
+
+    /// Compute the bInterval byte for full-speed operation.
+    pub fn to_full_speed_b_interval(&self, ep_type: EndpointType) -> u8 {
+        match *self {
+            EndpointInterval::Raw(val) => val,
+            EndpointInterval::Milliseconds(ms) => match ep_type {
+                EndpointType::Isochronous => encode_full_speed_isochronous_interval(ms),
+                EndpointType::Interrupt => ms.max(1),
+                _ => 0,
+            },
+            EndpointInterval::Microframes(uframes) => match ep_type {
+                EndpointType::Isochronous => {
+                    if uframes <= 8 {
+                        1
+                    } else {
+                        let frames = ((uframes + 7) / 8).min(32768) as u16;
+                        encode_full_speed_isochronous_frames(frames)
+                    }
+                }
+                EndpointType::Interrupt => {
+                    if uframes <= 8 {
+                        1
+                    } else {
+                        let frames = ((uframes + 7) / 8).min(255) as u8;
+                        frames.max(1)
+                    }
+                }
+                _ => 0,
+            },
+        }
+    }
+
+    /// Compute the bInterval byte for high-speed operation.
+    pub fn to_high_speed_b_interval(&self, ep_type: EndpointType) -> u8 {
+        match *self {
+            EndpointInterval::Raw(val) => val,
+            EndpointInterval::Milliseconds(ms) => match ep_type {
+                EndpointType::Interrupt | EndpointType::Isochronous => encode_high_speed_interval(ms),
+                _ => 0,
+            },
+            EndpointInterval::Microframes(uframes) => match ep_type {
+                EndpointType::Interrupt | EndpointType::Isochronous => encode_high_speed_microframes(uframes),
+                _ => 0,
+            },
+        }
+    }
+}
+
+impl From<u8> for EndpointInterval {
+    fn from(ms: u8) -> Self {
+        Self::Milliseconds(ms)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct EndpointIntervalInfo {
+    pub offset: usize,
+    pub ep_type: EndpointType,
+    pub interval: EndpointInterval,
+}
+
 /// A writer for USB descriptors.
 pub(crate) struct DescriptorWriter<'a> {
     pub buf: &'a mut [u8],
     position: usize,
     num_interfaces_mark: Option<usize>,
     num_endpoints_mark: Option<usize>,
+    pub(crate) endpoint_intervals: Vec<EndpointIntervalInfo, 32>,
 }
 
 pub(crate) struct DescriptorMark(usize);
@@ -92,11 +200,16 @@ impl<'a> DescriptorWriter<'a> {
             position: 0,
             num_interfaces_mark: None,
             num_endpoints_mark: None,
+            endpoint_intervals: Vec::new(),
         }
     }
 
     pub fn into_buf(self) -> &'a mut [u8] {
         &mut self.buf[..self.position]
+    }
+
+    pub(crate) fn into_parts(self) -> (&'a mut [u8], Vec<EndpointIntervalInfo, 32>) {
+        (&mut self.buf[..self.position], self.endpoint_intervals)
     }
 
     /// Gets the current position in the buffer, i.e. the number of bytes written so far.
@@ -266,6 +379,24 @@ impl<'a> DescriptorWriter<'a> {
         usage_type: UsageType,
         extra_fields: &[u8],
     ) {
+        self.endpoint_with_interval(
+            endpoint,
+            EndpointInterval::Milliseconds(endpoint.interval_ms),
+            synchronization_type,
+            usage_type,
+            extra_fields,
+        );
+    }
+
+    /// Writes an endpoint descriptor with a specific [`EndpointInterval`].
+    pub fn endpoint_with_interval(
+        &mut self,
+        endpoint: &EndpointInfo,
+        interval: EndpointInterval,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+    ) {
         match self.num_endpoints_mark {
             Some(mark) => self.buf[mark] += 1,
             None => panic!("you can only call `endpoint` after `interface/interface_alt`."),
@@ -290,6 +421,24 @@ impl<'a> DescriptorWriter<'a> {
             bm_attributes |= usage_bm_attributes | synchronization_bm_attributes;
         }
 
+        let initial_interval = match interval {
+            EndpointInterval::Raw(val) => val,
+            EndpointInterval::Milliseconds(ms) => ms,
+            EndpointInterval::Microframes(uframes) => ((uframes + 7) / 8).min(255) as u8,
+        };
+
+        let interval_offset = self.position + 6;
+        if endpoint.ep_type == EndpointType::Interrupt
+            || endpoint.ep_type == EndpointType::Isochronous
+            || matches!(interval, EndpointInterval::Raw(_))
+        {
+            let _ = self.endpoint_intervals.push(EndpointIntervalInfo {
+                offset: interval_offset,
+                ep_type: endpoint.ep_type,
+                interval,
+            });
+        }
+
         self.write(
             descriptor_type::ENDPOINT,
             &[
@@ -297,8 +446,29 @@ impl<'a> DescriptorWriter<'a> {
                 bm_attributes,        // bmAttributes
                 endpoint.max_packet_size as u8,
                 (endpoint.max_packet_size >> 8) as u8, // wMaxPacketSize
-                endpoint.interval_ms,                  // bInterval
+                initial_interval,                      // bInterval
             ],
+            extra_fields,
+        );
+    }
+
+    /// Writes an endpoint descriptor with a raw `bInterval` byte.
+    ///
+    /// The `bInterval` byte is written directly to the descriptor and will NOT be modified
+    /// by full-speed or high-speed rewriting passes.
+    pub fn endpoint_raw(
+        &mut self,
+        endpoint: &EndpointInfo,
+        b_interval: u8,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+    ) {
+        self.endpoint_with_interval(
+            endpoint,
+            EndpointInterval::Raw(b_interval),
+            synchronization_type,
+            usage_type,
             extra_fields,
         );
     }
@@ -374,41 +544,60 @@ pub(crate) fn device_qualifier_descriptor(config: &Config) -> [u8; 10] {
     ]
 }
 
-pub(crate) fn rewrite_config_descriptor_for_high_speed(buf: &mut [u8]) {
-    rewrite_periodic_intervals(buf, encode_high_speed_interval);
+pub(crate) fn rewrite_config_descriptor_for_high_speed(buf: &mut [u8], endpoints: &[EndpointIntervalInfo]) {
+    for ep in endpoints {
+        if ep.offset < buf.len() {
+            buf[ep.offset] = ep.interval.to_high_speed_b_interval(ep.ep_type);
+        }
+    }
 }
 
 /// At full speed, `interval_ms` is the `bInterval`, except that 0 (every frame) becomes 1.
-pub(crate) fn rewrite_config_descriptor_for_full_speed(buf: &mut [u8]) {
-    rewrite_periodic_intervals(buf, |interval_ms| interval_ms.max(1));
-}
-
-/// Applies `f` to the `bInterval` of every interrupt and isochronous endpoint.
-fn rewrite_periodic_intervals(buf: &mut [u8], f: impl Fn(u8) -> u8) {
-    let mut pos = 0;
-    while pos < buf.len() {
-        let len = buf[pos] as usize;
-        assert!(len >= 2 && pos + len <= buf.len(), "invalid configuration descriptor");
-
-        if buf[pos + 1] == descriptor_type::ENDPOINT && len >= 7 {
-            let transfer_type = buf[pos + 3] & 0x03;
-            if transfer_type == EndpointType::Interrupt as u8 || transfer_type == EndpointType::Isochronous as u8 {
-                buf[pos + 6] = f(buf[pos + 6]);
-            }
+pub(crate) fn rewrite_config_descriptor_for_full_speed(buf: &mut [u8], endpoints: &[EndpointIntervalInfo]) {
+    for ep in endpoints {
+        if ep.offset < buf.len() {
+            buf[ep.offset] = ep.interval.to_full_speed_b_interval(ep.ep_type);
         }
-
-        pos += len;
     }
 }
 
 /// Returns the high-speed `bInterval` (2^(bInterval-1) microframes) for `interval_ms`.
 /// 0 is every microframe.
-fn encode_high_speed_interval(interval_ms: u8) -> u8 {
+pub(crate) fn encode_high_speed_interval(interval_ms: u8) -> u8 {
     if interval_ms == 0 {
         return 1;
     }
     let microframes = u32::from(interval_ms) * 8;
     let rounded = microframes.next_power_of_two().min(1 << 15);
+    let exponent = (31 - rounded.leading_zeros()) as u8;
+    exponent + 1
+}
+
+/// Returns the high-speed `bInterval` (2^(bInterval-1) microframes) for `microframes`.
+/// 0 or 1 is every microframe (bInterval 1).
+pub(crate) fn encode_high_speed_microframes(microframes: u32) -> u8 {
+    if microframes <= 1 {
+        return 1;
+    }
+    let rounded = microframes.next_power_of_two().min(1 << 15);
+    let exponent = (31 - rounded.leading_zeros()) as u8;
+    exponent + 1
+}
+
+/// Returns the full-speed isochronous `bInterval` (2^(bInterval-1) frames) for `interval_ms`.
+/// 0 or 1 is every frame (bInterval 1).
+pub(crate) fn encode_full_speed_isochronous_interval(interval_ms: u8) -> u8 {
+    encode_full_speed_isochronous_frames(u16::from(interval_ms))
+}
+
+/// Returns the full-speed isochronous `bInterval` (2^(bInterval-1) frames) for `frames`.
+/// 0 or 1 is every frame (bInterval 1).
+pub(crate) fn encode_full_speed_isochronous_frames(frames: u16) -> u8 {
+    if frames <= 1 {
+        return 1;
+    }
+    let frames = u32::from(frames);
+    let rounded = frames.next_power_of_two().min(1 << 15);
     let exponent = (31 - rounded.leading_zeros()) as u8;
     exponent + 1
 }
@@ -497,6 +686,58 @@ mod tests {
     }
 
     #[test]
+    fn high_speed_microframes() {
+        assert_eq!(encode_high_speed_microframes(0), 1); // 125 us
+        assert_eq!(encode_high_speed_microframes(1), 1); // 125 us
+        assert_eq!(encode_high_speed_microframes(2), 2); // 250 us
+        assert_eq!(encode_high_speed_microframes(3), 3); // rounded up to 4 microframes (500 us)
+        assert_eq!(encode_high_speed_microframes(4), 3); // 500 us
+        assert_eq!(encode_high_speed_microframes(8), 4); // 1 ms
+        assert_eq!(encode_high_speed_microframes(16), 5); // 2 ms
+        assert_eq!(encode_high_speed_microframes(32768), 16); // max 2^15 microframes
+        assert_eq!(encode_high_speed_microframes(65536), 16); // clamped to 16
+    }
+
+    #[test]
+    fn full_speed_isochronous_interval() {
+        assert_eq!(encode_full_speed_isochronous_interval(0), 1); // 1 frame
+        assert_eq!(encode_full_speed_isochronous_interval(1), 1); // 1 frame
+        assert_eq!(encode_full_speed_isochronous_interval(2), 2); // 2 frames
+        assert_eq!(encode_full_speed_isochronous_interval(3), 3); // rounded up to 4 frames
+        assert_eq!(encode_full_speed_isochronous_interval(4), 3); // 4 frames = 2^(3-1)
+        assert_eq!(encode_full_speed_isochronous_interval(8), 4); // 8 frames = 2^(4-1)
+        assert_eq!(encode_full_speed_isochronous_interval(16), 5); // 16 frames = 2^(5-1)
+        assert_eq!(encode_full_speed_isochronous_interval(255), 9); // 256 frames = 2^(9-1)
+    }
+
+    #[test]
+    fn endpoint_interval_full_and_high_speed() {
+        // Interrupt endpoint
+        let ep_int = EndpointInterval::Milliseconds(4);
+        assert_eq!(ep_int.to_full_speed_b_interval(EndpointType::Interrupt), 4);
+        assert_eq!(ep_int.to_high_speed_b_interval(EndpointType::Interrupt), 6);
+
+        // Isochronous endpoint (exponential for both)
+        let ep_iso = EndpointInterval::Milliseconds(4);
+        assert_eq!(ep_iso.to_full_speed_b_interval(EndpointType::Isochronous), 3);
+        assert_eq!(ep_iso.to_high_speed_b_interval(EndpointType::Isochronous), 6);
+
+        // Microframes endpoint
+        let ep_uframes = EndpointInterval::Microframes(2); // 250 us
+        assert_eq!(ep_uframes.to_full_speed_b_interval(EndpointType::Interrupt), 1); // <= 8 uframes clamped to 1 frame
+        assert_eq!(ep_uframes.to_full_speed_b_interval(EndpointType::Isochronous), 1);
+        assert_eq!(ep_uframes.to_high_speed_b_interval(EndpointType::Interrupt), 2);
+        assert_eq!(ep_uframes.to_high_speed_b_interval(EndpointType::Isochronous), 2);
+
+        // Raw endpoint
+        let ep_raw = EndpointInterval::Raw(7);
+        assert_eq!(ep_raw.to_full_speed_b_interval(EndpointType::Interrupt), 7);
+        assert_eq!(ep_raw.to_full_speed_b_interval(EndpointType::Isochronous), 7);
+        assert_eq!(ep_raw.to_high_speed_b_interval(EndpointType::Interrupt), 7);
+        assert_eq!(ep_raw.to_high_speed_b_interval(EndpointType::Isochronous), 7);
+    }
+
+    #[test]
     fn periodic_intervals_only() {
         // An interface, then a bulk and an isochronous endpoint, both with bInterval 0.
         let mut buf = [
@@ -504,7 +745,12 @@ mod tests {
             7, 5, 0x81, 0x02, 64, 0, 0, //
             7, 5, 0x02, 0x05, 64, 0, 0,
         ];
-        rewrite_config_descriptor_for_full_speed(&mut buf);
+        let endpoints = [EndpointIntervalInfo {
+            offset: 22,
+            ep_type: EndpointType::Isochronous,
+            interval: EndpointInterval::Milliseconds(0),
+        }];
+        rewrite_config_descriptor_for_full_speed(&mut buf, &endpoints);
         assert_eq!(buf[15], 0);
         assert_eq!(buf[22], 1);
     }
