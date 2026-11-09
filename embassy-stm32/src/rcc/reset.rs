@@ -107,4 +107,55 @@ impl ResetFlags {
     pub fn low_power(&self) -> bool {
         Raw(self.0).lpwrrstf()
     }
+
+    /// A power-on or power-down reset (POR/PDR).
+    ///
+    /// Other flags are usually set along with it, so check this first.
+    #[cfg(any(
+        stm32f0, stm32f1, stm32f2, stm32f3, stm32f4, stm32f7, stm32h7, stm32h7rs, stm32l0, stm32l1, stm32n6
+    ))]
+    pub fn por(&self) -> bool {
+        Raw(self.0).porrstf()
+    }
+
+    /// A brownout reset (BOR).
+    ///
+    /// On many families a power-on reset also sets this flag. Where `por()` is
+    /// available, check it first.
+    #[cfg(any(
+        stm32c5, stm32f2, stm32f4, stm32f7, stm32g4, stm32h5, stm32h7, stm32h7rs, stm32l4, stm32l5, stm32n6, stm32u3,
+        stm32u5, stm32wb, stm32wba, stm32wl
+    ))]
+    pub fn bor(&self) -> bool {
+        Raw(self.0).borrstf()
+    }
+
+    // The flag combinations described below follow RM0433, Table 56.
+
+    /// The CPU was reset. On dual-core chips, this is the Cortex-M7.
+    ///
+    /// Most resets set this along with other flags. It is set on its own when only
+    /// the CPU was reset.
+    #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468))]
+    pub fn cpu(&self) -> bool {
+        Raw(self.0).cpurstf()
+    }
+
+    /// The D1 domain was reset.
+    ///
+    /// A power-on reset sets this along with other flags. It is set on its own when
+    /// the D1 domain exits DStandby mode.
+    #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468))]
+    pub fn d1(&self) -> bool {
+        Raw(self.0).d1rstf()
+    }
+
+    /// The D2 domain was reset.
+    ///
+    /// A power-on reset sets this along with other flags. It is set on its own when
+    /// the D2 domain exits DStandby mode.
+    #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7rm0468))]
+    pub fn d2(&self) -> bool {
+        Raw(self.0).d2rstf()
+    }
 }
