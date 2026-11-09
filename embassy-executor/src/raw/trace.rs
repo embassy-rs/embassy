@@ -163,11 +163,9 @@ unitrait::unitrait! {
         ///
         /// This function can be called when the task is not running and it does not signal a state change.
         ///
-        /// With the `metadata-name` feature it is called for every task spawned through the
-        /// macros, BEFORE that task's [`task_new`](Self::task_new): the name is set on the
-        /// `SpawnToken`, when the task has no executor yet and [`TaskRef::executor_id`]
-        /// returns `None`. The name stays readable through `task.metadata().name()`, e.g.
-        /// from [`task_new`](Self::task_new).
+        /// The default name from `#[task]` and `#[main]` is set when the task is initialized,
+        /// without this callback: read it with `task.metadata().name()` in
+        /// [`task_new`](Self::task_new).
         fn task_name_set(task: TaskRef, name: &'static str);
 
         /// This callback is called AFTER the priority of a task is set.

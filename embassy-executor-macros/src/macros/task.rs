@@ -206,9 +206,19 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let spawn = if returns_impl_trait {
-        quote!(spawn)
+        quote!(_spawn)
     } else {
         quote!(_spawn_async_fn)
+    };
+
+    // With `metadata-name`, the task is named after its function unless `name = "..."` was
+    // given; `#[main]` uses that to name the main task "main". The name is set when the task
+    // is initialized; a name set on the token afterwards overrides it.
+    let name = if cfg!(feature = "metadata-name") {
+        let name = task_name.unwrap_or_else(|| task_ident.to_string());
+        quote!(::core::option::Option::Some(#name))
+    } else {
+        quote!(::core::option::Option::None)
     };
 
     #[cfg(feature = "nightly")]
@@ -227,7 +237,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
 
         const __POOL_SIZE: usize = #pool_size;
         static POOL: #embassy_executor::raw::TaskPool<<() as _EmbassyInternalTaskTrait>::Fut, __POOL_SIZE> = #embassy_executor::raw::TaskPool::new();
-        unsafe { POOL.#spawn(move || <() as _EmbassyInternalTaskTrait>::construct(#(#full_args,)*)) }
+        unsafe { POOL.#spawn(#name, move || <() as _EmbassyInternalTaskTrait>::construct(#(#full_args,)*)) }
     };
     #[cfg(not(feature = "nightly"))]
     let mut task_outer_body = quote! {
@@ -244,20 +254,8 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
             {#embassy_executor::_export::task_pool_size::<_, _, _, __POOL_SIZE>(#task_inner_ident)},
             {#embassy_executor::_export::task_pool_align::<_, _, _, __POOL_SIZE>(#task_inner_ident)},
         > = unsafe { ::core::mem::transmute(#embassy_executor::_export::task_pool_new::<_, _, _, __POOL_SIZE>(#task_inner_ident)) };
-        unsafe { __task_pool_get(#task_inner_ident).#spawn(move || #task_inner_ident(#(#full_args,)*)) }
+        unsafe { __task_pool_get(#task_inner_ident).#spawn(#name, move || #task_inner_ident(#(#full_args,)*)) }
     };
-
-    // With `metadata-name`, the task is named after its function unless `name = "..."` was
-    // given; `#[main]` uses that to name the main task "main". A name set on the token
-    // afterwards overrides it.
-    if cfg!(feature = "metadata-name") {
-        let name = task_name.unwrap_or_else(|| task_ident.to_string());
-        task_outer_body = quote! {
-            let token = { #task_outer_body }?;
-            token.metadata().set_name(#name);
-            ::core::result::Result::Ok(token)
-        };
-    }
 
     let task_outer_attrs = &f.attrs;
 
