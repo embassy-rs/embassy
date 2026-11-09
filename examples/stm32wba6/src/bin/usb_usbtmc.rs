@@ -50,7 +50,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     // Create the USB OTG HS driver.
-    let mut ep_out_buffer = [0u8; 256];
+    let mut ep_out_buffer = [0u8; 1024];
     let mut usb_config = embassy_stm32::usb::Config::default();
     usb_config.vbus_detection = false;
     let driver = Driver::new_hs(p.USB_OTG_HS, p.PD6, p.PD7, Irqs, &mut ep_out_buffer, usb_config);
@@ -79,7 +79,9 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    let mut tmc = UsbtmcClass::new(&mut builder, &mut state, TmcConfig::new_usb488());
+    let mut tmc_config = TmcConfig::new_usb488();
+    tmc_config.max_packet_size = 512;
+    let mut tmc = UsbtmcClass::new(&mut builder, &mut state, tmc_config);
 
     let mut usb = builder.build();
 
