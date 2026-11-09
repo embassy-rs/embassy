@@ -1,7 +1,38 @@
 //! This example demonstrates a USB Test and Measurement Class (USBTMC / USB488) instrument
 //! running on an STM32WBA65 microcontroller.
 //!
-//! You can interact with this device using PyVISA from a host computer:
+//! # Running it
+//!
+//! ```sh
+//! cd examples/stm32wba6
+//! cargo run --bin usb_usbtmc     # flashes and streams the defmt log over RTT
+//! ```
+//!
+//! The board enumerates as `1209:0001` and the kernel binds its `usbtmc` driver, which
+//! creates `/dev/usbtmcN`. That node is normally root-only, so install a udev rule (or run
+//! the host tool as root) before using PyVISA:
+//!
+//! ```sh
+//! echo 'SUBSYSTEM=="usbmisc", KERNEL=="usbtmc*", MODE="0666"' \
+//!   | sudo tee /etc/udev/rules.d/99-embassy-usbtmc.rules
+//! sudo udevadm control --reload && sudo udevadm trigger
+//! ```
+//!
+//! To talk raw USB instead (to send malformed messages or clear halts by hand), give
+//! libusb access to the device node. The host tool then has to detach the kernel driver
+//! (`dev.detach_kernel_driver(0)`) before it can claim the interface:
+//!
+//! ```sh
+//! echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="1209", ATTR{idProduct}=="0001", MODE="0666"' \
+//!   | sudo tee /etc/udev/rules.d/99-embassy-usbtmc-raw.rules
+//! sudo udevadm control --reload && sudo udevadm trigger
+//! python3 -m venv /tmp/usbtmc-venv && /tmp/usbtmc-venv/bin/pip install pyusb
+//! ```
+//!
+//! # Talking to it
+//!
+//! With PyVISA:
+//!
 //! ```python
 //! import pyvisa
 //! rm = pyvisa.ResourceManager()
@@ -9,6 +40,20 @@
 //! print(inst.query("*IDN?"))
 //! print(inst.query(":MEAS:VOLT?"))
 //! ```
+//!
+//! The instrument answers these SCPI commands:
+//!
+//! - `*IDN?` - identification string.
+//! - `*STB?` - status byte (always `0`).
+//! - `:MEAS:VOLT?` - a fixed measurement.
+//! - `*RST` - logged, state unchanged.
+//! - `:TEST:STALL` - halts both bulk endpoints instead of replying, to exercise the
+//!   endpoint-halt path. The host's next transfer fails with `EPIPE`; clear it with
+//!   `usb_clear_halt()`/`CLEAR_FEATURE(ENDPOINT_HALT)` or `viClear()`, and the instrument
+//!   starts answering again.
+//!
+//! Any other command is logged and ignored. A Bulk-OUT message that cannot be parsed
+//! halts Bulk-OUT on its own; see the `usbtmc` module docs.
 
 #![no_std]
 #![no_main]
