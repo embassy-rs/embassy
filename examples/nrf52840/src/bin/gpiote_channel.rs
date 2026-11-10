@@ -5,18 +5,26 @@ use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::Pull;
-use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
+use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
+use embassy_nrf::{bind_interrupts, peripherals};
 use panic_probe as _;
+
+bind_interrupts!(struct Irqs {
+    GPIOTE => gpiote::InterruptHandler<peripherals::GPIOTE_CH0>,
+        gpiote::InterruptHandler<peripherals::GPIOTE_CH1>,
+        gpiote::InterruptHandler<peripherals::GPIOTE_CH2>,
+        gpiote::InterruptHandler<peripherals::GPIOTE_CH3>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     info!("Starting!");
 
-    let mut ch1 = InputChannel::new(p.GPIOTE_CH0, p.P0_11, Pull::Up, InputChannelPolarity::HiToLo);
-    let mut ch2 = InputChannel::new(p.GPIOTE_CH1, p.P0_12, Pull::Up, InputChannelPolarity::LoToHi);
-    let mut ch3 = InputChannel::new(p.GPIOTE_CH2, p.P0_24, Pull::Up, InputChannelPolarity::Toggle);
-    let mut ch4 = InputChannel::new(p.GPIOTE_CH3, p.P0_25, Pull::Up, InputChannelPolarity::Toggle);
+    let mut ch1 = InputChannel::new_async(p.GPIOTE_CH0, p.P0_11, Irqs, Pull::Up, InputChannelPolarity::HiToLo);
+    let mut ch2 = InputChannel::new_async(p.GPIOTE_CH1, p.P0_12, Irqs, Pull::Up, InputChannelPolarity::LoToHi);
+    let mut ch3 = InputChannel::new_async(p.GPIOTE_CH2, p.P0_24, Irqs, Pull::Up, InputChannelPolarity::Toggle);
+    let mut ch4 = InputChannel::new_async(p.GPIOTE_CH3, p.P0_25, Irqs, Pull::Up, InputChannelPolarity::Toggle);
 
     let button1 = async {
         loop {

@@ -30,7 +30,7 @@ use embassy_futures::join::join;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals, usb};
+use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
@@ -38,7 +38,7 @@ use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USB_UCPD1_2 => usb::InterruptHandler<peripherals::USB>;
-    EXTI4_15 => exti::InterruptHandler<interrupt::typelevel::EXTI4_15>;
+    EXTI4_15 => exti::InterruptHandler<peripherals::EXTI9>;
 });
 
 #[embassy_executor::main]
@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     // VBUS from the USB connector, divided down to a 3.3 V-safe level.
-    let vbus = ExtiInput::new(p.PA9, p.EXTI9, Pull::None, Irqs);
+    let vbus = ExtiInput::new_async(p.PA9, p.EXTI9, Pull::None, Irqs);
 
     // Create the driver, from the HAL.
     let driver = Driver::new_with_vbus(p.USB, p.PA12, p.PA11, vbus, Irqs);

@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GPIO: rename `get_level` to `level` and `get_output_level` to `output_level`.
 - GPIO: add `Flex::set_as_disconnected`, `Flex::is_input` and `Flex::is_disconnected`.
 - GPIO: `Flex::new` leaves the pin disconnected, with the input buffer and output driver off. `set_as_input` and `set_as_output` turn the input buffer on; `set_pull` no longer does.
+- GPIO: `Input`, `OutputOpenDrain` and `Flex` are now generic over the driver mode, defaulting to `Blocking`. `new` creates a blocking driver; `new_async` creates an async one and takes an interrupt binding for the pin. The `wait_for_*` methods are only available in async mode.
+- GPIO: the HAL no longer defines the `IO_IRQ_BANK0`/`IO_IRQ_QSPI` handlers. Bind `gpio::InterruptHandler<PIN_x>` for each async pin with `bind_interrupts!`; the same interrupt can also be bound to your own handler.
+- GPIO: `embassy_rp::init` no longer enables the GPIO interrupts. The async constructors enable them on the core they run on.
+- GPIO: remove `AnyPin`.
+- GPIO: GPIO wakers are only allocated for pins used in async mode.
+- GPIO: dropping a `wait_for_*` future disables the pin's interrupt.
 - SPI: `Config::frequency` is now `Hertz`.
 - SPI: add `ConfigError`; constructors, `set_config` and `set_frequency` now return `Result`.
 - SPI: rename `flush` to `blocking_flush`.

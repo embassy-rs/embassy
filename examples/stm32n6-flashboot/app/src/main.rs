@@ -11,14 +11,14 @@ use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::mode::Async;
 use embassy_stm32::rcc::{SupplyConfig, XspiClkSrc};
-use embassy_stm32::{bind_interrupts, interrupt, usart};
+use embassy_stm32::{bind_interrupts, peripherals, usart};
 use embassy_time::{Duration, Timer, with_timeout};
 use panic_probe as _;
 
 bind_interrupts!(
     pub struct Irqs {
-        EXTI0 => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
-        EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
+        EXTI0 => exti::InterruptHandler<peripherals::EXTI0>;
+        EXTI13 => exti::InterruptHandler<peripherals::EXTI13>;
     }
 );
 
@@ -126,7 +126,7 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "nucleo")]
     let green_led = Output::new(p.PG0, Level::High, Speed::Low);
 
-    let user_button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
+    let user_button = ExtiInput::new_async(p.PC13, p.EXTI13, Pull::Down, Irqs);
     spawner.spawn(user_button_task(user_button, green_led).unwrap());
 
     let pe0_exti = unsafe { ExtiInput::from_input(pe0, p.EXTI0, Irqs) };

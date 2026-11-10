@@ -832,7 +832,7 @@ pub struct AfioRemapBool<const V: bool>;
 /// Placeholder for a peripheral's pin which cannot be remapped via AFIO.
 pub struct AfioRemapNotApplicable;
 
-pub(crate) trait SealedPin {
+pub(crate) trait SealedPin: Into<AnyPin> {
     fn pin_port(&self) -> PinNumber;
 
     #[inline]
@@ -911,7 +911,7 @@ pub(crate) trait SealedPin {
 /// is needed to hold the total pin number `(ports * number)`.
 pub type PinNumber = u8;
 
-/// Pin that can be used to configure an [ExtiInput](crate::exti::ExtiInput). This trait is lost when converting to [AnyPin].
+/// Pin that can be used to configure an [ExtiInput](crate::exti::ExtiInput).
 #[cfg(feature = "exti")]
 #[allow(private_bounds)]
 pub trait ExtiPin: PeripheralType + SealedPin {
@@ -923,7 +923,7 @@ pub trait ExtiPin: PeripheralType + SealedPin {
 
 /// GPIO pin trait.
 #[allow(private_bounds)]
-pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
+pub trait Pin: PeripheralType + SealedPin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> PinNumber {
@@ -937,9 +937,9 @@ pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     }
 }
 
-/// Type-erased GPIO pin.
+/// Type-erased GPIO pin. Internal storage for [`Flex`] and the drivers built on it.
 #[derive(Debug)]
-pub struct AnyPin {
+pub(crate) struct AnyPin {
     pin_port: PinNumber,
 }
 
@@ -948,20 +948,8 @@ impl AnyPin {
     ///
     /// `pin_port` is `port_num * 16 + pin_num`, where `port_num` is 0 for port `A`, 1 for port `B`, etc...
     #[inline]
-    pub const unsafe fn steal(pin_port: PinNumber) -> Peri<'static, Self> {
+    pub(crate) const unsafe fn steal(pin_port: PinNumber) -> Peri<'static, Self> {
         Peri::new_unchecked(Self { pin_port })
-    }
-
-    #[inline]
-    const fn _port(&self) -> PinNumber {
-        self.pin_port / 16
-    }
-
-    /// Get the GPIO register block for this pin.
-    #[cfg(feature = "unstable-pac")]
-    #[inline]
-    pub const fn block(&self) -> gpio::Gpio {
-        crate::_generated::gpio_block(self._port() as _)
     }
 }
 

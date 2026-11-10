@@ -325,7 +325,7 @@ impl<'d> CsPinType<'d> {
         pin: Peri<'d, C>,
         irq: impl crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
-            exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
+            exti::InterruptHandler<<C as ExtiPin>::ExtiChannel>,
         >,
         exti: Option<Peri<'d, C::ExtiChannel>>,
         af_type: AfType,
@@ -396,8 +396,8 @@ pub struct Spi<'d, M: PeriMode, CM: CommunicationMode> {
     _mosi: Option<Flex<'d>>,
     _miso: Option<Flex<'d>>,
     nss: CsPinType<'d>,
-    tx_dma: Option<ChannelAndRequest<'d>>,
-    rx_dma: Option<ChannelAndRequest<'d>>,
+    tx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
+    rx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
     _marker: PhantomData<(M, CM)>,
     current_word_size: word_impl::Config,
     input_pull: Pull,
@@ -416,8 +416,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         mosi: Option<Flex<'d>>,
         miso: Option<Flex<'d>>,
         nss: CsPinType<'d>,
-        tx_dma: Option<ChannelAndRequest<'d>>,
-        rx_dma: Option<ChannelAndRequest<'d>>,
+        tx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
+        rx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
         config: Config,
     ) -> Self {
         let mut this = Self {
@@ -470,6 +470,10 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             slave is selected when NSS is low and deselected when NSS high
          */
         let ssm = self.nss.is_none();
+        #[cfg(any(spi_v1, spi_v2))]
+        let has_rx_dma = M::if_async_ref(&self.rx_dma).is_some_and(Option::is_some);
+        #[cfg(any(spi_v1, spi_v2))]
+        let has_tx_dma = M::if_async_ref(&self.tx_dma).is_some_and(Option::is_some);
 
         let regs = self.info.regs;
         #[cfg(any(spi_v1, spi_v2))]
@@ -490,8 +494,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_ssm(ssm);
                 w.set_crcen(self.crc_enabled);
                 w.set_bidimode(vals::Bidimode::Unidirectional);
-                w.set_rxonly(match (&self.rx_dma, &self.tx_dma) {
-                    (Some(_), None) => vals::Rxonly::OutputDisabled,
+                w.set_rxonly(match (has_rx_dma, has_tx_dma) {
+                    (true, false) => vals::Rxonly::OutputDisabled,
                     // we're doing "fake rxonly", by actually writing one
                     // byte to TXDR for each byte we want to receive. if we
                     // set OUTPUTDISABLED here, this hangs.
@@ -1020,8 +1024,8 @@ impl<'d> Spi<'d, Blocking, Slave> {
             new_pin!(mosi, AfType::input(config.input_pull)),
             new_pin!(miso, AfType::output(OutputType::PushPull, config.gpio_speed)),
             CsPinType::Flex(new_pin!(cs, AfType::input(config.nss_pull)).unwrap()),
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -1042,8 +1046,8 @@ impl<'d> Spi<'d, Blocking, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(miso, AfType::input(config.input_pull)),
             CsPinType::None,
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -1061,8 +1065,8 @@ impl<'d> Spi<'d, Blocking, Master> {
             None,
             new_pin!(miso, AfType::input(config.input_pull)),
             CsPinType::None,
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -1080,8 +1084,8 @@ impl<'d> Spi<'d, Blocking, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             None,
             CsPinType::None,
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -1100,8 +1104,8 @@ impl<'d> Spi<'d, Blocking, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             None,
             CsPinType::None,
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -1129,7 +1133,7 @@ impl<'d> Spi<'d, Async, Slave> {
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
-            exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
+            exti::InterruptHandler<<C as ExtiPin>::ExtiChannel>,
         > + 'd,
         exti: Option<Peri<'d, C::ExtiChannel>>,
         config: Config,
@@ -1162,7 +1166,7 @@ impl<'d> Spi<'d, Async, Slave> {
         irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
-            exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
+            exti::InterruptHandler<<C as ExtiPin>::ExtiChannel>,
         > + 'd,
         exti: Option<Peri<'d, C::ExtiChannel>>,
         config: Config,

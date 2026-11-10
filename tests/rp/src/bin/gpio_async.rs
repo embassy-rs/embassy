@@ -9,9 +9,15 @@ use defmt::{assert, *};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::bind_interrupts;
+use embassy_rp::gpio::{self, Input, Level, Output, Pull};
+use embassy_rp::peripherals::PIN_1;
 use embassy_time::{Duration, Instant, Timer};
 use panic_probe as _;
+
+bind_interrupts!(struct Irqs {
+    IO_IRQ_BANK0 => gpio::InterruptHandler<PIN_1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -24,7 +30,7 @@ async fn main(_spawner: Spawner) {
     {
         info!("test wait_for_high");
         let mut output = Output::new(output_pin.reborrow(), Level::Low);
-        let mut input = Input::new(input_pin.reborrow(), Pull::None);
+        let mut input = Input::new_async(input_pin.reborrow(), Irqs, Pull::None);
 
         assert!(input.is_low(), "input was expected to be low");
 
@@ -45,7 +51,7 @@ async fn main(_spawner: Spawner) {
     {
         info!("test wait_for_low");
         let mut output = Output::new(output_pin.reborrow(), Level::High);
-        let mut input = Input::new(input_pin.reborrow(), Pull::None);
+        let mut input = Input::new_async(input_pin.reborrow(), Irqs, Pull::None);
 
         assert!(input.is_high(), "input was expected to be high");
 
@@ -65,7 +71,7 @@ async fn main(_spawner: Spawner) {
     {
         info!("test wait_for_rising_edge");
         let mut output = Output::new(output_pin.reborrow(), Level::Low);
-        let mut input = Input::new(input_pin.reborrow(), Pull::None);
+        let mut input = Input::new_async(input_pin.reborrow(), Irqs, Pull::None);
 
         assert!(input.is_low(), "input was expected to be low");
 
@@ -85,7 +91,7 @@ async fn main(_spawner: Spawner) {
     {
         info!("test wait_for_falling_edge");
         let mut output = Output::new(output_pin.reborrow(), Level::High);
-        let mut input = Input::new(input_pin.reborrow(), Pull::None);
+        let mut input = Input::new_async(input_pin.reborrow(), Irqs, Pull::None);
 
         assert!(input.is_high(), "input was expected to be high");
 
@@ -105,7 +111,7 @@ async fn main(_spawner: Spawner) {
     {
         info!("test wait_for_any_edge (falling)");
         let mut output = Output::new(output_pin.reborrow(), Level::High);
-        let mut input = Input::new(input_pin.reborrow(), Pull::None);
+        let mut input = Input::new_async(input_pin.reborrow(), Irqs, Pull::None);
 
         assert!(input.is_high(), "input was expected to be high");
 
@@ -125,7 +131,7 @@ async fn main(_spawner: Spawner) {
     {
         info!("test wait_for_any_edge (rising)");
         let mut output = Output::new(output_pin.reborrow(), Level::Low);
-        let mut input = Input::new(input_pin.reborrow(), Pull::None);
+        let mut input = Input::new_async(input_pin.reborrow(), Irqs, Pull::None);
 
         assert!(input.is_low(), "input was expected to be low");
 

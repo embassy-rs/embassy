@@ -1075,13 +1075,13 @@ enum SlaveTermination {
 
 impl<'d, M: PeriMode> I2c<'d, M, Master> {
     /// Configure the I2C driver for slave operations, allowing for the driver to be used as a slave and a master (multimaster)
-    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
+    pub fn into_slave_multimaster(self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
         let mut slave = I2c {
             info: self.info,
             state: self.state,
             kernel_clock: self.kernel_clock,
-            tx_dma: self.tx_dma.take(), // Use take() to move ownership
-            rx_dma: self.rx_dma.take(), // Use take() to move ownership
+            tx_dma: self.tx_dma,
+            rx_dma: self.rx_dma,
             #[cfg(feature = "time")]
             timeout: self.timeout,
             _marker: PhantomData,

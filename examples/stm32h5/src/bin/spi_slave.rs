@@ -25,7 +25,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::rcc::{AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk};
 use embassy_stm32::spi::{Config as SpiConfig, Spi};
 use embassy_stm32::time::{Hertz, mhz};
-use embassy_stm32::{Config, bind_interrupts, dma, exti, interrupt, peripherals};
+use embassy_stm32::{Config, bind_interrupts, dma, exti, peripherals};
 use embassy_time::{Duration, Timer, with_timeout};
 use panic_probe as _;
 
@@ -34,7 +34,7 @@ bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
     GPDMA1_CHANNEL2 => dma::InterruptHandler<peripherals::GPDMA1_CH2>;
     GPDMA1_CHANNEL3 => dma::InterruptHandler<peripherals::GPDMA1_CH3>;
-    EXTI15 => exti::InterruptHandler<interrupt::typelevel::EXTI15>;
+    EXTI15 => exti::InterruptHandler<peripherals::EXTI15>;
 });
 
 const N: usize = 16;

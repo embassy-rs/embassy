@@ -8,9 +8,10 @@ use embassy_boot::State;
 use embassy_boot_nrf::{FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::gpio::{self, Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::nvmc::Nvmc;
 use embassy_nrf::wdt::{self, Watchdog};
+use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_sync::mutex::Mutex;
 
 #[cfg(feature = "skip-include")]
@@ -18,12 +19,21 @@ static APP_B: &[u8] = &[0, 1, 2, 3];
 #[cfg(not(feature = "skip-include"))]
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
+bind_interrupts!(struct Irqs {
+    #[cfg(not(any(feature = "nrf54", feature = "nrf91")))]
+    GPIOTE => gpio::InterruptHandler<peripherals::P0_11>;
+    #[cfg(feature = "nrf91")]
+    GPIOTE1 => gpio::InterruptHandler<peripherals::P0_11>;
+    #[cfg(feature = "nrf54")]
+    GPIOTE20_0 => gpio::InterruptHandler<peripherals::P1_13>;
+});
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
 
     #[cfg(not(feature = "nrf54"))]
-    let mut button = Input::new(p.P0_11, Pull::Up);
+    let mut button = Input::new_async(p.P0_11, Irqs, Pull::Up);
     #[cfg(not(feature = "nrf54"))]
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
     #[cfg(not(feature = "nrf54"))]
@@ -31,18 +41,18 @@ async fn main(_spawner: Spawner) {
 
     // nRF54 DK
     #[cfg(feature = "nrf54")]
-    let mut button = Input::new(p.P1_13, Pull::Up);
+    let mut button = Input::new_async(p.P1_13, Irqs, Pull::Up);
     #[cfg(feature = "nrf54")]
     let mut led = Output::new(p.P1_14, Level::Low, OutputDrive::Standard);
     #[cfg(feature = "nrf54")]
     let mut led_reverted = Output::new(p.P2_09, Level::High, OutputDrive::Standard);
 
     //let mut led = Output::new(p.P1_10, Level::Low, OutputDrive::Standard);
-    //let mut button = Input::new(p.P1_02, Pull::Up);
+    //let mut button = Input::new_async(p.P1_02, Irqs, Pull::Up);
 
     // nRF91 DK
     // let mut led = Output::new(p.P0_02, Level::Low, OutputDrive::Standard);
-    // let mut button = Input::new(p.P0_06, Pull::Up);
+    // let mut button = Input::new_async(p.P0_06, Irqs, Pull::Up);
 
     // The following code block illustrates how to obtain a watchdog that is configured
     // as per the existing watchdog. Ordinarily, we'd use the handle returned to "pet" the

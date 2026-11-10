@@ -12,7 +12,7 @@ use embassy_time::{Duration, Instant, Timer};
 pub use embedded_hal_1::i2c::Operation;
 use pac::i2c;
 
-use crate::gpio::{AnyPin, Pin, SealedPin};
+use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::Interrupt;
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::mode::{Async, Blocking, Mode};
@@ -554,7 +554,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 pub(crate) fn set_up_i2c_pin<P, T>(pin: &P, pullup: bool)
 where
     P: core::ops::Deref<Target = T>,
-    T: crate::gpio::Pin,
+    T: crate::gpio::SealedPin,
 {
     pin.gpio().ctrl().write(|w| w.set_funcsel(3));
     pin.pad_ctrl().write(|w| {
@@ -663,11 +663,11 @@ impl<'d, M: Mode> I2c<'d, M> {
     }
 
     fn is_scl_low(&self) -> bool {
-        self.scl.sio_in().read() & (1 << (self.scl.pin() % 32)) == 0
+        self.scl.sio_in().read() & (1 << (self.scl._pin() % 32)) == 0
     }
 
     fn is_sda_low(&self) -> bool {
-        self.sda.sio_in().read() & (1 << (self.sda.pin() % 32)) == 0
+        self.sda.sio_in().read() & (1 << (self.sda._pin() % 32)) == 0
     }
 
     fn setup(&mut self, addr: Address, ignore_lockup: bool) -> Result<(), Error> {
@@ -776,8 +776,8 @@ impl<'d, M: Mode> I2c<'d, M> {
                 self.sda.gpio().ctrl().write(|w| w.set_funcsel(3));
             });
 
-            let scl_pin_bit = 1 << (self.scl.pin() % 32);
-            let sda_pin_bit = 1 << (self.sda.pin() % 32);
+            let scl_pin_bit = 1 << (self.scl._pin() % 32);
+            let sda_pin_bit = 1 << (self.sda._pin() % 32);
             // Set low and flip between input for high and output for low
             self.scl.sio_out().value_clr().write_value(scl_pin_bit);
             self.sda.sio_out().value_clr().write_value(sda_pin_bit);

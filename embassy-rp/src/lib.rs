@@ -636,7 +636,6 @@ pub fn init(config: config::Config) -> Peripherals {
         #[cfg(feature = "time-driver")]
         time_driver::init();
         dma::init();
-        gpio::init();
     }
 
     peripherals

@@ -94,8 +94,8 @@ impl defmt::Format for Config {
 /// SPI driver.
 pub struct Spi<'d, M: Mode> {
     info: &'static Info,
-    tx_dma: Option<Channel<'d, mode::Async>>,
-    rx_dma: Option<Channel<'d, mode::Async>>,
+    tx_dma: M::IfAsync<Channel<'d, mode::Async>>,
+    rx_dma: M::IfAsync<Option<Channel<'d, mode::Async>>>,
     phantom: PhantomData<(&'d mut (), M)>,
 }
 
@@ -137,8 +137,8 @@ impl<'d, M: Mode> Spi<'d, M> {
         mosi: Option<Peri<'d, AnyPin>>,
         miso: Option<Peri<'d, AnyPin>>,
         cs: Option<Peri<'d, AnyPin>>,
-        tx_dma: Option<Channel<'d, mode::Async>>,
-        rx_dma: Option<Channel<'d, mode::Async>>,
+        tx_dma: M::IfAsync<Channel<'d, mode::Async>>,
+        rx_dma: M::IfAsync<Option<Channel<'d, mode::Async>>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::apply_config(T::info(), &config)?;
@@ -345,8 +345,8 @@ impl<'d> Spi<'d, Blocking> {
             Some(mosi.into()),
             Some(miso.into()),
             None,
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -358,7 +358,7 @@ impl<'d> Spi<'d, Blocking> {
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(spi, Some(clk.into()), Some(mosi.into()), None, None, None, None, config)
+        Self::new_inner(spi, Some(clk.into()), Some(mosi.into()), None, None, (), (), config)
     }
 
     /// Create an SPI driver in blocking mode supporting writes only, without SCK pin.
@@ -367,7 +367,7 @@ impl<'d> Spi<'d, Blocking> {
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(spi, None, Some(mosi.into()), None, None, None, None, config)
+        Self::new_inner(spi, None, Some(mosi.into()), None, None, (), (), config)
     }
 
     /// Create an SPI driver in blocking mode supporting reads only.
@@ -377,7 +377,7 @@ impl<'d> Spi<'d, Blocking> {
         miso: Peri<'d, impl MisoPin<T> + 'd>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(spi, Some(clk.into()), None, Some(miso.into()), None, None, None, config)
+        Self::new_inner(spi, Some(clk.into()), None, Some(miso.into()), None, (), (), config)
     }
 }
 
@@ -404,7 +404,7 @@ impl<'d> Spi<'d, Async> {
             Some(mosi.into()),
             Some(miso.into()),
             None,
-            Some(tx_dma_ch),
+            tx_dma_ch,
             Some(rx_dma_ch),
             config,
         )
@@ -426,7 +426,7 @@ impl<'d> Spi<'d, Async> {
             Some(mosi.into()),
             None,
             None,
-            Some(tx_dma_ch),
+            tx_dma_ch,
             None,
             config,
         )
@@ -442,7 +442,7 @@ impl<'d> Spi<'d, Async> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
-        Self::new_inner(spi, None, Some(mosi.into()), None, None, Some(tx_dma_ch), None, config)
+        Self::new_inner(spi, None, Some(mosi.into()), None, None, tx_dma_ch, None, config)
     }
 
     /// Create an SPI driver in async mode supporting DMA read operations only.
@@ -465,7 +465,7 @@ impl<'d> Spi<'d, Async> {
             None,
             Some(miso.into()),
             None,
-            Some(tx_dma_ch),
+            tx_dma_ch,
             Some(rx_dma_ch),
             config,
         )
@@ -476,12 +476,8 @@ impl<'d> Spi<'d, Async> {
         let tx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            self.tx_dma.as_mut().unwrap().write(
-                buffer,
-                self.info.regs.dr().as_ptr() as *mut _,
-                self.info.tx_dreq,
-                false,
-            )
+            self.tx_dma
+                .write(buffer, self.info.regs.dr().as_ptr() as *mut _, self.info.tx_dreq, false)
         };
         tx_transfer.await;
 
@@ -516,11 +512,8 @@ impl<'d> Spi<'d, Async> {
         let tx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            self.tx_dma.as_mut().unwrap().write_zeros(
-                buffer.len(),
-                self.info.regs.dr().as_ptr() as *mut u8,
-                self.info.tx_dreq,
-            )
+            self.tx_dma
+                .write_zeros(buffer.len(), self.info.regs.dr().as_ptr() as *mut u8, self.info.tx_dreq)
         };
         join(tx_transfer, rx_transfer).await;
         Ok(())
@@ -548,7 +541,7 @@ impl<'d> Spi<'d, Async> {
                 .read(self.info.regs.dr().as_ptr() as *const _, rx, self.info.rx_dreq, false)
         };
 
-        let tx_ch = self.tx_dma.as_mut().unwrap();
+        let tx_ch = &mut self.tx_dma;
         // If we don't assign future to a variable, the data register pointer
         // is held across an await and makes the future non-Send.
         let tx_transfer = async {

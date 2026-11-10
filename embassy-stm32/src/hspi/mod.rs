@@ -186,7 +186,7 @@ pub struct Hspi<'d, T: Instance, M: PeriMode> {
     _nss: Option<Flex<'d>>,
     _dqs0: Option<Flex<'d>>,
     _dqs1: Option<Flex<'d>>,
-    dma: Option<ChannelAndRequest<'d>>,
+    dma: M::IfAsync<ChannelAndRequest<'d>>,
     _marker: PhantomData<M>,
     config: Config,
     width: HspiWidth,
@@ -270,7 +270,7 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
         nss: Option<Flex<'d>>,
         dqs0: Option<Flex<'d>>,
         dqs1: Option<Flex<'d>>,
-        dma: Option<ChannelAndRequest<'d>>,
+        dma: M::IfAsync<ChannelAndRequest<'d>>,
         config: Config,
         width: HspiWidth,
         dual_memory_mode: bool,
@@ -612,7 +612,7 @@ impl<'d, T: Instance> Hspi<'d, T, Blocking> {
             ),
             None,
             None,
-            None,
+            (),
             config,
             HspiWidth::SING,
             false,
@@ -660,7 +660,7 @@ impl<'d, T: Instance> Hspi<'d, T, Blocking> {
             ),
             new_pin!(dqs0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
-            None,
+            (),
             config,
             HspiWidth::OCTO,
             false,
@@ -705,7 +705,7 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             ),
             None,
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             HspiWidth::SING,
             false,
@@ -755,7 +755,7 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             ),
             new_pin!(dqs0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             HspiWidth::OCTO,
             false,
@@ -790,8 +790,6 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
         for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
             };
 
@@ -823,8 +821,6 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
         for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
             };
 
@@ -866,8 +862,6 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
         for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
             };
 
@@ -900,8 +894,6 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
         for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
             };
 

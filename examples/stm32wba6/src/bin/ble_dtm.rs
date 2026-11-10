@@ -23,7 +23,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::{Config, bind_interrupts, exti, interrupt, rcc};
+use embassy_stm32::{Config, bind_interrupts, exti, peripherals, rcc};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
@@ -43,7 +43,7 @@ const DTM_TEST_DURATION_SECS: u64 = 10;
 // ----------------------------
 
 bind_interrupts!(struct Irqs {
-    EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
+    EXTI13 => exti::InterruptHandler<peripherals::EXTI13>;
     RADIO => HighInterruptHandler;
     HASH => LowInterruptHandler;
 });
@@ -61,7 +61,7 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_stm32::init(config);
 
-    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
+    let mut button = ExtiInput::new_async(p.PC13, p.EXTI13, Pull::Up, Irqs);
 
     info!("Embassy STM32WBA BLE DTM Example");
     match DTM_MODE {

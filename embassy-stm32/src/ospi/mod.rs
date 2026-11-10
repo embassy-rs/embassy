@@ -255,7 +255,7 @@ pub struct Ospi<'d, T: Instance, M: PeriMode> {
     _d7: Option<Flex<'d>>,
     _nss: Option<Flex<'d>>,
     _dqs: Option<Flex<'d>>,
-    dma: Option<ChannelAndRequest<'d>>,
+    dma: M::IfAsync<ChannelAndRequest<'d>>,
     _marker: PhantomData<M>,
     config: Config,
     width: OspiWidth,
@@ -544,7 +544,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         sck: Option<Flex<'d>>,
         nss: Option<Flex<'d>>,
         dqs: Option<Flex<'d>>,
-        dma: Option<ChannelAndRequest<'d>>,
+        dma: M::IfAsync<ChannelAndRequest<'d>>,
         config: Config,
         width: OspiWidth,
         dual_quad: bool,
@@ -999,7 +999,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             OspiWidth::SING,
             false,
@@ -1032,7 +1032,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             OspiWidth::SING,
             false,
@@ -1068,7 +1068,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             OspiWidth::DUAL,
             false,
@@ -1101,7 +1101,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             OspiWidth::DUAL,
             false,
@@ -1139,7 +1139,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             OspiWidth::QUAD,
             false,
@@ -1174,7 +1174,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             OspiWidth::QUAD,
             false,
@@ -1216,7 +1216,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             OspiWidth::QUAD,
             true,
@@ -1255,7 +1255,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             OspiWidth::QUAD,
             true,
@@ -1297,7 +1297,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             OspiWidth::OCTO,
             false,
@@ -1336,7 +1336,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             OspiWidth::OCTO,
             false,
@@ -1379,7 +1379,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            None,
+            (),
             config,
             OspiWidth::OCTO,
             false,
@@ -1419,7 +1419,7 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            None,
+            (),
             config,
             OspiWidth::OCTO,
             false,
@@ -1459,7 +1459,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::SING,
             false,
@@ -1494,7 +1494,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::SING,
             false,
@@ -1532,7 +1532,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::DUAL,
             false,
@@ -1567,7 +1567,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::DUAL,
             false,
@@ -1607,7 +1607,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::QUAD,
             false,
@@ -1644,7 +1644,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::QUAD,
             false,
@@ -1688,7 +1688,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::QUAD,
             true,
@@ -1729,7 +1729,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::QUAD,
             true,
@@ -1773,7 +1773,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::OCTO,
             false,
@@ -1814,7 +1814,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::OCTO,
             false,
@@ -1859,7 +1859,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::OCTO,
             false,
@@ -1901,7 +1901,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             OspiWidth::OCTO,
             false,
@@ -1937,8 +1937,6 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
             };
 
@@ -1971,8 +1969,6 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
             };
 
@@ -2012,8 +2008,6 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
             };
 
@@ -2046,8 +2040,6 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
             };
 

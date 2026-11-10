@@ -47,7 +47,7 @@ I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
 - fix: stm32/i2c v2: a blocking controller transfer that times out (e.g. SCL held low by the target) now resets the peripheral (PE toggle, as for BERR/ARLO) instead of requesting STOP and abandoning the transfer. The abandoned transfer's NACKF/STOPF arrived later and the next call returned them after it had started its own transfer, which then ran unserved, so every later blocking transfer timed out until PE was toggled by hand.
 - fix: stm32/i2c v2: an async slave `respond_to_write` that received more than its buffer holds timed out while discarding the extra bytes, because nothing woke it for them, and could leave the last one in RXDR. It now wakes on every byte and reads a byte that arrived with the STOP.
-- fix: stm32/i2c v2: the async master and slave transfers of a driver from `I2c::new_no_dma` panicked on `Option::unwrap()` for its missing DMA channel whenever they moved data. They now move each byte on the TXIS/RXNE interrupt. v1 still panics.
+- fix: stm32/i2c v2: the async master and slave transfers of a driver from `I2c::new_no_dma` panicked on `Option::unwrap()` for its missing DMA channel whenever they moved data. They now move each byte on the TXIS/RXNE interrupt.
 
 USART:
 - fix: stm32/usart: `BufferedUartTx::flush` could return before the last bytes left the UART when a write wrapped around the end of the TX buffer. The TC interrupt now reports done only when the TX buffer is empty, and every write pends the interrupt.
@@ -99,6 +99,7 @@ Low power:
 Align to API guidelines:
 - change: stm32/gpio: rename `get_level()` to `level()` and `get_output_level()` to `output_level()` on `Input`, `Output`, `OutputOpenDrain`, `Flex` and `ExtiInput`. `lpgpio::LpGpio::get_level()` is now `level()`.
 - add: stm32/gpio: `Flex::set_as_disconnected`, `Flex::is_input`, `Flex::is_output` and `Flex::is_disconnected`.
+- removal: stm32/gpio: `AnyPin` is no longer public. Hold a type-erased pin as a `Flex`, `Input` or `Output` instead. `gpio::Pin` no longer has an `Into<AnyPin>` bound.
 - change: stm32/rng: `Rng` is now `Rng<'d, M: Mode>` with the instance type erased. Added `Rng::new_blocking` and `Rng::new_blocking_with_config`. The async `async_fill_bytes` is now `fill_bytes`; the blocking `fill_bytes`, `next_u32` and `next_u64` are now `blocking_fill_bytes`, `blocking_next_u32` and `blocking_next_u64`.
 - change: stm32/usart: `Uart` and `BufferedUart` constructors take pins as `tx, rx` instead of `rx, tx`.
 - change: stm32/usart: `BufferedUart::new` takes the interrupt binding before the buffers.
@@ -284,6 +285,12 @@ Watchdog:
 
 EXTI:
 - feat: stm32/exti: `ExtiInput::enable_event`, `disable_event` and `line`, for EXTI events
+- change: stm32/exti: `exti::InterruptHandler` is generic over the EXTI channel instead of the interrupt. Bind one handler per channel used with `ExtiInput<Async>`, e.g. `EXTI15_10 => exti::InterruptHandler<peripherals::EXTI13>;`. Several handlers, including your own, can be bound to the same vector.
+- change: stm32/exti: the async `ExtiInput::new` is renamed to `ExtiInput::new_async`, and `ExtiInput::new_blocking` to `ExtiInput::new`. The `Mode` parameter of `ExtiInput` defaults to `Blocking`.
+- change: stm32/exti: `ExtiInput::from_input` and `ExtiInput::from_flex` are no longer `const`.
+- fix: stm32/exti: the EXTI interrupt handler only services its own line. It used to mask and clear every pending line 0-15, including lines handled by user code with `ExtiInput<Blocking>`.
+- change: stm32/exti: wakers are only allocated for channels whose `InterruptHandler` is bound, instead of 16 for every program.
+- change: stm32/exti: `embassy_stm32::init` no longer enables the EXTI interrupt vectors in the NVIC. `ExtiInput<Async>` constructors enable their channel's vector. With `ExtiInput<Blocking>` and your own interrupt handler, enable the vector yourself.
 
 ## 0.6.0 - 2026-03-10
 

@@ -2,27 +2,23 @@
 #![macro_use]
 use core::convert::Infallible;
 use core::future::Future;
+use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::interrupt::InterruptExt;
+use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
+use crate::mode::{Async, Blocking, Mode};
 use crate::pac::SIO;
 use crate::pac::common::{RW, Reg};
-use crate::{RegExt, interrupt, pac, peripherals};
+use crate::{RegExt, pac, peripherals};
 
 #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
 pub(crate) const BANK0_PIN_COUNT: usize = 30;
 #[cfg(feature = "rp235xb")]
 pub(crate) const BANK0_PIN_COUNT: usize = 48;
-
-static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [const { AtomicWaker::new() }; BANK0_PIN_COUNT];
-#[cfg(feature = "qspi-as-gpio")]
-const QSPI_PIN_COUNT: usize = 6;
-#[cfg(feature = "qspi-as-gpio")]
-static QSPI_WAKERS: [AtomicWaker; QSPI_PIN_COUNT] = [const { AtomicWaker::new() }; QSPI_PIN_COUNT];
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -115,15 +111,65 @@ pub struct DormantWakeConfig {
 /// GPIO input driver.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Input<'d> {
-    pin: Flex<'d>,
+pub struct Input<'d, M: Mode = Blocking> {
+    pin: Flex<'d, M>,
 }
 
-impl<'d> Input<'d> {
-    /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
+impl<'d> Input<'d, Blocking> {
+    /// Create a blocking GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
-        let mut pin = Flex::new(pin);
+        Self::new_inner(Flex::new(pin), pull)
+    }
+}
+
+impl<'d> Input<'d, Async> {
+    /// Create an async GPIO input driver for a [Pin] with the provided [Pull] configuration.
+    ///
+    /// The pin's interrupt must be bound to [`InterruptHandler`] for this pin.
+    #[inline]
+    pub fn new_async<T: Pin>(
+        pin: Peri<'d, T>,
+        irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        pull: Pull,
+    ) -> Self {
+        Self::new_inner(Flex::new_async(pin, irq), pull)
+    }
+
+    /// Wait until the pin is high. If it is already high, return immediately.
+    #[inline]
+    pub async fn wait_for_high(&mut self) {
+        self.pin.wait_for_high().await;
+    }
+
+    /// Wait until the pin is low. If it is already low, return immediately.
+    #[inline]
+    pub async fn wait_for_low(&mut self) {
+        self.pin.wait_for_low().await;
+    }
+
+    /// Wait for the pin to undergo a transition from low to high.
+    #[inline]
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.pin.wait_for_rising_edge().await;
+    }
+
+    /// Wait for the pin to undergo a transition from high to low.
+    #[inline]
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.pin.wait_for_falling_edge().await;
+    }
+
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
+    #[inline]
+    pub async fn wait_for_any_edge(&mut self) {
+        self.pin.wait_for_any_edge().await;
+    }
+}
+
+impl<'d, M: Mode> Input<'d, M> {
+    #[inline]
+    fn new_inner(mut pin: Flex<'d, M>, pull: Pull) -> Self {
         pin.set_as_input();
         pin.set_pull(pull);
         Self { pin }
@@ -159,36 +205,6 @@ impl<'d> Input<'d> {
         self.pin.set_input_inversion(invert)
     }
 
-    /// Wait until the pin is high. If it is already high, return immediately.
-    #[inline]
-    pub async fn wait_for_high(&mut self) {
-        self.pin.wait_for_high().await;
-    }
-
-    /// Wait until the pin is low. If it is already low, return immediately.
-    #[inline]
-    pub async fn wait_for_low(&mut self) {
-        self.pin.wait_for_low().await;
-    }
-
-    /// Wait for the pin to undergo a transition from low to high.
-    #[inline]
-    pub async fn wait_for_rising_edge(&mut self) {
-        self.pin.wait_for_rising_edge().await;
-    }
-
-    /// Wait for the pin to undergo a transition from high to low.
-    #[inline]
-    pub async fn wait_for_falling_edge(&mut self) {
-        self.pin.wait_for_falling_edge().await;
-    }
-
-    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
-    #[inline]
-    pub async fn wait_for_any_edge(&mut self) {
-        self.pin.wait_for_any_edge().await;
-    }
-
     /// Configure dormant wake.
     #[inline]
     pub fn dormant_wake(&mut self, cfg: DormantWakeConfig) -> DormantWake<'_> {
@@ -219,72 +235,61 @@ pub enum InterruptTrigger {
     AnyEdge,
 }
 
-pub(crate) unsafe fn init() {
-    interrupt::IO_IRQ_BANK0.disable();
-    interrupt::IO_IRQ_BANK0.set_priority(interrupt::Priority::P3);
-    interrupt::IO_IRQ_BANK0.enable();
-
-    #[cfg(feature = "qspi-as-gpio")]
-    {
-        interrupt::IO_IRQ_QSPI.disable();
-        interrupt::IO_IRQ_QSPI.set_priority(interrupt::Priority::P3);
-        interrupt::IO_IRQ_QSPI.enable();
-    }
+/// GPIO interrupt handler for one pin.
+///
+/// Bind one handler per pin used with an async [`Input`], [`OutputOpenDrain`] or [`Flex`], on that
+/// pin's interrupt ([`Pin::Interrupt`]). All pins of a bank share one interrupt, so list one
+/// handler per pin:
+///
+/// ```rust,ignore
+/// bind_interrupts!(struct Irqs {
+///     IO_IRQ_BANK0 => gpio::InterruptHandler<peripherals::PIN_5>, gpio::InterruptHandler<peripherals::PIN_13>;
+/// });
+/// ```
+///
+/// The handler only services its own pin, so the same interrupt can also be bound to your own
+/// [`Handler`] for pins used in blocking mode.
+///
+/// The async constructors enable the interrupt in the NVIC of the core they run on. The HAL doesn't
+/// enable it otherwise, so if you only use your own handler, enable it yourself.
+pub struct InterruptHandler<T: Pin> {
+    _phantom: PhantomData<T>,
 }
 
-#[cfg(feature = "rt")]
-fn irq_handler<const N: usize>(bank: pac::io::Io, wakers: &[AtomicWaker; N]) {
-    let cpu = SIO.cpuid().read() as usize;
-    // There are two sets of interrupt registers, one for cpu0 and one for cpu1
-    // and here we are selecting the set that belongs to the currently executing
-    // cpu.
-    let proc_intx: pac::io::Int = bank.int_proc(cpu);
-    for (pin, waker) in wakers.iter().enumerate().take(N) {
-        // There are 4 raw interrupt status registers, PROCx_INTS0, PROCx_INTS1,
-        // PROCx_INTS2, and PROCx_INTS3, and we are selecting the one that the
-        // current pin belongs to.
-        let intsx = proc_intx.ints(pin / 8);
-        // The status register is divided into groups of four, one group for
-        // each pin. Each group consists of four trigger levels LEVEL_LOW,
-        // LEVEL_HIGH, EDGE_LOW, and EDGE_HIGH for each pin.
-        let pin_group = pin % 8;
-        let event = (intsx.read().0 >> (pin_group * 4)) & 0xf;
+impl<T: Pin> Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let pin = AnyPin { pin_bank: T::PIN_BANK };
+        let idx = pin._pin() as usize;
+        let group = idx % 8;
+        // INTS is INTR masked by the INTE of the core running this handler, so this only sees
+        // events that a future on this core is waiting for.
+        let proc_intx = pin.int_proc();
+        let event = (proc_intx.ints(idx / 8).read().0 >> (group * 4)) & 0xf;
 
-        // no more than one event can be awaited per pin at any given time, so
-        // we can just clear all interrupt enables for that pin without having
-        // to check which event was signalled.
+        // No more than one event can be awaited per pin at any given time, so clear all of the pin's
+        // interrupt enables without checking which one fired. The future sees them cleared and
+        // completes.
         if event != 0 {
-            proc_intx.inte(pin / 8).write_clear(|w| {
-                w.set_edge_high(pin_group, true);
-                w.set_edge_low(pin_group, true);
-                w.set_level_high(pin_group, true);
-                w.set_level_low(pin_group, true);
+            proc_intx.inte(idx / 8).write_clear(|w| {
+                w.set_edge_high(group, true);
+                w.set_edge_low(group, true);
+                w.set_level_high(group, true);
+                w.set_level_low(group, true);
             });
-            waker.wake();
+            T::waker().wake();
         }
     }
-}
-
-#[cfg(feature = "rt")]
-#[interrupt]
-fn IO_IRQ_BANK0() {
-    irq_handler(pac::IO_BANK0, &BANK0_WAKERS);
-}
-
-#[cfg(all(feature = "rt", feature = "qspi-as-gpio"))]
-#[interrupt]
-fn IO_IRQ_QSPI() {
-    irq_handler(pac::IO_QSPI, &QSPI_WAKERS);
 }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct InputFuture<'d> {
     pin: Peri<'d, AnyPin>,
+    waker: &'static AtomicWaker,
 }
 
 impl<'d> InputFuture<'d> {
-    fn new(pin: Peri<'d, AnyPin>, level: InterruptTrigger) -> Self {
-        let pin_group = (pin.pin() % 8) as usize;
+    fn new(pin: Peri<'d, AnyPin>, waker: &'static AtomicWaker, level: InterruptTrigger) -> Self {
+        let pin_group = (pin._pin() % 8) as usize;
         // first, clear the INTR register bits. without this INTR will still
         // contain reports of previous edges, causing the IRQ to fire early
         // on stale state. clearing these means that we can only detect edges
@@ -293,7 +298,7 @@ impl<'d> InputFuture<'d> {
         // (the alternative being checking the current level and waiting for
         // its inverse, but that requires reading the current level and thus
         // missing anything that happened before the level was read.)
-        pin.io().intr(pin.pin() as usize / 8).write(|w| {
+        pin.io().intr(pin._pin() as usize / 8).write(|w| {
             w.set_edge_high(pin_group, true);
             w.set_edge_low(pin_group, true);
         });
@@ -302,7 +307,7 @@ impl<'d> InputFuture<'d> {
         // pin, and each group consists of LEVEL_LOW, LEVEL_HIGH, EDGE_LOW,
         // and EDGE_HIGH.
         pin.int_proc()
-            .inte((pin.pin() / 8) as usize)
+            .inte((pin._pin() / 8) as usize)
             .write_set(|w| match level {
                 InterruptTrigger::LevelHigh => {
                     w.set_level_high(pin_group, true);
@@ -322,7 +327,23 @@ impl<'d> InputFuture<'d> {
                 }
             });
 
-        Self { pin }
+        Self { pin, waker }
+    }
+}
+
+impl<'d> Drop for InputFuture<'d> {
+    fn drop(&mut self) {
+        // Disarm, in case the future is dropped before the event happened.
+        let pin_group = (self.pin._pin() % 8) as usize;
+        self.pin
+            .int_proc()
+            .inte((self.pin._pin() / 8) as usize)
+            .write_clear(|w| {
+                w.set_edge_high(pin_group, true);
+                w.set_edge_low(pin_group, true);
+                w.set_level_high(pin_group, true);
+                w.set_level_low(pin_group, true);
+            });
     }
 }
 
@@ -332,22 +353,17 @@ impl<'d> Future for InputFuture<'d> {
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // We need to register/re-register the waker for each poll because any
         // calls to wake will deregister the waker.
-        let waker = match self.pin.bank() {
-            Bank::Bank0 => &BANK0_WAKERS[self.pin.pin() as usize],
-            #[cfg(feature = "qspi-as-gpio")]
-            Bank::Qspi => &QSPI_WAKERS[self.pin.pin() as usize],
-        };
-        waker.register(cx.waker());
+        self.waker.register(cx.waker());
 
         // self.int_proc() will get the register offset for the current cpu,
         // then we want to access the interrupt enable register for our
         // pin (there are 4 of these PROC0_INTE0, PROC0_INTE1, PROC0_INTE2, and
         // PROC0_INTE3 per cpu).
-        let inte: pac::io::regs::Int = self.pin.int_proc().inte((self.pin.pin() / 8) as usize).read();
+        let inte: pac::io::regs::Int = self.pin.int_proc().inte((self.pin._pin() / 8) as usize).read();
         // The register is divided into groups of four, one group for
         // each pin. Each group consists of four trigger levels LEVEL_LOW,
         // LEVEL_HIGH, EDGE_LOW, and EDGE_HIGH for each pin.
-        let pin_group = (self.pin.pin() % 8) as usize;
+        let pin_group = (self.pin._pin() % 8) as usize;
 
         // since the interrupt handler clears all INTE flags we'll check that
         // all have been cleared and unconditionally return Ready(()) if so.
@@ -456,15 +472,65 @@ impl<'d> Output<'d> {
 /// GPIO output open-drain.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct OutputOpenDrain<'d> {
-    pin: Flex<'d>,
+pub struct OutputOpenDrain<'d, M: Mode = Blocking> {
+    pin: Flex<'d, M>,
 }
 
-impl<'d> OutputOpenDrain<'d> {
-    /// Create GPIO output driver for a [Pin] in open drain mode with the provided [Level].
+impl<'d> OutputOpenDrain<'d, Blocking> {
+    /// Create a blocking GPIO output driver for a [Pin] in open drain mode with the provided [Level].
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
-        let mut pin = Flex::new(pin);
+        Self::new_inner(Flex::new(pin), initial_output)
+    }
+}
+
+impl<'d> OutputOpenDrain<'d, Async> {
+    /// Create an async GPIO output driver for a [Pin] in open drain mode with the provided [Level].
+    ///
+    /// The pin's interrupt must be bound to [`InterruptHandler`] for this pin.
+    #[inline]
+    pub fn new_async<T: Pin>(
+        pin: Peri<'d, T>,
+        irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        initial_output: Level,
+    ) -> Self {
+        Self::new_inner(Flex::new_async(pin, irq), initial_output)
+    }
+
+    /// Wait until the pin is high. If it is already high, return immediately.
+    #[inline]
+    pub async fn wait_for_high(&mut self) {
+        self.pin.wait_for_high().await;
+    }
+
+    /// Wait until the pin is low. If it is already low, return immediately.
+    #[inline]
+    pub async fn wait_for_low(&mut self) {
+        self.pin.wait_for_low().await;
+    }
+
+    /// Wait for the pin to undergo a transition from low to high.
+    #[inline]
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.pin.wait_for_rising_edge().await;
+    }
+
+    /// Wait for the pin to undergo a transition from high to low.
+    #[inline]
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.pin.wait_for_falling_edge().await;
+    }
+
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
+    #[inline]
+    pub async fn wait_for_any_edge(&mut self) {
+        self.pin.wait_for_any_edge().await;
+    }
+}
+
+impl<'d, M: Mode> OutputOpenDrain<'d, M> {
+    #[inline]
+    fn new_inner(mut pin: Flex<'d, M>, initial_output: Level) -> Self {
         pin.set_low();
         match initial_output {
             Level::High => pin.set_as_input(),
@@ -561,36 +627,6 @@ impl<'d> OutputOpenDrain<'d> {
         self.is_high().into()
     }
 
-    /// Wait until the pin is high. If it is already high, return immediately.
-    #[inline]
-    pub async fn wait_for_high(&mut self) {
-        self.pin.wait_for_high().await;
-    }
-
-    /// Wait until the pin is low. If it is already low, return immediately.
-    #[inline]
-    pub async fn wait_for_low(&mut self) {
-        self.pin.wait_for_low().await;
-    }
-
-    /// Wait for the pin to undergo a transition from low to high.
-    #[inline]
-    pub async fn wait_for_rising_edge(&mut self) {
-        self.pin.wait_for_rising_edge().await;
-    }
-
-    /// Wait for the pin to undergo a transition from high to low.
-    #[inline]
-    pub async fn wait_for_falling_edge(&mut self) {
-        self.pin.wait_for_falling_edge().await;
-    }
-
-    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
-    #[inline]
-    pub async fn wait_for_any_edge(&mut self) {
-        self.pin.wait_for_any_edge().await;
-    }
-
     /// Set the pin's pad isolation
     #[cfg(feature = "_rp235x")]
     #[inline]
@@ -604,26 +640,92 @@ impl<'d> OutputOpenDrain<'d> {
 /// This pin can either be a disconnected, input, or output pin. The output level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Flex<'d> {
+pub struct Flex<'d, M: Mode = Blocking> {
     pin: Peri<'d, AnyPin>,
+    waker: M::IfAsync<&'static AtomicWaker>,
+    _mode: PhantomData<M>,
 }
 
-impl<'d> Flex<'d> {
-    /// Wrap the pin in a `Flex`.
+impl<'d, M: Mode> core::fmt::Debug for Flex<'d, M> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Flex").field("pin", &self.pin).finish()
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<'d, M: Mode> defmt::Format for Flex<'d, M> {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "Flex {{ pin: {} }}", self.pin)
+    }
+}
+
+impl<'d> Flex<'d, Blocking> {
+    /// Wrap the pin in a blocking `Flex`.
     ///
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>) -> Self {
+        Self::new_inner(pin.into(), ())
+    }
+}
+
+impl<'d> Flex<'d, Async> {
+    /// Wrap the pin in an async `Flex`.
+    ///
+    /// The pin remains disconnected. The initial output level is unspecified, but can be changed
+    /// before the pin is put into output mode.
+    ///
+    /// The pin's interrupt must be bound to [`InterruptHandler`] for this pin. It is enabled in the
+    /// NVIC of the core this runs on, so wait on the pin from that core.
+    #[inline]
+    pub fn new_async<T: Pin>(pin: Peri<'d, T>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd) -> Self {
+        let this = Self::new_inner(pin.into(), T::waker());
+        unsafe { T::Interrupt::enable() };
+        this
+    }
+
+    /// Wait until the pin is high. If it is already high, return immediately.
+    #[inline]
+    pub async fn wait_for_high(&mut self) {
+        InputFuture::new(self.pin.reborrow(), self.waker, InterruptTrigger::LevelHigh).await;
+    }
+
+    /// Wait until the pin is low. If it is already low, return immediately.
+    #[inline]
+    pub async fn wait_for_low(&mut self) {
+        InputFuture::new(self.pin.reborrow(), self.waker, InterruptTrigger::LevelLow).await;
+    }
+
+    /// Wait for the pin to undergo a transition from low to high.
+    #[inline]
+    pub async fn wait_for_rising_edge(&mut self) {
+        InputFuture::new(self.pin.reborrow(), self.waker, InterruptTrigger::EdgeHigh).await;
+    }
+
+    /// Wait for the pin to undergo a transition from high to low.
+    #[inline]
+    pub async fn wait_for_falling_edge(&mut self) {
+        InputFuture::new(self.pin.reborrow(), self.waker, InterruptTrigger::EdgeLow).await;
+    }
+
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
+    #[inline]
+    pub async fn wait_for_any_edge(&mut self) {
+        InputFuture::new(self.pin.reborrow(), self.waker, InterruptTrigger::AnyEdge).await;
+    }
+}
+
+impl<'d, M: Mode> Flex<'d, M> {
+    #[inline]
+    fn new_inner(pin: Peri<'d, AnyPin>, waker: M::IfAsync<&'static AtomicWaker>) -> Self {
         // Input buffer, pulls and output driver off. The output enable may have been left set by
         // a previous owner of the pin, so clear it before connecting the pin to SIO.
         pin.pad_ctrl().write(|_w| {
             #[cfg(feature = "_rp235x")]
             _w.set_iso(false);
         });
-        pin.sio_oe().value_clr().write_value(1 << (pin.pin() % 32));
+        pin.sio_oe().value_clr().write_value(1 << (pin._pin() % 32));
 
         pin.gpio().ctrl().write(|w| {
             #[cfg(feature = "rp2040")]
@@ -632,12 +734,16 @@ impl<'d> Flex<'d> {
             w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::SiobProc0 as _);
         });
 
-        Self { pin: pin.into() }
+        Self {
+            pin,
+            waker,
+            _mode: PhantomData,
+        }
     }
 
     #[inline]
     fn bit(&self) -> u32 {
-        1 << (self.pin.pin() % 32)
+        1 << (self.pin._pin() % 32)
     }
 
     /// Set the pin's pull.
@@ -853,36 +959,6 @@ impl<'d> Flex<'d> {
         self.pin.sio_out().value_xor().write_value(self.bit())
     }
 
-    /// Wait until the pin is high. If it is already high, return immediately.
-    #[inline]
-    pub async fn wait_for_high(&mut self) {
-        InputFuture::new(self.pin.reborrow(), InterruptTrigger::LevelHigh).await;
-    }
-
-    /// Wait until the pin is low. If it is already low, return immediately.
-    #[inline]
-    pub async fn wait_for_low(&mut self) {
-        InputFuture::new(self.pin.reborrow(), InterruptTrigger::LevelLow).await;
-    }
-
-    /// Wait for the pin to undergo a transition from low to high.
-    #[inline]
-    pub async fn wait_for_rising_edge(&mut self) {
-        InputFuture::new(self.pin.reborrow(), InterruptTrigger::EdgeHigh).await;
-    }
-
-    /// Wait for the pin to undergo a transition from high to low.
-    #[inline]
-    pub async fn wait_for_falling_edge(&mut self) {
-        InputFuture::new(self.pin.reborrow(), InterruptTrigger::EdgeLow).await;
-    }
-
-    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
-    #[inline]
-    pub async fn wait_for_any_edge(&mut self) {
-        InputFuture::new(self.pin.reborrow(), InterruptTrigger::AnyEdge).await;
-    }
-
     /// Configure dormant wake.
     #[inline]
     pub fn dormant_wake(&mut self, cfg: DormantWakeConfig) -> DormantWake<'_> {
@@ -913,7 +989,7 @@ impl<'d> Flex<'d> {
     }
 }
 
-impl<'d> Drop for Flex<'d> {
+impl<'d, M: Mode> Drop for Flex<'d, M> {
     #[inline]
     fn drop(&mut self) {
         let idx = self.pin._pin() as usize;
@@ -1024,9 +1100,23 @@ pub(crate) trait SealedPin: Sized {
     }
 }
 
-/// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
+/// Per-pin items that only exist on concrete pin types.
+trait SealedPinStatic {
+    /// Packed bank and pin number, as returned by [`SealedPin::pin_bank()`].
+    const PIN_BANK: u8;
+
+    /// Waker of the async driver for this pin.
+    ///
+    /// Each pin has its own `static`, so wakers only take RAM for pins used in async mode.
+    fn waker() -> &'static AtomicWaker;
+}
+
+/// Interface for a Pin that can be configured by an [Input] or [Output] driver.
 #[allow(private_bounds)]
-pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + SealedPinStatic + Sized + 'static {
+    /// Interrupt for this pin's bank.
+    type Interrupt: Interrupt;
+
     /// Returns the pin number within a bank
     #[inline]
     fn pin(&self) -> u8 {
@@ -1040,27 +1130,15 @@ pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     }
 }
 
-/// Type-erased GPIO pin
+/// Type-erased GPIO pin, used by drivers to remember which pin they own.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct AnyPin {
+pub(crate) struct AnyPin {
     pin_bank: u8,
-}
-
-impl AnyPin {
-    /// Unsafely create a new type-erased pin.
-    ///
-    /// # Safety
-    ///
-    /// You must ensure that you’re only using one instance of this type at a time.
-    pub unsafe fn steal(pin_bank: u8) -> Peri<'static, Self> {
-        Peri::new_unchecked(Self { pin_bank })
-    }
 }
 
 impl_peripheral!(AnyPin);
 
-impl Pin for AnyPin {}
 impl SealedPin for AnyPin {
     fn pin_bank(&self) -> u8 {
         self.pin_bank
@@ -1070,12 +1148,23 @@ impl SealedPin for AnyPin {
 // ==========================
 
 macro_rules! impl_pin {
-    ($name:ident, $bank:expr, $pin_num:expr) => {
-        impl Pin for peripherals::$name {}
+    ($name:ident, $bank:expr, $pin_num:expr, $irq:ident) => {
+        impl Pin for peripherals::$name {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+        impl SealedPinStatic for peripherals::$name {
+            const PIN_BANK: u8 = ($bank as u8) * 128 + $pin_num;
+
+            #[inline]
+            fn waker() -> &'static AtomicWaker {
+                static WAKER: AtomicWaker = AtomicWaker::new();
+                &WAKER
+            }
+        }
         impl SealedPin for peripherals::$name {
             #[inline]
             fn pin_bank(&self) -> u8 {
-                ($bank as u8) * 128 + $pin_num
+                <Self as SealedPinStatic>::PIN_BANK
             }
         }
 
@@ -1089,94 +1178,94 @@ macro_rules! impl_pin {
     };
 }
 
-impl_pin!(PIN_0, Bank::Bank0, 0);
-impl_pin!(PIN_1, Bank::Bank0, 1);
-impl_pin!(PIN_2, Bank::Bank0, 2);
-impl_pin!(PIN_3, Bank::Bank0, 3);
-impl_pin!(PIN_4, Bank::Bank0, 4);
-impl_pin!(PIN_5, Bank::Bank0, 5);
-impl_pin!(PIN_6, Bank::Bank0, 6);
-impl_pin!(PIN_7, Bank::Bank0, 7);
-impl_pin!(PIN_8, Bank::Bank0, 8);
-impl_pin!(PIN_9, Bank::Bank0, 9);
-impl_pin!(PIN_10, Bank::Bank0, 10);
-impl_pin!(PIN_11, Bank::Bank0, 11);
-impl_pin!(PIN_12, Bank::Bank0, 12);
-impl_pin!(PIN_13, Bank::Bank0, 13);
-impl_pin!(PIN_14, Bank::Bank0, 14);
-impl_pin!(PIN_15, Bank::Bank0, 15);
-impl_pin!(PIN_16, Bank::Bank0, 16);
-impl_pin!(PIN_17, Bank::Bank0, 17);
-impl_pin!(PIN_18, Bank::Bank0, 18);
-impl_pin!(PIN_19, Bank::Bank0, 19);
-impl_pin!(PIN_20, Bank::Bank0, 20);
-impl_pin!(PIN_21, Bank::Bank0, 21);
-impl_pin!(PIN_22, Bank::Bank0, 22);
-impl_pin!(PIN_23, Bank::Bank0, 23);
-impl_pin!(PIN_24, Bank::Bank0, 24);
-impl_pin!(PIN_25, Bank::Bank0, 25);
-impl_pin!(PIN_26, Bank::Bank0, 26);
-impl_pin!(PIN_27, Bank::Bank0, 27);
-impl_pin!(PIN_28, Bank::Bank0, 28);
-impl_pin!(PIN_29, Bank::Bank0, 29);
+impl_pin!(PIN_0, Bank::Bank0, 0, IO_IRQ_BANK0);
+impl_pin!(PIN_1, Bank::Bank0, 1, IO_IRQ_BANK0);
+impl_pin!(PIN_2, Bank::Bank0, 2, IO_IRQ_BANK0);
+impl_pin!(PIN_3, Bank::Bank0, 3, IO_IRQ_BANK0);
+impl_pin!(PIN_4, Bank::Bank0, 4, IO_IRQ_BANK0);
+impl_pin!(PIN_5, Bank::Bank0, 5, IO_IRQ_BANK0);
+impl_pin!(PIN_6, Bank::Bank0, 6, IO_IRQ_BANK0);
+impl_pin!(PIN_7, Bank::Bank0, 7, IO_IRQ_BANK0);
+impl_pin!(PIN_8, Bank::Bank0, 8, IO_IRQ_BANK0);
+impl_pin!(PIN_9, Bank::Bank0, 9, IO_IRQ_BANK0);
+impl_pin!(PIN_10, Bank::Bank0, 10, IO_IRQ_BANK0);
+impl_pin!(PIN_11, Bank::Bank0, 11, IO_IRQ_BANK0);
+impl_pin!(PIN_12, Bank::Bank0, 12, IO_IRQ_BANK0);
+impl_pin!(PIN_13, Bank::Bank0, 13, IO_IRQ_BANK0);
+impl_pin!(PIN_14, Bank::Bank0, 14, IO_IRQ_BANK0);
+impl_pin!(PIN_15, Bank::Bank0, 15, IO_IRQ_BANK0);
+impl_pin!(PIN_16, Bank::Bank0, 16, IO_IRQ_BANK0);
+impl_pin!(PIN_17, Bank::Bank0, 17, IO_IRQ_BANK0);
+impl_pin!(PIN_18, Bank::Bank0, 18, IO_IRQ_BANK0);
+impl_pin!(PIN_19, Bank::Bank0, 19, IO_IRQ_BANK0);
+impl_pin!(PIN_20, Bank::Bank0, 20, IO_IRQ_BANK0);
+impl_pin!(PIN_21, Bank::Bank0, 21, IO_IRQ_BANK0);
+impl_pin!(PIN_22, Bank::Bank0, 22, IO_IRQ_BANK0);
+impl_pin!(PIN_23, Bank::Bank0, 23, IO_IRQ_BANK0);
+impl_pin!(PIN_24, Bank::Bank0, 24, IO_IRQ_BANK0);
+impl_pin!(PIN_25, Bank::Bank0, 25, IO_IRQ_BANK0);
+impl_pin!(PIN_26, Bank::Bank0, 26, IO_IRQ_BANK0);
+impl_pin!(PIN_27, Bank::Bank0, 27, IO_IRQ_BANK0);
+impl_pin!(PIN_28, Bank::Bank0, 28, IO_IRQ_BANK0);
+impl_pin!(PIN_29, Bank::Bank0, 29, IO_IRQ_BANK0);
 
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_30, Bank::Bank0, 30);
+impl_pin!(PIN_30, Bank::Bank0, 30, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_31, Bank::Bank0, 31);
+impl_pin!(PIN_31, Bank::Bank0, 31, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_32, Bank::Bank0, 32);
+impl_pin!(PIN_32, Bank::Bank0, 32, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_33, Bank::Bank0, 33);
+impl_pin!(PIN_33, Bank::Bank0, 33, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_34, Bank::Bank0, 34);
+impl_pin!(PIN_34, Bank::Bank0, 34, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_35, Bank::Bank0, 35);
+impl_pin!(PIN_35, Bank::Bank0, 35, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_36, Bank::Bank0, 36);
+impl_pin!(PIN_36, Bank::Bank0, 36, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_37, Bank::Bank0, 37);
+impl_pin!(PIN_37, Bank::Bank0, 37, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_38, Bank::Bank0, 38);
+impl_pin!(PIN_38, Bank::Bank0, 38, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_39, Bank::Bank0, 39);
+impl_pin!(PIN_39, Bank::Bank0, 39, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_40, Bank::Bank0, 40);
+impl_pin!(PIN_40, Bank::Bank0, 40, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_41, Bank::Bank0, 41);
+impl_pin!(PIN_41, Bank::Bank0, 41, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_42, Bank::Bank0, 42);
+impl_pin!(PIN_42, Bank::Bank0, 42, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_43, Bank::Bank0, 43);
+impl_pin!(PIN_43, Bank::Bank0, 43, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_44, Bank::Bank0, 44);
+impl_pin!(PIN_44, Bank::Bank0, 44, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_45, Bank::Bank0, 45);
+impl_pin!(PIN_45, Bank::Bank0, 45, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_46, Bank::Bank0, 46);
+impl_pin!(PIN_46, Bank::Bank0, 46, IO_IRQ_BANK0);
 #[cfg(feature = "rp235xb")]
-impl_pin!(PIN_47, Bank::Bank0, 47);
+impl_pin!(PIN_47, Bank::Bank0, 47, IO_IRQ_BANK0);
 
 // TODO rp235x bank1 as gpio support
 #[cfg(feature = "qspi-as-gpio")]
-impl_pin!(PIN_QSPI_SCLK, Bank::Qspi, 0);
+impl_pin!(PIN_QSPI_SCLK, Bank::Qspi, 0, IO_IRQ_QSPI);
 #[cfg(feature = "qspi-as-gpio")]
-impl_pin!(PIN_QSPI_SS, Bank::Qspi, 1);
+impl_pin!(PIN_QSPI_SS, Bank::Qspi, 1, IO_IRQ_QSPI);
 #[cfg(feature = "qspi-as-gpio")]
-impl_pin!(PIN_QSPI_SD0, Bank::Qspi, 2);
+impl_pin!(PIN_QSPI_SD0, Bank::Qspi, 2, IO_IRQ_QSPI);
 #[cfg(feature = "qspi-as-gpio")]
-impl_pin!(PIN_QSPI_SD1, Bank::Qspi, 3);
+impl_pin!(PIN_QSPI_SD1, Bank::Qspi, 3, IO_IRQ_QSPI);
 #[cfg(feature = "qspi-as-gpio")]
-impl_pin!(PIN_QSPI_SD2, Bank::Qspi, 4);
+impl_pin!(PIN_QSPI_SD2, Bank::Qspi, 4, IO_IRQ_QSPI);
 #[cfg(feature = "qspi-as-gpio")]
-impl_pin!(PIN_QSPI_SD3, Bank::Qspi, 5);
+impl_pin!(PIN_QSPI_SD3, Bank::Qspi, 5, IO_IRQ_QSPI);
 
 // ====================
 
 mod eh02 {
     use super::*;
 
-    impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::InputPin for Input<'d, M> {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
@@ -1221,7 +1310,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::InputPin for OutputOpenDrain<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::InputPin for OutputOpenDrain<'d, M> {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
@@ -1233,7 +1322,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d, M> {
         type Error = Infallible;
 
         #[inline]
@@ -1249,7 +1338,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for OutputOpenDrain<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::StatefulOutputPin for OutputOpenDrain<'d, M> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_high())
         }
@@ -1259,7 +1348,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for OutputOpenDrain<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::ToggleableOutputPin for OutputOpenDrain<'d, M> {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
@@ -1268,7 +1357,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::InputPin for Flex<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::InputPin for Flex<'d, M> {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
@@ -1280,7 +1369,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::OutputPin for Flex<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::OutputPin for Flex<'d, M> {
         type Error = Infallible;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
@@ -1294,7 +1383,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d, M> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_high())
         }
@@ -1304,7 +1393,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'d, M> {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
@@ -1314,11 +1403,11 @@ mod eh02 {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for Input<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::ErrorType for Input<'d, M> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::InputPin for Input<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::InputPin for Input<'d, M> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
     }
@@ -1354,11 +1443,11 @@ impl<'d> embedded_hal_1::digital::StatefulOutputPin for Output<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for OutputOpenDrain<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::ErrorType for OutputOpenDrain<'d, M> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d, M> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
         self.set_high();
         Ok(())
@@ -1370,7 +1459,7 @@ impl<'d> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<'d, M> {
     fn is_set_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_high())
     }
@@ -1380,7 +1469,7 @@ impl<'d> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d, M> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
     }
@@ -1390,11 +1479,11 @@ impl<'d> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for Flex<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::ErrorType for Flex<'d, M> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::InputPin for Flex<'d, M> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
     }
@@ -1404,7 +1493,7 @@ impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::OutputPin for Flex<'d, M> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
         self.set_high();
         Ok(())
@@ -1416,7 +1505,7 @@ impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::StatefulOutputPin for Flex<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, M> {
     fn is_set_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_high())
     }
@@ -1426,7 +1515,7 @@ impl<'d> embedded_hal_1::digital::StatefulOutputPin for Flex<'d> {
     }
 }
 
-impl<'d> embedded_hal_async::digital::Wait for Flex<'d> {
+impl<'d> embedded_hal_async::digital::Wait for Flex<'d, Async> {
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         self.wait_for_high().await;
         Ok(())
@@ -1453,7 +1542,7 @@ impl<'d> embedded_hal_async::digital::Wait for Flex<'d> {
     }
 }
 
-impl<'d> embedded_hal_async::digital::Wait for Input<'d> {
+impl<'d> embedded_hal_async::digital::Wait for Input<'d, Async> {
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         self.wait_for_high().await;
         Ok(())
@@ -1480,7 +1569,7 @@ impl<'d> embedded_hal_async::digital::Wait for Input<'d> {
     }
 }
 
-impl<'d> embedded_hal_async::digital::Wait for OutputOpenDrain<'d> {
+impl<'d> embedded_hal_async::digital::Wait for OutputOpenDrain<'d, Async> {
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         self.wait_for_high().await;
         Ok(())

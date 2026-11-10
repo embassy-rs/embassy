@@ -197,7 +197,7 @@ pub struct Xspi<'d, T: Instance, M: PeriMode> {
     _cssel_swap: bool,
     _dqs0: Option<Flex<'d>>,
     _dqs1: Option<Flex<'d>>,
-    dma: Option<ChannelAndRequest<'d>>,
+    dma: M::IfAsync<ChannelAndRequest<'d>>,
     _marker: PhantomData<M>,
     config: Config,
     width: XspiWidth,
@@ -331,7 +331,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         _ncs_alt: Option<Flex<'d>>,
         _dqs0: Option<Flex<'d>>,
         _dqs1: Option<Flex<'d>>,
-        dma: Option<ChannelAndRequest<'d>>,
+        dma: M::IfAsync<ChannelAndRequest<'d>>,
         config: Config,
         width: XspiWidth,
         dual_quad: bool,
@@ -812,7 +812,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             None,
             None,
-            None,
+            (),
             config,
             XspiWidth::SING,
             false,
@@ -855,7 +855,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             None,
             None,
-            None,
+            (),
             config,
             XspiWidth::DUAL,
             false,
@@ -900,7 +900,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             None,
             None,
-            None,
+            (),
             config,
             XspiWidth::QUAD,
             false,
@@ -949,7 +949,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             None,
             None,
-            None,
+            (),
             config,
             XspiWidth::QUAD,
             true,
@@ -998,7 +998,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             None,
             None,
-            None,
+            (),
             config,
             XspiWidth::OCTO,
             false,
@@ -1049,7 +1049,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             new_pin!(dqs0, AfType::input(Pull::None)),
             None,
-            None,
+            (),
             config,
             XspiWidth::OCTO,
             false,
@@ -1106,7 +1106,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             None,
             None,
-            None,
+            (),
             config,
             XspiWidth::HEXA,
             false,
@@ -1167,7 +1167,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             new_pin!(dqs0, AfType::input(Pull::None)),
             None,
-            None,
+            (),
             config,
             XspiWidth::HEXA,
             false,
@@ -1230,7 +1230,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             new_pin!(dqs0, AfType::input(Pull::None)),
             new_pin!(dqs1, AfType::input(Pull::None)),
-            None,
+            (),
             config,
             XspiWidth::HEXA,
             false,
@@ -1277,7 +1277,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             XspiWidth::SING,
             false,
@@ -1322,7 +1322,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             XspiWidth::DUAL,
             false,
@@ -1369,7 +1369,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             XspiWidth::QUAD,
             false,
@@ -1420,7 +1420,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             XspiWidth::QUAD,
             true,
@@ -1471,7 +1471,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             XspiWidth::OCTO,
             false,
@@ -1524,7 +1524,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             new_pin!(dqs0, AfType::input(Pull::None)),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             XspiWidth::OCTO,
             false,
@@ -1583,7 +1583,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             XspiWidth::HEXA,
             false,
@@ -1645,7 +1645,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             new_pin!(dqs0, AfType::input(Pull::None)),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             XspiWidth::HEXA,
             false,
@@ -1709,7 +1709,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             new_pin!(dqs0, AfType::input(Pull::None)),
             new_pin!(dqs1, AfType::input(Pull::None)),
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             XspiWidth::HEXA,
             false,
@@ -1744,8 +1744,6 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
             };
 
@@ -1777,8 +1775,6 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
             };
 
@@ -1820,8 +1816,6 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
             };
 
@@ -1854,8 +1848,6 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
-                    .as_mut()
-                    .unwrap()
                     .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
             };
 
