@@ -45,8 +45,9 @@ use embassy_usb_driver::host::{PipeError, SplitInfo, UsbHostAllocator, UsbPipe, 
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::class::cdc_acm::{LineCoding, ParityType, StopBits};
+use crate::host::class::ClassMatch;
 use crate::host::control::SetupPacket;
-use crate::host::descriptor::ConfigurationDescriptorChain;
+use crate::host::descriptor::{ClassCode, ConfigurationDescriptorChain, InterfaceDescriptor};
 use crate::host::handler::EnumerationInfo;
 
 /// Silicon Labs VID and CP210x PIDs.
@@ -57,6 +58,22 @@ pub mod id {
     pub const PID_CP210X: u16 = 0xEA60;
     /// Alternate CP210x product ID used by some SKUs.
     pub const PID_CP210X_ALT: u16 = 0xEA70;
+}
+
+/// Matcher for the vendor-specific CP210x interface.
+///
+/// The interface class is vendor-specific, so callers must additionally check
+/// the device VID/PID against [`id`].
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct Cp210xMatcher;
+
+impl ClassMatch for Cp210xMatcher {
+    const NAME: &'static str = "CP210x";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(0xff, 0, 0));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == 0xff
+    }
 }
 
 // AN571 §5, Table 6.
