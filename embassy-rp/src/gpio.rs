@@ -278,12 +278,12 @@ fn IO_IRQ_QSPI() {
 }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-struct InputFuture<'d> {
+pub(crate) struct InputFuture<'d> {
     pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> InputFuture<'d> {
-    fn new(pin: Peri<'d, AnyPin>, level: InterruptTrigger) -> Self {
+    pub(crate) fn new(pin: Peri<'d, AnyPin>, level: InterruptTrigger) -> Self {
         let pin_group = (pin.pin() % 8) as usize;
         // first, clear the INTR register bits. without this INTR will still
         // contain reports of previous edges, causing the IRQ to fire early
@@ -361,6 +361,21 @@ impl<'d> Future for InputFuture<'d> {
             return Poll::Ready(());
         }
         Poll::Pending
+    }
+}
+
+impl Drop for InputFuture<'_> {
+    fn drop(&mut self) {
+        let pin_group = (self.pin.pin() % 8) as usize;
+        self.pin
+            .int_proc()
+            .inte((self.pin.pin() / 8) as usize)
+            .write_clear(|w| {
+                w.set_edge_high(pin_group, true);
+                w.set_edge_low(pin_group, true);
+                w.set_level_high(pin_group, true);
+                w.set_level_low(pin_group, true);
+            });
     }
 }
 
