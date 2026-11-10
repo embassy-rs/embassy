@@ -213,6 +213,55 @@ pub(super) fn dual_bank_mode() -> bool {
     }
 }
 
+/// Whether a double ECC error has been detected since the flags were last cleared.
+#[cfg(flash_ecc_nmi)]
+pub(super) fn ecc_double_error() -> bool {
+    #[cfg(flash_v4_u3)]
+    return pac::FLASH.eccdetr().read().eccd();
+
+    #[cfg(not(flash_v4_u3))]
+    {
+        let eccr = pac::FLASH.eccr().read();
+        // ECCD2: double error in the upper double-word of a 128-bit read (single-bank mode).
+        #[cfg(any(flash_v4_l4p, flash_v4_l5, flash_v4_g4c2, flash_v4_g4c3, flash_v4_g4c4))]
+        let eccd2 = eccr.eccd2();
+        #[cfg(not(any(flash_v4_l4p, flash_v4_l5, flash_v4_g4c2, flash_v4_g4c3, flash_v4_g4c4)))]
+        let eccd2 = false;
+        // G0 reports bank 2 errors in ECCR2.
+        #[cfg(all(any(flash_v4_g0x0, flash_v4_g0x1), flash_dual_bank))]
+        let bank2 = pac::FLASH.eccr2().read().eccd();
+        #[cfg(not(all(any(flash_v4_g0x0, flash_v4_g0x1), flash_dual_bank)))]
+        let bank2 = false;
+        eccr.eccd() || eccd2 || bank2
+    }
+}
+
+/// Clears the ECC correction and detection flags.
+///
+/// While a correction or detection flag is set, the hardware doesn't flag (nor raise the NMI
+/// for) new double errors, so they must be cleared before reading.
+#[cfg(flash_ecc_nmi)]
+pub(super) fn ecc_clear() {
+    // The flags are write-1-to-clear, the other fields are read-only or keep their value.
+    #[cfg(flash_v4_u3)]
+    {
+        let r = pac::FLASH.ecccorr();
+        r.write_value(r.read());
+        let r = pac::FLASH.eccdetr();
+        r.write_value(r.read());
+    }
+    #[cfg(not(flash_v4_u3))]
+    {
+        let r = pac::FLASH.eccr();
+        r.write_value(r.read());
+    }
+    #[cfg(all(any(flash_v4_g0x0, flash_v4_g0x1), flash_dual_bank))]
+    {
+        let r = pac::FLASH.eccr2();
+        r.write_value(r.read());
+    }
+}
+
 /// On WB and WL, the flash from SFSA up is the secure area of CPU2 when security is enabled.
 /// CPU1 accesses there cause a bus error instead of an error flag, so they are rejected.
 #[cfg(all(any(flash_v4_wb, flash_v4_wl), not(feature = "_core-cm0p")))]

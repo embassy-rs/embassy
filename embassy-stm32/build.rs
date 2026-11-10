@@ -509,17 +509,50 @@ fn main() {
     // Generate FLASH regions
     cfgs.declare("flash");
     cfgs.declare("flash_dual_bank");
+    // How an uncorrectable (double) ECC error on a flash read is reported: a bus error on the
+    // read, or an NMI.
+    cfgs.declare("flash_ecc_bus_error");
+    cfgs.declare("flash_ecc_nmi");
+    // The EDATA area: flash with 16-bit words, enabled in the option bytes.
+    cfgs.declare("flash_edata");
     let mut has_flash = false;
     // Only chips with a flash controller supported by the driver get the `flash` module.
-    let flash_supported = METADATA.peripherals.iter().any(|p| {
-        p.name == "FLASH"
-            && p.registers
-                .as_ref()
-                .is_some_and(|r| r.kind == "flash" && r.version.starts_with('v'))
+    let flash_version = METADATA.peripherals.iter().find_map(|p| {
+        let r = p.registers.as_ref()?;
+        (p.name == "FLASH" && r.kind == "flash" && r.version.starts_with('v')).then_some(r.version)
     });
-    if flash_supported {
+    if let Some(flash_version) = flash_version {
         cfgs.enable("flash");
         has_flash = true;
+
+        match flash_version {
+            "v5_h7" | "v5_h7ab" | "v5_h7rs" => cfgs.enable("flash_ecc_bus_error"),
+            // C0 has no ECC.
+            "v4_c0" => {}
+            v if v.starts_with("v4_") || matches!(v, "v5_h5" | "v5_h50" | "v5_c5") => cfgs.enable("flash_ecc_nmi"),
+            // F0/F1/F3/F2/F4/F7 have no ECC. L0/L1 correct single errors, but don't report
+            // double errors.
+            _ => {}
+        }
+
+        if matches!(flash_version, "v5_h5" | "v5_c5") {
+            cfgs.enable("flash_edata");
+        }
+        // On H5 the EDATA sectors of a bank are erased as the last 8 sectors of the bank, counting
+        // the sectors of the largest part of the line: 24-31 on H52x/H53x, 120-127 on H56x/H57x
+        // (RM0481 §7.3.10).
+        if flash_version == "v5_h5" {
+            let first_sector: u8 = if chip_name.starts_with("stm32h52") || chip_name.starts_with("stm32h53") {
+                24
+            } else if chip_name.starts_with("stm32h56") || chip_name.starts_with("stm32h57") {
+                120
+            } else {
+                panic!("EDATA sectors of {chip_name} are unknown");
+            };
+            g.extend(quote! {
+                pub(crate) const EDATA_FIRST_SECTOR: u8 = #first_sector;
+            });
+        }
 
         let mut flash_regions = TokenStream::new();
         let flash_memory_regions: Vec<_> = memory
@@ -625,11 +658,38 @@ fn main() {
             })
             .unzip();
 
+        // Drivers for the memories controlled by the flash controller that are not flash regions.
+        let mut extra_fields = Vec::new();
+        let mut extra_inits = Vec::new();
+        if memory.iter().any(|x| x.kind == MemoryRegionKind::Eeprom) {
+            extra_fields.push(quote! {
+                /// The data EEPROM.
+                pub eeprom: crate::flash::Eeprom<'d, M>
+            });
+            extra_inits.push(quote! {
+                eeprom: crate::flash::Eeprom::new(unsafe { p.clone_unchecked() })
+            });
+        }
+        if matches!(flash_version, "v5_h5" | "v5_c5") {
+            for (field, bank) in [("edata_bank1", "Bank1"), ("edata_bank2", "Bank2")] {
+                let doc = format!("The EDATA area of flash bank {}.", &bank[4..]);
+                let (field, bank) = (format_ident!("{}", field), format_ident!("{}", bank));
+                extra_fields.push(quote! {
+                    #[doc = #doc]
+                    pub #field: crate::flash::Edata<'d, M>
+                });
+                extra_inits.push(quote! {
+                    #field: crate::flash::Edata::new(unsafe { p.clone_unchecked() }, crate::flash::FlashBank::#bank)
+                });
+            }
+        }
+
         let regions_len = flash_memory_regions.len();
         flash_regions.extend(quote! {
             #[cfg(flash)]
             pub struct FlashLayout<'d, M: crate::mode::Mode> {
                 #(#fields),*,
+                #(#extra_fields,)*
                 _mode: core::marker::PhantomData<M>,
             }
 
@@ -641,6 +701,7 @@ fn main() {
                 ) -> Self {
                     Self {
                         #(#inits),*,
+                        #(#extra_inits,)*
                         _mode: core::marker::PhantomData,
                     }
                 }

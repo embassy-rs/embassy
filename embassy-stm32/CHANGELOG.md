@@ -72,11 +72,15 @@ Flash:
 - add: support for STM32H7R/S.
 - add: `flash::banks_swapped()`.
 - change: `flash::perform_bank_swap()` (H5, C5) is only available when the flash is in dual-bank mode.
-- change: `flash::Error` variants are `OutOfBounds`, `Unaligned`, `Protected`, `NotErased` and `Hardware` (plus `EdataDisabled` on C5). `Error` is `#[non_exhaustive]` and implements `Display` and `core::error::Error`.
+- change: `flash::Error` variants are `OutOfBounds`, `Unaligned`, `Protected`, `NotErased` and `Hardware` (plus `Ecc` on chips with flash ECC). `Error` is `#[non_exhaustive]` and implements `Display` and `core::error::Error`.
+- add: flash reads return `Error::Ecc` on an uncorrectable ECC error, instead of a bus fault (H7, H7A/B, H7R/S) or an NMI (L4, L4+, L5, G0, G4, WB, WL, WBA, U0, U3, U5, H5, C5).
 - change: `WRITE_SIZE` is the native program unit: 2 on F0/F1/F3, 4 on F7, 16 on H7A/B.
 - change: `FlashSector::index_in_bank` and `FlashRegion::sectors()` are `u32`.
 - change: `FlashBank` is the physical bank. With the banks swapped (`SWAP_BANK`/`FB_MODE`), `FlashBank::base()` and `FlashRegion::base()` return the address where the bank is currently mapped.
-- change: the EEPROM (L0/L1) and EDATA (C5) methods are available on `Flash<'_, Async>` too.
+- change: the data EEPROM (L0/L1) is accessed through `FlashLayout::eeprom`, an `Eeprom` driver with `blocking_read`/`blocking_write` and async `read`/`write`, which implements `embedded_storage::Storage`. Removed the `Flash::eeprom_*` methods.
+- change: EEPROM writes program 32-bit words, and skip the words that already hold the data written.
+- add: EDATA support (H5, C5): `FlashLayout::edata_bank1` and `FlashLayout::edata_bank2` are `Edata` drivers for the EDATA area of each bank, which implement `NorFlash`. Unwritten locations read as `0xFF`; uncorrectable ECC errors return `Error::Ecc`.
+- fix: H5 OTP reads use 16-bit accesses and return `0xFF` for unwritten words, instead of faulting.
 - change: chips whose flash bank mode is selectable by option byte (G0B0, U5, U3, WBA6, C5 half-flash parts, L47x/L49x with 256/512 KB, L552xC) require the `single-bank` or `dual-bank` feature.
 - fix: H7, H7A/B and H5 clear the error flags after an error; before, every later operation failed until reset.
 - fix: on F76x/F77x in dual-bank mode, erasing a bank 2 sector erased the bank 1 sector with the same number.
