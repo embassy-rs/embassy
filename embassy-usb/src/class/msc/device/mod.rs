@@ -80,7 +80,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             interface,
             reset_requested: &state.reset_requested,
         });
-        builder.handler(control);
+        builder.interface_handler(control);
 
         Self {
             read_ep,

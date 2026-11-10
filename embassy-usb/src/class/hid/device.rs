@@ -12,7 +12,7 @@ use super::{
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler};
+use crate::{Builder, Handler, InterfaceHandler};
 
 const HID_DESC_SPEC_1_10: [u8; 2] = [0x10, 0x01];
 const HID_DESC_COUNTRY_UNSPEC: u8 = 0x00;
@@ -123,7 +123,7 @@ fn build<'d, D: Driver<'d>>(
         config.request_handler,
         &state.out_report_offset,
     ));
-    builder.handler(control);
+    builder.interface_handler(control);
 
     (ep_out, ep_in, &state.out_report_offset, if_num)
 }
@@ -519,6 +519,12 @@ impl<'d> Handler for Control<'d> {
             }
             _ => None,
         }
+    }
+}
+
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.if_num
     }
 }
 

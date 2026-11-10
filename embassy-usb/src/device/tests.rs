@@ -1,10 +1,13 @@
+use core::cell::Cell;
 use core::future::pending;
 
 use embassy_futures::block_on;
 
 use super::*;
+use crate::control::{OutResponse, Recipient};
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Endpoint, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut, Unsupported};
+use crate::types::InterfaceNumber;
 
 #[derive(Default)]
 struct TestDriver {
@@ -479,4 +482,114 @@ fn test_bluetooth_hci_device_descriptors() {
         .find(|w| w[0] == 9 && w[1] == 4 && w[5] == 0xE0 && w[6] == 0x01 && w[7] == 0x01)
         .expect("Bluetooth HCI interface descriptor not found");
     assert_eq!(iface[4], 3); // 3 endpoints (Event IN, ACL OUT, ACL IN)
+}
+
+struct RecordingHandler<'a> {
+    iface: InterfaceNumber,
+    calls: &'a Cell<u32>,
+    alt_calls: &'a Cell<u32>,
+}
+
+impl Handler for RecordingHandler<'_> {
+    fn control_out(&mut self, req: Request, _data: &[u8]) -> Option<OutResponse> {
+        if req.recipient == Recipient::Interface {
+            self.calls.set(self.calls.get() + 1);
+            Some(OutResponse::Accepted)
+        } else {
+            None
+        }
+    }
+
+    fn set_alternate_setting(&mut self, iface: InterfaceNumber, _alternate_setting: u8) {
+        if iface == self.iface {
+            self.alt_calls.set(self.alt_calls.get() + 1);
+        }
+    }
+}
+
+impl InterfaceHandler for RecordingHandler<'_> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.iface
+    }
+}
+
+#[test]
+fn routed_handlers_only_see_their_interfaces() {
+    let a_calls = Cell::new(0);
+    let b_calls = Cell::new(0);
+    let a_alts = Cell::new(0);
+    let b_alts = Cell::new(0);
+    let mut a = RecordingHandler {
+        iface: InterfaceNumber::new(0),
+        calls: &a_calls,
+        alt_calls: &a_alts,
+    };
+    let mut b = RecordingHandler {
+        iface: InterfaceNumber::new(1),
+        calls: &b_calls,
+        alt_calls: &b_alts,
+    };
+
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+
+    let (iface_a, iface_b) = {
+        let mut function = builder.function(0xff, 0, 0);
+        let iface_a = {
+            let mut iface = function.interface();
+            let number = iface.interface_number();
+            iface.alt_setting(0xff, 0, 0, None);
+            number
+        };
+        let iface_b = {
+            let mut iface = function.interface();
+            let number = iface.interface_number();
+            iface.alt_setting(0xff, 0, 0, None);
+            number
+        };
+        (iface_a, iface_b)
+    };
+
+    builder.interface_handler(&mut a);
+    builder.interface_handler(&mut b);
+    let mut usb = builder.build();
+    configure(&mut usb);
+
+    a_calls.set(0);
+    b_calls.set(0);
+    a_alts.set(0);
+    b_alts.set(0);
+
+    assert_eq!(
+        request(&mut usb, 0x21, 0x01, 0, iface_a.0 as u16, 0),
+        Response::Accepted
+    );
+    assert_eq!(a_calls.get(), 1);
+    assert_eq!(b_calls.get(), 0);
+
+    assert_eq!(
+        request(&mut usb, 0x21, 0x01, 0, iface_b.0 as u16, 0),
+        Response::Accepted
+    );
+    assert_eq!(a_calls.get(), 1);
+    assert_eq!(b_calls.get(), 1);
+
+    // Device-recipient requests must not reach interface handlers.
+    assert_eq!(request(&mut usb, 0x40, 0x01, 0, 0, 0), Response::Rejected);
+    assert_eq!(a_calls.get(), 1);
+    assert_eq!(b_calls.get(), 1);
+
+    // A bus reset delivers set_alternate_setting only to the owning handler.
+    block_on(usb.inner.handle_bus_event(Event::Reset));
+    assert_eq!(a_alts.get(), 1);
+    assert_eq!(b_alts.get(), 1);
 }
