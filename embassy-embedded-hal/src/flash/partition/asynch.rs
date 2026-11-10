@@ -87,7 +87,7 @@ impl<M: RawMutex, T: NorFlash> NorFlash for Partition<'_, M, T> {
     }
 
     async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        if to > self.size {
+        if from > to || to > self.size {
             return Err(Error::OutOfBounds);
         }
 
@@ -181,5 +181,49 @@ mod tests {
 
         let flash = flash.try_lock().unwrap();
         assert!(flash.writes.is_empty());
+    }
+
+    #[futures_test::test]
+    async fn can_erase_whole_partition() {
+        let flash = MemFlash::<1024, 128, 4>::new(0x00);
+
+        let flash = Mutex::<NoopRawMutex, _>::new(flash);
+        let mut partition = Partition::new(&flash, 128, 256);
+
+        partition.erase(0, 256).await.unwrap();
+
+        let flash = flash.try_lock().unwrap();
+        assert_eq!(flash.erases, [(128, 384)]);
+        assert!(flash.mem[..128].iter().all(|&x| x == 0x00));
+        assert!(flash.mem[128..384].iter().all(|&x| x == 0xFF));
+        assert!(flash.mem[384..].iter().all(|&x| x == 0x00));
+    }
+
+    #[futures_test::test]
+    async fn erase_from_overflow_is_out_of_bounds() {
+        let flash = MemFlash::<1024, 128, 4>::default();
+
+        let flash = Mutex::<NoopRawMutex, _>::new(flash);
+        let mut partition = Partition::new(&flash, 128, 256);
+
+        // self.offset + from wraps to 0
+        assert_eq!(partition.erase(u32::MAX - 127, 128).await, Err(Error::OutOfBounds));
+
+        let flash = flash.try_lock().unwrap();
+        assert!(flash.erases.is_empty());
+        assert!(flash.writes.is_empty());
+    }
+
+    #[futures_test::test]
+    async fn erase_from_after_to_is_out_of_bounds() {
+        let flash = MemFlash::<1024, 128, 4>::default();
+
+        let flash = Mutex::<NoopRawMutex, _>::new(flash);
+        let mut partition = Partition::new(&flash, 128, 256);
+
+        assert_eq!(partition.erase(128, 0).await, Err(Error::OutOfBounds));
+
+        let flash = flash.try_lock().unwrap();
+        assert!(flash.erases.is_empty());
     }
 }
