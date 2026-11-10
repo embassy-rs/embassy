@@ -6,7 +6,7 @@ use super::types::*;
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Builder, Handler};
+use crate::{Builder, Handler, InterfaceHandler};
 
 /// Configuration for the CCID device class.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -206,6 +206,12 @@ impl<'d> Handler for Control<'d> {
     }
 }
 
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.iface_number
+    }
+}
+
 /// A parsed CCID command received from the host over the Bulk OUT endpoint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -331,7 +337,7 @@ impl<'d, D: Driver<'d>> CcidDevice<'d, D> {
             data_rate_bps: config.default_data_rate_bps.to_le_bytes(),
             _marker: core::marker::PhantomData,
         });
-        builder.handler(control);
+        builder.interface_handler(control);
 
         Self {
             reader: CcidReader { read_ep },

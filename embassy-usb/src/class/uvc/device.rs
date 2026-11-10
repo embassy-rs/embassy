@@ -19,7 +19,7 @@ use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestT
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler, UsbDeviceSpeed};
+use crate::{Builder, Handler, InterfaceHandler, UsbDeviceSpeed};
 
 const USB_CLASS_VIDEO: u8 = 0x0E;
 const SC_VIDEOCONTROL: u8 = 0x01;
@@ -441,6 +441,7 @@ impl<'d> Default for State<'d> {
 
 struct Control<'d> {
     shared: &'d Shared<'d>,
+    video_control: InterfaceNumber,
     video_streaming: InterfaceNumber,
 }
 
@@ -538,6 +539,12 @@ impl<'d> Handler for Control<'d> {
         } else {
             None
         }
+    }
+}
+
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.video_control || iface == self.video_streaming
     }
 }
 
@@ -660,8 +667,9 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
             })),
             changed: Signal::new(),
         });
-        builder.handler(control.insert(Control {
+        builder.interface_handler(control.insert(Control {
             shared,
+            video_control: vc_number,
             video_streaming: vs_number,
         }));
 
@@ -1183,6 +1191,7 @@ mod tests {
         };
         let mut control = Control {
             shared: &shared,
+            video_control: InterfaceNumber(0),
             video_streaming: InterfaceNumber(1),
         };
         let request = |direction, request, selector: u8, length| Request {

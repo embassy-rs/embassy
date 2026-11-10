@@ -23,7 +23,7 @@ use core::ptr::{addr_of, copy_nonoverlapping};
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Builder, Handler};
+use crate::{Builder, Handler, InterfaceHandler};
 
 pub mod embassy_net;
 
@@ -255,6 +255,12 @@ impl<'d> Handler for Control<'d> {
     }
 }
 
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.comm_if || iface == self.data_if
+    }
+}
+
 /// CDC-NCM class
 pub struct CdcNcmClass<'d, D: Driver<'d>> {
     _comm_if: InterfaceNumber,
@@ -348,7 +354,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
             comm_if,
             data_if,
         });
-        builder.handler(control);
+        builder.interface_handler(control);
 
         CdcNcmClass {
             _comm_if: comm_if,

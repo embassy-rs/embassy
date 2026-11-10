@@ -17,7 +17,7 @@ use embassy_sync::waitqueue::WakerRegistration;
 use crate::control::{OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Builder, Handler};
+use crate::{Builder, Handler, InterfaceHandler};
 
 /// USB Class code for Wireless Controller.
 pub const USB_CLASS_WIRELESS_CONTROLLER: u8 = 0xE0;
@@ -135,6 +135,12 @@ impl<'d> Handler for Control<'d> {
     }
 }
 
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.iface_number
+    }
+}
+
 /// USB Bluetooth HCI class device.
 pub struct BluetoothHci<'d, D: Driver<'d>> {
     cmd_reader: HciCommandReader<'d>,
@@ -181,7 +187,7 @@ impl<'d, D: Driver<'d>> BluetoothHci<'d, D> {
             iface_string,
             shared: &state.shared,
         });
-        builder.handler(control);
+        builder.interface_handler(control);
 
         Self {
             cmd_reader: HciCommandReader { shared: &state.shared },
