@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CDC-ACM`: Host driver implements `HostClass` through the new `CdcAcmMatcher`; `CdcAcmInfo` is now `Copy` and `CdcAcmHost::new_with_info` opens from an already-probed info
 - Add `InterfaceHandler` and `Builder::{interface_handler, try_interface_handler}`, with `HandlerFull` for fallible registration; interface- and endpoint-recipient control requests are routed only to the owning handler
 - `CDC-ACM`, `HID`, `MSC`: Device classes now register through `interface_handler`
+- `CCID`, `BTH`, `CDC-NCM`, `CMSIS-DAP v2`, `GUD`, `USBTMC`, `UVC`: Device classes now register through `interface_handler`
+- `HID`, `MSC`, `CCID`, `GIP`: Host drivers implement `HostClass`; add `HidMatcher`, `MscMatcher`, `CcidMatcher`, and `GipMatcher`, and make their info types `Copy`
+- Add `MidiMatcher`, `UacMatcher`, `Cp210xMatcher`, and `HubMatcher`
 - Add the `test-utils` feature with `MockHost`, `MockState`, loopback pipes, `CDC_ACM_CONFIG`, and `enumeration_info`; add a CDC ACM host loopback test
 
 - `HID`: Notify `RequestHandler::reset()` on USB bus reset, allowing handlers to restore default Report protocol mode
