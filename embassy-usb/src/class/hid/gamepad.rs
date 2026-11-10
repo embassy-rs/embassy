@@ -198,7 +198,7 @@ impl GamepadReport {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "host"))]
 mod tests {
     use super::*;
     use crate::class::hid::host::hid_report::{ReportDescriptor, usage, usage_page};

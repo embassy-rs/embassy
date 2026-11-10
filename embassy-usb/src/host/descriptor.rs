@@ -63,6 +63,7 @@ pub mod lang_id {
 pub type StringIndex = u8;
 
 /// Maximum descriptor buffer size used during enumeration.
+#[allow(dead_code)]
 pub(crate) const DEFAULT_MAX_DESCRIPTOR_SIZE: usize = 512;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -605,6 +606,30 @@ impl<'a> ConfigurationDescriptorChain<'a> {
         }
     }
 
+    /// Find the first interface matching `C`.
+    pub fn find_interface<C: ClassMatch>(&'a self) -> Option<InterfaceDescriptorChain<'a>> {
+        self.iter_interface().find(|iface| C::matches(&iface.descriptor))
+    }
+
+    /// Iterate over every interface matching `C`.
+    pub fn find_interfaces<C: ClassMatch>(&'a self) -> impl Iterator<Item = InterfaceDescriptorChain<'a>> + 'a {
+        self.iter_interface().filter(|iface| C::matches(&iface.descriptor))
+    }
+
+    /// Find the Interface Association Descriptor whose interface group contains
+    /// `interface`.
+    ///
+    /// Returns `None` when the configuration has no matching IAD, or when the
+    /// interface is not part of an association.
+    pub fn find_iad_group(&'a self, interface: u8) -> Option<InterfaceAssociationDescriptor> {
+        self.iter_descriptors()
+            .filter_map(|(_, bytes)| InterfaceAssociationDescriptor::try_from_bytes(bytes))
+            .find(|iad| {
+                let end = iad.first_interface.saturating_add(iad.interface_count);
+                interface >= iad.first_interface && interface < end
+            })
+    }
+
     /// Iterate over all descriptors of this Configuration, passing to Visitor callbacks.
     /// Returns `Ok(())` on completion (including early stop), or `Err(e)` on error.
     pub fn visit_descriptors<V: DescriptorVisitor<'a>>(&self, visitor: &mut V) -> Result<(), VisitError<V::Error>> {
@@ -777,6 +802,86 @@ impl WritableDescriptor for InterfaceDescriptor {
         bytes[8] = self.interface_name;
         Ok(bytes[0] as usize)
     }
+}
+
+/// Standard USB Interface Association Descriptor (USB 2.0 §9.6.4).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct InterfaceAssociationDescriptor {
+    /// First interface number in the association.
+    pub first_interface: u8,
+    /// Number of contiguous interfaces in the association.
+    pub interface_count: u8,
+    /// Function class.
+    pub function_class: u8,
+    /// Function subclass.
+    pub function_subclass: u8,
+    /// Function protocol.
+    pub function_protocol: u8,
+    /// Function string index.
+    pub function_name: StringIndex,
+}
+
+impl InterfaceAssociationDescriptor {
+    /// Descriptor length in bytes.
+    pub const LEN: u8 = 8;
+    /// Descriptor type.
+    pub const DESC_TYPE: u8 = descriptor_type::INTERFACE_ASSOCIATION;
+
+    /// Parse an IAD from a raw descriptor.
+    pub fn try_from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < Self::LEN as usize || bytes[0] != Self::LEN || bytes[1] != Self::DESC_TYPE {
+            return None;
+        }
+        Some(Self {
+            first_interface: bytes[2],
+            interface_count: bytes[3],
+            function_class: bytes[4],
+            function_subclass: bytes[5],
+            function_protocol: bytes[6],
+            function_name: bytes[7],
+        })
+    }
+}
+
+/// A class/subclass/protocol triple.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ClassCode {
+    /// Interface class code.
+    pub class: u8,
+    /// Interface subclass code.
+    pub subclass: u8,
+    /// Interface protocol code.
+    pub protocol: u8,
+}
+
+impl ClassCode {
+    /// Create a class code triple.
+    pub const fn new(class: u8, subclass: u8, protocol: u8) -> Self {
+        Self {
+            class,
+            subclass,
+            protocol,
+        }
+    }
+}
+
+/// Pure, synchronous interface matching for a host class.
+///
+/// Used by [`ConfigurationDescriptorChain::find_interface`] and
+/// [`ConfigurationDescriptorChain::find_interfaces`]. Vendor-specific classes
+/// can match on `interface_class == 0xff` here and check VID/PID in
+/// [`HostClass::probe`](crate::host::class::HostClass::probe).
+pub trait ClassMatch {
+    /// Human-readable class name.
+    const NAME: &'static str;
+
+    /// Standard class code, when the class has one.
+    const CODE: Option<ClassCode> = None;
+
+    /// Return true when `iface` belongs to this class.
+    fn matches(iface: &InterfaceDescriptor) -> bool;
 }
 
 /// The chain of descriptors of a [InterfaceDescriptor].

@@ -200,7 +200,7 @@ impl MouseReport {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "host"))]
 mod tests {
     use super::{KeyboardReport, MouseReport};
     use crate::class::hid::host::hid_report::{ReportDescriptor, usage, usage_page};

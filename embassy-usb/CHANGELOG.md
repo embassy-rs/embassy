@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add per-class Cargo features (`class-<name>`) and independent `device`/`host` role features. The default features are `device`, `host`, and `class-all`, preserving the previous full-class build
+- Make `embassy-net-driver-channel`, `embassy-time`, and `embedded-io-async` optional; they are now pulled only by the features that use them
+- **Breaking:** with `default-features = false`, `embassy_usb::device`, `embassy_usb::descriptor`, and `embassy_usb::host` are only available when the `device` or `host` feature is enabled, and each class requires its `class-<name>` feature
+- `VCP`: `class-vcp` enables `class-cdc-acm`, because the CP210x driver reuses the CDC ACM line coding types
+- Add `host::class::{ClassError, HostClass}` and `host::descriptor::{ClassCode, ClassMatch, InterfaceAssociationDescriptor}`; add `ConfigurationDescriptorChain::{find_interface, find_interfaces, find_iad_group}`
+- Add the `embedded-io` feature, which implements `embedded_io_async::Error` for `ClassError`; `class-cdc-acm` and `class-vcp` enable it
+- `CDC-ACM`: Host driver implements `HostClass` through the new `CdcAcmMatcher`; `CdcAcmInfo` is now `Copy` and `CdcAcmHost::new_with_info` opens from an already-probed info
+
 - `HID`: Notify `RequestHandler::reset()` on USB bus reset, allowing handlers to restore default Report protocol mode
 
 - `HID`: Add `GamepadReport`, `ConsumerReport`, and composite multi-report presets (`COMPOSITE_DESCRIPTOR`, `IdKeyboardReport`, `IdMouseReport`, `IdConsumerReport`, `IdGamepadReport`) at `class::hid`

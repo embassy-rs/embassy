@@ -417,6 +417,7 @@ fn test_handle_control_endpoint_request_fields() {
     });
 }
 
+#[cfg(all(feature = "device", feature = "host", feature = "class-ccid"))]
 #[test]
 fn test_ccid_device_and_host_interop() {
     let driver = TestDriver::default();
@@ -450,6 +451,7 @@ fn test_ccid_device_and_host_interop() {
     assert_eq!(info.bulk_out.1, 64);
 }
 
+#[cfg(all(feature = "device", feature = "class-bth"))]
 #[test]
 fn test_bluetooth_hci_device_descriptors() {
     let mut state = crate::class::bth::State::new();
