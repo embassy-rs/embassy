@@ -93,6 +93,28 @@ pub trait Handler {
     /// Called when remote wakeup feature is enabled or disabled.
     fn remote_wakeup_enabled(&mut self, _enabled: bool) {}
 
+    /// Called when the host sets the U1 and U2 system exit latencies, in microseconds (USB 3.x).
+    fn set_sel(&mut self, _u1_sel: u8, _u1_pel: u8, _u2_sel: u16, _u2_pel: u16) {}
+
+    /// Called when the host sets the isochronous delay, in nanoseconds (USB 3.x).
+    fn set_isoch_delay(&mut self, _delay_ns: u16) {}
+
+    /// Called when the host enables or disables device-initiated U1 entry (USB 3.x).
+    ///
+    /// Return `true` to accept enabling it. If no handler does, the request is rejected. The
+    /// return value is ignored when disabling.
+    fn u1_enabled(&mut self, _enabled: bool) -> bool {
+        false
+    }
+
+    /// Called when the host enables or disables device-initiated U2 entry (USB 3.x).
+    ///
+    /// Return `true` to accept enabling it. If no handler does, the request is rejected. The
+    /// return value is ignored when disabling.
+    fn u2_enabled(&mut self, _enabled: bool) -> bool {
+        false
+    }
+
     /// Called when a "set alternate setting" control request is done on the interface.
     fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
         let _ = iface;
@@ -357,6 +379,8 @@ struct Inner<'d, D: Driver<'d>> {
     device_state: UsbDeviceState,
     suspended: bool,
     remote_wakeup_enabled: bool,
+    u1_enabled: bool,
+    u2_enabled: bool,
     self_powered: bool,
 
     /// Our device address, or 0 if none.
@@ -420,6 +444,8 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             self.inner.device_state = UsbDeviceState::Disabled;
             self.inner.suspended = false;
             self.inner.remote_wakeup_enabled = false;
+            self.inner.u1_enabled = false;
+            self.inner.u2_enabled = false;
 
             for h in &mut self.inner.handlers {
                 h.enabled(false);
@@ -544,6 +570,23 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     }
 }
 
+// Offers a U1 or U2 enable change to the handlers. Enabling needs one of them to accept.
+macro_rules! set_link_feature {
+    ($self:ident, $name:ident, $enable:expr) => {{
+        let enable = $enable;
+        let mut accepted = !enable;
+        for h in &mut $self.handlers {
+            accepted |= h.$name(enable);
+        }
+        if accepted {
+            $self.$name = enable;
+            OutResponse::Accepted
+        } else {
+            OutResponse::Rejected
+        }
+    }};
+}
+
 impl<'d, D: Driver<'d>> Inner<'d, D> {
     fn endpoint_for_request(&self, index: u16) -> Option<(EndpointAddress, EndpointType)> {
         // wIndex contains an endpoint number and direction; all other bits are reserved.
@@ -586,6 +629,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 self.device_state = UsbDeviceState::Default;
                 self.suspended = false;
                 self.remote_wakeup_enabled = false;
+                self.u1_enabled = false;
+                self.u2_enabled = false;
                 self.address = 0;
 
                 for h in &mut self.handlers {
@@ -709,15 +754,34 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 (Request::SET_SEL, 0)
                     if self.config.max_speed >= UsbDeviceSpeed::Super && req.index == 0 && req.length == 6 =>
                 {
+                    let &[u1_sel, u1_pel, u2_sel_lo, u2_sel_hi, u2_pel_lo, u2_pel_hi] = data else {
+                        return OutResponse::Rejected;
+                    };
+                    let u2_sel = u16::from_le_bytes([u2_sel_lo, u2_sel_hi]);
+                    let u2_pel = u16::from_le_bytes([u2_pel_lo, u2_pel_hi]);
+                    for h in &mut self.handlers {
+                        h.set_sel(u1_sel, u1_pel, u2_sel, u2_pel);
+                    }
                     OutResponse::Accepted
                 }
-                (Request::SET_ISOCH_DELAY, _)
+                (Request::SET_ISOCH_DELAY, delay_ns)
                     if self.config.max_speed >= UsbDeviceSpeed::Super && req.index == 0 && req.length == 0 =>
                 {
+                    for h in &mut self.handlers {
+                        h.set_isoch_delay(delay_ns);
+                    }
                     OutResponse::Accepted
                 }
-                (Request::SET_FEATURE, Request::FEATURE_DEVICE_U1_ENABLE) => OutResponse::Rejected,
-                (Request::SET_FEATURE, Request::FEATURE_DEVICE_U2_ENABLE) => OutResponse::Rejected,
+                (Request::SET_FEATURE | Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_U1_ENABLE)
+                    if self.config.max_speed >= UsbDeviceSpeed::Super =>
+                {
+                    set_link_feature!(self, u1_enabled, req.request == Request::SET_FEATURE)
+                }
+                (Request::SET_FEATURE | Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_U2_ENABLE)
+                    if self.config.max_speed >= UsbDeviceSpeed::Super =>
+                {
+                    set_link_feature!(self, u2_enabled, req.request == Request::SET_FEATURE)
+                }
                 (Request::SET_FEATURE, Request::FEATURE_DEVICE_LTM_ENABLE) => OutResponse::Rejected,
                 _ => OutResponse::Rejected,
             },
@@ -786,6 +850,12 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     }
                     if self.remote_wakeup_enabled {
                         status |= 0x0002;
+                    }
+                    if self.u1_enabled {
+                        status |= 0x0004;
+                    }
+                    if self.u2_enabled {
+                        status |= 0x0008;
                     }
                     buf[..2].copy_from_slice(&status.to_le_bytes());
                     InResponse::Accepted(&buf[..2])

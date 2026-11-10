@@ -171,6 +171,8 @@ struct TestControlPipe {
     response: Option<Response>,
     /// The control endpoint size passed to `Driver::start`.
     started_with: u16,
+    /// The data stage of the next control OUT request.
+    out_data: [u8; 8],
 }
 
 impl ControlPipe for TestControlPipe {
@@ -184,6 +186,8 @@ impl ControlPipe for TestControlPipe {
 
     async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
         buf.fill(0);
+        let len = buf.len().min(self.out_data.len());
+        buf[..len].copy_from_slice(&self.out_data[..len]);
         Ok(buf.len())
     }
 
@@ -969,4 +973,70 @@ fn test_superspeed_requires_max_packet_size_0_9() {
     let mut config = superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, 0);
     config.max_packet_size_0 = 64;
     with_config(config, |_| {});
+}
+
+#[test]
+fn test_superspeed_callbacks() {
+    #[derive(Default)]
+    struct State {
+        sel: Cell<Option<(u8, u8, u16, u16)>>,
+        isoch_delay: Cell<Option<u16>>,
+        u1: Cell<Option<bool>>,
+    }
+    struct LinkHandler<'a>(&'a State);
+    impl Handler for LinkHandler<'_> {
+        fn set_sel(&mut self, u1_sel: u8, u1_pel: u8, u2_sel: u16, u2_pel: u16) {
+            self.0.sel.set(Some((u1_sel, u1_pel, u2_sel, u2_pel)));
+        }
+        fn set_isoch_delay(&mut self, delay_ns: u16) {
+            self.0.isoch_delay.set(Some(delay_ns));
+        }
+        fn u1_enabled(&mut self, enabled: bool) -> bool {
+            self.0.u1.set(Some(enabled));
+            true
+        }
+    }
+
+    let state = State::default();
+    let mut handler = LinkHandler(&state);
+    let mut config_descriptor = [0; 64];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, 0),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    builder.handler(&mut handler);
+    let usb = &mut builder.build();
+    configure(usb);
+
+    usb.control.out_data = [1, 2, 0x34, 0x12, 0x78, 0x56, 0, 0];
+    assert_eq!(request(usb, 0, Request::SET_SEL, 0, 0, 6), Response::Accepted);
+    assert_eq!(state.sel.get(), Some((1, 2, 0x1234, 0x5678)));
+    assert_eq!(request(usb, 0, Request::SET_ISOCH_DELAY, 40, 0, 0), Response::Accepted);
+    assert_eq!(state.isoch_delay.get(), Some(40));
+
+    // The handler accepts U1 but leaves U2 at the default, which refuses it.
+    let (u1, u2) = (Request::FEATURE_DEVICE_U1_ENABLE, Request::FEATURE_DEVICE_U2_ENABLE);
+    assert_eq!(request(usb, 0, Request::SET_FEATURE, u1, 0, 0), Response::Accepted);
+    assert_eq!(state.u1.get(), Some(true));
+    assert_eq!(request(usb, 0, Request::SET_FEATURE, u2, 0, 0), Response::Rejected);
+    assert_eq!(
+        request(usb, 0x80, Request::GET_STATUS, 0, 0, 2),
+        Response::Status(0x0004)
+    );
+
+    assert_eq!(request(usb, 0, Request::CLEAR_FEATURE, u1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0, Request::CLEAR_FEATURE, u2, 0, 0), Response::Accepted);
+    assert_eq!(state.u1.get(), Some(false));
+    assert_eq!(request(usb, 0x80, Request::GET_STATUS, 0, 0, 2), Response::Status(0));
+
+    // A bus reset clears U1.
+    assert_eq!(request(usb, 0, Request::SET_FEATURE, u1, 0, 0), Response::Accepted);
+    block_on(usb.inner.handle_bus_event(Event::Reset));
+    assert_eq!(request(usb, 0x80, Request::GET_STATUS, 0, 0, 2), Response::Status(0));
 }

@@ -381,6 +381,8 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
                 device_state: UsbDeviceState::Unpowered,
                 suspended: false,
                 remote_wakeup_enabled: false,
+                u1_enabled: false,
+                u2_enabled: false,
                 self_powered: false,
                 address: 0,
                 set_address_pending: false,
