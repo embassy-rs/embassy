@@ -5,6 +5,7 @@
 
 #![allow(async_fn_in_trait)]
 
+pub mod class;
 pub mod control;
 pub mod descriptor;
 pub mod handler;
@@ -12,6 +13,7 @@ pub mod handler;
 use core::cell::RefCell;
 use core::marker::PhantomData;
 
+pub use class::{ClassError, HostClass};
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex as AsyncMutex;
@@ -94,6 +96,7 @@ struct DeviceState {
 }
 
 impl DeviceState {
+    #[allow(dead_code)]
     fn set_parent(&mut self, addr: u8, hub: u8) {
         if hub < ADDRESS_COUNT && self.parent.get(addr as usize).is_some_and(|parent| parent.is_some()) {
             self.parent[addr as usize] = Some(hub);
@@ -149,6 +152,7 @@ impl BusState {
     }
 
     /// Record that device `addr` hangs off hub `hub`.
+    #[allow(dead_code)]
     pub(crate) fn set_parent(&self, addr: u8, hub: u8) {
         self.devices.lock(|d| d.borrow_mut().set_parent(addr, hub));
     }
