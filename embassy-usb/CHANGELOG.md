@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Vendor: add generic vendor-specific bulk class (`class-vendor`) with WinUSB and WebUSB support
+
 - Add per-class Cargo features (`class-<name>`) and independent `device`/`host` role features. The default features are `device`, `host`, and `class-all`, preserving the previous full-class build
 - Make `embassy-net-driver-channel`, `embassy-time`, and `embedded-io-async` optional; they are now pulled only by the features that use them
 - **Breaking:** with `default-features = false`, `embassy_usb::device`, `embassy_usb::descriptor`, and `embassy_usb::host` are only available when the `device` or `host` feature is enabled, and each class requires its `class-<name>` feature
