@@ -486,6 +486,50 @@ fn test_bluetooth_hci_device_descriptors() {
     assert_eq!(iface[4], 3); // 3 endpoints (Event IN, ACL OUT, ACL IN)
 }
 
+#[cfg(feature = "class-cdc-ecm")]
+#[test]
+fn test_cdc_ecm_device_descriptors() {
+    let mut state = crate::class::cdc_ecm::device::State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+
+    let ecm = crate::class::cdc_ecm::device::CdcEcmClass::new(
+        &mut builder,
+        &mut state,
+        [0x02, 0x00, 0x00, 0x00, 0x00, 0x01],
+        64,
+    );
+    let _ = ecm;
+    let usb = builder.build();
+    drop(usb);
+
+    let desc = &config_descriptor[..];
+    // Find CDC ECM Control Interface (bLength = 9, bDescriptorType = 4, class = 0x02, subclass = 0x06, proto = 0x00)
+    let iface = desc
+        .windows(9)
+        .find(|w| w[0] == 9 && w[1] == 4 && w[5] == 0x02 && w[6] == 0x06 && w[7] == 0x00)
+        .expect("CDC ECM control interface descriptor not found");
+    assert_eq!(iface[4], 1); // 1 interrupt endpoint
+
+    // Find Ethernet functional descriptor (bLength = 13, bDescriptorType = 0x24, subtype = 0x0F)
+    let eth_desc = desc
+        .windows(13)
+        .find(|w| w[0] == 13 && w[1] == 0x24 && w[2] == 0x0F)
+        .expect("Ethernet functional descriptor not found");
+    // wMaxSegmentSize = 1514 (0x05ea)
+    assert_eq!(eth_desc[8], 0xea);
+    assert_eq!(eth_desc[9], 0x05);
+}
+
 struct RecordingHandler<'a> {
     iface: InterfaceNumber,
     calls: &'a Cell<u32>,

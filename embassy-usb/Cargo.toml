@@ -46,6 +46,7 @@ class-all = [
     "class-bth",
     "class-ccid",
     "class-cdc-acm",
+    "class-cdc-ecm",
     "class-cdc-ncm",
     "class-cmsis-dap-v2",
     "class-dfu",
@@ -65,6 +66,7 @@ class-all = [
 # Classes supporting both device and host.
 class-ccid = []
 class-cdc-acm = ["embedded-io"]
+class-cdc-ecm = ["dep:embassy-net-driver-channel"]
 class-hid = []
 class-midi = []
 class-msc = []
