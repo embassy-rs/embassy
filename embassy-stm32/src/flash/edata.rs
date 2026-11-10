@@ -207,7 +207,7 @@ fn units(mut address: u32, mut bytes: &[u8]) -> impl Iterator<Item = (u32, &[u8]
 
 /// Checks that the `len` bytes at `address` were not written since they were erased.
 fn check_erased(address: u32, len: usize) -> Result<(), Error> {
-    ecc::uncached(|| {
+    ecc::half_word_reads(|| {
         for word in (address..address + len as u32).step_by(2) {
             if !matches!(ecc::read_half_word(word), Ok(None)) {
                 return Err(Error::NotErased);
