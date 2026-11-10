@@ -750,9 +750,13 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> D::EndpointIn {
+        let config = self
+            .builder
+            .config_descriptor
+            .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms);
         self.builder
             .driver
-            .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
+            .alloc_endpoint_in_with_config(config)
             .expect("alloc_endpoint_in failed")
     }
 
@@ -818,9 +822,13 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> D::EndpointOut {
+        let config = self
+            .builder
+            .config_descriptor
+            .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms);
         self.builder
             .driver
-            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
+            .alloc_endpoint_out_with_config(config)
             .expect("alloc_endpoint_out failed")
     }
 
@@ -918,10 +926,15 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
     ) -> D::EndpointIn {
+        let mut config =
+            self.builder
+                .config_descriptor
+                .endpoint_config(ep_addr, EndpointType::Bulk, max_packet_size, 0);
+        config.double_buffered = true;
         let ep = self
             .builder
             .driver
-            .alloc_endpoint_bulk_in_double_buffered(ep_addr, max_packet_size)
+            .alloc_endpoint_in_with_config(config)
             .expect("alloc_endpoint_bulk_in_double_buffered failed");
         self.endpoint_descriptor(
             ep.info(),
@@ -942,10 +955,15 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
     ) -> D::EndpointOut {
+        let mut config =
+            self.builder
+                .config_descriptor
+                .endpoint_config(ep_addr, EndpointType::Bulk, max_packet_size, 0);
+        config.double_buffered = true;
         let ep = self
             .builder
             .driver
-            .alloc_endpoint_bulk_out_double_buffered(ep_addr, max_packet_size)
+            .alloc_endpoint_out_with_config(config)
             .expect("alloc_endpoint_bulk_out_double_buffered failed");
         self.endpoint_descriptor(
             ep.info(),

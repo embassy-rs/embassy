@@ -1,7 +1,7 @@
 //! Utilities for writing USB descriptors.
 use embassy_usb_driver::EndpointType;
 
-use crate::driver::EndpointInfo;
+use crate::driver::{EndpointAddress, EndpointConfig, EndpointInfo};
 use crate::types::{InterfaceNumber, StringIndex};
 use crate::{CONFIGURATION_VALUE, Config, UsbDeviceSpeed};
 
@@ -433,18 +433,52 @@ impl<'a> DescriptorWriter<'a> {
             extra_fields,
         );
 
-        if let Some(max_burst) = self.superspeed_max_burst {
-            let (max_burst, bytes_per_interval) = match endpoint.ep_type {
-                EndpointType::Bulk => (max_burst, 0),
-                EndpointType::Interrupt | EndpointType::Isochronous => (0, endpoint.max_packet_size & 0x7ff),
-                EndpointType::Control => (0, 0),
+        if self.superspeed_max_burst.is_some() {
+            let config = self.endpoint_config(
+                Some(endpoint.addr),
+                endpoint.ep_type,
+                endpoint.max_packet_size,
+                endpoint.interval_ms,
+            );
+            let attributes = match endpoint.ep_type {
+                EndpointType::Bulk => config.max_streams,
+                EndpointType::Isochronous => config.mult,
+                EndpointType::Control | EndpointType::Interrupt => 0,
             };
+            let bytes_per_interval = config.bytes_per_interval as u16;
             self.write(
                 descriptor_type::SS_ENDPOINT_COMPANION,
-                &[max_burst, 0, bytes_per_interval as u8, (bytes_per_interval >> 8) as u8],
+                &[
+                    config.max_burst,
+                    attributes,
+                    bytes_per_interval as u8,
+                    (bytes_per_interval >> 8) as u8,
+                ],
                 &[],
             );
         }
+    }
+
+    /// The configuration to allocate an endpoint with, with the SuperSpeed fields of the
+    /// SuperSpeed Endpoint Companion descriptor this writer gives it.
+    pub(crate) fn endpoint_config(
+        &self,
+        addr: Option<EndpointAddress>,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> EndpointConfig {
+        let mut config = EndpointConfig::new(addr, ep_type, max_packet_size, interval_ms);
+        if let Some(max_burst) = self.superspeed_max_burst {
+            match ep_type {
+                EndpointType::Bulk => config.max_burst = max_burst,
+                EndpointType::Interrupt | EndpointType::Isochronous => {
+                    config.bytes_per_interval = (max_packet_size & 0x7ff).into()
+                }
+                EndpointType::Control => {}
+            }
+        }
+        config
     }
 
     /// Writes a string descriptor.
