@@ -486,6 +486,59 @@ fn test_bluetooth_hci_device_descriptors() {
     assert_eq!(iface[4], 3); // 3 endpoints (Event IN, ACL OUT, ACL IN)
 }
 
+#[cfg(all(feature = "device", feature = "class-vendor"))]
+#[test]
+fn test_vendor_device_descriptors() {
+    let mut state = crate::class::vendor::State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 256];
+    let mut msos_descriptor = [0; 256];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut msos_descriptor,
+        &mut control_buf,
+    );
+
+    let config = crate::class::vendor::Config::new(64)
+        .with_interface_name("Vendor Bulk Interface")
+        .with_winusb(&["{12345678-1234-1234-1234-123456789ABC}"])
+        .with_webusb(Some(crate::class::vendor::Url::new("https://example.com")), 0x42);
+
+    let vendor = crate::class::vendor::VendorClass::new(&mut builder, &mut state, config);
+    assert_eq!(vendor.max_packet_size(), 64);
+    assert_eq!(vendor.interface().0, 0);
+
+    let usb = builder.build();
+    drop(usb);
+
+    let desc = &config_descriptor[..];
+    // Find Interface descriptor (bLength = 9, bDescriptorType = 4, class = 0xFF, subclass = 0x00, proto = 0x00)
+    let iface = desc
+        .windows(9)
+        .find(|w| w[0] == 9 && w[1] == 4 && w[5] == 0xFF && w[6] == 0x00 && w[7] == 0x00)
+        .expect("Vendor interface descriptor not found");
+    assert_eq!(iface[4], 2); // 2 endpoints (Bulk OUT, Bulk IN)
+
+    // Check BOS descriptor has WebUSB platform capability
+    let bos = &bos_descriptor[..];
+    assert!(bos.len() >= 5);
+    assert_eq!(bos[0], 5); // bLength
+    assert_eq!(bos[1], 15); // BOS descriptor type
+    // Platform capability UUID present
+    assert!(bos.windows(16).any(|w| w
+        == [
+            0x38, 0xB6, 0x08, 0x34, 0xA9, 0x09, 0xA0, 0x47, 0x8B, 0xFD, 0xA0, 0x76, 0x88, 0x15, 0xB6, 0x65,
+        ]));
+
+    // Check MS OS 2.0 descriptor contains WINUSB
+    let msos = &msos_descriptor[..];
+    assert!(msos.windows(6).any(|w| w == b"WINUSB"));
+}
+
 struct RecordingHandler<'a> {
     iface: InterfaceNumber,
     calls: &'a Cell<u32>,
