@@ -7,8 +7,10 @@
 //! This module implements both the base USBTMC 1.0 specification and the USB488 subclass for
 //! IEEE 488.2 / SCPI instrument control.
 
+#[cfg(feature = "device")]
 pub mod device;
 pub mod types;
 
+#[cfg(feature = "device")]
 pub use device::*;
 pub use types::*;

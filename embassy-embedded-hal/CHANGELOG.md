@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - Implement `core::error::Error` for `I2cDeviceError` and `SpiDeviceError`
+- Fix `Partition` and `BlockingPartition` read/write bounds check overflowing on large offsets, which let accesses reach flash outside the partition
 
 ## 0.6.0 - 2026-03-10
 

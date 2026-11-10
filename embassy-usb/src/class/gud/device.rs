@@ -20,7 +20,7 @@ use heapless::Vec;
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointOut};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler};
+use crate::{Builder, Handler, InterfaceHandler};
 
 /// Vendor ID to use for the device so that the Linux GUD driver binds to it.
 pub const GUD_VENDOR_ID: u16 = 0x1d50;
@@ -1030,6 +1030,12 @@ impl<'d> Handler for Control<'d> {
     }
 }
 
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.iface
+    }
+}
+
 impl<'d, D: Driver<'d>> GudClass<'d, D> {
     /// Create a new GUD class. Adds one vendor-specific interface with one bulk
     /// OUT endpoint and registers the control handler.
@@ -1074,7 +1080,7 @@ impl<'d, D: Driver<'d>> GudClass<'d, D> {
         let read_ep = alt.endpoint_bulk_out(None, config.max_packet_size);
 
         drop(func);
-        builder.handler(state.control.write(Control {
+        builder.interface_handler(state.control.write(Control {
             iface: interface_number,
             config,
             shared: &state.shared,

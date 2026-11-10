@@ -197,11 +197,23 @@ pub enum TriggerPolarity {
     FallingEdge,
 }
 
-impl From<TriggerPolarity> for vals::Trigpol {
+// On chips with both controllers, channels use LPDMA's types and linked-list items GPDMA's.
+#[cfg(gpdma)]
+impl From<TriggerPolarity> for pac::gpdma::vals::Trigpol {
     fn from(value: TriggerPolarity) -> Self {
         match value {
-            TriggerPolarity::RisingEdge => vals::Trigpol::RisingEdge,
-            TriggerPolarity::FallingEdge => vals::Trigpol::FallingEdge,
+            TriggerPolarity::RisingEdge => Self::RisingEdge,
+            TriggerPolarity::FallingEdge => Self::FallingEdge,
+        }
+    }
+}
+
+#[cfg(lpdma)]
+impl From<TriggerPolarity> for pac::lpdma::vals::Trigpol {
+    fn from(value: TriggerPolarity) -> Self {
+        match value {
+            TriggerPolarity::RisingEdge => Self::RisingEdge,
+            TriggerPolarity::FallingEdge => Self::FallingEdge,
         }
     }
 }
@@ -220,16 +232,32 @@ pub enum TriggerMode {
     Burst,
 }
 
-impl From<TriggerMode> for vals::Trigm {
+#[cfg(gpdma)]
+impl From<TriggerMode> for pac::gpdma::vals::Trigm {
     fn from(value: TriggerMode) -> Self {
         match value {
-            TriggerMode::Block => vals::Trigm::Block,
-            TriggerMode::TwoDBlock => vals::Trigm::from_bits(1),
-            TriggerMode::LinkedListItem => vals::Trigm::LinkedListItem,
-            TriggerMode::Burst => vals::Trigm::Burst,
+            TriggerMode::Block => Self::Block,
+            TriggerMode::TwoDBlock => Self::from_bits(1),
+            TriggerMode::LinkedListItem => Self::LinkedListItem,
+            TriggerMode::Burst => Self::Burst,
         }
     }
 }
+
+#[cfg(lpdma)]
+impl From<TriggerMode> for pac::lpdma::vals::Trigm {
+    fn from(value: TriggerMode) -> Self {
+        match value {
+            TriggerMode::Block => Self::Block,
+            TriggerMode::TwoDBlock => Self::from_bits(1),
+            TriggerMode::LinkedListItem => Self::LinkedListItem,
+            TriggerMode::Burst => Self::Burst,
+        }
+    }
+}
+
+// `T` is the DMA controller whose trigger table the signal indexes.
+trigger_trait!(Trigger, crate::PeripheralType);
 
 /// Optional hardware trigger input for a GPDMA channel.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -241,6 +269,22 @@ pub struct TriggerConfig {
     pub polarity: TriggerPolarity,
     /// Trigger gating mode.
     pub mode: TriggerMode,
+}
+
+impl TriggerConfig {
+    /// A trigger from a typed source in controller `T`'s table, e.g.
+    /// `TriggerConfig::new::<peripherals::GPDMA1>(triggers::EXTI6_TRG, polarity, mode)`.
+    pub fn new<T: crate::PeripheralType>(
+        source: impl Trigger<T>,
+        polarity: TriggerPolarity,
+        mode: TriggerMode,
+    ) -> Self {
+        Self {
+            signal: source.signal(),
+            polarity,
+            mode,
+        }
+    }
 }
 
 /// GPDMA burst length (beats per burst on a port).
@@ -501,6 +545,8 @@ pub(crate) struct LLiState {
     index: AtomicUsize,
     /// The total transfer count of all linked-list items in number of words.
     transfer_count: AtomicUsize,
+    /// Items completed since the transfer was configured, wrapping.
+    completed: AtomicUsize,
 }
 
 pub(crate) struct ChannelState {
@@ -518,6 +564,7 @@ impl ChannelState {
             count: AtomicUsize::new(0),
             index: AtomicUsize::new(0),
             transfer_count: AtomicUsize::new(0),
+            completed: AtomicUsize::new(0),
         },
     };
 }
@@ -591,6 +638,7 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
         let complete = if lli_count > 0 {
             let next_lli_index = state.lli_state.index.load(Ordering::Acquire) + 1;
             let complete = next_lli_index >= lli_count;
+            state.lli_state.completed.fetch_add(1, Ordering::Release);
 
             state
                 .lli_state
@@ -613,6 +661,12 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
 impl<'d> Channel<'d> {
     fn info(&self) -> &'static super::ChannelInfo {
         super::info(self.channel)
+    }
+
+    /// The channel's destination address register, for interrupt handlers.
+    pub(crate) fn destination_register(&self) -> *const u32 {
+        let info = self.info();
+        info.dma.ch(info.num).dar().as_ptr() as *const u32
     }
 
     fn get_remaining_transfers(&self) -> u16 {
@@ -856,6 +910,7 @@ impl<'d> Channel<'d> {
         let state = &STATE[self.channel as usize];
         state.lli_state.count.store(item_count, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
+        state.lli_state.completed.store(0, Ordering::Relaxed);
         state
             .lli_state
             .transfer_count
@@ -1174,6 +1229,45 @@ impl<'a> LinkedListTransfer<'a> {
     /// it was requested to stop early with [`request_pause`](Self::request_pause).
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
+    }
+
+    /// Whether a trigger was lost because the previous one was still being served (`TOF`).
+    pub fn trigger_overrun(&self) -> bool {
+        let info = self.channel.info();
+        info.dma.ch(info.num).sr().read().tof()
+    }
+
+    /// Clear the trigger overrun flag.
+    pub fn clear_trigger_overrun(&self) {
+        let info = self.channel.info();
+        info.dma.ch(info.num).fcr().write(|w| w.set_tof(true));
+    }
+
+    /// Items completed since the transfer started, wrapping.
+    ///
+    /// Counted on transfer-complete interrupts: needs [`TransferOptions::complete_transfer_ir`]
+    /// and one per item, as linear items with [`TransferCompleteMode::EachBlock`] raise.
+    pub fn completed_items(&self) -> usize {
+        STATE[self.channel.channel as usize]
+            .lli_state
+            .completed
+            .load(Ordering::Acquire)
+    }
+
+    /// Wait until [`completed_items`](Self::completed_items) differs from `seen` or the transfer
+    /// stops. Returns the count.
+    pub async fn wait_completed_items(&mut self, seen: usize) -> usize {
+        core::future::poll_fn(|cx| {
+            // Register before reading, so a completion in between still wakes.
+            STATE[self.channel.channel as usize].waker.register(cx.waker());
+            let completed = self.completed_items();
+            if completed != seen || !self.is_running() {
+                Poll::Ready(completed)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
     }
 
     /// Gets the total remaining transfers for the channel

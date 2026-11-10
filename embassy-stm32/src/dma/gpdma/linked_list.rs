@@ -4,11 +4,11 @@
 #[cfg(gpdma)]
 use stm32_metapac::gpdma::regs;
 #[cfg(gpdma)]
-use stm32_metapac::gpdma::vals::Dreq;
+use stm32_metapac::gpdma::vals::{Dreq, Swreq};
 #[cfg(not(gpdma))]
 use stm32_metapac::lpdma::regs;
 #[cfg(not(gpdma))]
-use stm32_metapac::lpdma::vals::Dreq;
+use stm32_metapac::lpdma::vals::{Dreq, Swreq};
 
 use crate::dma::word::{Word, WordSize};
 use crate::dma::{Dir, Request};
@@ -31,12 +31,17 @@ pub enum RunMode {
 pub struct ItemConfig {
     /// Transfer complete event mode for this item.
     pub transfer_complete_mode: super::TransferCompleteMode,
+    /// Hardware trigger for this item. Default `None`.
+    ///
+    /// [`TransferOptions::trigger`](super::TransferOptions) does not apply to linked-list items.
+    pub trigger: Option<super::TriggerConfig>,
 }
 
 impl Default for ItemConfig {
     fn default() -> Self {
         Self {
             transfer_complete_mode: super::TransferCompleteMode::EachBlock,
+            trigger: None,
         }
     }
 }
@@ -106,7 +111,8 @@ pub struct Item {
 }
 
 impl Item {
-    /// Build a new item from raw transfer parameters.
+    /// Build a new item from raw transfer parameters. `incr_mem` and `incr_peri` increment the
+    /// `mem_addr` and `peri_addr` sides; memory-to-memory copies from `mem_addr` to `peri_addr`.
     ///
     /// # Safety
     /// The caller must ensure `peri_addr` and `mem_addr` are valid for the transfer.
@@ -118,6 +124,7 @@ impl Item {
         mem_addr: *mut u32,
         mem_len: usize,
         incr_mem: bool,
+        incr_peri: bool,
         data_size: WordSize,
         dst_size: WordSize,
     ) -> Self {
@@ -131,36 +138,36 @@ impl Item {
         let mut tr1 = regs::ChTr1(0);
         tr1.set_sdw(data_size.into());
         tr1.set_ddw(dst_size.into());
-        tr1.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
-        tr1.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+        // Memory-to-memory: from `mem_addr` to `peri_addr`, software-requested.
+        let from_mem = dir != Dir::PeripheralToMemory;
+        let (incr_src, incr_dst) = if from_mem {
+            (incr_mem, incr_peri)
+        } else {
+            (incr_peri, incr_mem)
+        };
+        tr1.set_sinc(incr_src);
+        tr1.set_dinc(incr_dst);
 
         #[cfg(gpdma)]
         {
             use stm32_metapac::gpdma::vals::Ap;
-            tr1.set_sap(match dir {
-                Dir::MemoryToPeripheral => Ap::Port0,
-                Dir::PeripheralToMemory => Ap::Port1,
-                Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
-            });
-            tr1.set_dap(match dir {
-                Dir::MemoryToPeripheral => Ap::Port1,
-                Dir::PeripheralToMemory => Ap::Port0,
-                Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
-            });
+            // `peri_addr` is usually a register.
+            tr1.set_sap(if from_mem { Ap::Port0 } else { Ap::Port1 });
+            tr1.set_dap(if from_mem { Ap::Port1 } else { Ap::Port0 });
         }
 
         let mut tr2 = regs::ChTr2(0);
-        tr2.set_dreq(match dir {
-            Dir::MemoryToPeripheral => Dreq::DestinationPeripheral,
-            Dir::PeripheralToMemory => Dreq::SourcePeripheral,
-            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
-        });
+        match dir {
+            Dir::MemoryToPeripheral => tr2.set_dreq(Dreq::DestinationPeripheral),
+            Dir::PeripheralToMemory => tr2.set_dreq(Dreq::SourcePeripheral),
+            Dir::MemoryToMemory => tr2.set_swreq(Swreq::Software),
+        }
         tr2.set_reqsel(request);
 
-        let (sar, dar) = match dir {
-            Dir::MemoryToPeripheral => (mem_addr as _, peri_addr as _),
-            Dir::PeripheralToMemory => (peri_addr as _, mem_addr as _),
-            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
+        let (sar, dar) = if from_mem {
+            (mem_addr as _, peri_addr as _)
+        } else {
+            (peri_addr as _, mem_addr as _)
         };
 
         Self {
@@ -177,6 +184,11 @@ impl Item {
     /// This is the single place to expand when new common config fields are added.
     pub(super) fn apply_config(&mut self, config: &ItemConfig) {
         self.tr2.set_tcem(config.transfer_complete_mode.into());
+        if let Some(trigger) = config.trigger {
+            self.tr2.set_trigsel(trigger.signal);
+            self.tr2.set_trigpol(trigger.polarity.into());
+            self.tr2.set_trigm(trigger.mode.into());
+        }
     }
 
     /// The item's transfer count in number of destination words.
@@ -216,6 +228,7 @@ impl LinkedListItem for LinearItem {
             buf as *mut [MW] as *mut MW as *mut u32,
             buf.len(),
             true,
+            false,
             PW::size(),
             MW::size(),
             config,
@@ -235,6 +248,7 @@ impl LinkedListItem for LinearItem {
             buf as *const [MW] as *const MW as *mut u32,
             buf.len(),
             true,
+            false,
             MW::size(),
             PW::size(),
             config,
@@ -267,6 +281,36 @@ impl LinkedListItem for LinearItem {
 }
 
 impl LinearItem {
+    /// Create a software-requested (`SWREQ`) memory-to-memory item: `len` words from `src` to
+    /// `dst`. Each side's address increments if asked: both for a copy between buffers, only
+    /// the source to write a buffer into a register, only the destination to fill a buffer.
+    ///
+    /// It runs when loaded, or on its trigger ([`ItemConfig::trigger`]).
+    ///
+    /// # Safety
+    /// The caller must ensure `src` and `dst` remain valid for the transfer duration.
+    pub unsafe fn new_copy<W: Word>(
+        src: *const W,
+        dst: *mut W,
+        len: usize,
+        incr_src: bool,
+        incr_dst: bool,
+        config: ItemConfig,
+    ) -> Self {
+        Self::new_inner(
+            Request::default(),
+            Dir::MemoryToMemory,
+            dst as *const u32,
+            src as *mut u32,
+            len,
+            incr_src,
+            incr_dst,
+            W::size(),
+            W::size(),
+            config,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     unsafe fn new_inner(
         request: Request,
@@ -275,12 +319,13 @@ impl LinearItem {
         mem_addr: *mut u32,
         mem_len: usize,
         incr_mem: bool,
+        incr_peri: bool,
         data_size: WordSize,
         dst_size: WordSize,
         config: ItemConfig,
     ) -> Self {
         let mut item = Item::new(
-            request, dir, peri_addr, mem_addr, mem_len, incr_mem, data_size, dst_size,
+            request, dir, peri_addr, mem_addr, mem_len, incr_mem, incr_peri, data_size, dst_size,
         );
         item.apply_config(&config);
 

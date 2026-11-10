@@ -8,8 +8,25 @@ use core::marker::PhantomData;
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator};
 use heapless::Vec;
 
-use crate::class::midi::{MAX_MIDI_JACKS, MidiPacket, MidiPacketError, MidiPacketReader};
+use crate::class::midi::{
+    MAX_MIDI_JACKS, MidiPacket, MidiPacketError, MidiPacketReader, USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS,
+};
+use crate::host::class::ClassMatch;
+use crate::host::descriptor::{ClassCode, InterfaceDescriptor};
 use crate::host::handler::EnumerationInfo;
+
+/// Matcher for the MIDI streaming interface.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct MidiMatcher;
+
+impl ClassMatch for MidiMatcher {
+    const NAME: &'static str = "MIDI";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS, 0));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == USB_AUDIO_CLASS && iface.interface_subclass == USB_MIDISTREAMING_SUBCLASS
+    }
+}
 
 mod descriptors;
 mod transport;

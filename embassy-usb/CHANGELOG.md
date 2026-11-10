@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add per-class Cargo features (`class-<name>`) and independent `device`/`host` role features. The default features are `device`, `host`, and `class-all`, preserving the previous full-class build
+- Make `embassy-net-driver-channel`, `embassy-time`, and `embedded-io-async` optional; they are now pulled only by the features that use them
+- **Breaking:** with `default-features = false`, `embassy_usb::device`, `embassy_usb::descriptor`, and `embassy_usb::host` are only available when the `device` or `host` feature is enabled, and each class requires its `class-<name>` feature
+- `VCP`: `class-vcp` enables `class-cdc-acm`, because the CP210x driver reuses the CDC ACM line coding types
+- Add `host::class::{ClassError, HostClass}` and `host::descriptor::{ClassCode, ClassMatch, InterfaceAssociationDescriptor}`; add `ConfigurationDescriptorChain::{find_interface, find_interfaces, find_iad_group}`
+- Add the `embedded-io` feature, which implements `embedded_io_async::Error` for `ClassError`; `class-cdc-acm` and `class-vcp` enable it
+- `CDC-ACM`: Host driver implements `HostClass` through the new `CdcAcmMatcher`; `CdcAcmInfo` is now `Copy` and `CdcAcmHost::new_with_info` opens from an already-probed info
+- Add `InterfaceHandler` and `Builder::{interface_handler, try_interface_handler}`, with `HandlerFull` for fallible registration; interface- and endpoint-recipient control requests are routed only to the owning handler
+- `CDC-ACM`, `HID`, `MSC`: Device classes now register through `interface_handler`
+- `CCID`, `BTH`, `CDC-NCM`, `CMSIS-DAP v2`, `GUD`, `USBTMC`, `UVC`: Device classes now register through `interface_handler`
+- `HID`, `MSC`, `CCID`, `GIP`: Host drivers implement `HostClass`; add `HidMatcher`, `MscMatcher`, `CcidMatcher`, and `GipMatcher`, and make their info types `Copy`
+- Add `MidiMatcher`, `UacMatcher`, `Cp210xMatcher`, and `HubMatcher`
+- Add the `test-utils` feature with `MockHost`, `MockState`, loopback pipes, `CDC_ACM_CONFIG`, and `enumeration_info`; add a CDC ACM host loopback test
+
 - `HID`: Notify `RequestHandler::reset()` on USB bus reset, allowing handlers to restore default Report protocol mode
 
 - Fix full-speed isochronous `bInterval` encoding to use exponential format ($2^{bInterval-1}$ frames) per USB 2.0 §9.6.6 instead of linear milliseconds.

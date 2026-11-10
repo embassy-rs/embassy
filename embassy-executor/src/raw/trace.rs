@@ -162,6 +162,10 @@ unitrait::unitrait! {
         /// This callback is called AFTER the name of a task is set.
         ///
         /// This function can be called when the task is not running and it does not signal a state change.
+        ///
+        /// The default name from `#[task]` and `#[main]` is set when the task is initialized,
+        /// without this callback: read it with `task.metadata().name()` in
+        /// [`task_new`](Self::task_new).
         fn task_name_set(task: TaskRef, name: &'static str);
 
         /// This callback is called AFTER the priority of a task is set.

@@ -45,7 +45,8 @@ use super::bot::CBW_FLAG_IN;
 use super::scsi::*;
 pub use super::{SenseData, SenseKey};
 use super::{USB_CLASS_MSC, USB_PROTOCOL_BULK_ONLY, USB_SUBCLASS_SCSI_TRANSPARENT};
-use crate::host::descriptor::ConfigurationDescriptorChain;
+use crate::host::class::{ClassError, HostClass};
+use crate::host::descriptor::{ClassCode, ClassMatch, ConfigurationDescriptorChain, InterfaceDescriptor};
 use crate::host::handler::EnumerationInfo;
 
 mod lun;
@@ -253,6 +254,25 @@ pub struct MscInfo {
     pub bulk_out_ep: u8,
     /// Bulk OUT max packet size.
     pub bulk_out_mps: u16,
+}
+
+/// Matcher for the SCSI transparent / Bulk-Only Transport interface.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct MscMatcher;
+
+impl ClassMatch for MscMatcher {
+    const NAME: &'static str = "MSC";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(
+        USB_CLASS_MSC,
+        USB_SUBCLASS_SCSI_TRANSPARENT,
+        USB_PROTOCOL_BULK_ONLY,
+    ));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == USB_CLASS_MSC
+            && iface.interface_subclass == USB_SUBCLASS_SCSI_TRANSPARENT
+            && iface.interface_protocol == USB_PROTOCOL_BULK_ONLY
+    }
 }
 
 /// Locate the first SCSI/BBB interface in `config_desc`.
@@ -477,6 +497,31 @@ where
         t.mass_storage_reset().await?;
         t.dirty = false;
         Ok(())
+    }
+}
+
+impl From<MscError> for ClassError {
+    fn from(e: MscError) -> Self {
+        match e {
+            MscError::Transfer(e) => Self::Transfer(e),
+            MscError::NoInterface => Self::NoMatch,
+            MscError::NoPipe => Self::NoPipe,
+            MscError::InvalidResponse => Self::InvalidResponse,
+            _ => Self::Unsupported("MSC error"),
+        }
+    }
+}
+
+impl<'d, A: UsbHostAllocator<'d>> HostClass<'d, A> for MscDevice<'d, A> {
+    const NAME: &'static str = "MSC";
+    type Info = MscInfo;
+
+    fn probe(_enum_info: &EnumerationInfo, cfg: &[u8]) -> Option<Self::Info> {
+        find_msc(cfg)
+    }
+
+    async fn open(alloc: &A, cfg: &[u8], _info: Self::Info, enum_info: &EnumerationInfo) -> Result<Self, ClassError> {
+        Self::new(alloc, enum_info, cfg).await.map_err(Into::into)
     }
 }
 

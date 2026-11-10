@@ -172,6 +172,151 @@ pub trait Handler {
     fn get_descriptor_requested(&mut self, _descriptor_type: u8, _index: u8, _wlength: u16) {}
 }
 
+/// A [`Handler`] that owns one or more USB interfaces.
+///
+/// The device stack routes interface-recipient control requests only to
+/// handlers that claim the addressed interface, and endpoint-recipient
+/// requests only to handlers that claim the endpoint.
+pub trait InterfaceHandler: Handler {
+    /// Return true when this handler owns `iface`.
+    fn owns(&self, iface: InterfaceNumber) -> bool;
+
+    /// Return true when this handler owns `ep` for endpoint-recipient requests.
+    ///
+    /// Most classes do not handle endpoint-recipient requests and can keep the
+    /// default `false`.
+    fn owns_endpoint(&self, _ep: EndpointAddress) -> bool {
+        false
+    }
+}
+
+/// Error returned by fallible handler registration.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct HandlerFull;
+
+impl core::fmt::Display for HandlerFull {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "handler list full")
+    }
+}
+
+impl core::error::Error for HandlerFull {}
+
+/// Internal storage for raw and routed handlers.
+pub(crate) enum HandlerSlot<'d> {
+    Raw(&'d mut dyn Handler),
+    Routed(RoutedHandler<'d>),
+}
+
+impl<'d> HandlerSlot<'d> {
+    pub(crate) fn raw(handler: &'d mut dyn Handler) -> Self {
+        Self::Raw(handler)
+    }
+
+    pub(crate) fn routed(handler: &'d mut dyn InterfaceHandler) -> Self {
+        Self::Routed(RoutedHandler { inner: handler })
+    }
+}
+
+impl<'d> core::ops::Deref for HandlerSlot<'d> {
+    type Target = dyn Handler + 'd;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Raw(handler) => &**handler,
+            Self::Routed(handler) => handler,
+        }
+    }
+}
+
+impl<'d> core::ops::DerefMut for HandlerSlot<'d> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Raw(handler) => &mut **handler,
+            Self::Routed(handler) => handler,
+        }
+    }
+}
+
+pub(crate) struct RoutedHandler<'d> {
+    inner: &'d mut dyn InterfaceHandler,
+}
+
+impl RoutedHandler<'_> {
+    fn owns_request(&self, req: &Request) -> bool {
+        match req.recipient {
+            Recipient::Interface => self.inner.owns(InterfaceNumber::new(req.index as u8)),
+            Recipient::Endpoint => {
+                let direction = if req.index & 0x80 != 0 {
+                    Direction::In
+                } else {
+                    Direction::Out
+                };
+                self.inner
+                    .owns_endpoint(EndpointAddress::from_parts((req.index & 0x0f) as usize, direction))
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Handler for RoutedHandler<'_> {
+    fn enabled(&mut self, enabled: bool) {
+        self.inner.enabled(enabled)
+    }
+
+    fn reset(&mut self) {
+        self.inner.reset()
+    }
+
+    fn addressed(&mut self, addr: u8) {
+        self.inner.addressed(addr)
+    }
+
+    fn configured(&mut self, configured: bool) {
+        self.inner.configured(configured)
+    }
+
+    fn suspended(&mut self, suspended: bool) {
+        self.inner.suspended(suspended)
+    }
+
+    fn remote_wakeup_enabled(&mut self, enabled: bool) {
+        self.inner.remote_wakeup_enabled(enabled)
+    }
+
+    fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
+        if self.inner.owns(iface) {
+            self.inner.set_alternate_setting(iface, alternate_setting);
+        }
+    }
+
+    fn control_out(&mut self, req: Request, data: &[u8]) -> Option<OutResponse> {
+        if self.owns_request(&req) {
+            self.inner.control_out(req, data)
+        } else {
+            None
+        }
+    }
+
+    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> Option<InResponse<'a>> {
+        if self.owns_request(&req) {
+            self.inner.control_in(req, buf)
+        } else {
+            None
+        }
+    }
+
+    fn get_string(&mut self, index: StringIndex, lang_id: u16) -> Option<&str> {
+        self.inner.get_string(index, lang_id)
+    }
+
+    fn get_descriptor_requested(&mut self, descriptor_type: u8, index: u8, wlength: u16) {
+        self.inner.get_descriptor_requested(descriptor_type, index, wlength)
+    }
+}
+
 struct Interface {
     current_alt_setting: u8,
     num_alt_settings: u8,
@@ -222,7 +367,7 @@ struct Inner<'d, D: Driver<'d>> {
     set_address_pending: bool,
 
     interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
-    handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
+    handlers: Vec<HandlerSlot<'d>, MAX_HANDLER_COUNT>,
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {

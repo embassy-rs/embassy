@@ -1,9 +1,15 @@
 //! Mass storage (MSC) class.
 
+// `bot` and `scsi` contain both device-side encoders and host-side parsers.
+// Whichever role is disabled leaves the other role's helpers unused.
+#[allow(dead_code)]
 pub(crate) mod bot;
+#[allow(dead_code)]
 mod scsi;
 
+#[cfg(feature = "device")]
 pub mod device;
+#[cfg(feature = "host")]
 pub mod host;
 
 pub use scsi::{SenseData, SenseKey};

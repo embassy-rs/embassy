@@ -28,6 +28,8 @@ RCC:
 - fix: stm32/rcc g0: enable the flash prefetch after setting the latency; with 2 wait states at 64 MHz and prefetch off code ran 8-16% slower.
 - fix: stm32/rcc g0: keep the flash prefetch off on G0B0/G0B1/G0C1 while the flash runs dual-bank (ES0547 2.2.8, ES0548/ES0549 2.2.10, prefetch fails on branches across the banks); `rcc::Config::flash_prefetch = FlashPrefetch::IfCodeInOneBank` turns it on for an application whose code stays in one bank.
 - feat: stm32/rcc u5: backup SRAM
+- feat: stm32/rcc: add `rcc::reset_flags()` to read what caused the last reset.
+- change: stm32/rcc h7: remove `rcc::ResetReason`, use `rcc::reset_flags()` instead (breaking change).
 
 LPTIM:
 - fix: stm32/lptim: a period whose tick count is at least 65536 no longer panics when rounding the divider up to a power of two still leaves the reload above 65535. The prescaler is the smallest of /1, /2, ..., /128 for which the reload fits in 16 bits. A period that does not fit even at /128 still panics.
@@ -171,6 +173,10 @@ DMA:
 - feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
 - feat: stm32/dma: add `TwoDItem`, `TwoDConfig`, and `LinkedListItem` trait; `Table` is now generic over item type
 - fix: stm32/dma: GPDMA: panic when a linked-list `Table` straddles a 64 KiB boundary
+- feat: stm32/dma: GPDMA: per-item hardware triggers (`ItemConfig::trigger`)
+- feat: stm32/dma: GPDMA: memory-to-memory linked-list items (`LinearItem::new_copy`), software-requested
+- feat: stm32/dma: GPDMA: `LinkedListTransfer::trigger_overrun` and `clear_trigger_overrun`
+- feat: stm32/dma: GPDMA: `LinkedListTransfer::completed_items` and `wait_completed_items`
 
 I2S:
 - feat: stm32/i2s: add `I2S::rx_len()` returning the number of samples buffered in the RX DMA ring buffer
@@ -243,6 +249,7 @@ RCC:
 - fix: stm32/rcc/c0: raise the flash read access latency before anything that can raise the core frequency, so a configuration handed over from a bootloader without a reset cannot run above 24 MHz with too few wait states
 - fix: stm32/rcc/l: set the maximum flash latency before raising the MSI range, so MSI above the reset wait-state limit (e.g. 48 MHz) as sysclk no longer hardfaults in `init()` on L4, L5, WB and U0 (extends the WL-only fix from #2786; L0/L1 are unaffected, their MSI tops out at 4.194 MHz)
 - fix: stm32/rcc/f247: report correct PLL output frequencies when the source clock is not evenly divisible by the PLL input divisor
+- feat: stm32 u5/u3/wba: `Config::enable_io_compensation`
 
 SPI:
 - change: stm32/spi: `Config::frequency` is the highest SCK frequency. The driver selects the fastest SCK that does not exceed it, for the constructors and `set_config` alike; it used to round to the nearest divider (up to 50% above the request) with a special case at the /32 to /64 boundary. A request at or above half the kernel clock now gets half the kernel clock instead of `FrequencyTooHigh` (above the kernel clock) or a panic in the constructors. A request below the kernel clock / 256 returns the new `ConfigError::FrequencyTooLow` from `set_config`, which then leaves the driver unchanged, and panics in the constructors; it used to run at the kernel clock / 256, above the request.
@@ -273,6 +280,7 @@ SDMMC:
 
 Watchdog:
 - fix: stm32/wdg: an `IndependentWatchdog` timeout shorter than one prescaled LSI tick (125 us with a 32 kHz LSI) made the reload value underflow, which panics in debug builds and in release wraps to the longest timeout (512 ms). It now gets the shortest timeout instead.
+- feat: stm32: `Config::freeze_iwdg_when_halted`, stops the IWDG while a debugger halts the core
 
 EXTI:
 - feat: stm32/exti: `ExtiInput::enable_event`, `disable_event` and `line`, for EXTI events
@@ -316,7 +324,7 @@ DAC:
 - feat: stm32/dac: add HRTIM DAC triggers
 - feat: stm32/dac: type-erase DAC
 - feat: stm32/dac: add trigger trait impl
-- feat: stm32/dac: add DAC v9 (STM32C5) support. DMA, triggered output, and ring-buffered output have not been hardware tested.
+- feat: stm32/dac: add DAC v9 (STM32C5) support
 
 OPAMP:
 - feat: stm32/opamp: allow VINM0 as bias input

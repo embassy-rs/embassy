@@ -1,6 +1,9 @@
 use heapless::Vec;
 
-use super::{Handler, Inner, Interface, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START, UsbDevice, UsbDeviceState};
+use super::{
+    Handler, HandlerFull, HandlerSlot, Inner, Interface, InterfaceHandler, MAX_INTERFACE_COUNT,
+    STRING_INDEX_CUSTOM_START, UsbDevice, UsbDeviceState,
+};
 use crate::config::MAX_HANDLER_COUNT;
 use crate::descriptor::{self, BosWriter, DescriptorWriter, EndpointInterval, SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointInfo, EndpointType};
@@ -167,7 +170,7 @@ pub(crate) struct OtherSpeedPatch {
 /// [`UsbDevice`] builder.
 pub struct Builder<'d, D: Driver<'d>> {
     config: Config<'d>,
-    handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
+    handlers: Vec<HandlerSlot<'d>, MAX_HANDLER_COUNT>,
     interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
     control_buf: &'d mut [u8],
 
@@ -377,16 +380,48 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         }
     }
 
-    /// Add a Handler.
+    /// Add a raw [`Handler`].
     ///
-    /// The Handler is called on some USB bus events, and to handle all control requests not already
-    /// handled by the USB stack.
+    /// The handler is called on USB bus events and for every control request
+    /// that reaches application handlers.
+    ///
+    /// Panics if `max_handler_count` is exhausted. Use
+    /// [`try_handler`](Self::try_handler) for a fallible version.
     pub fn handler(&mut self, handler: &'d mut dyn Handler) {
-        assert!(
-            self.handlers.push(handler).is_ok(),
-            "embassy-usb: handler list full. Increase the `max_handler_count` compile-time setting. Current value: {}",
-            MAX_HANDLER_COUNT
-        );
+        if self.try_handler(handler).is_err() {
+            panic!(
+                "embassy-usb: handler list full. Increase the `max_handler_count` compile-time setting. Current value: {}",
+                MAX_HANDLER_COUNT
+            );
+        }
+    }
+
+    /// Fallible variant of [`handler`](Self::handler).
+    pub fn try_handler(&mut self, handler: &'d mut dyn Handler) -> Result<(), HandlerFull> {
+        self.handlers.push(HandlerSlot::raw(handler)).map_err(|_| HandlerFull)
+    }
+
+    /// Add an [`InterfaceHandler`].
+    ///
+    /// Unlike [`handler`](Self::handler), the handler only receives control
+    /// requests addressed to interfaces it owns.
+    ///
+    /// Panics if `max_handler_count` is exhausted. Use
+    /// [`try_interface_handler`](Self::try_interface_handler) for a fallible version.
+    pub fn interface_handler(&mut self, handler: &'d mut dyn InterfaceHandler) {
+        if self.try_interface_handler(handler).is_err() {
+            panic!(
+                "embassy-usb: handler list full. Increase the `max_handler_count` compile-time setting. Current value: {}",
+                MAX_HANDLER_COUNT
+            );
+        }
+    }
+
+    /// Fallible variant of [`interface_handler`](Self::interface_handler).
+    pub fn try_interface_handler(&mut self, handler: &'d mut dyn InterfaceHandler) -> Result<(), HandlerFull> {
+        self.handlers
+            .push(HandlerSlot::routed(handler))
+            .map_err(|_| HandlerFull)
     }
 
     /// Allocates a new string index.

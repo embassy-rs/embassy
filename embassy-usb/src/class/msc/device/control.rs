@@ -6,9 +6,9 @@ use core::mem::MaybeUninit;
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 
 use super::super::{BOT_REQ_GET_MAX_LUN, BOT_REQ_RESET};
-use crate::Handler;
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::types::InterfaceNumber;
+use crate::{Handler, InterfaceHandler};
 
 /// Internal state for the MSC class.
 pub struct State<'a> {
@@ -70,5 +70,11 @@ impl<'a> Handler for Control<'a> {
             BOT_REQ_GET_MAX_LUN => Some(InResponse::Rejected),
             _ => Some(InResponse::Rejected),
         }
+    }
+}
+
+impl<'a> InterfaceHandler for Control<'a> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.interface
     }
 }

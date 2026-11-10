@@ -9,7 +9,7 @@ Async USB device and host stack for embedded devices in Rust.
 - Suspend/resume, remote wakeup.
 - USB composite devices.
 - Ergonomic descriptor builder.
-- Ready-to-use implementations for a few USB classes (note you can still implement any class yourself outside the crate).
+- Ready-to-use implementations for common USB classes (note you can still implement any class yourself outside the crate). See [Class features](#class-features) for the full list and role support.
     - Serial ports (CDC ACM)
     - Ethernet (CDC NCM)
     - Human Interface Devices (HID)
@@ -20,6 +20,59 @@ Async USB device and host stack for embedded devices in Rust.
 
 The [`host`](https://docs.embassy.dev/embassy-usb/git/default/host/index.html) module provides USB host enumeration,
 descriptor parsing, and class drivers for devices including HID, CDC ACM, mass storage, MIDI, and USB Audio Class.
+
+## Class features
+
+Every class driver is behind its own Cargo feature, and each submodule is gated by the
+role it belongs to:
+
+- `device` — the device stack (`UsbDevice`, `Builder`, `Handler`, and class `device` modules).
+- `host` — the host stack (`host` and class `host` modules).
+- `class-all` — every class driver listed below. It is enabled by default.
+- `class-<name>` — one class driver, for example `class-cdc-acm` or `class-hid`.
+- `embedded-io` — the `embedded-io-async` trait implementations and the `ClassError`
+  mapping. Enabled by `class-cdc-acm` and `class-vcp`.
+- `test-utils` — mock host allocator, loopback pipes, and golden descriptors for downstream
+  class tests. Implies `host`.
+
+| Feature | Device | Host |
+|---------|--------|------|
+| `class-bth` | yes | no |
+| `class-ccid` | yes | yes |
+| `class-cdc-acm` | yes | yes |
+| `class-cdc-ncm` | yes | no |
+| `class-cmsis-dap-v2` | yes | no |
+| `class-dfu` | yes | no |
+| `class-gip` | no | yes |
+| `class-gud` | yes | no |
+| `class-hid` | yes | yes |
+| `class-hub` | no | yes |
+| `class-midi` | yes | yes |
+| `class-msc` | yes | yes |
+| `class-uac` | yes | yes |
+| `class-usbtmc` | yes | no |
+| `class-uvc` | yes | no |
+| `class-vcp` | no | yes |
+| `class-web-usb` | yes | no |
+
+`class-vcp` also enables `class-cdc-acm`, because the CP210x driver reuses the CDC ACM line
+coding types.
+
+The default features are `device`, `host`, and `class-all`, so existing users keep the full
+class set. For a minimal build, disable default features and select only what you need:
+
+```toml
+[dependencies]
+embassy-usb = { version = "0.6", default-features = false, features = ["device", "class-cdc-acm"] }
+```
+
+A class that can be built for both roles needs at least one of `device` or `host`; enabling
+it without either is a compile error. Device-only and host-only class features enable their
+role automatically.
+
+Device classes that own interfaces can register with `Builder::interface_handler` instead of
+`Builder::handler`. Interface- and endpoint-recipient control requests are then delivered only
+to the owning handler. CDC ACM, HID, and MSC already use this path.
 
 ## Adding support for new hardware
 
