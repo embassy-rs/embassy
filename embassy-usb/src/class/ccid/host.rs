@@ -8,13 +8,14 @@ use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInf
 
 use super::types::*;
 pub use super::types::{CardState, SlotStatus};
-use crate::host::descriptor::ConfigurationDescriptorChain;
+use crate::host::class::{ClassError, HostClass};
+use crate::host::descriptor::{ClassCode, ClassMatch, ConfigurationDescriptorChain, InterfaceDescriptor};
 use crate::host::handler::EnumerationInfo;
 
 const TRANSFER_BULK: u8 = 0x02;
 
 /// CCID interface and endpoint information.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CcidInfo {
     /// CCID interface number.
@@ -26,6 +27,19 @@ pub struct CcidInfo {
     /// Number of card slots the reader exposes, from `bMaxSlotIndex + 1`. One when
     /// the interface has no CCID functional descriptor.
     pub slots: u8,
+}
+
+/// Matcher for the standard CCID interface class.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct CcidMatcher;
+
+impl ClassMatch for CcidMatcher {
+    const NAME: &'static str = "CCID";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(USB_CLASS_CCID, 0, 0));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == USB_CLASS_CCID
+    }
 }
 
 /// Find the first CCID interface with bulk IN and OUT endpoints.
@@ -264,6 +278,31 @@ impl<'d, A: UsbHostAllocator<'d>> CcidHost<'d, A> {
         }
         response[..payload_len].copy_from_slice(&message[HEADER_LEN..HEADER_LEN + payload_len]);
         Ok(payload_len)
+    }
+}
+
+impl From<CcidError> for ClassError {
+    fn from(e: CcidError) -> Self {
+        match e {
+            CcidError::Transfer(e) => Self::Transfer(e),
+            CcidError::NoInterface => Self::NoMatch,
+            CcidError::NoPipe => Self::NoPipe,
+            CcidError::InvalidResponse => Self::InvalidResponse,
+            _ => Self::Unsupported("CCID error"),
+        }
+    }
+}
+
+impl<'d, A: UsbHostAllocator<'d>> HostClass<'d, A> for CcidHost<'d, A> {
+    const NAME: &'static str = "CCID";
+    type Info = CcidInfo;
+
+    fn probe(_enum_info: &EnumerationInfo, cfg: &[u8]) -> Option<Self::Info> {
+        find_ccid(cfg)
+    }
+
+    async fn open(alloc: &A, cfg: &[u8], _info: Self::Info, enum_info: &EnumerationInfo) -> Result<Self, ClassError> {
+        Self::new(alloc, cfg, enum_info).map_err(Into::into)
     }
 }
 
