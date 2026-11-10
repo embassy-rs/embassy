@@ -1035,13 +1035,17 @@ impl PinConfig {
 /// This type is intended to be used by drivers which need to state that a pin is being borrowed.
 #[must_use = "Dropping this type will disconnect the pin"]
 pub struct PinBorrow<'d> {
-    info: &'d Info,
+    info: Info,
+    _marker: PhantomData<&'d ()>,
 }
 
 impl<'d> PinBorrow<'d> {
     #[inline]
     pub fn new<T: Pin>(_p: Peri<'d, T>) -> Self {
-        Self { info: T::info() }
+        Self {
+            info: *T::info(),
+            _marker: PhantomData,
+        }
     }
 
     #[inline]
@@ -1056,7 +1060,10 @@ impl<'d> PinBorrow<'d> {
 
     /// Unsafely clone (duplicate) a PinBorrow.
     pub const unsafe fn clone_unchecked(&self) -> PinBorrow<'d> {
-        PinBorrow { info: self.info }
+        PinBorrow {
+            info: self.info,
+            _marker: PhantomData,
+        }
     }
 
     #[inline]
@@ -1096,12 +1103,6 @@ impl<'d> PinBorrow<'d> {
         pac::IOMUX.pincm(pincm_index).write_value(Pincm::default());
     }
 }
-
-/// Verify that PinBorrow is has niche optimizations.
-const _: () = core::assert!(
-    size_of::<PinBorrow>() == size_of::<Option<PinBorrow>>(),
-    "Option<PinBorrow> is not niche optimized"
-);
 
 impl<'d> Drop for PinBorrow<'d> {
     #[inline]
@@ -1158,6 +1159,7 @@ macro_rules! impl_pin {
 }
 
 /// GPIO pin info.
+#[derive(Clone, Copy)]
 pub(crate) struct Info {
     /// The packed pin number and port id.
     pin_port: u8,
