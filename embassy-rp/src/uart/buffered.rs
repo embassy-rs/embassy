@@ -61,15 +61,15 @@ pub struct BufferedUartTx<'d> {
 pub(super) fn init_buffers<'d>(
     info: &Info,
     state: &State,
-    tx_buffer: Option<&'d mut [u8]>,
-    rx_buffer: Option<&'d mut [u8]>,
+    mut tx_buffer: Option<&'d mut [u8]>,
+    mut rx_buffer: Option<&'d mut [u8]>,
 ) {
-    if let Some(tx_buffer) = tx_buffer {
+    if let Some(tx_buffer) = &mut tx_buffer {
         let len = tx_buffer.len();
         unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
     }
 
-    if let Some(rx_buffer) = rx_buffer {
+    if let Some(rx_buffer) = &mut rx_buffer {
         let len = rx_buffer.len();
         unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
     }
@@ -85,9 +85,9 @@ pub(super) fn init_buffers<'d>(
     // we clear it after it happens. The downside is that the we manually have
     // to pend the ISR when we want data transmission to start.
     info.regs.uartimsc().write(|w| {
-        w.set_rxim(true);
-        w.set_rtim(true);
-        w.set_txim(true);
+        w.set_rxim(rx_buffer.is_some());
+        w.set_rtim(rx_buffer.is_some());
+        w.set_txim(tx_buffer.is_some());
     });
 
     info.interrupt.unpend();

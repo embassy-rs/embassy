@@ -11,7 +11,7 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::UART0;
-use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Config, Error, Parity};
+use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx, Config, Error, Parity};
 use embassy_time::Timer;
 use embedded_io_async::{Read, ReadExactError, Write};
 use panic_probe as _;
@@ -275,6 +275,18 @@ async fn main(_spawner: Spawner) {
         );
         assert_eq!(read1::<1>(&mut uart).await.unwrap_err(), Error::Framing);
         assert_eq!(read1(&mut uart).await.unwrap(), [65]);
+    }
+
+    // test that Tx-only doesnt hang the core
+    info!("test Tx-only");
+    {
+        let config = Config::default();
+        let tx_buf = &mut [0u8; 16];
+        let mut uart = BufferedUartTx::new(uart.reborrow(), tx.reborrow(), Irqs, tx_buf, config);
+        uart.write_all(&[1, 2, 3, 4]).await.unwrap();
+        uart.flush().await.unwrap();
+        Timer::after_millis(10).await;
+        info!("Tx-only doesnt hang");
     }
 
     info!("Test OK");
