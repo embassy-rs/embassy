@@ -17,8 +17,7 @@
 //!   This is due to regex spaghetti: <https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-mainline-12.0.0_r84/core/res/res/values/config.xml#417>
 //!   and this nonsense in the linux kernel: <https://github.com/torvalds/linux/blob/c00c5e1d157bec0ef0b0b59aa5482eb8dc7e8e49/drivers/net/usb/usbnet.c#L1751-L1757>
 
-use core::mem::{MaybeUninit, size_of};
-use core::ptr::{addr_of, copy_nonoverlapping};
+use core::mem::MaybeUninit;
 
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
@@ -77,8 +76,6 @@ const ALTERNATE_SETTING_DISABLED: u8 = 0x00;
 const ALTERNATE_SETTING_ENABLED: u8 = 0x01;
 
 /// Simple NTB header (NTH+NDP all in one) for sending packets
-#[repr(C, packed)]
-#[allow(unused)]
 struct NtbOutHeader {
     // NTH
     nth_sig: u32,
@@ -97,8 +94,31 @@ struct NtbOutHeader {
     ndp_term2: u16,
 }
 
-#[repr(C, packed)]
-#[allow(unused)]
+impl NtbOutHeader {
+    /// The header as sent: each field little-endian, in declaration order.
+    fn to_le_bytes(&self) -> [u8; 28] {
+        let mut bytes = [0; 28];
+        let mut at = 0;
+        let mut put = |field: &[u8]| {
+            bytes[at..at + field.len()].copy_from_slice(field);
+            at += field.len();
+        };
+        put(&self.nth_sig.to_le_bytes());
+        put(&self.nth_len.to_le_bytes());
+        put(&self.nth_seq.to_le_bytes());
+        put(&self.nth_total_len.to_le_bytes());
+        put(&self.nth_first_index.to_le_bytes());
+        put(&self.ndp_sig.to_le_bytes());
+        put(&self.ndp_len.to_le_bytes());
+        put(&self.ndp_next_index.to_le_bytes());
+        put(&self.ndp_datagram_index.to_le_bytes());
+        put(&self.ndp_datagram_len.to_le_bytes());
+        put(&self.ndp_term1.to_le_bytes());
+        put(&self.ndp_term2.to_le_bytes());
+        bytes
+    }
+}
+
 struct NtbParameters {
     length: u16,
     formats_supported: u16,
@@ -106,20 +126,36 @@ struct NtbParameters {
     out_params: NtbParametersDir,
 }
 
-#[repr(C, packed)]
-#[allow(unused)]
+impl NtbParameters {
+    const LEN: usize = 28;
+
+    /// The NTB Parameter Structure (CDC NCM 1.0, §6.2.1): each field little-endian.
+    fn to_le_bytes(&self) -> [u8; Self::LEN] {
+        let mut bytes = [0; Self::LEN];
+        let mut at = 0;
+        let mut put = |field: &[u8]| {
+            bytes[at..at + field.len()].copy_from_slice(field);
+            at += field.len();
+        };
+        put(&self.length.to_le_bytes());
+        put(&self.formats_supported.to_le_bytes());
+        for dir in [&self.in_params, &self.out_params] {
+            put(&dir.max_size.to_le_bytes());
+            put(&dir.divisor.to_le_bytes());
+            put(&dir.payload_remainder.to_le_bytes());
+            put(&dir.out_alignment.to_le_bytes());
+            put(&dir.max_datagram_count.to_le_bytes());
+        }
+        bytes
+    }
+}
+
 struct NtbParametersDir {
     max_size: u32,
     divisor: u16,
     payload_remainder: u16,
     out_alignment: u16,
     max_datagram_count: u16,
-}
-
-fn byteify<T>(buf: &mut [u8], data: T) -> &[u8] {
-    let len = size_of::<T>();
-    unsafe { copy_nonoverlapping(addr_of!(data).cast(), buf.as_mut_ptr(), len) }
-    &buf[..len]
 }
 
 /// Internal state for the CDC-NCM class.
@@ -211,7 +247,7 @@ impl<'d> Handler for Control<'d> {
         match req.request {
             REQ_GET_NTB_PARAMETERS => {
                 let res = NtbParameters {
-                    length: size_of::<NtbParameters>() as _,
+                    length: NtbParameters::LEN as _,
                     formats_supported: 1, // only 16bit,
                     in_params: NtbParametersDir {
                         max_size: NTB_MAX_SIZE as _,
@@ -228,7 +264,13 @@ impl<'d> Handler for Control<'d> {
                         max_datagram_count: 1, // We only decode 1 packet per NTB
                     },
                 };
-                Some(InResponse::Accepted(byteify(buf, res)))
+                let bytes = res.to_le_bytes();
+                let Some(buf) = buf.get_mut(..bytes.len()) else {
+                    warn!("Control buffer too small for the NTB parameters.");
+                    return Some(InResponse::Rejected);
+                };
+                buf.copy_from_slice(&bytes);
+                Some(InResponse::Accepted(buf))
             }
             _ => Some(InResponse::Rejected),
         }
@@ -422,8 +464,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
 
         // Build first packet on a buffer, send next packets straight from `data`.
         let mut buf = [0; ABS_MAX_PACKET_SIZE];
-        let n = byteify(&mut buf, header);
-        assert_eq!(n.len(), OUT_HEADER_LEN);
+        buf[..OUT_HEADER_LEN].copy_from_slice(&header.to_le_bytes());
 
         if OUT_HEADER_LEN + data.len() < self.max_packet_size {
             // First packet is not full, just send it.
@@ -691,5 +732,70 @@ mod tests {
         block_on(receiver.wait_connection()).unwrap();
         // NetworkConnection, connected: wIndex is the communication interface (CDC 1.2 §6.3.1).
         assert_eq!(*sent.borrow(), [0xa1, 0x00, 0x01, 0x00, 2, 0x00, 0x00, 0x00]);
+    }
+
+    fn control<'a>(shared: &'a ControlShared) -> Control<'a> {
+        Control {
+            mac_addr_string: StringIndex(4),
+            shared,
+            mac_addr_str: [0; 12],
+            comm_if: InterfaceNumber(0),
+            data_if: InterfaceNumber(1),
+        }
+    }
+
+    // GET_NTB_PARAMETERS to the communication interface, wLength = 28.
+    const GET_NTB_PARAMETERS: [u8; 8] = [0xa1, REQ_GET_NTB_PARAMETERS, 0, 0, 0, 0, 28, 0];
+
+    #[test]
+    fn ntb_parameters_are_the_spec_structure_in_little_endian() {
+        let shared = ControlShared { mac_addr: [0; 6] };
+        let mut control = control(&shared);
+        let mut buf = [0; 64];
+        let Some(InResponse::Accepted(res)) = control.control_in(Request::parse(&GET_NTB_PARAMETERS), &mut buf) else {
+            panic!("rejected");
+        };
+        // CDC NCM 1.0 §6.2.1: wLength, bmNtbFormatsSupported, then the IN and OUT fields.
+        #[rustfmt::skip]
+        assert_eq!(res, [
+            28, 0, 1, 0,
+            0x00, 0x08, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
+            0x00, 0x08, 0, 0, 4, 0, 0, 0, 4, 0, 1, 0,
+        ]);
+    }
+
+    #[test]
+    fn ntb_parameters_never_write_past_a_short_control_buffer() {
+        // The application sizes the control buffer; one shorter than the 28-byte structure
+        // must be refused, not written past.
+        let shared = ControlShared { mac_addr: [0; 6] };
+        let mut control = control(&shared);
+        let mut storage = [0xaa; 64];
+        let res = control.control_in(Request::parse(&GET_NTB_PARAMETERS), &mut storage[..20]);
+        assert!(matches!(res, Some(InResponse::Rejected)));
+        assert!(storage[20..].iter().all(|&b| b == 0xaa));
+    }
+
+    #[test]
+    fn out_header_is_nth16_then_ndp16_in_little_endian() {
+        let header = NtbOutHeader {
+            nth_sig: SIG_NTH,
+            nth_len: 0x0c,
+            nth_seq: 0x0102,
+            nth_total_len: 28 + 60,
+            nth_first_index: 0x0c,
+            ndp_sig: SIG_NDP_NO_FCS,
+            ndp_len: 0x10,
+            ndp_next_index: 0,
+            ndp_datagram_index: 28,
+            ndp_datagram_len: 60,
+            ndp_term1: 0,
+            ndp_term2: 0,
+        };
+        #[rustfmt::skip]
+        assert_eq!(header.to_le_bytes(), [
+            b'N', b'C', b'M', b'H', 12, 0, 0x02, 0x01, 88, 0, 12, 0,
+            b'N', b'C', b'M', b'0', 16, 0, 0, 0, 28, 0, 60, 0, 0, 0, 0, 0,
+        ]);
     }
 }
