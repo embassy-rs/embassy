@@ -55,7 +55,7 @@ pub use common::*;
 pub use edata::{EDATA_ERASE_SIZE, EDATA_WRITE_SIZE, Edata};
 #[cfg(eeprom)]
 pub use eeprom::Eeprom;
-#[cfg(all(flash_dual_bank, any(flash_v5_h5, flash_v5_h50, flash_v5_c5)))]
+#[cfg(all(flash_dual_bank, any(flash_v5_h5, flash_v5_h50, flash_v5_c5, flash_v4_u5)))]
 pub use family::perform_bank_swap;
 
 #[cfg(flash_dual_bank)]
