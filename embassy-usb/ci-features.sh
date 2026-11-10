@@ -46,6 +46,9 @@ done
 # Shared host error mapping without any class enabled.
 check --features host,embedded-io
 
+# Public test harness (implies host).
+check --features test-utils
+
 # Logging backends and the full class set.
 check --features device,host,class-all,defmt,block-device-driver
 check --features device,host,class-all,log,block-device-driver

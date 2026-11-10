@@ -280,24 +280,7 @@ impl<'d, A: UsbHostAllocator<'d>> embedded_io_async::Write for CdcAcmHost<'d, A>
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[rustfmt::skip]
-    const CONFIG: &[u8] = &[
-        // Configuration descriptor (9 bytes, total 56).
-        0x09, 0x02, 0x38, 0x00, 0x02, 0x01, 0x00, 0x80, 0x32,
-        // Interface Association Descriptor (8 bytes).
-        0x08, 0x0b, 0x00, 0x02, 0x02, 0x02, 0x00, 0x00,
-        // Interface 0: CDC ACM communication (9 bytes, 1 endpoint).
-        0x09, 0x04, 0x00, 0x00, 0x01, 0x02, 0x02, 0x00, 0x00,
-        // Interrupt IN endpoint (7 bytes).
-        0x07, 0x05, 0x81, 0x03, 0x08, 0x00, 0x0a,
-        // Interface 1: CDC data (9 bytes, 2 endpoints).
-        0x09, 0x04, 0x01, 0x00, 0x02, 0x0a, 0x00, 0x00, 0x00,
-        // Bulk IN endpoint (7 bytes).
-        0x07, 0x05, 0x82, 0x02, 0x40, 0x00, 0x00,
-        // Bulk OUT endpoint (7 bytes).
-        0x07, 0x05, 0x02, 0x02, 0x40, 0x00, 0x00,
-    ];
+    use crate::host::test_utils::{CDC_ACM_CONFIG as CONFIG, MockHost, MockState, enumeration_info};
 
     #[test]
     fn find_cdc_acm_parses_interfaces_and_endpoints() {
@@ -328,5 +311,45 @@ mod tests {
         assert_eq!(iad.first_interface, 0);
         assert_eq!(iad.interface_count, 2);
         assert_eq!(iad.function_class, USB_CLASS_CDC);
+    }
+
+    fn probe_host<'d>(alloc: &MockHost<'d>, enum_info: &EnumerationInfo) -> Option<CdcAcmInfo> {
+        let _ = alloc;
+        <CdcAcmHost<'d, MockHost<'d>> as HostClass<'d, MockHost<'d>>>::probe(enum_info, CONFIG)
+    }
+
+    fn open_host<'d>(
+        alloc: &MockHost<'d>,
+        info: CdcAcmInfo,
+        enum_info: &EnumerationInfo,
+    ) -> Result<CdcAcmHost<'d, MockHost<'d>>, ClassError> {
+        embassy_futures::block_on(<CdcAcmHost<'d, MockHost<'d>> as HostClass<'d, MockHost<'d>>>::open(
+            alloc, CONFIG, info, enum_info,
+        ))
+    }
+
+    #[test]
+    fn cdc_acm_loopback_over_mock_pipes() {
+        use embassy_futures::block_on;
+
+        let state = MockState::new();
+        let alloc = MockHost::new(&state);
+        let enum_info = enumeration_info();
+
+        let info = probe_host(&alloc, &enum_info).expect("CDC ACM should be present");
+        let mut host = open_host(&alloc, info, &enum_info).expect("CDC ACM should open");
+
+        block_on(host.write(b"hello")).unwrap();
+        assert_eq!(state.loopback_len(), 5);
+
+        let mut buf = [0; 16];
+        let n = block_on(host.read(&mut buf)).unwrap();
+        assert_eq!(&buf[..n], b"hello");
+
+        block_on(host.set_line_coding(&LineCoding::DEFAULT)).unwrap();
+        assert_eq!(state.line_coding(), LineCoding::DEFAULT.to_bytes());
+
+        block_on(host.set_control_line_state(true, false)).unwrap();
+        assert_eq!(state.control_line_state(), 1);
     }
 }

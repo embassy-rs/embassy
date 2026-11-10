@@ -37,6 +37,9 @@ default = ["device", "host", "class-all"]
 device = []
 host = ["dep:embassy-time"]
 
+# Mock host allocator/pipes and golden descriptors for downstream class tests.
+test-utils = ["host"]
+
 # All classes, for backwards compatibility. Users that want a minimal build can
 # disable default features and enable only the classes they need.
 class-all = [

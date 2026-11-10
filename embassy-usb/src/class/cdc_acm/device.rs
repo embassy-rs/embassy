@@ -16,7 +16,7 @@ use super::{
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler};
+use crate::{Builder, Handler, InterfaceHandler};
 
 const CS_INTERFACE: u8 = 0x24;
 const CDC_TYPE_HEADER: u8 = 0x00;
@@ -95,6 +95,7 @@ pub struct CdcAcmClass<'d, D: Driver<'d>> {
 
 struct Control<'a> {
     comm_if: InterfaceNumber,
+    data_if: InterfaceNumber,
     shared: &'a ControlShared,
 }
 
@@ -218,6 +219,12 @@ impl<'d> Handler for Control<'d> {
     }
 }
 
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.comm_if || iface == self.data_if
+    }
+}
+
 impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Creates a new CdcAcmClass with the provided UsbBus and `max_packet_size` in bytes. For
     /// full-speed devices, `max_packet_size` has to be one of 8, 16, 32 or 64.
@@ -299,8 +306,9 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         let control = state.control.write(Control {
             shared: &state.shared,
             comm_if,
+            data_if,
         });
-        builder.handler(control);
+        builder.interface_handler(control);
 
         let control_shared = &state.shared;
 
