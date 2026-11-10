@@ -600,16 +600,20 @@ impl<'a> BosWriter<'a> {
     }
 
     /// Writes the device capabilities a SuperSpeed or SuperSpeedPlus device must report.
-    pub(crate) fn superspeed_capabilities(&mut self, speed: UsbDeviceSpeed) {
+    pub(crate) fn superspeed_capabilities(&mut self, config: &Config) {
         assert!(
             self.num_caps_mark.is_some(),
             "SuperSpeed devices require a BOS descriptor, but bos_descriptor_buf is too small"
         );
 
+        let mut attributes = 0x00;
+        if config.ltm_capable {
+            attributes |= 0x02;
+        }
         self.capability(
             capability_type::SS_USB_DEVICE,
             &[
-                0x00, // bmAttributes
+                attributes, // bmAttributes
                 0x08, 0x00, // wSpeedsSupported
                 0x03, // bFunctionalitySupport
                 0x0a, // bU1DevExitLat
@@ -617,7 +621,7 @@ impl<'a> BosWriter<'a> {
             ],
         );
 
-        if speed == UsbDeviceSpeed::SuperPlus {
+        if config.max_speed == UsbDeviceSpeed::SuperPlus {
             self.capability(
                 capability_type::SS_PLUS_USB_DEVICE,
                 &[

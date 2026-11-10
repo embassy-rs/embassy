@@ -100,6 +100,11 @@ pub struct Config<'a> {
     /// Max: 15
     pub max_burst: u8,
 
+    /// Whether the device can send Latency Tolerance Messages at SuperSpeed.
+    ///
+    /// Default: `false`
+    pub ltm_capable: bool,
+
     /// Manufacturer name string descriptor.
     ///
     /// Default: (none)
@@ -164,6 +169,7 @@ impl<'a> Config<'a> {
             max_packet_size_0: 64,
             max_speed: UsbDeviceSpeed::Full,
             max_burst: 0,
+            ltm_capable: false,
             vendor_id: vid,
             product_id: pid,
             device_release: 0x0010,
@@ -268,7 +274,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         config_descriptor.configuration(&config);
         bos_descriptor.bos();
         if config.max_speed >= UsbDeviceSpeed::Super {
-            bos_descriptor.superspeed_capabilities(config.max_speed);
+            bos_descriptor.superspeed_capabilities(&config);
         }
 
         Builder {
@@ -383,6 +389,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
                 remote_wakeup_enabled: false,
                 u1_enabled: false,
                 u2_enabled: false,
+                ltm_enabled: false,
                 self_powered: false,
                 address: 0,
                 set_address_pending: false,

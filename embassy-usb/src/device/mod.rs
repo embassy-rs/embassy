@@ -115,6 +115,15 @@ pub trait Handler {
         false
     }
 
+    /// Called when the host enables or disables Latency Tolerance Messaging (USB 3.x).
+    ///
+    /// Only sent when [`Config::ltm_capable`](crate::Config::ltm_capable) is set. Return `true` to
+    /// accept enabling it. If no handler does, the request is rejected. The return value is ignored
+    /// when disabling.
+    fn ltm_enabled(&mut self, _enabled: bool) -> bool {
+        false
+    }
+
     /// Called when a "set alternate setting" control request is done on the interface.
     fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
         let _ = iface;
@@ -381,6 +390,7 @@ struct Inner<'d, D: Driver<'d>> {
     remote_wakeup_enabled: bool,
     u1_enabled: bool,
     u2_enabled: bool,
+    ltm_enabled: bool,
     self_powered: bool,
 
     /// Our device address, or 0 if none.
@@ -446,6 +456,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             self.inner.remote_wakeup_enabled = false;
             self.inner.u1_enabled = false;
             self.inner.u2_enabled = false;
+            self.inner.ltm_enabled = false;
 
             for h in &mut self.inner.handlers {
                 h.enabled(false);
@@ -570,7 +581,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     }
 }
 
-// Offers a U1 or U2 enable change to the handlers. Enabling needs one of them to accept.
+// Offers a U1, U2 or LTM enable change to the handlers. Enabling needs one of them to accept.
 macro_rules! set_link_feature {
     ($self:ident, $name:ident, $enable:expr) => {{
         let enable = $enable;
@@ -631,6 +642,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 self.remote_wakeup_enabled = false;
                 self.u1_enabled = false;
                 self.u2_enabled = false;
+                self.ltm_enabled = false;
                 self.address = 0;
 
                 for h in &mut self.handlers {
@@ -782,7 +794,11 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 {
                     set_link_feature!(self, u2_enabled, req.request == Request::SET_FEATURE)
                 }
-                (Request::SET_FEATURE, Request::FEATURE_DEVICE_LTM_ENABLE) => OutResponse::Rejected,
+                (Request::SET_FEATURE | Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_LTM_ENABLE)
+                    if self.config.max_speed >= UsbDeviceSpeed::Super && self.config.ltm_capable =>
+                {
+                    set_link_feature!(self, ltm_enabled, req.request == Request::SET_FEATURE)
+                }
                 _ => OutResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
@@ -856,6 +872,9 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     }
                     if self.u2_enabled {
                         status |= 0x0008;
+                    }
+                    if self.ltm_enabled {
+                        status |= 0x0010;
                     }
                     buf[..2].copy_from_slice(&status.to_le_bytes());
                     InResponse::Accepted(&buf[..2])

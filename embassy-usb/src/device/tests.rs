@@ -941,6 +941,9 @@ fn test_superspeed_requests() {
         assert_eq!(request(usb, 0, Request::SET_SEL, 0, 0, 6), Response::Accepted);
         assert_eq!(request(usb, 0, Request::SET_SEL, 0, 0, 5), Response::Rejected);
         assert_eq!(request(usb, 0, Request::SET_ISOCH_DELAY, 40, 0, 0), Response::Accepted);
+        let ltm = Request::FEATURE_DEVICE_LTM_ENABLE;
+        assert_eq!(request(usb, 0, Request::SET_FEATURE, ltm, 0, 0), Response::Rejected);
+        assert_eq!(request(usb, 0, Request::CLEAR_FEATURE, ltm, 0, 0), Response::Rejected);
     });
     with_device_fullspeed(|usb| {
         configure(usb);
@@ -982,6 +985,7 @@ fn test_superspeed_callbacks() {
         sel: Cell<Option<(u8, u8, u16, u16)>>,
         isoch_delay: Cell<Option<u16>>,
         u1: Cell<Option<bool>>,
+        ltm: Cell<Option<bool>>,
     }
     struct LinkHandler<'a>(&'a State);
     impl Handler for LinkHandler<'_> {
@@ -995,6 +999,10 @@ fn test_superspeed_callbacks() {
             self.0.u1.set(Some(enabled));
             true
         }
+        fn ltm_enabled(&mut self, enabled: bool) -> bool {
+            self.0.ltm.set(Some(enabled));
+            true
+        }
     }
 
     let state = State::default();
@@ -1002,9 +1010,11 @@ fn test_superspeed_callbacks() {
     let mut config_descriptor = [0; 64];
     let mut bos_descriptor = [0; 64];
     let mut control_buf = [0; 64];
+    let mut config = superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, 0);
+    config.ltm_capable = true;
     let mut builder = Builder::new(
         TestDriver::default(),
-        superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, 0),
+        config,
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut [],
@@ -1013,6 +1023,7 @@ fn test_superspeed_callbacks() {
     builder.handler(&mut handler);
     let usb = &mut builder.build();
     configure(usb);
+    assert_eq!(usb.inner.bos_descriptor[15], 0x02); // SS capability bmAttributes: LTM capable
 
     usb.control.out_data = [1, 2, 0x34, 0x12, 0x78, 0x56, 0, 0];
     assert_eq!(request(usb, 0, Request::SET_SEL, 0, 0, 6), Response::Accepted);
@@ -1025,14 +1036,18 @@ fn test_superspeed_callbacks() {
     assert_eq!(request(usb, 0, Request::SET_FEATURE, u1, 0, 0), Response::Accepted);
     assert_eq!(state.u1.get(), Some(true));
     assert_eq!(request(usb, 0, Request::SET_FEATURE, u2, 0, 0), Response::Rejected);
+    let ltm = Request::FEATURE_DEVICE_LTM_ENABLE;
+    assert_eq!(request(usb, 0, Request::SET_FEATURE, ltm, 0, 0), Response::Accepted);
+    assert_eq!(state.ltm.get(), Some(true));
     assert_eq!(
         request(usb, 0x80, Request::GET_STATUS, 0, 0, 2),
-        Response::Status(0x0004)
+        Response::Status(0x0014)
     );
 
     assert_eq!(request(usb, 0, Request::CLEAR_FEATURE, u1, 0, 0), Response::Accepted);
     assert_eq!(request(usb, 0, Request::CLEAR_FEATURE, u2, 0, 0), Response::Accepted);
-    assert_eq!(state.u1.get(), Some(false));
+    assert_eq!(request(usb, 0, Request::CLEAR_FEATURE, ltm, 0, 0), Response::Accepted);
+    assert_eq!((state.u1.get(), state.ltm.get()), (Some(false), Some(false)));
     assert_eq!(request(usb, 0x80, Request::GET_STATUS, 0, 0, 2), Response::Status(0));
 
     // A bus reset clears U1.
