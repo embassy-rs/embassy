@@ -663,6 +663,12 @@ impl<'d> Channel<'d> {
         super::info(self.channel)
     }
 
+    /// The channel's destination address register, for interrupt handlers.
+    pub(crate) fn destination_register(&self) -> *const u32 {
+        let info = self.info();
+        info.dma.ch(info.num).dar().as_ptr() as *const u32
+    }
+
     fn get_remaining_transfers(&self) -> u16 {
         let info = self.info();
         let ch = info.dma.ch(info.num);

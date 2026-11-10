@@ -3,6 +3,8 @@
 
 #[cfg(feature = "exti")]
 mod ringbuffered;
+#[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
+pub mod triggered;
 use core::marker::PhantomData;
 use core::pin::pin;
 use core::ptr;
@@ -2171,7 +2173,7 @@ fn reconfigure<CM: CommunicationMode>(info: &Info, kernel_clock: Hertz, config: 
 /// bits on limited instances, which are found by reading the bit back). Disabled restores the
 /// reset values; the SPI does not clock with other CRC settings left behind.
 #[cfg(any(spi_v4, spi_v5, spi_v6))]
-fn write_crc(regs: Regs, crc: CrcConfig, init: CrcInit) {
+pub(crate) fn write_crc(regs: Regs, crc: CrcConfig, init: CrcInit) {
     let (bits, polynomial) = match crc {
         CrcConfig::Disabled => (0, 0),
         CrcConfig::Crc8 { polynomial } => (8u8, u32::from(polynomial)),
@@ -2690,12 +2692,18 @@ mod word_impl {
     impl_word!(u32, 32 - 1);
 }
 
-struct State {}
+struct State {
+    #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
+    triggered: triggered::State,
+}
 
 impl State {
     #[allow(unused)]
     const fn new() -> Self {
-        Self {}
+        Self {
+            #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
+            triggered: triggered::State::new(),
+        }
     }
 }
 
