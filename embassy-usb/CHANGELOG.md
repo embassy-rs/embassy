@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `host::class::{ClassError, HostClass}` and `host::descriptor::{ClassCode, ClassMatch, InterfaceAssociationDescriptor}`; add `ConfigurationDescriptorChain::{find_interface, find_interfaces, find_iad_group}`
 - Add the `embedded-io` feature, which implements `embedded_io_async::Error` for `ClassError`; `class-cdc-acm` and `class-vcp` enable it
 - `CDC-ACM`: Host driver implements `HostClass` through the new `CdcAcmMatcher`; `CdcAcmInfo` is now `Copy` and `CdcAcmHost::new_with_info` opens from an already-probed info
+- Add `InterfaceHandler` and `Builder::{interface_handler, try_interface_handler}`, with `HandlerFull` for fallible registration; interface- and endpoint-recipient control requests are routed only to the owning handler
+- `CDC-ACM`, `HID`, `MSC`: Device classes now register through `interface_handler`
+- Add the `test-utils` feature with `MockHost`, `MockState`, loopback pipes, `CDC_ACM_CONFIG`, and `enumeration_info`; add a CDC ACM host loopback test
 
 - `HID`: Notify `RequestHandler::reset()` on USB bus reset, allowing handlers to restore default Report protocol mode
 

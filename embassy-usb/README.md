@@ -32,6 +32,8 @@ role it belongs to:
 - `class-<name>` — one class driver, for example `class-cdc-acm` or `class-hid`.
 - `embedded-io` — the `embedded-io-async` trait implementations and the `ClassError`
   mapping. Enabled by `class-cdc-acm` and `class-vcp`.
+- `test-utils` — mock host allocator, loopback pipes, and golden descriptors for downstream
+  class tests. Implies `host`.
 
 | Feature | Device | Host |
 |---------|--------|------|
@@ -67,6 +69,10 @@ embassy-usb = { version = "0.6", default-features = false, features = ["device",
 A class that can be built for both roles needs at least one of `device` or `host`; enabling
 it without either is a compile error. Device-only and host-only class features enable their
 role automatically.
+
+Device classes that own interfaces can register with `Builder::interface_handler` instead of
+`Builder::handler`. Interface- and endpoint-recipient control requests are then delivered only
+to the owning handler. CDC ACM, HID, and MSC already use this path.
 
 ## Adding support for new hardware
 

@@ -10,6 +10,9 @@ pub mod control;
 pub mod descriptor;
 pub mod handler;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
+
 use core::cell::RefCell;
 use core::marker::PhantomData;
 
