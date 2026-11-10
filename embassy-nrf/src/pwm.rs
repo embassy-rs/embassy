@@ -7,7 +7,7 @@ use core::sync::atomic::{AtomicU8, AtomicU16, Ordering, compiler_fence};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::gpio::{DISCONNECTED, Flex, Level, OutputDrive, Pin as GpioPin, PselBits};
+use crate::gpio::{DISCONNECTED, Flex, Level, OutputDrive, PselBits};
 use crate::pac::pwm::vals;
 use crate::ppi::{Event, Task};
 use crate::time::Hertz;
@@ -59,15 +59,19 @@ pub const PWM_CLK_HZ: u32 = 16_000_000;
 
 impl<'d> SequencePwm<'d> {
     /// Create a new 1-channel PWM
-    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: Config) -> Result<Self, Error> {
+    pub fn new_1ch<T: Instance>(
+        pwm: Peri<'d, T>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        config: Config,
+    ) -> Result<Self, Error> {
         Self::new_inner(pwm, Some(Flex::new(ch0)), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
     pub fn new_2ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
         config: Config,
     ) -> Result<Self, Error> {
         Self::new_inner(pwm, Some(Flex::new(ch0)), Some(Flex::new(ch1)), None, None, config)
@@ -76,9 +80,9 @@ impl<'d> SequencePwm<'d> {
     /// Create a new 3-channel PWM
     pub fn new_3ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
-        ch2: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
+        ch2: Peri<'d, impl OutPin<T>>,
         config: Config,
     ) -> Result<Self, Error> {
         Self::new_inner(
@@ -94,10 +98,10 @@ impl<'d> SequencePwm<'d> {
     /// Create a new 4-channel PWM
     pub fn new_4ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
-        ch2: Peri<'d, impl GpioPin>,
-        ch3: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
+        ch2: Peri<'d, impl OutPin<T>>,
+        ch3: Peri<'d, impl OutPin<T>>,
         config: Config,
     ) -> Result<Self, Error> {
         Self::new_inner(
@@ -791,15 +795,15 @@ fn disconnect_pin(r: pac::pwm::Pwm, pin: &Option<Flex<'_>>, psel: usize) {
 
 impl<'d> SimplePwm<'d> {
     /// Create a new 1-channel PWM
-    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: SimpleConfig) -> Self {
+    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl OutPin<T>>, config: SimpleConfig) -> Self {
         Self::new_inner(pwm, Some(Flex::new(ch0)), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
     pub fn new_2ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
         config: SimpleConfig,
     ) -> Self {
         Self::new_inner(pwm, Some(Flex::new(ch0)), Some(Flex::new(ch1)), None, None, config)
@@ -808,9 +812,9 @@ impl<'d> SimplePwm<'d> {
     /// Create a new 3-channel PWM
     pub fn new_3ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
-        ch2: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
+        ch2: Peri<'d, impl OutPin<T>>,
         config: SimpleConfig,
     ) -> Self {
         Self::new_inner(
@@ -826,10 +830,10 @@ impl<'d> SimplePwm<'d> {
     /// Create a new 4-channel PWM
     pub fn new_4ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
-        ch2: Peri<'d, impl GpioPin>,
-        ch3: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
+        ch2: Peri<'d, impl OutPin<T>>,
+        ch3: Peri<'d, impl OutPin<T>>,
         config: SimpleConfig,
     ) -> Self {
         Self::new_inner(
@@ -1191,6 +1195,12 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// PWM output pin trait.
+    OutPin,
+    Instance
+);
 
 macro_rules! impl_pwm {
     ($type:ident, $pac_type:ident, $irq:ident) => {

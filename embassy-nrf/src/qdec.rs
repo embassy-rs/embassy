@@ -9,7 +9,7 @@ use core::task::Poll;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{Flex, OutputDrive, Pin as GpioPin, Pull};
+use crate::gpio::{Flex, OutputDrive, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::qdec::vals;
 use crate::{interrupt, pac};
@@ -64,8 +64,8 @@ impl<'d> Qdec<'d> {
     /// Create a new QDEC.
     pub fn new<T: Instance>(
         qdec: Peri<'d, T>,
-        a: Peri<'d, impl GpioPin>,
-        b: Peri<'d, impl GpioPin>,
+        a: Peri<'d, impl APin<T>>,
+        b: Peri<'d, impl BPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -75,9 +75,9 @@ impl<'d> Qdec<'d> {
     /// Create a new QDEC, with a pin for LED output.
     pub fn new_with_led<T: Instance>(
         qdec: Peri<'d, T>,
-        a: Peri<'d, impl GpioPin>,
-        b: Peri<'d, impl GpioPin>,
-        led: Peri<'d, impl GpioPin>,
+        a: Peri<'d, impl APin<T>>,
+        b: Peri<'d, impl BPin<T>>,
+        led: Peri<'d, impl LedPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -280,6 +280,24 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// phase A pin trait.
+    APin,
+    Instance
+);
+
+pin_trait!(
+    /// phase B pin trait.
+    BPin,
+    Instance
+);
+
+pin_trait!(
+    /// LED pin trait.
+    LedPin,
+    Instance
+);
 
 macro_rules! impl_qdec {
     ($type:ident, $pac_type:ident, $irq:ident) => {

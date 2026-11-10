@@ -13,7 +13,7 @@ pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Pola
 pub use pac::spis::vals::Order as BitOrder;
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
-use crate::gpio::{self, Flex, OutputDrive, Pin as GpioPin, Pull};
+use crate::gpio::{self, Flex, OutputDrive, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spis::regs::RxMaxcnt;
@@ -127,10 +127,10 @@ impl<'d> Spis<'d, Async> {
     /// Create a new SPIS driver.
     pub fn new<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        mosi: Peri<'d, impl GpioPin>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -147,9 +147,9 @@ impl<'d> Spis<'d, Async> {
     /// Create a new SPIS driver, capable of TX only (MISO only).
     pub fn new_txonly<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -166,9 +166,9 @@ impl<'d> Spis<'d, Async> {
     /// Create a new SPIS driver, capable of RX only (MOSI only).
     pub fn new_rxonly<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        mosi: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -185,8 +185,8 @@ impl<'d> Spis<'d, Async> {
     /// Create a new SPIS driver, capable of TX only (MISO only) without SCK pin.
     pub fn new_txonly_nosck<T: Instance>(
         spis: Peri<'d, T>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -318,10 +318,10 @@ impl<'d> Spis<'d, Blocking> {
     /// Create a new blocking SPIS driver.
     pub fn new_blocking<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        mosi: Peri<'d, impl GpioPin>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -337,9 +337,9 @@ impl<'d> Spis<'d, Blocking> {
     /// Create a new blocking SPIS driver, capable of TX only (MISO only).
     pub fn new_blocking_txonly<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -355,9 +355,9 @@ impl<'d> Spis<'d, Blocking> {
     /// Create a new blocking SPIS driver, capable of RX only (MOSI only).
     pub fn new_blocking_rxonly<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        mosi: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -373,8 +373,8 @@ impl<'d> Spis<'d, Blocking> {
     /// Create a new blocking SPIS driver, capable of TX only (MISO only) without SCK pin.
     pub fn new_blocking_txonly_nosck<T: Instance>(
         spis: Peri<'d, T>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(spis, None, None, Some(Flex::new(miso)), Flex::new(cs), config)
@@ -646,6 +646,30 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// SCK pin trait.
+    SckPin,
+    Instance
+);
+
+pin_trait!(
+    /// MOSI pin trait.
+    MosiPin,
+    Instance
+);
+
+pin_trait!(
+    /// MISO pin trait.
+    MisoPin,
+    Instance
+);
+
+pin_trait!(
+    /// CS pin trait.
+    CsPin,
+    Instance
+);
 
 macro_rules! impl_spis {
     ($type:ident, $pac_type:ident, $irq:ident) => {

@@ -1003,6 +1003,42 @@ pub trait Pin: PeripheralType + SealedPin + Sized + 'static {
 
 // ====================
 
+/// Declare a per-signal pin trait for a peripheral.
+///
+/// On chips where any pin can be used with any peripheral, the trait is implemented for all pins.
+/// On nRF54L, it's implemented for pins in the same power domain as the peripheral; dedicated
+/// and cross-domain pins are added with `impl_pin_trait!` in the chip files.
+#[allow(unused_macros)]
+macro_rules! pin_trait {
+    ($(#[$attr:meta])* $signal:ident, $instance:path) => {
+        $(#[$attr])*
+        #[cfg_attr(
+            feature = "_nrf54l",
+            diagnostic::on_unimplemented(
+                message = "pin `{Self}` can't be used for this signal of `{T}`",
+                note = "on nRF54L, peripherals can only use pins in their own power domain, or their dedicated pins. See `embassy_nrf::domain`."
+            )
+        )]
+        pub trait $signal<T: $instance>: crate::gpio::Pin {}
+
+        #[cfg(not(feature = "_nrf54l"))]
+        impl<T: $instance, P: crate::gpio::Pin> $signal<T> for P {}
+
+        #[cfg(feature = "_nrf54l")]
+        impl<T: $instance + crate::domain::DomainPeripheral, P: crate::domain::DomainPin<T::Domain>> $signal<T> for P {}
+    };
+}
+
+/// Implement a pin trait for a dedicated (or cross-domain) pin.
+#[cfg(feature = "_nrf54l")]
+macro_rules! impl_pin_trait {
+    ($pin:ident, $instance:ident, $($signal:ident)::+) => {
+        impl crate::$($signal)::+<peripherals::$instance> for peripherals::$pin {}
+    };
+}
+
+// ====================
+
 #[cfg(not(feature = "_nrf51"))]
 pub(crate) trait PselBits {
     fn psel_bits(&self) -> pac::shared::regs::Psel;
@@ -1036,6 +1072,10 @@ pub(crate) fn deconfigure_pin(psel: Psel) {
 // ====================
 
 macro_rules! impl_pin {
+    ($type:ident, $port_num:expr, $pin_num:expr, $domain:ident) => {
+        impl_pin!($type, $port_num, $pin_num);
+        impl crate::domain::DomainPin<crate::domain::$domain> for peripherals::$type {}
+    };
     ($type:ident, $port_num:expr, $pin_num:expr) => {
         impl crate::gpio::Pin for peripherals::$type {}
         impl crate::gpio::SealedPin for peripherals::$type {

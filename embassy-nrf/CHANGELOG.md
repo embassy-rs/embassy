@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - removed: `gpio::AnyPin` is no longer public. Pass type-erased pins around as `gpio::Flex`, `gpio::Input` or `gpio::Output`.
 - changed: `gpio` `persist()` no longer requires a `'static` pin.
+- changed: drivers take per-signal pin traits instead of `gpio::Pin`: `spim::{SckPin, MosiPin, MisoPin}`, `spis::{SckPin, MosiPin, MisoPin, CsPin}`, `uarte::{TxPin, RxPin, CtsPin, RtsPin}` (also used by `buffered_uarte`), `twim::{SclPin, SdaPin}`, `twis::{SclPin, SdaPin}`, `pwm::OutPin`, `pdm::{ClkPin, DinPin}`, `i2s::{MckPin, SckPin, LrckPin}`, `qdec::{APin, BPin, LedPin}`, `qspi::{SckPin, CsPin, Io0Pin, Io1Pin, Io2Pin, Io3Pin}` and `sqspi::{SckPin, CsPin, Io0Pin, Io1Pin, Io2Pin, Io3Pin}`. They're implemented for all pins, except on nRF54L.
+- added: nRF54L power domains: `domain` module with `Domain`, `Domain0`..`Domain3`, `DomainPeripheral` and `DomainPin`. Peripherals only accept pins in their own power domain, or their dedicated pins on P2.
+- added: `cross-domain-pins` Cargo feature for nRF54L15, nRF54L10 and nRF54L05. It allows SERIAL20/SERIAL21 to use their dedicated pins on P2, and enables Constant Latency mode in `init()`.
+- added: `spis` support for SERIAL00 on nRF54L.
 - changed: `gpio::Input`, `gpio::Flex` and `gpio::OutputOpenDrain` have a `Mode` parameter, defaulting to `Blocking`. `new` creates a blocking driver; `new_async` creates an async driver and takes an interrupt binding to `gpio::InterruptHandler` for the pin. The `wait_for_*` methods only exist in async mode.
 - changed: `gpiote::InputChannel` has a `Mode` parameter, defaulting to `Blocking`. `new` creates a channel without the `wait*` methods; `new_async` takes an interrupt binding to `gpiote::InterruptHandler` for the channel.
 - added: `gpio::InterruptHandler` and `gpiote::InterruptHandler`. Each handler only services its own pin or channel, so several handlers, including your own, can be bound to the same GPIOTE interrupt.

@@ -89,6 +89,12 @@ compile_error!("feature `nfc-pins-as-gpio` is not valid for this chip.");
 #[cfg(all(feature = "lfxo-pins-as-gpio", not(feature = "_nrf5340")))]
 compile_error!("feature `lfxo-pins-as-gpio` is only valid for nRF53 series chips.");
 
+#[cfg(all(
+    feature = "cross-domain-pins",
+    not(any(feature = "_nrf54l15", feature = "_nrf54l10", feature = "_nrf54l05"))
+))]
+compile_error!("feature `cross-domain-pins` is only valid for nRF54L15, nRF54L10 and nRF54L05.");
+
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 pub(crate) mod util;
@@ -98,6 +104,8 @@ mod time_driver;
 
 #[cfg(not(feature = "_nrf51"))]
 pub mod buffered_uarte;
+#[cfg(feature = "_nrf54l")]
+pub mod domain;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod egu;
@@ -807,6 +815,11 @@ pub fn init(config: config::Config) -> Peripherals {
 
     #[allow(unused_mut)]
     let mut needs_reset = false;
+
+    // Cross-domain pin connections (peripheral-domain serial instances on P2 pins)
+    // only work in Constant Latency mode.
+    #[cfg(feature = "cross-domain-pins")]
+    pac::POWER.tasks_constlat().write_value(1);
 
     // set clock speed
     #[cfg(feature = "_nrf54l")]
