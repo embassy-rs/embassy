@@ -64,8 +64,12 @@ impl<'d> Driver<'d> for TestDriver {
         })
     }
 
-    fn start(self, _control_max_packet_size: u16) -> (TestBus, TestControlPipe) {
-        (self.bus, TestControlPipe::default())
+    fn start(self, control_max_packet_size: u16) -> (TestBus, TestControlPipe) {
+        let control = TestControlPipe {
+            started_with: control_max_packet_size,
+            ..TestControlPipe::default()
+        };
+        (self.bus, control)
     }
 }
 
@@ -165,6 +169,8 @@ enum Response {
 #[derive(Default)]
 struct TestControlPipe {
     response: Option<Response>,
+    /// The control endpoint size passed to `Driver::start`.
+    started_with: u16,
 }
 
 impl ControlPipe for TestControlPipe {
@@ -200,13 +206,21 @@ impl ControlPipe for TestControlPipe {
     }
 }
 
-fn with_device(f: impl FnOnce(&mut UsbDevice<'_, TestDriver>)) {
+fn with_device_fullspeed(f: impl FnOnce(&mut UsbDevice<'_, TestDriver>)) {
+    with_config(Config::new(0x1234, 0x5678), f)
+}
+
+fn with_device_superspeed(f: impl FnOnce(&mut UsbDevice<'_, TestDriver>)) {
+    with_config(superspeed(UsbDeviceSpeed::Super, UsbVersion::ThreeTwo, 15), f)
+}
+
+fn with_config(config: Config<'_>, f: impl FnOnce(&mut UsbDevice<'_, TestDriver>)) {
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 64];
     let mut control_buf = [0; 64];
     let mut builder = Builder::new(
         TestDriver::default(),
-        Config::new(0x1234, 0x5678),
+        config,
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut [],
@@ -278,7 +292,7 @@ fn configure(usb: &mut UsbDevice<'_, TestDriver>) {
 
 #[test]
 fn test_handle_control_endpoint_out_of_range() {
-    with_device(|usb| {
+    with_device_fullspeed(|usb| {
         configure(usb);
         // Endpoint 9 is outside the controller's register array.
         block_on(usb.handle_control([0x82, 0, 0, 0, 0x89, 0, 2, 0]));
@@ -289,7 +303,7 @@ fn test_handle_control_endpoint_out_of_range() {
 
 #[test]
 fn test_handle_control_endpoint_index() {
-    with_device(|usb| {
+    with_device_fullspeed(|usb| {
         configure(usb);
         for index in 0..=u16::MAX {
             // Only these endpoints exist in the default alternate setting.
@@ -305,7 +319,7 @@ fn test_handle_control_endpoint_index() {
 
 #[test]
 fn test_handle_control_endpoint_halt() {
-    with_device(|usb| {
+    with_device_fullspeed(|usb| {
         configure(usb);
         for index in [1, 0x82] {
             assert_eq!(endpoint_request(usb, Request::GET_STATUS, index), Response::Status(0));
@@ -320,7 +334,7 @@ fn test_handle_control_endpoint_halt() {
 
 #[test]
 fn test_handle_control_endpoint_state() {
-    with_device(|usb| {
+    with_device_fullspeed(|usb| {
         let assert_unconfigured = |usb: &mut UsbDevice<'_, TestDriver>| {
             for index in [1, 0x82, 0x83, 4] {
                 for code in [Request::GET_STATUS, Request::SET_FEATURE, Request::CLEAR_FEATURE] {
@@ -351,7 +365,7 @@ fn test_handle_control_endpoint_state() {
 
 #[test]
 fn test_handle_control_endpoint_alt_setting() {
-    with_device(|usb| {
+    with_device_fullspeed(|usb| {
         configure(usb);
         assert_eq!(request(usb, 1, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
         for code in [Request::GET_STATUS, Request::SET_FEATURE, Request::CLEAR_FEATURE] {
@@ -382,7 +396,7 @@ fn test_handle_control_endpoint_alt_setting() {
 
 #[test]
 fn test_handle_control_endpoint_zero() {
-    with_device(|usb| {
+    with_device_fullspeed(|usb| {
         block_on(usb.inner.handle_bus_event(Event::PowerDetected));
         for index in [0, 0x80] {
             assert_rejected(usb, Request::GET_STATUS, index);
@@ -405,7 +419,7 @@ fn test_handle_control_endpoint_zero() {
 
 #[test]
 fn test_handle_control_endpoint_request_fields() {
-    with_device(|usb| {
+    with_device_fullspeed(|usb| {
         configure(usb);
         for (value, length) in [(1, 2), (0, 0), (0, 1), (0, 3)] {
             assert_eq!(
@@ -833,4 +847,126 @@ fn test_manual_raw_descriptor_opt_out() {
 
     // The manual endpoint descriptor's bInterval must NOT be rewritten!
     assert_eq!(find_interval(desc, 0x81), 99);
+}
+
+fn superspeed(speed: UsbDeviceSpeed, bcd_usb: UsbVersion, max_burst: u8) -> Config<'static> {
+    let mut config = Config::new(0x1234, 0x5678);
+    config.max_speed = speed;
+    config.max_packet_size_0 = 9;
+    config.bcd_usb = bcd_usb;
+    config.max_burst = max_burst;
+    config.max_power = 900;
+    config
+}
+
+#[test]
+fn test_superspeed_descriptors() {
+    // SuperSpeed USB Device Capability
+    const SS_CAP: [u8; 10] = [
+        10, 0x10, 0x03, // bLength, bDescriptorType, bDevCapabilityType
+        0x00, // bmAttributes
+        0x08, 0x00, // wSpeedsSupported: Gen 1
+        0x03, // bFunctionalitySupport
+        0x0a, // bU1DevExitLat
+        0xff, 0x07, // wU2DevExitLat
+    ];
+    // SuperSpeedPlus USB Device Capability
+    const SSP_CAP: [u8; 20] = [
+        20, 0x10, 0x0a, // bLength, bDescriptorType, bDevCapabilityType
+        0,    // bReserved
+        0x01, 0, 0, 0, // bmAttributes: 2 sublink speed attributes
+        0x00, 0x11, // wFunctionalitySupport: 1 RX and 1 TX lane
+        0, 0, // wReserved
+        0x30, 0x40, 0x0a, 0, // bmSublinkSpeedAttr[0]: RX, 10 Gb/s
+        0xb0, 0x40, 0x0a, 0, // bmSublinkSpeedAttr[1]: TX, 10 Gb/s
+    ];
+
+    with_device_superspeed(|usb| {
+        let (d, c, b) = (
+            &usb.inner.device_descriptor,
+            usb.inner.config_descriptor,
+            usb.inner.bos_descriptor,
+        );
+        // Device: bcdUSB = 3.2, bMaxPacketSize0 = 9; the driver is started with 512.
+        assert_eq!((&d[2..4], d[7], usb.control.started_with), (&[0x20, 0x03][..], 9, 512));
+        // Configuration: wTotalLength, bMaxPower = 113 (900 mA in 8 mA units).
+        assert_eq!((u16::from_le_bytes([c[2], c[3]]) as usize, c[8]), (c.len(), 113));
+        // Alternate setting 0, after the configuration, IAD and interface descriptors.
+        assert_eq!(
+            &c[26..52],
+            &[
+                7, 5, 0x01, 2, 64, 0, 0, // endpoint: bulk OUT, wMaxPacketSize = 64
+                6, 0x30, 15, 0, 0, 0, // SS endpoint companion: bMaxBurst = 15
+                7, 5, 0x82, 2, 64, 0, 0, // endpoint: bulk IN, wMaxPacketSize = 64
+                6, 0x30, 15, 0, 0, 0, // SS endpoint companion: bMaxBurst = 15
+            ]
+        );
+        // Alternate setting 1, after its interface descriptor.
+        assert_eq!(
+            &c[61..],
+            &[
+                7, 5, 0x83, 3, 64, 0, 4, // endpoint: interrupt IN, bInterval = 4
+                6, 0x30, 0, 0, 64, 0, // SS endpoint companion: wBytesPerInterval = 64
+                7, 5, 0x04, 5, 64, 0, 4, // endpoint: isochronous OUT, bInterval = 4
+                6, 0x30, 0, 0, 64, 0, // SS endpoint companion: wBytesPerInterval = 64
+            ]
+        );
+        // BOS: wTotalLength = 22, bNumDeviceCaps = 2; SS capability after the USB 2.0 extension.
+        assert_eq!((&b[2..5], &b[12..]), (&[22, 0, 2][..], &SS_CAP[..]));
+    });
+
+    with_config(superspeed(UsbDeviceSpeed::SuperPlus, UsbVersion::ThreeOne, 0), |usb| {
+        let b = usb.inner.bos_descriptor;
+        // BOS: wTotalLength = 42, bNumDeviceCaps = 3; SS then SSP capability.
+        assert_eq!(
+            (&b[2..5], &b[12..22], &b[22..]),
+            (&[42, 0, 3][..], &SS_CAP[..], &SSP_CAP[..])
+        );
+    });
+}
+
+#[test]
+fn test_superspeed_requests() {
+    let qualifier = u16::from(descriptor_type::DEVICE_QUALIFIER) << 8;
+    with_device_superspeed(|usb| {
+        configure(usb);
+        assert_eq!(
+            request(usb, 0x80, Request::GET_DESCRIPTOR, qualifier, 0, 10),
+            Response::Rejected
+        );
+        assert_eq!(request(usb, 0, Request::SET_SEL, 0, 0, 6), Response::Accepted);
+        assert_eq!(request(usb, 0, Request::SET_SEL, 0, 0, 5), Response::Rejected);
+        assert_eq!(request(usb, 0, Request::SET_ISOCH_DELAY, 40, 0, 0), Response::Accepted);
+    });
+    with_device_fullspeed(|usb| {
+        configure(usb);
+        assert_eq!(request(usb, 0, Request::SET_SEL, 0, 0, 6), Response::Rejected);
+        assert_eq!(request(usb, 0, Request::SET_ISOCH_DELAY, 40, 0, 0), Response::Rejected);
+    });
+}
+
+#[test]
+#[should_panic(expected = "SuperSpeed USB requires bcd_usb")]
+fn test_superspeed_requires_usb3() {
+    with_config(superspeed(UsbDeviceSpeed::Super, UsbVersion::TwoOne, 0), |_| {});
+}
+
+#[test]
+#[should_panic(expected = "SuperSpeedPlus USB requires bcd_usb")]
+fn test_superspeed_plus_requires_usb31() {
+    with_config(superspeed(UsbDeviceSpeed::SuperPlus, UsbVersion::Three, 0), |_| {});
+}
+
+#[test]
+#[should_panic(expected = "max_burst")]
+fn test_superspeed_max_burst_limit() {
+    with_config(superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, 16), |_| {});
+}
+
+#[test]
+#[should_panic(expected = "SuperSpeed USB requires max_packet_size_0 = 9")]
+fn test_superspeed_requires_max_packet_size_0_9() {
+    let mut config = superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, 0);
+    config.max_packet_size_0 = 64;
+    with_config(config, |_| {});
 }

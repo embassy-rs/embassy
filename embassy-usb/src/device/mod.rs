@@ -706,6 +706,19 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 (Request::SET_FEATURE, Request::FEATURE_DEVICE_DEBUG_MODE) => {
                     self.handle_control_out_delegated(req, data)
                 }
+                (Request::SET_SEL, 0)
+                    if self.config.max_speed >= UsbDeviceSpeed::Super && req.index == 0 && req.length == 6 =>
+                {
+                    OutResponse::Accepted
+                }
+                (Request::SET_ISOCH_DELAY, _)
+                    if self.config.max_speed >= UsbDeviceSpeed::Super && req.index == 0 && req.length == 0 =>
+                {
+                    OutResponse::Accepted
+                }
+                (Request::SET_FEATURE, Request::FEATURE_DEVICE_U1_ENABLE) => OutResponse::Rejected,
+                (Request::SET_FEATURE, Request::FEATURE_DEVICE_U2_ENABLE) => OutResponse::Rejected,
+                (Request::SET_FEATURE, Request::FEATURE_DEVICE_LTM_ENABLE) => OutResponse::Rejected,
                 _ => OutResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
@@ -921,7 +934,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     }
                 }
             }
-            descriptor_type::DEVICE_QUALIFIER if self.config.max_speed > UsbDeviceSpeed::Full => {
+            descriptor_type::DEVICE_QUALIFIER if self.config.max_speed == UsbDeviceSpeed::High => {
                 InResponse::Accepted(&self.device_qualifier_descriptor)
             }
             descriptor_type::OTHER_SPEED_CONFIGURATION

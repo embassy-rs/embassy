@@ -13,12 +13,18 @@ use crate::types::{InterfaceNumber, StringIndex};
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-/// Allows Configuring the Bcd USB version below 2.1
+/// The USB specification release (`bcdUSB`) reported in the device descriptor.
 pub enum UsbVersion {
     /// Usb version 2.0
     Two = 0x0200,
     /// Usb version 2.1
     TwoOne = 0x0210,
+    /// Usb version 3.0
+    Three = 0x0300,
+    /// Usb version 3.1
+    ThreeOne = 0x0310,
+    /// Usb version 3.2
+    ThreeTwo = 0x0320,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd)]
@@ -29,6 +35,10 @@ pub enum UsbDeviceSpeed {
     Full,
     /// Build a high-speed configuration descriptor.
     High,
+    /// Build a SuperSpeed configuration descriptor.
+    Super,
+    /// Build a SuperSpeedPlus configuration descriptor.
+    SuperPlus,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -74,6 +84,7 @@ pub struct Config<'a> {
     /// - low speed: 8
     /// - full speed: 8, 16, 32, or 64
     /// - high speed: 64
+    /// - super speed: 9, an exponent of base 2
     ///
     /// Default: 64 bytes
     pub max_packet_size_0: u8,
@@ -82,6 +93,12 @@ pub struct Config<'a> {
     ///
     /// Default: [`UsbDeviceSpeed::Full`]
     pub max_speed: UsbDeviceSpeed,
+
+    /// Maximum burst size for bulk endpoints at SuperSpeed, in packets minus one.
+    ///
+    /// Default: 0
+    /// Max: 15
+    pub max_burst: u8,
 
     /// Manufacturer name string descriptor.
     ///
@@ -133,7 +150,7 @@ pub struct Config<'a> {
     /// See also: `self_powered`
     ///
     /// Default: 100mA
-    /// Max: 500mA
+    /// Max: 500mA, or 900mA at SuperSpeed
     pub max_power: u16,
 }
 
@@ -146,6 +163,7 @@ impl<'a> Config<'a> {
             device_protocol: 0x01,
             max_packet_size_0: 64,
             max_speed: UsbDeviceSpeed::Full,
+            max_burst: 0,
             vendor_id: vid,
             product_id: pid,
             device_release: 0x0010,
@@ -208,14 +226,40 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             );
         }
 
-        assert!(
-            config.max_power <= 500,
-            "The maximum allowed value for `max_power` is 500mA"
-        );
+        if config.max_speed >= UsbDeviceSpeed::Super {
+            assert!(
+                config.max_power <= 900,
+                "The maximum allowed value for `max_power` is 900mA at SuperSpeed"
+            );
+            assert!(
+                config.max_packet_size_0 == 9,
+                "SuperSpeed USB requires max_packet_size_0 = 9"
+            );
+            assert!(
+                config.max_burst <= 15,
+                "The maximum allowed value for `max_burst` is 15"
+            );
+            if config.max_speed == UsbDeviceSpeed::SuperPlus {
+                assert!(
+                    config.bcd_usb as u16 >= UsbVersion::ThreeOne as u16,
+                    "SuperSpeedPlus USB requires bcd_usb = UsbVersion::ThreeOne or later"
+                );
+            } else {
+                assert!(
+                    config.bcd_usb as u16 >= UsbVersion::Three as u16,
+                    "SuperSpeed USB requires bcd_usb = UsbVersion::Three or later"
+                );
+            }
+        } else {
+            assert!(
+                config.max_power <= 500,
+                "The maximum allowed value for `max_power` is 500mA"
+            );
 
-        match config.max_packet_size_0 {
-            8 | 16 | 32 | 64 => {}
-            _ => panic!("invalid max_packet_size_0, the allowed values are 8, 16, 32 or 64"),
+            match config.max_packet_size_0 {
+                8 | 16 | 32 | 64 => {}
+                _ => panic!("invalid max_packet_size_0, the allowed values are 8, 16, 32 or 64"),
+            }
         }
 
         let mut config_descriptor = DescriptorWriter::new(config_descriptor_buf);
@@ -223,6 +267,9 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
 
         config_descriptor.configuration(&config);
         bos_descriptor.bos();
+        if config.max_speed >= UsbDeviceSpeed::Super {
+            bos_descriptor.superspeed_capabilities(config.max_speed);
+        }
 
         Builder {
             driver,
@@ -314,7 +361,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
 
         // Start the USB bus.
         // This prevent further allocation by consuming the driver.
-        let (bus, control) = driver.start(config.max_packet_size_0 as u16);
+        let (bus, control) = driver.start(descriptor::control_max_packet_size(&config));
         let device_descriptor = descriptor::device_descriptor(&config);
         let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
 
@@ -635,8 +682,11 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ) {
         let max_speed = self.builder.config.max_speed;
         let b_interval = match max_speed {
-            UsbDeviceSpeed::High => interval.to_high_speed_b_interval(endpoint.ep_type),
-            _ => interval.to_full_speed_b_interval(endpoint.ep_type),
+            UsbDeviceSpeed::Full => interval.to_full_speed_b_interval(endpoint.ep_type),
+            // SuperSpeed periodic endpoints use the high-speed `bInterval` encoding, in 125 us bus intervals.
+            UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => {
+                interval.to_high_speed_b_interval(endpoint.ep_type)
+            }
         };
 
         let interval_offset = (self.builder.config_descriptor.position() + 6) as u16;

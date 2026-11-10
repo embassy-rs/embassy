@@ -3,7 +3,7 @@ use embassy_usb_driver::EndpointType;
 
 use crate::driver::EndpointInfo;
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{CONFIGURATION_VALUE, Config};
+use crate::{CONFIGURATION_VALUE, Config, UsbDeviceSpeed};
 
 /// Standard descriptor types
 #[allow(missing_docs)]
@@ -21,6 +21,8 @@ pub mod descriptor_type {
     pub const IAD: u8 = 11;
     pub const BOS: u8 = 15;
     pub const CAPABILITY: u8 = 16;
+    pub const SS_ENDPOINT_COMPANION: u8 = 48;
+    pub const SSP_ISOCH_ENDPOINT_COMPANION: u8 = 49;
 }
 
 /// String descriptor language IDs.
@@ -39,6 +41,7 @@ pub mod capability_type {
     pub const SS_USB_DEVICE: u8 = 3;
     pub const CONTAINER_ID: u8 = 4;
     pub const PLATFORM: u8 = 5;
+    pub const SS_PLUS_USB_DEVICE: u8 = 10;
 }
 
 /// USB endpoint synchronization type. The values of this enum can be directly
@@ -180,6 +183,7 @@ pub(crate) struct DescriptorWriter<'a> {
     position: usize,
     num_interfaces_mark: Option<usize>,
     num_endpoints_mark: Option<usize>,
+    superspeed_max_burst: Option<u8>,
 }
 
 pub(crate) struct DescriptorMark(usize);
@@ -191,6 +195,7 @@ impl<'a> DescriptorWriter<'a> {
             position: 0,
             num_interfaces_mark: None,
             num_endpoints_mark: None,
+            superspeed_max_burst: None,
         }
     }
 
@@ -236,6 +241,14 @@ impl<'a> DescriptorWriter<'a> {
     pub(crate) fn configuration(&mut self, config: &Config) {
         self.num_interfaces_mark = Some(self.position + 4);
 
+        let superspeed = config.max_speed >= UsbDeviceSpeed::Super;
+        self.superspeed_max_burst = superspeed.then_some(config.max_burst);
+        let max_power = if superspeed {
+            config.max_power.div_ceil(8)
+        } else {
+            config.max_power / 2
+        };
+
         self.write(
             descriptor_type::CONFIGURATION,
             &[
@@ -246,7 +259,7 @@ impl<'a> DescriptorWriter<'a> {
                 0,                   // iConfiguration
                 0x80 | if config.self_powered { 0x40 } else { 0x00 }
                     | if config.supports_remote_wakeup { 0x20 } else { 0x00 }, // bmAttributes
-                (config.max_power / 2) as u8, // bMaxPower
+                max_power as u8,     // bMaxPower
             ],
             &[],
         );
@@ -419,6 +432,19 @@ impl<'a> DescriptorWriter<'a> {
             ],
             extra_fields,
         );
+
+        if let Some(max_burst) = self.superspeed_max_burst {
+            let (max_burst, bytes_per_interval) = match endpoint.ep_type {
+                EndpointType::Bulk => (max_burst, 0),
+                EndpointType::Interrupt | EndpointType::Isochronous => (0, endpoint.max_packet_size & 0x7ff),
+                EndpointType::Control => (0, 0),
+            };
+            self.write(
+                descriptor_type::SS_ENDPOINT_COMPANION,
+                &[max_burst, 0, bytes_per_interval as u8, (bytes_per_interval >> 8) as u8],
+                &[],
+            );
+        }
     }
 
     /// Writes a string descriptor.
@@ -492,6 +518,15 @@ pub(crate) fn device_qualifier_descriptor(config: &Config) -> [u8; 10] {
     ]
 }
 
+/// The control endpoint size the driver is started with.
+pub(crate) fn control_max_packet_size(config: &Config) -> u16 {
+    if config.max_speed >= UsbDeviceSpeed::Super {
+        1 << config.max_packet_size_0
+    } else {
+        config.max_packet_size_0 as u16
+    }
+}
+
 /// Returns the high-speed `bInterval` (2^(bInterval-1) microframes) for `interval_ms`.
 /// 0 is every microframe.
 pub(crate) fn encode_high_speed_interval(interval_ms: u8) -> u8 {
@@ -562,6 +597,39 @@ impl<'a> BosWriter<'a> {
         );
 
         self.capability(capability_type::USB_2_0_EXTENSION, &[0; 4]);
+    }
+
+    /// Writes the device capabilities a SuperSpeed or SuperSpeedPlus device must report.
+    pub(crate) fn superspeed_capabilities(&mut self, speed: UsbDeviceSpeed) {
+        assert!(
+            self.num_caps_mark.is_some(),
+            "SuperSpeed devices require a BOS descriptor, but bos_descriptor_buf is too small"
+        );
+
+        self.capability(
+            capability_type::SS_USB_DEVICE,
+            &[
+                0x00, // bmAttributes
+                0x08, 0x00, // wSpeedsSupported
+                0x03, // bFunctionalitySupport
+                0x0a, // bU1DevExitLat
+                0xff, 0x07, // wU2DevExitLat
+            ],
+        );
+
+        if speed == UsbDeviceSpeed::SuperPlus {
+            self.capability(
+                capability_type::SS_PLUS_USB_DEVICE,
+                &[
+                    0x00, // bReserved
+                    0x01, 0x00, 0x00, 0x00, // bmAttributes
+                    0x00, 0x11, // wFunctionalitySupport
+                    0x00, 0x00, // wReserved
+                    0x30, 0x40, 0x0a, 0x00, // bmSublinkSpeedAttr[0]
+                    0xb0, 0x40, 0x0a, 0x00, // bmSublinkSpeedAttr[1]
+                ],
+            );
+        }
     }
 
     /// Writes capability descriptor to a BOS
