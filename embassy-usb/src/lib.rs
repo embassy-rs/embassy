@@ -48,6 +48,8 @@ mod config {
 }
 
 #[cfg(feature = "device")]
+pub use descriptor::EndpointInterval;
+#[cfg(feature = "device")]
 pub use device::{
     Builder, CONFIGURATION_NONE, CONFIGURATION_VALUE, Config, FunctionBuilder, Handler, HandlerFull,
     InterfaceAltBuilder, InterfaceBuilder, InterfaceHandler, RemoteWakeupError, UsbBufferReport, UsbDevice,

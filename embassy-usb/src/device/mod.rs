@@ -350,6 +350,7 @@ struct Inner<'d, D: Driver<'d>> {
     device_descriptor: [u8; 18],
     device_qualifier_descriptor: [u8; 10],
     config_descriptor: &'d [u8],
+    other_speed_config_descriptor: Option<&'d [u8]>,
     bos_descriptor: &'d [u8],
     msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 
@@ -922,6 +923,14 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
             }
             descriptor_type::DEVICE_QUALIFIER if self.config.max_speed > UsbDeviceSpeed::Full => {
                 InResponse::Accepted(&self.device_qualifier_descriptor)
+            }
+            descriptor_type::OTHER_SPEED_CONFIGURATION
+                if self.config.max_speed > UsbDeviceSpeed::Full && index == 0 =>
+            {
+                match self.other_speed_config_descriptor {
+                    Some(desc) => InResponse::Accepted(desc),
+                    None => InResponse::Rejected,
+                }
             }
             // USB_DT_DEBUG is a standard descriptor, but its endpoint contents
             // are supplied by a special-purpose debug device implementation.

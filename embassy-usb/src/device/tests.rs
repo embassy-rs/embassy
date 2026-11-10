@@ -5,8 +5,10 @@ use embassy_futures::block_on;
 
 use super::*;
 use crate::control::{OutResponse, Recipient};
-use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{Endpoint, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut, Unsupported};
+use crate::descriptor::{EndpointInterval, SynchronizationType, UsageType};
+use crate::driver::{
+    Direction, Endpoint, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut, Unsupported,
+};
 use crate::types::InterfaceNumber;
 
 #[derive(Default)]
@@ -592,4 +594,243 @@ fn routed_handlers_only_see_their_interfaces() {
     block_on(usb.inner.handle_bus_event(Event::Reset));
     assert_eq!(a_alts.get(), 1);
     assert_eq!(b_alts.get(), 1);
+}
+
+#[test]
+fn test_endpoint_interval_and_other_speed_config() {
+    let mut config_descriptor = [0; 256];
+    let mut other_speed_config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+
+    let mut config = Config::new(0x1234, 0x5678);
+    config.max_speed = UsbDeviceSpeed::High;
+    config.max_packet_size_0 = 64;
+
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    builder.other_speed_config_descriptor(&mut other_speed_config_descriptor);
+
+    let mut function = builder.function(0xff, 0, 0);
+    let mut interface = function.interface();
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+
+    // 1. Interrupt IN endpoint with 4 ms (Interval::Milliseconds(4))
+    alt.endpoint_interrupt_in(Some(0x81.into()), 64, 4);
+
+    // 2. High-speed sub-millisecond Isochronous IN endpoint with 250 µs (Microframes(2))
+    alt.endpoint_isochronous_in_interval(
+        Some(0x82.into()),
+        64,
+        EndpointInterval::Microframes(2),
+        SynchronizationType::NoSynchronization,
+        UsageType::DataEndpoint,
+        &[],
+    );
+
+    // 3. Isochronous OUT endpoint with 4 ms (Milliseconds(4))
+    alt.endpoint_isochronous_out(
+        Some(0x03.into()),
+        64,
+        4,
+        SynchronizationType::NoSynchronization,
+        UsageType::DataEndpoint,
+        &[],
+    );
+
+    // 4. Raw endpoint with bInterval = 42 (Raw(42))
+    alt.endpoint_interrupt_out_interval(Some(0x04.into()), 64, EndpointInterval::Raw(42));
+
+    drop(function);
+    let mut usb = builder.build();
+
+    // Check High-Speed Configuration Descriptor
+    let hs_desc = usb.inner.config_descriptor;
+    assert_eq!(hs_desc[1], descriptor_type::CONFIGURATION); // 0x02
+
+    // Helper to find bInterval of endpoint address
+    let find_interval = |desc: &[u8], ep_addr: u8| -> u8 {
+        desc.windows(7)
+            .find(|w| w[0] == 7 && w[1] == descriptor_type::ENDPOINT && w[2] == ep_addr)
+            .map(|w| w[6])
+            .expect("endpoint not found")
+    };
+
+    // 1. Interrupt IN: 4 ms -> 2^(bInterval-1) = 32 microframes -> bInterval = 6
+    assert_eq!(find_interval(hs_desc, 0x81), 6);
+
+    // 2. Isochronous IN: 2 microframes -> 2^(bInterval-1) = 2 microframes -> bInterval = 2
+    assert_eq!(find_interval(hs_desc, 0x82), 2);
+
+    // 3. Isochronous OUT: 4 ms -> 32 microframes -> bInterval = 6
+    assert_eq!(find_interval(hs_desc, 0x03), 6);
+
+    // 4. Raw Interrupt OUT: 42 -> unchanged
+    assert_eq!(find_interval(hs_desc, 0x04), 42);
+
+    // Check Other-Speed (Full-Speed) Configuration Descriptor
+    let other_desc = usb
+        .inner
+        .other_speed_config_descriptor
+        .expect("other speed desc present");
+    assert_eq!(other_desc[1], descriptor_type::OTHER_SPEED_CONFIGURATION); // 0x07
+    assert_eq!(other_desc.len(), hs_desc.len());
+
+    // 1. Interrupt IN at FS: 4 ms linear -> bInterval = 4
+    assert_eq!(find_interval(other_desc, 0x81), 4);
+
+    // 2. Isochronous IN at FS: 2 microframes <= 8 microframes -> 1 frame -> 2^(bInterval-1) = 1 frame -> bInterval = 1
+    assert_eq!(find_interval(other_desc, 0x82), 1);
+
+    // 3. Isochronous OUT at FS: 4 ms exponential -> 2^(bInterval-1) = 4 frames -> bInterval = 3
+    assert_eq!(find_interval(other_desc, 0x03), 3);
+
+    // 4. Raw Interrupt OUT at FS: 42 -> unchanged
+    assert_eq!(find_interval(other_desc, 0x04), 42);
+
+    // Test GET_DESCRIPTOR for OTHER_SPEED_CONFIGURATION via control transfer
+    let mut buf = [0u8; 256];
+    let req = Request {
+        direction: Direction::In,
+        request_type: RequestType::Standard,
+        recipient: Recipient::Device,
+        request: Request::GET_DESCRIPTOR,
+        value: ((descriptor_type::OTHER_SPEED_CONFIGURATION as u16) << 8) | 0,
+        index: 0,
+        length: 256,
+    };
+    match usb.inner.handle_control_in(req, &mut buf) {
+        InResponse::Accepted(data) => {
+            assert_eq!(data[1], descriptor_type::OTHER_SPEED_CONFIGURATION);
+            assert_eq!(data.len(), other_desc.len());
+        }
+        _ => panic!("GET_DESCRIPTOR(OTHER_SPEED_CONFIGURATION) should be accepted"),
+    }
+
+    // Index != 0 should be rejected
+    let req_invalid_idx = Request {
+        direction: Direction::In,
+        request_type: RequestType::Standard,
+        recipient: Recipient::Device,
+        request: Request::GET_DESCRIPTOR,
+        value: ((descriptor_type::OTHER_SPEED_CONFIGURATION as u16) << 8) | 1,
+        index: 0,
+        length: 256,
+    };
+    assert!(matches!(
+        usb.inner.handle_control_in(req_invalid_idx, &mut buf),
+        InResponse::Rejected
+    ));
+}
+
+#[test]
+fn test_other_speed_config_rejected_on_full_speed_or_missing_buffer() {
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+
+    // High speed but no other_speed buffer
+    let mut config = Config::new(0x1234, 0x5678);
+    config.max_speed = UsbDeviceSpeed::High;
+    config.max_packet_size_0 = 64;
+
+    let builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut usb = builder.build();
+
+    let mut buf = [0u8; 256];
+    let req = Request {
+        direction: Direction::In,
+        request_type: RequestType::Standard,
+        recipient: Recipient::Device,
+        request: Request::GET_DESCRIPTOR,
+        value: ((descriptor_type::OTHER_SPEED_CONFIGURATION as u16) << 8) | 0,
+        index: 0,
+        length: 256,
+    };
+    assert!(matches!(
+        usb.inner.handle_control_in(req, &mut buf),
+        InResponse::Rejected
+    ));
+
+    // Full speed device
+    let mut config_descriptor_fs = [0; 256];
+    let mut bos_descriptor_fs = [0; 64];
+    let mut control_buf_fs = [0; 64];
+    let mut other_speed_buf_fs = [0; 256];
+
+    let mut config_fs = Config::new(0x1234, 0x5678);
+    config_fs.max_speed = UsbDeviceSpeed::Full;
+
+    let mut builder_fs = Builder::new(
+        TestDriver::default(),
+        config_fs,
+        &mut config_descriptor_fs,
+        &mut bos_descriptor_fs,
+        &mut [],
+        &mut control_buf_fs,
+    );
+    builder_fs.other_speed_config_descriptor(&mut other_speed_buf_fs);
+    let mut usb_fs = builder_fs.build();
+
+    assert!(matches!(
+        usb_fs.inner.handle_control_in(req, &mut buf),
+        InResponse::Rejected
+    ));
+}
+
+#[test]
+fn test_manual_raw_descriptor_opt_out() {
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+
+    let mut config = Config::new(0x1234, 0x5678);
+    config.max_speed = UsbDeviceSpeed::High;
+    config.max_packet_size_0 = 64;
+
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+
+    let mut function = builder.function(0xff, 0, 0);
+    let mut interface = function.interface();
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+
+    // Manually write an endpoint descriptor with raw descriptor() call
+    alt.descriptor(
+        descriptor_type::ENDPOINT,
+        &[0x81, 0x03, 64, 0, 99], // Interrupt IN with bInterval = 99
+    );
+
+    drop(function);
+    let usb = builder.build();
+
+    let desc = usb.inner.config_descriptor;
+    let find_interval = |desc: &[u8], ep_addr: u8| -> u8 {
+        desc.windows(7)
+            .find(|w| w[0] == 7 && w[1] == descriptor_type::ENDPOINT && w[2] == ep_addr)
+            .map(|w| w[6])
+            .expect("endpoint not found")
+    };
+
+    // The manual endpoint descriptor's bInterval must NOT be rewritten!
+    assert_eq!(find_interval(desc, 0x81), 99);
 }
