@@ -44,9 +44,23 @@ use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use heapless::{String, Vec};
 
 use crate::control::Request;
+use crate::host::class::ClassMatch;
 use crate::host::control::{ControlType, Recipient, RequestType, SetupPacket};
-use crate::host::descriptor::DEFAULT_MAX_DESCRIPTOR_SIZE;
+use crate::host::descriptor::{ClassCode, DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor};
 use crate::host::handler::{EnumerationInfo, RegisterError};
+
+/// Matcher for any USB Audio Class interface.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct UacMatcher;
+
+impl ClassMatch for UacMatcher {
+    const NAME: &'static str = "UAC";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(super::uac1_codes::USB_AUDIO_CLASS, 0, 0));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == super::uac1_codes::USB_AUDIO_CLASS
+    }
+}
 
 const MAX_RANGES: usize = 16;
 // 256 is the maximum buffer size that can be used to store a string

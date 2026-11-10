@@ -3,8 +3,8 @@
 use core::mem::MaybeUninit;
 
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
-use crate::types::StringIndex;
-use crate::{Builder, Handler, msos};
+use crate::types::{InterfaceNumber, StringIndex};
+use crate::{Builder, Handler, InterfaceHandler, msos};
 
 /// State for the CMSIS-DAP v2 USB class.
 pub struct State {
@@ -12,6 +12,7 @@ pub struct State {
 }
 
 struct Control {
+    iface: InterfaceNumber,
     iface_string: StringIndex,
 }
 
@@ -23,6 +24,12 @@ impl Handler for Control {
             warn!("unknown string index requested");
             None
         }
+    }
+}
+
+impl InterfaceHandler for Control {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.iface
     }
 }
 
@@ -65,6 +72,7 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
             msos::PropertyData::RegMultiSz(&["{CDB3B5AD-293B-4663-AA36-1AAE46463776}"]),
         ));
         let mut interface = function.interface();
+        let interface_number = interface.interface_number();
         let mut alt = interface.alt_setting(0xFF, 0, 0, Some(iface_string));
         let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
         let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
@@ -75,7 +83,10 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
         };
         drop(function);
 
-        builder.handler(state.control.write(Control { iface_string }));
+        builder.interface_handler(state.control.write(Control {
+            iface: interface_number,
+            iface_string,
+        }));
 
         CmsisDapV2Class {
             read_ep,

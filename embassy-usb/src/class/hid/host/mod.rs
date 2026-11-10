@@ -13,8 +13,9 @@ use super::{
     HID_DESC_TYPE_HID, HID_DESC_TYPE_REPORT, HID_REQ_GET_REPORT, HID_REQ_SET_IDLE, HID_REQ_SET_PROTOCOL,
     HID_REQ_SET_REPORT, HidProtocolMode, KeyboardReport, MouseReport, ReportId, USB_CLASS_HID,
 };
+use crate::host::class::{ClassError, HostClass};
 use crate::host::control::SetupPacket;
-use crate::host::descriptor::ConfigurationDescriptorChain;
+use crate::host::descriptor::{ClassCode, ClassMatch, ConfigurationDescriptorChain, InterfaceDescriptor};
 use crate::host::handler::EnumerationInfo;
 
 /// Interrupt transfer type.
@@ -30,7 +31,7 @@ impl SetupPacket {
 }
 
 /// Information about a HID interface found in a configuration descriptor.
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct HidInfo {
     /// HID interface number.
@@ -44,6 +45,19 @@ pub struct HidInfo {
     /// Length of the HID Report Descriptor in bytes (from the HID class descriptor).
     /// Pass this to [`HidHost::fetch_report_descriptor`] as the buffer size.
     pub report_descriptor_len: u16,
+}
+
+/// Matcher for the standard HID interface class.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct HidMatcher;
+
+impl ClassMatch for HidMatcher {
+    const NAME: &'static str = "HID";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(USB_CLASS_HID, 0, 0));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == USB_CLASS_HID
+    }
 }
 
 /// Find the first HID interface in a configuration descriptor.
@@ -133,7 +147,11 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
     /// then allocates the necessary channels.
     pub fn new(alloc: &A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, HidError> {
         let info = find_hid(config_desc).ok_or(HidError::NoInterface)?;
+        Self::new_with_info(alloc, info, enum_info)
+    }
 
+    /// Allocate pipes from an already-probed [`HidInfo`].
+    pub fn new_with_info(alloc: &A, info: HidInfo, enum_info: &EnumerationInfo) -> Result<Self, HidError> {
         let ctrl_ep_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
@@ -270,6 +288,29 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
         );
         self.ctrl_ch.control_out(&setup.to_bytes(), buf).await?;
         Ok(())
+    }
+}
+
+impl From<HidError> for ClassError {
+    fn from(e: HidError) -> Self {
+        match e {
+            HidError::Transfer(e) => Self::Transfer(e),
+            HidError::NoInterface => Self::NoMatch,
+            HidError::NoPipe => Self::NoPipe,
+        }
+    }
+}
+
+impl<'d, A: UsbHostAllocator<'d>> HostClass<'d, A> for HidHost<'d, A> {
+    const NAME: &'static str = "HID";
+    type Info = HidInfo;
+
+    fn probe(_enum_info: &EnumerationInfo, cfg: &[u8]) -> Option<Self::Info> {
+        find_hid(cfg)
+    }
+
+    async fn open(alloc: &A, _cfg: &[u8], info: Self::Info, enum_info: &EnumerationInfo) -> Result<Self, ClassError> {
+        Self::new_with_info(alloc, info, enum_info).map_err(Into::into)
     }
 }
 

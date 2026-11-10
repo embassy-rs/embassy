@@ -9,7 +9,7 @@ use super::types::*;
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointIn, EndpointOut};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Builder, Handler};
+use crate::{Builder, Handler, InterfaceHandler};
 
 /// Configuration for the USBTMC device class.
 #[derive(Clone, Copy, Debug)]
@@ -412,6 +412,12 @@ impl Handler for Control {
     }
 }
 
+impl InterfaceHandler for Control {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.comm_if
+    }
+}
+
 /// USB device class for USB Test & Measurement Class (USBTMC).
 pub struct UsbtmcClass<'d, D: Driver<'d>> {
     read_ep: D::EndpointOut,
@@ -460,7 +466,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         // Safety: the handler is bound to the lifetime of state
         let shared_static: &'static ControlShared = unsafe { core::mem::transmute(&state.shared) };
 
-        builder.handler(state.control.write(Control {
+        builder.interface_handler(state.control.write(Control {
             comm_if,
             iface_string,
             bulk_out_ep,
