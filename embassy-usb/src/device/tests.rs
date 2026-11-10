@@ -834,3 +834,122 @@ fn test_manual_raw_descriptor_opt_out() {
     // The manual endpoint descriptor's bInterval must NOT be rewritten!
     assert_eq!(find_interval(desc, 0x81), 99);
 }
+
+#[cfg(feature = "class-midi")]
+#[test]
+fn test_midi2_device_enumeration_and_control() {
+    use crate::class::midi::device::{Midi2Config, MidiClass, MidiClassConfig, MidiClassState};
+    use crate::class::midi::{
+        CS_GR_TRM_BLOCK, GroupTerminalBlockConfig, GroupTerminalBlockType, MidiProtocol, parse_gtb_descriptors,
+    };
+
+    static GTBS: &[GroupTerminalBlockConfig<'static>] = &[
+        GroupTerminalBlockConfig {
+            block_id: 1,
+            block_type: GroupTerminalBlockType::Bidirectional,
+            first_group: 0,
+            num_groups: 2,
+            protocol: MidiProtocol::Midi2_0,
+            name: Some("Synth Ports 1-2"),
+            max_input_bandwidth: 0,
+            max_output_bandwidth: 0,
+        },
+        GroupTerminalBlockConfig {
+            block_id: 2,
+            block_type: GroupTerminalBlockType::InputOnly,
+            first_group: 2,
+            num_groups: 1,
+            protocol: MidiProtocol::Midi1_0,
+            name: Some("Legacy DIN In"),
+            max_input_bandwidth: 3125,
+            max_output_bandwidth: 0,
+        },
+    ];
+
+    let mut state = MidiClassState::new();
+    let mut config_descriptor = [0; 512];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 256];
+
+    let mut config = Config::new(0x1234, 0x5678);
+    config.max_packet_size_0 = 64;
+
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+
+    let midi_config = MidiClassConfig {
+        n_in_jacks: 1,
+        n_out_jacks: 1,
+        max_packet_size: 64,
+        interface_name: Some("MIDI 2.0 Interface"),
+        in_jack_names: &[Some("MIDI In")],
+        out_jack_names: &[Some("MIDI Out")],
+        midi2: Some(Midi2Config {
+            group_terminal_blocks: GTBS,
+            max_packet_size: 64,
+        }),
+    };
+
+    let _midi = MidiClass::new_with_names(&mut builder, &mut state, midi_config);
+    let mut usb = builder.build();
+
+    // Switch interface 1 to Alternate Setting 1 (MIDI 2.0)
+    let set_alt_req = Request {
+        direction: Direction::Out,
+        request_type: RequestType::Standard,
+        recipient: Recipient::Interface,
+        request: Request::SET_INTERFACE,
+        value: 1,
+        index: 1,
+        length: 0,
+    };
+    assert_eq!(usb.inner.handle_control_out(set_alt_req, &[]), OutResponse::Accepted);
+
+    // Switch interface 1 to invalid Alternate Setting 2
+    let set_alt_invalid = Request {
+        direction: Direction::Out,
+        request_type: RequestType::Standard,
+        recipient: Recipient::Interface,
+        request: Request::SET_INTERFACE,
+        value: 2,
+        index: 1,
+        length: 0,
+    };
+    assert_eq!(
+        usb.inner.handle_control_out(set_alt_invalid, &[]),
+        OutResponse::Rejected
+    );
+
+    // Query Group Terminal Block descriptors via GET_DESCRIPTOR (0x2600)
+    let get_gtb_req = Request {
+        direction: Direction::In,
+        request_type: RequestType::Class,
+        recipient: Recipient::Interface,
+        request: Request::GET_DESCRIPTOR,
+        value: (CS_GR_TRM_BLOCK as u16) << 8,
+        index: 1,
+        length: 256,
+    };
+    let mut resp_buf = [0u8; 256];
+    match usb.inner.handle_control_in(get_gtb_req, &mut resp_buf) {
+        InResponse::Accepted(data) => {
+            let blocks: heapless::Vec<_, 4> = parse_gtb_descriptors(data).expect("valid GTB descriptors");
+            assert_eq!(blocks.len(), 2);
+            assert_eq!(blocks[0].block_id, 1);
+            assert_eq!(blocks[0].first_group, 0);
+            assert_eq!(blocks[0].num_groups, 2);
+            assert_eq!(blocks[0].protocol, MidiProtocol::Midi2_0);
+            assert_eq!(blocks[1].block_id, 2);
+            assert_eq!(blocks[1].first_group, 2);
+            assert_eq!(blocks[1].num_groups, 1);
+            assert_eq!(blocks[1].protocol, MidiProtocol::Midi1_0);
+        }
+        InResponse::Rejected => panic!("GET_DESCRIPTOR for GTB was rejected"),
+    }
+}

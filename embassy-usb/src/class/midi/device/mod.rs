@@ -1,13 +1,16 @@
 //! MIDI class implementation.
 
 use super::{
-    MAX_MIDI_JACKS, MIDI_IN_JACK_LEN, MIDI_IN_JACK_SUBTYPE, MIDI_OUT_JACK_BASE_LEN, MIDI_OUT_JACK_SUBTYPE,
-    MIDI_VERSION, MS_GENERAL, MS_GENERAL_BASE_LEN, MS_HEADER_LEN, MS_HEADER_SUBTYPE, MidiJackType, PROTOCOL_NONE,
-    USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS,
+    CS_GR_TRM_BLOCK, GR_TRM_BLOCK_HEADER_LEN, GR_TRM_BLOCK_LEN, GroupTerminalBlock, GroupTerminalBlockConfig, MAX_GTBS,
+    MAX_MIDI_JACKS, MAX_UMP_BYTES, MIDI_IN_JACK_LEN, MIDI_IN_JACK_SUBTYPE, MIDI_OUT_JACK_BASE_LEN,
+    MIDI_OUT_JACK_SUBTYPE, MIDI_VERSION, MIDI2_VERSION, MS_GENERAL, MS_GENERAL_2_0, MS_GENERAL_BASE_LEN, MS_HEADER_LEN,
+    MS_HEADER_SUBTYPE, MidiJackType, PROTOCOL_NONE, USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS, UmpPacket, UmpReader,
+    serialize_gtb_descriptors,
 };
+use crate::control::{InResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
-use crate::types::StringIndex;
+use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Builder, Handler};
 
 const USB_AUDIOCONTROL_SUBCLASS: u8 = 0x01;
@@ -18,6 +21,25 @@ const EMBEDDED: u8 = MidiJackType::Embedded as u8;
 const EXTERNAL: u8 = MidiJackType::External as u8;
 // Each OUT jack has one source pin.
 const MIDI_OUT_JACK_LEN: u8 = MIDI_OUT_JACK_BASE_LEN + 2;
+
+/// Configuration for MIDI 2.0 support (Alternate Setting 1).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Midi2Config<'d> {
+    /// Group Terminal Blocks declared by this interface.
+    pub group_terminal_blocks: &'d [GroupTerminalBlockConfig<'d>],
+    /// Maximum packet size for Alt 1 bulk endpoints (e.g. 64 for full-speed, 512 for high-speed).
+    pub max_packet_size: u16,
+}
+
+impl Default for Midi2Config<'_> {
+    fn default() -> Self {
+        Self {
+            group_terminal_blocks: &[],
+            max_packet_size: 64,
+        }
+    }
+}
 
 /// Configuration for the MIDI class.
 ///
@@ -50,6 +72,9 @@ pub struct MidiClassConfig<'d> {
 
     /// Name of each OUT jack.
     pub out_jack_names: &'d [Option<&'d str>],
+
+    /// Optional MIDI 2.0 configuration for Alternate Setting 1.
+    pub midi2: Option<Midi2Config<'d>>,
 }
 
 impl Default for MidiClassConfig<'_> {
@@ -61,19 +86,32 @@ impl Default for MidiClassConfig<'_> {
             interface_name: None,
             in_jack_names: &[],
             out_jack_names: &[],
+            midi2: None,
         }
     }
 }
 
 /// Internal state for a [`MidiClass`].
 ///
-/// Holds names/string-indices for interface and jacks.
-#[derive(Default)]
+/// Holds names/string-indices for interface, jacks, and Group Terminal Blocks,
+/// and serves GTB descriptors over the control endpoint.
 pub struct MidiClassState<'d> {
     first: u8,
     interface_name: Option<&'d str>,
     in_jack_names: &'d [Option<&'d str>],
     out_jack_names: &'d [Option<&'d str>],
+    gtb_names: [Option<&'d str>; MAX_GTBS],
+    gtb_count: usize,
+    interface_number: u8,
+    active_alt: u8,
+    gtb_descriptors: [u8; GR_TRM_BLOCK_HEADER_LEN as usize + MAX_GTBS * GR_TRM_BLOCK_LEN as usize],
+    gtb_len: usize,
+}
+
+impl Default for MidiClassState<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'d> MidiClassState<'d> {
@@ -84,14 +122,21 @@ impl<'d> MidiClassState<'d> {
             interface_name: None,
             in_jack_names: &[],
             out_jack_names: &[],
+            gtb_names: [None; MAX_GTBS],
+            gtb_count: 0,
+            interface_number: 0,
+            active_alt: 0,
+            gtb_descriptors: [0u8; GR_TRM_BLOCK_HEADER_LEN as usize + MAX_GTBS * GR_TRM_BLOCK_LEN as usize],
+            gtb_len: 0,
         }
     }
 
-    /// The names, in allocation order: interface, IN jacks, OUT jacks.
+    /// The names, in allocation order: interface, IN jacks, OUT jacks, GTB names.
     fn names(&self) -> impl Iterator<Item = &Option<&'d str>> {
         core::iter::once(&self.interface_name)
             .chain(self.in_jack_names)
             .chain(self.out_jack_names)
+            .chain(self.gtb_names[..self.gtb_count].iter())
     }
 
     /// The name in slot `n`, if there is one.
@@ -119,55 +164,130 @@ impl<'d> MidiClassState<'d> {
     fn out_jack(&self, i: u8) -> u8 {
         self.id(1 + self.in_jack_names.len() + i as usize)
     }
+
+    /// Returns the currently active alternate setting (0 for MIDI 1.0, 1 for MIDI 2.0).
+    pub fn active_alternate_setting(&self) -> u8 {
+        self.active_alt
+    }
+
+    /// Returns whether MIDI 2.0 (Alternate Setting 1) is currently active.
+    pub fn is_midi2_active(&self) -> bool {
+        self.active_alt == 1
+    }
 }
 
 impl Handler for MidiClassState<'_> {
     fn get_string(&mut self, index: StringIndex, _lang_id: u16) -> Option<&str> {
         self.name(index.0.checked_sub(self.first)? as usize)
     }
+
+    fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
+        if iface.0 == self.interface_number {
+            self.active_alt = alternate_setting;
+        }
+    }
+
+    fn control_in<'a>(&'a mut self, req: Request, _buf: &'a mut [u8]) -> Option<InResponse<'a>> {
+        if (req.request_type == RequestType::Class || req.request_type == RequestType::Standard)
+            && req.recipient == Recipient::Interface
+            && req.request == Request::GET_DESCRIPTOR
+            && (req.value >> 8) == CS_GR_TRM_BLOCK as u16
+            && (req.index as u8) == self.interface_number
+        {
+            if self.gtb_len > 0 {
+                Some(InResponse::Accepted(&self.gtb_descriptors[..self.gtb_len]))
+            } else {
+                Some(InResponse::Rejected)
+            }
+        } else {
+            None
+        }
+    }
 }
 
-/// Packet level implementation of a USB MIDI device.
+/// Packet level implementation of a USB MIDI device supporting MIDI 1.0 and 2.0.
 ///
 /// This class can be used directly and it has the least overhead due to directly reading and
 /// writing USB packets with no intermediate buffers, but it will not act like a stream-like port.
-/// The following constraints must be followed if you use this class directly:
-///
-/// - `read_packet` must be called with a buffer large enough to hold `max_packet_size` bytes.
-/// - `write_packet` must not be called with a buffer larger than `max_packet_size` bytes.
-/// - If you write a packet that is exactly `max_packet_size` bytes long, it won't be processed by the
-///   host operating system until a subsequent shorter packet is sent. A zero-length packet (ZLP)
-///   can be sent if there is no other data to send. This is because USB bulk transactions must be
-///   terminated with a short packet, even if the bulk endpoint is used for stream-like data.
 pub struct MidiClass<'d, D: Driver<'d>> {
     read_ep: Option<D::EndpointOut>,
     write_ep: Option<D::EndpointIn>,
+    read_ep_v2: Option<D::EndpointOut>,
+    write_ep_v2: Option<D::EndpointIn>,
 }
 
 impl<'d, D: Driver<'d>> MidiClass<'d, D> {
     /// Creates a new `MidiClass` with the provided UsbBuilder and configuration.
     ///
-    /// The names in `config` are ignored, use [`MidiClass::new_with_names`] if you need to name jacks.
+    /// The names in `config` are ignored, use [`MidiClass::new_with_names`] if you need to name jacks
+    /// or configure MIDI 2.0.
     pub fn new(builder: &mut Builder<'d, D>, config: MidiClassConfig<'d>) -> Self {
-        Self::build(builder, config, &MidiClassState::new())
+        assert!(
+            config.midi2.is_none(),
+            "MidiClass::new_with_names must be used when MIDI 2.0 is configured"
+        );
+        Self::build(builder, config, &mut MidiClassState::new())
     }
 
-    /// Creates a new `MidiClass` with the provided UsbBuilder that names its interface and jacks.
+    /// Creates a new `MidiClass` with the provided UsbBuilder that names its interface, jacks,
+    /// and Group Terminal Blocks.
     pub fn new_with_names(
         builder: &mut Builder<'d, D>,
         state: &'d mut MidiClassState<'d>,
         config: MidiClassConfig<'d>,
     ) -> Self {
+        let mut gtb_names = [None; MAX_GTBS];
+        let mut gtb_count = 0;
+        let mut gtbs = heapless::Vec::<GroupTerminalBlock, MAX_GTBS>::new();
+
+        if let Some(midi2_config) = &config.midi2 {
+            for (i, b) in midi2_config.group_terminal_blocks.iter().enumerate().take(MAX_GTBS) {
+                gtb_names[i] = b.name;
+                gtb_count += 1;
+            }
+        }
+
         *state = MidiClassState {
             first: builder.string().0,
             interface_name: config.interface_name,
             in_jack_names: config.in_jack_names,
             out_jack_names: config.out_jack_names,
+            gtb_names,
+            gtb_count,
+            interface_number: 0,
+            active_alt: 0,
+            gtb_descriptors: [0u8; GR_TRM_BLOCK_HEADER_LEN as usize + MAX_GTBS * GR_TRM_BLOCK_LEN as usize],
+            gtb_len: 0,
         };
 
-        // string index for interface allocated above, now allocate the jacks.
+        // string index for interface allocated above, now allocate jacks and GTB strings.
         for _ in 1..state.names().count() {
             builder.string();
+        }
+
+        // Compute string indices and serialize GTB descriptors
+        if let Some(midi2_config) = &config.midi2 {
+            let gtb_str_start_offset = 1 + config.in_jack_names.len() + config.out_jack_names.len();
+            for (i, b) in midi2_config.group_terminal_blocks.iter().enumerate() {
+                let string_idx = if b.name.is_some() {
+                    state.first + (gtb_str_start_offset + i) as u8
+                } else {
+                    0
+                };
+                let _ = gtbs.push(GroupTerminalBlock {
+                    block_id: b.block_id,
+                    block_type: b.block_type,
+                    first_group: b.first_group,
+                    num_groups: b.num_groups,
+                    string_index: string_idx,
+                    protocol: b.protocol,
+                    max_input_bandwidth: b.max_input_bandwidth,
+                    max_output_bandwidth: b.max_output_bandwidth,
+                });
+            }
+            if let Ok(len) = serialize_gtb_descriptors(&gtbs, &mut state.gtb_descriptors) {
+                state.gtb_len = len;
+            }
         }
 
         let class = Self::build(builder, config, state);
@@ -175,8 +295,17 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         class
     }
 
+    /// Creates a new `MidiClass` with the provided UsbBuilder and state.
+    pub fn new_with_state(
+        builder: &mut Builder<'d, D>,
+        state: &'d mut MidiClassState<'d>,
+        config: MidiClassConfig<'d>,
+    ) -> Self {
+        Self::new_with_names(builder, state, config)
+    }
+
     /// Creates a new `MidiClass` with the provided UsbBuilder and configuration.
-    fn build(builder: &mut Builder<'d, D>, config: MidiClassConfig<'d>, names: &MidiClassState<'d>) -> Self {
+    fn build(builder: &mut Builder<'d, D>, config: MidiClassConfig<'d>, names: &mut MidiClassState<'d>) -> Self {
         let MidiClassConfig {
             n_in_jacks,
             n_out_jacks,
@@ -186,8 +315,8 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
 
         // Some sanity checks.
         assert!(
-            n_in_jacks != 0 || n_out_jacks != 0,
-            "n_in_jacks and n_out_jacks are both 0"
+            n_in_jacks != 0 || n_out_jacks != 0 || config.midi2.is_some(),
+            "n_in_jacks and n_out_jacks are both 0 and MIDI 2.0 is not configured"
         );
         assert!(
             n_in_jacks as usize <= MAX_MIDI_JACKS,
@@ -211,6 +340,9 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
 
         // MIDIStreaming interface
         let mut iface = func.interface();
+        let midi_if_num = iface.interface_number();
+        names.interface_number = midi_if_num.0;
+
         let mut alt = iface.alt_setting(
             USB_AUDIO_CLASS,
             USB_MIDISTREAMING_SUBCLASS,
@@ -218,139 +350,213 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             names.interface(),
         );
 
-        let midi_streaming_total_length = MS_HEADER_LEN as usize
-            + (n_in_jacks + n_out_jacks) as usize * (MIDI_IN_JACK_LEN + MIDI_OUT_JACK_LEN) as usize
-            + if n_out_jacks > 0 {
-                9 + (MS_GENERAL_BASE_LEN as usize + n_out_jacks as usize)
-            } else {
-                0
-            }
-            + if n_in_jacks > 0 {
-                9 + (MS_GENERAL_BASE_LEN as usize + n_in_jacks as usize)
-            } else {
-                0
-            };
-        let (read_ep, write_ep) = alt.descriptors_then_patch(
-            |alt| {
-                alt.descriptor(
-                    CS_INTERFACE,
-                    &[
-                        MS_HEADER_SUBTYPE,
-                        MIDI_VERSION.to_le_bytes()[0],
-                        MIDI_VERSION.to_le_bytes()[1],
-                        (midi_streaming_total_length & 0xFF) as u8,
-                        ((midi_streaming_total_length >> 8) & 0xFF) as u8,
-                    ],
-                );
-
-                // Calculates the index'th embedded midi out jack id
-                let out_jack_id_emb = |index| 2 * index + 1;
-                // Calculates the index'th external midi in jack id
-                let in_jack_id_ext = |index| 2 * index + 2;
-                // Calculates the index'th embedded midi in jack id
-                let in_jack_id_emb = |index| 2 * n_in_jacks + 2 * index + 1;
-                // Calculates the index'th external midi out jack id
-                let out_jack_id_ext = |index| 2 * n_in_jacks + 2 * index + 2;
-
-                for i in 0..n_in_jacks {
-                    let i_jack = names.in_jack(i);
-                    alt.descriptor(
-                        CS_INTERFACE,
-                        &[
-                            MIDI_OUT_JACK_SUBTYPE,
-                            EMBEDDED,
-                            out_jack_id_emb(i),
-                            0x01,
-                            in_jack_id_ext(i),
-                            0x01,
-                            i_jack,
-                        ],
-                    );
-                    alt.descriptor(
-                        CS_INTERFACE,
-                        &[MIDI_IN_JACK_SUBTYPE, EXTERNAL, in_jack_id_ext(i), i_jack],
-                    );
-                }
-
-                for i in 0..n_out_jacks {
-                    let i_jack = names.out_jack(i);
-                    alt.descriptor(
-                        CS_INTERFACE,
-                        &[MIDI_IN_JACK_SUBTYPE, EMBEDDED, in_jack_id_emb(i), i_jack],
-                    );
-                    alt.descriptor(
-                        CS_INTERFACE,
-                        &[
-                            MIDI_OUT_JACK_SUBTYPE,
-                            EXTERNAL,
-                            out_jack_id_ext(i),
-                            0x01,
-                            in_jack_id_emb(i),
-                            0x01,
-                            i_jack,
-                        ],
-                    );
-                }
-
-                let mut endpoint_data = [
-                    MS_GENERAL, 0, // Number of jacks
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // Jack mappings
-                ];
-
-                let read_ep = if n_out_jacks > 0 {
-                    endpoint_data[1] = n_out_jacks;
-                    for i in 0..n_out_jacks {
-                        endpoint_data[2 + i as usize] = in_jack_id_emb(i);
-                    }
-                    let read_ep = alt.endpoint_out(
-                        EndpointType::Bulk,
-                        None,
-                        max_packet_size,
-                        0,
-                        SynchronizationType::NoSynchronization,
-                        UsageType::DataEndpoint,
-                        &[0, 0],
-                    );
-                    alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_out_jacks as usize]);
-                    Some(read_ep)
+        let (read_ep, write_ep) = if n_in_jacks > 0 || n_out_jacks > 0 {
+            let midi_streaming_total_length = MS_HEADER_LEN as usize
+                + (n_in_jacks + n_out_jacks) as usize * (MIDI_IN_JACK_LEN + MIDI_OUT_JACK_LEN) as usize
+                + if n_out_jacks > 0 {
+                    9 + (MS_GENERAL_BASE_LEN as usize + n_out_jacks as usize)
                 } else {
-                    None
+                    0
+                }
+                + if n_in_jacks > 0 {
+                    9 + (MS_GENERAL_BASE_LEN as usize + n_in_jacks as usize)
+                } else {
+                    0
                 };
+            alt.descriptors_then_patch(
+                |alt| {
+                    alt.descriptor(
+                        CS_INTERFACE,
+                        &[
+                            MS_HEADER_SUBTYPE,
+                            MIDI_VERSION.to_le_bytes()[0],
+                            MIDI_VERSION.to_le_bytes()[1],
+                            (midi_streaming_total_length & 0xFF) as u8,
+                            ((midi_streaming_total_length >> 8) & 0xFF) as u8,
+                        ],
+                    );
 
-                let write_ep = if n_in_jacks > 0 {
-                    endpoint_data[1] = n_in_jacks;
+                    // Calculates the index'th embedded midi out jack id
+                    let out_jack_id_emb = |index| 2 * index + 1;
+                    // Calculates the index'th external midi in jack id
+                    let in_jack_id_ext = |index| 2 * index + 2;
+                    // Calculates the index'th embedded midi in jack id
+                    let in_jack_id_emb = |index| 2 * n_in_jacks + 2 * index + 1;
+                    // Calculates the index'th external midi out jack id
+                    let out_jack_id_ext = |index| 2 * n_in_jacks + 2 * index + 2;
+
                     for i in 0..n_in_jacks {
-                        endpoint_data[2 + i as usize] = out_jack_id_emb(i);
+                        let i_jack = names.in_jack(i);
+                        alt.descriptor(
+                            CS_INTERFACE,
+                            &[
+                                MIDI_OUT_JACK_SUBTYPE,
+                                EMBEDDED,
+                                out_jack_id_emb(i),
+                                0x01,
+                                in_jack_id_ext(i),
+                                0x01,
+                                i_jack,
+                            ],
+                        );
+                        alt.descriptor(
+                            CS_INTERFACE,
+                            &[MIDI_IN_JACK_SUBTYPE, EXTERNAL, in_jack_id_ext(i), i_jack],
+                        );
                     }
-                    let write_ep = alt.endpoint_in(
-                        EndpointType::Bulk,
-                        None,
-                        max_packet_size,
-                        0,
-                        SynchronizationType::NoSynchronization,
-                        UsageType::DataEndpoint,
-                        &[0, 0],
-                    );
-                    alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_in_jacks as usize]);
-                    Some(write_ep)
-                } else {
-                    None
-                };
 
-                (read_ep, write_ep)
-            },
-            |buffer| {
-                let len = buffer.len() as u16;
-                buffer[5..7].copy_from_slice(&len.to_le_bytes());
-            },
-        );
+                    for i in 0..n_out_jacks {
+                        let i_jack = names.out_jack(i);
+                        alt.descriptor(
+                            CS_INTERFACE,
+                            &[MIDI_IN_JACK_SUBTYPE, EMBEDDED, in_jack_id_emb(i), i_jack],
+                        );
+                        alt.descriptor(
+                            CS_INTERFACE,
+                            &[
+                                MIDI_OUT_JACK_SUBTYPE,
+                                EXTERNAL,
+                                out_jack_id_ext(i),
+                                0x01,
+                                in_jack_id_emb(i),
+                                0x01,
+                                i_jack,
+                            ],
+                        );
+                    }
 
-        MidiClass { read_ep, write_ep }
+                    let mut endpoint_data = [
+                        MS_GENERAL, 0, // Number of jacks
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // Jack mappings
+                    ];
+
+                    let read_ep = if n_out_jacks > 0 {
+                        endpoint_data[1] = n_out_jacks;
+                        for i in 0..n_out_jacks {
+                            endpoint_data[2 + i as usize] = in_jack_id_emb(i);
+                        }
+                        let read_ep = alt.endpoint_out(
+                            EndpointType::Bulk,
+                            None,
+                            max_packet_size,
+                            0,
+                            SynchronizationType::NoSynchronization,
+                            UsageType::DataEndpoint,
+                            &[0, 0],
+                        );
+                        alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_out_jacks as usize]);
+                        Some(read_ep)
+                    } else {
+                        None
+                    };
+
+                    let write_ep = if n_in_jacks > 0 {
+                        endpoint_data[1] = n_in_jacks;
+                        for i in 0..n_in_jacks {
+                            endpoint_data[2 + i as usize] = out_jack_id_emb(i);
+                        }
+                        let write_ep = alt.endpoint_in(
+                            EndpointType::Bulk,
+                            None,
+                            max_packet_size,
+                            0,
+                            SynchronizationType::NoSynchronization,
+                            UsageType::DataEndpoint,
+                            &[0, 0],
+                        );
+                        alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_in_jacks as usize]);
+                        Some(write_ep)
+                    } else {
+                        None
+                    };
+
+                    (read_ep, write_ep)
+                },
+                |buffer| {
+                    let len = buffer.len() as u16;
+                    buffer[5..7].copy_from_slice(&len.to_le_bytes());
+                },
+            )
+        } else {
+            alt.descriptor(
+                CS_INTERFACE,
+                &[
+                    MS_HEADER_SUBTYPE,
+                    MIDI_VERSION.to_le_bytes()[0],
+                    MIDI_VERSION.to_le_bytes()[1],
+                    0x07,
+                    0x00,
+                ],
+            );
+            (None, None)
+        };
+
+        // Alt 1: MIDI 2.0 (UMP)
+        let (read_ep_v2, write_ep_v2) = if let Some(midi2_config) = &config.midi2 {
+            let mut alt1 = iface.alt_setting(
+                USB_AUDIO_CLASS,
+                USB_MIDISTREAMING_SUBCLASS,
+                PROTOCOL_NONE,
+                names.interface(),
+            );
+
+            // Alt 1 CS Header (Release 2.0, wTotalLength = 7)
+            alt1.descriptor(
+                CS_INTERFACE,
+                &[
+                    MS_HEADER_SUBTYPE,
+                    (MIDI2_VERSION & 0xFF) as u8,
+                    ((MIDI2_VERSION >> 8) & 0xFF) as u8,
+                    0x07,
+                    0x00,
+                ],
+            );
+
+            let mut ep_cs_data = [0u8; 2 + MAX_GTBS];
+            ep_cs_data[0] = MS_GENERAL_2_0;
+            ep_cs_data[1] = midi2_config.group_terminal_blocks.len() as u8;
+            for (i, b) in midi2_config.group_terminal_blocks.iter().enumerate() {
+                ep_cs_data[2 + i] = b.block_id;
+            }
+            let ep_cs_len = 2 + midi2_config.group_terminal_blocks.len();
+
+            let read_ep = alt1.endpoint_out(
+                EndpointType::Bulk,
+                None,
+                midi2_config.max_packet_size,
+                0,
+                SynchronizationType::NoSynchronization,
+                UsageType::DataEndpoint,
+                &[0, 0],
+            );
+            alt1.descriptor(CS_ENDPOINT, &ep_cs_data[..ep_cs_len]);
+
+            let write_ep = alt1.endpoint_in(
+                EndpointType::Bulk,
+                None,
+                midi2_config.max_packet_size,
+                0,
+                SynchronizationType::NoSynchronization,
+                UsageType::DataEndpoint,
+                &[0, 0],
+            );
+            alt1.descriptor(CS_ENDPOINT, &ep_cs_data[..ep_cs_len]);
+
+            (Some(read_ep), Some(write_ep))
+        } else {
+            (None, None)
+        };
+
+        MidiClass {
+            read_ep,
+            write_ep,
+            read_ep_v2,
+            write_ep_v2,
+        }
     }
 
-    /// Gets the maximum packet size in bytes.
+    /// Gets the maximum packet size in bytes for MIDI 1.0 (Alt 0).
     pub fn max_packet_size(&self) -> u16 {
-        // The size is the same for both endpoints.
         if let Some(read_ep) = &self.read_ep {
             read_ep.info().max_packet_size
         } else if let Some(write_ep) = &self.write_ep {
@@ -360,26 +566,60 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         }
     }
 
-    /// Writes a single packet into the IN endpoint.
+    /// Gets the maximum packet size in bytes for MIDI 2.0 (Alt 1).
+    pub fn midi2_max_packet_size(&self) -> u16 {
+        if let Some(read_ep) = &self.read_ep_v2 {
+            read_ep.info().max_packet_size
+        } else if let Some(write_ep) = &self.write_ep_v2 {
+            write_ep.info().max_packet_size
+        } else {
+            0
+        }
+    }
+
+    /// Writes a single packet into the MIDI 1.0 IN endpoint.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
         let write_ep = self.write_ep.as_mut().ok_or(EndpointError::Disabled)?;
         write_ep.write(data).await
     }
 
-    /// Reads a single packet from the OUT endpoint.
+    /// Reads a single packet from the MIDI 1.0 OUT endpoint.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
         let read_ep = self.read_ep.as_mut().ok_or(EndpointError::Disabled)?;
         read_ep.read(data).await
     }
 
-    /// Waits for the USB host to enable this interface
+    /// Writes a single Universal MIDI Packet (UMP) into the MIDI 2.0 IN endpoint.
+    pub async fn write_ump(&mut self, packet: &UmpPacket) -> Result<(), EndpointError> {
+        let write_ep = self.write_ep_v2.as_mut().ok_or(EndpointError::Disabled)?;
+        let mut buf = [0u8; MAX_UMP_BYTES];
+        let n = packet.to_bytes(&mut buf).map_err(|_| EndpointError::BufferOverflow)?;
+        write_ep.write(&buf[..n]).await
+    }
+
+    /// Writes raw UMP bytes into the MIDI 2.0 IN endpoint.
+    pub async fn write_ump_bytes(&mut self, data: &[u8]) -> Result<(), EndpointError> {
+        let write_ep = self.write_ep_v2.as_mut().ok_or(EndpointError::Disabled)?;
+        write_ep.write(data).await
+    }
+
+    /// Reads Universal MIDI Packets from the MIDI 2.0 OUT endpoint.
+    pub async fn read_ump<'a>(&mut self, data: &'a mut [u8]) -> Result<UmpReader<'a>, EndpointError> {
+        let read_ep = self.read_ep_v2.as_mut().ok_or(EndpointError::Disabled)?;
+        let n = read_ep.read(data).await?;
+        Ok(UmpReader::new(&data[..n]))
+    }
+
+    /// Waits for the USB host to enable this interface.
     pub async fn wait_connection(&mut self) {
         if let Some(read_ep) = &mut self.read_ep {
             read_ep.wait_enabled().await;
+        } else if let Some(read_ep_v2) = &mut self.read_ep_v2 {
+            read_ep_v2.wait_enabled().await;
         }
     }
 
-    /// Split the class into a sender and receiver.
+    /// Split the MIDI 1.0 (Alt 0) endpoints into a sender and receiver.
     ///
     /// This allows concurrently sending and receiving packets from separate tasks.
     pub fn split(mut self) -> (Option<Sender<'d, D>>, Option<Receiver<'d, D>>) {
@@ -387,11 +627,36 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         let receiver = self.read_ep.take().map(|read_ep| Receiver { read_ep });
         (sender, receiver)
     }
+
+    /// Split the MIDI 2.0 (Alt 1) endpoints into a sender and receiver.
+    pub fn split_midi2(mut self) -> (Option<Sender<'d, D>>, Option<Receiver<'d, D>>) {
+        let sender = self.write_ep_v2.take().map(|write_ep| Sender { write_ep });
+        let receiver = self.read_ep_v2.take().map(|read_ep| Receiver { read_ep });
+        (sender, receiver)
+    }
+
+    /// Split both MIDI 1.0 and MIDI 2.0 endpoints into separate senders and receivers.
+    pub fn split_all(
+        mut self,
+    ) -> (
+        (Option<Sender<'d, D>>, Option<Receiver<'d, D>>),
+        (Option<Sender<'d, D>>, Option<Receiver<'d, D>>),
+    ) {
+        let m1 = (
+            self.write_ep.take().map(|write_ep| Sender { write_ep }),
+            self.read_ep.take().map(|read_ep| Receiver { read_ep }),
+        );
+        let m2 = (
+            self.write_ep_v2.take().map(|write_ep| Sender { write_ep }),
+            self.read_ep_v2.take().map(|read_ep| Receiver { read_ep }),
+        );
+        (m1, m2)
+    }
 }
 
 /// Midi class packet sender.
 ///
-/// You can obtain a `Sender` with [`MidiClass::split`]
+/// You can obtain a `Sender` with [`MidiClass::split`] or [`MidiClass::split_midi2`].
 pub struct Sender<'d, D: Driver<'d>> {
     write_ep: D::EndpointIn,
 }
@@ -399,7 +664,6 @@ pub struct Sender<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> Sender<'d, D> {
     /// Gets the maximum packet size in bytes.
     pub fn max_packet_size(&self) -> u16 {
-        // The size is the same for both endpoints.
         self.write_ep.info().max_packet_size
     }
 
@@ -408,7 +672,14 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
         self.write_ep.write(data).await
     }
 
-    /// Waits for the USB host to enable this interface
+    /// Writes a single Universal MIDI Packet (UMP).
+    pub async fn write_ump(&mut self, packet: &UmpPacket) -> Result<(), EndpointError> {
+        let mut buf = [0u8; MAX_UMP_BYTES];
+        let n = packet.to_bytes(&mut buf).map_err(|_| EndpointError::BufferOverflow)?;
+        self.write_ep.write(&buf[..n]).await
+    }
+
+    /// Waits for the USB host to enable this interface.
     pub async fn wait_connection(&mut self) {
         self.write_ep.wait_enabled().await;
     }
@@ -416,7 +687,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
 
 /// Midi class packet receiver.
 ///
-/// You can obtain a `Receiver` with [`MidiClass::split`]
+/// You can obtain a `Receiver` with [`MidiClass::split`] or [`MidiClass::split_midi2`].
 pub struct Receiver<'d, D: Driver<'d>> {
     read_ep: D::EndpointOut,
 }
@@ -424,7 +695,6 @@ pub struct Receiver<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> Receiver<'d, D> {
     /// Gets the maximum packet size in bytes.
     pub fn max_packet_size(&self) -> u16 {
-        // The size is the same for both endpoints.
         self.read_ep.info().max_packet_size
     }
 
@@ -433,8 +703,40 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
         self.read_ep.read(data).await
     }
 
-    /// Waits for the USB host to enable this interface
+    /// Reads Universal MIDI Packets, returning a `UmpReader`.
+    pub async fn read_ump<'a>(&mut self, data: &'a mut [u8]) -> Result<UmpReader<'a>, EndpointError> {
+        let n = self.read_ep.read(data).await?;
+        Ok(UmpReader::new(&data[..n]))
+    }
+
+    /// Waits for the USB host to enable this interface.
     pub async fn wait_connection(&mut self) {
         self.read_ep.wait_enabled().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_midi_class_state_alternate_setting() {
+        let mut state = MidiClassState::new();
+        state.interface_number = 1;
+        assert_eq!(state.active_alternate_setting(), 0);
+        assert!(!state.is_midi2_active());
+
+        state.set_alternate_setting(InterfaceNumber(1), 1);
+        assert_eq!(state.active_alternate_setting(), 1);
+        assert!(state.is_midi2_active());
+
+        state.set_alternate_setting(InterfaceNumber(1), 0);
+        assert_eq!(state.active_alternate_setting(), 0);
+        assert!(!state.is_midi2_active());
+
+        // Alternate setting for another interface should be ignored
+        state.set_alternate_setting(InterfaceNumber(2), 1);
+        assert_eq!(state.active_alternate_setting(), 0);
+        assert!(!state.is_midi2_active());
     }
 }

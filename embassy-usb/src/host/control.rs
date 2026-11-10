@@ -287,6 +287,21 @@ impl SetupPacket {
         }
     }
 
+    /// Build a SET_INTERFACE SETUP packet.
+    pub const fn set_interface(interface: u16, alt_setting: u16) -> Self {
+        Self {
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Interface,
+            },
+            request: Request::SET_INTERFACE,
+            value: alt_setting,
+            index: interface,
+            length: 0,
+        }
+    }
+
     /// Build a class-specific interface request SETUP packet, host-to-device.
     ///
     /// Pass `length = 0` for requests with no data stage.

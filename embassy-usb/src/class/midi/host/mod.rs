@@ -9,7 +9,8 @@ use embassy_usb_driver::host::{PipeError, UsbHostAllocator};
 use heapless::Vec;
 
 use crate::class::midi::{
-    MAX_MIDI_JACKS, MidiPacket, MidiPacketError, MidiPacketReader, USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS,
+    CS_GR_TRM_BLOCK, GroupTerminalBlock, GtbError, MAX_MIDI_JACKS, MidiPacket, MidiPacketError, MidiPacketReader,
+    USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS, UmpError, UmpPacket, UmpReader, parse_gtb_descriptors,
 };
 use crate::host::class::ClassMatch;
 use crate::host::descriptor::{ClassCode, InterfaceDescriptor};
@@ -38,7 +39,7 @@ use descriptors::{
 /// Advanced descriptor and endpoint-level USB-MIDI APIs.
 pub mod raw {
     pub use super::descriptors::*;
-    pub use super::transport::{MidiInputPipe, MidiOutputPipe};
+    pub use super::transport::{MidiInputPipe, MidiOutputPipe, UmpInputPipe, UmpOutputPipe};
 }
 
 /// USB MIDI host error.
@@ -63,6 +64,10 @@ pub enum MidiError {
     InvalidPort,
     /// A MIDI message could not be encoded, or a transfer is not made of complete event packets.
     Packet(MidiPacketError),
+    /// A Universal MIDI Packet error occurred.
+    Ump(UmpError),
+    /// A Group Terminal Block descriptor error occurred.
+    Gtb(GtbError),
 }
 
 impl From<PipeError> for MidiError {
@@ -83,6 +88,18 @@ impl From<MidiPacketError> for MidiError {
     }
 }
 
+impl From<UmpError> for MidiError {
+    fn from(error: UmpError) -> Self {
+        Self::Ump(error)
+    }
+}
+
+impl From<GtbError> for MidiError {
+    fn from(error: GtbError) -> Self {
+        Self::Gtb(error)
+    }
+}
+
 impl core::fmt::Display for MidiError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -95,6 +112,8 @@ impl core::fmt::Display for MidiError {
             Self::UnsupportedTopology => write!(f, "unsupported USB MIDI topology"),
             Self::InvalidPort => write!(f, "USB MIDI port does not belong to this device direction"),
             Self::Packet(_) => write!(f, "invalid MIDI message or USB-MIDI packet"),
+            Self::Ump(_) => write!(f, "invalid Universal MIDI Packet"),
+            Self::Gtb(_) => write!(f, "invalid Group Terminal Block descriptor"),
         }
     }
 }
@@ -424,6 +443,107 @@ fn cable_jacks(endpoint: &MidiEndpointDescriptor) -> impl Iterator<Item = &u8> {
     }
 }
 
+/// Friendly host driver for one USB MIDI 2.0 streaming interface (Alternate Setting 1).
+pub struct Midi2Host<'d, A: UsbHostAllocator<'d>> {
+    sender: Option<raw::UmpOutputPipe<'d, A>>,
+    receiver: Option<raw::UmpInputPipe<'d, A>>,
+    interface_number: u8,
+}
+
+impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
+    /// Discover the MIDI 2.0 streaming interface (Alt Setting 1 or bcdMSC >= 0x0200) and allocate bulk UMP pipes.
+    pub fn new(alloc: &A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
+        let interfaces = parse_midi_interfaces_for_device(&enum_info.device_desc, config_desc)?;
+        let interface = interfaces
+            .iter()
+            .find(|iface| iface.is_midi2())
+            .ok_or(MidiError::NoInterface)?;
+
+        let mut input_endpoint = None;
+        let mut output_endpoint = None;
+
+        for endpoint in &interface.endpoints {
+            if endpoint.is_in() {
+                input_endpoint = Some(endpoint);
+            } else {
+                output_endpoint = Some(endpoint);
+            }
+        }
+
+        let receiver = input_endpoint
+            .map(|ep| raw::UmpInputPipe::open(alloc, ep, enum_info))
+            .transpose()?;
+        let sender = output_endpoint
+            .map(|ep| raw::UmpOutputPipe::open(alloc, ep, enum_info))
+            .transpose()?;
+
+        Ok(Self {
+            sender,
+            receiver,
+            interface_number: interface.interface_number,
+        })
+    }
+
+    /// Returns the interface number of this MIDI 2.0 streaming interface.
+    pub fn interface_number(&self) -> u8 {
+        self.interface_number
+    }
+
+    /// Receive raw UMP bytes into `buf`.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MidiError> {
+        let receiver = self.receiver.as_mut().ok_or(MidiError::NoEndpoint)?;
+        receiver.read(buf).await
+    }
+
+    /// Receive UMP packets and return a `UmpReader` to iterate through them.
+    pub async fn read_ump<'a>(&mut self, buf: &'a mut [u8]) -> Result<UmpReader<'a>, MidiError> {
+        let receiver = self.receiver.as_mut().ok_or(MidiError::NoEndpoint)?;
+        receiver.read_ump(buf).await
+    }
+
+    /// Write raw UMP bytes.
+    pub async fn write(&mut self, data: &[u8]) -> Result<(), MidiError> {
+        let sender = self.sender.as_mut().ok_or(MidiError::NoEndpoint)?;
+        sender.write(data).await
+    }
+
+    /// Send a single Universal MIDI Packet.
+    pub async fn write_packet(&mut self, packet: &UmpPacket) -> Result<(), MidiError> {
+        let sender = self.sender.as_mut().ok_or(MidiError::NoEndpoint)?;
+        sender.write_packet(packet).await
+    }
+
+    /// Split into independently owned sender and receiver halves.
+    pub fn split(self) -> (Option<raw::UmpOutputPipe<'d, A>>, Option<raw::UmpInputPipe<'d, A>>) {
+        (self.sender, self.receiver)
+    }
+}
+
+/// Query the Group Terminal Blocks from a connected MIDI 2.0 device using a class-specific control transfer.
+pub async fn fetch_group_terminal_blocks<P, const N: usize>(
+    control_pipe: &mut P,
+    interface_number: u8,
+    buffer: &mut [u8],
+) -> Result<heapless::Vec<GroupTerminalBlock, N>, MidiError>
+where
+    P: embassy_usb_driver::host::UsbPipe<
+            embassy_usb_driver::host::pipe::Control,
+            embassy_usb_driver::host::pipe::InOut,
+        >,
+{
+    use crate::host::control::SetupPacket;
+
+    let setup = SetupPacket::class_interface_in(
+        crate::control::Request::GET_DESCRIPTOR,
+        (CS_GR_TRM_BLOCK as u16) << 8,
+        interface_number as u16,
+        buffer.len() as u16,
+    );
+    let len = control_pipe.control_in(&setup.to_bytes(), buffer).await?;
+    let blocks = parse_gtb_descriptors(&buffer[..len])?;
+    Ok(blocks)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -549,6 +669,7 @@ mod tests {
             address: 0x81,
             max_packet_size: 64,
             jack_ids: Vec::from_slice(&[3, 7]).unwrap(),
+            group_terminal_block_ids: Vec::new(),
         };
         let ports = cable_ports::<In>(2, &endpoint, 5).unwrap();
 
@@ -568,6 +689,7 @@ mod tests {
             address: 0x81,
             max_packet_size: 64,
             jack_ids: Vec::from_slice(&[3, 7]).unwrap(),
+            group_terminal_block_ids: Vec::new(),
         };
         let ports = cable_ports::<In>(2, &endpoint, 5).unwrap();
         let transfer = [0, 0, 0, 0, 0x19, 0x90, 60, 100, 0, 0, 0, 0];
@@ -588,6 +710,7 @@ mod tests {
             address: 0x02,
             max_packet_size: 64,
             jack_ids: Vec::new(),
+            group_terminal_block_ids: Vec::new(),
         };
         let ports = cable_ports::<Out>(1, &endpoint, 4).unwrap();
 
@@ -612,6 +735,7 @@ mod tests {
             address,
             max_packet_size: 64,
             jack_ids: Vec::new(),
+            group_terminal_block_ids: Vec::new(),
         }
     }
 

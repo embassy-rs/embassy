@@ -4,9 +4,9 @@ use embassy_usb_driver::EndpointType;
 use heapless::Vec;
 
 use crate::class::midi::{
-    MAX_MIDI_JACKS, MIDI_IN_JACK_LEN, MIDI_IN_JACK_SUBTYPE, MIDI_OUT_JACK_BASE_LEN, MIDI_OUT_JACK_SUBTYPE, MS_GENERAL,
-    MS_GENERAL_BASE_LEN, MS_HEADER_LEN, MS_HEADER_SUBTYPE, MidiJackType, PROTOCOL_NONE, USB_AUDIO_CLASS,
-    USB_MIDISTREAMING_SUBCLASS,
+    MAX_GTBS, MAX_MIDI_JACKS, MIDI_IN_JACK_LEN, MIDI_IN_JACK_SUBTYPE, MIDI_OUT_JACK_BASE_LEN, MIDI_OUT_JACK_SUBTYPE,
+    MIDI2_VERSION, MS_GENERAL, MS_GENERAL_2_0, MS_GENERAL_BASE_LEN, MS_HEADER_LEN, MS_HEADER_SUBTYPE, MidiJackType,
+    PROTOCOL_NONE, USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS,
 };
 use crate::host::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, ENDPOINT};
 use crate::host::descriptor::{
@@ -165,7 +165,29 @@ impl MidiEndpointJackAssociations {
     }
 }
 
-/// A recognized descriptor within one USB-MIDI 1.0 streaming interface.
+/// Group Terminal Block IDs associated with a class-specific MIDI 2.0 endpoint descriptor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Midi2EndpointGtbAssociations {
+    /// Group Terminal Block IDs associated with this endpoint.
+    pub block_ids: Vec<u8, MAX_GTBS>,
+}
+
+impl Midi2EndpointGtbAssociations {
+    /// Parse a class-specific MIDI 2.0 endpoint descriptor.
+    pub fn try_from_bytes(raw: &[u8]) -> Result<Self, MidiDescriptorError> {
+        check_descriptor(raw, CS_ENDPOINT, MS_GENERAL_2_0, 4)?;
+        let num_blocks = raw[3] as usize;
+        if raw.len() != 4 + num_blocks {
+            return Err(MidiDescriptorError::InvalidDescriptor);
+        }
+        Ok(Self {
+            block_ids: Vec::from_slice(&raw[4..]).map_err(|_| MidiDescriptorError::Capacity)?,
+        })
+    }
+}
+
+/// A recognized descriptor within one USB-MIDI streaming interface.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MidiDescriptor {
@@ -177,8 +199,10 @@ pub enum MidiDescriptor {
     OutJack(MidiOutJack),
     /// Standard USB endpoint.
     Endpoint(EndpointDescriptor),
-    /// Jack associations for the preceding standard endpoint.
+    /// Jack associations for the preceding standard endpoint (MIDI 1.0).
     EndpointJackAssociations(MidiEndpointJackAssociations),
+    /// Group Terminal Block associations for the preceding standard endpoint (MIDI 2.0).
+    EndpointGtbAssociations(Midi2EndpointGtbAssociations),
 }
 
 /// Iterator over recognized descriptors in one USB-MIDI 1.0 interface.
@@ -225,6 +249,9 @@ impl Iterator for MidiDescriptorIterator<'_> {
                 (CS_ENDPOINT, Some(MS_GENERAL)) => {
                     MidiEndpointJackAssociations::try_from_bytes(raw).map(MidiDescriptor::EndpointJackAssociations)
                 }
+                (CS_ENDPOINT, Some(MS_GENERAL_2_0)) => {
+                    Midi2EndpointGtbAssociations::try_from_bytes(raw).map(MidiDescriptor::EndpointGtbAssociations)
+                }
                 _ => continue,
             };
             return Some(descriptor);
@@ -233,7 +260,7 @@ impl Iterator for MidiDescriptorIterator<'_> {
     }
 }
 
-/// One physical USB bulk endpoint and its ordered virtual-cable jack IDs.
+/// One physical USB bulk endpoint and its ordered virtual-cable jack IDs or GTB IDs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct MidiEndpointDescriptor {
@@ -241,8 +268,10 @@ pub struct MidiEndpointDescriptor {
     pub address: u8,
     /// Maximum USB packet size.
     pub max_packet_size: u16,
-    /// Associated embedded jack IDs. Their positions are USB-MIDI cable numbers.
+    /// Associated embedded jack IDs. Their positions are USB-MIDI cable numbers (MIDI 1.0).
     pub jack_ids: Vec<u8, MAX_MIDI_JACKS>,
+    /// Associated Group Terminal Block IDs (MIDI 2.0).
+    pub group_terminal_block_ids: Vec<u8, MAX_GTBS>,
 }
 
 impl MidiEndpointDescriptor {
@@ -309,6 +338,7 @@ impl MidiStreamingInterface {
                                 address: endpoint.endpoint_address,
                                 max_packet_size: endpoint.max_packet_size,
                                 jack_ids: Vec::new(),
+                                group_terminal_block_ids: Vec::new(),
                             })
                             .map_err(|_| MidiDescriptorError::Capacity)?;
                         current_endpoint = Some(result.endpoints.len() - 1);
@@ -318,9 +348,18 @@ impl MidiStreamingInterface {
                     let endpoint = current_endpoint.ok_or(MidiDescriptorError::InvalidDescriptor)?;
                     result.endpoints[endpoint].jack_ids = associations.jack_ids;
                 }
+                MidiDescriptor::EndpointGtbAssociations(associations) => {
+                    let endpoint = current_endpoint.ok_or(MidiDescriptorError::InvalidDescriptor)?;
+                    result.endpoints[endpoint].group_terminal_block_ids = associations.block_ids;
+                }
             }
         }
         Ok(result)
+    }
+
+    /// Whether this interface is a MIDI 2.0 streaming interface (Alternate Setting 1 or bcdMSC >= 0x0200).
+    pub fn is_midi2(&self) -> bool {
+        self.alternate_setting == 1 || self.header.map_or(false, |h| h.midi_version >= MIDI2_VERSION)
     }
 }
 
