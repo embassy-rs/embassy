@@ -897,6 +897,7 @@ mod tests {
             b'N', b'C', b'M', b'H', 12, 0, 0x02, 0x01, 88, 0, 12, 0,
             b'N', b'C', b'M', b'0', 16, 0, 0, 0, 28, 0, 60, 0, 0, 0, 0, 0,
         ]);
+    }
 
     /// `read_packet` into `buf`, the host sending one NTB per datagram length.
     fn receive<const N: usize>(datagram_lens: [usize; N], buf: &mut [u8]) -> Result<usize, EndpointError> {
