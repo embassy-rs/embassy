@@ -383,9 +383,9 @@ pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, mut txd: Flex<'_>, mut cts
     r.psel().cts().write_value(cts.psel_bits());
 
     // Disconnected on drop by reading back PSEL.
-    txd.forget();
+    txd.persist();
     if let Some(pin) = cts {
-        pin.forget();
+        pin.persist();
     }
 }
 
@@ -404,9 +404,9 @@ pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, mut rxd: Flex<'_>, mut rts
     r.psel().rts().write_value(rts.psel_bits());
 
     // Disconnected on drop by reading back PSEL.
-    rxd.forget();
+    rxd.persist();
     if let Some(pin) = rts {
-        pin.forget();
+        pin.persist();
     }
 }
 

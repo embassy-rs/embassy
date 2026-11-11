@@ -224,6 +224,15 @@ impl<'d, M: Mode> Input<'d, M> {
     pub fn set_pad_isolation(&mut self, isolate: bool) {
         self.pin.set_pad_isolation(isolate)
     }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
+    pub fn persist(self) {
+        self.pin.persist()
+    }
 }
 
 /// Interrupt trigger levels.
@@ -474,6 +483,15 @@ impl<'d> Output<'d> {
     pub fn set_pad_isolation(&mut self, isolate: bool) {
         self.pin.set_pad_isolation(isolate)
     }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
+    pub fn persist(self) {
+        self.pin.persist()
+    }
 }
 
 /// GPIO output open-drain.
@@ -639,6 +657,15 @@ impl<'d, M: Mode> OutputOpenDrain<'d, M> {
     #[inline]
     pub fn set_pad_isolation(&mut self, isolate: bool) {
         self.pin.set_pad_isolation(isolate)
+    }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
+    pub fn persist(self) {
+        self.pin.persist()
     }
 }
 
@@ -1002,6 +1029,15 @@ impl<'d, M: Mode> Flex<'d, M> {
         self.pin.pad_ctrl().modify(|w| {
             w.set_iso(isolate);
         });
+    }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
+    pub fn persist(self) {
+        core::mem::forget(self);
     }
 
     /// The pin's number, for drivers that need it to pick a channel or function.

@@ -129,10 +129,12 @@ impl<'d, M: Mode> Input<'d, M> {
     }
 }
 
-impl<M: Mode> Input<'static, M> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
+impl<'d, M: Mode> Input<'d, M> {
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
     pub fn persist(self) {
         self.pin.persist()
     }
@@ -327,10 +329,12 @@ impl<'d> Output<'d> {
     }
 }
 
-impl Output<'static> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
+impl<'d> Output<'d> {
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
     pub fn persist(self) {
         self.pin.persist()
     }
@@ -478,10 +482,12 @@ impl<'d, M: Mode> OutputOpenDrain<'d, M> {
     }
 }
 
-impl<M: Mode> OutputOpenDrain<'static, M> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
+impl<'d, M: Mode> OutputOpenDrain<'d, M> {
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
     pub fn persist(self) {
         self.pin.persist()
     }
@@ -702,13 +708,15 @@ impl<'d, M: Mode> Flex<'d, M> {
         self.pin.psel_bits()
     }
 
-    /// Give up the pin without disconnecting it, leaving it configured.
+    /// Give up the pin, leaving it configured.
     ///
-    /// For drivers that don't keep their pins: they disconnect them on drop by reading back the
-    /// peripheral's PSEL registers (see [`deconfigure_pin`]), or leave them configured.
-    #[cfg(not(feature = "_nrf51"))]
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    ///
+    /// Drivers that don't keep their pins use this too: they disconnect them on drop by reading
+    /// back the peripheral's PSEL registers, or leave them configured.
     #[inline]
-    pub(crate) fn forget(self) {
+    pub fn persist(self) {
         core::mem::forget(self);
     }
 
@@ -800,15 +808,6 @@ impl<'d, M: Mode> Flex<'d, M> {
     #[inline]
     pub fn output_level(&self) -> Level {
         self.is_set_high().into()
-    }
-}
-
-impl<M: Mode> Flex<'static, M> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
-    pub fn persist(self) {
-        core::mem::forget(self);
     }
 }
 

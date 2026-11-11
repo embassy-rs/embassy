@@ -491,7 +491,7 @@ impl<'d, M: PeriMode> Spim<'d, M> {
 
         // Disconnected on drop by reading back PSEL.
         for pin in [sck, mosi, miso].into_iter().flatten() {
-            pin.forget();
+            pin.persist();
         }
 
         // Enable SPIM instance.

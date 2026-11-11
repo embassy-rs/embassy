@@ -183,7 +183,7 @@ impl<'d> Qspi<'d> {
                 });
                 r.psel().$pin().write_value($pin.psel_bits());
                 // Disconnected on drop by reading back PSEL (except CSN).
-                $pin.forget();
+                $pin.persist();
             };
         }
 

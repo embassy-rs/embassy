@@ -368,8 +368,8 @@ impl<'d, M: PeriMode> Twis<'d, M> {
         // Select pins. They're disconnected on drop by reading back PSEL.
         r.psel().sda().write_value(sda.psel_bits());
         r.psel().scl().write_value(scl.psel_bits());
-        sda.forget();
-        scl.forget();
+        sda.persist();
+        scl.persist();
 
         // Enable TWIS instance.
         r.enable().write(|w| w.set_enable(vals::Enable::Enabled));

@@ -120,11 +120,11 @@ impl<'d> Pdm<'d> {
         // The pins are left configured on drop.
         din.set_as_input(Pull::None);
         r.psel().din().write_value(din.psel_bits());
-        din.forget();
+        din.persist();
         clk.set_low();
         clk.set_as_input_output(Pull::None, OutputDrive::Standard);
         r.psel().clk().write_value(clk.psel_bits());
-        clk.forget();
+        clk.persist();
 
         // configure
         r.pdmclkctrl().write(|w| w.set_freq(config.frequency));

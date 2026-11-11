@@ -33,7 +33,7 @@ impl<'d> QmiCs1<'d> {
         });
 
         // The pin stays configured when the driver is dropped.
-        core::mem::forget(cs1);
+        cs1.persist();
 
         Self { _inner: qmi_cs1 }
     }

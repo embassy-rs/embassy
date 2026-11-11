@@ -98,12 +98,12 @@ impl<'d> Qdec<'d> {
         b.set_as_input(Pull::Up);
         r.psel().a().write_value(a.psel_bits());
         r.psel().b().write_value(b.psel_bits());
-        a.forget();
-        b.forget();
+        a.persist();
+        b.persist();
         if let Some(mut led_pin) = led {
             led_pin.set_as_input_output(Pull::None, OutputDrive::Standard);
             r.psel().led().write_value(led_pin.psel_bits());
-            led_pin.forget();
+            led_pin.persist();
         }
 
         // Enables/disable input debounce filters

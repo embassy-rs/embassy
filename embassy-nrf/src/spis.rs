@@ -397,21 +397,21 @@ impl<'d, M: PeriMode> Spis<'d, M> {
         // Configure pins. They're disconnected on drop by reading back PSEL.
         cs.set_as_input(Pull::None);
         r.psel().csn().write_value(cs.psel_bits());
-        cs.forget();
+        cs.persist();
         if let Some(mut sck) = sck {
             sck.set_as_input(Pull::None);
             r.psel().sck().write_value(sck.psel_bits());
-            sck.forget();
+            sck.persist();
         }
         if let Some(mut mosi) = mosi {
             mosi.set_as_input(Pull::None);
             r.psel().mosi().write_value(mosi.psel_bits());
-            mosi.forget();
+            mosi.persist();
         }
         if let Some(mut miso) = miso {
             miso.set_as_input_output(Pull::None, config.miso_drive);
             r.psel().miso().write_value(miso.psel_bits());
-            miso.forget();
+            miso.persist();
         }
 
         // Enable SPIS instance.

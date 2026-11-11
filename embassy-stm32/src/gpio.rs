@@ -203,11 +203,12 @@ impl<'d> Flex<'d> {
         self.pin.set_speed(speed);
     }
 
-    /// Leave the pin in its current configuration forever.
+    /// Give up the pin, leaving it configured.
     ///
-    /// For drivers that configure a pin once and don't deconfigure it when dropped.
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
     #[inline]
-    pub(crate) fn persist(self) {
+    pub fn persist(self) {
         core::mem::forget(self);
     }
 
@@ -460,6 +461,15 @@ impl<'d> Input<'d> {
     pub fn level(&self) -> Level {
         self.pin.level()
     }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
+    pub fn persist(self) {
+        self.pin.persist()
+    }
 }
 
 /// Digital input or output level.
@@ -494,7 +504,7 @@ impl From<Level> for bool {
 ///
 /// Note that pins will **return to their floating state** when `Output` is dropped.
 /// If pins should retain their state indefinitely, either keep ownership of the
-/// `Output`, or pass it to [`core::mem::forget`].
+/// `Output`, or call [`Output::persist()`].
 pub struct Output<'d> {
     pub(crate) pin: Flex<'d>,
 }
@@ -553,13 +563,22 @@ impl<'d> Output<'d> {
     pub fn toggle(&mut self) {
         self.pin.toggle();
     }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
+    pub fn persist(self) {
+        self.pin.persist()
+    }
 }
 
 /// GPIO output open-drain driver.
 ///
 /// Note that pins will **return to their floating state** when `OutputOpenDrain` is dropped.
 /// If pins should retain their state indefinitely, either keep ownership of the
-/// `OutputOpenDrain`, or pass it to [`core::mem::forget`].
+/// `OutputOpenDrain`, or call [`OutputOpenDrain::persist()`].
 pub struct OutputOpenDrain<'d> {
     pub(crate) pin: Flex<'d>,
 }
@@ -649,6 +668,15 @@ impl<'d> OutputOpenDrain<'d> {
     #[inline]
     pub fn toggle(&mut self) {
         self.pin.toggle()
+    }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
+    pub fn persist(self) {
+        self.pin.persist()
     }
 }
 
