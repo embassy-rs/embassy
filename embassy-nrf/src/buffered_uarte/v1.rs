@@ -24,9 +24,7 @@ pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 use crate::gpio::Flex;
 use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::ppi::{
-    self, AnyConfigurableChannel, AnyGroup, Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task,
-};
+use crate::ppi::{self, ChannelNumber, ConfigurableChannel, Event, Group, GroupNumber, Ppi, PpiGroup, Task};
 use crate::timer::{Instance as TimerInstance, Timer};
 use crate::uarte::{
     Config, CtsPin, DMA_SIZE, Instance as UarteInstance, RtsPin, RxPin, TxPin, configure, configure_rx_pins,
@@ -259,9 +257,9 @@ impl<'d> BufferedUarte<'d> {
             None,
             None,
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             tx_buffer,
             rx_buffer,
             config,
@@ -296,9 +294,9 @@ impl<'d> BufferedUarte<'d> {
             Some(Flex::new(cts)),
             Some(Flex::new(rts)),
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             tx_buffer,
             rx_buffer,
             config,
@@ -313,9 +311,9 @@ impl<'d> BufferedUarte<'d> {
         cts: Option<Flex<'d>>,
         rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
-        ppi_ch1: Peri<'d, AnyConfigurableChannel>,
-        ppi_ch2: Peri<'d, AnyConfigurableChannel>,
-        ppi_group: Peri<'d, AnyGroup>,
+        ppi_ch1: ChannelNumber,
+        ppi_ch2: ChannelNumber,
+        ppi_group: GroupNumber,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -610,9 +608,9 @@ impl<'a> Drop for BufferedUarteTx<'a> {
 /// Peripherals owned by a [`BufferedUarteRx`] that aren't needed by a borrowed half.
 struct RxResources<'d> {
     timer: Timer<'d>,
-    _ppi_ch1: Ppi<'d, AnyConfigurableChannel, 1, 1>,
-    _ppi_ch2: Ppi<'d, AnyConfigurableChannel, 1, 2>,
-    ppi_group: PpiGroup<'d, AnyGroup>,
+    _ppi_ch1: Ppi<'d, 1, 1>,
+    _ppi_ch2: Ppi<'d, 1, 2>,
+    ppi_group: PpiGroup<'d>,
 }
 
 /// Reader part of the buffered UARTE driver.
@@ -651,9 +649,9 @@ impl<'d> BufferedUarteRx<'d> {
             Flex::new(rxd),
             None,
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             rx_buffer,
             config,
         )
@@ -682,9 +680,9 @@ impl<'d> BufferedUarteRx<'d> {
             Flex::new(rxd),
             Some(Flex::new(rts)),
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             rx_buffer,
             config,
         )
@@ -696,9 +694,9 @@ impl<'d> BufferedUarteRx<'d> {
         rxd: Flex<'d>,
         rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
-        ppi_ch1: Peri<'d, AnyConfigurableChannel>,
-        ppi_ch2: Peri<'d, AnyConfigurableChannel>,
-        ppi_group: Peri<'d, AnyGroup>,
+        ppi_ch1: ChannelNumber,
+        ppi_ch2: ChannelNumber,
+        ppi_group: GroupNumber,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -726,9 +724,9 @@ impl<'d> BufferedUarteRx<'d> {
         rxd: Flex<'d>,
         rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
-        ppi_ch1: Peri<'d, AnyConfigurableChannel>,
-        ppi_ch2: Peri<'d, AnyConfigurableChannel>,
-        ppi_group: Peri<'d, AnyGroup>,
+        ppi_ch1: ChannelNumber,
+        ppi_ch2: ChannelNumber,
+        ppi_group: GroupNumber,
         rx_buffer: &'d mut [u8],
     ) -> Self {
         assert!(rx_buffer.len() % 2 == 0);
@@ -771,14 +769,14 @@ impl<'d> BufferedUarteRx<'d> {
         timer.clear();
         timer.start();
 
-        let mut ppi_ch1 = Ppi::new_one_to_one(ppi_ch1, Event::from_reg(r.events_rxdrdy()), timer.task_count());
+        let mut ppi_ch1 = Ppi::new_one_to_one_inner(ppi_ch1, Event::from_reg(r.events_rxdrdy()), timer.task_count());
         ppi_ch1.enable();
 
         buffered_state
             .rx_ppi_ch
             .store(ppi_ch2.number() as u8, Ordering::Relaxed);
-        let mut ppi_group = PpiGroup::new(ppi_group);
-        let mut ppi_ch2 = Ppi::new_one_to_two(
+        let mut ppi_group = PpiGroup::new_inner(ppi_group);
+        let mut ppi_ch2 = Ppi::new_one_to_two_inner(
             ppi_ch2,
             Event::from_reg(r.events_dma().rx().end()),
             Task::from_reg(r.tasks_dma().rx().start()),
