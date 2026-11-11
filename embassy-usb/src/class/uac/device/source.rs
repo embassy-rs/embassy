@@ -6,9 +6,9 @@ pub use super::Volume;
 use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, State};
 use super::{Channel, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
-use crate::Builder;
 use crate::class::uac::terminal_type::TerminalType;
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
+use crate::{Builder, EndpointOptions};
 
 /// Everything the audio source advertises to the host.
 ///
@@ -110,7 +110,13 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
 
         let (streaming_endpoint, _, control_monitor) =
             function.build(builder, state, max_packet_size as u16, None, |alt, max_packet_size| {
-                alt.alloc_endpoint_in(EndpointType::Isochronous, None, max_packet_size, 1)
+                alt.alloc_endpoint_in(
+                    EndpointType::Isochronous,
+                    None,
+                    max_packet_size,
+                    1,
+                    EndpointOptions::new(),
+                )
             });
 
         Self {

@@ -21,7 +21,8 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
-    Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
+    Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointError, EndpointInfo, EndpointType, Event,
+    Unsupported,
 };
 #[cfg(usb_v4)]
 pub use usb_host::*;
@@ -685,6 +686,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 ep_type: EndpointType::Bulk,
                 max_packet_size,
                 interval_ms: 0,
+                max_burst: 0,
             },
             // The second packet buffer directly follows the first one.
             buf: EndpointBuffer {
@@ -694,6 +696,20 @@ impl<'d, T: Instance> Driver<'d, T> {
             },
             double_buffered: true,
         })
+    }
+
+    fn alloc_endpoint_with_config<D: Dir>(
+        &mut self,
+        config: &EndpointConfig,
+    ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
+        // Double buffering is only a hint: fall back to an ordinary endpoint if it isn't possible.
+        #[cfg(any(usb_v1, usb_v3, usb_v4))]
+        if config.ep_type == EndpointType::Bulk && config.buffers >= 2 {
+            if let Ok(ep) = self.alloc_double_buffered(config.addr, config.max_packet_size) {
+                return Ok(ep);
+            }
+        }
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
     }
 
     fn alloc_endpoint<D: Dir>(
@@ -791,6 +807,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 ep_type,
                 max_packet_size,
                 interval_ms,
+                max_burst: 0,
             },
             buf,
             #[cfg(any(usb_v1, usb_v3, usb_v4))]
@@ -805,42 +822,12 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     type ControlPipe = ControlPipe<'d, T>;
     type Bus = Bus<'d, T>;
 
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
+        self.alloc_endpoint_with_config(config)
     }
 
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
-    }
-
-    #[cfg(any(usb_v1, usb_v3, usb_v4))]
-    fn alloc_endpoint_bulk_out_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.alloc_double_buffered(ep_addr, max_packet_size)
-    }
-
-    #[cfg(any(usb_v1, usb_v3, usb_v4))]
-    fn alloc_endpoint_bulk_in_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.alloc_double_buffered(ep_addr, max_packet_size)
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
+        self.alloc_endpoint_with_config(config)
     }
 
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {

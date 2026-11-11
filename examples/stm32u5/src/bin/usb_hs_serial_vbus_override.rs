@@ -9,9 +9,9 @@ use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{Config, bind_interrupts, pac, peripherals, usb};
-use embassy_usb::Builder;
-use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Config as CdcAcmConfig, State};
 use embassy_usb::driver::EndpointError;
+use embassy_usb::{Builder, UsbDeviceSpeed};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -61,6 +61,7 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
+    config.max_speed = UsbDeviceSpeed::High;
     config.manufacturer = Some("Embassy");
     config.product = Some("USB-serial example");
     config.serial_number = Some("12345678");
@@ -84,7 +85,7 @@ async fn main(_spawner: Spawner) {
 
     // Create classes on the builder.
     // High-speed bulk endpoints must have a max packet size of 512 bytes.
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, 512);
+    let mut class = CdcAcmClass::new(&mut builder, &mut state, CdcAcmConfig::new());
 
     // Build the builder.
     let mut usb = builder.build();

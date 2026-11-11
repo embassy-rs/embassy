@@ -83,7 +83,7 @@ async fn main(_spawner: Spawner) {
 
     // Create vendor class with WinUSB and WebUSB support.
     static VENDOR_STATE: StaticCell<State<'static>> = StaticCell::new();
-    let vendor_config = VendorConfig::new(64)
+    let vendor_config = VendorConfig::new()
         .with_interface_name("Vendor Bulk Interface")
         .with_winusb(&["{2494f6f8-7443-41bb-a537-c1c5e478566a}"])
         .with_webusb(Some(Url::new("https://github.com/embassy-rs/embassy")), 0x01);

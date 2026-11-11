@@ -45,8 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `block-device-driver` feature, implementing `BlockDevice` for the host MSC class
 - **Breaking:** organize classes as `class::<name>::{device, host}`. Device implementations move to `class::<name>::device` (e.g. `class::cdc_acm::CdcAcmClass` is now `class::cdc_acm::device::CdcAcmClass`, `class::uac1` is now `class::uac::device`); items shared by both sides stay at `class::<name>` (e.g. `cdc_acm::LineCoding`, `hid::ReportId`, `midi::MidiPacket`, `uac::terminal_type::TerminalType`). Host drivers move from `embassy_usb_host::class::<name>` to `embassy_usb::class::<name>::host`
 - Deprecate `embassy-usb-host`: it is superseded by this crate and is no longer maintained. Migrate to `embassy_usb::host` and `embassy_usb::class::<name>::host`
-- Add `InterfaceAltBuilder::endpoint_bulk_in_double_buffered()` and `endpoint_bulk_out_double_buffered()`
-- `CDC-ACM`: Add `CdcAcmClass::new_double_buffered()`
+- Add `EndpointOptions`, with the max packet size of a bulk endpoint, the number of packet buffers and the SuperSpeed burst size of an endpoint
+- **Breaking:** `InterfaceAltBuilder::endpoint_bulk_in()` and `endpoint_bulk_out()` take an `EndpointOptions` instead of the max packet size. The max packet size is the largest one the device speed allows (64 at full speed, 512 at high speed, 1024 at SuperSpeed), or `EndpointOptions::max_packet_size`
+- **Breaking:** `InterfaceAltBuilder::{alloc_endpoint_in, alloc_endpoint_out, endpoint_in, endpoint_out, endpoint_in_interval, endpoint_out_interval}` and the isochronous endpoint methods take an `EndpointOptions`
+- **Breaking:** `CDC-ACM`: `CdcAcmClass::new()` takes a `Config`, with the options of the data endpoints, instead of the max packet size
+- **Breaking:** `CDC-NCM`, `CDC-ECM`: `CdcNcmClass::new()` and `CdcEcmClass::new()` take a `Config`, with the MAC address and the options of the data endpoints, instead of the MAC address and the max packet size
+- **Breaking:** `CMSIS-DAP v2`: `CmsisDapV2Class::new()` takes a `Config`, with whether to add the trace endpoint and the options of the endpoints, instead of the max packet size and `trace`
+- **Breaking:** `Vendor`, `MSC`, `Printer`, `USBTMC`, `BTH`, `GUD`, `CCID`: Remove the max packet size of the bulk endpoints from `Config` (`max_packet_size_acl` for `BTH`), and `vendor::Config::new()` and `msc::Config::new()` no longer take it. `Vendor`, `MSC`, `Printer`, `USBTMC`, `BTH` and `GUD` add the options of the bulk endpoints to `Config`
 - **Breaking:** Remove the `usbd-hid` feature, and `write_serialize()` from `HidWriter` and `HidReaderWriter`
 - `HID`: Add `KeyboardReport` and `MouseReport` at `class::hid`, with report descriptors (`DESCRIPTOR`) and `to_bytes()` for sending them from a device
 - `UAC1`: Add audio source

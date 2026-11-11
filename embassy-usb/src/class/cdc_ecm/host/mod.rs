@@ -240,6 +240,7 @@ impl<'d, A: UsbHostAllocator<'d>> EcmHost<'d, A> {
             ep_type: EndpointType::Control,
             max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
             interval_ms: 0,
+            max_burst: 0,
         };
         let ctrl = alloc
             .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &ctrl_ep_info, enum_info.split())
@@ -250,6 +251,7 @@ impl<'d, A: UsbHostAllocator<'d>> EcmHost<'d, A> {
             ep_type: EndpointType::Interrupt,
             max_packet_size: info.notif_mps,
             interval_ms: info.notif_interval,
+            max_burst: 0,
         };
         let notif = alloc
             .alloc_pipe::<pipe::Interrupt, pipe::In>(enum_info.device_address, &notif_ep_info, enum_info.split())
@@ -260,6 +262,7 @@ impl<'d, A: UsbHostAllocator<'d>> EcmHost<'d, A> {
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_in_mps,
             interval_ms: 0,
+            max_burst: 0,
         };
         let in_ch = alloc
             .alloc_pipe::<pipe::Bulk, pipe::In>(enum_info.device_address, &in_ep_info, enum_info.split())
@@ -270,6 +273,7 @@ impl<'d, A: UsbHostAllocator<'d>> EcmHost<'d, A> {
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_out_mps,
             interval_ms: 0,
+            max_burst: 0,
         };
         let out_ch = alloc
             .alloc_pipe::<pipe::Bulk, pipe::Out>(enum_info.device_address, &out_ep_info, enum_info.split())

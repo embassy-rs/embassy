@@ -12,7 +12,7 @@ use crate::control::{InResponse, Recipient, Request, RequestType};
 use crate::descriptor::capability_type;
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Builder, Handler, InterfaceHandler, msos};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler, msos};
 
 /// USB class code for Vendor Specific devices (0xFF).
 pub const USB_CLASS_VENDOR: u8 = 0xFF;
@@ -98,12 +98,6 @@ impl<'d> Url<'d> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config<'d> {
-    /// Maximum packet size in bytes for the bulk endpoints.
-    ///
-    /// Valid values depend on bus speed:
-    /// - Full speed: 8, 16, 32, or 64
-    /// - High speed: 512
-    pub max_packet_size: u16,
     /// Vendor subclass code (default: `0x00`).
     pub subclass: u8,
     /// Vendor protocol code (default: `0x00`).
@@ -124,13 +118,16 @@ pub struct Config<'d> {
     pub webusb_landing_url: Option<Url<'d>>,
     /// WebUSB vendor request code (default: `0x01`).
     pub webusb_vendor_code: u8,
+    /// Options for the bulk OUT endpoint, which receives the data the host sends.
+    pub out_endpoint_options: EndpointOptions,
+    /// Options for the bulk IN endpoint, which sends data to the host.
+    pub in_endpoint_options: EndpointOptions,
 }
 
 impl<'d> Config<'d> {
-    /// Create a new `Config` with default settings and specified `max_packet_size`.
-    pub const fn new(max_packet_size: u16) -> Self {
+    /// Create a new `Config` with default settings.
+    pub const fn new() -> Self {
         Self {
-            max_packet_size,
             subclass: USB_SUBCLASS_NONE,
             protocol: USB_PROTOCOL_NONE,
             interface_name: None,
@@ -138,6 +135,8 @@ impl<'d> Config<'d> {
             webusb: false,
             webusb_landing_url: None,
             webusb_vendor_code: 0x01,
+            out_endpoint_options: EndpointOptions::new(),
+            in_endpoint_options: EndpointOptions::new(),
         }
     }
 
@@ -166,6 +165,12 @@ impl<'d> Config<'d> {
         self.subclass = subclass;
         self.protocol = protocol;
         self
+    }
+}
+
+impl<'d> Default for Config<'d> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -246,20 +251,6 @@ pub struct VendorClass<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> VendorClass<'d, D> {
     /// Creates a new `VendorClass` with the provided configuration.
     pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
-        Self::new_inner(builder, state, config, false)
-    }
-
-    /// Like [`new`](Self::new), but asks the driver to double-buffer the bulk endpoints.
-    pub fn new_double_buffered(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
-        Self::new_inner(builder, state, config, true)
-    }
-
-    fn new_inner(
-        builder: &mut Builder<'d, D>,
-        state: &'d mut State<'d>,
-        config: Config<'d>,
-        double_buffered: bool,
-    ) -> Self {
         let iface_string = config.interface_name.map(|_| builder.string());
 
         if config.msos_interface_guids.is_some() {
@@ -294,17 +285,8 @@ impl<'d, D: Driver<'d>> VendorClass<'d, D> {
             alt.bos_capability(capability_type::PLATFORM, &bos_cap);
         }
 
-        let (read_ep, write_ep) = if double_buffered {
-            (
-                alt.endpoint_bulk_out_double_buffered(None, config.max_packet_size),
-                alt.endpoint_bulk_in_double_buffered(None, config.max_packet_size),
-            )
-        } else {
-            (
-                alt.endpoint_bulk_out(None, config.max_packet_size),
-                alt.endpoint_bulk_in(None, config.max_packet_size),
-            )
-        };
+        let read_ep = alt.endpoint_bulk_out(None, config.out_endpoint_options);
+        let write_ep = alt.endpoint_bulk_in(None, config.in_endpoint_options);
 
         drop(func);
 
@@ -556,13 +538,12 @@ mod tests {
 
     #[test]
     fn test_config_builder() {
-        let config = Config::new(64)
+        let config = Config::new()
             .with_interface_name("Vendor Bulk")
             .with_subclass_protocol(0x01, 0x02)
             .with_winusb(&["{12345678-1234-1234-1234-123456789ABC}"])
             .with_webusb(Some(Url::new("https://example.com")), 0x22);
 
-        assert_eq!(config.max_packet_size, 64);
         assert_eq!(config.interface_name, Some("Vendor Bulk"));
         assert_eq!(config.subclass, 0x01);
         assert_eq!(config.protocol, 0x02);

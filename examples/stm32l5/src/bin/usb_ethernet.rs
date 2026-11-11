@@ -10,7 +10,7 @@ use embassy_stm32::rng::Rng;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, rng, usb};
 use embassy_usb::class::cdc_ncm::device::embassy_net::{Device, Runner, State as NetState};
-use embassy_usb::class::cdc_ncm::device::{CdcNcmClass, State};
+use embassy_usb::class::cdc_ncm::device::{CdcNcmClass, Config as CdcNcmConfig, State};
 use embassy_usb::{Builder, UsbDevice};
 use embedded_io_async::Write;
 use panic_probe as _;
@@ -92,7 +92,7 @@ async fn main(spawner: Spawner) {
 
     // Create classes on the builder.
     static STATE: StaticCell<State> = StaticCell::new();
-    let class = CdcNcmClass::new(&mut builder, STATE.init(State::new()), host_mac_addr, 64);
+    let class = CdcNcmClass::new(&mut builder, STATE.init(State::new()), CdcNcmConfig::new(host_mac_addr));
 
     // Build the builder.
     let usb = builder.build();

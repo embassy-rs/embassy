@@ -15,7 +15,7 @@ use embassy_futures::join::join;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb::Builder;
-use embassy_usb::class::cdc_ecm::device::{CdcEcmClass, State};
+use embassy_usb::class::cdc_ecm::device::{CdcEcmClass, Config as CdcEcmConfig, State};
 use embassy_usb::driver::EndpointError;
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -85,7 +85,7 @@ async fn main(_spawner: Spawner) {
     let ecm_state = ECM_STATE.init(State::new());
 
     let mac_address = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
-    let ecm = CdcEcmClass::new(&mut builder, ecm_state, mac_address, 64);
+    let ecm = CdcEcmClass::new(&mut builder, ecm_state, CdcEcmConfig::new(mac_address));
 
     let mut usb = builder.build();
 

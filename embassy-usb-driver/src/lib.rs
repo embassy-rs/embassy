@@ -134,14 +134,22 @@ pub struct EndpointInfo {
     pub max_packet_size: u16,
     /// Polling interval, in milliseconds.
     pub interval_ms: u8,
+    /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets. 0 below
+    /// SuperSpeed.
+    pub max_burst: u8,
 }
 
 /// Configuration to allocate an endpoint with.
+///
+/// The driver must allocate an endpoint with exactly the given `addr` (if any), `ep_type`,
+/// `max_packet_size` and `interval_ms`, or fail. The docs of the other fields say whether the
+/// driver may deviate from them.
 ///
 /// The SuperSpeed fields are those of the endpoint's SuperSpeed Endpoint Companion descriptor, and 0
 /// for an endpoint that has none.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub struct EndpointConfig {
     /// Endpoint's address, or `None` for the driver to pick one.
     pub addr: Option<EndpointAddress>,
@@ -151,10 +159,17 @@ pub struct EndpointConfig {
     pub max_packet_size: u16,
     /// Polling interval, in milliseconds.
     pub interval_ms: u8,
-    /// Double-buffer a bulk endpoint, if the driver supports it. See
-    /// [`Driver::alloc_endpoint_bulk_out_double_buffered`].
-    pub double_buffered: bool,
+    /// Number of packets the hardware may buffer for the endpoint.
+    ///
+    /// More buffers let the hardware move the next packet while software is still busy with the
+    /// previous one, at the cost of more packet memory.
+    ///
+    /// This is just a best-effort hint for the driver. Drivers may use a lower value
+    /// if there is not enough packet memory, or completely ignore it.
+    pub buffers: u8,
     /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets.
+    ///
+    /// Drivers may use a lower value, and report it in [`EndpointInfo::max_burst`].
     pub max_burst: u8,
     /// SuperSpeed bulk `MaxStreams`: the endpoint has `2^max_streams` streams, or none when 0.
     pub max_streams: u8,
@@ -167,7 +182,7 @@ pub struct EndpointConfig {
 }
 
 impl EndpointConfig {
-    /// An endpoint that is not double-buffered, with all SuperSpeed fields 0.
+    /// An endpoint with one buffer and all SuperSpeed fields 0.
     pub const fn new(
         addr: Option<EndpointAddress>,
         ep_type: EndpointType,
@@ -179,7 +194,7 @@ impl EndpointConfig {
             ep_type,
             max_packet_size,
             interval_ms,
-            double_buffered: false,
+            buffers: 1,
             max_burst: 0,
             max_streams: 0,
             mult: 0,
@@ -205,99 +220,13 @@ pub trait Driver<'a> {
     ///
     /// This method is called by the USB stack to allocate endpoints.
     /// It can only be called before [`start`](Self::start) is called.
-    ///
-    /// # Arguments
-    ///
-    /// * `ep_type` - the endpoint's type.
-    /// * `max_packet_size` - Maximum packet size in bytes.
-    /// * `interval_ms` - Polling interval parameter for interrupt endpoints.
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointOut, EndpointAllocError>;
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError>;
 
     /// Allocates an IN endpoint.
     ///
     /// This method is called by the USB stack to allocate endpoints.
     /// It can only be called before [`start`](Self::start) is called.
-    ///
-    /// # Arguments
-    ///
-    /// * `ep_type` - the endpoint's type.
-    /// * `max_packet_size` - Maximum packet size in bytes.
-    /// * `interval_ms` - Polling interval parameter for interrupt endpoints.
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointIn, EndpointAllocError>;
-
-    /// Allocates an OUT endpoint from an [`EndpointConfig`].
-    ///
-    /// The default implementation calls
-    /// [`alloc_endpoint_bulk_out_double_buffered`](Self::alloc_endpoint_bulk_out_double_buffered) for a
-    /// double-buffered bulk endpoint and [`alloc_endpoint_out`](Self::alloc_endpoint_out) otherwise,
-    /// ignoring the SuperSpeed fields.
-    fn alloc_endpoint_out_with_config(
-        &mut self,
-        config: EndpointConfig,
-    ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        if config.double_buffered && config.ep_type == EndpointType::Bulk {
-            self.alloc_endpoint_bulk_out_double_buffered(config.addr, config.max_packet_size)
-        } else {
-            self.alloc_endpoint_out(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
-        }
-    }
-
-    /// Allocates an IN endpoint from an [`EndpointConfig`].
-    ///
-    /// The default implementation calls
-    /// [`alloc_endpoint_bulk_in_double_buffered`](Self::alloc_endpoint_bulk_in_double_buffered) for a
-    /// double-buffered bulk endpoint and [`alloc_endpoint_in`](Self::alloc_endpoint_in) otherwise,
-    /// ignoring the SuperSpeed fields.
-    fn alloc_endpoint_in_with_config(
-        &mut self,
-        config: EndpointConfig,
-    ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        if config.double_buffered && config.ep_type == EndpointType::Bulk {
-            self.alloc_endpoint_bulk_in_double_buffered(config.addr, config.max_packet_size)
-        } else {
-            self.alloc_endpoint_in(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
-        }
-    }
-
-    /// Allocates a double-buffered bulk OUT endpoint.
-    ///
-    /// With double buffering the hardware can receive the next packet while the previous one is
-    /// still being read, which improves throughput. It may use more hardware resources than an
-    /// ordinary endpoint, such as twice the packet memory or the endpoint number in both directions.
-    ///
-    /// Drivers that don't support double buffering allocate an ordinary bulk endpoint, which is
-    /// what the default implementation does.
-    fn alloc_endpoint_bulk_out_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.alloc_endpoint_out(EndpointType::Bulk, ep_addr, max_packet_size, 0)
-    }
-
-    /// Allocates a double-buffered bulk IN endpoint.
-    ///
-    /// With double buffering the next packet can be queued while the hardware is still sending the
-    /// previous one. See [`alloc_endpoint_bulk_out_double_buffered`](Self::alloc_endpoint_bulk_out_double_buffered).
-    fn alloc_endpoint_bulk_in_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.alloc_endpoint_in(EndpointType::Bulk, ep_addr, max_packet_size, 0)
-    }
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError>;
 
     /// Start operation of the USB device.
     ///
