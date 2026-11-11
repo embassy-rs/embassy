@@ -106,25 +106,12 @@ pub enum Port {
 /// This pin can either be a disconnected, input, or output pin, or both. The level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
-pub struct Flex<'d, M: Mode> {
+pub struct Flex<'d, M: Mode = Blocking> {
     pin: PinBorrow<'d>,
     state: M::IfAsync<&'static State>,
 }
 
 impl<'d, M: Mode> Flex<'d, M> {
-    /// Wrap the pin in a `Flex`.
-    ///
-    /// The pin remains disconnected. The initial output level is unspecified, but can be changed
-    /// before the pin is put into output mode.
-    #[inline]
-    pub fn new(pin: Peri<'d, impl Pin>) -> Flex<'d, Blocking> {
-        // Pin will be in disconnected state.
-        Flex {
-            pin: PinBorrow::new(pin),
-            state: (),
-        }
-    }
-
     /// Set the pin's pull.
     #[inline]
     pub fn set_pull(&mut self, pull: Pull) {
@@ -326,6 +313,21 @@ impl<'d, M: Mode> Flex<'d, M> {
     }
 }
 
+impl<'d> Flex<'d, Blocking> {
+    /// Wrap the pin in a `Flex`.
+    ///
+    /// The pin remains disconnected. The initial output level is unspecified, but can be changed
+    /// before the pin is put into output mode.
+    #[inline]
+    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
+        // Pin will be in disconnected state.
+        Flex {
+            pin: PinBorrow::new(pin),
+            state: (),
+        }
+    }
+}
+
 impl<'d> Flex<'d, Async> {
     /// Wrap the pin in a `Flex`.
     ///
@@ -438,20 +440,11 @@ impl<'d, M: Mode> Drop for Flex<'d, M> {
 }
 
 /// GPIO input driver.
-pub struct Input<'d, M: Mode> {
+pub struct Input<'d, M: Mode = Blocking> {
     pin: Flex<'d, M>,
 }
 
 impl<'d, M: Mode> Input<'d, M> {
-    /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
-    #[inline]
-    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Input<'d, Blocking> {
-        let mut pin = Flex::<Blocking>::new(pin);
-        pin.set_as_input();
-        pin.set_pull(pull);
-        Input { pin }
-    }
-
     /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
@@ -476,6 +469,17 @@ impl<'d, M: Mode> Input<'d, M> {
     #[inline]
     pub fn set_inversion(&mut self, invert: bool) {
         self.pin.set_inversion(invert)
+    }
+}
+
+impl<'d> Input<'d, Blocking> {
+    /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
+    #[inline]
+    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
+        let mut pin = Flex::new(pin);
+        pin.set_as_input();
+        pin.set_pull(pull);
+        Input { pin }
     }
 }
 
@@ -599,20 +603,11 @@ impl<'d> Output<'d> {
 /// Note that pins will **return to their floating state** when `OutputOpenDrain` is dropped.
 /// If pins should retain their state indefinitely, either keep ownership of the
 /// `OutputOpenDrain`, or pass it to [`core::mem::forget`].
-pub struct OutputOpenDrain<'d, M: Mode> {
+pub struct OutputOpenDrain<'d, M: Mode = Blocking> {
     pin: Flex<'d, M>,
 }
 
 impl<'d, M: Mode> OutputOpenDrain<'d, M> {
-    /// Create a new GPIO open drain output driver for a [Pin] with the provided [Level].
-    #[inline]
-    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> OutputOpenDrain<'d, Blocking> {
-        let mut pin = Flex::<Blocking>::new(pin);
-        pin.set_level(initial_output);
-        pin.set_as_input_output();
-        OutputOpenDrain { pin }
-    }
-
     /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
@@ -679,6 +674,17 @@ impl<'d, M: Mode> OutputOpenDrain<'d, M> {
     #[inline]
     pub fn set_inversion(&mut self, invert: bool) {
         self.pin.set_inversion(invert)
+    }
+}
+
+impl<'d> OutputOpenDrain<'d, Blocking> {
+    /// Create a new GPIO open drain output driver for a [Pin] with the provided [Level].
+    #[inline]
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> OutputOpenDrain<'d, Blocking> {
+        let mut pin = Flex::new(pin);
+        pin.set_level(initial_output);
+        pin.set_as_input_output();
+        OutputOpenDrain { pin }
     }
 }
 
