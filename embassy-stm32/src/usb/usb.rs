@@ -489,7 +489,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         {
             use crate::gpio::{AfType, OutputType, Speed};
-            set_as_af!(sof, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(sof, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
         }
 
         Self::new(_usb, dp, dm, _irq)
@@ -507,7 +507,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         {
             use crate::gpio::{AfType, OutputType, Speed};
-            set_as_af!(sof, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(sof, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
         }
 
         Self::new_with_vbus(_usb, dp, dm, vbus, _irq)
@@ -569,8 +569,8 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(usb_alternate_function)]
         {
             use crate::gpio::{AfType, OutputType, Speed};
-            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
         }
         #[cfg(not(usb_alternate_function))]
         let _ = (dp, dm); // suppress "unused" warnings.

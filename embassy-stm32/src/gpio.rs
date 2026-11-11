@@ -2,9 +2,10 @@
 
 #![macro_use]
 use core::convert::Infallible;
+use core::marker::PhantomData;
 
 use critical_section::CriticalSection;
-use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
+use embassy_hal_internal::{Peri, PeripheralType};
 
 use crate::pac::gpio::{self, vals};
 use crate::peripherals;
@@ -17,7 +18,8 @@ use crate::peripherals;
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flex<'d> {
-    pub(crate) pin: Peri<'d, AnyPin>,
+    pub(crate) pin: PinNumber,
+    _phantom: PhantomData<&'d mut ()>,
 }
 
 impl<'d> Flex<'d> {
@@ -29,13 +31,17 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         // Pin will be in disconnected state.
-        Self { pin: pin.into() }
+        Self {
+            pin: pin.pin_number(),
+            _phantom: PhantomData,
+        }
     }
 
     /// Unsafely clone (duplicate) a Flex.
     pub const unsafe fn clone_unchecked(&self) -> Flex<'d> {
         Flex {
-            pin: self.pin.clone_unchecked(),
+            pin: self.pin,
+            _phantom: PhantomData,
         }
     }
 
@@ -172,12 +178,37 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_as_af_unchecked(&mut self, #[cfg(not(afio))] af_num: u8, af_type: AfType) {
         critical_section::with(|_| {
-            self.pin.set_as_af(
+            self.set_as_af(
                 #[cfg(not(afio))]
                 af_num,
                 af_type,
             );
         });
+    }
+
+    /// Put the pin into AF mode, without taking a critical section.
+    #[inline]
+    pub(crate) fn set_as_af(&mut self, #[cfg(not(afio))] af_num: u8, af_type: AfType) {
+        self.pin.set_as_af(
+            #[cfg(not(afio))]
+            af_num,
+            af_type,
+        );
+    }
+
+    /// Set the output speed, without taking a critical section.
+    #[inline]
+    #[cfg(gpio_v2)]
+    pub(crate) fn set_speed(&mut self, speed: Speed) {
+        self.pin.set_speed(speed);
+    }
+
+    /// Leave the pin in its current configuration forever.
+    ///
+    /// For drivers that configure a pin once and don't deconfigure it when dropped.
+    #[inline]
+    pub(crate) fn persist(self) {
+        core::mem::forget(self);
     }
 
     /// Is the pin configured as an input?
@@ -692,28 +723,6 @@ impl AfType {
     }
 }
 
-#[inline(never)]
-#[cfg(gpio_v1)]
-fn set_as_af(pin_port: PinNumber, af_type: AfType) {
-    let pin = unsafe { AnyPin::steal(pin_port) };
-    let r = pin.block();
-    let n = pin._pin() as usize;
-
-    r.cr(n / 8).modify(|w| {
-        w.set_mode(n % 8, af_type.mode);
-        // note that we are writing the CNF field, which is exposed as both `cnf_in` and `cnf_out`
-        // in the PAC. the choice of `cnf_in` instead of `cnf_out` in this code is arbitrary and
-        // does not affect the result.
-        w.set_cnf_in(n % 8, vals::CnfIn::from_bits(af_type.cnf));
-    });
-
-    match af_type.pull {
-        Pull::Up => r.bsrr().write(|w| w.set_bs(n, true)),
-        Pull::Down => r.bsrr().write(|w| w.set_br(n, true)),
-        Pull::None => {}
-    }
-}
-
 /// Alternate function type settings.
 #[derive(Copy, Clone)]
 #[cfg(gpio_v2)]
@@ -749,77 +758,6 @@ impl AfType {
     }
 }
 
-#[inline(never)]
-#[cfg(gpio_v2)]
-fn set_as_af(pin_port: PinNumber, af_num: u8, af_type: AfType) {
-    let pin = unsafe { AnyPin::steal(pin_port) };
-    let r = pin.block();
-    let n = pin._pin() as usize;
-
-    r.afr(n / 8).modify(|w| w.set_afr(n % 8, af_num));
-    r.pupdr().modify(|w| w.set_pupdr(n, af_type.pupdr));
-    r.otyper().modify(|w| w.set_ot(n, af_type.ot));
-    r.ospeedr().modify(|w| w.set_ospeedr(n, af_type.ospeedr));
-    r.moder().modify(|w| w.set_moder(n, vals::Moder::Alternate));
-}
-
-#[inline(never)]
-#[cfg(gpio_v2)]
-fn set_speed(pin_port: PinNumber, speed: Speed) {
-    let pin = unsafe { AnyPin::steal(pin_port) };
-    let r = pin.block();
-    let n = pin._pin() as usize;
-
-    r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
-}
-
-#[inline(never)]
-pub(crate) fn set_as_analog(pin_port: PinNumber) {
-    let pin = unsafe { AnyPin::steal(pin_port) };
-    let r = pin.block();
-    let n = pin._pin() as usize;
-
-    #[cfg(gpio_v1)]
-    r.cr(n / 8).modify(|w| {
-        w.set_mode(n % 8, vals::Mode::Input);
-        w.set_cnf_in(n % 8, vals::CnfIn::Analog);
-    });
-
-    #[cfg(gpio_v2)]
-    {
-        #[cfg(any(stm32l47x, stm32l48x))]
-        r.ascr().modify(|w| w.set_asc(n, true));
-        r.moder().modify(|w| w.set_moder(n, vals::Moder::Analog));
-    }
-}
-
-#[inline(never)]
-fn get_pull(pin_port: PinNumber) -> Pull {
-    let pin = unsafe { AnyPin::steal(pin_port) };
-    let r = pin.block();
-    let n = pin._pin() as usize;
-
-    #[cfg(gpio_v1)]
-    return match r.cr(n / 8).read().mode(n % 8) {
-        vals::Mode::Input => match r.cr(n / 8).read().cnf_in(n % 8) {
-            vals::CnfIn::Pull => match r.odr().read().odr(n) {
-                vals::Odr::Low => Pull::Down,
-                vals::Odr::High => Pull::Up,
-            },
-            _ => Pull::None,
-        },
-        _ => Pull::None,
-    };
-
-    #[cfg(gpio_v2)]
-    return match r.pupdr().read().pupdr(n) {
-        vals::Pupdr::Floating => Pull::None,
-        vals::Pupdr::PullDown => Pull::Down,
-        vals::Pupdr::PullUp => Pull::Up,
-        vals::Pupdr::_RESERVED_3 => Pull::None,
-    };
-}
-
 #[cfg(afio)]
 /// Holds the AFIO remap value for a peripheral's pin
 pub struct AfioRemap<const V: u8>;
@@ -832,57 +770,135 @@ pub struct AfioRemapBool<const V: bool>;
 /// Placeholder for a peripheral's pin which cannot be remapped via AFIO.
 pub struct AfioRemapNotApplicable;
 
-pub(crate) trait SealedPin: Into<AnyPin> {
-    fn pin_port(&self) -> PinNumber;
+/// GPIO pin number: `port_num * 16 + pin_num`, where `port_num` is 0 for port `A`, 1 for port `B`, etc.
+///
+/// This is plain data, it does not claim ownership of the pin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PinNumber(u8);
 
+impl PinNumber {
     #[inline]
-    fn _pin(&self) -> PinNumber {
-        self.pin_port() % 16
+    pub(crate) const fn new(pin_port: u8) -> Self {
+        Self(pin_port)
+    }
+
+    /// Number of the pin within the port (0..15)
+    #[inline]
+    pub(crate) const fn pin(self) -> u8 {
+        self.0 % 16
+    }
+
+    /// Port of the pin
+    #[inline]
+    pub(crate) const fn port(self) -> u8 {
+        self.0 / 16
     }
 
     #[inline]
-    fn _port(&self) -> PinNumber {
-        self.pin_port() / 16
-    }
-
-    #[inline]
-    fn block(&self) -> gpio::Gpio {
-        crate::_generated::gpio_block(self._port() as _)
+    pub(crate) fn block(self) -> gpio::Gpio {
+        crate::_generated::gpio_block(self.port() as _)
     }
 
     /// Set the output as high.
     #[inline]
-    fn set_high(&self) {
-        let n = self._pin() as _;
+    pub(crate) fn set_high(self) {
+        let n = self.pin() as _;
         self.block().bsrr().write(|w| w.set_bs(n, true));
     }
 
     /// Set the output as low.
     #[inline]
-    fn set_low(&self) {
-        let n = self._pin() as _;
+    pub(crate) fn set_low(self) {
+        let n = self.pin() as _;
         self.block().bsrr().write(|w| w.set_br(n, true));
     }
 
-    #[inline]
-    fn set_as_af(&self, #[cfg(not(afio))] af_num: u8, af_type: AfType) {
-        set_as_af(
-            self.pin_port(),
-            #[cfg(not(afio))]
-            af_num,
-            af_type,
-        )
+    #[inline(never)]
+    #[cfg(gpio_v1)]
+    pub(crate) fn set_as_af(self, af_type: AfType) {
+        let r = self.block();
+        let n = self.pin() as usize;
+
+        r.cr(n / 8).modify(|w| {
+            w.set_mode(n % 8, af_type.mode);
+            // note that we are writing the CNF field, which is exposed as both `cnf_in` and `cnf_out`
+            // in the PAC. the choice of `cnf_in` instead of `cnf_out` in this code is arbitrary and
+            // does not affect the result.
+            w.set_cnf_in(n % 8, vals::CnfIn::from_bits(af_type.cnf));
+        });
+
+        match af_type.pull {
+            Pull::Up => r.bsrr().write(|w| w.set_bs(n, true)),
+            Pull::Down => r.bsrr().write(|w| w.set_br(n, true)),
+            Pull::None => {}
+        }
     }
 
-    #[inline]
+    #[inline(never)]
     #[cfg(gpio_v2)]
-    fn set_speed(&self, speed: Speed) {
-        set_speed(self.pin_port(), speed)
+    pub(crate) fn set_as_af(self, af_num: u8, af_type: AfType) {
+        let r = self.block();
+        let n = self.pin() as usize;
+
+        r.afr(n / 8).modify(|w| w.set_afr(n % 8, af_num));
+        r.pupdr().modify(|w| w.set_pupdr(n, af_type.pupdr));
+        r.otyper().modify(|w| w.set_ot(n, af_type.ot));
+        r.ospeedr().modify(|w| w.set_ospeedr(n, af_type.ospeedr));
+        r.moder().modify(|w| w.set_moder(n, vals::Moder::Alternate));
     }
 
-    #[inline]
-    fn set_as_analog(&self) {
-        set_as_analog(self.pin_port());
+    #[inline(never)]
+    #[cfg(gpio_v2)]
+    pub(crate) fn set_speed(self, speed: Speed) {
+        let r = self.block();
+        let n = self.pin() as usize;
+
+        r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
+    }
+
+    #[inline(never)]
+    pub(crate) fn set_as_analog(self) {
+        let r = self.block();
+        let n = self.pin() as usize;
+
+        #[cfg(gpio_v1)]
+        r.cr(n / 8).modify(|w| {
+            w.set_mode(n % 8, vals::Mode::Input);
+            w.set_cnf_in(n % 8, vals::CnfIn::Analog);
+        });
+
+        #[cfg(gpio_v2)]
+        {
+            #[cfg(any(stm32l47x, stm32l48x))]
+            r.ascr().modify(|w| w.set_asc(n, true));
+            r.moder().modify(|w| w.set_moder(n, vals::Moder::Analog));
+        }
+    }
+
+    #[inline(never)]
+    fn get_pull(self) -> Pull {
+        let r = self.block();
+        let n = self.pin() as usize;
+
+        #[cfg(gpio_v1)]
+        return match r.cr(n / 8).read().mode(n % 8) {
+            vals::Mode::Input => match r.cr(n / 8).read().cnf_in(n % 8) {
+                vals::CnfIn::Pull => match r.odr().read().odr(n) {
+                    vals::Odr::Low => Pull::Down,
+                    vals::Odr::High => Pull::Up,
+                },
+                _ => Pull::None,
+            },
+            _ => Pull::None,
+        };
+
+        #[cfg(gpio_v2)]
+        return match r.pupdr().read().pupdr(n) {
+            vals::Pupdr::Floating => Pull::None,
+            vals::Pupdr::PullDown => Pull::Down,
+            vals::Pupdr::PullUp => Pull::Up,
+            vals::Pupdr::_RESERVED_3 => Pull::None,
+        };
     }
 
     /// Set the pin as "disconnected", ie doing nothing and consuming the lowest
@@ -893,23 +909,38 @@ pub(crate) trait SealedPin: Into<AnyPin> {
     ///
     /// Note that this also disables the internal weak pull-up and pull-down resistors.
     #[inline]
-    fn set_as_disconnected(&self) {
+    pub(crate) fn set_as_disconnected(self) {
         self.set_as_analog();
     }
 
     /// Get the pull-up configuration.
     #[allow(unused)]
     #[inline]
-    fn pull(&self) -> Pull {
-        critical_section::with(|_| get_pull(self.pin_port()))
+    pub(crate) fn pull(self) -> Pull {
+        critical_section::with(|_| self.get_pull())
     }
 }
 
-/// GPIO pin number type.
-///
-/// Some chips have a total number of ports that exceeds 8, a larger integer
-/// is needed to hold the total pin number `(ports * number)`.
-pub type PinNumber = u8;
+impl core::fmt::Display for PinNumber {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let port = char::from(b'A' + self.port());
+        let pin = self.pin();
+        write!(f, "P{port}{pin}")
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for PinNumber {
+    fn format(&self, f: defmt::Formatter) {
+        let port = char::from(b'A' + self.port());
+        let pin = self.pin();
+        defmt::write!(f, "P{}{}", port, pin)
+    }
+}
+
+pub(crate) trait SealedPin {
+    fn pin_number(&self) -> PinNumber;
+}
 
 /// Pin that can be used to configure an [ExtiInput](crate::exti::ExtiInput).
 #[cfg(feature = "exti")]
@@ -926,55 +957,14 @@ pub trait ExtiPin: PeripheralType + SealedPin {
 pub trait Pin: PeripheralType + SealedPin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
-    fn pin(&self) -> PinNumber {
-        self._pin()
+    fn pin(&self) -> u8 {
+        self.pin_number().pin()
     }
 
     /// Port of the pin
     #[inline]
-    fn port(&self) -> PinNumber {
-        self._port()
-    }
-}
-
-/// Type-erased GPIO pin. Internal storage for [`Flex`] and the drivers built on it.
-#[derive(Debug)]
-pub(crate) struct AnyPin {
-    pin_port: PinNumber,
-}
-
-impl AnyPin {
-    /// Unsafely create an `AnyPin` from a pin+port number.
-    ///
-    /// `pin_port` is `port_num * 16 + pin_num`, where `port_num` is 0 for port `A`, 1 for port `B`, etc...
-    #[inline]
-    pub(crate) const unsafe fn steal(pin_port: PinNumber) -> Peri<'static, Self> {
-        Peri::new_unchecked(Self { pin_port })
-    }
-}
-
-impl core::fmt::Display for AnyPin {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let port = char::from(b'A' + self.port());
-        let pin = self.pin();
-        write!(f, "P{port}{pin}")
-    }
-}
-#[cfg(feature = "defmt")]
-impl defmt::Format for AnyPin {
-    fn format(&self, f: defmt::Formatter) {
-        let port = char::from(b'A' + self.port());
-        let pin = self.pin();
-        defmt::write!(f, "P{}{}", port, pin)
-    }
-}
-
-impl_peripheral!(AnyPin);
-impl Pin for AnyPin {}
-impl SealedPin for AnyPin {
-    #[inline]
-    fn pin_port(&self) -> PinNumber {
-        self.pin_port
+    fn port(&self) -> u8 {
+        self.pin_number().port()
     }
 }
 
@@ -990,16 +980,8 @@ foreach_pin!(
         }
         impl SealedPin for peripherals::$pin_name {
             #[inline]
-            fn pin_port(&self) -> PinNumber {
-                $port_num * 16 + $pin_num
-            }
-        }
-
-        impl From<peripherals::$pin_name> for AnyPin {
-            fn from(val: peripherals::$pin_name) -> Self {
-                Self {
-                    pin_port: val.pin_port(),
-                }
+            fn pin_number(&self) -> PinNumber {
+                PinNumber::new($port_num * 16 + $pin_num)
             }
         }
     };

@@ -105,11 +105,11 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     pub fn new(_peri: Peri<'d, T>, te: Peri<'d, impl TePin<T>>) -> Self {
         rcc::enable_and_reset::<T>();
 
-        set_as_af!(te, AfType::input(crate::gpio::Pull::Down));
+        let te = set_as_af!(te, AfType::input(crate::gpio::Pull::Down));
 
         Self {
             _peri: PhantomData,
-            _te: Flex::new(te),
+            _te: te,
             lane_byte_clock: None.into(),
             tx_escape_clock: None.into(),
             timeout_clock: None.into(),

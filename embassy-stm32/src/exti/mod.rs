@@ -8,7 +8,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{ExtiPin, Flex, Input, Level, Pin as GpioPin, PinNumber, Pull};
+use crate::gpio::{ExtiPin, Flex, Input, Level, Pin as GpioPin, Pull};
 use crate::interrupt::Interrupt as InterruptEnum;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt as InterruptType};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
@@ -54,7 +54,7 @@ fn exticr_regs() -> pac::afio::Afio {
 /// Only acts if the line is both pending and unmasked, i.e. an `ExtiInputFuture` is waiting on it.
 /// Lines that are not ours (other async channels sharing the vector, or lines the user handles
 /// manually) are left untouched.
-fn on_irq(line: PinNumber, waker: &AtomicWaker) {
+fn on_irq(line: u8, waker: &AtomicWaker) {
     if !low_level::is_exti_pending(line) {
         return;
     }
@@ -155,18 +155,6 @@ impl<'d> ExtiInput<'d, Async> {
         _irq: impl Binding<<<T as ExtiPin>::ExtiChannel as Channel>::IRQ, InterruptHandler<T::ExtiChannel>>,
     ) -> Self {
         Self::new_inner::<T::ExtiChannel>(Input::new(pin, pull))
-    }
-
-    #[cfg(spi)]
-    /// Create an EXTI input from a configured AF pin.
-    ///
-    /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub(crate) fn new_af<T: ExtiPin + GpioPin>(
-        pin: Peri<'d, T>,
-        _ch: Peri<'d, T::ExtiChannel>,
-        _irq: impl Binding<<<T as ExtiPin>::ExtiChannel as Channel>::IRQ, InterruptHandler<T::ExtiChannel>>,
-    ) -> Self {
-        Self::new_inner::<T::ExtiChannel>(Input::from_flex(Flex::new(pin)))
     }
 
     /// Create an EXTI input from an existing [`Input`] pin.
@@ -435,7 +423,7 @@ impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d, Async> {
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct ExtiInputFuture<'a> {
-    pin: PinNumber,
+    pin: u8,
     waker: &'static AtomicWaker,
     drop: bool,
     phantom: PhantomData<&'a mut ()>,
@@ -505,7 +493,7 @@ impl<C: Channel> Handler<C::IRQ> for InterruptHandler<C> {
 }
 
 trait SealedChannel {
-    const NUMBER: PinNumber;
+    const NUMBER: u8;
     fn waker() -> &'static AtomicWaker;
 }
 
@@ -513,7 +501,7 @@ trait SealedChannel {
 #[allow(private_bounds)]
 pub trait Channel: PeripheralType + SealedChannel + Sized {
     /// EXTI channel number.
-    fn number(&self) -> PinNumber;
+    fn number(&self) -> u8;
     /// [Enum-level Interrupt](InterruptEnum), which may be the same for multiple channels.
     fn irq(&self) -> InterruptEnum;
     /// [Type-level Interrupt](InterruptType), which may be the same for multiple channels.
@@ -529,20 +517,20 @@ pub trait Channel: PeripheralType + SealedChannel + Sized {
 #[deprecated = "type-erased EXTI channels are no longer supported, in order to support manually bindable EXTI interrupts (more info: https://github.com/embassy-rs/embassy/pull/4922)"]
 pub struct AnyChannel {
     #[allow(unused)]
-    number: PinNumber,
+    number: u8,
 }
 
 macro_rules! impl_exti {
     ($type:ident, $number:expr) => {
         impl SealedChannel for crate::peripherals::$type {
-            const NUMBER: PinNumber = $number;
+            const NUMBER: u8 = $number;
             fn waker() -> &'static AtomicWaker {
                 static WAKER: AtomicWaker = AtomicWaker::new();
                 &WAKER
             }
         }
         impl Channel for crate::peripherals::$type {
-            fn number(&self) -> PinNumber {
+            fn number(&self) -> u8 {
                 $number
             }
             fn irq(&self) -> InterruptEnum {

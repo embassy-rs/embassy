@@ -49,9 +49,9 @@ pub struct CaptureInput<'d, T, C, #[cfg(afio)] A> {
 impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(CaptureInput<'d, T, C, A>) {
     /// Create a new capture pin instance.
     pub fn from_pin(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Option<Self> {
-        set_as_af!(pin, AfType::input(pull));
+        let pin = set_as_af!(pin, AfType::input(pull));
         Some(Self {
-            input: InputType::Pin(Flex::new(pin)),
+            input: InputType::Pin(pin),
             _marker: PhantomData,
         })
     }

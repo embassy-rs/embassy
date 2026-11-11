@@ -88,8 +88,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         in_pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
         out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>,
     ) -> OpAmpOutput<'_, T> {
-        in_pin.set_as_analog();
-        out_pin.set_as_analog();
+        in_pin.pin_number().set_as_analog();
+        out_pin.pin_number().set_as_analog();
 
         #[cfg(any(opamp_v5, opamp_c5))]
         let vm_sel = VmSel::Output;
@@ -123,8 +123,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
     ) -> OpAmpOutput<'_, T> {
-        in_pin.set_as_analog();
-        out_pin.set_as_analog();
+        in_pin.pin_number().set_as_analog();
+        out_pin.pin_number().set_as_analog();
 
         #[cfg(any(opamp_v5, opamp_c5))]
         let vm_sel = VmSel::Pga;
@@ -182,9 +182,9 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
     ) -> OpAmpOutput<'_, T> {
-        in_pin.set_as_analog();
-        bias_pin.set_as_analog();
-        out_pin.set_as_analog();
+        in_pin.pin_number().set_as_analog();
+        bias_pin.pin_number().set_as_analog();
+        out_pin.pin_number().set_as_analog();
 
         let pga_gain = match gain {
             OpAmpGain::Mul2 => PgaGain::Gain2InputVinm0,
@@ -217,7 +217,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// [`OpAmpOutput`] is dropped.
     #[cfg(opamp_v5)]
     pub fn buffer_dac(&mut self, out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>) -> OpAmpOutput<'_, T> {
-        out_pin.set_as_analog();
+        out_pin.pin_number().set_as_analog();
 
         T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;
@@ -244,7 +244,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         &mut self,
         pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
     ) -> OpAmpInternalOutput<'_, T> {
-        pin.set_as_analog();
+        pin.pin_number().set_as_analog();
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(pin.channel()));
@@ -271,7 +271,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
     ) -> OpAmpInternalOutput<'_, T> {
-        pin.set_as_analog();
+        pin.pin_number().set_as_analog();
 
         let pga_gain = match gain {
             OpAmpGain::Mul2 => PgaGain::Gain2,
@@ -310,8 +310,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         bias_pin: Peri<'_, impl BiasPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
     ) -> OpAmpInternalOutput<'_, T> {
-        in_pin.set_as_analog();
-        bias_pin.set_as_analog();
+        in_pin.pin_number().set_as_analog();
+        bias_pin.pin_number().set_as_analog();
 
         let pga_gain = match gain {
             OpAmpGain::Mul2 => PgaGain::Gain2InputVinm0,
@@ -347,7 +347,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         &mut self,
         m_pin: Peri<'_, impl InvertingPin<T> + crate::gpio::Pin>,
     ) -> OpAmpInternalOutput<'_, T> {
-        m_pin.set_as_analog();
+        m_pin.pin_number().set_as_analog();
 
         T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;
@@ -376,8 +376,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         m_pin: Peri<'_, impl InvertingPin<T> + crate::gpio::Pin>,
         out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>,
     ) -> OpAmpOutput<'_, T> {
-        m_pin.set_as_analog();
-        out_pin.set_as_analog();
+        m_pin.pin_number().set_as_analog();
+        out_pin.pin_number().set_as_analog();
 
         T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;
@@ -407,9 +407,9 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         m_pin: Peri<'d, impl InvertingPin<T> + crate::gpio::Pin>,
         out_pin: Peri<'d, impl OutputPin<T> + crate::gpio::Pin>,
     ) -> OpAmpOutput<'_, T> {
-        p_pin.set_as_analog();
-        m_pin.set_as_analog();
-        out_pin.set_as_analog();
+        p_pin.pin_number().set_as_analog();
+        m_pin.pin_number().set_as_analog();
+        out_pin.pin_number().set_as_analog();
 
         T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;
@@ -437,8 +437,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         p_pin: Peri<'d, impl NonInvertingPin<T> + crate::gpio::Pin>,
         m_pin: Peri<'d, impl InvertingPin<T> + crate::gpio::Pin>,
     ) -> OpAmpOutput<'_, T> {
-        p_pin.set_as_analog();
-        m_pin.set_as_analog();
+        p_pin.pin_number().set_as_analog();
+        m_pin.pin_number().set_as_analog();
 
         T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;

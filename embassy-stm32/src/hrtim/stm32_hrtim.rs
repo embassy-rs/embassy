@@ -142,10 +142,7 @@ macro_rules! pins_helper {
         unsafe impl<'d, T: $ChannelXPin<HRTIM1, $Channel>> $OutputYPin<$TIMX> for Pin<Peri<'d, T>> {}
         impl<'d, T: $ChannelXPin<HRTIM1, $Channel>> $OutYPin<$TIMX> for Pin<Peri<'d, T>> {
             fn connect_to_hrtim(self) {
-                self.pin.set_as_af(
-                    self.pin.af_num(),
-                    AfType::output(OutputType::PushPull, self.speed),
-                );
+                set_as_af!(self.pin, AfType::output(OutputType::PushPull, self.speed)).persist();
             }
         }
     };

@@ -31,7 +31,7 @@ macro_rules! config_ulpi_pins {
     ($($pin:ident),*) => {
                 critical_section::with(|_| {
             $(
-                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
             )*
         })
     };
@@ -67,8 +67,8 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         #[cfg(usb_alternate_function)]
         {
-            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
         }
         #[cfg(not(usb_alternate_function))]
         let _ = (dp, dm);
@@ -108,8 +108,8 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         #[cfg(usb_alternate_function)]
         {
-            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
         }
         #[cfg(not(usb_alternate_function))]
         let _ = (dp, dm);
@@ -995,8 +995,8 @@ mod host_impl {
         ) -> Self {
             #[cfg(usb_alternate_function)]
             {
-                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
             }
             #[cfg(not(usb_alternate_function))]
             let _ = (dp, dm);
@@ -1049,8 +1049,8 @@ mod host_impl {
         ) -> Self {
             #[cfg(usb_alternate_function)]
             {
-                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
             }
             #[cfg(not(usb_alternate_function))]
             let _ = (dp, dm);
