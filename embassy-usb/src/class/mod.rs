@@ -70,6 +70,8 @@ pub mod vcp {
     #[cfg(feature = "host")]
     pub mod host;
 }
+#[cfg(feature = "class-vendor")]
+pub mod vendor;
 #[cfg(feature = "class-web-usb")]
 pub mod web_usb {
     //! WebUSB class.

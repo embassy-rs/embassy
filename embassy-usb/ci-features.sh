@@ -28,7 +28,7 @@ check --features class-all
 
 # Every device-capable class on its own.
 for class in \
-    bth ccid cdc-acm cdc-ncm cmsis-dap-v2 dfu gud hid midi msc printer uac usbtmc uvc web-usb
+    bth ccid cdc-acm cdc-ncm cmsis-dap-v2 dfu gud hid midi msc printer uac usbtmc uvc vendor web-usb
 do
     check --features "device,class-$class"
 done
