@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `VCP`: add CH34x and FTDI host drivers
 - Add USB Printer class (device and host) supporting IEEE 1284 device IDs and bidirectional raw print streams
 - Vendor: add generic vendor-specific bulk class (`class-vendor`) with WinUSB and WebUSB support
 - Add per-class Cargo features (`class-<name>`) and independent `device`/`host` role features. The default features are `device`, `host`, and `class-all`, preserving the previous full-class build
