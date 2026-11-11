@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add `EndpointConfig`, which has the SuperSpeed fields of an endpoint, and `Driver::alloc_endpoint_in_with_config()` and `Driver::alloc_endpoint_out_with_config()` provided methods. They default to `alloc_endpoint_in()` and `alloc_endpoint_out()`, or to the double-buffered allocation when `EndpointConfig::double_buffered` is set.
 - Add `Driver::alloc_endpoint_bulk_in_double_buffered()` and `Driver::alloc_endpoint_bulk_out_double_buffered()` provided methods. They default to allocating an ordinary bulk endpoint.
 - Fixed: `EndpointOut::read_transfer()` now returns when the buffer is full.
 - Add `ControlPipe::data_out_transfer()` and `ControlPipe::data_in_transfer()` provided methods.

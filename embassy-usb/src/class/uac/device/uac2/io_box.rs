@@ -117,12 +117,12 @@ const VOLUME_SILENCE_8Q8_DB: i16 = i16::MIN;
 
 const MAX_SAMPLE_RATE_COUNT: usize = 10;
 
-/// The isochronous packet limit: 1023 bytes at full speed, 1024 at high speed (one
-/// transaction per microframe).
+/// The isochronous packet limit: 1023 bytes at full speed, 1024 at high speed and SuperSpeed (one
+/// transaction per (micro)frame or bus interval).
 const fn max_iso_packet_size(speed: UsbDeviceSpeed) -> usize {
     match speed {
         UsbDeviceSpeed::Full => 1023,
-        UsbDeviceSpeed::High => 1024,
+        UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => 1024,
     }
 }
 
@@ -159,11 +159,11 @@ impl Channels<'_> {
 }
 
 /// Packets per second on each streaming endpoint: one per frame at full speed, one per
-/// microframe at high speed.
+/// microframe at high speed, and one per 125 us bus interval at SuperSpeed.
 pub const fn packet_rate_hz(speed: UsbDeviceSpeed) -> u32 {
     match speed {
         UsbDeviceSpeed::Full => 1000,
-        UsbDeviceSpeed::High => 8000,
+        UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => 8000,
     }
 }
 
@@ -670,11 +670,11 @@ fn format_type_i(sample_width: SampleWidth) -> [u8; 4] {
     ]
 }
 
-/// The feedback value's size: 10.14 in 3 bytes at full speed, 16.16 in 4 at high speed.
+/// The feedback value's size: 10.14 in 3 bytes at full speed, 16.16 in 4 at high speed and above.
 const fn feedback_len(speed: UsbDeviceSpeed) -> usize {
     match speed {
         UsbDeviceSpeed::Full => 3,
-        UsbDeviceSpeed::High => 4,
+        UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => 4,
     }
 }
 
