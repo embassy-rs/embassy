@@ -66,6 +66,7 @@ struct MockStateInner {
     set_interface: Option<(u16, u16)>,
     gtb: heapless::Vec<u8, 256>,
     gtb_request: Option<(u16, u16)>,
+    out_ends_transaction: Option<bool>,
 }
 
 impl MockState {
@@ -78,6 +79,7 @@ impl MockState {
                 set_interface: None,
                 gtb: heapless::Vec::new(),
                 gtb_request: None,
+                out_ends_transaction: None,
             }),
         }
     }
@@ -104,6 +106,11 @@ impl MockState {
         let mut inner = self.inner.borrow_mut();
         inner.gtb.clear();
         inner.gtb.extend_from_slice(bytes).unwrap();
+    }
+
+    /// `ensure_transaction_end` of the last bulk OUT request.
+    pub fn out_ends_transaction(&self) -> Option<bool> {
+        self.inner.borrow().out_ends_transaction
     }
 
     /// Last Group Terminal Block request as `(wValue, wIndex)`.
@@ -217,11 +224,12 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for MockPipe<'_> {
         Ok(n)
     }
 
-    async fn request_out(&mut self, buf: &[u8], _ensure_transaction_end: bool) -> Result<(), PipeError>
+    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError>
     where
         D: pipe::IsOut,
     {
         let mut inner = self.state.inner.borrow_mut();
+        inner.out_ends_transaction = Some(ensure_transaction_end);
         for &byte in buf {
             inner.loopback.push_back(byte).map_err(|_| PipeError::BufferOverflow)?;
         }

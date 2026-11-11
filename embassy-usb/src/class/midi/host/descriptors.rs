@@ -268,6 +268,8 @@ pub struct MidiEndpointDescriptor {
     pub address: u8,
     /// Maximum USB packet size.
     pub max_packet_size: u16,
+    /// Transfer type; only bulk endpoints can be opened.
+    pub ep_type: EndpointType,
     /// Associated embedded jack IDs. Their positions are USB-MIDI cable numbers (MIDI 1.0).
     pub jack_ids: Vec<u8, MAX_MIDI_JACKS>,
     /// Associated Group Terminal Block IDs (MIDI 2.0).
@@ -330,19 +332,17 @@ impl MidiStreamingInterface {
                     result.out_jacks.push(jack).map_err(|_| MidiDescriptorError::Capacity)?
                 }
                 MidiDescriptor::Endpoint(endpoint) => {
-                    current_endpoint = None;
-                    if endpoint.ep_type() == EndpointType::Bulk {
-                        result
-                            .endpoints
-                            .push(MidiEndpointDescriptor {
-                                address: endpoint.endpoint_address,
-                                max_packet_size: endpoint.max_packet_size,
-                                jack_ids: Vec::new(),
-                                group_terminal_block_ids: Vec::new(),
-                            })
-                            .map_err(|_| MidiDescriptorError::Capacity)?;
-                        current_endpoint = Some(result.endpoints.len() - 1);
-                    }
+                    result
+                        .endpoints
+                        .push(MidiEndpointDescriptor {
+                            address: endpoint.endpoint_address,
+                            max_packet_size: endpoint.max_packet_size,
+                            ep_type: endpoint.ep_type(),
+                            jack_ids: Vec::new(),
+                            group_terminal_block_ids: Vec::new(),
+                        })
+                        .map_err(|_| MidiDescriptorError::Capacity)?;
+                    current_endpoint = Some(result.endpoints.len() - 1);
                 }
                 MidiDescriptor::EndpointJackAssociations(associations) => {
                     let endpoint = current_endpoint.ok_or(MidiDescriptorError::InvalidDescriptor)?;
