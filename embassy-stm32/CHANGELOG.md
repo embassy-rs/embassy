@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Atomic:
 - fix: stm32/atomic: make `AtomicClear::clear` atomic on targets without 8-bit atomic RMW (thumbv6m)
 
+SUBGHZ:
+- feat: stm32/subghz: add a driver for the on-chip sub-GHz radio of STM32WL and STM32WLE5 (`SubghzSpi`, `SubghzRadio`, `RfSwitch`). It covers the dedicated `SUBGHZSPI`, radio reset, `RFBUSY` waiting and the `SUBGHZ_RADIO` interrupt. The driver does not wrap the radio's command set: the caller sends the commands.
+- feat: stm32/subghz: `SubghzRadio::wait_on_busy_timeout` bounds the `RFBUSY` wait, `SubghzRadio::wakeup` wakes the radio from sleep, and `SubghzRadio::set_wakeup_sources` lets a radio interrupt or `RFBUSY` wake the CPU from Standby.
+- change: stm32/subghz: `SubghzRadio::wait_on_busy` sleeps on the `RFBUSY` falling edge (EXTI line 45, through the `SUBGHZ_RADIO` vector) instead of polling, once a wait outlasts a short spin. The executor can idle during calibration and wake from sleep.
+- fix: stm32/subghz: an async `SubghzSpi` transaction that is cancelled releases `NSS` instead of leaving the radio selected.
+
 UCPD:
 - fix: stm32/ucpd: update the interrupt enable register atomically. The CC part, the PD part and the interrupt handler could overwrite each other's enable bits, leaving a waiting future without its interrupt.
 - fix: stm32/ucpd: give `CcPhy::wait_for_vstate_change`, `PdPhy` receptions and `PdPhy` transmissions their own wakers. They shared one, so with `CcPhy` and `PdPhy` in different tasks one task's wake could be lost.
