@@ -15,7 +15,7 @@ use super::{
 };
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler, InterfaceHandler};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
 /// Configuration options for the USB printer device.
 pub struct Config<'a> {
@@ -23,8 +23,10 @@ pub struct Config<'a> {
     pub device_id: Option<&'a str>,
     /// Initial port status byte.
     pub initial_status: PortStatus,
-    /// Maximum packet size for bulk endpoints (typically 64 for full speed, 512 for high speed).
-    pub max_packet_size: u16,
+    /// Options for the bulk OUT endpoint, which receives the data the host sends.
+    pub out_endpoint_options: EndpointOptions,
+    /// Options for the bulk IN endpoint, which sends data to the host.
+    pub in_endpoint_options: EndpointOptions,
 }
 
 impl<'a> Default for Config<'a> {
@@ -32,7 +34,8 @@ impl<'a> Default for Config<'a> {
         Self {
             device_id: None,
             initial_status: PortStatus::default(),
-            max_packet_size: 64,
+            out_endpoint_options: EndpointOptions::new(),
+            in_endpoint_options: EndpointOptions::new(),
         }
     }
 }
@@ -166,8 +169,8 @@ impl<'d, D: Driver<'d>> PrinterClass<'d, D> {
             None,
         );
 
-        let read_ep = alt.endpoint_bulk_out(None, config.max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(None, config.max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, config.out_endpoint_options);
+        let write_ep = alt.endpoint_bulk_in(None, config.in_endpoint_options);
 
         drop(func);
 

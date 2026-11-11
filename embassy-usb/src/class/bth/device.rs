@@ -17,7 +17,7 @@ use embassy_sync::waitqueue::WakerRegistration;
 use crate::control::{OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Builder, Handler, InterfaceHandler};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
 /// USB Class code for Wireless Controller.
 pub const USB_CLASS_WIRELESS_CONTROLLER: u8 = 0xE0;
@@ -38,23 +38,26 @@ pub const MAX_HCI_COMMAND_LEN: usize = 258;
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config<'d> {
-    /// Maximum packet size for ACL data bulk endpoints (64 for Full-Speed, 512 for High-Speed).
-    pub max_packet_size_acl: u16,
     /// Maximum packet size for HCI event interrupt endpoint (typically 16 or 64).
     pub max_packet_size_event: u16,
     /// Polling interval for HCI event interrupt endpoint in milliseconds (typically 1 ms).
     pub poll_interval_ms: u8,
     /// Optional interface string description.
     pub interface_name: Option<&'d str>,
+    /// Options for the ACL data bulk OUT endpoint, which receives the data the host sends.
+    pub acl_out_endpoint_options: EndpointOptions,
+    /// Options for the ACL data bulk IN endpoint, which sends data to the host.
+    pub acl_in_endpoint_options: EndpointOptions,
 }
 
 impl<'d> Default for Config<'d> {
     fn default() -> Self {
         Self {
-            max_packet_size_acl: 64,
             max_packet_size_event: 64,
             poll_interval_ms: 1,
             interface_name: Some("Bluetooth HCI"),
+            acl_out_endpoint_options: EndpointOptions::new(),
+            acl_in_endpoint_options: EndpointOptions::new(),
         }
     }
 }
@@ -176,9 +179,9 @@ impl<'d, D: Driver<'d>> BluetoothHci<'d, D> {
         // Endpoint 1: Interrupt IN for HCI Events
         let event_ep = alt.endpoint_interrupt_in(None, config.max_packet_size_event, config.poll_interval_ms);
         // Endpoint 2: Bulk OUT for Host-to-Controller ACL Data
-        let acl_out_ep = alt.endpoint_bulk_out(None, config.max_packet_size_acl);
+        let acl_out_ep = alt.endpoint_bulk_out(None, config.acl_out_endpoint_options);
         // Endpoint 3: Bulk IN for Controller-to-Host ACL Data
-        let acl_in_ep = alt.endpoint_bulk_in(None, config.max_packet_size_acl);
+        let acl_in_ep = alt.endpoint_bulk_in(None, config.acl_in_endpoint_options);
 
         drop(func);
 
@@ -331,7 +334,6 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = Config::default();
-        assert_eq!(config.max_packet_size_acl, 64);
         assert_eq!(config.max_packet_size_event, 64);
         assert_eq!(config.poll_interval_ms, 1);
         assert_eq!(config.interface_name, Some("Bluetooth HCI"));

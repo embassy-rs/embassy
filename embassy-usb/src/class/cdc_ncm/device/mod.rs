@@ -22,7 +22,7 @@ use core::mem::MaybeUninit;
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Builder, Handler, InterfaceHandler};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
 pub mod embassy_net;
 
@@ -156,6 +156,33 @@ struct NtbParametersDir {
     payload_remainder: u16,
     out_alignment: u16,
     max_datagram_count: u16,
+}
+
+/// Largest bulk IN packet the class can send, the size of its packet buffer.
+const ABS_MAX_PACKET_SIZE: usize = 512;
+
+/// Configuration for [`CdcNcmClass`].
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct Config {
+    /// MAC address of the host side of the link, reported to the host.
+    pub mac_address: [u8; 6],
+    /// Options for the bulk OUT endpoint, which receives the packets the host sends.
+    pub out_endpoint_options: EndpointOptions,
+    /// Options for the bulk IN endpoint, which sends packets to the host.
+    pub in_endpoint_options: EndpointOptions,
+}
+
+impl Config {
+    /// Create a configuration with the given MAC address and default endpoint options.
+    pub const fn new(mac_address: [u8; 6]) -> Self {
+        Self {
+            mac_address,
+            out_endpoint_options: EndpointOptions::new(),
+            in_endpoint_options: EndpointOptions::new(),
+        }
+    }
 }
 
 /// Internal state for the CDC-NCM class.
@@ -318,12 +345,12 @@ pub struct CdcNcmClass<'d, D: Driver<'d>> {
 
 impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
     /// Create a new CDC NCM class.
-    pub fn new(
-        builder: &mut Builder<'d, D>,
-        state: &'d mut State<'d>,
-        mac_address: [u8; 6],
-        max_packet_size: u16,
-    ) -> Self {
+    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config) -> Self {
+        let Config {
+            mac_address,
+            out_endpoint_options,
+            in_endpoint_options,
+        } = config;
         state.shared.mac_addr = mac_address;
 
         let mut func = builder.function(USB_CLASS_CDC, CDC_SUBCLASS_NCM, CDC_PROTOCOL_NONE);
@@ -383,8 +410,13 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
         let data_if = iface.interface_number();
         let _alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NTB, None);
         let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NTB, None);
-        let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, out_endpoint_options);
+        let write_ep = alt.endpoint_bulk_in(None, in_endpoint_options);
+        let max_packet_size = write_ep.info().max_packet_size as usize;
+        assert!(
+            max_packet_size <= ABS_MAX_PACKET_SIZE,
+            "CDC-NCM supports bulk packets of up to 512 bytes"
+        );
 
         drop(func);
 
@@ -403,7 +435,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
             read_ep,
             write_ep,
             _control: &state.shared,
-            max_packet_size: max_packet_size as usize,
+            max_packet_size,
         }
     }
 
@@ -441,7 +473,6 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
     /// This waits until the packet is successfully stored in the CDC-NCM endpoint buffers.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
         const OUT_HEADER_LEN: usize = 28;
-        const ABS_MAX_PACKET_SIZE: usize = 512;
 
         let seq = self.seq;
         self.seq = self.seq.wrapping_add(1);

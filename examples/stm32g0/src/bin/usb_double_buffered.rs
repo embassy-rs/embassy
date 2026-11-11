@@ -11,8 +11,8 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb::Builder;
 use embassy_usb::driver::{Direction, Endpoint, EndpointAddress, EndpointIn, EndpointOut};
+use embassy_usb::{Builder, EndpointOptions};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -51,8 +51,10 @@ async fn main(_spawner: Spawner) {
     let mut function = builder.function(0xff, 0, 0);
     let mut interface = function.interface();
     let mut alt = interface.alt_setting(0xff, 0, 0, None);
-    let mut out = alt.endpoint_bulk_out_double_buffered(Some(EndpointAddress::from_parts(1, Direction::Out)), 64);
-    let mut inp = alt.endpoint_bulk_in_double_buffered(Some(EndpointAddress::from_parts(2, Direction::In)), 64);
+    let mut double_buffered = EndpointOptions::new();
+    double_buffered.buffers = 2;
+    let mut out = alt.endpoint_bulk_out(Some(EndpointAddress::from_parts(1, Direction::Out)), double_buffered);
+    let mut inp = alt.endpoint_bulk_in(Some(EndpointAddress::from_parts(2, Direction::In)), double_buffered);
     drop(function);
     let mut usb = builder.build();
     let echo = async {

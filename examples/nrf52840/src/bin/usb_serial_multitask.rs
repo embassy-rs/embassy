@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
-use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Config as CdcAcmConfig, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config, UsbDevice};
 use panic_probe as _;
@@ -72,7 +72,7 @@ async fn main(spawner: Spawner) {
     );
 
     // Create classes on the builder.
-    let class = CdcAcmClass::new(&mut builder, state, 64);
+    let class = CdcAcmClass::new(&mut builder, state, CdcAcmConfig::new());
 
     // Build the builder.
     let usb = builder.build();

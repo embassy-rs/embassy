@@ -83,7 +83,7 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    let msc_config = MscConfig::new(64)
+    let msc_config = MscConfig::new()
         .vendor_id("Embassy")
         .product_id("Flash Disk")
         .product_revision_level("1.0")

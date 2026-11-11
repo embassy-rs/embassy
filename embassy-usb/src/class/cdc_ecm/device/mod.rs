@@ -14,7 +14,7 @@ use embassy_usb_driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOu
 
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Builder, Handler, InterfaceHandler};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
 pub mod embassy_net;
 
@@ -38,6 +38,30 @@ const REQ_SET_ETHERNET_PACKET_FILTER: u8 = 0x43;
 
 const ALTERNATE_SETTING_DISABLED: u8 = 0x00;
 const ALTERNATE_SETTING_ENABLED: u8 = 0x01;
+
+/// Configuration for [`CdcEcmClass`].
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct Config {
+    /// MAC address of the host side of the link, reported to the host.
+    pub mac_address: [u8; 6],
+    /// Options for the bulk OUT endpoint, which receives the packets the host sends.
+    pub out_endpoint_options: EndpointOptions,
+    /// Options for the bulk IN endpoint, which sends packets to the host.
+    pub in_endpoint_options: EndpointOptions,
+}
+
+impl Config {
+    /// Create a configuration with the given MAC address and default endpoint options.
+    pub const fn new(mac_address: [u8; 6]) -> Self {
+        Self {
+            mac_address,
+            out_endpoint_options: EndpointOptions::new(),
+            in_endpoint_options: EndpointOptions::new(),
+        }
+    }
+}
 
 /// State for the CDC-ECM class.
 pub struct State<'d> {
@@ -169,12 +193,12 @@ pub struct CdcEcmClass<'d, D: Driver<'d>> {
 
 impl<'d, D: Driver<'d>> CdcEcmClass<'d, D> {
     /// Create a new CDC-ECM class instance.
-    pub fn new(
-        builder: &mut Builder<'d, D>,
-        state: &'d mut State<'d>,
-        mac_address: [u8; 6],
-        max_packet_size: u16,
-    ) -> Self {
+    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config) -> Self {
+        let Config {
+            mac_address,
+            out_endpoint_options,
+            in_endpoint_options,
+        } = config;
         state.shared.mac_addr = mac_address;
 
         let mut func = builder.function(USB_CLASS_CDC, CDC_SUBCLASS_ECM, CDC_PROTOCOL_NONE);
@@ -225,8 +249,8 @@ impl<'d, D: Driver<'d>> CdcEcmClass<'d, D> {
         let data_if = iface.interface_number();
         let _alt0 = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, 0x00, None);
         let mut alt1 = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, 0x00, None);
-        let read_ep = alt1.endpoint_bulk_out(None, max_packet_size);
-        let write_ep = alt1.endpoint_bulk_in(None, max_packet_size);
+        let read_ep = alt1.endpoint_bulk_out(None, out_endpoint_options);
+        let write_ep = alt1.endpoint_bulk_in(None, in_endpoint_options);
 
         drop(func);
 

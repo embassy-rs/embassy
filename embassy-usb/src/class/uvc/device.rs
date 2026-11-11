@@ -19,7 +19,7 @@ use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestT
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler, InterfaceHandler, UsbDeviceSpeed};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler, UsbDeviceSpeed};
 
 const USB_CLASS_VIDEO: u8 = 0x0E;
 const SC_VIDEOCONTROL: u8 = 0x01;
@@ -631,7 +631,13 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
         assert_eq!(vs.interface_number(), vs_number);
         let mut alt0 = vs.alt_setting(USB_CLASS_VIDEO, SC_VIDEOSTREAMING, PC_PROTOCOL_UNDEFINED, None);
         // The input header names the endpoint, which is only described in alternate setting 1.
-        let endpoint = alt0.alloc_endpoint_in(EndpointType::Isochronous, None, max_packet_size, 0);
+        let endpoint = alt0.alloc_endpoint_in(
+            EndpointType::Isochronous,
+            None,
+            max_packet_size,
+            0,
+            EndpointOptions::new(),
+        );
         let endpoint_address = endpoint.info().addr.into();
         alt0.descriptors_then_patch(
             |alt| {

@@ -23,7 +23,7 @@ use embassy_stm32::usb::Driver as Stm32UsbDriver;
 use embassy_stm32::{bind_interrupts, peripherals, usb};
 use embassy_time::{Duration, Timer};
 use embassy_usb::msos::{CompatibleIdFeatureDescriptor, PropertyData, RegistryPropertyFeatureDescriptor};
-use embassy_usb::{Builder, Config as USBConfig};
+use embassy_usb::{Builder, Config as USBConfig, EndpointOptions, UsbDeviceSpeed};
 use panic_probe as _;
 use static_cell::StaticCell;
 use usb_driver::*;
@@ -139,6 +139,7 @@ async fn main(_spawner: Spawner) {
     let mut control_buf = [0u8; 64];
 
     let mut usb_config = USBConfig::new(VID, PID);
+    usb_config.max_speed = UsbDeviceSpeed::High;
     usb_config.manufacturer = Some("MANU");
     usb_config.product = Some("PROD");
     usb_config.serial_number = Some("SERIAL");
@@ -170,8 +171,8 @@ async fn main(_spawner: Spawner) {
     let mut func = usb_builder.function(0xFF, 0xFF, 0xFF);
     let mut iface = func.interface();
     let mut alt = iface.alt_setting(0xFF, 0xFF, 0xFF, None);
-    let ep_out = alt.endpoint_bulk_out(None, 512); // host → device
-    let ep_in = alt.endpoint_bulk_in(None, 512); // device → host
+    let ep_out = alt.endpoint_bulk_out(None, EndpointOptions::new()); // host → device
+    let ep_in = alt.endpoint_bulk_in(None, EndpointOptions::new()); // device → host
     drop(alt);
     drop(iface);
     drop(func);

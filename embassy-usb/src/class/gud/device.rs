@@ -20,7 +20,7 @@ use heapless::Vec;
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointOut};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler, InterfaceHandler};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
 /// Vendor ID to use for the device so that the Linux GUD driver binds to it.
 pub const GUD_VENDOR_ID: u16 = 0x1d50;
@@ -638,9 +638,6 @@ pub enum GudEvent {
 ///
 /// This configuration is fixed when the class is created.
 pub struct Config<'d> {
-    /// Maximum packet size for the bulk OUT endpoint: 8..=64 for full-speed,
-    /// 512 for high-speed.
-    pub max_packet_size: u16,
     /// Minimum framebuffer width the device handles.
     pub min_width: u32,
     /// Maximum framebuffer width.
@@ -663,6 +660,8 @@ pub struct Config<'d> {
     // TODO: Support deferred control responses in embassy-usb before making this async,
     // so SET_STATE_CHECK can await validation before its status stage is accepted or rejected.
     pub validate_mode_blocking: fn(connector: u8, mode: &DisplayMode) -> bool,
+    /// Options for the bulk OUT endpoint, which receives the framebuffer data.
+    pub out_endpoint_options: EndpointOptions,
 }
 
 impl Config<'_> {
@@ -1077,7 +1076,7 @@ impl<'d, D: Driver<'d>> GudClass<'d, D> {
         let interface_number = iface.interface_number();
         let mut alt = iface.alt_setting(USB_CLASS_VENDOR_SPEC, 0, 0, None);
 
-        let read_ep = alt.endpoint_bulk_out(None, config.max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, config.out_endpoint_options);
 
         drop(func);
         builder.interface_handler(state.control.write(Control {
@@ -1476,7 +1475,6 @@ mod tests {
 
     fn config<'d>(connectors: &'d [GudConnector<'d>]) -> Config<'d> {
         Config {
-            max_packet_size: 64,
             min_width: 640,
             max_width: 1920,
             min_height: 480,
@@ -1486,6 +1484,7 @@ mod tests {
             supported_rotations: ROTATION_0 | ROTATION_90,
             connectors,
             validate_mode_blocking: |_, _| true,
+            out_endpoint_options: EndpointOptions::new(),
         }
     }
 

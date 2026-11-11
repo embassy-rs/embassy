@@ -88,7 +88,7 @@ async fn main(_spawner: Spawner) {
     let printer_config = PrinterConfig {
         device_id: Some("MFG:Embassy;CMD:ESC/POS;MDL:WBA65 Receipt Printer;CLS:PRINTER;"),
         initial_status: PortStatus::default(),
-        max_packet_size: 64,
+        ..Default::default()
     };
 
     let mut printer = PrinterClass::new(&mut builder, printer_state, printer_config);

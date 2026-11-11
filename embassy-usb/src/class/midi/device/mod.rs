@@ -8,7 +8,7 @@ use super::{
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
 use crate::types::StringIndex;
-use crate::{Builder, Handler};
+use crate::{Builder, EndpointOptions, Handler};
 
 const USB_AUDIOCONTROL_SUBCLASS: u8 = 0x01;
 const CS_INTERFACE: u8 = 0x24;
@@ -310,6 +310,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                         SynchronizationType::NoSynchronization,
                         UsageType::DataEndpoint,
                         &[0, 0],
+                        EndpointOptions::new(),
                     );
                     alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_out_jacks as usize]);
                     Some(read_ep)
@@ -330,6 +331,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                         SynchronizationType::NoSynchronization,
                         UsageType::DataEndpoint,
                         &[0, 0],
+                        EndpointOptions::new(),
                     );
                     alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_in_jacks as usize]);
                     Some(write_ep)

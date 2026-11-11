@@ -82,7 +82,6 @@ async fn main(_spawner: Spawner) {
     );
 
     let ccid_config = CcidConfig {
-        max_packet_size: 64,
         interface_name: Some("Smart Card Reader"),
         ..Default::default()
     };

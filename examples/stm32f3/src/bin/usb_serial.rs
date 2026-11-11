@@ -11,7 +11,7 @@ use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_time::Timer;
 use embassy_usb::Builder;
-use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Config as CdcAcmConfig, State};
 use embassy_usb::driver::EndpointError;
 use panic_probe as _;
 
@@ -71,7 +71,7 @@ async fn main(_spawner: Spawner) {
     );
 
     // Create classes on the builder.
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
+    let mut class = CdcAcmClass::new(&mut builder, &mut state, CdcAcmConfig::new());
 
     // Build the builder.
     let mut usb = builder.build();
