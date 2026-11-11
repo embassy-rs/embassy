@@ -203,7 +203,14 @@ impl<'d, D: Driver<'d>> PrinterClass<'d, D> {
 
     /// Check if the host issued a `SOFT_RESET` request, clearing the flag.
     pub fn check_soft_reset(&self) -> bool {
-        self.shared.reset_notified.swap(false, Ordering::Relaxed)
+        // `swap` requires atomic CAS, which isn't available on all supported
+        // targets (e.g. thumbv6m), so use load/store like the other classes do.
+        if self.shared.reset_notified.load(Ordering::Relaxed) {
+            self.shared.reset_notified.store(false, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
     }
 
     /// Split into independent reader and writer halves.
