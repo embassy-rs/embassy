@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add SuperSpeed (5 Gbit/s) and SuperSpeedPlus (10 Gbit/s) device support
 - `HID`: Notify `RequestHandler::reset()` on USB bus reset, allowing handlers to restore default Report protocol mode
 - `CDC-NCM`: The NetworkConnection notification names the communication interface in `wIndex`, not the data interface
+- `CDC-NCM`: `Receiver::read_packet` drops a received datagram longer than `buf`, with a warning, instead of panicking
 - Fix full-speed isochronous `bInterval` encoding to use exponential format ($2^{bInterval-1}$ frames) per USB 2.0 §9.6.6 instead of linear milliseconds.
 - Add `EndpointInterval` enum (`Milliseconds`, `Microframes`, `Raw`) and corresponding builder methods on `InterfaceAltBuilder` (`endpoint_in_interval`, `endpoint_out_interval`, `endpoint_interrupt_in_interval`, `endpoint_interrupt_out_interval`, `endpoint_isochronous_in_interval`, `endpoint_isochronous_out_interval`, `endpoint_descriptor_with_interval`, `endpoint_descriptor_raw`). This allows specifying sub-millisecond polling periods for high-speed endpoints and preserving manually specified `bInterval` values without being overwritten.
 - Add `Builder::other_speed_config_descriptor()`, allowing high-speed devices to generate and respond to `GET_DESCRIPTOR` for `OTHER_SPEED_CONFIGURATION` descriptors.
