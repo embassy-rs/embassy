@@ -203,7 +203,8 @@ pub struct Config<'d> {
     /// one, in this order. The first is the default.
     pub formats: &'d [Format<'d>],
     /// Packet size of the isochronous endpoint in bytes, including the 2-byte payload header.
-    /// Bounds the data rate: 1023 at full speed, 1024 at high speed, per (micro)frame.
+    /// Bounds the data rate: 1023 at full speed, 1024 at high speed and SuperSpeed, per
+    /// (micro)frame or bus interval.
     pub max_packet_size: u16,
 }
 
@@ -214,7 +215,7 @@ impl<'d> Config<'d> {
             formats,
             max_packet_size: match speed {
                 UsbDeviceSpeed::Full => MAX_PACKET_SIZE_FULL_SPEED,
-                UsbDeviceSpeed::High => MAX_PACKET_SIZE_HIGH_SPEED,
+                UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => MAX_PACKET_SIZE_HIGH_SPEED,
             },
         }
     }
@@ -586,7 +587,7 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
         }
         let speed_limit = match builder.max_speed() {
             UsbDeviceSpeed::Full => MAX_PACKET_SIZE_FULL_SPEED,
-            UsbDeviceSpeed::High => MAX_PACKET_SIZE_HIGH_SPEED,
+            UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => MAX_PACKET_SIZE_HIGH_SPEED,
         };
         assert!(
             (PAYLOAD_HEADER_LEN as u16 + 1..=speed_limit).contains(&max_packet_size),

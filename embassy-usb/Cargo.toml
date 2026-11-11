@@ -59,6 +59,7 @@ class-all = [
     "class-usbtmc",
     "class-uvc",
     "class-vcp",
+    "class-vendor",
     "class-web-usb",
 ]
 
@@ -78,6 +79,7 @@ class-dfu = ["device", "dep:embassy-time"]
 class-gud = ["device"]
 class-usbtmc = ["device"]
 class-uvc = ["device"]
+class-vendor = ["device", "embedded-io"]
 class-web-usb = ["device"]
 
 # Host-only classes.

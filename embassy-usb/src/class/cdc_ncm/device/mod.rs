@@ -263,10 +263,9 @@ impl<'d> InterfaceHandler for Control<'d> {
 
 /// CDC-NCM class
 pub struct CdcNcmClass<'d, D: Driver<'d>> {
-    _comm_if: InterfaceNumber,
+    comm_if: InterfaceNumber,
     comm_ep: D::EndpointIn,
 
-    data_if: InterfaceNumber,
     read_ep: D::EndpointOut,
     write_ep: D::EndpointIn,
 
@@ -357,9 +356,8 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
         builder.interface_handler(control);
 
         CdcNcmClass {
-            _comm_if: comm_if,
+            comm_if,
             comm_ep,
-            data_if,
             read_ep,
             write_ep,
             _control: &state.shared,
@@ -378,7 +376,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
                 max_packet_size: self.max_packet_size,
             },
             Receiver {
-                data_if: self.data_if,
+                comm_if: self.comm_if,
                 comm_ep: self.comm_ep,
                 read_ep: self.read_ep,
             },
@@ -449,7 +447,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
 ///
 /// You can obtain a `Receiver` with [`CdcNcmClass::split`]
 pub struct Receiver<'d, D: Driver<'d>> {
-    data_if: InterfaceNumber,
+    comm_if: InterfaceNumber,
     comm_ep: D::EndpointIn,
     read_ep: D::EndpointOut,
 }
@@ -519,7 +517,7 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
                 0x00, //bNotificationType = NETWORK_CONNECTION
                 0x01, // wValue = connected
                 0x00,
-                self.data_if.into(), // wIndex = interface
+                self.comm_if.into(), // wIndex = communication interface
                 0x00,
                 0x00, // wLength
                 0x00,
@@ -532,5 +530,166 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::cell::RefCell;
+
+    use embassy_futures::block_on;
+
+    use super::*;
+    use crate::driver::{
+        Bus, ControlPipe, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut,
+        EndpointType, Event, Unsupported,
+    };
+
+    /// An enabled interrupt endpoint that keeps what the class writes to it.
+    struct Notifications<'a>(&'a RefCell<[u8; 8]>);
+
+    impl Endpoint for Notifications<'_> {
+        fn info(&self) -> &EndpointInfo {
+            unreachable!()
+        }
+
+        async fn wait_enabled(&mut self) {}
+    }
+
+    impl EndpointIn for Notifications<'_> {
+        async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+            self.0.borrow_mut().copy_from_slice(buf);
+            Ok(())
+        }
+    }
+
+    /// An enabled bulk OUT endpoint that is never read here.
+    struct Enabled;
+
+    impl Endpoint for Enabled {
+        fn info(&self) -> &EndpointInfo {
+            unreachable!()
+        }
+
+        async fn wait_enabled(&mut self) {}
+    }
+
+    impl EndpointOut for Enabled {
+        async fn read(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
+            unreachable!()
+        }
+    }
+
+    struct TestDriver;
+
+    impl<'a> Driver<'a> for TestDriver {
+        type EndpointOut = Enabled;
+        type EndpointIn = Notifications<'a>;
+        type ControlPipe = Unused;
+        type Bus = Unused;
+
+        fn alloc_endpoint_out(
+            &mut self,
+            _: EndpointType,
+            _: Option<EndpointAddress>,
+            _: u16,
+            _: u8,
+        ) -> Result<Self::EndpointOut, EndpointAllocError> {
+            unreachable!()
+        }
+
+        fn alloc_endpoint_in(
+            &mut self,
+            _: EndpointType,
+            _: Option<EndpointAddress>,
+            _: u16,
+            _: u8,
+        ) -> Result<Self::EndpointIn, EndpointAllocError> {
+            unreachable!()
+        }
+
+        fn start(self, _: u16) -> (Self::Bus, Self::ControlPipe) {
+            unreachable!()
+        }
+    }
+
+    struct Unused;
+
+    impl ControlPipe for Unused {
+        fn max_packet_size(&self) -> usize {
+            unreachable!()
+        }
+
+        async fn setup(&mut self) -> [u8; 8] {
+            unreachable!()
+        }
+
+        async fn data_out(&mut self, _: &mut [u8], _: bool, _: bool) -> Result<usize, EndpointError> {
+            unreachable!()
+        }
+
+        async fn data_in(&mut self, _: &[u8], _: bool, _: bool) -> Result<(), EndpointError> {
+            unreachable!()
+        }
+
+        async fn accept(&mut self) {
+            unreachable!()
+        }
+
+        async fn reject(&mut self) {
+            unreachable!()
+        }
+
+        async fn accept_set_address(&mut self, _: u8) {
+            unreachable!()
+        }
+    }
+
+    impl Bus for Unused {
+        async fn enable(&mut self) {
+            unreachable!()
+        }
+
+        async fn disable(&mut self) {
+            unreachable!()
+        }
+
+        async fn poll(&mut self) -> Event {
+            unreachable!()
+        }
+
+        fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
+            unreachable!()
+        }
+
+        fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
+            unreachable!()
+        }
+
+        fn endpoint_is_stalled(&mut self, _: EndpointAddress) -> bool {
+            unreachable!()
+        }
+
+        async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn network_connection_names_the_communication_interface() {
+        // Communication interface 2 (its data interface would be 3), as in a composite device.
+        let sent = RefCell::new([0; 8]);
+        let (_, mut receiver) = CdcNcmClass::<TestDriver> {
+            comm_if: InterfaceNumber(2),
+            comm_ep: Notifications(&sent),
+            read_ep: Enabled,
+            write_ep: Notifications(&sent),
+            _control: &ControlShared { mac_addr: [0; 6] },
+            max_packet_size: 64,
+        }
+        .split();
+        block_on(receiver.wait_connection()).unwrap();
+        // NetworkConnection, connected: wIndex is the communication interface (CDC 1.2 §6.3.1).
+        assert_eq!(*sent.borrow(), [0xa1, 0x00, 0x01, 0x00, 2, 0x00, 0x00, 0x00]);
     }
 }

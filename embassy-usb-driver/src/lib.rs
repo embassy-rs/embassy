@@ -136,6 +136,58 @@ pub struct EndpointInfo {
     pub interval_ms: u8,
 }
 
+/// Configuration to allocate an endpoint with.
+///
+/// The SuperSpeed fields are those of the endpoint's SuperSpeed Endpoint Companion descriptor, and 0
+/// for an endpoint that has none.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct EndpointConfig {
+    /// Endpoint's address, or `None` for the driver to pick one.
+    pub addr: Option<EndpointAddress>,
+    /// Endpoint's type.
+    pub ep_type: EndpointType,
+    /// Max packet size, in bytes.
+    pub max_packet_size: u16,
+    /// Polling interval, in milliseconds.
+    pub interval_ms: u8,
+    /// Double-buffer a bulk endpoint, if the driver supports it. See
+    /// [`Driver::alloc_endpoint_bulk_out_double_buffered`].
+    pub double_buffered: bool,
+    /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets.
+    pub max_burst: u8,
+    /// SuperSpeed bulk `MaxStreams`: the endpoint has `2^max_streams` streams, or none when 0.
+    pub max_streams: u8,
+    /// SuperSpeed isochronous `Mult`: the endpoint moves up to `mult + 1` bursts per service
+    /// interval.
+    pub mult: u8,
+    /// SuperSpeed periodic `wBytesPerInterval`, or the `dwBytesPerInterval` of a SuperSpeedPlus
+    /// isochronous endpoint: the bytes the endpoint moves per service interval.
+    pub bytes_per_interval: u32,
+}
+
+impl EndpointConfig {
+    /// An endpoint that is not double-buffered, with all SuperSpeed fields 0.
+    pub const fn new(
+        addr: Option<EndpointAddress>,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> Self {
+        Self {
+            addr,
+            ep_type,
+            max_packet_size,
+            interval_ms,
+            double_buffered: false,
+            max_burst: 0,
+            max_streams: 0,
+            mult: 0,
+            bytes_per_interval: 0,
+        }
+    }
+}
+
 /// Main USB device driver trait.
 ///
 /// Implement this to add support for a new hardware platform.
@@ -184,6 +236,40 @@ pub trait Driver<'a> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError>;
+
+    /// Allocates an OUT endpoint from an [`EndpointConfig`].
+    ///
+    /// The default implementation calls
+    /// [`alloc_endpoint_bulk_out_double_buffered`](Self::alloc_endpoint_bulk_out_double_buffered) for a
+    /// double-buffered bulk endpoint and [`alloc_endpoint_out`](Self::alloc_endpoint_out) otherwise,
+    /// ignoring the SuperSpeed fields.
+    fn alloc_endpoint_out_with_config(
+        &mut self,
+        config: EndpointConfig,
+    ) -> Result<Self::EndpointOut, EndpointAllocError> {
+        if config.double_buffered && config.ep_type == EndpointType::Bulk {
+            self.alloc_endpoint_bulk_out_double_buffered(config.addr, config.max_packet_size)
+        } else {
+            self.alloc_endpoint_out(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
+        }
+    }
+
+    /// Allocates an IN endpoint from an [`EndpointConfig`].
+    ///
+    /// The default implementation calls
+    /// [`alloc_endpoint_bulk_in_double_buffered`](Self::alloc_endpoint_bulk_in_double_buffered) for a
+    /// double-buffered bulk endpoint and [`alloc_endpoint_in`](Self::alloc_endpoint_in) otherwise,
+    /// ignoring the SuperSpeed fields.
+    fn alloc_endpoint_in_with_config(
+        &mut self,
+        config: EndpointConfig,
+    ) -> Result<Self::EndpointIn, EndpointAllocError> {
+        if config.double_buffered && config.ep_type == EndpointType::Bulk {
+            self.alloc_endpoint_bulk_in_double_buffered(config.addr, config.max_packet_size)
+        } else {
+            self.alloc_endpoint_in(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
+        }
+    }
 
     /// Allocates a double-buffered bulk OUT endpoint.
     ///
