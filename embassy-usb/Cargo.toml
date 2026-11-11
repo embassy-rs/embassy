@@ -55,6 +55,7 @@ class-all = [
     "class-hub",
     "class-midi",
     "class-msc",
+    "class-printer",
     "class-uac",
     "class-usbtmc",
     "class-uvc",
@@ -69,6 +70,7 @@ class-cdc-acm = ["embedded-io"]
 class-hid = []
 class-midi = []
 class-msc = []
+class-printer = ["embedded-io"]
 class-uac = []
 
 # Device-only classes.

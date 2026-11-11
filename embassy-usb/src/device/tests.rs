@@ -511,6 +511,44 @@ fn test_bluetooth_hci_device_descriptors() {
     assert_eq!(iface[4], 3); // 3 endpoints (Event IN, ACL OUT, ACL IN)
 }
 
+#[cfg(feature = "class-printer")]
+#[test]
+fn test_printer_device_descriptors() {
+    let mut state = crate::class::printer::device::State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+
+    let printer = crate::class::printer::device::PrinterClass::new(
+        &mut builder,
+        &mut state,
+        crate::class::printer::device::Config {
+            device_id: Some("MFG:Generic;MDL:ThermalPrinter;CMD:ESC/POS;CLS:PRINTER;"),
+            initial_status: crate::class::printer::PortStatus::default(),
+            max_packet_size: 64,
+        },
+    );
+    let _ = printer;
+    let usb = builder.build();
+    drop(usb);
+
+    let desc = &config_descriptor[..];
+    // Find Printer Interface descriptor (bLength = 9, bDescriptorType = 4, class = 0x07, subclass = 0x01, proto = 0x02)
+    let iface = desc
+        .windows(9)
+        .find(|w| w[0] == 9 && w[1] == 4 && w[5] == 0x07 && w[6] == 0x01 && w[7] == 0x02)
+        .expect("Printer interface descriptor not found");
+    assert_eq!(iface[4], 2); // 2 bulk endpoints (OUT and IN)
+}
+
 #[cfg(all(feature = "device", feature = "class-vendor"))]
 #[test]
 fn test_vendor_device_descriptors() {
