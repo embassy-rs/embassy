@@ -73,11 +73,11 @@ impl LinkedListItem for TwoDItem {
             Dir::PeripheralToMemory,
             peri_addr as *const u32,
             buf as *mut [MW] as *mut MW as *mut u32,
-            buf.len(),
-            true,
             false,
+            true,
             PW::size(),
             MW::size(),
+            buf.len(),
             config,
         )
     }
@@ -91,13 +91,13 @@ impl LinkedListItem for TwoDItem {
         Self::new_inner(
             request,
             Dir::MemoryToPeripheral,
-            peri_addr as *const u32,
-            buf as *const [MW] as *const MW as *mut u32,
-            buf.len(),
+            buf as *const [MW] as *const MW as *const u32,
+            peri_addr as *mut u32,
             true,
             false,
             MW::size(),
             PW::size(),
+            buf.len(),
             config,
         )
     }
@@ -113,13 +113,13 @@ impl LinkedListItem for TwoDItem {
         Self::new_inner(
             Request::default(),
             Dir::MemoryToMemory,
-            dst as *const u32,
-            src as *mut u32,
-            len,
+            src as *const u32,
+            dst as *mut u32,
             incr_src,
             incr_dst,
             W::size(),
             W::size(),
+            len,
             config,
         )
     }
@@ -156,17 +156,17 @@ impl TwoDItem {
     unsafe fn new_inner(
         request: Request,
         dir: Dir,
-        peri_addr: *const u32,
-        mem_addr: *mut u32,
-        mem_len: usize,
-        incr_mem: bool,
-        incr_peri: bool,
-        data_size: WordSize,
+        src_addr: *const u32,
+        dst_addr: *mut u32,
+        src_inc: bool,
+        dst_inc: bool,
+        src_size: WordSize,
         dst_size: WordSize,
+        mem_len: usize,
         config: TwoDConfig,
     ) -> Self {
         let mut item = Item::new(
-            request, dir, peri_addr, mem_addr, mem_len, incr_mem, incr_peri, data_size, dst_size,
+            request, dir, src_addr, dst_addr, src_inc, dst_inc, src_size, dst_size, mem_len,
         );
         item.apply_config(&config.linear);
 

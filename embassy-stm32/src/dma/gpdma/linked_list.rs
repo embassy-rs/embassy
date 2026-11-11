@@ -128,24 +128,23 @@ pub struct Item {
 }
 
 impl Item {
-    /// Build a new item from raw transfer parameters. `incr_mem` and `incr_peri` increment the
-    /// `mem_addr` and `peri_addr` sides; memory-to-memory copies from `mem_addr` to `peri_addr`.
+    /// Build a new item from raw transfer parameters.
     ///
     /// # Safety
-    /// The caller must ensure `peri_addr` and `mem_addr` are valid for the transfer.
+    /// The caller must ensure `src_addr` and `dst_addr` are valid for the transfer.
     #[allow(clippy::too_many_arguments)]
     pub(super) unsafe fn new(
         request: Request,
         dir: Dir,
-        peri_addr: *const u32,
-        mem_addr: *mut u32,
-        mem_len: usize,
-        incr_mem: bool,
-        incr_peri: bool,
-        data_size: WordSize,
+        src_addr: *const u32,
+        dst_addr: *mut u32,
+        src_inc: bool,
+        dst_inc: bool,
+        src_size: WordSize,
         dst_size: WordSize,
+        mem_len: usize,
     ) -> Self {
-        let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
+        let Ok(bndt) = (mem_len * src_size.bytes()).try_into() else {
             panic!("DMA transfers may not be larger than 65535 bytes.");
         };
 
@@ -153,24 +152,21 @@ impl Item {
         br1.set_bndt(bndt);
 
         let mut tr1 = regs::ChTr1(0);
-        tr1.set_sdw(data_size.into());
+        tr1.set_sdw(src_size.into());
         tr1.set_ddw(dst_size.into());
-        // Memory-to-memory: from `mem_addr` to `peri_addr`, software-requested.
-        let from_mem = dir != Dir::PeripheralToMemory;
-        let (incr_src, incr_dst) = if from_mem {
-            (incr_mem, incr_peri)
-        } else {
-            (incr_peri, incr_mem)
-        };
-        tr1.set_sinc(incr_src);
-        tr1.set_dinc(incr_dst);
+        tr1.set_sinc(src_inc);
+        tr1.set_dinc(dst_inc);
 
         #[cfg(gpdma)]
         {
             use stm32_metapac::gpdma::vals::Ap;
-            // `peri_addr` is usually a register.
-            tr1.set_sap(if from_mem { Ap::Port0 } else { Ap::Port1 });
-            tr1.set_dap(if from_mem { Ap::Port1 } else { Ap::Port0 });
+            if dir == Dir::PeripheralToMemory {
+                tr1.set_sap(Ap::Port1); // peri
+                tr1.set_dap(Ap::Port0); // mem
+            } else {
+                tr1.set_sap(Ap::Port0); // mem
+                tr1.set_dap(Ap::Port1); // peri
+            }
         }
 
         let mut tr2 = regs::ChTr2(0);
@@ -181,18 +177,12 @@ impl Item {
         }
         tr2.set_reqsel(request);
 
-        let (sar, dar) = if from_mem {
-            (mem_addr as _, peri_addr as _)
-        } else {
-            (peri_addr as _, mem_addr as _)
-        };
-
         Self {
             tr1,
             tr2,
             br1,
-            sar,
-            dar,
+            sar: src_addr as _,
+            dar: dst_addr as _,
         }
     }
 
@@ -243,11 +233,11 @@ impl LinkedListItem for LinearItem {
             Dir::PeripheralToMemory,
             peri_addr as *const u32,
             buf as *mut [MW] as *mut MW as *mut u32,
-            buf.len(),
-            true,
             false,
+            true,
             PW::size(),
             MW::size(),
+            buf.len(),
             config,
         )
     }
@@ -261,13 +251,13 @@ impl LinkedListItem for LinearItem {
         Self::new_inner(
             request,
             Dir::MemoryToPeripheral,
-            peri_addr as *const u32,
-            buf as *const [MW] as *const MW as *mut u32,
-            buf.len(),
+            buf as *const [MW] as *const MW as *const u32,
+            peri_addr as *mut u32,
             true,
             false,
             MW::size(),
             PW::size(),
+            buf.len(),
             config,
         )
     }
@@ -283,13 +273,13 @@ impl LinkedListItem for LinearItem {
         Self::new_inner(
             Request::default(),
             Dir::MemoryToMemory,
-            dst as *const u32,
-            src as *mut u32,
-            len,
+            src as *const u32,
+            dst as *mut u32,
             incr_src,
             incr_dst,
             W::size(),
             W::size(),
+            len,
             config,
         )
     }
@@ -324,17 +314,17 @@ impl LinearItem {
     unsafe fn new_inner(
         request: Request,
         dir: Dir,
-        peri_addr: *const u32,
-        mem_addr: *mut u32,
-        mem_len: usize,
-        incr_mem: bool,
-        incr_peri: bool,
-        data_size: WordSize,
+        src_addr: *const u32,
+        dst_addr: *mut u32,
+        src_inc: bool,
+        dst_inc: bool,
+        src_size: WordSize,
         dst_size: WordSize,
+        mem_len: usize,
         config: ItemConfig,
     ) -> Self {
         let mut item = Item::new(
-            request, dir, peri_addr, mem_addr, mem_len, incr_mem, incr_peri, data_size, dst_size,
+            request, dir, src_addr, dst_addr, src_inc, dst_inc, src_size, dst_size, mem_len,
         );
         item.apply_config(&config);
 
