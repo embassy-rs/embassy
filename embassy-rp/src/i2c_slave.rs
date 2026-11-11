@@ -5,6 +5,7 @@ use core::task::Poll;
 
 use pac::i2c;
 
+use crate::gpio::Flex;
 use crate::i2c::{AbortReason, FIFO_SIZE, Info, Instance, InterruptHandler, SclPin, SdaPin, set_up_i2c_pin};
 use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Binding;
@@ -95,7 +96,9 @@ pub struct I2cSlave<'d, M: Mode> {
     info: &'static Info,
     pending_byte: Option<u8>,
     config: Config,
-    phantom: PhantomData<(&'d mut (), M)>,
+    _scl: Flex<'d>,
+    _sda: Flex<'d>,
+    phantom: PhantomData<M>,
 }
 
 impl<'d> I2cSlave<'d, Blocking> {
@@ -106,7 +109,13 @@ impl<'d> I2cSlave<'d, Blocking> {
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(T::info(), &scl, &sda, config, false)
+        Self::new_inner(
+            T::info(),
+            Flex::new_unconfigured(scl),
+            Flex::new_unconfigured(sda),
+            config,
+            false,
+        )
     }
 }
 
@@ -119,26 +128,30 @@ impl<'d> I2cSlave<'d, Async> {
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(T::info(), &scl, &sda, config, true)
+        Self::new_inner(
+            T::info(),
+            Flex::new_unconfigured(scl),
+            Flex::new_unconfigured(sda),
+            config,
+            true,
+        )
     }
 }
 
 impl<'d, M: Mode> I2cSlave<'d, M> {
-    fn new_inner<S, D>(info: &'static Info, scl: &S, sda: &D, config: Config, enable_irq: bool) -> Self
-    where
-        S: core::ops::Deref<Target: crate::gpio::Pin>,
-        D: core::ops::Deref<Target: crate::gpio::Pin>,
-    {
+    fn new_inner(info: &'static Info, mut scl: Flex<'d>, mut sda: Flex<'d>, config: Config, enable_irq: bool) -> Self {
         assert!(config.addr != 0);
 
         // Configure SCL & SDA pins
-        set_up_i2c_pin(scl, config.scl_pullup);
-        set_up_i2c_pin(sda, config.sda_pullup);
+        set_up_i2c_pin(&mut scl, config.scl_pullup);
+        set_up_i2c_pin(&mut sda, config.sda_pullup);
 
         let mut ret = Self {
             info,
             pending_byte: None,
             config,
+            _scl: scl,
+            _sda: sda,
             phantom: PhantomData,
         };
 

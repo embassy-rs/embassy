@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GPIO: remove `AnyPin`.
 - GPIO: GPIO wakers are only allocated for pins used in async mode.
 - GPIO: dropping a `wait_for_*` future disables the pin's interrupt.
+- I2C, I2C slave, SPI, UART and buffered UART: pins are disconnected when the driver is dropped.
+- UART: dropping the receiver (`Uart`, `UartRx`, `BufferedUart`, `BufferedUartRx`) disables reception.
+- ADC: dropping a pin `Channel` disconnects the pin instead of re-enabling its input buffer and pull-down.
+- PWM: input mode enables the pin's input buffer on RP2040 too.
 - SPI: `Config::frequency` is now `Hertz`.
 - SPI: add `ConfigError`; constructors, `set_config` and `set_frequency` now return `Result`.
 - SPI: rename `flush` to `blocking_flush`.

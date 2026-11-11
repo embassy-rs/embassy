@@ -12,7 +12,7 @@ use embassy_time::{Duration, Instant, Timer};
 pub use embedded_hal_1::i2c::Operation;
 use pac::i2c;
 
-use crate::gpio::{AnyPin, SealedPin};
+use crate::gpio::{Flex, SIO_FUNCSEL};
 use crate::interrupt::Interrupt;
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::mode::{Async, Blocking, Mode};
@@ -199,8 +199,8 @@ pub const FIFO_SIZE: u8 = 16;
 pub struct I2c<'d, M: Mode> {
     info: &'static Info,
     phantom: PhantomData<(&'d mut (), M)>,
-    sda: Peri<'d, AnyPin>,
-    scl: Peri<'d, AnyPin>,
+    sda: Flex<'d>,
+    scl: Flex<'d>,
     timeout: Duration,
 }
 
@@ -220,7 +220,12 @@ impl<'d> I2c<'d, Blocking> {
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(T::info(), scl.into(), sda.into(), config)
+        Self::new_inner(
+            T::info(),
+            Flex::new_unconfigured(scl),
+            Flex::new_unconfigured(sda),
+            config,
+        )
     }
 }
 
@@ -240,7 +245,7 @@ impl<'d> I2c<'d, Async> {
         config: Config,
     ) -> Self {
         let info = T::info();
-        let i2c = Self::new_inner(info, scl.into(), sda.into(), config);
+        let i2c = Self::new_inner(info, Flex::new_unconfigured(scl), Flex::new_unconfigured(sda), config);
 
         let r = info.regs;
 
@@ -551,15 +556,11 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-pub(crate) fn set_up_i2c_pin<P, T>(pin: &P, pullup: bool)
-where
-    P: core::ops::Deref<Target = T>,
-    T: crate::gpio::SealedPin,
-{
-    pin.gpio().ctrl().write(|w| w.set_funcsel(3));
-    pin.pad_ctrl().write(|w| {
-        #[cfg(feature = "_rp235x")]
-        w.set_iso(false);
+/// I2C function select.
+const I2C_FUNCSEL: u8 = 3;
+
+pub(crate) fn set_up_i2c_pin(pin: &mut Flex<'_>, pullup: bool) {
+    pin.write_pad(|w| {
         w.set_schmitt(true);
         w.set_slewfast(false);
         w.set_ie(true);
@@ -567,17 +568,18 @@ where
         w.set_pue(pullup);
         w.set_pde(false);
     });
+    pin.set_function(I2C_FUNCSEL);
 }
 
 impl<'d, M: Mode> I2c<'d, M> {
-    fn new_inner(info: &'static Info, scl: Peri<'d, AnyPin>, sda: Peri<'d, AnyPin>, config: Config) -> Self {
+    fn new_inner(info: &'static Info, mut scl: Flex<'d>, mut sda: Flex<'d>, config: Config) -> Self {
         let reset = (info.reset)();
         crate::reset::reset(reset);
         crate::reset::unreset_wait(reset);
 
         // Configure SCL & SDA pins
-        set_up_i2c_pin(&scl, config.scl_pullup);
-        set_up_i2c_pin(&sda, config.sda_pullup);
+        set_up_i2c_pin(&mut scl, config.scl_pullup);
+        set_up_i2c_pin(&mut sda, config.sda_pullup);
 
         let mut me = Self {
             info,
@@ -663,11 +665,11 @@ impl<'d, M: Mode> I2c<'d, M> {
     }
 
     fn is_scl_low(&self) -> bool {
-        self.scl.sio_in().read() & (1 << (self.scl._pin() % 32)) == 0
+        self.scl.is_low()
     }
 
     fn is_sda_low(&self) -> bool {
-        self.sda.sio_in().read() & (1 << (self.sda._pin() % 32)) == 0
+        self.sda.is_low()
     }
 
     fn setup(&mut self, addr: Address, ignore_lockup: bool) -> Result<(), Error> {
@@ -769,28 +771,28 @@ impl<'d, M: Mode> I2c<'d, M> {
         if setup_result == Err(Error::SDAHeldLow) {
             #[cfg(feature = "defmt")]
             defmt::warn!("SDA held low, attempting recovery");
-            // Cancel safety
-            let on_drop = OnDrop::new(|| {
+            // Cancel safety. The closure can't borrow the `Flex`es while the code below uses them,
+            // so it works on the pin numbers.
+            let (scl, sda) = (self.scl.pin_number(), self.sda.pin_number());
+            let on_drop = OnDrop::new(move || {
                 // Set back to i2c mode
-                self.scl.gpio().ctrl().write(|w| w.set_funcsel(3));
-                self.sda.gpio().ctrl().write(|w| w.set_funcsel(3));
+                scl.gpio().ctrl().modify(|w| w.set_funcsel(I2C_FUNCSEL));
+                sda.gpio().ctrl().modify(|w| w.set_funcsel(I2C_FUNCSEL));
             });
 
-            let scl_pin_bit = 1 << (self.scl._pin() % 32);
-            let sda_pin_bit = 1 << (self.sda._pin() % 32);
             // Set low and flip between input for high and output for low
-            self.scl.sio_out().value_clr().write_value(scl_pin_bit);
-            self.sda.sio_out().value_clr().write_value(sda_pin_bit);
-            self.scl.sio_oe().value_clr().write_value(scl_pin_bit); // Input => High
-            self.sda.sio_oe().value_clr().write_value(sda_pin_bit); // Input => High
+            self.scl.set_low();
+            self.sda.set_low();
+            self.scl.set_as_input(); // High
+            self.sda.set_as_input(); // High
             // Switch to sio mode
-            self.scl.gpio().ctrl().write(|w| w.set_funcsel(0x05));
-            self.sda.gpio().ctrl().write(|w| w.set_funcsel(0x05));
+            self.scl.set_function(SIO_FUNCSEL);
+            self.sda.set_function(SIO_FUNCSEL);
             // Attempt automatic recovery
             for _ in 0..9 {
-                self.scl.sio_oe().value_set().write_value(scl_pin_bit); // Low
+                self.scl.set_as_output(); // Low
                 Timer::after_micros(5).await;
-                self.scl.sio_oe().value_clr().write_value(scl_pin_bit); // High
+                self.scl.set_as_input(); // High
                 Timer::after_micros(5).await;
                 if !self.is_sda_low() {
                     // Recovery successful
@@ -801,9 +803,9 @@ impl<'d, M: Mode> I2c<'d, M> {
             }
             if !self.is_sda_low() {
                 // Send a stop
-                self.sda.sio_oe().value_set().write_value(sda_pin_bit); // Low
+                self.sda.set_as_output(); // Low
                 Timer::after_micros(5).await;
-                self.sda.sio_oe().value_clr().write_value(sda_pin_bit); // High
+                self.sda.set_as_input(); // High
                 Timer::after_micros(5).await;
             }
             // Reset gpio config

@@ -9,7 +9,7 @@
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::gpio::Pin as GpioPin;
+use crate::gpio::{Flex, Pin as GpioPin};
 use crate::{pac, peripherals};
 
 /// QMI CS1 driver.
@@ -20,17 +20,20 @@ pub struct QmiCs1<'d> {
 impl<'d> QmiCs1<'d> {
     /// Create a new QMI CS1 instance.
     pub fn new(qmi_cs1: Peri<'d, peripherals::QMI_CS1>, cs1: Peri<'d, impl QmiCs1Pin>) -> Self {
+        let mut cs1 = Flex::new_unconfigured(cs1);
+
         // Configure CS1 pin for QMI function (funcsel = 9)
-        cs1.gpio().ctrl().write(|w| w.set_funcsel(9));
+        cs1.set_function(9);
 
         // Configure pad settings for high-speed operation
-        cs1.pad_ctrl().write(|w| {
-            #[cfg(feature = "_rp235x")]
-            w.set_iso(false);
+        cs1.write_pad(|w| {
             w.set_ie(true);
             w.set_drive(pac::pads::vals::Drive::_12mA);
             w.set_slewfast(true);
         });
+
+        // The pin stays configured when the driver is dropped.
+        core::mem::forget(cs1);
 
         Self { _inner: qmi_cs1 }
     }
