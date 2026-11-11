@@ -1403,6 +1403,7 @@ fn test_midi2_device_enumeration_and_control() {
     let desc = usb.inner.config_descriptor;
     let mut endpoints_by_alt = [[None; 2]; 2];
     let mut current_alt = None;
+    let mut midi2_endpoint_blocks = heapless::Vec::<&[u8], 2>::new();
     let mut offset = 0;
     while offset + 1 < desc.len() {
         let len = desc[offset] as usize;
@@ -1413,6 +1414,8 @@ fn test_midi2_device_enumeration_and_control() {
             descriptor_type::INTERFACE => {
                 current_alt = (desc[offset + 2] == 1).then_some(desc[offset + 3] as usize);
             }
+            // MS_GENERAL_2_0 endpoint descriptor: bNumGrpTrmBlock, then the block IDs.
+            0x25 if desc[offset + 2] == 2 => midi2_endpoint_blocks.push(&desc[offset + 4..offset + len]).unwrap(),
             descriptor_type::ENDPOINT => {
                 if let Some(alt) = current_alt {
                     let addr = desc[offset + 2];
@@ -1429,6 +1432,8 @@ fn test_midi2_device_enumeration_and_control() {
         "Alt 0 and Alt 1 must share the same endpoint addresses"
     );
     assert_eq!(endpoints_by_alt[0], [Some(0x81), Some(0x01)]);
+    // The OUT endpoint carries the bidirectional and input-only blocks, the IN endpoint the bidirectional one.
+    assert_eq!(midi2_endpoint_blocks.as_slice(), &[&[1u8, 2][..], &[1u8][..]]);
 
     // Enumerate the device. Alternate Setting 0 is selected by default, and the
     // endpoints it shares with Alternate Setting 1 must be enabled.

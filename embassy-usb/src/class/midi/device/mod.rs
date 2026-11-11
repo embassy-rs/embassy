@@ -5,7 +5,7 @@ use super::{
     MAX_MIDI_JACKS, MAX_UMP_BYTES, MIDI_IN_JACK_LEN, MIDI_IN_JACK_SUBTYPE, MIDI_OUT_JACK_BASE_LEN,
     MIDI_OUT_JACK_SUBTYPE, MIDI_VERSION, MIDI2_VERSION, MS_GENERAL, MS_GENERAL_2_0, MS_GENERAL_BASE_LEN, MS_HEADER_LEN,
     MS_HEADER_SUBTYPE, MidiJackType, PROTOCOL_NONE, USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS, UmpPacket, UmpReader,
-    serialize_gtb_descriptors,
+    endpoint_groups, serialize_gtb_descriptors,
 };
 use crate::control::{InResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
@@ -211,6 +211,15 @@ impl Handler for MidiClassState<'_> {
     }
 }
 
+/// IDs of the blocks that an endpoint carrying `host_to_device` traffic refers to.
+fn endpoint_block_ids(blocks: &[GroupTerminalBlockConfig<'_>], host_to_device: bool) -> heapless::Vec<u8, MAX_GTBS> {
+    blocks
+        .iter()
+        .filter(|b| b.block_type.carries(host_to_device))
+        .map(|b| b.block_id)
+        .collect()
+}
+
 /// Packet level implementation of a USB MIDI device supporting MIDI 1.0 and 2.0.
 ///
 /// The MIDI 1.0 (Alternate Setting 0) and MIDI 2.0 (Alternate Setting 1)
@@ -249,7 +258,11 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         let mut gtbs = heapless::Vec::<GroupTerminalBlock, MAX_GTBS>::new();
 
         if let Some(midi2_config) = &config.midi2 {
-            for (i, b) in midi2_config.group_terminal_blocks.iter().enumerate().take(MAX_GTBS) {
+            assert!(
+                midi2_config.group_terminal_blocks.len() <= MAX_GTBS,
+                "too many Group Terminal Blocks"
+            );
+            for (i, b) in midi2_config.group_terminal_blocks.iter().enumerate() {
                 gtb_names[i] = b.name;
                 gtb_count += 1;
             }
@@ -282,7 +295,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                 } else {
                     0
                 };
-                let _ = gtbs.push(GroupTerminalBlock {
+                gtbs.push(GroupTerminalBlock {
                     block_id: b.block_id,
                     block_type: b.block_type,
                     first_group: b.first_group,
@@ -291,10 +304,15 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                     protocol: b.protocol,
                     max_input_bandwidth: b.max_input_bandwidth,
                     max_output_bandwidth: b.max_output_bandwidth,
-                });
+                })
+                .unwrap();
             }
-            if let Ok(len) = serialize_gtb_descriptors(&gtbs, &mut state.gtb_descriptors) {
-                state.gtb_len = len;
+            state.gtb_len =
+                serialize_gtb_descriptors(&gtbs, &mut state.gtb_descriptors).expect("invalid Group Terminal Block");
+            for host_to_device in [true, false] {
+                let ids = endpoint_block_ids(midi2_config.group_terminal_blocks, host_to_device);
+                endpoint_groups(&gtbs, &ids, host_to_device)
+                    .expect("each endpoint needs distinct groups in 1..=16 blocks");
             }
         }
 
@@ -520,13 +538,14 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                 ],
             );
 
-            let mut ep_cs_data = [0u8; 2 + MAX_GTBS];
-            ep_cs_data[0] = MS_GENERAL_2_0;
-            ep_cs_data[1] = midi2_config.group_terminal_blocks.len() as u8;
-            for (i, b) in midi2_config.group_terminal_blocks.iter().enumerate() {
-                ep_cs_data[2 + i] = b.block_id;
-            }
-            let ep_cs_len = 2 + midi2_config.group_terminal_blocks.len();
+            // Each endpoint lists only the blocks that carry its direction (Table 5-4).
+            let endpoint_blocks = |host_to_device: bool| {
+                let ids = endpoint_block_ids(midi2_config.group_terminal_blocks, host_to_device);
+                let mut data = heapless::Vec::<u8, { 2 + MAX_GTBS }>::new();
+                data.extend_from_slice(&[MS_GENERAL_2_0, ids.len() as u8]).unwrap();
+                data.extend_from_slice(&ids).unwrap();
+                data
+            };
 
             // Reuse the bulk endpoints allocated for Alt 0. Only the
             // class-specific endpoint descriptor differs between the two
@@ -537,7 +556,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                 UsageType::DataEndpoint,
                 &[0, 0],
             );
-            alt1.descriptor(CS_ENDPOINT, &ep_cs_data[..ep_cs_len]);
+            alt1.descriptor(CS_ENDPOINT, &endpoint_blocks(true));
 
             alt1.endpoint_descriptor(
                 write_ep.as_ref().unwrap().info(),
@@ -545,7 +564,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                 UsageType::DataEndpoint,
                 &[0, 0],
             );
-            alt1.descriptor(CS_ENDPOINT, &ep_cs_data[..ep_cs_len]);
+            alt1.descriptor(CS_ENDPOINT, &endpoint_blocks(false));
         }
 
         MidiClass { read_ep, write_ep }

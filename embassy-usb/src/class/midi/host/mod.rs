@@ -9,9 +9,9 @@ use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use heapless::Vec;
 
 use crate::class::midi::{
-    CS_GR_TRM_BLOCK, GroupTerminalBlock, GtbError, MAX_GTBS, MAX_MIDI_JACKS, MidiPacket, MidiPacketError,
-    MidiPacketReader, USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS, UmpError, UmpPacket, UmpReader,
-    parse_gtb_descriptors,
+    CS_GR_TRM_BLOCK, GR_TRM_BLOCK_HEADER_LEN, GroupTerminalBlock, GtbError, MAX_GTBS, MAX_MIDI_JACKS, MidiPacket,
+    MidiPacketError, MidiPacketReader, USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS, UmpError, UmpPacket, UmpReader,
+    endpoint_groups, parse_gtb_descriptors,
 };
 use crate::host::class::ClassMatch;
 use crate::host::descriptor::{ClassCode, InterfaceDescriptor};
@@ -512,13 +512,17 @@ impl Midi2Info {
     where
         P: UsbPipe<pipe::Control, pipe::InOut>,
     {
-        self.group_terminal_blocks = crate::class::midi::host::fetch_group_terminal_blocks::<_, MAX_GTBS>(
+        let blocks = crate::class::midi::host::fetch_group_terminal_blocks::<_, MAX_GTBS>(
             control_pipe,
             self.interface_number,
             self.alternate_setting,
             buffer,
         )
         .await?;
+        for endpoint in [&self.input_endpoint, &self.output_endpoint].into_iter().flatten() {
+            endpoint_groups(&blocks, &endpoint.group_terminal_block_ids, !endpoint.is_in())?;
+        }
+        self.group_terminal_blocks = blocks;
         Ok(())
     }
 
@@ -581,15 +585,10 @@ impl Midi2Info {
     }
 
     fn groups_for<'a>(&'a self, endpoint: Option<&'a MidiEndpointDescriptor>) -> impl Iterator<Item = u8> + 'a {
-        endpoint
-            .into_iter()
-            .flat_map(|endpoint| endpoint.group_terminal_block_ids.iter().copied())
-            .flat_map(move |block_id| {
-                self.group_terminal_blocks
-                    .iter()
-                    .filter(move |block| block.block_id == block_id)
-                    .flat_map(|block| block.first_group..block.first_group.saturating_add(block.num_groups))
-            })
+        let mask = endpoint
+            .and_then(|e| endpoint_groups(&self.group_terminal_blocks, &e.group_terminal_block_ids, !e.is_in()).ok())
+            .unwrap_or(0);
+        (0..16).filter(move |group| mask & (1 << group) != 0)
     }
 }
 
@@ -708,15 +707,26 @@ where
 {
     use crate::host::control::SetupPacket;
 
-    let setup = SetupPacket::standard_interface_in(
-        crate::control::Request::GET_DESCRIPTOR,
-        ((CS_GR_TRM_BLOCK as u16) << 8) | alternate_setting as u16,
-        interface_number as u16,
-        buffer.len() as u16,
-    );
-    let len = control_pipe.control_in(&setup.to_bytes(), buffer).await?;
-    let blocks = parse_gtb_descriptors(&buffer[..len])?;
-    Ok(blocks)
+    let request = |length: usize| {
+        SetupPacket::standard_interface_in(
+            crate::control::Request::GET_DESCRIPTOR,
+            ((CS_GR_TRM_BLOCK as u16) << 8) | alternate_setting as u16,
+            interface_number as u16,
+            length as u16,
+        )
+        .to_bytes()
+    };
+
+    // The reply length is only known from the header, so read that first (§6).
+    let header_len = GR_TRM_BLOCK_HEADER_LEN as usize;
+    let header = buffer.get_mut(..header_len).ok_or(GtbError::BufferTooSmall)?;
+    if control_pipe.control_in(&request(header_len), header).await? != header_len {
+        return Err(GtbError::InvalidDescriptor.into());
+    }
+    let total = u16::from_le_bytes([header[3], header[4]]) as usize;
+    let reply = buffer.get_mut(..total).ok_or(GtbError::BufferTooSmall)?;
+    let len = control_pipe.control_in(&request(total), reply).await?;
+    Ok(parse_gtb_descriptors(&reply[..len])?)
 }
 
 #[cfg(test)]
@@ -984,13 +994,13 @@ mod tests {
         6, 0x25, 0x02, 0x02, 0x01, 0x02,
     ];
 
-    // Group Terminal Blocks matching MIDI2_CONFIG: block 1 is bidirectional and
-    // covers groups 0-1; block 2 is input-only and covers group 2.
+    // Group Terminal Blocks matching MIDI2_CONFIG: block 1 is bidirectional and covers
+    // groups 0-1; block 2 is output-only (device to host) and covers group 2.
     #[rustfmt::skip]
     const MIDI2_GTB: &[u8] = &[
         5, 0x26, 0x01, 31, 0,
         13, 0x26, 0x02, 1, 0x00, 0, 2, 0, 0x11, 0, 0, 0, 0,
-        13, 0x26, 0x02, 2, 0x01, 2, 1, 0, 0x01, 0, 0, 0, 0,
+        13, 0x26, 0x02, 2, 0x02, 2, 1, 0, 0x01, 0, 0, 0, 0,
     ];
 
     #[test]
