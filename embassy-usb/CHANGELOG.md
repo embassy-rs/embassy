@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add CDC-ECM class (device and host) for Ethernet-over-USB networking
+- `VCP`: add CH34x and FTDI host drivers
+- Add USB Printer class (device and host) supporting IEEE 1284 device IDs and bidirectional raw print streams
 - Vendor: add generic vendor-specific bulk class (`class-vendor`) with WinUSB and WebUSB support
-
 - Add per-class Cargo features (`class-<name>`) and independent `device`/`host` role features. The default features are `device`, `host`, and `class-all`, preserving the previous full-class build
 - Make `embassy-net-driver-channel`, `embassy-time`, and `embedded-io-async` optional; they are now pulled only by the features that use them
 - **Breaking:** with `default-features = false`, `embassy_usb::device`, `embassy_usb::descriptor`, and `embassy_usb::host` are only available when the `device` or `host` feature is enabled, and each class requires its `class-<name>` feature
@@ -23,11 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HID`, `MSC`, `CCID`, `GIP`: Host drivers implement `HostClass`; add `HidMatcher`, `MscMatcher`, `CcidMatcher`, and `GipMatcher`, and make their info types `Copy`
 - Add `MidiMatcher`, `UacMatcher`, `Cp210xMatcher`, and `HubMatcher`
 - Add the `test-utils` feature with `MockHost`, `MockState`, loopback pipes, `CDC_ACM_CONFIG`, and `enumeration_info`; add a CDC ACM host loopback test
-
 - Add SuperSpeed (5 Gbit/s) and SuperSpeedPlus (10 Gbit/s) device support
 - `HID`: Notify `RequestHandler::reset()` on USB bus reset, allowing handlers to restore default Report protocol mode
 - `CDC-NCM`: The NetworkConnection notification names the communication interface in `wIndex`, not the data interface
-
+- `CDC-NCM`: Serialize the NTB parameters and the NTB header field by field in little-endian, instead of copying `repr(packed)` structs; a control buffer shorter than the 28-byte NTB parameters is now refused instead of written past
+- `CDC-NCM`: `Receiver::read_packet` drops a received datagram longer than `buf`, with a warning, instead of panicking
 - Fix full-speed isochronous `bInterval` encoding to use exponential format ($2^{bInterval-1}$ frames) per USB 2.0 §9.6.6 instead of linear milliseconds.
 - Add `EndpointInterval` enum (`Milliseconds`, `Microframes`, `Raw`) and corresponding builder methods on `InterfaceAltBuilder` (`endpoint_in_interval`, `endpoint_out_interval`, `endpoint_interrupt_in_interval`, `endpoint_interrupt_out_interval`, `endpoint_isochronous_in_interval`, `endpoint_isochronous_out_interval`, `endpoint_descriptor_with_interval`, `endpoint_descriptor_raw`). This allows specifying sub-millisecond polling periods for high-speed endpoints and preserving manually specified `bInterval` values without being overwritten.
 - Add `Builder::other_speed_config_descriptor()`, allowing high-speed devices to generate and respond to `GET_DESCRIPTOR` for `OTHER_SPEED_CONFIGURATION` descriptors.
@@ -43,8 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `block-device-driver` feature, implementing `BlockDevice` for the host MSC class
 - **Breaking:** organize classes as `class::<name>::{device, host}`. Device implementations move to `class::<name>::device` (e.g. `class::cdc_acm::CdcAcmClass` is now `class::cdc_acm::device::CdcAcmClass`, `class::uac1` is now `class::uac::device`); items shared by both sides stay at `class::<name>` (e.g. `cdc_acm::LineCoding`, `hid::ReportId`, `midi::MidiPacket`, `uac::terminal_type::TerminalType`). Host drivers move from `embassy_usb_host::class::<name>` to `embassy_usb::class::<name>::host`
 - Deprecate `embassy-usb-host`: it is superseded by this crate and is no longer maintained. Migrate to `embassy_usb::host` and `embassy_usb::class::<name>::host`
-- Add `InterfaceAltBuilder::endpoint_bulk_in_double_buffered()` and `endpoint_bulk_out_double_buffered()`
-- `CDC-ACM`: Add `CdcAcmClass::new_double_buffered()`
+- Add `EndpointOptions`, with the max packet size of a bulk endpoint, the number of packet buffers and the SuperSpeed burst size of an endpoint
+- **Breaking:** `InterfaceAltBuilder::endpoint_bulk_in()` and `endpoint_bulk_out()` take an `EndpointOptions` instead of the max packet size. The max packet size is the largest one the device speed allows (64 at full speed, 512 at high speed, 1024 at SuperSpeed), or `EndpointOptions::max_packet_size`
+- **Breaking:** `InterfaceAltBuilder::{alloc_endpoint_in, alloc_endpoint_out, endpoint_in, endpoint_out, endpoint_in_interval, endpoint_out_interval}` and the isochronous endpoint methods take an `EndpointOptions`
+- **Breaking:** `CDC-ACM`: `CdcAcmClass::new()` takes a `Config`, with the options of the data endpoints, instead of the max packet size
+- **Breaking:** `CDC-NCM`, `CDC-ECM`: `CdcNcmClass::new()` and `CdcEcmClass::new()` take a `Config`, with the MAC address and the options of the data endpoints, instead of the MAC address and the max packet size
+- **Breaking:** `CMSIS-DAP v2`: `CmsisDapV2Class::new()` takes a `Config`, with whether to add the trace endpoint and the options of the endpoints, instead of the max packet size and `trace`
+- **Breaking:** `Vendor`, `MSC`, `Printer`, `USBTMC`, `BTH`, `GUD`, `CCID`: Remove the max packet size of the bulk endpoints from `Config` (`max_packet_size_acl` for `BTH`), and `vendor::Config::new()` and `msc::Config::new()` no longer take it. `Vendor`, `MSC`, `Printer`, `USBTMC`, `BTH` and `GUD` add the options of the bulk endpoints to `Config`
 - **Breaking:** Remove the `usbd-hid` feature, and `write_serialize()` from `HidWriter` and `HidReaderWriter`
 - `HID`: Add `KeyboardReport` and `MouseReport` at `class::hid`, with report descriptors (`DESCRIPTOR`) and `to_bytes()` for sending them from a device
 - `UAC1`: Add audio source

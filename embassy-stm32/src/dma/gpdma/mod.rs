@@ -684,18 +684,19 @@ impl<'d> Channel<'d> {
         &self,
         request: Request,
         dir: Dir,
-        peri_addr: *const u32,
-        mem_addr: *mut u32,
-        mem_len: usize,
-        incr_mem: bool,
-        data_size: WordSize,
+        src_addr: *const u32,
+        dst_addr: *mut u32,
+        src_inc: bool,
+        dst_inc: bool,
+        src_size: WordSize,
         dst_size: WordSize,
+        mem_len: usize,
         options: TransferOptions,
     ) {
         // BNDT is the number of source bytes. For a packing/unpacking transfer
         // the memory side dictates how much data the caller wants moved.
         let mem_size = match dir {
-            Dir::MemoryToPeripheral => data_size,
+            Dir::MemoryToPeripheral => src_size,
             Dir::PeripheralToMemory => dst_size,
             Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
         };
@@ -736,15 +737,15 @@ impl<'d> Channel<'d> {
                 use crate::pac::gpdma::vals;
 
                 regs.ch(info.num).tr1().write(|w| {
-                    w.set_sdw(data_size.into());
+                    w.set_sdw(src_size.into());
                     w.set_ddw(dst_size.into());
-                    w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
-                    w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+                    w.set_sinc(src_inc);
+                    w.set_dinc(dst_inc);
                     // Pack/unpack through the channel FIFO when source and destination
                     // widths differ. The default (zero-extend / left-truncate) sends
                     // one source beat per destination beat, which silently corrupts
                     // mixed-width transfers.
-                    if data_size != dst_size {
+                    if src_size != dst_size {
                         w.set_pam(vals::Pam::from(options.packing.to_bits()));
                     }
                     w.set_dap(match dir {
@@ -772,15 +773,15 @@ impl<'d> Channel<'d> {
             #[cfg(lpdma)]
             DmaInfo::Lpdma(regs) => {
                 regs.ch(info.num).tr1().write(|w| {
-                    w.set_sdw(data_size.into());
+                    w.set_sdw(src_size.into());
                     w.set_ddw(dst_size.into());
-                    w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
-                    w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+                    w.set_sinc(src_inc);
+                    w.set_dinc(dst_inc);
                     // Pack/unpack through the channel FIFO when source and destination
                     // widths differ. The default (zero-extend / left-truncate) sends
                     // one source beat per destination beat, which silently corrupts
                     // mixed-width transfers.
-                    if data_size != dst_size {
+                    if src_size != dst_size {
                         w.set_pam(options.packing);
                     }
                 });
@@ -805,17 +806,8 @@ impl<'d> Channel<'d> {
         ch.tr3().write(|_| {}); // no address offsets.
         ch.br1().write(|w| w.set_bndt(bndt));
 
-        match dir {
-            Dir::MemoryToPeripheral => {
-                ch.sar().write_value(mem_addr as _);
-                ch.dar().write_value(peri_addr as _);
-            }
-            Dir::PeripheralToMemory => {
-                ch.sar().write_value(peri_addr as _);
-                ch.dar().write_value(mem_addr as _);
-            }
-            Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
-        }
+        ch.sar().write_value(src_addr as _);
+        ch.dar().write_value(dst_addr as _);
 
         ch.cr().write(|w| {
             w.set_prio(options.priority.into());
@@ -1006,10 +998,11 @@ impl<'d> Channel<'d> {
             Dir::PeripheralToMemory,
             peri_addr as *const u32,
             buf as *mut MW as *mut u32,
-            mem_len,
+            false,
             true,
             PW::size(),
             MW::size(),
+            mem_len,
             options,
         );
         self.start();
@@ -1035,11 +1028,12 @@ impl<'d> Channel<'d> {
             request,
             Dir::PeripheralToMemory,
             peri_addr as *const u32,
-            repeated as *const MW as *mut u32,
-            count,
+            repeated as *mut MW as *mut u32,
             false,
-            MW::size(),
+            false,
             PW::size(),
+            MW::size(),
+            count,
             options,
         );
         self.start();
@@ -1074,12 +1068,13 @@ impl<'d> Channel<'d> {
         self.configure(
             request,
             Dir::MemoryToPeripheral,
-            peri_addr as *const u32,
-            buf as *const MW as *mut u32,
-            mem_len,
+            buf as *const MW as *const u32,
+            peri_addr as *mut u32,
             true,
+            false,
             MW::size(),
             PW::size(),
+            mem_len,
             options,
         );
         self.start();
@@ -1104,12 +1099,13 @@ impl<'d> Channel<'d> {
         self.configure(
             request,
             Dir::MemoryToPeripheral,
-            peri_addr as *const u32,
-            repeated as *const MW as *mut u32,
-            count,
+            repeated as *const MW as *const u32,
+            peri_addr as *mut u32,
+            false,
             false,
             MW::size(),
             PW::size(),
+            count,
             options,
         );
         self.start();

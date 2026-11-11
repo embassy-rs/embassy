@@ -59,12 +59,6 @@ impl<'d, T: GeneralInstance4Channel> HallInterface<'d, T> {
         ch3: Peri<'d, if_afio!(impl TimerPin<T, Ch3, A>)>,
         config: HallConfig,
     ) -> Self {
-        critical_section::with(|_| {
-            ch1.set_low();
-            ch2.set_low();
-            ch3.set_low();
-        });
-
         let inner = Timer::new(tim);
         let regs = inner.regs_gp16();
 
@@ -91,9 +85,9 @@ impl<'d, T: GeneralInstance4Channel> HallInterface<'d, T> {
 
         Self {
             inner,
-            _ch1: new_pin!(ch1, AfType::input(config.pull)).unwrap(),
-            _ch2: new_pin!(ch2, AfType::input(config.pull)).unwrap(),
-            _ch3: new_pin!(ch3, AfType::input(config.pull)).unwrap(),
+            _ch1: set_as_af!(ch1, AfType::input(config.pull), Flex::set_low),
+            _ch2: set_as_af!(ch2, AfType::input(config.pull), Flex::set_low),
+            _ch3: set_as_af!(ch3, AfType::input(config.pull), Flex::set_low),
         }
     }
 

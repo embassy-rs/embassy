@@ -241,34 +241,35 @@ macro_rules! new_dma {
 }
 
 macro_rules! new_pin {
-    ($name:ident, $af_type:expr) => {{
-        let pin = $name;
-        #[cfg(afio)]
-        pin.afio_remap();
-        pin.set_as_af(
-            #[cfg(not(afio))]
-            pin.af_num(),
-            $af_type,
-        );
-        Some(crate::gpio::Flex::new(pin))
-    }};
+    ($name:ident, $af_type:expr) => {
+        Some(set_as_af!($name, $af_type))
+    };
 }
 
-/// Macro to configure a pin for alternate function use.
+/// Macro to configure a pin for alternate function use, returning it as a [`Flex`](crate::gpio::Flex).
 /// For AFIO chips (STM32F1), it calls afio_remap().
 /// For non-AFIO chips, it calls set_as_af() with the pin's af_num().
+///
+/// The optional third argument is called with the `&mut Flex` before the AF is configured.
 macro_rules! set_as_af {
     ($pin:expr, $af_type:expr) => {
-        #[cfg(afio)]
-        {
-            $pin.set_as_af($af_type);
-            $pin.afio_remap();
-        }
-        #[cfg(not(afio))]
-        {
-            $pin.set_as_af($pin.af_num(), $af_type);
-        }
+        set_as_af!($pin, $af_type, |_| {})
     };
+    ($pin:expr, $af_type:expr, $before:expr) => {{
+        let pin = $pin;
+        #[cfg(afio)]
+        pin.afio_remap();
+        #[cfg(not(afio))]
+        let af_num = pin.af_num();
+        let mut pin = crate::gpio::Flex::new(pin);
+        ($before)(&mut pin);
+        pin.set_as_af(
+            #[cfg(not(afio))]
+            af_num,
+            $af_type,
+        );
+        pin
+    }};
 }
 
 #[cfg(afio)]

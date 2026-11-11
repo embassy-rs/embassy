@@ -62,17 +62,8 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             None,
         );
 
-        let (read_ep, write_ep) = if config.double_buffered {
-            (
-                alt.endpoint_bulk_out_double_buffered(None, config.max_packet_size),
-                alt.endpoint_bulk_in_double_buffered(None, config.max_packet_size),
-            )
-        } else {
-            (
-                alt.endpoint_bulk_out(None, config.max_packet_size),
-                alt.endpoint_bulk_in(None, config.max_packet_size),
-            )
-        };
+        let read_ep = alt.endpoint_bulk_out(None, config.out_endpoint_options);
+        let write_ep = alt.endpoint_bulk_in(None, config.in_endpoint_options);
 
         drop(func);
 
@@ -118,7 +109,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     pub async fn run<B: AsyncBlockDevice>(&mut self, block_device: &mut B, block_buf: &mut [u8]) -> StopReason {
         assert!(
             block_buf.len() >= block_device.block_size() as usize
-                && block_buf.len() >= self.config.max_packet_size as usize,
+                && block_buf.len() >= self.read_ep.info().max_packet_size as usize,
             "block_buf must be at least block_size and max_packet_size"
         );
         loop {
@@ -166,7 +157,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     async fn read_cbw(&mut self, buf: &mut [u8]) -> Result<Option<Cbw>, EndpointError> {
         let n = self
             .read_ep
-            .read(&mut buf[..self.config.max_packet_size as usize])
+            .read(&mut buf[..self.read_ep.info().max_packet_size as usize])
             .await?;
 
         if n != CBW_LEN {
@@ -327,7 +318,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         // length transferred is a multiple of max_packet_size (including 0), send a ZLP
         // to terminate the USB transfer.
         if (transfer_len as u32) < cbw.data_transfer_length
-            && transfer_len.is_multiple_of(self.config.max_packet_size as usize)
+            && transfer_len.is_multiple_of(self.write_ep.info().max_packet_size as usize)
         {
             self.write_ep.write(&[]).await?;
         }
@@ -341,7 +332,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             return Ok(());
         }
 
-        let max_pkt = self.config.max_packet_size as usize;
+        let max_pkt = self.read_ep.info().max_packet_size as usize;
         while len > 0 {
             // Read at least max_packet_size into scratch if possible to avoid BufferOverflow.
             let chunk_len = min(scratch.len(), core::cmp::max(len as usize, max_pkt));

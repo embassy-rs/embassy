@@ -26,6 +26,7 @@ fn endpoint_info(endpoint: &MidiEndpointDescriptor) -> EndpointInfo {
         ep_type: EndpointType::Bulk,
         max_packet_size: endpoint.max_packet_size,
         interval_ms: 0,
+        max_burst: 0,
     }
 }
 

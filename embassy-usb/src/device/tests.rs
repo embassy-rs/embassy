@@ -25,42 +25,22 @@ impl<'d> Driver<'d> for TestDriver {
     type ControlPipe = TestControlPipe;
     type Bus = TestBus;
 
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        self.alloc_endpoint_in_with_config(EndpointConfig::new(ep_addr, ep_type, max_packet_size, interval_ms))
-    }
-
-    fn alloc_endpoint_in_with_config(&mut self, config: EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
         let addr = config.addr.unwrap_or_else(|| {
             let index = (1..9).find(|&i| self.bus.endpoints[i * 2 + 1].is_none()).unwrap();
             EndpointAddress::from_parts(index, Direction::In)
         });
         assert!(addr.is_in());
-        self.bus.allocate(addr, config)
+        self.bus.allocate(addr, *config)
     }
 
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        self.alloc_endpoint_out_with_config(EndpointConfig::new(ep_addr, ep_type, max_packet_size, interval_ms))
-    }
-
-    fn alloc_endpoint_out_with_config(&mut self, config: EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
         let addr = config.addr.unwrap_or_else(|| {
             let index = (1..9).find(|&i| self.bus.endpoints[i * 2].is_none()).unwrap();
             EndpointAddress::from_parts(index, Direction::Out)
         });
         assert!(addr.is_out());
-        self.bus.allocate(addr, config)
+        self.bus.allocate(addr, *config)
     }
 
     fn start(self, control_max_packet_size: u16) -> (TestBus, TestControlPipe) {
@@ -116,6 +96,7 @@ impl TestBus {
             ep_type: config.ep_type,
             max_packet_size: config.max_packet_size,
             interval_ms: config.interval_ms,
+            max_burst: config.max_burst,
         };
         let slot = Self::slot(addr);
         assert!(self.endpoints[slot].replace(info).is_none());
@@ -222,10 +203,22 @@ fn with_device_fullspeed(f: impl FnOnce(&mut UsbDevice<'_, TestDriver>)) {
 }
 
 fn with_device_superspeed(f: impl FnOnce(&mut UsbDevice<'_, TestDriver>)) {
-    with_config(superspeed(UsbDeviceSpeed::Super, UsbVersion::ThreeTwo, 15), f)
+    with_config_burst(superspeed(UsbDeviceSpeed::Super, UsbVersion::ThreeTwo), 15, f)
 }
 
 fn with_config(config: Config<'_>, f: impl FnOnce(&mut UsbDevice<'_, TestDriver>)) {
+    with_config_burst(config, 0, f)
+}
+
+/// Endpoint options with the given SuperSpeed burst.
+fn burst(max_burst: u8) -> EndpointOptions {
+    let mut options = EndpointOptions::new();
+    options.max_burst = max_burst;
+    options
+}
+
+/// Builds a device with two bulk endpoints with `max_burst`, an interrupt and an isochronous one.
+fn with_config_burst(config: Config<'_>, max_burst: u8, f: impl FnOnce(&mut UsbDevice<'_, TestDriver>)) {
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 64];
     let mut control_buf = [0; 64];
@@ -240,8 +233,8 @@ fn with_config(config: Config<'_>, f: impl FnOnce(&mut UsbDevice<'_, TestDriver>
     let mut function = builder.function(0xff, 0, 0);
     let mut interface = function.interface();
     let mut alt = interface.alt_setting(0xff, 0, 0, None);
-    alt.endpoint_bulk_out(Some(0x01.into()), 64);
-    alt.endpoint_bulk_in(Some(0x82.into()), 64);
+    alt.endpoint_bulk_out(Some(0x01.into()), burst(max_burst));
+    alt.endpoint_bulk_in(Some(0x82.into()), burst(max_burst));
     let mut alt = interface.alt_setting(0xff, 0, 0, None);
     alt.endpoint_interrupt_in(Some(0x83.into()), 64, 1);
     alt.endpoint_isochronous_out(
@@ -251,6 +244,7 @@ fn with_config(config: Config<'_>, f: impl FnOnce(&mut UsbDevice<'_, TestDriver>
         SynchronizationType::Asynchronous,
         UsageType::DataEndpoint,
         &[],
+        EndpointOptions::new(),
     );
     drop(function);
     f(&mut builder.build());
@@ -466,10 +460,7 @@ fn test_ccid_device_and_host_interop() {
         &mut control_buf,
     );
 
-    let ccid_config = crate::class::ccid::device::Config {
-        max_packet_size: 64,
-        ..Default::default()
-    };
+    let ccid_config = crate::class::ccid::device::Config { ..Default::default() };
     let _ccid = crate::class::ccid::device::CcidDevice::new(&mut builder, &mut state, ccid_config);
     let usb = builder.build();
     drop(usb);
@@ -511,6 +502,87 @@ fn test_bluetooth_hci_device_descriptors() {
     assert_eq!(iface[4], 3); // 3 endpoints (Event IN, ACL OUT, ACL IN)
 }
 
+#[cfg(feature = "class-cdc-ecm")]
+#[test]
+fn test_cdc_ecm_device_descriptors() {
+    let mut state = crate::class::cdc_ecm::device::State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+
+    let ecm = crate::class::cdc_ecm::device::CdcEcmClass::new(
+        &mut builder,
+        &mut state,
+        crate::class::cdc_ecm::device::Config::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]),
+    );
+    let _ = ecm;
+    let usb = builder.build();
+    drop(usb);
+
+    let desc = &config_descriptor[..];
+    // Find CDC ECM Control Interface (bLength = 9, bDescriptorType = 4, class = 0x02, subclass = 0x06, proto = 0x00)
+    let iface = desc
+        .windows(9)
+        .find(|w| w[0] == 9 && w[1] == 4 && w[5] == 0x02 && w[6] == 0x06 && w[7] == 0x00)
+        .expect("CDC ECM control interface descriptor not found");
+    assert_eq!(iface[4], 1); // 1 interrupt endpoint
+
+    // Find Ethernet functional descriptor (bLength = 13, bDescriptorType = 0x24, subtype = 0x0F)
+    let eth_desc = desc
+        .windows(13)
+        .find(|w| w[0] == 13 && w[1] == 0x24 && w[2] == 0x0F)
+        .expect("Ethernet functional descriptor not found");
+    // wMaxSegmentSize = 1514 (0x05ea)
+    assert_eq!(eth_desc[8], 0xea);
+    assert_eq!(eth_desc[9], 0x05);
+}
+
+#[cfg(feature = "class-printer")]
+#[test]
+fn test_printer_device_descriptors() {
+    let mut state = crate::class::printer::device::State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+
+    let printer = crate::class::printer::device::PrinterClass::new(
+        &mut builder,
+        &mut state,
+        crate::class::printer::device::Config {
+            device_id: Some("MFG:Generic;MDL:ThermalPrinter;CMD:ESC/POS;CLS:PRINTER;"),
+            initial_status: crate::class::printer::PortStatus::default(),
+            ..Default::default()
+        },
+    );
+    let _ = printer;
+    let usb = builder.build();
+    drop(usb);
+
+    let desc = &config_descriptor[..];
+    // Find Printer Interface descriptor (bLength = 9, bDescriptorType = 4, class = 0x07, subclass = 0x01, proto = 0x02)
+    let iface = desc
+        .windows(9)
+        .find(|w| w[0] == 9 && w[1] == 4 && w[5] == 0x07 && w[6] == 0x01 && w[7] == 0x02)
+        .expect("Printer interface descriptor not found");
+    assert_eq!(iface[4], 2); // 2 bulk endpoints (OUT and IN)
+}
+
 #[cfg(all(feature = "device", feature = "class-vendor"))]
 #[test]
 fn test_vendor_device_descriptors() {
@@ -528,7 +600,7 @@ fn test_vendor_device_descriptors() {
         &mut control_buf,
     );
 
-    let config = crate::class::vendor::Config::new(64)
+    let config = crate::class::vendor::Config::new()
         .with_interface_name("Vendor Bulk Interface")
         .with_winusb(&["{12345678-1234-1234-1234-123456789ABC}"])
         .with_webusb(Some(crate::class::vendor::Url::new("https://example.com")), 0x42);
@@ -710,6 +782,7 @@ fn test_endpoint_interval_and_other_speed_config() {
         SynchronizationType::NoSynchronization,
         UsageType::DataEndpoint,
         &[],
+        EndpointOptions::new(),
     );
 
     // 3. Isochronous OUT endpoint with 4 ms (Milliseconds(4))
@@ -720,6 +793,7 @@ fn test_endpoint_interval_and_other_speed_config() {
         SynchronizationType::NoSynchronization,
         UsageType::DataEndpoint,
         &[],
+        EndpointOptions::new(),
     );
 
     // 4. Raw endpoint with bInterval = 42 (Raw(42))
@@ -913,12 +987,11 @@ fn test_manual_raw_descriptor_opt_out() {
     assert_eq!(find_interval(desc, 0x81), 99);
 }
 
-fn superspeed(speed: UsbDeviceSpeed, bcd_usb: UsbVersion, max_burst: u8) -> Config<'static> {
+fn superspeed(speed: UsbDeviceSpeed, bcd_usb: UsbVersion) -> Config<'static> {
     let mut config = Config::new(0x1234, 0x5678);
     config.max_speed = speed;
     config.max_packet_size_0 = 9;
     config.bcd_usb = bcd_usb;
-    config.max_burst = max_burst;
     config.max_power = 900;
     config
 }
@@ -959,9 +1032,9 @@ fn test_superspeed_descriptors() {
         assert_eq!(
             &c[26..52],
             &[
-                7, 5, 0x01, 2, 64, 0, 0, // endpoint: bulk OUT, wMaxPacketSize = 64
+                7, 5, 0x01, 2, 0, 4, 0, // endpoint: bulk OUT, wMaxPacketSize = 1024
                 6, 0x30, 15, 0, 0, 0, // SS endpoint companion: bMaxBurst = 15
-                7, 5, 0x82, 2, 64, 0, 0, // endpoint: bulk IN, wMaxPacketSize = 64
+                7, 5, 0x82, 2, 0, 4, 0, // endpoint: bulk IN, wMaxPacketSize = 1024
                 6, 0x30, 15, 0, 0, 0, // SS endpoint companion: bMaxBurst = 15
             ]
         );
@@ -985,7 +1058,7 @@ fn test_superspeed_descriptors() {
         );
     });
 
-    with_config(superspeed(UsbDeviceSpeed::SuperPlus, UsbVersion::ThreeOne, 0), |usb| {
+    with_config(superspeed(UsbDeviceSpeed::SuperPlus, UsbVersion::ThreeOne), |usb| {
         let b = usb.inner.bos_descriptor;
         // BOS: wTotalLength = 42, bNumDeviceCaps = 3; SS then SSP capability.
         assert_eq!(
@@ -1033,23 +1106,36 @@ fn superspeed_fields<const N: usize>(usb: &UsbDevice<'_, TestDriver>, endpoints:
     })
 }
 
+/// `bMaxBurst` of each SuperSpeed Endpoint Companion descriptor in `desc`, in order.
+fn companion_bursts<const N: usize>(desc: &[u8]) -> [u8; N] {
+    let mut bursts = [None; N];
+    let mut companions = bursts.iter_mut();
+    let mut pos = 0;
+    while pos < desc.len() {
+        if desc[pos + 1] == descriptor_type::SS_ENDPOINT_COMPANION {
+            *companions.next().unwrap() = Some(desc[pos + 2]);
+        }
+        pos += desc[pos] as usize;
+    }
+    assert!(companions.next().is_none());
+    bursts.map(Option::unwrap)
+}
+
 #[test]
 fn test_superspeed_endpoint_config() {
     // Below SuperSpeed there are no companion descriptors and no SuperSpeed fields.
-    let mut config = Config::new(0x1234, 0x5678);
-    config.max_burst = 15;
-    with_config(config, |usb| {
+    with_config_burst(Config::new(0x1234, 0x5678), 15, |usb| {
         // 63 bytes without the four 6-byte companion descriptors.
         assert_eq!(usb.inner.config_descriptor.len(), 63);
         assert_eq!(superspeed_fields(usb, [0x01, 0x82, 0x83, 0x04]), [(0, 0); 4]);
     });
 
-    // Every way to allocate a bulk endpoint gives the driver the configured burst.
+    // Every way to allocate a bulk endpoint gives the driver the requested burst.
     for max_burst in [0, 7] {
         let (mut config_descriptor, mut bos_descriptor, mut control_buf) = ([0; 128], [0; 64], [0; 64]);
         let mut builder = Builder::new(
             TestDriver::default(),
-            superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, max_burst),
+            superspeed(UsbDeviceSpeed::Super, UsbVersion::Three),
             &mut config_descriptor,
             &mut bos_descriptor,
             &mut [],
@@ -1058,9 +1144,9 @@ fn test_superspeed_endpoint_config() {
         let mut function = builder.function(0xff, 0, 0);
         let mut interface = function.interface();
         let mut alt = interface.alt_setting(0xff, 0, 0, None);
-        alt.endpoint_bulk_out_double_buffered(Some(0x01.into()), 1024);
-        alt.endpoint_bulk_in_double_buffered(Some(0x81.into()), 1024);
-        let endpoint = alt.alloc_endpoint_out(EndpointType::Bulk, Some(0x02.into()), 1024, 0);
+        alt.endpoint_bulk_out(Some(0x01.into()), burst(max_burst));
+        alt.endpoint_bulk_in(Some(0x81.into()), burst(max_burst));
+        let endpoint = alt.alloc_endpoint_out(EndpointType::Bulk, Some(0x02.into()), 1024, 0, burst(max_burst));
         alt.endpoint_descriptor(
             endpoint.info(),
             SynchronizationType::NoSynchronization,
@@ -1069,79 +1155,17 @@ fn test_superspeed_endpoint_config() {
         );
         drop(function);
         let usb = builder.build();
-        let c = usb.inner.config_descriptor;
-        // bMaxBurst of the three companion descriptors, each after a 7-byte endpoint descriptor.
-        assert_eq!([c[35], c[48], c[61]], [max_burst; 3]);
+        assert_eq!(companion_bursts(usb.inner.config_descriptor), [max_burst; 3]);
         assert_eq!(superspeed_fields(&usb, [0x01, 0x81, 0x02]), [(max_burst, 0); 3]);
-        let double_buffered = allocated(&usb, [0x01, 0x81, 0x02]).map(|config| config.double_buffered);
-        assert_eq!(double_buffered, [true, true, false]);
-    }
-}
-
-/// Has only the allocation methods of a driver without SuperSpeed, so the `_with_config` methods
-/// are the defaults.
-#[derive(Default)]
-struct PlainDriver(TestDriver);
-
-impl<'d> Driver<'d> for PlainDriver {
-    type EndpointOut = TestEndpoint;
-    type EndpointIn = TestEndpoint;
-    type ControlPipe = TestControlPipe;
-    type Bus = TestBus;
-
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        self.0.alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
-    }
-
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        self.0
-            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
-    }
-
-    fn alloc_endpoint_bulk_in_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        let mut config = EndpointConfig::new(ep_addr, EndpointType::Bulk, max_packet_size, 0);
-        config.double_buffered = true;
-        self.0.alloc_endpoint_in_with_config(config)
-    }
-
-    fn alloc_endpoint_bulk_out_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        let mut config = EndpointConfig::new(ep_addr, EndpointType::Bulk, max_packet_size, 0);
-        config.double_buffered = true;
-        self.0.alloc_endpoint_out_with_config(config)
-    }
-
-    fn start(self, control_max_packet_size: u16) -> (TestBus, TestControlPipe) {
-        self.0.start(control_max_packet_size)
     }
 }
 
 #[test]
-fn test_default_endpoint_config() {
-    // The defaults keep double buffering and drop the SuperSpeed fields.
-    let (mut config_descriptor, mut bos_descriptor, mut control_buf) = ([0; 128], [0; 64], [0; 64]);
+fn test_endpoint_options() {
+    let (mut config_descriptor, mut bos_descriptor, mut control_buf) = ([0; 256], [0; 64], [0; 64]);
     let mut builder = Builder::new(
-        PlainDriver::default(),
-        superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, 7),
+        TestDriver::default(),
+        superspeed(UsbDeviceSpeed::Super, UsbVersion::Three),
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut [],
@@ -1150,37 +1174,189 @@ fn test_default_endpoint_config() {
     let mut function = builder.function(0xff, 0, 0);
     let mut interface = function.interface();
     let mut alt = interface.alt_setting(0xff, 0, 0, None);
-    alt.endpoint_bulk_out_double_buffered(Some(0x01.into()), 1024);
-    alt.endpoint_bulk_in_double_buffered(Some(0x81.into()), 1024);
-    alt.endpoint_bulk_out(Some(0x02.into()), 1024);
+    let mut out_options = burst(3);
+    out_options.buffers = 2;
+    let mut in_options = burst(15);
+    in_options.buffers = 4;
+    let mut iso_options = burst(7);
+    iso_options.buffers = 2;
+    alt.endpoint_bulk_out(Some(0x01.into()), out_options);
+    alt.endpoint_bulk_in(Some(0x81.into()), in_options);
+    alt.endpoint_bulk_in(Some(0x82.into()), EndpointOptions::new());
+    alt.endpoint_interrupt_in(Some(0x83.into()), 64, 1);
+    alt.endpoint_isochronous_in(
+        Some(0x84.into()),
+        64,
+        1,
+        SynchronizationType::Asynchronous,
+        UsageType::DataEndpoint,
+        &[],
+        iso_options,
+    );
     drop(function);
     let usb = builder.build();
-    let allocated = allocated(&usb, [0x01, 0x81, 0x02]).map(|config| (config.double_buffered, config.max_burst));
-    assert_eq!(allocated, [(true, 0), (true, 0), (false, 0)]);
+    // Each endpoint gets its own options. `max_burst` only applies to bulk endpoints.
+    assert_eq!(
+        allocated(&usb, [0x01, 0x81, 0x82, 0x83, 0x84]).map(|config| (config.buffers, config.max_burst)),
+        [(2, 3), (4, 15), (1, 0), (1, 0), (2, 0)]
+    );
+    assert_eq!(companion_bursts(usb.inner.config_descriptor), [3, 15, 0, 0, 0]);
+}
+
+#[test]
+fn test_bulk_max_packet_size() {
+    let full_32 = || {
+        let mut options = EndpointOptions::new();
+        options.max_packet_size = Some(32);
+        options
+    };
+    for (speed, bcd_usb, max_packet_size_0, expected) in [
+        (UsbDeviceSpeed::Full, UsbVersion::TwoOne, 64, [64, 32]),
+        (UsbDeviceSpeed::High, UsbVersion::TwoOne, 64, [512, 512]),
+        (UsbDeviceSpeed::Super, UsbVersion::Three, 9, [1024, 1024]),
+    ] {
+        let (mut config_descriptor, mut bos_descriptor, mut control_buf) = ([0; 128], [0; 64], [0; 64]);
+        let mut config = Config::new(0x1234, 0x5678);
+        config.max_speed = speed;
+        config.bcd_usb = bcd_usb;
+        config.max_packet_size_0 = max_packet_size_0;
+        config.max_power = 100;
+        let mut builder = Builder::new(
+            TestDriver::default(),
+            config,
+            &mut config_descriptor,
+            &mut bos_descriptor,
+            &mut [],
+            &mut control_buf,
+        );
+        let mut function = builder.function(0xff, 0, 0);
+        let mut interface = function.interface();
+        let mut alt = interface.alt_setting(0xff, 0, 0, None);
+        let out_ep = alt.endpoint_bulk_out(None, EndpointOptions::new());
+        // Only full speed allows a smaller max packet size.
+        let in_options = if speed == UsbDeviceSpeed::Full {
+            full_32()
+        } else {
+            EndpointOptions::new()
+        };
+        let in_ep = alt.endpoint_bulk_in(None, in_options);
+        assert_eq!([out_ep.info().max_packet_size, in_ep.info().max_packet_size], expected);
+    }
+}
+
+#[test]
+#[should_panic(expected = "bulk endpoints require a max_packet_size of 512")]
+fn test_bulk_max_packet_size_high_speed() {
+    let (mut config_descriptor, mut bos_descriptor, mut control_buf) = ([0; 128], [0; 64], [0; 64]);
+    let mut config = Config::new(0x1234, 0x5678);
+    config.max_speed = UsbDeviceSpeed::High;
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut function = builder.function(0xff, 0, 0);
+    let mut interface = function.interface();
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+    let mut options = EndpointOptions::new();
+    options.max_packet_size = Some(64);
+    alt.endpoint_bulk_in(None, options);
+}
+
+/// Supports bursts of at most 4 packets.
+#[derive(Default)]
+struct BurstLimitDriver(TestDriver);
+
+impl<'d> Driver<'d> for BurstLimitDriver {
+    type EndpointOut = TestEndpoint;
+    type EndpointIn = TestEndpoint;
+    type ControlPipe = TestControlPipe;
+    type Bus = TestBus;
+
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+        let mut config = *config;
+        config.max_burst = config.max_burst.min(3);
+        self.0.alloc_endpoint_in(&config)
+    }
+
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+        let mut config = *config;
+        config.max_burst = config.max_burst.min(3);
+        self.0.alloc_endpoint_out(&config)
+    }
+
+    fn start(self, control_max_packet_size: u16) -> (TestBus, TestControlPipe) {
+        self.0.start(control_max_packet_size)
+    }
+}
+
+#[test]
+fn test_endpoint_burst_limited_by_driver() {
+    // The companion descriptor has the burst the driver allocated the endpoint with.
+    let (mut config_descriptor, mut bos_descriptor, mut control_buf) = ([0; 128], [0; 64], [0; 64]);
+    let mut builder = Builder::new(
+        BurstLimitDriver::default(),
+        superspeed(UsbDeviceSpeed::Super, UsbVersion::Three),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut function = builder.function(0xff, 0, 0);
+    let mut interface = function.interface();
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+    alt.endpoint_bulk_out(Some(0x01.into()), burst(15));
+    alt.endpoint_bulk_in(Some(0x81.into()), burst(2));
+    drop(function);
+    let usb = builder.build();
+    assert_eq!(companion_bursts(usb.inner.config_descriptor), [3, 2]);
 }
 
 #[test]
 #[should_panic(expected = "SuperSpeed USB requires bcd_usb")]
 fn test_superspeed_requires_usb3() {
-    with_config(superspeed(UsbDeviceSpeed::Super, UsbVersion::TwoOne, 0), |_| {});
+    with_config(superspeed(UsbDeviceSpeed::Super, UsbVersion::TwoOne), |_| {});
 }
 
 #[test]
 #[should_panic(expected = "SuperSpeedPlus USB requires bcd_usb")]
 fn test_superspeed_plus_requires_usb31() {
-    with_config(superspeed(UsbDeviceSpeed::SuperPlus, UsbVersion::Three, 0), |_| {});
+    with_config(superspeed(UsbDeviceSpeed::SuperPlus, UsbVersion::Three), |_| {});
 }
 
 #[test]
 #[should_panic(expected = "max_burst")]
 fn test_superspeed_max_burst_limit() {
-    with_config(superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, 16), |_| {});
+    with_config_burst(superspeed(UsbDeviceSpeed::Super, UsbVersion::Three), 16, |_| {});
+}
+
+#[test]
+#[should_panic(expected = "buffers")]
+fn test_endpoint_options_buffers_limit() {
+    let mut options = EndpointOptions::new();
+    options.buffers = 0;
+    let (mut config_descriptor, mut bos_descriptor, mut control_buf) = ([0; 128], [0; 64], [0; 64]);
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut function = builder.function(0xff, 0, 0);
+    let mut interface = function.interface();
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+    alt.endpoint_bulk_out(None, options);
 }
 
 #[test]
 #[should_panic(expected = "SuperSpeed USB requires max_packet_size_0 = 9")]
 fn test_superspeed_requires_max_packet_size_0_9() {
-    let mut config = superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, 0);
+    let mut config = superspeed(UsbDeviceSpeed::Super, UsbVersion::Three);
     config.max_packet_size_0 = 64;
     with_config(config, |_| {});
 }
@@ -1217,7 +1393,7 @@ fn test_superspeed_callbacks() {
     let mut config_descriptor = [0; 64];
     let mut bos_descriptor = [0; 64];
     let mut control_buf = [0; 64];
-    let mut config = superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, 0);
+    let mut config = superspeed(UsbDeviceSpeed::Super, UsbVersion::Three);
     config.ltm_capable = true;
     let mut builder = Builder::new(
         TestDriver::default(),
@@ -1280,7 +1456,7 @@ fn shared_endpoints_stay_enabled_across_alternate_settings() {
 
     // Alternate setting 0 references only the shared IN endpoint.
     let mut alt0 = interface.alt_setting(0xff, 0, 0, None);
-    let shared_in = alt0.alloc_endpoint_in(EndpointType::Bulk, None, 64, 0);
+    let shared_in = alt0.alloc_endpoint_in(EndpointType::Bulk, None, 64, 0, EndpointOptions::new());
     alt0.endpoint_descriptor(
         shared_in.info(),
         SynchronizationType::NoSynchronization,
@@ -1296,7 +1472,7 @@ fn shared_endpoints_stay_enabled_across_alternate_settings() {
         UsageType::DataEndpoint,
         &[],
     );
-    let alt1_out = alt1.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0);
+    let alt1_out = alt1.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0, EndpointOptions::new());
     alt1.endpoint_descriptor(
         alt1_out.info(),
         SynchronizationType::NoSynchronization,

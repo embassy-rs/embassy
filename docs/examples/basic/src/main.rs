@@ -4,8 +4,8 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{self, AnyPin, Input, Level, Output, OutputDrive, Pull};
-use embassy_nrf::{Peri, bind_interrupts, peripherals};
+use embassy_nrf::gpio::{self, Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -15,9 +15,7 @@ bind_interrupts!(struct Irqs {
 
 // Declare async tasks
 #[embassy_executor::task]
-async fn blink(pin: Peri<'static, AnyPin>) {
-    let mut led = Output::new(pin, Level::Low, OutputDrive::Standard);
-
+async fn blink(mut led: Output<'static>) {
     loop {
         // Timekeeping is globally available, no need to mess with hardware timers.
         led.set_high();
@@ -34,7 +32,8 @@ async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
 
     // Spawned tasks run in the background, concurrently.
-    spawner.spawn(blink(p.P0_13.into()).unwrap());
+    let led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
+    spawner.spawn(blink(led).unwrap());
 
     let mut button = Input::new_async(p.P0_11, Irqs, Pull::Up);
     loop {

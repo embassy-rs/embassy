@@ -11,7 +11,8 @@ use embassy_futures::select::{Either, select};
 use heapless::Vec;
 
 pub use self::builder::{
-    Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder, UsbDeviceSpeed, UsbVersion,
+    Builder, Config, EndpointOptions, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder, UsbDeviceSpeed,
+    UsbVersion,
 };
 use self::descriptor_reader::foreach_endpoint;
 use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};

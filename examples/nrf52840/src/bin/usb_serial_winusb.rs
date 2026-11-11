@@ -8,7 +8,7 @@ use embassy_futures::join::join;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::usb::vbus_detect::{HardwareVbusDetect, VbusDetect};
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
-use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Config as CdcAcmConfig, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::types::InterfaceNumber;
@@ -63,7 +63,7 @@ async fn main(_spawner: Spawner) {
     builder.msos_descriptor(windows_version::WIN8_1, 2);
 
     // Create classes on the builder.
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
+    let mut class = CdcAcmClass::new(&mut builder, &mut state, CdcAcmConfig::new());
 
     // Since we want to create MS OS feature descriptors that apply to a function that has already been added to the
     // builder, need to get the MsOsDescriptorWriter from the builder and manually add those descriptors.

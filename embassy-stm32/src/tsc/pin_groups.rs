@@ -426,11 +426,14 @@ macro_rules! impl_set_io {
         #[doc = concat!("Create a new pin1 for ", stringify!($group), " TSC group instance.")]
         pub fn $method<Role: pin_roles::Role>(&mut self, pin: Peri<'d, impl $trait<T>>) -> IOPinWithRole<$group, Role> {
             critical_section::with(|_| {
-                pin.set_low();
-                set_as_af!(pin, AfType::output(Role::output_type(), Speed::VeryHigh));
+                let pin = set_as_af!(
+                    pin,
+                    AfType::output(Role::output_type(), Speed::VeryHigh),
+                    Flex::set_low
+                );
                 let tsc_io_pin = trait_to_io_pin!($trait);
                 let new_pin = Pin {
-                    _pin: Flex::new(pin),
+                    _pin: pin,
                     role: Role::pin_type(),
                     tsc_io_pin,
                     phantom: PhantomData,

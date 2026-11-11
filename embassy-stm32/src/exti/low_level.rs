@@ -4,7 +4,7 @@
 //! the External Interrupt (EXTI) lines on STM32 microcontrollers.
 
 use super::{cpu_regs, exticr_regs};
-use crate::gpio::{Input, Pin as GpioPin, PinNumber};
+use crate::gpio::Input;
 use crate::pac::EXTI;
 use crate::pac::exti::regs::Lines;
 
@@ -24,10 +24,9 @@ pub enum TriggerEdge {
 }
 
 /// Configures an EXTI line for a specific GPIO pin
-pub(super) fn configure_exti_pin(pin: PinNumber, port: PinNumber, trigger_edge: TriggerEdge) {
+pub(super) fn configure_exti_pin(pin: u8, port: u8, trigger_edge: TriggerEdge) {
     critical_section::with(|_| {
         let pin_num = pin as usize;
-        // Cast needed: on N6, PinNumber is u16 (for total pin counting), but port is always 0-15.
         exticr_regs()
             .exticr(pin_num / 4)
             .modify(|w| w.set_exti(pin_num % 4, port as _));
@@ -60,7 +59,7 @@ impl From<InterruptState> for bool {
 }
 
 /// Enables the EXTI interrupt for a specific pin
-pub(super) fn set_exti_interrupt_enabled(pin: PinNumber, state: InterruptState) {
+pub(super) fn set_exti_interrupt_enabled(pin: u8, state: InterruptState) {
     critical_section::with(|_| {
         let pin = pin as usize;
         cpu_regs().imr(0).modify(|w| w.set_line(pin, state.into()));
@@ -68,7 +67,7 @@ pub(super) fn set_exti_interrupt_enabled(pin: PinNumber, state: InterruptState) 
 }
 
 /// Enables or disables the EXTI event output for a specific pin
-pub(super) fn set_exti_event_enabled(pin: PinNumber, enabled: bool) {
+pub(super) fn set_exti_event_enabled(pin: u8, enabled: bool) {
     critical_section::with(|_| {
         let pin = pin as usize;
         cpu_regs().emr(0).modify(|w| w.set_line(pin, enabled));
@@ -125,7 +124,7 @@ pub(super) fn clear_exti_pending_mask(mask: u32) {
 }
 
 /// Clears the pending EXTI interrupt flag for a specific pin
-pub(super) fn clear_exti_pending(pin: PinNumber) {
+pub(super) fn clear_exti_pending(pin: u8) {
     let mask = 1u32 << pin;
 
     critical_section::with(|_| {
@@ -137,7 +136,7 @@ pub(super) fn clear_exti_pending(pin: PinNumber) {
 ///
 /// # Returns
 /// `true` if an interrupt is pending, `false` otherwise
-pub(super) fn is_exti_pending(pin: PinNumber) -> bool {
+pub(super) fn is_exti_pending(pin: u8) -> bool {
     let pin = pin as usize;
 
     #[cfg(all(stm32h7, feature = "_dual-core"))]

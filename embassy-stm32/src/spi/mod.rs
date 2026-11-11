@@ -330,11 +330,12 @@ impl<'d> CsPinType<'d> {
         exti: Option<Peri<'d, C::ExtiChannel>>,
         af_type: AfType,
     ) -> Self {
-        set_as_af!(pin, af_type);
+        let pin = set_as_af!(pin, af_type);
 
         match exti {
-            Some(ch) => Self::Exti(ExtiInput::new_af(pin, ch, irq)),
-            None => Self::Flex(Flex::new(pin)),
+            // SAFETY: `ch` is the EXTI channel of `pin`.
+            Some(ch) => Self::Exti(unsafe { ExtiInput::from_flex(pin, ch, irq) }),
+            None => Self::Flex(pin),
         }
     }
 
@@ -588,7 +589,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         self.gpio_speed = config.gpio_speed;
         self.crc_enabled = !matches!(config.crc, CrcConfig::Disabled);
         #[cfg(gpio_v2)]
-        set_speed(&self._sck, &self._mosi, config.gpio_speed);
+        set_speed(&mut self._sck, &mut self._mosi, config.gpio_speed);
         reconfigure::<CM>(self.info, self.kernel_clock, config)
     }
 
@@ -2092,14 +2093,12 @@ fn compute_frequency(kernel_clock: Hertz, br: Br) -> Hertz {
 }
 
 #[cfg(gpio_v2)]
-fn set_speed(sck: &Option<Flex<'_>>, mosi: &Option<Flex<'_>>, gpio_speed: Speed) {
-    use crate::gpio::SealedPin;
-
-    if let Some(sck) = sck.as_ref() {
-        sck.pin.set_speed(gpio_speed);
+fn set_speed(sck: &mut Option<Flex<'_>>, mosi: &mut Option<Flex<'_>>, gpio_speed: Speed) {
+    if let Some(sck) = sck.as_mut() {
+        sck.set_speed(gpio_speed);
     }
-    if let Some(mosi) = mosi.as_ref() {
-        mosi.pin.set_speed(gpio_speed);
+    if let Some(mosi) = mosi.as_mut() {
+        mosi.set_speed(gpio_speed);
     }
 }
 

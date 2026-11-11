@@ -16,10 +16,9 @@ use embassy_time::{Duration, Instant};
 pub use embedded_hal_1::i2c::Operation;
 pub use pac::twim::vals::Frequency;
 
-use crate::gpio::Pin as GpioPin;
+use crate::gpio::{Flex, OutputDrive, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-use crate::pac::gpio::vals as gpiovals;
 use crate::pac::twim::regs::RxMaxcnt;
 use crate::pac::twim::vals;
 use crate::util::slice_in_ram;
@@ -192,13 +191,13 @@ impl<'d> Twim<'d, Async> {
     /// be used.
     pub fn new<T: Instance>(
         twim: Peri<'d, T>,
-        scl: Peri<'d, impl GpioPin>,
-        sda: Peri<'d, impl GpioPin>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_ram_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        let this = Self::new_inner(twim, scl, sda, tx_ram_buffer, config);
+        let this = Self::new_inner(twim, Flex::new(scl), Flex::new(sda), tx_ram_buffer, config);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -284,20 +283,35 @@ impl<'d> Twim<'d, Blocking> {
     /// be used.
     pub fn new_blocking<T: Instance>(
         twim: Peri<'d, T>,
-        scl: Peri<'d, impl GpioPin>,
-        sda: Peri<'d, impl GpioPin>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         tx_ram_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(twim, scl, sda, tx_ram_buffer, config)
+        Self::new_inner(twim, Flex::new(scl), Flex::new(sda), tx_ram_buffer, config)
+    }
+}
+
+/// SDA/SCL drive: open drain, driving low with standard or high drive.
+fn drive(high_drive: bool) -> OutputDrive {
+    match high_drive {
+        true => OutputDrive::HighDrive0Disconnect1,
+        false => OutputDrive::Standard0Disconnect1,
+    }
+}
+
+fn pull(pullup: bool) -> Pull {
+    match pullup {
+        true => Pull::Up,
+        false => Pull::None,
     }
 }
 
 impl<'d, M: PeriMode> Twim<'d, M> {
     fn new_inner<T: Instance>(
         _twim: Peri<'d, T>,
-        scl: Peri<'d, impl GpioPin>,
-        sda: Peri<'d, impl GpioPin>,
+        mut scl: Flex<'d>,
+        mut sda: Flex<'d>,
         tx_ram_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -316,50 +330,14 @@ impl<'d, M: PeriMode> Twim<'d, M> {
         // Configure pins
         sda.set_high();
         scl.set_high();
-        sda.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::Output);
-            w.set_input(gpiovals::Input::Connect);
-            #[cfg(not(feature = "_nrf54l"))]
-            w.set_drive(match config.sda_high_drive {
-                true => gpiovals::Drive::H0d1,
-                false => gpiovals::Drive::S0d1,
-            });
-            #[cfg(feature = "_nrf54l")]
-            {
-                w.set_drive0(match config.sda_high_drive {
-                    true => gpiovals::Drive::H,
-                    false => gpiovals::Drive::S,
-                });
-                w.set_drive1(gpiovals::Drive::D);
-            }
-            if config.sda_pullup {
-                w.set_pull(gpiovals::Pull::Pullup);
-            }
-        });
-        scl.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::Output);
-            w.set_input(gpiovals::Input::Connect);
-            #[cfg(not(feature = "_nrf54l"))]
-            w.set_drive(match config.scl_high_drive {
-                true => gpiovals::Drive::H0d1,
-                false => gpiovals::Drive::S0d1,
-            });
-            #[cfg(feature = "_nrf54l")]
-            {
-                w.set_drive0(match config.scl_high_drive {
-                    true => gpiovals::Drive::H,
-                    false => gpiovals::Drive::S,
-                });
-                w.set_drive1(gpiovals::Drive::D);
-            }
-            if config.scl_pullup {
-                w.set_pull(gpiovals::Pull::Pullup);
-            }
-        });
+        sda.set_as_input_output(pull(config.sda_pullup), drive(config.sda_high_drive));
+        scl.set_as_input_output(pull(config.scl_pullup), drive(config.scl_high_drive));
 
-        // Select pins.
+        // Select pins. They're disconnected on drop by reading back PSEL.
         r.psel().sda().write_value(sda.psel_bits());
         r.psel().scl().write_value(scl.psel_bits());
+        sda.persist();
+        scl.persist();
 
         // Enable TWIM instance.
         r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
@@ -880,6 +858,18 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// SCL pin trait.
+    SclPin,
+    Instance
+);
+
+pin_trait!(
+    /// SDA pin trait.
+    SdaPin,
+    Instance
+);
 
 macro_rules! impl_twim {
     ($type:ident, $pac_type:ident, $irq:ident) => {

@@ -108,7 +108,7 @@ macro_rules! config_pins {
     ($($pin:ident),*) => {
                 critical_section::with(|_| {
             $(
-                set_as_af!($pin, AfType::input(Pull::None));
+                set_as_af!($pin, AfType::input(Pull::None)).persist();
             )*
         })
     };

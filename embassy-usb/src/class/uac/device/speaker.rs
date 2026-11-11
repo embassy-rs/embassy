@@ -14,9 +14,9 @@ pub use super::Volume;
 use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, Feedback, State};
 use super::{Channel, FeedbackRefresh, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
-use crate::Builder;
 use crate::class::uac::terminal_type::TerminalType;
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointOut, EndpointType};
+use crate::{Builder, EndpointOptions};
 
 /// Speaker stream settings and optional host controls.
 #[derive(Clone)]
@@ -109,7 +109,15 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
             state,
             max_packet_size,
             Some(feedback_refresh_period),
-            |alt, max_packet_size| alt.alloc_endpoint_out(EndpointType::Isochronous, None, max_packet_size, 1),
+            |alt, max_packet_size| {
+                alt.alloc_endpoint_out(
+                    EndpointType::Isochronous,
+                    None,
+                    max_packet_size,
+                    1,
+                    EndpointOptions::new(),
+                )
+            },
         );
 
         Self {

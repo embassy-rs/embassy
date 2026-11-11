@@ -721,7 +721,7 @@ pub(crate) trait AnalogPin {
 
 impl<T: crate::gpio::SealedPin> AnalogPin for T {
     fn set_as_analog(&self) {
-        T::set_as_analog(self);
+        self.pin_number().set_as_analog();
     }
 }
 

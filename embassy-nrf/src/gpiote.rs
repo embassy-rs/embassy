@@ -10,7 +10,7 @@ use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{Input, Level, Output, OutputDrive, Pin as GpioPin, Pull};
@@ -55,8 +55,7 @@ const INTNUM: usize = 0;
 pub(crate) fn enable_port_interrupt<T: GpiotePin>() {
     #[cfg(not(feature = "_nrf51"))]
     {
-        use crate::gpio::SealedPin as _;
-        let p = crate::gpio::AnyPin { pin_port: T::PIN_PORT }.block();
+        let p = T::PIN_NUMBER.block();
         #[cfg(all(feature = "_s", not(feature = "_nrf54l")))]
         p.detectmode_sec().write(|w| w.set_detectmode(Detectmode::Ldetect));
         #[cfg(any(not(feature = "_s"), all(feature = "_s", feature = "_nrf54l")))]
@@ -116,7 +115,7 @@ impl<C: Channel> Handler<C::Interrupt> for InterruptHandler<C> {
 
 /// GPIOTE channel driver in input mode
 pub struct InputChannel<'d, M: Mode = Blocking> {
-    ch: Peri<'d, AnyChannel>,
+    ch: ChannelNumber,
     pin: Input<'d>,
     waker: M::IfAsync<&'static AtomicWaker>,
     _mode: PhantomData<M>,
@@ -151,7 +150,7 @@ impl<'d> InputChannel<'d, Blocking> {
         pull: Pull,
         polarity: InputChannelPolarity,
     ) -> Self {
-        Self::new_inner(ch.into(), Input::new(pin, pull), (), polarity)
+        Self::new_inner(ChannelNumber::new(ch), Input::new(pin, pull), (), polarity)
     }
 
     /// Create a new blocking GPIOTE input channel driver.
@@ -164,7 +163,7 @@ impl<'d> InputChannel<'d, Blocking> {
         pull: Pull,
         polarity: InputChannelPolarity,
     ) -> Self {
-        Self::new_inner(ch.into(), Input::new(pin, pull), (), polarity)
+        Self::new_inner(ChannelNumber::new(ch), Input::new(pin, pull), (), polarity)
     }
 }
 
@@ -181,7 +180,7 @@ impl<'d> InputChannel<'d, Async> {
         polarity: InputChannelPolarity,
     ) -> Self {
         unsafe { C::Interrupt::enable() };
-        Self::new_inner(ch.into(), Input::new(pin, pull), C::waker(), polarity)
+        Self::new_inner(ChannelNumber::new(ch), Input::new(pin, pull), C::waker(), polarity)
     }
 
     /// Create a new async GPIOTE input channel driver.
@@ -196,7 +195,7 @@ impl<'d> InputChannel<'d, Async> {
         polarity: InputChannelPolarity,
     ) -> Self {
         unsafe { C::Interrupt::enable() };
-        Self::new_inner(ch.into(), Input::new(pin, pull), C::waker(), polarity)
+        Self::new_inner(ChannelNumber::new(ch), Input::new(pin, pull), C::waker(), polarity)
     }
 
     /// Asynchronously wait for an event in this channel.
@@ -206,7 +205,7 @@ impl<'d> InputChannel<'d, Async> {
     pub fn wait(&mut self) -> impl Future<Output = ()> {
         // NOTE: This is `-> impl Future` and not an `async fn` on purpose.
         // Otherwise, events will only be detected starting at the first poll of the returned future.
-        Self::wait_internal(&mut self.ch, self.waker)
+        Self::wait_internal(self.ch, self.waker)
     }
 
     /// Asynchronously wait for the pin to become high.
@@ -221,7 +220,7 @@ impl<'d> InputChannel<'d, Async> {
         // Otherwise, events will only be detected starting at the first poll of the returned future.
 
         // Subscribe to the event before checking the pin level.
-        let wait = Self::wait_internal(&mut self.ch, self.waker);
+        let wait = Self::wait_internal(self.ch, self.waker);
         let pin = &self.pin;
         async move {
             if pin.is_high() {
@@ -243,7 +242,7 @@ impl<'d> InputChannel<'d, Async> {
         // Otherwise, events will only be detected starting at the first poll of the returned future.
 
         // Subscribe to the event before checking the pin level.
-        let wait = Self::wait_internal(&mut self.ch, self.waker);
+        let wait = Self::wait_internal(self.ch, self.waker);
         let pin = &self.pin;
         async move {
             if pin.is_low() {
@@ -254,7 +253,7 @@ impl<'d> InputChannel<'d, Async> {
     }
 
     /// Internal implementation for `wait()` and friends.
-    fn wait_internal(channel: &mut Peri<'_, AnyChannel>, waker: &'static AtomicWaker) -> impl Future<Output = ()> {
+    fn wait_internal(channel: ChannelNumber, waker: &'static AtomicWaker) -> impl Future<Output = ()> {
         // NOTE: This is `-> impl Future` and not an `async fn` on purpose.
         // Otherwise, events will only be detected starting at the first poll of the returned future.
 
@@ -279,7 +278,7 @@ impl<'d> InputChannel<'d, Async> {
 
 impl<'d, M: Mode> InputChannel<'d, M> {
     fn new_inner(
-        ch: Peri<'d, AnyChannel>,
+        ch: ChannelNumber,
         pin: Input<'d>,
         waker: M::IfAsync<&'static AtomicWaker>,
         polarity: InputChannelPolarity,
@@ -334,7 +333,7 @@ impl<'d, M: Mode> InputChannel<'d, M> {
 
 /// GPIOTE channel driver in output mode
 pub struct OutputChannel<'d> {
-    ch: Peri<'d, AnyChannel>,
+    ch: ChannelNumber,
     _pin: Output<'d>,
 }
 
@@ -367,8 +366,7 @@ impl<'d> OutputChannel<'d> {
         polarity: OutputChannelPolarity,
     ) -> Self {
         let pin = Output::new(pin, initial_output, drive);
-        let ch = ch.into();
-        Self::new_inner(ch, pin, polarity)
+        Self::new_inner(ChannelNumber::new(ch), pin, polarity)
     }
 
     /// Create a new GPIOTE output channel driver.
@@ -381,11 +379,10 @@ impl<'d> OutputChannel<'d> {
         polarity: OutputChannelPolarity,
     ) -> Self {
         let pin = Output::new(pin, initial_output, drive);
-        let ch = ch.into();
-        Self::new_inner(ch, pin, polarity)
+        Self::new_inner(ChannelNumber::new(ch), pin, polarity)
     }
 
-    fn new_inner(ch: Peri<'d, AnyChannel>, pin: Output<'d>, polarity: OutputChannelPolarity) -> Self {
+    fn new_inner(ch: ChannelNumber, pin: Output<'d>, polarity: OutputChannelPolarity) -> Self {
         let g = ch.regs();
         let num = ch.number();
 
@@ -479,7 +476,7 @@ pub(crate) trait SealedChannel {
 ///
 /// Implemented by all GPIOTE channels.
 #[allow(private_bounds)]
-pub trait Channel: PeripheralType + SealedChannel + Into<AnyChannel> + Sized + 'static {
+pub trait Channel: PeripheralType + SealedChannel + Sized + 'static {
     #[cfg(feature = "_nrf54l")]
     /// GPIOTE instance this channel belongs to.
     type Instance: GpioteInstance;
@@ -493,19 +490,27 @@ pub trait Channel: PeripheralType + SealedChannel + Into<AnyChannel> + Sized + '
     }
 }
 
-pub(crate) struct AnyChannel {
+/// A GPIOTE channel: its instance's registers and its number. Plain data, it doesn't own the
+/// channel: the channel drivers do.
+#[derive(Clone, Copy)]
+struct ChannelNumber {
     number: u8,
     regs: pac::gpiote::Gpiote,
 }
 
-impl_peripheral!(AnyChannel);
+impl ChannelNumber {
+    fn new<C: Channel>(_ch: Peri<'_, C>) -> Self {
+        Self {
+            number: C::NUMBER as u8,
+            regs: C::regs(),
+        }
+    }
 
-impl AnyChannel {
-    fn number(&self) -> usize {
+    fn number(self) -> usize {
         self.number as usize
     }
 
-    fn regs(&self) -> pac::gpiote::Gpiote {
+    fn regs(self) -> pac::gpiote::Gpiote {
         self.regs
     }
 }
@@ -532,21 +537,12 @@ macro_rules! impl_channel {
             #[cfg(not(feature = "_nrf54l"))]
             type Interrupt = crate::interrupt::typelevel::$inst;
         }
-
-        impl From<peripherals::$type> for AnyChannel {
-            fn from(_val: peripherals::$type) -> Self {
-                Self {
-                    number: $number,
-                    regs: pac::$inst,
-                }
-            }
-        }
     };
 }
 
 pub(crate) trait SealedGpiotePin {
-    /// Packed port and pin number, as returned by [`SealedPin::pin_port()`](crate::gpio::SealedPin::pin_port).
-    const PIN_PORT: u8;
+    /// Number of this pin, as returned by [`SealedPin::pin_number()`](crate::gpio::SealedPin::pin_number).
+    const PIN_NUMBER: crate::gpio::PinNumber;
 
     /// Registers of the GPIOTE instance serving this pin's port.
     fn regs() -> pac::gpiote::Gpiote;
@@ -603,7 +599,7 @@ cfg_select! {
         macro_rules! impl_gpiote_pin {
             ($type:ident, $port_num:expr, $pin_num:expr, $inst:ident) => {
                 impl crate::gpiote::SealedGpiotePin for peripherals::$type {
-                    const PIN_PORT: u8 = $port_num * 32 + $pin_num;
+                    const PIN_NUMBER: crate::gpio::PinNumber = crate::gpio::PinNumber::new($port_num * 32 + $pin_num);
 
                     fn regs() -> crate::pac::gpiote::Gpiote {
                         <peripherals::$inst as crate::gpiote::SealedGpioteInstance>::regs()
@@ -658,7 +654,7 @@ cfg_select! {
         macro_rules! impl_gpiote_pin {
             ($type:ident, $port_num:expr, $pin_num:expr) => {
                 impl crate::gpiote::SealedGpiotePin for peripherals::$type {
-                    const PIN_PORT: u8 = $port_num * 32 + $pin_num;
+                    const PIN_NUMBER: crate::gpio::PinNumber = crate::gpio::PinNumber::new($port_num * 32 + $pin_num);
 
                     fn regs() -> crate::pac::gpiote::Gpiote {
                         crate::gpiote::PIN_REGS

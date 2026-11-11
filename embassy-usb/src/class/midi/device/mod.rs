@@ -11,7 +11,7 @@ use crate::control::{InResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Builder, Handler};
+use crate::{Builder, EndpointOptions, Handler};
 
 const USB_AUDIOCONTROL_SUBCLASS: u8 = 0x01;
 const CS_INTERFACE: u8 = 0x24;
@@ -359,19 +359,6 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
 
         let has_midi2 = config.midi2.is_some();
 
-        // The MIDI 2.0 alternate setting reuses the bulk endpoints of the MIDI
-        // 1.0 alternate setting instead of allocating a second pair. Allocate
-        // them once at function scope and write their standard descriptor into
-        // every alternate setting that uses them.
-        //
-        // An endpoint is only described in Alt 0 when the corresponding jack
-        // count is non-zero, but it is still allocated when MIDI 2.0 needs it,
-        // so both alternate settings always reference the same addresses.
-        let read_ep = (n_out_jacks > 0 || has_midi2)
-            .then(|| func.alloc_endpoint_out(EndpointType::Bulk, None, max_packet_size, 0));
-        let write_ep =
-            (n_in_jacks > 0 || has_midi2).then(|| func.alloc_endpoint_in(EndpointType::Bulk, None, max_packet_size, 0));
-
         // Audio control interface
         let mut iface = func.interface();
         let audio_if = iface.interface_number();
@@ -390,6 +377,19 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             PROTOCOL_NONE,
             names.interface(),
         );
+
+        // The MIDI 2.0 alternate setting reuses these bulk endpoints instead of
+        // allocating a second pair. Allocation does not write a descriptor; each
+        // alternate setting that uses an endpoint writes one with
+        // `endpoint_descriptor`.
+        //
+        // An endpoint is only described in Alt 0 when the corresponding jack
+        // count is non-zero, but it is still allocated when MIDI 2.0 needs it,
+        // so both alternate settings always reference the same addresses.
+        let read_ep = (n_out_jacks > 0 || has_midi2)
+            .then(|| alt.alloc_endpoint_out(EndpointType::Bulk, None, max_packet_size, 0, EndpointOptions::new()));
+        let write_ep = (n_in_jacks > 0 || has_midi2)
+            .then(|| alt.alloc_endpoint_in(EndpointType::Bulk, None, max_packet_size, 0, EndpointOptions::new()));
 
         if n_in_jacks > 0 || n_out_jacks > 0 {
             let midi_streaming_total_length = MS_HEADER_LEN as usize

@@ -10,6 +10,8 @@ pub mod bth;
 pub mod ccid;
 #[cfg(feature = "class-cdc-acm")]
 pub mod cdc_acm;
+#[cfg(feature = "class-cdc-ecm")]
+pub mod cdc_ecm;
 #[cfg(feature = "class-cdc-ncm")]
 pub mod cdc_ncm {
     //! CDC NCM (Ethernet over USB) class.
@@ -52,6 +54,8 @@ pub mod hub {
 pub mod midi;
 #[cfg(feature = "class-msc")]
 pub mod msc;
+#[cfg(feature = "class-printer")]
+pub mod printer;
 #[cfg(feature = "class-uac")]
 pub mod uac;
 #[cfg(feature = "class-usbtmc")]
@@ -83,11 +87,15 @@ pub mod web_usb {
 compile_error!("feature `class-ccid` requires at least one of `device` or `host`");
 #[cfg(all(feature = "class-cdc-acm", not(any(feature = "device", feature = "host"))))]
 compile_error!("feature `class-cdc-acm` requires at least one of `device` or `host`");
+#[cfg(all(feature = "class-cdc-ecm", not(any(feature = "device", feature = "host"))))]
+compile_error!("feature `class-cdc-ecm` requires at least one of `device` or `host`");
 #[cfg(all(feature = "class-hid", not(any(feature = "device", feature = "host"))))]
 compile_error!("feature `class-hid` requires at least one of `device` or `host`");
 #[cfg(all(feature = "class-midi", not(any(feature = "device", feature = "host"))))]
 compile_error!("feature `class-midi` requires at least one of `device` or `host`");
 #[cfg(all(feature = "class-msc", not(any(feature = "device", feature = "host"))))]
 compile_error!("feature `class-msc` requires at least one of `device` or `host`");
+#[cfg(all(feature = "class-printer", not(any(feature = "device", feature = "host"))))]
+compile_error!("feature `class-printer` requires at least one of `device` or `host`");
 #[cfg(all(feature = "class-uac", not(any(feature = "device", feature = "host"))))]
 compile_error!("feature `class-uac` requires at least one of `device` or `host`");

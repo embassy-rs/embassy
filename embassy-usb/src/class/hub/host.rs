@@ -77,6 +77,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                     .max_packet_size0
                     .min(if ls_over_fs { 8 } else { 64 }) as u16,
                 interval_ms: 0,
+                max_burst: 0,
             },
             enum_info.split(),
         )?;

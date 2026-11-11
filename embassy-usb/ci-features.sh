@@ -28,18 +28,18 @@ check --features class-all
 
 # Every device-capable class on its own.
 for class in \
-    bth ccid cdc-acm cdc-ncm cmsis-dap-v2 dfu gud hid midi msc uac usbtmc uvc vendor web-usb
+    bth ccid cdc-acm cdc-ecm cdc-ncm cmsis-dap-v2 dfu gud hid midi msc printer uac usbtmc uvc vendor web-usb
 do
     check --features "device,class-$class"
 done
 
 # Every host-capable class on its own.
-for class in ccid cdc-acm gip hid hub midi msc uac vcp; do
+for class in ccid cdc-acm cdc-ecm gip hid hub midi msc printer uac vcp; do
     check --features "host,class-$class"
 done
 
 # Dual-role classes with both roles enabled.
-for class in ccid cdc-acm hid midi msc uac; do
+for class in ccid cdc-acm cdc-ecm hid midi msc printer uac; do
     check --features "device,host,class-$class"
 done
 

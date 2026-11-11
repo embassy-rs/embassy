@@ -7,8 +7,7 @@ use core::sync::atomic::{AtomicU8, AtomicU16, Ordering, compiler_fence};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::gpio::{AnyPin, DISCONNECTED, Level, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive};
-use crate::pac::gpio::vals as gpiovals;
+use crate::gpio::{DISCONNECTED, Flex, Level, OutputDrive, PselBits};
 use crate::pac::pwm::vals;
 use crate::ppi::{Event, Task};
 use crate::time::Hertz;
@@ -19,10 +18,10 @@ use crate::{interrupt, pac};
 /// to up to four channels, as well as repeat that sequence n times.
 pub struct SequencePwm<'d> {
     r: pac::pwm::Pwm,
-    ch0: Option<Peri<'d, AnyPin>>,
-    ch1: Option<Peri<'d, AnyPin>>,
-    ch2: Option<Peri<'d, AnyPin>>,
-    ch3: Option<Peri<'d, AnyPin>>,
+    ch0: Option<Flex<'d>>,
+    ch1: Option<Flex<'d>>,
+    ch2: Option<Flex<'d>>,
+    ch3: Option<Flex<'d>>,
 }
 
 /// PWM error
@@ -60,77 +59,81 @@ pub const PWM_CLK_HZ: u32 = 16_000_000;
 
 impl<'d> SequencePwm<'d> {
     /// Create a new 1-channel PWM
-    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: Config) -> Result<Self, Error> {
-        Self::new_inner(pwm, Some(ch0.into()), None, None, None, config)
+    pub fn new_1ch<T: Instance>(
+        pwm: Peri<'d, T>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        config: Config,
+    ) -> Result<Self, Error> {
+        Self::new_inner(pwm, Some(Flex::new(ch0)), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
     pub fn new_2ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
         config: Config,
     ) -> Result<Self, Error> {
-        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), None, None, config)
+        Self::new_inner(pwm, Some(Flex::new(ch0)), Some(Flex::new(ch1)), None, None, config)
     }
 
     /// Create a new 3-channel PWM
     pub fn new_3ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
-        ch2: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
+        ch2: Peri<'d, impl OutPin<T>>,
         config: Config,
     ) -> Result<Self, Error> {
-        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), Some(ch2.into()), None, config)
+        Self::new_inner(
+            pwm,
+            Some(Flex::new(ch0)),
+            Some(Flex::new(ch1)),
+            Some(Flex::new(ch2)),
+            None,
+            config,
+        )
     }
 
     /// Create a new 4-channel PWM
     pub fn new_4ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
-        ch2: Peri<'d, impl GpioPin>,
-        ch3: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
+        ch2: Peri<'d, impl OutPin<T>>,
+        ch3: Peri<'d, impl OutPin<T>>,
         config: Config,
     ) -> Result<Self, Error> {
         Self::new_inner(
             pwm,
-            Some(ch0.into()),
-            Some(ch1.into()),
-            Some(ch2.into()),
-            Some(ch3.into()),
+            Some(Flex::new(ch0)),
+            Some(Flex::new(ch1)),
+            Some(Flex::new(ch2)),
+            Some(Flex::new(ch3)),
             config,
         )
     }
 
     fn new_inner<T: Instance>(
         _pwm: Peri<'d, T>,
-        ch0: Option<Peri<'d, AnyPin>>,
-        ch1: Option<Peri<'d, AnyPin>>,
-        ch2: Option<Peri<'d, AnyPin>>,
-        ch3: Option<Peri<'d, AnyPin>>,
+        mut ch0: Option<Flex<'d>>,
+        mut ch1: Option<Flex<'d>>,
+        mut ch2: Option<Flex<'d>>,
+        mut ch3: Option<Flex<'d>>,
         config: Config,
     ) -> Result<Self, Error> {
         let r = T::regs();
 
         let channels = [
-            (&ch0, config.ch0_drive, config.ch0_idle_level),
-            (&ch1, config.ch1_drive, config.ch1_idle_level),
-            (&ch2, config.ch2_drive, config.ch2_idle_level),
-            (&ch3, config.ch3_drive, config.ch3_idle_level),
+            (&mut ch0, config.ch0_drive, config.ch0_idle_level),
+            (&mut ch1, config.ch1_drive, config.ch1_idle_level),
+            (&mut ch2, config.ch2_drive, config.ch2_idle_level),
+            (&mut ch3, config.ch3_drive, config.ch3_idle_level),
         ];
         for (i, (pin, drive, idle_level)) in channels.into_iter().enumerate() {
-            if let Some(pin) = pin {
-                match idle_level {
-                    Level::Low => pin.set_low(),
-                    Level::High => pin.set_high(),
-                }
-                pin.conf().write(|w| {
-                    w.set_dir(gpiovals::Dir::Output);
-                    w.set_input(gpiovals::Input::Disconnect);
-                    convert_drive(w, drive);
-                });
+            if let Some(pin) = &mut *pin {
+                pin.set_level(idle_level);
+                pin.set_as_output(drive);
             }
             r.psel().out(i).write_value(pin.psel_bits());
         }
@@ -243,24 +246,24 @@ impl<'d> SequencePwm<'d> {
 
 impl<'a> Drop for SequencePwm<'a> {
     fn drop(&mut self) {
-        if let Some(pin) = &self.ch0 {
+        if let Some(pin) = &mut self.ch0 {
             pin.set_low();
-            pin.conf().write(|_| ());
+            pin.set_as_disconnected();
             self.r.psel().out(0).write_value(DISCONNECTED);
         }
-        if let Some(pin) = &self.ch1 {
+        if let Some(pin) = &mut self.ch1 {
             pin.set_low();
-            pin.conf().write(|_| ());
+            pin.set_as_disconnected();
             self.r.psel().out(1).write_value(DISCONNECTED);
         }
-        if let Some(pin) = &self.ch2 {
+        if let Some(pin) = &mut self.ch2 {
             pin.set_low();
-            pin.conf().write(|_| ());
+            pin.set_as_disconnected();
             self.r.psel().out(2).write_value(DISCONNECTED);
         }
-        if let Some(pin) = &self.ch3 {
+        if let Some(pin) = &mut self.ch3 {
             pin.set_low();
-            pin.conf().write(|_| ());
+            pin.set_as_disconnected();
             self.r.psel().out(3).write_value(DISCONNECTED);
         }
 
@@ -724,10 +727,10 @@ impl defmt::Format for DutyCycle {
 pub struct SimplePwm<'d> {
     r: pac::pwm::Pwm,
     state: &'static State,
-    ch0: Option<Peri<'d, AnyPin>>,
-    ch1: Option<Peri<'d, AnyPin>>,
-    ch2: Option<Peri<'d, AnyPin>>,
-    ch3: Option<Peri<'d, AnyPin>>,
+    ch0: Option<Flex<'d>>,
+    ch1: Option<Flex<'d>>,
+    ch2: Option<Flex<'d>>,
+    ch3: Option<Flex<'d>>,
 }
 
 /// A single channel of a [`SimplePwm`].
@@ -739,7 +742,7 @@ pub struct SimplePwmChannel<'d> {
     state: &'static State,
     index: usize,
     /// The channel's pin, owned only by channels obtained via [`SimplePwm::split`].
-    pin: Option<Peri<'d, AnyPin>>,
+    pin: Option<Flex<'d>>,
     /// Whether this channel owns its share of the PWM and must tear it down on drop.
     is_owned: bool,
 }
@@ -783,90 +786,87 @@ fn sync_duty_cycles_to_peripheral(r: pac::pwm::Pwm, state: &'static State) {
     }
 }
 
-fn disconnect_pin(r: pac::pwm::Pwm, pin: &Option<Peri<'_, AnyPin>>, psel: usize) {
-    if let Some(pin) = pin {
+/// Disconnect the pin from the PWM. Dropping the `Flex` afterwards puts the pin into high z.
+fn disconnect_pin(r: pac::pwm::Pwm, pin: &Option<Flex<'_>>, psel: usize) {
+    if pin.is_some() {
         r.psel().out(psel).write_value(DISCONNECTED);
-        // put the pin into high z
-        pin.conf().write(|w| {
-            w.set_input(gpiovals::Input::Disconnect);
-        });
     }
 }
 
 impl<'d> SimplePwm<'d> {
     /// Create a new 1-channel PWM
-    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: SimpleConfig) -> Self {
-        Self::new_inner(pwm, Some(ch0.into()), None, None, None, config)
+    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl OutPin<T>>, config: SimpleConfig) -> Self {
+        Self::new_inner(pwm, Some(Flex::new(ch0)), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
     pub fn new_2ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
         config: SimpleConfig,
     ) -> Self {
-        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), None, None, config)
+        Self::new_inner(pwm, Some(Flex::new(ch0)), Some(Flex::new(ch1)), None, None, config)
     }
 
     /// Create a new 3-channel PWM
     pub fn new_3ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
-        ch2: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
+        ch2: Peri<'d, impl OutPin<T>>,
         config: SimpleConfig,
     ) -> Self {
-        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), Some(ch2.into()), None, config)
+        Self::new_inner(
+            pwm,
+            Some(Flex::new(ch0)),
+            Some(Flex::new(ch1)),
+            Some(Flex::new(ch2)),
+            None,
+            config,
+        )
     }
 
     /// Create a new 4-channel PWM
     pub fn new_4ch<T: Instance>(
         pwm: Peri<'d, T>,
-        ch0: Peri<'d, impl GpioPin>,
-        ch1: Peri<'d, impl GpioPin>,
-        ch2: Peri<'d, impl GpioPin>,
-        ch3: Peri<'d, impl GpioPin>,
+        ch0: Peri<'d, impl OutPin<T>>,
+        ch1: Peri<'d, impl OutPin<T>>,
+        ch2: Peri<'d, impl OutPin<T>>,
+        ch3: Peri<'d, impl OutPin<T>>,
         config: SimpleConfig,
     ) -> Self {
         Self::new_inner(
             pwm,
-            Some(ch0.into()),
-            Some(ch1.into()),
-            Some(ch2.into()),
-            Some(ch3.into()),
+            Some(Flex::new(ch0)),
+            Some(Flex::new(ch1)),
+            Some(Flex::new(ch2)),
+            Some(Flex::new(ch3)),
             config,
         )
     }
 
     fn new_inner<T: Instance>(
         _pwm: Peri<'d, T>,
-        ch0: Option<Peri<'d, AnyPin>>,
-        ch1: Option<Peri<'d, AnyPin>>,
-        ch2: Option<Peri<'d, AnyPin>>,
-        ch3: Option<Peri<'d, AnyPin>>,
+        mut ch0: Option<Flex<'d>>,
+        mut ch1: Option<Flex<'d>>,
+        mut ch2: Option<Flex<'d>>,
+        mut ch3: Option<Flex<'d>>,
         config: SimpleConfig,
     ) -> Self {
         let r = T::regs();
         let state = T::state();
 
         let channels = [
-            (&ch0, config.ch0_drive, config.ch0_idle_level),
-            (&ch1, config.ch1_drive, config.ch1_idle_level),
-            (&ch2, config.ch2_drive, config.ch2_idle_level),
-            (&ch3, config.ch3_drive, config.ch3_idle_level),
+            (&mut ch0, config.ch0_drive, config.ch0_idle_level),
+            (&mut ch1, config.ch1_drive, config.ch1_idle_level),
+            (&mut ch2, config.ch2_drive, config.ch2_idle_level),
+            (&mut ch3, config.ch3_drive, config.ch3_idle_level),
         ];
         for (i, (pin, drive, idle_level)) in channels.into_iter().enumerate() {
-            if let Some(pin) = pin {
-                match idle_level {
-                    Level::Low => pin.set_low(),
-                    Level::High => pin.set_high(),
-                }
-                pin.conf().write(|w| {
-                    w.set_dir(gpiovals::Dir::Output);
-                    w.set_input(gpiovals::Input::Disconnect);
-                    convert_drive(w, drive);
-                });
+            if let Some(pin) = &mut *pin {
+                pin.set_level(idle_level);
+                pin.set_as_output(drive);
             }
             r.psel().out(i).write_value(pin.psel_bits());
         }
@@ -966,7 +966,7 @@ impl<'d> SimplePwm<'d> {
         let count = pins.iter().filter(|p| p.is_some()).count();
         state.refcount.store(count as u8, Ordering::Relaxed);
 
-        let channel = |index: usize, pin: Option<Peri<'d, AnyPin>>| {
+        let channel = |index: usize, pin: Option<Flex<'d>>| {
             pin.map(|pin| SimplePwmChannel {
                 r,
                 state,
@@ -1077,32 +1077,32 @@ impl<'d> SimplePwm<'d> {
     /// Sets the PWM-Channel0 output drive strength
     #[inline(always)]
     pub fn set_ch0_drive(&mut self, drive: OutputDrive) {
-        if let Some(pin) = &self.ch0 {
-            pin.conf().modify(|w| convert_drive(w, drive));
+        if let Some(pin) = &mut self.ch0 {
+            pin.set_as_output(drive);
         }
     }
 
     /// Sets the PWM-Channel1 output drive strength
     #[inline(always)]
     pub fn set_ch1_drive(&mut self, drive: OutputDrive) {
-        if let Some(pin) = &self.ch1 {
-            pin.conf().modify(|w| convert_drive(w, drive));
+        if let Some(pin) = &mut self.ch1 {
+            pin.set_as_output(drive);
         }
     }
 
     /// Sets the PWM-Channel2 output drive strength
     #[inline(always)]
     pub fn set_ch2_drive(&mut self, drive: OutputDrive) {
-        if let Some(pin) = &self.ch2 {
-            pin.conf().modify(|w| convert_drive(w, drive));
+        if let Some(pin) = &mut self.ch2 {
+            pin.set_as_output(drive);
         }
     }
 
     /// Sets the PWM-Channel3 output drive strength
     #[inline(always)]
     pub fn set_ch3_drive(&mut self, drive: OutputDrive) {
-        if let Some(pin) = &self.ch3 {
-            pin.conf().modify(|w| convert_drive(w, drive));
+        if let Some(pin) = &mut self.ch3 {
+            pin.set_as_output(drive);
         }
     }
 }
@@ -1144,8 +1144,8 @@ impl<'d> SimplePwmChannel<'d> {
     /// Does nothing for a channel obtained via [`SimplePwm::ch0`]..[`SimplePwm::ch3`] whose
     /// pin is still owned by the [`SimplePwm`]; use [`SimplePwm::set_ch0_drive`] etc. instead.
     pub fn set_drive(&mut self, drive: OutputDrive) {
-        if let Some(pin) = &self.pin {
-            pin.conf().modify(|w| convert_drive(w, drive));
+        if let Some(pin) = &mut self.pin {
+            pin.set_as_output(drive);
         }
     }
 }
@@ -1195,6 +1195,12 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// PWM output pin trait.
+    OutPin,
+    Instance
+);
 
 macro_rules! impl_pwm {
     ($type:ident, $pac_type:ident, $irq:ident) => {

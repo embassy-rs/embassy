@@ -23,7 +23,7 @@ use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestT
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointInfo, EndpointType};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler, InterfaceAltBuilder};
+use crate::{Builder, EndpointOptions, Handler, InterfaceAltBuilder};
 
 /// Maximum allowed sampling rate in Hz: the 3-byte tSamFreq field's limit.
 const MAX_SAMPLE_RATE_HZ: u32 = 0xFF_FFFF;
@@ -832,6 +832,7 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
                 None,
                 4, // Feedback packets are 3 bytes (10.14 format) at full speed, 4 (16.16) at high speed.
                 1,
+                EndpointOptions::new(),
             ),
         }
     }

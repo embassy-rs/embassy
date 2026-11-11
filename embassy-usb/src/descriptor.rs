@@ -3,7 +3,7 @@ use embassy_usb_driver::EndpointType;
 
 use crate::driver::{EndpointAddress, EndpointConfig, EndpointInfo};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{CONFIGURATION_VALUE, Config, UsbDeviceSpeed};
+use crate::{CONFIGURATION_VALUE, Config, EndpointOptions, UsbDeviceSpeed};
 
 /// Standard descriptor types
 #[allow(missing_docs)]
@@ -177,13 +177,22 @@ impl From<u8> for EndpointInterval {
     }
 }
 
+/// `wBytesPerInterval` of a SuperSpeed periodic endpoint that moves one packet per service
+/// interval, and 0 for other endpoints.
+fn periodic_bytes_per_interval(ep_type: EndpointType, max_packet_size: u16) -> u16 {
+    match ep_type {
+        EndpointType::Interrupt | EndpointType::Isochronous => max_packet_size & 0x7ff,
+        EndpointType::Control | EndpointType::Bulk => 0,
+    }
+}
+
 /// A writer for USB descriptors.
 pub(crate) struct DescriptorWriter<'a> {
     pub buf: &'a mut [u8],
     position: usize,
     num_interfaces_mark: Option<usize>,
     num_endpoints_mark: Option<usize>,
-    superspeed_max_burst: Option<u8>,
+    superspeed: bool,
 }
 
 pub(crate) struct DescriptorMark(usize);
@@ -195,7 +204,7 @@ impl<'a> DescriptorWriter<'a> {
             position: 0,
             num_interfaces_mark: None,
             num_endpoints_mark: None,
-            superspeed_max_burst: None,
+            superspeed: false,
         }
     }
 
@@ -242,7 +251,7 @@ impl<'a> DescriptorWriter<'a> {
         self.num_interfaces_mark = Some(self.position + 4);
 
         let superspeed = config.max_speed >= UsbDeviceSpeed::Super;
-        self.superspeed_max_burst = superspeed.then_some(config.max_burst);
+        self.superspeed = superspeed;
         let max_power = if superspeed {
             config.max_power.div_ceil(8)
         } else {
@@ -433,24 +442,14 @@ impl<'a> DescriptorWriter<'a> {
             extra_fields,
         );
 
-        if self.superspeed_max_burst.is_some() {
-            let config = self.endpoint_config(
-                Some(endpoint.addr),
-                endpoint.ep_type,
-                endpoint.max_packet_size,
-                endpoint.interval_ms,
-            );
-            let attributes = match endpoint.ep_type {
-                EndpointType::Bulk => config.max_streams,
-                EndpointType::Isochronous => config.mult,
-                EndpointType::Control | EndpointType::Interrupt => 0,
-            };
-            let bytes_per_interval = config.bytes_per_interval as u16;
+        if self.superspeed {
+            // `max_streams` of bulk endpoints and `mult` of isochronous endpoints are always 0.
+            let bytes_per_interval = periodic_bytes_per_interval(endpoint.ep_type, endpoint.max_packet_size);
             self.write(
                 descriptor_type::SS_ENDPOINT_COMPANION,
                 &[
-                    config.max_burst,
-                    attributes,
+                    endpoint.max_burst,
+                    0,
                     bytes_per_interval as u8,
                     (bytes_per_interval >> 8) as u8,
                 ],
@@ -467,16 +466,15 @@ impl<'a> DescriptorWriter<'a> {
         ep_type: EndpointType,
         max_packet_size: u16,
         interval_ms: u8,
+        options: EndpointOptions,
     ) -> EndpointConfig {
         let mut config = EndpointConfig::new(addr, ep_type, max_packet_size, interval_ms);
-        if let Some(max_burst) = self.superspeed_max_burst {
-            match ep_type {
-                EndpointType::Bulk => config.max_burst = max_burst,
-                EndpointType::Interrupt | EndpointType::Isochronous => {
-                    config.bytes_per_interval = (max_packet_size & 0x7ff).into()
-                }
-                EndpointType::Control => {}
+        config.buffers = options.buffers;
+        if self.superspeed {
+            if ep_type == EndpointType::Bulk {
+                config.max_burst = options.max_burst;
             }
+            config.bytes_per_interval = periodic_bytes_per_interval(ep_type, max_packet_size).into();
         }
         config
     }

@@ -41,6 +41,64 @@ pub enum UsbDeviceSpeed {
     SuperPlus,
 }
 
+/// Endpoint settings chosen by the user rather than by the class.
+///
+/// These trade throughput for hardware resources, and don't change how a class works. Classes take
+/// them in their configuration for the endpoints where they matter, and pass them to the
+/// [`InterfaceAltBuilder`] methods that allocate those endpoints. Other endpoints use
+/// [`EndpointOptions::new()`].
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct EndpointOptions {
+    /// Max packet size of a bulk endpoint, in bytes, or `None` for the largest one the device speed
+    /// allows: 64 at full speed, 512 at high speed and 1024 at SuperSpeed. Ignored for endpoints
+    /// that aren't bulk.
+    ///
+    /// A smaller one saves packet memory. Only full speed allows that, with 8, 16 or 32.
+    ///
+    /// Default: `None`
+    pub max_packet_size: Option<u16>,
+
+    /// Number of packets the hardware may buffer for each endpoint.
+    ///
+    /// More buffers let the hardware move the next packet while software is still busy with the
+    /// previous one, which improves throughput, at the cost of more packet memory. Drivers use as
+    /// many buffers as they support, up to this number.
+    ///
+    /// Default: 1
+    pub buffers: u8,
+
+    /// Maximum burst size at SuperSpeed, in packets minus one. Ignored for endpoints that aren't
+    /// bulk, and at lower speeds.
+    ///
+    /// Default: 0
+    /// Max: 15
+    pub max_burst: u8,
+}
+
+impl EndpointOptions {
+    /// Create the default endpoint options.
+    pub const fn new() -> Self {
+        Self {
+            max_packet_size: None,
+            buffers: 1,
+            max_burst: 0,
+        }
+    }
+
+    fn check(&self) {
+        assert!(self.buffers >= 1, "`buffers` must be at least 1");
+        assert!(self.max_burst <= 15, "The maximum allowed value for `max_burst` is 15");
+    }
+}
+
+impl Default for EndpointOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
@@ -93,12 +151,6 @@ pub struct Config<'a> {
     ///
     /// Default: [`UsbDeviceSpeed::Full`]
     pub max_speed: UsbDeviceSpeed,
-
-    /// Maximum burst size for bulk endpoints at SuperSpeed, in packets minus one.
-    ///
-    /// Default: 0
-    /// Max: 15
-    pub max_burst: u8,
 
     /// Whether the device can send Latency Tolerance Messages at SuperSpeed.
     ///
@@ -168,7 +220,6 @@ impl<'a> Config<'a> {
             device_protocol: 0x01,
             max_packet_size_0: 64,
             max_speed: UsbDeviceSpeed::Full,
-            max_burst: 0,
             ltm_capable: false,
             vendor_id: vid,
             product_id: pid,
@@ -240,10 +291,6 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             assert!(
                 config.max_packet_size_0 == 9,
                 "SuperSpeed USB requires max_packet_size_0 = 9"
-            );
-            assert!(
-                config.max_burst <= 15,
-                "The maximum allowed value for `max_burst` is 15"
             );
             if config.max_speed == UsbDeviceSpeed::SuperPlus {
                 assert!(
@@ -411,46 +458,31 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         self.config.max_speed
     }
 
-    /// Allocates an IN endpoint at device scope.
-    ///
-    /// Unlike [`InterfaceAltBuilder::endpoint_in`], this does not write an endpoint
-    /// descriptor and does not attach the endpoint to an alternate setting. Write the
-    /// standard descriptor in every alternate setting that references the endpoint with
-    /// [`InterfaceAltBuilder::endpoint_descriptor`].
-    ///
-    /// Allocate at device scope when alternate settings share an endpoint. USB MIDI 2.0
-    /// requires its MIDI 1.0 (Alternate Setting 0) and MIDI 2.0 (Alternate Setting 1)
-    /// modes to use the same bulk endpoints; allocating once and describing the endpoint
-    /// in both settings avoids wasting a second endpoint address.
-    ///
-    /// Panics if the driver cannot allocate the endpoint.
-    pub fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> D::EndpointIn {
-        self.driver
-            .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
-            .expect("alloc_endpoint_in failed")
-    }
-
-    /// Allocates an OUT endpoint at device scope.
-    ///
-    /// See [`Builder::alloc_endpoint_in`] for the endpoint-sharing contract.
-    ///
-    /// Panics if the driver cannot allocate the endpoint.
-    pub fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> D::EndpointOut {
-        self.driver
-            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
-            .expect("alloc_endpoint_out failed")
+    /// The max packet size of a bulk endpoint with `options` at [`Config::max_speed`].
+    fn bulk_max_packet_size(&self, options: EndpointOptions) -> u16 {
+        let max = match self.config.max_speed {
+            UsbDeviceSpeed::Full => 64,
+            UsbDeviceSpeed::High => 512,
+            UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => 1024,
+        };
+        match options.max_packet_size {
+            None => max,
+            Some(size) if self.config.max_speed == UsbDeviceSpeed::Full => {
+                assert!(
+                    matches!(size, 8 | 16 | 32 | 64),
+                    "full-speed bulk endpoints require a max_packet_size of 8, 16, 32 or 64"
+                );
+                size
+            }
+            Some(size) => {
+                assert!(
+                    size == max,
+                    "bulk endpoints require a max_packet_size of {} at this speed",
+                    max
+                );
+                size
+            }
+        }
     }
 
     /// Add an USB function.
@@ -567,40 +599,6 @@ impl<'a, 'd, D: Driver<'d>> Drop for FunctionBuilder<'a, 'd, D> {
 }
 
 impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
-    /// Allocates an IN endpoint at device scope.
-    ///
-    /// This is [`Builder::alloc_endpoint_in`], callable while the function has the
-    /// builder borrowed. See that method for the endpoint-sharing contract.
-    ///
-    /// Panics if the driver cannot allocate the endpoint.
-    pub fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> D::EndpointIn {
-        self.builder
-            .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
-    }
-
-    /// Allocates an OUT endpoint at device scope.
-    ///
-    /// This is [`Builder::alloc_endpoint_out`], callable while the function has the
-    /// builder borrowed. See that method for the endpoint-sharing contract.
-    ///
-    /// Panics if the driver cannot allocate the endpoint.
-    pub fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> D::EndpointOut {
-        self.builder
-            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
-    }
-
     /// Add an interface to the function.
     ///
     /// Interface numbers are guaranteed to be allocated consecutively, starting from 0.
@@ -740,12 +738,6 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// This can be necessary, if the endpoint descriptors can only be written
     /// after the endpoint was created. As an example, an endpoint descriptor
     /// may contain the address of an endpoint that was allocated earlier.
-    ///
-    /// This is also how an endpoint shared by several alternate settings is
-    /// described: allocate it once with [`Builder::alloc_endpoint_in`] or
-    /// [`Builder::alloc_endpoint_out`], then call this method in every
-    /// alternate setting that references it. The same [`EndpointInfo`] (and
-    /// therefore the same address and transfer type) must be used everywhere.
     pub fn endpoint_descriptor(
         &mut self,
         endpoint: &EndpointInfo,
@@ -825,23 +817,22 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Allocate an IN endpoint, without writing its descriptor.
     ///
     /// Used for granular control over the order of endpoint and descriptor creation.
-    ///
-    /// Prefer [`Builder::alloc_endpoint_in`] when the endpoint is referenced by more than
-    /// one alternate setting: it makes the device-scoped ownership explicit.
     pub fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
+        options: EndpointOptions,
     ) -> D::EndpointIn {
-        let config = self
-            .builder
-            .config_descriptor
-            .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms);
+        options.check();
+        let config =
+            self.builder
+                .config_descriptor
+                .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms, options);
         self.builder
             .driver
-            .alloc_endpoint_in_with_config(config)
+            .alloc_endpoint_in(&config)
             .expect("alloc_endpoint_in failed")
     }
 
@@ -859,13 +850,14 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
+        options: EndpointOptions,
     ) -> D::EndpointIn {
         let interval_ms = match interval {
             EndpointInterval::Milliseconds(ms) => ms,
             EndpointInterval::Microframes(uframes) => ((uframes + 7) / 8).min(255) as u8,
             EndpointInterval::Raw(val) => val,
         };
-        let ep = self.alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms);
+        let ep = self.alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms, options);
         self.endpoint_descriptor_with_interval(ep.info(), interval, synchronization_type, usage_type, extra_fields);
 
         ep
@@ -885,6 +877,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
+        options: EndpointOptions,
     ) -> D::EndpointIn {
         self.endpoint_in_interval(
             ep_type,
@@ -894,29 +887,29 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             synchronization_type,
             usage_type,
             extra_fields,
+            options,
         )
     }
 
     /// Allocate an OUT endpoint, without writing its descriptor.
     ///
-    /// Use for granular control over the order of endpoint and descriptor creation.
-    ///
-    /// Prefer [`Builder::alloc_endpoint_out`] when the endpoint is referenced by more than
-    /// one alternate setting: it makes the device-scoped ownership explicit.
+    /// Used for granular control over the order of endpoint and descriptor creation.
     pub fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
+        options: EndpointOptions,
     ) -> D::EndpointOut {
-        let config = self
-            .builder
-            .config_descriptor
-            .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms);
+        options.check();
+        let config =
+            self.builder
+                .config_descriptor
+                .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms, options);
         self.builder
             .driver
-            .alloc_endpoint_out_with_config(config)
+            .alloc_endpoint_out(&config)
             .expect("alloc_endpoint_out failed")
     }
 
@@ -934,13 +927,14 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
+        options: EndpointOptions,
     ) -> D::EndpointOut {
         let interval_ms = match interval {
             EndpointInterval::Milliseconds(ms) => ms,
             EndpointInterval::Microframes(uframes) => ((uframes + 7) / 8).min(255) as u8,
             EndpointInterval::Raw(val) => val,
         };
-        let ep = self.alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms);
+        let ep = self.alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms, options);
         self.endpoint_descriptor_with_interval(ep.info(), interval, synchronization_type, usage_type, extra_fields);
 
         ep
@@ -960,6 +954,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
+        options: EndpointOptions,
     ) -> D::EndpointOut {
         self.endpoint_out_interval(
             ep_type,
@@ -969,14 +964,18 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             synchronization_type,
             usage_type,
             extra_fields,
+            options,
         )
     }
 
     /// Allocate a BULK IN endpoint and write its descriptor.
     ///
+    /// Its max packet size is [`EndpointOptions::max_packet_size`].
+    ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
-    pub fn endpoint_bulk_in(&mut self, ep_addr: Option<EndpointAddress>, max_packet_size: u16) -> D::EndpointIn {
+    pub fn endpoint_bulk_in(&mut self, ep_addr: Option<EndpointAddress>, options: EndpointOptions) -> D::EndpointIn {
+        let max_packet_size = self.builder.bulk_max_packet_size(options);
         self.endpoint_in(
             EndpointType::Bulk,
             ep_addr,
@@ -985,14 +984,18 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             SynchronizationType::NoSynchronization,
             UsageType::DataEndpoint,
             &[],
+            options,
         )
     }
 
     /// Allocate a BULK OUT endpoint and write its descriptor.
     ///
+    /// Its max packet size is [`EndpointOptions::max_packet_size`].
+    ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
-    pub fn endpoint_bulk_out(&mut self, ep_addr: Option<EndpointAddress>, max_packet_size: u16) -> D::EndpointOut {
+    pub fn endpoint_bulk_out(&mut self, ep_addr: Option<EndpointAddress>, options: EndpointOptions) -> D::EndpointOut {
+        let max_packet_size = self.builder.bulk_max_packet_size(options);
         self.endpoint_out(
             EndpointType::Bulk,
             ep_addr,
@@ -1001,65 +1004,8 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             SynchronizationType::NoSynchronization,
             UsageType::DataEndpoint,
             &[],
+            options,
         )
-    }
-
-    /// Allocate a double-buffered BULK IN endpoint and write its descriptor.
-    ///
-    /// Like [`endpoint_bulk_in`](Self::endpoint_bulk_in), but asks the driver to double-buffer
-    /// the endpoint. Drivers that don't support this allocate an ordinary endpoint. See
-    /// [`Driver::alloc_endpoint_bulk_in_double_buffered`].
-    pub fn endpoint_bulk_in_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> D::EndpointIn {
-        let mut config =
-            self.builder
-                .config_descriptor
-                .endpoint_config(ep_addr, EndpointType::Bulk, max_packet_size, 0);
-        config.double_buffered = true;
-        let ep = self
-            .builder
-            .driver
-            .alloc_endpoint_in_with_config(config)
-            .expect("alloc_endpoint_bulk_in_double_buffered failed");
-        self.endpoint_descriptor(
-            ep.info(),
-            SynchronizationType::NoSynchronization,
-            UsageType::DataEndpoint,
-            &[],
-        );
-        ep
-    }
-
-    /// Allocate a double-buffered BULK OUT endpoint and write its descriptor.
-    ///
-    /// Like [`endpoint_bulk_out`](Self::endpoint_bulk_out), but asks the driver to double-buffer
-    /// the endpoint. Drivers that don't support this allocate an ordinary endpoint. See
-    /// [`Driver::alloc_endpoint_bulk_out_double_buffered`].
-    pub fn endpoint_bulk_out_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> D::EndpointOut {
-        let mut config =
-            self.builder
-                .config_descriptor
-                .endpoint_config(ep_addr, EndpointType::Bulk, max_packet_size, 0);
-        config.double_buffered = true;
-        let ep = self
-            .builder
-            .driver
-            .alloc_endpoint_out_with_config(config)
-            .expect("alloc_endpoint_bulk_out_double_buffered failed");
-        self.endpoint_descriptor(
-            ep.info(),
-            SynchronizationType::NoSynchronization,
-            UsageType::DataEndpoint,
-            &[],
-        );
-        ep
     }
 
     /// Allocate an INTERRUPT IN endpoint and write its descriptor with a specific [`EndpointInterval`].
@@ -1080,10 +1026,11 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             SynchronizationType::NoSynchronization,
             UsageType::DataEndpoint,
             &[],
+            EndpointOptions::new(),
         )
     }
 
-    /// Allocate a INTERRUPT IN endpoint and write its descriptor.
+    /// Allocate an INTERRUPT IN endpoint and write its descriptor.
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
@@ -1097,6 +1044,9 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     }
 
     /// Allocate an INTERRUPT OUT endpoint and write its descriptor with a specific [`EndpointInterval`].
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
     pub fn endpoint_interrupt_out_interval(
         &mut self,
         ep_addr: Option<EndpointAddress>,
@@ -1111,10 +1061,14 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             SynchronizationType::NoSynchronization,
             UsageType::DataEndpoint,
             &[],
+            EndpointOptions::new(),
         )
     }
 
-    /// Allocate a INTERRUPT OUT endpoint and write its descriptor.
+    /// Allocate an INTERRUPT OUT endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
     pub fn endpoint_interrupt_out(
         &mut self,
         ep_addr: Option<EndpointAddress>,
@@ -1128,6 +1082,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
+    #[allow(clippy::too_many_arguments)]
     pub fn endpoint_isochronous_in_interval(
         &mut self,
         ep_addr: Option<EndpointAddress>,
@@ -1136,6 +1091,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
+        options: EndpointOptions,
     ) -> D::EndpointIn {
         self.endpoint_in_interval(
             EndpointType::Isochronous,
@@ -1145,13 +1101,15 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             synchronization_type,
             usage_type,
             extra_fields,
+            options,
         )
     }
 
-    /// Allocate a ISOCHRONOUS IN endpoint and write its descriptor.
+    /// Allocate an ISOCHRONOUS IN endpoint and write its descriptor.
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
+    #[allow(clippy::too_many_arguments)]
     pub fn endpoint_isochronous_in(
         &mut self,
         ep_addr: Option<EndpointAddress>,
@@ -1160,6 +1118,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
+        options: EndpointOptions,
     ) -> D::EndpointIn {
         self.endpoint_isochronous_in_interval(
             ep_addr,
@@ -1168,10 +1127,15 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             synchronization_type,
             usage_type,
             extra_fields,
+            options,
         )
     }
 
     /// Allocate an ISOCHRONOUS OUT endpoint and write its descriptor with a specific [`EndpointInterval`].
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    #[allow(clippy::too_many_arguments)]
     pub fn endpoint_isochronous_out_interval(
         &mut self,
         ep_addr: Option<EndpointAddress>,
@@ -1180,6 +1144,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
+        options: EndpointOptions,
     ) -> D::EndpointOut {
         self.endpoint_out_interval(
             EndpointType::Isochronous,
@@ -1189,10 +1154,15 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             synchronization_type,
             usage_type,
             extra_fields,
+            options,
         )
     }
 
-    /// Allocate a ISOCHRONOUS OUT endpoint and write its descriptor.
+    /// Allocate an ISOCHRONOUS OUT endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    #[allow(clippy::too_many_arguments)]
     pub fn endpoint_isochronous_out(
         &mut self,
         ep_addr: Option<EndpointAddress>,
@@ -1201,6 +1171,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
+        options: EndpointOptions,
     ) -> D::EndpointOut {
         self.endpoint_isochronous_out_interval(
             ep_addr,
@@ -1209,6 +1180,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             synchronization_type,
             usage_type,
             extra_fields,
+            options,
         )
     }
 }

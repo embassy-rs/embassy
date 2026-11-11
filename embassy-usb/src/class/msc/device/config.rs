@@ -2,11 +2,11 @@
 
 use core::cmp::min;
 
+use crate::EndpointOptions;
+
 /// Configuration for the USB Mass Storage Class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
-    /// Maximum packet size for Bulk endpoints (typically 64 for Full Speed, 512 for High Speed).
-    pub max_packet_size: u16,
     /// Vendor identification (8 ASCII characters, space-padded per SPC-2).
     pub vendor_id: [u8; 8],
     /// Product identification (16 ASCII characters, space-padded per SPC-2).
@@ -17,26 +17,23 @@ pub struct Config {
     pub serial_number: [u8; 32],
     /// Length of the unit serial number in bytes (0..=32).
     pub serial_number_len: u8,
-    /// Ask the driver to double-buffer the bulk endpoints. See
-    /// [`Driver::alloc_endpoint_bulk_in_double_buffered`](crate::driver::Driver::alloc_endpoint_bulk_in_double_buffered).
-    pub double_buffered: bool,
+    /// Options for the bulk OUT endpoint, which receives the data the host sends.
+    pub out_endpoint_options: EndpointOptions,
+    /// Options for the bulk IN endpoint, which sends data to the host.
+    pub in_endpoint_options: EndpointOptions,
 }
 
 impl Config {
-    /// Creates a new `Config` with the given `max_packet_size` and empty vendor/product/serial strings.
-    pub const fn new(max_packet_size: u16) -> Self {
-        core::assert!(
-            max_packet_size == 64 || max_packet_size == 512,
-            "max_packet_size must be 64 (Full Speed) or 512 (High Speed)"
-        );
+    /// Creates a new `Config` with empty vendor/product/serial strings.
+    pub const fn new() -> Self {
         Self {
-            max_packet_size,
             vendor_id: [b' '; 8],
             product_id: [b' '; 16],
             product_revision_level: [b' '; 4],
             serial_number: [0u8; 32],
             serial_number_len: 0,
-            double_buffered: false,
+            out_endpoint_options: EndpointOptions::new(),
+            in_endpoint_options: EndpointOptions::new(),
         }
     }
 
@@ -73,15 +70,6 @@ impl Config {
         copy_pad_ascii(&mut self.product_revision_level, revision);
     }
 
-    /// Asks the driver to double-buffer the bulk endpoints.
-    ///
-    /// This improves throughput on drivers that support it, at the cost of more endpoint
-    /// resources. Drivers that don't support it allocate ordinary endpoints.
-    pub fn double_buffered(mut self, double_buffered: bool) -> Self {
-        self.double_buffered = double_buffered;
-        self
-    }
-
     /// Sets the Unit Serial Number (up to 32 ASCII characters).
     pub fn serial_number(mut self, serial_number: &str) -> Self {
         self.set_serial_number(serial_number);
@@ -104,7 +92,7 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::new(64)
+        Self::new()
     }
 }
 
@@ -136,7 +124,6 @@ mod tests {
     #[test]
     fn default_config() {
         let config = Config::default();
-        core::assert_eq!(config.max_packet_size, 64);
         core::assert_eq!(&config.vendor_id, b"        ");
         core::assert_eq!(&config.product_id, b"                ");
         core::assert_eq!(&config.product_revision_level, b"    ");
@@ -146,7 +133,7 @@ mod tests {
     #[test]
     fn config_builder_dynamic_strings() {
         let dynamic_serial = "CHIP-9876543210";
-        let config = Config::new(64)
+        let config = Config::new()
             .vendor_id("ACME")
             .product_id("Storage Device")
             .product_revision_level("2.0")

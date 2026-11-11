@@ -23,8 +23,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "embassy-time")]
 use embassy_time::{Duration, Instant};
 use embassy_usb_driver::{
-    Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut, EndpointType,
-    Event, Unsupported,
+    Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointError, EndpointIn, EndpointInfo,
+    EndpointOut, EndpointType, Event, Unsupported,
 };
 
 use crate::fmt::Bytes;
@@ -753,6 +753,7 @@ where
                 ep_type,
                 max_packet_size,
                 interval_ms,
+                max_burst: 0,
             },
         })
     }
@@ -767,24 +768,12 @@ where
     type ControlPipe = ControlPipe<'d, M>;
     type Bus = Bus<'d, M>;
 
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
     }
 
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
     }
 
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -2363,8 +2352,12 @@ mod tests {
 
         let mut buf = [0; 256];
         let mut driver = Driver::new(&mut buf, instance(state), Config::default());
-        driver.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0).unwrap();
-        driver.alloc_endpoint_in(EndpointType::Bulk, None, 64, 0).unwrap();
+        driver
+            .alloc_endpoint_out(&EndpointConfig::new(None, EndpointType::Bulk, 64, 0))
+            .unwrap();
+        driver
+            .alloc_endpoint_in(&EndpointConfig::new(None, EndpointType::Bulk, 64, 0))
+            .unwrap();
         let _ = driver.start(64);
         state.ep_states[0].in_enabled.store(true, Ordering::Release);
         state.ep_states[1].out_enabled.store(true, Ordering::Release);
@@ -2372,7 +2365,9 @@ mod tests {
 
         let mut buf = [0; 256];
         let mut driver = Driver::new(&mut buf, instance(state), Config::default());
-        let ep = driver.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0).unwrap();
+        let ep = driver
+            .alloc_endpoint_out(&EndpointConfig::new(None, EndpointType::Bulk, 64, 0))
+            .unwrap();
         assert_eq!(ep.info.addr.index(), 1);
         assert!(!state.ep_states[0].in_enabled.load(Ordering::Acquire));
         assert!(!state.ep_states[1].out_enabled.load(Ordering::Acquire));

@@ -13,10 +13,9 @@ pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Pola
 pub use pac::spis::vals::Order as BitOrder;
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
-use crate::gpio::{self, AnyPin, OutputDrive, Pin as GpioPin, SealedPin as _, convert_drive};
+use crate::gpio::{self, Flex, OutputDrive, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-use crate::pac::gpio::vals as gpiovals;
 use crate::pac::spis::regs::RxMaxcnt;
 use crate::pac::spis::vals;
 use crate::ppi::Event;
@@ -128,19 +127,19 @@ impl<'d> Spis<'d, Async> {
     /// Create a new SPIS driver.
     pub fn new<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        mosi: Peri<'d, impl GpioPin>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_async_inner(
             spis,
-            Some(sck.into()),
-            Some(mosi.into()),
-            Some(miso.into()),
-            cs.into(),
+            Some(Flex::new(sck)),
+            Some(Flex::new(mosi)),
+            Some(Flex::new(miso)),
+            Flex::new(cs),
             config,
         )
     }
@@ -148,44 +147,58 @@ impl<'d> Spis<'d, Async> {
     /// Create a new SPIS driver, capable of TX only (MISO only).
     pub fn new_txonly<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_async_inner(spis, Some(sck.into()), None, Some(miso.into()), cs.into(), config)
+        Self::new_async_inner(
+            spis,
+            Some(Flex::new(sck)),
+            None,
+            Some(Flex::new(miso)),
+            Flex::new(cs),
+            config,
+        )
     }
 
     /// Create a new SPIS driver, capable of RX only (MOSI only).
     pub fn new_rxonly<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        mosi: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_async_inner(spis, Some(sck.into()), Some(mosi.into()), None, cs.into(), config)
+        Self::new_async_inner(
+            spis,
+            Some(Flex::new(sck)),
+            Some(Flex::new(mosi)),
+            None,
+            Flex::new(cs),
+            config,
+        )
     }
 
     /// Create a new SPIS driver, capable of TX only (MISO only) without SCK pin.
     pub fn new_txonly_nosck<T: Instance>(
         spis: Peri<'d, T>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_async_inner(spis, None, None, Some(miso.into()), cs.into(), config)
+        Self::new_async_inner(spis, None, None, Some(Flex::new(miso)), Flex::new(cs), config)
     }
 
     fn new_async_inner<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Option<Peri<'d, AnyPin>>,
-        mosi: Option<Peri<'d, AnyPin>>,
-        miso: Option<Peri<'d, AnyPin>>,
-        cs: Peri<'d, AnyPin>,
+        sck: Option<Flex<'d>>,
+        mosi: Option<Flex<'d>>,
+        miso: Option<Flex<'d>>,
+        cs: Flex<'d>,
         config: Config,
     ) -> Self {
         let this = Self::new_inner(spis, sck, mosi, miso, cs, config);
@@ -305,18 +318,18 @@ impl<'d> Spis<'d, Blocking> {
     /// Create a new blocking SPIS driver.
     pub fn new_blocking<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        mosi: Peri<'d, impl GpioPin>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
             spis,
-            Some(sck.into()),
-            Some(mosi.into()),
-            Some(miso.into()),
-            cs.into(),
+            Some(Flex::new(sck)),
+            Some(Flex::new(mosi)),
+            Some(Flex::new(miso)),
+            Flex::new(cs),
             config,
         )
     }
@@ -324,66 +337,81 @@ impl<'d> Spis<'d, Blocking> {
     /// Create a new blocking SPIS driver, capable of TX only (MISO only).
     pub fn new_blocking_txonly<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(spis, Some(sck.into()), None, Some(miso.into()), cs.into(), config)
+        Self::new_inner(
+            spis,
+            Some(Flex::new(sck)),
+            None,
+            Some(Flex::new(miso)),
+            Flex::new(cs),
+            config,
+        )
     }
 
     /// Create a new blocking SPIS driver, capable of RX only (MOSI only).
     pub fn new_blocking_rxonly<T: Instance>(
         spis: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        mosi: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(spis, Some(sck.into()), Some(mosi.into()), None, cs.into(), config)
+        Self::new_inner(
+            spis,
+            Some(Flex::new(sck)),
+            Some(Flex::new(mosi)),
+            None,
+            Flex::new(cs),
+            config,
+        )
     }
 
     /// Create a new blocking SPIS driver, capable of TX only (MISO only) without SCK pin.
     pub fn new_blocking_txonly_nosck<T: Instance>(
         spis: Peri<'d, T>,
-        miso: Peri<'d, impl GpioPin>,
-        cs: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        cs: Peri<'d, impl CsPin<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(spis, None, None, Some(miso.into()), cs.into(), config)
+        Self::new_inner(spis, None, None, Some(Flex::new(miso)), Flex::new(cs), config)
     }
 }
 
 impl<'d, M: PeriMode> Spis<'d, M> {
     fn new_inner<T: Instance>(
         _spis: Peri<'d, T>,
-        sck: Option<Peri<'d, AnyPin>>,
-        mosi: Option<Peri<'d, AnyPin>>,
-        miso: Option<Peri<'d, AnyPin>>,
-        cs: Peri<'d, AnyPin>,
+        sck: Option<Flex<'d>>,
+        mosi: Option<Flex<'d>>,
+        miso: Option<Flex<'d>>,
+        mut cs: Flex<'d>,
         config: Config,
     ) -> Self {
         compiler_fence(Ordering::SeqCst);
 
         let r = T::regs();
 
-        // Configure pins.
-        cs.conf().write(|w| w.set_input(gpiovals::Input::Connect));
+        // Configure pins. They're disconnected on drop by reading back PSEL.
+        cs.set_as_input(Pull::None);
         r.psel().csn().write_value(cs.psel_bits());
-        if let Some(sck) = &sck {
-            sck.conf().write(|w| w.set_input(gpiovals::Input::Connect));
+        cs.persist();
+        if let Some(mut sck) = sck {
+            sck.set_as_input(Pull::None);
             r.psel().sck().write_value(sck.psel_bits());
+            sck.persist();
         }
-        if let Some(mosi) = &mosi {
-            mosi.conf().write(|w| w.set_input(gpiovals::Input::Connect));
+        if let Some(mut mosi) = mosi {
+            mosi.set_as_input(Pull::None);
             r.psel().mosi().write_value(mosi.psel_bits());
+            mosi.persist();
         }
-        if let Some(miso) = &miso {
-            miso.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::Output);
-                convert_drive(w, config.miso_drive);
-            });
+        if let Some(mut miso) = miso {
+            miso.set_as_input_output(Pull::None, config.miso_drive);
             r.psel().miso().write_value(miso.psel_bits());
+            miso.persist();
         }
 
         // Enable SPIS instance.
@@ -618,6 +646,30 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// SCK pin trait.
+    SckPin,
+    Instance
+);
+
+pin_trait!(
+    /// MOSI pin trait.
+    MosiPin,
+    Instance
+);
+
+pin_trait!(
+    /// MISO pin trait.
+    MisoPin,
+    Instance
+);
+
+pin_trait!(
+    /// CS pin trait.
+    CsPin,
+    Instance
+);
 
 macro_rules! impl_spis {
     ($type:ident, $pac_type:ident, $irq:ident) => {

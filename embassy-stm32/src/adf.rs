@@ -94,8 +94,8 @@ impl<'d, T: Instance> Adf<'d, T> {
     where
         D: RxDma<T, Flt0>,
     {
-        set_as_af!(cck, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        set_as_af!(sdi, AfType::input(Pull::None));
+        set_as_af!(cck, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+        set_as_af!(sdi, AfType::input(Pull::None)).persist();
 
         rcc::enable_and_reset::<T>();
         T::Interrupt::unpend();

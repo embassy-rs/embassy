@@ -43,7 +43,7 @@ After a bit of import declaration, the tasks run by the application should be de
 
 [source,rust]
 ----
-include::../examples/basic/src/main.rs[lines="16..28"]
+include::../examples/basic/src/main.rs[lines="16..26"]
 ----
 
 An embassy task must be declared `async`, and may NOT take generic arguments. In this case, we are handed the LED that should be blinked and the interval of the blinking.
@@ -58,7 +58,7 @@ We then initialize the HAL with a default config, which gives us a `Peripherals`
 
 [source,rust]
 ----
-include::../examples/basic/src/main.rs[lines="31..-1"]
+include::../examples/basic/src/main.rs[lines="29..-1"]
 ----
 
 What happens when the `blinker` task has been spawned and main returns? Well, the main entry point is actually just like any other task, except that you can only have one and it takes some specific type arguments. The magic lies within the `#[embassy_executor::main]` macro. The macro does the following:

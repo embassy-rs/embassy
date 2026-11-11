@@ -7,7 +7,7 @@ use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpiote::GpiotePin;
@@ -129,10 +129,12 @@ impl<'d, M: Mode> Input<'d, M> {
     }
 }
 
-impl<M: Mode> Input<'static, M> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
+impl<'d, M: Mode> Input<'d, M> {
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
     pub fn persist(self) {
         self.pin.persist()
     }
@@ -327,10 +329,12 @@ impl<'d> Output<'d> {
     }
 }
 
-impl Output<'static> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
+impl<'d> Output<'d> {
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
     pub fn persist(self) {
         self.pin.persist()
     }
@@ -478,10 +482,12 @@ impl<'d, M: Mode> OutputOpenDrain<'d, M> {
     }
 }
 
-impl<M: Mode> OutputOpenDrain<'static, M> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
+impl<'d, M: Mode> OutputOpenDrain<'d, M> {
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
     pub fn persist(self) {
         self.pin.persist()
     }
@@ -533,9 +539,10 @@ fn convert_pull(pull: Pull) -> vals::Pull {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, M: Mode = Blocking> {
-    pub(crate) pin: Peri<'d, AnyPin>,
+    pub(crate) pin: PinNumber,
     /// Waker for the pin's PORT event.
     waker: M::IfAsync<&'static AtomicWaker>,
+    _lifetime: PhantomData<&'d mut ()>,
     _mode: PhantomData<M>,
 }
 
@@ -546,7 +553,7 @@ impl<'d> Flex<'d, Blocking> {
     /// before the pin is put into output mode.
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>) -> Self {
-        Self::new_inner(pin.into(), ())
+        Self::new_inner(pin.pin_number(), ())
     }
 }
 
@@ -563,7 +570,7 @@ impl<'d> Flex<'d, Async> {
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         crate::gpiote::enable_port_interrupt::<T>();
-        Self::new_inner(pin.into(), T::waker())
+        Self::new_inner(pin.pin_number(), T::waker())
     }
 
     /// Wait until the pin is high. If it is already high, return immediately.
@@ -603,7 +610,7 @@ impl<'d> Flex<'d, Async> {
         #[cfg(not(feature = "_nrf51"))]
         {
             let latch = self.pin.block().latch();
-            let mask = 1 << self.pin._pin();
+            let mask = 1 << self.pin.pin();
             if latch.read().0 & mask != 0 {
                 latch.write(|w| w.0 = mask);
             }
@@ -611,19 +618,21 @@ impl<'d> Flex<'d, Async> {
 
         self.pin.conf().modify(|w| w.set_sense(sense));
         PortInputFuture {
-            pin: self.pin.reborrow(),
+            pin: self.pin,
             waker: self.waker,
+            _lifetime: PhantomData,
         }
     }
 }
 
 impl<'d, M: Mode> Flex<'d, M> {
     #[inline]
-    fn new_inner(pin: Peri<'d, AnyPin>, waker: M::IfAsync<&'static AtomicWaker>) -> Self {
+    fn new_inner(pin: PinNumber, waker: M::IfAsync<&'static AtomicWaker>) -> Self {
         // Pin will be in disconnected state.
         Self {
             pin,
             waker,
+            _lifetime: PhantomData,
             _mode: PhantomData,
         }
     }
@@ -631,7 +640,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Put the pin into input mode.
     #[inline]
     pub fn set_as_input(&mut self, pull: Pull) {
-        self.pin.conf().write(|w| {
+        self.set_cnf(|w| {
             w.set_dir(vals::Dir::Input);
             w.set_input(vals::Input::Connect);
             w.set_pull(convert_pull(pull));
@@ -646,7 +655,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
     pub fn set_as_output(&mut self, drive: OutputDrive) {
-        self.pin.conf().write(|w| {
+        self.set_cnf(|w| {
             w.set_dir(vals::Dir::Output);
             w.set_input(vals::Input::Disconnect);
             w.set_pull(vals::Pull::Disabled);
@@ -666,7 +675,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
     pub fn set_as_input_output(&mut self, pull: Pull, drive: OutputDrive) {
-        self.pin.conf().write(|w| {
+        self.set_cnf(|w| {
             w.set_dir(vals::Dir::Output);
             w.set_input(vals::Input::Connect);
             w.set_pull(convert_pull(pull));
@@ -678,9 +687,37 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Put the pin into disconnected mode.
     #[inline]
     pub fn set_as_disconnected(&mut self) {
-        self.pin.conf().write(|w| {
+        self.set_cnf(|w| {
             w.set_input(vals::Input::Disconnect);
         });
+    }
+
+    /// Write the pin's `PIN_CNF` register. Fields `f` doesn't set keep their reset value.
+    ///
+    /// For configuring the pin for use by a peripheral, when none of the `set_as_*` methods writes
+    /// the value the peripheral needs.
+    #[inline]
+    pub(crate) fn set_cnf(&mut self, f: impl FnOnce(&mut gpio::regs::PinCnf)) {
+        self.pin.conf().write(f);
+    }
+
+    /// Peripheral pin select register value for this pin.
+    #[cfg(not(feature = "_nrf51"))]
+    #[inline]
+    pub(crate) fn psel_bits(&self) -> Psel {
+        self.pin.psel_bits()
+    }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    ///
+    /// Drivers that don't keep their pins use this too: they disconnect them on drop by reading
+    /// back the peripheral's PSEL registers, or leave them configured.
+    #[inline]
+    pub fn persist(self) {
+        core::mem::forget(self);
     }
 
     /// Is the pin configured as an input?
@@ -774,15 +811,6 @@ impl<'d, M: Mode> Flex<'d, M> {
     }
 }
 
-impl<M: Mode> Flex<'static, M> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
-    pub fn persist(self) {
-        core::mem::forget(self);
-    }
-}
-
 impl<'d, M: Mode> Drop for Flex<'d, M> {
     fn drop(&mut self) {
         self.set_as_disconnected();
@@ -812,7 +840,7 @@ pub struct InterruptHandler<T: GpiotePin> {
 
 impl<T: GpiotePin> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let pin = AnyPin { pin_port: T::PIN_PORT };
+        let pin = T::PIN_NUMBER;
 
         // Clear the event before any LATCH bit, so the PORT event generated when a LATCH clear
         // leaves other bits set isn't lost.
@@ -821,19 +849,19 @@ impl<T: GpiotePin> Handler<T::Interrupt> for InterruptHandler<T> {
         // On nRF51 there's no LATCH, check the level against the SENSE setting instead.
         #[cfg(feature = "_nrf51")]
         let fired = match pin.conf().read().sense() {
-            vals::Sense::High => pin.block().in_().read().pin(pin._pin() as _),
-            vals::Sense::Low => !pin.block().in_().read().pin(pin._pin() as _),
+            vals::Sense::High => pin.block().in_().read().pin(pin.pin() as _),
+            vals::Sense::Low => !pin.block().in_().read().pin(pin.pin() as _),
             _ => false,
         };
         #[cfg(not(feature = "_nrf51"))]
-        let fired = pin.block().latch().read().0 & (1 << pin._pin()) != 0;
+        let fired = pin.block().latch().read().0 & (1 << pin.pin()) != 0;
 
         if fired {
             // Disable SENSE before clearing LATCH: a LATCH bit doesn't clear while its DETECT signal is high.
             // The future sees SENSE disabled and completes.
             pin.conf().modify(|w| w.set_sense(vals::Sense::Disabled));
             #[cfg(not(feature = "_nrf51"))]
-            pin.block().latch().write(|w| w.0 = 1 << pin._pin());
+            pin.block().latch().write(|w| w.0 = 1 << pin.pin());
             T::waker().wake();
         }
     }
@@ -841,8 +869,9 @@ impl<T: GpiotePin> Handler<T::Interrupt> for InterruptHandler<T> {
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct PortInputFuture<'a> {
-    pin: Peri<'a, AnyPin>,
+    pin: PinNumber,
     waker: &'static AtomicWaker,
+    _lifetime: PhantomData<&'a mut ()>,
 }
 
 impl<'a> Unpin for PortInputFuture<'a> {}
@@ -867,20 +896,45 @@ impl<'a> Future for PortInputFuture<'a> {
     }
 }
 
-pub(crate) trait SealedPin {
-    fn pin_port(&self) -> u8;
+/// Packed port and pin number of a GPIO pin (`port * 32 + pin`).
+///
+/// Plain data: holding one doesn't mean owning the pin.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PinNumber(u8);
 
+impl PinNumber {
     #[inline]
-    fn _pin(&self) -> u8 {
+    pub(crate) const fn new(pin_port: u8) -> Self {
+        Self(pin_port)
+    }
+
+    /// Number of the pin within the port (0..31)
+    #[inline]
+    pub(crate) fn pin(self) -> u8 {
         cfg_select! {
-            feature = "_gpio-p1" => self.pin_port() % 32,
-            _ => self.pin_port(),
+            feature = "_gpio-p1" => self.0 % 32,
+            _ => self.0,
+        }
+    }
+
+    /// Port of the pin
+    #[inline]
+    pub(crate) fn port(self) -> Port {
+        match self.0 / 32 {
+            0 => Port::Port0,
+            #[cfg(feature = "_gpio-p1")]
+            1 => Port::Port1,
+            #[cfg(feature = "_gpio-p2")]
+            2 => Port::Port2,
+            #[cfg(feature = "_gpio-p3")]
+            3 => Port::Port3,
+            _ => unsafe { unreachable_unchecked() },
         }
     }
 
     #[inline]
-    fn block(&self) -> gpio::Gpio {
-        match self.pin_port() / 32 {
+    pub(crate) fn block(self) -> gpio::Gpio {
+        match self.0 / 32 {
             #[cfg(feature = "_nrf51")]
             0 => pac::GPIO,
             #[cfg(not(feature = "_nrf51"))]
@@ -896,78 +950,91 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
-    fn conf(&self) -> Reg<gpio::regs::PinCnf, RW> {
-        self.block().pin_cnf(self._pin() as usize)
+    pub(crate) fn conf(self) -> Reg<gpio::regs::PinCnf, RW> {
+        self.block().pin_cnf(self.pin() as usize)
     }
 
     /// Set the output as high.
     #[inline]
-    fn set_high(&self) {
-        self.block().outset().write(|w| w.set_pin(self._pin() as _, true))
+    pub(crate) fn set_high(self) {
+        self.block().outset().write(|w| w.set_pin(self.pin() as _, true))
     }
 
     /// Set the output as low.
     #[inline]
-    fn set_low(&self) {
-        self.block().outclr().write(|w| w.set_pin(self._pin() as _, true))
+    pub(crate) fn set_low(self) {
+        self.block().outclr().write(|w| w.set_pin(self.pin() as _, true))
+    }
+
+    /// Peripheral pin select register value for this pin.
+    #[inline]
+    #[cfg(not(feature = "_nrf51"))]
+    pub(crate) fn psel_bits(self) -> Psel {
+        Psel(self.0 as u32)
     }
 }
 
-/// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
+pub(crate) trait SealedPin {
+    fn pin_number(&self) -> PinNumber;
+}
+
+/// Interface for a Pin that can be configured by an [Input] or [Output] driver.
 #[allow(private_bounds)]
-pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
+pub trait Pin: PeripheralType + SealedPin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
-        self._pin()
+        self.pin_number().pin()
     }
 
     /// Port of the pin
     #[inline]
     fn port(&self) -> Port {
-        match self.pin_port() / 32 {
-            0 => Port::Port0,
-            #[cfg(feature = "_gpio-p1")]
-            1 => Port::Port1,
-            #[cfg(feature = "_gpio-p2")]
-            2 => Port::Port2,
-            #[cfg(feature = "_gpio-p3")]
-            3 => Port::Port3,
-            _ => unsafe { unreachable_unchecked() },
-        }
+        self.pin_number().port()
     }
 
     /// Peripheral port register value
     #[inline]
     #[cfg(not(feature = "_nrf51"))]
     fn psel_bits(&self) -> pac::shared::regs::Psel {
-        pac::shared::regs::Psel(self.pin_port() as u32)
+        self.pin_number().psel_bits()
     }
 }
 
-/// Type-erased GPIO pin
-pub struct AnyPin {
-    pub(crate) pin_port: u8,
+// ====================
+
+/// Declare a per-signal pin trait for a peripheral.
+///
+/// On chips where any pin can be used with any peripheral, the trait is implemented for all pins.
+/// On nRF54L, it's implemented for pins in the same power domain as the peripheral; dedicated
+/// and cross-domain pins are added with `impl_pin_trait!` in the chip files.
+#[allow(unused_macros)]
+macro_rules! pin_trait {
+    ($(#[$attr:meta])* $signal:ident, $instance:path) => {
+        $(#[$attr])*
+        #[cfg_attr(
+            feature = "_nrf54l",
+            diagnostic::on_unimplemented(
+                message = "pin `{Self}` can't be used for this signal of `{T}`",
+                note = "on nRF54L, peripherals can only use pins in their own power domain, or their dedicated pins. See `embassy_nrf::domain`."
+            )
+        )]
+        pub trait $signal<T: $instance>: crate::gpio::Pin {}
+
+        #[cfg(not(feature = "_nrf54l"))]
+        impl<T: $instance, P: crate::gpio::Pin> $signal<T> for P {}
+
+        #[cfg(feature = "_nrf54l")]
+        impl<T: $instance + crate::domain::DomainPeripheral, P: crate::domain::DomainPin<T::Domain>> $signal<T> for P {}
+    };
 }
 
-impl AnyPin {
-    /// Create an [AnyPin] for a specific pin.
-    ///
-    /// # Safety
-    /// - `pin_port` should not in use by another driver.
-    #[inline]
-    pub unsafe fn steal(pin_port: u8) -> Peri<'static, Self> {
-        Peri::new_unchecked(Self { pin_port })
-    }
-}
-
-impl_peripheral!(AnyPin);
-impl Pin for AnyPin {}
-impl SealedPin for AnyPin {
-    #[inline]
-    fn pin_port(&self) -> u8 {
-        self.pin_port
-    }
+/// Implement a pin trait for a dedicated (or cross-domain) pin.
+#[cfg(feature = "_nrf54l")]
+macro_rules! impl_pin_trait {
+    ($pin:ident, $instance:ident, $($signal:ident)::+) => {
+        impl crate::$($signal)::+<peripherals::$instance> for peripherals::$pin {}
+    };
 }
 
 // ====================
@@ -978,7 +1045,7 @@ pub(crate) trait PselBits {
 }
 
 #[cfg(not(feature = "_nrf51"))]
-impl<'a, P: Pin> PselBits for Option<Peri<'a, P>> {
+impl<'d, M: Mode> PselBits for Option<Flex<'d, M>> {
     #[inline]
     fn psel_bits(&self) -> pac::shared::regs::Psel {
         match self {
@@ -997,7 +1064,7 @@ pub(crate) fn deconfigure_pin(psel: Psel) {
     if psel.connect() == Connect::Disconnected {
         return;
     }
-    unsafe { AnyPin::steal(psel.0 as _) }.conf().write(|w| {
+    PinNumber::new(psel.0 as _).conf().write(|w| {
         w.set_input(vals::Input::Disconnect);
     })
 }
@@ -1005,20 +1072,16 @@ pub(crate) fn deconfigure_pin(psel: Psel) {
 // ====================
 
 macro_rules! impl_pin {
+    ($type:ident, $port_num:expr, $pin_num:expr, $domain:ident) => {
+        impl_pin!($type, $port_num, $pin_num);
+        impl crate::domain::DomainPin<crate::domain::$domain> for peripherals::$type {}
+    };
     ($type:ident, $port_num:expr, $pin_num:expr) => {
         impl crate::gpio::Pin for peripherals::$type {}
         impl crate::gpio::SealedPin for peripherals::$type {
             #[inline]
-            fn pin_port(&self) -> u8 {
-                $port_num * 32 + $pin_num
-            }
-        }
-
-        impl From<peripherals::$type> for crate::gpio::AnyPin {
-            fn from(_val: peripherals::$type) -> Self {
-                Self {
-                    pin_port: $port_num * 32 + $pin_num,
-                }
+            fn pin_number(&self) -> crate::gpio::PinNumber {
+                crate::gpio::PinNumber::new($port_num * 32 + $pin_num)
             }
         }
 
