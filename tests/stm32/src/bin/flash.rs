@@ -73,6 +73,16 @@ struct Sector {
 )]
 #[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
+    // This image stays in flash after the test. teleprobe power-cycles the board before every
+    // run, so it boots again while teleprobe attaches for the next test. Resetting in the middle
+    // of erases during the attach makes it time out. A power cycle clears C_DEBUGEN, the test's
+    // own resets don't, so park until the debugger takes over.
+    // Cortex-M0+ (G0, U0) software can't read DHCSR.
+    #[cfg(all(ecc_reset, not(any(feature = "stm32g071rb", feature = "stm32u083rc"))))]
+    while !cortex_m::peripheral::DCB::is_debugger_attached() {
+        core::hint::spin_loop();
+    }
+
     let mut p = init();
 
     info!(
