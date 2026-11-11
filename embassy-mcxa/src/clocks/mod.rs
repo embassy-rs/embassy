@@ -5,6 +5,18 @@ mod mcxa;
 #[cfg(any(feature = "_mcxa2xx", feature = "_mcxa5xx"))]
 pub use mcxa::*;
 
+#[cfg(feature = "_mcxn")]
+mod mcxn;
+#[cfg(feature = "_mcxn")]
+pub use mcxn::*;
+#[cfg(feature = "_mcxn")]
+pub(crate) use mcxn::{Gate, init_gpio_clocks, wait};
+
+#[cfg(all(any(feature = "_mcxa2xx", feature = "_mcxa5xx"), time_driver_ostimer))]
+pub(crate) use mcxa::enable_ostimer_clock;
+#[cfg(all(feature = "_mcxn", time_driver_ostimer))]
+pub(crate) use mcxn::enable_ostimer_clock;
+
 #[cfg(any(feature = "_mcxa2xx", feature = "_mcxa5xx"))]
 pub(crate) use mcxa::default_register_value;
 #[cfg(any(mcxa_eim, mcxa_erm))]

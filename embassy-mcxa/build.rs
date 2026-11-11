@@ -17,13 +17,14 @@ fn main() {
     let chips = env::vars()
         .filter(|(name, _)| {
             name.strip_prefix("CARGO_FEATURE_MCXA")
-                .is_some_and(|chip| !chip.is_empty() && chip.bytes().all(|c| c.is_ascii_digit()))
+                .or_else(|| name.strip_prefix("CARGO_FEATURE_MCXN"))
+                .is_some_and(|chip| chip.len() == 3 && chip.bytes().all(|c| c.is_ascii_digit()))
         })
         .count();
     match chips {
-        0 => panic!("No MCXA chip feature enabled"),
+        0 => panic!("No MCXA/MCXN chip feature enabled"),
         1 => {}
-        _ => panic!("Multiple MCXA chip features enabled"),
+        _ => panic!("Multiple MCXA/MCXN chip features enabled"),
     }
 
     let mut cfgs = CfgSet::new();
@@ -62,31 +63,58 @@ fn main() {
         cfgs.enable(driver_to_cfg_name(peripheral.driver_name));
     }
 
-    let generated = [
+    if is_mcxn() {
+        assert!(
+            env::var_os("CARGO_FEATURE_EXECUTOR_PLATFORM").is_none(),
+            "MCXN currently requires embassy-executor/platform-cortex-m, not executor-platform"
+        );
+        assert!(
+            env::var_os("CARGO_FEATURE_TIME_DRIVER_LPTMR").is_none(),
+            "MCXN currently supports only the OSTIMER time driver"
+        );
+    }
+
+    let mut generated = vec![
         generate_peripherals_call(),
         generate_interrupt_mod_call(),
         generate_cc_gates(),
-        generate_dma_requests_enum(),
-        generate_instance_calls(),
         generate_gpio_pin_impls(),
-        generate_adc_pin_impls(),
-        generate_cmp_pin_impls(),
-        generate_clkout_impls(),
-        generate_lpi2c_pin_impls(),
-        generate_i3c_pin_impls(),
-        generate_spi_pin_impls(),
-        generate_ctimer_pin_impls(),
-        generate_lpuart_pin_impls(),
-        generate_flexspi_pin_impls(),
-        generate_dac_pin_impls(),
-        generate_flexcan_pin_impls(),
-        generate_dma_impls(),
     ];
+    if is_mcxn() {
+        // DEVICE_TYPE_NUM[15:12] identifies MCXN (1); [11:0] encodes the
+        // three part-number digits. RM 17.4.1.130. This field identifies the
+        // numeric part, not its package or boot/security policy.
+        let digits = METADATA.name.strip_prefix("MCXN").expect("MCXN PAC metadata name");
+        let device_type = 0x1000u16 | u16::from_str_radix(digits, 16).expect("MCXN part digits");
+        generated.push(quote! { pub(crate) const MCXN_DEVICE_TYPE: u16 = #device_type; });
+    }
+    if !is_mcxn() {
+        generated.extend([
+            generate_dma_requests_enum(),
+            generate_instance_calls(),
+            generate_adc_pin_impls(),
+            generate_cmp_pin_impls(),
+            generate_clkout_impls(),
+            generate_lpi2c_pin_impls(),
+            generate_i3c_pin_impls(),
+            generate_spi_pin_impls(),
+            generate_ctimer_pin_impls(),
+            generate_lpuart_pin_impls(),
+            generate_flexspi_pin_impls(),
+            generate_dac_pin_impls(),
+            generate_flexcan_pin_impls(),
+            generate_dma_impls(),
+        ]);
+    }
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_generated.rs");
     fs::write(&out_file, generated.into_iter().collect::<TokenStream>().to_string()).unwrap();
     rustfmt(&out_file);
+}
+
+fn is_mcxn() -> bool {
+    env::var_os("CARGO_FEATURE__MCXN").is_some()
 }
 
 fn generate_peripherals_call() -> TokenStream {
@@ -133,6 +161,7 @@ fn generate_peripherals_call() -> TokenStream {
     for (dma_num, dma_peripheral) in METADATA
         .peripherals
         .iter()
+        .filter(|_| !is_mcxn())
         .filter_map(|p| prefix_num(p.name, "DMA").map(|dma_num| (dma_num, p)))
     {
         let channels_num = find_num(dma_peripheral.driver_name, "DMA").unwrap();
@@ -143,7 +172,12 @@ fn generate_peripherals_call() -> TokenStream {
     }
 
     // Add CTIMER channels
-    for ctimer_num in METADATA.peripherals.iter().filter_map(|p| prefix_num(p.name, "CTIMER")) {
+    for ctimer_num in METADATA
+        .peripherals
+        .iter()
+        .filter(|_| !is_mcxn())
+        .filter_map(|p| prefix_num(p.name, "CTIMER"))
+    {
         for num in 0..4 {
             singletons.push(Singleton::just_name(format!("CTIMER{ctimer_num}_CH{num}")));
         }
@@ -196,6 +230,9 @@ fn generate_cc_gates() -> TokenStream {
     let mut generated = TokenStream::new();
 
     for peripheral in METADATA.peripherals {
+        if is_mcxn() && !matches!(peripheral.name, "GPIO0" | "GPIO1" | "PORT0" | "PORT1" | "OSTIMER0") {
+            continue;
+        }
         let Some(gate) = peripheral.gate.as_ref() else {
             continue;
         };
@@ -214,6 +251,17 @@ fn generate_cc_gates() -> TokenStream {
             }
         });
         let bit = format_ident!("{}", gate.bit);
+
+        if is_mcxn() {
+            let reset = reset.expect("Supported MCXN peripherals require a reset gate");
+            let reset_bit = format_ident!("{}", gate.reset_bit());
+            let group = prefix_num(gate.enable, "ahbclkctrl").expect("MCXN AHB clock register");
+            let group = proc_macro2::Literal::usize_unsuffixed(group as usize);
+            generated.extend(quote! {
+                crate::impl_mcxn_gate!(#peripheral_name, #enable, #reset, #bit, #reset_bit, #group);
+            });
+            continue;
+        }
 
         match reset {
             Some(reset) => generated.extend(quote! {
@@ -292,6 +340,14 @@ fn generate_gpio_pin_impls() -> TokenStream {
 
         for s in gpio_peripheral.signals {
             assert_eq!(s.pins.len(), 1, "Each gpio signal should only have 1 pin: {s:?}");
+            // Native N PCRs have per-pad types. Start with the three RGB pads;
+            // do not advertise unimplemented pads or interrupt capabilities.
+            if is_mcxn() && !matches!(s.pins[0].pin, "P0_10" | "P0_27" | "P1_2") {
+                continue;
+            }
+            if env::var_os("CARGO_FEATURE__MCXN23X").is_some() && s.pins[0].pin == "P0_10" {
+                continue;
+            }
             let pin = format_ident!("{}", s.pins[0].pin);
             let pin_num = proc_macro2::Literal::u32_unsuffixed(s.name.parse().unwrap());
             let feature_gate = pin_feature_gate(s.pins[0].pin);
