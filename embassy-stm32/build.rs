@@ -2713,7 +2713,7 @@ fn main() {
         let pin_port = (port_num * 16 + pin_num) as u8;
         if pin.name != "PA13" && pin.name != "PA14" {
             init_gpio_analog.extend(quote! {
-                crate::gpio::set_as_analog(#pin_port);
+                crate::gpio::PinNumber::new(#pin_port).set_as_analog();
             });
         }
 

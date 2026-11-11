@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - All drivers now use the shared `embassy_rp::mode::{Mode, Blocking, Async}` instead of per-module copies.
 - Add `embassy_rp::time::Hertz`.
 - GPIO: rename `get_level` to `level` and `get_output_level` to `output_level`.
+- GPIO: add `persist()` to `Flex`, `Input`, `Output` and `OutputOpenDrain`.
 - GPIO: add `Flex::set_as_disconnected`, `Flex::is_input` and `Flex::is_disconnected`.
 - GPIO: `Flex::new` leaves the pin disconnected, with the input buffer and output driver off. `set_as_input` and `set_as_output` turn the input buffer on; `set_pull` no longer does.
 - GPIO: `Input`, `OutputOpenDrain` and `Flex` are now generic over the driver mode, defaulting to `Blocking`. `new` creates a blocking driver; `new_async` creates an async one and takes an interrupt binding for the pin. The `wait_for_*` methods are only available in async mode.
@@ -19,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GPIO: remove `AnyPin`.
 - GPIO: GPIO wakers are only allocated for pins used in async mode.
 - GPIO: dropping a `wait_for_*` future disables the pin's interrupt.
+- I2C, I2C slave, SPI, UART and buffered UART: pins are disconnected when the driver is dropped.
+- UART: dropping the receiver (`Uart`, `UartRx`, `BufferedUart`, `BufferedUartRx`) disables reception.
+- ADC: dropping a pin `Channel` disconnects the pin instead of re-enabling its input buffer and pull-down.
+- PWM: input mode enables the pin's input buffer on RP2040 too.
 - SPI: `Config::frequency` is now `Hertz`.
 - SPI: add `ConfigError`; constructors, `set_config` and `set_frequency` now return `Result`.
 - SPI: rename `flush` to `blocking_flush`.

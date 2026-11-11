@@ -122,12 +122,12 @@ macro_rules! config_pins {
         config_pins!(@speed Speed::VeryHigh; $($pin),*)
     };
     (@speed $speed:expr; $($pin:ident),*) => {
-        critical_section::with(|_| {
-            $(
+        let ($($pin,)*) = critical_section::with(|_| {
+            ($(
                 // TODO: shouldn't some pins be configured as inputs?
-                set_as_af!($pin, AfType::output(OutputType::PushPull, $speed));
-            )*
-        })
+                set_as_af!($pin, AfType::output(OutputType::PushPull, $speed)),
+            )*)
+        });
     };
 }
 
@@ -277,15 +277,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     ) -> Result<Self, crate::eth::Error> {
         config_pins!(ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
-        let pins = Pins::Rmii([
-            Flex::new(ref_clk),
-            Flex::new(crs),
-            Flex::new(rx_d0),
-            Flex::new(rx_d1),
-            Flex::new(tx_d0),
-            Flex::new(tx_d1),
-            Flex::new(tx_en),
-        ]);
+        let pins = Pins::Rmii([ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en]);
 
         Self::new_inner(
             queue,
@@ -327,18 +319,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         );
 
         let pins = Pins::Mii([
-            Flex::new(rx_clk),
-            Flex::new(tx_clk),
-            Flex::new(rxdv),
-            Flex::new(rx_d0),
-            Flex::new(rx_d1),
-            Flex::new(rx_d2),
-            Flex::new(rx_d3),
-            Flex::new(tx_d0),
-            Flex::new(tx_d1),
-            Flex::new(tx_d2),
-            Flex::new(tx_d3),
-            Flex::new(tx_en),
+            rx_clk, tx_clk, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en,
         ]);
 
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::MiiGmii)
@@ -377,19 +358,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         config_pins!(@speed Speed::Medium; gtx_clk);
 
         let pins = Pins::Rgmii([
-            Flex::new(gtx_clk),
-            Flex::new(tx_ctl),
-            Flex::new(tx_d0),
-            Flex::new(tx_d1),
-            Flex::new(tx_d2),
-            Flex::new(tx_d3),
-            Flex::new(rx_clk),
-            Flex::new(rx_ctl),
-            Flex::new(rx_d0),
-            Flex::new(rx_d1),
-            Flex::new(rx_d2),
-            Flex::new(rx_d3),
-            Flex::new(clk125),
+            gtx_clk, tx_ctl, tx_d0, tx_d1, tx_d2, tx_d3, rx_clk, rx_ctl, rx_d0, rx_d1, rx_d2, rx_d3, clk125,
         ]);
 
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr)

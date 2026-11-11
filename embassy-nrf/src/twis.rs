@@ -14,7 +14,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant};
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
-use crate::gpio::Pin as GpioPin;
+use crate::gpio::{Flex, OutputDrive, Pin as GpioPin, convert_drive};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::gpio::vals as gpiovals;
@@ -199,7 +199,7 @@ impl<'d> Twis<'d, Async> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        let this = Self::new_inner(twis, scl, sda, config);
+        let this = Self::new_inner(twis, Flex::new(scl), Flex::new(sda), config);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -331,64 +331,45 @@ impl<'d> Twis<'d, Blocking> {
         sda: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        Self::new_inner(twis, scl, sda, config)
+        Self::new_inner(twis, Flex::new(scl), Flex::new(sda), config)
+    }
+}
+
+/// SDA/SCL drive: open drain, driving low with standard or high drive.
+fn drive(high_drive: bool) -> OutputDrive {
+    match high_drive {
+        true => OutputDrive::HighDrive0Disconnect1,
+        false => OutputDrive::Standard0Disconnect1,
     }
 }
 
 impl<'d, M: PeriMode> Twis<'d, M> {
-    fn new_inner<T: Instance>(
-        _twis: Peri<'d, T>,
-        scl: Peri<'d, impl GpioPin>,
-        sda: Peri<'d, impl GpioPin>,
-        config: Config,
-    ) -> Self {
+    fn new_inner<T: Instance>(_twis: Peri<'d, T>, mut scl: Flex<'d>, mut sda: Flex<'d>, config: Config) -> Self {
         let r = T::regs();
 
         // Configure pins
-        sda.conf().write(|w| {
+        sda.set_cnf(|w| {
             w.set_dir(gpiovals::Dir::Input);
             w.set_input(gpiovals::Input::Connect);
-            #[cfg(not(feature = "_nrf54l"))]
-            w.set_drive(match config.sda_high_drive {
-                true => gpiovals::Drive::H0d1,
-                false => gpiovals::Drive::S0d1,
-            });
-            #[cfg(feature = "_nrf54l")]
-            {
-                w.set_drive0(match config.sda_high_drive {
-                    true => gpiovals::Drive::H,
-                    false => gpiovals::Drive::S,
-                });
-                w.set_drive1(gpiovals::Drive::D);
-            }
+            convert_drive(w, drive(config.sda_high_drive));
             if config.sda_pullup {
                 w.set_pull(gpiovals::Pull::Pullup);
             }
         });
-        scl.conf().write(|w| {
+        scl.set_cnf(|w| {
             w.set_dir(gpiovals::Dir::Input);
             w.set_input(gpiovals::Input::Connect);
-            #[cfg(not(feature = "_nrf54l"))]
-            w.set_drive(match config.scl_high_drive {
-                true => gpiovals::Drive::H0d1,
-                false => gpiovals::Drive::S0d1,
-            });
-            #[cfg(feature = "_nrf54l")]
-            {
-                w.set_drive0(match config.scl_high_drive {
-                    true => gpiovals::Drive::H,
-                    false => gpiovals::Drive::S,
-                });
-                w.set_drive1(gpiovals::Drive::D);
-            }
+            convert_drive(w, drive(config.scl_high_drive));
             if config.scl_pullup {
                 w.set_pull(gpiovals::Pull::Pullup);
             }
         });
 
-        // Select pins.
+        // Select pins. They're disconnected on drop by reading back PSEL.
         r.psel().sda().write_value(sda.psel_bits());
         r.psel().scl().write_value(scl.psel_bits());
+        sda.persist();
+        scl.persist();
 
         // Enable TWIS instance.
         r.enable().write(|w| w.set_enable(vals::Enable::Enabled));

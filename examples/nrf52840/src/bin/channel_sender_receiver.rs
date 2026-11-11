@@ -4,8 +4,7 @@
 use defmt::unwrap;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_nrf::Peri;
-use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_time::Timer;
@@ -30,9 +29,7 @@ async fn send_task(sender: Sender<'static, NoopRawMutex, LedState, 1>) {
 }
 
 #[embassy_executor::task]
-async fn recv_task(led: Peri<'static, AnyPin>, receiver: Receiver<'static, NoopRawMutex, LedState, 1>) {
-    let mut led = Output::new(led, Level::Low, OutputDrive::Standard);
-
+async fn recv_task(mut led: Output<'static>, receiver: Receiver<'static, NoopRawMutex, LedState, 1>) {
     loop {
         match receiver.receive().await {
             LedState::On => led.set_low(),
@@ -47,5 +44,6 @@ async fn main(spawner: Spawner) {
     let channel = CHANNEL.init(Channel::new());
 
     spawner.spawn(unwrap!(send_task(channel.sender())));
-    spawner.spawn(unwrap!(recv_task(p.P0_13.into(), channel.receiver())));
+    let led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
+    spawner.spawn(unwrap!(recv_task(led, channel.receiver())));
 }

@@ -7,7 +7,7 @@ use embassy_hal_internal::{Peri, PeripheralType};
 pub use embedded_hal_02::spi::{Phase, Polarity};
 
 use crate::dma::{Channel, ChannelInstance};
-use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
+use crate::gpio::{Flex, Pin as GpioPin};
 use crate::mode::{Async, Blocking, Mode};
 use crate::time::Hertz;
 use crate::{dma, interrupt, mode, pac, peripherals};
@@ -96,7 +96,8 @@ pub struct Spi<'d, M: Mode> {
     info: &'static Info,
     tx_dma: M::IfAsync<Channel<'d, mode::Async>>,
     rx_dma: M::IfAsync<Option<Channel<'d, mode::Async>>>,
-    phantom: PhantomData<(&'d mut (), M)>,
+    _pins: [Option<Flex<'d>>; 4],
+    phantom: PhantomData<M>,
 }
 
 fn div_roundup(a: u32, b: u32) -> u32 {
@@ -133,10 +134,10 @@ impl<'d, M: Mode> Spi<'d, M> {
     #[allow(clippy::too_many_arguments)]
     fn new_inner<T: Instance>(
         _spi: Peri<'d, T>,
-        clk: Option<Peri<'d, AnyPin>>,
-        mosi: Option<Peri<'d, AnyPin>>,
-        miso: Option<Peri<'d, AnyPin>>,
-        cs: Option<Peri<'d, AnyPin>>,
+        clk: Option<Flex<'d>>,
+        mosi: Option<Flex<'d>>,
+        miso: Option<Flex<'d>>,
+        cs: Option<Flex<'d>>,
         tx_dma: M::IfAsync<Channel<'d, mode::Async>>,
         rx_dma: M::IfAsync<Option<Channel<'d, mode::Async>>>,
         config: Config,
@@ -154,11 +155,9 @@ impl<'d, M: Mode> Spi<'d, M> {
         // finally, enable.
         p.cr1().write(|w| w.set_sse(true));
 
-        if let Some(pin) = &clk {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
+        let mut pins = [clk, mosi, miso, cs];
+        for pin in pins.iter_mut().flatten() {
+            pin.write_pad(|w| {
                 w.set_schmitt(true);
                 w.set_slewfast(false);
                 w.set_ie(true);
@@ -166,50 +165,13 @@ impl<'d, M: Mode> Spi<'d, M> {
                 w.set_pue(false);
                 w.set_pde(false);
             });
-        }
-        if let Some(pin) = &mosi {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_schmitt(true);
-                w.set_slewfast(false);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(false);
-                w.set_pde(false);
-            });
-        }
-        if let Some(pin) = &miso {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_schmitt(true);
-                w.set_slewfast(false);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(false);
-                w.set_pde(false);
-            });
-        }
-        if let Some(pin) = &cs {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_schmitt(true);
-                w.set_slewfast(false);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(false);
-                w.set_pde(false);
-            });
+            pin.set_function(1);
         }
         Ok(Self {
             info: T::info(),
             tx_dma,
             rx_dma,
+            _pins: pins,
             phantom: PhantomData,
         })
     }
@@ -341,9 +303,9 @@ impl<'d> Spi<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             spi,
-            Some(clk.into()),
-            Some(mosi.into()),
-            Some(miso.into()),
+            Some(Flex::new_unconfigured(clk)),
+            Some(Flex::new_unconfigured(mosi)),
+            Some(Flex::new_unconfigured(miso)),
             None,
             (),
             (),
@@ -358,7 +320,16 @@ impl<'d> Spi<'d, Blocking> {
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(spi, Some(clk.into()), Some(mosi.into()), None, None, (), (), config)
+        Self::new_inner(
+            spi,
+            Some(Flex::new_unconfigured(clk)),
+            Some(Flex::new_unconfigured(mosi)),
+            None,
+            None,
+            (),
+            (),
+            config,
+        )
     }
 
     /// Create an SPI driver in blocking mode supporting writes only, without SCK pin.
@@ -367,7 +338,16 @@ impl<'d> Spi<'d, Blocking> {
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(spi, None, Some(mosi.into()), None, None, (), (), config)
+        Self::new_inner(
+            spi,
+            None,
+            Some(Flex::new_unconfigured(mosi)),
+            None,
+            None,
+            (),
+            (),
+            config,
+        )
     }
 
     /// Create an SPI driver in blocking mode supporting reads only.
@@ -377,7 +357,16 @@ impl<'d> Spi<'d, Blocking> {
         miso: Peri<'d, impl MisoPin<T> + 'd>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(spi, Some(clk.into()), None, Some(miso.into()), None, (), (), config)
+        Self::new_inner(
+            spi,
+            Some(Flex::new_unconfigured(clk)),
+            None,
+            Some(Flex::new_unconfigured(miso)),
+            None,
+            (),
+            (),
+            config,
+        )
     }
 }
 
@@ -400,9 +389,9 @@ impl<'d> Spi<'d, Async> {
         let rx_dma_ch = dma::Channel::new(rx_dma, irq);
         Self::new_inner(
             spi,
-            Some(clk.into()),
-            Some(mosi.into()),
-            Some(miso.into()),
+            Some(Flex::new_unconfigured(clk)),
+            Some(Flex::new_unconfigured(mosi)),
+            Some(Flex::new_unconfigured(miso)),
             None,
             tx_dma_ch,
             Some(rx_dma_ch),
@@ -422,8 +411,8 @@ impl<'d> Spi<'d, Async> {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
         Self::new_inner(
             spi,
-            Some(clk.into()),
-            Some(mosi.into()),
+            Some(Flex::new_unconfigured(clk)),
+            Some(Flex::new_unconfigured(mosi)),
             None,
             None,
             tx_dma_ch,
@@ -442,7 +431,16 @@ impl<'d> Spi<'d, Async> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
-        Self::new_inner(spi, None, Some(mosi.into()), None, None, tx_dma_ch, None, config)
+        Self::new_inner(
+            spi,
+            None,
+            Some(Flex::new_unconfigured(mosi)),
+            None,
+            None,
+            tx_dma_ch,
+            None,
+            config,
+        )
     }
 
     /// Create an SPI driver in async mode supporting DMA read operations only.
@@ -461,9 +459,9 @@ impl<'d> Spi<'d, Async> {
         let rx_dma_ch = dma::Channel::new(rx_dma, irq);
         Self::new_inner(
             spi,
-            Some(clk.into()),
+            Some(Flex::new_unconfigured(clk)),
             None,
-            Some(miso.into()),
+            Some(Flex::new_unconfigured(miso)),
             None,
             tx_dma_ch,
             Some(rx_dma_ch),

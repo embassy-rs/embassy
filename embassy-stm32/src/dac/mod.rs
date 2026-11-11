@@ -183,7 +183,7 @@ impl<'d> DacChannel<'d, Async> {
         pin: Peri<'d, impl DacPin<T, C>>,
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> Self {
-        pin.set_as_analog();
+        pin.pin_number().set_as_analog();
         Self::new_inner::<T, C>(
             Some(peri),
             None,
@@ -209,7 +209,7 @@ impl<'d> DacChannel<'d, Async> {
         pin: Peri<'d, impl DacPin<T, C>>,
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> Self {
-        pin.set_as_analog();
+        pin.pin_number().set_as_analog();
         Self::new_inner::<T, C>(
             Some(peri),
             Some(trigger.signal()),
@@ -390,7 +390,7 @@ impl<'d> DacChannel<'d, Blocking> {
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
     pub fn new_blocking<T: Instance, C: Channel>(peri: Peri<'d, T>, pin: Peri<'d, impl DacPin<T, C>>) -> Self {
-        pin.set_as_analog();
+        pin.pin_number().set_as_analog();
         Self::new_inner::<T, C>(
             Some(peri),
             None,
@@ -444,7 +444,7 @@ impl<'d> DacChannel<'d, Blocking> {
         step_trigger: impl ChannelIncTrigger<T>,
         pin: Peri<'d, impl DacPin<T, C>>,
     ) -> Self {
-        pin.set_as_analog();
+        pin.pin_number().set_as_analog();
         Self::new_inner::<T, C>(
             Some(peri),
             Some(reset_trigger.signal()),
@@ -762,8 +762,8 @@ impl<'d> Dac<'d, Async> {
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
     ) -> Self {
-        pin_ch1.set_as_analog();
-        pin_ch2.set_as_analog();
+        pin_ch1.pin_number().set_as_analog();
+        pin_ch2.pin_number().set_as_analog();
         Self::new_inner(
             peri,
             None,
@@ -799,8 +799,8 @@ impl<'d> Dac<'d, Async> {
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
     ) -> Self {
-        pin_ch1.set_as_analog();
-        pin_ch2.set_as_analog();
+        pin_ch1.pin_number().set_as_analog();
+        pin_ch2.pin_number().set_as_analog();
 
         Self::new_inner(
             peri,
@@ -847,8 +847,8 @@ impl<'d> Dac<'d, Async> {
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
     ) -> Self {
-        pin_ch1.set_as_analog();
-        pin_ch2.set_as_analog();
+        pin_ch1.pin_number().set_as_analog();
+        pin_ch2.pin_number().set_as_analog();
         Self::new_inner(
             peri,
             None,
@@ -884,8 +884,8 @@ impl<'d> Dac<'d, Async> {
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
     ) -> Self {
-        pin_ch1.set_as_analog();
-        pin_ch2.set_as_analog();
+        pin_ch1.pin_number().set_as_analog();
+        pin_ch2.pin_number().set_as_analog();
 
         Self::new_inner(
             peri,
@@ -989,8 +989,8 @@ impl<'d> Dac<'d, Blocking> {
         pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
     ) -> Self {
-        pin_ch1.set_as_analog();
-        pin_ch2.set_as_analog();
+        pin_ch1.pin_number().set_as_analog();
+        pin_ch2.pin_number().set_as_analog();
         Self::new_inner(
             peri,
             None,

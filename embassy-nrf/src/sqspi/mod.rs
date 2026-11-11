@@ -43,7 +43,7 @@ mod regs;
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::mem::MaybeUninit;
+use core::mem::{ManuallyDrop, MaybeUninit};
 use core::ptr;
 use core::task::Poll;
 
@@ -53,7 +53,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{MODE_0, MODE_3, Mode, Phase, Polarity};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
-use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin};
+use crate::gpio::{Flex, OutputDrive, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::{interrupt, pac};
@@ -329,12 +329,13 @@ pub struct Sqspi<'d> {
     state: &'static State,
     config: Config,
     task_count: u32,
-    sck: Peri<'d, AnyPin>,
-    csn: Peri<'d, AnyPin>,
-    io0: Peri<'d, AnyPin>,
-    io1: Peri<'d, AnyPin>,
-    io2: Peri<'d, AnyPin>,
-    io3: Peri<'d, AnyPin>,
+    sck: Flex<'d>,
+    /// Left driven high as a plain GPIO output on drop, so the flash stays deselected.
+    csn: ManuallyDrop<Flex<'d>>,
+    io0: Flex<'d>,
+    io1: Flex<'d>,
+    io2: Flex<'d>,
+    io3: Flex<'d>,
 }
 
 impl<'d> Sqspi<'d> {
@@ -397,18 +398,18 @@ impl<'d> Sqspi<'d> {
 
         // IO2/IO3 double as quad data lines; outside quad mode they're held high
         // as plain GPIO so WP#/HOLD# stay released.
-        let sck: Peri<'d, AnyPin> = sck.into();
-        let csn: Peri<'d, AnyPin> = csn.into();
-        let io0: Peri<'d, AnyPin> = io0.into();
-        let io1: Peri<'d, AnyPin> = io1.into();
-        let io2: Peri<'d, AnyPin> = io2.into();
-        let io3: Peri<'d, AnyPin> = io3.into();
-        Self::config_pin(&*sck, false, true);
-        Self::config_pin(&*csn, false, true);
-        Self::config_pin(&*io0, true, true);
-        Self::config_pin(&*io1, true, true);
-        Self::config_pin(&*io2, true, config.lines.uses_io2_io3());
-        Self::config_pin(&*io3, true, config.lines.uses_io2_io3());
+        let mut sck = Flex::new(sck);
+        let mut csn = ManuallyDrop::new(Flex::new(csn));
+        let mut io0 = Flex::new(io0);
+        let mut io1 = Flex::new(io1);
+        let mut io2 = Flex::new(io2);
+        let mut io3 = Flex::new(io3);
+        Self::config_pin(&mut sck, false, true);
+        Self::config_pin(&mut csn, false, true);
+        Self::config_pin(&mut io0, true, true);
+        Self::config_pin(&mut io1, true, true);
+        Self::config_pin(&mut io2, true, config.lines.uses_io2_io3());
+        Self::config_pin(&mut io3, true, config.lines.uses_io2_io3());
 
         // 8-bit flash frames, MSB first.
         sp.format().dfs().write_value(7);
@@ -454,9 +455,9 @@ impl<'d> Sqspi<'d> {
 
     /// Configure a pin: `input` connects the input buffer (data lines), `to_vpr`
     /// routes it to the FLPR (else it's held high as a plain GPIO output).
-    fn config_pin(pin: &impl SealedPin, input: bool, to_vpr: bool) {
+    fn config_pin(pin: &mut Flex<'_>, input: bool, to_vpr: bool) {
         pin.set_high();
-        pin.conf().write(|w| {
+        pin.set_cnf(|w| {
             w.set_dir(gpiovals::Dir::Output);
             w.set_input(if input {
                 gpiovals::Input::Connect
@@ -879,13 +880,17 @@ impl<'d> Drop for Sqspi<'d> {
         self.regs.enable().write_value(0);
         self.asb();
 
-        // Hand the pins back from the FLPR to plain GPIO before stopping it
-        self.csn.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::Output);
-            w.set_input(gpiovals::Input::Disconnect);
-        });
-        for pin in [&self.sck, &self.io0, &self.io1, &self.io2, &self.io3] {
-            pin.conf().write(|w| w.set_input(gpiovals::Input::Disconnect));
+        // Hand the pins back from the FLPR to plain GPIO before stopping it. CSN stays a
+        // high output (it's never dropped); the others are disconnected.
+        self.csn.set_as_output(OutputDrive::Standard);
+        for pin in [
+            &mut self.sck,
+            &mut self.io0,
+            &mut self.io1,
+            &mut self.io2,
+            &mut self.io3,
+        ] {
+            pin.set_as_disconnected();
         }
 
         crate::vpr::stop_reset(self.vpr);

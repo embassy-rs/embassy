@@ -33,7 +33,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         pull: Pull,
         freq: Hertz,
     ) -> Self {
-        set_as_af!(pin, AfType::input(pull));
+        set_as_af!(pin, AfType::input(pull)).persist();
 
         Self::new_inner(tim, freq, Channel::Ch1, Channel::Ch2)
     }
@@ -46,7 +46,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         pull: Pull,
         freq: Hertz,
     ) -> Self {
-        set_as_af!(pin, AfType::input(pull));
+        set_as_af!(pin, AfType::input(pull)).persist();
 
         Self::new_inner(tim, freq, Channel::Ch2, Channel::Ch1)
     }

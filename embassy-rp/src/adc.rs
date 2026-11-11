@@ -7,7 +7,7 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{self, AnyPin, Pull, SealedPin as GpioPin};
+use crate::gpio::{self, Flex, Pull};
 use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Binding;
 use crate::mode::{Async, Blocking, Mode};
@@ -26,7 +26,7 @@ pub struct Config {}
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum Source<'p> {
-    Pin(Peri<'p, AnyPin>),
+    Pin(Flex<'p>),
     TempSensor(Peri<'p, ADC_TEMP_SENSOR>),
 }
 
@@ -36,7 +36,8 @@ pub struct Channel<'p>(Source<'p>);
 impl<'p> Channel<'p> {
     /// Create a new ADC channel from pin with the provided [Pull] configuration.
     pub fn new_pin(pin: Peri<'p, impl AdcPin + 'p>, pull: Pull) -> Self {
-        pin.pad_ctrl().modify(|w| {
+        let mut pin = Flex::new_unconfigured(pin);
+        pin.modify_pad(|w| {
             #[cfg(feature = "_rp235x")]
             w.set_iso(false);
             // manual says:
@@ -49,7 +50,7 @@ impl<'p> Channel<'p> {
             w.set_pue(pull == Pull::Up);
             w.set_pde(pull == Pull::Down);
         });
-        Self(Source::Pin(pin.into()))
+        Self(Source::Pin(pin))
     }
 
     /// Create a new ADC channel for the internal temperature sensor.
@@ -73,7 +74,7 @@ impl<'p> Channel<'p> {
         match &self.0 {
             // this requires adc pins to be sequential and matching the adc channels,
             // which is the case for rp2040/rp235xy
-            Source::Pin(p) => p._pin() - CH_OFFSET,
+            Source::Pin(p) => p.pin_number().pin() - CH_OFFSET,
             Source::TempSensor(_) => TS_CHAN,
         }
     }
@@ -81,18 +82,8 @@ impl<'p> Channel<'p> {
 
 impl<'p> Drop for Source<'p> {
     fn drop(&mut self) {
-        match self {
-            Source::Pin(p) => {
-                p.pad_ctrl().modify(|w| {
-                    w.set_ie(true);
-                    w.set_od(false);
-                    w.set_pue(false);
-                    w.set_pde(true);
-                });
-            }
-            Source::TempSensor(_) => {
-                pac::ADC.cs().write_clear(|w| w.set_ts_en(true));
-            }
+        if let Source::TempSensor(_) = self {
+            pac::ADC.cs().write_clear(|w| w.set_ts_en(true));
         }
     }
 }

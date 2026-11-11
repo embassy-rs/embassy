@@ -21,7 +21,7 @@ use pac::uarte::vals;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
-use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::gpio::{Flex, Pin as GpioPin};
 use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::ppi::{
@@ -253,8 +253,8 @@ impl<'d> BufferedUarte<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            txd.into(),
-            rxd.into(),
+            Flex::new(txd),
+            Flex::new(rxd),
             None,
             None,
             timer,
@@ -290,10 +290,10 @@ impl<'d> BufferedUarte<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            txd.into(),
-            rxd.into(),
-            Some(cts.into()),
-            Some(rts.into()),
+            Flex::new(txd),
+            Flex::new(rxd),
+            Some(Flex::new(cts)),
+            Some(Flex::new(rts)),
             timer,
             ppi_ch1.into(),
             ppi_ch2.into(),
@@ -307,10 +307,10 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     fn new_inner<U: UarteInstance, T: TimerInstance>(
         peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        rxd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        rxd: Flex<'d>,
+        cts: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, AnyConfigurableChannel>,
         ppi_ch2: Peri<'d, AnyConfigurableChannel>,
@@ -433,7 +433,7 @@ impl<'d> BufferedUarteTx<'d> {
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), None, tx_buffer, config)
+        Self::new_inner(uarte, Flex::new(txd), None, tx_buffer, config)
     }
 
     /// Create a new BufferedUarteTx with hardware flow control (CTS)
@@ -445,13 +445,13 @@ impl<'d> BufferedUarteTx<'d> {
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), Some(cts.into()), tx_buffer, config)
+        Self::new_inner(uarte, Flex::new(txd), Some(Flex::new(cts)), tx_buffer, config)
     }
 
     fn new_inner<U: UarteInstance>(
         peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -475,8 +475,8 @@ impl<'d> BufferedUarteTx<'d> {
 
     fn new_innerer<U: UarteInstance>(
         _peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
     ) -> Self {
         let r = U::regs();
@@ -647,7 +647,7 @@ impl<'d> BufferedUarteRx<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            rxd.into(),
+            Flex::new(rxd),
             None,
             timer,
             ppi_ch1.into(),
@@ -678,8 +678,8 @@ impl<'d> BufferedUarteRx<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            rxd.into(),
-            Some(rts.into()),
+            Flex::new(rxd),
+            Some(Flex::new(rts)),
             timer,
             ppi_ch1.into(),
             ppi_ch2.into(),
@@ -692,8 +692,8 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     fn new_inner<U: UarteInstance, T: TimerInstance>(
         peri: Peri<'d, U>,
-        rxd: Peri<'d, AnyPin>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rxd: Flex<'d>,
+        rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, AnyConfigurableChannel>,
         ppi_ch2: Peri<'d, AnyConfigurableChannel>,
@@ -722,8 +722,8 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     fn new_innerer<U: UarteInstance, T: TimerInstance>(
         _peri: Peri<'d, U>,
-        rxd: Peri<'d, AnyPin>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rxd: Flex<'d>,
+        rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, AnyConfigurableChannel>,
         ppi_ch2: Peri<'d, AnyConfigurableChannel>,

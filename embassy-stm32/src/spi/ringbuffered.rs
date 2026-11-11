@@ -126,7 +126,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         #[cfg(gpio_v2)]
-        super::set_speed(&self._sck, &self._mosi, config.gpio_speed);
+        super::set_speed(&mut self._sck, &mut self._mosi, config.gpio_speed);
         reconfigure::<Slave>(self.info, self.kernel_clock, config)
     }
 

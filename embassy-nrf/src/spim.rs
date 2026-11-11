@@ -16,10 +16,9 @@ pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Pola
 pub use pac::spim::vals::Order as BitOrder;
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
-use crate::gpio::{self, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive};
+use crate::gpio::{self, Flex, OutputDrive, Pin as GpioPin, PselBits, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-use crate::pac::gpio::vals as gpiovals;
 use crate::pac::spim::regs::RxMaxcnt;
 use crate::pac::spim::vals;
 use crate::util::slice_in_ram_or;
@@ -242,7 +241,13 @@ impl<'d> Spim<'d, Async> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_async_inner(spim, Some(sck.into()), Some(mosi.into()), Some(miso.into()), config)
+        Self::new_async_inner(
+            spim,
+            Some(Flex::new(sck)),
+            Some(Flex::new(mosi)),
+            Some(Flex::new(miso)),
+            config,
+        )
     }
 
     /// Create a new SPIM driver, capable of TX only (MOSI only).
@@ -253,7 +258,7 @@ impl<'d> Spim<'d, Async> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_async_inner(spim, Some(sck.into()), Some(mosi.into()), None, config)
+        Self::new_async_inner(spim, Some(Flex::new(sck)), Some(Flex::new(mosi)), None, config)
     }
 
     /// Create a new SPIM driver, capable of RX only (MISO only).
@@ -264,7 +269,7 @@ impl<'d> Spim<'d, Async> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_async_inner(spim, Some(sck.into()), None, Some(miso.into()), config)
+        Self::new_async_inner(spim, Some(Flex::new(sck)), None, Some(Flex::new(miso)), config)
     }
 
     /// Create a new SPIM driver, capable of TX only (MOSI only), without SCK pin.
@@ -274,14 +279,14 @@ impl<'d> Spim<'d, Async> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_async_inner(spim, None, Some(mosi.into()), None, config)
+        Self::new_async_inner(spim, None, Some(Flex::new(mosi)), None, config)
     }
 
     fn new_async_inner<T: Instance>(
         spim: Peri<'d, T>,
-        sck: Option<Peri<'d, AnyPin>>,
-        mosi: Option<Peri<'d, AnyPin>>,
-        miso: Option<Peri<'d, AnyPin>>,
+        sck: Option<Flex<'d>>,
+        mosi: Option<Flex<'d>>,
+        miso: Option<Flex<'d>>,
         config: Config,
     ) -> Self {
         let this = Self::new_inner(spim, sck, mosi, miso, config);
@@ -388,7 +393,13 @@ impl<'d> Spim<'d, Blocking> {
         miso: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        Self::new_inner(spim, Some(sck.into()), Some(mosi.into()), Some(miso.into()), config)
+        Self::new_inner(
+            spim,
+            Some(Flex::new(sck)),
+            Some(Flex::new(mosi)),
+            Some(Flex::new(miso)),
+            config,
+        )
     }
 
     /// Create a new blocking SPIM driver, capable of TX only (MOSI only).
@@ -398,7 +409,7 @@ impl<'d> Spim<'d, Blocking> {
         mosi: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        Self::new_inner(spim, Some(sck.into()), Some(mosi.into()), None, config)
+        Self::new_inner(spim, Some(Flex::new(sck)), Some(Flex::new(mosi)), None, config)
     }
 
     /// Create a new blocking SPIM driver, capable of RX only (MISO only).
@@ -408,7 +419,7 @@ impl<'d> Spim<'d, Blocking> {
         miso: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        Self::new_inner(spim, Some(sck.into()), None, Some(miso.into()), config)
+        Self::new_inner(spim, Some(Flex::new(sck)), None, Some(Flex::new(miso)), config)
     }
 
     /// Create a new blocking SPIM driver, capable of TX only (MOSI only), without SCK pin.
@@ -417,16 +428,16 @@ impl<'d> Spim<'d, Blocking> {
         mosi: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        Self::new_inner(spim, None, Some(mosi.into()), None, config)
+        Self::new_inner(spim, None, Some(Flex::new(mosi)), None, config)
     }
 }
 
 impl<'d, M: PeriMode> Spim<'d, M> {
     fn new_inner<T: Instance>(
         _spim: Peri<'d, T>,
-        sck: Option<Peri<'d, AnyPin>>,
-        mosi: Option<Peri<'d, AnyPin>>,
-        miso: Option<Peri<'d, AnyPin>>,
+        mut sck: Option<Flex<'d>>,
+        mut mosi: Option<Flex<'d>>,
+        mut miso: Option<Flex<'d>>,
         config: Config,
     ) -> Self {
         let r = T::regs();
@@ -444,36 +455,30 @@ impl<'d, M: PeriMode> Spim<'d, M> {
         spim.set_config(&config);
 
         // Configure pins
-        if let Some(sck) = &sck {
-            sck.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::Output);
-                convert_drive(w, config.sck_drive);
-            });
+        if let Some(sck) = &mut sck {
+            sck.set_as_input_output(Pull::None, config.sck_drive);
         }
-        if let Some(mosi) = &mosi {
-            mosi.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::Output);
-                convert_drive(w, config.mosi_drive);
-            });
+        if let Some(mosi) = &mut mosi {
+            mosi.set_as_input_output(Pull::None, config.mosi_drive);
         }
-        if let Some(miso) = &miso {
-            miso.conf().write(|w| w.set_input(gpiovals::Input::Connect));
+        if let Some(miso) = &mut miso {
+            miso.set_as_input(Pull::None);
         }
 
         match config.mode.polarity {
             Polarity::IdleHigh => {
-                if let Some(sck) = &sck {
+                if let Some(sck) = &mut sck {
                     sck.set_high();
                 }
-                if let Some(mosi) = &mosi {
+                if let Some(mosi) = &mut mosi {
                     mosi.set_high();
                 }
             }
             Polarity::IdleLow => {
-                if let Some(sck) = &sck {
+                if let Some(sck) = &mut sck {
                     sck.set_low();
                 }
-                if let Some(mosi) = &mosi {
+                if let Some(mosi) = &mut mosi {
                     mosi.set_low();
                 }
             }
@@ -483,6 +488,11 @@ impl<'d, M: PeriMode> Spim<'d, M> {
         r.psel().sck().write_value(sck.psel_bits());
         r.psel().mosi().write_value(mosi.psel_bits());
         r.psel().miso().write_value(miso.psel_bits());
+
+        // Disconnected on drop by reading back PSEL.
+        for pin in [sck, mosi, miso].into_iter().flatten() {
+            pin.persist();
+        }
 
         // Enable SPIM instance.
         r.enable().write(|w| w.set_enable(vals::Enable::Enabled));

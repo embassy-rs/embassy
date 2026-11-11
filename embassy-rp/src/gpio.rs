@@ -6,7 +6,7 @@ use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
@@ -19,6 +19,13 @@ use crate::{RegExt, pac, peripherals};
 pub(crate) const BANK0_PIN_COUNT: usize = 30;
 #[cfg(feature = "rp235xb")]
 pub(crate) const BANK0_PIN_COUNT: usize = 48;
+
+/// `FUNCSEL` value that connects a pin to SIO.
+#[cfg(feature = "rp2040")]
+pub(crate) const SIO_FUNCSEL: u8 = pac::io::vals::Gpio0CtrlFuncsel::Sio0 as _;
+/// `FUNCSEL` value that connects a pin to SIO.
+#[cfg(feature = "_rp235x")]
+pub(crate) const SIO_FUNCSEL: u8 = pac::io::vals::Gpio0CtrlFuncsel::SiobProc0 as _;
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -217,6 +224,15 @@ impl<'d, M: Mode> Input<'d, M> {
     pub fn set_pad_isolation(&mut self, isolate: bool) {
         self.pin.set_pad_isolation(isolate)
     }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
+    pub fn persist(self) {
+        self.pin.persist()
+    }
 }
 
 /// Interrupt trigger levels.
@@ -258,8 +274,8 @@ pub struct InterruptHandler<T: Pin> {
 
 impl<T: Pin> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let pin = AnyPin { pin_bank: T::PIN_BANK };
-        let idx = pin._pin() as usize;
+        let pin = T::PIN_NUMBER;
+        let idx = pin.pin() as usize;
         let group = idx % 8;
         // INTS is INTR masked by the INTE of the core running this handler, so this only sees
         // events that a future on this core is waiting for.
@@ -282,14 +298,14 @@ impl<T: Pin> Handler<T::Interrupt> for InterruptHandler<T> {
 }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-struct InputFuture<'d> {
-    pin: Peri<'d, AnyPin>,
+struct InputFuture {
+    pin: PinNumber,
     waker: &'static AtomicWaker,
 }
 
-impl<'d> InputFuture<'d> {
-    fn new(pin: Peri<'d, AnyPin>, waker: &'static AtomicWaker, level: InterruptTrigger) -> Self {
-        let pin_group = (pin._pin() % 8) as usize;
+impl InputFuture {
+    fn new(pin: PinNumber, waker: &'static AtomicWaker, level: InterruptTrigger) -> Self {
+        let pin_group = (pin.pin() % 8) as usize;
         // first, clear the INTR register bits. without this INTR will still
         // contain reports of previous edges, causing the IRQ to fire early
         // on stale state. clearing these means that we can only detect edges
@@ -298,7 +314,7 @@ impl<'d> InputFuture<'d> {
         // (the alternative being checking the current level and waiting for
         // its inverse, but that requires reading the current level and thus
         // missing anything that happened before the level was read.)
-        pin.io().intr(pin._pin() as usize / 8).write(|w| {
+        pin.io().intr(pin.pin() as usize / 8).write(|w| {
             w.set_edge_high(pin_group, true);
             w.set_edge_low(pin_group, true);
         });
@@ -307,7 +323,7 @@ impl<'d> InputFuture<'d> {
         // pin, and each group consists of LEVEL_LOW, LEVEL_HIGH, EDGE_LOW,
         // and EDGE_HIGH.
         pin.int_proc()
-            .inte((pin._pin() / 8) as usize)
+            .inte((pin.pin() / 8) as usize)
             .write_set(|w| match level {
                 InterruptTrigger::LevelHigh => {
                     w.set_level_high(pin_group, true);
@@ -331,13 +347,13 @@ impl<'d> InputFuture<'d> {
     }
 }
 
-impl<'d> Drop for InputFuture<'d> {
+impl Drop for InputFuture {
     fn drop(&mut self) {
         // Disarm, in case the future is dropped before the event happened.
-        let pin_group = (self.pin._pin() % 8) as usize;
+        let pin_group = (self.pin.pin() % 8) as usize;
         self.pin
             .int_proc()
-            .inte((self.pin._pin() / 8) as usize)
+            .inte((self.pin.pin() / 8) as usize)
             .write_clear(|w| {
                 w.set_edge_high(pin_group, true);
                 w.set_edge_low(pin_group, true);
@@ -347,7 +363,7 @@ impl<'d> Drop for InputFuture<'d> {
     }
 }
 
-impl<'d> Future for InputFuture<'d> {
+impl Future for InputFuture {
     type Output = ();
 
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -359,11 +375,11 @@ impl<'d> Future for InputFuture<'d> {
         // then we want to access the interrupt enable register for our
         // pin (there are 4 of these PROC0_INTE0, PROC0_INTE1, PROC0_INTE2, and
         // PROC0_INTE3 per cpu).
-        let inte: pac::io::regs::Int = self.pin.int_proc().inte((self.pin._pin() / 8) as usize).read();
+        let inte: pac::io::regs::Int = self.pin.int_proc().inte((self.pin.pin() / 8) as usize).read();
         // The register is divided into groups of four, one group for
         // each pin. Each group consists of four trigger levels LEVEL_LOW,
         // LEVEL_HIGH, EDGE_LOW, and EDGE_HIGH for each pin.
-        let pin_group = (self.pin._pin() % 8) as usize;
+        let pin_group = (self.pin.pin() % 8) as usize;
 
         // since the interrupt handler clears all INTE flags we'll check that
         // all have been cleared and unconditionally return Ready(()) if so.
@@ -466,6 +482,15 @@ impl<'d> Output<'d> {
     #[inline]
     pub fn set_pad_isolation(&mut self, isolate: bool) {
         self.pin.set_pad_isolation(isolate)
+    }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
+    pub fn persist(self) {
+        self.pin.persist()
     }
 }
 
@@ -633,6 +658,15 @@ impl<'d, M: Mode> OutputOpenDrain<'d, M> {
     pub fn set_pad_isolation(&mut self, isolate: bool) {
         self.pin.set_pad_isolation(isolate)
     }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
+    pub fn persist(self) {
+        self.pin.persist()
+    }
 }
 
 /// GPIO flexible pin.
@@ -641,9 +675,9 @@ impl<'d, M: Mode> OutputOpenDrain<'d, M> {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, M: Mode = Blocking> {
-    pin: Peri<'d, AnyPin>,
+    pin: PinNumber,
     waker: M::IfAsync<&'static AtomicWaker>,
-    _mode: PhantomData<M>,
+    _phantom: PhantomData<(&'d mut (), M)>,
 }
 
 impl<'d, M: Mode> core::fmt::Debug for Flex<'d, M> {
@@ -666,7 +700,20 @@ impl<'d> Flex<'d, Blocking> {
     /// before the pin is put into output mode.
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>) -> Self {
-        Self::new_inner(pin.into(), ())
+        Self::new_inner(pin.pin_number(), ())
+    }
+
+    /// Wrap a pin without touching its configuration.
+    ///
+    /// For drivers that put the pin in a peripheral function themselves. Dropping the `Flex`
+    /// disconnects the pin.
+    #[inline]
+    pub(crate) fn new_unconfigured(pin: Peri<'d, impl Pin>) -> Self {
+        Self {
+            pin: pin.pin_number(),
+            waker: (),
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -680,7 +727,7 @@ impl<'d> Flex<'d, Async> {
     /// NVIC of the core this runs on, so wait on the pin from that core.
     #[inline]
     pub fn new_async<T: Pin>(pin: Peri<'d, T>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd) -> Self {
-        let this = Self::new_inner(pin.into(), T::waker());
+        let this = Self::new_inner(pin.pin_number(), T::waker());
         unsafe { T::Interrupt::enable() };
         this
     }
@@ -688,62 +735,57 @@ impl<'d> Flex<'d, Async> {
     /// Wait until the pin is high. If it is already high, return immediately.
     #[inline]
     pub async fn wait_for_high(&mut self) {
-        InputFuture::new(self.pin.reborrow(), self.waker, InterruptTrigger::LevelHigh).await;
+        InputFuture::new(self.pin, self.waker, InterruptTrigger::LevelHigh).await;
     }
 
     /// Wait until the pin is low. If it is already low, return immediately.
     #[inline]
     pub async fn wait_for_low(&mut self) {
-        InputFuture::new(self.pin.reborrow(), self.waker, InterruptTrigger::LevelLow).await;
+        InputFuture::new(self.pin, self.waker, InterruptTrigger::LevelLow).await;
     }
 
     /// Wait for the pin to undergo a transition from low to high.
     #[inline]
     pub async fn wait_for_rising_edge(&mut self) {
-        InputFuture::new(self.pin.reborrow(), self.waker, InterruptTrigger::EdgeHigh).await;
+        InputFuture::new(self.pin, self.waker, InterruptTrigger::EdgeHigh).await;
     }
 
     /// Wait for the pin to undergo a transition from high to low.
     #[inline]
     pub async fn wait_for_falling_edge(&mut self) {
-        InputFuture::new(self.pin.reborrow(), self.waker, InterruptTrigger::EdgeLow).await;
+        InputFuture::new(self.pin, self.waker, InterruptTrigger::EdgeLow).await;
     }
 
     /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     #[inline]
     pub async fn wait_for_any_edge(&mut self) {
-        InputFuture::new(self.pin.reborrow(), self.waker, InterruptTrigger::AnyEdge).await;
+        InputFuture::new(self.pin, self.waker, InterruptTrigger::AnyEdge).await;
     }
 }
 
 impl<'d, M: Mode> Flex<'d, M> {
     #[inline]
-    fn new_inner(pin: Peri<'d, AnyPin>, waker: M::IfAsync<&'static AtomicWaker>) -> Self {
+    fn new_inner(pin: PinNumber, waker: M::IfAsync<&'static AtomicWaker>) -> Self {
         // Input buffer, pulls and output driver off. The output enable may have been left set by
         // a previous owner of the pin, so clear it before connecting the pin to SIO.
         pin.pad_ctrl().write(|_w| {
             #[cfg(feature = "_rp235x")]
             _w.set_iso(false);
         });
-        pin.sio_oe().value_clr().write_value(1 << (pin._pin() % 32));
+        pin.sio_oe().value_clr().write_value(pin.bit());
 
-        pin.gpio().ctrl().write(|w| {
-            #[cfg(feature = "rp2040")]
-            w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::Sio0 as _);
-            #[cfg(feature = "_rp235x")]
-            w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::SiobProc0 as _);
-        });
+        pin.gpio().ctrl().write(|w| w.set_funcsel(SIO_FUNCSEL));
 
         Self {
             pin,
             waker,
-            _mode: PhantomData,
+            _phantom: PhantomData,
         }
     }
 
     #[inline]
     fn bit(&self) -> u32 {
-        1 << (self.pin._pin() % 32)
+        self.pin.bit()
     }
 
     /// Set the pin's pull.
@@ -962,7 +1004,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Configure dormant wake.
     #[inline]
     pub fn dormant_wake(&mut self, cfg: DormantWakeConfig) -> DormantWake<'_> {
-        let idx = self.pin._pin() as usize;
+        let idx = self.pin.pin() as usize;
         self.pin.io().intr(idx / 8).write(|w| {
             w.set_edge_high(idx % 8, cfg.edge_high);
             w.set_edge_low(idx % 8, cfg.edge_low);
@@ -974,8 +1016,9 @@ impl<'d, M: Mode> Flex<'d, M> {
             w.set_level_low(idx % 8, cfg.level_low);
         });
         DormantWake {
-            pin: self.pin.reborrow(),
+            pin: self.pin,
             cfg,
+            _phantom: PhantomData,
         }
     }
 
@@ -987,12 +1030,53 @@ impl<'d, M: Mode> Flex<'d, M> {
             w.set_iso(isolate);
         });
     }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
+    pub fn persist(self) {
+        core::mem::forget(self);
+    }
+
+    /// The pin's number, for drivers that need it to pick a channel or function.
+    #[inline]
+    pub(crate) fn pin_number(&self) -> PinNumber {
+        self.pin
+    }
+
+    /// Connect the pin to a peripheral.
+    ///
+    /// `funcsel` is the pin's `FUNCSEL` value for the peripheral, from the GPIO function table in
+    /// the datasheet. Only the function changes: inversions set with the `set_*_inversion` methods
+    /// are kept, so set them first to avoid a glitch. A pin starts with no inversions, and
+    /// dropping a `Flex` clears them.
+    #[inline]
+    pub(crate) fn set_function(&mut self, funcsel: u8) {
+        self.pin.gpio().ctrl().modify(|w| w.set_funcsel(funcsel));
+    }
+
+    /// Overwrite the pin's pad configuration.
+    ///
+    /// `f` starts from all-zero: input buffer, pulls and Schmitt trigger off, output enabled, 2 mA
+    /// drive, slow slew and, on RP235x, pad not isolated.
+    #[inline]
+    pub(crate) fn write_pad(&mut self, f: impl FnOnce(&mut pac::pads::regs::GpioCtrl)) {
+        self.pin.pad_ctrl().write(f);
+    }
+
+    /// Modify the pin's pad configuration.
+    #[inline]
+    pub(crate) fn modify_pad(&mut self, f: impl FnOnce(&mut pac::pads::regs::GpioCtrl)) {
+        self.pin.pad_ctrl().modify(f);
+    }
 }
 
 impl<'d, M: Mode> Drop for Flex<'d, M> {
     #[inline]
     fn drop(&mut self) {
-        let idx = self.pin._pin() as usize;
+        let idx = self.pin.pin() as usize;
         self.pin.pad_ctrl().write(|_| {});
         self.pin.gpio().ctrl().write(|w| {
             w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::Null as _);
@@ -1012,13 +1096,14 @@ impl<'d, M: Mode> Drop for Flex<'d, M> {
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DormantWake<'w> {
-    pin: Peri<'w, AnyPin>,
+    pin: PinNumber,
     cfg: DormantWakeConfig,
+    _phantom: PhantomData<&'w mut ()>,
 }
 
 impl<'w> Drop for DormantWake<'w> {
     fn drop(&mut self) {
-        let idx = self.pin._pin() as usize;
+        let idx = self.pin.pin() as usize;
         self.pin.io().intr(idx / 8).write(|w| {
             w.set_edge_high(idx % 8, self.cfg.edge_high);
             w.set_edge_low(idx % 8, self.cfg.edge_low);
@@ -1032,78 +1117,106 @@ impl<'w> Drop for DormantWake<'w> {
     }
 }
 
-pub(crate) trait SealedPin: Sized {
-    fn pin_bank(&self) -> u8;
+/// Bank and number of a pin, packed as `bank * 128 + pin`.
+///
+/// Plain data, it doesn't own the pin: drivers own pins through [`Flex`]. Holds the register
+/// accessors for the pin.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) struct PinNumber(u8);
 
+impl PinNumber {
     #[inline]
-    fn _pin(&self) -> u8 {
-        self.pin_bank() & 0x7f
+    pub(crate) const fn new(pin_bank: u8) -> Self {
+        Self(pin_bank)
+    }
+
+    /// Bit of this pin in the SIO registers.
+    #[inline]
+    pub(crate) fn bit(self) -> u32 {
+        1 << (self.pin() % 32)
     }
 
     #[inline]
-    fn _bank(&self) -> Bank {
-        match self.pin_bank() >> 7 {
+    pub(crate) fn pin(self) -> u8 {
+        self.0 & 0x7f
+    }
+
+    #[inline]
+    pub(crate) fn bank(self) -> Bank {
+        match self.0 >> 7 {
             #[cfg(feature = "qspi-as-gpio")]
             1 => Bank::Qspi,
             _ => Bank::Bank0,
         }
     }
 
-    fn io(&self) -> pac::io::Io {
-        match self._bank() {
+    #[inline]
+    pub(crate) fn io(self) -> pac::io::Io {
+        match self.bank() {
             Bank::Bank0 => crate::pac::IO_BANK0,
             #[cfg(feature = "qspi-as-gpio")]
             Bank::Qspi => crate::pac::IO_QSPI,
         }
     }
 
-    fn gpio(&self) -> pac::io::Gpio {
-        self.io().gpio(self._pin() as _)
+    #[inline]
+    pub(crate) fn gpio(self) -> pac::io::Gpio {
+        self.io().gpio(self.pin() as _)
     }
 
-    fn pad_ctrl(&self) -> Reg<pac::pads::regs::GpioCtrl, RW> {
-        let block = match self._bank() {
+    #[inline]
+    pub(crate) fn pad_ctrl(self) -> Reg<pac::pads::regs::GpioCtrl, RW> {
+        let block = match self.bank() {
             Bank::Bank0 => crate::pac::PADS_BANK0,
             #[cfg(feature = "qspi-as-gpio")]
             Bank::Qspi => crate::pac::PADS_QSPI,
         };
-        block.gpio(self._pin() as _)
+        block.gpio(self.pin() as _)
     }
 
-    fn sio_out(&self) -> pac::sio::Gpio {
+    #[inline]
+    pub(crate) fn sio_out(self) -> pac::sio::Gpio {
         if cfg!(feature = "rp2040") {
-            SIO.gpio_out(self._bank() as _)
+            SIO.gpio_out(self.bank() as _)
         } else {
-            SIO.gpio_out((self._pin() / 32) as _)
+            SIO.gpio_out((self.pin() / 32) as _)
         }
     }
 
-    fn sio_oe(&self) -> pac::sio::Gpio {
+    #[inline]
+    pub(crate) fn sio_oe(self) -> pac::sio::Gpio {
         if cfg!(feature = "rp2040") {
-            SIO.gpio_oe(self._bank() as _)
+            SIO.gpio_oe(self.bank() as _)
         } else {
-            SIO.gpio_oe((self._pin() / 32) as _)
+            SIO.gpio_oe((self.pin() / 32) as _)
         }
     }
 
-    fn sio_in(&self) -> Reg<u32, RW> {
+    #[inline]
+    pub(crate) fn sio_in(self) -> Reg<u32, RW> {
         if cfg!(feature = "rp2040") {
-            SIO.gpio_in(self._bank() as _)
+            SIO.gpio_in(self.bank() as _)
         } else {
-            SIO.gpio_in((self._pin() / 32) as _)
+            SIO.gpio_in((self.pin() / 32) as _)
         }
     }
 
-    fn int_proc(&self) -> pac::io::Int {
+    #[inline]
+    pub(crate) fn int_proc(self) -> pac::io::Int {
         let proc = SIO.cpuid().read();
         self.io().int_proc(proc as _)
     }
 }
 
+pub(crate) trait SealedPin {
+    fn pin_number(&self) -> PinNumber;
+}
+
 /// Per-pin items that only exist on concrete pin types.
 trait SealedPinStatic {
-    /// Packed bank and pin number, as returned by [`SealedPin::pin_bank()`].
-    const PIN_BANK: u8;
+    /// This pin's number.
+    const PIN_NUMBER: PinNumber;
 
     /// Waker of the async driver for this pin.
     ///
@@ -1113,35 +1226,20 @@ trait SealedPinStatic {
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver.
 #[allow(private_bounds)]
-pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + SealedPinStatic + Sized + 'static {
+pub trait Pin: PeripheralType + SealedPin + SealedPinStatic + Sized + 'static {
     /// Interrupt for this pin's bank.
     type Interrupt: Interrupt;
 
     /// Returns the pin number within a bank
     #[inline]
     fn pin(&self) -> u8 {
-        self._pin()
+        self.pin_number().pin()
     }
 
     /// Returns the bank of this pin
     #[inline]
     fn bank(&self) -> Bank {
-        self._bank()
-    }
-}
-
-/// Type-erased GPIO pin, used by drivers to remember which pin they own.
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(crate) struct AnyPin {
-    pin_bank: u8,
-}
-
-impl_peripheral!(AnyPin);
-
-impl SealedPin for AnyPin {
-    fn pin_bank(&self) -> u8 {
-        self.pin_bank
+        self.pin_number().bank()
     }
 }
 
@@ -1153,7 +1251,7 @@ macro_rules! impl_pin {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
         impl SealedPinStatic for peripherals::$name {
-            const PIN_BANK: u8 = ($bank as u8) * 128 + $pin_num;
+            const PIN_NUMBER: PinNumber = PinNumber::new(($bank as u8) * 128 + $pin_num);
 
             #[inline]
             fn waker() -> &'static AtomicWaker {
@@ -1163,16 +1261,8 @@ macro_rules! impl_pin {
         }
         impl SealedPin for peripherals::$name {
             #[inline]
-            fn pin_bank(&self) -> u8 {
-                <Self as SealedPinStatic>::PIN_BANK
-            }
-        }
-
-        impl From<peripherals::$name> for crate::gpio::AnyPin {
-            fn from(val: peripherals::$name) -> Self {
-                Self {
-                    pin_bank: val.pin_bank(),
-                }
+            fn pin_number(&self) -> PinNumber {
+                <Self as SealedPinStatic>::PIN_NUMBER
             }
         }
     };

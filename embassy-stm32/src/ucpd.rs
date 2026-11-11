@@ -129,8 +129,8 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        cc1.set_as_analog();
-        cc2.set_as_analog();
+        cc1.pin_number().set_as_analog();
+        cc2.pin_number().set_as_analog();
 
         rcc::enable_and_reset::<T>();
         T::Interrupt::unpend();

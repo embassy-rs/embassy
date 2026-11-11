@@ -48,29 +48,27 @@ macro_rules! channel_impl {
         impl<'d, T: BasicInstance> PwmPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
             pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                let pin = critical_section::with(|_| {
+                    set_as_af!(
+                        pin,
+                        AfType::output(OutputType::PushPull, Speed::VeryHigh),
+                        Flex::set_low
+                    )
                 });
                 PwmPin {
-                    pin: Flex::new(pin),
+                    pin,
                     phantom: PhantomData,
                 }
             }
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance with config.")]
             pub fn $new_chx_with_config(pin: Peri<'d, impl $pin_trait<T>>, pin_config: PwmPinConfig) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    #[cfg(gpio_v1)]
-                    set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
-                    #[cfg(gpio_v2)]
-                    set_as_af!(
-                        pin,
-                        AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
-                    );
-                });
+                #[cfg(gpio_v1)]
+                let af_type = AfType::output(pin_config.output_type, pin_config.speed);
+                #[cfg(gpio_v2)]
+                let af_type = AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull);
+                let pin = critical_section::with(|_| set_as_af!(pin, af_type, Flex::set_low));
                 PwmPin {
-                    pin: Flex::new(pin),
+                    pin,
                     phantom: PhantomData,
                 }
             }

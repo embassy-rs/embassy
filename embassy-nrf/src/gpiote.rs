@@ -55,8 +55,7 @@ const INTNUM: usize = 0;
 pub(crate) fn enable_port_interrupt<T: GpiotePin>() {
     #[cfg(not(feature = "_nrf51"))]
     {
-        use crate::gpio::SealedPin as _;
-        let p = crate::gpio::AnyPin { pin_port: T::PIN_PORT }.block();
+        let p = T::PIN_NUMBER.block();
         #[cfg(all(feature = "_s", not(feature = "_nrf54l")))]
         p.detectmode_sec().write(|w| w.set_detectmode(Detectmode::Ldetect));
         #[cfg(any(not(feature = "_s"), all(feature = "_s", feature = "_nrf54l")))]
@@ -545,8 +544,8 @@ macro_rules! impl_channel {
 }
 
 pub(crate) trait SealedGpiotePin {
-    /// Packed port and pin number, as returned by [`SealedPin::pin_port()`](crate::gpio::SealedPin::pin_port).
-    const PIN_PORT: u8;
+    /// Number of this pin, as returned by [`SealedPin::pin_number()`](crate::gpio::SealedPin::pin_number).
+    const PIN_NUMBER: crate::gpio::PinNumber;
 
     /// Registers of the GPIOTE instance serving this pin's port.
     fn regs() -> pac::gpiote::Gpiote;
@@ -603,7 +602,7 @@ cfg_select! {
         macro_rules! impl_gpiote_pin {
             ($type:ident, $port_num:expr, $pin_num:expr, $inst:ident) => {
                 impl crate::gpiote::SealedGpiotePin for peripherals::$type {
-                    const PIN_PORT: u8 = $port_num * 32 + $pin_num;
+                    const PIN_NUMBER: crate::gpio::PinNumber = crate::gpio::PinNumber::new($port_num * 32 + $pin_num);
 
                     fn regs() -> crate::pac::gpiote::Gpiote {
                         <peripherals::$inst as crate::gpiote::SealedGpioteInstance>::regs()
@@ -658,7 +657,7 @@ cfg_select! {
         macro_rules! impl_gpiote_pin {
             ($type:ident, $port_num:expr, $pin_num:expr) => {
                 impl crate::gpiote::SealedGpiotePin for peripherals::$type {
-                    const PIN_PORT: u8 = $port_num * 32 + $pin_num;
+                    const PIN_NUMBER: crate::gpio::PinNumber = crate::gpio::PinNumber::new($port_num * 32 + $pin_num);
 
                     fn regs() -> crate::pac::gpiote::Gpiote {
                         crate::gpiote::PIN_REGS
