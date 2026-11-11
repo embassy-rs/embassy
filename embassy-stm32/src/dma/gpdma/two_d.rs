@@ -106,8 +106,8 @@ impl LinkedListItem for TwoDItem {
         src: *const W,
         dst: *mut W,
         len: usize,
-        incr_src: bool,
-        incr_dst: bool,
+        inc_src: bool,
+        inc_dst: bool,
         config: Self::Config,
     ) -> Self {
         Self::new_inner(
@@ -115,8 +115,8 @@ impl LinkedListItem for TwoDItem {
             Dir::MemoryToMemory,
             src as *const u32,
             dst as *mut u32,
-            incr_src,
-            incr_dst,
+            inc_src,
+            inc_dst,
             W::size(),
             W::size(),
             len,
