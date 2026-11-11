@@ -508,18 +508,6 @@ pub trait Channel: PeripheralType + SealedChannel + Sized {
     type IRQ: InterruptType;
 }
 
-//Doc isn't hidden in order to surface the explanation to users, even though it's completely inoperable, not just deprecated.
-//Entire type along with doc can probably be removed after deprecation has appeared in a release once.
-/// Deprecated type-erased EXTI channel.
-///
-/// Support for AnyChannel was removed in order to support manually bindable EXTI interrupts via bind_interrupts; [ExtiInput::new_async()]
-/// must know the required IRQ at compile time, and therefore cannot support type-erased channels.
-#[deprecated = "type-erased EXTI channels are no longer supported, in order to support manually bindable EXTI interrupts (more info: https://github.com/embassy-rs/embassy/pull/4922)"]
-pub struct AnyChannel {
-    #[allow(unused)]
-    number: u8,
-}
-
 macro_rules! impl_exti {
     ($type:ident, $number:expr) => {
         impl SealedChannel for crate::peripherals::$type {
@@ -537,14 +525,6 @@ macro_rules! impl_exti {
                 crate::_generated::peripheral_interrupts::EXTI::$type::IRQ
             }
             type IRQ = crate::_generated::peripheral_interrupts::EXTI::$type;
-        }
-
-        //Still here to surface deprecation messages to the user - remove when removing AnyChannel
-        #[allow(deprecated)]
-        impl From<crate::peripherals::$type> for AnyChannel {
-            fn from(_val: crate::peripherals::$type) -> Self {
-                Self { number: $number }
-            }
         }
     };
 }
