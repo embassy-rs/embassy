@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `MidiMatcher`, `UacMatcher`, `Cp210xMatcher`, and `HubMatcher`
 - Add the `test-utils` feature with `MockHost`, `MockState`, loopback pipes, `CDC_ACM_CONFIG`, and `enumeration_info`; add a CDC ACM host loopback test
 
+- Add SuperSpeed (5 Gbit/s) and SuperSpeedPlus (10 Gbit/s) device support
 - `HID`: Notify `RequestHandler::reset()` on USB bus reset, allowing handlers to restore default Report protocol mode
 - `CDC-NCM`: The NetworkConnection notification names the communication interface in `wIndex`, not the data interface
 
