@@ -18,7 +18,7 @@ pub struct Config {
     /// Length of the unit serial number in bytes (0..=32).
     pub serial_number_len: u8,
     /// Ask the driver to double-buffer the bulk endpoints. See
-    /// [`Driver::alloc_endpoint_bulk_in_double_buffered`](crate::driver::Driver::alloc_endpoint_bulk_in_double_buffered).
+    /// [`EndpointConfig::buffers`](crate::driver::EndpointConfig::buffers).
     pub double_buffered: bool,
 }
 

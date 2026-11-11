@@ -756,7 +756,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms);
         self.builder
             .driver
-            .alloc_endpoint_in_with_config(config)
+            .alloc_endpoint_in(&config)
             .expect("alloc_endpoint_in failed")
     }
 
@@ -828,7 +828,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms);
         self.builder
             .driver
-            .alloc_endpoint_out_with_config(config)
+            .alloc_endpoint_out(&config)
             .expect("alloc_endpoint_out failed")
     }
 
@@ -920,7 +920,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ///
     /// Like [`endpoint_bulk_in`](Self::endpoint_bulk_in), but asks the driver to double-buffer
     /// the endpoint. Drivers that don't support this allocate an ordinary endpoint. See
-    /// [`Driver::alloc_endpoint_bulk_in_double_buffered`].
+    /// [`EndpointConfig::buffers`](crate::driver::EndpointConfig::buffers).
     pub fn endpoint_bulk_in_double_buffered(
         &mut self,
         ep_addr: Option<EndpointAddress>,
@@ -930,11 +930,11 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             self.builder
                 .config_descriptor
                 .endpoint_config(ep_addr, EndpointType::Bulk, max_packet_size, 0);
-        config.double_buffered = true;
+        config.buffers = 2;
         let ep = self
             .builder
             .driver
-            .alloc_endpoint_in_with_config(config)
+            .alloc_endpoint_in(&config)
             .expect("alloc_endpoint_bulk_in_double_buffered failed");
         self.endpoint_descriptor(
             ep.info(),
@@ -949,7 +949,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ///
     /// Like [`endpoint_bulk_out`](Self::endpoint_bulk_out), but asks the driver to double-buffer
     /// the endpoint. Drivers that don't support this allocate an ordinary endpoint. See
-    /// [`Driver::alloc_endpoint_bulk_out_double_buffered`].
+    /// [`EndpointConfig::buffers`](crate::driver::EndpointConfig::buffers).
     pub fn endpoint_bulk_out_double_buffered(
         &mut self,
         ep_addr: Option<EndpointAddress>,
@@ -959,11 +959,11 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             self.builder
                 .config_descriptor
                 .endpoint_config(ep_addr, EndpointType::Bulk, max_packet_size, 0);
-        config.double_buffered = true;
+        config.buffers = 2;
         let ep = self
             .builder
             .driver
-            .alloc_endpoint_out_with_config(config)
+            .alloc_endpoint_out(&config)
             .expect("alloc_endpoint_bulk_out_double_buffered failed");
         self.endpoint_descriptor(
             ep.info(),

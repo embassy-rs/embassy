@@ -25,42 +25,22 @@ impl<'d> Driver<'d> for TestDriver {
     type ControlPipe = TestControlPipe;
     type Bus = TestBus;
 
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        self.alloc_endpoint_in_with_config(EndpointConfig::new(ep_addr, ep_type, max_packet_size, interval_ms))
-    }
-
-    fn alloc_endpoint_in_with_config(&mut self, config: EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
         let addr = config.addr.unwrap_or_else(|| {
             let index = (1..9).find(|&i| self.bus.endpoints[i * 2 + 1].is_none()).unwrap();
             EndpointAddress::from_parts(index, Direction::In)
         });
         assert!(addr.is_in());
-        self.bus.allocate(addr, config)
+        self.bus.allocate(addr, *config)
     }
 
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        self.alloc_endpoint_out_with_config(EndpointConfig::new(ep_addr, ep_type, max_packet_size, interval_ms))
-    }
-
-    fn alloc_endpoint_out_with_config(&mut self, config: EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
         let addr = config.addr.unwrap_or_else(|| {
             let index = (1..9).find(|&i| self.bus.endpoints[i * 2].is_none()).unwrap();
             EndpointAddress::from_parts(index, Direction::Out)
         });
         assert!(addr.is_out());
-        self.bus.allocate(addr, config)
+        self.bus.allocate(addr, *config)
     }
 
     fn start(self, control_max_packet_size: u16) -> (TestBus, TestControlPipe) {
@@ -116,6 +96,7 @@ impl TestBus {
             ep_type: config.ep_type,
             max_packet_size: config.max_packet_size,
             interval_ms: config.interval_ms,
+            max_burst: config.max_burst,
         };
         let slot = Self::slot(addr);
         assert!(self.endpoints[slot].replace(info).is_none());
@@ -1155,90 +1136,9 @@ fn test_superspeed_endpoint_config() {
         // bMaxBurst of the three companion descriptors, each after a 7-byte endpoint descriptor.
         assert_eq!([c[35], c[48], c[61]], [max_burst; 3]);
         assert_eq!(superspeed_fields(&usb, [0x01, 0x81, 0x02]), [(max_burst, 0); 3]);
-        let double_buffered = allocated(&usb, [0x01, 0x81, 0x02]).map(|config| config.double_buffered);
-        assert_eq!(double_buffered, [true, true, false]);
+        let buffers = allocated(&usb, [0x01, 0x81, 0x02]).map(|config| config.buffers);
+        assert_eq!(buffers, [2, 2, 1]);
     }
-}
-
-/// Has only the allocation methods of a driver without SuperSpeed, so the `_with_config` methods
-/// are the defaults.
-#[derive(Default)]
-struct PlainDriver(TestDriver);
-
-impl<'d> Driver<'d> for PlainDriver {
-    type EndpointOut = TestEndpoint;
-    type EndpointIn = TestEndpoint;
-    type ControlPipe = TestControlPipe;
-    type Bus = TestBus;
-
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        self.0.alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
-    }
-
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        self.0
-            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
-    }
-
-    fn alloc_endpoint_bulk_in_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        let mut config = EndpointConfig::new(ep_addr, EndpointType::Bulk, max_packet_size, 0);
-        config.double_buffered = true;
-        self.0.alloc_endpoint_in_with_config(config)
-    }
-
-    fn alloc_endpoint_bulk_out_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> Result<TestEndpoint, EndpointAllocError> {
-        let mut config = EndpointConfig::new(ep_addr, EndpointType::Bulk, max_packet_size, 0);
-        config.double_buffered = true;
-        self.0.alloc_endpoint_out_with_config(config)
-    }
-
-    fn start(self, control_max_packet_size: u16) -> (TestBus, TestControlPipe) {
-        self.0.start(control_max_packet_size)
-    }
-}
-
-#[test]
-fn test_default_endpoint_config() {
-    // The defaults keep double buffering and drop the SuperSpeed fields.
-    let (mut config_descriptor, mut bos_descriptor, mut control_buf) = ([0; 128], [0; 64], [0; 64]);
-    let mut builder = Builder::new(
-        PlainDriver::default(),
-        superspeed(UsbDeviceSpeed::Super, UsbVersion::Three, 7),
-        &mut config_descriptor,
-        &mut bos_descriptor,
-        &mut [],
-        &mut control_buf,
-    );
-    let mut function = builder.function(0xff, 0, 0);
-    let mut interface = function.interface();
-    let mut alt = interface.alt_setting(0xff, 0, 0, None);
-    alt.endpoint_bulk_out_double_buffered(Some(0x01.into()), 1024);
-    alt.endpoint_bulk_in_double_buffered(Some(0x81.into()), 1024);
-    alt.endpoint_bulk_out(Some(0x02.into()), 1024);
-    drop(function);
-    let usb = builder.build();
-    let allocated = allocated(&usb, [0x01, 0x81, 0x02]).map(|config| (config.double_buffered, config.max_burst));
-    assert_eq!(allocated, [(true, 0), (true, 0), (false, 0)]);
 }
 
 #[test]

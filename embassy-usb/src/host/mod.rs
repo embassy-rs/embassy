@@ -413,6 +413,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
             ep_type: EndpointType::Control,
             max_packet_size: DEFAULT_MAX_PACKET_SIZE,
             interval_ms: 0,
+            max_burst: 0,
         };
 
         let mut ch = self
@@ -463,6 +464,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
             ep_type: EndpointType::Control,
             max_packet_size: max_packet_size0 as u16,
             interval_ms: 0,
+            max_burst: 0,
         };
 
         let mut ch = self

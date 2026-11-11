@@ -958,28 +958,17 @@ mod tests {
             type ControlPipe = Unused;
             type Bus = Unused;
 
-            fn alloc_endpoint_out(
-                &mut self,
-                _: EndpointType,
-                _: Option<EndpointAddress>,
-                _: u16,
-                _: u8,
-            ) -> Result<Unused, EndpointAllocError> {
+            fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Unused, EndpointAllocError> {
                 unreachable!()
             }
 
-            fn alloc_endpoint_in(
-                &mut self,
-                ep_type: EndpointType,
-                _: Option<EndpointAddress>,
-                max_packet_size: u16,
-                interval_ms: u8,
-            ) -> Result<MockEndpoint, EndpointAllocError> {
+            fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<MockEndpoint, EndpointAllocError> {
                 let info = EndpointInfo {
                     addr: EndpointAddress::from_parts(3, Direction::In),
-                    ep_type,
-                    max_packet_size,
-                    interval_ms,
+                    ep_type: config.ep_type,
+                    max_packet_size: config.max_packet_size,
+                    interval_ms: config.interval_ms,
+                    max_burst: config.max_burst,
                 };
                 Ok(MockEndpoint(info, self.0.clone()))
             }

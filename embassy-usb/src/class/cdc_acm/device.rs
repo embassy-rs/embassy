@@ -235,7 +235,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Like [`new`](Self::new), but asks the driver to double-buffer the bulk data endpoints.
     ///
     /// This improves throughput on drivers that support it, at the cost of more endpoint
-    /// resources. See [`Driver::alloc_endpoint_bulk_in_double_buffered`].
+    /// resources. See [`EndpointConfig::buffers`](crate::driver::EndpointConfig::buffers).
     pub fn new_double_buffered(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, max_packet_size: u16) -> Self {
         Self::new_inner(builder, state, max_packet_size, true)
     }

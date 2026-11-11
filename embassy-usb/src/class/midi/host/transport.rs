@@ -24,6 +24,7 @@ impl<'d, A: UsbHostAllocator<'d>> MidiInputPipe<'d, A> {
             ep_type: EndpointType::Bulk,
             max_packet_size: endpoint.max_packet_size,
             interval_ms: 0,
+            max_burst: 0,
         };
         let pipe = alloc
             .alloc_pipe::<pipe::Bulk, pipe::In>(enum_info.device_address, &endpoint, enum_info.split())
@@ -59,6 +60,7 @@ impl<'d, A: UsbHostAllocator<'d>> MidiOutputPipe<'d, A> {
             ep_type: EndpointType::Bulk,
             max_packet_size: endpoint.max_packet_size,
             interval_ms: 0,
+            max_burst: 0,
         };
         let pipe = alloc
             .alloc_pipe::<pipe::Bulk, pipe::Out>(enum_info.device_address, &endpoint, enum_info.split())

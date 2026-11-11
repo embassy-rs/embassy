@@ -1219,7 +1219,7 @@ mod tests {
 
     use super::*;
     use crate::driver::{
-        Bus, ControlPipe, EndpointAddress, EndpointAllocError, EndpointIn, EndpointInfo, EndpointType, Event,
+        Bus, ControlPipe, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointIn, EndpointInfo, Event,
         Unsupported,
     };
 
@@ -1256,23 +1256,11 @@ mod tests {
         type ControlPipe = Unused;
         type Bus = Unused;
 
-        fn alloc_endpoint_out(
-            &mut self,
-            _: EndpointType,
-            _: Option<EndpointAddress>,
-            _: u16,
-            _: u8,
-        ) -> Result<Self::EndpointOut, EndpointAllocError> {
+        fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
             unreachable!()
         }
 
-        fn alloc_endpoint_in(
-            &mut self,
-            _: EndpointType,
-            _: Option<EndpointAddress>,
-            _: u16,
-            _: u8,
-        ) -> Result<Self::EndpointIn, EndpointAllocError> {
+        fn alloc_endpoint_in(&mut self, _: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
             unreachable!()
         }
 
