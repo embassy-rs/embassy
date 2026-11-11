@@ -624,14 +624,18 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
             },
         );
 
+        // Allocate the streaming endpoint at function scope. It is not owned by
+        // the zero-bandwidth alternate setting 0; only alternate setting 1
+        // describes it.
+        let endpoint = func.alloc_endpoint_in(EndpointType::Isochronous, None, max_packet_size, 0);
+        let endpoint_address = endpoint.info().addr.into();
+
         // Video streaming interface. Alternate setting 0 has no endpoint: no bandwidth is claimed
         // until the host starts the stream by selecting alternate setting 1.
         let mut vs = func.interface();
         assert_eq!(vs.interface_number(), vs_number);
         let mut alt0 = vs.alt_setting(USB_CLASS_VIDEO, SC_VIDEOSTREAMING, PC_PROTOCOL_UNDEFINED, None);
         // The input header names the endpoint, which is only described in alternate setting 1.
-        let endpoint = alt0.alloc_endpoint_in(EndpointType::Isochronous, None, max_packet_size, 0);
-        let endpoint_address = endpoint.info().addr.into();
         alt0.descriptors_then_patch(
             |alt| {
                 alt.descriptor(CS_INTERFACE, &vs_input_header(formats.len() as u8, endpoint_address));

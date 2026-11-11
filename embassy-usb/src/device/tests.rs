@@ -835,6 +835,78 @@ fn test_manual_raw_descriptor_opt_out() {
     assert_eq!(find_interval(desc, 0x81), 99);
 }
 
+#[test]
+fn shared_endpoints_stay_enabled_across_alternate_settings() {
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut function = builder.function(0xff, 0, 0);
+    let mut interface = function.interface();
+
+    // Alternate setting 0 references only the shared IN endpoint.
+    let mut alt0 = interface.alt_setting(0xff, 0, 0, None);
+    let shared_in = alt0.alloc_endpoint_in(EndpointType::Bulk, None, 64, 0);
+    alt0.endpoint_descriptor(
+        shared_in.info(),
+        SynchronizationType::NoSynchronization,
+        UsageType::DataEndpoint,
+        &[],
+    );
+
+    // Alternate setting 1 reuses it and adds an OUT endpoint of its own.
+    let mut alt1 = interface.alt_setting(0xff, 0, 0, None);
+    alt1.endpoint_descriptor(
+        shared_in.info(),
+        SynchronizationType::NoSynchronization,
+        UsageType::DataEndpoint,
+        &[],
+    );
+    let alt1_out = alt1.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0);
+    alt1.endpoint_descriptor(
+        alt1_out.info(),
+        SynchronizationType::NoSynchronization,
+        UsageType::DataEndpoint,
+        &[],
+    );
+
+    drop(function);
+    let mut usb = builder.build();
+
+    let slot = |addr: EndpointAddress| addr.index() * 2 + usize::from(addr.is_in());
+    let in_addr = shared_in.info().addr;
+    let out_addr = alt1_out.info().addr;
+
+    // Enumeration selects alternate setting 0: only the shared endpoint is enabled.
+    configure(&mut usb);
+    assert!(usb.inner.bus.enabled[slot(in_addr)]);
+    assert!(!usb.inner.bus.enabled[slot(out_addr)]);
+
+    // Selecting alternate setting 1 enables both endpoints.
+    assert_eq!(
+        request(&mut usb, 1, Request::SET_INTERFACE, 1, 0, 0),
+        Response::Accepted
+    );
+    assert!(usb.inner.bus.enabled[slot(in_addr)]);
+    assert!(usb.inner.bus.enabled[slot(out_addr)]);
+
+    // Going back to alternate setting 0 must keep the shared endpoint enabled and
+    // disable the endpoint that only exists in alternate setting 1.
+    assert_eq!(
+        request(&mut usb, 1, Request::SET_INTERFACE, 0, 0, 0),
+        Response::Accepted
+    );
+    assert!(usb.inner.bus.enabled[slot(in_addr)]);
+    assert!(!usb.inner.bus.enabled[slot(out_addr)]);
+}
+
 #[cfg(feature = "class-midi")]
 #[test]
 fn test_midi2_device_enumeration_and_control() {
@@ -892,12 +964,64 @@ fn test_midi2_device_enumeration_and_control() {
         out_jack_names: &[Some("MIDI Out")],
         midi2: Some(Midi2Config {
             group_terminal_blocks: GTBS,
-            max_packet_size: 64,
         }),
     };
 
     let _midi = MidiClass::new_with_names(&mut builder, &mut state, midi_config);
     let mut usb = builder.build();
+
+    // Both alternate settings must reference the same bulk endpoints. The
+    // MIDI 2.0 spec expects Alt 1 to reuse Alt 0's endpoints, and a second
+    // pair would waste scarce endpoint hardware on most MCUs.
+    let desc = usb.inner.config_descriptor;
+    let mut endpoints_by_alt = [[None; 2]; 2];
+    let mut current_alt = None;
+    let mut offset = 0;
+    while offset + 1 < desc.len() {
+        let len = desc[offset] as usize;
+        if len < 2 || offset + len > desc.len() {
+            break;
+        }
+        match desc[offset + 1] {
+            descriptor_type::INTERFACE => {
+                current_alt = (desc[offset + 2] == 1).then_some(desc[offset + 3] as usize);
+            }
+            descriptor_type::ENDPOINT => {
+                if let Some(alt) = current_alt {
+                    let addr = desc[offset + 2];
+                    let direction = if addr & 0x80 != 0 { 0 } else { 1 };
+                    endpoints_by_alt[alt][direction] = Some(addr);
+                }
+            }
+            _ => {}
+        }
+        offset += len;
+    }
+    assert_eq!(
+        endpoints_by_alt[0], endpoints_by_alt[1],
+        "Alt 0 and Alt 1 must share the same endpoint addresses"
+    );
+    assert_eq!(endpoints_by_alt[0], [Some(0x81), Some(0x01)]);
+
+    // Enumerate the device. Alternate Setting 0 is selected by default, and the
+    // endpoints it shares with Alternate Setting 1 must be enabled.
+    let set_config_req = Request {
+        direction: Direction::Out,
+        request_type: RequestType::Standard,
+        recipient: Recipient::Device,
+        request: Request::SET_CONFIGURATION,
+        value: 1,
+        index: 0,
+        length: 0,
+    };
+    assert_eq!(usb.inner.handle_control_out(set_config_req, &[]), OutResponse::Accepted);
+
+    let slot = |addr: u8| {
+        let addr = EndpointAddress::from(addr);
+        addr.index() * 2 + usize::from(addr.is_in())
+    };
+    assert!(usb.inner.bus.enabled[slot(0x81)]);
+    assert!(usb.inner.bus.enabled[slot(0x01)]);
 
     // Switch interface 1 to Alternate Setting 1 (MIDI 2.0)
     let set_alt_req = Request {
@@ -910,6 +1034,17 @@ fn test_midi2_device_enumeration_and_control() {
         length: 0,
     };
     assert_eq!(usb.inner.handle_control_out(set_alt_req, &[]), OutResponse::Accepted);
+    assert!(usb.inner.bus.enabled[slot(0x81)]);
+    assert!(usb.inner.bus.enabled[slot(0x01)]);
+
+    // Switching back to MIDI 1.0 must not disable the shared endpoints.
+    let set_alt0_req = Request {
+        value: 0,
+        ..set_alt_req
+    };
+    assert_eq!(usb.inner.handle_control_out(set_alt0_req, &[]), OutResponse::Accepted);
+    assert!(usb.inner.bus.enabled[slot(0x81)]);
+    assert!(usb.inner.bus.enabled[slot(0x01)]);
 
     // Switch interface 1 to invalid Alternate Setting 2
     let set_alt_invalid = Request {

@@ -355,6 +355,48 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         self.config.max_speed
     }
 
+    /// Allocates an IN endpoint at device scope.
+    ///
+    /// Unlike [`InterfaceAltBuilder::endpoint_in`], this does not write an endpoint
+    /// descriptor and does not attach the endpoint to an alternate setting. Write the
+    /// standard descriptor in every alternate setting that references the endpoint with
+    /// [`InterfaceAltBuilder::endpoint_descriptor`].
+    ///
+    /// Allocate at device scope when alternate settings share an endpoint. USB MIDI 2.0
+    /// requires its MIDI 1.0 (Alternate Setting 0) and MIDI 2.0 (Alternate Setting 1)
+    /// modes to use the same bulk endpoints; allocating once and describing the endpoint
+    /// in both settings avoids wasting a second endpoint address.
+    ///
+    /// Panics if the driver cannot allocate the endpoint.
+    pub fn alloc_endpoint_in(
+        &mut self,
+        ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> D::EndpointIn {
+        self.driver
+            .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
+            .expect("alloc_endpoint_in failed")
+    }
+
+    /// Allocates an OUT endpoint at device scope.
+    ///
+    /// See [`Builder::alloc_endpoint_in`] for the endpoint-sharing contract.
+    ///
+    /// Panics if the driver cannot allocate the endpoint.
+    pub fn alloc_endpoint_out(
+        &mut self,
+        ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> D::EndpointOut {
+        self.driver
+            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
+            .expect("alloc_endpoint_out failed")
+    }
+
     /// Add an USB function.
     ///
     /// If [`Config::composite_with_iads`] is set, this will add an IAD descriptor
@@ -469,6 +511,40 @@ impl<'a, 'd, D: Driver<'d>> Drop for FunctionBuilder<'a, 'd, D> {
 }
 
 impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
+    /// Allocates an IN endpoint at device scope.
+    ///
+    /// This is [`Builder::alloc_endpoint_in`], callable while the function has the
+    /// builder borrowed. See that method for the endpoint-sharing contract.
+    ///
+    /// Panics if the driver cannot allocate the endpoint.
+    pub fn alloc_endpoint_in(
+        &mut self,
+        ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> D::EndpointIn {
+        self.builder
+            .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
+    }
+
+    /// Allocates an OUT endpoint at device scope.
+    ///
+    /// This is [`Builder::alloc_endpoint_out`], callable while the function has the
+    /// builder borrowed. See that method for the endpoint-sharing contract.
+    ///
+    /// Panics if the driver cannot allocate the endpoint.
+    pub fn alloc_endpoint_out(
+        &mut self,
+        ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> D::EndpointOut {
+        self.builder
+            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
+    }
+
     /// Add an interface to the function.
     ///
     /// Interface numbers are guaranteed to be allocated consecutively, starting from 0.
@@ -608,6 +684,12 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// This can be necessary, if the endpoint descriptors can only be written
     /// after the endpoint was created. As an example, an endpoint descriptor
     /// may contain the address of an endpoint that was allocated earlier.
+    ///
+    /// This is also how an endpoint shared by several alternate settings is
+    /// described: allocate it once with [`Builder::alloc_endpoint_in`] or
+    /// [`Builder::alloc_endpoint_out`], then call this method in every
+    /// alternate setting that references it. The same [`EndpointInfo`] (and
+    /// therefore the same address and transfer type) must be used everywhere.
     pub fn endpoint_descriptor(
         &mut self,
         endpoint: &EndpointInfo,
@@ -684,6 +766,9 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Allocate an IN endpoint, without writing its descriptor.
     ///
     /// Used for granular control over the order of endpoint and descriptor creation.
+    ///
+    /// Prefer [`Builder::alloc_endpoint_in`] when the endpoint is referenced by more than
+    /// one alternate setting: it makes the device-scoped ownership explicit.
     pub fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
@@ -752,6 +837,9 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Allocate an OUT endpoint, without writing its descriptor.
     ///
     /// Use for granular control over the order of endpoint and descriptor creation.
+    ///
+    /// Prefer [`Builder::alloc_endpoint_out`] when the endpoint is referenced by more than
+    /// one alternate setting: it makes the device-scoped ownership explicit.
     pub fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,

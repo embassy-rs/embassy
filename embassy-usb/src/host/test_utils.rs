@@ -63,6 +63,7 @@ struct MockStateInner {
     loopback: Deque<u8, 256>,
     line_coding: [u8; 7],
     control_line_state: u16,
+    set_interface: Option<(u16, u16)>,
 }
 
 impl MockState {
@@ -72,6 +73,7 @@ impl MockState {
                 loopback: Deque::new(),
                 line_coding: [0; 7],
                 control_line_state: 0,
+                set_interface: None,
             }),
         }
     }
@@ -86,6 +88,11 @@ impl MockState {
 
     pub fn control_line_state(&self) -> u16 {
         self.inner.borrow().control_line_state
+    }
+
+    /// Last `SET_INTERFACE` request as `(interface, alternate_setting)`.
+    pub fn set_interface(&self) -> Option<(u16, u16)> {
+        self.inner.borrow().set_interface
     }
 }
 
@@ -158,6 +165,14 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for MockPipe<'_> {
             // SET_CONTROL_LINE_STATE
             0x22 => {
                 inner.control_line_state = u16::from_le_bytes([setup[2], setup[3]]);
+                Ok(())
+            }
+            // SET_INTERFACE
+            0x0b => {
+                inner.set_interface = Some((
+                    u16::from_le_bytes([setup[4], setup[5]]),
+                    u16::from_le_bytes([setup[2], setup[3]]),
+                ));
                 Ok(())
             }
             _ => Err(PipeError::Stall),

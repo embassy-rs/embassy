@@ -5,7 +5,7 @@
 
 use core::marker::PhantomData;
 
-use embassy_usb_driver::host::{PipeError, UsbHostAllocator};
+use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use heapless::Vec;
 
 use crate::class::midi::{
@@ -451,13 +451,36 @@ pub struct Midi2Host<'d, A: UsbHostAllocator<'d>> {
 }
 
 impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
-    /// Discover the MIDI 2.0 streaming interface (Alt Setting 1 or bcdMSC >= 0x0200) and allocate bulk UMP pipes.
-    pub fn new(alloc: &A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
+    /// Discover the MIDI 2.0 streaming interface (Alt Setting 1 or bcdMSC >= 0x0200),
+    /// select its alternate setting, and allocate bulk UMP pipes.
+    ///
+    /// The MIDI 1.0 and MIDI 2.0 alternate settings share the same bulk endpoints, so
+    /// the interface must be switched to Alternate Setting 1 before the pipes carry UMP;
+    /// otherwise the device keeps interpreting the shared endpoints as USB-MIDI 1.0
+    /// event packets.
+    pub async fn new<P>(
+        alloc: &A,
+        control_pipe: &mut P,
+        config_desc: &[u8],
+        enum_info: &EnumerationInfo,
+    ) -> Result<Self, MidiError>
+    where
+        P: UsbPipe<pipe::Control, pipe::InOut>,
+    {
+        use crate::host::control::SetupPacket;
+
         let interfaces = parse_midi_interfaces_for_device(&enum_info.device_desc, config_desc)?;
         let interface = interfaces
             .iter()
             .find(|iface| iface.is_midi2())
             .ok_or(MidiError::NoInterface)?;
+
+        // Select the MIDI 2.0 alternate setting on the shared endpoints.
+        if interface.alternate_setting != 0 {
+            let setup =
+                SetupPacket::set_interface(interface.interface_number as u16, interface.alternate_setting as u16);
+            control_pipe.control_out(&setup.to_bytes(), &[]).await?;
+        }
 
         let mut input_endpoint = None;
         let mut output_endpoint = None;
@@ -786,5 +809,64 @@ mod tests {
             select_streaming_interface(&interfaces),
             Err(MidiError::UnsupportedTopology)
         ));
+    }
+
+    // Minimal dual-protocol MIDIStreaming interface: interface 1, alternate settings 0
+    // (MIDI 1.0) and 1 (MIDI 2.0), both referencing bulk endpoints 0x01 and 0x81.
+    #[rustfmt::skip]
+    const MIDI2_CONFIG: &[u8] = &[
+        9, 2, 82, 0, 1, 1, 0, 0x80, 50,
+        // Interface 1, Alternate Setting 0 (MIDI 1.0).
+        9, 4, 1, 0, 2, 1, 3, 0, 0,
+        7, 5, 0x01, 2, 64, 0, 0,
+        5, 0x25, 0x01, 0x01, 0x01,
+        7, 5, 0x81, 2, 64, 0, 0,
+        5, 0x25, 0x01, 0x01, 0x02,
+        // Interface 1, Alternate Setting 1 (MIDI 2.0).
+        9, 4, 1, 1, 2, 1, 3, 0, 0,
+        7, 0x24, 0x01, 0x00, 0x02, 0x07, 0x00,
+        7, 5, 0x01, 2, 64, 0, 0,
+        5, 0x25, 0x02, 0x01, 0x01,
+        7, 5, 0x81, 2, 64, 0, 0,
+        5, 0x25, 0x02, 0x01, 0x01,
+    ];
+
+    #[test]
+    fn midi2_host_selects_alternate_setting_one() {
+        use embassy_futures::block_on;
+        use embassy_usb_driver::{EndpointInfo, EndpointType};
+
+        use crate::host::test_utils::{MockHost, MockState};
+
+        let info = crate::host::test_utils::enumeration_info();
+        let interfaces = parse_midi_interfaces_for_device(&info.device_desc, MIDI2_CONFIG).unwrap();
+        assert_eq!(interfaces.len(), 2);
+
+        let midi2 = interfaces.iter().find(|iface| iface.is_midi2()).unwrap();
+        assert_eq!(midi2.alternate_setting, 1);
+        let midi2_addrs = [midi2.endpoints[0].address, midi2.endpoints[1].address];
+        assert_eq!(midi2_addrs, [0x01, 0x81]);
+
+        // The MIDI 1.0 setting references the same endpoints.
+        let midi1 = interfaces.iter().find(|iface| iface.alternate_setting == 0).unwrap();
+        let midi1_addrs = [midi1.endpoints[0].address, midi1.endpoints[1].address];
+        assert_eq!(midi1_addrs, midi2_addrs);
+
+        let state = MockState::new();
+        let host = MockHost::new(&state);
+        let control_ep = EndpointInfo {
+            addr: 0.into(),
+            ep_type: EndpointType::Control,
+            max_packet_size: 64,
+            interval_ms: 0,
+        };
+        let mut control = host
+            .alloc_pipe::<pipe::Control, pipe::InOut>(info.device_address, &control_ep, info.split())
+            .unwrap();
+
+        let midi = block_on(Midi2Host::new(&host, &mut control, MIDI2_CONFIG, &info)).unwrap();
+        assert_eq!(midi.interface_number(), 1);
+        // The host must switch the shared endpoints to Alternate Setting 1.
+        assert_eq!(state.set_interface(), Some((1, 1)));
     }
 }

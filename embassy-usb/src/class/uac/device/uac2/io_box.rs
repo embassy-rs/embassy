@@ -463,6 +463,17 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         let interrupt_ep = interrupt_endpoint
             .then(|| alt.endpoint_interrupt_in(None, INTERRUPT_MESSAGE_LEN as u16, INTERRUPT_INTERVAL_MS));
 
+        // Allocate the streaming endpoints at function scope. Allocating here
+        // (after the interrupt endpoint) preserves endpoint numbering, and makes
+        // it clear that these endpoints are not owned by one alternate setting:
+        // the IN endpoint is described on the input interface, not the output one.
+        // Every frame or microframe.
+        let out_ep = func.alloc_endpoint_out(EndpointType::Isochronous, None, line_out_max_packet_size, 0);
+        // Allocated before the feedback endpoint, so that drivers allocating in order don't
+        // give the feedback endpoint line out's endpoint number.
+        let in_ep = func.alloc_endpoint_in(EndpointType::Isochronous, None, line_in_max_packet_size, 0);
+        let feedback_ep = func.alloc_endpoint_in(EndpointType::Isochronous, None, feedback_len(speed) as u16, 1);
+
         let mut out_iface = func.interface();
         out_iface.alt_setting(
             interface::AUDIO,
@@ -482,12 +493,6 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         );
         out_alt.descriptor(descriptor_type::CS_INTERFACE, &format_type_i(sample_width));
 
-        // Every frame or microframe.
-        let out_ep = out_alt.alloc_endpoint_out(EndpointType::Isochronous, None, line_out_max_packet_size, 0);
-        // Allocated before the feedback endpoint, so that drivers allocating in order don't
-        // give the feedback endpoint line out's endpoint number.
-        let in_ep = out_alt.alloc_endpoint_in(EndpointType::Isochronous, None, line_in_max_packet_size, 0);
-
         out_alt.endpoint_descriptor(
             out_ep.info(),
             SynchronizationType::Asynchronous,
@@ -496,7 +501,6 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         );
         out_alt.descriptor(descriptor_type::CS_ENDPOINT, &iso_data_endpoint());
 
-        let feedback_ep = out_alt.alloc_endpoint_in(EndpointType::Isochronous, None, feedback_len(speed) as u16, 1);
         out_alt.endpoint_descriptor(
             feedback_ep.info(),
             SynchronizationType::NoSynchronization,

@@ -23,22 +23,16 @@ const EXTERNAL: u8 = MidiJackType::External as u8;
 const MIDI_OUT_JACK_LEN: u8 = MIDI_OUT_JACK_BASE_LEN + 2;
 
 /// Configuration for MIDI 2.0 support (Alternate Setting 1).
-#[derive(Debug, Clone)]
+///
+/// The MIDI 2.0 alternate setting reuses the bulk endpoints allocated for the
+/// MIDI 1.0 alternate setting, as required by the USB MIDI 2.0 specification.
+/// The endpoints' packet size is therefore configured once through
+/// [`MidiClassConfig::max_packet_size`].
+#[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Midi2Config<'d> {
     /// Group Terminal Blocks declared by this interface.
     pub group_terminal_blocks: &'d [GroupTerminalBlockConfig<'d>],
-    /// Maximum packet size for Alt 1 bulk endpoints (e.g. 64 for full-speed, 512 for high-speed).
-    pub max_packet_size: u16,
-}
-
-impl Default for Midi2Config<'_> {
-    fn default() -> Self {
-        Self {
-            group_terminal_blocks: &[],
-            max_packet_size: 64,
-        }
-    }
 }
 
 /// Configuration for the MIDI class.
@@ -61,6 +55,9 @@ pub struct MidiClassConfig<'d> {
     pub n_out_jacks: u8,
 
     /// Maximum packet size for the endpoints.
+    ///
+    /// The same bulk endpoints are used by the MIDI 1.0 and MIDI 2.0 alternate
+    /// settings, so this single value applies to both.
     /// For full-speed devices, the value has to be one of 8, 16, 32 or 64.
     pub max_packet_size: u16,
 
@@ -74,6 +71,9 @@ pub struct MidiClassConfig<'d> {
     pub out_jack_names: &'d [Option<&'d str>],
 
     /// Optional MIDI 2.0 configuration for Alternate Setting 1.
+    ///
+    /// When set, Alternate Setting 1 reuses the bulk endpoints of Alternate
+    /// Setting 0 instead of allocating a second pair.
     pub midi2: Option<Midi2Config<'d>>,
 }
 
@@ -207,13 +207,15 @@ impl Handler for MidiClassState<'_> {
 
 /// Packet level implementation of a USB MIDI device supporting MIDI 1.0 and 2.0.
 ///
+/// The MIDI 1.0 (Alternate Setting 0) and MIDI 2.0 (Alternate Setting 1)
+/// protocols share one pair of bulk endpoints; the host selects which protocol
+/// is carried over them with `SET_INTERFACE`.
+///
 /// This class can be used directly and it has the least overhead due to directly reading and
 /// writing USB packets with no intermediate buffers, but it will not act like a stream-like port.
 pub struct MidiClass<'d, D: Driver<'d>> {
     read_ep: Option<D::EndpointOut>,
     write_ep: Option<D::EndpointIn>,
-    read_ep_v2: Option<D::EndpointOut>,
-    write_ep_v2: Option<D::EndpointIn>,
 }
 
 impl<'d, D: Driver<'d>> MidiClass<'d, D> {
@@ -331,6 +333,21 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
 
         let mut func = builder.function(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE);
 
+        let has_midi2 = config.midi2.is_some();
+
+        // The MIDI 2.0 alternate setting reuses the bulk endpoints of the MIDI
+        // 1.0 alternate setting instead of allocating a second pair. Allocate
+        // them once at function scope and write their standard descriptor into
+        // every alternate setting that uses them.
+        //
+        // An endpoint is only described in Alt 0 when the corresponding jack
+        // count is non-zero, but it is still allocated when MIDI 2.0 needs it,
+        // so both alternate settings always reference the same addresses.
+        let read_ep = (n_out_jacks > 0 || has_midi2)
+            .then(|| func.alloc_endpoint_out(EndpointType::Bulk, None, max_packet_size, 0));
+        let write_ep =
+            (n_in_jacks > 0 || has_midi2).then(|| func.alloc_endpoint_in(EndpointType::Bulk, None, max_packet_size, 0));
+
         // Audio control interface
         let mut iface = func.interface();
         let audio_if = iface.interface_number();
@@ -350,7 +367,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             names.interface(),
         );
 
-        let (read_ep, write_ep) = if n_in_jacks > 0 || n_out_jacks > 0 {
+        if n_in_jacks > 0 || n_out_jacks > 0 {
             let midi_streaming_total_length = MS_HEADER_LEN as usize
                 + (n_in_jacks + n_out_jacks) as usize * (MIDI_IN_JACK_LEN + MIDI_OUT_JACK_LEN) as usize
                 + if n_out_jacks > 0 {
@@ -430,53 +447,39 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // Jack mappings
                     ];
 
-                    let read_ep = if n_out_jacks > 0 {
+                    if n_out_jacks > 0 {
                         endpoint_data[1] = n_out_jacks;
                         for i in 0..n_out_jacks {
                             endpoint_data[2 + i as usize] = in_jack_id_emb(i);
                         }
-                        let read_ep = alt.endpoint_out(
-                            EndpointType::Bulk,
-                            None,
-                            max_packet_size,
-                            0,
+                        alt.endpoint_descriptor(
+                            read_ep.as_ref().unwrap().info(),
                             SynchronizationType::NoSynchronization,
                             UsageType::DataEndpoint,
                             &[0, 0],
                         );
                         alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_out_jacks as usize]);
-                        Some(read_ep)
-                    } else {
-                        None
-                    };
+                    }
 
-                    let write_ep = if n_in_jacks > 0 {
+                    if n_in_jacks > 0 {
                         endpoint_data[1] = n_in_jacks;
                         for i in 0..n_in_jacks {
                             endpoint_data[2 + i as usize] = out_jack_id_emb(i);
                         }
-                        let write_ep = alt.endpoint_in(
-                            EndpointType::Bulk,
-                            None,
-                            max_packet_size,
-                            0,
+                        alt.endpoint_descriptor(
+                            write_ep.as_ref().unwrap().info(),
                             SynchronizationType::NoSynchronization,
                             UsageType::DataEndpoint,
                             &[0, 0],
                         );
                         alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_in_jacks as usize]);
-                        Some(write_ep)
-                    } else {
-                        None
-                    };
-
-                    (read_ep, write_ep)
+                    }
                 },
                 |buffer| {
                     let len = buffer.len() as u16;
                     buffer[5..7].copy_from_slice(&len.to_le_bytes());
                 },
-            )
+            );
         } else {
             alt.descriptor(
                 CS_INTERFACE,
@@ -488,11 +491,10 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                     0x00,
                 ],
             );
-            (None, None)
-        };
+        }
 
         // Alt 1: MIDI 2.0 (UMP)
-        let (read_ep_v2, write_ep_v2) = if let Some(midi2_config) = &config.midi2 {
+        if let Some(midi2_config) = &config.midi2 {
             let mut alt1 = iface.alt_setting(
                 USB_AUDIO_CLASS,
                 USB_MIDISTREAMING_SUBCLASS,
@@ -520,57 +522,37 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             }
             let ep_cs_len = 2 + midi2_config.group_terminal_blocks.len();
 
-            let read_ep = alt1.endpoint_out(
-                EndpointType::Bulk,
-                None,
-                midi2_config.max_packet_size,
-                0,
+            // Reuse the bulk endpoints allocated for Alt 0. Only the
+            // class-specific endpoint descriptor differs between the two
+            // alternate settings.
+            alt1.endpoint_descriptor(
+                read_ep.as_ref().unwrap().info(),
                 SynchronizationType::NoSynchronization,
                 UsageType::DataEndpoint,
                 &[0, 0],
             );
             alt1.descriptor(CS_ENDPOINT, &ep_cs_data[..ep_cs_len]);
 
-            let write_ep = alt1.endpoint_in(
-                EndpointType::Bulk,
-                None,
-                midi2_config.max_packet_size,
-                0,
+            alt1.endpoint_descriptor(
+                write_ep.as_ref().unwrap().info(),
                 SynchronizationType::NoSynchronization,
                 UsageType::DataEndpoint,
                 &[0, 0],
             );
             alt1.descriptor(CS_ENDPOINT, &ep_cs_data[..ep_cs_len]);
-
-            (Some(read_ep), Some(write_ep))
-        } else {
-            (None, None)
-        };
-
-        MidiClass {
-            read_ep,
-            write_ep,
-            read_ep_v2,
-            write_ep_v2,
         }
+
+        MidiClass { read_ep, write_ep }
     }
 
-    /// Gets the maximum packet size in bytes for MIDI 1.0 (Alt 0).
+    /// Gets the maximum packet size in bytes for the bulk endpoints.
+    ///
+    /// The MIDI 1.0 and MIDI 2.0 alternate settings share the same endpoints,
+    /// so they have the same maximum packet size.
     pub fn max_packet_size(&self) -> u16 {
         if let Some(read_ep) = &self.read_ep {
             read_ep.info().max_packet_size
         } else if let Some(write_ep) = &self.write_ep {
-            write_ep.info().max_packet_size
-        } else {
-            0
-        }
-    }
-
-    /// Gets the maximum packet size in bytes for MIDI 2.0 (Alt 1).
-    pub fn midi2_max_packet_size(&self) -> u16 {
-        if let Some(read_ep) = &self.read_ep_v2 {
-            read_ep.info().max_packet_size
-        } else if let Some(write_ep) = &self.write_ep_v2 {
             write_ep.info().max_packet_size
         } else {
             0
@@ -589,23 +571,29 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         read_ep.read(data).await
     }
 
-    /// Writes a single Universal MIDI Packet (UMP) into the MIDI 2.0 IN endpoint.
+    /// Writes a single Universal MIDI Packet (UMP) to the host.
+    ///
+    /// This is only meaningful while Alternate Setting 1 (MIDI 2.0) is active.
     pub async fn write_ump(&mut self, packet: &UmpPacket) -> Result<(), EndpointError> {
-        let write_ep = self.write_ep_v2.as_mut().ok_or(EndpointError::Disabled)?;
+        let write_ep = self.write_ep.as_mut().ok_or(EndpointError::Disabled)?;
         let mut buf = [0u8; MAX_UMP_BYTES];
         let n = packet.to_bytes(&mut buf).map_err(|_| EndpointError::BufferOverflow)?;
         write_ep.write(&buf[..n]).await
     }
 
-    /// Writes raw UMP bytes into the MIDI 2.0 IN endpoint.
+    /// Writes raw UMP bytes to the host.
+    ///
+    /// This is only meaningful while Alternate Setting 1 (MIDI 2.0) is active.
     pub async fn write_ump_bytes(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        let write_ep = self.write_ep_v2.as_mut().ok_or(EndpointError::Disabled)?;
+        let write_ep = self.write_ep.as_mut().ok_or(EndpointError::Disabled)?;
         write_ep.write(data).await
     }
 
-    /// Reads Universal MIDI Packets from the MIDI 2.0 OUT endpoint.
+    /// Reads Universal MIDI Packets from the host.
+    ///
+    /// This is only meaningful while Alternate Setting 1 (MIDI 2.0) is active.
     pub async fn read_ump<'a>(&mut self, data: &'a mut [u8]) -> Result<UmpReader<'a>, EndpointError> {
-        let read_ep = self.read_ep_v2.as_mut().ok_or(EndpointError::Disabled)?;
+        let read_ep = self.read_ep.as_mut().ok_or(EndpointError::Disabled)?;
         let n = read_ep.read(data).await?;
         Ok(UmpReader::new(&data[..n]))
     }
@@ -614,49 +602,26 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
     pub async fn wait_connection(&mut self) {
         if let Some(read_ep) = &mut self.read_ep {
             read_ep.wait_enabled().await;
-        } else if let Some(read_ep_v2) = &mut self.read_ep_v2 {
-            read_ep_v2.wait_enabled().await;
+        } else if let Some(write_ep) = &mut self.write_ep {
+            write_ep.wait_enabled().await;
         }
     }
 
-    /// Split the MIDI 1.0 (Alt 0) endpoints into a sender and receiver.
+    /// Split the endpoints into a sender and receiver.
     ///
+    /// The same endpoints carry both MIDI 1.0 and MIDI 2.0 data, so a single
+    /// sender/receiver pair serves both alternate settings.
     /// This allows concurrently sending and receiving packets from separate tasks.
     pub fn split(mut self) -> (Option<Sender<'d, D>>, Option<Receiver<'d, D>>) {
         let sender = self.write_ep.take().map(|write_ep| Sender { write_ep });
         let receiver = self.read_ep.take().map(|read_ep| Receiver { read_ep });
         (sender, receiver)
     }
-
-    /// Split the MIDI 2.0 (Alt 1) endpoints into a sender and receiver.
-    pub fn split_midi2(mut self) -> (Option<Sender<'d, D>>, Option<Receiver<'d, D>>) {
-        let sender = self.write_ep_v2.take().map(|write_ep| Sender { write_ep });
-        let receiver = self.read_ep_v2.take().map(|read_ep| Receiver { read_ep });
-        (sender, receiver)
-    }
-
-    /// Split both MIDI 1.0 and MIDI 2.0 endpoints into separate senders and receivers.
-    pub fn split_all(
-        mut self,
-    ) -> (
-        (Option<Sender<'d, D>>, Option<Receiver<'d, D>>),
-        (Option<Sender<'d, D>>, Option<Receiver<'d, D>>),
-    ) {
-        let m1 = (
-            self.write_ep.take().map(|write_ep| Sender { write_ep }),
-            self.read_ep.take().map(|read_ep| Receiver { read_ep }),
-        );
-        let m2 = (
-            self.write_ep_v2.take().map(|write_ep| Sender { write_ep }),
-            self.read_ep_v2.take().map(|read_ep| Receiver { read_ep }),
-        );
-        (m1, m2)
-    }
 }
 
 /// Midi class packet sender.
 ///
-/// You can obtain a `Sender` with [`MidiClass::split`] or [`MidiClass::split_midi2`].
+/// You can obtain a `Sender` with [`MidiClass::split`].
 pub struct Sender<'d, D: Driver<'d>> {
     write_ep: D::EndpointIn,
 }
@@ -687,7 +652,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
 
 /// Midi class packet receiver.
 ///
-/// You can obtain a `Receiver` with [`MidiClass::split`] or [`MidiClass::split_midi2`].
+/// You can obtain a `Receiver` with [`MidiClass::split`].
 pub struct Receiver<'d, D: Driver<'d>> {
     read_ep: D::EndpointOut,
 }
