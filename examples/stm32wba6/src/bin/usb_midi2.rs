@@ -82,18 +82,16 @@ async fn main(_spawner: Spawner) {
         CONTROL_BUF.init([0; 256]),
     );
 
-    static GTBS: &[GroupTerminalBlockConfig<'static>] = &[
-        GroupTerminalBlockConfig {
-            block_id: 1,
-            block_type: GroupTerminalBlockType::Bidirectional,
-            first_group: 0,
-            num_groups: 1,
-            protocol: MidiProtocol::Midi2_0,
-            name: Some("WBA65 MIDI 2.0 Port"),
-            max_input_bandwidth: 0,
-            max_output_bandwidth: 0,
-        },
-    ];
+    static GTBS: &[GroupTerminalBlockConfig<'static>] = &[GroupTerminalBlockConfig {
+        block_id: 1,
+        block_type: GroupTerminalBlockType::Bidirectional,
+        first_group: 0,
+        num_groups: 1,
+        protocol: MidiProtocol::Midi2_0,
+        name: Some("WBA65 MIDI 2.0 Port"),
+        max_input_bandwidth: 0,
+        max_output_bandwidth: 0,
+    }];
 
     static MIDI_STATE: StaticCell<MidiClassState<'static>> = StaticCell::new();
     let midi_state = MIDI_STATE.init(MidiClassState::new());
