@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- removed: `gpio::AnyPin` is no longer public. Pass type-erased pins around as `gpio::Flex`, `gpio::Input` or `gpio::Output`.
 - changed: `gpio::Input`, `gpio::Flex` and `gpio::OutputOpenDrain` have a `Mode` parameter, defaulting to `Blocking`. `new` creates a blocking driver; `new_async` creates an async driver and takes an interrupt binding to `gpio::InterruptHandler` for the pin. The `wait_for_*` methods only exist in async mode.
 - changed: `gpiote::InputChannel` has a `Mode` parameter, defaulting to `Blocking`. `new` creates a channel without the `wait*` methods; `new_async` takes an interrupt binding to `gpiote::InterruptHandler` for the channel.
 - added: `gpio::InterruptHandler` and `gpiote::InterruptHandler`. Each handler only services its own pin or channel, so several handlers, including your own, can be bound to the same GPIOTE interrupt.

@@ -12,7 +12,7 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
-use crate::gpio::{self, Pin as GpioPin};
+use crate::gpio::{self, Flex, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::qspi::vals;
@@ -173,14 +173,17 @@ impl<'d> Qspi<'d> {
 
         macro_rules! config_pin {
             ($pin:ident) => {
+                let mut $pin = Flex::new($pin);
                 $pin.set_high();
-                $pin.conf().write(|w| {
+                $pin.set_cnf(|w| {
                     w.set_dir(gpiovals::Dir::Output);
                     w.set_drive(gpiovals::Drive::H0h1);
                     #[cfg(all(feature = "_nrf5340", feature = "_s"))]
                     w.set_mcusel(gpiovals::Mcusel::Peripheral);
                 });
                 r.psel().$pin().write_value($pin.psel_bits());
+                // Disconnected on drop by reading back PSEL (except CSN).
+                $pin.forget();
             };
         }
 

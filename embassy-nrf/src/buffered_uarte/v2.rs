@@ -29,7 +29,7 @@ use pac::uarte::vals;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
-use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::gpio::{Flex, Pin as GpioPin};
 use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::uarte::{
@@ -187,7 +187,16 @@ impl<'d> BufferedUarte<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), rxd.into(), None, None, tx_buffer, rx_buffer, config)
+        Self::new_inner(
+            uarte,
+            Flex::new(txd),
+            Flex::new(rxd),
+            None,
+            None,
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
     }
 
     /// Create a new BufferedUarte with hardware flow control (RTS/CTS)
@@ -205,10 +214,10 @@ impl<'d> BufferedUarte<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            txd.into(),
-            rxd.into(),
-            Some(cts.into()),
-            Some(rts.into()),
+            Flex::new(txd),
+            Flex::new(rxd),
+            Some(Flex::new(cts)),
+            Some(Flex::new(rts)),
             tx_buffer,
             rx_buffer,
             config,
@@ -218,10 +227,10 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     fn new_inner<U: UarteInstance>(
         peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        rxd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        rxd: Flex<'d>,
+        cts: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -338,7 +347,7 @@ impl<'d> BufferedUarteTx<'d> {
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), None, tx_buffer, config)
+        Self::new_inner(uarte, Flex::new(txd), None, tx_buffer, config)
     }
 
     /// Create a new BufferedUarteTx with hardware flow control (CTS)
@@ -350,13 +359,13 @@ impl<'d> BufferedUarteTx<'d> {
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), Some(cts.into()), tx_buffer, config)
+        Self::new_inner(uarte, Flex::new(txd), Some(Flex::new(cts)), tx_buffer, config)
     }
 
     fn new_inner<U: UarteInstance>(
         peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -378,8 +387,8 @@ impl<'d> BufferedUarteTx<'d> {
 
     fn new_innerer<U: UarteInstance>(
         _peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
     ) -> Self {
         let r = U::regs();
@@ -527,7 +536,7 @@ impl<'d> BufferedUarteRx<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, rxd.into(), None, rx_buffer, config)
+        Self::new_inner(uarte, Flex::new(rxd), None, rx_buffer, config)
     }
 
     /// Create a new BufferedUarteRx with hardware flow control (RTS)
@@ -539,13 +548,13 @@ impl<'d> BufferedUarteRx<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, rxd.into(), Some(rts.into()), rx_buffer, config)
+        Self::new_inner(uarte, Flex::new(rxd), Some(Flex::new(rts)), rx_buffer, config)
     }
 
     fn new_inner<U: UarteInstance>(
         peri: Peri<'d, U>,
-        rxd: Peri<'d, AnyPin>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rxd: Flex<'d>,
+        rts: Option<Flex<'d>>,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -567,8 +576,8 @@ impl<'d> BufferedUarteRx<'d> {
 
     fn new_innerer<U: UarteInstance>(
         _peri: Peri<'d, U>,
-        rxd: Peri<'d, AnyPin>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rxd: Flex<'d>,
+        rts: Option<Flex<'d>>,
         rx_buffer: &'d mut [u8],
     ) -> Self {
         let r = U::regs();
