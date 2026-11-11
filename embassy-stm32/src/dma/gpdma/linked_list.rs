@@ -79,6 +79,23 @@ pub trait LinkedListItem: Copy + Default + Sized {
         config: Self::Config,
     ) -> Self;
 
+    /// Create a software-requested (`SWREQ`) memory-to-memory item: `len` words from `src` to
+    /// `dst`. Each side's address increments if asked: both for a copy between buffers, only
+    /// the source to write a buffer into a register, only the destination to fill a buffer.
+    ///
+    /// It runs when loaded, or on its trigger ([`ItemConfig::trigger`]).
+    ///
+    /// # Safety
+    /// The caller must ensure `src` and `dst` remain valid for the transfer duration.
+    unsafe fn new_copy<W: Word>(
+        src: *const W,
+        dst: *mut W,
+        len: usize,
+        incr_src: bool,
+        incr_dst: bool,
+        config: Self::Config,
+    ) -> Self;
+
     /// Link to the next item at the given offset address.
     fn link_to(&mut self, next: u16);
 
@@ -255,6 +272,28 @@ impl LinkedListItem for LinearItem {
         )
     }
 
+    unsafe fn new_copy<W: Word>(
+        src: *const W,
+        dst: *mut W,
+        len: usize,
+        incr_src: bool,
+        incr_dst: bool,
+        config: Self::Config,
+    ) -> Self {
+        Self::new_inner(
+            Request::default(),
+            Dir::MemoryToMemory,
+            dst as *const u32,
+            src as *mut u32,
+            len,
+            incr_src,
+            incr_dst,
+            W::size(),
+            W::size(),
+            config,
+        )
+    }
+
     fn link_to(&mut self, next: u16) {
         let mut llr = regs::ChLlr(0);
 
@@ -281,36 +320,6 @@ impl LinkedListItem for LinearItem {
 }
 
 impl LinearItem {
-    /// Create a software-requested (`SWREQ`) memory-to-memory item: `len` words from `src` to
-    /// `dst`. Each side's address increments if asked: both for a copy between buffers, only
-    /// the source to write a buffer into a register, only the destination to fill a buffer.
-    ///
-    /// It runs when loaded, or on its trigger ([`ItemConfig::trigger`]).
-    ///
-    /// # Safety
-    /// The caller must ensure `src` and `dst` remain valid for the transfer duration.
-    pub unsafe fn new_copy<W: Word>(
-        src: *const W,
-        dst: *mut W,
-        len: usize,
-        incr_src: bool,
-        incr_dst: bool,
-        config: ItemConfig,
-    ) -> Self {
-        Self::new_inner(
-            Request::default(),
-            Dir::MemoryToMemory,
-            dst as *const u32,
-            src as *mut u32,
-            len,
-            incr_src,
-            incr_dst,
-            W::size(),
-            W::size(),
-            config,
-        )
-    }
-
     #[allow(clippy::too_many_arguments)]
     unsafe fn new_inner(
         request: Request,

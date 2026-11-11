@@ -75,6 +75,7 @@ impl LinkedListItem for TwoDItem {
             buf as *mut [MW] as *mut MW as *mut u32,
             buf.len(),
             true,
+            false,
             PW::size(),
             MW::size(),
             config,
@@ -94,8 +95,31 @@ impl LinkedListItem for TwoDItem {
             buf as *const [MW] as *const MW as *mut u32,
             buf.len(),
             true,
+            false,
             MW::size(),
             PW::size(),
+            config,
+        )
+    }
+
+    unsafe fn new_copy<W: Word>(
+        src: *const W,
+        dst: *mut W,
+        len: usize,
+        incr_src: bool,
+        incr_dst: bool,
+        config: Self::Config,
+    ) -> Self {
+        Self::new_inner(
+            Request::default(),
+            Dir::MemoryToMemory,
+            dst as *const u32,
+            src as *mut u32,
+            len,
+            incr_src,
+            incr_dst,
+            W::size(),
+            W::size(),
             config,
         )
     }
@@ -136,12 +160,13 @@ impl TwoDItem {
         mem_addr: *mut u32,
         mem_len: usize,
         incr_mem: bool,
+        incr_peri: bool,
         data_size: WordSize,
         dst_size: WordSize,
         config: TwoDConfig,
     ) -> Self {
         let mut item = Item::new(
-            request, dir, peri_addr, mem_addr, mem_len, incr_mem, false, data_size, dst_size,
+            request, dir, peri_addr, mem_addr, mem_len, incr_mem, incr_peri, data_size, dst_size,
         );
         item.apply_config(&config.linear);
 
