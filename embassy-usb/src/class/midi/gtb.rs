@@ -78,12 +78,20 @@ impl TryFrom<u8> for GroupTerminalBlockType {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MidiProtocol {
-    /// Protocol unspecified.
+    /// Protocol unspecified; use MIDI-CI to discover it.
     Unspecified = 0x00,
-    /// MIDI 1.0 protocol (UMP 32-bit and 64-bit messages without high resolution).
-    Midi1_0 = 0x01,
+    /// MIDI 1.0 protocol, UMP messages up to 64 bits.
+    Midi1_0_64 = 0x01,
+    /// MIDI 1.0 protocol, UMP messages up to 64 bits, with Jitter Reduction Timestamps.
+    Midi1_0_64JitterReduction = 0x02,
+    /// MIDI 1.0 protocol, UMP messages up to 128 bits.
+    Midi1_0_128 = 0x03,
+    /// MIDI 1.0 protocol, UMP messages up to 128 bits, with Jitter Reduction Timestamps.
+    Midi1_0_128JitterReduction = 0x04,
     /// MIDI 2.0 protocol.
-    Midi2_0 = 0x02,
+    Midi2_0 = 0x11,
+    /// MIDI 2.0 protocol with Jitter Reduction Timestamps.
+    Midi2_0JitterReduction = 0x12,
 }
 
 impl TryFrom<u8> for MidiProtocol {
@@ -92,8 +100,12 @@ impl TryFrom<u8> for MidiProtocol {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0x00 => Ok(Self::Unspecified),
-            0x01 => Ok(Self::Midi1_0),
-            0x02 => Ok(Self::Midi2_0),
+            0x01 => Ok(Self::Midi1_0_64),
+            0x02 => Ok(Self::Midi1_0_64JitterReduction),
+            0x03 => Ok(Self::Midi1_0_128),
+            0x04 => Ok(Self::Midi1_0_128JitterReduction),
+            0x11 => Ok(Self::Midi2_0),
+            0x12 => Ok(Self::Midi2_0JitterReduction),
             _ => Err(GtbError::InvalidDescriptor),
         }
     }
@@ -286,7 +298,7 @@ mod tests {
                 first_group: 2,
                 num_groups: 1,
                 string_index: 0,
-                protocol: MidiProtocol::Midi1_0,
+                protocol: MidiProtocol::Midi1_0_64,
                 max_input_bandwidth: 3125,
                 max_output_bandwidth: 0,
             },

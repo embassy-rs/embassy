@@ -357,9 +357,12 @@ impl MidiStreamingInterface {
         Ok(result)
     }
 
-    /// Whether this interface is a MIDI 2.0 streaming interface (Alternate Setting 1 or bcdMSC >= 0x0200).
+    /// Whether this interface is a MIDI 2.0 streaming interface.
+    ///
+    /// This is determined solely by the class-specific header's `bcdMSC`: MIDI 2.0
+    /// may be carried on any alternate setting >= 1, not only Alternate Setting 1.
     pub fn is_midi2(&self) -> bool {
-        self.alternate_setting == 1 || self.header.map_or(false, |h| h.midi_version >= MIDI2_VERSION)
+        self.header.is_some_and(|h| h.midi_version >= MIDI2_VERSION)
     }
 }
 
@@ -666,5 +669,33 @@ mod tests {
             parse_midi_interfaces(&config),
             Err(MidiDescriptorError::InvalidDescriptor)
         );
+    }
+
+    #[test]
+    fn midi2_detection_uses_bcdmsc_not_alt_setting() {
+        let mut interface = MidiStreamingInterface {
+            interface_number: 1,
+            alternate_setting: 2,
+            header: Some(MidiStreamingHeader {
+                midi_version: MIDI2_VERSION,
+                total_length: MS_HEADER_LEN as u16,
+            }),
+            in_jacks: Vec::new(),
+            out_jacks: Vec::new(),
+            endpoints: Vec::new(),
+        };
+        // MIDI 2.0 may use any alternate setting >= 1.
+        assert!(interface.is_midi2());
+
+        // ... and an alternate setting >= 1 alone does not make it MIDI 2.0.
+        interface.alternate_setting = 1;
+        interface.header = Some(MidiStreamingHeader {
+            midi_version: 0x0100,
+            total_length: MS_HEADER_LEN as u16,
+        });
+        assert!(!interface.is_midi2());
+
+        interface.header = None;
+        assert!(!interface.is_midi2());
     }
 }

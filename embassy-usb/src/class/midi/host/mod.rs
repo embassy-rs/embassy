@@ -9,8 +9,9 @@ use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use heapless::Vec;
 
 use crate::class::midi::{
-    CS_GR_TRM_BLOCK, GroupTerminalBlock, GtbError, MAX_MIDI_JACKS, MidiPacket, MidiPacketError, MidiPacketReader,
-    USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS, UmpError, UmpPacket, UmpReader, parse_gtb_descriptors,
+    CS_GR_TRM_BLOCK, GroupTerminalBlock, GtbError, MAX_GTBS, MAX_MIDI_JACKS, MidiPacket, MidiPacketError,
+    MidiPacketReader, USB_AUDIO_CLASS, USB_MIDISTREAMING_SUBCLASS, UmpError, UmpPacket, UmpReader,
+    parse_gtb_descriptors,
 };
 use crate::host::class::ClassMatch;
 use crate::host::descriptor::{ClassCode, InterfaceDescriptor};
@@ -443,22 +444,190 @@ fn cable_jacks(endpoint: &MidiEndpointDescriptor) -> impl Iterator<Item = &u8> {
     }
 }
 
-/// Friendly host driver for one USB MIDI 2.0 streaming interface (Alternate Setting 1).
+/// Discovered description of a MIDI 2.0 streaming function.
+///
+/// Discovery, alternate-setting activation, and pipe allocation are separate
+/// steps so they can run in different tasks:
+///
+/// 1. [`Midi2Info::discover`] parses the configuration descriptor.
+/// 2. [`Midi2Info::activate`] selects the MIDI 2.0 alternate setting.
+/// 3. [`Midi2Host::new`] allocates the UMP pipes from the [`Midi2Info`].
+///
+/// [`Midi2Info::fetch_group_terminal_blocks`] additionally reads the device's
+/// Group Terminal Blocks so the group topology can be inspected.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Midi2Info {
+    interface_number: u8,
+    alternate_setting: u8,
+    input_endpoint: Option<MidiEndpointDescriptor>,
+    output_endpoint: Option<MidiEndpointDescriptor>,
+    group_terminal_blocks: Vec<GroupTerminalBlock, MAX_GTBS>,
+}
+
+impl Midi2Info {
+    /// Discover the first MIDI 2.0 streaming function in a configuration descriptor.
+    ///
+    /// This only parses descriptors and does not touch the device. A MIDI 2.0
+    /// function is an alternate setting >= 1 whose class-specific header reports
+    /// `bcdMSC >= 0x0200`.
+    pub fn discover(config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
+        let interfaces = parse_midi_interfaces_for_device(&enum_info.device_desc, config_desc)?;
+        let interface = interfaces
+            .iter()
+            .find(|iface| iface.is_midi2())
+            .ok_or(MidiError::NoInterface)?;
+
+        let mut input_endpoint = None;
+        let mut output_endpoint = None;
+        for endpoint in &interface.endpoints {
+            let slot = if endpoint.is_in() {
+                &mut input_endpoint
+            } else {
+                &mut output_endpoint
+            };
+            if slot.replace(endpoint.clone()).is_some() {
+                return Err(MidiError::UnsupportedTopology);
+            }
+        }
+
+        Ok(Self {
+            interface_number: interface.interface_number,
+            alternate_setting: interface.alternate_setting,
+            input_endpoint,
+            output_endpoint,
+            group_terminal_blocks: Vec::new(),
+        })
+    }
+
+    /// Fetch and store this function's Group Terminal Blocks.
+    ///
+    /// `buffer` must be large enough for the GTB header and all block descriptors;
+    /// `GR_TRM_BLOCK_HEADER_LEN + MAX_GTBS * GR_TRM_BLOCK_LEN` bytes always fit.
+    pub async fn fetch_group_terminal_blocks<P>(
+        &mut self,
+        control_pipe: &mut P,
+        buffer: &mut [u8],
+    ) -> Result<(), MidiError>
+    where
+        P: UsbPipe<pipe::Control, pipe::InOut>,
+    {
+        self.group_terminal_blocks = crate::class::midi::host::fetch_group_terminal_blocks::<_, MAX_GTBS>(
+            control_pipe,
+            self.interface_number,
+            self.alternate_setting,
+            buffer,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Select this function's MIDI 2.0 alternate setting.
+    ///
+    /// Must be called before the UMP pipes are used: the MIDI 1.0 and MIDI 2.0
+    /// settings share their bulk endpoints, and only the selected setting's
+    /// protocol is carried over them.
+    pub async fn activate<P>(&self, control_pipe: &mut P) -> Result<(), MidiError>
+    where
+        P: UsbPipe<pipe::Control, pipe::InOut>,
+    {
+        if self.alternate_setting != 0 {
+            let setup = crate::host::control::SetupPacket::set_interface(
+                self.interface_number as u16,
+                self.alternate_setting as u16,
+            );
+            control_pipe.control_out(&setup.to_bytes(), &[]).await?;
+        }
+        Ok(())
+    }
+
+    /// Standard interface number of this MIDI 2.0 function.
+    pub fn interface_number(&self) -> u8 {
+        self.interface_number
+    }
+
+    /// Alternate setting that carries MIDI 2.0 / UMP.
+    pub fn alternate_setting(&self) -> u8 {
+        self.alternate_setting
+    }
+
+    /// Device-to-host (IN) bulk endpoint, if the function has one.
+    pub fn input_endpoint(&self) -> Option<&MidiEndpointDescriptor> {
+        self.input_endpoint.as_ref()
+    }
+
+    /// Host-to-device (OUT) bulk endpoint, if the function has one.
+    pub fn output_endpoint(&self) -> Option<&MidiEndpointDescriptor> {
+        self.output_endpoint.as_ref()
+    }
+
+    /// Group Terminal Blocks fetched by [`Midi2Info::fetch_group_terminal_blocks`].
+    pub fn group_terminal_blocks(&self) -> &[GroupTerminalBlock] {
+        &self.group_terminal_blocks
+    }
+
+    /// Group numbers carried on the device-to-host (IN) endpoint.
+    ///
+    /// Empty until the Group Terminal Blocks have been fetched.
+    pub fn input_groups(&self) -> impl Iterator<Item = u8> + '_ {
+        self.groups_for(self.input_endpoint.as_ref())
+    }
+
+    /// Group numbers carried on the host-to-device (OUT) endpoint.
+    ///
+    /// Empty until the Group Terminal Blocks have been fetched.
+    pub fn output_groups(&self) -> impl Iterator<Item = u8> + '_ {
+        self.groups_for(self.output_endpoint.as_ref())
+    }
+
+    fn groups_for<'a>(&'a self, endpoint: Option<&'a MidiEndpointDescriptor>) -> impl Iterator<Item = u8> + 'a {
+        endpoint
+            .into_iter()
+            .flat_map(|endpoint| endpoint.group_terminal_block_ids.iter().copied())
+            .flat_map(move |block_id| {
+                self.group_terminal_blocks
+                    .iter()
+                    .filter(move |block| block.block_id == block_id)
+                    .flat_map(|block| block.first_group..block.first_group.saturating_add(block.num_groups))
+            })
+    }
+}
+
+/// Friendly host driver for one USB MIDI 2.0 streaming function.
 pub struct Midi2Host<'d, A: UsbHostAllocator<'d>> {
     sender: Option<raw::UmpOutputPipe<'d, A>>,
     receiver: Option<raw::UmpInputPipe<'d, A>>,
-    interface_number: u8,
+    info: Midi2Info,
 }
 
 impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
-    /// Discover the MIDI 2.0 streaming interface (Alt Setting 1 or bcdMSC >= 0x0200),
-    /// select its alternate setting, and allocate bulk UMP pipes.
+    /// Allocate UMP pipes for a discovered MIDI 2.0 function.
     ///
-    /// The MIDI 1.0 and MIDI 2.0 alternate settings share the same bulk endpoints, so
-    /// the interface must be switched to Alternate Setting 1 before the pipes carry UMP;
-    /// otherwise the device keeps interpreting the shared endpoints as USB-MIDI 1.0
-    /// event packets.
-    pub async fn new<P>(
+    /// Call [`Midi2Info::activate`] first so the device carries UMP on the shared
+    /// bulk endpoints.
+    pub fn new(alloc: &A, info: Midi2Info, enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
+        let receiver = info
+            .input_endpoint
+            .as_ref()
+            .map(|endpoint| raw::UmpInputPipe::open(alloc, endpoint, enum_info))
+            .transpose()?;
+        let sender = info
+            .output_endpoint
+            .as_ref()
+            .map(|endpoint| raw::UmpOutputPipe::open(alloc, endpoint, enum_info))
+            .transpose()?;
+
+        Ok(Self { sender, receiver, info })
+    }
+
+    /// Discover, activate, and construct a host for the first MIDI 2.0 function.
+    ///
+    /// This is a convenience for the common case. Use [`Midi2Info::discover`],
+    /// [`Midi2Info::activate`], and [`Midi2Host::new`] separately to run discovery
+    /// and activation in different tasks. Group Terminal Blocks are not fetched;
+    /// use [`Midi2Info::fetch_group_terminal_blocks`] (or [`Midi2Host::info_mut`])
+    /// when the topology is needed.
+    pub async fn connect<P>(
         alloc: &A,
         control_pipe: &mut P,
         config_desc: &[u8],
@@ -467,49 +636,24 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
     where
         P: UsbPipe<pipe::Control, pipe::InOut>,
     {
-        use crate::host::control::SetupPacket;
+        let info = Midi2Info::discover(config_desc, enum_info)?;
+        info.activate(control_pipe).await?;
+        Self::new(alloc, info, enum_info)
+    }
 
-        let interfaces = parse_midi_interfaces_for_device(&enum_info.device_desc, config_desc)?;
-        let interface = interfaces
-            .iter()
-            .find(|iface| iface.is_midi2())
-            .ok_or(MidiError::NoInterface)?;
+    /// The discovered function description.
+    pub fn info(&self) -> &Midi2Info {
+        &self.info
+    }
 
-        // Select the MIDI 2.0 alternate setting on the shared endpoints.
-        if interface.alternate_setting != 0 {
-            let setup =
-                SetupPacket::set_interface(interface.interface_number as u16, interface.alternate_setting as u16);
-            control_pipe.control_out(&setup.to_bytes(), &[]).await?;
-        }
-
-        let mut input_endpoint = None;
-        let mut output_endpoint = None;
-
-        for endpoint in &interface.endpoints {
-            if endpoint.is_in() {
-                input_endpoint = Some(endpoint);
-            } else {
-                output_endpoint = Some(endpoint);
-            }
-        }
-
-        let receiver = input_endpoint
-            .map(|ep| raw::UmpInputPipe::open(alloc, ep, enum_info))
-            .transpose()?;
-        let sender = output_endpoint
-            .map(|ep| raw::UmpOutputPipe::open(alloc, ep, enum_info))
-            .transpose()?;
-
-        Ok(Self {
-            sender,
-            receiver,
-            interface_number: interface.interface_number,
-        })
+    /// Mutable access to the discovered description, for fetching Group Terminal Blocks.
+    pub fn info_mut(&mut self) -> &mut Midi2Info {
+        &mut self.info
     }
 
     /// Returns the interface number of this MIDI 2.0 streaming interface.
     pub fn interface_number(&self) -> u8 {
-        self.interface_number
+        self.info.interface_number
     }
 
     /// Receive raw UMP bytes into `buf`.
@@ -536,29 +680,37 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
         sender.write_packet(packet).await
     }
 
-    /// Split into independently owned sender and receiver halves.
-    pub fn split(self) -> (Option<raw::UmpOutputPipe<'d, A>>, Option<raw::UmpInputPipe<'d, A>>) {
-        (self.sender, self.receiver)
+    /// Split into independently owned sender and receiver halves, plus the discovery info.
+    pub fn split(
+        self,
+    ) -> (
+        Option<raw::UmpOutputPipe<'d, A>>,
+        Option<raw::UmpInputPipe<'d, A>>,
+        Midi2Info,
+    ) {
+        (self.sender, self.receiver, self.info)
     }
 }
 
-/// Query the Group Terminal Blocks from a connected MIDI 2.0 device using a class-specific control transfer.
+/// Query the Group Terminal Blocks for an interface's MIDI 2.0 alternate setting.
+///
+/// This is the standard `GET_DESCRIPTOR` request defined by USB-MIDI 2.0 §6:
+/// `wValue` carries `CS_GR_TRM_BLOCK (0x26)` in the high byte and the alternate
+/// setting in the low byte, and `wIndex` is the interface number.
 pub async fn fetch_group_terminal_blocks<P, const N: usize>(
     control_pipe: &mut P,
     interface_number: u8,
+    alternate_setting: u8,
     buffer: &mut [u8],
-) -> Result<heapless::Vec<GroupTerminalBlock, N>, MidiError>
+) -> Result<Vec<GroupTerminalBlock, N>, MidiError>
 where
-    P: embassy_usb_driver::host::UsbPipe<
-            embassy_usb_driver::host::pipe::Control,
-            embassy_usb_driver::host::pipe::InOut,
-        >,
+    P: UsbPipe<pipe::Control, pipe::InOut>,
 {
     use crate::host::control::SetupPacket;
 
-    let setup = SetupPacket::class_interface_in(
+    let setup = SetupPacket::standard_interface_in(
         crate::control::Request::GET_DESCRIPTOR,
-        (CS_GR_TRM_BLOCK as u16) << 8,
+        ((CS_GR_TRM_BLOCK as u16) << 8) | alternate_setting as u16,
         interface_number as u16,
         buffer.len() as u16,
     );
@@ -815,7 +967,7 @@ mod tests {
     // (MIDI 1.0) and 1 (MIDI 2.0), both referencing bulk endpoints 0x01 and 0x81.
     #[rustfmt::skip]
     const MIDI2_CONFIG: &[u8] = &[
-        9, 2, 82, 0, 1, 1, 0, 0x80, 50,
+        9, 2, 83, 0, 1, 1, 0, 0x80, 50,
         // Interface 1, Alternate Setting 0 (MIDI 1.0).
         9, 4, 1, 0, 2, 1, 3, 0, 0,
         7, 5, 0x01, 2, 64, 0, 0,
@@ -828,18 +980,29 @@ mod tests {
         7, 5, 0x01, 2, 64, 0, 0,
         5, 0x25, 0x02, 0x01, 0x01,
         7, 5, 0x81, 2, 64, 0, 0,
-        5, 0x25, 0x02, 0x01, 0x01,
+        // The IN endpoint carries two Group Terminal Blocks (1 and 2).
+        6, 0x25, 0x02, 0x02, 0x01, 0x02,
+    ];
+
+    // Group Terminal Blocks matching MIDI2_CONFIG: block 1 is bidirectional and
+    // covers groups 0-1; block 2 is input-only and covers group 2.
+    #[rustfmt::skip]
+    const MIDI2_GTB: &[u8] = &[
+        5, 0x26, 0x01, 31, 0,
+        13, 0x26, 0x02, 1, 0x00, 0, 2, 0, 0x11, 0, 0, 0, 0,
+        13, 0x26, 0x02, 2, 0x01, 2, 1, 0, 0x01, 0, 0, 0, 0,
     ];
 
     #[test]
-    fn midi2_host_selects_alternate_setting_one() {
+    fn midi2_host_discovers_topology_and_selects_alt_setting() {
         use embassy_futures::block_on;
         use embassy_usb_driver::{EndpointInfo, EndpointType};
 
+        use crate::class::midi::MidiProtocol;
         use crate::host::test_utils::{MockHost, MockState};
 
-        let info = crate::host::test_utils::enumeration_info();
-        let interfaces = parse_midi_interfaces_for_device(&info.device_desc, MIDI2_CONFIG).unwrap();
+        let enum_info = crate::host::test_utils::enumeration_info();
+        let interfaces = parse_midi_interfaces_for_device(&enum_info.device_desc, MIDI2_CONFIG).unwrap();
         assert_eq!(interfaces.len(), 2);
 
         let midi2 = interfaces.iter().find(|iface| iface.is_midi2()).unwrap();
@@ -852,7 +1015,17 @@ mod tests {
         let midi1_addrs = [midi1.endpoints[0].address, midi1.endpoints[1].address];
         assert_eq!(midi1_addrs, midi2_addrs);
 
+        // Discovery is independent of the device and of pipe allocation.
+        let mut info = Midi2Info::discover(MIDI2_CONFIG, &enum_info).unwrap();
+        assert_eq!(info.interface_number(), 1);
+        assert_eq!(info.alternate_setting(), 1);
+        assert_eq!(info.input_endpoint().unwrap().address, 0x81);
+        assert_eq!(info.output_endpoint().unwrap().address, 0x01);
+        assert!(info.group_terminal_blocks().is_empty());
+        assert_eq!(info.input_groups().count(), 0);
+
         let state = MockState::new();
+        state.set_gtb_descriptors(MIDI2_GTB);
         let host = MockHost::new(&state);
         let control_ep = EndpointInfo {
             addr: 0.into(),
@@ -861,12 +1034,33 @@ mod tests {
             interval_ms: 0,
         };
         let mut control = host
-            .alloc_pipe::<pipe::Control, pipe::InOut>(info.device_address, &control_ep, info.split())
+            .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &control_ep, enum_info.split())
             .unwrap();
 
-        let midi = block_on(Midi2Host::new(&host, &mut control, MIDI2_CONFIG, &info)).unwrap();
-        assert_eq!(midi.interface_number(), 1);
-        // The host must switch the shared endpoints to Alternate Setting 1.
+        // Activation is a separate step from discovery.
+        block_on(info.activate(&mut control)).unwrap();
         assert_eq!(state.set_interface(), Some((1, 1)));
+
+        // GTB retrieval uses the standard request with the alternate setting in wValue.
+        let mut gtb_buf = [0u8; 64];
+        block_on(info.fetch_group_terminal_blocks(&mut control, &mut gtb_buf)).unwrap();
+        assert_eq!(state.gtb_request(), Some((0x2601, 1)));
+
+        let blocks = info.group_terminal_blocks();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].protocol, MidiProtocol::Midi2_0);
+        assert_eq!(blocks[1].protocol, MidiProtocol::Midi1_0_64);
+        assert!(info.input_groups().eq([0, 1, 2]));
+        assert!(info.output_groups().eq([0, 1]));
+
+        // Pipe allocation is the final, separate step.
+        let midi = Midi2Host::new(&host, info, &enum_info).unwrap();
+        assert_eq!(midi.interface_number(), 1);
+        assert!(midi.info().input_groups().eq([0, 1, 2]));
+
+        let (sender, receiver, info) = midi.split();
+        assert!(sender.is_some());
+        assert!(receiver.is_some());
+        assert_eq!(info.group_terminal_blocks().len(), 2);
     }
 }

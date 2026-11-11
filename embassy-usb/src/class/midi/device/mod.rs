@@ -21,6 +21,8 @@ const EMBEDDED: u8 = MidiJackType::Embedded as u8;
 const EXTERNAL: u8 = MidiJackType::External as u8;
 // Each OUT jack has one source pin.
 const MIDI_OUT_JACK_LEN: u8 = MIDI_OUT_JACK_BASE_LEN + 2;
+/// Alternate setting of the MIDIStreaming interface that carries MIDI 2.0 / UMP.
+const MIDI2_ALTERNATE_SETTING: u8 = 1;
 
 /// Configuration for MIDI 2.0 support (Alternate Setting 1).
 ///
@@ -188,10 +190,14 @@ impl Handler for MidiClassState<'_> {
     }
 
     fn control_in<'a>(&'a mut self, req: Request, _buf: &'a mut [u8]) -> Option<InResponse<'a>> {
-        if (req.request_type == RequestType::Class || req.request_type == RequestType::Standard)
+        // USB-MIDI 2.0 §6: GET_DESCRIPTOR, standard request, interface recipient.
+        // wValue carries CS_GR_TRM_BLOCK in the high byte and the alternate setting
+        // in the low byte; wIndex is the interface number.
+        if req.request_type == RequestType::Standard
             && req.recipient == Recipient::Interface
             && req.request == Request::GET_DESCRIPTOR
             && (req.value >> 8) == CS_GR_TRM_BLOCK as u16
+            && (req.value as u8) == MIDI2_ALTERNATE_SETTING
             && (req.index as u8) == self.interface_number
         {
             if self.gtb_len > 0 {

@@ -931,7 +931,7 @@ fn test_midi2_device_enumeration_and_control() {
             block_type: GroupTerminalBlockType::InputOnly,
             first_group: 2,
             num_groups: 1,
-            protocol: MidiProtocol::Midi1_0,
+            protocol: MidiProtocol::Midi1_0_64,
             name: Some("Legacy DIN In"),
             max_input_bandwidth: 3125,
             max_output_bandwidth: 0,
@@ -1061,17 +1061,40 @@ fn test_midi2_device_enumeration_and_control() {
         OutResponse::Rejected
     );
 
-    // Query Group Terminal Block descriptors via GET_DESCRIPTOR (0x2600)
+    // Query Group Terminal Block descriptors with the standard GET_DESCRIPTOR
+    // request: wValue = CS_GR_TRM_BLOCK in the high byte, alternate setting in
+    // the low byte; wIndex = interface number.
     let get_gtb_req = Request {
         direction: Direction::In,
-        request_type: RequestType::Class,
+        request_type: RequestType::Standard,
         recipient: Recipient::Interface,
         request: Request::GET_DESCRIPTOR,
-        value: (CS_GR_TRM_BLOCK as u16) << 8,
+        value: ((CS_GR_TRM_BLOCK as u16) << 8) | 1,
         index: 1,
         length: 256,
     };
     let mut resp_buf = [0u8; 256];
+
+    // A class-specific request must not return the GTB descriptors.
+    let class_gtb_req = Request {
+        request_type: RequestType::Class,
+        ..get_gtb_req
+    };
+    assert!(matches!(
+        usb.inner.handle_control_in(class_gtb_req, &mut resp_buf),
+        InResponse::Rejected
+    ));
+
+    // The alternate setting in wValue must be the MIDI 2.0 one (1).
+    let wrong_alt_gtb_req = Request {
+        value: (CS_GR_TRM_BLOCK as u16) << 8,
+        ..get_gtb_req
+    };
+    assert!(matches!(
+        usb.inner.handle_control_in(wrong_alt_gtb_req, &mut resp_buf),
+        InResponse::Rejected
+    ));
+
     match usb.inner.handle_control_in(get_gtb_req, &mut resp_buf) {
         InResponse::Accepted(data) => {
             let blocks: heapless::Vec<_, 4> = parse_gtb_descriptors(data).expect("valid GTB descriptors");
@@ -1083,7 +1106,7 @@ fn test_midi2_device_enumeration_and_control() {
             assert_eq!(blocks[1].block_id, 2);
             assert_eq!(blocks[1].first_group, 2);
             assert_eq!(blocks[1].num_groups, 1);
-            assert_eq!(blocks[1].protocol, MidiProtocol::Midi1_0);
+            assert_eq!(blocks[1].protocol, MidiProtocol::Midi1_0_64);
         }
         InResponse::Rejected => panic!("GET_DESCRIPTOR for GTB was rejected"),
     }

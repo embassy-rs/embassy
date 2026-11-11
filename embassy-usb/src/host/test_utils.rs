@@ -64,6 +64,8 @@ struct MockStateInner {
     line_coding: [u8; 7],
     control_line_state: u16,
     set_interface: Option<(u16, u16)>,
+    gtb: heapless::Vec<u8, 256>,
+    gtb_request: Option<(u16, u16)>,
 }
 
 impl MockState {
@@ -74,6 +76,8 @@ impl MockState {
                 line_coding: [0; 7],
                 control_line_state: 0,
                 set_interface: None,
+                gtb: heapless::Vec::new(),
+                gtb_request: None,
             }),
         }
     }
@@ -93,6 +97,18 @@ impl MockState {
     /// Last `SET_INTERFACE` request as `(interface, alternate_setting)`.
     pub fn set_interface(&self) -> Option<(u16, u16)> {
         self.inner.borrow().set_interface
+    }
+
+    /// Sets the bytes returned for a MIDI 2.0 Group Terminal Block `GET_DESCRIPTOR`.
+    pub fn set_gtb_descriptors(&self, bytes: &[u8]) {
+        let mut inner = self.inner.borrow_mut();
+        inner.gtb.clear();
+        inner.gtb.extend_from_slice(bytes).unwrap();
+    }
+
+    /// Last Group Terminal Block request as `(wValue, wIndex)`.
+    pub fn gtb_request(&self) -> Option<(u16, u16)> {
+        self.inner.borrow().gtb_request
     }
 }
 
@@ -144,6 +160,16 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for MockPipe<'_> {
             let inner = self.state.inner.borrow();
             let n = buf.len().min(inner.line_coding.len());
             buf[..n].copy_from_slice(&inner.line_coding[..n]);
+            Ok(n)
+        } else if setup[0] == 0x81 && setup[1] == 0x06 && setup[3] == 0x26 {
+            // Standard GET_DESCRIPTOR for a MIDI 2.0 Group Terminal Block.
+            let mut inner = self.state.inner.borrow_mut();
+            inner.gtb_request = Some((
+                u16::from_le_bytes([setup[2], setup[3]]),
+                u16::from_le_bytes([setup[4], setup[5]]),
+            ));
+            let n = buf.len().min(inner.gtb.len());
+            buf[..n].copy_from_slice(&inner.gtb[..n]);
             Ok(n)
         } else {
             Err(PipeError::Stall)

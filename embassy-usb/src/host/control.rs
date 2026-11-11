@@ -302,6 +302,24 @@ impl SetupPacket {
         }
     }
 
+    /// Build a standard interface request SETUP packet, device-to-host.
+    ///
+    /// Used for standard requests whose recipient is an interface, such as the
+    /// MIDI 2.0 Group Terminal Block `GET_DESCRIPTOR` request.
+    pub const fn standard_interface_in(request: u8, value: u16, interface: u16, length: u16) -> Self {
+        Self {
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Interface,
+            },
+            request,
+            value,
+            index: interface,
+            length,
+        }
+    }
+
     /// Build a class-specific interface request SETUP packet, host-to-device.
     ///
     /// Pass `length = 0` for requests with no data stage.
