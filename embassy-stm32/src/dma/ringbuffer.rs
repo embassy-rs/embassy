@@ -275,6 +275,60 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         Ok((readable, remaining))
     }
 
+    /// Borrow ready words in place, without copying, and advance the read pointer.
+    ///
+    /// Returns up to `len` ready words as a slice of the DMA buffer. The words stay valid
+    /// until the DMA laps the read pointer, which surfaces as [`Error::Overrun`] on a later
+    /// call (with the read pointer reset, as in [`read`](Self::read)).
+    ///
+    /// With an [`alignment`](Self::set_alignment) set, only whole frames are returned and the
+    /// read pointer stays frame-aligned. A call may return less than `len` at the buffer's wrap
+    /// point; a frame itself never straddles the wrap, because the read position and the buffer
+    /// length are both multiples of the alignment.
+    pub fn read_in_place(&mut self, dma: &mut impl DmaCtrl, len: usize) -> Result<&[W], Error> {
+        fence(Ordering::Acquire);
+
+        let mut available = match self.sync_len(dma) {
+            Ok(available) => available,
+            Err(e) => {
+                self.reset(dma);
+                return Err(e);
+            }
+        };
+
+        // Skip a partial frame (after an overrun recovery): the DMA restarts at position 0,
+        // which is frame-aligned.
+        let skip = if self.alignment > 1 {
+            let misalignment = self.read_index.pos % self.alignment;
+            if misalignment == 0 {
+                0
+            } else {
+                let skip = self.alignment - misalignment;
+                if available >= skip {
+                    available -= skip;
+                    skip
+                } else {
+                    return Ok(&[]);
+                }
+            }
+        } else {
+            0
+        };
+
+        let mut readable = available.min(len);
+        // Round down to alignment so read_index always lands on a frame boundary.
+        if self.alignment > 1 {
+            readable -= readable % self.alignment;
+        }
+        // One contiguous run: stop at the wrap point.
+        let pos = self.read_index.as_index(self.cap(), skip);
+        readable = readable.min(self.cap() - pos);
+
+        self.read_index.advance(self.cap(), skip + readable);
+
+        Ok(&self.dma_buf[pos..pos + readable])
+    }
+
     /// Read the most recent elements from the ring buffer, discarding any older data.
     ///
     /// Returns the number of elements actually read into `buf`. This may be less than

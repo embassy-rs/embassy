@@ -664,6 +664,8 @@ impl<'d> Channel<'d> {
     }
 
     /// The channel's destination address register, for interrupt handlers.
+    // Used by the frame marks (the write-head snapshot in the SPI interrupt handler).
+    #[allow(dead_code)]
     pub(crate) fn destination_register(&self) -> *const u32 {
         let info = self.info();
         info.dma.ch(info.num).dar().as_ptr() as *const u32
@@ -1151,6 +1153,45 @@ impl<'d> Channel<'d> {
         LinkedListTransfer {
             _wake_guard: self.info().wake_guard(),
             channel: self.reborrow(),
+        }
+    }
+
+    /// Create a linked-list DMA transfer from an owned channel handle.
+    ///
+    /// Unlike [`linked_list`](Self::linked_list), this takes the channel by value and does not
+    /// tie the table's lifetime to the transfer, so the transfer can be stored next to the
+    /// descriptor table it runs.
+    ///
+    /// # Safety
+    ///
+    /// In addition to [`linked_list`](Self::linked_list)'s requirements, `table` must stay
+    /// valid, linked, and unaliased until the transfer is dropped.
+    pub unsafe fn into_linked_list<T: LinkedListItem, const N: usize>(
+        self,
+        table: &Table<T, N>,
+        options: TransferOptions,
+    ) -> LinkedListTransfer<'d> {
+        #[cfg(gpdma2d)]
+        if T::IS_2D {
+            assert!(
+                self.info().supports_2d,
+                "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
+            );
+        }
+
+        self.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            N,
+            table.transfer_count(),
+            options,
+            T::IS_2D,
+        );
+        self.start();
+
+        LinkedListTransfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self,
         }
     }
 

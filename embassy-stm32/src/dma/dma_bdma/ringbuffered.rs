@@ -110,6 +110,15 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         Ok(self.ringbuf.read(&mut DmaCtrlImpl(self.channel.reborrow()), buf)?)
     }
 
+    /// Borrow ready elements from the ring buffer in place, without copying.
+    ///
+    /// See `ReadableDmaRingBuffer::read_in_place` for the alignment and wrap behavior.
+    pub fn read_in_place(&mut self, len: usize) -> Result<&[W], RingBufferError> {
+        Ok(self
+            .ringbuf
+            .read_in_place(&mut DmaCtrlImpl(self.channel.reborrow()), len)?)
+    }
+
     /// Read an exact number of elements from the ringbuffer.
     ///
     /// Returns the remaining number of elements available for immediate reading.
