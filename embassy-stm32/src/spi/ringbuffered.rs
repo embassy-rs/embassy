@@ -36,6 +36,8 @@
 //! controller does not detect those conditions; it sends an
 //! interrupt when those specific buffer addresses have been written.
 
+#[cfg(any(spi_v4, spi_v5, spi_v6))]
+use core::cell::Cell;
 #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
 use core::cell::UnsafeCell;
 use core::future::{Future, poll_fn};
@@ -52,6 +54,10 @@ use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 #[cfg(feature = "exti")]
 use embassy_futures::select::select;
+#[cfg(any(spi_v4, spi_v5, spi_v6))]
+use embassy_sync::blocking_mutex::Mutex;
+#[cfg(any(spi_v4, spi_v5, spi_v6))]
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embedded_io_async::ReadReady;
 
 #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
@@ -61,14 +67,10 @@ use crate::dma::{
 };
 use crate::dma::{ReadableRingBuffer, RingBufferError};
 use crate::gpio::Flex;
-#[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
 use crate::interrupt;
-#[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
 use crate::interrupt::InterruptExt;
-#[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
-use crate::interrupt::typelevel::Binding;
 #[cfg(any(spi_v4, spi_v5, spi_v6))]
-use crate::interrupt::typelevel::{Handler, Interrupt};
+use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::mode::Async;
 use crate::rcc::WakeGuard;
 #[cfg(feature = "exti")]
@@ -85,10 +87,13 @@ use crate::spi::{
 use crate::spi::{Instance, regs};
 use crate::time::Hertz;
 
-/// Per-instance state of the receiver: the counters the interrupt handler updates.
+/// Per-instance state of the receiver: what the interrupt handler shares with the consumer.
 pub(crate) struct State {
     crc_errors: AtomicU32,
     overruns: AtomicU32,
+    /// Where and how to record a bad frame, while the marks are enabled.
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    session: Mutex<CriticalSectionRawMutex, Cell<Option<Session>>>,
     /// DMA descriptor storage for the triggered mode's transmit and re-arm channels.
     #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
     tables: Tables,
@@ -99,10 +104,52 @@ impl State {
         Self {
             crc_errors: AtomicU32::new(0),
             overruns: AtomicU32::new(0),
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            session: Mutex::new(Cell::new(None)),
             #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
             tables: Tables::new(),
         }
     }
+}
+
+/// What the interrupt handler needs to mark a bad frame: plain addresses, so it is `Send`.
+#[cfg(any(spi_v4, spi_v5, spi_v6))]
+#[derive(Clone, Copy)]
+struct Session {
+    /// Snapshots the ring's write head, in words.
+    head: fn(usize) -> usize,
+    /// The ring buffer `head` snapshots.
+    ring_buf: usize,
+    frame_len: usize,
+    frames: usize,
+    /// The marks: `&[AtomicU32]`, one bit per frame in the ring.
+    bad: usize,
+}
+
+#[cfg(any(spi_v4, spi_v5, spi_v6))]
+impl Session {
+    /// CRCE comes after the CRC, when the receive DMA has usually moved on to the next frame.
+    /// If it is still inside a frame, that frame is the bad one.
+    fn mark_bad_frame(&self) {
+        let pos = (self.head)(self.ring_buf);
+        let slot = pos / self.frame_len;
+        let slot = if pos % self.frame_len == 0 {
+            (slot + self.frames - 1) % self.frames
+        } else {
+            slot % self.frames
+        };
+
+        let marks = unsafe { &*(self.bad as *const AtomicU32).add(slot / 32) };
+        marks.fetch_or(1 << (slot % 32), Ordering::Relaxed);
+    }
+}
+
+/// A [`Session::head`] for `W`.
+#[cfg(any(spi_v4, spi_v5, spi_v6))]
+fn write_head_shim<W: Word>(ring_buf: usize) -> usize {
+    // Safety: the session is dropped before the `RingBufferedSpiRx` (its `drop` clears it), so
+    // the pointer is valid whenever the handler runs.
+    unsafe { &*(ring_buf as *const ReadableRingBuffer<'static, W>) }.write_head()
 }
 
 /// The most ring blocks a ring is split into in triggered mode: one linked-list item and one
@@ -191,6 +238,9 @@ impl<T: InterruptInstance> Handler<T::Interrupt> for InterruptHandler<T> {
         let sr = regs.sr().read();
         if sr.crce() {
             state.crc_errors.fetch_add(1, Ordering::Relaxed);
+            if let Some(session) = state.session.lock(Cell::get) {
+                session.mark_bad_frame();
+            }
         }
         if sr.ovr() {
             state.overruns.fetch_add(1, Ordering::Relaxed);
@@ -210,8 +260,6 @@ struct Triggered<'d> {
     rearm: LinkedListTransfer<'d>,
     /// Poll budget for one frame, for [`wait_frame_end`].
     frame_polls: u32,
-    /// The SPI's interrupt, to disable on drop.
-    irq: interrupt::Interrupt,
 }
 
 /// Rx-only ring-buffered SPI driver
@@ -229,10 +277,20 @@ pub struct RingBufferedSpiRx<'d, W: Word> {
     #[allow(dead_code)]
     nss: CsPinType<'d>,
     ring_buf: ReadableRingBuffer<'d, W>,
-    /// Words per frame in triggered mode; `None` when receiving continuously.
+    /// The ring's first word, for the frame slots of the CRC validity marks.
+    #[cfg_attr(not(any(spi_v4, spi_v5, spi_v6)), allow(dead_code))]
+    ring_addr: usize,
+    /// Words per frame ([`set_frame_len`](Self::set_frame_len), or the triggered frame length);
+    /// `None` when unset.
     frame_len: Option<usize>,
     /// The instance state behind the interrupt handler, when one is bound.
     state: Option<&'static State>,
+    /// The SPI's interrupt, when its handler is enabled.
+    irq: Option<interrupt::Interrupt>,
+    /// Per-frame CRC validity marks, one bit per frame in the ring
+    /// ([`enable_frame_marks`](Self::enable_frame_marks)).
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    marks: Option<&'d mut [AtomicU32]>,
     #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
     triggered: Option<Triggered<'d>>,
 }
@@ -271,6 +329,7 @@ impl<'d> Spi<'d, Async, Slave> {
 
         let info = self.info;
         let kernel_clock = self.kernel_clock;
+        let ring_addr = dma_buf.as_ptr() as usize;
         let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, info.regs.rx_ptr::<W>(), dma_buf, opts) };
         let sck = unsafe { self._sck.as_ref().map(|x| x.clone_unchecked()) };
         let mosi = unsafe { self._mosi.as_ref().map(|x| x.clone_unchecked()) };
@@ -295,8 +354,12 @@ impl<'d> Spi<'d, Async, Slave> {
             _miso: miso,
             nss,
             ring_buf,
+            ring_addr,
             frame_len: None,
             state: None,
+            irq: None,
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            marks: None,
             #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
             triggered: None,
         }
@@ -408,6 +471,7 @@ impl<'d> Spi<'d, Async, Master> {
         let wake_guard = info.rcc.wake_guard();
         mem::forget(self);
 
+        let ring_addr = ring.as_ptr() as usize;
         // Receive: the ring, one circular item per block (one wake-up per block).
         let mut rx_options = TransferOptions::default();
         rx_options.priority = Priority::VeryHigh;
@@ -487,14 +551,13 @@ impl<'d> Spi<'d, Async, Master> {
             _miso: miso,
             nss,
             ring_buf,
+            ring_addr,
             frame_len: Some(frame_len),
             state: Some(state),
-            triggered: Some(Triggered {
-                tx,
-                rearm,
-                frame_polls,
-                irq: T::Interrupt::IRQ,
-            }),
+            irq: Some(T::Interrupt::IRQ),
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            marks: None,
+            triggered: Some(Triggered { tx, rearm, frame_polls }),
         }
     }
 }
@@ -638,10 +701,9 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
     /// (Re-)start DMA and SPI if it is not running (has not been started yet or has failed), and
     /// check for errors in status register. Error flags are checked/cleared first.
     fn start_or_check_errors(&mut self) -> Result<(), Error> {
-        #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
-        if self.triggered.is_some() {
-            // Errors are counted by the interrupt handler instead of returned: the stream keeps
-            // running through a bad frame.
+        if self.irq.is_some() {
+            // The interrupt handler owns the error flags: they are counted (and the frames
+            // marked) instead of returned, and clearing them here could eat a pending mark.
             if !self.ring_buf.is_running() {
                 self.start();
             }
@@ -796,6 +858,86 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         self.frame_len = Some(frame_len);
     }
 
+    /// Record each frame's CRC verdict, handed out by [`next_frame`](Self::next_frame) as
+    /// [`Frame::is_valid`].
+    ///
+    /// With the [`Config::crc`] enabled, the SPI checks each frame's CRC and the interrupt
+    /// handler marks the failed ones. Frames are `frame_len` words (the frame length from
+    /// [`set_frame_len`](Self::set_frame_len) or the triggered frame length), counted from the
+    /// ring's start; a slave's frames must line up with the master's.
+    ///
+    /// - `_irq`: [`InterruptHandler`] bound to the SPI's interrupt, which records the marks.
+    /// - `marks`: one bit per frame in the ring: at least `(frames in the ring + 31) / 32` words.
+    ///   Bits are cleared as their frames are read.
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    pub fn enable_frame_marks<T: InterruptInstance>(
+        &mut self,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        marks: &'d mut [AtomicU32],
+    ) {
+        assert!(core::ptr::eq(self.info, T::info()), "the SPI is not instance T");
+        assert!(
+            self.info.regs.cfg1().read().crcen(),
+            "frame marks need a CRC (Config::crc)"
+        );
+
+        let frame_len = self.frame_len.expect("frame length not configured (set_frame_len)");
+        assert!(frame_len <= u16::MAX as usize, "frame length out of range");
+        let frames = self.ring_buf.capacity() / frame_len;
+        assert!(frames > 0, "the ring must hold a frame");
+        assert!(
+            marks.len() * 32 >= frames,
+            "marks must hold one bit per frame in the ring"
+        );
+
+        for word in marks.iter() {
+            word.store(0, Ordering::Relaxed);
+        }
+
+        // The frame count: CRC is checked per `TSIZE` frame.
+        self.info.regs.cr2().modify(|w| w.set_tsize(frame_len as u16));
+
+        let session = Session {
+            head: write_head_shim::<W>,
+            ring_buf: &self.ring_buf as *const _ as usize,
+            frame_len,
+            frames,
+            bad: marks.as_ptr() as usize,
+        };
+        self.state = Some(&T::state().ring);
+        T::state().ring.session.lock(|s| s.set(Some(session)));
+
+        self.info.regs.ier().write(|w| {
+            w.set_crceie(true);
+            w.set_ovrie(true);
+            w.set_modfie(true);
+            w.set_tifreie(true);
+        });
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+        self.irq = Some(T::Interrupt::IRQ);
+
+        self.marks = Some(marks);
+    }
+
+    /// Whether the frame at `words` passed its CRC (always true without
+    /// [`enable_frame_marks`](Self::enable_frame_marks)).
+    #[cfg_attr(not(any(spi_v4, spi_v5, spi_v6)), allow(unused_variables))]
+    fn frame_is_valid(&self, words: *const W) -> bool {
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        if let Some(marks) = self.marks.as_deref() {
+            let frame_len = self.frame_len.unwrap();
+            let frames = self.ring_buf.capacity() / frame_len;
+            let pos = (words as usize - self.ring_addr) / W::size().bytes();
+            let slot = (pos / frame_len) % frames;
+            let bit = 1u32 << (slot % 32);
+            let was = marks[slot / 32].fetch_and(!bit, Ordering::Relaxed);
+            return was & bit == 0;
+        }
+
+        true
+    }
+
     /// The next whole frame, read in place: no copy.
     ///
     /// Waits until a frame has arrived in the ring and hands out its words, borrowed from the
@@ -809,7 +951,28 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         let frame_len = self.frame_len.expect("frame length not configured (set_frame_len)");
         self.start_or_check_errors()?;
 
+        // With marks enabled, stay one frame behind the write head: the interrupt handler
+        // records a frame's verdict when its CRC finishes, at the end of the frame, so a frame
+        // is only handed out once its verdict has landed.
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        let lag = if self.marks.is_some() { frame_len } else { 0 };
+        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+        let lag = 0;
+
         loop {
+            // How much is ready, without consuming it.
+            match self.ring_buf.len() {
+                Err(_) => {
+                    self.stop();
+                    return Err(Error::Overrun);
+                }
+                Ok(ready) if ready >= frame_len + lag => {}
+                Ok(_) => {
+                    self.wait_for_data().await;
+                    continue;
+                }
+            }
+
             // As a raw pointer and length, so the ring is not borrowed while handling the
             // other outcomes.
             let attempt = self
@@ -822,16 +985,13 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
                     // exclusive until the `Frame` is dropped, and the DMA can only reach them
                     // on an overrun, which is reported as `Error::Overrun`.
                     let words = unsafe { core::slice::from_raw_parts(ptr, len) };
-                    return Ok(Frame { words });
+                    return Ok(Frame {
+                        valid: self.frame_is_valid(ptr),
+                        words,
+                    });
                 }
-                Ok(_) => {}
-                Err(_) => {
-                    self.stop();
-                    return Err(Error::Overrun);
-                }
+                _ => continue,
             }
-
-            self.wait_for_data().await;
         }
     }
 
@@ -866,12 +1026,19 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
 /// Handed out by [`RingBufferedSpiRx::next_frame`].
 pub struct Frame<'a, W> {
     words: &'a [W],
+    valid: bool,
 }
 
 impl<'a, W> Frame<'a, W> {
     /// The frame's words, in the DMA ring.
     pub fn words(&self) -> &'a [W] {
         self.words
+    }
+
+    /// Whether the frame passed its CRC (always true without
+    /// [`RingBufferedSpiRx::enable_frame_marks`]).
+    pub fn is_valid(&self) -> bool {
+        self.valid
     }
 
     /// Words in the frame.
@@ -901,17 +1068,40 @@ impl<W: Word> Drop for RingBufferedSpiRx<'_, W> {
                 w.set_txdmaen(false);
             });
             self.info.regs.cr1().modify(|w| w.set_spe(false));
-            self.info.regs.ier().write(|w| w.0 = 0);
-            t.irq.disable();
             self.info.regs.ifcr().write_value(all_flags());
             self.info.regs.cr2().modify(|w| w.set_tsize(0));
             // The transfers reset their channels when dropped.
+            self.disable_handler();
             self.info.rcc.disable();
             return;
         }
 
         self.stop();
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        self.info.regs.cr2().modify(|w| w.set_tsize(0));
+        self.disable_handler();
         self.info.rcc.disable();
+    }
+}
+
+impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
+    /// Stop marking frames: clear the session before the marks go away, and disable the
+    /// interrupt.
+    fn disable_handler(&mut self) {
+        if self.irq.is_none() {
+            return;
+        }
+
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        {
+            self.info.regs.ier().write(|w| w.0 = 0);
+            if let Some(state) = self.state {
+                state.session.lock(|s| s.set(None));
+            }
+        }
+        if let Some(irq) = self.irq {
+            irq.disable();
+        }
     }
 }
 

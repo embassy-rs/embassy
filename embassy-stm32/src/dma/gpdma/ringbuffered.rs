@@ -243,6 +243,16 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             .read_in_place(&mut DmaCtrlImpl::new(self.channel.reborrow()), len)?)
     }
 
+    /// Snapshot the write position, in words from the buffer's start.
+    ///
+    /// Reads the channel's destination address register directly, without synchronizing with
+    /// the ring: for interrupt handlers that record where the DMA was when a peripheral flagged
+    /// an error.
+    pub fn write_head(&self) -> usize {
+        let dar = unsafe { self.channel.destination_register().read_volatile() } as usize;
+        (dar.wrapping_sub(self.ringbuf.buf_addr()) / W::size().bytes()) % self.ringbuf.cap()
+    }
+
     /// Read an exact number of elements from the ringbuffer.
     ///
     /// Returns the remaining number of elements available for immediate reading.

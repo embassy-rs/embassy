@@ -119,6 +119,16 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             .read_in_place(&mut DmaCtrlImpl(self.channel.reborrow()), len)?)
     }
 
+    /// Snapshot the write position, in words from the buffer's start.
+    ///
+    /// Reads the channel's remaining-transfers count directly, without synchronizing with the
+    /// ring: for interrupt handlers that record where the DMA was when a peripheral flagged an
+    /// error.
+    pub fn write_head(&self) -> usize {
+        let cap = self.ringbuf.cap();
+        cap.wrapping_sub(self.channel.get_remaining_transfers() as usize) % cap
+    }
+
     /// Read an exact number of elements from the ringbuffer.
     ///
     /// Returns the remaining number of elements available for immediate reading.

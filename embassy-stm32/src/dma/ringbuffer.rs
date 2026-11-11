@@ -165,6 +165,12 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         self.dma_buf.len()
     }
 
+    /// The DMA buffer's address, for write-position snapshots from interrupt handlers.
+    #[cfg(any(gpdma, lpdma))]
+    pub fn buf_addr(&self) -> usize {
+        self.dma_buf.as_ptr() as usize
+    }
+
     /// Sync against the DMA hardware and return the number of readable samples available.
     pub fn sync_len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
         self.write_index.dma_sync(self.cap(), dma);
