@@ -348,6 +348,36 @@ impl SetupPacket {
             length,
         }
     }
+
+    /// Build a vendor-specific device request SETUP packet, host-to-device.
+    pub const fn vendor_device_out(request: u8, value: u16, index: u16, length: u16) -> Self {
+        Self {
+            request_type: RequestType {
+                direction: Direction::Out,
+                control_type: ControlType::Vendor,
+                recipient: Recipient::Device,
+            },
+            request,
+            value,
+            index,
+            length,
+        }
+    }
+
+    /// Build a vendor-specific device request SETUP packet, device-to-host.
+    pub const fn vendor_device_in(request: u8, value: u16, index: u16, length: u16) -> Self {
+        Self {
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Vendor,
+                recipient: Recipient::Device,
+            },
+            request,
+            value,
+            index,
+            length,
+        }
+    }
 }
 
 // ── ControlPipeExt ─────────────────────────────────────────────────────────────

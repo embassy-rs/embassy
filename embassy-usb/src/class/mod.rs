@@ -54,6 +54,8 @@ pub mod hub {
 pub mod midi;
 #[cfg(feature = "class-msc")]
 pub mod msc;
+#[cfg(feature = "class-printer")]
+pub mod printer;
 #[cfg(feature = "class-uac")]
 pub mod uac;
 #[cfg(feature = "class-usbtmc")]
@@ -93,5 +95,7 @@ compile_error!("feature `class-hid` requires at least one of `device` or `host`"
 compile_error!("feature `class-midi` requires at least one of `device` or `host`");
 #[cfg(all(feature = "class-msc", not(any(feature = "device", feature = "host"))))]
 compile_error!("feature `class-msc` requires at least one of `device` or `host`");
+#[cfg(all(feature = "class-printer", not(any(feature = "device", feature = "host"))))]
+compile_error!("feature `class-printer` requires at least one of `device` or `host`");
 #[cfg(all(feature = "class-uac", not(any(feature = "device", feature = "host"))))]
 compile_error!("feature `class-uac` requires at least one of `device` or `host`");
