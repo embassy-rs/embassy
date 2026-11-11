@@ -457,8 +457,8 @@ impl<'d> I2S<'d> {
     /// Create a new I2S in master mode without an MCK output pin.
     pub fn new_master<T: Instance>(
         i2s: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        lrck: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        lrck: Peri<'d, impl LrckPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         master_clock: MasterClock,
         config: Config,
@@ -469,9 +469,9 @@ impl<'d> I2S<'d> {
     /// Create a new I2S in master mode with an MCK output pin.
     pub fn new_master_with_mck<T: Instance>(
         i2s: Peri<'d, T>,
-        mck: Peri<'d, impl GpioPin>,
-        sck: Peri<'d, impl GpioPin>,
-        lrck: Peri<'d, impl GpioPin>,
+        mck: Peri<'d, impl MckPin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        lrck: Peri<'d, impl LrckPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         master_clock: MasterClock,
         config: Config,
@@ -509,8 +509,8 @@ impl<'d> I2S<'d> {
     /// Create a new I2S in slave mode
     pub fn new_slave<T: Instance>(
         _i2s: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        lrck: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        lrck: Peri<'d, impl LrckPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -1229,6 +1229,24 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// MCK pin trait.
+    MckPin,
+    Instance
+);
+
+pin_trait!(
+    /// SCK pin trait.
+    SckPin,
+    Instance
+);
+
+pin_trait!(
+    /// LRCK pin trait.
+    LrckPin,
+    Instance
+);
 
 macro_rules! impl_i2s {
     ($type:ident, $pac_type:ident, $irq:ident) => {

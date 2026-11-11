@@ -521,33 +521,33 @@ embassy_hal_internal::peripherals! {
     VPR
 }
 
-impl_pin!(P0_00, 0, 0);
-impl_pin!(P0_01, 0, 1);
-impl_pin!(P0_02, 0, 2);
-impl_pin!(P0_03, 0, 3);
-impl_pin!(P0_04, 0, 4);
-impl_pin!(P0_05, 0, 5);
-impl_pin!(P0_06, 0, 6);
+impl_pin!(P0_00, 0, 0, Domain3);
+impl_pin!(P0_01, 0, 1, Domain3);
+impl_pin!(P0_02, 0, 2, Domain3);
+impl_pin!(P0_03, 0, 3, Domain3);
+impl_pin!(P0_04, 0, 4, Domain3);
+impl_pin!(P0_05, 0, 5, Domain3);
+impl_pin!(P0_06, 0, 6, Domain3);
 
-impl_pin!(P1_00, 1, 0);
-impl_pin!(P1_01, 1, 1);
+impl_pin!(P1_00, 1, 0, Domain2);
+impl_pin!(P1_01, 1, 1, Domain2);
 #[cfg(feature = "nfc-pins-as-gpio")]
-impl_pin!(P1_02, 1, 2);
+impl_pin!(P1_02, 1, 2, Domain2);
 #[cfg(feature = "nfc-pins-as-gpio")]
-impl_pin!(P1_03, 1, 3);
-impl_pin!(P1_04, 1, 4);
-impl_pin!(P1_05, 1, 5);
-impl_pin!(P1_06, 1, 6);
-impl_pin!(P1_07, 1, 7);
-impl_pin!(P1_08, 1, 8);
-impl_pin!(P1_09, 1, 9);
-impl_pin!(P1_10, 1, 10);
-impl_pin!(P1_11, 1, 11);
-impl_pin!(P1_12, 1, 12);
-impl_pin!(P1_13, 1, 13);
-impl_pin!(P1_14, 1, 14);
-impl_pin!(P1_15, 1, 15);
-impl_pin!(P1_16, 1, 16);
+impl_pin!(P1_03, 1, 3, Domain2);
+impl_pin!(P1_04, 1, 4, Domain2);
+impl_pin!(P1_05, 1, 5, Domain2);
+impl_pin!(P1_06, 1, 6, Domain2);
+impl_pin!(P1_07, 1, 7, Domain2);
+impl_pin!(P1_08, 1, 8, Domain2);
+impl_pin!(P1_09, 1, 9, Domain2);
+impl_pin!(P1_10, 1, 10, Domain2);
+impl_pin!(P1_11, 1, 11, Domain2);
+impl_pin!(P1_12, 1, 12, Domain2);
+impl_pin!(P1_13, 1, 13, Domain2);
+impl_pin!(P1_14, 1, 14, Domain2);
+impl_pin!(P1_15, 1, 15, Domain2);
+impl_pin!(P1_16, 1, 16, Domain2);
 
 impl_pin!(P2_00, 2, 0);
 impl_pin!(P2_01, 2, 1);
@@ -728,6 +728,7 @@ impl_spim!(SERIAL21, SPIM21, SERIAL21, 16_000_000);
 impl_spim!(SERIAL22, SPIM22, SERIAL22, 16_000_000);
 impl_spim!(SERIAL30, SPIM30, SERIAL30, 16_000_000);
 
+impl_spis!(SERIAL00, SPIS00, SERIAL00);
 impl_spis!(SERIAL20, SPIS20, SERIAL20);
 impl_spis!(SERIAL21, SPIS21, SERIAL21);
 impl_spis!(SERIAL22, SPIS22, SERIAL22);
@@ -748,6 +749,79 @@ impl_saadc_input!(P1_11, 1, 11);
 impl_saadc_input!(P1_12, 1, 12);
 impl_saadc_input!(P1_13, 1, 13);
 impl_saadc_input!(P1_14, 1, 14);
+
+// Power domains of peripherals that use pins. See `domain`.
+impl_domain!(Domain0: SERIAL00);
+#[cfg(feature = "_s")]
+impl_domain!(Domain0: VPR);
+impl_domain!(Domain2: SERIAL20, SERIAL21, SERIAL22, PWM20, PWM21, PWM22);
+impl_domain!(Domain3: SERIAL30);
+
+// SERIAL00 (MCU domain) can only use its dedicated pins on P2.
+impl_pin_trait!(P2_01, SERIAL00, spim::SckPin);
+impl_pin_trait!(P2_06, SERIAL00, spim::SckPin);
+impl_pin_trait!(P2_02, SERIAL00, spim::MosiPin);
+impl_pin_trait!(P2_08, SERIAL00, spim::MosiPin);
+impl_pin_trait!(P2_04, SERIAL00, spim::MisoPin);
+impl_pin_trait!(P2_09, SERIAL00, spim::MisoPin);
+impl_pin_trait!(P2_01, SERIAL00, spis::SckPin);
+impl_pin_trait!(P2_06, SERIAL00, spis::SckPin);
+impl_pin_trait!(P2_02, SERIAL00, spis::MisoPin);
+impl_pin_trait!(P2_08, SERIAL00, spis::MisoPin);
+impl_pin_trait!(P2_04, SERIAL00, spis::MosiPin);
+impl_pin_trait!(P2_09, SERIAL00, spis::MosiPin);
+impl_pin_trait!(P2_05, SERIAL00, spis::CsPin);
+impl_pin_trait!(P2_10, SERIAL00, spis::CsPin);
+impl_pin_trait!(P2_00, SERIAL00, uarte::RxPin);
+impl_pin_trait!(P2_07, SERIAL00, uarte::RxPin);
+impl_pin_trait!(P2_02, SERIAL00, uarte::TxPin);
+impl_pin_trait!(P2_08, SERIAL00, uarte::TxPin);
+impl_pin_trait!(P2_04, SERIAL00, uarte::CtsPin);
+impl_pin_trait!(P2_09, SERIAL00, uarte::CtsPin);
+impl_pin_trait!(P2_05, SERIAL00, uarte::RtsPin);
+impl_pin_trait!(P2_10, SERIAL00, uarte::RtsPin);
+
+// SERIAL20/21 (peripheral domain) can use dedicated pins on P2 in Constant Latency mode.
+cfg_select! {
+    feature = "cross-domain-pins" => {
+        impl_pin_trait!(P2_01, SERIAL20, spim::SckPin);
+        impl_pin_trait!(P2_02, SERIAL20, spim::MosiPin);
+        impl_pin_trait!(P2_04, SERIAL20, spim::MisoPin);
+        impl_pin_trait!(P2_01, SERIAL20, spis::SckPin);
+        impl_pin_trait!(P2_02, SERIAL20, spis::MisoPin);
+        impl_pin_trait!(P2_04, SERIAL20, spis::MosiPin);
+        impl_pin_trait!(P2_05, SERIAL20, spis::CsPin);
+        impl_pin_trait!(P2_00, SERIAL20, uarte::RxPin);
+        impl_pin_trait!(P2_02, SERIAL20, uarte::TxPin);
+        impl_pin_trait!(P2_04, SERIAL20, uarte::CtsPin);
+        impl_pin_trait!(P2_05, SERIAL20, uarte::RtsPin);
+        impl_pin_trait!(P2_06, SERIAL21, spim::SckPin);
+        impl_pin_trait!(P2_08, SERIAL21, spim::MosiPin);
+        impl_pin_trait!(P2_09, SERIAL21, spim::MisoPin);
+        impl_pin_trait!(P2_06, SERIAL21, spis::SckPin);
+        impl_pin_trait!(P2_08, SERIAL21, spis::MisoPin);
+        impl_pin_trait!(P2_09, SERIAL21, spis::MosiPin);
+        impl_pin_trait!(P2_10, SERIAL21, spis::CsPin);
+        impl_pin_trait!(P2_07, SERIAL21, uarte::RxPin);
+        impl_pin_trait!(P2_08, SERIAL21, uarte::TxPin);
+        impl_pin_trait!(P2_09, SERIAL21, uarte::CtsPin);
+        impl_pin_trait!(P2_10, SERIAL21, uarte::RtsPin);
+    }
+    _ => {}
+}
+
+// sQSPI (FLPR) dedicated pins.
+cfg_select! {
+    feature = "_s" => {
+        impl_pin_trait!(P2_01, VPR, sqspi::SckPin);
+        impl_pin_trait!(P2_05, VPR, sqspi::CsPin);
+        impl_pin_trait!(P2_02, VPR, sqspi::Io0Pin);
+        impl_pin_trait!(P2_04, VPR, sqspi::Io1Pin);
+        impl_pin_trait!(P2_03, VPR, sqspi::Io2Pin);
+        impl_pin_trait!(P2_00, VPR, sqspi::Io3Pin);
+    }
+    _ => {}
+}
 
 #[cfg(feature = "_s")]
 impl_vpr!(VPR, VPR00, VPR00);

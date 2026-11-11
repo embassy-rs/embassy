@@ -53,7 +53,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{MODE_0, MODE_3, Mode, Phase, Polarity};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
-use crate::gpio::{Flex, OutputDrive, Pin as GpioPin};
+use crate::gpio::{Flex, OutputDrive};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::{interrupt, pac};
@@ -347,12 +347,12 @@ impl<'d> Sqspi<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<T: Instance>(
         peri: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        csn: Peri<'d, impl GpioPin>,
-        io0: Peri<'d, impl GpioPin>,
-        io1: Peri<'d, impl GpioPin>,
-        io2: Peri<'d, impl GpioPin>,
-        io3: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        csn: Peri<'d, impl CsPin<T>>,
+        io0: Peri<'d, impl Io0Pin<T>>,
+        io1: Peri<'d, impl Io1Pin<T>>,
+        io2: Peri<'d, impl Io2Pin<T>>,
+        io3: Peri<'d, impl Io3Pin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         firmware: &[u8],
         ram: &'d mut [MaybeUninit<u8>],
@@ -995,6 +995,42 @@ pub(crate) trait SealedInstance {
 /// registers and the completion interrupt.
 #[allow(private_bounds)]
 pub trait Instance: crate::vpr::Instance + SealedInstance {}
+
+pin_trait!(
+    /// SCK pin trait.
+    SckPin,
+    Instance
+);
+
+pin_trait!(
+    /// CS pin trait.
+    CsPin,
+    Instance
+);
+
+pin_trait!(
+    /// IO0 pin trait.
+    Io0Pin,
+    Instance
+);
+
+pin_trait!(
+    /// IO1 pin trait.
+    Io1Pin,
+    Instance
+);
+
+pin_trait!(
+    /// IO2 pin trait.
+    Io2Pin,
+    Instance
+);
+
+pin_trait!(
+    /// IO3 pin trait.
+    Io3Pin,
+    Instance
+);
 
 macro_rules! impl_sqspi {
     ($type:ident) => {

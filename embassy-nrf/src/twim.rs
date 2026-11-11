@@ -16,7 +16,7 @@ use embassy_time::{Duration, Instant};
 pub use embedded_hal_1::i2c::Operation;
 pub use pac::twim::vals::Frequency;
 
-use crate::gpio::{Flex, OutputDrive, Pin as GpioPin, Pull};
+use crate::gpio::{Flex, OutputDrive, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::twim::regs::RxMaxcnt;
@@ -191,8 +191,8 @@ impl<'d> Twim<'d, Async> {
     /// be used.
     pub fn new<T: Instance>(
         twim: Peri<'d, T>,
-        scl: Peri<'d, impl GpioPin>,
-        sda: Peri<'d, impl GpioPin>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_ram_buffer: &'d mut [u8],
         config: Config,
@@ -283,8 +283,8 @@ impl<'d> Twim<'d, Blocking> {
     /// be used.
     pub fn new_blocking<T: Instance>(
         twim: Peri<'d, T>,
-        scl: Peri<'d, impl GpioPin>,
-        sda: Peri<'d, impl GpioPin>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         tx_ram_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -858,6 +858,18 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// SCL pin trait.
+    SclPin,
+    Instance
+);
+
+pin_trait!(
+    /// SDA pin trait.
+    SdaPin,
+    Instance
+);
 
 macro_rules! impl_twim {
     ($type:ident, $pac_type:ident, $irq:ident) => {

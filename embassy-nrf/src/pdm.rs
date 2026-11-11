@@ -11,7 +11,7 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{DISCONNECTED, Flex, OutputDrive, Pin as GpioPin, Pull};
+use crate::gpio::{DISCONNECTED, Flex, OutputDrive, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::pdm::vals;
 pub use crate::pac::pdm::vals::Freq as Frequency;
@@ -105,8 +105,8 @@ impl<'d> Pdm<'d> {
     /// Create PDM driver
     pub fn new<T: Instance>(
         pdm: Peri<'d, T>,
-        clk: Peri<'d, impl GpioPin>,
-        din: Peri<'d, impl GpioPin>,
+        clk: Peri<'d, impl ClkPin<T>>,
+        din: Peri<'d, impl DinPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -471,6 +471,18 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// CLK pin trait.
+    ClkPin,
+    Instance
+);
+
+pin_trait!(
+    /// DIN pin trait.
+    DinPin,
+    Instance
+);
 
 macro_rules! impl_pdm {
     ($type:ident, $pac_type:ident, $irq:ident) => {

@@ -21,7 +21,7 @@ use pac::uarte::vals;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
-use crate::gpio::{Flex, Pin as GpioPin};
+use crate::gpio::Flex;
 use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::ppi::{
@@ -29,7 +29,8 @@ use crate::ppi::{
 };
 use crate::timer::{Instance as TimerInstance, Timer};
 use crate::uarte::{
-    Config, DMA_SIZE, Instance as UarteInstance, configure, configure_rx_pins, configure_tx_pins, drop_tx_rx,
+    Config, CtsPin, DMA_SIZE, Instance as UarteInstance, RtsPin, RxPin, TxPin, configure, configure_rx_pins,
+    configure_tx_pins, drop_tx_rx,
 };
 use crate::{interrupt, pac};
 
@@ -240,8 +241,8 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
+        rxd: Peri<'d, impl RxPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
@@ -275,10 +276,10 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_rtscts<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
+        rxd: Peri<'d, impl RxPin<U>>,
+        cts: Peri<'d, impl CtsPin<U>>,
+        rts: Peri<'d, impl RtsPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
@@ -428,7 +429,7 @@ impl<'d> BufferedUarteTx<'d> {
     /// Create a new BufferedUarteTx without hardware flow control.
     pub fn new<U: UarteInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         tx_buffer: &'d mut [u8],
         config: Config,
@@ -439,8 +440,8 @@ impl<'d> BufferedUarteTx<'d> {
     /// Create a new BufferedUarteTx with hardware flow control (CTS)
     pub fn new_with_cts<U: UarteInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
+        cts: Peri<'d, impl CtsPin<U>>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         tx_buffer: &'d mut [u8],
         config: Config,
@@ -636,7 +637,7 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        rxd: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
@@ -666,8 +667,8 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_rts<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        rxd: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<U>>,
+        rts: Peri<'d, impl RtsPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,

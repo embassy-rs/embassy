@@ -25,7 +25,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
-use crate::gpio::{self, DISCONNECTED, Flex, OutputDrive, Pin as GpioPin, PselBits, convert_drive};
+use crate::gpio::{self, DISCONNECTED, Flex, OutputDrive, PselBits, convert_drive};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::gpio::vals as gpiovals;
@@ -185,8 +185,8 @@ impl<'d> Uarte<'d, Async> {
     /// Create a new UARTE without hardware flow control
     pub fn new<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        rxd: Peri<'d, impl RxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -198,10 +198,10 @@ impl<'d> Uarte<'d, Async> {
     /// Create a new UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        rxd: Peri<'d, impl RxPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -242,8 +242,8 @@ impl<'d> Uarte<'d, Blocking> {
     /// Create a new blocking UARTE without hardware flow control
     pub fn new_blocking<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        rxd: Peri<'d, impl RxPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(uarte, Flex::new(txd), Flex::new(rxd), None, None, config)
@@ -252,10 +252,10 @@ impl<'d> Uarte<'d, Blocking> {
     /// Create a new blocking UARTE with hardware flow control (RTS/CTS)
     pub fn new_blocking_with_rtscts<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        rxd: Peri<'d, impl RxPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -442,7 +442,7 @@ impl<'d> UarteTx<'d, Async> {
     /// Create a new tx-only UARTE without hardware flow control
     pub fn new<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -454,8 +454,8 @@ impl<'d> UarteTx<'d, Async> {
     /// Create a new tx-only UARTE with hardware flow control (CTS)
     pub fn new_with_cts<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -537,15 +537,15 @@ impl<'d> UarteTx<'d, Async> {
 
 impl<'d> UarteTx<'d, Blocking> {
     /// Create a new blocking tx-only UARTE without hardware flow control
-    pub fn new_blocking<T: Instance>(uarte: Peri<'d, T>, txd: Peri<'d, impl GpioPin>, config: Config) -> Self {
+    pub fn new_blocking<T: Instance>(uarte: Peri<'d, T>, txd: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
         Self::new_inner(uarte, Flex::new(txd), None, config)
     }
 
     /// Create a new blocking tx-only UARTE with hardware flow control (CTS)
     pub fn new_blocking_with_cts<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(uarte, Flex::new(txd), Some(Flex::new(cts)), config)
@@ -653,7 +653,7 @@ impl<'d> UarteRx<'d, Async> {
     /// Create a new rx-only UARTE without hardware flow control
     pub fn new<T: Instance>(
         uarte: Peri<'d, T>,
-        rxd: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -665,8 +665,8 @@ impl<'d> UarteRx<'d, Async> {
     /// Create a new rx-only UARTE with hardware flow control (RTS)
     pub fn new_with_rts<T: Instance>(
         uarte: Peri<'d, T>,
-        rxd: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -858,15 +858,15 @@ impl<'d> UarteRx<'d, Async> {
 
 impl<'d> UarteRx<'d, Blocking> {
     /// Create a new blocking rx-only UARTE without hardware flow control
-    pub fn new_blocking<T: Instance>(uarte: Peri<'d, T>, rxd: Peri<'d, impl GpioPin>, config: Config) -> Self {
+    pub fn new_blocking<T: Instance>(uarte: Peri<'d, T>, rxd: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
         Self::new_inner(uarte, Flex::new(rxd), None, config)
     }
 
     /// Create a new blocking rx-only UARTE with hardware flow control (RTS)
     pub fn new_blocking_with_rts<T: Instance>(
         uarte: Peri<'d, T>,
-        rxd: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(uarte, Flex::new(rxd), Some(Flex::new(rts)), config)
@@ -1365,6 +1365,30 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// TX pin trait.
+    TxPin,
+    Instance
+);
+
+pin_trait!(
+    /// RX pin trait.
+    RxPin,
+    Instance
+);
+
+pin_trait!(
+    /// CTS pin trait.
+    CtsPin,
+    Instance
+);
+
+pin_trait!(
+    /// RTS pin trait.
+    RtsPin,
+    Instance
+);
 
 macro_rules! impl_uarte {
     ($type:ident, $pac_type:ident, $irq:ident) => {

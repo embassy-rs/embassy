@@ -14,7 +14,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant};
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
-use crate::gpio::{Flex, OutputDrive, Pin as GpioPin, convert_drive};
+use crate::gpio::{Flex, OutputDrive, convert_drive};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::gpio::vals as gpiovals;
@@ -194,8 +194,8 @@ impl<'d> Twis<'d, Async> {
     /// Create a new TWIS driver.
     pub fn new<T: Instance>(
         twis: Peri<'d, T>,
-        scl: Peri<'d, impl GpioPin>,
-        sda: Peri<'d, impl GpioPin>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -327,8 +327,8 @@ impl<'d> Twis<'d, Blocking> {
     /// Create a new blocking TWIS driver.
     pub fn new_blocking<T: Instance>(
         twis: Peri<'d, T>,
-        scl: Peri<'d, impl GpioPin>,
-        sda: Peri<'d, impl GpioPin>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(twis, Flex::new(scl), Flex::new(sda), config)
@@ -859,6 +859,18 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// SCL pin trait.
+    SclPin,
+    Instance
+);
+
+pin_trait!(
+    /// SDA pin trait.
+    SdaPin,
+    Instance
+);
 
 macro_rules! impl_twis {
     ($type:ident, $pac_type:ident, $irq:ident) => {
