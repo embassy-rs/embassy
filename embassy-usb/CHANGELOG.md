@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add CDC-ECM class (device and host) for Ethernet-over-USB networking
 - `VCP`: add CH34x and FTDI host drivers
 - Add USB Printer class (device and host) supporting IEEE 1284 device IDs and bidirectional raw print streams
 - Vendor: add generic vendor-specific bulk class (`class-vendor`) with WinUSB and WebUSB support
