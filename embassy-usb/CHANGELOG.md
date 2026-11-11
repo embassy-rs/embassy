@@ -9,7 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - Vendor: add generic vendor-specific bulk class (`class-vendor`) with WinUSB and WebUSB support
-
 - Add per-class Cargo features (`class-<name>`) and independent `device`/`host` role features. The default features are `device`, `host`, and `class-all`, preserving the previous full-class build
 - Make `embassy-net-driver-channel`, `embassy-time`, and `embedded-io-async` optional; they are now pulled only by the features that use them
 - **Breaking:** with `default-features = false`, `embassy_usb::device`, `embassy_usb::descriptor`, and `embassy_usb::host` are only available when the `device` or `host` feature is enabled, and each class requires its `class-<name>` feature
@@ -23,12 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HID`, `MSC`, `CCID`, `GIP`: Host drivers implement `HostClass`; add `HidMatcher`, `MscMatcher`, `CcidMatcher`, and `GipMatcher`, and make their info types `Copy`
 - Add `MidiMatcher`, `UacMatcher`, `Cp210xMatcher`, and `HubMatcher`
 - Add the `test-utils` feature with `MockHost`, `MockState`, loopback pipes, `CDC_ACM_CONFIG`, and `enumeration_info`; add a CDC ACM host loopback test
-
 - Add SuperSpeed (5 Gbit/s) and SuperSpeedPlus (10 Gbit/s) device support
 - `HID`: Notify `RequestHandler::reset()` on USB bus reset, allowing handlers to restore default Report protocol mode
 - `CDC-NCM`: The NetworkConnection notification names the communication interface in `wIndex`, not the data interface
 - `CDC-NCM`: Serialize the NTB parameters and the NTB header field by field in little-endian, instead of copying `repr(packed)` structs; a control buffer shorter than the 28-byte NTB parameters is now refused instead of written past
-
+- `CDC-NCM`: `Receiver::read_packet` drops a received datagram longer than `buf`, with a warning, instead of panicking
 - Fix full-speed isochronous `bInterval` encoding to use exponential format ($2^{bInterval-1}$ frames) per USB 2.0 §9.6.6 instead of linear milliseconds.
 - Add `EndpointInterval` enum (`Milliseconds`, `Microframes`, `Raw`) and corresponding builder methods on `InterfaceAltBuilder` (`endpoint_in_interval`, `endpoint_out_interval`, `endpoint_interrupt_in_interval`, `endpoint_interrupt_out_interval`, `endpoint_isochronous_in_interval`, `endpoint_isochronous_out_interval`, `endpoint_descriptor_with_interval`, `endpoint_descriptor_raw`). This allows specifying sub-millisecond polling periods for high-speed endpoints and preserving manually specified `bInterval` values without being overwritten.
 - Add `Builder::other_speed_config_descriptor()`, allowing high-speed devices to generate and respond to `GET_DESCRIPTOR` for `OTHER_SPEED_CONFIGURATION` descriptors.

@@ -541,7 +541,11 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
                 warn!("NDP has a datagram pointer out of range.");
                 continue;
             };
-            buf[..datagram_len].copy_from_slice(datagram);
+            let Some(buf) = buf.get_mut(..datagram_len) else {
+                warn!("Received datagram longer than the buffer, dropped.");
+                continue;
+            };
+            buf.copy_from_slice(datagram);
 
             return Ok(datagram_len);
         }
@@ -654,7 +658,103 @@ mod tests {
         }
     }
 
+    /// One NTB16 with a single datagram of `len` bytes, as a host sends it.
+    fn ntb(len: usize) -> ([u8; 128], usize) {
+        let block = 12 + 16 + len;
+        let mut ntb = [0; 128];
+        ntb[0..4].copy_from_slice(&SIG_NTH.to_le_bytes());
+        ntb[4..6].copy_from_slice(&12u16.to_le_bytes()); // wHeaderLength
+        ntb[8..10].copy_from_slice(&(block as u16).to_le_bytes()); // wBlockLength
+        ntb[10..12].copy_from_slice(&12u16.to_le_bytes()); // wNdpIndex
+        ntb[12..16].copy_from_slice(&SIG_NDP_NO_FCS.to_le_bytes());
+        ntb[16..18].copy_from_slice(&16u16.to_le_bytes()); // wLength
+        ntb[20..22].copy_from_slice(&28u16.to_le_bytes()); // wDatagramIndex
+        ntb[22..24].copy_from_slice(&(len as u16).to_le_bytes()); // wDatagramLength
+        for (i, byte) in ntb[28..block].iter_mut().enumerate() {
+            *byte = i as u8;
+        }
+        (ntb, block)
+    }
+
+    /// The host's NTBs, one per transfer, in order.
+    struct Transfers<const N: usize> {
+        ntbs: [([u8; 128], usize); N],
+        next: usize,
+    }
+
+    impl<const N: usize> Endpoint for Transfers<N> {
+        fn info(&self) -> &EndpointInfo {
+            unreachable!()
+        }
+
+        async fn wait_enabled(&mut self) {
+            unreachable!()
+        }
+    }
+
+    impl<const N: usize> EndpointOut for Transfers<N> {
+        async fn read(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
+            unreachable!()
+        }
+
+        async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+            let (ntb, len) = self.ntbs[self.next];
+            self.next += 1;
+            buf[..len].copy_from_slice(&ntb[..len]);
+            Ok(len)
+        }
+    }
+
+    struct NtbDriver<const N: usize>;
+
+    impl<'a, const N: usize> Driver<'a> for NtbDriver<N> {
+        type EndpointOut = Transfers<N>;
+        type EndpointIn = Unused;
+        type ControlPipe = Unused;
+        type Bus = Unused;
+
+        fn alloc_endpoint_out(
+            &mut self,
+            _: EndpointType,
+            _: Option<EndpointAddress>,
+            _: u16,
+            _: u8,
+        ) -> Result<Self::EndpointOut, EndpointAllocError> {
+            unreachable!()
+        }
+
+        fn alloc_endpoint_in(
+            &mut self,
+            _: EndpointType,
+            _: Option<EndpointAddress>,
+            _: u16,
+            _: u8,
+        ) -> Result<Self::EndpointIn, EndpointAllocError> {
+            unreachable!()
+        }
+
+        fn start(self, _: u16) -> (Self::Bus, Self::ControlPipe) {
+            unreachable!()
+        }
+    }
+
     struct Unused;
+
+    impl Endpoint for Unused {
+        fn info(&self) -> &EndpointInfo {
+            unreachable!()
+        }
+
+        async fn wait_enabled(&mut self) {
+            unreachable!()
+        }
+    }
+
+    impl EndpointIn for Unused {
+        async fn write(&mut self, _: &[u8]) -> Result<(), EndpointError> {
+            unreachable!()
+        }
+    }
 
     impl ControlPipe for Unused {
         fn max_packet_size(&self) -> usize {
@@ -797,5 +897,33 @@ mod tests {
             b'N', b'C', b'M', b'H', 12, 0, 0x02, 0x01, 88, 0, 12, 0,
             b'N', b'C', b'M', b'0', 16, 0, 0, 0, 28, 0, 60, 0, 0, 0, 0, 0,
         ]);
+
+    /// `read_packet` into `buf`, the host sending one NTB per datagram length.
+    fn receive<const N: usize>(datagram_lens: [usize; N], buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let mut receiver = Receiver::<NtbDriver<N>> {
+            comm_if: InterfaceNumber(0),
+            comm_ep: Unused,
+            read_ep: Transfers {
+                ntbs: datagram_lens.map(ntb),
+                next: 0,
+            },
+        };
+        block_on(receiver.read_packet(buf))
+    }
+
+    #[test]
+    fn read_packet_copies_a_datagram_that_fits() {
+        let mut buf = [0; 64];
+        assert_eq!(receive([64], &mut buf), Ok(64));
+        assert!(buf.iter().enumerate().all(|(i, &b)| b == i as u8));
+    }
+
+    #[test]
+    fn read_packet_drops_a_datagram_longer_than_the_buffer_and_returns_the_next() {
+        // The host decides the datagram length: one longer than `buf` must not panic, and the
+        // receiver goes on with the next NTB, as it does with the other datagrams it cannot use.
+        let mut buf = [0; 64];
+        assert_eq!(receive([65, 40], &mut buf), Ok(40));
+        assert!(buf[..40].iter().enumerate().all(|(i, &b)| b == i as u8));
     }
 }
