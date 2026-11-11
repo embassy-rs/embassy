@@ -10,7 +10,7 @@ use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_hal_nb::nb;
 
-use crate::gpio::PinBorrow;
+use crate::gpio::Flex;
 use crate::interrupt::typelevel::Binding;
 use crate::pac::uart::Uart as Regs;
 use crate::uart::{Config, ConfigError, CtsPin, Error, Info, Instance, RtsPin, RxPin, State, TxPin};
@@ -58,8 +58,8 @@ impl<'d> BufferedUart<'d> {
         let tx_config = config.tx_config();
         let rx_config = config.rx_config();
 
-        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
-        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+        let tx = Flex::with_config(tx, tx_pf, tx_config);
+        let rx = Flex::with_config(rx, rx_pf, rx_config);
 
         Self::new_inner(uart, Some(rx), Some(tx), None, None, tx_buffer, rx_buffer, config)
     }
@@ -85,10 +85,10 @@ impl<'d> BufferedUart<'d> {
         let cts_config = config.cts_config();
         let rts_config = config.rts_config();
 
-        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
-        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
-        let cts = PinBorrow::with_config(cts, cts_pf, cts_config);
-        let rts = PinBorrow::with_config(rts, rts_pf, rts_config);
+        let tx = Flex::with_config(tx, tx_pf, tx_config);
+        let rx = Flex::with_config(rx, rx_pf, rx_config);
+        let cts = Flex::with_config(cts, cts_pf, cts_config);
+        let rts = Flex::with_config(rts, rts_pf, rts_config);
 
         Self::new_inner(
             uart,
@@ -209,8 +209,8 @@ impl<'d> BufferedUart<'d> {
 pub struct BufferedUartRx<'d> {
     info: &'static Info,
     state: &'static BufferedState,
-    rx: Option<PinBorrow<'d>>,
-    rts: Option<PinBorrow<'d>>,
+    rx: Option<Flex<'d>>,
+    rts: Option<Flex<'d>>,
     is_borrowed: bool,
 }
 
@@ -237,7 +237,7 @@ impl<'d> BufferedUartRx<'d> {
         let rx_pf = rx.pf_num();
         let rx_config = config.rx_config();
 
-        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+        let rx = Flex::with_config(rx, rx_pf, rx_config);
         Self::new_inner(uart, Some(rx), None, rx_buffer, config)
     }
 
@@ -255,8 +255,8 @@ impl<'d> BufferedUartRx<'d> {
         let rx_config = config.rx_config();
         let rts_config = config.rts_config();
 
-        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
-        let rts = PinBorrow::with_config(rts, rts_pf, rts_config);
+        let rx = Flex::with_config(rx, rx_pf, rx_config);
+        let rts = Flex::with_config(rts, rts_pf, rts_config);
 
         Self::new_inner(uart, Some(rx), Some(rts), rx_buffer, config)
     }
@@ -339,8 +339,8 @@ impl Drop for BufferedUartRx<'_> {
 pub struct BufferedUartTx<'d> {
     info: &'static Info,
     state: &'static BufferedState,
-    tx: Option<PinBorrow<'d>>,
-    cts: Option<PinBorrow<'d>>,
+    tx: Option<Flex<'d>>,
+    cts: Option<Flex<'d>>,
     is_borrowed: bool,
 }
 
@@ -367,7 +367,7 @@ impl<'d> BufferedUartTx<'d> {
         let tx_pf = tx.pf_num();
         let tx_config = config.tx_config();
 
-        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
+        let tx = Flex::with_config(tx, tx_pf, tx_config);
 
         Self::new_inner(uart, Some(tx), None, tx_buffer, config)
     }
@@ -386,8 +386,8 @@ impl<'d> BufferedUartTx<'d> {
         let tx_config = config.tx_config();
         let cts_config = config.cts_config();
 
-        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
-        let cts = PinBorrow::with_config(cts, cts_pf, cts_config);
+        let tx = Flex::with_config(tx, tx_pf, tx_config);
+        let cts = Flex::with_config(cts, cts_pf, cts_config);
 
         Self::new_inner(uart, Some(tx), Some(cts), tx_buffer, config)
     }
@@ -681,10 +681,10 @@ impl BufferedState {
 impl<'d> BufferedUart<'d> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<PinBorrow<'d>>,
-        tx: Option<PinBorrow<'d>>,
-        rts: Option<PinBorrow<'d>>,
-        cts: Option<PinBorrow<'d>>,
+        rx: Option<Flex<'d>>,
+        tx: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -751,8 +751,8 @@ impl<'d> BufferedUart<'d> {
 impl<'d> BufferedUartRx<'d> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<PinBorrow<'d>>,
-        rts: Option<PinBorrow<'d>>,
+        rx: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -936,8 +936,8 @@ impl<'d> BufferedUartRx<'d> {
 impl<'d> BufferedUartTx<'d> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        tx: Option<PinBorrow<'d>>,
-        cts: Option<PinBorrow<'d>>,
+        tx: Option<Flex<'d>>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {

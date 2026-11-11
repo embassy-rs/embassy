@@ -11,7 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use mspm0_metapac::i2c;
 
 use crate::Peri;
-use crate::gpio::{PinBorrow, PinConfig, Pull};
+use crate::gpio::{Flex, PinConfig, Pull};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
@@ -321,8 +321,8 @@ impl core::error::Error for Error {}
 pub struct I2c<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
-    scl: PinBorrow<'d>,
-    sda: PinBorrow<'d>,
+    scl: Flex<'d>,
+    sda: Flex<'d>,
     _phantom: PhantomData<M>,
 }
 
@@ -1067,8 +1067,8 @@ impl<'d, M: Mode> I2c<'d, M> {
         let scl_config = config.scl_config();
         let sda_config = config.sda_config();
 
-        let scl = PinBorrow::with_config(scl, scl_pf, scl_config);
-        let sda = PinBorrow::with_config(sda, sda_pf, sda_config);
+        let scl = Flex::with_config(scl, scl_pf, scl_config);
+        let sda = Flex::with_config(sda, sda_pf, sda_config);
 
         let mut this = Self {
             info: T::info(),

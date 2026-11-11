@@ -107,15 +107,16 @@ pub enum Port {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, M: Mode = Blocking> {
-    pin: PinBorrow<'d>,
+    info: Info,
     state: M::IfAsync<&'static State>,
+    _marker: PhantomData<&'d M>,
 }
 
 impl<'d, M: Mode> Flex<'d, M> {
     /// Set the pin's pull.
     #[inline]
     pub fn set_pull(&mut self, pull: Pull) {
-        let pincm = pac::IOMUX.pincm(self.pin.info.pincm_index());
+        let pincm = pac::IOMUX.pincm(self.info.pincm_index());
 
         pincm.modify(|w| {
             w.set_pipd(matches!(pull, Pull::Down));
@@ -128,7 +129,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// The pull setting is left unchanged.
     #[inline]
     pub fn set_as_input(&mut self) {
-        let pincm = pac::IOMUX.pincm(self.pin.info.pincm_index());
+        let pincm = pac::IOMUX.pincm(self.info.pincm_index());
 
         pincm.modify(|w| {
             w.set_pf(GPIO_PF);
@@ -137,8 +138,8 @@ impl<'d, M: Mode> Flex<'d, M> {
             w.set_inena(true);
         });
 
-        self.pin.info.block().doeclr31_0().write(|w| {
-            w.set_dio(self.pin.info.pin(), true);
+        self.info.block().doeclr31_0().write(|w| {
+            w.set_dio(self.info.pin(), true);
         });
     }
 
@@ -148,7 +149,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
     pub fn set_as_output(&mut self) {
-        let pincm = pac::IOMUX.pincm(self.pin.info.pincm_index());
+        let pincm = pac::IOMUX.pincm(self.info.pincm_index());
 
         pincm.modify(|w| {
             w.set_pf(GPIO_PF);
@@ -157,8 +158,8 @@ impl<'d, M: Mode> Flex<'d, M> {
             w.set_inena(false);
         });
 
-        self.pin.info.block().doeset31_0().write(|w| {
-            w.set_dio(self.pin.info.pin(), true);
+        self.info.block().doeset31_0().write(|w| {
+            w.set_dio(self.info.pin(), true);
         });
     }
 
@@ -174,7 +175,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// The internal weak pull-up and pull-down resistors will be disabled.
     #[inline]
     pub fn set_as_input_output(&mut self) {
-        let pincm = pac::IOMUX.pincm(self.pin.info.pincm_index());
+        let pincm = pac::IOMUX.pincm(self.info.pincm_index());
 
         pincm.modify(|w| {
             w.set_pf(GPIO_PF);
@@ -186,8 +187,8 @@ impl<'d, M: Mode> Flex<'d, M> {
         });
 
         // Enable output driver (DOE) - required for open-drain to drive low
-        self.pin.info.block().doeset31_0().write(|w| {
-            w.set_dio(self.pin.info.pin(), true);
+        self.info.block().doeset31_0().write(|w| {
+            w.set_dio(self.info.pin(), true);
         });
     }
 
@@ -200,7 +201,11 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Note that this also disables the internal weak pull-up and pull-down resistors.
     #[inline]
     pub fn set_as_disconnected(&mut self) {
-        self.pin.disconnect();
+        let pincm_index = self.info.pincm_index();
+        // This will write PF = 0, PC = 0 and disconnect the output.
+        //
+        // This will also disable other things like pull ups, open drain, etc.
+        pac::IOMUX.pincm(pincm_index).write_value(Pincm::default());
     }
 
     /// Configure the logic inversion of this pin.
@@ -208,7 +213,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Logic inversion applies to both the input and output path of this pin.
     #[inline]
     pub fn set_inversion(&mut self, invert: bool) {
-        let pincm = pac::IOMUX.pincm(self.pin.info.pincm_index());
+        let pincm = pac::IOMUX.pincm(self.info.pincm_index());
 
         pincm.modify(|w| {
             w.set_inv(invert);
@@ -216,6 +221,13 @@ impl<'d, M: Mode> Flex<'d, M> {
     }
 
     // TODO: drive strength, hysteresis, wakeup enable, wakeup compare
+
+    /// Get the current pin function set for this pin.
+    #[inline]
+    pub fn pf(&self) -> u8 {
+        let pincm_index = self.info.pincm_index();
+        pac::IOMUX.pincm(pincm_index).read().pf()
+    }
 
     /// Put the pin into the PF mode, unchecked.
     ///
@@ -230,7 +242,7 @@ impl<'d, M: Mode> Flex<'d, M> {
         // Per SLAU893 and SLAU846B, PF is only 6 bits
         assert_eq!(pf & 0xC0, 0, "PF is out of range");
 
-        let pincm = pac::IOMUX.pincm(self.pin.info.pincm_index());
+        let pincm = pac::IOMUX.pincm(self.info.pincm_index());
 
         pincm.modify(|w| {
             w.set_pf(pf);
@@ -239,10 +251,19 @@ impl<'d, M: Mode> Flex<'d, M> {
         });
     }
 
+    #[inline]
+    pub fn update_config(&mut self, config: PinConfig) {
+        let pincm_index = self.info.pincm_index();
+        let pf = pac::IOMUX.pincm(pincm_index).read().pf();
+        let mut pincm = config.0;
+        pincm.set_pf(pf);
+        pac::IOMUX.pincm(pincm_index).write_value(pincm);
+    }
+
     /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
-        self.pin.info.block().din31_0().read().dio(self.pin.info.pin())
+        self.info.block().din31_0().read().dio(self.info.pin())
     }
 
     /// Get whether the pin input level is low.
@@ -260,7 +281,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Set the output as high.
     #[inline]
     pub fn set_high(&mut self) {
-        let info = self.pin.info;
+        let info = self.info;
         info.block().doutset31_0().write(|w| {
             w.set_dio(info.pin(), true);
         });
@@ -269,7 +290,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Set the output as low.
     #[inline]
     pub fn set_low(&mut self) {
-        let info = self.pin.info;
+        let info = self.info;
         info.block().doutclr31_0().write(|w| {
             w.set_dio(info.pin(), true);
         });
@@ -278,7 +299,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Toggle pin output
     #[inline]
     pub fn toggle(&mut self) {
-        let info = self.pin.info;
+        let info = self.info;
         info.block().douttgl31_0().write(|w| {
             w.set_dio(info.pin(), true);
         });
@@ -302,7 +323,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Is the output level high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        let info = self.pin.info;
+        let info = self.info;
         info.block().dout31_0().read().dio(info.pin())
     }
 
@@ -319,11 +340,31 @@ impl<'d> Flex<'d, Blocking> {
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
-    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
+    pub fn new<T: Pin>(_pin: Peri<'d, T>) -> Self {
         // Pin will be in disconnected state.
         Flex {
-            pin: PinBorrow::new(pin),
+            info: *T::info(),
             state: (),
+            _marker: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn with_config(p: Peri<'d, impl Pin>, pf: u8, config: PinConfig) -> Self {
+        let this = Self::new(p);
+        let pincm_index = this.info.pincm_index();
+        let mut pincm = config.0;
+        pincm.set_pf(pf);
+        pac::IOMUX.pincm(pincm_index).write_value(pincm);
+        this
+    }
+
+    /// Unsafely clone (duplicate) a Flex.
+    pub const unsafe fn clone_unchecked(&self) -> Flex<'d> {
+        Flex {
+            info: self.info,
+            state: (),
+            _marker: PhantomData,
         }
     }
 }
@@ -335,13 +376,14 @@ impl<'d> Flex<'d, Async> {
     /// before the pin is put into output mode.
     #[inline]
     pub fn new_async<T: Pin>(
-        pin: Peri<'d, T>,
+        _pin: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         // Pin will be in disconnected state.
         Flex {
-            pin: PinBorrow::new(pin),
+            info: *T::info(),
             state: T::state(),
+            _marker: PhantomData,
         }
     }
 
@@ -387,7 +429,7 @@ impl<'d> Flex<'d, Async> {
     }
 
     fn wait_inner(&mut self, polarity: Polarity) -> impl Future<Output = ()> {
-        let info = self.pin.info;
+        let info = self.info;
         let pin = info.pin();
         let state = self.state;
         let block = info.block();
@@ -1033,87 +1075,6 @@ impl PinConfig {
     pub const fn inv(mut self, inv: bool) -> Self {
         self.0.set_inv(inv);
         self
-    }
-}
-
-/// A borrowed pin.
-///
-/// This type is intended to be used by drivers which need to state that a pin is being borrowed.
-#[must_use = "Dropping this type will disconnect the pin"]
-pub struct PinBorrow<'d> {
-    info: Info,
-    _marker: PhantomData<&'d ()>,
-}
-
-impl<'d> PinBorrow<'d> {
-    #[inline]
-    pub fn new<T: Pin>(_p: Peri<'d, T>) -> Self {
-        Self {
-            info: *T::info(),
-            _marker: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub fn with_config(p: Peri<'d, impl Pin>, pf: u8, config: PinConfig) -> Self {
-        let this = Self::new(p);
-        let pincm_index = this.info.pincm_index();
-        let mut pincm = config.0;
-        pincm.set_pf(pf);
-        pac::IOMUX.pincm(pincm_index).write_value(pincm);
-        this
-    }
-
-    /// Unsafely clone (duplicate) a PinBorrow.
-    pub const unsafe fn clone_unchecked(&self) -> PinBorrow<'d> {
-        PinBorrow {
-            info: self.info,
-            _marker: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub fn update_config(&mut self, config: PinConfig) {
-        let pincm_index = self.info.pincm_index();
-        let pf = pac::IOMUX.pincm(pincm_index).read().pf();
-        let mut pincm = config.0;
-        pincm.set_pf(pf);
-        pac::IOMUX.pincm(pincm_index).write_value(pincm);
-    }
-
-    /// Get the current pin function set for this pin.
-    #[inline]
-    pub fn pf(&self) -> u8 {
-        let pincm_index = self.info.pincm_index();
-        pac::IOMUX.pincm(pincm_index).read().pf()
-    }
-
-    /// Set the pin function for this pin without changing any other configuration.
-    #[inline]
-    pub fn set_pf(&mut self, pf: u8) {
-        let pincm_index = self.info.pincm_index();
-        pac::IOMUX.pincm(pincm_index).modify(|w| {
-            w.set_pf(pf);
-        });
-    }
-
-    /// Set the pin as "disconnected".
-    ///
-    /// This will disable peripheral connections, pull-up, pull-down resistors and pin inversion,
-    #[inline]
-    pub fn disconnect(&mut self) {
-        let pincm_index = self.info.pincm_index();
-        // This will write PF = 0, PC = 0 and disconnect the output.
-        //
-        // This will also disable other things like pull ups, open drain, etc.
-        pac::IOMUX.pincm(pincm_index).write_value(Pincm::default());
-    }
-}
-
-impl<'d> Drop for PinBorrow<'d> {
-    #[inline]
-    fn drop(&mut self) {
-        self.disconnect();
     }
 }
 

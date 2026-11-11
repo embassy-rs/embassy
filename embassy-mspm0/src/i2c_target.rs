@@ -11,7 +11,7 @@ use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 use mspm0_metapac::i2c::vals::CpuIntIidxStat;
 
-use crate::gpio::{PinBorrow};
+use crate::gpio::Flex;
 // Re-use I2c controller types
 use crate::i2c::{ClockSel, ConfigError, Info, Instance, InterruptHandler, SclPin, SdaPin, State};
 use crate::interrupt::InterruptExt;
@@ -93,8 +93,8 @@ pub enum ReadStatus {
 pub struct I2cTarget<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
-    scl: PinBorrow<'d>,
-    sda: PinBorrow<'d>,
+    scl: Flex<'d>,
+    sda: Flex<'d>,
     config: i2c::Config,
     target_config: i2c_target::Config,
     _phantom: PhantomData<M>,
@@ -148,8 +148,8 @@ impl<'d> I2cTarget<'d, Async> {
         let scl_config = config.scl_config();
         let sda_config = config.sda_config();
 
-        let scl = PinBorrow::with_config(scl, scl_pf, scl_config);
-        let sda = PinBorrow::with_config(sda, sda_pf, sda_config);
+        let scl = Flex::with_config(scl, scl_pf, scl_config);
+        let sda = Flex::with_config(sda, sda_pf, sda_config);
 
         let mut this = Self::new_inner(
             peri,
@@ -188,8 +188,8 @@ impl<'d> I2cTarget<'d, Blocking> {
         let scl_config = config.scl_config();
         let sda_config = config.sda_config();
 
-        let scl = PinBorrow::with_config(scl, scl_pf, scl_config);
-        let sda = PinBorrow::with_config(sda, sda_pf, sda_config);
+        let scl = Flex::with_config(scl, scl_pf, scl_config);
+        let sda = Flex::with_config(sda, sda_pf, sda_config);
 
         let mut this = Self::new_inner(
             peri,
@@ -214,8 +214,8 @@ impl<'d> I2cTarget<'d, Blocking> {
 impl<'d, M: Mode> I2cTarget<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        scl: PinBorrow<'d>,
-        sda: PinBorrow<'d>,
+        scl: Flex<'d>,
+        sda: Flex<'d>,
         config: i2c::Config,
         target_config: i2c_target::Config,
     ) -> Self {
@@ -495,7 +495,7 @@ impl<'d, M: Mode> Drop for I2cTarget<'d, M> {
         // Ensure peripheral is disabled and pins are reset
         self.info.regs.target(0).tctr().modify(|w| w.set_active(false));
 
-        self.scl.disconnect();
-        self.sda.disconnect();
+        self.scl.set_as_disconnected();
+        self.sda.set_as_disconnected();
     }
 }

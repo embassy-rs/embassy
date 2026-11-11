@@ -10,7 +10,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::PeripheralType;
 
 use crate::Peri;
-use crate::gpio::{PinBorrow, PinConfig, Pull};
+use crate::gpio::{Flex, PinConfig, Pull};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Blocking, Mode};
 use crate::pac::uart::{Uart as Regs, vals};
@@ -252,8 +252,8 @@ impl embedded_io::Error for Error {
 pub struct UartRx<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
-    rx: Option<PinBorrow<'d>>,
-    rts: Option<PinBorrow<'d>>,
+    rx: Option<Flex<'d>>,
+    rts: Option<Flex<'d>>,
     _phantom: PhantomData<M>,
 }
 
@@ -278,7 +278,7 @@ impl<'d> UartRx<'d, Blocking> {
         let rx_pf = rx.pf_num();
         let rx_config = config.rx_config();
 
-        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+        let rx = Flex::with_config(rx, rx_pf, rx_config);
         Self::new_inner(peri, Some(rx), None, config)
     }
 
@@ -294,8 +294,8 @@ impl<'d> UartRx<'d, Blocking> {
         let rx_config = config.rx_config();
         let rts_config = config.rts_config();
 
-        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
-        let rts = PinBorrow::with_config(rts, rts_pf, rts_config);
+        let rx = Flex::with_config(rx, rx_pf, rx_config);
+        let rts = Flex::with_config(rts, rts_pf, rts_config);
         Self::new_inner(peri, Some(rx), Some(rts), config)
     }
 }
@@ -350,8 +350,8 @@ impl<'d, M: Mode> Drop for UartRx<'d, M> {
 pub struct UartTx<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
-    tx: Option<PinBorrow<'d>>,
-    cts: Option<PinBorrow<'d>>,
+    tx: Option<Flex<'d>>,
+    cts: Option<Flex<'d>>,
     _phantom: PhantomData<M>,
 }
 
@@ -376,7 +376,7 @@ impl<'d> UartTx<'d, Blocking> {
         let tx_pf = tx.pf_num();
         let tx_config = config.tx_config();
 
-        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
+        let tx = Flex::with_config(tx, tx_pf, tx_config);
         Self::new_inner(peri, Some(tx), None, config)
     }
 
@@ -392,8 +392,8 @@ impl<'d> UartTx<'d, Blocking> {
         let tx_config = config.tx_config();
         let cts_config = config.cts_config();
 
-        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
-        let cts = PinBorrow::with_config(cts, cts_pf, cts_config);
+        let tx = Flex::with_config(tx, tx_pf, tx_config);
+        let cts = Flex::with_config(cts, cts_pf, cts_config);
         Self::new_inner(peri, Some(tx), Some(cts), config)
     }
 }
@@ -479,8 +479,8 @@ impl<'d> Uart<'d, Blocking> {
         let tx_config = config.tx_config();
         let rx_config = config.rx_config();
 
-        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
-        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
+        let tx = Flex::with_config(tx, tx_pf, tx_config);
+        let rx = Flex::with_config(rx, rx_pf, rx_config);
         Self::new_inner(peri, Some(rx), Some(tx), None, None, config)
     }
 
@@ -502,10 +502,10 @@ impl<'d> Uart<'d, Blocking> {
         let cts_config = config.cts_config();
         let rts_config = config.rts_config();
 
-        let tx = PinBorrow::with_config(tx, tx_pf, tx_config);
-        let rx = PinBorrow::with_config(rx, rx_pf, rx_config);
-        let cts = PinBorrow::with_config(cts, cts_pf, cts_config);
-        let rts = PinBorrow::with_config(rts, rts_pf, rts_config);
+        let tx = Flex::with_config(tx, tx_pf, tx_config);
+        let rx = Flex::with_config(rx, rx_pf, rx_config);
+        let cts = Flex::with_config(cts, cts_pf, cts_config);
+        let rts = Flex::with_config(rts, rts_pf, rts_config);
         Self::new_inner(peri, Some(rx), Some(tx), Some(rts), Some(cts), config)
     }
 }
@@ -615,8 +615,8 @@ impl State {
 impl<'d, M: Mode> UartRx<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<PinBorrow<'d>>,
-        rts: Option<PinBorrow<'d>>,
+        rx: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         let mut this = Self {
@@ -644,8 +644,8 @@ impl<'d, M: Mode> UartRx<'d, M> {
 impl<'d, M: Mode> UartTx<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        tx: Option<PinBorrow<'d>>,
-        cts: Option<PinBorrow<'d>>,
+        tx: Option<Flex<'d>>,
+        cts: Option<Flex<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         let mut this = Self {
@@ -674,10 +674,10 @@ impl<'d, M: Mode> UartTx<'d, M> {
 impl<'d, M: Mode> Uart<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<PinBorrow<'d>>,
-        tx: Option<PinBorrow<'d>>,
-        rts: Option<PinBorrow<'d>>,
-        cts: Option<PinBorrow<'d>>,
+        rx: Option<Flex<'d>>,
+        tx: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
+        cts: Option<Flex<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         let info = T::info();
