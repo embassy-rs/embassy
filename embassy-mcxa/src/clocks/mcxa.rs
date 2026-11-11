@@ -86,6 +86,18 @@ pub(crate) fn glikey_access_ready() -> bool {
 pub use sleep::deep_sleep_if_possible;
 pub use types::{Clock, ClockError, Clocks, PoweredClock, WakeGuard};
 
+#[cfg(time_driver_ostimer)]
+pub(crate) fn enable_ostimer_clock() -> Result<(), ClockError> {
+    let parts = unsafe {
+        enable_and_reset::<crate::peripherals::OSTIMER0>(&periph_helpers::OsTimerConfig {
+            power: PoweredClock::AlwaysEnabled,
+            source: periph_helpers::OstimerClockSel::Clk1M,
+        })?
+    };
+    core::mem::forget(parts.wake_guard);
+    Ok(())
+}
+
 //
 // Statics/Consts
 //
