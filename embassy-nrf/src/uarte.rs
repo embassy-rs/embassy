@@ -31,7 +31,7 @@ use crate::mode::{Async, Blocking, Mode};
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::uarte::regs::RxMaxcnt;
 use crate::pac::uarte::vals;
-use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
+use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac};
@@ -937,7 +937,7 @@ impl<'d, M: Mode> UarteRx<'d, M> {
         timer.cc(0).short_compare_stop();
 
         let mut ppi_ch1 = Ppi::new_one_to_two(
-            ppi_ch1.into(),
+            ppi_ch1,
             Event::from_reg(r.events_rxdrdy()),
             timer.task_clear(),
             timer.task_start(),
@@ -945,7 +945,7 @@ impl<'d, M: Mode> UarteRx<'d, M> {
         ppi_ch1.enable();
 
         let mut ppi_ch2 = Ppi::new_one_to_one(
-            ppi_ch2.into(),
+            ppi_ch2,
             timer.cc(0).event_compare(),
             Task::from_reg(r.tasks_dma().rx().stop()),
         );
@@ -1087,8 +1087,8 @@ impl<'d, M: Mode> Drop for UarteRx<'d, M> {
 pub struct UarteRxWithIdle<'d, M: Mode> {
     rx: UarteRx<'d, M>,
     timer: Timer<'d>,
-    ppi_ch1: Ppi<'d, AnyConfigurableChannel, 1, 2>,
-    _ppi_ch2: Ppi<'d, AnyConfigurableChannel, 1, 1>,
+    ppi_ch1: Ppi<'d, 1, 2>,
+    _ppi_ch2: Ppi<'d, 1, 1>,
     r: pac::uarte::Uarte,
     state: &'static State,
 }
