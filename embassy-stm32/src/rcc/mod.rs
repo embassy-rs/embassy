@@ -5,9 +5,9 @@
 
 use core::mem::MaybeUninit;
 
-#[cfg(not(stm32c5))]
+#[cfg(not(any(stm32c5, stm32g5)))]
 mod bd;
-#[cfg(not(stm32c5))]
+#[cfg(not(any(stm32c5, stm32g5)))]
 pub use bd::*;
 
 #[cfg(any(stm32f0, stm32f1, stm32f3))]
@@ -18,10 +18,10 @@ pub const LSI_FREQ: crate::time::Hertz = crate::time::Hertz(32_000);
 mod reset;
 pub use reset::*;
 
-#[cfg(any(mco, mco1, mco2))]
+#[cfg(all(not(stm32g5), any(mco, mco1, mco2)))]
 mod mco;
 use critical_section::CriticalSection;
-#[cfg(any(mco, mco1, mco2))]
+#[cfg(all(not(stm32g5), any(mco, mco1, mco2)))]
 pub use mco::*;
 
 #[cfg(dsihost)]
@@ -38,6 +38,7 @@ pub use hsi48::*;
 #[cfg_attr(stm32c5, path = "c5.rs")]
 #[cfg_attr(stm32g0, path = "g0.rs")]
 #[cfg_attr(stm32g4, path = "g4.rs")]
+#[cfg_attr(stm32g5, path = "g5.rs")]
 #[cfg_attr(any(stm32h5, stm32h7, stm32h7rs), path = "h.rs")]
 #[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), path = "l.rs")]
 #[cfg_attr(stm32u3, path = "u3.rs")]

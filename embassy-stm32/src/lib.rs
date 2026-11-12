@@ -92,6 +92,7 @@ pub mod gpio;
 pub mod rcc;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
+#[cfg(not(stm32g5))]
 pub mod timer;
 
 #[cfg(any(adf, mdf))]
@@ -200,7 +201,7 @@ pub mod dlyb;
 pub mod dma2d;
 #[cfg(dsihost)]
 pub mod dsihost;
-#[cfg(dts)]
+#[cfg(all(dts, not(stm32g5)))]
 pub mod dts;
 #[cfg(eth)]
 pub mod eth;
@@ -220,7 +221,7 @@ pub mod gfxtim;
 pub mod gpu2d;
 #[cfg(all(hash, not(stm32c5)))]
 pub mod hash;
-#[cfg(hrtim)]
+#[cfg(all(hrtim, not(stm32g5)))]
 pub mod hrtim;
 #[cfg(hsem)]
 pub mod hsem;
@@ -897,7 +898,7 @@ fn init_hw(config: Config) -> Peripherals {
         #[cfg(any(stm32h7rs))]
         // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
         rcc::enable_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5)))]
+        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5, stm32g5)))]
         rcc::enable_and_reset_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5, stm32g5)))]
         rcc::enable_and_reset_with_cs_no_refcount::<peripherals::PWR>(cs);
