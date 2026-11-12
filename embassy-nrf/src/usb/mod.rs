@@ -184,6 +184,40 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
     }
 }
 
+/// Set or clear the STALL handshake of an endpoint.
+///
+/// Shared by `Bus::endpoint_set_stalled` and `Endpoint::set_stall`, so that a class
+/// driver can halt its own endpoint without access to the bus.
+fn set_endpoint_stalled(regs: pac::usbd::Usbd, ep_addr: EndpointAddress, stalled: bool) {
+    if ep_addr.index() == 0 {
+        if stalled {
+            regs.tasks_ep0stall().write_value(1);
+        }
+    } else if ep_addr.index() != ISO_EP {
+        // ISO endpoints cannot stall; EPSTALL only addresses endpoints 0..=7.
+        regs.epstall().write(|w| {
+            w.set_ep(ep_addr.index() as u8 & 0b111);
+            w.set_io(match ep_addr.direction() {
+                Direction::In => vals::Io::In,
+                Direction::Out => vals::Io::Out,
+            });
+            w.set_stall(stalled);
+        });
+    }
+}
+
+/// Get whether the STALL handshake is set on an endpoint.
+fn is_endpoint_stalled(regs: pac::usbd::Usbd, ep_addr: EndpointAddress) -> bool {
+    let i = ep_addr.index();
+    if i == ISO_EP {
+        return false;
+    }
+    match ep_addr.direction() {
+        Direction::Out => regs.halted().epout(i).read().getstatus() == vals::Getstatus::Halted,
+        Direction::In => regs.halted().epin(i).read().getstatus() == vals::Getstatus::Halted,
+    }
+}
+
 /// USB bus.
 pub struct Bus<'d, V: VbusDetect> {
     regs: pac::usbd::Usbd,
@@ -307,34 +341,11 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        let regs = self.regs;
-        if ep_addr.index() == 0 {
-            if stalled {
-                regs.tasks_ep0stall().write_value(1);
-            }
-        } else if ep_addr.index() != ISO_EP {
-            // ISO endpoints cannot stall; EPSTALL only addresses endpoints 0..=7.
-            regs.epstall().write(|w| {
-                w.set_ep(ep_addr.index() as u8 & 0b111);
-                w.set_io(match ep_addr.direction() {
-                    Direction::In => vals::Io::In,
-                    Direction::Out => vals::Io::Out,
-                });
-                w.set_stall(stalled);
-            });
-        }
+        set_endpoint_stalled(self.regs, ep_addr, stalled);
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        let regs = self.regs;
-        let i = ep_addr.index();
-        if i == ISO_EP {
-            return false;
-        }
-        match ep_addr.direction() {
-            Direction::Out => regs.halted().epout(i).read().getstatus() == vals::Getstatus::Halted,
-            Direction::In => regs.halted().epin(i).read().getstatus() == vals::Getstatus::Halted,
-        }
+        is_endpoint_stalled(self.regs, ep_addr)
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
@@ -495,6 +506,15 @@ impl<'d, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, Dir> {
 
     async fn wait_enabled(&mut self) {
         self.wait_enabled_state(true).await
+    }
+
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+        set_endpoint_stalled(self.regs, self.info.addr, stalled);
+        Ok(())
+    }
+
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled(self.regs, self.info.addr))
     }
 }
 

@@ -630,6 +630,14 @@ mod tests {
         }
 
         async fn wait_enabled(&mut self) {}
+
+        fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
+            Err(Unsupported)
+        }
+
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
+            Err(Unsupported)
+        }
     }
 
     impl EndpointIn for Notifications<'_> {
@@ -648,6 +656,14 @@ mod tests {
         }
 
         async fn wait_enabled(&mut self) {}
+
+        fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
+            Err(Unsupported)
+        }
+
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
+            Err(Unsupported)
+        }
     }
 
     impl EndpointOut for Enabled {
@@ -709,6 +725,14 @@ mod tests {
         async fn wait_enabled(&mut self) {
             unreachable!()
         }
+
+        fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
+            Err(Unsupported)
+        }
+
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
+            Err(Unsupported)
+        }
     }
 
     impl<const N: usize> EndpointOut for Transfers<N> {
@@ -753,6 +777,14 @@ mod tests {
         }
 
         async fn wait_enabled(&mut self) {
+            unreachable!()
+        }
+
+        fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
+            unreachable!()
+        }
+
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
             unreachable!()
         }
     }

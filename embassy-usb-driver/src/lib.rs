@@ -298,6 +298,28 @@ pub trait Endpoint {
 
     /// Wait for the endpoint to be enabled.
     async fn wait_enabled(&mut self);
+
+    /// Set or clear the STALL handshake on this endpoint.
+    ///
+    /// While stalled, bulk and interrupt endpoints answer tokens with STALL.
+    /// Control and isochronous endpoints ignore this. Clearing the stall resets
+    /// the data toggle to DATA0, whether or not the endpoint was stalled.
+    /// Enabling the endpoint clears a stall; stalling before the endpoint is
+    /// enabled may not take effect.
+    ///
+    /// # Errors
+    ///
+    /// * [`Unsupported`] - This driver cannot halt endpoints.
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported>;
+
+    /// Get whether the STALL handshake is set on this endpoint.
+    ///
+    /// Returns `Ok(false)` for endpoints that do not have the halt feature.
+    ///
+    /// # Errors
+    ///
+    /// * [`Unsupported`] - This driver cannot halt endpoints.
+    fn is_stalled(&self) -> Result<bool, Unsupported>;
 }
 
 /// OUT Endpoint trait.

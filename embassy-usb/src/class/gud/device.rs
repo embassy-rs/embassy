@@ -1235,6 +1235,14 @@ mod tests {
         async fn wait_enabled(&mut self) {
             unreachable!()
         }
+
+        fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            unreachable!()
+        }
+
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
+            unreachable!()
+        }
     }
 
     impl EndpointOut for ScriptedEndpoint<'_> {
@@ -1276,6 +1284,14 @@ mod tests {
         }
 
         async fn wait_enabled(&mut self) {
+            unreachable!()
+        }
+
+        fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            unreachable!()
+        }
+
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
             unreachable!()
         }
     }

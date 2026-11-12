@@ -330,6 +330,74 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     }
 }
 
+/// Set or clear the STALL handshake of an endpoint.
+///
+/// `max_packet_size` is the max packet size of the endpoint, used to re-arm the buffer
+/// of an OUT endpoint when the stall is cleared. It is ignored for IN endpoints.
+///
+/// Shared by `Bus::endpoint_set_stalled` and `Endpoint::set_stall`, so that a class
+/// driver can halt its own endpoint without access to the bus.
+fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, max_packet_size: u16, stalled: bool) {
+    let n = ep_addr.index();
+
+    if n == 0 {
+        T::regs().ep_stall_arm().modify(|w| {
+            if ep_addr.is_in() {
+                w.set_ep0_in(stalled);
+            } else {
+                w.set_ep0_out(stalled);
+            }
+        });
+    }
+
+    let ctrl = if ep_addr.is_in() {
+        T::dpram().ep_in_buffer_control(n)
+    } else {
+        T::dpram().ep_out_buffer_control(n)
+    };
+
+    match (stalled, ep_addr.direction()) {
+        // write, not modify: clears AVAILABLE so an in-flight packet can't complete instead of stalling.
+        (true, _) => ctrl.write(|w| w.set_stall(true)),
+
+        // the control pipe resets EP0's toggle on every SETUP, so only drop the stall.
+        (false, _) if n == 0 => ctrl.modify(|w| w.set_stall(false)),
+
+        // clearing a halt resets the toggle to DATA0 (USB 2.0 §9.4.5), but PID is flipped before use.
+        (false, Direction::In) => ctrl.write(|w| w.set_pid(0, true)),
+
+        // same, plus re-arm the buffer that stalling un-armed.
+        (false, Direction::Out) => {
+            ctrl.write(|w| {
+                w.set_pid(0, false);
+                w.set_length(0, max_packet_size);
+            });
+            cortex_m::asm::delay(12);
+            ctrl.write(|w| {
+                w.set_pid(0, false);
+                w.set_length(0, max_packet_size);
+                w.set_available(0, true);
+            });
+        }
+    }
+
+    let wakers = if ep_addr.is_in() { &EP_IN_WAKERS } else { &EP_OUT_WAKERS };
+    wakers[n].wake();
+}
+
+/// Get whether the STALL handshake is set on an endpoint.
+fn is_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress) -> bool {
+    let n = ep_addr.index();
+
+    let ctrl = if ep_addr.is_in() {
+        T::dpram().ep_in_buffer_control(n)
+    } else {
+        T::dpram().ep_out_buffer_control(n)
+    };
+
+    ctrl.read().stall()
+}
+
 /// Type representing the RP USB bus.
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
@@ -399,63 +467,11 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        let n = ep_addr.index();
-
-        if n == 0 {
-            T::regs().ep_stall_arm().modify(|w| {
-                if ep_addr.is_in() {
-                    w.set_ep0_in(stalled);
-                } else {
-                    w.set_ep0_out(stalled);
-                }
-            });
-        }
-
-        let ctrl = if ep_addr.is_in() {
-            T::dpram().ep_in_buffer_control(n)
-        } else {
-            T::dpram().ep_out_buffer_control(n)
-        };
-
-        match (stalled, ep_addr.direction()) {
-            // write, not modify: clears AVAILABLE so an in-flight packet can't complete instead of stalling.
-            (true, _) => ctrl.write(|w| w.set_stall(true)),
-
-            // the control pipe resets EP0's toggle on every SETUP, so only drop the stall.
-            (false, _) if n == 0 => ctrl.modify(|w| w.set_stall(false)),
-
-            // clearing a halt resets the toggle to DATA0 (USB 2.0 §9.4.5), but PID is flipped before use.
-            (false, Direction::In) => ctrl.write(|w| w.set_pid(0, true)),
-
-            // same, plus re-arm the buffer that stalling un-armed.
-            (false, Direction::Out) => {
-                ctrl.write(|w| {
-                    w.set_pid(0, false);
-                    w.set_length(0, self.ep_out[n].max_packet_size);
-                });
-                cortex_m::asm::delay(12);
-                ctrl.write(|w| {
-                    w.set_pid(0, false);
-                    w.set_length(0, self.ep_out[n].max_packet_size);
-                    w.set_available(0, true);
-                });
-            }
-        }
-
-        let wakers = if ep_addr.is_in() { &EP_IN_WAKERS } else { &EP_OUT_WAKERS };
-        wakers[n].wake();
+        set_endpoint_stalled::<T>(ep_addr, self.ep_out[ep_addr.index()].max_packet_size, stalled);
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        let n = ep_addr.index();
-
-        let ctrl = if ep_addr.is_in() {
-            T::dpram().ep_in_buffer_control(n)
-        } else {
-            T::dpram().ep_out_buffer_control(n)
-        };
-
-        ctrl.read().stall()
+        is_endpoint_stalled::<T>(ep_addr)
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
@@ -537,6 +553,15 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         .await;
         trace!("wait_enabled IN OK");
     }
+
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+        set_endpoint_stalled::<T>(self.info.addr, self.info.max_packet_size, stalled);
+        Ok(())
+    }
+
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled::<T>(self.info.addr))
+    }
 }
 
 impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
@@ -554,6 +579,15 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         })
         .await;
         trace!("wait_enabled OUT OK");
+    }
+
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+        set_endpoint_stalled::<T>(self.info.addr, self.info.max_packet_size, stalled);
+        Ok(())
+    }
+
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled::<T>(self.info.addr))
     }
 }
 

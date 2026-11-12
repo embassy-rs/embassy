@@ -296,6 +296,113 @@ fn reset_bulk_out<T: Instance>(index: usize, stat: Stat, queue: &mut RxQueue) {
     *queue = RxQueue::new();
 }
 
+// Set or clear the STALL handshake of an endpoint. Shared by `Bus::endpoint_set_stalled`
+// and `Endpoint::set_stall`, so a class driver can halt its own endpoint.
+fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, double_buffered: bool, stalled: bool) {
+    #[cfg(any(usb_v1, usb_v3, usb_v4))]
+    {
+        let index = ep_addr.index();
+        if double_buffered
+            && critical_section::with(|cs| {
+                let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
+                match (ep_addr.direction(), states[index].as_mut()) {
+                    (Direction::In, Some(DoubleState::In(queue))) => {
+                        if T::regs().epr(index).read().stat_tx() != Stat::Disabled {
+                            reset_bulk_in::<T>(index, if stalled { Stat::Stall } else { Stat::Nak }, queue);
+                        }
+                        EP_IN_WAKERS[index].wake();
+                    }
+                    (Direction::Out, Some(DoubleState::Out(state))) => {
+                        if T::regs().epr(index).read().stat_rx() != Stat::Disabled {
+                            reset_bulk_out::<T>(index, if stalled { Stat::Stall } else { Stat::Valid }, state);
+                        }
+                        EP_OUT_WAKERS[index].wake();
+                    }
+                    _ => return false,
+                }
+                true
+            })
+        {
+            return;
+        }
+    }
+    #[cfg(not(any(usb_v1, usb_v3, usb_v4)))]
+    let _ = double_buffered;
+    // This can race, so do a retry loop.
+    //
+    // Only bulk and interrupt endpoints have a halt feature. EP0 does not implement it
+    // (resetting DTOG_TX would send its status stage as DATA0), and STALL or NAK on an
+    // isochronous endpoint is undefined.
+    //
+    // Clearing the halt feature always resets the data toggle to DATA0, whether or
+    // not the endpoint was halted (USB 2.0 section 9.4.5). Writing 1 to DTOG toggles
+    // it, so writing its current value clears it.
+    //
+    // If disabled, stall does nothing. This is checked once, before the loop: when a
+    // transfer completes between a read and a write below, the STAT toggle can land on
+    // DISABLED, and the next iteration must still move it to the wanted state.
+    let reg = T::regs().epr(ep_addr.index() as _);
+    let r = reg.read();
+    let stat = match ep_addr.direction() {
+        Direction::In => r.stat_tx(),
+        Direction::Out => r.stat_rx(),
+    };
+    if !matches!(r.ep_type(), EpType::Bulk | EpType::Interrupt) || stat == Stat::Disabled {
+        return;
+    }
+    match ep_addr.direction() {
+        Direction::In => {
+            loop {
+                let r = reg.read();
+                let stat = r.stat_tx();
+                let want_stat = match (stalled, stat) {
+                    (true, _) => Stat::Stall,
+                    (false, Stat::Stall) => Stat::Nak,
+                    (false, stat) => stat,
+                };
+                let reset_dtog = !stalled && r.dtog_tx();
+                if stat == want_stat && !reset_dtog {
+                    break;
+                }
+                let mut w = invariant(r);
+                w.set_stat_tx(Stat::from_bits(stat.to_bits() ^ want_stat.to_bits()));
+                w.set_dtog_tx(reset_dtog);
+                reg.write_value(w);
+            }
+            EP_IN_WAKERS[ep_addr.index()].wake();
+        }
+        Direction::Out => {
+            loop {
+                let r = reg.read();
+                let stat = r.stat_rx();
+                let want_stat = match (stalled, stat) {
+                    (true, _) => Stat::Stall,
+                    (false, Stat::Stall) => Stat::Valid,
+                    (false, stat) => stat,
+                };
+                let reset_dtog = !stalled && r.dtog_rx();
+                if stat == want_stat && !reset_dtog {
+                    break;
+                }
+                let mut w = invariant(r);
+                w.set_stat_rx(Stat::from_bits(stat.to_bits() ^ want_stat.to_bits()));
+                w.set_dtog_rx(reset_dtog);
+                reg.write_value(w);
+            }
+            EP_OUT_WAKERS[ep_addr.index()].wake();
+        }
+    }
+}
+
+fn is_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress) -> bool {
+    let regs = T::regs();
+    let epr = regs.epr(ep_addr.index() as _).read();
+    match ep_addr.direction() {
+        Direction::In => epr.stat_tx() == Stat::Stall,
+        Direction::Out => epr.stat_rx() == Stat::Stall,
+    }
+}
+
 fn align_len_up(len: u16) -> u16 {
     ((len as usize + USBRAM_ALIGN - 1) / USBRAM_ALIGN * USBRAM_ALIGN) as u16
 }
@@ -1053,104 +1160,14 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
         #[cfg(any(usb_v1, usb_v3, usb_v4))]
-        let index = ep_addr.index();
-        #[cfg(any(usb_v1, usb_v3, usb_v4))]
-        if self.double_buffered & (1 << index) != 0
-            && critical_section::with(|cs| {
-                let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
-                match (ep_addr.direction(), states[index].as_mut()) {
-                    (Direction::In, Some(DoubleState::In(queue))) => {
-                        if T::regs().epr(index).read().stat_tx() != Stat::Disabled {
-                            reset_bulk_in::<T>(index, if stalled { Stat::Stall } else { Stat::Nak }, queue);
-                        }
-                        EP_IN_WAKERS[index].wake();
-                    }
-                    (Direction::Out, Some(DoubleState::Out(state))) => {
-                        if T::regs().epr(index).read().stat_rx() != Stat::Disabled {
-                            reset_bulk_out::<T>(index, if stalled { Stat::Stall } else { Stat::Valid }, state);
-                        }
-                        EP_OUT_WAKERS[index].wake();
-                    }
-                    _ => return false,
-                }
-                true
-            })
-        {
-            return;
-        }
-        // This can race, so do a retry loop.
-        //
-        // Only bulk and interrupt endpoints have a halt feature. EP0 does not implement it
-        // (resetting DTOG_TX would send its status stage as DATA0), and STALL or NAK on an
-        // isochronous endpoint is undefined.
-        //
-        // Clearing the halt feature always resets the data toggle to DATA0, whether or
-        // not the endpoint was halted (USB 2.0 section 9.4.5). Writing 1 to DTOG toggles
-        // it, so writing its current value clears it.
-        //
-        // If disabled, stall does nothing. This is checked once, before the loop: when a
-        // transfer completes between a read and a write below, the STAT toggle can land on
-        // DISABLED, and the next iteration must still move it to the wanted state.
-        let reg = T::regs().epr(ep_addr.index() as _);
-        let r = reg.read();
-        let stat = match ep_addr.direction() {
-            Direction::In => r.stat_tx(),
-            Direction::Out => r.stat_rx(),
-        };
-        if !matches!(r.ep_type(), EpType::Bulk | EpType::Interrupt) || stat == Stat::Disabled {
-            return;
-        }
-        match ep_addr.direction() {
-            Direction::In => {
-                loop {
-                    let r = reg.read();
-                    let stat = r.stat_tx();
-                    let want_stat = match (stalled, stat) {
-                        (true, _) => Stat::Stall,
-                        (false, Stat::Stall) => Stat::Nak,
-                        (false, stat) => stat,
-                    };
-                    let reset_dtog = !stalled && r.dtog_tx();
-                    if stat == want_stat && !reset_dtog {
-                        break;
-                    }
-                    let mut w = invariant(r);
-                    w.set_stat_tx(Stat::from_bits(stat.to_bits() ^ want_stat.to_bits()));
-                    w.set_dtog_tx(reset_dtog);
-                    reg.write_value(w);
-                }
-                EP_IN_WAKERS[ep_addr.index()].wake();
-            }
-            Direction::Out => {
-                loop {
-                    let r = reg.read();
-                    let stat = r.stat_rx();
-                    let want_stat = match (stalled, stat) {
-                        (true, _) => Stat::Stall,
-                        (false, Stat::Stall) => Stat::Valid,
-                        (false, stat) => stat,
-                    };
-                    let reset_dtog = !stalled && r.dtog_rx();
-                    if stat == want_stat && !reset_dtog {
-                        break;
-                    }
-                    let mut w = invariant(r);
-                    w.set_stat_rx(Stat::from_bits(stat.to_bits() ^ want_stat.to_bits()));
-                    w.set_dtog_rx(reset_dtog);
-                    reg.write_value(w);
-                }
-                EP_OUT_WAKERS[ep_addr.index()].wake();
-            }
-        }
+        let double_buffered = self.double_buffered & (1 << ep_addr.index()) != 0;
+        #[cfg(not(any(usb_v1, usb_v3, usb_v4)))]
+        let double_buffered = false;
+        set_endpoint_stalled::<T>(ep_addr, double_buffered, stalled);
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        let regs = T::regs();
-        let epr = regs.epr(ep_addr.index() as _).read();
-        match ep_addr.direction() {
-            Direction::In => epr.stat_tx() == Stat::Stall,
-            Direction::Out => epr.stat_rx() == Stat::Stall,
-        }
+        is_endpoint_stalled::<T>(ep_addr)
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
@@ -1305,6 +1322,17 @@ pub struct Endpoint<'d, T: Instance, D> {
     double_buffered: bool,
 }
 
+impl<'d, T: Instance, D> Endpoint<'d, T, D> {
+    /// Whether this is a double-buffered bulk endpoint. Only some USB peripherals
+    /// have the double-buffering hardware, so it is always `false` elsewhere.
+    fn double_buffered_flag(&self) -> bool {
+        #[cfg(any(usb_v1, usb_v3, usb_v4))]
+        return self.double_buffered;
+        #[cfg(not(any(usb_v1, usb_v3, usb_v4)))]
+        return false;
+    }
+}
+
 #[cfg(any(usb_v1, usb_v3, usb_v4))]
 impl<'d, T: Instance> Endpoint<'d, T, In> {
     async fn write_double_buffered(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
@@ -1420,6 +1448,15 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         .await;
         trace!("wait_enabled IN OK");
     }
+
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+        set_endpoint_stalled::<T>(self.info.addr, self.double_buffered_flag(), stalled);
+        Ok(())
+    }
+
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled::<T>(self.info.addr))
+    }
 }
 
 impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
@@ -1441,6 +1478,15 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         })
         .await;
         trace!("wait_enabled OUT OK");
+    }
+
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+        set_endpoint_stalled::<T>(self.info.addr, self.double_buffered_flag(), stalled);
+        Ok(())
+    }
+
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled::<T>(self.info.addr))
     }
 }
 

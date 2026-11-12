@@ -425,12 +425,7 @@ where
     M: RawMutex + Copy,
 {
     pub(crate) fn ep_alloc_get(&self, dir: Direction, index: usize) -> Option<&EndpointData> {
-        unsafe {
-            match dir {
-                Direction::In => (*self.ep_states[index].in_alloc.get()).as_ref(),
-                Direction::Out => (*self.ep_states[index].out_alloc.get()).as_ref(),
-            }
-        }
+        self.ep_states[index].alloc(dir)
     }
 
     pub(crate) fn ep_fifo_size_in(&self) -> u16 {
@@ -934,6 +929,82 @@ fn abort_out_endpoint(regs: Otg, index: usize) {
 /// endpoint, the same register bit selects the parity of the frame.
 fn has_data_toggle(ep_type: EndpointType) -> bool {
     matches!(ep_type, EndpointType::Bulk | EndpointType::Interrupt)
+}
+
+impl EpState {
+    /// The allocation of this endpoint in the given direction, if any.
+    fn alloc(&self, dir: Direction) -> Option<&EndpointData> {
+        unsafe {
+            match dir {
+                Direction::In => (*self.in_alloc.get()).as_ref(),
+                Direction::Out => (*self.out_alloc.get()).as_ref(),
+            }
+        }
+    }
+}
+
+/// Set or clear the STALL handshake of an endpoint.
+///
+/// Shared by [`Bus::endpoint_set_stalled`] and [`Endpoint::set_stall`], so that a class
+/// driver can halt its own endpoint without access to the bus.
+fn set_endpoint_stalled<M: RawMutex + Copy>(
+    regs: Otg,
+    mutex: M,
+    ep_state: &EpState,
+    index: usize,
+    dir: Direction,
+    stalled: bool,
+) {
+    // The software must set the data toggle to DATA0 when it clears a halt (USB 2.0
+    // §9.4.5). If it does not, the host and the device do not agree. The receiver then
+    // ignores each subsequent packet, because the packet looks like a re-transmission.
+    let reset_toggle = !stalled && ep_state.alloc(dir).is_some_and(|ep| has_data_toggle(ep.ep_type));
+    let in_tx_fifo = ep_state.alloc(Direction::In).map(|ep| ep.tx_fifo);
+
+    match dir {
+        Direction::Out => {
+            mutex.lock(|| {
+                regs.doepctl(index).modify(|w| {
+                    w.set_stall(stalled);
+                    if reset_toggle {
+                        w.set_sd0pid_sevnfrm(true);
+                    }
+                });
+            });
+
+            ep_state.out_waker.wake();
+        }
+        Direction::In => {
+            mutex.lock(|| {
+                // A stall of an endpoint with a transfer in progress needs the full stop
+                // sequence. If the software only sets STALL, EPENA stays set. The endpoint
+                // then does not operate again.
+                if stalled && regs.diepctl(index).read().epena() {
+                    abort_in_endpoint(regs, index);
+                    if let Some(tx_fifo) = in_tx_fifo {
+                        flush_tx_fifo(regs, tx_fifo);
+                    }
+                }
+
+                regs.diepctl(index).modify(|w| {
+                    w.set_stall(stalled);
+                    if reset_toggle {
+                        w.set_sd0pid_sevnfrm(true);
+                    }
+                });
+            });
+
+            ep_state.in_waker.wake();
+        }
+    }
+}
+
+/// Get whether the STALL handshake is set on an endpoint.
+fn is_endpoint_stalled(regs: Otg, index: usize, dir: Direction) -> bool {
+    match dir {
+        Direction::Out => regs.doepctl(index).read().stall(),
+        Direction::In => regs.diepctl(index).read().stall(),
+    }
 }
 
 /// USB bus.
@@ -1491,53 +1562,14 @@ where
             ep_addr.index()
         );
 
-        let index = ep_addr.index();
-        let dir = ep_addr.direction();
-        // The software must set the data toggle to DATA0 when it clears a halt (USB 2.0
-        // §9.4.5). If it does not, the host and the device do not agree. The receiver then
-        // ignores each subsequent packet, because the packet looks like a re-transmission.
-        let reset_toggle = !stalled
-            && st
-                .ep_alloc_get(dir, index)
-                .is_some_and(|ep| has_data_toggle(ep.ep_type));
-        let in_tx_fifo = st.ep_alloc_get(Direction::In, index).map(|ep| ep.tx_fifo);
-
-        match dir {
-            Direction::Out => {
-                st.mutex.lock(|| {
-                    regs.doepctl(index).modify(|w| {
-                        w.set_stall(stalled);
-                        if reset_toggle {
-                            w.set_sd0pid_sevnfrm(true);
-                        }
-                    });
-                });
-
-                st.ep_states[index].out_waker.wake();
-            }
-            Direction::In => {
-                st.mutex.lock(|| {
-                    // A stall of an endpoint with a transfer in progress needs the full stop
-                    // sequence. If the software only sets STALL, EPENA stays set. The endpoint
-                    // then does not operate again.
-                    if stalled && regs.diepctl(index).read().epena() {
-                        abort_in_endpoint(regs, index);
-                        if let Some(tx_fifo) = in_tx_fifo {
-                            flush_tx_fifo(regs, tx_fifo);
-                        }
-                    }
-
-                    regs.diepctl(index).modify(|w| {
-                        w.set_stall(stalled);
-                        if reset_toggle {
-                            w.set_sd0pid_sevnfrm(true);
-                        }
-                    });
-                });
-
-                st.ep_states[index].in_waker.wake();
-            }
-        }
+        set_endpoint_stalled(
+            regs,
+            st.mutex,
+            &st.ep_states[ep_addr.index()],
+            ep_addr.index(),
+            ep_addr.direction(),
+            stalled,
+        );
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
@@ -1547,11 +1579,7 @@ where
             ep_addr.index()
         );
 
-        let regs = self.instance.regs;
-        match ep_addr.direction() {
-            Direction::Out => regs.doepctl(ep_addr.index()).read().stall(),
-            Direction::In => regs.diepctl(ep_addr.index()).read().stall(),
-        }
+        is_endpoint_stalled(self.instance.regs, ep_addr.index(), ep_addr.direction())
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
@@ -1744,6 +1772,22 @@ where
         })
         .await
     }
+
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+        set_endpoint_stalled(
+            self.regs,
+            self.mutex,
+            self.state,
+            self.info.addr.index(),
+            Direction::In,
+            stalled,
+        );
+        Ok(())
+    }
+
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::In))
+    }
 }
 
 impl<'d, M> embassy_usb_driver::Endpoint for Endpoint<'d, Out, M>
@@ -1765,6 +1809,22 @@ where
             }
         })
         .await
+    }
+
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+        set_endpoint_stalled(
+            self.regs,
+            self.mutex,
+            self.state,
+            self.info.addr.index(),
+            Direction::Out,
+            stalled,
+        );
+        Ok(())
+    }
+
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::Out))
     }
 }
 
