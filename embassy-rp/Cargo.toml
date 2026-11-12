@@ -22,6 +22,7 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["chrono", "defmt", "rp235xa", "time-driver"]},
     {target = "thumbv8m.main-none-eabihf", features = ["log", "rp235xa", "time-driver"]},
     {target = "thumbv8m.main-none-eabihf", features = ["binary-info", "rp235xa", "time-driver"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["dcp-intrinsics", "rp235xa", "time-driver"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "rp235xa", "time-driver", "embassy-crypto-rng"]},
 ]
 
@@ -82,6 +83,11 @@ intrinsics = []
 ## Enable intrinsics based on extra ROM functions added in the v2 version of the rp2040 Mask ROM.
 ## This version added a lot more floating point operations - many f64 functions and a few f32 functions were added in ROM v2.
 rom-v2-intrinsics = []
+## Enable implementations of the `f64` compiler intrinsics (arithmetic, comparisons and `i32`/`u32`/`f32`
+## conversions) using the RP235x double-precision coprocessor (DCP). These are several times faster than the
+## software implementations in compiler-builtins. Like the Pico SDK's, they flush denormals to zero.
+## Has no effect on RP2040.
+dcp-intrinsics = []
 
 ## Allow using QSPI pins as GPIO pins. This is mostly not what you want (because your flash is attached via QSPI pins)
 ## and adds code and memory overhead when this feature is enabled.
