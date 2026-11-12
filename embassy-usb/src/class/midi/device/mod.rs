@@ -837,7 +837,7 @@ mod tests {
     #[test]
     fn write_ump_cuts_between_packets_and_ends_a_full_transfer_with_a_zlp() {
         use embassy_futures::block_on;
-        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointIn, EndpointInfo, EndpointType};
+        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointIn, EndpointInfo, EndpointType, Unsupported};
 
         struct Capture {
             info: EndpointInfo,
@@ -848,6 +848,12 @@ mod tests {
                 &self.info
             }
             async fn wait_enabled(&mut self) {}
+            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+                Err(Unsupported)
+            }
+            fn is_stalled(&self) -> Result<bool, Unsupported> {
+                Err(Unsupported)
+            }
         }
         impl EndpointIn for Capture {
             async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
@@ -895,7 +901,7 @@ mod tests {
     #[test]
     fn wait_connection_ends_when_only_one_of_the_endpoints_is_enabled() {
         use embassy_futures::block_on;
-        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointInfo, EndpointType};
+        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointInfo, EndpointType, Unsupported};
 
         // `Never` is the OUT endpoint after switching to an IN-only setting.
         struct Never(EndpointInfo);
@@ -907,12 +913,24 @@ mod tests {
             async fn wait_enabled(&mut self) {
                 core::future::pending::<()>().await
             }
+            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+                Err(Unsupported)
+            }
+            fn is_stalled(&self) -> Result<bool, Unsupported> {
+                Err(Unsupported)
+            }
         }
         impl Endpoint for Enabled {
             fn info(&self) -> &EndpointInfo {
                 &self.0
             }
             async fn wait_enabled(&mut self) {}
+            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+                Err(Unsupported)
+            }
+            fn is_stalled(&self) -> Result<bool, Unsupported> {
+                Err(Unsupported)
+            }
         }
         let info = EndpointInfo {
             addr: EndpointAddress::from(0x01),
