@@ -159,7 +159,6 @@ impl Bus for TestBus {
         let slot = Self::slot(addr);
         assert!(self.endpoints[slot].is_some());
         self.enabled[slot] = enabled;
-        self.stalled[slot].set(false);
     }
 
     fn endpoint_set_stalled(&mut self, addr: EndpointAddress, stalled: bool) {
@@ -211,7 +210,12 @@ impl ControlPipe for TestControlPipe {
 
     async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError> {
         assert!(first && last);
-        self.response = Some(Response::Status(u16::from_le_bytes(data.try_into().unwrap())));
+        let status = match data {
+            [b] => u16::from(*b),
+            [lo, hi] => u16::from_le_bytes([*lo, *hi]),
+            _ => panic!("control IN test response must be 1 or 2 bytes, got {}", data.len()),
+        };
+        self.response = Some(Response::Status(status));
         Ok(())
     }
 
@@ -332,7 +336,8 @@ fn test_handle_control_endpoint_out_of_range() {
         // Endpoint 9 is outside the controller's register array.
         block_on(usb.handle_control([0x82, 0, 0, 0, 0x89, 0, 2, 0]));
         assert_eq!(usb.control.response.take(), Some(Response::Rejected));
-        assert_eq!(usb.inner.bus.halt_calls, 0);
+        // SET_CONFIGURATION clears halt on the two bulk endpoints of alternate setting 0.
+        assert_eq!(usb.inner.bus.halt_calls, 2);
     });
 }
 
@@ -363,7 +368,8 @@ fn test_handle_control_endpoint_halt() {
             assert_eq!(endpoint_request(usb, Request::CLEAR_FEATURE, index), Response::Accepted);
             assert_eq!(endpoint_request(usb, Request::GET_STATUS, index), Response::Status(0));
         }
-        assert_eq!(usb.inner.bus.halt_calls, 10);
+        // 2 clears from SET_CONFIGURATION, then 5 halt operations on each of the 2 bulk endpoints.
+        assert_eq!(usb.inner.bus.halt_calls, 12);
     });
 }
 
@@ -448,7 +454,9 @@ fn test_handle_control_endpoint_zero() {
                 assert_rejected(usb, Request::CLEAR_FEATURE, index);
             }
         }
-        assert_eq!(usb.inner.bus.halt_calls, 0);
+        // SET_CONFIGURATION(0) disables endpoints. SET_CONFIGURATION(1) clears the two bulk endpoints.
+        // Endpoint 0 does not take part.
+        assert_eq!(usb.inner.bus.halt_calls, 2);
     });
 }
 
@@ -467,7 +475,255 @@ fn test_handle_control_endpoint_request_fields() {
                 assert_eq!(request(usb, 0x02, code, value, 1, length), Response::Rejected);
             }
         }
-        assert_eq!(usb.inner.bus.halt_calls, 0);
+        // The rejected requests do not touch halt. The 2 calls are the clears from SET_CONFIGURATION.
+        assert_eq!(usb.inner.bus.halt_calls, 2);
+    });
+}
+
+struct AddressHandler<'a>(&'a Cell<Option<u8>>);
+
+impl Handler for AddressHandler<'_> {
+    fn addressed(&mut self, addr: u8) {
+        self.0.set(Some(addr));
+    }
+}
+
+#[test]
+fn remote_wakeup_follows_configuration_support() {
+    with_device_fullspeed(|usb| {
+        configure(usb);
+        assert_eq!(
+            request(
+                usb,
+                0,
+                Request::SET_FEATURE,
+                Request::FEATURE_DEVICE_REMOTE_WAKEUP,
+                0,
+                0
+            ),
+            Response::Rejected
+        );
+        assert_eq!(
+            request(
+                usb,
+                0,
+                Request::CLEAR_FEATURE,
+                Request::FEATURE_DEVICE_REMOTE_WAKEUP,
+                0,
+                0
+            ),
+            Response::Rejected
+        );
+        assert_eq!(request(usb, 0x80, Request::GET_STATUS, 0, 0, 2), Response::Status(0));
+    });
+
+    let mut config = Config::new(0x1234, 0x5678);
+    config.supports_remote_wakeup = true;
+    with_config(config, |usb| {
+        configure(usb);
+        assert_eq!(
+            request(
+                usb,
+                0,
+                Request::SET_FEATURE,
+                Request::FEATURE_DEVICE_REMOTE_WAKEUP,
+                0,
+                0
+            ),
+            Response::Accepted
+        );
+        assert_eq!(
+            request(usb, 0x80, Request::GET_STATUS, 0, 0, 2),
+            Response::Status(0x0002)
+        );
+        assert_eq!(
+            request(
+                usb,
+                0,
+                Request::CLEAR_FEATURE,
+                Request::FEATURE_DEVICE_REMOTE_WAKEUP,
+                0,
+                0
+            ),
+            Response::Accepted
+        );
+        assert_eq!(request(usb, 0x80, Request::GET_STATUS, 0, 0, 2), Response::Status(0));
+    });
+}
+
+#[test]
+fn get_status_reports_self_powered() {
+    let mut config = Config::new(0x1234, 0x5678);
+    config.self_powered = true;
+    with_config(config, |usb| {
+        configure(usb);
+        assert_eq!(
+            request(usb, 0x80, Request::GET_STATUS, 0, 0, 2),
+            Response::Status(0x0001)
+        );
+    });
+}
+
+#[test]
+fn interface_requests_require_configured_state() {
+    with_device_fullspeed(|usb| {
+        block_on(usb.inner.handle_bus_event(Event::PowerDetected));
+        block_on(usb.inner.handle_bus_event(Event::Reset));
+        assert_eq!(request(usb, 0, Request::SET_ADDRESS, 1, 0, 0), Response::Accepted);
+
+        assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Rejected);
+        assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Rejected);
+        assert_eq!(request(usb, 0x81, Request::GET_STATUS, 0, 0, 2), Response::Rejected);
+        // The rejected SET_INTERFACE must not enable alternate setting 1.
+        assert!(!usb.inner.bus.enabled[TestBus::slot(0x83.into())]);
+
+        assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
+        assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
+        assert_eq!(request(usb, 0x81, Request::GET_STATUS, 0, 0, 2), Response::Status(0));
+        assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
+        assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(1));
+
+        // The high byte of an interface wIndex is reserved.
+        assert_eq!(
+            request(usb, 0x01, Request::SET_INTERFACE, 0, 0x0100, 0),
+            Response::Rejected
+        );
+        assert_eq!(
+            request(usb, 0x81, Request::GET_INTERFACE, 0, 0x0100, 1),
+            Response::Rejected
+        );
+        assert_eq!(
+            request(usb, 0x81, Request::GET_STATUS, 0, 0x0100, 2),
+            Response::Rejected
+        );
+        assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(1));
+    });
+}
+
+#[test]
+fn get_descriptor_rejects_nonzero_index() {
+    with_device_fullspeed(|usb| {
+        configure(usb);
+        for dtype in [descriptor_type::DEVICE, descriptor_type::CONFIGURATION] {
+            assert_eq!(
+                request(usb, 0x80, Request::GET_DESCRIPTOR, u16::from(dtype) << 8 | 1, 0, 18),
+                Response::Rejected
+            );
+        }
+
+        let mut buf = [0u8; 32];
+        let req = Request {
+            direction: Direction::In,
+            request_type: RequestType::Standard,
+            recipient: Recipient::Device,
+            request: Request::GET_DESCRIPTOR,
+            value: u16::from(descriptor_type::CONFIGURATION) << 8,
+            index: 0,
+            length: 9,
+        };
+        assert!(matches!(
+            usb.inner.handle_control_in(req, &mut buf),
+            InResponse::Accepted(_)
+        ));
+    });
+
+    let mut config = Config::new(0x1234, 0x5678);
+    config.max_speed = UsbDeviceSpeed::High;
+    config.max_packet_size_0 = 64;
+    with_config(config, |usb| {
+        configure(usb);
+        assert_eq!(
+            request(
+                usb,
+                0x80,
+                Request::GET_DESCRIPTOR,
+                u16::from(descriptor_type::DEVICE_QUALIFIER) << 8 | 1,
+                0,
+                10
+            ),
+            Response::Rejected
+        );
+        let mut buf = [0u8; 16];
+        let req = Request {
+            direction: Direction::In,
+            request_type: RequestType::Standard,
+            recipient: Recipient::Device,
+            request: Request::GET_DESCRIPTOR,
+            value: u16::from(descriptor_type::DEVICE_QUALIFIER) << 8,
+            index: 0,
+            length: 10,
+        };
+        match usb.inner.handle_control_in(req, &mut buf) {
+            InResponse::Accepted(data) => assert_eq!(data.len(), 10),
+            InResponse::Rejected => panic!("device qualifier index 0 should be accepted"),
+        }
+    });
+}
+
+#[test]
+fn set_address_zero_returns_to_default() {
+    let seen = Cell::new(None);
+    let mut handler = AddressHandler(&seen);
+    let mut config_descriptor = [0; 64];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    builder.handler(&mut handler);
+    let usb = &mut builder.build();
+
+    block_on(usb.inner.handle_bus_event(Event::PowerDetected));
+    block_on(usb.inner.handle_bus_event(Event::Reset));
+
+    assert_eq!(request(usb, 0, Request::SET_ADDRESS, 0, 0, 0), Response::Accepted);
+    assert_eq!(seen.get(), None);
+    assert_eq!(usb.inner.device_state, UsbDeviceState::Default);
+    assert_eq!(endpoint_request(usb, Request::GET_STATUS, 0), Response::Rejected);
+
+    assert_eq!(request(usb, 0, Request::SET_ADDRESS, 4, 0, 0), Response::Accepted);
+    assert_eq!(seen.get(), Some(4));
+    assert_eq!(usb.inner.device_state, UsbDeviceState::Addressed);
+    assert_eq!(endpoint_request(usb, Request::GET_STATUS, 0), Response::Status(0));
+
+    assert_eq!(request(usb, 0, Request::SET_ADDRESS, 0, 0, 0), Response::Accepted);
+    assert_eq!(seen.get(), Some(0));
+    assert_eq!(usb.inner.address, 0);
+    assert_eq!(usb.inner.device_state, UsbDeviceState::Default);
+    assert_eq!(endpoint_request(usb, Request::GET_STATUS, 0), Response::Rejected);
+
+    with_device_fullspeed(|usb| {
+        configure(usb);
+        assert_eq!(request(usb, 0, Request::SET_ADDRESS, 0, 0, 0), Response::Rejected);
+        assert_eq!(usb.inner.device_state, UsbDeviceState::Configured);
+        assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
+    });
+}
+
+#[test]
+fn configuration_and_alt_setting_clear_halt() {
+    with_device_fullspeed(|usb| {
+        configure(usb);
+        assert_eq!(endpoint_request(usb, Request::SET_FEATURE, 1), Response::Accepted);
+        assert_eq!(endpoint_request(usb, Request::GET_STATUS, 1), Response::Status(1));
+
+        assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
+        assert_eq!(endpoint_request(usb, Request::GET_STATUS, 1), Response::Status(0));
+
+        assert_eq!(endpoint_request(usb, Request::SET_FEATURE, 1), Response::Accepted);
+        assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 0, 0, 0), Response::Accepted);
+        assert_eq!(endpoint_request(usb, Request::GET_STATUS, 1), Response::Status(0));
+
+        // Alternate setting 1 also has an isochronous endpoint. Clearing halt must skip it.
+        assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
+        assert_eq!(endpoint_request(usb, Request::SET_FEATURE, 0x83), Response::Accepted);
+        assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
+        assert_eq!(endpoint_request(usb, Request::GET_STATUS, 0x83), Response::Status(0));
     });
 }
 
