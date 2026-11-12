@@ -35,6 +35,10 @@ e-mcxa:
   - changed-files:
       - any-glob-to-any-file: "embassy-mcxa/**"
 
+e-mcxn:
+  - changed-files:
+      - any-glob-to-any-file: "embassy-mcxn/**"
+
 e-mspm0:
   - changed-files:
       - any-glob-to-any-file: "embassy-mspm0/**"
