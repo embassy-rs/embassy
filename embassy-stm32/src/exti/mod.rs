@@ -448,6 +448,9 @@ impl<'a> Drop for ExtiInputFuture<'a> {
             critical_section::with(|_| {
                 let pin = self.pin as _;
                 cpu_regs().imr(0).modify(|w| w.set_line(pin, false));
+                // An edge latched before the mask would otherwise stay pending with the line
+                // masked. `on_irq` ignores masked lines, so the vector would fire forever.
+                low_level::clear_exti_pending_mask(1 << pin);
             });
         }
     }
