@@ -63,6 +63,11 @@ struct MockStateInner {
     loopback: Deque<u8, 256>,
     line_coding: [u8; 7],
     control_line_state: u16,
+    set_interface: Option<(u16, u16)>,
+    gtb: heapless::Vec<u8, 256>,
+    gtb_request: Option<(u16, u16)>,
+    out_ends_transaction: Option<bool>,
+    string: heapless::Vec<u8, 64>,
 }
 
 impl MockState {
@@ -72,6 +77,11 @@ impl MockState {
                 loopback: Deque::new(),
                 line_coding: [0; 7],
                 control_line_state: 0,
+                set_interface: None,
+                gtb: heapless::Vec::new(),
+                gtb_request: None,
+                out_ends_transaction: None,
+                string: heapless::Vec::new(),
             }),
         }
     }
@@ -86,6 +96,41 @@ impl MockState {
 
     pub fn control_line_state(&self) -> u16 {
         self.inner.borrow().control_line_state
+    }
+
+    /// Last `SET_INTERFACE` request as `(interface, alternate_setting)`.
+    pub fn set_interface(&self) -> Option<(u16, u16)> {
+        self.inner.borrow().set_interface
+    }
+
+    /// Sets the bytes returned for a MIDI 2.0 Group Terminal Block `GET_DESCRIPTOR`.
+    pub fn set_gtb_descriptors(&self, bytes: &[u8]) {
+        let mut inner = self.inner.borrow_mut();
+        inner.gtb.clear();
+        inner.gtb.extend_from_slice(bytes).unwrap();
+    }
+
+    /// Sets the string returned for any non-zero string descriptor index; index 0 lists en-US.
+    pub fn set_string(&self, text: &str) {
+        let mut inner = self.inner.borrow_mut();
+        inner.string.clear();
+        inner.string.push(0).unwrap();
+        inner.string.push(0x03).unwrap();
+        for unit in text.encode_utf16() {
+            inner.string.extend_from_slice(&unit.to_le_bytes()).unwrap();
+        }
+        let len = inner.string.len() as u8;
+        inner.string[0] = len;
+    }
+
+    /// `ensure_transaction_end` of the last bulk OUT request.
+    pub fn out_ends_transaction(&self) -> Option<bool> {
+        self.inner.borrow().out_ends_transaction
+    }
+
+    /// Last Group Terminal Block request as `(wValue, wIndex)`.
+    pub fn gtb_request(&self) -> Option<(u16, u16)> {
+        self.inner.borrow().gtb_request
     }
 }
 
@@ -138,6 +183,27 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for MockPipe<'_> {
             let n = buf.len().min(inner.line_coding.len());
             buf[..n].copy_from_slice(&inner.line_coding[..n]);
             Ok(n)
+        } else if setup[0] == 0x80 && setup[1] == 0x06 && setup[3] == 0x03 {
+            // Standard GET_DESCRIPTOR for a string: index 0 lists the language, others return the set string.
+            let inner = self.state.inner.borrow();
+            let data: &[u8] = if setup[2] == 0 {
+                &[4, 3, 0x09, 0x04]
+            } else {
+                &inner.string
+            };
+            let n = buf.len().min(data.len());
+            buf[..n].copy_from_slice(&data[..n]);
+            Ok(n)
+        } else if setup[0] == 0x81 && setup[1] == 0x06 && setup[3] == 0x26 {
+            // Standard GET_DESCRIPTOR for a MIDI 2.0 Group Terminal Block.
+            let mut inner = self.state.inner.borrow_mut();
+            inner.gtb_request = Some((
+                u16::from_le_bytes([setup[2], setup[3]]),
+                u16::from_le_bytes([setup[4], setup[5]]),
+            ));
+            let n = buf.len().min(inner.gtb.len());
+            buf[..n].copy_from_slice(&inner.gtb[..n]);
+            Ok(n)
         } else {
             Err(PipeError::Stall)
         }
@@ -160,6 +226,14 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for MockPipe<'_> {
                 inner.control_line_state = u16::from_le_bytes([setup[2], setup[3]]);
                 Ok(())
             }
+            // SET_INTERFACE
+            0x0b => {
+                inner.set_interface = Some((
+                    u16::from_le_bytes([setup[4], setup[5]]),
+                    u16::from_le_bytes([setup[2], setup[3]]),
+                ));
+                Ok(())
+            }
             _ => Err(PipeError::Stall),
         }
     }
@@ -176,11 +250,12 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for MockPipe<'_> {
         Ok(n)
     }
 
-    async fn request_out(&mut self, buf: &[u8], _ensure_transaction_end: bool) -> Result<(), PipeError>
+    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError>
     where
         D: pipe::IsOut,
     {
         let mut inner = self.state.inner.borrow_mut();
+        inner.out_ends_transaction = Some(ensure_transaction_end);
         for &byte in buf {
             inner.loopback.push_back(byte).map_err(|_| PipeError::BufferOverflow)?;
         }

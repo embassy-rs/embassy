@@ -405,6 +405,42 @@ struct Inner<'d, D: Driver<'d>> {
     handlers: Vec<HandlerSlot<'d>, MAX_HANDLER_COUNT>,
 }
 
+/// Bit identifying an endpoint address in a 32-bit endpoint set.
+fn endpoint_bit(addr: EndpointAddress) -> u32 {
+    1 << (addr.index() * 2 + usize::from(addr.is_in()))
+}
+
+/// Set of endpoint addresses referenced by `interface` in `alt_setting`.
+///
+/// An address is included if any descriptor in that alternate setting references it.
+/// Endpoints can be shared by several alternate settings (for example the MIDI 1.0
+/// and MIDI 2.0 bulk endpoints), and must stay enabled whenever one of those settings
+/// is selected.
+fn active_endpoints(config_descriptor: &[u8], interface: InterfaceNumber, alt_setting: u8) -> u32 {
+    let mut active = 0;
+    foreach_endpoint(config_descriptor, |ep| {
+        if ep.interface == interface && ep.interface_alt == alt_setting {
+            active |= endpoint_bit(ep.ep_address);
+        }
+    })
+    .unwrap();
+    active
+}
+
+/// Enables exactly the endpoints of `interface` that are in `active`, disabling the rest.
+///
+/// Going through every descriptor of the interface (rather than deciding per descriptor
+/// from its own alternate setting) keeps shared endpoints enabled when a different
+/// alternate setting that also references them is selected.
+fn set_interface_endpoints(config_descriptor: &[u8], bus: &mut impl Bus, interface: InterfaceNumber, active: u32) {
+    foreach_endpoint(config_descriptor, |ep| {
+        if ep.interface == interface {
+            bus.endpoint_set_enabled(ep.ep_address, active & endpoint_bit(ep.ep_address) != 0);
+        }
+    })
+    .unwrap();
+}
+
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     /// Returns a report of the consumed buffers
     ///
@@ -726,11 +762,23 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     debug!("SET_CONFIGURATION: configured");
                     self.device_state = UsbDeviceState::Configured;
 
-                    // Enable all endpoints of selected alt settings.
+                    // Enable the endpoints belonging to each interface's selected
+                    // alternate setting. An endpoint shared by several alternate
+                    // settings stays enabled as long as the selected setting
+                    // references it.
+                    let mut active = [0u32; MAX_INTERFACE_COUNT];
                     foreach_endpoint(self.config_descriptor, |ep| {
                         let iface = &self.interfaces[ep.interface.0 as usize];
-                        self.bus
-                            .endpoint_set_enabled(ep.ep_address, iface.current_alt_setting == ep.interface_alt);
+                        if ep.interface_alt == iface.current_alt_setting {
+                            active[ep.interface.0 as usize] |= endpoint_bit(ep.ep_address);
+                        }
+                    })
+                    .unwrap();
+                    foreach_endpoint(self.config_descriptor, |ep| {
+                        self.bus.endpoint_set_enabled(
+                            ep.ep_address,
+                            active[ep.interface.0 as usize] & endpoint_bit(ep.ep_address) != 0,
+                        );
                     })
                     .unwrap();
 
@@ -819,14 +867,11 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
                         iface.current_alt_setting = new_altsetting;
 
-                        // Enable/disable EPs of this interface as needed.
-                        foreach_endpoint(self.config_descriptor, |ep| {
-                            if ep.interface == iface_num {
-                                self.bus
-                                    .endpoint_set_enabled(ep.ep_address, iface.current_alt_setting == ep.interface_alt);
-                            }
-                        })
-                        .unwrap();
+                        // Enable the endpoints referenced by the new alternate setting
+                        // and disable those only used by other settings. Endpoints shared
+                        // between settings (for example MIDI 1.0 and 2.0) stay enabled.
+                        let active = active_endpoints(self.config_descriptor, iface_num, new_altsetting);
+                        set_interface_endpoints(self.config_descriptor, &mut self.bus, iface_num, active);
 
                         // TODO check it is valid (not out of range)
 

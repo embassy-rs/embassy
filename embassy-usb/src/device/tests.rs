@@ -1512,3 +1512,358 @@ fn test_superspeed_callbacks() {
     block_on(usb.inner.handle_bus_event(Event::Reset));
     assert_eq!(request(usb, 0x80, Request::GET_STATUS, 0, 0, 2), Response::Status(0));
 }
+#[test]
+fn shared_endpoints_stay_enabled_across_alternate_settings() {
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut function = builder.function(0xff, 0, 0);
+    let mut interface = function.interface();
+
+    // Alternate setting 0 references only the shared IN endpoint.
+    let mut alt0 = interface.alt_setting(0xff, 0, 0, None);
+    let shared_in = alt0.alloc_endpoint_in(EndpointType::Bulk, None, 64, 0, EndpointOptions::new());
+    alt0.endpoint_descriptor(
+        shared_in.info(),
+        SynchronizationType::NoSynchronization,
+        UsageType::DataEndpoint,
+        &[],
+    );
+
+    // Alternate setting 1 reuses it and adds an OUT endpoint of its own.
+    let mut alt1 = interface.alt_setting(0xff, 0, 0, None);
+    alt1.endpoint_descriptor(
+        shared_in.info(),
+        SynchronizationType::NoSynchronization,
+        UsageType::DataEndpoint,
+        &[],
+    );
+    let alt1_out = alt1.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0, EndpointOptions::new());
+    alt1.endpoint_descriptor(
+        alt1_out.info(),
+        SynchronizationType::NoSynchronization,
+        UsageType::DataEndpoint,
+        &[],
+    );
+
+    drop(function);
+    let mut usb = builder.build();
+
+    let slot = |addr: EndpointAddress| addr.index() * 2 + usize::from(addr.is_in());
+    let in_addr = shared_in.info().addr;
+    let out_addr = alt1_out.info().addr;
+
+    // Enumeration selects alternate setting 0: only the shared endpoint is enabled.
+    configure(&mut usb);
+    assert!(usb.inner.bus.enabled[slot(in_addr)]);
+    assert!(!usb.inner.bus.enabled[slot(out_addr)]);
+
+    // Selecting alternate setting 1 enables both endpoints.
+    assert_eq!(
+        request(&mut usb, 1, Request::SET_INTERFACE, 1, 0, 0),
+        Response::Accepted
+    );
+    assert!(usb.inner.bus.enabled[slot(in_addr)]);
+    assert!(usb.inner.bus.enabled[slot(out_addr)]);
+
+    // Going back to alternate setting 0 must keep the shared endpoint enabled and
+    // disable the endpoint that only exists in alternate setting 1.
+    assert_eq!(
+        request(&mut usb, 1, Request::SET_INTERFACE, 0, 0, 0),
+        Response::Accepted
+    );
+    assert!(usb.inner.bus.enabled[slot(in_addr)]);
+    assert!(!usb.inner.bus.enabled[slot(out_addr)]);
+}
+
+#[cfg(feature = "class-midi")]
+#[test]
+fn test_midi2_device_enumeration_and_control() {
+    use crate::class::midi::device::{Midi2Config, MidiClass, MidiClassConfig, MidiClassState};
+    use crate::class::midi::{
+        CS_GR_TRM_BLOCK, GroupTerminalBlockConfig, GroupTerminalBlockType, MidiProtocol, parse_gtb_descriptors,
+    };
+
+    static GTBS: &[GroupTerminalBlockConfig<'static>] = &[
+        GroupTerminalBlockConfig {
+            block_id: 1,
+            block_type: GroupTerminalBlockType::Bidirectional,
+            first_group: 0,
+            num_groups: 2,
+            protocol: MidiProtocol::Midi2_0,
+            name: Some("Synth Ports 1-2"),
+            max_input_bandwidth: 0,
+            max_output_bandwidth: 0,
+        },
+        GroupTerminalBlockConfig {
+            block_id: 2,
+            block_type: GroupTerminalBlockType::InputOnly,
+            first_group: 2,
+            num_groups: 1,
+            protocol: MidiProtocol::Midi1_0_64,
+            name: Some("Legacy DIN In"),
+            max_input_bandwidth: 3125,
+            max_output_bandwidth: 0,
+        },
+    ];
+
+    let mut state = MidiClassState::new();
+    let mut config_descriptor = [0; 512];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 256];
+
+    let mut config = Config::new(0x1234, 0x5678);
+    config.max_packet_size_0 = 64;
+
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+
+    let midi_config = MidiClassConfig {
+        n_in_jacks: 1,
+        n_out_jacks: 1,
+        max_packet_size: 64,
+        interface_name: Some("MIDI 2.0 Interface"),
+        in_jack_names: &[Some("MIDI In")],
+        out_jack_names: &[Some("MIDI Out")],
+        midi2: Some(Midi2Config {
+            group_terminal_blocks: GTBS,
+        }),
+    };
+
+    let _midi = MidiClass::new_with_names(&mut builder, &mut state, midi_config);
+    let mut usb = builder.build();
+
+    // Both alternate settings must reference the same bulk endpoints. The
+    // MIDI 2.0 spec expects Alt 1 to reuse Alt 0's endpoints, and a second
+    // pair would waste scarce endpoint hardware on most MCUs.
+    let desc = usb.inner.config_descriptor;
+    let mut endpoints_by_alt = [[None; 2]; 2];
+    let mut current_alt = None;
+    let mut midi2_endpoint_blocks = heapless::Vec::<&[u8], 2>::new();
+    let mut offset = 0;
+    while offset + 1 < desc.len() {
+        let len = desc[offset] as usize;
+        if len < 2 || offset + len > desc.len() {
+            break;
+        }
+        match desc[offset + 1] {
+            descriptor_type::INTERFACE => {
+                current_alt = (desc[offset + 2] == 1).then_some(desc[offset + 3] as usize);
+            }
+            // MS_GENERAL_2_0 endpoint descriptor: bNumGrpTrmBlock, then the block IDs.
+            0x25 if desc[offset + 2] == 2 => midi2_endpoint_blocks.push(&desc[offset + 4..offset + len]).unwrap(),
+            descriptor_type::ENDPOINT => {
+                if let Some(alt) = current_alt {
+                    let addr = desc[offset + 2];
+                    let direction = if addr & 0x80 != 0 { 0 } else { 1 };
+                    endpoints_by_alt[alt][direction] = Some(addr);
+                    // USB MIDI 2.0 §5.3.1 Table 5-3 and Appendix B.7.1/B.8.1: bLength is 7.
+                    // Alternate setting 0 is MIDI 1.0, which adds bRefresh and bSynchAddress.
+                    assert_eq!(len, if alt == 1 { 7 } else { 9 });
+                }
+            }
+            _ => {}
+        }
+        offset += len;
+    }
+    assert_eq!(
+        endpoints_by_alt[0], endpoints_by_alt[1],
+        "Alt 0 and Alt 1 must share the same endpoint addresses"
+    );
+    assert_eq!(endpoints_by_alt[0], [Some(0x81), Some(0x01)]);
+    // The OUT endpoint carries the bidirectional and input-only blocks, the IN endpoint the bidirectional one.
+    assert_eq!(midi2_endpoint_blocks.as_slice(), &[&[1u8, 2][..], &[1u8][..]]);
+
+    // Enumerate the device. Alternate Setting 0 is selected by default, and the
+    // endpoints it shares with Alternate Setting 1 must be enabled.
+    let set_config_req = Request {
+        direction: Direction::Out,
+        request_type: RequestType::Standard,
+        recipient: Recipient::Device,
+        request: Request::SET_CONFIGURATION,
+        value: 1,
+        index: 0,
+        length: 0,
+    };
+    assert_eq!(usb.inner.handle_control_out(set_config_req, &[]), OutResponse::Accepted);
+
+    let slot = |addr: u8| {
+        let addr = EndpointAddress::from(addr);
+        addr.index() * 2 + usize::from(addr.is_in())
+    };
+    assert!(usb.inner.bus.enabled[slot(0x81)]);
+    assert!(usb.inner.bus.enabled[slot(0x01)]);
+
+    // Switch interface 1 to Alternate Setting 1 (MIDI 2.0)
+    let set_alt_req = Request {
+        direction: Direction::Out,
+        request_type: RequestType::Standard,
+        recipient: Recipient::Interface,
+        request: Request::SET_INTERFACE,
+        value: 1,
+        index: 1,
+        length: 0,
+    };
+    assert_eq!(usb.inner.handle_control_out(set_alt_req, &[]), OutResponse::Accepted);
+    assert!(usb.inner.bus.enabled[slot(0x81)]);
+    assert!(usb.inner.bus.enabled[slot(0x01)]);
+
+    // Switching back to MIDI 1.0 must not disable the shared endpoints.
+    let set_alt0_req = Request {
+        value: 0,
+        ..set_alt_req
+    };
+    assert_eq!(usb.inner.handle_control_out(set_alt0_req, &[]), OutResponse::Accepted);
+    assert!(usb.inner.bus.enabled[slot(0x81)]);
+    assert!(usb.inner.bus.enabled[slot(0x01)]);
+
+    // Switch interface 1 to invalid Alternate Setting 2
+    let set_alt_invalid = Request {
+        direction: Direction::Out,
+        request_type: RequestType::Standard,
+        recipient: Recipient::Interface,
+        request: Request::SET_INTERFACE,
+        value: 2,
+        index: 1,
+        length: 0,
+    };
+    assert_eq!(
+        usb.inner.handle_control_out(set_alt_invalid, &[]),
+        OutResponse::Rejected
+    );
+
+    // Query Group Terminal Block descriptors with the standard GET_DESCRIPTOR
+    // request: wValue = CS_GR_TRM_BLOCK in the high byte, alternate setting in
+    // the low byte; wIndex = interface number.
+    let get_gtb_req = Request {
+        direction: Direction::In,
+        request_type: RequestType::Standard,
+        recipient: Recipient::Interface,
+        request: Request::GET_DESCRIPTOR,
+        value: ((CS_GR_TRM_BLOCK as u16) << 8) | 1,
+        index: 1,
+        length: 256,
+    };
+    let mut resp_buf = [0u8; 256];
+
+    // A class-specific request must not return the GTB descriptors.
+    let class_gtb_req = Request {
+        request_type: RequestType::Class,
+        ..get_gtb_req
+    };
+    assert!(matches!(
+        usb.inner.handle_control_in(class_gtb_req, &mut resp_buf),
+        InResponse::Rejected
+    ));
+
+    // The alternate setting in wValue must be the MIDI 2.0 one (1).
+    let wrong_alt_gtb_req = Request {
+        value: (CS_GR_TRM_BLOCK as u16) << 8,
+        ..get_gtb_req
+    };
+    assert!(matches!(
+        usb.inner.handle_control_in(wrong_alt_gtb_req, &mut resp_buf),
+        InResponse::Rejected
+    ));
+
+    match usb.inner.handle_control_in(get_gtb_req, &mut resp_buf) {
+        InResponse::Accepted(data) => {
+            let blocks: heapless::Vec<_, 4> = parse_gtb_descriptors(data).expect("valid GTB descriptors");
+            assert_eq!(blocks.len(), 2);
+            assert_eq!(blocks[0].block_id, 1);
+            assert_eq!(blocks[0].first_group, 0);
+            assert_eq!(blocks[0].num_groups, 2);
+            assert_eq!(blocks[0].protocol, MidiProtocol::Midi2_0);
+            assert_eq!(blocks[1].block_id, 2);
+            assert_eq!(blocks[1].first_group, 2);
+            assert_eq!(blocks[1].num_groups, 1);
+            assert_eq!(blocks[1].protocol, MidiProtocol::Midi1_0_64);
+        }
+        InResponse::Rejected => panic!("GET_DESCRIPTOR for GTB was rejected"),
+    }
+}
+
+#[cfg(feature = "class-midi")]
+#[test]
+fn midi2_output_only_omits_the_unused_endpoint() {
+    use crate::class::midi::device::{Midi2Config, MidiClass, MidiClassConfig, MidiClassState};
+    use crate::class::midi::{GroupTerminalBlockConfig, GroupTerminalBlockType, MidiProtocol};
+
+    // USB MIDI 2.0 §4: a function may have one endpoint. An output-only block is the IN endpoint.
+    static GTBS: &[GroupTerminalBlockConfig<'static>] = &[GroupTerminalBlockConfig {
+        block_id: 1,
+        block_type: GroupTerminalBlockType::OutputOnly,
+        first_group: 0,
+        num_groups: 1,
+        protocol: MidiProtocol::Midi2_0,
+        name: None,
+        max_input_bandwidth: 0,
+        max_output_bandwidth: 1,
+    }];
+
+    let mut state = MidiClassState::new();
+    let mut config_descriptor = [0; 512];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let _midi = MidiClass::new_with_names(
+        &mut builder,
+        &mut state,
+        MidiClassConfig {
+            n_in_jacks: 0,
+            n_out_jacks: 0,
+            max_packet_size: 64,
+            interface_name: None,
+            in_jack_names: &[],
+            out_jack_names: &[],
+            midi2: Some(Midi2Config {
+                group_terminal_blocks: GTBS,
+            }),
+        },
+    );
+    let usb = builder.build();
+    let desc = usb.inner.config_descriptor;
+
+    let mut alt1_endpoints = heapless::Vec::<(u8, usize), 4>::new();
+    let mut on_alt1 = false;
+    let mut offset = 0;
+    while offset + 1 < desc.len() {
+        let len = desc[offset] as usize;
+        if len < 2 || offset + len > desc.len() {
+            break;
+        }
+        match desc[offset + 1] {
+            descriptor_type::INTERFACE if desc[offset + 5] == 1 && desc[offset + 6] == 3 => {
+                on_alt1 = desc[offset + 3] == 1;
+            }
+            descriptor_type::ENDPOINT if on_alt1 => {
+                alt1_endpoints.push((desc[offset + 2], len)).unwrap();
+            }
+            _ => {}
+        }
+        offset += len;
+    }
+    // One IN endpoint, standard descriptor length 7 (Table 5-3).
+    assert_eq!(alt1_endpoints.as_slice(), &[(0x81, 7)]);
+}
