@@ -1,5 +1,5 @@
-//! A scenario decoded from bytes, run on one model through the real bootloader and updater, checked after every
-//! boot against what must hold whatever the power did.
+//! Decodes a scenario from bytes, runs it on one flash model with the real bootloader and updater, and checks
+//! the invariants after every boot.
 
 use core::cell::RefCell;
 use std::fmt::Write as _;
@@ -102,12 +102,40 @@ pub struct Layout {
     pub buf: usize,
 }
 
-impl Layout {
-    /// Bytes of the layout header: active pages, extra DFU pages, extra STATE pages, buffer size.
-    pub fn encode(active: u8, dfu_extra: u8, state_extra: u8, buf: u8) -> [u8; 4] {
-        [active, dfu_extra, state_extra, buf]
-    }
+/// Layout header bytes: active pages, extra DFU pages, extra STATE pages, buffer size.
+pub const DEFAULT_LAYOUT: [u8; 4] = [1, 0, 0, 1];
 
+/// The input bytes for `steps` on model `model`.
+pub fn input(model: usize, layout: [u8; 4], steps: &[Step]) -> Vec<u8> {
+    let mut out = vec![model as u8];
+    out.extend(layout);
+    for step in steps {
+        step.encode(&mut out);
+    }
+    out
+}
+
+/// Fixed scenarios, used by the sweep and as fuzzer seeds.
+pub fn scenarios() -> [(&'static str, Vec<Step>); 5] {
+    use Step::*;
+    let dl = |chunk| Download { chunk };
+    [
+        ("update-confirm", vec![dl(0), MarkUpdated, Boot, MarkBooted, Boot]),
+        ("update-revert", vec![dl(0), MarkUpdated, Boot, Boot, Boot]),
+        ("update-cancelled", vec![dl(1), MarkUpdated, MarkBooted, Boot]),
+        ("update-mark-dfu", vec![dl(0), MarkUpdated, Boot, MarkDfu, Boot]),
+        (
+            "two-updates",
+            vec![dl(0), MarkUpdated, Boot, MarkBooted, dl(2), MarkUpdated, Boot, Boot],
+        ),
+    ]
+}
+
+pub fn hex(data: &[u8]) -> String {
+    data.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+impl Layout {
     fn decode<M: Model>(input: &mut Input) -> Layout {
         let active = 1 + input.below(3);
         let dfu = active + 1 + input.below(2);
@@ -169,8 +197,7 @@ fn image_byte(id: u8, offset: usize) -> u8 {
     Rng(((id as u64) << 32) ^ offset as u64).next() as u8
 }
 
-/// The letter that names image `id` in page names: A-Z, a-z, then the letters from U+00C0 on, one `char` each for
-/// every id up to 255 (`active_image` reads it back with `image_id`).
+/// The letter that names image `id` in page names.
 fn image_name(id: u8) -> char {
     match id {
         1..=26 => (b'A' + id - 1) as char,
@@ -367,8 +394,7 @@ impl<M: Model> Sim<M> {
         let result = loader.prepare_boot(&mut buf);
         if self.dead() {
             self.note(format!("        -> {result:?} (power cut)    {}", self.picture()));
-            // A cut after the swap is done uses up the trial: the next boot reverts without the new image
-            // ever running. That is how embassy-boot is meant to work, not a failure.
+            // A cut after the swap uses up the trial: the next boot reverts. This is intended.
             if self.truth.staged == Tri::Yes {
                 self.truth.staged = Tri::Maybe;
             }
@@ -389,9 +415,7 @@ impl<M: Model> Sim<M> {
         self.check_boot(state)
     }
 
-    /// A cut tore a program of a magic other than SWAP into STATE word 0 since STATE was last erased: on byte-wide
-    /// flash it can read as SWAP (0xF0 has every 1 bit of 0xE0, 0xD0 and 0xC0), and the bootloader then swaps in
-    /// what DFU holds.
+    /// A cut tore a write of a magic other than SWAP into STATE word 0. On byte-wide flash this can read as SWAP.
     fn torn_magic(&self) -> bool {
         self.nor(|n| {
             n.torn
@@ -455,8 +479,7 @@ impl<M: Model> Sim<M> {
             }
             State::Revert => {
                 if Some(id) == t.b && t.trial && t.confirm == Tri::Maybe {
-                    // mark_booted/mark_dfu cut after its progress-invalid write: the bootloader takes the
-                    // revert path with every copy skipped. The new image stays, the state says Revert.
+                    // A cut inside mark_booted/mark_dfu: the new image stays, but the state reads Revert.
                     return Err(Failure {
                         invariant: "I4 the state matches ACTIVE",
                         detail: format!("Revert, but ACTIVE is still {name} (the cut was inside the confirm)"),
@@ -642,7 +665,7 @@ impl<M: Model> Sim<M> {
         let broken = self.nor(|n| n.broken.clone());
         if let Some(&(class, _)) = broken.first() {
             let lines: Vec<String> = broken.iter().map(|(_, line)| line.clone()).collect();
-            // Breaks the zoo predicts are counted as their class; a bit that would have to go 0 -> 1 is a bug.
+            // A bit that must go 0 -> 1 is a bug; other broken rules are known classes.
             let known = (broken.iter().all(|(c, _)| *c != "bits-0-to-1")).then_some(class);
             return Err(Failure {
                 invariant: "I7 the family's write rules hold",
@@ -703,7 +726,7 @@ impl Visit for Runner<'_> {
             let known = f.known.map(|k| format!(" (known class: {k})")).unwrap_or_default();
             let _ = writeln!(report, "FAILED {}{known}: {}", f.invariant, f.detail);
         }
-        let hex: String = data.iter().map(|b| format!("{b:02x}")).collect();
+        let hex = hex(data);
         let _ = writeln!(report, "input {hex}");
         let _ = writeln!(
             report,
@@ -723,17 +746,27 @@ pub fn run(data: &[u8]) -> Outcome {
     zoo::with_model(data.first().copied().unwrap_or(0) as usize, Runner(data))
 }
 
-struct Name;
+pub struct Info {
+    pub name: &'static str,
+    pub source: &'static str,
+    pub expect: Expect,
+}
 
-impl Visit for Name {
-    type Out = (&'static str, u8);
+struct GetInfo;
 
-    fn visit<M: Model>(self) -> (&'static str, u8) {
-        (M::NAME, M::ERASED)
+impl Visit for GetInfo {
+    type Out = Info;
+
+    fn visit<M: Model>(self) -> Info {
+        Info {
+            name: M::NAME,
+            source: M::SOURCE,
+            expect: zoo::expect(M::NAME, M::ERASED),
+        }
     }
 }
 
-/// Name and erase value of zoo entry `i`.
-pub fn model(i: usize) -> (&'static str, u8) {
-    zoo::with_model(i, Name)
+/// Name, source and expectation of zoo entry `i`.
+pub fn model(i: usize) -> Info {
+    zoo::with_model(i, GetInfo)
 }

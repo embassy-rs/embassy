@@ -2,5 +2,4 @@ target/
 corpus/
 artifacts/
 coverage/
-afl-out/
 Cargo.lock

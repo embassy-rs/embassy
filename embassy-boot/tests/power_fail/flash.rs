@@ -47,8 +47,7 @@ pub trait Model: 'static {
     const RULE: Rule;
     /// A unit left half-programmed or half-erased by a cut faults on read.
     const ECC: bool;
-    /// Physical sector sizes from address 0, the last one repeating; empty: all `ERASE_SIZE`. One `erase` of the
-    /// driver then is several sector erases, each of which a cut can hit.
+    /// Physical sector sizes from address 0, the last one repeats. Empty means all `ERASE_SIZE`.
     const SECTORS: &'static [usize] = &[];
     /// Writes of one `WRITE_SIZE` word allowed between erases.
     const MAX_WRITES: usize = usize::MAX;
@@ -508,7 +507,6 @@ impl<M: Model> NorFlash for Nor<M> {
             && !self.bad[first..last].contains(&true)
             && !self.programmed[first..last].contains(&true);
         if cut.is_none() && blank {
-            // Into erased units every family takes any value: no rule to check unit by unit.
             self.mem[at..at + bytes.len()].copy_from_slice(bytes);
             self.programmed[first..last].fill(true);
             self.count_writes(at, bytes.len());
@@ -522,7 +520,6 @@ impl<M: Model> NorFlash for Nor<M> {
             let unit_at = at + i * M::UNIT;
             if let Some((_, rng)) = cut.as_mut().filter(|(torn, _)| *torn == i) {
                 let what = self.tear_program(unit_at, new, rng);
-                // Units before the cut were programmed, and the one it hit too unless it never started.
                 let done = if what == "not started" {
                     unit_at
                 } else {

@@ -1,37 +1,11 @@
-//! Writes the seed corpus: the fixed scenarios of the sweep in `tests/power_fail.rs` on every model, plain and
-//! with a power cut at a few operations, in `corpus/power_fail/` (or the folder given as the argument).
+//! Writes the seed corpus: the sweep scenarios on every model, with and without power cuts, to
+//! `corpus/power_fail/` (or the folder given as argument).
 //!
-//! Also writes `<folder>.list`, the files' absolute paths in the order written, for libFuzzer's `-seed_inputs=@<folder>.list`:
-//! libFuzzer loads a corpus folder in `readdir` order, which depends on the file system, and that order changes
-//! the run.
+//! Also writes `<folder>.list` with the absolute file paths for `-seed_inputs=@<folder>.list`, so that the
+//! load order does not depend on the file system.
 
-use embassy_boot_fuzz::scenario::{Layout, Step, model, run};
+use embassy_boot_fuzz::scenario::{DEFAULT_LAYOUT, Step, input, model, run, scenarios};
 use embassy_boot_fuzz::zoo;
-
-/// The scenarios of `sweep` in `tests/power_fail.rs`.
-fn scenarios() -> Vec<(&'static str, Vec<Step>)> {
-    use Step::*;
-    let dl = |chunk| Download { chunk };
-    vec![
-        ("update-confirm", vec![dl(0), MarkUpdated, Boot, MarkBooted, Boot]),
-        ("update-revert", vec![dl(0), MarkUpdated, Boot, Boot, Boot]),
-        ("update-cancelled", vec![dl(1), MarkUpdated, MarkBooted, Boot]),
-        ("update-mark-dfu", vec![dl(0), MarkUpdated, Boot, MarkDfu, Boot]),
-        (
-            "two-updates",
-            vec![dl(0), MarkUpdated, Boot, MarkBooted, dl(2), MarkUpdated, Boot, Boot],
-        ),
-    ]
-}
-
-fn input(model: usize, steps: &[Step]) -> Vec<u8> {
-    let mut out = vec![model as u8];
-    out.extend(Layout::encode(1, 0, 0, 1));
-    for step in steps {
-        step.encode(&mut out);
-    }
-    out
-}
 
 fn main() {
     let arg = std::env::args().nth(1).unwrap_or_else(|| "corpus/power_fail".into());
@@ -39,23 +13,24 @@ fn main() {
     std::fs::create_dir_all(dir).expect("create the corpus folder");
     let mut files = Vec::new();
     for m in 0..zoo::COUNT {
-        let name = model(m).0;
+        let name = model(m).name;
         for (scenario, steps) in scenarios() {
-            let plain = input(m, &steps);
+            let plain = input(m, DEFAULT_LAYOUT, &steps);
             let ops = run(&plain).ops.min(u16::MAX as u64) as u16;
-            // Plain, then a cut at about eight points of the run, each with three tear patterns.
             let mut inputs = vec![(format!("{name}-{scenario}"), plain)];
+            // A cut at about eight points of the run, three tear patterns each.
             for after in (0..ops).step_by((ops as usize / 8).max(1)) {
                 for tear in 0..3 {
                     let mut cut = vec![Step::Cut { after, tear }];
                     cut.extend(&steps);
-                    inputs.push((format!("{name}-{scenario}-cut{after}-tear{tear}"), input(m, &cut)));
+                    let file = format!("{name}-{scenario}-cut{after}-tear{tear}");
+                    inputs.push((file, input(m, DEFAULT_LAYOUT, &cut)));
                 }
             }
             for (file, data) in inputs {
                 let path = format!("{dir}/{file}");
                 std::fs::write(&path, data).expect("write a seed");
-                // Absolute: libFuzzer skips a listed file it can't find without a word.
+                // libFuzzer silently skips a listed file it cannot find.
                 let path = std::fs::canonicalize(&path).expect("absolute seed path");
                 files.push(path.to_str().expect("UTF-8 seed path").to_string());
             }
