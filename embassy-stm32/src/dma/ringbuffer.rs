@@ -264,9 +264,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         // Copy data starting skip words ahead of current read_index.
         let mut read_start = self.read_index;
         read_start.advance(self.cap(), skip);
-        for i in 0..readable {
-            buf[i] = self.read_buf(skip + i);
-        }
+        self.copy_from(read_start.pos, &mut buf[..readable]);
 
         // The DMA may have caught up with the read position and written into the
         // copied data meanwhile. All of it is intact if the DMA is still at most
@@ -342,9 +340,8 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
             self.read_index.advance(self.cap(), front_skip);
         }
 
-        for i in 0..to_read {
-            buf[i] = self.read_buf(i);
-        }
+        let start = self.read_index.as_index(self.cap(), 0);
+        self.copy_from(start, &mut buf[..to_read]);
 
         // Advance past what we read. Trailing partial frame is left in the buffer.
         self.read_index.advance(self.cap(), to_read);
@@ -352,8 +349,23 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         to_read
     }
 
-    fn read_buf(&self, offset: usize) -> W {
-        unsafe { core::ptr::read_volatile(self.dma_buf.as_ptr().add(self.read_index.as_index(self.cap(), offset))) }
+    /// Copy `buf.len()` words from the DMA buffer into `buf`, starting at buffer
+    /// position `start` and wrapping at the end of the buffer.
+    ///
+    /// Copies in at most two contiguous runs, so there is no modulo per word.
+    fn copy_from(&self, start: usize, buf: &mut [W]) {
+        let cap = self.cap();
+        assert!(start < cap && buf.len() <= cap);
+        let src = self.dma_buf.as_ptr();
+        let (head, tail) = buf.split_at_mut(buf.len().min(cap - start));
+        for (i, w) in head.iter_mut().enumerate() {
+            // SAFETY: `start + i < cap`. Volatile, because the DMA writes the buffer.
+            *w = unsafe { core::ptr::read_volatile(src.add(start + i)) };
+        }
+        for (i, w) in tail.iter_mut().enumerate() {
+            // SAFETY: `i < buf.len() - (cap - start) <= start < cap`.
+            *w = unsafe { core::ptr::read_volatile(src.add(i)) };
+        }
     }
 }
 
