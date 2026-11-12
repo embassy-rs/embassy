@@ -493,9 +493,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         let writable = self.sync_len(dma)?.min(buf.len());
 
         let write_start = self.write_index;
-        for i in 0..writable {
-            self.write_buf(i, buf[i]);
-        }
+        self.copy_into(write_start.pos, &buf[..writable]);
 
         // The DMA may have caught up with the write position and read from the
         // copied data meanwhile. All of it is intact if the DMA is still at most
@@ -515,14 +513,22 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         Ok((writable, remaining))
     }
 
-    fn write_buf(&mut self, offset: usize, value: W) {
-        unsafe {
-            core::ptr::write_volatile(
-                self.dma_buf
-                    .as_mut_ptr()
-                    .add(self.write_index.as_index(self.cap(), offset)),
-                value,
-            )
+    /// Copy `buf.len()` words from `buf` into the DMA buffer, starting at buffer
+    /// position `start` and wrapping at the end of the buffer.
+    ///
+    /// Copies in at most two contiguous runs, so there is no modulo per word.
+    fn copy_into(&mut self, start: usize, buf: &[W]) {
+        let cap = self.cap();
+        assert!(start < cap && buf.len() <= cap);
+        let dst = self.dma_buf.as_mut_ptr();
+        let (head, tail) = buf.split_at(buf.len().min(cap - start));
+        for (i, w) in head.iter().enumerate() {
+            // SAFETY: `start + i < cap`. Volatile, because the DMA reads the buffer.
+            unsafe { core::ptr::write_volatile(dst.add(start + i), *w) };
+        }
+        for (i, w) in tail.iter().enumerate() {
+            // SAFETY: `i < buf.len() - (cap - start) <= start < cap`.
+            unsafe { core::ptr::write_volatile(dst.add(i), *w) };
         }
     }
 }
