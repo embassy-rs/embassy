@@ -553,13 +553,50 @@ pub struct BssInfo {
     pub basic_mcs: [u8; 16],
     /// Information Elements (IE) offset.
     pub ie_offset: u16,
+    // The firmware's record (`wl_bss_info_t` v109, brcmfmac's `brcmf_bss_info_le`) is laid out
+    // with natural alignment, so two bytes of padding sit between `ie_offset` (at 116) and
+    // the 4-byte-aligned `ie_length` (at 120). `packed(2)` would otherwise put `ie_length`
+    // at 118 and read the padding plus half of the real value.
+    reserved6: [u8; 2],
     /// Length of Information Elements (IE) in bytes.
     pub ie_length: u32,
     /// Average signal-to-noise (SNR) ratio during frame reception.
     pub snr: i16,
+    // Tail padding: the C struct is 4-byte aligned, so its size is 128, not 126. (A CYW43439
+    // also reports `ie_offset` 128 for these records.)
+    reserved7: [u8; 2],
     // there will be more stuff here
 }
 impl_bytes!(BssInfo);
+
+#[cfg(test)]
+mod bss_info_layout_tests {
+    use aligned::{A4, Aligned};
+
+    use super::*;
+
+    #[test]
+    fn matches_brcmf_bss_info_le_layout() {
+        // Offsets of brcmf_bss_info_le (Linux brcmfmac fwil_types.h), which is not packed.
+        assert_eq!(core::mem::offset_of!(BssInfo, ie_offset), 116);
+        assert_eq!(core::mem::offset_of!(BssInfo, ie_length), 120);
+        assert_eq!(core::mem::offset_of!(BssInfo, snr), 124);
+        // sizeof(brcmf_bss_info_le) is 128.
+        assert_eq!(BssInfo::SIZE, 128);
+    }
+
+    #[test]
+    fn reads_ie_length_from_byte_120() {
+        // A v109 record laid out like brcmf_bss_info_le: ie_offset 128, ie_length 332, snr 25.
+        let mut buf: Aligned<A4, [u8; 128]> = Aligned([0; 128]);
+        buf[116..118].copy_from_slice(&128u16.to_le_bytes());
+        buf[120..124].copy_from_slice(&332u32.to_le_bytes());
+        buf[124..126].copy_from_slice(&25i16.to_le_bytes());
+        let bss = BssInfo::parse(&mut buf[..]).unwrap().clone();
+        let (ie_offset, ie_length, snr) = (bss.ie_offset, bss.ie_length, bss.snr);
+        assert_eq!((ie_offset, ie_length, snr), (128, 332, 25));
+    }
+}
 
 impl BssInfo {
     pub(crate) fn parse(packet: &mut [u8]) -> Option<&mut Self> {
