@@ -777,6 +777,12 @@ impl<'a> Rtc<'a> {
         });
 
         self.info.regs().alm_seconds().write(|w| w.set_alm_sec(second));
+        // ALM_IS sets on every match, even with ALM_IE clear (RM 38.5.1.12), so a
+        // dropped alarm or a daily re-match leaves it set. The future would then
+        // complete at once and write ISR after write protection is re-engaged,
+        // which is a transfer error (BusFault). Clear it while unlocked, after the
+        // new alarm values are in place and before the interrupt is enabled.
+        self.info.regs().isr().write(|w| w.set_alm_is(true));
         self.info.regs().ier().modify(|w| w.set_alm_ie(true));
         self.enable_write_protect();
         let info = self.info;
