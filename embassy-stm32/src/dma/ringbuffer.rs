@@ -491,31 +491,44 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         fence(Ordering::Release);
 
         let writable = self.sync_len(dma)?.min(buf.len());
-        // Snapshot read_index before the copy so that the returned `remaining`
-        // reflects the buffer state at the time of the write rather than
-        // requiring a second hardware NDTR access and complete_count reset mid-copy.
-        let read_snapshot = self.read_index;
 
-        for i in 0..writable {
-            self.write_buf(i, buf[i]);
+        let write_start = self.write_index;
+        self.copy_into(write_start.pos, &buf[..writable]);
+
+        // The DMA may have caught up with the write position and read from the
+        // copied data meanwhile. All of it is intact if the DMA is still at most
+        // one buffer length ahead of the first word copied. The copy has to
+        // complete before the DMA position is read.
+        fence(Ordering::SeqCst);
+        self.read_index.dma_sync(self.cap(), dma);
+        if self.read_index.diff(self.cap(), &write_start) > 0 as isize {
+            return Err(Error::Overrun);
         }
 
         self.write_index.advance(self.cap(), writable);
 
         let remaining = self
             .cap()
-            .saturating_sub(self.write_index.diff(self.cap(), &read_snapshot) as usize);
+            .saturating_sub(self.write_index.diff(self.cap(), &self.read_index) as usize);
         Ok((writable, remaining))
     }
 
-    fn write_buf(&mut self, offset: usize, value: W) {
-        unsafe {
-            core::ptr::write_volatile(
-                self.dma_buf
-                    .as_mut_ptr()
-                    .add(self.write_index.as_index(self.cap(), offset)),
-                value,
-            )
+    /// Copy `buf.len()` words from `buf` into the DMA buffer, starting at buffer
+    /// position `start` and wrapping at the end of the buffer.
+    ///
+    /// Copies in at most two contiguous runs, so there is no modulo per word.
+    fn copy_into(&mut self, start: usize, buf: &[W]) {
+        let cap = self.cap();
+        assert!(start < cap && buf.len() <= cap);
+        let dst = self.dma_buf.as_mut_ptr();
+        let (head, tail) = buf.split_at(buf.len().min(cap - start));
+        for (i, w) in head.iter().enumerate() {
+            // SAFETY: `start + i < cap`. Volatile, because the DMA reads the buffer.
+            unsafe { core::ptr::write_volatile(dst.add(start + i), *w) };
+        }
+        for (i, w) in tail.iter().enumerate() {
+            // SAFETY: `i < buf.len() - (cap - start) <= start < cap`.
+            unsafe { core::ptr::write_volatile(dst.add(i), *w) };
         }
     }
 }
@@ -740,6 +753,13 @@ mod tests {
             let data = self.peek(n);
             self.dma.race.set(n);
             data
+        }
+
+        /// DMA transfers `n` samples while the next `write` copies, i.e. after the two register
+        /// reads of its first sync. The data is written before the copy, as if the DMA was faster.
+        fn race_during_copy(&mut self, n: usize) {
+            self.race(n);
+            self.dma.race_after.set(2);
         }
     }
 
@@ -1124,6 +1144,28 @@ mod tests {
         t.rb.reset(&mut t.dma);
         assert_eq!(t.write(CAP), Ok((CAP, 0)));
         assert_eq!(t.dma(CAP), seq(5..CAP + 5));
+    }
+
+    #[test]
+    fn write_overread_while_copying() {
+        let mut t = Writer::new();
+        // While the buffer is copied, the DMA reads its first word.
+        t.race_during_copy(1);
+        assert_eq!(t.write(CAP), Err(Error::Overrun));
+        // The buffer reset itself, data is dropped.
+        assert_eq!(t.write(CAP), Ok((CAP, 0)));
+        t.dma(4);
+        assert_eq!(t.write(1), Ok((1, 3)));
+    }
+
+    #[test]
+    fn write_dma_continues_while_copying() {
+        let mut t = Writer::new();
+        t.write(4).unwrap();
+        // Transfers during the copy are counted into remaining.
+        t.race_during_copy(3);
+        assert_eq!(t.write(4), Ok((4, CAP - 5)));
+        assert_eq!(t.write(CAP - 5), Ok((CAP - 5, 0)));
     }
 
     #[test]
