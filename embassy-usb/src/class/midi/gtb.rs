@@ -154,9 +154,15 @@ pub struct GroupTerminalBlock {
     pub string_index: u8,
     /// Default MIDI protocol.
     pub protocol: MidiProtocol,
-    /// Maximum input bandwidth in 10.667 kbps units (0 = unspecified).
+    /// Maximum input bandwidth in units of 4 KB/s (USB MIDI 2.0 §5.4.2, Table 5-6).
+    ///
+    /// `0` means unknown or not fixed. `1` is the rounded classic MIDI rate of 31.25 kbit/s,
+    /// which Table B-22 writes as 32 kbit/s.
     pub max_input_bandwidth: u16,
-    /// Maximum output bandwidth in 10.667 kbps units (0 = unspecified).
+    /// Maximum output bandwidth in units of 4 KB/s (USB MIDI 2.0 §5.4.2, Table 5-6).
+    ///
+    /// `0` means unknown or not fixed. `1` is the rounded classic MIDI rate of 31.25 kbit/s,
+    /// which Table B-22 writes as 32 kbit/s.
     pub max_output_bandwidth: u16,
 }
 
@@ -186,9 +192,9 @@ pub struct GroupTerminalBlockConfig<'d> {
     pub protocol: MidiProtocol,
     /// Optional friendly name string descriptor.
     pub name: Option<&'d str>,
-    /// Maximum input bandwidth (0 = unspecified).
+    /// Maximum input bandwidth in units of 4 KB/s (USB MIDI 2.0 §5.4.2). `0` means unknown or not fixed.
     pub max_input_bandwidth: u16,
-    /// Maximum output bandwidth (0 = unspecified).
+    /// Maximum output bandwidth in units of 4 KB/s (USB MIDI 2.0 §5.4.2). `0` means unknown or not fixed.
     pub max_output_bandwidth: u16,
 }
 

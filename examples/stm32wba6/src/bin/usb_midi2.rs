@@ -118,22 +118,69 @@ async fn main(_spawner: Spawner) {
 
             let mut buf = [0u8; 64];
             loop {
-                match midi.read_packet(&mut buf).await {
-                    Ok(n) => {
-                        info!("Received {} bytes on MIDI endpoint, echoing back...", n);
-                        if let Err(e) = midi.write_packet(&buf[..n]).await {
-                            warn!("Send failed: {:?}", defmt::Debug2Format(&e));
-                            break;
+                // §3.1.1: alternate setting 0 carries MIDI 1.0 event packets.
+                // Alternate setting 1 carries Universal MIDI Packets (§3.2).
+                let disconnected = if midi.is_midi2_active() {
+                    match midi.read_ump(&mut buf).await {
+                        Ok(packets) => {
+                            if !midi.is_midi2_active() {
+                                continue;
+                            }
+                            let mut out = [0u8; 64];
+                            let mut n = 0;
+                            for packet in packets {
+                                let Ok(packet) = packet else { break };
+                                let Ok(written) = packet.to_bytes(&mut out[n..]) else {
+                                    break;
+                                };
+                                n += written;
+                            }
+                            if n == 0 {
+                                continue;
+                            }
+                            info!("Received {} UMP bytes, echoing back...", n);
+                            if let Err(e) = midi.write_ump_bytes(&out[..n]).await {
+                                warn!("Send failed: {:?}", defmt::Debug2Format(&e));
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        Err(EndpointError::Disabled) => {
+                            info!("USB disconnected");
+                            true
+                        }
+                        Err(EndpointError::BufferOverflow) => {
+                            warn!("Buffer overflow on read");
+                            true
                         }
                     }
-                    Err(EndpointError::Disabled) => {
-                        info!("USB disconnected");
-                        break;
+                } else {
+                    match midi.read_packet(&mut buf).await {
+                        Ok(n) => {
+                            if midi.is_midi2_active() {
+                                continue;
+                            }
+                            info!("Received {} MIDI 1.0 bytes, echoing back...", n);
+                            if let Err(e) = midi.write_packet(&buf[..n]).await {
+                                warn!("Send failed: {:?}", defmt::Debug2Format(&e));
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        Err(EndpointError::Disabled) => {
+                            info!("USB disconnected");
+                            true
+                        }
+                        Err(EndpointError::BufferOverflow) => {
+                            warn!("Buffer overflow on read");
+                            true
+                        }
                     }
-                    Err(EndpointError::BufferOverflow) => {
-                        warn!("Buffer overflow on read");
-                        break;
-                    }
+                };
+                if disconnected {
+                    break;
                 }
             }
         }

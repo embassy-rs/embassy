@@ -260,7 +260,7 @@ impl Iterator for MidiDescriptorIterator<'_> {
     }
 }
 
-/// One physical USB bulk endpoint and its ordered virtual-cable jack IDs or GTB IDs.
+/// One physical USB MIDI endpoint and its ordered virtual-cable jack IDs or GTB IDs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct MidiEndpointDescriptor {
@@ -268,8 +268,10 @@ pub struct MidiEndpointDescriptor {
     pub address: u8,
     /// Maximum USB packet size.
     pub max_packet_size: u16,
-    /// Transfer type; only bulk endpoints can be opened.
+    /// Transfer type. MIDI 1.0 uses bulk. MIDI 2.0 also allows interrupt (USB MIDI 2.0 §5.3, Appendix B.8).
     pub ep_type: EndpointType,
+    /// Raw `bInterval`. Zero for bulk (§5.3.1); the polling interval for interrupt (Appendix B.8).
+    pub interval: u8,
     /// Associated embedded jack IDs. Their positions are USB-MIDI cable numbers (MIDI 1.0).
     pub jack_ids: Vec<u8, MAX_MIDI_JACKS>,
     /// Associated Group Terminal Block IDs (MIDI 2.0).
@@ -297,7 +299,7 @@ pub struct MidiStreamingInterface {
     pub in_jacks: Vec<MidiInJack, MAX_MIDI_INTERFACE_JACKS>,
     /// MIDI OUT jacks declared by this interface.
     pub out_jacks: Vec<MidiOutJack, MAX_MIDI_INTERFACE_JACKS>,
-    /// Physical bulk endpoints and their ordered cable associations.
+    /// Physical endpoints and their ordered cable or Group Terminal Block associations.
     pub endpoints: Vec<MidiEndpointDescriptor, MAX_MIDI_ENDPOINTS>,
 }
 
@@ -338,6 +340,7 @@ impl MidiStreamingInterface {
                             address: endpoint.endpoint_address,
                             max_packet_size: endpoint.max_packet_size,
                             ep_type: endpoint.ep_type(),
+                            interval: endpoint.interval,
                             jack_ids: Vec::new(),
                             group_terminal_block_ids: Vec::new(),
                         })

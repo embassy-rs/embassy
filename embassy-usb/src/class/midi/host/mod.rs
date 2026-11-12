@@ -521,6 +521,10 @@ pub struct MidiEndpoint {
     pub address: u8,
     /// Maximum USB packet size.
     pub max_packet_size: u16,
+    /// Transfer type. USB MIDI 2.0 §5.3 allows bulk or interrupt.
+    pub ep_type: embassy_usb_driver::EndpointType,
+    /// Raw `bInterval`. Zero for bulk (§5.3.1); the polling interval for interrupt (Appendix B.8).
+    pub interval: u8,
     associated_ids: [u8; MAX_ASSOCIATED_IDS],
     associated_count: u8,
 }
@@ -549,6 +553,8 @@ impl MidiEndpoint {
         Ok(Self {
             address: endpoint.address,
             max_packet_size: endpoint.max_packet_size,
+            ep_type: endpoint.ep_type,
+            interval: endpoint.interval,
             associated_ids: array,
             associated_count: ids.len() as u8,
         })
@@ -558,7 +564,8 @@ impl MidiEndpoint {
         let mut descriptor = MidiEndpointDescriptor {
             address: self.address,
             max_packet_size: self.max_packet_size,
-            ep_type: embassy_usb_driver::EndpointType::Bulk,
+            ep_type: self.ep_type,
+            interval: self.interval,
             jack_ids: Vec::new(),
             group_terminal_block_ids: Vec::new(),
         };
@@ -612,8 +619,14 @@ impl MidiInfo {
         })
     }
 
-    /// Discover the first MIDI 2.0 function: an alternate setting reporting `bcdMSC >= 0x0200`, one endpoint per direction.
+    /// Discover the first MIDI 2.0 function: an alternate setting reporting `bcdMSC >= 0x0200`,
+    /// at most one endpoint per direction.
+    ///
+    /// Endpoints may be bulk or interrupt (USB MIDI 2.0 §3.3.2, §5.3). Appendix B.8 is an
+    /// interrupt IN endpoint beside a bulk OUT endpoint.
     pub fn midi2_from_config(config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
+        use embassy_usb_driver::EndpointType;
+
         let interfaces = parse_midi_interfaces_for_device(&enum_info.device_desc, config_desc)?;
         let interface = interfaces
             .iter()
@@ -623,7 +636,8 @@ impl MidiInfo {
         let mut input_endpoint = None;
         let mut output_endpoint = None;
         for endpoint in &interface.endpoints {
-            if endpoint.ep_type != embassy_usb_driver::EndpointType::Bulk {
+            // §4: one or more MIDI endpoints, each bulk or interrupt (§5.3.1).
+            if !matches!(endpoint.ep_type, EndpointType::Bulk | EndpointType::Interrupt) {
                 return Err(MidiError::UnsupportedTopology);
             }
             let slot = if endpoint.is_in() {
@@ -637,6 +651,9 @@ impl MidiInfo {
             {
                 return Err(MidiError::UnsupportedTopology);
             }
+        }
+        if input_endpoint.is_none() && output_endpoint.is_none() {
+            return Err(MidiError::NoInterface);
         }
 
         Ok(Self {
@@ -1165,6 +1182,7 @@ mod tests {
             address: 0x81,
             max_packet_size: 64,
             ep_type: embassy_usb_driver::EndpointType::Bulk,
+            interval: 0,
             jack_ids: Vec::from_slice(&[3, 7]).unwrap(),
             group_terminal_block_ids: Vec::new(),
         };
@@ -1186,6 +1204,7 @@ mod tests {
             address: 0x81,
             max_packet_size: 64,
             ep_type: embassy_usb_driver::EndpointType::Bulk,
+            interval: 0,
             jack_ids: Vec::from_slice(&[3, 7]).unwrap(),
             group_terminal_block_ids: Vec::new(),
         };
@@ -1208,6 +1227,7 @@ mod tests {
             address: 0x02,
             max_packet_size: 64,
             ep_type: embassy_usb_driver::EndpointType::Bulk,
+            interval: 0,
             jack_ids: Vec::new(),
             group_terminal_block_ids: Vec::new(),
         };
@@ -1234,6 +1254,7 @@ mod tests {
             address,
             max_packet_size: 64,
             ep_type: embassy_usb_driver::EndpointType::Bulk,
+            interval: 0,
             jack_ids: Vec::new(),
             group_terminal_block_ids: Vec::new(),
         }
@@ -1464,22 +1485,32 @@ mod tests {
     }
 
     #[test]
-    fn midi2_interrupt_endpoint_is_unsupported_but_midi1_still_opens() {
+    fn midi2_interrupt_in_endpoint_is_discovered() {
+        use embassy_usb_driver::EndpointType;
+
+        use crate::host::test_utils::{MockHost, MockState};
+
         let enum_info = crate::host::test_utils::enumeration_info();
         let mut config = [0u8; MIDI2_CONFIG.len()];
         config.copy_from_slice(MIDI2_CONFIG);
-        // Make the MIDI 2.0 setting's IN endpoint an interrupt endpoint.
+        // Appendix B.8: the MIDI 2.0 IN endpoint is interrupt, bInterval 1 (full speed, 1 ms).
         let in_endpoint = config.windows(4).rposition(|w| w == [7, 5, 0x81, 2]).unwrap();
         config[in_endpoint + 3] = 3;
+        config[in_endpoint + 6] = 1;
 
-        assert!(matches!(
-            MidiInfo::midi2_from_config(&config, &enum_info),
-            Err(MidiError::UnsupportedTopology)
-        ));
+        let info = MidiInfo::midi2_from_config(&config, &enum_info).unwrap();
+        assert_eq!(info.version, MidiVersion::Midi2);
+        let input = info.input_endpoint().unwrap();
+        assert_eq!((input.ep_type, input.interval), (EndpointType::Interrupt, 1));
+        assert_eq!(info.output_endpoint().unwrap().ep_type, EndpointType::Bulk);
         assert_eq!(
             MidiInfo::discover(&config, &enum_info).unwrap().version,
-            MidiVersion::Midi1
+            MidiVersion::Midi2
         );
+
+        let state = MockState::new();
+        let host = MockHost::new(&state);
+        assert!(Midi2Host::new(&host, info, &enum_info).is_ok());
     }
 
     #[test]

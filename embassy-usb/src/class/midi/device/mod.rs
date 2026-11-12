@@ -1,5 +1,7 @@
 //! MIDI class implementation.
 
+use core::sync::atomic::{AtomicU8, Ordering};
+
 use super::{
     CS_GR_TRM_BLOCK, GR_TRM_BLOCK_HEADER_LEN, GR_TRM_BLOCK_LEN, GroupTerminalBlock, GroupTerminalBlockConfig, MAX_GTBS,
     MAX_MIDI_JACKS, MAX_UMP_BYTES, MIDI_IN_JACK_LEN, MIDI_IN_JACK_SUBTYPE, MIDI_OUT_JACK_BASE_LEN,
@@ -105,7 +107,7 @@ pub struct MidiClassState<'d> {
     gtb_names: [Option<&'d str>; MAX_GTBS],
     gtb_count: usize,
     interface_number: u8,
-    active_alt: u8,
+    active_alt: AtomicU8,
     gtb_descriptors: [u8; GR_TRM_BLOCK_HEADER_LEN as usize + MAX_GTBS * GR_TRM_BLOCK_LEN as usize],
     gtb_len: usize,
 }
@@ -127,7 +129,7 @@ impl<'d> MidiClassState<'d> {
             gtb_names: [None; MAX_GTBS],
             gtb_count: 0,
             interface_number: 0,
-            active_alt: 0,
+            active_alt: AtomicU8::new(0),
             gtb_descriptors: [0u8; GR_TRM_BLOCK_HEADER_LEN as usize + MAX_GTBS * GR_TRM_BLOCK_LEN as usize],
             gtb_len: 0,
         }
@@ -169,12 +171,12 @@ impl<'d> MidiClassState<'d> {
 
     /// Returns the currently active alternate setting (0 for MIDI 1.0, 1 for MIDI 2.0).
     pub fn active_alternate_setting(&self) -> u8 {
-        self.active_alt
+        self.active_alt.load(Ordering::Relaxed)
     }
 
     /// Returns whether MIDI 2.0 (Alternate Setting 1) is currently active.
     pub fn is_midi2_active(&self) -> bool {
-        self.active_alt == 1
+        self.active_alternate_setting() == MIDI2_ALTERNATE_SETTING
     }
 }
 
@@ -185,7 +187,7 @@ impl Handler for MidiClassState<'_> {
 
     fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
         if iface.0 == self.interface_number {
-            self.active_alt = alternate_setting;
+            self.active_alt.store(alternate_setting, Ordering::Relaxed);
         }
     }
 
@@ -231,7 +233,23 @@ fn endpoint_block_ids(blocks: &[GroupTerminalBlockConfig<'_>], host_to_device: b
 pub struct MidiClass<'d, D: Driver<'d>> {
     read_ep: Option<D::EndpointOut>,
     write_ep: Option<D::EndpointIn>,
+    active_alt: ActiveAlt,
 }
+
+/// Pointer to the alternate-setting flag shared with the control handler.
+///
+/// The pointee is an [`AtomicU8`] that outlives the class (the caller's [`MidiClassState`],
+/// or [`MIDI1_ONLY`]). Every access is an atomic load or store, so the pointer may move
+/// between the USB task and the application task.
+struct ActiveAlt(*const AtomicU8);
+
+// Safety: see the struct comment. The pointee is an `AtomicU8` and is not freed while this exists.
+unsafe impl Send for ActiveAlt {}
+// Safety: see the struct comment.
+unsafe impl Sync for ActiveAlt {}
+
+/// Alternate setting observed by [`MidiClass::new`], which cannot enable MIDI 2.0.
+static MIDI1_ONLY: AtomicU8 = AtomicU8::new(0);
 
 impl<'d, D: Driver<'d>> MidiClass<'d, D> {
     /// Creates a new `MidiClass` with the provided UsbBuilder and configuration.
@@ -243,7 +261,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             config.midi2.is_none(),
             "MidiClass::new_with_names must be used when MIDI 2.0 is configured"
         );
-        Self::build(builder, config, &mut MidiClassState::new())
+        Self::build(builder, config, &mut MidiClassState::new(), &MIDI1_ONLY)
     }
 
     /// Creates a new `MidiClass` with the provided UsbBuilder that names its interface, jacks,
@@ -276,7 +294,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             gtb_names,
             gtb_count,
             interface_number: 0,
-            active_alt: 0,
+            active_alt: AtomicU8::new(0),
             gtb_descriptors: [0u8; GR_TRM_BLOCK_HEADER_LEN as usize + MAX_GTBS * GR_TRM_BLOCK_LEN as usize],
             gtb_len: 0,
         };
@@ -309,14 +327,26 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             }
             state.gtb_len =
                 serialize_gtb_descriptors(&gtbs, &mut state.gtb_descriptors).expect("invalid Group Terminal Block");
+            // USB MIDI 2.0 §4: one or more endpoints. §5.3.2: each endpoint associates
+            // 1..=16 distinct Group Terminals. A direction with no blocks is omitted.
+            let mut any_endpoint = false;
             for host_to_device in [true, false] {
                 let ids = endpoint_block_ids(midi2_config.group_terminal_blocks, host_to_device);
+                if ids.is_empty() {
+                    continue;
+                }
+                any_endpoint = true;
                 endpoint_groups(&gtbs, &ids, host_to_device)
-                    .expect("each endpoint needs distinct groups in 1..=16 blocks");
+                    .expect("a MIDI 2.0 endpoint needs 1..=16 distinct groups (USB MIDI 2.0 §5.3.2)");
             }
+            assert!(
+                any_endpoint,
+                "MIDI 2.0 needs at least one Group Terminal Block (USB MIDI 2.0 §4, §5.4)"
+            );
         }
 
-        let class = Self::build(builder, config, state);
+        let active_alt = &state.active_alt as *const AtomicU8;
+        let class = Self::build(builder, config, state, active_alt);
         builder.handler(state);
         class
     }
@@ -331,7 +361,12 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
     }
 
     /// Creates a new `MidiClass` with the provided UsbBuilder and configuration.
-    fn build(builder: &mut Builder<'d, D>, config: MidiClassConfig<'d>, names: &mut MidiClassState<'d>) -> Self {
+    fn build(
+        builder: &mut Builder<'d, D>,
+        config: MidiClassConfig<'d>,
+        names: &mut MidiClassState<'d>,
+        active_alt: *const AtomicU8,
+    ) -> Self {
         let MidiClassConfig {
             n_in_jacks,
             n_out_jacks,
@@ -357,7 +392,16 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
 
         let mut func = builder.function(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE);
 
-        let has_midi2 = config.midi2.is_some();
+        // USB MIDI 2.0 §4 allows a function with only one direction. A direction is
+        // described on alternate setting 1 only when a Group Terminal Block carries it.
+        let midi2_from_host = config
+            .midi2
+            .as_ref()
+            .is_some_and(|midi2| !endpoint_block_ids(midi2.group_terminal_blocks, true).is_empty());
+        let midi2_to_host = config
+            .midi2
+            .as_ref()
+            .is_some_and(|midi2| !endpoint_block_ids(midi2.group_terminal_blocks, false).is_empty());
 
         // Audio control interface
         let mut iface = func.interface();
@@ -383,12 +427,12 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         // alternate setting that uses an endpoint writes one with
         // `endpoint_descriptor`.
         //
-        // An endpoint is only described in Alt 0 when the corresponding jack
-        // count is non-zero, but it is still allocated when MIDI 2.0 needs it,
-        // so both alternate settings always reference the same addresses.
-        let read_ep = (n_out_jacks > 0 || has_midi2)
+        // An endpoint is described in Alt 0 when the corresponding jack count is
+        // non-zero, and in Alt 1 when a Group Terminal Block carries that direction.
+        // The same address is used for both (§3.1.1 shares the streaming interface).
+        let read_ep = (n_out_jacks > 0 || midi2_from_host)
             .then(|| alt.alloc_endpoint_out(EndpointType::Bulk, None, max_packet_size, 0, EndpointOptions::new()));
-        let write_ep = (n_in_jacks > 0 || has_midi2)
+        let write_ep = (n_in_jacks > 0 || midi2_to_host)
             .then(|| alt.alloc_endpoint_in(EndpointType::Bulk, None, max_packet_size, 0, EndpointOptions::new()));
 
         if n_in_jacks > 0 || n_out_jacks > 0 {
@@ -476,6 +520,8 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                         for i in 0..n_out_jacks {
                             endpoint_data[2 + i as usize] = in_jack_id_emb(i);
                         }
+                        // USB MIDI 1.0 appends bRefresh and bSynchAddress. USB MIDI 2.0 does not
+                        // (note under Table 5-3); alternate setting 1 passes an empty tail.
                         alt.endpoint_descriptor(
                             read_ep.as_ref().unwrap().info(),
                             SynchronizationType::NoSynchronization,
@@ -547,27 +593,50 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                 data
             };
 
-            // Reuse the bulk endpoints allocated for Alt 0. Only the
-            // class-specific endpoint descriptor differs between the two
-            // alternate settings.
-            alt1.endpoint_descriptor(
-                read_ep.as_ref().unwrap().info(),
-                SynchronizationType::NoSynchronization,
-                UsageType::DataEndpoint,
-                &[0, 0],
-            );
-            alt1.descriptor(CS_ENDPOINT, &endpoint_blocks(true));
-
-            alt1.endpoint_descriptor(
-                write_ep.as_ref().unwrap().info(),
-                SynchronizationType::NoSynchronization,
-                UsageType::DataEndpoint,
-                &[0, 0],
-            );
-            alt1.descriptor(CS_ENDPOINT, &endpoint_blocks(false));
+            // Table 5-3: the standard MIDI 2.0 endpoint descriptor is 7 bytes. bRefresh and
+            // bSynchAddress are MIDI 1.0 only (note under Table 5-3; Appendix B.7.1 and B.8.1).
+            // §5.3 allows bulk or interrupt; this class shares Alt 0's bulk endpoints, which
+            // USB MIDI 1.0 requires to be bulk.
+            if midi2_from_host {
+                alt1.endpoint_descriptor(
+                    read_ep.as_ref().unwrap().info(),
+                    SynchronizationType::NoSynchronization,
+                    UsageType::DataEndpoint,
+                    &[],
+                );
+                alt1.descriptor(CS_ENDPOINT, &endpoint_blocks(true));
+            }
+            if midi2_to_host {
+                alt1.endpoint_descriptor(
+                    write_ep.as_ref().unwrap().info(),
+                    SynchronizationType::NoSynchronization,
+                    UsageType::DataEndpoint,
+                    &[],
+                );
+                alt1.descriptor(CS_ENDPOINT, &endpoint_blocks(false));
+            }
         }
 
-        MidiClass { read_ep, write_ep }
+        MidiClass {
+            read_ep,
+            write_ep,
+            active_alt: ActiveAlt(active_alt),
+        }
+    }
+
+    /// Returns the currently active alternate setting (0 for MIDI 1.0, 1 for MIDI 2.0).
+    ///
+    /// The host selects it with `SET_INTERFACE` (USB MIDI 2.0 §3.1.1).
+    pub fn active_alternate_setting(&self) -> u8 {
+        // Safety: `ActiveAlt` points at `MidiClassState::active_alt` for `'d`, or at
+        // `MIDI1_ONLY` for [`Self::new`]. Both outlive this class, and only atomic
+        // operations touch the cell.
+        unsafe { (*self.active_alt.0).load(Ordering::Relaxed) }
+    }
+
+    /// Returns whether MIDI 2.0 (Alternate Setting 1) is currently active.
+    pub fn is_midi2_active(&self) -> bool {
+        self.active_alternate_setting() == MIDI2_ALTERNATE_SETTING
     }
 
     /// Gets the maximum packet size in bytes for the bulk endpoints.

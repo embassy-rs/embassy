@@ -1,6 +1,8 @@
-//! Low-level USB-MIDI bulk endpoint transports.
+//! Low-level USB-MIDI endpoint transports.
 //!
-//! The MIDI 1.0 and UMP pipes open the same bulk endpoints and differ only in their framing checks.
+//! MIDI 1.0 opens bulk endpoints. MIDI 2.0 opens bulk or interrupt endpoints
+//! (USB MIDI 2.0 §3.3.2 and §5.3; Appendix B.7 is bulk OUT and Appendix B.8 is
+//! interrupt IN). The MIDI 1.0 and UMP pipes differ only in their framing checks.
 
 use embassy_usb_driver::host::{UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{EndpointAddress, EndpointInfo, EndpointType};
@@ -23,56 +25,95 @@ fn check_ump_len(len: usize) -> Result<(), MidiPacketError> {
 fn endpoint_info(endpoint: &MidiEndpointDescriptor) -> EndpointInfo {
     EndpointInfo {
         addr: EndpointAddress::from(endpoint.address),
-        ep_type: EndpointType::Bulk,
+        ep_type: endpoint.ep_type,
         max_packet_size: endpoint.max_packet_size,
-        interval_ms: 0,
+        // Full-speed interrupt `bInterval` is a frame count (Appendix B.8). Bulk leaves it at 0 (§5.3.1).
+        interval_ms: endpoint.interval,
         max_burst: 0,
+    }
+}
+
+enum DataIn<'d, A: UsbHostAllocator<'d>> {
+    Bulk(A::Pipe<pipe::Bulk, pipe::In>),
+    Interrupt(A::Pipe<pipe::Interrupt, pipe::In>),
+}
+
+enum DataOut<'d, A: UsbHostAllocator<'d>> {
+    Bulk(A::Pipe<pipe::Bulk, pipe::Out>),
+    Interrupt(A::Pipe<pipe::Interrupt, pipe::Out>),
+}
+
+impl<'d, A: UsbHostAllocator<'d>> DataIn<'d, A> {
+    fn open(alloc: &A, endpoint: &MidiEndpointDescriptor, enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
+        if !endpoint.is_in() {
+            return Err(MidiError::WrongDirection);
+        }
+        let info = endpoint_info(endpoint);
+        match endpoint.ep_type {
+            EndpointType::Interrupt => alloc
+                .alloc_pipe::<pipe::Interrupt, pipe::In>(enum_info.device_address, &info, enum_info.split())
+                .map(Self::Interrupt)
+                .map_err(|_| MidiError::NoPipe),
+            EndpointType::Bulk => alloc
+                .alloc_pipe::<pipe::Bulk, pipe::In>(enum_info.device_address, &info, enum_info.split())
+                .map(Self::Bulk)
+                .map_err(|_| MidiError::NoPipe),
+            _ => Err(MidiError::UnsupportedTopology),
+        }
+    }
+
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, MidiError> {
+        match self {
+            Self::Bulk(pipe) => Ok(pipe.request_in(buf).await?),
+            Self::Interrupt(pipe) => Ok(pipe.request_in(buf).await?),
+        }
+    }
+}
+
+impl<'d, A: UsbHostAllocator<'d>> DataOut<'d, A> {
+    fn open(alloc: &A, endpoint: &MidiEndpointDescriptor, enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
+        if endpoint.is_in() {
+            return Err(MidiError::WrongDirection);
+        }
+        let info = endpoint_info(endpoint);
+        match endpoint.ep_type {
+            EndpointType::Interrupt => alloc
+                .alloc_pipe::<pipe::Interrupt, pipe::Out>(enum_info.device_address, &info, enum_info.split())
+                .map(Self::Interrupt)
+                .map_err(|_| MidiError::NoPipe),
+            EndpointType::Bulk => alloc
+                .alloc_pipe::<pipe::Bulk, pipe::Out>(enum_info.device_address, &info, enum_info.split())
+                .map(Self::Bulk)
+                .map_err(|_| MidiError::NoPipe),
+            _ => Err(MidiError::UnsupportedTopology),
+        }
+    }
+
+    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), MidiError> {
+        match self {
+            Self::Bulk(pipe) => Ok(pipe.request_out(buf, ensure_transaction_end).await?),
+            Self::Interrupt(pipe) => Ok(pipe.request_out(buf, ensure_transaction_end).await?),
+        }
     }
 }
 
 /// A transfer ending on a full-size packet is terminated with a zero-length packet.
 const ENSURE_TRANSACTION_END: bool = true;
 
-fn open_in<'d, A: UsbHostAllocator<'d>>(
-    alloc: &A,
-    endpoint: &MidiEndpointDescriptor,
-    enum_info: &EnumerationInfo,
-) -> Result<A::Pipe<pipe::Bulk, pipe::In>, MidiError> {
-    if !endpoint.is_in() {
-        return Err(MidiError::WrongDirection);
-    }
-    alloc
-        .alloc_pipe::<pipe::Bulk, pipe::In>(enum_info.device_address, &endpoint_info(endpoint), enum_info.split())
-        .map_err(|_| MidiError::NoPipe)
-}
-
-fn open_out<'d, A: UsbHostAllocator<'d>>(
-    alloc: &A,
-    endpoint: &MidiEndpointDescriptor,
-    enum_info: &EnumerationInfo,
-) -> Result<A::Pipe<pipe::Bulk, pipe::Out>, MidiError> {
-    if endpoint.is_in() {
-        return Err(MidiError::WrongDirection);
-    }
-    alloc
-        .alloc_pipe::<pipe::Bulk, pipe::Out>(enum_info.device_address, &endpoint_info(endpoint), enum_info.split())
-        .map_err(|_| MidiError::NoPipe)
-}
-
-/// Device-to-host USB-MIDI bulk transport.
+/// Device-to-host USB-MIDI transport.
 pub struct MidiInputPipe<'d, A: UsbHostAllocator<'d>> {
-    pipe: A::Pipe<pipe::Bulk, pipe::In>,
+    pipe: DataIn<'d, A>,
 }
 
 impl<'d, A: UsbHostAllocator<'d>> MidiInputPipe<'d, A> {
     /// Allocate a pipe for a device-to-host MIDI endpoint.
     pub fn open(alloc: &A, endpoint: &MidiEndpointDescriptor, enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
         Ok(Self {
-            pipe: open_in(alloc, endpoint, enum_info)?,
+            pipe: DataIn::open(alloc, endpoint, enum_info)?,
         })
     }
 
-    /// Receive one USB bulk transfer containing complete event packets.
+    /// Receive one USB transfer containing complete event packets.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, MidiError> {
         check_transfer_len(buffer.len())?;
         let length = self.pipe.request_in(buffer).await?;
@@ -84,20 +125,20 @@ impl<'d, A: UsbHostAllocator<'d>> MidiInputPipe<'d, A> {
     }
 }
 
-/// Host-to-device USB-MIDI bulk transport.
+/// Host-to-device USB-MIDI transport.
 pub struct MidiOutputPipe<'d, A: UsbHostAllocator<'d>> {
-    pipe: A::Pipe<pipe::Bulk, pipe::Out>,
+    pipe: DataOut<'d, A>,
 }
 
 impl<'d, A: UsbHostAllocator<'d>> MidiOutputPipe<'d, A> {
     /// Allocate a pipe for a host-to-device MIDI endpoint.
     pub fn open(alloc: &A, endpoint: &MidiEndpointDescriptor, enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
         Ok(Self {
-            pipe: open_out(alloc, endpoint, enum_info)?,
+            pipe: DataOut::open(alloc, endpoint, enum_info)?,
         })
     }
 
-    /// Send one USB bulk transfer containing complete event packets.
+    /// Send one USB transfer containing complete event packets.
     pub async fn write(&mut self, packets: &[u8]) -> Result<(), MidiError> {
         check_transfer_len(packets.len())?;
         self.pipe.request_out(packets, ENSURE_TRANSACTION_END).await?;
@@ -105,20 +146,20 @@ impl<'d, A: UsbHostAllocator<'d>> MidiOutputPipe<'d, A> {
     }
 }
 
-/// Device-to-host Universal MIDI Packet (UMP / MIDI 2.0) bulk transport.
+/// Device-to-host Universal MIDI Packet (UMP / MIDI 2.0) transport.
 pub struct UmpInputPipe<'d, A: UsbHostAllocator<'d>> {
-    pipe: A::Pipe<pipe::Bulk, pipe::In>,
+    pipe: DataIn<'d, A>,
 }
 
 impl<'d, A: UsbHostAllocator<'d>> UmpInputPipe<'d, A> {
     /// Allocate a pipe for a device-to-host MIDI 2.0 endpoint.
     pub fn open(alloc: &A, endpoint: &MidiEndpointDescriptor, enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
         Ok(Self {
-            pipe: open_in(alloc, endpoint, enum_info)?,
+            pipe: DataIn::open(alloc, endpoint, enum_info)?,
         })
     }
 
-    /// Receive one USB bulk transfer containing UMP data.
+    /// Receive one USB transfer containing UMP data.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, MidiError> {
         check_ump_len(buffer.len())?;
         let length = self.pipe.request_in(buffer).await?;
@@ -136,20 +177,20 @@ impl<'d, A: UsbHostAllocator<'d>> UmpInputPipe<'d, A> {
     }
 }
 
-/// Host-to-device Universal MIDI Packet (UMP / MIDI 2.0) bulk transport.
+/// Host-to-device Universal MIDI Packet (UMP / MIDI 2.0) transport.
 pub struct UmpOutputPipe<'d, A: UsbHostAllocator<'d>> {
-    pipe: A::Pipe<pipe::Bulk, pipe::Out>,
+    pipe: DataOut<'d, A>,
 }
 
 impl<'d, A: UsbHostAllocator<'d>> UmpOutputPipe<'d, A> {
     /// Allocate a pipe for a host-to-device MIDI 2.0 endpoint.
     pub fn open(alloc: &A, endpoint: &MidiEndpointDescriptor, enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
         Ok(Self {
-            pipe: open_out(alloc, endpoint, enum_info)?,
+            pipe: DataOut::open(alloc, endpoint, enum_info)?,
         })
     }
 
-    /// Send raw UMP bytes over USB bulk.
+    /// Send raw UMP bytes.
     pub async fn write(&mut self, bytes: &[u8]) -> Result<(), MidiError> {
         check_ump_len(bytes.len())?;
         self.pipe.request_out(bytes, ENSURE_TRANSACTION_END).await?;

@@ -1597,6 +1597,9 @@ fn test_midi2_device_enumeration_and_control() {
                     let addr = desc[offset + 2];
                     let direction = if addr & 0x80 != 0 { 0 } else { 1 };
                     endpoints_by_alt[alt][direction] = Some(addr);
+                    // USB MIDI 2.0 §5.3.1 Table 5-3 and Appendix B.7.1/B.8.1: bLength is 7.
+                    // Alternate setting 0 is MIDI 1.0, which adds bRefresh and bSynchAddress.
+                    assert_eq!(len, if alt == 1 { 7 } else { 9 });
                 }
             }
             _ => {}
@@ -1718,4 +1721,75 @@ fn test_midi2_device_enumeration_and_control() {
         }
         InResponse::Rejected => panic!("GET_DESCRIPTOR for GTB was rejected"),
     }
+}
+
+#[cfg(feature = "class-midi")]
+#[test]
+fn midi2_output_only_omits_the_unused_endpoint() {
+    use crate::class::midi::device::{Midi2Config, MidiClass, MidiClassConfig, MidiClassState};
+    use crate::class::midi::{GroupTerminalBlockConfig, GroupTerminalBlockType, MidiProtocol};
+
+    // USB MIDI 2.0 §4: a function may have one endpoint. An output-only block is the IN endpoint.
+    static GTBS: &[GroupTerminalBlockConfig<'static>] = &[GroupTerminalBlockConfig {
+        block_id: 1,
+        block_type: GroupTerminalBlockType::OutputOnly,
+        first_group: 0,
+        num_groups: 1,
+        protocol: MidiProtocol::Midi2_0,
+        name: None,
+        max_input_bandwidth: 0,
+        max_output_bandwidth: 1,
+    }];
+
+    let mut state = MidiClassState::new();
+    let mut config_descriptor = [0; 512];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let _midi = MidiClass::new_with_names(
+        &mut builder,
+        &mut state,
+        MidiClassConfig {
+            n_in_jacks: 0,
+            n_out_jacks: 0,
+            max_packet_size: 64,
+            interface_name: None,
+            in_jack_names: &[],
+            out_jack_names: &[],
+            midi2: Some(Midi2Config {
+                group_terminal_blocks: GTBS,
+            }),
+        },
+    );
+    let usb = builder.build();
+    let desc = usb.inner.config_descriptor;
+
+    let mut alt1_endpoints = heapless::Vec::<(u8, usize), 4>::new();
+    let mut on_alt1 = false;
+    let mut offset = 0;
+    while offset + 1 < desc.len() {
+        let len = desc[offset] as usize;
+        if len < 2 || offset + len > desc.len() {
+            break;
+        }
+        match desc[offset + 1] {
+            descriptor_type::INTERFACE if desc[offset + 5] == 1 && desc[offset + 6] == 3 => {
+                on_alt1 = desc[offset + 3] == 1;
+            }
+            descriptor_type::ENDPOINT if on_alt1 => {
+                alt1_endpoints.push((desc[offset + 2], len)).unwrap();
+            }
+            _ => {}
+        }
+        offset += len;
+    }
+    // One IN endpoint, standard descriptor length 7 (Table 5-3).
+    assert_eq!(alt1_endpoints.as_slice(), &[(0x81, 7)]);
 }
