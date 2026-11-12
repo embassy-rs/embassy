@@ -9,11 +9,11 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::pac::RCC;
 use crate::pac::common::{RW, Reg};
-#[cfg(not(any(stm32c0, stm32c5, stm32h5, stm32h7, stm32h7rs, stm32n6)))]
+#[cfg(not(any(stm32c0, stm32c5, stm32g5, stm32h5, stm32h7, stm32h7rs, stm32n6)))]
 use crate::pac::rcc::regs::Csr as Raw;
 #[cfg(stm32c0)]
 use crate::pac::rcc::regs::Csr2 as Raw;
-#[cfg(any(stm32c5, stm32h5, stm32h7, stm32h7rs, stm32n6))]
+#[cfg(any(stm32c5, stm32g5, stm32h5, stm32h7, stm32h7rs, stm32n6))]
 use crate::pac::rcc::regs::Rsr as Raw;
 
 #[cfg(stm32c0)]
@@ -21,12 +21,12 @@ fn reg() -> Reg<Raw, RW> {
     RCC.csr2()
 }
 
-#[cfg(any(stm32c5, stm32h5, stm32h7, stm32h7rs, stm32n6))]
+#[cfg(any(stm32c5, stm32g5, stm32h5, stm32h7, stm32h7rs, stm32n6))]
 fn reg() -> Reg<Raw, RW> {
     RCC.rsr()
 }
 
-#[cfg(not(any(stm32c0, stm32c5, stm32h5, stm32h7, stm32h7rs, stm32n6)))]
+#[cfg(not(any(stm32c0, stm32c5, stm32g5, stm32h5, stm32h7, stm32h7rs, stm32n6)))]
 fn reg() -> Reg<Raw, RW> {
     RCC.csr()
 }
