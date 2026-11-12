@@ -899,7 +899,7 @@ fn init_hw(config: Config) -> Peripherals {
         rcc::enable_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5)))]
         rcc::enable_and_reset_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5)))]
+        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5, stm32g5)))]
         rcc::enable_and_reset_with_cs_no_refcount::<peripherals::PWR>(cs);
         #[cfg(all(
             flash,
