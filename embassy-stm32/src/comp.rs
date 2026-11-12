@@ -254,7 +254,7 @@ impl<'d, T: Instance> Comp<'d, T, Async> {
         config: Config,
     ) -> Self {
         T::info().rcc.enable_and_reset();
-        inp.set_as_analog();
+        inp.pin_number().set_as_analog();
 
         Self::configure(inp.channel(), config);
 
@@ -282,7 +282,7 @@ impl<'d, T: Instance> Comp<'d, T, Async> {
         config: Config,
     ) -> Self {
         T::info().rcc.enable_and_reset();
-        inp.set_as_analog();
+        inp.pin_number().set_as_analog();
 
         Self::configure(inp.channel(), config);
 
@@ -310,8 +310,8 @@ impl<'d, T: Instance> Comp<'d, T, Async> {
         config: Config,
     ) -> Self {
         T::info().rcc.enable_and_reset();
-        inp.set_as_analog();
-        inm.set_as_analog();
+        inp.pin_number().set_as_analog();
+        inm.pin_number().set_as_analog();
 
         // Configure with the pin's channel
         Self::configure_with_input_minus_pin(inp.channel(), inm.channel(), config);
@@ -341,8 +341,8 @@ impl<'d, T: Instance> Comp<'d, T, Async> {
         config: Config,
     ) -> Self {
         T::info().rcc.enable_and_reset();
-        inp.set_as_analog();
-        inm.set_as_analog();
+        inp.pin_number().set_as_analog();
+        inm.pin_number().set_as_analog();
 
         // Configure with the pin's channel
         Self::configure_with_input_minus_pin(inp.channel(), inm.channel(), config);
@@ -467,7 +467,7 @@ impl<'d, T: Instance> Comp<'d, T, Blocking> {
         config: Config,
     ) -> Self {
         T::info().rcc.enable_and_reset();
-        inp.set_as_analog();
+        inp.pin_number().set_as_analog();
 
         Self::configure(inp.channel(), config);
 

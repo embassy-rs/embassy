@@ -6,10 +6,12 @@ use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use super::{
-    CDC_SUBCLASS_ACM, LineCoding, REQ_SET_CONTROL_LINE_STATE, REQ_SET_LINE_CODING, USB_CLASS_CDC, USB_CLASS_CDC_DATA,
+    CDC_PROTOCOL_NONE, CDC_SUBCLASS_ACM, LineCoding, REQ_SET_CONTROL_LINE_STATE, REQ_SET_LINE_CODING, USB_CLASS_CDC,
+    USB_CLASS_CDC_DATA,
 };
+use crate::host::class::{ClassError, HostClass};
 use crate::host::control::SetupPacket;
-use crate::host::descriptor::ConfigurationDescriptorChain;
+use crate::host::descriptor::{ClassCode, ClassMatch, ConfigurationDescriptorChain, InterfaceDescriptor};
 use crate::host::handler::EnumerationInfo;
 
 /// CDC ACM host class driver error.
@@ -42,6 +44,16 @@ impl core::fmt::Display for CdcAcmError {
 
 impl core::error::Error for CdcAcmError {}
 
+impl From<CdcAcmError> for ClassError {
+    fn from(e: CdcAcmError) -> Self {
+        match e {
+            CdcAcmError::Transfer(e) => Self::Transfer(e),
+            CdcAcmError::NoInterface => Self::NoMatch,
+            CdcAcmError::NoPipe => Self::NoPipe,
+        }
+    }
+}
+
 impl embedded_io_async::Error for CdcAcmError {
     fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
@@ -58,7 +70,7 @@ impl embedded_io_async::Error for CdcAcmError {
 }
 
 /// Information about a CDC ACM interface found in a configuration descriptor.
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CdcAcmInfo {
     /// CDC communication interface number.
@@ -75,19 +87,37 @@ pub struct CdcAcmInfo {
     pub bulk_out_mps: u16,
 }
 
+/// Matches the CDC ACM communication interface.
+///
+/// A CDC ACM function is split across a communication interface and a data
+/// interface, so this matcher only identifies the former. [`find_cdc_acm`]
+/// finds the associated data interface and endpoints.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct CdcAcmMatcher;
+
+impl ClassMatch for CdcAcmMatcher {
+    const NAME: &'static str = "CDC ACM";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == USB_CLASS_CDC && iface.interface_subclass == CDC_SUBCLASS_ACM
+    }
+}
+
 /// Find CDC ACM interfaces in a configuration descriptor.
 pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
     let cfg = ConfigurationDescriptorChain::try_from_slice(config_desc).ok()?;
 
-    let mut comm_iface: Option<u8> = None;
+    // Pick the last matching communication interface, preserving the behavior
+    // of the original scan when a device exposes several CDC ACM functions.
+    let comm_interface = cfg.find_interfaces::<CdcAcmMatcher>().last()?.interface_number;
+
     let mut data_iface: Option<u8> = None;
     let mut bulk_in: Option<(u8, u16)> = None;
     let mut bulk_out: Option<(u8, u16)> = None;
 
     for iface in cfg.iter_interface() {
-        if iface.interface_class == USB_CLASS_CDC && iface.interface_subclass == CDC_SUBCLASS_ACM {
-            comm_iface = Some(iface.interface_number);
-        } else if iface.interface_class == USB_CLASS_CDC_DATA {
+        if iface.interface_class == USB_CLASS_CDC_DATA {
             data_iface = Some(iface.interface_number);
             for ep in iface.iter_endpoints() {
                 if ep.transfer_type() == 0x02 {
@@ -102,20 +132,17 @@ pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
         }
     }
 
-    if let (Some(comm), Some(data), Some((in_ep, in_mps)), Some((out_ep, out_mps))) =
-        (comm_iface, data_iface, bulk_in, bulk_out)
-    {
-        Some(CdcAcmInfo {
-            comm_interface: comm,
-            data_interface: data,
-            bulk_in_ep: in_ep,
-            bulk_in_mps: in_mps,
-            bulk_out_ep: out_ep,
-            bulk_out_mps: out_mps,
-        })
-    } else {
-        None
-    }
+    let (in_ep, in_mps) = bulk_in?;
+    let (out_ep, out_mps) = bulk_out?;
+
+    Some(CdcAcmInfo {
+        comm_interface,
+        data_interface: data_iface?,
+        bulk_in_ep: in_ep,
+        bulk_in_mps: in_mps,
+        bulk_out_ep: out_ep,
+        bulk_out_mps: out_mps,
+    })
 }
 
 /// CDC ACM host driver.
@@ -135,12 +162,20 @@ impl<'d, A: UsbHostAllocator<'d>> CdcAcmHost<'d, A> {
     /// Parses the config descriptor to find CDC ACM endpoints and allocates channels.
     pub fn new(alloc: &A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, CdcAcmError> {
         let info = find_cdc_acm(config_desc).ok_or(CdcAcmError::NoInterface)?;
+        Self::new_with_info(alloc, info, enum_info)
+    }
 
+    /// Create a CDC ACM host driver from an already-probed [`CdcAcmInfo`].
+    ///
+    /// This is the allocation half of [`HostClass::open`]; it does not parse the
+    /// configuration descriptor again.
+    pub fn new_with_info(alloc: &A, info: CdcAcmInfo, enum_info: &EnumerationInfo) -> Result<Self, CdcAcmError> {
         let ctrl_ep_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
             max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
             interval_ms: 0,
+            max_burst: 0,
         };
 
         let in_ep_info = EndpointInfo {
@@ -148,6 +183,7 @@ impl<'d, A: UsbHostAllocator<'d>> CdcAcmHost<'d, A> {
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_in_mps,
             interval_ms: 0,
+            max_burst: 0,
         };
 
         let out_ep_info = EndpointInfo {
@@ -155,6 +191,7 @@ impl<'d, A: UsbHostAllocator<'d>> CdcAcmHost<'d, A> {
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_out_mps,
             interval_ms: 0,
+            max_burst: 0,
         };
 
         let device_address = enum_info.device_address;
@@ -209,6 +246,19 @@ impl<'d, A: UsbHostAllocator<'d>> CdcAcmHost<'d, A> {
     }
 }
 
+impl<'d, A: UsbHostAllocator<'d>> HostClass<'d, A> for CdcAcmHost<'d, A> {
+    const NAME: &'static str = "CDC ACM";
+    type Info = CdcAcmInfo;
+
+    fn probe(_enum_info: &EnumerationInfo, cfg: &[u8]) -> Option<Self::Info> {
+        find_cdc_acm(cfg)
+    }
+
+    async fn open(alloc: &A, _cfg: &[u8], info: Self::Info, enum_info: &EnumerationInfo) -> Result<Self, ClassError> {
+        Self::new_with_info(alloc, info, enum_info).map_err(Into::into)
+    }
+}
+
 impl<'d, A: UsbHostAllocator<'d>> embedded_io_async::ErrorType for CdcAcmHost<'d, A> {
     type Error = CdcAcmError;
 }
@@ -227,5 +277,82 @@ impl<'d, A: UsbHostAllocator<'d>> embedded_io_async::Write for CdcAcmHost<'d, A>
     async fn flush(&mut self) -> Result<(), Self::Error> {
         // USB bulk transfers are flushed immediately
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::host::test_utils::{CDC_ACM_CONFIG as CONFIG, MockHost, MockState, enumeration_info};
+
+    #[test]
+    fn find_cdc_acm_parses_interfaces_and_endpoints() {
+        let info = find_cdc_acm(CONFIG).expect("CDC ACM should be found");
+        assert_eq!(info.comm_interface, 0);
+        assert_eq!(info.data_interface, 1);
+        assert_eq!(info.bulk_in_ep, 0x82);
+        assert_eq!(info.bulk_in_mps, 64);
+        assert_eq!(info.bulk_out_ep, 0x02);
+        assert_eq!(info.bulk_out_mps, 64);
+    }
+
+    #[test]
+    fn matcher_matches_only_the_communication_interface() {
+        let cfg = ConfigurationDescriptorChain::try_from_slice(CONFIG).unwrap();
+        let comm = cfg.find_interface::<CdcAcmMatcher>().expect("communication interface");
+        assert_eq!(comm.interface_number, 0);
+        assert!(CdcAcmMatcher::matches(&comm.descriptor));
+
+        let data = cfg.iter_interface().nth(1).expect("data interface");
+        assert!(!CdcAcmMatcher::matches(&data.descriptor));
+    }
+
+    #[test]
+    fn iad_group_is_found_for_member_interfaces() {
+        let cfg = ConfigurationDescriptorChain::try_from_slice(CONFIG).unwrap();
+        let iad = cfg.find_iad_group(1).expect("IAD should cover interface 1");
+        assert_eq!(iad.first_interface, 0);
+        assert_eq!(iad.interface_count, 2);
+        assert_eq!(iad.function_class, USB_CLASS_CDC);
+    }
+
+    fn probe_host<'d>(alloc: &MockHost<'d>, enum_info: &EnumerationInfo) -> Option<CdcAcmInfo> {
+        let _ = alloc;
+        <CdcAcmHost<'d, MockHost<'d>> as HostClass<'d, MockHost<'d>>>::probe(enum_info, CONFIG)
+    }
+
+    fn open_host<'d>(
+        alloc: &MockHost<'d>,
+        info: CdcAcmInfo,
+        enum_info: &EnumerationInfo,
+    ) -> Result<CdcAcmHost<'d, MockHost<'d>>, ClassError> {
+        embassy_futures::block_on(<CdcAcmHost<'d, MockHost<'d>> as HostClass<'d, MockHost<'d>>>::open(
+            alloc, CONFIG, info, enum_info,
+        ))
+    }
+
+    #[test]
+    fn cdc_acm_loopback_over_mock_pipes() {
+        use embassy_futures::block_on;
+
+        let state = MockState::new();
+        let alloc = MockHost::new(&state);
+        let enum_info = enumeration_info();
+
+        let info = probe_host(&alloc, &enum_info).expect("CDC ACM should be present");
+        let mut host = open_host(&alloc, info, &enum_info).expect("CDC ACM should open");
+
+        block_on(host.write(b"hello")).unwrap();
+        assert_eq!(state.loopback_len(), 5);
+
+        let mut buf = [0; 16];
+        let n = block_on(host.read(&mut buf)).unwrap();
+        assert_eq!(&buf[..n], b"hello");
+
+        block_on(host.set_line_coding(&LineCoding::DEFAULT)).unwrap();
+        assert_eq!(state.line_coding(), LineCoding::DEFAULT.to_bytes());
+
+        block_on(host.set_control_line_state(true, false)).unwrap();
+        assert_eq!(state.control_line_state(), 1);
     }
 }

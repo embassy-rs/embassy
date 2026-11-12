@@ -28,6 +28,8 @@ RCC:
 - fix: stm32/rcc g0: enable the flash prefetch after setting the latency; with 2 wait states at 64 MHz and prefetch off code ran 8-16% slower.
 - fix: stm32/rcc g0: keep the flash prefetch off on G0B0/G0B1/G0C1 while the flash runs dual-bank (ES0547 2.2.8, ES0548/ES0549 2.2.10, prefetch fails on branches across the banks); `rcc::Config::flash_prefetch = FlashPrefetch::IfCodeInOneBank` turns it on for an application whose code stays in one bank.
 - feat: stm32/rcc u5: backup SRAM
+- feat: stm32/rcc: add `rcc::reset_flags()` to read what caused the last reset.
+- change: stm32/rcc h7: remove `rcc::ResetReason`, use `rcc::reset_flags()` instead (breaking change).
 
 LPTIM:
 - fix: stm32/lptim: a period whose tick count is at least 65536 no longer panics when rounding the divider up to a power of two still leaves the reload above 65535. The prescaler is the smallest of /1, /2, ..., /128 for which the reload fits in 16 bits. A period that does not fit even at /128 still panics.
@@ -45,7 +47,7 @@ I2C:
 - fix: stm32/i2c v2: disable own-address recognition before changing an enabled OA1/OA2 address, addressing mode, or OA2 mask.
 - fix: stm32/i2c v2: a blocking controller transfer that times out (e.g. SCL held low by the target) now resets the peripheral (PE toggle, as for BERR/ARLO) instead of requesting STOP and abandoning the transfer. The abandoned transfer's NACKF/STOPF arrived later and the next call returned them after it had started its own transfer, which then ran unserved, so every later blocking transfer timed out until PE was toggled by hand.
 - fix: stm32/i2c v2: an async slave `respond_to_write` that received more than its buffer holds timed out while discarding the extra bytes, because nothing woke it for them, and could leave the last one in RXDR. It now wakes on every byte and reads a byte that arrived with the STOP.
-- fix: stm32/i2c v2: the async master and slave transfers of a driver from `I2c::new_no_dma` panicked on `Option::unwrap()` for its missing DMA channel whenever they moved data. They now move each byte on the TXIS/RXNE interrupt. v1 still panics.
+- fix: stm32/i2c v2: the async master and slave transfers of a driver from `I2c::new_no_dma` panicked on `Option::unwrap()` for its missing DMA channel whenever they moved data. They now move each byte on the TXIS/RXNE interrupt.
 
 USART:
 - fix: stm32/usart: `BufferedUartTx::flush` could return before the last bytes left the UART when a write wrapped around the end of the TX buffer. The TC interrupt now reports done only when the TX buffer is empty, and every write pends the interrupt.
@@ -70,11 +72,15 @@ Flash:
 - add: support for STM32H7R/S.
 - add: `flash::banks_swapped()`.
 - change: `flash::perform_bank_swap()` (H5, C5) is only available when the flash is in dual-bank mode.
-- change: `flash::Error` variants are `OutOfBounds`, `Unaligned`, `Protected`, `NotErased` and `Hardware` (plus `EdataDisabled` on C5). `Error` is `#[non_exhaustive]` and implements `Display` and `core::error::Error`.
+- change: `flash::Error` variants are `OutOfBounds`, `Unaligned`, `Protected`, `NotErased` and `Hardware` (plus `Ecc` on chips with flash ECC). `Error` is `#[non_exhaustive]` and implements `Display` and `core::error::Error`.
+- add: flash reads return `Error::Ecc` on an uncorrectable ECC error, instead of a bus fault (H7, H7A/B, H7R/S) or an NMI (L4, L4+, L5, G0, G4, WB, WL, WBA, U0, U3, U5, H5, C5).
 - change: `WRITE_SIZE` is the native program unit: 2 on F0/F1/F3, 4 on F7, 16 on H7A/B.
 - change: `FlashSector::index_in_bank` and `FlashRegion::sectors()` are `u32`.
 - change: `FlashBank` is the physical bank. With the banks swapped (`SWAP_BANK`/`FB_MODE`), `FlashBank::base()` and `FlashRegion::base()` return the address where the bank is currently mapped.
-- change: the EEPROM (L0/L1) and EDATA (C5) methods are available on `Flash<'_, Async>` too.
+- change: the data EEPROM (L0/L1) is accessed through `FlashLayout::eeprom`, an `Eeprom` driver with `blocking_read`/`blocking_write` and async `read`/`write`, which implements `embedded_storage::Storage`. Removed the `Flash::eeprom_*` methods.
+- change: EEPROM writes program 32-bit words, and skip the words that already hold the data written.
+- add: EDATA support (H5, C5): `FlashLayout::edata_bank1` and `FlashLayout::edata_bank2` are `Edata` drivers for the EDATA area of each bank, which implement `NorFlash`. Unwritten locations read as `0xFF`; uncorrectable ECC errors return `Error::Ecc`.
+- fix: H5 OTP reads use 16-bit accesses and return `0xFF` for unwritten words, instead of faulting.
 - change: chips whose flash bank mode is selectable by option byte (G0B0, U5, U3, WBA6, C5 half-flash parts, L47x/L49x with 256/512 KB, L552xC) require the `single-bank` or `dual-bank` feature.
 - fix: H7, H7A/B and H5 clear the error flags after an error; before, every later operation failed until reset.
 - fix: on F76x/F77x in dual-bank mode, erasing a bank 2 sector erased the bank 1 sector with the same number.
@@ -97,6 +103,10 @@ Low power:
 Align to API guidelines:
 - change: stm32/gpio: rename `get_level()` to `level()` and `get_output_level()` to `output_level()` on `Input`, `Output`, `OutputOpenDrain`, `Flex` and `ExtiInput`. `lpgpio::LpGpio::get_level()` is now `level()`.
 - add: stm32/gpio: `Flex::set_as_disconnected`, `Flex::is_input`, `Flex::is_output` and `Flex::is_disconnected`.
+- removal: stm32/gpio: `AnyPin` is no longer public. Hold a type-erased pin as a `Flex`, `Input` or `Output` instead. `gpio::Pin` no longer has an `Into<AnyPin>` bound.
+- removal: stm32/gpio: the `gpio::PinNumber` type alias. `Pin::pin()`, `Pin::port()` and `exti::Channel::number()` return `u8`.
+- feature: stm32/gpio: add `persist()` to `Flex`, `Input`, `Output` and `OutputOpenDrain`.
+- removal: stm32/exti: the deprecated `exti::AnyChannel`.
 - change: stm32/rng: `Rng` is now `Rng<'d, M: Mode>` with the instance type erased. Added `Rng::new_blocking` and `Rng::new_blocking_with_config`. The async `async_fill_bytes` is now `fill_bytes`; the blocking `fill_bytes`, `next_u32` and `next_u64` are now `blocking_fill_bytes`, `blocking_next_u32` and `blocking_next_u64`.
 - change: stm32/usart: `Uart` and `BufferedUart` constructors take pins as `tx, rx` instead of `rx, tx`.
 - change: stm32/usart: `BufferedUart::new` takes the interrupt binding before the buffers.
@@ -171,6 +181,10 @@ DMA:
 - feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
 - feat: stm32/dma: add `TwoDItem`, `TwoDConfig`, and `LinkedListItem` trait; `Table` is now generic over item type
 - fix: stm32/dma: GPDMA: panic when a linked-list `Table` straddles a 64 KiB boundary
+- feat: stm32/dma: GPDMA: per-item hardware triggers (`ItemConfig::trigger`)
+- feat: stm32/dma: GPDMA: memory-to-memory linked-list items (`LinearItem::new_copy`), software-requested
+- feat: stm32/dma: GPDMA: `LinkedListTransfer::trigger_overrun` and `clear_trigger_overrun`
+- feat: stm32/dma: GPDMA: `LinkedListTransfer::completed_items` and `wait_completed_items`
 
 I2S:
 - feat: stm32/i2s: add `I2S::rx_len()` returning the number of samples buffered in the RX DMA ring buffer
@@ -243,6 +257,7 @@ RCC:
 - fix: stm32/rcc/c0: raise the flash read access latency before anything that can raise the core frequency, so a configuration handed over from a bootloader without a reset cannot run above 24 MHz with too few wait states
 - fix: stm32/rcc/l: set the maximum flash latency before raising the MSI range, so MSI above the reset wait-state limit (e.g. 48 MHz) as sysclk no longer hardfaults in `init()` on L4, L5, WB and U0 (extends the WL-only fix from #2786; L0/L1 are unaffected, their MSI tops out at 4.194 MHz)
 - fix: stm32/rcc/f247: report correct PLL output frequencies when the source clock is not evenly divisible by the PLL input divisor
+- feat: stm32 u5/u3/wba: `Config::enable_io_compensation`
 
 SPI:
 - change: stm32/spi: `Config::frequency` is the highest SCK frequency. The driver selects the fastest SCK that does not exceed it, for the constructors and `set_config` alike; it used to round to the nearest divider (up to 50% above the request) with a special case at the /32 to /64 boundary. A request at or above half the kernel clock now gets half the kernel clock instead of `FrequencyTooHigh` (above the kernel clock) or a panic in the constructors. A request below the kernel clock / 256 returns the new `ConfigError::FrequencyTooLow` from `set_config`, which then leaves the driver unchanged, and panics in the constructors; it used to run at the kernel clock / 256, above the request.
@@ -273,9 +288,16 @@ SDMMC:
 
 Watchdog:
 - fix: stm32/wdg: an `IndependentWatchdog` timeout shorter than one prescaled LSI tick (125 us with a 32 kHz LSI) made the reload value underflow, which panics in debug builds and in release wraps to the longest timeout (512 ms). It now gets the shortest timeout instead.
+- feat: stm32: `Config::freeze_iwdg_when_halted`, stops the IWDG while a debugger halts the core
 
 EXTI:
 - feat: stm32/exti: `ExtiInput::enable_event`, `disable_event` and `line`, for EXTI events
+- change: stm32/exti: `exti::InterruptHandler` is generic over the EXTI channel instead of the interrupt. Bind one handler per channel used with `ExtiInput<Async>`, e.g. `EXTI15_10 => exti::InterruptHandler<peripherals::EXTI13>;`. Several handlers, including your own, can be bound to the same vector.
+- change: stm32/exti: the async `ExtiInput::new` is renamed to `ExtiInput::new_async`, and `ExtiInput::new_blocking` to `ExtiInput::new`. The `Mode` parameter of `ExtiInput` defaults to `Blocking`.
+- change: stm32/exti: `ExtiInput::from_input` and `ExtiInput::from_flex` are no longer `const`.
+- fix: stm32/exti: the EXTI interrupt handler only services its own line. It used to mask and clear every pending line 0-15, including lines handled by user code with `ExtiInput<Blocking>`.
+- change: stm32/exti: wakers are only allocated for channels whose `InterruptHandler` is bound, instead of 16 for every program.
+- change: stm32/exti: `embassy_stm32::init` no longer enables the EXTI interrupt vectors in the NVIC. `ExtiInput<Async>` constructors enable their channel's vector. With `ExtiInput<Blocking>` and your own interrupt handler, enable the vector yourself.
 
 ## 0.6.0 - 2026-03-10
 
@@ -316,7 +338,7 @@ DAC:
 - feat: stm32/dac: add HRTIM DAC triggers
 - feat: stm32/dac: type-erase DAC
 - feat: stm32/dac: add trigger trait impl
-- feat: stm32/dac: add DAC v9 (STM32C5) support. DMA, triggered output, and ring-buffered output have not been hardware tested.
+- feat: stm32/dac: add DAC v9 (STM32C5) support
 
 OPAMP:
 - feat: stm32/opamp: allow VINM0 as bias input

@@ -6,14 +6,12 @@ use super::types::*;
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Builder, Handler};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
 /// Configuration for the CCID device class.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config<'d> {
-    /// Maximum packet size for bulk endpoints (typically 64 for Full-Speed).
-    pub max_packet_size: u16,
     /// Highest slot index supported (0 = 1 slot, 1 = 2 slots, etc.). Default is 0.
     pub max_slot_index: u8,
     /// Voltage support bitmask (bit 0 = 5.0V, bit 1 = 3.0V, bit 2 = 1.8V). Default is `0x07` (all).
@@ -44,7 +42,6 @@ pub struct Config<'d> {
 impl<'d> Default for Config<'d> {
     fn default() -> Self {
         Self {
-            max_packet_size: 64,
             max_slot_index: 0,
             voltage_support: 0x07,
             protocols: 0x00000003,
@@ -206,6 +203,12 @@ impl<'d> Handler for Control<'d> {
     }
 }
 
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.iface_number
+    }
+}
+
 /// A parsed CCID command received from the host over the Bulk OUT endpoint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -316,8 +319,8 @@ impl<'d, D: Driver<'d>> CcidDevice<'d, D> {
         let body = config.functional_descriptor_body();
         alt.descriptor(CCID_FUNCTIONAL_DESCRIPTOR, &body);
 
-        let write_ep = alt.endpoint_bulk_in(None, config.max_packet_size);
-        let read_ep = alt.endpoint_bulk_out(None, config.max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(None, EndpointOptions::new());
+        let read_ep = alt.endpoint_bulk_out(None, EndpointOptions::new());
         let int_ep = config
             .interrupt_endpoint
             .map(|(size, poll_ms)| alt.endpoint_interrupt_in(None, size, poll_ms));
@@ -331,7 +334,7 @@ impl<'d, D: Driver<'d>> CcidDevice<'d, D> {
             data_rate_bps: config.default_data_rate_bps.to_le_bytes(),
             _marker: core::marker::PhantomData,
         });
-        builder.handler(control);
+        builder.interface_handler(control);
 
         Self {
             reader: CcidReader { read_ep },

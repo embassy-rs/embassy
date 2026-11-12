@@ -44,30 +44,23 @@ pub struct PwmPinConfig {
 impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(PwmPin<'d, T, C, A>) {
     /// Create a new PWM pin instance.
     pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, output_type: OutputType) -> Self {
-        critical_section::with(|_| {
-            pin.set_low();
-            set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh));
-        });
+        let pin =
+            critical_section::with(|_| set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh), Flex::set_low));
         PwmPin {
-            pin: Flex::new(pin),
+            pin,
             phantom: PhantomData,
         }
     }
 
     /// Create a new PWM pin instance with a specific configuration.
     pub fn new_with_config(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pin_config: PwmPinConfig) -> Self {
-        critical_section::with(|_| {
-            pin.set_low();
-            #[cfg(gpio_v1)]
-            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
-            #[cfg(gpio_v2)]
-            set_as_af!(
-                pin,
-                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
-            );
-        });
+        #[cfg(gpio_v1)]
+        let af_type = AfType::output(pin_config.output_type, pin_config.speed);
+        #[cfg(gpio_v2)]
+        let af_type = AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull);
+        let pin = critical_section::with(|_| set_as_af!(pin, af_type, Flex::set_low));
         PwmPin {
-            pin: Flex::new(pin),
+            pin,
             phantom: PhantomData,
         }
     }

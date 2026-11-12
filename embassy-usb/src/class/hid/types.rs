@@ -60,6 +60,7 @@ pub enum ReportId {
 
 impl ReportId {
     /// Encodes the `wValue` of a GET_REPORT/SET_REPORT request: report type high, report ID low.
+    #[allow(dead_code)] // Used by the host role only.
     pub(crate) const fn to_value(self) -> u16 {
         let (report_type, id) = match self {
             ReportId::In(id) => (1, id),
@@ -69,6 +70,7 @@ impl ReportId {
         (report_type << 8) | id as u16
     }
 
+    #[allow(dead_code)] // Used by the device role only.
     pub(crate) const fn try_from(value: u16) -> Result<Self, ()> {
         match value >> 8 {
             1 => Ok(ReportId::In(value as u8)),

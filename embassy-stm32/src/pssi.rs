@@ -141,15 +141,15 @@ impl<'d, T: Instance> Pssi<'d, T> {
     ) -> Self {
         crate::rcc::enable_and_reset::<T>();
 
-        pdck.set_as_af(pdck.af_num(), AfType::input(Pull::None));
-        d0.set_as_af(d0.af_num(), AfType::input(Pull::None));
-        d1.set_as_af(d1.af_num(), AfType::input(Pull::None));
-        d2.set_as_af(d2.af_num(), AfType::input(Pull::None));
-        d3.set_as_af(d3.af_num(), AfType::input(Pull::None));
-        d4.set_as_af(d4.af_num(), AfType::input(Pull::None));
-        d5.set_as_af(d5.af_num(), AfType::input(Pull::None));
-        d6.set_as_af(d6.af_num(), AfType::input(Pull::None));
-        d7.set_as_af(d7.af_num(), AfType::input(Pull::None));
+        set_as_af!(pdck, AfType::input(Pull::None)).persist();
+        set_as_af!(d0, AfType::input(Pull::None)).persist();
+        set_as_af!(d1, AfType::input(Pull::None)).persist();
+        set_as_af!(d2, AfType::input(Pull::None)).persist();
+        set_as_af!(d3, AfType::input(Pull::None)).persist();
+        set_as_af!(d4, AfType::input(Pull::None)).persist();
+        set_as_af!(d5, AfType::input(Pull::None)).persist();
+        set_as_af!(d6, AfType::input(Pull::None)).persist();
+        set_as_af!(d7, AfType::input(Pull::None)).persist();
 
         let r = T::regs();
         r.cr().modify(|w| {

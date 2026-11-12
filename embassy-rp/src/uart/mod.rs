@@ -12,11 +12,10 @@ use pac::uart::regs::Uartris;
 
 use crate::clocks::clk_peri_freq;
 use crate::dma::{Channel, ChannelInstance};
-use crate::gpio::{AnyPin, SealedPin};
+use crate::gpio::Flex;
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
-use crate::pac::io::vals::{Inover, Outover};
 use crate::{RegExt, dma, interrupt, mode, pac, peripherals};
 
 mod buffered;
@@ -158,6 +157,9 @@ pub struct Uart<'d, M: Mode> {
 pub struct UartTx<'d, M: Mode> {
     info: &'static Info,
     tx_dma: Option<dma::Channel<'d, mode::Async>>,
+    /// `None` in handles from `split_ref`, which don't own the pins.
+    tx: Option<Flex<'d>>,
+    cts: Option<Flex<'d>>,
     phantom: PhantomData<M>,
 }
 
@@ -166,6 +168,8 @@ impl<'d, M: Mode> UartTx<'d, M> {
         UartTx {
             info: self.info,
             tx_dma: self.tx_dma.as_mut().map(|dma| dma.reborrow()),
+            tx: None,
+            cts: None,
             phantom: PhantomData,
         }
     }
@@ -176,6 +180,9 @@ pub struct UartRx<'d, M: Mode> {
     info: &'static Info,
     dma_state: &'static DmaState,
     rx_dma: Option<dma::Channel<'d, mode::Async>>,
+    /// `None` in handles from `split_ref`, which don't own the pins.
+    rx: Option<Flex<'d>>,
+    rts: Option<Flex<'d>>,
     /// True for a handle produced by `split_ref`, which borrows the peripheral rather than
     /// owning it and so must not tear it down when it goes out of scope.
     is_borrowed: bool,
@@ -188,6 +195,8 @@ impl<'d, M: Mode> UartRx<'d, M> {
             info: self.info,
             dma_state: self.dma_state,
             rx_dma: self.rx_dma.as_mut().map(|dma| dma.reborrow()),
+            rx: None,
+            rts: None,
             is_borrowed: true,
             phantom: PhantomData,
         }
@@ -195,10 +204,17 @@ impl<'d, M: Mode> UartRx<'d, M> {
 }
 
 impl<'d, M: Mode> UartTx<'d, M> {
-    fn new_inner(info: &'static Info, tx_dma: Option<Channel<'d, mode::Async>>) -> Self {
+    fn new_inner(
+        info: &'static Info,
+        tx: Option<Flex<'d>>,
+        cts: Option<Flex<'d>>,
+        tx_dma: Option<Channel<'d, mode::Async>>,
+    ) -> Self {
         Self {
             info,
             tx_dma,
+            tx,
+            cts,
             phantom: PhantomData,
         }
     }
@@ -256,8 +272,9 @@ impl<'d, M: Mode> UartTx<'d, M> {
 impl<'d> UartTx<'d, Blocking> {
     /// Create a new UART TX instance for blocking mode operations.
     pub fn new_blocking<T: Instance>(_uart: Peri<'d, T>, tx: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
-        Uart::<Blocking>::init(T::info(), Some(tx.into()), None, None, None, config);
-        Self::new_inner(T::info(), None)
+        let mut tx = Flex::new_unconfigured(tx);
+        Uart::<Blocking>::init(T::info(), Some(&mut tx), None, None, None, config);
+        Self::new_inner(T::info(), Some(tx), None, None)
     }
 
     /// Convert this uart TX instance into a buffered uart using the provided
@@ -272,6 +289,8 @@ impl<'d> UartTx<'d, Blocking> {
         BufferedUartTx {
             info: T::info(),
             state: T::buffered_state(),
+            _tx: self.tx,
+            _cts: self.cts,
             is_borrowed: false,
             _phantom: PhantomData,
         }
@@ -287,8 +306,9 @@ impl<'d> UartTx<'d, Async> {
         irq: impl crate::interrupt::typelevel::Binding<TxDma::Interrupt, crate::dma::InterruptHandler<TxDma>> + 'd,
         config: Config,
     ) -> Self {
-        Uart::<Async>::init(T::info(), Some(tx.into()), None, None, None, config);
-        Self::new_inner(T::info(), Some(Channel::new(tx_dma, irq)))
+        let mut tx = Flex::new_unconfigured(tx);
+        Uart::<Async>::init(T::info(), Some(&mut tx), None, None, None, config);
+        Self::new_inner(T::info(), Some(tx), None, Some(Channel::new(tx_dma, irq)))
     }
 
     /// Write to UART TX from the provided buffer using DMA.
@@ -315,6 +335,8 @@ impl<'d, M: Mode> UartRx<'d, M> {
     fn new_inner(
         info: &'static Info,
         dma_state: &'static DmaState,
+        rx: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
         has_irq: bool,
         rx_dma: Option<dma::Channel<'d, mode::Async>>,
     ) -> Self {
@@ -329,6 +351,8 @@ impl<'d, M: Mode> UartRx<'d, M> {
             info,
             dma_state,
             rx_dma,
+            rx,
+            rts,
             is_borrowed: false,
             phantom: PhantomData,
         }
@@ -382,6 +406,13 @@ impl<'d, M: Mode> Drop for UartRx<'d, M> {
             return;
         }
 
+        // The RX pin is disconnected when `self.rx` drops, and a disconnected UART input reads
+        // low, so stop the receiver before it fills the FIFO with breaks. `into_buffered` takes
+        // the pin and leaves the receiver running.
+        if self.rx.is_some() {
+            self.info.regs.uartcr().modify(|w| w.set_rxe(false));
+        }
+
         if self.rx_dma.is_some() {
             self.info.interrupt.disable();
             // clear dma flags. irq handlers use these to disambiguate among themselves.
@@ -397,14 +428,15 @@ impl<'d, M: Mode> Drop for UartRx<'d, M> {
 impl<'d> UartRx<'d, Blocking> {
     /// Create a new UART RX instance for blocking mode operations.
     pub fn new_blocking<T: Instance>(_uart: Peri<'d, T>, rx: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
-        Uart::<Blocking>::init(T::info(), None, Some(rx.into()), None, None, config);
-        Self::new_inner(T::info(), T::dma_state(), false, None)
+        let mut rx = Flex::new_unconfigured(rx);
+        Uart::<Blocking>::init(T::info(), None, Some(&mut rx), None, None, config);
+        Self::new_inner(T::info(), T::dma_state(), Some(rx), None, false, None)
     }
 
     /// Convert this uart RX instance into a buffered uart using the provided
     /// irq and receive buffer.
     pub fn into_buffered<T: Instance>(
-        self,
+        mut self,
         _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx_buffer: &'d mut [u8],
     ) -> BufferedUartRx<'d> {
@@ -413,6 +445,8 @@ impl<'d> UartRx<'d, Blocking> {
         BufferedUartRx {
             info: T::info(),
             state: T::buffered_state(),
+            rx: self.rx.take(),
+            _rts: self.rts.take(),
             is_borrowed: false,
             _phantom: PhantomData,
         }
@@ -453,8 +487,16 @@ impl<'d> UartRx<'d, Async> {
         + 'd,
         config: Config,
     ) -> Self {
-        Uart::<Async>::init(T::info(), None, Some(rx.into()), None, None, config);
-        Self::new_inner(T::info(), T::dma_state(), true, Some(Channel::new(rx_dma, irq)))
+        let mut rx = Flex::new_unconfigured(rx);
+        Uart::<Async>::init(T::info(), None, Some(&mut rx), None, None, config);
+        Self::new_inner(
+            T::info(),
+            T::dma_state(),
+            Some(rx),
+            None,
+            true,
+            Some(Channel::new(rx_dma, irq)),
+        )
     }
 
     /// Read from UART RX into the provided buffer.
@@ -798,7 +840,17 @@ impl<'d> Uart<'d, Blocking> {
         rx: Peri<'d, impl RxPin<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(uart, tx.into(), rx.into(), None, None, false, None, None, config)
+        Self::new_inner(
+            uart,
+            Flex::new_unconfigured(tx),
+            Flex::new_unconfigured(rx),
+            None,
+            None,
+            false,
+            None,
+            None,
+            config,
+        )
     }
 
     /// Create a new UART with hardware flow control (RTS/CTS)
@@ -812,10 +864,10 @@ impl<'d> Uart<'d, Blocking> {
     ) -> Self {
         Self::new_inner(
             uart,
-            tx.into(),
-            rx.into(),
-            Some(rts.into()),
-            Some(cts.into()),
+            Flex::new_unconfigured(tx),
+            Flex::new_unconfigured(rx),
+            Some(Flex::new_unconfigured(rts)),
+            Some(Flex::new_unconfigured(cts)),
             false,
             None,
             None,
@@ -826,7 +878,7 @@ impl<'d> Uart<'d, Blocking> {
     /// Convert this uart instance into a buffered uart using the provided
     /// irq, transmit and receive buffers.
     pub fn into_buffered<T: Instance>(
-        self,
+        mut self,
         _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
@@ -837,12 +889,16 @@ impl<'d> Uart<'d, Blocking> {
             rx: BufferedUartRx {
                 info: T::info(),
                 state: T::buffered_state(),
+                rx: self.rx.rx.take(),
+                _rts: self.rx.rts.take(),
                 is_borrowed: false,
                 _phantom: PhantomData,
             },
             tx: BufferedUartTx {
                 info: T::info(),
                 state: T::buffered_state(),
+                _tx: self.tx.tx.take(),
+                _cts: self.tx.cts.take(),
                 is_borrowed: false,
                 _phantom: PhantomData,
             },
@@ -868,8 +924,8 @@ impl<'d> Uart<'d, Async> {
         let rx_dma_ch = dma::Channel::new(rx_dma, irq);
         Self::new_inner(
             uart,
-            tx.into(),
-            rx.into(),
+            Flex::new_unconfigured(tx),
+            Flex::new_unconfigured(rx),
             None,
             None,
             true,
@@ -899,10 +955,10 @@ impl<'d> Uart<'d, Async> {
         let rx_dma_ch = dma::Channel::new(rx_dma, irq);
         Self::new_inner(
             uart,
-            tx.into(),
-            rx.into(),
-            Some(rts.into()),
-            Some(cts.into()),
+            Flex::new_unconfigured(tx),
+            Flex::new_unconfigured(rx),
+            Some(Flex::new_unconfigured(rts)),
+            Some(Flex::new_unconfigured(cts)),
             true,
             Some(tx_dma_ch),
             Some(rx_dma_ch),
@@ -915,10 +971,10 @@ impl<'d, M: Mode> Uart<'d, M> {
     #[allow(clippy::too_many_arguments)]
     fn new_inner<T: Instance>(
         _uart: Peri<'d, T>,
-        mut tx: Peri<'d, AnyPin>,
-        mut rx: Peri<'d, AnyPin>,
-        mut rts: Option<Peri<'d, AnyPin>>,
-        mut cts: Option<Peri<'d, AnyPin>>,
+        mut tx: Flex<'d>,
+        mut rx: Flex<'d>,
+        mut rts: Option<Flex<'d>>,
+        mut cts: Option<Flex<'d>>,
         has_irq: bool,
         tx_dma: Option<dma::Channel<'d, mode::Async>>,
         rx_dma: Option<dma::Channel<'d, mode::Async>>,
@@ -926,63 +982,47 @@ impl<'d, M: Mode> Uart<'d, M> {
     ) -> Self {
         Self::init(
             T::info(),
-            Some(tx.reborrow()),
-            Some(rx.reborrow()),
-            rts.as_mut().map(|x| x.reborrow()),
-            cts.as_mut().map(|x| x.reborrow()),
+            Some(&mut tx),
+            Some(&mut rx),
+            rts.as_mut(),
+            cts.as_mut(),
             config,
         );
 
         Self {
-            tx: UartTx::new_inner(T::info(), tx_dma),
-            rx: UartRx::new_inner(T::info(), T::dma_state(), has_irq, rx_dma),
+            tx: UartTx::new_inner(T::info(), Some(tx), cts, tx_dma),
+            rx: UartRx::new_inner(T::info(), T::dma_state(), Some(rx), rts, has_irq, rx_dma),
         }
     }
 
     fn init(
         info: &Info,
-        tx: Option<Peri<'_, AnyPin>>,
-        rx: Option<Peri<'_, AnyPin>>,
-        rts: Option<Peri<'_, AnyPin>>,
-        cts: Option<Peri<'_, AnyPin>>,
+        tx: Option<&mut Flex<'_>>,
+        rx: Option<&mut Flex<'_>>,
+        rts: Option<&mut Flex<'_>>,
+        cts: Option<&mut Flex<'_>>,
         config: Config,
     ) {
         let r = info.regs;
-        if let Some(pin) = &tx {
-            let funcsel = {
-                let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
-                if pin_number.is_multiple_of(4) { 2 } else { 11 }
+        let (txen, rxen, ctsen, rtsen) = (tx.is_some(), rx.is_some(), cts.is_some(), rts.is_some());
+        if let Some(pin) = tx {
+            let funcsel = if pin.pin_number().pin().is_multiple_of(4) {
+                2
+            } else {
+                11
             };
-            pin.gpio().ctrl().write(|w| {
-                w.set_funcsel(funcsel);
-                w.set_outover(if config.invert_tx {
-                    Outover::Invert
-                } else {
-                    Outover::Normal
-                });
-            });
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_ie(true);
-            });
+            pin.set_output_inversion(config.invert_tx);
+            pin.write_pad(|w| w.set_ie(true));
+            pin.set_function(funcsel);
         }
-        if let Some(pin) = &rx {
-            let funcsel = {
-                let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
-                if (pin_number - 1).is_multiple_of(4) { 2 } else { 11 }
+        if let Some(pin) = rx {
+            let funcsel = if (pin.pin_number().pin() - 1).is_multiple_of(4) {
+                2
+            } else {
+                11
             };
-            pin.gpio().ctrl().write(|w| {
-                w.set_funcsel(funcsel);
-                w.set_inover(if config.invert_rx {
-                    Inover::Invert
-                } else {
-                    Inover::Normal
-                });
-            });
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
+            pin.set_input_inversion(config.invert_rx);
+            pin.write_pad(|w| {
                 w.set_ie(true);
                 if config.invert_rx {
                     w.set_pde(true);
@@ -990,36 +1030,17 @@ impl<'d, M: Mode> Uart<'d, M> {
                     w.set_pue(true);
                 }
             });
+            pin.set_function(funcsel);
         }
-        if let Some(pin) = &cts {
-            pin.gpio().ctrl().write(|w| {
-                w.set_funcsel(2);
-                w.set_inover(if config.invert_cts {
-                    Inover::Invert
-                } else {
-                    Inover::Normal
-                });
-            });
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_ie(true);
-            });
+        if let Some(pin) = cts {
+            pin.set_input_inversion(config.invert_cts);
+            pin.write_pad(|w| w.set_ie(true));
+            pin.set_function(2);
         }
-        if let Some(pin) = &rts {
-            pin.gpio().ctrl().write(|w| {
-                w.set_funcsel(2);
-                w.set_outover(if config.invert_rts {
-                    Outover::Invert
-                } else {
-                    Outover::Normal
-                });
-            });
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_ie(true);
-            });
+        if let Some(pin) = rts {
+            pin.set_output_inversion(config.invert_rts);
+            pin.write_pad(|w| w.set_ie(true));
+            pin.set_function(2);
         }
 
         Self::set_config_inner(info, config);
@@ -1031,10 +1052,10 @@ impl<'d, M: Mode> Uart<'d, M> {
 
         r.uartcr().write(|w| {
             w.set_uarten(true);
-            w.set_rxe(true);
-            w.set_txe(true);
-            w.set_ctsen(cts.is_some());
-            w.set_rtsen(rts.is_some());
+            w.set_rxe(rxen);
+            w.set_txe(txen);
+            w.set_ctsen(ctsen);
+            w.set_rtsen(rtsen);
         });
     }
 

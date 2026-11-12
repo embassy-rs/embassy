@@ -3,8 +3,42 @@
 use core::mem::MaybeUninit;
 
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
-use crate::types::StringIndex;
-use crate::{Builder, Handler, msos};
+use crate::types::{InterfaceNumber, StringIndex};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler, msos};
+
+/// Configuration for [`CmsisDapV2Class`].
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct Config {
+    /// Whether to add the trace output endpoint. This is optional and can be disabled if the
+    /// probe does not support trace output.
+    pub trace: bool,
+    /// Options for the bulk OUT endpoint, which receives the commands the host sends.
+    pub out_endpoint_options: EndpointOptions,
+    /// Options for the bulk IN endpoint, which sends the responses to the host.
+    pub in_endpoint_options: EndpointOptions,
+    /// Options for the trace output bulk IN endpoint.
+    pub trace_endpoint_options: EndpointOptions,
+}
+
+impl Config {
+    /// Create a configuration without trace output and with default endpoint options.
+    pub const fn new() -> Self {
+        Self {
+            trace: false,
+            out_endpoint_options: EndpointOptions::new(),
+            in_endpoint_options: EndpointOptions::new(),
+            trace_endpoint_options: EndpointOptions::new(),
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// State for the CMSIS-DAP v2 USB class.
 pub struct State {
@@ -12,6 +46,7 @@ pub struct State {
 }
 
 struct Control {
+    iface: InterfaceNumber,
     iface_string: StringIndex,
 }
 
@@ -23,6 +58,12 @@ impl Handler for Control {
             warn!("unknown string index requested");
             None
         }
+    }
+}
+
+impl InterfaceHandler for Control {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.iface
     }
 }
 
@@ -49,12 +90,8 @@ pub struct CmsisDapV2Class<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
-    /// Creates a new CmsisDapV2Class with the provided UsbBus and `max_packet_size` in bytes. For
-    /// full-speed devices, `max_packet_size` has to be 64.
-    ///
-    /// The `trace` parameter enables the trace output endpoint. This is optional and can be
-    /// disabled if the probe does not support trace output.
-    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State, max_packet_size: u16, trace: bool) -> Self {
+    /// Creates a new CmsisDapV2Class with the provided configuration.
+    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State, config: Config) -> Self {
         // DAP - Custom Class 0
         let iface_string = builder.string();
         let mut function = builder.function(0xFF, 0, 0);
@@ -65,17 +102,21 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
             msos::PropertyData::RegMultiSz(&["{CDB3B5AD-293B-4663-AA36-1AAE46463776}"]),
         ));
         let mut interface = function.interface();
+        let interface_number = interface.interface_number();
         let mut alt = interface.alt_setting(0xFF, 0, 0, Some(iface_string));
-        let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
-        let trace_ep = if trace {
-            Some(alt.endpoint_bulk_in(None, max_packet_size))
+        let read_ep = alt.endpoint_bulk_out(None, config.out_endpoint_options);
+        let write_ep = alt.endpoint_bulk_in(None, config.in_endpoint_options);
+        let trace_ep = if config.trace {
+            Some(alt.endpoint_bulk_in(None, config.trace_endpoint_options))
         } else {
             None
         };
         drop(function);
 
-        builder.handler(state.control.write(Control { iface_string }));
+        builder.interface_handler(state.control.write(Control {
+            iface: interface_number,
+            iface_string,
+        }));
 
         CmsisDapV2Class {
             read_ep,

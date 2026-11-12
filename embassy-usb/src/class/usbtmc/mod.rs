@@ -15,8 +15,10 @@
 //! with `CLEAR_FEATURE(ENDPOINT_HALT)` or `viClear()`, or by the application calling
 //! [`UsbtmcClass::clear_stall`].
 
+#[cfg(feature = "device")]
 pub mod device;
 pub mod types;
 
+#[cfg(feature = "device")]
 pub use device::*;
 pub use types::*;

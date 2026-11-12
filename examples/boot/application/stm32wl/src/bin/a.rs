@@ -11,7 +11,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
-use embassy_stm32::{SharedData, bind_interrupts, interrupt};
+use embassy_stm32::{SharedData, bind_interrupts, peripherals};
 use embassy_sync::mutex::Mutex;
 
 #[cfg(feature = "skip-include")]
@@ -21,7 +21,7 @@ static APP_B: &[u8] = include_bytes!("../../b.bin");
 
 bind_interrupts!(
     pub struct Irqs{
-        EXTI0 => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
+        EXTI0 => exti::InterruptHandler<peripherals::EXTI0>;
 });
 
 #[unsafe(link_section = ".shared_data")]
@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner) {
     let flash = Flash::new_blocking(p.FLASH, Default::default());
     let flash = Mutex::new(BlockingAsync::new(flash));
 
-    let mut button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up, Irqs);
+    let mut button = ExtiInput::new_async(p.PA0, p.EXTI0, Pull::Up, Irqs);
 
     let mut led = Output::new(p.PB9, Level::Low, Speed::Low);
     led.set_high();

@@ -7,13 +7,13 @@ use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::mode::Async;
-use embassy_stm32::{bind_interrupts, interrupt};
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use panic_probe as _;
 
 bind_interrupts!(
     pub struct Irqs{
-        EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
+        EXTI13 => exti::InterruptHandler<peripherals::EXTI13>;
 });
 
 #[embassy_executor::task]
@@ -38,7 +38,7 @@ async fn main(spawner: Spawner) {
     let mut led = Output::new(p.PG10, Level::High, Speed::Low);
     // Note: On STM32N6570-DK, the USER button (BP1) connects to 3.3V when pressed
     // (active high), so we need Pull::Down
-    let button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
+    let button = ExtiInput::new_async(p.PC13, p.EXTI13, Pull::Down, Irqs);
 
     spawner.spawn(button_task(button).unwrap());
 

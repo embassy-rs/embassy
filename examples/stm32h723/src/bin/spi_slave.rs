@@ -10,7 +10,7 @@ use embassy_stm32::gpio::Output;
 use embassy_stm32::mode::Async;
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::mhz;
-use embassy_stm32::{Config, bind_interrupts, dma, exti, gpio, interrupt, peripherals};
+use embassy_stm32::{Config, bind_interrupts, dma, exti, gpio, peripherals};
 use embassy_time::Timer;
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -20,7 +20,7 @@ bind_interrupts!(struct Irqs {
     DMA1_STREAM1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
     DMA1_STREAM2 => dma::InterruptHandler<peripherals::DMA1_CH2>;
     DMA1_STREAM3 => dma::InterruptHandler<peripherals::DMA1_CH3>;
-    EXTI15_10 => exti::InterruptHandler<interrupt::typelevel::EXTI15_10>;
+    EXTI15_10 => exti::InterruptHandler<peripherals::EXTI15>;
 });
 
 const READ: u8 = 0x01;

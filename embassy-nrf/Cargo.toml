@@ -11,43 +11,43 @@ documentation = "https://docs.embassy.dev/embassy-nrf"
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv6m-none-eabi", features = ["gpiote", "nrf51", "time", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52805", "time", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52810", "time", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52811", "time", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52820", "time", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52832", "reset-pin-as-gpio", "time", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52833", "time", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "nfc-pins-as-gpio", "nrf52833", "time", "time-driver-rtc1"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf9160-s", "time", "time-driver-rtc1"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf9160-ns", "time", "time-driver-rtc1"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf5340-app-s", "time", "time-driver-rtc1"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf5340-app-ns", "time", "time-driver-rtc1"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf5340-net", "time", "time-driver-rtc1"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-s", "time", "time-driver-grtc"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-ns", "time", "time-driver-grtc"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l10-app-s", "time", "time-driver-grtc"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l10-app-ns", "time", "time-driver-grtc"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l05-app-s", "time", "time-driver-grtc"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l05-app-ns", "time", "time-driver-grtc"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54lm20-app-s", "time", "time-driver-grtc"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-ns", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l10-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l10-app-ns", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l05-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l05-app-ns", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54lm20-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "log", "nrf52840", "time"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "log", "nrf52840", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["gpiote", "log", "nrf52840", "time", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time", "time-driver-rtc1"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time", "time-driver-rtc1","qspi-multiwrite-flash"]},
+    {target = "thumbv6m-none-eabi", features = ["nrf51", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["nrf52805", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["nrf52810", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["nrf52811", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["nrf52820", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["nrf52832", "reset-pin-as-gpio", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["nrf52833", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["nfc-pins-as-gpio", "nrf52833", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf9160-s", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf9160-ns", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf5340-app-s", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf5340-app-ns", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf5340-net", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l15-app-s", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l15-app-ns", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l10-app-s", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l10-app-ns", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l05-app-s", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l05-app-ns", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54lm20-app-s", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l15-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l15-app-ns", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l10-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l10-app-ns", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l05-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54l05-app-ns", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54lm20-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
+    {target = "thumbv7em-none-eabi", features = ["nrf52840", "time"]},
+    {target = "thumbv7em-none-eabi", features = ["nrf52840", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["nrf52840", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["log", "nrf52840", "time"]},
+    {target = "thumbv7em-none-eabi", features = ["log", "nrf52840", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["log", "nrf52840", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "nrf52840", "time"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "nrf52840", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "nrf52840", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "nrf52840", "time", "time-driver-rtc1","qspi-multiwrite-flash"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time", "time-driver-rtc1"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time"]},
     {target = "thumbv6m-none-eabi", features = ["nrf51", "time"]},
@@ -57,7 +57,7 @@ build = [
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-nrf-v$VERSION/embassy-nrf/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nrf/src/"
 
-features = ["time", "defmt", "unstable-pac", "gpiote", "time-driver-rtc1"]
+features = ["time", "defmt", "unstable-pac", "time-driver-rtc1"]
 flavors = [
     { regex_feature = "nrf51", target = "thumbv6m-none-eabi" },
     { regex_feature = "nrf52.*", target = "thumbv7em-none-eabihf" },
@@ -67,7 +67,7 @@ flavors = [
 ]
 
 [package.metadata.docs.rs]
-features = ["nrf52840", "time", "defmt", "unstable-pac", "gpiote", "time-driver-rtc1"]
+features = ["nrf52840", "time", "defmt", "unstable-pac", "time-driver-rtc1"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -96,9 +96,6 @@ unstable-pac = []
 # This is unstable because semver-minor (non-breaking) releases of embassy-nrf may major-bump (breaking) the PAC version.
 # If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
 # There are no plans to make this stable.
-
-## Enable GPIO tasks and events
-gpiote = []
 
 ## Use RTC1 as the time driver for `embassy-time`, with a tick rate of 32.768khz
 time-driver-rtc1 = ["_time-driver", "embassy-time-driver?/tick-hz-32_768"]
@@ -146,6 +143,10 @@ reset-pin-as-gpio = []
 
 ## Allow using the LFXO pins as regular GPIO pins (P0_00/P0_01 on nRF53)
 lfxo-pins-as-gpio = []
+
+## Allow SERIAL20/SERIAL21 (SPIM, SPIS, UARTE) to use their dedicated pins on port P2 (nRF54L15, nRF54L10, nRF54L05).
+## This enables Constant Latency mode in `init`, which increases power consumption.
+cross-domain-pins = []
 
 ## Implements the MultiwriteNorFlash trait for QSPI. Should only be enabled if your external
 ## flash supports the semantics described [here](https://docs.rs/embedded-storage/0.3.1/embedded_storage/nor_flash/trait.MultiwriteNorFlash.html)
@@ -347,7 +348,7 @@ embedded-io-async = { version = "0.7.0" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 # nrf-pac = "0.4.0"
-nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "4499375510e2fdb3a5426911beb846d8d2dbbb80" }
+nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "8a9f841b2378f0697d2831670eda515cda990d1c" }
 
 defmt = { version = "1.0.1", optional = true }
 bitflags = "2.10.0"

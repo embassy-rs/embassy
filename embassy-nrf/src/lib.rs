@@ -89,6 +89,12 @@ compile_error!("feature `nfc-pins-as-gpio` is not valid for this chip.");
 #[cfg(all(feature = "lfxo-pins-as-gpio", not(feature = "_nrf5340")))]
 compile_error!("feature `lfxo-pins-as-gpio` is only valid for nRF53 series chips.");
 
+#[cfg(all(
+    feature = "cross-domain-pins",
+    not(any(feature = "_nrf54l15", feature = "_nrf54l10", feature = "_nrf54l05"))
+))]
+compile_error!("feature `cross-domain-pins` is only valid for nRF54L15, nRF54L10 and nRF54L05.");
+
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 pub(crate) mod util;
@@ -98,23 +104,24 @@ mod time_driver;
 
 #[cfg(not(feature = "_nrf51"))]
 pub mod buffered_uarte;
+#[cfg(feature = "_nrf54l")]
+pub mod domain;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod egu;
 pub mod gpio;
-#[cfg(feature = "gpiote")]
 pub mod gpiote;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840", feature = "_nrf91"))]
 pub mod i2s;
 #[cfg(feature = "_nrf5340")]
 pub mod ipc;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "nrf52832",
     feature = "nrf52833",
     feature = "nrf52840",
-    feature = "_nrf5340-app"
+    feature = "_nrf5340-app",
+    feature = "_nrf54l"
 ))]
 pub mod nfct;
 #[cfg(not(feature = "_nrf54l"))]
@@ -627,9 +634,6 @@ pub mod config {
         #[cfg(not(any(feature = "_nrf5340-net", feature = "_nrf54l")))]
         /// DCDC configuration.
         pub dcdc: DcdcConfig,
-        /// GPIOTE interrupt priority. Should be lower priority than softdevice if used.
-        #[cfg(feature = "gpiote")]
-        pub gpiote_interrupt_priority: crate::interrupt::Priority,
         /// Time driver interrupt priority. Should be lower priority than softdevice if used.
         #[cfg(feature = "_time-driver")]
         pub time_interrupt_priority: crate::interrupt::Priority,
@@ -677,8 +681,6 @@ pub mod config {
                 },
                 #[cfg(feature = "_nrf91")]
                 dcdc: DcdcConfig { regmain: false },
-                #[cfg(feature = "gpiote")]
-                gpiote_interrupt_priority: crate::interrupt::Priority::P0,
                 #[cfg(feature = "_time-driver")]
                 time_interrupt_priority: crate::interrupt::Priority::P0,
 
@@ -813,6 +815,11 @@ pub fn init(config: config::Config) -> Peripherals {
 
     #[allow(unused_mut)]
     let mut needs_reset = false;
+
+    // Cross-domain pin connections (peripheral-domain serial instances on P2 pins)
+    // only work in Constant Latency mode.
+    #[cfg(feature = "cross-domain-pins")]
+    pac::POWER.tasks_constlat().write_value(1);
 
     // set clock speed
     #[cfg(feature = "_nrf54l")]
@@ -1329,10 +1336,6 @@ pub fn init(config: config::Config) -> Peripherals {
     #[cfg(all(feature = "_nrf54l", feature = "nfc-pins-as-gpio"))]
     pac::NFCT.padconfig().write(|w| w.set_enable(false));
 
-    // Init GPIOTE
-    #[cfg(feature = "gpiote")]
-    gpiote::init(config.gpiote_interrupt_priority);
-
     // init RTC time driver
     #[cfg(feature = "_time-driver")]
     time_driver::init(config.time_interrupt_priority);
@@ -1350,24 +1353,33 @@ pub fn init(config: config::Config) -> Peripherals {
 
 /// Operating modes for peripherals.
 pub mod mode {
-    trait SealedMode {}
+    pub(crate) trait SealedMode {
+        /// `T` in blocking mode, `()` in async mode.
+        #[allow(dead_code)]
+        type IfBlocking<T>;
+        /// `T` in async mode, `()` in blocking mode.
+        #[allow(dead_code)]
+        type IfAsync<T>;
+    }
 
     /// Operating mode for a peripheral.
     #[allow(private_bounds)]
     pub trait Mode: SealedMode {}
-
-    macro_rules! impl_mode {
-        ($name:ident) => {
-            impl SealedMode for $name {}
-            impl Mode for $name {}
-        };
-    }
 
     /// Blocking mode.
     pub struct Blocking;
     /// Async mode.
     pub struct Async;
 
-    impl_mode!(Blocking);
-    impl_mode!(Async);
+    impl SealedMode for Blocking {
+        type IfBlocking<T> = T;
+        type IfAsync<T> = ();
+    }
+    impl Mode for Blocking {}
+
+    impl SealedMode for Async {
+        type IfBlocking<T> = ();
+        type IfAsync<T> = T;
+    }
+    impl Mode for Async {}
 }

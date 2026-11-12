@@ -11,8 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - All drivers now use the shared `embassy_rp::mode::{Mode, Blocking, Async}` instead of per-module copies.
 - Add `embassy_rp::time::Hertz`.
 - GPIO: rename `get_level` to `level` and `get_output_level` to `output_level`.
+- GPIO: add `persist()` to `Flex`, `Input`, `Output` and `OutputOpenDrain`.
 - GPIO: add `Flex::set_as_disconnected`, `Flex::is_input` and `Flex::is_disconnected`.
 - GPIO: `Flex::new` leaves the pin disconnected, with the input buffer and output driver off. `set_as_input` and `set_as_output` turn the input buffer on; `set_pull` no longer does.
+- GPIO: `Input`, `OutputOpenDrain` and `Flex` are now generic over the driver mode, defaulting to `Blocking`. `new` creates a blocking driver; `new_async` creates an async one and takes an interrupt binding for the pin. The `wait_for_*` methods are only available in async mode.
+- GPIO: the HAL no longer defines the `IO_IRQ_BANK0`/`IO_IRQ_QSPI` handlers. Bind `gpio::InterruptHandler<PIN_x>` for each async pin with `bind_interrupts!`; the same interrupt can also be bound to your own handler.
+- GPIO: `embassy_rp::init` no longer enables the GPIO interrupts. The async constructors enable them on the core they run on.
+- GPIO: remove `AnyPin`.
+- GPIO: GPIO wakers are only allocated for pins used in async mode.
+- GPIO: dropping a `wait_for_*` future disables the pin's interrupt.
+- I2C, I2C slave, SPI, UART and buffered UART: pins are disconnected when the driver is dropped.
+- UART: dropping the receiver (`Uart`, `UartRx`, `BufferedUart`, `BufferedUartRx`) disables reception.
+- ADC: dropping a pin `Channel` disconnects the pin instead of re-enabling its input buffer and pull-down.
+- PWM: input mode enables the pin's input buffer on RP2040 too.
 - SPI: `Config::frequency` is now `Hertz`.
 - SPI: add `ConfigError`; constructors, `set_config` and `set_frequency` now return `Result`.
 - SPI: rename `flush` to `blocking_flush`.
@@ -28,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UART: `split_ref` now returns owned halves borrowed for the duration instead of `&mut`.
 - UART: remove the `nb`-based `embedded-hal` 0.2 and `embedded-hal-nb` `serial` impls.
 - UART: add inherent `read`, `fill_buf`, `consume`, `read_ready`, `write` and `flush` methods to `BufferedUart`, and the matching ones to `BufferedUartRx`/`BufferedUartTx`.
+- UART: fix TX-Only `BufferedUartTx` locking the core in the UART interrupt (also uniformity for RX-Only `BufferedUartRx`)
 - PIO UART: add inherent `write` and `flush` methods to `PioUartTx`, and `read` to `PioUartRx`.
 - UART: `BufferedUart`/`BufferedUartTx` `flush` and `blocking_flush` wait until the last byte has been transmitted, not just until the TX buffer is empty.
 - PIO UART: `flush` waits until the last byte has been transmitted.

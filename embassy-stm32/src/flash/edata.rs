@@ -1,326 +1,321 @@
-use core::ops::Range;
-use core::ptr::read_volatile;
+use core::marker::PhantomData;
 
-use embassy_hal_internal::drop::OnDrop;
+use embassy_hal_internal::Peri;
 
-use super::{Error, Flash, FlashBank, family};
-use crate::mode::Mode;
+use super::asynch::{REGION_ACCESS, op};
+use super::common::{Op, blocking_op, check_range};
+use super::{Config, Error, FlashBank, FlashSector, READ_SIZE, ecc};
+use crate::mode::{Async, Blocking, Mode};
 use crate::pac;
+use crate::peripherals::FLASH;
 
-/// Size in bytes of one physical EDATA bank.
-pub const EDATA_BANK_SIZE: u32 = 0x6000;
-/// Size in bytes of one erasable EDATA page.
-pub const EDATA_PAGE_SIZE: u32 = 0x600;
-/// Minimum EDATA write size and required write alignment, in bytes.
+/// Address of the EDATA area of the bank that is mapped first.
+pub(super) const BASE: u32 = 0x0900_0000;
+
+/// Number of EDATA sectors of a bank.
+#[cfg(flash_v5_c5)]
+const SECTORS: u32 = 16;
+#[cfg(flash_v5_h5)]
+const SECTORS: u32 = 8;
+
+/// Size of an EDATA erase unit in bytes: a 1.5 KB page on C5, a 6 KB sector on H5.
+#[cfg(flash_v5_c5)]
+pub const EDATA_ERASE_SIZE: usize = 1536;
+/// Size of an EDATA erase unit in bytes: a 1.5 KB page on C5, a 6 KB sector on H5.
+#[cfg(flash_v5_h5)]
+pub const EDATA_ERASE_SIZE: usize = 6 * 1024;
+
+/// Size of an EDATA write unit in bytes.
 pub const EDATA_WRITE_SIZE: usize = 2;
 
-const EDATA_BASE: u32 = 0x0900_0000;
-const EDATA_PAGE_COUNT: u8 = (EDATA_BANK_SIZE / EDATA_PAGE_SIZE) as u8;
-const EDATA_BANK2_BASE: u32 = EDATA_BASE + EDATA_BANK_SIZE;
+const SECTOR_SIZE: u32 = EDATA_ERASE_SIZE as u32;
 
-/// A physical EDATA flash bank.
+/// Driver for the EDATA area of a flash bank.
 ///
-/// The address used to access a bank follows the current `SWAP_BANK` mapping,
-/// while erase operations always select the physical bank.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EDataBank {
-    /// Physical EDATA bank 1.
-    Bank1,
-    /// Physical EDATA bank 2.
-    Bank2,
+/// The EDATA area is flash with 16-bit words, each with its own ECC, and a higher endurance
+/// than the rest of the flash. It's written in units of [`EDATA_WRITE_SIZE`] bytes, and erased
+/// in units of [`EDATA_ERASE_SIZE`] bytes. It implements [`NorFlash`], so it can store data with
+/// crates like `sequential-storage`.
+///
+/// The EDATA area must be enabled in the option bytes:
+///
+/// - C5: `EDATA_EN` enables 16 pages in each bank.
+/// - H5: `EDATAx_EN` enables the last `EDATAx_STRT + 1` EDATA sectors of bank x. On the parts
+///   with the largest flash of the line, they are the last user flash sectors of the bank, which
+///   then can't be used as user flash: reading them through the user flash is a bus error.
+///
+/// [`capacity()`](Self::capacity) is the size of the area that is enabled, 0 when it's
+/// disabled. Offsets are relative to the start of the area.
+///
+/// Locations that were not written since they were erased read as `0xFF`. A read with an
+/// uncorrectable ECC error returns [`Error::Ecc`].
+///
+/// The reads are done with the instruction cache (ICACHE) disabled, as the EDATA area must not be
+/// cached.
+///
+/// Programming or erasing the bank the code runs from stalls the CPU until it's done. Use the
+/// EDATA area of the other bank to avoid it.
+///
+/// [`NorFlash`]: embedded_storage::nor_flash::NorFlash
+pub struct Edata<'d, M: Mode> {
+    bank: FlashBank,
+    _flash: Peri<'d, FLASH>,
+    _mode: PhantomData<M>,
 }
 
-impl EDataBank {
-    fn base(self) -> u32 {
-        #[cfg(flash_dual_bank)]
-        let swapped = super::banks_swapped();
-        #[cfg(not(flash_dual_bank))]
-        let swapped = false;
-        match (self, swapped) {
-            (Self::Bank1, false) | (Self::Bank2, true) => EDATA_BASE,
-            (Self::Bank2, false) | (Self::Bank1, true) => EDATA_BANK2_BASE,
+impl<'d, M: Mode> Edata<'d, M> {
+    pub(crate) fn new(flash: Peri<'d, FLASH>, bank: FlashBank) -> Self {
+        Self {
+            bank,
+            _flash: flash,
+            _mode: PhantomData,
         }
     }
 
-    fn physical(self) -> FlashBank {
-        match self {
-            Self::Bank1 => FlashBank::Bank1,
-            Self::Bank2 => FlashBank::Bank2,
-        }
-    }
-}
-
-impl<'d, M: Mode> Flash<'d, M> {
-    /// Returns whether the EDATA area is enabled by the option bytes.
-    pub fn edata_is_enabled(&self) -> bool {
-        pac::FLASH.optsr_cur().read().edata_en()
+    /// Size in bytes of the EDATA area of the bank enabled in the option bytes. 0 if it's
+    /// disabled.
+    pub fn capacity(&self) -> usize {
+        (enabled_sectors(self.bank) * SECTOR_SIZE) as usize
     }
 
-    fn check_edata_enabled(&self) -> Result<(), Error> {
-        if self.edata_is_enabled() {
-            Ok(())
-        } else {
-            Err(Error::EdataDisabled)
-        }
+    /// Blocking read.
+    ///
+    /// NOTE: `offset` is an offset from the start of the EDATA area of the bank.
+    ///
+    /// An uncorrectable ECC error in the data returns [`Error::Ecc`]. The contents of `bytes`
+    /// are then unspecified.
+    pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        let address = self.address(offset, bytes.len())?;
+        ecc::read_half_words(address, bytes)
     }
 
-    /// Reads `output.len()` bytes from an EDATA bank.
-    ///
-    /// `offset` is a byte offset from the beginning of the selected physical
-    /// bank and does not need to be aligned to 2 bytes.
-    ///
-    /// # Hardware behavior
-    ///
-    /// EDATA associates ECC information with each aligned 16-bit word.
-    /// Although this function accepts unaligned byte ranges, it reads the
-    /// aligned 16-bit word containing each requested byte.
-    ///
-    /// Reading a virgin EDATA word, such as a word that has not been programmed
-    /// since the page was erased, raises a double ECC error. Therefore, callers
-    /// should ensure that every 16-bit word touched by the requested range has
-    /// been programmed before reading it.
-    ///
-    /// See RM0522, "Error correction codes (ECC)."
-    pub fn edata_read(&self, bank: EDataBank, offset: u32, output: &mut [u8]) -> Result<(), Error> {
-        self.check_edata_enabled()?;
-        let mut address = checked_address(bank, offset, output.len())?;
-
-        let mut i = 0;
-
-        if address % 2 != 0 && i < output.len() {
-            let value = unsafe { read_volatile((address - 1) as *const u16) };
-
-            output[i] = value.to_le_bytes()[1];
-
-            address += 1;
-            i += 1;
-        }
-
-        while i + 1 < output.len() {
-            let value = unsafe { read_volatile(address as *const u16) };
-
-            let bytes = value.to_le_bytes();
-            output[i] = bytes[0];
-            output[i + 1] = bytes[1];
-
-            address += 2;
-            i += 2;
-        }
-
-        if i < output.len() {
-            let value = unsafe { read_volatile(address as *const u16) };
-
-            output[i] = value.to_le_bytes()[0];
-        }
-
-        Ok(())
+    /// Address of `offset`, after checking that the `len` bytes from it are in the area.
+    fn address(&self, offset: u32, len: usize) -> Result<u32, Error> {
+        let sectors = enabled_sectors(self.bank);
+        check_range(offset, len, sectors * SECTOR_SIZE)?;
+        Ok(base(self.bank) + (SECTORS - sectors) * SECTOR_SIZE + offset)
     }
 
-    /// Reads a 16-bit value from an EDATA bank.
-    ///
-    /// `offset` is a byte offset from the beginning of the selected physical
-    /// bank and must be aligned to 2 bytes.
-    ///
-    /// # Hardware behavior
-    ///
-    /// EDATA associates ECC information with each aligned 16-bit word.
-    /// Reading a virgin EDATA word, such as a word that has not been programmed
-    /// since the page was erased, raises a double ECC error. Callers should
-    /// ensure that the requested word has been programmed before reading it.
-    ///
-    /// See RM0522, "Error correction codes (ECC)."
-    pub fn edata_read_u16(&self, bank: EDataBank, offset: u32) -> Result<u16, Error> {
-        self.check_edata_enabled()?;
-
-        if offset % 2 != 0 {
+    fn check_write(&self, offset: u32, len: usize) -> Result<u32, Error> {
+        let address = self.address(offset, len)?;
+        if !offset.is_multiple_of(EDATA_WRITE_SIZE as u32) || !len.is_multiple_of(EDATA_WRITE_SIZE) {
             return Err(Error::Unaligned);
         }
-
-        let address = checked_address(bank, offset, 2)?;
-
-        Ok(unsafe { read_volatile(address as *const u16) })
+        Ok(address)
     }
 
-    /// Reads 16-bit values from an EDATA bank into `output`.
-    ///
-    /// `offset` is a byte offset from the beginning of the selected physical
-    /// bank and must be aligned to 2 bytes.
-    ///
-    /// # Hardware behavior
-    ///
-    /// EDATA associates ECC information with each aligned 16-bit word.
-    /// Reading a virgin EDATA word, such as a word that has not been programmed
-    /// since the page was erased, raises a double ECC error. Callers should
-    /// ensure that every requested word has been programmed before reading it.
-    ///
-    /// See RM0522, "Error correction codes (ECC)."
-    pub fn edata_read_u16_slice(&self, bank: EDataBank, offset: u32, output: &mut [u16]) -> Result<(), Error> {
-        self.check_edata_enabled()?;
-
-        if offset % 2 != 0 {
-            return Err(Error::Unaligned);
-        }
-
-        let byte_len = output.len().checked_mul(2).ok_or(Error::OutOfBounds)?;
-
-        let mut address = checked_address(bank, offset, byte_len)?;
-
-        for value in output {
-            *value = unsafe { read_volatile(address as *const u16) };
-
-            address += 2;
-        }
-
-        Ok(())
-    }
-
-    /// Writes a 16-bit value to an EDATA bank.
-    ///
-    /// `offset` is a byte offset from the beginning of the selected physical
-    /// bank and must be aligned to 2 bytes.
-    pub fn edata_write_u16(&mut self, bank: EDataBank, offset: u32, value: u16) -> Result<(), Error> {
-        self.check_edata_enabled()?;
-
-        if offset % 2 != 0 {
-            return Err(Error::Unaligned);
-        }
-
-        let address = checked_address(bank, offset, 2)?;
-
-        unsafe { family::unlock() };
-        let _lock = OnDrop::new(|| unsafe { family::lock() });
-
-        unsafe { family::edata_write(address, value) }
-    }
-
-    /// Writes 16-bit values to an EDATA bank.
-    ///
-    /// `offset` is a byte offset from the beginning of the selected physical
-    /// bank and must be aligned to 2 bytes.
-    pub fn edata_write_u16_slice(&mut self, bank: EDataBank, offset: u32, values: &[u16]) -> Result<(), Error> {
-        self.check_edata_enabled()?;
-
-        if offset % 2 != 0 {
-            return Err(Error::Unaligned);
-        }
-
-        let byte_len = values.len().checked_mul(2).ok_or(Error::OutOfBounds)?;
-
-        let address = checked_address(bank, offset, byte_len)?;
-
-        unsafe { family::unlock() };
-        let _lock = OnDrop::new(|| unsafe { family::lock() });
-
-        let mut address = address;
-        for &value in values {
-            unsafe { family::edata_write(address, value)? };
-            address += 2;
-        }
-        Ok(())
-    }
-
-    /// Writes a 32-bit value to an EDATA bank.
-    ///
-    /// `offset` is a byte offset from the beginning of the selected physical
-    /// bank and must be aligned to 4 bytes.
-    pub fn edata_write_u32(&mut self, bank: EDataBank, offset: u32, value: u32) -> Result<(), Error> {
-        self.check_edata_enabled()?;
-
-        if offset % 4 != 0 {
-            return Err(Error::Unaligned);
-        }
-
-        let address = checked_address(bank, offset, 4)?;
-
-        unsafe { family::unlock() };
-        let _lock = OnDrop::new(|| unsafe { family::lock() });
-
-        let bytes = value.to_le_bytes();
-        unsafe { family::edata_write(address, u16::from_le_bytes([bytes[0], bytes[1]]))? };
-        unsafe { family::edata_write(address + 2, u16::from_le_bytes([bytes[2], bytes[3]])) }
-    }
-
-    /// Writes bytes to an EDATA bank using 16-bit programming operations.
-    ///
-    /// `offset` is a byte offset from the beginning of the selected physical
-    /// bank. Both `offset` and `data.len()` must be aligned to 2 bytes.
-    pub fn edata_write(&mut self, bank: EDataBank, offset: u32, data: &[u8]) -> Result<(), Error> {
-        self.check_edata_enabled()?;
-
-        if offset % EDATA_WRITE_SIZE as u32 != 0 || data.len() % EDATA_WRITE_SIZE != 0 {
-            return Err(Error::Unaligned);
-        }
-
-        let address = checked_address(bank, offset, data.len())?;
-
-        unsafe { family::unlock() };
-        let _lock = OnDrop::new(|| unsafe { family::lock() });
-
-        let mut address = address;
-        for chunk in data.chunks_exact(2) {
-            unsafe { family::edata_write(address, u16::from_le_bytes([chunk[0], chunk[1]]))? };
-            address += 2;
-        }
-        Ok(())
-    }
-
-    /// Erases one page in an EDATA bank.
-    ///
-    /// `page` is a zero-based physical page index within the selected bank.
-    pub fn edata_erase_page(&mut self, bank: EDataBank, page: u8) -> Result<(), Error> {
-        self.check_edata_enabled()?;
-
-        if page >= EDATA_PAGE_COUNT {
+    /// The sectors to erase for `from..to`.
+    fn sectors(&self, from: u32, to: u32) -> Result<impl Iterator<Item = FlashSector>, Error> {
+        if to < from {
             return Err(Error::OutOfBounds);
         }
-
-        unsafe { family::unlock() };
-        let _lock = OnDrop::new(|| unsafe { family::lock() });
-        unsafe { family::edata_erase(bank.physical(), page) }
+        let start = self.address(from, (to - from) as usize)?;
+        if !from.is_multiple_of(SECTOR_SIZE) || !to.is_multiple_of(SECTOR_SIZE) {
+            return Err(Error::Unaligned);
+        }
+        let bank = self.bank;
+        let first = (start - base(bank)) / SECTOR_SIZE;
+        Ok((0..(to - from) / SECTOR_SIZE).map(move |i| FlashSector {
+            bank,
+            index_in_bank: sector_number(first + i),
+            start: start + i * SECTOR_SIZE,
+            size: SECTOR_SIZE,
+        }))
     }
 }
 
-fn checked_address(bank: EDataBank, offset: u32, size: usize) -> Result<u32, Error> {
-    let range = checked_range(offset, size, EDATA_BANK_SIZE)?;
-    bank.base().checked_add(range.start).ok_or(Error::OutOfBounds)
+impl<'d> Edata<'d, Blocking> {
+    /// Blocking write.
+    ///
+    /// NOTE: `offset` is an offset from the start of the EDATA area of the bank.
+    ///
+    /// `offset` and the length of `bytes` must be multiples of [`EDATA_WRITE_SIZE`]. The 16-bit
+    /// words written must not have been written since they were erased: writing a word twice
+    /// would corrupt its ECC. If one was, the write returns [`Error::NotErased`] without writing
+    /// anything.
+    pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+        let address = self.check_write(offset, bytes.len())?;
+        check_erased(address, bytes.len())?;
+        for (address, data) in units(address, bytes) {
+            critical_section::with(|_| blocking_op(Op::WriteEdata(address, data)))?;
+        }
+        Ok(())
+    }
+
+    /// Blocking erase.
+    ///
+    /// NOTE: `from` and `to` are offsets from the start of the EDATA area of the bank. They
+    /// must be multiples of [`EDATA_ERASE_SIZE`].
+    pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+        for sector in self.sectors(from, to)? {
+            critical_section::with(|_| blocking_op(Op::Erase(&sector, &Config::default())))?;
+        }
+        Ok(())
+    }
 }
 
-fn checked_range(offset: u32, len: usize, bank_size: u32) -> Result<Range<u32>, Error> {
-    let len = u32::try_from(len).map_err(|_| Error::OutOfBounds)?;
-    let end = offset.checked_add(len).ok_or(Error::OutOfBounds)?;
-
-    if end > bank_size {
-        return Err(Error::OutOfBounds);
+impl<'d> Edata<'d, Async> {
+    /// Async read.
+    ///
+    /// Note: reading from flash can't actually block, so this is the same as `blocking_read`.
+    pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        self.blocking_read(offset, bytes)
     }
 
-    Ok(offset..end)
+    /// Async write.
+    ///
+    /// See [`blocking_write`](Edata::blocking_write).
+    pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+        let address = self.check_write(offset, bytes.len())?;
+        let _guard = REGION_ACCESS.lock().await;
+        check_erased(address, bytes.len())?;
+        for (address, data) in units(address, bytes) {
+            op(Op::WriteEdata(address, data)).await?;
+        }
+        Ok(())
+    }
+
+    /// Async erase.
+    ///
+    /// See [`blocking_erase`](Edata::blocking_erase).
+    pub async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+        let sectors = self.sectors(from, to)?;
+        let _guard = REGION_ACCESS.lock().await;
+        for sector in sectors {
+            op(Op::Erase(&sector, &Config::default())).await?;
+        }
+        Ok(())
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// The units to program to write `bytes` at `address`: 32-bit words where they are aligned,
+/// 16-bit words elsewhere.
+fn units(mut address: u32, mut bytes: &[u8]) -> impl Iterator<Item = (u32, &[u8])> {
+    core::iter::from_fn(move || {
+        let n = if address.is_multiple_of(4) && bytes.len() >= 4 {
+            4
+        } else {
+            2
+        };
+        let (unit, rest) = bytes.split_at_checked(n)?;
+        let item = (address, unit);
+        address += n as u32;
+        bytes = rest;
+        Some(item)
+    })
+}
 
-    #[test]
-    fn checked_range_accepts_valid_ranges() {
-        assert_eq!(checked_range(0, 0, 16), Ok(0..0));
-        assert_eq!(checked_range(0, 2, 16), Ok(0..2));
-        assert_eq!(checked_range(1, 1, 16), Ok(1..2));
-        assert_eq!(checked_range(15, 1, 16), Ok(15..16));
-        assert_eq!(checked_range(0, 16, 16), Ok(0..16));
+/// Checks that the `len` bytes at `address` were not written since they were erased.
+fn check_erased(address: u32, len: usize) -> Result<(), Error> {
+    ecc::half_word_reads(|| {
+        for word in (address..address + len as u32).step_by(2) {
+            if !matches!(ecc::read_half_word(word), Ok(None)) {
+                return Err(Error::NotErased);
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Address of the EDATA area of `bank`. Like the banks, the EDATA areas are swapped with
+/// `SWAP_BANK`.
+fn base(bank: FlashBank) -> u32 {
+    #[cfg(flash_dual_bank)]
+    let swapped = super::banks_swapped();
+    #[cfg(not(flash_dual_bank))]
+    let swapped = false;
+    if (bank == FlashBank::Bank1) != swapped {
+        BASE
+    } else {
+        BASE + SECTORS * SECTOR_SIZE
+    }
+}
+
+/// Number of the EDATA sectors of `bank` enabled in the option bytes, which are the last ones.
+#[cfg(flash_v5_c5)]
+fn enabled_sectors(_bank: FlashBank) -> u32 {
+    if pac::FLASH.optsr_cur().read().edata_en() {
+        SECTORS
+    } else {
+        0
+    }
+}
+
+/// Number of the EDATA sectors of `bank` enabled in the option bytes, which are the last ones.
+#[cfg(flash_v5_h5)]
+fn enabled_sectors(bank: FlashBank) -> u32 {
+    let (enabled, start) = match bank {
+        FlashBank::Bank1 => {
+            let r = pac::FLASH.edata1r_cur().read();
+            (r.edata1_en(), r.edata1_strt())
+        }
+        _ => {
+            let r = pac::FLASH.edata2r_cur().read();
+            (r.edata2_en(), r.edata2_strt())
+        }
+    };
+    if enabled { start as u32 + 1 } else { 0 }
+}
+
+/// The number used to erase the EDATA sector `i` of a bank: its page number on C5, the user flash
+/// sector it's made of on H5.
+fn sector_number(i: u32) -> u32 {
+    #[cfg(flash_v5_c5)]
+    return i;
+    #[cfg(flash_v5_h5)]
+    return crate::_generated::EDATA_FIRST_SECTOR as u32 + i;
+}
+
+impl<M: Mode> embedded_storage::nor_flash::ErrorType for Edata<'_, M> {
+    type Error = Error;
+}
+
+impl<M: Mode> embedded_storage::nor_flash::ReadNorFlash for Edata<'_, M> {
+    const READ_SIZE: usize = READ_SIZE;
+
+    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(offset, bytes)
     }
 
-    #[test]
-    fn checked_range_rejects_out_of_bounds() {
-        assert_eq!(checked_range(15, 2, 16), Err(Error::OutOfBounds));
-        assert_eq!(checked_range(u32::MAX, 1, u32::MAX), Err(Error::OutOfBounds));
+    fn capacity(&self) -> usize {
+        Edata::capacity(self)
+    }
+}
+
+impl embedded_storage::nor_flash::NorFlash for Edata<'_, Blocking> {
+    const WRITE_SIZE: usize = EDATA_WRITE_SIZE;
+    const ERASE_SIZE: usize = EDATA_ERASE_SIZE;
+
+    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(offset, bytes)
     }
 
-    #[cfg(target_pointer_width = "64")]
-    #[test]
-    fn checked_range_rejects_lengths_larger_than_u32() {
-        assert_eq!(
-            checked_range(0, u32::MAX as usize + 1, u32::MAX),
-            Err(Error::OutOfBounds)
-        );
+    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.blocking_erase(from, to)
+    }
+}
+
+impl embedded_storage_async::nor_flash::ReadNorFlash for Edata<'_, Async> {
+    const READ_SIZE: usize = READ_SIZE;
+
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        self.read(offset, bytes).await
+    }
+
+    fn capacity(&self) -> usize {
+        Edata::capacity(self)
+    }
+}
+
+impl embedded_storage_async::nor_flash::NorFlash for Edata<'_, Async> {
+    const WRITE_SIZE: usize = EDATA_WRITE_SIZE;
+    const ERASE_SIZE: usize = EDATA_ERASE_SIZE;
+
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.write(offset, bytes).await
+    }
+
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.erase(from, to).await
     }
 }

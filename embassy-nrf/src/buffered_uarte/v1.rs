@@ -21,15 +21,14 @@ use pac::uarte::vals;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
-use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::gpio::Flex;
 use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::ppi::{
-    self, AnyConfigurableChannel, AnyGroup, Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task,
-};
+use crate::ppi::{self, ChannelNumber, ConfigurableChannel, Event, Group, GroupNumber, Ppi, PpiGroup, Task};
 use crate::timer::{Instance as TimerInstance, Timer};
 use crate::uarte::{
-    Config, DMA_SIZE, Instance as UarteInstance, configure, configure_rx_pins, configure_tx_pins, drop_tx_rx,
+    Config, CtsPin, DMA_SIZE, Instance as UarteInstance, RtsPin, RxPin, TxPin, configure, configure_rx_pins,
+    configure_tx_pins, drop_tx_rx,
 };
 use crate::{interrupt, pac};
 
@@ -240,8 +239,8 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
+        rxd: Peri<'d, impl RxPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
@@ -253,14 +252,14 @@ impl<'d> BufferedUarte<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            txd.into(),
-            rxd.into(),
+            Flex::new(txd),
+            Flex::new(rxd),
             None,
             None,
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             tx_buffer,
             rx_buffer,
             config,
@@ -275,10 +274,10 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_rtscts<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
+        rxd: Peri<'d, impl RxPin<U>>,
+        cts: Peri<'d, impl CtsPin<U>>,
+        rts: Peri<'d, impl RtsPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
@@ -290,14 +289,14 @@ impl<'d> BufferedUarte<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            txd.into(),
-            rxd.into(),
-            Some(cts.into()),
-            Some(rts.into()),
+            Flex::new(txd),
+            Flex::new(rxd),
+            Some(Flex::new(cts)),
+            Some(Flex::new(rts)),
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             tx_buffer,
             rx_buffer,
             config,
@@ -307,14 +306,14 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     fn new_inner<U: UarteInstance, T: TimerInstance>(
         peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        rxd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        rxd: Flex<'d>,
+        cts: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
-        ppi_ch1: Peri<'d, AnyConfigurableChannel>,
-        ppi_ch2: Peri<'d, AnyConfigurableChannel>,
-        ppi_group: Peri<'d, AnyGroup>,
+        ppi_ch1: ChannelNumber,
+        ppi_ch2: ChannelNumber,
+        ppi_group: GroupNumber,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -428,30 +427,30 @@ impl<'d> BufferedUarteTx<'d> {
     /// Create a new BufferedUarteTx without hardware flow control.
     pub fn new<U: UarteInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), None, tx_buffer, config)
+        Self::new_inner(uarte, Flex::new(txd), None, tx_buffer, config)
     }
 
     /// Create a new BufferedUarteTx with hardware flow control (CTS)
     pub fn new_with_cts<U: UarteInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
+        cts: Peri<'d, impl CtsPin<U>>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), Some(cts.into()), tx_buffer, config)
+        Self::new_inner(uarte, Flex::new(txd), Some(Flex::new(cts)), tx_buffer, config)
     }
 
     fn new_inner<U: UarteInstance>(
         peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -475,8 +474,8 @@ impl<'d> BufferedUarteTx<'d> {
 
     fn new_innerer<U: UarteInstance>(
         _peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
     ) -> Self {
         let r = U::regs();
@@ -609,9 +608,9 @@ impl<'a> Drop for BufferedUarteTx<'a> {
 /// Peripherals owned by a [`BufferedUarteRx`] that aren't needed by a borrowed half.
 struct RxResources<'d> {
     timer: Timer<'d>,
-    _ppi_ch1: Ppi<'d, AnyConfigurableChannel, 1, 1>,
-    _ppi_ch2: Ppi<'d, AnyConfigurableChannel, 1, 2>,
-    ppi_group: PpiGroup<'d, AnyGroup>,
+    _ppi_ch1: Ppi<'d, 1, 1>,
+    _ppi_ch2: Ppi<'d, 1, 2>,
+    ppi_group: PpiGroup<'d>,
 }
 
 /// Reader part of the buffered UARTE driver.
@@ -636,7 +635,7 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        rxd: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
@@ -647,12 +646,12 @@ impl<'d> BufferedUarteRx<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            rxd.into(),
+            Flex::new(rxd),
             None,
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             rx_buffer,
             config,
         )
@@ -666,8 +665,8 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_rts<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        rxd: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<U>>,
+        rts: Peri<'d, impl RtsPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
@@ -678,12 +677,12 @@ impl<'d> BufferedUarteRx<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            rxd.into(),
-            Some(rts.into()),
+            Flex::new(rxd),
+            Some(Flex::new(rts)),
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             rx_buffer,
             config,
         )
@@ -692,12 +691,12 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     fn new_inner<U: UarteInstance, T: TimerInstance>(
         peri: Peri<'d, U>,
-        rxd: Peri<'d, AnyPin>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rxd: Flex<'d>,
+        rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
-        ppi_ch1: Peri<'d, AnyConfigurableChannel>,
-        ppi_ch2: Peri<'d, AnyConfigurableChannel>,
-        ppi_group: Peri<'d, AnyGroup>,
+        ppi_ch1: ChannelNumber,
+        ppi_ch2: ChannelNumber,
+        ppi_group: GroupNumber,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -722,12 +721,12 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     fn new_innerer<U: UarteInstance, T: TimerInstance>(
         _peri: Peri<'d, U>,
-        rxd: Peri<'d, AnyPin>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rxd: Flex<'d>,
+        rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
-        ppi_ch1: Peri<'d, AnyConfigurableChannel>,
-        ppi_ch2: Peri<'d, AnyConfigurableChannel>,
-        ppi_group: Peri<'d, AnyGroup>,
+        ppi_ch1: ChannelNumber,
+        ppi_ch2: ChannelNumber,
+        ppi_group: GroupNumber,
         rx_buffer: &'d mut [u8],
     ) -> Self {
         assert!(rx_buffer.len() % 2 == 0);
@@ -770,14 +769,14 @@ impl<'d> BufferedUarteRx<'d> {
         timer.clear();
         timer.start();
 
-        let mut ppi_ch1 = Ppi::new_one_to_one(ppi_ch1, Event::from_reg(r.events_rxdrdy()), timer.task_count());
+        let mut ppi_ch1 = Ppi::new_one_to_one_inner(ppi_ch1, Event::from_reg(r.events_rxdrdy()), timer.task_count());
         ppi_ch1.enable();
 
         buffered_state
             .rx_ppi_ch
             .store(ppi_ch2.number() as u8, Ordering::Relaxed);
-        let mut ppi_group = PpiGroup::new(ppi_group);
-        let mut ppi_ch2 = Ppi::new_one_to_two(
+        let mut ppi_group = PpiGroup::new_inner(ppi_group);
+        let mut ppi_ch2 = Ppi::new_one_to_two_inner(
             ppi_ch2,
             Event::from_reg(r.events_dma().rx().end()),
             Task::from_reg(r.tasks_dma().rx().start()),

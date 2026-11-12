@@ -14,7 +14,9 @@ use cortex_m::peripheral::NVIC;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
-use embassy_usb_driver::{Direction, EndpointAddress, EndpointError, EndpointInfo, EndpointType, Event, Unsupported};
+use embassy_usb_driver::{
+    Direction, EndpointAddress, EndpointConfig, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
+};
 
 use self::vbus_detect::VbusDetect;
 use crate::interrupt::typelevel::Interrupt;
@@ -134,42 +136,32 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
     type ControlPipe = ControlPipe<'d>;
     type Bus = Bus<'d, V>;
 
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        let index = self.alloc_in.allocate(ep_type, ep_addr)?;
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
+        let index = self.alloc_in.allocate(config.ep_type, config.addr)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::In);
         Ok(Endpoint::new(
             self.regs,
             EndpointInfo {
                 addr: ep_addr,
-                ep_type,
-                max_packet_size: packet_size,
-                interval_ms,
+                ep_type: config.ep_type,
+                max_packet_size: config.max_packet_size,
+                interval_ms: config.interval_ms,
+                max_burst: 0,
             },
         ))
     }
 
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        let index = self.alloc_out.allocate(ep_type, ep_addr)?;
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
+        let index = self.alloc_out.allocate(config.ep_type, config.addr)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::Out);
         Ok(Endpoint::new(
             self.regs,
             EndpointInfo {
                 addr: ep_addr,
-                ep_type,
-                max_packet_size: packet_size,
-                interval_ms,
+                ep_type: config.ep_type,
+                max_packet_size: config.max_packet_size,
+                interval_ms: config.interval_ms,
+                max_burst: 0,
             },
         ))
     }

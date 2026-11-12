@@ -7,7 +7,7 @@ use core::future::Future;
 
 use embassy_futures::join::join;
 use embassy_sync::pipe::Pipe;
-use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Receiver, Sender, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Config as CdcAcmConfig, Receiver, Sender, State};
 use embassy_usb::driver::{Driver, EndpointError};
 use embassy_usb::{Builder, Config};
 use log::{Metadata, Record};
@@ -112,7 +112,7 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
         );
 
         // Create classes on the builder.
-        let class = CdcAcmClass::new(&mut builder, &mut state.state, MAX_PACKET_SIZE as u16);
+        let class = CdcAcmClass::new(&mut builder, &mut state.state, CdcAcmConfig::new());
         let (mut sender, mut receiver) = class.split();
 
         // Build the builder.
@@ -141,10 +141,12 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
             }
         };
         let receiver_fut = async {
-            let mut receiver_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
+            // Large enough for a high-speed class passed to `create_future_from_class`.
+            let mut receiver_buf = [0u8; 512];
+            let receiver_buf = &mut receiver_buf[..receiver.max_packet_size() as usize];
             receiver.wait_connection().await;
             loop {
-                let n = match receiver.read_packet(&mut receiver_buf).await {
+                let n = match receiver.read_packet(receiver_buf).await {
                     Err(EndpointError::Disabled) => {
                         receiver.wait_connection().await;
                         continue;

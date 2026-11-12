@@ -9,7 +9,7 @@ use embassy_nrf::config::{ClockSpeed, Config as NrfConfig, HfclkSource};
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::usb::{self, Driver};
 use embassy_nrf::{Peri, bind_interrupts, peripherals};
-use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Config as CdcAcmConfig, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::types::InterfaceNumber;
@@ -57,7 +57,7 @@ async fn main(_spawner: Spawner) {
     );
     builder.msos_descriptor(windows_version::WIN8_1, 2);
 
-    let mut class = CdcAcmClass::new(&mut builder, STATE.init(State::new()), 64);
+    let mut class = CdcAcmClass::new(&mut builder, STATE.init(State::new()), CdcAcmConfig::new());
 
     let msos_writer = builder.msos_writer();
     msos_writer.configuration(0);
@@ -94,7 +94,7 @@ impl From<EndpointError> for Disconnected {
 }
 
 async fn echo<'d>(class: &mut CdcAcmClass<'d, UsbDriver<'d>>) -> Result<(), Disconnected> {
-    let mut buf = [0; 64];
+    let mut buf = [0; 512];
     loop {
         let n = class.read_packet(&mut buf).await?;
         let data = &buf[..n];

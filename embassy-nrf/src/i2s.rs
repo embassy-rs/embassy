@@ -13,7 +13,7 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
+use crate::gpio::{Flex, Pin as GpioPin, PselBits};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2s::vals;
 use crate::util::slice_in_ram_or;
@@ -427,46 +427,70 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 pub struct I2S<'d> {
     r: pac::i2s::I2s,
     state: &'static State,
-    mck: Option<Peri<'d, AnyPin>>,
-    sck: Peri<'d, AnyPin>,
-    lrck: Peri<'d, AnyPin>,
-    sdin: Option<Peri<'d, AnyPin>>,
-    sdout: Option<Peri<'d, AnyPin>>,
+    pins: Pins<'d>,
     master_clock: Option<MasterClock>,
     config: Config,
+}
+
+/// The pins of an I2S driver, disconnected when the driver or its stream is dropped.
+struct Pins<'d> {
+    mck: Option<Flex<'d>>,
+    sck: Flex<'d>,
+    lrck: Flex<'d>,
+    sdin: Option<Flex<'d>>,
+    sdout: Option<Flex<'d>>,
+}
+
+impl<'d> Pins<'d> {
+    fn new(mck: Option<Flex<'d>>, sck: Flex<'d>, lrck: Flex<'d>) -> Self {
+        Self {
+            mck,
+            sck,
+            lrck,
+            sdin: None,
+            sdout: None,
+        }
+    }
 }
 
 impl<'d> I2S<'d> {
     /// Create a new I2S in master mode without an MCK output pin.
     pub fn new_master<T: Instance>(
         i2s: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        lrck: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        lrck: Peri<'d, impl LrckPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         master_clock: MasterClock,
         config: Config,
     ) -> Self {
-        Self::new_inner(i2s, None, sck.into(), lrck.into(), master_clock, config)
+        Self::new_inner(i2s, None, Flex::new(sck), Flex::new(lrck), master_clock, config)
     }
 
     /// Create a new I2S in master mode with an MCK output pin.
     pub fn new_master_with_mck<T: Instance>(
         i2s: Peri<'d, T>,
-        mck: Peri<'d, impl GpioPin>,
-        sck: Peri<'d, impl GpioPin>,
-        lrck: Peri<'d, impl GpioPin>,
+        mck: Peri<'d, impl MckPin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        lrck: Peri<'d, impl LrckPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         master_clock: MasterClock,
         config: Config,
     ) -> Self {
-        Self::new_inner(i2s, Some(mck.into()), sck.into(), lrck.into(), master_clock, config)
+        Self::new_inner(
+            i2s,
+            Some(Flex::new(mck)),
+            Flex::new(sck),
+            Flex::new(lrck),
+            master_clock,
+            config,
+        )
     }
 
     fn new_inner<T: Instance>(
         _i2s: Peri<'d, T>,
-        mck: Option<Peri<'d, AnyPin>>,
-        sck: Peri<'d, AnyPin>,
-        lrck: Peri<'d, AnyPin>,
+        mck: Option<Flex<'d>>,
+        sck: Flex<'d>,
+        lrck: Flex<'d>,
         master_clock: MasterClock,
         config: Config,
     ) -> Self {
@@ -476,11 +500,7 @@ impl<'d> I2S<'d> {
         Self {
             r: T::regs(),
             state: T::state(),
-            mck,
-            sck,
-            lrck,
-            sdin: None,
-            sdout: None,
+            pins: Pins::new(mck, sck, lrck),
             master_clock: Some(master_clock),
             config,
         }
@@ -489,8 +509,8 @@ impl<'d> I2S<'d> {
     /// Create a new I2S in slave mode
     pub fn new_slave<T: Instance>(
         _i2s: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        lrck: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        lrck: Peri<'d, impl LrckPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -500,11 +520,7 @@ impl<'d> I2S<'d> {
         Self {
             r: T::regs(),
             state: T::state(),
-            mck: None,
-            sck: sck.into(),
-            lrck: lrck.into(),
-            sdin: None,
-            sdout: None,
+            pins: Pins::new(None, Flex::new(sck), Flex::new(lrck)),
             master_clock: None,
             config,
         }
@@ -516,12 +532,12 @@ impl<'d> I2S<'d> {
         sdout: Peri<'d, impl GpioPin>,
         buffers: MultiBuffering<S, NB, NS>,
     ) -> OutputStream<'d, S, NB, NS> {
-        self.sdout = Some(sdout.into());
+        self.pins.sdout = Some(Flex::new(sdout));
         let p = self.build();
         OutputStream {
             r: p.0,
             state: p.1,
-            _phantom: PhantomData,
+            _pins: p.2,
             buffers,
         }
     }
@@ -532,13 +548,13 @@ impl<'d> I2S<'d> {
         sdin: Peri<'d, impl GpioPin>,
         buffers: MultiBuffering<S, NB, NS>,
     ) -> InputStream<'d, S, NB, NS> {
-        self.sdin = Some(sdin.into());
+        self.pins.sdin = Some(Flex::new(sdin));
         let p = self.build();
         InputStream {
             r: p.0,
             state: p.1,
             buffers,
-            _phantom: PhantomData,
+            _pins: p.2,
         }
     }
 
@@ -550,20 +566,20 @@ impl<'d> I2S<'d> {
         buffers_out: MultiBuffering<S, NB, NS>,
         buffers_in: MultiBuffering<S, NB, NS>,
     ) -> FullDuplexStream<'d, S, NB, NS> {
-        self.sdout = Some(sdout.into());
-        self.sdin = Some(sdin.into());
+        self.pins.sdout = Some(Flex::new(sdout));
+        self.pins.sdin = Some(Flex::new(sdin));
         let p = self.build();
 
         FullDuplexStream {
             r: p.0,
             state: p.1,
-            _phantom: PhantomData,
+            _pins: p.2,
             buffers_out,
             buffers_in,
         }
     }
 
-    fn build(self) -> (pac::i2s::I2s, &'static State) {
+    fn build(self) -> (pac::i2s::I2s, &'static State, Pins<'d>) {
         self.apply_config();
         self.select_pins();
         self.setup_interrupt();
@@ -571,7 +587,7 @@ impl<'d> I2S<'d> {
         let device = Device::new(self.r);
         device.enable();
 
-        (self.r, self.state)
+        (self.r, self.state, self.pins)
     }
 
     fn apply_config(&self) {
@@ -596,11 +612,12 @@ impl<'d> I2S<'d> {
 
     fn select_pins(&self) {
         let psel = self.r.psel();
-        psel.mck().write_value(self.mck.psel_bits());
-        psel.sck().write_value(self.sck.psel_bits());
-        psel.lrck().write_value(self.lrck.psel_bits());
-        psel.sdin().write_value(self.sdin.psel_bits());
-        psel.sdout().write_value(self.sdout.psel_bits());
+        let pins = &self.pins;
+        psel.mck().write_value(pins.mck.psel_bits());
+        psel.sck().write_value(pins.sck.psel_bits());
+        psel.lrck().write_value(pins.lrck.psel_bits());
+        psel.sdin().write_value(pins.sdin.psel_bits());
+        psel.sdout().write_value(pins.sdout.psel_bits());
     }
 
     fn setup_interrupt(&self) {
@@ -762,7 +779,7 @@ pub struct OutputStream<'d, S: Sample, const NB: usize, const NS: usize> {
     r: pac::i2s::I2s,
     state: &'static State,
     buffers: MultiBuffering<S, NB, NS>,
-    _phantom: PhantomData<&'d ()>,
+    _pins: Pins<'d>,
 }
 
 impl<'d, S: Sample, const NB: usize, const NS: usize> OutputStream<'d, S, NB, NS> {
@@ -817,7 +834,7 @@ pub struct InputStream<'d, S: Sample, const NB: usize, const NS: usize> {
     r: pac::i2s::I2s,
     state: &'static State,
     buffers: MultiBuffering<S, NB, NS>,
-    _phantom: PhantomData<&'d ()>,
+    _pins: Pins<'d>,
 }
 
 impl<'d, S: Sample, const NB: usize, const NS: usize> InputStream<'d, S, NB, NS> {
@@ -874,7 +891,7 @@ pub struct FullDuplexStream<'d, S: Sample, const NB: usize, const NS: usize> {
     state: &'static State,
     buffers_out: MultiBuffering<S, NB, NS>,
     buffers_in: MultiBuffering<S, NB, NS>,
-    _phantom: PhantomData<&'d ()>,
+    _pins: Pins<'d>,
 }
 
 impl<'d, S: Sample, const NB: usize, const NS: usize> FullDuplexStream<'d, S, NB, NS> {
@@ -1212,6 +1229,24 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// MCK pin trait.
+    MckPin,
+    Instance
+);
+
+pin_trait!(
+    /// SCK pin trait.
+    SckPin,
+    Instance
+);
+
+pin_trait!(
+    /// LRCK pin trait.
+    LrckPin,
+    Instance
+);
 
 macro_rules! impl_i2s {
     ($type:ident, $pac_type:ident, $irq:ident) => {

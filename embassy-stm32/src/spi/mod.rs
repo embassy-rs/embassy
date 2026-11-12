@@ -3,6 +3,8 @@
 
 #[cfg(feature = "exti")]
 mod ringbuffered;
+#[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
+pub mod triggered;
 use core::marker::PhantomData;
 use core::pin::pin;
 use core::ptr;
@@ -323,16 +325,17 @@ impl<'d> CsPinType<'d> {
         pin: Peri<'d, C>,
         irq: impl crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
-            exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
+            exti::InterruptHandler<<C as ExtiPin>::ExtiChannel>,
         >,
         exti: Option<Peri<'d, C::ExtiChannel>>,
         af_type: AfType,
     ) -> Self {
-        set_as_af!(pin, af_type);
+        let pin = set_as_af!(pin, af_type);
 
         match exti {
-            Some(ch) => Self::Exti(ExtiInput::new_af(pin, ch, irq)),
-            None => Self::Flex(Flex::new(pin)),
+            // SAFETY: `ch` is the EXTI channel of `pin`.
+            Some(ch) => Self::Exti(unsafe { ExtiInput::from_flex(pin, ch, irq) }),
+            None => Self::Flex(pin),
         }
     }
 
@@ -394,8 +397,8 @@ pub struct Spi<'d, M: PeriMode, CM: CommunicationMode> {
     _mosi: Option<Flex<'d>>,
     _miso: Option<Flex<'d>>,
     nss: CsPinType<'d>,
-    tx_dma: Option<ChannelAndRequest<'d>>,
-    rx_dma: Option<ChannelAndRequest<'d>>,
+    tx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
+    rx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
     _marker: PhantomData<(M, CM)>,
     current_word_size: word_impl::Config,
     input_pull: Pull,
@@ -414,8 +417,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         mosi: Option<Flex<'d>>,
         miso: Option<Flex<'d>>,
         nss: CsPinType<'d>,
-        tx_dma: Option<ChannelAndRequest<'d>>,
-        rx_dma: Option<ChannelAndRequest<'d>>,
+        tx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
+        rx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
         config: Config,
     ) -> Self {
         let mut this = Self {
@@ -468,6 +471,10 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             slave is selected when NSS is low and deselected when NSS high
          */
         let ssm = self.nss.is_none();
+        #[cfg(any(spi_v1, spi_v2))]
+        let has_rx_dma = M::if_async_ref(&self.rx_dma).is_some_and(Option::is_some);
+        #[cfg(any(spi_v1, spi_v2))]
+        let has_tx_dma = M::if_async_ref(&self.tx_dma).is_some_and(Option::is_some);
 
         let regs = self.info.regs;
         #[cfg(any(spi_v1, spi_v2))]
@@ -488,8 +495,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_ssm(ssm);
                 w.set_crcen(self.crc_enabled);
                 w.set_bidimode(vals::Bidimode::Unidirectional);
-                w.set_rxonly(match (&self.rx_dma, &self.tx_dma) {
-                    (Some(_), None) => vals::Rxonly::OutputDisabled,
+                w.set_rxonly(match (has_rx_dma, has_tx_dma) {
+                    (true, false) => vals::Rxonly::OutputDisabled,
                     // we're doing "fake rxonly", by actually writing one
                     // byte to TXDR for each byte we want to receive. if we
                     // set OUTPUTDISABLED here, this hangs.
@@ -582,7 +589,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         self.gpio_speed = config.gpio_speed;
         self.crc_enabled = !matches!(config.crc, CrcConfig::Disabled);
         #[cfg(gpio_v2)]
-        set_speed(&self._sck, &self._mosi, config.gpio_speed);
+        set_speed(&mut self._sck, &mut self._mosi, config.gpio_speed);
         reconfigure::<CM>(self.info, self.kernel_clock, config)
     }
 
@@ -1018,8 +1025,8 @@ impl<'d> Spi<'d, Blocking, Slave> {
             new_pin!(mosi, AfType::input(config.input_pull)),
             new_pin!(miso, AfType::output(OutputType::PushPull, config.gpio_speed)),
             CsPinType::Flex(new_pin!(cs, AfType::input(config.nss_pull)).unwrap()),
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -1040,8 +1047,8 @@ impl<'d> Spi<'d, Blocking, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(miso, AfType::input(config.input_pull)),
             CsPinType::None,
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -1059,8 +1066,8 @@ impl<'d> Spi<'d, Blocking, Master> {
             None,
             new_pin!(miso, AfType::input(config.input_pull)),
             CsPinType::None,
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -1078,8 +1085,8 @@ impl<'d> Spi<'d, Blocking, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             None,
             CsPinType::None,
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -1098,8 +1105,8 @@ impl<'d> Spi<'d, Blocking, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             None,
             CsPinType::None,
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -1127,7 +1134,7 @@ impl<'d> Spi<'d, Async, Slave> {
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
-            exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
+            exti::InterruptHandler<<C as ExtiPin>::ExtiChannel>,
         > + 'd,
         exti: Option<Peri<'d, C::ExtiChannel>>,
         config: Config,
@@ -1160,7 +1167,7 @@ impl<'d> Spi<'d, Async, Slave> {
         irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
-            exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
+            exti::InterruptHandler<<C as ExtiPin>::ExtiChannel>,
         > + 'd,
         exti: Option<Peri<'d, C::ExtiChannel>>,
         config: Config,
@@ -2086,14 +2093,12 @@ fn compute_frequency(kernel_clock: Hertz, br: Br) -> Hertz {
 }
 
 #[cfg(gpio_v2)]
-fn set_speed(sck: &Option<Flex<'_>>, mosi: &Option<Flex<'_>>, gpio_speed: Speed) {
-    use crate::gpio::SealedPin;
-
-    if let Some(sck) = sck.as_ref() {
-        sck.pin.set_speed(gpio_speed);
+fn set_speed(sck: &mut Option<Flex<'_>>, mosi: &mut Option<Flex<'_>>, gpio_speed: Speed) {
+    if let Some(sck) = sck.as_mut() {
+        sck.set_speed(gpio_speed);
     }
-    if let Some(mosi) = mosi.as_ref() {
-        mosi.pin.set_speed(gpio_speed);
+    if let Some(mosi) = mosi.as_mut() {
+        mosi.set_speed(gpio_speed);
     }
 }
 
@@ -2171,7 +2176,7 @@ fn reconfigure<CM: CommunicationMode>(info: &Info, kernel_clock: Hertz, config: 
 /// bits on limited instances, which are found by reading the bit back). Disabled restores the
 /// reset values; the SPI does not clock with other CRC settings left behind.
 #[cfg(any(spi_v4, spi_v5, spi_v6))]
-fn write_crc(regs: Regs, crc: CrcConfig, init: CrcInit) {
+pub(crate) fn write_crc(regs: Regs, crc: CrcConfig, init: CrcInit) {
     let (bits, polynomial) = match crc {
         CrcConfig::Disabled => (0, 0),
         CrcConfig::Crc8 { polynomial } => (8u8, u32::from(polynomial)),
@@ -2690,12 +2695,18 @@ mod word_impl {
     impl_word!(u32, 32 - 1);
 }
 
-struct State {}
+struct State {
+    #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
+    triggered: triggered::State,
+}
 
 impl State {
     #[allow(unused)]
     const fn new() -> Self {
-        Self {}
+        Self {
+            #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
+            triggered: triggered::State::new(),
+        }
     }
 }
 

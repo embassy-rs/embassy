@@ -3,7 +3,7 @@ use core::sync::atomic::{Ordering, fence};
 
 use super::{
     Config, Error, FLASH_SIZE, FlashLayout, FlashRegion, FlashSector, MAX_ERASE_SIZE, READ_SIZE, WRITE_SIZE, cache,
-    family, get_flash_regions,
+    ecc, family, get_flash_regions,
 };
 use crate::_generated::{FLASH_BASE, FLASH_CONTIGUOUS_REGIONS};
 use crate::Peri;
@@ -47,6 +47,10 @@ impl<'d, M: Mode> Flash<'d, M> {
     ///
     /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     /// For example, to read address `0x0800_1234` you have to use offset `0x1234`.
+    ///
+    /// On chips with flash ECC, an uncorrectable ECC error in the data returns `Error::Ecc`
+    /// instead of crashing with a bus fault or NMI. The contents of `bytes` are then
+    /// unspecified.
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         let (base, size, offset) = check_flash_address(FLASH_BASE as u32, offset)?;
         blocking_read(base, size, offset, bytes)
@@ -78,9 +82,7 @@ pub(super) fn blocking_read(base: u32, size: u32, offset: u32, bytes: &mut [u8])
     #[cfg(flash_v2_f4)]
     family::assert_not_corrupted_read(start_address, bytes.len() as u32);
 
-    let flash_data = unsafe { core::slice::from_raw_parts(start_address as *const u8, bytes.len()) };
-    bytes.copy_from_slice(flash_data);
-    Ok(())
+    ecc::read(start_address, bytes)
 }
 
 /// Checks that `offset..offset+len` is within `0..size`.
@@ -158,6 +160,9 @@ fn with_cs<R>(critical_section: bool, f: impl FnOnce() -> R) -> R {
 pub(super) enum Op<'a> {
     /// Program one [`WRITE_SIZE`] unit at the given address.
     Write(u32, &'a [u8; WRITE_SIZE]),
+    /// Program 2 or 4 bytes of the EDATA area at the given address, aligned to their size.
+    #[cfg(flash_edata)]
+    WriteEdata(u32, &'a [u8]),
     /// Erase one sector.
     Erase(&'a FlashSector, &'a Config),
 }
@@ -177,6 +182,8 @@ impl Op<'_> {
     fn range(&self) -> (u32, u32) {
         match *self {
             Op::Write(address, _) => (address, WRITE_SIZE as u32),
+            #[cfg(flash_edata)]
+            Op::WriteEdata(address, data) => (address, data.len() as u32),
             Op::Erase(sector, _) => (sector.start, sector.size),
         }
     }
@@ -213,6 +220,8 @@ impl OpGuard {
             let _ = family::finish();
             match op {
                 Op::Write(address, data) => family::start_write(address, data, interrupt),
+                #[cfg(flash_edata)]
+                Op::WriteEdata(address, data) => family::start_write_edata(address, data, interrupt),
                 Op::Erase(sector, config) => family::start_erase(sector, config, interrupt),
             }
         }
@@ -333,6 +342,9 @@ foreach_flash_region! {
             /// Blocking read.
             ///
             /// NOTE: `offset` is an offset from the region start, NOT an absolute address.
+            ///
+            /// On chips with flash ECC, an uncorrectable ECC error in the data returns
+            /// `Error::Ecc`. The contents of `bytes` are then unspecified.
             pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                 blocking_read(self.0.base(), self.0.size, offset, bytes)
             }

@@ -4,9 +4,9 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
+use embassy_stm32::Config;
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::rcc::LsConfig;
-use embassy_stm32::{Config, Peri};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -19,13 +19,12 @@ async fn async_main(spawner: Spawner) {
     // config.enable_debug_during_sleep = false;
     let p = embassy_stm32::init(config);
 
-    spawner.spawn(unwrap!(blinky(p.PC7.into())));
+    spawner.spawn(unwrap!(blinky(Output::new(p.PC7, Level::Low, Speed::Low))));
     spawner.spawn(unwrap!(timeout()));
 }
 
 #[embassy_executor::task]
-async fn blinky(led: Peri<'static, AnyPin>) -> ! {
-    let mut led = Output::new(led, Level::Low, Speed::Low);
+async fn blinky(mut led: Output<'static>) -> ! {
     loop {
         info!("high");
         led.set_high();

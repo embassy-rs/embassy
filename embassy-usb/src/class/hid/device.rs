@@ -12,7 +12,7 @@ use super::{
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler};
+use crate::{Builder, Handler, InterfaceHandler};
 
 const HID_DESC_SPEC_1_10: [u8; 2] = [0x10, 0x01];
 const HID_DESC_COUNTRY_UNSPEC: u8 = 0x00;
@@ -123,7 +123,7 @@ fn build<'d, D: Driver<'d>>(
         config.request_handler,
         &state.out_report_offset,
     ));
-    builder.handler(control);
+    builder.interface_handler(control);
 
     (ep_out, ep_in, &state.out_report_offset, if_num)
 }
@@ -329,6 +329,13 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
 
 /// Handler for HID-related control requests.
 pub trait RequestHandler {
+    /// Called after a USB bus reset sequence is complete.
+    ///
+    /// Handlers that track protocol mode (e.g. Boot vs Report) or idle rate can
+    /// use this to restore default state (such as returning to Report protocol mode
+    /// per HID 1.11 Appendix F.3).
+    fn reset(&mut self) {}
+
     /// Reads the value of report `id` into `buf` returning the size.
     ///
     /// Returns `None` if `id` is invalid or no data is available.
@@ -407,6 +414,9 @@ impl<'d> Control<'d> {
 impl<'d> Handler for Control<'d> {
     fn reset(&mut self) {
         self.out_report_offset.store(0, Ordering::Release);
+        if let Some(handler) = self.request_handler.as_mut() {
+            handler.reset();
+        }
     }
 
     fn control_out(&mut self, req: Request, data: &[u8]) -> Option<OutResponse> {
@@ -509,5 +519,69 @@ impl<'d> Handler for Control<'d> {
             }
             _ => None,
         }
+    }
+}
+
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.if_num
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct StatefulRequestHandler {
+        reset_count: usize,
+        protocol: HidProtocolMode,
+        idle_ms: Option<u32>,
+    }
+
+    impl RequestHandler for StatefulRequestHandler {
+        fn reset(&mut self) {
+            self.reset_count += 1;
+            self.protocol = HidProtocolMode::Report;
+            self.idle_ms = None;
+        }
+
+        fn get_protocol(&self) -> HidProtocolMode {
+            self.protocol
+        }
+
+        fn set_protocol(&mut self, protocol: HidProtocolMode) -> OutResponse {
+            self.protocol = protocol;
+            OutResponse::Accepted
+        }
+    }
+
+    #[test]
+    fn reset_notifies_request_handler_and_clears_report_offset() {
+        let offset = AtomicUsize::new(7);
+        let mut request_handler = StatefulRequestHandler {
+            reset_count: 0,
+            protocol: HidProtocolMode::Boot,
+            idle_ms: Some(20),
+        };
+
+        {
+            let mut control = Control::new(InterfaceNumber(0), &[], Some(&mut request_handler), &offset);
+            Handler::reset(&mut control);
+        }
+
+        assert_eq!(offset.load(Ordering::Acquire), 0);
+        assert_eq!(request_handler.reset_count, 1);
+        assert_eq!(request_handler.protocol, HidProtocolMode::Report);
+        assert_eq!(request_handler.idle_ms, None);
+    }
+
+    #[test]
+    fn reset_without_request_handler_clears_report_offset() {
+        let offset = AtomicUsize::new(7);
+        let mut control = Control::new(InterfaceNumber(0), &[], None, &offset);
+
+        Handler::reset(&mut control);
+
+        assert_eq!(offset.load(Ordering::Acquire), 0);
     }
 }

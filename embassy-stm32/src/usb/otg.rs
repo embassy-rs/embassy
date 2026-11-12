@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
-use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointType, Event, Unsupported};
+use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointConfig, Event, Unsupported};
 pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
@@ -31,7 +31,7 @@ macro_rules! config_ulpi_pins {
     ($($pin:ident),*) => {
                 critical_section::with(|_| {
             $(
-                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
             )*
         })
     };
@@ -67,8 +67,8 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         #[cfg(usb_alternate_function)]
         {
-            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
         }
         #[cfg(not(usb_alternate_function))]
         let _ = (dp, dm);
@@ -108,8 +108,8 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         #[cfg(usb_alternate_function)]
         {
-            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
         }
         #[cfg(not(usb_alternate_function))]
         let _ = (dp, dm);
@@ -269,26 +269,12 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
     type ControlPipe = ControlPipe<'d>;
     type Bus = Bus<'d, T>;
 
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.inner
-            .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
+        self.inner.alloc_endpoint_in(config)
     }
 
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.inner
-            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
+        self.inner.alloc_endpoint_out(config)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -995,8 +981,8 @@ mod host_impl {
         ) -> Self {
             #[cfg(usb_alternate_function)]
             {
-                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
             }
             #[cfg(not(usb_alternate_function))]
             let _ = (dp, dm);
@@ -1049,8 +1035,8 @@ mod host_impl {
         ) -> Self {
             #[cfg(usb_alternate_function)]
             {
-                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
             }
             #[cfg(not(usb_alternate_function))]
             let _ = (dp, dm);

@@ -4,10 +4,10 @@
 use defmt::{info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_stm32::bind_interrupts;
 use embassy_stm32::flash::{Flash, InterruptHandler};
-use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode::Async;
-use embassy_stm32::{Peri, bind_interrupts};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -23,16 +23,14 @@ async fn main(spawner: Spawner) {
     let mut f = Flash::new(p.FLASH, Irqs, Default::default());
 
     // Led should blink uninterrupted during ~2sec erase operation
-    spawner.spawn(blinky(p.PB7.into()).unwrap());
+    spawner.spawn(blinky(Output::new(p.PB7, Level::High, Speed::Low)).unwrap());
 
     // Test on bank 2 in order not to stall CPU.
     test_flash(&mut f, 1024 * 1024, 128 * 1024).await;
 }
 
 #[embassy_executor::task]
-async fn blinky(p: Peri<'static, AnyPin>) {
-    let mut led = Output::new(p, Level::High, Speed::Low);
-
+async fn blinky(mut led: Output<'static>) {
     loop {
         info!("high");
         led.set_high();

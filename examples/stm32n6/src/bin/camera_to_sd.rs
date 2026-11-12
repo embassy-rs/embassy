@@ -37,7 +37,7 @@ use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, 
 use embassy_stm32::rif::{RifMaster, RifMasterAttributes, RifPeripheral, RifPeripheralAttributes};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, bind_interrupts, interrupt, pac, peripherals};
+use embassy_stm32::{Config, bind_interrupts, pac, peripherals};
 use embassy_time::{Delay, Timer};
 use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx, Mode, TimeSource, Timestamp, VolumeIdx, VolumeManager};
 use panic_probe as _;
@@ -52,8 +52,8 @@ bind_interrupts!(struct Irqs {
     LTDC_LO => ltdc::InterruptHandler<peripherals::LTDC>;
     CSI    => csi::InterruptHandler<peripherals::CSI>;
     DCMIPP => dcmipp::InterruptHandler<peripherals::DCMIPP>;
-    EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
-    EXTI0  => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
+    EXTI13 => exti::InterruptHandler<peripherals::EXTI13>;
+    EXTI0 => exti::InterruptHandler<peripherals::EXTI0>;
     SDMMC2 => embassy_stm32::sdmmc::InterruptHandler<peripherals::SDMMC2>;
 });
 
@@ -195,8 +195,8 @@ async fn main(_spawner: Spawner) {
     };
 
     // ---- Buttons ----
-    let mut wb_button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs); // B2 = WB
-    let mut save_button = ExtiInput::new(p.PE0, p.EXTI0, Pull::Down, Irqs); // B4 = Tamper = save
+    let mut wb_button = ExtiInput::new_async(p.PC13, p.EXTI13, Pull::Down, Irqs); // B2 = WB
+    let mut save_button = ExtiInput::new_async(p.PE0, p.EXTI0, Pull::Down, Irqs); // B4 = Tamper = save
 
     // ---- Start streaming ----
     unsafe {

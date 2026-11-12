@@ -9,14 +9,12 @@ use super::types::*;
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointIn, EndpointOut, Unsupported};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Builder, Handler};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
 /// Configuration for the USBTMC device class.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
-    /// Maximum packet size in bytes for bulk endpoints (default: 64 for full-speed).
-    pub max_packet_size: u16,
     /// Whether to enable the USB488 subclass protocol.
     pub usb488: bool,
     /// Whether to allocate an Interrupt-IN endpoint for SRQ notifications.
@@ -25,13 +23,16 @@ pub struct Config {
     pub interrupt_poll_ms: u8,
     /// Capabilities reported to the host in `GET_CAPABILITIES`.
     pub capabilities: Capabilities,
+    /// Options for the bulk OUT endpoint, which receives the data the host sends.
+    pub out_endpoint_options: EndpointOptions,
+    /// Options for the bulk IN endpoint, which sends data to the host.
+    pub in_endpoint_options: EndpointOptions,
 }
 
 impl Config {
     /// Creates a default USBTMC 1.0 configuration without USB488 extensions.
     pub const fn new() -> Self {
         Self {
-            max_packet_size: 64,
             usb488: false,
             interrupt_endpoint: false,
             interrupt_poll_ms: 8,
@@ -48,13 +49,14 @@ impl Config {
                 sr1: false,
                 scpi: false,
             },
+            out_endpoint_options: EndpointOptions::new(),
+            in_endpoint_options: EndpointOptions::new(),
         }
     }
 
     /// Creates a default configuration with USB488 and SCPI support enabled.
     pub const fn new_usb488() -> Self {
         Self {
-            max_packet_size: 64,
             usb488: true,
             interrupt_endpoint: false,
             interrupt_poll_ms: 8,
@@ -71,6 +73,8 @@ impl Config {
                 sr1: false,
                 scpi: true,
             },
+            out_endpoint_options: EndpointOptions::new(),
+            in_endpoint_options: EndpointOptions::new(),
         }
     }
 }
@@ -412,6 +416,12 @@ impl Handler for Control {
     }
 }
 
+impl InterfaceHandler for Control {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.comm_if
+    }
+}
+
 /// USB device class for USB Test & Measurement Class (USBTMC).
 pub struct UsbtmcClass<'d, D: Driver<'d>> {
     read_ep: D::EndpointOut,
@@ -419,7 +429,6 @@ pub struct UsbtmcClass<'d, D: Driver<'d>> {
     int_ep: Option<D::EndpointIn>,
     shared: &'d ControlShared,
     pending_request_in: Option<RequestDevDepMsgInHeader>,
-    max_packet_size: u16,
 }
 
 impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
@@ -443,8 +452,12 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
             protocol,
             Some(iface_string),
         );
-        let read_ep = alt.endpoint_bulk_out(None, config.max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(None, config.max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, config.out_endpoint_options);
+        let write_ep = alt.endpoint_bulk_in(None, config.in_endpoint_options);
+        assert!(
+            read_ep.info().max_packet_size <= 512,
+            "USBTMC supports bulk packets of up to 512 bytes"
+        );
         let int_ep = if config.interrupt_endpoint {
             Some(alt.endpoint_interrupt_in(None, 2, config.interrupt_poll_ms))
         } else {
@@ -460,7 +473,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         // Safety: the handler is bound to the lifetime of state
         let shared_static: &'static ControlShared = unsafe { core::mem::transmute(&state.shared) };
 
-        builder.handler(state.control.write(Control {
+        builder.interface_handler(state.control.write(Control {
             comm_if,
             iface_string,
             bulk_out_ep,
@@ -475,7 +488,6 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
             int_ep,
             shared: &state.shared,
             pending_request_in: None,
-            max_packet_size: config.max_packet_size,
         }
     }
 
@@ -515,7 +527,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         packet_buf: &mut [u8],
         n: usize,
     ) -> Result<ReceivedMessage<'a>, UsbtmcError> {
-        let max_pkt = self.max_packet_size as usize;
+        let max_pkt = self.read_ep.info().max_packet_size as usize;
         let header = DevDepMsgOutHeader::parse(packet_buf[0..12].try_into().unwrap()).map_err(|e| self.fail(e))?;
         let transfer_size = header.transfer_size as usize;
         if transfer_size > buf.len() {
@@ -560,7 +572,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
     /// Reads the next event from the Bulk-OUT endpoint.
     pub async fn read_event<'a>(&mut self, buf: &'a mut [u8]) -> Result<UsbtmcEvent<'a>, UsbtmcError> {
         let mut packet = [0u8; 512];
-        let max_pkt = self.max_packet_size as usize;
+        let max_pkt = self.read_ep.info().max_packet_size as usize;
         let packet_buf = &mut packet[..max_pkt];
         let n = self.read_ep.read(packet_buf).await?;
         if n < 12 {
@@ -599,7 +611,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
     pub async fn read_message<'a>(&mut self, buf: &'a mut [u8]) -> Result<ReceivedMessage<'a>, UsbtmcError> {
         loop {
             let mut packet = [0u8; 512];
-            let max_pkt = self.max_packet_size as usize;
+            let max_pkt = self.read_ep.info().max_packet_size as usize;
             let packet_buf = &mut packet[..max_pkt];
             let n = self.read_ep.read(packet_buf).await?;
             if n < 12 {
@@ -632,7 +644,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
             return Ok(req);
         }
         let mut packet = [0u8; 512];
-        let max_pkt = self.max_packet_size as usize;
+        let max_pkt = self.read_ep.info().max_packet_size as usize;
         let packet_buf = &mut packet[..max_pkt];
         loop {
             let n = self.read_ep.read(packet_buf).await?;
@@ -667,7 +679,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         let transfer_size = data.len();
         let padding = padding_bytes(transfer_size);
         let total_wire_bytes = 12 + transfer_size + padding;
-        let max_pkt = self.max_packet_size as usize;
+        let max_pkt = self.write_ep.info().max_packet_size as usize;
 
         let header = DevDepMsgInHeader {
             b_tag: tag,
@@ -819,7 +831,8 @@ mod tests {
     use super::*;
     use crate::control::{Recipient, Request, RequestType};
     use crate::driver::{
-        Bus, ControlPipe, Direction, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
+        Bus, ControlPipe, Direction, EndpointAllocError, EndpointConfig, EndpointError, EndpointInfo, EndpointType,
+        Event, Unsupported,
     };
 
     #[test]
@@ -1099,23 +1112,11 @@ mod tests {
         type ControlPipe = Unused;
         type Bus = Unused;
 
-        fn alloc_endpoint_out(
-            &mut self,
-            _: EndpointType,
-            _: Option<EndpointAddress>,
-            _: u16,
-            _: u8,
-        ) -> Result<MockEndpoint, EndpointAllocError> {
+        fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<MockEndpoint, EndpointAllocError> {
             unreachable!()
         }
 
-        fn alloc_endpoint_in(
-            &mut self,
-            _: EndpointType,
-            _: Option<EndpointAddress>,
-            _: u16,
-            _: u8,
-        ) -> Result<MockEndpoint, EndpointAllocError> {
+        fn alloc_endpoint_in(&mut self, _: &EndpointConfig) -> Result<MockEndpoint, EndpointAllocError> {
             unreachable!()
         }
 
@@ -1223,6 +1224,7 @@ mod tests {
             ep_type: EndpointType::Bulk,
             max_packet_size: 64,
             interval_ms: 0,
+            max_burst: 0,
         };
         UsbtmcClass {
             read_ep: MockEndpoint {
@@ -1238,7 +1240,6 @@ mod tests {
             int_ep: None,
             shared,
             pending_request_in: None,
-            max_packet_size: 64,
         }
     }
 

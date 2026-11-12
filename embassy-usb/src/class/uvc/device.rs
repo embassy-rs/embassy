@@ -19,7 +19,7 @@ use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestT
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler, UsbDeviceSpeed};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler, UsbDeviceSpeed};
 
 const USB_CLASS_VIDEO: u8 = 0x0E;
 const SC_VIDEOCONTROL: u8 = 0x01;
@@ -203,7 +203,8 @@ pub struct Config<'d> {
     /// one, in this order. The first is the default.
     pub formats: &'d [Format<'d>],
     /// Packet size of the isochronous endpoint in bytes, including the 2-byte payload header.
-    /// Bounds the data rate: 1023 at full speed, 1024 at high speed, per (micro)frame.
+    /// Bounds the data rate: 1023 at full speed, 1024 at high speed and SuperSpeed, per
+    /// (micro)frame or bus interval.
     pub max_packet_size: u16,
 }
 
@@ -214,7 +215,7 @@ impl<'d> Config<'d> {
             formats,
             max_packet_size: match speed {
                 UsbDeviceSpeed::Full => MAX_PACKET_SIZE_FULL_SPEED,
-                UsbDeviceSpeed::High => MAX_PACKET_SIZE_HIGH_SPEED,
+                UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => MAX_PACKET_SIZE_HIGH_SPEED,
             },
         }
     }
@@ -441,6 +442,7 @@ impl<'d> Default for State<'d> {
 
 struct Control<'d> {
     shared: &'d Shared<'d>,
+    video_control: InterfaceNumber,
     video_streaming: InterfaceNumber,
 }
 
@@ -541,6 +543,12 @@ impl<'d> Handler for Control<'d> {
     }
 }
 
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.video_control || iface == self.video_streaming
+    }
+}
+
 /// Implementation of the USB video class 1.1, camera side.
 pub struct Camera<'d, D: Driver<'d>> {
     endpoint: D::EndpointIn,
@@ -579,7 +587,7 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
         }
         let speed_limit = match builder.max_speed() {
             UsbDeviceSpeed::Full => MAX_PACKET_SIZE_FULL_SPEED,
-            UsbDeviceSpeed::High => MAX_PACKET_SIZE_HIGH_SPEED,
+            UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => MAX_PACKET_SIZE_HIGH_SPEED,
         };
         assert!(
             (PAYLOAD_HEADER_LEN as u16 + 1..=speed_limit).contains(&max_packet_size),
@@ -623,7 +631,13 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
         assert_eq!(vs.interface_number(), vs_number);
         let mut alt0 = vs.alt_setting(USB_CLASS_VIDEO, SC_VIDEOSTREAMING, PC_PROTOCOL_UNDEFINED, None);
         // The input header names the endpoint, which is only described in alternate setting 1.
-        let endpoint = alt0.alloc_endpoint_in(EndpointType::Isochronous, None, max_packet_size, 0);
+        let endpoint = alt0.alloc_endpoint_in(
+            EndpointType::Isochronous,
+            None,
+            max_packet_size,
+            0,
+            EndpointOptions::new(),
+        );
         let endpoint_address = endpoint.info().addr.into();
         alt0.descriptors_then_patch(
             |alt| {
@@ -660,8 +674,9 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
             })),
             changed: Signal::new(),
         });
-        builder.handler(control.insert(Control {
+        builder.interface_handler(control.insert(Control {
             shared,
+            video_control: vc_number,
             video_streaming: vs_number,
         }));
 
@@ -949,28 +964,17 @@ mod tests {
             type ControlPipe = Unused;
             type Bus = Unused;
 
-            fn alloc_endpoint_out(
-                &mut self,
-                _: EndpointType,
-                _: Option<EndpointAddress>,
-                _: u16,
-                _: u8,
-            ) -> Result<Unused, EndpointAllocError> {
+            fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Unused, EndpointAllocError> {
                 unreachable!()
             }
 
-            fn alloc_endpoint_in(
-                &mut self,
-                ep_type: EndpointType,
-                _: Option<EndpointAddress>,
-                max_packet_size: u16,
-                interval_ms: u8,
-            ) -> Result<MockEndpoint, EndpointAllocError> {
+            fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<MockEndpoint, EndpointAllocError> {
                 let info = EndpointInfo {
                     addr: EndpointAddress::from_parts(3, Direction::In),
-                    ep_type,
-                    max_packet_size,
-                    interval_ms,
+                    ep_type: config.ep_type,
+                    max_packet_size: config.max_packet_size,
+                    interval_ms: config.interval_ms,
+                    max_burst: config.max_burst,
                 };
                 Ok(MockEndpoint(info, self.0.clone()))
             }
@@ -1197,6 +1201,7 @@ mod tests {
         };
         let mut control = Control {
             shared: &shared,
+            video_control: InterfaceNumber(0),
             video_streaming: InterfaceNumber(1),
         };
         let request = |direction, request, selector: u8, length| Request {

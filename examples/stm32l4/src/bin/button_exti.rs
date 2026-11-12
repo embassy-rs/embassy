@@ -6,12 +6,12 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::{bind_interrupts, interrupt};
+use embassy_stm32::{bind_interrupts, peripherals};
 use panic_probe as _;
 
 bind_interrupts!(
     pub struct Irqs{
-        EXTI15_10 => exti::InterruptHandler<interrupt::typelevel::EXTI15_10>;
+        EXTI15_10 => exti::InterruptHandler<peripherals::EXTI13>;
 });
 
 #[embassy_executor::main]
@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
+    let mut button = ExtiInput::new_async(p.PC13, p.EXTI13, Pull::Down, Irqs);
 
     info!("Press the USER button...");
 

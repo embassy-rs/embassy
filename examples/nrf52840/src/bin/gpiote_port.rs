@@ -4,11 +4,20 @@
 use defmt::{info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{Input, Pull};
+use embassy_nrf::gpio::{self, Input, Pull};
+use embassy_nrf::mode::Async;
+use embassy_nrf::{bind_interrupts, peripherals};
 use panic_probe as _;
 
+bind_interrupts!(struct Irqs {
+    GPIOTE => gpio::InterruptHandler<peripherals::P0_11>,
+        gpio::InterruptHandler<peripherals::P0_12>,
+        gpio::InterruptHandler<peripherals::P0_24>,
+        gpio::InterruptHandler<peripherals::P0_25>;
+});
+
 #[embassy_executor::task(pool_size = 4)]
-async fn button_task(n: usize, mut pin: Input<'static>) {
+async fn button_task(n: usize, mut pin: Input<'static, Async>) {
     loop {
         pin.wait_for_low().await;
         info!("Button {:?} pressed!", n);
@@ -22,10 +31,10 @@ async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     info!("Starting!");
 
-    let btn1 = Input::new(p.P0_11, Pull::Up);
-    let btn2 = Input::new(p.P0_12, Pull::Up);
-    let btn3 = Input::new(p.P0_24, Pull::Up);
-    let btn4 = Input::new(p.P0_25, Pull::Up);
+    let btn1 = Input::new_async(p.P0_11, Irqs, Pull::Up);
+    let btn2 = Input::new_async(p.P0_12, Irqs, Pull::Up);
+    let btn3 = Input::new_async(p.P0_24, Irqs, Pull::Up);
+    let btn4 = Input::new_async(p.P0_25, Irqs, Pull::Up);
 
     spawner.spawn(unwrap!(button_task(1, btn1)));
     spawner.spawn(unwrap!(button_task(2, btn2)));

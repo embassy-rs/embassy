@@ -10,7 +10,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::can::fd::peripheral::Registers;
-use crate::gpio::{AfType, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, OutputType, PinNumber, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral, WakeGuard};
 use crate::{Peri, interrupt, peripherals};
@@ -186,16 +186,19 @@ impl<'d> CanConfigurator<'d> {
         + interrupt::typelevel::Binding<T::IT1Interrupt, IT1InterruptHandler<T>>
         + 'd,
     ) -> CanConfigurator<'d> {
-        set_as_af!(rx, AfType::input(Pull::None));
-        set_as_af!(tx, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        let rx = set_as_af!(rx, AfType::input(Pull::None));
+        let tx = set_as_af!(tx, AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         rcc::enable_and_reset::<T>();
 
         let info = T::info();
         T::info().state.lock(|s| {
-            s.borrow_mut().tx_pin_port = Some(tx.pin_port());
-            s.borrow_mut().rx_pin_port = Some(rx.pin_port());
+            s.borrow_mut().tx_pin = Some(tx.pin);
+            s.borrow_mut().rx_pin = Some(rx.pin);
         });
+        // Deconfigured in `adjust_reference_counter` when the last sender/receiver is dropped.
+        rx.persist();
+        tx.persist();
 
         let mut config = crate::can::fd::config::FdCanConfig::default();
         config.timestamp_source = TimestampSource::Prescaler(TimestampPrescaler::_1);
@@ -1148,8 +1151,8 @@ struct State {
     pub ns_per_timer_tick: u64,
     receiver_instance_count: usize,
     sender_instance_count: usize,
-    tx_pin_port: Option<u8>,
-    rx_pin_port: Option<u8>,
+    tx_pin: Option<PinNumber>,
+    rx_pin: Option<PinNumber>,
     automatic_bus_off_recovery: Option<bool>, // controlled by CanConfigurator::start()
     pub err_waker: AtomicWaker,
 }
@@ -1163,8 +1166,8 @@ impl State {
             err_waker: AtomicWaker::new(),
             receiver_instance_count: 0,
             sender_instance_count: 0,
-            tx_pin_port: None,
-            rx_pin_port: None,
+            tx_pin: None,
+            rx_pin: None,
             automatic_bus_off_recovery: None,
         }
     }
@@ -1206,14 +1209,10 @@ impl Info {
                 }
             }
             if mut_state.sender_instance_count == 0 && mut_state.receiver_instance_count == 0 {
-                unsafe {
-                    let tx_pin = crate::gpio::AnyPin::steal(mut_state.tx_pin_port.unwrap());
-                    tx_pin.set_as_disconnected();
-                    let rx_pin = crate::gpio::AnyPin::steal(mut_state.rx_pin_port.unwrap());
-                    rx_pin.set_as_disconnected();
-                    self.interrupt0.disable();
-                    self.rcc_info.disable();
-                }
+                mut_state.tx_pin.unwrap().set_as_disconnected();
+                mut_state.rx_pin.unwrap().set_as_disconnected();
+                self.interrupt0.disable();
+                self.rcc_info.disable();
             }
         });
     }

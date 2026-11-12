@@ -134,6 +134,73 @@ pub struct EndpointInfo {
     pub max_packet_size: u16,
     /// Polling interval, in milliseconds.
     pub interval_ms: u8,
+    /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets. 0 below
+    /// SuperSpeed.
+    pub max_burst: u8,
+}
+
+/// Configuration to allocate an endpoint with.
+///
+/// The driver must allocate an endpoint with exactly the given `addr` (if any), `ep_type`,
+/// `max_packet_size` and `interval_ms`, or fail. The docs of the other fields say whether the
+/// driver may deviate from them.
+///
+/// The SuperSpeed fields are those of the endpoint's SuperSpeed Endpoint Companion descriptor, and 0
+/// for an endpoint that has none.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct EndpointConfig {
+    /// Endpoint's address, or `None` for the driver to pick one.
+    pub addr: Option<EndpointAddress>,
+    /// Endpoint's type.
+    pub ep_type: EndpointType,
+    /// Max packet size, in bytes.
+    pub max_packet_size: u16,
+    /// Polling interval, in milliseconds.
+    pub interval_ms: u8,
+    /// Number of packets the hardware may buffer for the endpoint.
+    ///
+    /// More buffers let the hardware move the next packet while software is still busy with the
+    /// previous one, at the cost of more packet memory.
+    ///
+    /// This is just a best-effort hint for the driver. Drivers may use a lower value
+    /// if there is not enough packet memory, or completely ignore it.
+    pub buffers: u8,
+    /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets.
+    ///
+    /// Drivers may use a lower value, and report it in [`EndpointInfo::max_burst`].
+    pub max_burst: u8,
+    /// SuperSpeed bulk `MaxStreams`: the endpoint has `2^max_streams` streams, or none when 0.
+    pub max_streams: u8,
+    /// SuperSpeed isochronous `Mult`: the endpoint moves up to `mult + 1` bursts per service
+    /// interval.
+    pub mult: u8,
+    /// SuperSpeed periodic `wBytesPerInterval`, or the `dwBytesPerInterval` of a SuperSpeedPlus
+    /// isochronous endpoint: the bytes the endpoint moves per service interval.
+    pub bytes_per_interval: u32,
+}
+
+impl EndpointConfig {
+    /// An endpoint with one buffer and all SuperSpeed fields 0.
+    pub const fn new(
+        addr: Option<EndpointAddress>,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> Self {
+        Self {
+            addr,
+            ep_type,
+            max_packet_size,
+            interval_ms,
+            buffers: 1,
+            max_burst: 0,
+            max_streams: 0,
+            mult: 0,
+            bytes_per_interval: 0,
+        }
+    }
 }
 
 /// Main USB device driver trait.
@@ -153,65 +220,13 @@ pub trait Driver<'a> {
     ///
     /// This method is called by the USB stack to allocate endpoints.
     /// It can only be called before [`start`](Self::start) is called.
-    ///
-    /// # Arguments
-    ///
-    /// * `ep_type` - the endpoint's type.
-    /// * `max_packet_size` - Maximum packet size in bytes.
-    /// * `interval_ms` - Polling interval parameter for interrupt endpoints.
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointOut, EndpointAllocError>;
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError>;
 
     /// Allocates an IN endpoint.
     ///
     /// This method is called by the USB stack to allocate endpoints.
     /// It can only be called before [`start`](Self::start) is called.
-    ///
-    /// # Arguments
-    ///
-    /// * `ep_type` - the endpoint's type.
-    /// * `max_packet_size` - Maximum packet size in bytes.
-    /// * `interval_ms` - Polling interval parameter for interrupt endpoints.
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointIn, EndpointAllocError>;
-
-    /// Allocates a double-buffered bulk OUT endpoint.
-    ///
-    /// With double buffering the hardware can receive the next packet while the previous one is
-    /// still being read, which improves throughput. It may use more hardware resources than an
-    /// ordinary endpoint, such as twice the packet memory or the endpoint number in both directions.
-    ///
-    /// Drivers that don't support double buffering allocate an ordinary bulk endpoint, which is
-    /// what the default implementation does.
-    fn alloc_endpoint_bulk_out_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.alloc_endpoint_out(EndpointType::Bulk, ep_addr, max_packet_size, 0)
-    }
-
-    /// Allocates a double-buffered bulk IN endpoint.
-    ///
-    /// With double buffering the next packet can be queued while the hardware is still sending the
-    /// previous one. See [`alloc_endpoint_bulk_out_double_buffered`](Self::alloc_endpoint_bulk_out_double_buffered).
-    fn alloc_endpoint_bulk_in_double_buffered(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-    ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.alloc_endpoint_in(EndpointType::Bulk, ep_addr, max_packet_size, 0)
-    }
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError>;
 
     /// Start operation of the USB device.
     ///
@@ -247,13 +262,9 @@ pub trait Bus {
     /// Set or clear the STALL condition for an endpoint.
     ///
     /// If the endpoint is an OUT endpoint, it should be prepared to receive data again.
-    ///
-    /// Class drivers that only hold endpoint handles can use [`Endpoint::set_stall`] instead.
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool);
 
     /// Get whether the STALL condition is set for an endpoint.
-    ///
-    /// Class drivers that only hold endpoint handles can use [`Endpoint::is_stalled`] instead.
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool;
 
     /// Simulate a disconnect from the USB bus, causing the host to reset and re-enumerate the
@@ -290,48 +301,25 @@ pub trait Endpoint {
 
     /// Set or clear the STALL handshake on this endpoint.
     ///
-    /// This lets a class driver reject traffic by itself, without going through
-    /// [`Bus::endpoint_set_stalled`]: the endpoint answers every following token with
-    /// STALL until the stall is cleared, either with this method or by the host
-    /// issuing `CLEAR_FEATURE(ENDPOINT_HALT)` (which embassy-usb handles and forwards
-    /// to [`Bus::endpoint_set_stalled`]).
-    ///
-    /// Only bulk and interrupt endpoints have the halt feature. EP0 does not implement
-    /// it, and STALL is undefined on isochronous endpoints; implementations must make
-    /// this a no-op for them.
-    ///
-    /// Clearing the stall must reset the data toggle to DATA0 (USB 2.0 §9.4.5), whether
-    /// or not the endpoint was actually stalled, and must wake any future currently
-    /// waiting in [`EndpointOut::read`] or [`EndpointIn::write`].
-    ///
-    /// Before the endpoint is enabled by `SET_CONFIGURATION`/`SET_INTERFACE`, stalling is
-    /// best-effort: implementations may not be able to apply it yet, and enabling the
-    /// endpoint afterwards clears it.
-    ///
-    /// The default implementation returns [`Unsupported`], so drivers without the halt
-    /// feature do not have to implement it.
+    /// While stalled, bulk and interrupt endpoints answer tokens with STALL.
+    /// Control and isochronous endpoints ignore this. Clearing the stall resets
+    /// the data toggle to DATA0, whether or not the endpoint was stalled.
+    /// Enabling the endpoint clears a stall; stalling before the endpoint is
+    /// enabled may not take effect.
     ///
     /// # Errors
     ///
     /// * [`Unsupported`] - This driver cannot halt endpoints.
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
-        let _ = stalled;
-        Err(Unsupported)
-    }
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported>;
 
-    /// Get whether the STALL handshake is currently set on this endpoint.
+    /// Get whether the STALL handshake is set on this endpoint.
     ///
     /// Returns `Ok(false)` for endpoints that do not have the halt feature.
     ///
-    /// The default implementation returns [`Unsupported`], so drivers without the halt
-    /// feature do not have to implement it.
-    ///
     /// # Errors
     ///
     /// * [`Unsupported`] - This driver cannot halt endpoints.
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Err(Unsupported)
-    }
+    fn is_stalled(&self) -> Result<bool, Unsupported>;
 }
 
 /// OUT Endpoint trait.

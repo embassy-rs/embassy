@@ -178,14 +178,6 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
     let f_body = f.body;
     let out = &f.sig.output;
 
-    let name_main_task = if cfg!(feature = "metadata-name") {
-        quote!(
-            main_task.metadata().set_name("main\0");
-        )
-    } else {
-        quote!()
-    };
-
     let (main_ret, mut main_body) = match arch.flavor {
         Flavor::Standard => (
             quote!(!),
@@ -211,9 +203,7 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
                 let __abort_on_unwind = __AbortOnUnwind;
                 let executor = unsafe { __make_static(&mut executor) };
                 executor.run(|spawner| {
-                    let main_task = __embassy_main(spawner).unwrap();
-                    #name_main_task
-                    spawner.spawn(main_task);
+                    spawner.spawn(__embassy_main(spawner).unwrap());
                 })
             },
         ),
@@ -223,9 +213,7 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
                 let executor = ::std::boxed::Box::leak(::std::boxed::Box::new(#executor::new()));
 
                 executor.start(|spawner| {
-                    let main_task = __embassy_main(spawner).unwrap();
-                    #name_main_task
-                    spawner.spawn(main_task);
+                    spawner.spawn(__embassy_main(spawner).unwrap());
                 });
 
                 Ok(())
@@ -243,7 +231,7 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
     }
 
     let result = quote! {
-        #[::embassy_executor::task()]
+        #[::embassy_executor::task(name = "main")]
         #[allow(clippy::future_not_send)]
         async fn __embassy_main(#fargs) #out {
             #f_body

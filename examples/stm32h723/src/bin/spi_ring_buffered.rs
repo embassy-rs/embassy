@@ -12,14 +12,14 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode::Async;
 use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{self, RingBufferedSpiRx, Spi};
-use embassy_stm32::{Config, bind_interrupts, dma, exti, interrupt, peripherals};
+use embassy_stm32::{Config, bind_interrupts, dma, exti, peripherals};
 use embassy_time::Timer;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA2_STREAM2 => dma::InterruptHandler<peripherals::DMA2_CH2>;
     DMA1_STREAM3 => dma::InterruptHandler<peripherals::DMA1_CH3>;
-    EXTI15_10 => exti::InterruptHandler<interrupt::typelevel::EXTI15_10>;
+    EXTI15_10 => exti::InterruptHandler<peripherals::EXTI12>;
 });
 
 #[embassy_executor::main]

@@ -16,7 +16,7 @@ use embassy_stm32::rng::Rng;
 use embassy_stm32::spi::Spi;
 use embassy_stm32::spi::mode::Master;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, bind_interrupts, dma, interrupt, peripherals, rng, spi};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals, rng, spi};
 use embassy_time::{Delay, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
@@ -25,7 +25,7 @@ use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
-    EXTI0 => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
+    EXTI0 => exti::InterruptHandler<peripherals::EXTI0>;
     DMA2_STREAM0 => dma::InterruptHandler<peripherals::DMA2_CH0>;
     DMA2_STREAM3 => dma::InterruptHandler<peripherals::DMA2_CH3>;
 });
@@ -80,7 +80,7 @@ async fn main(spawner: Spawner) -> ! {
     let cs = Output::new(p.PA4, Level::High, Speed::VeryHigh);
     let spi = unwrap!(ExclusiveDevice::new(spi, cs, Delay));
 
-    let w5500_int = ExtiInput::new(p.PB0, p.EXTI0, Pull::Up, Irqs);
+    let w5500_int = ExtiInput::new_async(p.PB0, p.EXTI0, Pull::Up, Irqs);
     let w5500_reset = Output::new(p.PB1, Level::High, Speed::VeryHigh);
 
     let mac_addr = [0x02, 234, 3, 4, 82, 231];

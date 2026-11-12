@@ -8,8 +8,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::exti::low_level::read_pending;
-use crate::gpio::{AnyPin, ExtiPin, Flex, Input, Level, Pin as GpioPin, PinNumber, Pull};
+use crate::gpio::{ExtiPin, Flex, Input, Level, Pin as GpioPin, Pull};
 use crate::interrupt::Interrupt as InterruptEnum;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt as InterruptType};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
@@ -21,9 +20,6 @@ mod low_level;
 pub use low_level::{InterruptState, TriggerEdge};
 
 pub mod blocking;
-
-const EXTI_COUNT: usize = 16;
-static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];
 
 #[cfg(any(feature = "_dual-core", exti_w))]
 #[inline(always)]
@@ -53,36 +49,32 @@ fn exticr_regs() -> pac::afio::Afio {
     pac::AFIO
 }
 
-unsafe fn on_irq() {
-    // We don't handle or change any EXTI lines above 16.
-    let bits = read_pending() & 0x0000FFFF;
-
-    // Mask all the channels that fired.
-    cpu_regs().imr(0).modify(|w| w.0 &= !bits);
-
-    // Wake the tasks
-    for pin in BitIter(bits) {
-        EXTI_WAKERS[pin as usize].wake();
+/// Service one EXTI line from its interrupt handler.
+///
+/// Only acts if the line is both pending and unmasked, i.e. an `ExtiInputFuture` is waiting on it.
+/// Lines that are not ours (other async channels sharing the vector, or lines the user handles
+/// manually) are left untouched.
+fn on_irq(line: u8, waker: &AtomicWaker) {
+    if !low_level::is_exti_pending(line) {
+        return;
     }
 
-    // Clear pending
-    low_level::clear_exti_pending_mask(bits);
-}
-
-struct BitIter(u32);
-
-impl Iterator for BitIter {
-    type Item = u32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.trailing_zeros() {
-            32 => None,
-            b => {
-                self.0 &= !(1 << b);
-                Some(b)
-            }
+    let line_idx = line as usize;
+    let ours = critical_section::with(|_| {
+        let imr = cpu_regs().imr(0);
+        if !imr.read().line(line_idx) {
+            return false;
         }
+        // Notify the future that the edge happened by masking the line.
+        imr.modify(|w| w.set_line(line_idx, false));
+        true
+    });
+    if !ours {
+        return;
     }
+
+    low_level::clear_exti_pending_mask(1 << line);
+    waker.wake();
 }
 
 /// EXTI input driver.
@@ -92,8 +84,9 @@ impl Iterator for BitIter {
 /// EXTI channel, which is a limited resource.
 ///
 /// Pins PA5, PB5, PC5... all use EXTI channel 5, so you can't use EXTI on, say, PA5 and PC5 at the same time.
-pub struct ExtiInput<'d, Mode: PeriMode> {
+pub struct ExtiInput<'d, Mode: PeriMode = Blocking> {
     pin: Input<'d>,
+    waker: Mode::IfAsync<&'static AtomicWaker>,
     _kind: PhantomData<Mode>,
 }
 
@@ -144,6 +137,8 @@ impl<'d, Mode: PeriMode> ExtiInput<'d, Mode> {
             pin: Input {
                 pin: self.pin.pin.clone_unchecked(),
             },
+            // SAFETY: `waker` is `()` or a `&'static`, both `Copy`.
+            waker: unsafe { core::ptr::read(&self.waker) },
             _kind: PhantomData,
         }
     }
@@ -153,37 +148,13 @@ impl<'d> ExtiInput<'d, Async> {
     /// Create an EXTI input.
     ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub fn new<T: ExtiPin + GpioPin>(
+    pub fn new_async<T: ExtiPin + GpioPin>(
         pin: Peri<'d, T>,
         _ch: Peri<'d, T::ExtiChannel>,
         pull: Pull,
-        _irq: impl Binding<
-            <<T as ExtiPin>::ExtiChannel as Channel>::IRQ,
-            InterruptHandler<<<T as ExtiPin>::ExtiChannel as Channel>::IRQ>,
-        >,
+        _irq: impl Binding<<<T as ExtiPin>::ExtiChannel as Channel>::IRQ, InterruptHandler<T::ExtiChannel>>,
     ) -> Self {
-        Self {
-            pin: Input::new(pin, pull),
-            _kind: PhantomData,
-        }
-    }
-
-    #[cfg(spi)]
-    /// Create an EXTI input from a configured AF pin.
-    ///
-    /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub(crate) fn new_af<T: ExtiPin + GpioPin>(
-        pin: Peri<'d, T>,
-        _ch: Peri<'d, T::ExtiChannel>,
-        _irq: impl Binding<
-            <<T as ExtiPin>::ExtiChannel as Channel>::IRQ,
-            InterruptHandler<<<T as ExtiPin>::ExtiChannel as Channel>::IRQ>,
-        >,
-    ) -> Self {
-        Self {
-            pin: Input::from_flex(Flex::new(pin)),
-            _kind: PhantomData,
-        }
+        Self::new_inner::<T::ExtiChannel>(Input::new(pin, pull))
     }
 
     /// Create an EXTI input from an existing [`Input`] pin.
@@ -193,15 +164,12 @@ impl<'d> ExtiInput<'d, Async> {
     /// token. The pin retains its current pull configuration.
     ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub const unsafe fn from_input<C: Channel>(
+    pub unsafe fn from_input<C: Channel>(
         pin: Input<'d>,
         _ch: Peri<'d, C>,
-        _irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
+        _irq: impl Binding<C::IRQ, InterruptHandler<C>>,
     ) -> Self {
-        Self {
-            pin,
-            _kind: PhantomData,
-        }
+        Self::new_inner::<C>(pin)
     }
 
     /// Create an EXTI input from an existing [`Flex`] pin.
@@ -215,13 +183,21 @@ impl<'d> ExtiInput<'d, Async> {
     /// before calling this.
     ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub const unsafe fn from_flex<C: Channel>(
+    pub unsafe fn from_flex<C: Channel>(
         pin: Flex<'d>,
         _ch: Peri<'d, C>,
-        _irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
+        _irq: impl Binding<C::IRQ, InterruptHandler<C>>,
     ) -> Self {
+        Self::new_inner::<C>(Input::from_flex(pin))
+    }
+
+    fn new_inner<C: Channel>(pin: Input<'d>) -> Self {
+        // SAFETY: the caller proved with a `Binding` that `InterruptHandler<C>` is bound to `C::IRQ`.
+        unsafe { C::IRQ::enable() };
+
         Self {
-            pin: Input::from_flex(pin),
+            pin,
+            waker: C::waker(),
             _kind: PhantomData,
         }
     }
@@ -230,7 +206,7 @@ impl<'d> ExtiInput<'d, Async> {
     ///
     /// This returns immediately if the pin is already high.
     pub async fn wait_for_high(&mut self) {
-        let fut = ExtiInputFuture::new(&self.pin, TriggerEdge::Rising, true);
+        let fut = ExtiInputFuture::new(&self.pin, self.waker, TriggerEdge::Rising, true);
         if self.is_high() {
             return;
         }
@@ -241,7 +217,7 @@ impl<'d> ExtiInput<'d, Async> {
     ///
     /// This returns immediately if the pin is already low.
     pub async fn wait_for_low(&mut self) {
-        let fut = ExtiInputFuture::new(&self.pin, TriggerEdge::Falling, true);
+        let fut = ExtiInputFuture::new(&self.pin, self.waker, TriggerEdge::Falling, true);
         if self.is_low() {
             return;
         }
@@ -252,47 +228,67 @@ impl<'d> ExtiInput<'d, Async> {
     ///
     /// If the pin is already high, it will wait for it to go low then back high.
     pub async fn wait_for_rising_edge(&mut self) {
-        ExtiInputFuture::new(&self.pin, TriggerEdge::Rising, true).await
+        ExtiInputFuture::new(&self.pin, self.waker, TriggerEdge::Rising, true).await
     }
 
     /// Asynchronously wait until the pin sees a rising edge.
     ///
     /// If the pin is already high, it will wait for it to go low then back high.
     pub fn poll_for_rising_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ = Pin::new(&mut ExtiInputFuture::new(&self.pin, TriggerEdge::Rising, false)).poll(cx);
+        let _ = Pin::new(&mut ExtiInputFuture::new(
+            &self.pin,
+            self.waker,
+            TriggerEdge::Rising,
+            false,
+        ))
+        .poll(cx);
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
     ///
     /// If the pin is already low, it will wait for it to go high then back low.
     pub async fn wait_for_falling_edge(&mut self) {
-        ExtiInputFuture::new(&self.pin, TriggerEdge::Falling, true).await
+        ExtiInputFuture::new(&self.pin, self.waker, TriggerEdge::Falling, true).await
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
     ///
     /// If the pin is already low, it will wait for it to go high then back low.
     pub fn poll_for_falling_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ = Pin::new(&mut ExtiInputFuture::new(&self.pin, TriggerEdge::Falling, false)).poll(cx);
+        let _ = Pin::new(&mut ExtiInputFuture::new(
+            &self.pin,
+            self.waker,
+            TriggerEdge::Falling,
+            false,
+        ))
+        .poll(cx);
     }
 
     /// Asynchronously wait until the pin sees any edge (either rising or falling).
     pub async fn wait_for_any_edge(&mut self) {
-        ExtiInputFuture::new(&self.pin, TriggerEdge::Any, true).await
+        ExtiInputFuture::new(&self.pin, self.waker, TriggerEdge::Any, true).await
     }
 
     /// Asynchronously wait until the pin sees any edge (either rising or falling).
     pub fn poll_for_any_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ = Pin::new(&mut ExtiInputFuture::new(&self.pin, TriggerEdge::Any, false)).poll(cx);
+        let _ = Pin::new(&mut ExtiInputFuture::new(
+            &self.pin,
+            self.waker,
+            TriggerEdge::Any,
+            false,
+        ))
+        .poll(cx);
     }
 }
 
 impl<'d> ExtiInput<'d, Blocking> {
     /// Creates a new EXTI input for use with manual interrupt handling.
     ///
-    /// This configures and enables the EXTI interrupt for the pin, but does not
+    /// This configures and unmasks the EXTI line for the pin, but does not
     /// provide async methods for waiting on events. You must provide your own
-    /// interrupt handler to service EXTI events and clear pending flags.
+    /// interrupt handler to service EXTI events and clear pending flags, and
+    /// enable the channel's interrupt vector ([`Channel::IRQ`]) in the NVIC
+    /// yourself. The HAL does not enable EXTI vectors it doesn't use.
     ///
     /// For async/await integration with Embassy's executor, use `ExtiInput<Async>` instead.
     ///
@@ -303,8 +299,8 @@ impl<'d> ExtiInput<'d, Blocking> {
     /// * `trigger_edge` - The edge triggering mode (falling, rising, or any)
     ///
     /// # Returns
-    /// A new `ExtiInput` instance with interrupts enabled
-    pub fn new_blocking<T: GpioPin + ExtiPin>(
+    /// A new `ExtiInput` instance with its EXTI line unmasked
+    pub fn new<T: GpioPin + ExtiPin>(
         pin: Peri<'d, T>,
         _ch: Peri<'d, T::ExtiChannel>, // Consumed for ownership tracking
         pull: Pull,
@@ -316,6 +312,7 @@ impl<'d> ExtiInput<'d, Blocking> {
 
         Self {
             pin,
+            waker: (),
             _kind: PhantomData,
         }
     }
@@ -426,17 +423,19 @@ impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d, Async> {
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct ExtiInputFuture<'a> {
-    pin: PinNumber,
+    pin: u8,
+    waker: &'static AtomicWaker,
     drop: bool,
-    phantom: PhantomData<&'a mut AnyPin>,
+    phantom: PhantomData<&'a mut ()>,
 }
 
 impl<'a> ExtiInputFuture<'a> {
-    fn new(pin: &Input, trigger_edge: TriggerEdge, drop: bool) -> Self {
+    fn new(pin: &Input, waker: &'static AtomicWaker, trigger_edge: TriggerEdge, drop: bool) -> Self {
         low_level::configure_and_enable_exti(pin, trigger_edge);
 
         Self {
             pin: pin.pin.pin.pin(),
+            waker,
             drop,
             phantom: PhantomData,
         }
@@ -458,7 +457,7 @@ impl<'a> Future for ExtiInputFuture<'a> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        EXTI_WAKERS[self.pin as usize].register(cx.waker());
+        self.waker.register(cx.waker());
 
         let imr = cpu_regs().imr(0).read();
         if !imr.line(self.pin as _) {
@@ -469,102 +468,63 @@ impl<'a> Future for ExtiInputFuture<'a> {
     }
 }
 
-macro_rules! foreach_exti_irq {
-    ($action:ident) => {
-        foreach_interrupt!(
-            (EXTI0)  => { $action!(EXTI0); };
-            (EXTI1)  => { $action!(EXTI1); };
-            (EXTI2)  => { $action!(EXTI2); };
-            (EXTI3)  => { $action!(EXTI3); };
-            (EXTI4)  => { $action!(EXTI4); };
-            (EXTI5)  => { $action!(EXTI5); };
-            (EXTI6)  => { $action!(EXTI6); };
-            (EXTI7)  => { $action!(EXTI7); };
-            (EXTI8)  => { $action!(EXTI8); };
-            (EXTI9)  => { $action!(EXTI9); };
-            (EXTI10) => { $action!(EXTI10); };
-            (EXTI11) => { $action!(EXTI11); };
-            (EXTI12) => { $action!(EXTI12); };
-            (EXTI13) => { $action!(EXTI13); };
-            (EXTI14) => { $action!(EXTI14); };
-            (EXTI15) => { $action!(EXTI15); };
-
-            // plus the weird ones
-            (EXTI0_1)   => { $action!(EXTI0_1); };
-            (EXTI15_10) => { $action!(EXTI15_10); };
-            (EXTI15_4)  => { $action!(EXTI15_4); };
-            (EXTI1_0)   => { $action!(EXTI1_0); };
-            (EXTI2_3)   => { $action!(EXTI2_3); };
-            (EXTI2_TSC) => { $action!(EXTI2_TSC); };
-            (EXTI3_2)   => { $action!(EXTI3_2); };
-            (EXTI4_15)  => { $action!(EXTI4_15); };
-            (EXTI9_5)   => { $action!(EXTI9_5); };
-        );
-    };
-}
-
-///EXTI interrupt handler. All EXTI interrupt vectors should be bound to this handler.
+/// EXTI interrupt handler for one EXTI channel.
 ///
-/// It is generic over the [Interrupt](InterruptType) rather
-/// than the [Channel] because it should not be bound multiple
-/// times to the same vector on chips which multiplex multiple EXTI interrupts into one vector.
-//
-// It technically doesn't need to be generic at all, except to satisfy the generic argument
-// of [Handler]. All EXTI interrupts eventually land in the same on_irq() function.
-pub struct InterruptHandler<T: crate::interrupt::typelevel::Interrupt> {
-    _marker: PhantomData<T>,
+/// Bind one handler per channel used with [`ExtiInput<Async>`](ExtiInput), on that channel's
+/// interrupt vector ([`Channel::IRQ`]). On chips where several channels share a vector, list one
+/// handler per channel:
+///
+/// ```rust,ignore
+/// bind_interrupts!(struct Irqs {
+///     EXTI15_10 => exti::InterruptHandler<peripherals::EXTI10>, exti::InterruptHandler<peripherals::EXTI13>;
+/// });
+/// ```
+///
+/// The handler only services its own channel, so the same vector can also be bound to your own
+/// [`Handler`] for channels used with [`ExtiInput<Blocking>`](ExtiInput).
+pub struct InterruptHandler<C: Channel> {
+    _marker: PhantomData<C>,
 }
 
-impl<T: InterruptType> Handler<T> for InterruptHandler<T> {
+impl<C: Channel> Handler<C::IRQ> for InterruptHandler<C> {
     unsafe fn on_interrupt() {
-        on_irq()
+        on_irq(C::NUMBER, C::waker())
     }
 }
 
-trait SealedChannel {}
+trait SealedChannel {
+    const NUMBER: u8;
+    fn waker() -> &'static AtomicWaker;
+}
 
 /// EXTI channel trait.
 #[allow(private_bounds)]
 pub trait Channel: PeripheralType + SealedChannel + Sized {
     /// EXTI channel number.
-    fn number(&self) -> PinNumber;
+    fn number(&self) -> u8;
     /// [Enum-level Interrupt](InterruptEnum), which may be the same for multiple channels.
     fn irq(&self) -> InterruptEnum;
     /// [Type-level Interrupt](InterruptType), which may be the same for multiple channels.
     type IRQ: InterruptType;
 }
 
-//Doc isn't hidden in order to surface the explanation to users, even though it's completely inoperable, not just deprecated.
-//Entire type along with doc can probably be removed after deprecation has appeared in a release once.
-/// Deprecated type-erased EXTI channel.
-///
-/// Support for AnyChannel was removed in order to support manually bindable EXTI interrupts via bind_interrupts; [ExtiInput::new()]
-/// must know the required IRQ at compile time, and therefore cannot support type-erased channels.
-#[deprecated = "type-erased EXTI channels are no longer supported, in order to support manually bindable EXTI interrupts (more info: https://github.com/embassy-rs/embassy/pull/4922)"]
-pub struct AnyChannel {
-    #[allow(unused)]
-    number: PinNumber,
-}
-
 macro_rules! impl_exti {
     ($type:ident, $number:expr) => {
-        impl SealedChannel for crate::peripherals::$type {}
+        impl SealedChannel for crate::peripherals::$type {
+            const NUMBER: u8 = $number;
+            fn waker() -> &'static AtomicWaker {
+                static WAKER: AtomicWaker = AtomicWaker::new();
+                &WAKER
+            }
+        }
         impl Channel for crate::peripherals::$type {
-            fn number(&self) -> PinNumber {
+            fn number(&self) -> u8 {
                 $number
             }
             fn irq(&self) -> InterruptEnum {
                 crate::_generated::peripheral_interrupts::EXTI::$type::IRQ
             }
             type IRQ = crate::_generated::peripheral_interrupts::EXTI::$type;
-        }
-
-        //Still here to surface deprecation messages to the user - remove when removing AnyChannel
-        #[allow(deprecated)]
-        impl From<crate::peripherals::$type> for AnyChannel {
-            fn from(_val: crate::peripherals::$type) -> Self {
-                Self { number: $number }
-            }
         }
     };
 }
@@ -585,16 +545,3 @@ impl_exti!(EXTI12, 12);
 impl_exti!(EXTI13, 13);
 impl_exti!(EXTI14, 14);
 impl_exti!(EXTI15, 15);
-
-macro_rules! enable_irq {
-    ($e:ident) => {
-        crate::interrupt::typelevel::$e::enable();
-    };
-}
-
-/// safety: must be called only once
-pub(crate) unsafe fn init(_cs: critical_section::CriticalSection) {
-    use crate::interrupt::typelevel::Interrupt;
-
-    foreach_exti_irq!(enable_irq);
-}

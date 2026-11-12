@@ -8,11 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- Add `Driver::alloc_endpoint_bulk_in_double_buffered()` and `Driver::alloc_endpoint_bulk_out_double_buffered()` provided methods. They default to allocating an ordinary bulk endpoint.
+- **Breaking:** `Driver::alloc_endpoint_in()` and `Driver::alloc_endpoint_out()` take an `EndpointConfig`, which has the endpoint's address, type, max packet size and interval, the number of packet buffers, and the SuperSpeed fields.
+- **Breaking:** Add `EndpointInfo::max_burst`, the SuperSpeed burst size the endpoint was allocated with.
 - Fixed: `EndpointOut::read_transfer()` now returns when the buffer is full.
 - Add `ControlPipe::data_out_transfer()` and `ControlPipe::data_in_transfer()` provided methods.
 - Add `UsbHostAllocator::device_removed()` trait method with default.
-- Add `Endpoint::set_stall()` and `Endpoint::is_stalled()` provided trait methods, letting class drivers stall and unstall an endpoint without access to the `Bus`. They default to returning `Unsupported`, so drivers without the halt feature keep compiling.
+- **Breaking:** Add required `Endpoint::set_stall()` and `Endpoint::is_stalled()` methods, so a class can stall an endpoint without access to the `Bus`.
 
 ## 0.2.2 - 2026-05-28
 

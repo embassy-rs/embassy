@@ -84,7 +84,7 @@ use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestT
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler, UsbDeviceSpeed};
+use crate::{Builder, EndpointOptions, Handler, UsbDeviceSpeed};
 
 const CLOCK_SOURCE_ID: u8 = 0x01;
 const CLOCK_SELECTOR_ID: u8 = 0x02;
@@ -117,12 +117,12 @@ const VOLUME_SILENCE_8Q8_DB: i16 = i16::MIN;
 
 const MAX_SAMPLE_RATE_COUNT: usize = 10;
 
-/// The isochronous packet limit: 1023 bytes at full speed, 1024 at high speed (one
-/// transaction per microframe).
+/// The isochronous packet limit: 1023 bytes at full speed, 1024 at high speed and SuperSpeed (one
+/// transaction per (micro)frame or bus interval).
 const fn max_iso_packet_size(speed: UsbDeviceSpeed) -> usize {
     match speed {
         UsbDeviceSpeed::Full => 1023,
-        UsbDeviceSpeed::High => 1024,
+        UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => 1024,
     }
 }
 
@@ -159,11 +159,11 @@ impl Channels<'_> {
 }
 
 /// Packets per second on each streaming endpoint: one per frame at full speed, one per
-/// microframe at high speed.
+/// microframe at high speed, and one per 125 us bus interval at SuperSpeed.
 pub const fn packet_rate_hz(speed: UsbDeviceSpeed) -> u32 {
     match speed {
         UsbDeviceSpeed::Full => 1000,
-        UsbDeviceSpeed::High => 8000,
+        UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => 8000,
     }
 }
 
@@ -483,10 +483,22 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         out_alt.descriptor(descriptor_type::CS_INTERFACE, &format_type_i(sample_width));
 
         // Every frame or microframe.
-        let out_ep = out_alt.alloc_endpoint_out(EndpointType::Isochronous, None, line_out_max_packet_size, 0);
+        let out_ep = out_alt.alloc_endpoint_out(
+            EndpointType::Isochronous,
+            None,
+            line_out_max_packet_size,
+            0,
+            EndpointOptions::new(),
+        );
         // Allocated before the feedback endpoint, so that drivers allocating in order don't
         // give the feedback endpoint line out's endpoint number.
-        let in_ep = out_alt.alloc_endpoint_in(EndpointType::Isochronous, None, line_in_max_packet_size, 0);
+        let in_ep = out_alt.alloc_endpoint_in(
+            EndpointType::Isochronous,
+            None,
+            line_in_max_packet_size,
+            0,
+            EndpointOptions::new(),
+        );
 
         out_alt.endpoint_descriptor(
             out_ep.info(),
@@ -496,7 +508,13 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         );
         out_alt.descriptor(descriptor_type::CS_ENDPOINT, &iso_data_endpoint());
 
-        let feedback_ep = out_alt.alloc_endpoint_in(EndpointType::Isochronous, None, feedback_len(speed) as u16, 1);
+        let feedback_ep = out_alt.alloc_endpoint_in(
+            EndpointType::Isochronous,
+            None,
+            feedback_len(speed) as u16,
+            1,
+            EndpointOptions::new(),
+        );
         out_alt.endpoint_descriptor(
             feedback_ep.info(),
             SynchronizationType::NoSynchronization,
@@ -670,11 +688,11 @@ fn format_type_i(sample_width: SampleWidth) -> [u8; 4] {
     ]
 }
 
-/// The feedback value's size: 10.14 in 3 bytes at full speed, 16.16 in 4 at high speed.
+/// The feedback value's size: 10.14 in 3 bytes at full speed, 16.16 in 4 at high speed and above.
 const fn feedback_len(speed: UsbDeviceSpeed) -> usize {
     match speed {
         UsbDeviceSpeed::Full => 3,
-        UsbDeviceSpeed::High => 4,
+        UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => 4,
     }
 }
 

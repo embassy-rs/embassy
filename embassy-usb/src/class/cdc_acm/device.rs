@@ -16,7 +16,7 @@ use super::{
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
 const CS_INTERFACE: u8 = 0x24;
 const CDC_TYPE_HEADER: u8 = 0x00;
@@ -48,6 +48,33 @@ impl embedded_io_async::Error for CdcAcmError {
         match *self {
             Self::NotConnected => embedded_io_async::ErrorKind::NotConnected,
         }
+    }
+}
+
+/// Configuration for [`CdcAcmClass`].
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct Config {
+    /// Options for the data OUT endpoint, which receives the data the host sends.
+    pub out_endpoint_options: EndpointOptions,
+    /// Options for the data IN endpoint, which sends data to the host.
+    pub in_endpoint_options: EndpointOptions,
+}
+
+impl Config {
+    /// Create a configuration with default endpoint options.
+    pub const fn new() -> Self {
+        Self {
+            out_endpoint_options: EndpointOptions::new(),
+            in_endpoint_options: EndpointOptions::new(),
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -95,6 +122,7 @@ pub struct CdcAcmClass<'d, D: Driver<'d>> {
 
 struct Control<'a> {
     comm_if: InterfaceNumber,
+    data_if: InterfaceNumber,
     shared: &'a ControlShared,
 }
 
@@ -218,27 +246,15 @@ impl<'d> Handler for Control<'d> {
     }
 }
 
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.comm_if || iface == self.data_if
+    }
+}
+
 impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
-    /// Creates a new CdcAcmClass with the provided UsbBus and `max_packet_size` in bytes. For
-    /// full-speed devices, `max_packet_size` has to be one of 8, 16, 32 or 64.
-    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, max_packet_size: u16) -> Self {
-        Self::new_inner(builder, state, max_packet_size, false)
-    }
-
-    /// Like [`new`](Self::new), but asks the driver to double-buffer the bulk data endpoints.
-    ///
-    /// This improves throughput on drivers that support it, at the cost of more endpoint
-    /// resources. See [`Driver::alloc_endpoint_bulk_in_double_buffered`].
-    pub fn new_double_buffered(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, max_packet_size: u16) -> Self {
-        Self::new_inner(builder, state, max_packet_size, true)
-    }
-
-    fn new_inner(
-        builder: &mut Builder<'d, D>,
-        state: &'d mut State<'d>,
-        max_packet_size: u16,
-        double_buffered: bool,
-    ) -> Self {
+    /// Creates a new CdcAcmClass with the provided configuration.
+    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config) -> Self {
         assert!(builder.control_buf_len() >= 7);
 
         let mut func = builder.function(USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE);
@@ -282,25 +298,17 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         let mut iface = func.interface();
         let data_if = iface.interface_number();
         let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NONE, None);
-        let (read_ep, write_ep) = if double_buffered {
-            (
-                alt.endpoint_bulk_out_double_buffered(None, max_packet_size),
-                alt.endpoint_bulk_in_double_buffered(None, max_packet_size),
-            )
-        } else {
-            (
-                alt.endpoint_bulk_out(None, max_packet_size),
-                alt.endpoint_bulk_in(None, max_packet_size),
-            )
-        };
+        let read_ep = alt.endpoint_bulk_out(None, config.out_endpoint_options);
+        let write_ep = alt.endpoint_bulk_in(None, config.in_endpoint_options);
 
         drop(func);
 
         let control = state.control.write(Control {
             shared: &state.shared,
             comm_if,
+            data_if,
         });
-        builder.handler(control);
+        builder.interface_handler(control);
 
         let control_shared = &state.shared;
 

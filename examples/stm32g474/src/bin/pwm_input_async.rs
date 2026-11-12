@@ -10,10 +10,10 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{AnyPin, Level, Output, Pull, Speed};
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::pwm_input::PwmInput;
-use embassy_stm32::{Peri, bind_interrupts, peripherals, timer};
+use embassy_stm32::{bind_interrupts, peripherals, timer};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -26,7 +26,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    spawner.spawn(unwrap!(blinky(p.PA5.into())));
+    spawner.spawn(unwrap!(blinky(Output::new(p.PA5, Level::High, Speed::Low))));
 
     let mut pwm_input = PwmInput::new_ch1(p.TIM3, p.PA6, Irqs, Pull::None, khz(100));
     pwm_input.enable();
@@ -45,9 +45,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn blinky(p: Peri<'static, AnyPin>) {
-    let mut led = Output::new(p, Level::High, Speed::Low);
-
+async fn blinky(mut led: Output<'static>) {
     loop {
         info!("high");
         led.set_high();

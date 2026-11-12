@@ -13,14 +13,28 @@ use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbHostAllocato
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 
 use crate::control::Request;
+use crate::host::class::ClassMatch;
 use crate::host::control::{ControlPipeExt, ControlType, Recipient, RequestType, SetupPacket};
 use crate::host::descriptor::{
-    DEFAULT_MAX_DESCRIPTOR_SIZE, DescriptorError, InterfaceDescriptor, USBDescriptor, VariableSizeDescriptor,
-    WritableDescriptor,
+    ClassCode, DEFAULT_MAX_DESCRIPTOR_SIZE, DescriptorError, InterfaceDescriptor, USBDescriptor,
+    VariableSizeDescriptor, WritableDescriptor,
 };
 use crate::host::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
 use crate::host::{BusHandle, EnumerationError};
 use crate::{DEVICE_DEBOUNCE_STABLE, DEVICE_DEBOUNCE_TIMEOUT};
+
+/// Matcher for the standard hub interface class.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct HubMatcher;
+
+impl ClassMatch for HubMatcher {
+    const NAME: &'static str = "HUB";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(0x09, 0, 0));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == 0x09
+    }
+}
 
 /// How many times a port is polled for `ENABLED` after a reset before
 /// enumeration gives up waiting and proceeds with the speed it has.
@@ -63,6 +77,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                     .max_packet_size0
                     .min(if ls_over_fs { 8 } else { 64 }) as u16,
                 interval_ms: 0,
+                max_burst: 0,
             },
             enum_info.split(),
         )?;

@@ -65,8 +65,8 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb::Builder;
 use embassy_usb::class::usbtmc::{Config as TmcConfig, State, UsbtmcClass, UsbtmcError};
+use embassy_usb::{Builder, UsbDeviceSpeed};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -108,6 +108,7 @@ async fn main(_spawner: Spawner) {
     usb_dev_config.serial_number = Some("12345678");
     usb_dev_config.max_power = 100;
     usb_dev_config.max_packet_size_0 = 64;
+    usb_dev_config.max_speed = UsbDeviceSpeed::High;
 
     // Descriptors and buffers
     let mut config_descriptor = [0; 256];
@@ -125,8 +126,7 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    let mut tmc_config = TmcConfig::new_usb488();
-    tmc_config.max_packet_size = 512;
+    let tmc_config = TmcConfig::new_usb488();
     let mut tmc = UsbtmcClass::new(&mut builder, &mut state, tmc_config);
 
     let mut usb = builder.build();

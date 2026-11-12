@@ -8,14 +8,18 @@ teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 use defmt::{info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Executor;
-use embassy_rp::Peri;
-use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::gpio::{self, Input, Level, Output, Pull};
 use embassy_rp::multicore::{Stack, spawn_core1};
 use embassy_rp::peripherals::{PIN_0, PIN_1};
+use embassy_rp::{Peri, bind_interrupts};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use panic_probe as _;
 use static_cell::StaticCell;
+
+bind_interrupts!(struct Irqs {
+    IO_IRQ_BANK0 => gpio::InterruptHandler<PIN_1>;
+});
 
 static mut CORE1_STACK: Stack<1024> = Stack::new();
 static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
@@ -61,7 +65,7 @@ async fn core1_task(p: Peri<'static, PIN_1>) {
 
     CHANNEL0.receive().await;
 
-    let mut pin = Input::new(p, Pull::None);
+    let mut pin = Input::new_async(p, Irqs, Pull::None);
     let wait = pin.wait_for_rising_edge();
 
     CHANNEL1.send(()).await;

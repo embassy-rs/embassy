@@ -578,7 +578,7 @@ impl<'d, W: word::Word> Sai<'d, W> {
         config: Config,
     ) -> Self {
         let (_sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
-        set_as_af!(mclk, ck_af_type);
+        set_as_af!(mclk, ck_af_type).persist();
 
         Self::new_asynchronous(peri, sck, sd, fs, dma, _irq, dma_buf, config)
     }

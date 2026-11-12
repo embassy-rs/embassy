@@ -11,7 +11,8 @@ use embassy_futures::select::{Either, select};
 use heapless::Vec;
 
 pub use self::builder::{
-    Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder, UsbDeviceSpeed, UsbVersion,
+    Builder, Config, EndpointOptions, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder, UsbDeviceSpeed,
+    UsbVersion,
 };
 use self::descriptor_reader::foreach_endpoint;
 use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};
@@ -93,6 +94,37 @@ pub trait Handler {
     /// Called when remote wakeup feature is enabled or disabled.
     fn remote_wakeup_enabled(&mut self, _enabled: bool) {}
 
+    /// Called when the host sets the U1 and U2 system exit latencies, in microseconds (USB 3.x).
+    fn set_sel(&mut self, _u1_sel: u8, _u1_pel: u8, _u2_sel: u16, _u2_pel: u16) {}
+
+    /// Called when the host sets the isochronous delay, in nanoseconds (USB 3.x).
+    fn set_isoch_delay(&mut self, _delay_ns: u16) {}
+
+    /// Called when the host enables or disables device-initiated U1 entry (USB 3.x).
+    ///
+    /// Return `true` to accept enabling it. If no handler does, the request is rejected. The
+    /// return value is ignored when disabling.
+    fn u1_enabled(&mut self, _enabled: bool) -> bool {
+        false
+    }
+
+    /// Called when the host enables or disables device-initiated U2 entry (USB 3.x).
+    ///
+    /// Return `true` to accept enabling it. If no handler does, the request is rejected. The
+    /// return value is ignored when disabling.
+    fn u2_enabled(&mut self, _enabled: bool) -> bool {
+        false
+    }
+
+    /// Called when the host enables or disables Latency Tolerance Messaging (USB 3.x).
+    ///
+    /// Only sent when [`Config::ltm_capable`](crate::Config::ltm_capable) is set. Return `true` to
+    /// accept enabling it. If no handler does, the request is rejected. The return value is ignored
+    /// when disabling.
+    fn ltm_enabled(&mut self, _enabled: bool) -> bool {
+        false
+    }
+
     /// Called when a "set alternate setting" control request is done on the interface.
     fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
         let _ = iface;
@@ -172,6 +204,151 @@ pub trait Handler {
     fn get_descriptor_requested(&mut self, _descriptor_type: u8, _index: u8, _wlength: u16) {}
 }
 
+/// A [`Handler`] that owns one or more USB interfaces.
+///
+/// The device stack routes interface-recipient control requests only to
+/// handlers that claim the addressed interface, and endpoint-recipient
+/// requests only to handlers that claim the endpoint.
+pub trait InterfaceHandler: Handler {
+    /// Return true when this handler owns `iface`.
+    fn owns(&self, iface: InterfaceNumber) -> bool;
+
+    /// Return true when this handler owns `ep` for endpoint-recipient requests.
+    ///
+    /// Most classes do not handle endpoint-recipient requests and can keep the
+    /// default `false`.
+    fn owns_endpoint(&self, _ep: EndpointAddress) -> bool {
+        false
+    }
+}
+
+/// Error returned by fallible handler registration.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct HandlerFull;
+
+impl core::fmt::Display for HandlerFull {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "handler list full")
+    }
+}
+
+impl core::error::Error for HandlerFull {}
+
+/// Internal storage for raw and routed handlers.
+pub(crate) enum HandlerSlot<'d> {
+    Raw(&'d mut dyn Handler),
+    Routed(RoutedHandler<'d>),
+}
+
+impl<'d> HandlerSlot<'d> {
+    pub(crate) fn raw(handler: &'d mut dyn Handler) -> Self {
+        Self::Raw(handler)
+    }
+
+    pub(crate) fn routed(handler: &'d mut dyn InterfaceHandler) -> Self {
+        Self::Routed(RoutedHandler { inner: handler })
+    }
+}
+
+impl<'d> core::ops::Deref for HandlerSlot<'d> {
+    type Target = dyn Handler + 'd;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Raw(handler) => &**handler,
+            Self::Routed(handler) => handler,
+        }
+    }
+}
+
+impl<'d> core::ops::DerefMut for HandlerSlot<'d> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Raw(handler) => &mut **handler,
+            Self::Routed(handler) => handler,
+        }
+    }
+}
+
+pub(crate) struct RoutedHandler<'d> {
+    inner: &'d mut dyn InterfaceHandler,
+}
+
+impl RoutedHandler<'_> {
+    fn owns_request(&self, req: &Request) -> bool {
+        match req.recipient {
+            Recipient::Interface => self.inner.owns(InterfaceNumber::new(req.index as u8)),
+            Recipient::Endpoint => {
+                let direction = if req.index & 0x80 != 0 {
+                    Direction::In
+                } else {
+                    Direction::Out
+                };
+                self.inner
+                    .owns_endpoint(EndpointAddress::from_parts((req.index & 0x0f) as usize, direction))
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Handler for RoutedHandler<'_> {
+    fn enabled(&mut self, enabled: bool) {
+        self.inner.enabled(enabled)
+    }
+
+    fn reset(&mut self) {
+        self.inner.reset()
+    }
+
+    fn addressed(&mut self, addr: u8) {
+        self.inner.addressed(addr)
+    }
+
+    fn configured(&mut self, configured: bool) {
+        self.inner.configured(configured)
+    }
+
+    fn suspended(&mut self, suspended: bool) {
+        self.inner.suspended(suspended)
+    }
+
+    fn remote_wakeup_enabled(&mut self, enabled: bool) {
+        self.inner.remote_wakeup_enabled(enabled)
+    }
+
+    fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
+        if self.inner.owns(iface) {
+            self.inner.set_alternate_setting(iface, alternate_setting);
+        }
+    }
+
+    fn control_out(&mut self, req: Request, data: &[u8]) -> Option<OutResponse> {
+        if self.owns_request(&req) {
+            self.inner.control_out(req, data)
+        } else {
+            None
+        }
+    }
+
+    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> Option<InResponse<'a>> {
+        if self.owns_request(&req) {
+            self.inner.control_in(req, buf)
+        } else {
+            None
+        }
+    }
+
+    fn get_string(&mut self, index: StringIndex, lang_id: u16) -> Option<&str> {
+        self.inner.get_string(index, lang_id)
+    }
+
+    fn get_descriptor_requested(&mut self, descriptor_type: u8, index: u8, wlength: u16) {
+        self.inner.get_descriptor_requested(descriptor_type, index, wlength)
+    }
+}
+
 struct Interface {
     current_alt_setting: u8,
     num_alt_settings: u8,
@@ -205,12 +382,16 @@ struct Inner<'d, D: Driver<'d>> {
     device_descriptor: [u8; 18],
     device_qualifier_descriptor: [u8; 10],
     config_descriptor: &'d [u8],
+    other_speed_config_descriptor: Option<&'d [u8]>,
     bos_descriptor: &'d [u8],
     msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 
     device_state: UsbDeviceState,
     suspended: bool,
     remote_wakeup_enabled: bool,
+    u1_enabled: bool,
+    u2_enabled: bool,
+    ltm_enabled: bool,
     self_powered: bool,
 
     /// Our device address, or 0 if none.
@@ -221,7 +402,7 @@ struct Inner<'d, D: Driver<'d>> {
     set_address_pending: bool,
 
     interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
-    handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
+    handlers: Vec<HandlerSlot<'d>, MAX_HANDLER_COUNT>,
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
@@ -274,6 +455,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             self.inner.device_state = UsbDeviceState::Disabled;
             self.inner.suspended = false;
             self.inner.remote_wakeup_enabled = false;
+            self.inner.u1_enabled = false;
+            self.inner.u2_enabled = false;
+            self.inner.ltm_enabled = false;
 
             for h in &mut self.inner.handlers {
                 h.enabled(false);
@@ -398,6 +582,23 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     }
 }
 
+// Offers a U1, U2 or LTM enable change to the handlers. Enabling needs one of them to accept.
+macro_rules! set_link_feature {
+    ($self:ident, $name:ident, $enable:expr) => {{
+        let enable = $enable;
+        let mut accepted = !enable;
+        for h in &mut $self.handlers {
+            accepted |= h.$name(enable);
+        }
+        if accepted {
+            $self.$name = enable;
+            OutResponse::Accepted
+        } else {
+            OutResponse::Rejected
+        }
+    }};
+}
+
 impl<'d, D: Driver<'d>> Inner<'d, D> {
     fn endpoint_for_request(&self, index: u16) -> Option<(EndpointAddress, EndpointType)> {
         // wIndex contains an endpoint number and direction; all other bits are reserved.
@@ -440,6 +641,9 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 self.device_state = UsbDeviceState::Default;
                 self.suspended = false;
                 self.remote_wakeup_enabled = false;
+                self.u1_enabled = false;
+                self.u2_enabled = false;
+                self.ltm_enabled = false;
                 self.address = 0;
 
                 for h in &mut self.handlers {
@@ -560,6 +764,42 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 (Request::SET_FEATURE, Request::FEATURE_DEVICE_DEBUG_MODE) => {
                     self.handle_control_out_delegated(req, data)
                 }
+                (Request::SET_SEL, 0)
+                    if self.config.max_speed >= UsbDeviceSpeed::Super && req.index == 0 && req.length == 6 =>
+                {
+                    let &[u1_sel, u1_pel, u2_sel_lo, u2_sel_hi, u2_pel_lo, u2_pel_hi] = data else {
+                        return OutResponse::Rejected;
+                    };
+                    let u2_sel = u16::from_le_bytes([u2_sel_lo, u2_sel_hi]);
+                    let u2_pel = u16::from_le_bytes([u2_pel_lo, u2_pel_hi]);
+                    for h in &mut self.handlers {
+                        h.set_sel(u1_sel, u1_pel, u2_sel, u2_pel);
+                    }
+                    OutResponse::Accepted
+                }
+                (Request::SET_ISOCH_DELAY, delay_ns)
+                    if self.config.max_speed >= UsbDeviceSpeed::Super && req.index == 0 && req.length == 0 =>
+                {
+                    for h in &mut self.handlers {
+                        h.set_isoch_delay(delay_ns);
+                    }
+                    OutResponse::Accepted
+                }
+                (Request::SET_FEATURE | Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_U1_ENABLE)
+                    if self.config.max_speed >= UsbDeviceSpeed::Super =>
+                {
+                    set_link_feature!(self, u1_enabled, req.request == Request::SET_FEATURE)
+                }
+                (Request::SET_FEATURE | Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_U2_ENABLE)
+                    if self.config.max_speed >= UsbDeviceSpeed::Super =>
+                {
+                    set_link_feature!(self, u2_enabled, req.request == Request::SET_FEATURE)
+                }
+                (Request::SET_FEATURE | Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_LTM_ENABLE)
+                    if self.config.max_speed >= UsbDeviceSpeed::Super && self.config.ltm_capable =>
+                {
+                    set_link_feature!(self, ltm_enabled, req.request == Request::SET_FEATURE)
+                }
                 _ => OutResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
@@ -627,6 +867,15 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     }
                     if self.remote_wakeup_enabled {
                         status |= 0x0002;
+                    }
+                    if self.u1_enabled {
+                        status |= 0x0004;
+                    }
+                    if self.u2_enabled {
+                        status |= 0x0008;
+                    }
+                    if self.ltm_enabled {
+                        status |= 0x0010;
                     }
                     buf[..2].copy_from_slice(&status.to_le_bytes());
                     InResponse::Accepted(&buf[..2])
@@ -775,8 +1024,16 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     }
                 }
             }
-            descriptor_type::DEVICE_QUALIFIER if self.config.max_speed > UsbDeviceSpeed::Full => {
+            descriptor_type::DEVICE_QUALIFIER if self.config.max_speed == UsbDeviceSpeed::High => {
                 InResponse::Accepted(&self.device_qualifier_descriptor)
+            }
+            descriptor_type::OTHER_SPEED_CONFIGURATION
+                if self.config.max_speed > UsbDeviceSpeed::Full && index == 0 =>
+            {
+                match self.other_speed_config_descriptor {
+                    Some(desc) => InResponse::Accepted(desc),
+                    None => InResponse::Rejected,
+                }
             }
             // USB_DT_DEBUG is a standard descriptor, but its endpoint contents
             // are supplied by a special-purpose debug device implementation.

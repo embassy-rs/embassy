@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::{StackStorage, StaticPool};
 use embassy_net_esp_hosted as hosted;
-use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::gpio::{self, Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::mode::Async;
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::{self, Spim};
@@ -25,13 +25,14 @@ const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 bind_interrupts!(struct Irqs {
     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
     RNG => embassy_nrf::rng::InterruptHandler<peripherals::RNG>;
+    GPIOTE => gpio::InterruptHandler<peripherals::P1_01>, gpio::InterruptHandler<peripherals::P1_04>;
 });
 
 #[embassy_executor::task]
 async fn wifi_task(
     mut runner: hosted::Runner<
         'static,
-        SpiInterface<ExclusiveDevice<Spim<'static, Async>, Output<'static>, Delay>, Input<'static>>,
+        SpiInterface<ExclusiveDevice<Spim<'static, Async>, Output<'static>, Delay>, Input<'static, Async>>,
         Output<'static>,
     >,
 ) {
@@ -52,8 +53,8 @@ async fn main(spawner: Spawner) {
     let sck = p.P0_29;
     let mosi = p.P0_30;
     let cs = Output::new(p.P0_31, Level::High, OutputDrive::HighDrive);
-    let handshake = Input::new(p.P1_01, Pull::Up);
-    let ready = Input::new(p.P1_04, Pull::None);
+    let handshake = Input::new_async(p.P1_01, Irqs, Pull::Up);
+    let ready = Input::new_async(p.P1_04, Irqs, Pull::None);
     let reset = Output::new(p.P1_05, Level::Low, OutputDrive::Standard);
 
     let mut config = spim::Config::default();

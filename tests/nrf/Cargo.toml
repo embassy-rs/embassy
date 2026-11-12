@@ -11,7 +11,7 @@ teleprobe-meta = "1"
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt",  "defmt-timestamp-uptime"] }
-embassy-nrf = { version = "0.11.0", path = "../../embassy-nrf", features = ["defmt", "gpiote", "unstable-pac"] }
+embassy-nrf = { version = "0.11.0", path = "../../embassy-nrf", features = ["defmt", "unstable-pac"] }
 embedded-io-async = { version = "0.7.0", features = ["defmt"] }
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", ] }
 embassy-net-esp-hosted = { version = "0.3.0", path = "../../embassy-net-esp-hosted", features = ["defmt", "esp-hosted-fg"] }
@@ -210,6 +210,11 @@ required-features = []
 name = "gpiote"
 path = "src/bin/gpiote.rs"
 required-features = []
+
+[[bin]]
+name = "gpiote_mixed"
+path = "src/bin/gpiote_mixed.rs"
+required-features = [ "easydma",]
 
 [[bin]]
 name = "hash"

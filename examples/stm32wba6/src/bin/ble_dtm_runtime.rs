@@ -22,7 +22,7 @@ use embassy_futures::select::{Either, select};
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::Pull;
 use embassy_stm32::rcc::Config as RccConfig;
-use embassy_stm32::{Config, bind_interrupts, exti, interrupt};
+use embassy_stm32::{Config, bind_interrupts, exti, peripherals};
 use embassy_stm32_wpan::bluetooth::gap::connection::LeConnRole;
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
@@ -50,7 +50,7 @@ const ADDR_TYPE: OwnAddressType = OwnAddressType::StaticRandom;
 // --------------------------------
 
 bind_interrupts!(struct Irqs {
-    EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
+    EXTI13 => exti::InterruptHandler<peripherals::EXTI13>;
     RADIO  => HighInterruptHandler;
     HASH   => LowInterruptHandler;
 });
@@ -70,7 +70,7 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_stm32::init(config);
 
-    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
+    let mut button = ExtiInput::new_async(p.PC13, p.EXTI13, Pull::Up, Irqs);
 
     // Initialize hardware peripherals required by BLE stack
     let (platform, runtime) = new_platform!(8);
