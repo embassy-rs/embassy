@@ -911,6 +911,9 @@ fn groups(mask: u16) -> impl Iterator<Item = u8> {
     (0..16).filter(move |group| mask & (1 << group) != 0)
 }
 
+/// Size of a UMP word in bytes.
+const UMP_WORD_BYTES: usize = 4;
+
 /// Device-to-host half of a [`Midi2Host`].
 pub struct Midi2Receiver<'d, A: UsbHostAllocator<'d>> {
     pipe: raw::UmpInputPipe<'d, A>,
@@ -936,9 +939,16 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Receiver<'d, A> {
         self.groups
     }
 
-    /// Receive one transfer of raw UMP bytes.
+    /// Receive one transfer of raw UMP bytes, preceded by any partial packet [`read_packets`](Self::read_packets) holds.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MidiError> {
-        self.pipe.read(buf).await
+        if buf.len() < self.carried + UMP_WORD_BYTES {
+            return Err(UmpError::BufferTooSmall.into());
+        }
+        buf[..self.carried].copy_from_slice(&self.carry[..self.carried]);
+        let len = self.pipe.read(&mut buf[self.carried..]).await?;
+        let total = self.carried + len;
+        self.carried = 0;
+        Ok(total)
     }
 
     /// Receive into `buf` and return the length of the complete UMPs at its start; a packet cut by
@@ -1071,6 +1081,9 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
     }
 
     /// Discover, activate and open the first MIDI 2.0 function, with its topology.
+    ///
+    /// `control_pipe` stays allocated, so a bidirectional function needs three pipes at once; a constrained
+    /// host can call [`MidiInfo::activate`], drop its control pipe, then [`Midi2Host::new`].
     pub async fn connect<P>(
         alloc: &A,
         control_pipe: &mut P,
@@ -1082,32 +1095,52 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
     {
         let info = MidiInfo::midi2_from_config(config_desc, enum_info)?;
         let topology = info.activate(control_pipe).await?;
-        Ok(Self::new(alloc, info, enum_info)?.with_topology(topology))
+        match Self::new(alloc, info, enum_info) {
+            Ok(host) => Ok(host.with_topology(topology)),
+            Err(error) => {
+                // Best effort; the allocation error is the one reported.
+                let _ = info.deactivate(control_pipe).await;
+                Err(error)
+            }
+        }
     }
 
-    /// Activate the function on a control pipe of its own, then allocate the pipes.
+    /// Activate on a control pipe of its own, free it, then allocate the data pipes, so two free pipes
+    /// suffice. If that fails, a fresh control pipe puts the device back on alternate setting 0.
     async fn connect_with_own_control_pipe(
         alloc: &A,
         info: MidiInfo,
         enum_info: &EnumerationInfo,
     ) -> Result<Self, MidiError> {
-        let mut control = alloc
-            .alloc_pipe::<pipe::Control, pipe::InOut>(
-                enum_info.device_address,
-                &embassy_usb_driver::EndpointInfo {
-                    addr: 0.into(),
-                    ep_type: embassy_usb_driver::EndpointType::Control,
-                    max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
-                        .min(enum_info.speed().max_packet_size()),
-                    interval_ms: 0,
-                    max_burst: 0,
-                },
-                enum_info.split(),
-            )
-            .map_err(|_| MidiError::NoPipe)?;
+        let alloc_control = || {
+            alloc
+                .alloc_pipe::<pipe::Control, pipe::InOut>(
+                    enum_info.device_address,
+                    &embassy_usb_driver::EndpointInfo {
+                        addr: 0.into(),
+                        ep_type: embassy_usb_driver::EndpointType::Control,
+                        max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
+                            .min(enum_info.speed().max_packet_size()),
+                        interval_ms: 0,
+                        max_burst: 0,
+                    },
+                    enum_info.split(),
+                )
+                .map_err(|_| MidiError::NoPipe)
+        };
+        let mut control = alloc_control()?;
         let topology = info.activate(&mut control).await?;
         drop(control);
-        Ok(Self::new(alloc, info, enum_info)?.with_topology(topology))
+        match Self::new(alloc, info, enum_info) {
+            Ok(host) => Ok(host.with_topology(topology)),
+            Err(error) => {
+                // Best effort, on a fresh control pipe.
+                if let Ok(mut control) = alloc_control() {
+                    let _ = info.deactivate(&mut control).await;
+                }
+                Err(error)
+            }
+        }
     }
 
     /// The function this host was opened from.
@@ -1850,5 +1883,191 @@ mod tests {
         for bad in [&[1u8, 2][..], &[0xf0, 1][..], &[0xf0, 0x90, 0xf7][..], &[][..]] {
             assert!(SysexPackets::new(0, bad).is_err());
         }
+    }
+
+    #[test]
+    fn a_failed_pipe_allocation_puts_the_device_back_on_alternate_setting_0() {
+        use embassy_futures::block_on;
+        use embassy_usb_driver::host::{HostError, SplitInfo};
+        use embassy_usb_driver::{EndpointInfo, EndpointType};
+
+        use crate::host::test_utils::{MockHost, MockPipe, MockState};
+
+        // No bulk pipes left.
+        #[derive(Clone)]
+        struct NoBulk<'d>(MockHost<'d>);
+        impl<'d> UsbHostAllocator<'d> for NoBulk<'d> {
+            type Pipe<T: pipe::Type, D: pipe::Direction> = MockPipe<'d>;
+
+            fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
+                &self,
+                addr: u8,
+                endpoint: &EndpointInfo,
+                split: Option<SplitInfo>,
+            ) -> Result<Self::Pipe<T, D>, HostError> {
+                if endpoint.ep_type == EndpointType::Bulk {
+                    return Err(HostError::OutOfPipes);
+                }
+                self.0.alloc_pipe::<T, D>(addr, endpoint, split)
+            }
+        }
+
+        let enum_info = crate::host::test_utils::enumeration_info();
+        let info = MidiInfo::midi2_from_config(MIDI2_CONFIG, &enum_info).unwrap();
+        let state = MockState::new();
+        state.set_gtb_descriptors(MIDI2_GTB);
+        let alloc = NoBulk(MockHost::new(&state));
+        let result = block_on(Midi2Host::connect_with_own_control_pipe(&alloc, info, &enum_info));
+        assert!(matches!(result, Err(MidiError::NoPipe)));
+        // Activated, then put back.
+        assert_eq!(state.set_interface(), Some((1, 0)));
+    }
+
+    #[test]
+    fn a_raw_read_returns_the_held_bytes_so_nothing_stale_is_left() {
+        use embassy_futures::block_on;
+
+        use crate::host::test_utils::{MockHost, MockState};
+
+        let enum_info = crate::host::test_utils::enumeration_info();
+        let info = MidiInfo::midi2_from_config(MIDI2_CONFIG, &enum_info).unwrap();
+        let state = MockState::new();
+        state.set_gtb_descriptors(MIDI2_GTB);
+        let alloc = MockHost::new(&state);
+        let mut host = block_on(Midi2Host::connect_with_own_control_pipe(&alloc, info, &enum_info)).unwrap();
+        let out = info.output_endpoint().unwrap().to_descriptor(MidiVersion::Midi2);
+        let mut sender = raw::UmpOutputPipe::open(&alloc, &out, &enum_info).unwrap();
+
+        // A 32-bit packet and the first half of a 128-bit one: `read_packets` holds the half.
+        let long = UmpPacket::from_u32_quad(0x5000_0001, 2, 3, 4).unwrap();
+        let mut bytes = [0u8; 20];
+        UmpPacket::from_u32(0x2090_3c7f).unwrap().to_bytes(&mut bytes).unwrap();
+        long.to_bytes(&mut bytes[4..]).unwrap();
+        block_on(sender.write(&bytes[..12])).unwrap();
+        let mut buf = [0u8; 32];
+        assert_eq!(
+            block_on(host.receiver.as_mut().unwrap().read_packets(&mut buf)).unwrap(),
+            4
+        );
+
+        // A raw read starts with the held half.
+        block_on(sender.write(&bytes[12..])).unwrap();
+        let n = block_on(host.read(&mut buf)).unwrap();
+        assert_eq!(&buf[..n], &bytes[4..]);
+
+        // Packets that follow are not joined to the old fragment.
+        block_on(sender.write(&bytes[..4])).unwrap();
+        let mut packets = block_on(host.read_ump(&mut buf)).unwrap();
+        assert_eq!(packets.next(), Some(Ok(UmpPacket::from_u32(0x2090_3c7f).unwrap())));
+        assert_eq!(packets.next(), None);
+    }
+
+    #[test]
+    fn opening_needs_only_two_pipes_for_a_bidirectional_function() {
+        use core::cell::Cell;
+
+        use embassy_futures::block_on;
+        use embassy_usb_driver::EndpointInfo;
+        use embassy_usb_driver::host::{HostError, PipeError, SplitInfo, TimeoutConfig};
+
+        use crate::host::test_utils::{MockHost, MockPipe, MockState};
+
+        // Holds at most `max` pipes at a time.
+        #[derive(Clone)]
+        struct Limited<'d> {
+            host: MockHost<'d>,
+            live: &'d Cell<usize>,
+            max: usize,
+        }
+        struct Counted<'d> {
+            pipe: MockPipe<'d>,
+            live: &'d Cell<usize>,
+        }
+        impl Drop for Counted<'_> {
+            fn drop(&mut self) {
+                self.live.set(self.live.get() - 1);
+            }
+        }
+        impl<'d> UsbHostAllocator<'d> for Limited<'d> {
+            type Pipe<T: pipe::Type, D: pipe::Direction> = Counted<'d>;
+
+            fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
+                &self,
+                addr: u8,
+                endpoint: &EndpointInfo,
+                split: Option<SplitInfo>,
+            ) -> Result<Self::Pipe<T, D>, HostError> {
+                if self.live.get() >= self.max {
+                    return Err(HostError::OutOfPipes);
+                }
+                let pipe = self.host.alloc_pipe::<T, D>(addr, endpoint, split)?;
+                self.live.set(self.live.get() + 1);
+                Ok(Counted { pipe, live: self.live })
+            }
+        }
+        impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Counted<'_> {
+            async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
+            where
+                T: pipe::IsControl,
+                D: pipe::IsIn,
+            {
+                UsbPipe::<T, D>::control_in(&mut self.pipe, setup, buf).await
+            }
+            async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), PipeError>
+            where
+                T: pipe::IsControl,
+                D: pipe::IsOut,
+            {
+                UsbPipe::<T, D>::control_out(&mut self.pipe, setup, buf).await
+            }
+            async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
+            where
+                D: pipe::IsIn,
+            {
+                UsbPipe::<T, D>::request_in(&mut self.pipe, buf).await
+            }
+            async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError>
+            where
+                D: pipe::IsOut,
+            {
+                UsbPipe::<T, D>::request_out(&mut self.pipe, buf, ensure_transaction_end).await
+            }
+            fn set_timeout(&mut self, timeout: TimeoutConfig)
+            where
+                T: pipe::IsControl,
+            {
+                UsbPipe::<T, D>::set_timeout(&mut self.pipe, timeout)
+            }
+            fn reset_data_toggle(&mut self)
+            where
+                T: pipe::IsBulkOrInterrupt,
+            {
+                UsbPipe::<T, D>::reset_data_toggle(&mut self.pipe)
+            }
+        }
+
+        let enum_info = crate::host::test_utils::enumeration_info();
+        let info = MidiInfo::midi2_from_config(MIDI2_CONFIG, &enum_info).unwrap();
+        let open = |max| {
+            let state = MockState::new();
+            state.set_gtb_descriptors(MIDI2_GTB);
+            let live = Cell::new(0);
+            let alloc = Limited {
+                host: MockHost::new(&state),
+                live: &live,
+                max,
+            };
+            let result = block_on(Midi2Host::connect_with_own_control_pipe(&alloc, info, &enum_info));
+            (result.map(|_| ()), state.set_interface())
+        };
+
+        // Two slots suffice: the control pipe is freed before the data pipes.
+        let (result, alternate_setting) = open(2);
+        assert!(result.is_ok());
+        assert_eq!(alternate_setting, Some((1, 1)));
+        // One does not, and the device is put back on alternate setting 0.
+        let (result, alternate_setting) = open(1);
+        assert!(matches!(result, Err(MidiError::NoPipe)));
+        assert_eq!(alternate_setting, Some((1, 0)));
     }
 }

@@ -2,6 +2,8 @@
 
 use core::sync::atomic::{AtomicU8, Ordering};
 
+use embassy_futures::select::select;
+
 use super::{
     CS_GR_TRM_BLOCK, GR_TRM_BLOCK_HEADER_LEN, GR_TRM_BLOCK_LEN, GroupTerminalBlock, GroupTerminalBlockConfig, MAX_GTBS,
     MAX_MIDI_JACKS, MAX_UMP_BYTES, MIDI_IN_JACK_LEN, MIDI_IN_JACK_SUBTYPE, MIDI_OUT_JACK_BASE_LEN,
@@ -692,11 +694,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
 
     /// Waits for the USB host to enable this interface.
     pub async fn wait_connection(&mut self) {
-        if let Some(read_ep) = &mut self.read_ep {
-            read_ep.wait_enabled().await;
-        } else if let Some(write_ep) = &mut self.write_ep {
-            write_ep.wait_enabled().await;
-        }
+        wait_any_enabled(&mut self.read_ep, &mut self.write_ep).await;
     }
 
     /// Split the endpoints into a sender and receiver.
@@ -708,6 +706,18 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         let sender = self.write_ep.take().map(|write_ep| Sender { write_ep });
         let receiver = self.read_ep.take().map(|read_ep| Receiver { read_ep });
         (sender, receiver)
+    }
+}
+
+/// Wait until either endpoint is enabled; the alternate setting in use may need only one.
+async fn wait_any_enabled<R: Endpoint, W: Endpoint>(read_ep: &mut Option<R>, write_ep: &mut Option<W>) {
+    match (read_ep, write_ep) {
+        (Some(read_ep), Some(write_ep)) => {
+            select(read_ep.wait_enabled(), write_ep.wait_enabled()).await;
+        }
+        (Some(read_ep), None) => read_ep.wait_enabled().await,
+        (None, Some(write_ep)) => write_ep.wait_enabled().await,
+        (None, None) => {}
     }
 }
 
@@ -880,5 +890,40 @@ mod tests {
             Err(EndpointError::BufferOverflow)
         ));
         assert!(ep.writes.is_empty());
+    }
+
+    #[test]
+    fn wait_connection_ends_when_only_one_of_the_endpoints_is_enabled() {
+        use embassy_futures::block_on;
+        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointInfo, EndpointType};
+
+        // `Never` is the OUT endpoint after switching to an IN-only setting.
+        struct Never(EndpointInfo);
+        struct Enabled(EndpointInfo);
+        impl Endpoint for Never {
+            fn info(&self) -> &EndpointInfo {
+                &self.0
+            }
+            async fn wait_enabled(&mut self) {
+                core::future::pending::<()>().await
+            }
+        }
+        impl Endpoint for Enabled {
+            fn info(&self) -> &EndpointInfo {
+                &self.0
+            }
+            async fn wait_enabled(&mut self) {}
+        }
+        let info = EndpointInfo {
+            addr: EndpointAddress::from(0x01),
+            ep_type: EndpointType::Bulk,
+            max_packet_size: 64,
+            interval_ms: 0,
+            max_burst: 0,
+        };
+
+        block_on(wait_any_enabled(&mut Some(Never(info)), &mut Some(Enabled(info))));
+        block_on(wait_any_enabled(&mut Some(Enabled(info)), &mut Some(Never(info))));
+        block_on(wait_any_enabled(&mut None::<Never>, &mut None::<Never>));
     }
 }
