@@ -19,6 +19,7 @@ Rust's [async/await](https://rust-lang.github.io/async-book/) allows for unprece
     - [embassy-rp](https://docs.embassy.dev/embassy-rp/), for the Raspberry Pi RP2040 and RP23xx microcontrollers.
     - [embassy-mspm0](https://docs.embassy.dev/embassy-mspm0/), for the Texas Instruments MSPM0 microcontrollers.
     - [embassy-mcxa](https://docs.embassy.dev/embassy-mcxa/), for NXP's MCX-A series of microcontrollers.
+    - [embassy-asr](https://docs.embassy.dev/embassy-asr/), for ASR6601 microcontrollers.
     - [esp-rs](https://github.com/esp-rs), for the Espressif Systems ESP32 series of chips.
         - Embassy HAL support for Espressif chips, as well as Async Wi-Fi, Bluetooth, and ESP-NOW, is being developed in the [esp-rs/esp-hal](https://github.com/esp-rs/esp-hal) repository.
     - [ch32-hal](https://github.com/ch32-rs/ch32-hal), for the WCH 32-bit RISC-V(CH32V) series of chips.
