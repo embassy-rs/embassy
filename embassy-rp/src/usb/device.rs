@@ -668,6 +668,21 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             w.set_available(0, true);
         });
 
+        // Isochronous: return once the host has collected the packet. Returning right after
+        // arming would let the caller prepare its next packet at once, and the next write()
+        // would then hold that packet until this one is collected, a frame later than needed.
+        if self.info.ep_type == EndpointType::Isochronous {
+            poll_fn(|cx| {
+                EP_IN_WAKERS[index].register(cx.waker());
+                if T::dpram().ep_in_buffer_control(index).read().available(0) {
+                    Poll::Pending
+                } else {
+                    Poll::Ready(())
+                }
+            })
+            .await;
+        }
+
         trace!("WRITE OK");
 
         Ok(())
