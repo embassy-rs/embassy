@@ -1,10 +1,12 @@
 //! MCX GPIO support with shared value types, data operations and driver wrappers.
 //! Family modules own pin control, type erasure and interrupt capabilities.
 
-use crate::pac::gpio::{Ptco, Ptso};
 use core::convert::Infallible;
 use core::marker::PhantomData;
+
 use embassy_hal_internal::Peri;
+
+use crate::pac::gpio::{Ptco, Ptso};
 
 #[cfg(not(feature = "_mcxn"))]
 mod mcxa;

@@ -98,12 +98,12 @@ pub mod trng;
 #[cfg(mcxa_wwdt)]
 pub mod wwdt;
 
+#[cfg(feature = "_mcxn")]
+pub use chips::mcxn::init;
 #[cfg(feature = "_mcxa2xx")]
 pub use mcxa2xx_exclusive::*;
 #[cfg(feature = "_mcxa5xx")]
 pub use mcxa5xx_exclusive::*;
-#[cfg(feature = "_mcxn")]
-pub use chips::mcxn::{init};
 
 pub(crate) mod chips;
 
@@ -140,9 +140,7 @@ pub(crate) fn init_time_driver(priority: interrupt::Priority) {
 }
 
 const HALS_SELECTED: usize = const {
-    cfg!(feature = "_mcxa2xx") as usize
-        + cfg!(feature = "_mcxa5xx") as usize
-        + cfg!(feature = "_mcxn") as usize
+    cfg!(feature = "_mcxa2xx") as usize + cfg!(feature = "_mcxa5xx") as usize + cfg!(feature = "_mcxn") as usize
 };
 
 /// Ensure exactly one chip feature is set.
