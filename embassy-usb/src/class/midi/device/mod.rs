@@ -331,6 +331,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             // 1..=16 distinct Group Terminals. A direction with no blocks is omitted.
             let mut any_endpoint = false;
             for host_to_device in [true, false] {
+                // A direction that no block carries has no endpoint in the MIDI 2.0 alternate setting.
                 let ids = endpoint_block_ids(midi2_config.group_terminal_blocks, host_to_device);
                 if ids.is_empty() {
                     continue;
@@ -665,14 +666,11 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         read_ep.read(data).await
     }
 
-    /// Writes a single Universal MIDI Packet (UMP) to the host.
+    /// Writes UMPs to the host, cut between packets at the packet size, with a ZLP after a full last transfer.
     ///
-    /// This is only meaningful while Alternate Setting 1 (MIDI 2.0) is active.
-    pub async fn write_ump(&mut self, packet: &UmpPacket) -> Result<(), EndpointError> {
-        let write_ep = self.write_ep.as_mut().ok_or(EndpointError::Disabled)?;
-        let mut buf = [0u8; MAX_UMP_BYTES];
-        let n = packet.to_bytes(&mut buf).map_err(|_| EndpointError::BufferOverflow)?;
-        write_ep.write(&buf[..n]).await
+    /// Only meaningful while Alternate Setting 1 (MIDI 2.0) is active.
+    pub async fn write_ump(&mut self, packets: &[UmpPacket]) -> Result<(), EndpointError> {
+        write_umps(self.write_ep.as_mut().ok_or(EndpointError::Disabled)?, packets).await
     }
 
     /// Writes raw UMP bytes to the host.
@@ -713,6 +711,35 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
     }
 }
 
+/// Write UMPs in transfers of whole packets, ending one that exactly fills the last packet with a ZLP.
+async fn write_umps<E: EndpointIn>(ep: &mut E, packets: &[UmpPacket]) -> Result<(), EndpointError> {
+    let max_packet_size = usize::from(ep.info().max_packet_size);
+    let mut buf = [0u8; MAX_UMP_BYTES * 4];
+    let limit = max_packet_size.min(buf.len());
+    if packets.iter().any(|packet| packet.byte_count() > limit) {
+        return Err(EndpointError::BufferOverflow);
+    }
+
+    let mut len = 0;
+    for packet in packets {
+        if len + packet.byte_count() > limit {
+            ep.write(&buf[..len]).await?;
+            len = 0;
+        }
+        for word in packet.words() {
+            buf[len..len + 4].copy_from_slice(&word.to_le_bytes());
+            len += 4;
+        }
+    }
+    if len != 0 {
+        ep.write(&buf[..len]).await?;
+        if len == max_packet_size {
+            ep.write(&[]).await?;
+        }
+    }
+    Ok(())
+}
+
 /// Midi class packet sender.
 ///
 /// You can obtain a `Sender` with [`MidiClass::split`].
@@ -731,11 +758,9 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
         self.write_ep.write(data).await
     }
 
-    /// Writes a single Universal MIDI Packet (UMP).
-    pub async fn write_ump(&mut self, packet: &UmpPacket) -> Result<(), EndpointError> {
-        let mut buf = [0u8; MAX_UMP_BYTES];
-        let n = packet.to_bytes(&mut buf).map_err(|_| EndpointError::BufferOverflow)?;
-        self.write_ep.write(&buf[..n]).await
+    /// Writes Universal MIDI Packets (UMPs); see [`MidiClass::write_ump`].
+    pub async fn write_ump(&mut self, packets: &[UmpPacket]) -> Result<(), EndpointError> {
+        write_umps(&mut self.write_ep, packets).await
     }
 
     /// Waits for the USB host to enable this interface.
@@ -797,5 +822,63 @@ mod tests {
         state.set_alternate_setting(InterfaceNumber(2), 1);
         assert_eq!(state.active_alternate_setting(), 0);
         assert!(!state.is_midi2_active());
+    }
+
+    #[test]
+    fn write_ump_cuts_between_packets_and_ends_a_full_transfer_with_a_zlp() {
+        use embassy_futures::block_on;
+        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointIn, EndpointInfo, EndpointType};
+
+        struct Capture {
+            info: EndpointInfo,
+            writes: heapless::Vec<heapless::Vec<u8, 64>, 8>,
+        }
+        impl Endpoint for Capture {
+            fn info(&self) -> &EndpointInfo {
+                &self.info
+            }
+            async fn wait_enabled(&mut self) {}
+        }
+        impl EndpointIn for Capture {
+            async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+                self.writes.push(heapless::Vec::from_slice(buf).unwrap()).unwrap();
+                Ok(())
+            }
+        }
+        let capture = |max_packet_size| Capture {
+            info: EndpointInfo {
+                addr: EndpointAddress::from(0x81),
+                ep_type: EndpointType::Bulk,
+                max_packet_size,
+                interval_ms: 0,
+                max_burst: 0,
+            },
+            writes: heapless::Vec::new(),
+        };
+        let quad = UmpPacket::from_u32_quad(0x5000_0001, 2, 3, 4).unwrap();
+
+        // 96 bytes: a full transfer, then a short one that needs no ZLP.
+        let mut ep = capture(64);
+        block_on(write_umps(&mut ep, &[quad; 6])).unwrap();
+        assert_eq!(
+            ep.writes.iter().map(|w| w.len()).collect::<heapless::Vec<_, 4>>(),
+            [64, 32]
+        );
+
+        // Exactly full, so a ZLP follows.
+        let mut ep = capture(64);
+        block_on(write_umps(&mut ep, &[quad; 4])).unwrap();
+        assert_eq!(
+            ep.writes.iter().map(|w| w.len()).collect::<heapless::Vec<_, 4>>(),
+            [64, 0]
+        );
+
+        // Too large for the endpoint: refused before anything is sent.
+        let mut ep = capture(8);
+        assert!(matches!(
+            block_on(write_umps(&mut ep, &[quad])),
+            Err(EndpointError::BufferOverflow)
+        ));
+        assert!(ep.writes.is_empty());
     }
 }

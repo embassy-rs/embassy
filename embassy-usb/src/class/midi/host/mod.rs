@@ -10,7 +10,7 @@ use heapless::Vec;
 
 use crate::class::midi::{
     CS_GR_TRM_BLOCK, GR_TRM_BLOCK_HEADER_LEN, GR_TRM_BLOCK_LEN, GroupTerminalBlock, GtbError, MAX_GTBS, MAX_MIDI_JACKS,
-    MAX_UMP_BYTES, MessageType, MidiPacket, MidiPacketError, MidiPacketReader, USB_AUDIO_CLASS,
+    MAX_UMP_BYTES, MIDI_PACKET_SIZE, MessageType, MidiPacket, MidiPacketError, MidiPacketReader, USB_AUDIO_CLASS,
     USB_MIDISTREAMING_SUBCLASS, UmpError, UmpPacket, UmpReader, endpoint_groups, parse_gtb_descriptors,
 };
 use crate::host::class::{ClassError, ClassMatch, HostClass};
@@ -214,8 +214,8 @@ impl<D> MidiPort<D> {
 /// interface with at most one bulk endpoint per direction. Use [`raw`] for
 /// devices with multiple streaming interfaces or same-direction endpoints.
 pub struct MidiHost<'d, A: UsbHostAllocator<'d>> {
-    sender: Sender<'d, A>,
-    receiver: Receiver<'d, A>,
+    sender: Option<MidiSender<'d, A>>,
+    receiver: Option<MidiReceiver<'d, A>>,
     info: MidiInfo,
 }
 
@@ -230,16 +230,30 @@ impl<'d, A: UsbHostAllocator<'d>> MidiHost<'d, A> {
         if info.version != MidiVersion::Midi1 {
             return Err(MidiError::NoInterface);
         }
-        let input = info
+        let receiver = info
             .input_endpoint
             .as_ref()
-            .map(|e| e.to_descriptor(MidiVersion::Midi1));
-        let output = info
+            .map(|e| {
+                MidiReceiver::open(
+                    alloc,
+                    info.interface_number,
+                    &e.to_descriptor(MidiVersion::Midi1),
+                    enum_info,
+                )
+            })
+            .transpose()?;
+        let sender = info
             .output_endpoint
             .as_ref()
-            .map(|e| e.to_descriptor(MidiVersion::Midi1));
-        let receiver = Receiver::open(alloc, info.interface_number, input.as_ref(), enum_info)?;
-        let sender = Sender::open(alloc, info.interface_number, output.as_ref(), enum_info)?;
+            .map(|e| {
+                MidiSender::open(
+                    alloc,
+                    info.interface_number,
+                    &e.to_descriptor(MidiVersion::Midi1),
+                    enum_info,
+                )
+            })
+            .transpose()?;
         Ok(Self { sender, receiver, info })
     }
 
@@ -250,34 +264,55 @@ impl<'d, A: UsbHostAllocator<'d>> MidiHost<'d, A> {
 
     /// Logical device-to-host MIDI ports.
     pub fn input_ports(&self) -> &[MidiInputPort] {
-        self.receiver.ports()
+        self.receiver.as_ref().map_or(&[], |receiver| receiver.ports())
     }
 
     /// Logical host-to-device MIDI ports.
     pub fn output_ports(&self) -> &[MidiOutputPort] {
-        self.sender.ports()
+        self.sender.as_ref().map_or(&[], |sender| sender.ports())
     }
 
     /// Receive one bulk transfer containing USB-MIDI event packets.
     pub async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, MidiError> {
-        self.receiver.read_transfer(buf).await
+        self.receiver
+            .as_mut()
+            .ok_or(MidiError::NoEndpoint)?
+            .read_transfer(buf)
+            .await
     }
 
     /// Send one or more complete USB-MIDI event packets.
     pub async fn write_packet(&mut self, packets: &[u8]) -> Result<(), MidiError> {
-        self.sender.write_packet(packets).await
+        self.sender
+            .as_mut()
+            .ok_or(MidiError::NoEndpoint)?
+            .write_packet(packets)
+            .await
     }
 
     /// Encode and send one MIDI message, or a SysEx fragment of up to three bytes, to a logical port.
     pub async fn send(&mut self, port: MidiOutputPort, message: &[u8]) -> Result<(), MidiError> {
-        self.sender.send(port, message).await
+        self.sender
+            .as_mut()
+            .ok_or(MidiError::NoEndpoint)?
+            .send(port, message)
+            .await
     }
 
-    /// Split the class into independently owned sender and receiver halves.
+    /// See [`MidiSender::send_sysex`].
+    pub async fn send_sysex(&mut self, port: MidiOutputPort, message: &[u8]) -> Result<(), MidiError> {
+        self.sender
+            .as_mut()
+            .ok_or(MidiError::NoEndpoint)?
+            .send_sysex(port, message)
+            .await
+    }
+
+    /// Split into independently owned sender and receiver halves, plus the discovery info.
     ///
     /// This allows sending and receiving from separate tasks.
-    pub fn split(self) -> (Sender<'d, A>, Receiver<'d, A>) {
-        (self.sender, self.receiver)
+    pub fn split(self) -> (Option<MidiSender<'d, A>>, Option<MidiReceiver<'d, A>>, MidiInfo) {
+        (self.sender, self.receiver, self.info)
     }
 }
 
@@ -318,29 +353,36 @@ fn select_streaming_interface(
 }
 
 /// USB-MIDI host-to-device packet sender.
-pub struct Sender<'d, A: UsbHostAllocator<'d>> {
-    pipe: Option<transport::MidiOutputPipe<'d, A>>,
+pub struct MidiSender<'d, A: UsbHostAllocator<'d>> {
+    pipe: transport::MidiOutputPipe<'d, A>,
     ports: Vec<MidiOutputPort, MAX_MIDI_JACKS>,
+    max_packet_size: usize,
 }
 
-impl<'d, A: UsbHostAllocator<'d>> Sender<'d, A> {
-    fn open(
+impl<'d, A: UsbHostAllocator<'d>> MidiSender<'d, A> {
+    /// Allocate the pipe of `endpoint`, whose cable associations give the ports.
+    pub fn open(
         alloc: &A,
         interface_number: u8,
-        endpoint: Option<&MidiEndpointDescriptor>,
+        endpoint: &MidiEndpointDescriptor,
         enum_info: &EnumerationInfo,
     ) -> Result<Self, MidiError> {
-        let Some(endpoint) = endpoint else {
-            return Ok(Self {
-                pipe: None,
-                ports: Vec::new(),
-            });
-        };
-        let ports = cable_ports(interface_number, endpoint, enum_info.device_address)?;
         let pipe = transport::MidiOutputPipe::open(alloc, endpoint, enum_info)?;
+        Self::new(pipe, interface_number, endpoint, enum_info.device_address)
+    }
+
+    /// Wrap an output pipe; the ports come from `endpoint`'s cable associations.
+    pub fn new(
+        pipe: transport::MidiOutputPipe<'d, A>,
+        interface_number: u8,
+        endpoint: &MidiEndpointDescriptor,
+        device_address: u8,
+    ) -> Result<Self, MidiError> {
+        let ports = cable_ports(interface_number, endpoint, device_address)?;
         Ok(Self {
-            pipe: Some(pipe),
+            pipe,
             ports,
+            max_packet_size: usize::from(endpoint.max_packet_size),
         })
     }
 
@@ -349,9 +391,14 @@ impl<'d, A: UsbHostAllocator<'d>> Sender<'d, A> {
         &self.ports
     }
 
+    /// Mask of the cables the host may send to; cable `n` is group `n`.
+    pub fn groups(&self) -> u16 {
+        cable_mask(&self.ports)
+    }
+
     /// Send one or more complete USB-MIDI event packets.
     pub async fn write_packet(&mut self, packets: &[u8]) -> Result<(), MidiError> {
-        self.pipe.as_mut().ok_or(MidiError::NoEndpoint)?.write(packets).await
+        self.pipe.write(packets).await
     }
 
     /// Encode and send one MIDI message, or a SysEx fragment of up to three bytes, to a logical port.
@@ -362,33 +409,91 @@ impl<'d, A: UsbHostAllocator<'d>> Sender<'d, A> {
         let packet = MidiPacket::try_encode_exact(port.cable, message)?;
         self.write_packet(packet.as_bytes()).await
     }
+
+    /// Send a complete `SysEx` message (`F0` to `F7`) to a logical port, as three-byte event packets
+    /// in transfers of at most the max packet size.
+    pub async fn send_sysex(&mut self, port: MidiOutputPort, message: &[u8]) -> Result<(), MidiError> {
+        if !self.ports.contains(&port) {
+            return Err(MidiError::InvalidPort);
+        }
+        let limit = self.max_packet_size.min(64) & !3;
+        if limit == 0 {
+            return Err(MidiPacketError::InvalidPacketLength.into());
+        }
+        let mut buf = [0u8; 64];
+        let mut len = 0;
+        for packet in SysexPackets::new(port.cable, message)? {
+            if len + MIDI_PACKET_SIZE > limit {
+                self.write_packet(&buf[..len]).await?;
+                len = 0;
+            }
+            buf[len..len + MIDI_PACKET_SIZE].copy_from_slice(packet?.as_bytes());
+            len += MIDI_PACKET_SIZE;
+        }
+        self.write_packet(&buf[..len]).await
+    }
+}
+
+/// The USB-MIDI event packets of one complete `SysEx` message, three bytes each.
+struct SysexPackets<'a> {
+    cable: u8,
+    rest: &'a [u8],
+}
+
+impl<'a> SysexPackets<'a> {
+    /// `message` runs from `F0` to `F7` with only data bytes between.
+    fn new(cable: u8, message: &'a [u8]) -> Result<Self, MidiPacketError> {
+        let valid = message.len() >= 2
+            && message[0] == 0xf0
+            && message[message.len() - 1] == 0xf7
+            && message[1..message.len() - 1].iter().all(|&byte| byte < 0x80);
+        if !valid {
+            return Err(MidiPacketError::InvalidEventData);
+        }
+        Ok(Self { cable, rest: message })
+    }
+}
+
+impl Iterator for SysexPackets<'_> {
+    type Item = Result<MidiPacket, MidiPacketError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.rest.is_empty() {
+            return None;
+        }
+        let (chunk, rest) = self.rest.split_at(self.rest.len().min(3));
+        self.rest = rest;
+        Some(MidiPacket::try_encode(self.cable, chunk).map(|(packet, _)| packet))
+    }
 }
 
 /// USB-MIDI device-to-host packet receiver.
-pub struct Receiver<'d, A: UsbHostAllocator<'d>> {
-    pipe: Option<transport::MidiInputPipe<'d, A>>,
+pub struct MidiReceiver<'d, A: UsbHostAllocator<'d>> {
+    pipe: transport::MidiInputPipe<'d, A>,
     ports: Vec<MidiInputPort, MAX_MIDI_JACKS>,
 }
 
-impl<'d, A: UsbHostAllocator<'d>> Receiver<'d, A> {
-    fn open(
+impl<'d, A: UsbHostAllocator<'d>> MidiReceiver<'d, A> {
+    /// Allocate the pipe of `endpoint`, whose cable associations give the ports.
+    pub fn open(
         alloc: &A,
         interface_number: u8,
-        endpoint: Option<&MidiEndpointDescriptor>,
+        endpoint: &MidiEndpointDescriptor,
         enum_info: &EnumerationInfo,
     ) -> Result<Self, MidiError> {
-        let Some(endpoint) = endpoint else {
-            return Ok(Self {
-                pipe: None,
-                ports: Vec::new(),
-            });
-        };
-        let ports = cable_ports(interface_number, endpoint, enum_info.device_address)?;
         let pipe = transport::MidiInputPipe::open(alloc, endpoint, enum_info)?;
-        Ok(Self {
-            pipe: Some(pipe),
-            ports,
-        })
+        Self::new(pipe, interface_number, endpoint, enum_info.device_address)
+    }
+
+    /// Wrap an input pipe; the ports come from `endpoint`'s cable associations.
+    pub fn new(
+        pipe: transport::MidiInputPipe<'d, A>,
+        interface_number: u8,
+        endpoint: &MidiEndpointDescriptor,
+        device_address: u8,
+    ) -> Result<Self, MidiError> {
+        let ports = cable_ports(interface_number, endpoint, device_address)?;
+        Ok(Self { pipe, ports })
     }
 
     /// Logical ports that can send MIDI to the host.
@@ -396,9 +501,14 @@ impl<'d, A: UsbHostAllocator<'d>> Receiver<'d, A> {
         &self.ports
     }
 
+    /// Mask of the cables the function sends to the host; cable `n` is group `n`.
+    pub fn groups(&self) -> u16 {
+        cable_mask(&self.ports)
+    }
+
     /// Receive one bulk transfer containing complete USB-MIDI event packets.
     pub async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, MidiError> {
-        self.pipe.as_mut().ok_or(MidiError::NoEndpoint)?.read(buf).await
+        self.pipe.read(buf).await
     }
 
     /// Receive one transfer and map each event packet to its logical input port.
@@ -467,6 +577,10 @@ impl Iterator for ReceivedMidiPackets<'_> {
             return Some(ReceivedMidiPacket { port, packet });
         }
     }
+}
+
+fn cable_mask<D>(ports: &[MidiPort<D>]) -> u16 {
+    ports.iter().fold(0, |mask, port| mask | 1 << port.cable)
 }
 
 fn cable_ports<D>(
@@ -797,15 +911,120 @@ fn groups(mask: u16) -> impl Iterator<Item = u8> {
     (0..16).filter(move |group| mask & (1 << group) != 0)
 }
 
-/// Friendly host driver for one USB MIDI 2.0 streaming function.
-pub struct Midi2Host<'d, A: UsbHostAllocator<'d>> {
-    sender: Option<raw::UmpOutputPipe<'d, A>>,
-    receiver: Option<raw::UmpInputPipe<'d, A>>,
-    info: MidiInfo,
-    topology: Midi2Topology,
+/// Device-to-host half of a [`Midi2Host`].
+pub struct Midi2Receiver<'d, A: UsbHostAllocator<'d>> {
+    pipe: raw::UmpInputPipe<'d, A>,
+    groups: u16,
     /// Start of a packet that a transfer ended in the middle of.
     carry: [u8; MAX_UMP_BYTES - 4],
     carried: usize,
+}
+
+impl<'d, A: UsbHostAllocator<'d>> Midi2Receiver<'d, A> {
+    /// Wrap a UMP input pipe; `groups` is the mask of groups the function sends to the host.
+    pub fn new(pipe: raw::UmpInputPipe<'d, A>, groups: u16) -> Self {
+        Self {
+            pipe,
+            groups,
+            carry: [0; MAX_UMP_BYTES - 4],
+            carried: 0,
+        }
+    }
+
+    /// Bit mask of the groups the function sends to the host, bit `n` for group `n`.
+    pub const fn groups(&self) -> u16 {
+        self.groups
+    }
+
+    /// Receive one transfer of raw UMP bytes.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MidiError> {
+        self.pipe.read(buf).await
+    }
+
+    /// Receive into `buf` and return the length of the complete UMPs at its start; a packet cut by
+    /// the end of a transfer is held for the next call. `buf` must be a multiple of 4 and at least 32 bytes.
+    pub async fn read_packets(&mut self, buf: &mut [u8]) -> Result<usize, MidiError> {
+        if buf.len() < 2 * MAX_UMP_BYTES {
+            return Err(UmpError::BufferTooSmall.into());
+        }
+        loop {
+            buf[..self.carried].copy_from_slice(&self.carry[..self.carried]);
+            let len = self.pipe.read(&mut buf[self.carried..]).await?;
+            let total = self.carried + len;
+            let complete = complete_len(&buf[..total]);
+            self.carried = total - complete;
+            self.carry[..self.carried].copy_from_slice(&buf[complete..total]);
+            // A zero-length transfer completes nothing, so wait for the next one.
+            if complete != 0 {
+                return Ok(complete);
+            }
+        }
+    }
+
+    /// Like [`read_packets`](Self::read_packets), returning the packets as a reader over `buf`.
+    pub async fn read_ump<'a>(&mut self, buf: &'a mut [u8]) -> Result<UmpReader<'a>, MidiError> {
+        let len = self.read_packets(buf).await?;
+        Ok(UmpReader::new(&buf[..len]))
+    }
+}
+
+/// Host-to-device half of a [`Midi2Host`].
+pub struct Midi2Sender<'d, A: UsbHostAllocator<'d>> {
+    pipe: raw::UmpOutputPipe<'d, A>,
+    groups: u16,
+    max_packet_size: usize,
+}
+
+impl<'d, A: UsbHostAllocator<'d>> Midi2Sender<'d, A> {
+    /// Wrap a UMP output pipe; `groups` is the mask of groups the host may send, where 0 skips the check.
+    pub fn new(pipe: raw::UmpOutputPipe<'d, A>, groups: u16, max_packet_size: u16) -> Self {
+        Self {
+            pipe,
+            groups,
+            max_packet_size: max_packet_size as usize,
+        }
+    }
+
+    /// Bit mask of the groups the host may send, bit `n` for group `n`.
+    pub const fn groups(&self) -> u16 {
+        self.groups
+    }
+
+    /// Send complete UMPs, each for a group the function accepts; nothing is sent if one is rejected.
+    /// Transfers are cut between packets at the max packet size (§3.2.3).
+    pub async fn write(&mut self, data: &[u8]) -> Result<(), MidiError> {
+        for packet in UmpReader::new(data) {
+            let packet = packet?;
+            if self.groups != 0 && !packet.in_groups(self.groups) {
+                return Err(MidiError::InvalidGroup);
+            }
+            if packet.byte_count() > self.max_packet_size {
+                return Err(UmpError::BufferTooSmall.into());
+            }
+        }
+        let mut start = 0;
+        while start < data.len() {
+            let len = chunk_len(&data[start..], self.max_packet_size);
+            self.pipe.write(&data[start..start + len]).await?;
+            start += len;
+        }
+        Ok(())
+    }
+
+    /// Send a single Universal MIDI Packet.
+    pub async fn write_packet(&mut self, packet: &UmpPacket) -> Result<(), MidiError> {
+        let mut buf = [0u8; MAX_UMP_BYTES];
+        let len = packet.to_bytes(&mut buf)?;
+        self.write(&buf[..len]).await
+    }
+}
+
+/// Friendly host driver for one USB MIDI 2.0 streaming function.
+pub struct Midi2Host<'d, A: UsbHostAllocator<'d>> {
+    sender: Option<Midi2Sender<'d, A>>,
+    receiver: Option<Midi2Receiver<'d, A>>,
+    info: MidiInfo,
+    topology: Midi2Topology,
 }
 
 impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
@@ -817,12 +1036,18 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
         let receiver = info
             .input_endpoint
             .as_ref()
-            .map(|endpoint| raw::UmpInputPipe::open(alloc, &endpoint.to_descriptor(MidiVersion::Midi2), enum_info))
+            .map(|endpoint| {
+                raw::UmpInputPipe::open(alloc, &endpoint.to_descriptor(MidiVersion::Midi2), enum_info)
+                    .map(|pipe| Midi2Receiver::new(pipe, 0))
+            })
             .transpose()?;
         let sender = info
             .output_endpoint
             .as_ref()
-            .map(|endpoint| raw::UmpOutputPipe::open(alloc, &endpoint.to_descriptor(MidiVersion::Midi2), enum_info))
+            .map(|endpoint| {
+                raw::UmpOutputPipe::open(alloc, &endpoint.to_descriptor(MidiVersion::Midi2), enum_info)
+                    .map(|pipe| Midi2Sender::new(pipe, 0, endpoint.max_packet_size))
+            })
             .transpose()?;
 
         Ok(Self {
@@ -830,13 +1055,17 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
             receiver,
             info,
             topology: Midi2Topology::default(),
-            carry: [0; MAX_UMP_BYTES - 4],
-            carried: 0,
         })
     }
 
-    /// Attach the function's topology, as returned by [`MidiInfo::activate`].
+    /// Attach the topology from [`MidiInfo::activate`]; its masks become the halves' groups.
     pub fn with_topology(mut self, topology: Midi2Topology) -> Self {
+        if let Some(receiver) = &mut self.receiver {
+            receiver.groups = topology.input_group_mask();
+        }
+        if let Some(sender) = &mut self.sender {
+            sender.groups = topology.output_group_mask();
+        }
         self.topology = topology;
         self
     }
@@ -896,76 +1125,32 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
         self.info.interface_number
     }
 
-    /// Receive raw UMP bytes into `buf`.
+    /// Receive one transfer of raw UMP bytes into `buf`.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MidiError> {
-        let receiver = self.receiver.as_mut().ok_or(MidiError::NoEndpoint)?;
-        receiver.read(buf).await
+        self.receiver.as_mut().ok_or(MidiError::NoEndpoint)?.read(buf).await
     }
 
-    /// Receive the complete UMPs that have arrived; a packet cut by the end of a transfer is held for the next call.
-    ///
-    /// `buf` must be a multiple of four bytes and at least two maximum-size packets.
+    /// See [`Midi2Receiver::read_ump`].
     pub async fn read_ump<'a>(&mut self, buf: &'a mut [u8]) -> Result<UmpReader<'a>, MidiError> {
-        let receiver = self.receiver.as_mut().ok_or(MidiError::NoEndpoint)?;
-        if buf.len() < 2 * MAX_UMP_BYTES {
-            return Err(UmpError::BufferTooSmall.into());
-        }
-        let complete = loop {
-            buf[..self.carried].copy_from_slice(&self.carry[..self.carried]);
-            let len = receiver.read(&mut buf[self.carried..]).await?;
-            let total = self.carried + len;
-            let complete = complete_len(&buf[..total]);
-            self.carried = total - complete;
-            self.carry[..self.carried].copy_from_slice(&buf[complete..total]);
-            // A zero-length transfer completes nothing, so wait for the next one.
-            if complete != 0 {
-                break complete;
-            }
-        };
-        Ok(UmpReader::new(&buf[..complete]))
+        self.receiver.as_mut().ok_or(MidiError::NoEndpoint)?.read_ump(buf).await
     }
 
-    /// Send complete UMPs, each for a group the function accepts; nothing is sent if one is rejected.
-    ///
-    /// Transfers are cut between packets at the endpoint's maximum packet size (§3.2.3). Without
-    /// an attached topology the groups are not checked.
+    /// See [`Midi2Sender::write`].
     pub async fn write(&mut self, data: &[u8]) -> Result<(), MidiError> {
-        let sender = self.sender.as_mut().ok_or(MidiError::NoEndpoint)?;
-        let groups = self.topology.output_group_mask();
-        let max = self.info.output_endpoint.map_or(0, |e| e.max_packet_size as usize);
-        for packet in UmpReader::new(data) {
-            let packet = packet?;
-            if groups != 0 && !packet.in_groups(groups) {
-                return Err(MidiError::InvalidGroup);
-            }
-            if packet.byte_count() > max {
-                return Err(UmpError::BufferTooSmall.into());
-            }
-        }
-        let mut start = 0;
-        while start < data.len() {
-            let len = chunk_len(&data[start..], max);
-            sender.write(&data[start..start + len]).await?;
-            start += len;
-        }
-        Ok(())
+        self.sender.as_mut().ok_or(MidiError::NoEndpoint)?.write(data).await
     }
 
     /// Send a single Universal MIDI Packet.
     pub async fn write_packet(&mut self, packet: &UmpPacket) -> Result<(), MidiError> {
-        let mut buf = [0u8; MAX_UMP_BYTES];
-        let len = packet.to_bytes(&mut buf)?;
-        self.write(&buf[..len]).await
+        self.sender
+            .as_mut()
+            .ok_or(MidiError::NoEndpoint)?
+            .write_packet(packet)
+            .await
     }
 
-    /// Split into raw sender and receiver halves, plus the discovery info; they skip group checks and reassembly.
-    pub fn split(
-        self,
-    ) -> (
-        Option<raw::UmpOutputPipe<'d, A>>,
-        Option<raw::UmpInputPipe<'d, A>>,
-        MidiInfo,
-    ) {
+    /// Split into independently owned sender and receiver halves, plus the discovery info.
+    pub fn split(self) -> (Option<Midi2Sender<'d, A>>, Option<Midi2Receiver<'d, A>>, MidiInfo) {
         (self.sender, self.receiver, self.info)
     }
 }
@@ -1020,6 +1205,43 @@ impl<'d, A: UsbHostAllocator<'d>> HostClass<'d, A> for MidiHost<'d, A> {
     async fn open(alloc: &A, _cfg: &[u8], info: MidiInfo, enum_info: &EnumerationInfo) -> Result<Self, ClassError> {
         Ok(Self::from_info(alloc, info, enum_info)?)
     }
+}
+
+/// Read a string descriptor (such as a block name) as UTF-8 truncated to `N` bytes, in the device's
+/// first language. Index 0 means no string and gives an empty one.
+pub async fn fetch_string<P, const N: usize>(control_pipe: &mut P, index: u8) -> Result<heapless::String<N>, MidiError>
+where
+    P: UsbPipe<pipe::Control, pipe::InOut>,
+{
+    use crate::host::control::SetupPacket;
+
+    let mut name = heapless::String::new();
+    if index == 0 {
+        return Ok(name);
+    }
+    let mut raw = [0u8; 255];
+    let get = |index: u8, lang_id: u16| SetupPacket::get_string_descriptor(index, lang_id, 255).to_bytes();
+
+    // String descriptor 0 lists the supported language IDs.
+    let len = control_pipe.control_in(&get(0, 0), &mut raw).await?;
+    if len < 4 || raw[1] != 0x03 {
+        return Err(MidiDescriptorError::InvalidDescriptor.into());
+    }
+    let lang_id = u16::from_le_bytes([raw[2], raw[3]]);
+
+    let len = control_pipe.control_in(&get(index, lang_id), &mut raw).await?;
+    if len < 2 || raw[1] != 0x03 || raw[0] as usize > len {
+        return Err(MidiDescriptorError::InvalidDescriptor.into());
+    }
+    let units = raw[2..raw[0] as usize]
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]));
+    for c in char::decode_utf16(units) {
+        if name.push(c.unwrap_or(char::REPLACEMENT_CHARACTER)).is_err() {
+            break;
+        }
+    }
+    Ok(name)
 }
 
 /// Query the Group Terminal Blocks of an alternate setting: standard `GET_DESCRIPTOR`, with
@@ -1187,6 +1409,7 @@ mod tests {
             group_terminal_block_ids: Vec::new(),
         };
         let ports = cable_ports::<In>(2, &endpoint, 5).unwrap();
+        assert_eq!(cable_mask(&ports), 0b11);
 
         assert_eq!(ports.len(), 2);
         assert_eq!(ports[0].number(), 1);
@@ -1232,6 +1455,7 @@ mod tests {
             group_terminal_block_ids: Vec::new(),
         };
         let ports = cable_ports::<Out>(1, &endpoint, 4).unwrap();
+        assert_eq!(cable_mask(&ports), 0b1);
 
         assert_eq!(ports.len(), 1);
         assert_eq!(ports[0].cable(), 0);
@@ -1417,8 +1641,8 @@ mod tests {
         assert!(midi.topology().input_groups().eq([0, 1, 2]));
 
         let (sender, receiver, info) = midi.split();
-        assert!(sender.is_some());
-        assert!(receiver.is_some());
+        assert_eq!(sender.as_ref().unwrap().groups(), 0b11);
+        assert_eq!(receiver.as_ref().unwrap().groups(), 0b111);
         assert_eq!(info.interface_number(), 1);
 
         // Once the host is gone, `deactivate` returns the device to alternate setting 0.
@@ -1481,7 +1705,10 @@ mod tests {
 
         let midi1 = MidiInfo::midi1_from_config(MIDI2_CONFIG, &enum_info).unwrap();
         assert_eq!((midi1.version, midi1.alternate_setting()), (MidiVersion::Midi1, 0));
-        assert!(MidiHost::from_info(&host, midi1, &enum_info).is_ok());
+        let (sender, receiver, info) = MidiHost::from_info(&host, midi1, &enum_info).unwrap().split();
+        assert_eq!(sender.unwrap().groups(), 0b1);
+        assert_eq!(receiver.unwrap().groups(), 0b1);
+        assert_eq!(info.version, MidiVersion::Midi1);
     }
 
     #[test]
@@ -1557,13 +1784,71 @@ mod tests {
         let mut bytes = [0u8; 20];
         note(0).to_bytes(&mut bytes).unwrap();
         long.to_bytes(&mut bytes[4..]).unwrap();
-        let (sender, _, _) = Midi2Host::new(&alloc, info, &enum_info).unwrap().split();
-        let mut sender = sender.unwrap();
+        let out = info.output_endpoint().unwrap().to_descriptor(MidiVersion::Midi2);
+        let mut sender = raw::UmpOutputPipe::open(&alloc, &out, &enum_info).unwrap();
         block_on(sender.write(&bytes[..12])).unwrap();
         let mut packets = block_on(host.read_ump(&mut buf)).unwrap();
         assert_eq!(packets.next(), Some(Ok(note(0))));
         assert_eq!(packets.next(), None);
         block_on(sender.write(&bytes[12..])).unwrap();
         assert_eq!(block_on(host.read_ump(&mut buf)).unwrap().next(), Some(Ok(long)));
+    }
+
+    #[test]
+    fn fetch_string_reads_a_utf16_name() {
+        use embassy_futures::block_on;
+        use embassy_usb_driver::{EndpointInfo, EndpointType};
+
+        use crate::host::test_utils::{MockHost, MockState};
+
+        let enum_info = crate::host::test_utils::enumeration_info();
+        let state = MockState::new();
+        state.set_string("Main \u{e9}");
+        let host = MockHost::new(&state);
+        let control_ep = EndpointInfo {
+            addr: 0.into(),
+            ep_type: EndpointType::Control,
+            max_packet_size: 64,
+            interval_ms: 0,
+            max_burst: 0,
+        };
+        let mut control = host
+            .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &control_ep, enum_info.split())
+            .unwrap();
+
+        assert_eq!(
+            block_on(fetch_string::<_, 16>(&mut control, 4)).unwrap().as_str(),
+            "Main \u{e9}"
+        );
+        // Truncates at a character boundary; index 0 is no string.
+        assert_eq!(
+            block_on(fetch_string::<_, 6>(&mut control, 4)).unwrap().as_str(),
+            "Main "
+        );
+        assert!(block_on(fetch_string::<_, 16>(&mut control, 0)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn sysex_is_cut_into_event_packets_of_three_bytes() {
+        let packets = |message: &[u8]| -> heapless::Vec<[u8; 4], 8> {
+            SysexPackets::new(2, message)
+                .unwrap()
+                .map(|packet| packet.unwrap().to_bytes())
+                .collect()
+        };
+        // Start, continue and end packets; then the three-byte and shortest messages.
+        assert_eq!(
+            packets(&[0xf0, 1, 2, 3, 4, 5, 6, 0xf7]),
+            [[0x24, 0xf0, 1, 2], [0x24, 3, 4, 5], [0x26, 6, 0xf7, 0]]
+        );
+        assert_eq!(packets(&[0xf0, 1, 0xf7]), [[0x27, 0xf0, 1, 0xf7]]);
+        assert_eq!(packets(&[0xf0, 0xf7]), [[0x26, 0xf0, 0xf7, 0]]);
+        // A lone `F7` ends it when the previous chunk was full.
+        assert_eq!(packets(&[0xf0, 1, 2, 0xf7]), [[0x24, 0xf0, 1, 2], [0x25, 0xf7, 0, 0]]);
+
+        // Unframed messages and status bytes in the data are refused.
+        for bad in [&[1u8, 2][..], &[0xf0, 1][..], &[0xf0, 0x90, 0xf7][..], &[][..]] {
+            assert!(SysexPackets::new(0, bad).is_err());
+        }
     }
 }

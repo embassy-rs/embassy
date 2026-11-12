@@ -106,6 +106,20 @@ pub struct MidiInputPipe<'d, A: UsbHostAllocator<'d>> {
 }
 
 impl<'d, A: UsbHostAllocator<'d>> MidiInputPipe<'d, A> {
+    /// Use an already allocated bulk IN pipe.
+    pub fn from_pipe(pipe: A::Pipe<pipe::Bulk, pipe::In>) -> Self {
+        Self {
+            pipe: DataIn::Bulk(pipe),
+        }
+    }
+
+    /// Use an already allocated interrupt IN pipe.
+    pub fn from_interrupt_pipe(pipe: A::Pipe<pipe::Interrupt, pipe::In>) -> Self {
+        Self {
+            pipe: DataIn::Interrupt(pipe),
+        }
+    }
+
     /// Allocate a pipe for a device-to-host MIDI endpoint.
     pub fn open(alloc: &A, endpoint: &MidiEndpointDescriptor, enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
         Ok(Self {
@@ -131,6 +145,20 @@ pub struct MidiOutputPipe<'d, A: UsbHostAllocator<'d>> {
 }
 
 impl<'d, A: UsbHostAllocator<'d>> MidiOutputPipe<'d, A> {
+    /// Use an already allocated bulk OUT pipe.
+    pub fn from_pipe(pipe: A::Pipe<pipe::Bulk, pipe::Out>) -> Self {
+        Self {
+            pipe: DataOut::Bulk(pipe),
+        }
+    }
+
+    /// Use an already allocated interrupt OUT pipe.
+    pub fn from_interrupt_pipe(pipe: A::Pipe<pipe::Interrupt, pipe::Out>) -> Self {
+        Self {
+            pipe: DataOut::Interrupt(pipe),
+        }
+    }
+
     /// Allocate a pipe for a host-to-device MIDI endpoint.
     pub fn open(alloc: &A, endpoint: &MidiEndpointDescriptor, enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
         Ok(Self {
@@ -152,6 +180,20 @@ pub struct UmpInputPipe<'d, A: UsbHostAllocator<'d>> {
 }
 
 impl<'d, A: UsbHostAllocator<'d>> UmpInputPipe<'d, A> {
+    /// Use an already allocated bulk IN pipe.
+    pub fn from_pipe(pipe: A::Pipe<pipe::Bulk, pipe::In>) -> Self {
+        Self {
+            pipe: DataIn::Bulk(pipe),
+        }
+    }
+
+    /// Use an already allocated interrupt IN pipe.
+    pub fn from_interrupt_pipe(pipe: A::Pipe<pipe::Interrupt, pipe::In>) -> Self {
+        Self {
+            pipe: DataIn::Interrupt(pipe),
+        }
+    }
+
     /// Allocate a pipe for a device-to-host MIDI 2.0 endpoint.
     pub fn open(alloc: &A, endpoint: &MidiEndpointDescriptor, enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
         Ok(Self {
@@ -183,6 +225,20 @@ pub struct UmpOutputPipe<'d, A: UsbHostAllocator<'d>> {
 }
 
 impl<'d, A: UsbHostAllocator<'d>> UmpOutputPipe<'d, A> {
+    /// Use an already allocated bulk OUT pipe.
+    pub fn from_pipe(pipe: A::Pipe<pipe::Bulk, pipe::Out>) -> Self {
+        Self {
+            pipe: DataOut::Bulk(pipe),
+        }
+    }
+
+    /// Use an already allocated interrupt OUT pipe.
+    pub fn from_interrupt_pipe(pipe: A::Pipe<pipe::Interrupt, pipe::Out>) -> Self {
+        Self {
+            pipe: DataOut::Interrupt(pipe),
+        }
+    }
+
     /// Allocate a pipe for a host-to-device MIDI 2.0 endpoint.
     pub fn open(alloc: &A, endpoint: &MidiEndpointDescriptor, enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
         Ok(Self {

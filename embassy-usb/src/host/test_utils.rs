@@ -67,6 +67,7 @@ struct MockStateInner {
     gtb: heapless::Vec<u8, 256>,
     gtb_request: Option<(u16, u16)>,
     out_ends_transaction: Option<bool>,
+    string: heapless::Vec<u8, 64>,
 }
 
 impl MockState {
@@ -80,6 +81,7 @@ impl MockState {
                 gtb: heapless::Vec::new(),
                 gtb_request: None,
                 out_ends_transaction: None,
+                string: heapless::Vec::new(),
             }),
         }
     }
@@ -106,6 +108,19 @@ impl MockState {
         let mut inner = self.inner.borrow_mut();
         inner.gtb.clear();
         inner.gtb.extend_from_slice(bytes).unwrap();
+    }
+
+    /// Sets the string returned for any non-zero string descriptor index; index 0 lists en-US.
+    pub fn set_string(&self, text: &str) {
+        let mut inner = self.inner.borrow_mut();
+        inner.string.clear();
+        inner.string.push(0).unwrap();
+        inner.string.push(0x03).unwrap();
+        for unit in text.encode_utf16() {
+            inner.string.extend_from_slice(&unit.to_le_bytes()).unwrap();
+        }
+        let len = inner.string.len() as u8;
+        inner.string[0] = len;
     }
 
     /// `ensure_transaction_end` of the last bulk OUT request.
@@ -167,6 +182,17 @@ impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for MockPipe<'_> {
             let inner = self.state.inner.borrow();
             let n = buf.len().min(inner.line_coding.len());
             buf[..n].copy_from_slice(&inner.line_coding[..n]);
+            Ok(n)
+        } else if setup[0] == 0x80 && setup[1] == 0x06 && setup[3] == 0x03 {
+            // Standard GET_DESCRIPTOR for a string: index 0 lists the language, others return the set string.
+            let inner = self.state.inner.borrow();
+            let data: &[u8] = if setup[2] == 0 {
+                &[4, 3, 0x09, 0x04]
+            } else {
+                &inner.string
+            };
+            let n = buf.len().min(data.len());
+            buf[..n].copy_from_slice(&data[..n]);
             Ok(n)
         } else if setup[0] == 0x81 && setup[1] == 0x06 && setup[3] == 0x26 {
             // Standard GET_DESCRIPTOR for a MIDI 2.0 Group Terminal Block.
