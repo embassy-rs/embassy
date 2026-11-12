@@ -257,21 +257,31 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         if self.alignment > 1 {
             readable -= readable % self.alignment;
         }
-        // Snapshot write_index before copying so the returned `remaining` reflects
-        // the buffer state at the time of the read rather than requiring a second
-        // hardware NDTR access and complete_count reset mid-copy.
-        let write_snapshot = self.write_index;
+        if readable == 0 {
+            return Ok((0, available));
+        }
 
         // Copy data starting skip words ahead of current read_index.
-        for i in 0..readable {
-            buf[i] = self.read_buf(skip + i);
+        let mut read_start = self.read_index;
+        read_start.advance(self.cap(), skip);
+        self.copy_from(read_start.pos, &mut buf[..readable]);
+
+        // The DMA may have caught up with the read position and written into the
+        // copied data meanwhile. All of it is intact if the DMA is still at most
+        // one buffer length ahead of the first word copied. The copy has to
+        // complete before the DMA position is read.
+        fence(Ordering::SeqCst);
+        self.write_index.dma_sync(self.cap(), dma);
+        if self.write_index.diff(self.cap(), &read_start) > self.cap() as isize {
+            return Err(Error::Overrun);
         }
 
         // Commit both the alignment skip and the read in one advance, so
         // read_index is never in a partially-advanced state on error.
-        self.read_index.advance(self.cap(), skip + readable);
+        self.read_index = read_start;
+        self.read_index.advance(self.cap(), readable);
 
-        let remaining = write_snapshot.diff(self.cap(), &self.read_index).max(0) as usize;
+        let remaining = self.write_index.diff(self.cap(), &self.read_index).max(0) as usize;
         Ok((readable, remaining))
     }
 
@@ -330,9 +340,8 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
             self.read_index.advance(self.cap(), front_skip);
         }
 
-        for i in 0..to_read {
-            buf[i] = self.read_buf(i);
-        }
+        let start = self.read_index.as_index(self.cap(), 0);
+        self.copy_from(start, &mut buf[..to_read]);
 
         // Advance past what we read. Trailing partial frame is left in the buffer.
         self.read_index.advance(self.cap(), to_read);
@@ -340,8 +349,23 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         to_read
     }
 
-    fn read_buf(&self, offset: usize) -> W {
-        unsafe { core::ptr::read_volatile(self.dma_buf.as_ptr().add(self.read_index.as_index(self.cap(), offset))) }
+    /// Copy `buf.len()` words from the DMA buffer into `buf`, starting at buffer
+    /// position `start` and wrapping at the end of the buffer.
+    ///
+    /// Copies in at most two contiguous runs, so there is no modulo per word.
+    fn copy_from(&self, start: usize, buf: &mut [W]) {
+        let cap = self.cap();
+        assert!(start < cap && buf.len() <= cap);
+        let src = self.dma_buf.as_ptr();
+        let (head, tail) = buf.split_at_mut(buf.len().min(cap - start));
+        for (i, w) in head.iter_mut().enumerate() {
+            // SAFETY: `start + i < cap`. Volatile, because the DMA writes the buffer.
+            *w = unsafe { core::ptr::read_volatile(src.add(start + i)) };
+        }
+        for (i, w) in tail.iter_mut().enumerate() {
+            // SAFETY: `i < buf.len() - (cap - start) <= start < cap`.
+            *w = unsafe { core::ptr::read_volatile(src.add(i)) };
+        }
     }
 }
 
@@ -529,6 +553,8 @@ mod tests {
         lazy_reload: bool,
         /// Transfers to do right after the next register access, i.e. between the two register reads of a sync.
         race: Cell<usize>,
+        /// Register accesses to let pass before `race` happens.
+        race_after: Cell<usize>,
         /// Transfers to do each time an async method polls, one entry per poll.
         polls: VecDeque<usize>,
     }
@@ -556,6 +582,14 @@ mod tests {
             }
         }
 
+        /// A register was accessed, do the `race` transfers if it is their turn.
+        fn register_access(&self) {
+            match self.race_after.get() {
+                0 => self.advance(self.race.take()),
+                n => self.race_after.set(n - 1),
+            }
+        }
+
         /// Run the deferred transfer-complete interrupt.
         fn irq(&self) {
             self.laps.set(self.laps.get() + self.pending_laps.take());
@@ -565,13 +599,13 @@ mod tests {
     impl DmaCtrl for Dma {
         fn get_remaining_transfers(&self) -> usize {
             let remaining = CAP - self.pos.get();
-            self.advance(self.race.take());
+            self.register_access();
             remaining
         }
 
         fn reset_complete_count(&mut self) -> usize {
             let laps = self.laps.take();
-            self.advance(self.race.take());
+            self.register_access();
             laps
         }
 
@@ -634,6 +668,13 @@ mod tests {
         fn race(&mut self, n: usize) {
             self.prepare(n);
             self.dma.race.set(n);
+        }
+
+        /// DMA transfers `n` samples while the next `read` copies, i.e. after the two register
+        /// reads of its first sync. The data is written before the copy, as if the DMA was faster.
+        fn race_during_copy(&mut self, n: usize) {
+            self.race(n);
+            self.dma.race_after.set(2);
         }
 
         fn read(&mut self, len: usize) -> Result<(Vec<u32>, usize), Error> {
@@ -776,6 +817,30 @@ mod tests {
         assert_eq!(t.read(CAP), Ok((vec![], 0)));
         t.dma(CAP);
         assert_eq!(t.read(CAP), Ok((seq(2 * CAP + 5..3 * CAP + 5), 0)));
+    }
+
+    #[test]
+    fn read_overwritten_while_copying() {
+        let mut t = Reader::new();
+        t.dma(CAP);
+        // While the full buffer is copied, the DMA writes over its first word.
+        t.race_during_copy(1);
+        assert_eq!(t.read(CAP), Err(Error::Overrun));
+        // The buffer reset itself, unread data is dropped.
+        assert_eq!(t.read(CAP), Ok((vec![], 0)));
+        t.dma(3);
+        assert_eq!(t.read(CAP), Ok((seq(CAP + 1..CAP + 4), 0)));
+    }
+
+    #[test]
+    fn read_dma_continues_while_copying() {
+        let mut t = Reader::new();
+        t.dma(4);
+        // Transfers during the copy don't reach the copied data, they are already counted as
+        // remaining.
+        t.race_during_copy(3);
+        assert_eq!(t.read(4), Ok((seq(0..4), 3)));
+        assert_eq!(t.read(CAP), Ok((seq(4..7), 0)));
     }
 
     #[test]
