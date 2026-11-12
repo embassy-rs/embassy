@@ -1,7 +1,38 @@
 //! This example demonstrates a USB Test and Measurement Class (USBTMC / USB488) instrument
 //! running on an STM32WBA65 microcontroller.
 //!
-//! You can interact with this device using PyVISA from a host computer:
+//! # Running it
+//!
+//! ```sh
+//! cd examples/stm32wba6
+//! cargo run --bin usb_usbtmc     # flashes and streams the defmt log over RTT
+//! ```
+//!
+//! The board enumerates as `1209:0001` and the kernel binds its `usbtmc` driver, which
+//! creates `/dev/usbtmcN`. That node is normally root-only, so install a udev rule (or run
+//! the host tool as root) before using PyVISA:
+//!
+//! ```sh
+//! echo 'SUBSYSTEM=="usbmisc", KERNEL=="usbtmc*", MODE="0666"' \
+//!   | sudo tee /etc/udev/rules.d/99-embassy-usbtmc.rules
+//! sudo udevadm control --reload && sudo udevadm trigger
+//! ```
+//!
+//! To talk raw USB instead (to send malformed messages or clear halts by hand), give
+//! libusb access to the device node. The host tool then has to detach the kernel driver
+//! (`dev.detach_kernel_driver(0)`) before it can claim the interface:
+//!
+//! ```sh
+//! echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="1209", ATTR{idProduct}=="0001", MODE="0666"' \
+//!   | sudo tee /etc/udev/rules.d/99-embassy-usbtmc-raw.rules
+//! sudo udevadm control --reload && sudo udevadm trigger
+//! python3 -m venv /tmp/usbtmc-venv && /tmp/usbtmc-venv/bin/pip install pyusb
+//! ```
+//!
+//! # Talking to it
+//!
+//! With PyVISA:
+//!
 //! ```python
 //! import pyvisa
 //! rm = pyvisa.ResourceManager()
@@ -9,6 +40,21 @@
 //! print(inst.query("*IDN?"))
 //! print(inst.query(":MEAS:VOLT?"))
 //! ```
+//!
+//! The instrument answers these SCPI commands:
+//!
+//! - `*IDN?` - identification string.
+//! - `*STB?` - status byte (always `0`).
+//! - `:MEAS:VOLT?` - a fixed measurement.
+//! - `*RST` - logged, state unchanged.
+//! - `:TEST:STALL` - halts both bulk endpoints instead of replying, to exercise the
+//!   endpoint-halt path. Host libraries surface this as an I/O error, not a return value
+//!   (`VisaIOError` in PyVISA, `USBError` with `EPIPE` in pyusb), so the host has to catch
+//!   it and clear the halt with `usb_clear_halt()`/`CLEAR_FEATURE(ENDPOINT_HALT)` or
+//!   `viClear()`. The instrument then starts answering again.
+//!
+//! Any other command is logged and ignored. A Bulk-OUT message that cannot be parsed
+//! halts Bulk-OUT on its own; see the `usbtmc` module docs.
 
 #![no_std]
 #![no_main]
@@ -19,7 +65,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb::class::usbtmc::{Config as TmcConfig, State, UsbtmcClass};
+use embassy_usb::class::usbtmc::{Config as TmcConfig, State, UsbtmcClass, UsbtmcError};
 use embassy_usb::{Builder, UsbDeviceSpeed};
 use panic_probe as _;
 
@@ -92,13 +138,31 @@ async fn main(_spawner: Spawner) {
             tmc.wait_connection().await;
             info!("USBTMC device connected");
 
+            // Endpoint-halt self-test: stall and un-stall the bulk endpoints once, and log
+            // what the driver reads back. This exercises the real halt feature (registers,
+            // not just class bookkeeping) before the host starts a transfer, and leaves the
+            // endpoints usable.
+            if tmc.stall().is_ok() {
+                info!("self-test: stalled = {}", tmc.is_stalled());
+                tmc.clear_stall();
+                info!("self-test: stalled after clear = {}", tmc.is_stalled());
+            } else {
+                info!("self-test: this driver cannot halt endpoints");
+            }
+
             let mut buf = [0u8; 256];
             loop {
                 let msg = match tmc.read_message(&mut buf).await {
                     Ok(msg) => msg,
+                    Err(UsbtmcError::Endpoint(_)) => break,
                     Err(e) => {
                         info!("Read error: {:?}", defmt::Debug2Format(&e));
-                        break;
+                        // The class has halted Bulk-OUT, so the host sees a failed
+                        // transfer instead of us misreading the rest of the stream. It now
+                        // clears the halt with CLEAR_FEATURE(ENDPOINT_HALT) or `viClear()`,
+                        // and this read resumes. Clearing the stall here would reset the
+                        // data toggle behind the host's back, so don't.
+                        continue;
                     }
                 };
 
@@ -115,6 +179,19 @@ async fn main(_spawner: Spawner) {
                     let _ = tmc.write_message(b"+3.3000E+00\n", true).await;
                 } else if cmd.eq_ignore_ascii_case("*RST") {
                     info!("Instrument reset");
+                } else if cmd.eq_ignore_ascii_case(":TEST:STALL") {
+                    // Reject the transfer the way an instrument that cannot serve a
+                    // command would: halt the bulk endpoints instead of replying. The
+                    // host sees the failed transfer and clears the halt with
+                    // CLEAR_FEATURE(ENDPOINT_HALT) or `viClear()`; the device recovers
+                    // on its own once that happens.
+                    if tmc.stall().is_ok() {
+                        info!("Stalling the bulk endpoints on request");
+                        info!("Stalled = {}", tmc.is_stalled());
+                    } else {
+                        info!("This driver cannot halt endpoints");
+                    }
+                    continue;
                 } else {
                     info!("Unknown command: {}", cmd);
                 }

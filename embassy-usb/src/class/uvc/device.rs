@@ -989,6 +989,14 @@ mod tests {
                 &self.0
             }
             async fn wait_enabled(&mut self) {}
+
+            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+                Ok(())
+            }
+
+            fn is_stalled(&self) -> Result<bool, Unsupported> {
+                Ok(false)
+            }
         }
 
         impl EndpointIn for MockEndpoint {
@@ -1003,6 +1011,12 @@ mod tests {
                 unreachable!()
             }
             async fn wait_enabled(&mut self) {
+                unreachable!()
+            }
+            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+                unreachable!()
+            }
+            fn is_stalled(&self) -> Result<bool, Unsupported> {
                 unreachable!()
             }
         }

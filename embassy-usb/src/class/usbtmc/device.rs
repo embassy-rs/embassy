@@ -7,7 +7,7 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 
 use super::types::*;
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
-use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointIn, EndpointOut};
+use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointIn, EndpointOut, Unsupported};
 use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
@@ -496,6 +496,31 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         self.read_ep.wait_enabled().await;
     }
 
+    /// Stalls Bulk-OUT when `e` leaves the bulk message stream out of sync, and returns it.
+    ///
+    /// The bulk message stream is a reassembly of headers and payloads with no way to
+    /// resynchronize: a bad `bTag`, an unexpected MsgID, a packet too short to hold a
+    /// header, or a payload longer than the caller's buffer all mean the next bytes on the
+    /// wire are payload that would be parsed as a header. Halt the endpoint instead, so
+    /// the host sees the failure and aborts the transfer (or issues `INITIATE_CLEAR`)
+    /// rather than having the device silently misread the following messages.
+    ///
+    /// Endpoint errors are not protocol errors - the driver or the host already knows
+    /// about those - so they are passed through without stalling.
+    fn fail(&mut self, e: UsbtmcError) -> UsbtmcError {
+        if matches!(
+            e,
+            UsbtmcError::InvalidTag
+                | UsbtmcError::UnexpectedMsgId(_)
+                | UsbtmcError::PacketTooShort
+                | UsbtmcError::BufferTooSmall
+                | UsbtmcError::MessageTruncated
+        ) {
+            let _ = self.read_ep.set_stall(true);
+        }
+        e
+    }
+
     async fn read_message_payload<'a>(
         &mut self,
         buf: &'a mut [u8],
@@ -503,10 +528,10 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         n: usize,
     ) -> Result<ReceivedMessage<'a>, UsbtmcError> {
         let max_pkt = self.read_ep.info().max_packet_size as usize;
-        let header = DevDepMsgOutHeader::parse(packet_buf[0..12].try_into().unwrap())?;
+        let header = DevDepMsgOutHeader::parse(packet_buf[0..12].try_into().unwrap()).map_err(|e| self.fail(e))?;
         let transfer_size = header.transfer_size as usize;
         if transfer_size > buf.len() {
-            return Err(UsbtmcError::BufferTooSmall);
+            return Err(self.fail(UsbtmcError::BufferTooSmall));
         }
 
         let first_chunk = core::cmp::min(transfer_size, n - 12);
@@ -532,6 +557,10 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
             }
         }
 
+        if bytes_copied < transfer_size {
+            return Err(self.fail(UsbtmcError::MessageTruncated));
+        }
+
         self.shared.add_bytes_rx(total_wire_read as u32);
         Ok(ReceivedMessage {
             payload: &buf[..bytes_copied],
@@ -547,7 +576,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         let packet_buf = &mut packet[..max_pkt];
         let n = self.read_ep.read(packet_buf).await?;
         if n < 12 {
-            return Err(UsbtmcError::PacketTooShort);
+            return Err(self.fail(UsbtmcError::PacketTooShort));
         }
 
         match packet_buf[0] {
@@ -560,17 +589,18 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
                 Ok(UsbtmcEvent::VendorSpecific(msg))
             }
             MSG_ID_REQUEST_DEV_DEP_MSG_IN | MSG_ID_REQUEST_VENDOR_SPECIFIC_IN => {
-                let header = RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap())?;
+                let header =
+                    RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap()).map_err(|e| self.fail(e))?;
                 self.shared.add_bytes_rx(n as u32);
                 Ok(UsbtmcEvent::RequestIn(header))
             }
             MSG_ID_TRIGGER => {
-                let base = MsgHeader::parse(packet_buf[0..4].try_into().unwrap())?;
+                let base = MsgHeader::parse(packet_buf[0..4].try_into().unwrap()).map_err(|e| self.fail(e))?;
                 self.shared.add_bytes_rx(n as u32);
                 self.shared.trigger();
                 Ok(UsbtmcEvent::Trigger(base.b_tag))
             }
-            id => Err(UsbtmcError::UnexpectedMsgId(id)),
+            id => Err(self.fail(UsbtmcError::UnexpectedMsgId(id))),
         }
     }
 
@@ -585,7 +615,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
             let packet_buf = &mut packet[..max_pkt];
             let n = self.read_ep.read(packet_buf).await?;
             if n < 12 {
-                return Err(UsbtmcError::PacketTooShort);
+                return Err(self.fail(UsbtmcError::PacketTooShort));
             }
 
             match packet_buf[0] {
@@ -593,16 +623,17 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
                     return self.read_message_payload(buf, packet_buf, n).await;
                 }
                 MSG_ID_REQUEST_DEV_DEP_MSG_IN | MSG_ID_REQUEST_VENDOR_SPECIFIC_IN => {
-                    let header = RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap())?;
+                    let header = RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap())
+                        .map_err(|e| self.fail(e))?;
                     self.shared.add_bytes_rx(n as u32);
                     self.pending_request_in = Some(header);
                 }
                 MSG_ID_TRIGGER => {
-                    let _base = MsgHeader::parse(packet_buf[0..4].try_into().unwrap())?;
+                    let _base = MsgHeader::parse(packet_buf[0..4].try_into().unwrap()).map_err(|e| self.fail(e))?;
                     self.shared.add_bytes_rx(n as u32);
                     self.shared.trigger();
                 }
-                id => return Err(UsbtmcError::UnexpectedMsgId(id)),
+                id => return Err(self.fail(UsbtmcError::UnexpectedMsgId(id))),
             }
         }
     }
@@ -618,11 +649,12 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         loop {
             let n = self.read_ep.read(packet_buf).await?;
             if n < 12 {
-                return Err(UsbtmcError::PacketTooShort);
+                return Err(self.fail(UsbtmcError::PacketTooShort));
             }
             match packet_buf[0] {
                 MSG_ID_REQUEST_DEV_DEP_MSG_IN | MSG_ID_REQUEST_VENDOR_SPECIFIC_IN => {
-                    let header = RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap())?;
+                    let header = RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap())
+                        .map_err(|e| self.fail(e))?;
                     self.shared.add_bytes_rx(n as u32);
                     return Ok(header);
                 }
@@ -709,8 +741,69 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
     }
 
     /// Checks if a clear operation was requested by the host (`viClear()`).
-    pub fn check_clear(&self) -> bool {
-        self.shared.check_clear()
+    ///
+    /// A clear also clears any STALL condition left by an unparseable message, so the
+    /// instrument can be used again without the application calling [`Self::clear_stall`]
+    /// itself.
+    pub fn check_clear(&mut self) -> bool {
+        if self.shared.check_clear() {
+            self.clear_stall();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Stalls both bulk endpoints.
+    ///
+    /// The class does this itself when a Bulk-OUT message cannot be parsed; see
+    /// [`UsbtmcError`]. Call it to reject a transfer deliberately, for example for a
+    /// command the instrument does not support: the host sees the failed transfer
+    /// instead of an empty reply, and can abort it with [`Self::clear_stall`],
+    /// `CLEAR_FEATURE(ENDPOINT_HALT)` or `viClear()`.
+    ///
+    /// Host software sees this as an I/O error rather than a reply: VISA raises a
+    /// `VisaIOError`, libusb-based stacks an `EPIPE`/`USBError`. There is no way to
+    /// report a protocol failure other than failing the transfer, so host code has to
+    /// handle the error and clear the halt.
+    ///
+    /// While the endpoints are stalled, reads and writes do not complete, so the
+    /// application has to call [`Self::clear_stall`] (or wait for the host to clear the
+    /// halt) before using the class again.
+    ///
+    /// # Errors
+    ///
+    /// * [`Unsupported`] - The driver cannot halt endpoints, so nothing was stalled.
+    pub fn stall(&mut self) -> Result<(), Unsupported> {
+        self.read_ep.set_stall(true)?;
+        self.write_ep.set_stall(true)
+    }
+
+    /// Clears the STALL condition on the bulk endpoints that are actually stalled.
+    ///
+    /// Bulk-OUT is stalled when the class cannot parse a message from the host; see
+    /// [`UsbtmcError`]. The host normally clears it with `CLEAR_FEATURE(ENDPOINT_HALT)`,
+    /// and [`Self::check_clear`] clears it when the host issues `viClear()`.
+    ///
+    /// Clearing a halt resets the endpoint's data toggle to DATA0 (USB 2.0 §9.4.5).
+    /// The host does not see that, so clearing a stall the host itself did not clear
+    /// leaves the two sides out of step and the next transfer gets discarded as a
+    /// retransmission. Only call this when the host is going to clear the halt as well,
+    /// or after a bus reset, which resets both sides.
+    pub fn clear_stall(&mut self) {
+        if self.read_ep.is_stalled().unwrap_or(false) {
+            let _ = self.read_ep.set_stall(false);
+        }
+        if self.write_ep.is_stalled().unwrap_or(false) {
+            let _ = self.write_ep.set_stall(false);
+        }
+    }
+
+    /// Returns whether a bulk endpoint is currently stalled.
+    ///
+    /// Returns `false` when the driver cannot halt endpoints.
+    pub fn is_stalled(&self) -> bool {
+        self.read_ep.is_stalled().unwrap_or(false) || self.write_ep.is_stalled().unwrap_or(false)
     }
 
     /// Gets the count of indicator pulse requests received.
@@ -726,9 +819,21 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
+
+    use core::cell::RefCell;
+    use std::boxed::Box;
+    use std::rc::Rc;
+    use std::vec::Vec;
+
+    use embassy_futures::block_on;
+
     use super::*;
     use crate::control::{Recipient, Request, RequestType};
-    use crate::driver::Direction;
+    use crate::driver::{
+        Bus, ControlPipe, Direction, EndpointAllocError, EndpointConfig, EndpointError, EndpointInfo, EndpointType,
+        Event, Unsupported,
+    };
 
     #[test]
     fn test_control_capabilities() {
@@ -930,5 +1035,380 @@ mod tests {
         let res = control.control_out(req, &[]);
         assert!(matches!(res, Some(OutResponse::Accepted)));
         assert_eq!(shared.indicator_pulse_count(), 1);
+    }
+
+    // Bulk-OUT stall on messages the class cannot parse.
+
+    #[derive(Default)]
+    struct MockState {
+        out_stalled: Cell<bool>,
+        in_stalled: Cell<bool>,
+        /// Number of `set_stall` calls, so a test can tell "not called" from "cleared".
+        out_stall_calls: Cell<u32>,
+        in_stall_calls: Cell<u32>,
+        fail_read: Cell<bool>,
+        packets: RefCell<Vec<Vec<u8>>>,
+        written: RefCell<Vec<Vec<u8>>>,
+    }
+
+    struct MockEndpoint {
+        info: EndpointInfo,
+        state: Rc<MockState>,
+        dir: Direction,
+    }
+
+    impl Endpoint for MockEndpoint {
+        fn info(&self) -> &EndpointInfo {
+            &self.info
+        }
+
+        async fn wait_enabled(&mut self) {}
+
+        fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+            match self.dir {
+                Direction::Out => {
+                    self.state.out_stall_calls.set(self.state.out_stall_calls.get() + 1);
+                    self.state.out_stalled.set(stalled);
+                }
+                Direction::In => {
+                    self.state.in_stall_calls.set(self.state.in_stall_calls.get() + 1);
+                    self.state.in_stalled.set(stalled);
+                }
+            }
+            Ok(())
+        }
+
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
+            Ok(match self.dir {
+                Direction::Out => self.state.out_stalled.get(),
+                Direction::In => self.state.in_stalled.get(),
+            })
+        }
+    }
+
+    impl EndpointOut for MockEndpoint {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+            if self.state.fail_read.get() {
+                return Err(EndpointError::Disabled);
+            }
+            let packet = self.state.packets.borrow_mut().remove(0);
+            buf[..packet.len()].copy_from_slice(&packet);
+            Ok(packet.len())
+        }
+    }
+
+    impl EndpointIn for MockEndpoint {
+        async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+            self.state.written.borrow_mut().push(buf.to_vec());
+            Ok(())
+        }
+    }
+
+    struct MockDriver;
+
+    impl<'d> Driver<'d> for MockDriver {
+        type EndpointOut = MockEndpoint;
+        type EndpointIn = MockEndpoint;
+        type ControlPipe = Unused;
+        type Bus = Unused;
+
+        fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<MockEndpoint, EndpointAllocError> {
+            unreachable!()
+        }
+
+        fn alloc_endpoint_in(&mut self, _: &EndpointConfig) -> Result<MockEndpoint, EndpointAllocError> {
+            unreachable!()
+        }
+
+        fn start(self, _: u16) -> (Unused, Unused) {
+            unreachable!()
+        }
+    }
+
+    struct Unused;
+
+    impl Endpoint for Unused {
+        fn info(&self) -> &EndpointInfo {
+            unreachable!()
+        }
+
+        async fn wait_enabled(&mut self) {
+            unreachable!()
+        }
+
+        fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
+            unreachable!()
+        }
+
+        fn is_stalled(&self) -> Result<bool, Unsupported> {
+            unreachable!()
+        }
+    }
+
+    impl EndpointOut for Unused {
+        async fn read(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
+            unreachable!()
+        }
+    }
+
+    impl EndpointIn for Unused {
+        async fn write(&mut self, _: &[u8]) -> Result<(), EndpointError> {
+            unreachable!()
+        }
+    }
+
+    impl Bus for Unused {
+        async fn enable(&mut self) {
+            unreachable!()
+        }
+
+        async fn disable(&mut self) {
+            unreachable!()
+        }
+
+        async fn poll(&mut self) -> Event {
+            unreachable!()
+        }
+
+        fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
+            unreachable!()
+        }
+
+        fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
+            unreachable!()
+        }
+
+        fn endpoint_is_stalled(&mut self, _: EndpointAddress) -> bool {
+            unreachable!()
+        }
+
+        async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
+            unreachable!()
+        }
+    }
+
+    impl ControlPipe for Unused {
+        fn max_packet_size(&self) -> usize {
+            unreachable!()
+        }
+
+        async fn setup(&mut self) -> [u8; 8] {
+            unreachable!()
+        }
+
+        async fn data_out(&mut self, _: &mut [u8], _: bool, _: bool) -> Result<usize, EndpointError> {
+            unreachable!()
+        }
+
+        async fn data_in(&mut self, _: &[u8], _: bool, _: bool) -> Result<(), EndpointError> {
+            unreachable!()
+        }
+
+        async fn accept(&mut self) {
+            unreachable!()
+        }
+
+        async fn reject(&mut self) {
+            unreachable!()
+        }
+
+        async fn accept_set_address(&mut self, _: u8) {
+            unreachable!()
+        }
+    }
+
+    fn class(state: &Rc<MockState>) -> UsbtmcClass<'static, MockDriver> {
+        let shared: &'static ControlShared = Box::leak(Box::new(ControlShared::new(Capabilities::default(), true)));
+        let info = |addr| EndpointInfo {
+            addr,
+            ep_type: EndpointType::Bulk,
+            max_packet_size: 64,
+            interval_ms: 0,
+            max_burst: 0,
+        };
+        UsbtmcClass {
+            read_ep: MockEndpoint {
+                info: info(EndpointAddress::from(0x01)),
+                state: state.clone(),
+                dir: Direction::Out,
+            },
+            write_ep: MockEndpoint {
+                info: info(EndpointAddress::from(0x81)),
+                state: state.clone(),
+                dir: Direction::In,
+            },
+            int_ep: None,
+            shared,
+            pending_request_in: None,
+        }
+    }
+
+    fn header(msg_id: u8, tag: u8, transfer_size: u32) -> Vec<u8> {
+        let mut h = Vec::new();
+        h.extend_from_slice(&[msg_id, tag, !tag, 0x00]);
+        h.extend_from_slice(&transfer_size.to_le_bytes());
+        h.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // EOM
+        h
+    }
+
+    fn read_fails(tmc: &mut UsbtmcClass<'_, MockDriver>, buf: &mut [u8]) -> UsbtmcError {
+        match block_on(tmc.read_message(buf)) {
+            Ok(_) => panic!("expected the read to fail"),
+            Err(e) => e,
+        }
+    }
+
+    #[test]
+    fn unexpected_msg_id_stalls_bulk_out() {
+        let state = Rc::new(MockState::default());
+        state.packets.borrow_mut().push(Vec::from([0x42_u8; 12]));
+        let mut tmc = class(&state);
+
+        let mut buf = [0u8; 64];
+        assert!(matches!(
+            read_fails(&mut tmc, &mut buf),
+            UsbtmcError::UnexpectedMsgId(0x42)
+        ));
+        assert!(tmc.is_stalled());
+
+        tmc.clear_stall();
+        assert!(!tmc.is_stalled());
+    }
+
+    #[test]
+    fn invalid_tag_stalls_bulk_out() {
+        let state = Rc::new(MockState::default());
+        let mut packet = header(MSG_ID_DEV_DEP_MSG_OUT, 1, 0);
+        packet[2] = 0x00; // bTagInverse must be !bTag
+        state.packets.borrow_mut().push(packet);
+        let mut tmc = class(&state);
+
+        let mut buf = [0u8; 64];
+        assert!(matches!(read_fails(&mut tmc, &mut buf), UsbtmcError::InvalidTag));
+        assert!(tmc.is_stalled());
+    }
+
+    #[test]
+    fn short_packet_stalls_bulk_out() {
+        let state = Rc::new(MockState::default());
+        state.packets.borrow_mut().push(Vec::from([0x01_u8, 0x01, 0xfe, 0x00]));
+        let mut tmc = class(&state);
+
+        let mut buf = [0u8; 64];
+        assert!(matches!(read_fails(&mut tmc, &mut buf), UsbtmcError::PacketTooShort));
+        assert!(tmc.is_stalled());
+    }
+
+    #[test]
+    fn too_small_buffer_stalls_bulk_out() {
+        let state = Rc::new(MockState::default());
+        let mut packet = header(MSG_ID_DEV_DEP_MSG_OUT, 1, 100);
+        packet.extend_from_slice(&[0u8; 4]);
+        state.packets.borrow_mut().push(packet);
+        let mut tmc = class(&state);
+
+        let mut buf = [0u8; 16];
+        assert!(matches!(read_fails(&mut tmc, &mut buf), UsbtmcError::BufferTooSmall));
+        assert!(tmc.is_stalled());
+    }
+
+    #[test]
+    fn truncated_message_stalls_bulk_out() {
+        let state = Rc::new(MockState::default());
+        let mut packet = header(MSG_ID_DEV_DEP_MSG_OUT, 1, 8);
+        packet.extend_from_slice(&[0xaa; 4]);
+        state.packets.borrow_mut().push(packet);
+        state.packets.borrow_mut().push(Vec::new()); // the host ends the message early
+        let mut tmc = class(&state);
+
+        let mut buf = [0u8; 64];
+        assert!(matches!(read_fails(&mut tmc, &mut buf), UsbtmcError::MessageTruncated));
+        assert!(tmc.is_stalled());
+    }
+
+    #[test]
+    fn endpoint_error_does_not_stall() {
+        let state = Rc::new(MockState::default());
+        state.fail_read.set(true);
+        let mut tmc = class(&state);
+
+        let mut buf = [0u8; 64];
+        assert!(matches!(
+            read_fails(&mut tmc, &mut buf),
+            UsbtmcError::Endpoint(EndpointError::Disabled)
+        ));
+        assert!(!tmc.is_stalled());
+    }
+
+    #[test]
+    fn valid_message_does_not_stall() {
+        let state = Rc::new(MockState::default());
+        let mut packet = header(MSG_ID_DEV_DEP_MSG_OUT, 1, 3);
+        packet.extend_from_slice(b"abc\0");
+        state.packets.borrow_mut().push(packet);
+        let mut tmc = class(&state);
+
+        let mut buf = [0u8; 64];
+        match block_on(tmc.read_message(&mut buf)) {
+            Ok(msg) => assert_eq!(msg.payload, b"abc"),
+            Err(e) => panic!("unexpected error: {}", e),
+        }
+        assert!(!tmc.is_stalled());
+    }
+
+    #[test]
+    fn clear_request_clears_stall() {
+        let state = Rc::new(MockState::default());
+        state.packets.borrow_mut().push(Vec::from([0x42_u8; 12]));
+        let mut tmc = class(&state);
+
+        let mut buf = [0u8; 64];
+        assert!(matches!(
+            read_fails(&mut tmc, &mut buf),
+            UsbtmcError::UnexpectedMsgId(0x42)
+        ));
+        assert!(tmc.is_stalled());
+
+        // viClear() from the host: the class clears the stall by itself.
+        tmc.shared.set_clear_pending(true);
+        assert!(tmc.check_clear());
+        assert!(!tmc.is_stalled());
+    }
+
+    #[test]
+    fn clear_stall_leaves_the_other_direction_alone() {
+        // Clearing a halt resets that endpoint's data toggle. Clearing Bulk-IN after a
+        // Bulk-OUT-only stall would reset the IN toggle behind the host's back, and the
+        // host would discard the next reply as a retransmission.
+        let state = Rc::new(MockState::default());
+        state.packets.borrow_mut().push(Vec::from([0x42_u8; 12]));
+        let mut tmc = class(&state);
+
+        let mut buf = [0u8; 64];
+        assert!(matches!(
+            read_fails(&mut tmc, &mut buf),
+            UsbtmcError::UnexpectedMsgId(0x42)
+        ));
+        let in_calls = state.in_stall_calls.get();
+
+        tmc.clear_stall();
+        assert!(!state.out_stalled.get());
+        assert_eq!(state.in_stall_calls.get(), in_calls);
+    }
+
+    #[test]
+    fn stall_halts_both_endpoints() {
+        let state = Rc::new(MockState::default());
+        let mut tmc = class(&state);
+
+        tmc.stall().unwrap();
+        assert!(tmc.is_stalled());
+        assert!(state.out_stalled.get());
+        assert!(state.in_stalled.get());
+
+        tmc.clear_stall();
+        assert!(!tmc.is_stalled());
+        assert!(!state.out_stalled.get());
+        assert!(!state.in_stalled.get());
     }
 }

@@ -1,5 +1,8 @@
+extern crate std;
+
 use core::cell::Cell;
 use core::future::pending;
+use std::rc::Rc;
 
 use embassy_futures::block_on;
 
@@ -17,7 +20,10 @@ struct TestDriver {
     bus: TestBus,
 }
 
-struct TestEndpoint(EndpointInfo);
+struct TestEndpoint {
+    info: EndpointInfo,
+    stalled: Rc<Cell<bool>>,
+}
 
 impl<'d> Driver<'d> for TestDriver {
     type EndpointOut = TestEndpoint;
@@ -54,11 +60,20 @@ impl<'d> Driver<'d> for TestDriver {
 
 impl Endpoint for TestEndpoint {
     fn info(&self) -> &EndpointInfo {
-        &self.0
+        &self.info
     }
 
     async fn wait_enabled(&mut self) {
         unreachable!()
+    }
+
+    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+        self.stalled.set(stalled);
+        Ok(())
+    }
+
+    fn is_stalled(&self) -> Result<bool, Unsupported> {
+        Ok(self.stalled.get())
     }
 }
 
@@ -74,13 +89,25 @@ impl EndpointOut for TestEndpoint {
     }
 }
 
-#[derive(Default)]
 struct TestBus {
     endpoints: [Option<EndpointInfo>; 32],
     configs: [Option<EndpointConfig>; 32],
     enabled: [bool; 32],
-    stalled: [bool; 32],
+    /// Shared with the endpoint handles, so a class stall is visible on the bus.
+    stalled: [Rc<Cell<bool>>; 32],
     halt_calls: usize,
+}
+
+impl Default for TestBus {
+    fn default() -> Self {
+        Self {
+            endpoints: [None; 32],
+            configs: [None; 32],
+            enabled: [false; 32],
+            stalled: core::array::from_fn(|_| Rc::new(Cell::new(false))),
+            halt_calls: 0,
+        }
+    }
 }
 
 impl TestBus {
@@ -101,7 +128,10 @@ impl TestBus {
         let slot = Self::slot(addr);
         assert!(self.endpoints[slot].replace(info).is_none());
         self.configs[slot] = Some(config);
-        Ok(TestEndpoint(info))
+        Ok(TestEndpoint {
+            info,
+            stalled: self.stalled[slot].clone(),
+        })
     }
 
     fn check_halt(&mut self, addr: EndpointAddress) -> usize {
@@ -129,17 +159,17 @@ impl Bus for TestBus {
         let slot = Self::slot(addr);
         assert!(self.endpoints[slot].is_some());
         self.enabled[slot] = enabled;
-        self.stalled[slot] = false;
+        self.stalled[slot].set(false);
     }
 
     fn endpoint_set_stalled(&mut self, addr: EndpointAddress, stalled: bool) {
         let slot = self.check_halt(addr);
-        self.stalled[slot] = stalled;
+        self.stalled[slot].set(stalled);
     }
 
     fn endpoint_is_stalled(&mut self, addr: EndpointAddress) -> bool {
         let slot = self.check_halt(addr);
-        self.stalled[slot]
+        self.stalled[slot].get()
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
@@ -470,6 +500,50 @@ fn test_ccid_device_and_host_interop() {
     assert_eq!(info.slots, 1);
     assert_eq!(info.bulk_in.1, 64);
     assert_eq!(info.bulk_out.1, 64);
+}
+
+#[test]
+fn test_endpoint_stall_from_class() {
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+
+    let mut function = builder.function(0xff, 0, 0);
+    let mut interface = function.interface();
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+    let mut ep_out = alt.endpoint_bulk_out(Some(0x01.into()), EndpointOptions::new());
+    drop(function);
+    let mut usb = builder.build();
+
+    configure(&mut usb);
+    assert!(!ep_out.is_stalled().unwrap());
+
+    // A class driver can reject traffic on its own endpoint, and the host sees the halt.
+    ep_out.set_stall(true).unwrap();
+    assert!(ep_out.is_stalled().unwrap());
+    assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(1));
+
+    // The host clearing the halt recovers the endpoint, without the class doing anything.
+    assert_eq!(
+        endpoint_request(&mut usb, Request::CLEAR_FEATURE, 1),
+        Response::Accepted
+    );
+    assert!(!ep_out.is_stalled().unwrap());
+    assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(0));
+
+    // The class can also clear its own stall.
+    ep_out.set_stall(true).unwrap();
+    assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(1));
+    ep_out.set_stall(false).unwrap();
+    assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(0));
 }
 
 #[cfg(all(feature = "device", feature = "class-bth"))]
