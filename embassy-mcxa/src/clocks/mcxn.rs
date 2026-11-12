@@ -166,16 +166,12 @@ pub fn init(_config: config::ClocksConfig) -> Result<(), ClockError> {
         scg.rccr().modify(|w| w.set_scs(2u8.into()));
         wait(ClockPhase::MainSource, || scg.csr().read().scs().to_bits() == 2)?;
         syscon.ahbclkdiv().modify(|w| w.set_div(0));
-        wait(ClockPhase::AhbDivider, || {
-            !syscon.ahbclkdiv().read().unstab()
-        })?;
+        wait(ClockPhase::AhbDivider, || !syscon.ahbclkdiv().read().unstab())?;
         syscon.slowclkdiv().modify(|w| {
             w.set_reset(false);
             w.set_halt(false);
         });
-        wait(ClockPhase::SlowDivider, || {
-            !syscon.slowclkdiv().read().unstab()
-        })?;
+        wait(ClockPhase::SlowDivider, || !syscon.slowclkdiv().read().unstab())?;
 
         // Establish ordinary WFE idle, not A's deep-sleep/FLASHWAKE policy.
         // As in the A clock driver, do not call Peripherals::steal(): it marks

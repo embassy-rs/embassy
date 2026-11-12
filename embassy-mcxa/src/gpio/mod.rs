@@ -3,6 +3,7 @@
 
 use core::convert::Infallible;
 use core::marker::PhantomData;
+
 use embassy_hal_internal::Peri;
 
 #[cfg(not(feature = "_mcxn"))]

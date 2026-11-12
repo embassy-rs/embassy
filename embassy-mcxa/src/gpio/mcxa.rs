@@ -1,15 +1,17 @@
 //! MCXA pin control and asynchronous GPIO capabilities.
 
+use core::future::Future;
+use core::marker::PhantomData;
+use core::pin::pin;
+
+use embassy_hal_internal::{Peri, PeripheralType};
+use maitake_sync::WaitMap;
+
 use super::{DriveStrength, Flex, Input, Inverter, Mode, NoIrqBound, OpenDrain, Pull, SlewRate, sealed};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac::common::{RW, Reg};
 use crate::pac::gpio::Irqc;
 use crate::pac::port::{Mux, Pcr};
-use core::future::Future;
-use core::marker::PhantomData;
-use core::pin::pin;
-use embassy_hal_internal::{Peri, PeripheralType};
-use maitake_sync::WaitMap;
 
 pub struct Async {}
 impl sealed::Sealed for Async {}

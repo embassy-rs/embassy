@@ -1,8 +1,10 @@
 //! MCXN native PCR and blocking GPIO capabilities.
 
-use super::{DriveStrength, Flex, Inverter, Mode, OpenDrain, Pull, SlewRate};
 use core::marker::PhantomData;
+
 use embassy_hal_internal::{Peri, PeripheralType};
+
+use super::{DriveStrength, Flex, Inverter, Mode, OpenDrain, Pull, SlewRate};
 // N has native per-pad PCR types, not A's uniform PORT/PCR model. Keep the
 // dispatch local to pin control; the GPIO registers and public driver are shared.
 
