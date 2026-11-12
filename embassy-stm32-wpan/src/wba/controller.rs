@@ -53,6 +53,8 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::HASH> for LowInterruptH
 /// IMPORTANT: This runs on the sequencer's stack context, matching the
 /// C reference implementation where BleStack_Process is a UTIL_SEQ task.
 unsafe extern "C" fn ble_stack_process_bg() {
+    // Resume the event flow first, so BleStack_Process retries refused events
+    crate::wba::linklayer_plat::resume_event_flow_in_sequencer();
     let result = BleStack_Process();
 
     trace!("BleStack_Process called, result={}", result);
@@ -302,6 +304,8 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
             if self.pending_evt.swap(false, Ordering::AcqRel) {
                 // Advance the channel
                 controller.receiver.try_receive().unwrap().receive_done();
+                // A slot is free - resume the event flow if it was stalled
+                crate::wba::linklayer_plat::resume_event_flow();
             }
 
             let Poll::Ready(slot) = controller.receiver.poll_receive(cx) else {

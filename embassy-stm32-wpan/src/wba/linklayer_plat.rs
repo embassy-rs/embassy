@@ -95,6 +95,7 @@ use crate::controller::ChannelPacket;
 use crate::platform::Platform;
 use crate::wba::bindings::{link_layer, mac};
 use crate::wba::host_if::{TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST};
+use crate::wba::ll_sys_if::{TASK_LINK_LAYER_MASK, TASK_PRIO_LINK_LAYER};
 use crate::wba::platform::P256Request;
 use crate::wba::util_seq;
 
@@ -142,6 +143,49 @@ static LOCAL_BASEPRI_VALUE: AtomicU32 = AtomicU32::new(0);
 static RADIO_SW_LOW_ISR_RUNNING_HIGH_PRIO: AtomicBool = AtomicBool::new(false);
 static AHB5_SWITCHED_OFF: AtomicBool = AtomicBool::new(false);
 static RADIO_SLEEP_TIMER_VAL: AtomicU32 = AtomicU32::new(0);
+
+// ============================================================================
+// Event flow control (BLECB_Indication back-pressure)
+// ============================================================================
+//
+// When the event channel is full, BLECB_Indication returns BLE_STATUS_FAILED
+// instead of dropping the event, and the BLE stack keeps it:
+//   - ACI events stay in the host event FIFO, retried by the next BleStack_Process
+//   - HCI events are re-queued at the front of their link layer queue, which
+//     stays busy until ll_intf_chng_evnt_hndlr_state clears it
+
+/// Set by BLECB_Indication when it refused an event (channel full).
+static EVENT_FLOW_STALLED: AtomicBool = AtomicBool::new(false);
+
+/// Set once a slot was freed after a refusal; consumed in the sequencer context.
+static EVENT_FLOW_RESUME: AtomicBool = AtomicBool::new(false);
+
+/// Request a resume of the event flow. Called after a channel slot is freed.
+#[cfg(feature = "bt-hci")]
+pub(crate) fn resume_event_flow() {
+    if EVENT_FLOW_STALLED.swap(false, Ordering::AcqRel) {
+        EVENT_FLOW_RESUME.store(true, Ordering::Release);
+        util_seq::UTIL_SEQ_SetTask(TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST);
+        util_seq::seq_pend();
+    }
+}
+
+/// Resume the event flow if requested.
+///
+/// Matches ST's BLE_ResumeFlowProcessCallback, except for the mask (see below).
+///
+/// IMPORTANT: Must run in the sequencer context, before BleStack_Process.
+pub(crate) fn resume_event_flow_in_sequencer() {
+    if EVENT_FLOW_RESUME.swap(false, Ordering::AcqRel) {
+        // One bit per link layer event queue: bits 0..=5 -> queues 0x0F, 0x11, 0x10, 0x12, 0x13, 0x14.
+        // ST uses 0x0F, which never clears queue 0x14 (end-of-radio-activity events) and stalls the flow.
+        unsafe {
+            link_layer::ll_intf_chng_evnt_hndlr_state(link_layer::change_state_options_t { combined_value: 0x3F });
+        }
+        // Re-run the link layer so it re-sends the parked event
+        util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, TASK_PRIO_LINK_LAYER);
+    }
+}
 
 // Critical-section restore token for IRQ enable/disable pairing.
 // Only written when the IRQ disable counter transitions 0->1, and consumed when it transitions 1->0.
@@ -1777,7 +1821,9 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, ext_data
     debug!("Raw Event: {:x} {:x}", event_data, ext_data);
 
     let Some(mut slot) = get_channel().try_send() else {
-        return 0;
+        // Channel full - refuse the event so the stack keeps it (see "Event flow control")
+        EVENT_FLOW_STALLED.store(true, Ordering::Release);
+        return stm32_bindings::ble::BLE_STATUS_FAILED as u8;
     };
 
     slot.copy_from(event_data, ext_data);
