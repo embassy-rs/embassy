@@ -437,7 +437,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
                 u1_enabled: false,
                 u2_enabled: false,
                 ltm_enabled: false,
-                self_powered: false,
+                self_powered: config.self_powered,
                 address: 0,
                 set_address_pending: false,
                 interfaces,

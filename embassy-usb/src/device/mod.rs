@@ -441,6 +441,14 @@ fn set_interface_endpoints(config_descriptor: &[u8], bus: &mut impl Bus, interfa
     .unwrap();
 }
 
+/// Address of the endpoint selected by bit `n` of an [`endpoint_bit`] mask.
+fn address_of_bit(bit: u32) -> EndpointAddress {
+    EndpointAddress::from_parts(
+        (bit / 2) as usize,
+        if bit % 2 == 0 { Direction::Out } else { Direction::In },
+    )
+}
+
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     /// Returns a report of the consumed buffers
     ///
@@ -670,6 +678,55 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
         endpoint
     }
 
+    /// Interface named by a standard request, when one may be addressed.
+    ///
+    /// USB 2.0 §9.3.4 reserves the high byte of an interface `wIndex`.
+    /// §9.4.4, §9.4.5 and §9.4.10 make these requests a Request Error until
+    /// the device is configured.
+    fn configured_interface(&self, index: u16) -> Option<InterfaceNumber> {
+        if self.device_state != UsbDeviceState::Configured || index > u8::MAX as u16 {
+            return None;
+        }
+        let number = InterfaceNumber::new(index as u8);
+        self.interfaces.get(number.0 as usize).map(|_| number)
+    }
+
+    /// Clear halt on the bulk and interrupt endpoints of the selected alternate settings.
+    ///
+    /// USB 2.0 §9.1.1.5 and §9.4.5: `SET_CONFIGURATION` and `SET_INTERFACE` return
+    /// every affected endpoint to its default, including halt clear and data
+    /// toggle `DATA0`, even when the host selects the setting already in use.
+    /// `only` limits that to one interface for `SET_INTERFACE`.
+    fn clear_enabled_halts(&mut self, only: Option<InterfaceNumber>) {
+        let mut alts = [None; MAX_INTERFACE_COUNT];
+        for (i, iface) in self.interfaces.iter().enumerate() {
+            if only.is_some_and(|number| number.0 as usize != i) {
+                continue;
+            }
+            alts[i] = Some(iface.current_alt_setting);
+        }
+
+        let mut clear = 0u32;
+        foreach_endpoint(self.config_descriptor, |ep| {
+            let Some(alt) = alts.get(ep.interface.0 as usize).copied().flatten() else {
+                return;
+            };
+            if ep.interface_alt != alt {
+                return;
+            }
+            if matches!(ep.ep_type, EndpointType::Bulk | EndpointType::Interrupt) {
+                clear |= endpoint_bit(ep.ep_address);
+            }
+        })
+        .unwrap();
+
+        for bit in 0..32u32 {
+            if clear & (1 << bit) != 0 {
+                self.bus.endpoint_set_stalled(address_of_bit(bit), false);
+            }
+        }
+    }
+
     async fn handle_bus_event(&mut self, evt: Event) {
         match evt {
             Event::Reset => {
@@ -735,20 +792,40 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
         match (req.request_type, req.recipient) {
             (RequestType::Standard, Recipient::Device) => match (req.request, req.value) {
-                (Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
-                    self.remote_wakeup_enabled = false;
+                (Request::SET_FEATURE | Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
+                    // USB 2.0 §9.4.1 and §9.4.9: a feature the device does not
+                    // support is a Request Error. The configuration descriptor
+                    // reports support in bmAttributes D5.
+                    if !self.config.supports_remote_wakeup {
+                        return OutResponse::Rejected;
+                    }
+                    let enabled = req.request == Request::SET_FEATURE;
+                    self.remote_wakeup_enabled = enabled;
                     for h in &mut self.handlers {
-                        h.remote_wakeup_enabled(false);
+                        h.remote_wakeup_enabled(enabled);
                     }
                     OutResponse::Accepted
                 }
-                (Request::SET_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
-                    self.remote_wakeup_enabled = true;
-                    for h in &mut self.handlers {
-                        h.remote_wakeup_enabled(true);
+                // USB 2.0 §9.4.6: address 0 in Default stays there. Address 0 in
+                // Address returns the device to Default. The response from
+                // Configured is not specified, so it stalls.
+                (Request::SET_ADDRESS, 0) => match self.device_state {
+                    UsbDeviceState::Default => {
+                        self.address = 0;
+                        self.set_address_pending = true;
+                        OutResponse::Accepted
                     }
-                    OutResponse::Accepted
-                }
+                    UsbDeviceState::Addressed => {
+                        self.address = 0;
+                        self.set_address_pending = true;
+                        self.device_state = UsbDeviceState::Default;
+                        for h in &mut self.handlers {
+                            h.addressed(0);
+                        }
+                        OutResponse::Accepted
+                    }
+                    _ => OutResponse::Rejected,
+                },
                 (Request::SET_ADDRESS, addr @ 1..=127) => {
                     self.address = addr as u8;
                     self.set_address_pending = true;
@@ -781,6 +858,9 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         );
                     })
                     .unwrap();
+                    // Halt is cleared after the endpoints are enabled. Drivers are
+                    // not required to drop STALL just because an endpoint is enabled.
+                    self.clear_enabled_halts(None);
 
                     // Notify handlers.
                     for h in &mut self.handlers {
@@ -851,10 +931,10 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 _ => OutResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
-                let iface_num = InterfaceNumber::new(req.index as _);
-                let Some(iface) = self.interfaces.get_mut(iface_num.0 as usize) else {
+                let Some(iface_num) = self.configured_interface(req.index) else {
                     return OutResponse::Rejected;
                 };
+                let iface = &mut self.interfaces[iface_num.0 as usize];
 
                 match req.request {
                     Request::SET_INTERFACE => {
@@ -872,8 +952,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         // between settings (for example MIDI 1.0 and 2.0) stay enabled.
                         let active = active_endpoints(self.config_descriptor, iface_num, new_altsetting);
                         set_interface_endpoints(self.config_descriptor, &mut self.bus, iface_num, active);
-
-                        // TODO check it is valid (not out of range)
+                        self.clear_enabled_halts(Some(iface_num));
 
                         for h in &mut self.handlers {
                             h.set_alternate_setting(iface_num, new_altsetting);
@@ -936,24 +1015,26 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 }
                 _ => InResponse::Rejected,
             },
-            (RequestType::Standard, Recipient::Interface) => {
-                let Some(iface) = self.interfaces.get_mut(req.index as usize) else {
-                    return InResponse::Rejected;
-                };
-
-                match req.request {
-                    Request::GET_STATUS => {
-                        let status: u16 = 0;
-                        buf[..2].copy_from_slice(&status.to_le_bytes());
-                        InResponse::Accepted(&buf[..2])
+            (RequestType::Standard, Recipient::Interface) => match req.request {
+                Request::GET_STATUS | Request::GET_INTERFACE => {
+                    let Some(number) = self.configured_interface(req.index) else {
+                        return InResponse::Rejected;
+                    };
+                    let iface = &self.interfaces[number.0 as usize];
+                    match req.request {
+                        Request::GET_STATUS => {
+                            buf[..2].copy_from_slice(&0u16.to_le_bytes());
+                            InResponse::Accepted(&buf[..2])
+                        }
+                        Request::GET_INTERFACE => {
+                            buf[0] = iface.current_alt_setting;
+                            InResponse::Accepted(&buf[..1])
+                        }
+                        _ => unreachable!(),
                     }
-                    Request::GET_INTERFACE => {
-                        buf[0] = iface.current_alt_setting;
-                        InResponse::Accepted(&buf[..1])
-                    }
-                    _ => self.handle_control_in_delegated(req, buf),
                 }
-            }
+                _ => self.handle_control_in_delegated(req, buf),
+            },
             (RequestType::Standard, Recipient::Endpoint) => match req.request {
                 Request::GET_STATUS if req.value == 0 && req.length == 2 => {
                     let Some((ep_addr, ep_type)) = self.endpoint_for_request(req.index) else {
@@ -1022,8 +1103,10 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
         match dtype {
             descriptor_type::BOS => InResponse::Accepted(self.bos_descriptor),
-            descriptor_type::DEVICE => InResponse::Accepted(&self.device_descriptor),
-            descriptor_type::CONFIGURATION => InResponse::Accepted(self.config_descriptor),
+            // USB 2.0 §9.4.3: device and configuration descriptors use index 0.
+            // Any other index does not exist.
+            descriptor_type::DEVICE if index == 0 => InResponse::Accepted(&self.device_descriptor),
+            descriptor_type::CONFIGURATION if index == 0 => InResponse::Accepted(self.config_descriptor),
             descriptor_type::STRING => {
                 if index == 0 {
                     buf[0] = 4; // len
@@ -1069,7 +1152,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     }
                 }
             }
-            descriptor_type::DEVICE_QUALIFIER if self.config.max_speed == UsbDeviceSpeed::High => {
+            descriptor_type::DEVICE_QUALIFIER if self.config.max_speed == UsbDeviceSpeed::High && index == 0 => {
                 InResponse::Accepted(&self.device_qualifier_descriptor)
             }
             descriptor_type::OTHER_SPEED_CONFIGURATION
