@@ -16,6 +16,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
@@ -231,17 +232,44 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         RX: RxDma<T>,
         TX: TxDma<T>,
     {
-        let r = T::REGS;
+        enable_pd::<T>(cc_sel);
+        self.split_disabled_pd_phy(rx_dma, tx_dma, irqs)
+    }
 
-        // Enable the receiver on one of the two CC lines.
-        modify_cr::<T>(|w| w.set_phyccsel(cc_sel));
+    /// Splits the UCPD driver like [`split_pd_phy`](Self::split_pd_phy), but with PD
+    /// communication disabled.
+    ///
+    /// Both parts can be kept for as long as the driver is needed. On attach, enable PD on the
+    /// connected CC line with [`IdlePdPhy::activate`], and drop the returned [`ActivePdPhy`] on
+    /// detach. Neither affects the CC terminations set with [`CcPhy::set_pull`].
+    pub fn split_idle_pd_phy<RX, TX>(
+        self,
+        rx_dma: Peri<'d, RX>,
+        tx_dma: Peri<'d, TX>,
+        irqs: impl interrupt::typelevel::Binding<RX::Interrupt, crate::dma::InterruptHandler<RX>>
+        + interrupt::typelevel::Binding<TX::Interrupt, crate::dma::InterruptHandler<TX>>
+        + 'd,
+    ) -> (CcPhy<'d, T>, IdlePdPhy<'d, T>)
+    where
+        RX: RxDma<T>,
+        TX: TxDma<T>,
+    {
+        let (cc_phy, pd_phy) = self.split_disabled_pd_phy(rx_dma, tx_dma, irqs);
+        (cc_phy, IdlePdPhy { pd_phy })
+    }
 
-        // Enable hard reset receive interrupt.
-        r.imr().set_bits(|w| w.set_rxhrstdetie(true));
-
-        // Enable PD packet reception
-        modify_cr::<T>(|w| w.set_phyrxen(true));
-
+    fn split_disabled_pd_phy<RX, TX>(
+        self,
+        rx_dma: Peri<'d, RX>,
+        tx_dma: Peri<'d, TX>,
+        irqs: impl interrupt::typelevel::Binding<RX::Interrupt, crate::dma::InterruptHandler<RX>>
+        + interrupt::typelevel::Binding<TX::Interrupt, crate::dma::InterruptHandler<TX>>
+        + 'd,
+    ) -> (CcPhy<'d, T>, PdPhy<'d, T>)
+    where
+        RX: RxDma<T>,
+        TX: TxDma<T>,
+    {
         // Both parts must be dropped before the peripheral can be disabled.
         T::state().drop_not_ready.store(true, Ordering::Relaxed);
 
@@ -256,6 +284,20 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             },
         )
     }
+}
+
+/// Enables PD communication on the given CC line.
+fn enable_pd<T: Instance>(cc_sel: CcSel) {
+    let r = T::REGS;
+
+    // Enable the receiver on one of the two CC lines.
+    modify_cr::<T>(|w| w.set_phyccsel(cc_sel));
+
+    // Enable hard reset receive interrupt.
+    r.imr().set_bits(|w| w.set_rxhrstdetie(true));
+
+    // Enable PD packet reception
+    modify_cr::<T>(|w| w.set_phyrxen(true));
 }
 
 /// Control and monitoring of TypeC CC pin functionality.
@@ -708,6 +750,68 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 w.set_hrstsentie(false);
             });
         }
+    }
+}
+
+/// Power Delivery (PD) PHY with PD communication disabled, created by
+/// [`Ucpd::split_idle_pd_phy`].
+pub struct IdlePdPhy<'d, T: Instance> {
+    pd_phy: PdPhy<'d, T>,
+}
+
+impl<'d, T: Instance> IdlePdPhy<'d, T> {
+    /// Enables PD communication on the given CC line.
+    ///
+    /// PD reception is disabled again when the returned [`ActivePdPhy`] is dropped.
+    pub fn activate(&mut self, cc_sel: CcSel) -> ActivePdPhy<'_, 'd, T> {
+        let r = T::REGS;
+
+        // Discard what a previous activation left behind: a received Hard Reset or message, and
+        // a byte still waiting in RXDR, which the next reception would otherwise pick up.
+        r.icr().write(|w| {
+            w.set_rxhrstdetcf(true);
+            w.set_rxmsgendcf(true);
+            w.set_rxovrcf(true);
+            w.set_rxorddetcf(true);
+        });
+        if r.sr().read().rxne() {
+            r.rxdr().read();
+        }
+
+        enable_pd::<T>(cc_sel);
+        ActivePdPhy {
+            pd_phy: &mut self.pd_phy,
+        }
+    }
+}
+
+/// Power Delivery (PD) PHY with PD communication enabled, created by [`IdlePdPhy::activate`].
+///
+/// Derefs to [`PdPhy`] for receiving and transmitting messages. Dropping it disables PD
+/// reception.
+pub struct ActivePdPhy<'a, 'd, T: Instance> {
+    pd_phy: &'a mut PdPhy<'d, T>,
+}
+
+impl<'a, 'd, T: Instance> Drop for ActivePdPhy<'a, 'd, T> {
+    fn drop(&mut self) {
+        // Undo `enable_pd`, apart from the CC line selection, which only matters while enabled.
+        modify_cr::<T>(|w| w.set_phyrxen(false));
+        T::REGS.imr().clear_bits(|w| w.set_rxhrstdetie(false));
+    }
+}
+
+impl<'a, 'd, T: Instance> Deref for ActivePdPhy<'a, 'd, T> {
+    type Target = PdPhy<'d, T>;
+
+    fn deref(&self) -> &Self::Target {
+        self.pd_phy
+    }
+}
+
+impl<'a, 'd, T: Instance> DerefMut for ActivePdPhy<'a, 'd, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.pd_phy
     }
 }
 
