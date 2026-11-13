@@ -3,6 +3,7 @@
 
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_mcxa as hal;
 use embassy_mcxa::bind_interrupts;
 use embassy_time::Timer;
@@ -20,7 +21,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("=== RTC Alarm Example ===");
 
-    let mut rtc = Rtc::new(p.RTC0, Irqs, Default::default()).unwrap();
+    let (mut rtc, time_provider) = Rtc::new(p.RTC0, Irqs, Default::default()).unwrap();
 
     let now = DateTime {
         year: 2026,
@@ -41,8 +42,19 @@ async fn main(_spawner: Spawner) {
     let mut alarm = now;
     alarm.second += 20;
 
-    defmt::info!("Alarm set for: 2026-03-11 14:30:45 (+20 seconds)");
-    rtc.wait_for_alarm(alarm).await.unwrap();
+    defmt::info!("Alarm set for: 2026-03-11 14:30:30 (+20 seconds from initial time)");
+    let (result, ()) = join(rtc.wait_for_alarm(alarm), async {
+        Timer::after_secs(1).await;
+        let at = time_provider.now().unwrap();
+        defmt::info!(
+            "Clock remains readable while waiting: {=u8}:{=u8}:{=u8}",
+            at.hour,
+            at.minute,
+            at.second
+        );
+    })
+    .await;
+    result.unwrap();
 
     defmt::info!("Example complete - Test PASSED!");
 }
