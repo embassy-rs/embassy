@@ -1,6 +1,6 @@
 //! Pio Stepper Driver for 5-wire steppers
 
-use core::mem::{self, MaybeUninit};
+use core::mem::DropGuard;
 
 use crate::Peri;
 use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, PioPin, StateMachine};
@@ -111,7 +111,7 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
     async fn run(&mut self, steps: i32, pattern: u32) {
         self.sm.tx().wait_push(steps as u32).await;
         self.sm.tx().wait_push(pattern).await;
-        let drop = OnDrop::new(|| {
+        let drop = DropGuard::new((), |()| {
             self.sm.clear_fifos();
             unsafe {
                 self.sm.exec_instr(
@@ -124,26 +124,6 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
             }
         });
         self.irq.wait().await;
-        drop.defuse();
-    }
-}
-
-struct OnDrop<F: FnOnce()> {
-    f: MaybeUninit<F>,
-}
-
-impl<F: FnOnce()> OnDrop<F> {
-    pub fn new(f: F) -> Self {
-        Self { f: MaybeUninit::new(f) }
-    }
-
-    pub fn defuse(self) {
-        mem::forget(self)
-    }
-}
-
-impl<F: FnOnce()> Drop for OnDrop<F> {
-    fn drop(&mut self) {
-        unsafe { self.f.as_ptr().read()() }
+        DropGuard::dismiss(drop);
     }
 }

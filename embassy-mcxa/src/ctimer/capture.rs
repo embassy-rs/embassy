@@ -2,11 +2,11 @@
 
 use core::fmt;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::ops::{Add, Sub};
 use core::sync::atomic::Ordering;
 
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 
 use super::{AnyChannel, CTimer, CTimerChannel, Channel, Info, InputPin, Instance};
 use crate::clocks::WakeGuard;
@@ -302,7 +302,7 @@ impl<'d> Capture<'d> {
     pub async fn capture(&mut self) -> Result<Timestamp, CaptureError> {
         self.set_interrupt(false);
         self.clear_pending();
-        let _cleanup = OnDrop::new(|| {
+        let _cleanup = DropGuard::new((), |()| {
             self.set_interrupt(false);
             self.clear_pending();
         });

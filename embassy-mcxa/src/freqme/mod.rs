@@ -10,9 +10,9 @@
 //! the future stops the measurement and masks/clears its interrupt source.
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use embassy_hal_internal::drop::OnDrop;
 use maitake_sync::WaitCell;
 
 pub use crate::clocks::periph_helpers::FreqmeClockSel as ClockSource;
@@ -289,7 +289,7 @@ impl<'d> Freqme<'d, Async> {
     /// Wrap this in a timeout if the input clocks might stop.
     /// Any continuous measurement is stopped before the new one-shot starts.
     pub async fn measure(&mut self) -> Result<Measurement, Error> {
-        let _stop = OnDrop::new(|| self.info.stop());
+        let _stop = DropGuard::new((), |()| self.info.stop());
         self.info
             .start(self.scale, InterruptEnable::Enabled, MeasurementMode::OneShot);
         self.info

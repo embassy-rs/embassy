@@ -150,7 +150,7 @@ impl Rtc {
         critical_section::with(|cs| {
             let period = self
                 .period
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |p| Some(p + 1))
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |p| Some(p + 1))
                 .unwrap_or_else(|p| {
                     trace!("Unable to increment period. Time is now inaccurate");
                     // TODO: additional error handling beyond logging

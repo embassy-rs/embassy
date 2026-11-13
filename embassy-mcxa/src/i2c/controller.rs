@@ -63,9 +63,9 @@
 
 use core::future::Future;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
@@ -1392,10 +1392,10 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
             //
             // NOTE: this *must* be set up *after* async_start. async_start
             // already runs `status_and_act`, which on NACK performs its
-            // own remediation; if we set OnDrop earlier, the early `?`
+            // own remediation; if we set the DropGuard earlier, the early `?`
             // return would invoke remediation a second time and corrupt
             // the controller state for the next transaction.
-            let on_drop = OnDrop::new(|| self.remediation());
+            let on_drop = DropGuard::new((), |()| self.remediation());
 
             // send receive command
             self.send_cmd(Cmd::RECEIVE, (chunk.len() - 1) as u8);
@@ -1426,8 +1426,8 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
                 *byte = self.info.regs().mrdr().read().data();
             }
 
-            // defuse it; we'll re-arm on the next chunk if any.
-            on_drop.defuse();
+            // dismiss it; we'll re-arm on the next chunk if any.
+            DropGuard::dismiss(on_drop);
         }
 
         if send_stop == SendStop::Yes {
@@ -1441,7 +1441,7 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
         self.async_start(address, false).await?;
 
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| self.remediation());
+        let on_drop = DropGuard::new((), |()| self.remediation());
 
         // Usually, embassy HALs error out with an empty write,
         // however empty writes are useful for writing I2C scanning
@@ -1484,8 +1484,8 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
             self.async_stop().await?;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         Ok(())
     }
@@ -1578,10 +1578,10 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         //
         // NOTE: this *must* be set up *after* async_start. async_start
         // already runs `status_and_act`, which on NACK performs its
-        // own remediation; if we set OnDrop earlier, the early `?`
+        // own remediation; if we set the DropGuard earlier, the early `?`
         // return would invoke remediation a second time and corrupt
         // the controller state for the next transaction.
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.remediation();
             self.info.regs().mder().modify(|w| w.set_rdde(false));
         });
@@ -1660,8 +1660,8 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             self.async_stop().await?;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         Ok(())
     }
@@ -1690,7 +1690,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
 
         // Stop DMA before controller remediation so it cannot refill the
         // command FIFO after the FIFO reset.
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs().mder().modify(|w| w.set_tdde(false));
             self.mode.tx_dma.stop();
             self.remediation();
@@ -1759,7 +1759,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
 
             if let Err(error) = result {
                 self.remediation();
-                on_drop.defuse();
+                DropGuard::dismiss(on_drop);
                 return Err(error);
             }
         }
@@ -1768,8 +1768,8 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             self.async_stop().await?;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         Ok(())
     }

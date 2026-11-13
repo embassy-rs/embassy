@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![macro_use]
 
 /// Combines the OCTOSPI2 HyperRAM bring-up from `hyperram.rs` with the LTDC display
 /// pipeline from `ltdc.rs`: a full-width **RGB565** double-buffered framebuffer that

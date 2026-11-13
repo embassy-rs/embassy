@@ -5,11 +5,11 @@
 //! All other devices (as of 2023-12-28) use [`v2`](super::v2) instead.
 
 use core::future::poll_fn;
+use core::mem::DropGuard;
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::select::{Either, select};
-use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
 use mode::Master;
 
@@ -512,7 +512,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         // Sentinel to disable transfer when an error occurs or future is canceled.
         // TODO: Generate STOP condition on cancel?
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs.cr2().modify(|w| {
                 w.set_dmaen(false);
                 w.set_iterren(false);
@@ -743,7 +743,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         // Sentinel to disable transfer when an error occurs or future is canceled.
         // TODO: Generate STOP condition on cancel?
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs.cr2().modify(|w| {
                 w.set_dmaen(false);
                 w.set_iterren(false);
@@ -1643,7 +1643,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         Self::enable_interrupts(info);
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             Self::disable_dma_and_interrupts(info);
         });
 
@@ -1714,7 +1714,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         self.setup_slave_dma_base();
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             Self::disable_dma_and_interrupts(info);
         });
 
@@ -1748,7 +1748,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         self.setup_slave_dma_base();
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             Self::disable_dma_and_interrupts(info);
         });
 

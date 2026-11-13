@@ -428,30 +428,9 @@ impl<'d> Stack<'d> {
         })
         .await?;
 
-        #[must_use = "to delay the drop handler invocation to the end of the scope"]
-        struct OnDrop<F: FnOnce()> {
-            f: core::mem::MaybeUninit<F>,
-        }
+        use core::mem::DropGuard;
 
-        impl<F: FnOnce()> OnDrop<F> {
-            fn new(f: F) -> Self {
-                Self {
-                    f: core::mem::MaybeUninit::new(f),
-                }
-            }
-
-            fn defuse(self) {
-                core::mem::forget(self)
-            }
-        }
-
-        impl<F: FnOnce()> Drop for OnDrop<F> {
-            fn drop(&mut self) {
-                unsafe { self.f.as_ptr().read()() }
-            }
-        }
-
-        let drop = OnDrop::new(|| {
+        let drop = DropGuard::new((), |()| {
             self.with(|i| {
                 i.dns.cancel_query(query);
                 i.dns_waker.wake();
@@ -482,7 +461,7 @@ impl<'d> Stack<'d> {
         })
         .await;
 
-        drop.defuse();
+        DropGuard::dismiss(drop);
 
         res
     }

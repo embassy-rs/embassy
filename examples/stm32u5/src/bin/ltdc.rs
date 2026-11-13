@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![macro_use]
 #![allow(static_mut_refs)]
 
 /// This example was derived from examples\stm32h735\src\bin\ltdc.rs

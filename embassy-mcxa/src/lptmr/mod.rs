@@ -5,7 +5,8 @@
 //! counter; async wait cancellation also stops it. Pulse counting and DMA are
 //! not supported. LPTMR stops counting while the core is halted by a debugger.
 
-use embassy_hal_internal::drop::OnDrop;
+use core::mem::DropGuard;
+
 use embassy_time::Duration;
 use maitake_sync::WaitCell;
 
@@ -221,7 +222,7 @@ impl<'d> Lptmr<'d> {
         if !self.is_running() {
             return Err(Error::NotRunning);
         }
-        let _stop = OnDrop::new(|| pac::LPTMR0.csr().write(|_| {}));
+        let _stop = DropGuard::new((), |()| pac::LPTMR0.csr().write(|_| {}));
         WAIT_CELL
             .wait_for(|| {
                 critical_section::with(|_| {

@@ -5,11 +5,11 @@
 use core::cell::{RefCell, RefMut};
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::ptr;
 use core::task::Poll;
 
 use critical_section::{CriticalSection, Mutex};
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::WakerRegistration;
 
@@ -141,7 +141,7 @@ impl<'d> Rng<'d, Async> {
         self.enable_irq();
         self.start();
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.stop();
             self.disable_irq();
 

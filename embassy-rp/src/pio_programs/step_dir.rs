@@ -3,7 +3,7 @@
 //! This module targets drivers that expect a STEP pulse input and a DIR level input,
 //! such as TMC2209 and similar.
 
-use core::mem::{self, MaybeUninit};
+use core::mem::DropGuard;
 
 use crate::gpio::{Level, Output, Pin as GpioPin};
 use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, Pin as PioPinHandle, PioPin, StateMachine};
@@ -246,7 +246,7 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
         }
 
         self.sm.tx().wait_push(steps).await;
-        let drop = OnDrop::new(|| {
+        let drop = DropGuard::new((), |()| {
             self.sm.clear_fifos();
             unsafe {
                 self.sm.exec_instr(
@@ -260,7 +260,7 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
             self.sm.set_pins(Level::Low, &[&self.step]);
         });
         self.irq.wait().await;
-        drop.defuse();
+        DropGuard::dismiss(drop);
     }
 
     /// Stop pulse generation immediately and clear the state machine FIFOs.
@@ -281,25 +281,5 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
     /// Release owned resources.
     pub fn release(self) -> (Irq<'d, T, SM>, StateMachine<'d, T, SM>, PioPinHandle<'d, T>, Output<'d>) {
         (self.irq, self.sm, self.step, self.dir)
-    }
-}
-
-struct OnDrop<F: FnOnce()> {
-    f: MaybeUninit<F>,
-}
-
-impl<F: FnOnce()> OnDrop<F> {
-    pub fn new(f: F) -> Self {
-        Self { f: MaybeUninit::new(f) }
-    }
-
-    pub fn defuse(self) {
-        mem::forget(self)
-    }
-}
-
-impl<F: FnOnce()> Drop for OnDrop<F> {
-    fn drop(&mut self) {
-        unsafe { self.f.as_ptr().read()() }
     }
 }

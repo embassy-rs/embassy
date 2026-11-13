@@ -494,7 +494,7 @@ fn update_ping_pong_status(
     let mut result = Ok(());
 
     state
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
             let mut status = PingPongStatus::decode(current)?;
             result = update(&mut status);
             Some(status.encode())

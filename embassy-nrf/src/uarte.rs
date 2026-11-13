@@ -15,10 +15,10 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering, compiler_fence};
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 // Re-export SVD variants to allow user to directly set values.
@@ -495,7 +495,7 @@ impl<'d> UarteTx<'d, Async> {
         let r = self.r;
         let s = self.state;
 
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             trace!("write drop: stopping");
 
             r.intenclr().write(|w| w.set_dmatxend(true));
@@ -529,7 +529,7 @@ impl<'d> UarteTx<'d, Async> {
 
         compiler_fence(Ordering::SeqCst);
         r.events_dma().tx().ready().write_value(0);
-        drop.defuse();
+        DropGuard::dismiss(drop);
 
         Ok(())
     }
@@ -690,7 +690,7 @@ impl<'d> UarteRx<'d, Async> {
         let r = self.r;
         let s = self.state;
 
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             trace!("read drop: stopping");
 
             r.intenclr().write(|w| {
@@ -738,7 +738,7 @@ impl<'d> UarteRx<'d, Async> {
 
         compiler_fence(Ordering::SeqCst);
         r.events_dma().rx().ready().write_value(0);
-        drop.defuse();
+        DropGuard::dismiss(drop);
 
         result
     }
@@ -755,7 +755,7 @@ impl<'d> UarteRx<'d, Async> {
         let s = self.state;
 
         // If the future is dropped, disable the RXTO interrupt.
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             r.intenclr().write(|w| {
                 w.set_rxto(true);
             });
@@ -793,7 +793,7 @@ impl<'d> UarteRx<'d, Async> {
             w.set_rxto(true);
         });
 
-        drop.defuse();
+        DropGuard::dismiss(drop);
     }
 
     /// Flush the RX FIFO to RAM without activating the receiver.
@@ -811,7 +811,7 @@ impl<'d> UarteRx<'d, Async> {
         let r = self.r;
         let s = self.state;
 
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             trace!("flush_rx drop: stopping");
 
             r.intenclr().write(|w| {
@@ -850,7 +850,7 @@ impl<'d> UarteRx<'d, Async> {
         compiler_fence(Ordering::SeqCst);
         r.events_dma().rx().ready().write_value(0);
         let amount = r.dma().rx().amount().read().amount();
-        drop.defuse();
+        DropGuard::dismiss(drop);
 
         Ok(amount as usize)
     }
@@ -1135,7 +1135,7 @@ impl<'d> UarteRxWithIdle<'d, Async> {
 
         self.ppi_ch1.enable();
 
-        let drop = OnDrop::new(|| {
+        let drop = DropGuard::new((), |()| {
             self.timer.stop();
 
             r.intenclr().write(|w| {
@@ -1185,7 +1185,7 @@ impl<'d> UarteRxWithIdle<'d, Async> {
         self.timer.stop();
         r.events_dma().rx().ready().write_value(0);
 
-        drop.defuse();
+        DropGuard::dismiss(drop);
 
         result.map(|_| n)
     }

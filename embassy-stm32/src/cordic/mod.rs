@@ -1,12 +1,12 @@
 //! Coordinate Rotation Digital Computer (CORDIC)
 
 use core::convert::Infallible;
+use core::mem::DropGuard;
 use core::{mem, slice};
 
 use aligned::{A4, Aligned};
 use dsp_fixedpoint::{Q16, Q32};
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 
 use crate::pac::cordic::vals;
@@ -395,7 +395,7 @@ impl<'d, 'a, T: Instance> Cordic32<'d, 'a, T> {
         T::regs().csr().modify(|v| v.set_dmaren(true));
 
         // Same H563 constraint: clear DMAWEN and DMAREN in separate writes.
-        let _on_drop = OnDrop::new(|| {
+        let _on_drop = DropGuard::new((), |()| {
             T::regs().csr().modify(|v| v.set_dmawen(false));
             T::regs().csr().modify(|v| v.set_dmaren(false));
         });
@@ -558,7 +558,7 @@ impl<'d, 'a, T: Instance> Cordic16<'d, 'a, T> {
         T::regs().csr().modify(|v| v.set_dmaren(true));
 
         // Same H563 constraint: clear DMAWEN and DMAREN in separate writes.
-        let _on_drop = OnDrop::new(|| {
+        let _on_drop = DropGuard::new((), |()| {
             T::regs().csr().modify(|v| v.set_dmawen(false));
             T::regs().csr().modify(|v| v.set_dmaren(false));
         });

@@ -4,12 +4,12 @@
 pub mod ringbuffered;
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::slice;
 
 #[cfg(stm32g4)]
 use dac::vals;
 use embassy_hal_internal::PeripheralType;
-use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub use ringbuffered::RingBufferedDacChannel;
 
@@ -321,7 +321,7 @@ impl<'d> DacChannel<'d, Async> {
             w.set_dmaen(self.idx, true);
         });
 
-        let _guard = OnDrop::new(|| {
+        let _guard = DropGuard::new((), |()| {
             self.info.regs.cr().modify(|w| {
                 w.set_en(self.idx, false);
                 w.set_dmaen(self.idx, false);
@@ -356,7 +356,7 @@ impl<'d> DacChannel<'d, Async> {
             w.set_dmaen(self.idx, true);
         });
 
-        let _guard = OnDrop::new(|| {
+        let _guard = DropGuard::new((), |()| {
             self.info.regs.cr().modify(|w| {
                 w.set_en(self.idx, false);
                 w.set_dmaen(self.idx, false);

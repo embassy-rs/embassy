@@ -1,9 +1,9 @@
 //! I3C Controller driver.
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 use nxp_pac::i3c::{MdmactrlDmafb, MdmactrlDmatb};
 
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPin};
@@ -930,7 +930,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
         }
 
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.blocking_remediation(bus_type);
         });
 
@@ -989,8 +989,8 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
             let _ = self.async_stop(bus_type).await;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         result
     }
@@ -1003,7 +1003,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
         send_stop: SendStop,
     ) -> Result<(), IOError> {
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.blocking_remediation(bus_type);
         });
 
@@ -1048,8 +1048,8 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
             self.async_stop(bus_type).await?;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         Ok(())
     }
@@ -1110,7 +1110,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
         }
 
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.blocking_remediation(bus_type);
             self.info
                 .regs()
@@ -1259,8 +1259,8 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             let _ = self.async_stop(bus_type).await;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         result
     }
@@ -1273,7 +1273,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
         send_stop: SendStop,
     ) -> Result<(), IOError> {
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.blocking_remediation(bus_type);
             self.info
                 .regs()
@@ -1371,8 +1371,8 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             self.async_stop(bus_type).await?;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         Ok(())
     }
