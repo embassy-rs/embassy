@@ -468,7 +468,7 @@ pub(crate) unsafe fn init(
     #[cfg(bdma)] bdma_priority: interrupt::Priority,
     #[cfg(mdma)] mdma_priority: interrupt::Priority,
 ) {
-    foreach_interrupt! {
+    crate::foreach_interrupt! {
         ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, dma_priority);
             #[cfg(not(feature = "_dual-core"))]
@@ -481,7 +481,7 @@ pub(crate) unsafe fn init(
         };
     }
     #[cfg(mdma)]
-    foreach_interrupt! {
+    crate::foreach_interrupt! {
         ($peri:ident, mdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, mdma_priority);
             #[cfg(not(feature = "_dual-core"))]

@@ -608,7 +608,7 @@ pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + 'static + 
 
 pin_trait!(TePin, Instance);
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, dsihost, DSIHOST, GLOBAL, $irq:ident) => {
         impl Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;

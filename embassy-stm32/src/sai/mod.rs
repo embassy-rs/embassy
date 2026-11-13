@@ -870,7 +870,7 @@ pin_trait!(MclkPin, Instance, SubBlockInstance);
 
 dma_trait!(Dma, Instance, SubBlockInstance);
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (sai, $inst:ident) => {
         peri_trait_impl!($inst);
     };

@@ -70,7 +70,7 @@ trait SealedInstance: crate::rcc::RccPeripheral {
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + 'static {}
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (lpgpio, $inst:ident) => {
         impl crate::lpgpio::SealedInstance for crate::peripherals::$inst {
             fn regs() -> Regs {

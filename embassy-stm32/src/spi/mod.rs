@@ -2738,7 +2738,7 @@ dma_trait!(RxDma, Instance);
 dma_trait!(TxDma, Instance);
 dma_trait!(RxDmaExt, Instance);
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (spi, $inst:ident) => {
         peri_trait_impl!($inst);
     };

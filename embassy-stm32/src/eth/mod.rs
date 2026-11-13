@@ -373,7 +373,7 @@ peri_trait!(
     irqs: [Interrupt],
 );
 
-foreach_interrupt! {
+crate::foreach_interrupt! {
     ($inst:ident, eth, $block:ident, GLOBAL, $irq:ident) => {
         peri_trait_impl!(
             $inst,

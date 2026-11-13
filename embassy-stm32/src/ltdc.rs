@@ -844,7 +844,7 @@ pin_trait!(B5Pin, Instance);
 pin_trait!(B6Pin, Instance);
 pin_trait!(B7Pin, Instance);
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, ltdc, LTDC, LO, $irq:ident) => {
         impl Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;

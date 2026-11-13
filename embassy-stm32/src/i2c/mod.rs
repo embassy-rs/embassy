@@ -320,7 +320,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::ErrorInterrupt> for ErrorInte
     }
 }
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (i2c, $inst:ident) => {
         #[allow(private_interfaces)]
         impl SealedInstance for peripherals::$inst {

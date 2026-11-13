@@ -241,7 +241,7 @@ pin_trait!(SdiPin, Instance);
 
 dma_trait!(RxDma, Instance, Filter);
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (adf, $inst:ident) => {
         impl crate::adf::SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::adf::Adf {

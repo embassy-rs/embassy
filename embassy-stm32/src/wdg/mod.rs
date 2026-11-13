@@ -89,7 +89,7 @@ trait SealedInstance {
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType {}
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (iwdg, $inst:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::iwdg::Iwdg {
@@ -228,7 +228,7 @@ trait WwdgSealedInstance {
 pub trait WwdgInstance: WwdgSealedInstance + PeripheralType + crate::rcc::RccPeripheral {}
 
 #[cfg(wwdg)]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (wwdg, $inst:ident) => {
         impl WwdgSealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::wwdg::Wwdg {

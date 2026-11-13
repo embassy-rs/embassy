@@ -159,7 +159,7 @@ impl embedded_storage_async::nor_flash::NorFlash for Flash<'_, Async> {
     }
 }
 
-foreach_flash_region! {
+crate::foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
         impl crate::_generated::flash_regions::$type_name<'_, Async> {
             /// Async read.

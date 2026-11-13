@@ -35,7 +35,7 @@ pub trait BasicInstance: PeripheralType + SealedBasicInstance + 'static {}
 #[allow(private_bounds)]
 pub trait Instance: BasicInstance + SealedInstance + 'static {}
 
-foreach_interrupt! {
+crate::foreach_interrupt! {
     ($inst:ident, lptim, LPTIM, GLOBAL, $irq:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::lptim::Lptim {

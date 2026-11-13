@@ -1951,7 +1951,7 @@ impl SealedXspimInstance for peripherals::XSPI3 {
 }
 
 #[cfg(xspim_v1)]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (xspi, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;
@@ -1962,7 +1962,7 @@ foreach_peripheral!(
 );
 
 #[cfg(not(xspim_v1))]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (xspi, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;

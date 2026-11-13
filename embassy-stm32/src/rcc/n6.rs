@@ -1413,7 +1413,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     config.mux.init();
 
-    set_clocks!(
+    crate::set_clocks!(
         sys: Some(clocks.sysclk),
         hsi: clock_inputs.hsi,
         hsi_div: clock_inputs.hsi_div,

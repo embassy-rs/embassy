@@ -123,7 +123,7 @@ pub trait Instance: PeripheralType + SealedInstance + RccPeripheral + 'static {
 pin_trait!(SclPin, Instance, @A);
 pin_trait!(SdaPin, Instance, @A);
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (i3c, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
             fn info() -> &'static Info {

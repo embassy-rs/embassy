@@ -1266,7 +1266,7 @@ macro_rules! impl_fdcan {
         #[allow(non_snake_case)]
         pub(crate) mod $inst {
 
-            foreach_interrupt!(
+            crate::foreach_interrupt!(
                 ($inst,can,FDCAN,IT0,$irq:ident) => {
                     pub type Interrupt0 = crate::interrupt::typelevel::$irq;
                 };
@@ -1287,7 +1287,7 @@ macro_rules! impl_fdcan {
 }
 
 #[cfg(not(can_fdcan_v2))]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (can, FDCAN) => { impl_fdcan!(FDCAN, FDCANRAM); };
     (can, FDCAN1) => { impl_fdcan!(FDCAN1, FDCANRAM1); };
     (can, FDCAN2) => { impl_fdcan!(FDCAN2, FDCANRAM2); };
@@ -1295,7 +1295,7 @@ foreach_peripheral!(
 );
 
 #[cfg(can_fdcan_v2)]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (can, FDCAN1) => { impl_fdcan!(FDCAN1, FDCANRAM, 0x0000); };
     (can, FDCAN2) => { impl_fdcan!(FDCAN2, FDCANRAM, 0x0C00); };
     (can, FDCAN3) => { impl_fdcan!(FDCAN3, FDCANRAM, 0x1800); };

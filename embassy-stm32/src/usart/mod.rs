@@ -3117,7 +3117,7 @@ macro_rules! impl_usart {
     };
 }
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, usart, LPUART, $signal_name:ident, $irq:ident) => {
         impl_usart!($inst, $irq, Kind::Lpuart);
     };

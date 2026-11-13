@@ -187,7 +187,7 @@ impl<'d, T: Instance> Pssi<'d, T> {
     }
 }
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, pssi, PSSI, GLOBAL, $irq:ident) => {
         impl Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;

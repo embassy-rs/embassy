@@ -955,7 +955,7 @@ pin_trait!(DQS1Pin, Instance);
 pin_trait!(NSSPin, Instance);
 dma_trait!(HspiDma, Instance);
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (hspi, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;

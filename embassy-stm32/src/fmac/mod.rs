@@ -331,7 +331,7 @@ impl<'d, T: Instance> Drop for Fmac<'d, T> {
     }
 }
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, fmac, $block:ident, GLOBAL, $irq:ident) => {
         impl Instance for peripherals::$inst {
         }

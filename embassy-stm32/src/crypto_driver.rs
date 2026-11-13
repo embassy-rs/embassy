@@ -67,7 +67,7 @@ compile_error!("the `embassy-crypto-saes` feature needs a chip with a SAES perip
 // Exactly one backend is compiled per chip: CRYP where the chip has it, else
 // the AES peripheral, or the SAES one when `embassy-crypto-saes` is selected.
 #[cfg(cryp)]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (cryp, $inst:ident) => {
         type Hw = crate::cryp::Cryp<'static, crate::peripherals::$inst, Blocking>;
 
@@ -77,7 +77,7 @@ foreach_peripheral!(
 );
 
 #[cfg(all(not(cryp), not(feature = "embassy-crypto-saes")))]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (aes, $inst:ident) => {
         #[cfg(any(aes_v1, aes_v2, aes_f7))]
         type Hw = crate::aes::Aes<'static, crate::peripherals::$inst>;
@@ -90,7 +90,7 @@ foreach_peripheral!(
 );
 
 #[cfg(all(not(cryp), feature = "embassy-crypto-saes"))]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (saes, $inst:ident) => {
         type Hw = crate::saes::Saes<'static, crate::peripherals::$inst, Blocking>;
 

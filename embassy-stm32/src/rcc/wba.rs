@@ -441,7 +441,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     config.mux.init();
 
-    set_clocks!(
+    crate::set_clocks!(
         sys: Some(sys_clk),
         hclk1: Some(hclk1),
         hclk2: Some(hclk2),

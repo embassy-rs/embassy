@@ -1234,6 +1234,7 @@ fn main() {
                 }
             };
         }
+        pub(crate) use set_clocks;
     );
 
     // ========
@@ -3381,7 +3382,10 @@ macro_rules! {} {{
     write!(
         out,
         "    }};
-}}"
+}}
+pub(crate) use {};        
+",
+        name
     )
     .unwrap();
 }

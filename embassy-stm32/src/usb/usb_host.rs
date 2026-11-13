@@ -267,7 +267,7 @@ pub trait SealedHostInstance: Instance {
     fn host_state() -> &'static HostState;
 }
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, usb, $block:ident, LP, $irq:ident) => {
         impl SealedHostInstance for crate::peripherals::$inst {
             fn host_state() -> &'static HostState {

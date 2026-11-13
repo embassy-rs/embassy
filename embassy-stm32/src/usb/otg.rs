@@ -556,7 +556,7 @@ pin_trait!(UlpiD5Pin, Instance);
 pin_trait!(UlpiD6Pin, Instance);
 pin_trait!(UlpiD7Pin, Instance);
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     (USB_OTG_FS, otg, $block:ident, GLOBAL, $irq:ident) => {
         impl crate::peripherals::USB_OTG_FS {
             cfg_select! {
@@ -923,7 +923,7 @@ mod host_impl {
         fn host_state() -> HostState<'static>;
     }
 
-    foreach_interrupt!(
+    crate::foreach_interrupt!(
         (USB_OTG_FS, otg, $block:ident, GLOBAL, $irq:ident) => {
             impl SealedHostInstance for crate::peripherals::USB_OTG_FS {
                 fn host_state() -> HostState<'static> {

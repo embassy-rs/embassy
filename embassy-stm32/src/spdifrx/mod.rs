@@ -318,7 +318,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::GlobalInterrupt> for GlobalIn
     }
 }
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (spdifrx, $inst:ident) => {
         #[allow(private_interfaces)]
         impl SealedInstance for peripherals::$inst {

@@ -1289,7 +1289,7 @@ struct Info {
     rcc: RccInfo,
 }
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (dac, $inst:ident) => {
         impl crate::dac::SealedInstance for peripherals::$inst {
             fn info() -> &'static Info {

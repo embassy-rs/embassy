@@ -141,7 +141,7 @@ pub(crate) trait SealedInstance {
     fn regs() -> pac::aes::Aes;
 }
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (aes, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
             fn regs() -> pac::aes::Aes {

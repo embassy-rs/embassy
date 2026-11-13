@@ -487,7 +487,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-foreach_interrupt! {
+crate::foreach_interrupt! {
     (NPU0) => {
         impl SealedInstance for crate::peripherals::NPU {}
 

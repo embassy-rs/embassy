@@ -1245,7 +1245,7 @@ macro_rules! impl_dfsdm_filter_irq {
 // Bind every filter interrupt the chip actually exposes. The `foreach_interrupt!`
 // catch-all skips FLTx rows a given chip doesn't have, so the filter count is
 // irrelevant here - no per-variant dispatch.
-foreach_interrupt! {
+crate::foreach_interrupt! {
     ($inst:ident, dfsdm, $variant:ident, FLT0, $irq:ident) => {
         impl_dfsdm_filter_irq!($inst, Flt0, $irq);
     };

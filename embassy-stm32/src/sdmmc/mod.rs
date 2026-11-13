@@ -1958,7 +1958,7 @@ pin_trait!(D7Pin, Instance);
 #[cfg(sdmmc_v1)]
 dma_trait!(SdmmcDma, Instance);
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (sdmmc, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
             fn info() -> &'static Info {

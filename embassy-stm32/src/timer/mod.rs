@@ -342,7 +342,7 @@ macro_rules! impl_maybe_center_aligned {
     };
 }
 
-foreach_interrupt! {
+crate::foreach_interrupt! {
     ($inst:ident, timer, TIM_BASIC, UP, $irq:ident) => {
         impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}

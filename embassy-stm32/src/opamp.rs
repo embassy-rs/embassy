@@ -583,7 +583,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {}
 
 macro_rules! impl_opamp_external_output {
     ($inst:ident, $adc:ident, $ch:expr) => {
-        foreach_adc!(
+        crate::foreach_adc!(
             ($adc, $common_inst:ident, $block:ident, $family:ident) => {
                 impl<'d> crate::adc::SealedAdcChannel<crate::peripherals::$adc>
                     for crate::opamp::OpAmpOutput<'d, crate::peripherals::$inst>
@@ -605,7 +605,7 @@ macro_rules! impl_opamp_external_output {
 #[cfg(opamp_v5)]
 macro_rules! impl_opamp_internal_output {
     ($inst:ident, $adc:ident, $ch:expr) => {
-        foreach_adc!(
+        crate::foreach_adc!(
             ($adc, $common_inst:ident, $block:ident, $family:ident) => {
                 impl<'d> crate::adc::SealedAdcChannel<crate::peripherals::$adc>
                     for OpAmpInternalOutput<'d, crate::peripherals::$inst>
@@ -625,7 +625,7 @@ macro_rules! impl_opamp_internal_output {
 }
 
 #[cfg(opamp_v5)]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (opamp, OPAMP1) => {
         impl_opamp_internal_output!(OPAMP1, ADC1, 13);
     };
@@ -654,7 +654,7 @@ foreach_peripheral!(
     };
 );
 
-foreach_peripheral! {
+crate::foreach_peripheral! {
     (opamp, $inst:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
             // G4 and F3 use SYSCFGEN, which is always enabled

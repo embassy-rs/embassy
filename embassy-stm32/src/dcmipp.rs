@@ -1197,7 +1197,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-foreach_interrupt! {
+crate::foreach_interrupt! {
     ($inst:ident, dcmipp, DCMIPP, GLOBAL, $irq:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::dcmipp::Dcmipp {

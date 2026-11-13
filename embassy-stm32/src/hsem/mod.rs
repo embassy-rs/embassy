@@ -474,7 +474,7 @@ impl SealedInstance for crate::peripherals::HSEM {
     }
 }
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, hsem, $block:ident, GLOBAL, $irq:ident) => {
         impl Instance for crate::peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;

@@ -2175,7 +2175,7 @@ impl SealedOctospimInstance for peripherals::OCTOSPI2 {
 }
 
 #[cfg(octospim_v1)]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (octospi, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;
@@ -2186,7 +2186,7 @@ foreach_peripheral!(
 );
 
 #[cfg(not(octospim_v1))]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (octospi, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;

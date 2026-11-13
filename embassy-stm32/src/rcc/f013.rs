@@ -494,7 +494,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     config.mux.init();
 
-    set_clocks!(
+    crate::set_clocks!(
         hsi: hsi,
         hse: hse,
         pll1_p: pll,

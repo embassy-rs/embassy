@@ -65,7 +65,7 @@ use crate::rcc::get_stop_mode;
 use crate::time_driver::{LPTimeDriver, get_driver};
 
 #[cfg(all(feature = "rt", not(any(stm32u0, feature = "_lp-time-driver"))))]
-foreach_interrupt! {
+crate::foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
         #[interrupt]
         #[allow(non_snake_case)]
@@ -75,7 +75,7 @@ foreach_interrupt! {
 }
 
 #[cfg(all(feature = "rt", stm32u0))]
-foreach_interrupt! {
+crate::foreach_interrupt! {
     (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
         #[interrupt]
         #[allow(non_snake_case)]

@@ -485,7 +485,7 @@ macro_rules! impl_peripheral {
     };
 }
 
-foreach_interrupt! {
+crate::foreach_interrupt! {
     ($inst:ident, dcmi, $block:ident, GLOBAL, $irq:ident) => {
         impl_peripheral!($inst, $irq);
     };

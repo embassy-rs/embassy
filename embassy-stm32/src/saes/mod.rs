@@ -1000,7 +1000,7 @@ pub trait Instance: SealedInstance + PeripheralType + crate::rcc::RccPeripheral 
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, saes, SAES, GLOBAL, $irq:ident) => {
         impl Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;

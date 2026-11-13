@@ -1242,7 +1242,7 @@ pub unsafe trait FilterOwner: Instance {
 /// This trait must only be implemented when there is actually an associated slave instance.
 pub unsafe trait MasterInstance: FilterOwner {}
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (can, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
 
@@ -1273,7 +1273,7 @@ foreach_peripheral!(
     };
 );
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (can, CAN) => {
         unsafe impl FilterOwner for peripherals::CAN {
             const NUM_FILTER_BANKS: u8 = 14;

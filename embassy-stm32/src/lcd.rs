@@ -540,7 +540,7 @@ pin_trait!(SegPin, Instance);
 pin_trait!(ComPin, Instance);
 pin_trait!(VlcdPin, Instance);
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (lcd, $inst:ident) => {
         impl crate::lcd::SealedInstance for peripherals::$inst {
             fn regs() -> crate::pac::lcd::Lcd {

@@ -60,7 +60,7 @@ impl_filter!(Flt3, 3);
 impl_filter!(Flt4, 4);
 impl_filter!(Flt5, 5);
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, mdf, MDF, FLT0, $irq:ident) => {
         impl FilterInterrupt for Flt0 {
             type Interrupt = crate::interrupt::typelevel::$irq;
@@ -335,7 +335,7 @@ pin_trait!(SdiPin, Instance);
 
 dma_trait!(RxDma, Instance, Filter);
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (mdf, $inst:ident) => {
         impl crate::mdf::SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::mdf::Mdf {

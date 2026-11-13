@@ -717,7 +717,7 @@ macro_rules! check_arg_value {
 check_arg_value!(check_f64_arg1, check_f64_arg2, &f64);
 check_arg_value!(check_f32_arg1, check_f32_arg2, &f32);
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, cordic, $block:ident, GLOBAL, $irq:ident) => {
         impl Instance for peripherals::$inst {
         }

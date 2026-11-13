@@ -38,7 +38,7 @@ use super::{EccPoint, EcdsaCurveParams, EcdsaPublicKey, EcdsaSignature, Error, P
 use crate::mode::Blocking;
 use crate::suspend::ResumablePeripheral;
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (pka, $inst:ident) => {
         type BlockingPka = Pka<'static, crate::peripherals::$inst, Blocking>;
 

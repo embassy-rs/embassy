@@ -11,7 +11,7 @@ pub(crate) trait DlybRccPeripheral {
 }
 
 #[cfg(rcc_n6)]
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (dlybsd, DLYB_SDMMC1) => {
         impl DlybRccPeripheral for crate::peripherals::DLYB_SDMMC1 {
             fn reset_and_enable() {

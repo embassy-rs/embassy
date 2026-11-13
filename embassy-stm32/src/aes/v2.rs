@@ -443,7 +443,7 @@ pub trait InterruptableInstance: Instance {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (aes, $inst:ident) => {
         impl Instance for peripherals::$inst {}
     };
@@ -451,7 +451,7 @@ foreach_peripheral!(
 
 // Self-selecting: this only expands on parts whose metapac binds a dedicated
 // GLOBAL AES interrupt, so the async API compiles in exactly where it is usable.
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, aes, AES, GLOBAL, $irq:ident) => {
         impl InterruptableInstance for peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;

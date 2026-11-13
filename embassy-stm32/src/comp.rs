@@ -895,7 +895,7 @@ macro_rules! impl_comp {
 }
 
 #[cfg(comp_u5)]
-foreach_peripheral! {
+crate::foreach_peripheral! {
     (comp, COMP1) => {
         impl_comp!(COMP1, 17);
     };
@@ -905,7 +905,7 @@ foreach_peripheral! {
 }
 
 #[cfg(comp_v1)]
-foreach_peripheral! {
+crate::foreach_peripheral! {
     (comp, COMP1) => {
         impl_comp!(COMP1, 17);
     };
@@ -918,7 +918,7 @@ foreach_peripheral! {
 }
 
 #[cfg(comp_v2)]
-foreach_peripheral! {
+crate::foreach_peripheral! {
     (comp, COMP1) => {
         impl_comp!(COMP1, 21);
     };
@@ -946,7 +946,7 @@ analog_pin_trait!(NonInvertingPin, Instance);
 analog_pin_trait!(InvertingPin, Instance);
 
 #[cfg(comp_u0)]
-foreach_peripheral! {
+crate::foreach_peripheral! {
     (comp, COMP1) => {
         impl_comp!(COMP1, 17);
     };

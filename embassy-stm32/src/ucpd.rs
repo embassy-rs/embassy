@@ -920,7 +920,7 @@ pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, ucpd, UCPD, GLOBAL, $irq:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
             const REGS: crate::pac::ucpd::Ucpd = crate::pac::$inst;

@@ -998,7 +998,7 @@ pub trait Pin: PeripheralType + SealedPin + Sized + 'static {
 
 // ====================
 
-foreach_pin!(
+crate::foreach_pin!(
     ($pin_name:ident, $port_name:ident, $port_num:expr, $pin_num:expr, $exti_ch:ident) => {
         impl Pin for peripherals::$pin_name {
         }

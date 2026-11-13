@@ -572,7 +572,7 @@ impl ChannelState {
 /// safety: must be called only once
 pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: crate::interrupt::Priority) {
     #[cfg(gpdma)]
-    foreach_interrupt! {
+    crate::foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
             #[cfg(not(feature = "_dual-core"))]
@@ -582,7 +582,7 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: c
 
     // Only LPDMA available
     #[cfg(not(gpdma))]
-    foreach_interrupt! {
+    crate::foreach_interrupt! {
         ($peri:ident, lpdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
             crate::interrupt::typelevel::$irq::enable();

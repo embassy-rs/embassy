@@ -1943,7 +1943,7 @@ pin_trait!(DpPin, Instance);
 pin_trait!(DmPin, Instance);
 pin_trait!(SofPin, Instance);
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, usb, $block:ident, LP, $irq:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::usb::Usb {

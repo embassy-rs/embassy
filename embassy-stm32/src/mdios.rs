@@ -113,7 +113,7 @@ impl<'d, T: Instance> Mdios<'d, T> {
     }
 }
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, mdios, MDIOS, GLOBAL, $irq:ident) => {
         impl Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;

@@ -336,7 +336,7 @@ impl<M: Mode> embedded_storage::nor_flash::NorFlash for Flash<'_, M> {
     }
 }
 
-foreach_flash_region! {
+crate::foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
         impl<M: Mode> crate::_generated::flash_regions::$type_name<'_, M> {
             /// Blocking read.

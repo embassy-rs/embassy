@@ -1257,7 +1257,7 @@ macro_rules! impl_adc_instance {
 }
 
 // Rows: (instance, common instance or `none`, register block type name, family)
-foreach_adc!(
+crate::foreach_adc!(
     ($inst:ident, $common:ident, $block:ident, v2) => {
         impl_adc_instance!($inst, crate::pac::adc::$block, ());
     };

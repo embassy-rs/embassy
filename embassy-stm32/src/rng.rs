@@ -646,7 +646,7 @@ pub trait Instance: SealedInstance + PeripheralType + crate::rcc::RccPeripheral 
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, rng, RNG, GLOBAL, $irq:ident) => {
         impl Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
@@ -680,7 +680,7 @@ pub(crate) mod driver {
     use super::{MAX_RESET_RETRIES, Rng};
     use crate::mode::Blocking;
 
-    foreach_peripheral!(
+    crate::foreach_peripheral!(
         (rng, $inst:ident) => {
             type Instance = crate::peripherals::$inst;
         };

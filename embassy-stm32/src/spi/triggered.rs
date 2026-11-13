@@ -200,7 +200,7 @@ pub trait InterruptInstance: Instance {
     type Interrupt: Interrupt;
 }
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, spi, $block:ident, GLOBAL, $irq:ident) => {
         impl InterruptInstance for crate::peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;

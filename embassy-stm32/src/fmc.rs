@@ -294,7 +294,7 @@ pub type Regs = crate::pac::fsmc::Fsmc;
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + 'static {}
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (fmc, $inst:ident) => {
         impl crate::fmc::SealedInstance for crate::peripherals::$inst {
             const REGS: crate::fmc::Regs = crate::pac::$inst;

@@ -120,7 +120,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::GlobalInterrupt> for GlobalIn
     }
 }
 
-foreach_peripheral!(
+crate::foreach_peripheral!(
     (mce, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
             fn regs() -> Regs {

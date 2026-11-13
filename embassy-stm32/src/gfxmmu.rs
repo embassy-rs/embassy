@@ -244,7 +244,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     type Interrupt: Interrupt;
 }
 
-foreach_interrupt!(
+crate::foreach_interrupt!(
     ($inst:ident, gfxmmu, GFXMMU, GLOBAL, $irq:ident) => {
         impl Instance for crate::peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
