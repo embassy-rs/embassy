@@ -4,7 +4,7 @@ use super::Rtc;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::rtc::vals::Wucksel;
 use crate::peripherals::RTC;
-use crate::rtc::{RtcTimeProvider, SealedInstance};
+use crate::rtc::{DateTime, DayOfWeek, RtcError, RtcTimeProvider, SealedInstance};
 
 fn wucksel_compute_min(val: u32, rtc_hz: u32) -> (Wucksel, u32) {
     *[
@@ -20,11 +20,23 @@ fn wucksel_compute_min(val: u32, rtc_hz: u32) -> (Wucksel, u32) {
 }
 
 impl Rtc {
-    pub(super) fn millis_from_unix_epoch(&self) -> i64 {
-        RtcTimeProvider::new().now().unwrap().millis_from_unix_epoch()
+    pub(super) fn millis_from_unix_epoch(&mut self) -> i64 {
+        let t = match RtcTimeProvider::new().now() {
+            // The calendar holds an invalid date or time, such as a corrupted one. It survives a reset, so
+            // panicking would repeat on every boot. Reset it to the date a backup-domain reset leaves.
+            // `set_datetime` calls back into this function through `reset_epoch`, with the calendar valid.
+            Err(RtcError::InvalidDateTime(_)) => {
+                let reset = DateTime::from(2000, 1, 1, DayOfWeek::Saturday, 0, 0, 0, 0).unwrap();
+                let millis = reset.millis_from_unix_epoch();
+                self.set_datetime(reset).unwrap();
+                return millis;
+            }
+            r => r.unwrap(),
+        };
+        t.millis_from_unix_epoch()
     }
 
-    pub(super) fn calc_epoch(&self) -> i64 {
+    pub(super) fn calc_epoch(&mut self) -> i64 {
         self.millis_from_unix_epoch() - Instant::now().as_millis() as i64
     }
 
