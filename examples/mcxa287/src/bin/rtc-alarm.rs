@@ -20,13 +20,11 @@ async fn main(_spawner: Spawner) {
     // Keep both FRO16K and OSC32K available during initialization. RTC retains
     // its clock selection across system resets, and a stopped selected clock
     // prevents access even to the register that would change that selection.
+    // SDK 26.09 reference startup: 12 pF per pin, gain 01, VBAT > 3.0 V,
+    // followed by LP operation. Crystal/PCB loading and drive need qualification.
     config.clock_cfg.osc32k = Some(Default::default());
     let p = hal::init(config);
-
-    // RM 38.3.1.3: register access takes two oscillator cycles to synchronize.
-    // OSC_RDY precedes enabling the output gates, so allow that synchronization
-    // after clock setup, including when recovering a stopped retained source.
-    Timer::after_millis(1).await;
+    defmt::info!("Board clocks initialized; adopting RTC");
 
     let rtc_config = hal::rtc::Config::default().with_clksel(ClkSel::Clk32768);
     let (mut rtc, time_provider) = Rtc::new(p.RTC0, Irqs, rtc_config).unwrap();
