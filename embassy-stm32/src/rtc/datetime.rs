@@ -9,7 +9,8 @@ pub enum Error {
     InvalidYear,
     /// The [DateTime] contains an invalid month value. Must be between `1..=12`.
     InvalidMonth,
-    /// The [DateTime] contains an invalid day value. Must be between `1..=31`.
+    /// The [DateTime] contains an invalid day value. Must be a day of the given month: `1..=28`,
+    /// `1..=29`, `1..=30` or `1..=31`.
     InvalidDay,
     /// The [DateTime] contains an invalid day of week. Must be between `0..=6` where 0 is Sunday.
     InvalidDayOfWeek(
@@ -86,7 +87,7 @@ impl DateTime {
         self.month
     }
 
-    /// Get the day (1..=31)
+    /// Get the day (1..=28,29,30,31 depending on the month)
     pub const fn day(&self) -> u8 {
         self.day
     }
@@ -131,7 +132,7 @@ impl DateTime {
             Err(Error::InvalidYear)
         } else if !(1..=12).contains(&month) {
             Err(Error::InvalidMonth)
-        } else if !(1..=31).contains(&day) {
+        } else if day == 0 || day > days_in_month(year, month) {
             Err(Error::InvalidDay)
         } else if hour > 23 {
             Err(Error::InvalidHour)
@@ -156,6 +157,16 @@ impl DateTime {
     }
 }
 
+/// The number of days in `month` (1..=12) of `year`, in the proleptic Gregorian calendar.
+const fn days_in_month(year: u16, month: u8) -> u8 {
+    match month {
+        2 if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
 #[cfg(feature = "chrono")]
 impl From<chrono::NaiveDateTime> for DateTime {
     fn from(date_time: chrono::NaiveDateTime) -> Self {
@@ -175,6 +186,8 @@ impl From<chrono::NaiveDateTime> for DateTime {
 #[cfg(feature = "chrono")]
 impl From<DateTime> for chrono::NaiveDateTime {
     fn from(date_time: DateTime) -> Self {
+        // `DateTime::from` only accepts dates that exist, so this fails only for a `DateTime` converted
+        // from a `NaiveDateTime` whose year does not fit in a `u16`, as that conversion truncates it.
         NaiveDate::from_ymd_opt(date_time.year as i32, date_time.month as u32, date_time.day as u32)
             .unwrap()
             .and_hms_micro_opt(
@@ -257,6 +270,61 @@ fn test_millis_from_unix_epoch() {
             let our_millis = date_time.millis_from_unix_epoch();
 
             assert!(chrono_millis.abs_diff(our_millis) < 5);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn date(year: u16, month: u8, day: u8) -> Result<DateTime, Error> {
+        DateTime::from(year, month, day, DayOfWeek::Monday, 0, 0, 0, 0)
+    }
+
+    #[test]
+    fn day_must_exist_in_month() {
+        assert!(date(2024, 1, 31).is_ok());
+        assert!(date(2024, 4, 30).is_ok());
+        assert_eq!(date(2024, 4, 31).err(), Some(Error::InvalidDay));
+        assert_eq!(date(2024, 6, 31).err(), Some(Error::InvalidDay));
+        assert_eq!(date(2024, 9, 31).err(), Some(Error::InvalidDay));
+        assert_eq!(date(2024, 11, 31).err(), Some(Error::InvalidDay));
+        assert!(date(2024, 12, 31).is_ok());
+        assert_eq!(date(2024, 1, 0).err(), Some(Error::InvalidDay));
+        assert_eq!(date(2024, 1, 32).err(), Some(Error::InvalidDay));
+    }
+
+    #[test]
+    fn february_29_only_in_leap_years() {
+        // Divisible by 4.
+        assert!(date(2024, 2, 29).is_ok());
+        // Divisible by 400.
+        assert!(date(2000, 2, 29).is_ok());
+        // Not divisible by 4.
+        assert_eq!(date(2023, 2, 29).err(), Some(Error::InvalidDay));
+        // Divisible by 100 but not by 400.
+        assert_eq!(date(2100, 2, 29).err(), Some(Error::InvalidDay));
+        assert!(date(2100, 2, 28).is_ok());
+        assert_eq!(date(2024, 2, 30).err(), Some(Error::InvalidDay));
+    }
+
+    /// `DateTime::from` accepts exactly the dates chrono accepts, so converting any of them to a
+    /// `NaiveDateTime` does not panic.
+    #[cfg(feature = "chrono")]
+    #[test]
+    fn accepts_the_same_dates_as_chrono() {
+        for year in 0..=4095u16 {
+            for month in 1..=12u8 {
+                for day in 0..=32u8 {
+                    let ours = date(year, month, day);
+                    let chrono = NaiveDate::from_ymd_opt(year.into(), month.into(), day.into());
+                    assert_eq!(ours.is_ok(), chrono.is_some(), "{year}-{month}-{day}");
+                    if let (Ok(ours), Some(chrono)) = (ours, chrono) {
+                        assert_eq!(chrono::NaiveDateTime::from(ours), chrono.and_hms_opt(0, 0, 0).unwrap());
+                    }
+                }
+            }
         }
     }
 }

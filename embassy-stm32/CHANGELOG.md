@@ -293,6 +293,7 @@ CORDIC:
 
 RTC:
 - fix: stm32/rtc: compute the prescalers so the calendar advances once per second. PREDIV_A is 7 bits, but the asynchronous divider was taken as clock / `RtcConfig::frequency` without a limit, so with the default 256 Hz and a 40 kHz LSI (F0, F3) 155 was written as 27 and the RTC ran about 5.6 times too fast. A requested frequency the clock cannot produce exactly is now rounded to the nearest lower divider that divides the clock evenly.
+- fix: stm32/rtc: `DateTime::from` returns `Error::InvalidDay` for a day the month does not have, such as February 30, or February 29 outside a leap year. It accepted any day up to 31, so `RtcTimeProvider::now` on a corrupted calendar returned such a date and converting it to a `chrono::NaiveDateTime` panicked. `now` now returns `RtcError::InvalidDateTime` instead, so code that unwraps it panics on such a calendar instead of receiving the impossible date. This includes the low-power driver with a TIM time driver, which already panicked in `embassy_stm32::init` on an invalid month or hour.
 
 SDMMC:
 - fix: stm32/sdmmc v1: a divisor of 258 was accepted and written as CLKDIV 256, which the 8-bit field stores as 0, so the card clock ran at half the kernel clock instead of 1/258 of it. 257 is now the largest divisor.
