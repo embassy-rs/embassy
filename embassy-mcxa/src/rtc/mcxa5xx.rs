@@ -620,6 +620,9 @@ impl<'a> Rtc<'a> {
     /// # Errors
     ///
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
+    /// Returns `RtcError::Other` if the counters are inaccessible or the update
+    /// cannot be verified. An unsuccessful update may have changed some fields;
+    /// the caller can retry setting the complete datetime.
     pub fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
         Self::is_valid_datetime(t)?;
 
@@ -631,9 +634,33 @@ impl<'a> Rtc<'a> {
         let minute = t.minute;
         let second = t.second;
 
+        // RM 38.5.1.11: calendar writes during INVAL_BIT terminate normally but
+        // do not update the counters. Wait outside the critical section, bounded
+        // as in read_datetime so a stopped clock cannot hang the caller.
+        let mut spins = 1_000_000u32;
+        loop {
+            let status = self.info.regs().status().read();
+            if status.0 == DESYNCED {
+                return Err(RtcError::Other);
+            }
+            if !status.inval_bit() {
+                break;
+            }
+            if spins == 0 {
+                return Err(RtcError::Other);
+            }
+            spins -= 1;
+            core::hint::spin_loop();
+        }
+
         // A time provider may read from another interrupt context. Serialize the
         // complete calendar update with its snapshot, not each register alone.
         critical_section::with(|_| {
+            let status = self.info.regs().status().read();
+            if status.0 == DESYNCED || status.inval_bit() {
+                return Err(RtcError::Other);
+            }
+
             self.disable_write_protect();
 
             self.info.regs().yearmon().write(|w| {
@@ -654,9 +681,30 @@ impl<'a> Rtc<'a> {
             self.info.regs().seconds().write(|w| w.set_sec_cnt(second));
 
             self.enable_write_protect();
-        });
 
-        Ok(())
+            // A hardware counter update can still overlap the writes despite
+            // interrupt masking. INVAL_BIT may already have cleared again, so
+            // verify every field rather than trusting its final state alone.
+            let s = self.info.regs().seconds().read();
+            let hm = self.info.regs().hourmin().read();
+            let d = self.info.regs().days().read();
+            let ym = self.info.regs().yearmon().read();
+            let status = self.info.regs().status().read();
+            if status.0 == DESYNCED
+                || status.inval_bit()
+                || s.sec_cnt() != second
+                || hm.hour_cnt() != hour
+                || hm.min_cnt() != minute
+                || d.dow() != dow
+                || d.day_cnt() != day
+                || ym.yrofst() != year
+                || ym.mon_cnt() != month
+            {
+                return Err(RtcError::Other);
+            }
+
+            Ok(())
+        })
     }
 
     /// Set the Daylight Savings start and end time.
