@@ -2,7 +2,7 @@
 //!
 //! Both modes receive words into a ring of DMA buffers with no CPU time per word or per frame.
 //! The consumer reads words out with [`RingBufferedSpiRx::read`] (copied), or one whole frame
-//! at a time in place with [`RingBufferedSpiRx::next_frame`] (no copy).
+//! at a time with [`RingBufferedSpiRx::read_frame`].
 //!
 //! - Slave, continuous: created with [`Spi::into_ring_buffered`]. The master's clock drives
 //!   reception; whatever arrives lands in the ring.
@@ -38,8 +38,6 @@
 
 #[cfg(any(spi_v4, spi_v5, spi_v6))]
 use core::cell::Cell;
-#[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
-use core::cell::UnsafeCell;
 use core::future::{Future, poll_fn};
 use core::mem;
 #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
@@ -94,9 +92,6 @@ pub(crate) struct State {
     /// Where and how to record a bad frame, while the marks are enabled.
     #[cfg(any(spi_v4, spi_v5, spi_v6))]
     session: Mutex<CriticalSectionRawMutex, Cell<Option<Session>>>,
-    /// DMA descriptor storage for the triggered mode's transmit and re-arm channels.
-    #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
-    tables: Tables,
 }
 
 impl State {
@@ -106,8 +101,6 @@ impl State {
             overruns: AtomicU32::new(0),
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
             session: Mutex::new(Cell::new(None)),
-            #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
-            tables: Tables::new(),
         }
     }
 }
@@ -157,39 +150,45 @@ fn write_head_shim<W: Word>(ring_buf: usize) -> usize {
 #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
 pub const MAX_BLOCKS: usize = 16;
 
-/// DMA descriptor storage for the triggered mode, in the instance's [`State`] so it outlives the
-/// stream. The 512-byte alignment (larger than the 496 bytes of tables) keeps every linked list
-/// inside one 512-byte block, which no 64 KiB boundary can cross: `Table::offset_address` panics
-/// for a list that straddles one.
+/// DMA descriptor storage for [`Spi::into_triggered_ring_buffered`]: the linked lists the
+/// receive ring, the transmit frames, and the trigger re-arm run from.
+///
+/// Placed by the caller, in memory the DMA reaches; it is borrowed for the stream's lifetime,
+/// so it cannot move or be used elsewhere while the stream runs. The 512-byte alignment
+/// (larger than its 496 bytes) keeps every linked list inside one 512-byte block, which no
+/// 64 KiB boundary can cross: `Table::offset_address` panics for a list that straddles one.
 #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
 #[repr(C, align(512))]
-struct Tables {
+pub struct TriggeredTables {
     /// One item per ring block: the receive ring.
-    rx: UnsafeCell<MaybeUninit<Table<LinearItem, MAX_BLOCKS>>>,
+    rx: MaybeUninit<Table<LinearItem, MAX_BLOCKS>>,
     /// One item: `tx_frame`, reloaded each frame.
-    tx: UnsafeCell<MaybeUninit<Table<LinearItem, 1>>>,
+    tx: MaybeUninit<Table<LinearItem, 1>>,
     /// Three items: re-arm the SPI once per trigger.
-    rearm: UnsafeCell<MaybeUninit<Table<LinearItem, 3>>>,
+    rearm: MaybeUninit<Table<LinearItem, 3>>,
     /// The words the re-arm items copy into `CR1` and `IFCR`. The DMA reads them.
-    rearm_values: UnsafeCell<[u32; 4]>,
+    rearm_values: [u32; 4],
 }
 
 #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
-impl Tables {
-    const fn new() -> Self {
+impl TriggeredTables {
+    /// Empty descriptor storage; [`Spi::into_triggered_ring_buffered`] fills it.
+    pub const fn new() -> Self {
         Self {
-            rx: UnsafeCell::new(MaybeUninit::uninit()),
-            tx: UnsafeCell::new(MaybeUninit::uninit()),
-            rearm: UnsafeCell::new(MaybeUninit::uninit()),
-            rearm_values: UnsafeCell::new([0; 4]),
+            rx: MaybeUninit::uninit(),
+            tx: MaybeUninit::uninit(),
+            rearm: MaybeUninit::uninit(),
+            rearm_values: [0; 4],
         }
     }
 }
 
-// Safety: the tables are only written while the SPI is owned by a single `RingBufferedSpiRx`
-// (the constructor consumes the `Spi`), and then only read by the DMA.
 #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
-unsafe impl Sync for Tables {}
+impl Default for TriggeredTables {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// All SPI event flags. Re-enabling the SPI clears neither TXTF nor SUSP, and TXTF blocks the
 /// transmit DMA request.
@@ -260,6 +259,8 @@ struct Triggered<'d> {
     rearm: LinkedListTransfer<'d>,
     /// Poll budget for one frame, for [`wait_frame_end`].
     frame_polls: u32,
+    /// The descriptor storage, for the re-arm values that `set_config` refreshes.
+    tables: &'d mut TriggeredTables,
 }
 
 /// Rx-only ring-buffered SPI driver
@@ -277,9 +278,6 @@ pub struct RingBufferedSpiRx<'d, W: Word> {
     #[allow(dead_code)]
     nss: CsPinType<'d>,
     ring_buf: ReadableRingBuffer<'d, W>,
-    /// The ring's first word, for the frame slots of the CRC validity marks.
-    #[cfg_attr(not(any(spi_v4, spi_v5, spi_v6)), allow(dead_code))]
-    ring_addr: usize,
     /// Words per frame ([`set_frame_len`](Self::set_frame_len), or the triggered frame length);
     /// `None` when unset.
     frame_len: Option<usize>,
@@ -329,7 +327,6 @@ impl<'d> Spi<'d, Async, Slave> {
 
         let info = self.info;
         let kernel_clock = self.kernel_clock;
-        let ring_addr = dma_buf.as_ptr() as usize;
         let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, info.regs.rx_ptr::<W>(), dma_buf, opts) };
         let sck = unsafe { self._sck.as_ref().map(|x| x.clone_unchecked()) };
         let mosi = unsafe { self._mosi.as_ref().map(|x| x.clone_unchecked()) };
@@ -354,7 +351,6 @@ impl<'d> Spi<'d, Async, Slave> {
             _miso: miso,
             nss,
             ring_buf,
-            ring_addr,
             frame_len: None,
             state: None,
             irq: None,
@@ -378,7 +374,7 @@ impl<'d> Spi<'d, Async, Master> {
     /// - `_irq`: [`InterruptHandler`] bound to the SPI's interrupt.
     /// - `rearm`: a third channel of the same DMA controller, consumed.
     /// - `frames_per_block`: frames per ring block, the consumer's wake-up granularity: the ring
-    ///   hands frames out faster, but a waiting [`RingBufferedSpiRx::next_frame`] is woken once
+    ///   hands frames out faster, but a waiting [`RingBufferedSpiRx::read_frame`] is woken once
     ///   per block. Blocks are also the DMA's linked-list items: at most [`MAX_BLOCKS`] blocks,
     ///   at most 65535 bytes each.
     /// - `tx_frame`: sent each frame; its length is the frame length, at most 65535 words.
@@ -387,8 +383,7 @@ impl<'d> Spi<'d, Async, Master> {
     ///
     /// The SPI's own configuration ([`Config::crc`] and friends) applies to the frames. The
     /// trigger source is set up separately (e.g. [`ExtiInput::enable_event`]). The frames are
-    /// read in place with [`RingBufferedSpiRx::next_frame`], or copied out with
-    /// [`RingBufferedSpiRx::read`].
+    /// copied out with [`RingBufferedSpiRx::read_frame`] or [`RingBufferedSpiRx::read`].
     ///
     /// [`ExtiInput::enable_event`]: crate::exti::ExtiInput::enable_event
     pub fn into_triggered_ring_buffered<T: InterruptInstance, W: Word>(
@@ -397,6 +392,7 @@ impl<'d> Spi<'d, Async, Master> {
         rearm: Channel<'d>,
         trigger: TriggerConfig,
         frames_per_block: usize,
+        tables: &'d mut TriggeredTables,
         ring: &'d mut [W],
         tx_frame: &'d [W],
     ) -> RingBufferedSpiRx<'d, W> {
@@ -450,11 +446,7 @@ impl<'d> Spi<'d, Async, Master> {
 
         // Volatile: only the DMA reads these.
         unsafe {
-            state
-                .tables
-                .rearm_values
-                .get()
-                .write_volatile([base.0, all_flags().0, enabled.0, started.0]);
+            (&mut tables.rearm_values as *mut [u32; 4]).write_volatile([base.0, all_flags().0, enabled.0, started.0]);
         }
 
         // Safety: we forget the struct before this function returns.
@@ -471,13 +463,12 @@ impl<'d> Spi<'d, Async, Master> {
         let wake_guard = info.rcc.wake_guard();
         mem::forget(self);
 
-        let ring_addr = ring.as_ptr() as usize;
         // Receive: the ring, one circular item per block (one wake-up per block).
         let mut rx_options = TransferOptions::default();
         rx_options.priority = Priority::VeryHigh;
         let mut ring_buf = unsafe {
             ReadableRingBuffer::new_blocked(
-                state.tables.rx.get(),
+                &mut tables.rx,
                 ring.len() / block_len,
                 rx_channel,
                 rx_request,
@@ -497,7 +488,7 @@ impl<'d> Spi<'d, Async, Master> {
 
         let tx_table = unsafe {
             install(
-                state.tables.tx.get(),
+                &mut tables.tx,
                 Table::new([LinearItem::new_write::<W, W>(
                     tx_request,
                     tx_frame,
@@ -522,7 +513,7 @@ impl<'d> Spi<'d, Async, Master> {
         // trigger. IFCR is needed: only TXTFC clears TXTF.
         let cr1 = regs.cr1().as_ptr() as *mut u32;
         let rearm_table = unsafe {
-            let values: &[u32; 4] = &*state.tables.rearm_values.get();
+            let values: &[u32; 4] = &tables.rearm_values;
             let item = |words: core::ops::Range<usize>, dest: *mut u32, triggered: bool| {
                 let mut config = ItemConfig::default();
                 config.trigger = triggered.then_some(trigger);
@@ -532,7 +523,7 @@ impl<'d> Spi<'d, Async, Master> {
             };
 
             install(
-                state.tables.rearm.get(),
+                &mut tables.rearm,
                 Table::new([
                     item(0..1, cr1, true),
                     item(1..2, regs.ifcr().as_ptr() as *mut u32, false),
@@ -551,32 +542,29 @@ impl<'d> Spi<'d, Async, Master> {
             _miso: miso,
             nss,
             ring_buf,
-            ring_addr,
             frame_len: Some(frame_len),
             state: Some(state),
             irq: Some(T::Interrupt::IRQ),
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
             marks: None,
-            triggered: Some(Triggered { tx, rearm, frame_polls }),
+            triggered: Some(Triggered {
+                tx,
+                rearm,
+                frame_polls,
+                tables,
+            }),
         }
     }
 }
 
 /// Move `table` into `slot`, link it circularly, and return it.
-///
-/// # Safety
-///
-/// `slot` must outlive the DMA transfer and not be aliased.
 #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
-unsafe fn install<T: LinkedListItem, const M: usize>(
-    slot: *mut MaybeUninit<Table<T, M>>,
-    table: Table<T, M>,
-) -> &'static Table<T, M> {
-    let table = (*slot).write(table);
+fn install<T: LinkedListItem, const M: usize>(slot: &mut MaybeUninit<Table<T, M>>, table: Table<T, M>) -> &Table<T, M> {
+    let table = slot.write(table);
     table.link(RunMode::Circular);
     // "Preceding reads and writes cannot be moved past subsequent writes."
     fence(Ordering::SeqCst);
-    (*slot).assume_init_ref()
+    table
 }
 
 /// Wait, bounded, for the frame in flight. Polls EOT: `CSTART` can stay set after it.
@@ -607,7 +595,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
     #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
     fn set_config_triggered(&mut self, config: &Config) -> Result<(), ConfigError> {
         let regs = self.info.regs;
-        let (state, t) = (self.state.unwrap(), self.triggered.as_mut().unwrap());
+        let t = self.triggered.as_mut().unwrap();
 
         t.rearm.request_pause();
         while t.rearm.is_running() {}
@@ -624,11 +612,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         started.set_cstart(true);
         // Volatile: only the DMA reads these.
         unsafe {
-            state
-                .tables
-                .rearm_values
-                .get()
-                .write_volatile([base.0, all_flags().0, enabled.0, started.0]);
+            (&mut t.tables.rearm_values as *mut [u32; 4]).write_volatile([base.0, all_flags().0, enabled.0, started.0]);
         }
 
         t.rearm.request_resume();
@@ -844,11 +828,11 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         self.frame_len
     }
 
-    /// Set the frame length for [`next_frame`](Self::next_frame) when receiving continuously.
+    /// Set the frame length for [`read_frame`](Self::read_frame) when receiving continuously.
     /// In triggered mode the frames are `tx_frame.len()` words and this only checks.
     ///
     /// The ring must hold at least two whole frames. Frames then stay aligned across overruns,
-    /// and [`next_frame`](Self::next_frame) hands out exactly `frame_len` words at a time.
+    /// and [`read_frame`](Self::read_frame) writes exactly `frame_len` words.
     pub fn set_frame_len(&mut self, frame_len: usize) {
         if let Some(len) = self.frame_len {
             assert_eq!(len, frame_len, "the frame length is fixed in triggered mode");
@@ -858,8 +842,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         self.frame_len = Some(frame_len);
     }
 
-    /// Record each frame's CRC verdict, handed out by [`next_frame`](Self::next_frame) as
-    /// [`Frame::is_valid`].
+    /// Record each frame's CRC verdict, returned by [`read_frame`](Self::read_frame).
     ///
     /// With the [`Config::crc`] enabled, the SPI checks each frame's CRC and the interrupt
     /// handler marks the failed ones. Frames are `frame_len` words (the frame length from
@@ -920,16 +903,12 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         self.marks = Some(marks);
     }
 
-    /// Whether the frame at `words` passed its CRC (always true without
+    /// Whether the frame in `slot` passed its CRC (always true without
     /// [`enable_frame_marks`](Self::enable_frame_marks)).
     #[cfg_attr(not(any(spi_v4, spi_v5, spi_v6)), allow(unused_variables))]
-    fn frame_is_valid(&self, words: *const W) -> bool {
+    fn frame_is_valid(&self, slot: usize) -> bool {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         if let Some(marks) = self.marks.as_deref() {
-            let frame_len = self.frame_len.unwrap();
-            let frames = self.ring_buf.capacity() / frame_len;
-            let pos = (words as usize - self.ring_addr) / W::size().bytes();
-            let slot = (pos / frame_len) % frames;
             let bit = 1u32 << (slot % 32);
             let was = marks[slot / 32].fetch_and(!bit, Ordering::Relaxed);
             return was & bit == 0;
@@ -938,22 +917,24 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         true
     }
 
-    /// The next whole frame, read in place: no copy.
+    /// Read one whole frame into `dst`, copied out of the ring, and whether it passed its CRC.
     ///
-    /// Waits until a frame has arrived in the ring and hands out its words, borrowed from the
-    /// ring. They stay valid until the DMA laps the read pointer, which this (like `read`)
-    /// reports as [`Error::Overrun`].
+    /// Waits until a frame has arrived. `dst` must hold at least [`frame_len`](Self::frame_len)
+    /// words (fixed in triggered mode, or set with [`set_frame_len`](Self::set_frame_len));
+    /// exactly that many are written. A waiting call is woken at the ring's block granularity:
+    /// once per `frames_per_block` frames in triggered mode.
     ///
-    /// Needs [`frame_len`](Self::frame_len): fixed in triggered mode, or set with
-    /// [`set_frame_len`](Self::set_frame_len). A waiting call is woken at the ring's block
-    /// granularity: once per `frames_per_block` frames in triggered mode.
-    pub async fn next_frame(&mut self) -> Result<Frame<'_, W>, Error> {
+    /// The verdict is `true` without [`enable_frame_marks`](Self::enable_frame_marks). With
+    /// marks, the frames are read one frame behind the write head, so a frame's verdict has
+    /// landed before it is read.
+    pub async fn read_frame(&mut self, dst: &mut [W]) -> Result<bool, Error> {
         let frame_len = self.frame_len.expect("frame length not configured (set_frame_len)");
+        assert!(dst.len() >= frame_len, "the destination must hold a frame");
         self.start_or_check_errors()?;
 
         // With marks enabled, stay one frame behind the write head: the interrupt handler
         // records a frame's verdict when its CRC finishes, at the end of the frame, so a frame
-        // is only handed out once its verdict has landed.
+        // is only read once its verdict has landed.
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         let lag = if self.marks.is_some() { frame_len } else { 0 };
         #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
@@ -973,24 +954,19 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
                 }
             }
 
-            // As a raw pointer and length, so the ring is not borrowed while handling the
-            // other outcomes.
-            let attempt = self
-                .ring_buf
-                .read_in_place(frame_len)
-                .map(|words| (words.as_ptr(), words.len()));
-            match attempt {
-                Ok((ptr, len)) if len > 0 => {
-                    // Safety: the words are in the ring's buffer; `&mut self` keeps them
-                    // exclusive until the `Frame` is dropped, and the DMA can only reach them
-                    // on an overrun, which is reported as `Error::Overrun`.
-                    let words = unsafe { core::slice::from_raw_parts(ptr, len) };
-                    return Ok(Frame {
-                        valid: self.frame_is_valid(ptr),
-                        words,
-                    });
+            match self.ring_buf.read(&mut dst[..frame_len]) {
+                // The alignment skip after an overrun recovery may come up short; retry.
+                Ok((0, _)) => continue,
+                Ok(_) => {
+                    // The frame's slot in the marks: where it sat in the ring.
+                    let cap = self.ring_buf.capacity();
+                    let slot = (self.ring_buf.read_pos() + cap - frame_len) % cap / frame_len;
+                    return Ok(self.frame_is_valid(slot));
                 }
-                _ => continue,
+                Err(_) => {
+                    self.stop();
+                    return Err(Error::Overrun);
+                }
             }
         }
     }
@@ -1018,37 +994,6 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
     /// SPI receive overruns since the stream started. Needs the interrupt handler.
     pub fn overruns(&self) -> u32 {
         self.state.map_or(0, |s| s.overruns.load(Ordering::Relaxed))
-    }
-}
-
-/// One frame of received words, read in place from the ring.
-///
-/// Handed out by [`RingBufferedSpiRx::next_frame`].
-pub struct Frame<'a, W> {
-    words: &'a [W],
-    valid: bool,
-}
-
-impl<'a, W> Frame<'a, W> {
-    /// The frame's words, in the DMA ring.
-    pub fn words(&self) -> &'a [W] {
-        self.words
-    }
-
-    /// Whether the frame passed its CRC (always true without
-    /// [`RingBufferedSpiRx::enable_frame_marks`]).
-    pub fn is_valid(&self) -> bool {
-        self.valid
-    }
-
-    /// Words in the frame.
-    pub fn len(&self) -> usize {
-        self.words.len()
-    }
-
-    /// Whether the frame has no words.
-    pub fn is_empty(&self) -> bool {
-        self.words.is_empty()
     }
 }
 

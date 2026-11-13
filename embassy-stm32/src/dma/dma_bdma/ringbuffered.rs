@@ -110,13 +110,12 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         Ok(self.ringbuf.read(&mut DmaCtrlImpl(self.channel.reborrow()), buf)?)
     }
 
-    /// Borrow ready elements from the ring buffer in place, without copying.
+    /// The read position, in elements from the buffer's start (wrapping).
     ///
-    /// See `ReadableDmaRingBuffer::read_in_place` for the alignment and wrap behavior.
-    pub fn read_in_place(&mut self, len: usize) -> Result<&[W], RingBufferError> {
-        Ok(self
-            .ringbuf
-            .read_in_place(&mut DmaCtrlImpl(self.channel.reborrow()), len)?)
+    /// For consumers that keep their own place in the stream, e.g. the frame slots of the CRC
+    /// validity marks.
+    pub fn read_pos(&self) -> usize {
+        self.ringbuf.read_pos()
     }
 
     /// Snapshot the write position, in words from the buffer's start.

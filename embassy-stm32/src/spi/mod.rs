@@ -13,9 +13,11 @@ use embassy_futures::join::join;
 use embassy_futures::select::{Either, select};
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
 #[cfg(any(feature = "exti", all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma))))]
-pub use ringbuffered::{Frame, RingBufferedSpiRx};
+pub use ringbuffered::RingBufferedSpiRx;
 #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(feature = "exti", any(gpdma, lpdma))))]
 pub use ringbuffered::{InterruptHandler, InterruptInstance};
+#[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
+pub use ringbuffered::{MAX_BLOCKS, TriggeredTables};
 
 use crate::Peri;
 use crate::dma::{ChannelAndRequest, word};
