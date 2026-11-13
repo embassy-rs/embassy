@@ -223,13 +223,8 @@ impl LsConfig {
                 super::BKSRAM_RETAINED = crate::pac::PWR.bdcr().read().bren() == Retention::Preserved
             };
 
-            // H7 and U5 have an additional backup SRAM enable bit that must be set in the RCC registers
             #[cfg(stm32h7)]
             crate::pac::RCC.ahb4enr().modify(|w| {
-                w.set_bkpsramen(true);
-            });
-            #[cfg(stm32u5)]
-            crate::pac::RCC.ahb1enr().modify(|w| {
                 w.set_bkpsramen(true);
             });
 
