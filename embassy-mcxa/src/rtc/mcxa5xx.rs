@@ -512,7 +512,34 @@ impl<'a> Rtc<'a> {
             return Err(SetupError::RegisterAccess);
         }
 
-        self.disable_write_protect();
+        // The block may still be in its power-on unlocked window, whose age is
+        // unknown. Lock first so configuration gets a fresh two-second window
+        // rather than racing the inherited window's expiry (RM 38.3.7).
+        let mut attempts = 8u8;
+        loop {
+            if attempts == 0 {
+                return Err(SetupError::RegisterAccess);
+            }
+            attempts -= 1;
+
+            self.enable_write_protect();
+            let status = self.info.regs().status().read();
+            if status.0 == DESYNCED {
+                return Err(SetupError::RegisterAccess);
+            }
+            if !status.write_prot_en() {
+                continue;
+            }
+
+            self.disable_write_protect();
+            let status = self.info.regs().status().read();
+            if status.0 == DESYNCED {
+                return Err(SetupError::RegisterAccess);
+            }
+            if !status.write_prot_en() {
+                break;
+            }
+        }
 
         self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Asserted));
         self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Cleared));
@@ -555,6 +582,11 @@ impl<'a> Rtc<'a> {
         });
 
         self.enable_write_protect();
+
+        let status = self.info.regs().status().read();
+        if status.0 == DESYNCED || !status.write_prot_en() {
+            return Err(SetupError::RegisterAccess);
+        }
 
         // Selecting a clock that is not running desynchronizes the block on the
         // spot, so confirm CLK_SEL actually took the requested value. Check the
