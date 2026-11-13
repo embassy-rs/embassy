@@ -37,7 +37,15 @@ pub mod wwdt;
 
 /// Operating modes for peripherals.
 pub mod mode {
-    trait SealedMode {}
+    pub(crate) trait SealedMode {
+        /// `T` in blocking mode, `()` in async mode.
+        #[allow(dead_code)]
+        type IfBlocking<T>;
+
+        /// `T` in async mode, `()` in blocking mode.
+        #[allow(dead_code)]
+        type IfAsync<T>;
+    }
 
     /// Operating mode for a peripheral.
     #[allow(private_bounds)]
@@ -45,12 +53,18 @@ pub mod mode {
 
     /// Blocking mode.
     pub struct Blocking;
-    impl SealedMode for Blocking {}
+    impl SealedMode for Blocking {
+        type IfBlocking<T> = T;
+        type IfAsync<T> = ();
+    }
     impl Mode for Blocking {}
 
     /// Async mode.
     pub struct Async;
-    impl SealedMode for Async {}
+    impl SealedMode for Async {
+        type IfBlocking<T> = ();
+        type IfAsync<T> = T;
+    }
     impl Mode for Async {}
 }
 
@@ -66,8 +80,6 @@ pub(crate) mod _generated {
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
 
-// Reexports
-pub(crate) use _generated::gpio_pincm;
 pub use _generated::{Peripherals, peripherals};
 pub use embassy_hal_internal::Peri;
 #[cfg(feature = "unstable-pac")]

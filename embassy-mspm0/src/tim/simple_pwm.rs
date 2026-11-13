@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
 
-use crate::gpio::{AnyPin, PfType, Pull, SealedPin};
+use crate::gpio::{Flex, PinConfig, Pull};
 use crate::pac::tim::{Tim as Regs, vals};
 use crate::tim::{
     self, Ch0, Ch1, Ch2, Ch3, ClockSel, CounterWidth, CountingMode, General2ChannelInstance, General4ChannelInstance,
@@ -94,10 +94,10 @@ impl Default for Config {
 #[must_use = "Dropping a simple pwm will disable the timer and all channels"]
 pub struct SimplePwm<'d, Channels, Bits> {
     info: &'static Info,
-    ch0: Option<Peri<'d, AnyPin>>,
-    ch1: Option<Peri<'d, AnyPin>>,
-    ch2: Option<Peri<'d, AnyPin>>,
-    ch3: Option<Peri<'d, AnyPin>>,
+    ch0: Option<Flex<'d>>,
+    ch1: Option<Flex<'d>>,
+    ch2: Option<Flex<'d>>,
+    ch3: Option<Flex<'d>>,
     _marker: PhantomData<(Channels, Bits)>,
 }
 
@@ -608,7 +608,7 @@ pub struct SimplePwm4Channels<'d, Bits: TimerBits> {
 pub struct PwmPin<'d, T: Instance, Channel: tim::TimerChannel> {
     /// Pin is wrapped by an [`Option`]. This is because [`SimplePwm`] when created will [`Option::take`] the value.
     /// This prevents the pins from being disconnected when moved into the pwm.
-    pin: Option<Peri<'d, AnyPin>>,
+    pin: Option<Flex<'d>>,
     _marker: PhantomData<(T, Channel)>,
 }
 
@@ -616,10 +616,12 @@ impl<'d, T: Instance, Channel: tim::TimerChannel> PwmPin<'d, T, Channel> {
     /// Create and configure the pin to act as a PWM output pin.
     pub fn new(pin: Peri<'d, impl TimerPin<T, Channel>>, pull: Pull, invert: bool) -> Self {
         // TODO: PfType config.
-        let pin = new_pin!(pin, PfType::output(pull, invert));
+        let pf = pin.pf_num();
+        let pin_config = PinConfig::output(pull, invert);
+        let pin = Flex::with_config(pin, pf, pin_config);
 
         Self {
-            pin,
+            pin: Some(pin),
             _marker: PhantomData,
         }
     }
@@ -637,10 +639,10 @@ impl<'d, Channels, Bits: TimerBits> SimplePwm<'d, Channels, Bits> {
     fn new_inner(
         info: &'static Info,
         config: Config,
-        ch0: Option<Peri<'d, AnyPin>>,
-        ch1: Option<Peri<'d, AnyPin>>,
-        ch2: Option<Peri<'d, AnyPin>>,
-        ch3: Option<Peri<'d, AnyPin>>,
+        ch0: Option<Flex<'d>>,
+        ch1: Option<Flex<'d>>,
+        ch2: Option<Flex<'d>>,
+        ch3: Option<Flex<'d>>,
     ) -> Result<Self, InitError> {
         let regs = info.regs;
 
