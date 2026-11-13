@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed: A driver created after a previous one was dropped no longer panics at start.
 - Fixed: An isochronous IN packet that the host did not poll for in its frame is now discarded, with the endpoint disabled and its TX FIFO flushed. Before, the endpoint was enabled again with the packet still in the FIFO, which left the FIFO and the core out of step, and the writer could wait for room in the FIFO for ever.
 - Fixed: A bus reset or a new SETUP during a control transfer no longer leaves the device unresponsive.
+- Fixed: The status stage of a control transfer no longer clears NAK on EP0 OUT while the next SETUP is in the RX FIFO, which made the interrupt handler panic.
 
 ## 0.4.0 - 2026-05-28
 
