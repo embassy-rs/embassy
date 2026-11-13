@@ -1,10 +1,8 @@
 //! Serial Peripheral Interface (SPI)
 #![macro_use]
 
-#[cfg(feature = "exti")]
+#[cfg(any(feature = "exti", all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma))))]
 mod ringbuffered;
-#[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
-pub mod triggered;
 use core::marker::PhantomData;
 use core::pin::pin;
 use core::ptr;
@@ -14,8 +12,12 @@ use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 use embassy_futures::select::{Either, select};
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
-#[cfg(feature = "exti")]
+#[cfg(any(feature = "exti", all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma))))]
 pub use ringbuffered::RingBufferedSpiRx;
+#[cfg(all(any(spi_v4, spi_v5, spi_v6), any(feature = "exti", any(gpdma, lpdma))))]
+pub use ringbuffered::{InterruptHandler, InterruptInstance};
+#[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
+pub use ringbuffered::{MAX_BLOCKS, TriggeredTables};
 
 use crate::Peri;
 use crate::dma::{ChannelAndRequest, word};
@@ -379,9 +381,10 @@ impl<'d> CsPinType<'d> {
         }
     }
 
-    #[cfg(feature = "exti")]
+    #[cfg(any(feature = "exti", all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma))))]
     pub const unsafe fn clone_unchecked(&self) -> Self {
         match self {
+            #[cfg(feature = "exti")]
             Self::Exti(exti) => Self::Exti(exti.clone_unchecked()),
             Self::Flex(flex) => Self::Flex(flex.clone_unchecked()),
             Self::None => Self::None,
@@ -2709,16 +2712,18 @@ mod word_impl {
 }
 
 struct State {
-    #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
-    triggered: triggered::State,
+    #[cfg(any(feature = "exti", all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma))))]
+    // Read by the frame-marks interrupt handler (v4+).
+    #[cfg_attr(not(any(spi_v4, spi_v5, spi_v6)), allow(dead_code))]
+    ring: ringbuffered::State,
 }
 
 impl State {
     #[allow(unused)]
     const fn new() -> Self {
         Self {
-            #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
-            triggered: triggered::State::new(),
+            #[cfg(any(feature = "exti", all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma))))]
+            ring: ringbuffered::State::new(),
         }
     }
 }

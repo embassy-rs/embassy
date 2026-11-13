@@ -165,6 +165,12 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         self.dma_buf.len()
     }
 
+    /// The DMA buffer's address, for write-position snapshots from interrupt handlers.
+    #[cfg(any(gpdma, lpdma))]
+    pub fn buf_addr(&self) -> usize {
+        self.dma_buf.as_ptr() as usize
+    }
+
     /// Sync against the DMA hardware and return the number of readable samples available.
     pub fn sync_len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
         self.write_index.dma_sync(self.cap(), dma);
@@ -283,6 +289,14 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
 
         let remaining = self.write_index.diff(self.cap(), &self.read_index).max(0) as usize;
         Ok((readable, remaining))
+    }
+
+    /// The read position, in words from the buffer's start (wrapping).
+    ///
+    /// For consumers that keep their own place in the stream, e.g. the frame slots of the CRC
+    /// validity marks.
+    pub fn read_pos(&self) -> usize {
+        self.read_index.pos
     }
 
     /// Read the most recent elements from the ring buffer, discarding any older data.
