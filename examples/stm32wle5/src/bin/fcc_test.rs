@@ -25,11 +25,46 @@ use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode::Async;
 use embassy_stm32::rcc::{Hse, HseMode, HsePrescaler, Sysclk};
-use embassy_stm32::subghz::{LoraE5RfSwitch, RadioInterruptHandler, RfMode, RfSwitch, Subghz, SubghzRadio, SubghzSpi};
+use embassy_stm32::subghz::{RadioInterruptHandler, SubghzControl, SubghzSpi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use panic_probe as _;
+
+/// What the RF front-end switch is set up for.
+#[derive(Clone, Copy)]
+enum RfMode {
+    Off,
+    Rx,
+    TxLowPower,
+    TxHighPower,
+}
+
+/// Two-pin RF switch of the Seeed LoRa-E5 / RAK3172 modules: `ctrl1` high selects RX, `ctrl2` high selects TX.
+///
+/// How the switch is wired depends on the board, so this lives in the application and not in the driver.
+struct RfSwitch<'d> {
+    ctrl1: Output<'d>,
+    ctrl2: Output<'d>,
+}
+
+impl<'d> RfSwitch<'d> {
+    fn new(ctrl1: Output<'d>, ctrl2: Output<'d>) -> Self {
+        let mut this = Self { ctrl1, ctrl2 };
+        this.set_mode(RfMode::Off);
+        this
+    }
+
+    fn set_mode(&mut self, mode: RfMode) {
+        let (rx, tx) = match mode {
+            RfMode::Off => (false, false),
+            RfMode::Rx => (true, false),
+            RfMode::TxLowPower | RfMode::TxHighPower => (false, true),
+        };
+        self.ctrl1.set_level(rx.into());
+        self.ctrl2.set_level(tx.into());
+    }
+}
 
 bind_interrupts!(struct Irqs {
     SUBGHZ_RADIO => RadioInterruptHandler;
@@ -96,24 +131,24 @@ fn lora_packet_params(payload_len: u8) -> [u8; 7] {
 }
 
 /// Send a command and wait for the radio to finish it.
-async fn command(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzRadio<'_>, bytes: &[u8]) {
+async fn command(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzControl<'_>, bytes: &[u8]) {
     unwrap!(spi.write(bytes).await);
     radio.wait_on_busy().await;
 }
 
-async fn read_register(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzRadio<'_>, addr: u16) -> u8 {
+async fn read_register(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzControl<'_>, addr: u16) -> u8 {
     let mut buf = [CMD_READ_REGISTER, (addr >> 8) as u8, addr as u8, 0x00, 0x00];
     unwrap!(spi.transfer_in_place(&mut buf).await);
     radio.wait_on_busy().await;
     buf[4]
 }
 
-async fn write_register(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzRadio<'_>, addr: u16, value: u8) {
+async fn write_register(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzControl<'_>, addr: u16, value: u8) {
     command(spi, radio, &[CMD_WRITE_REGISTER, (addr >> 8) as u8, addr as u8, value]).await;
 }
 
 /// Helper to configure RF carrier frequency.
-async fn set_rf_frequency(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzRadio<'_>, freq_hz: u32) {
+async fn set_rf_frequency(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzControl<'_>, freq_hz: u32) {
     let freq_raw = ((freq_hz as u64 * 33_554_432) / 32_000_000) as u32;
     let cmd = [
         CMD_SET_RF_FREQUENCY,
@@ -127,7 +162,7 @@ async fn set_rf_frequency(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzRadi
 
 /// Calibrate the image rejection for the band that contains `freq_hz`. It has to be redone after each frequency
 /// change, and it matters for the receiver's spurious response.
-async fn calibrate_image(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzRadio<'_>, freq_hz: u32) {
+async fn calibrate_image(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzControl<'_>, freq_hz: u32) {
     let (low, high) = if freq_hz > 900_000_000 {
         (0xE1, 0xE9)
     } else if freq_hz > 850_000_000 {
@@ -143,7 +178,7 @@ async fn calibrate_image(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzRadio
 }
 
 /// Helper to configure PA and TX output power (+22 dBm HP or +14 dBm LP).
-async fn set_tx_power(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzRadio<'_>, high_power: bool, power_dbm: i8) {
+async fn set_tx_power(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzControl<'_>, high_power: bool, power_dbm: i8) {
     if high_power {
         // High Power PA (+22 dBm maximum)
         command(spi, radio, &[CMD_SET_PA_CONFIG, 0x04, 0x07, 0x00, 0x01]).await;
@@ -167,16 +202,16 @@ async fn set_tx_power(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzRadio<'_
 }
 
 /// Stop transmission or reception and place radio in Standby RC.
-async fn radio_stop<S: RfSwitch>(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzRadio<'_>, rf_switch: &mut S) {
+async fn radio_stop(spi: &mut SubghzSpi<'_, Async>, radio: &mut SubghzControl<'_>, rf_switch: &mut RfSwitch<'_>) {
     command(spi, radio, &[CMD_SET_STANDBY, STDBY_CONFIG_RC]).await;
     rf_switch.set_mode(RfMode::Off);
 }
 
 /// Start Continuous Wave (CW / Unmodulated Tone) TX.
-async fn start_continuous_wave<S: RfSwitch>(
+async fn start_continuous_wave(
     spi: &mut SubghzSpi<'_, Async>,
-    radio: &mut SubghzRadio<'_>,
-    rf_switch: &mut S,
+    radio: &mut SubghzControl<'_>,
+    rf_switch: &mut RfSwitch<'_>,
     freq_hz: u32,
     power_dbm: i8,
     high_power: bool,
@@ -204,10 +239,10 @@ async fn start_continuous_wave<S: RfSwitch>(
 }
 
 /// Start Continuous Preamble (Infinite Modulated LoRa Chirps) TX.
-async fn start_continuous_preamble<S: RfSwitch>(
+async fn start_continuous_preamble(
     spi: &mut SubghzSpi<'_, Async>,
-    radio: &mut SubghzRadio<'_>,
-    rf_switch: &mut S,
+    radio: &mut SubghzControl<'_>,
+    rf_switch: &mut RfSwitch<'_>,
     freq_hz: u32,
     sf: u8,
     bw: u8,
@@ -241,10 +276,10 @@ async fn start_continuous_preamble<S: RfSwitch>(
 }
 
 /// Start Continuous RX mode for receiver sensitivity and spurious emission checks.
-async fn start_continuous_rx<S: RfSwitch>(
+async fn start_continuous_rx(
     spi: &mut SubghzSpi<'_, Async>,
-    radio: &mut SubghzRadio<'_>,
-    rf_switch: &mut S,
+    radio: &mut SubghzControl<'_>,
+    rf_switch: &mut RfSwitch<'_>,
     freq_hz: u32,
 ) {
     radio_stop(spi, radio, rf_switch).await;
@@ -262,10 +297,10 @@ async fn start_continuous_rx<S: RfSwitch>(
 }
 
 /// Send `BURST_COUNT` LoRa packets, one every `BURST_PERIOD`, for duty-cycle and spectral-density measurements.
-async fn run_packet_bursts<S: RfSwitch>(
+async fn run_packet_bursts(
     spi: &mut SubghzSpi<'_, Async>,
-    radio: &mut SubghzRadio<'_>,
-    rf_switch: &mut S,
+    radio: &mut SubghzControl<'_>,
+    rf_switch: &mut RfSwitch<'_>,
     freq_hz: u32,
     sf: u8,
     bw: u8,
@@ -359,12 +394,13 @@ async fn main(_spawner: Spawner) {
     info!("============================================================");
 
     // 1. Initialize Sub-GHz SPI and Radio controller
-    let (mut spi, mut radio) = Subghz::new(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2, Irqs);
+    let mut spi = SubghzSpi::new(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2, Irqs);
+    let mut radio = SubghzControl::new(Irqs);
 
     // 2. Initialize 2-pin RF switch (PB8 = power/enable, PB5 = mode)
     let ctrl_enable = Output::new(p.PB8, Level::Low, Speed::VeryHigh);
     let ctrl_mode = Output::new(p.PB5, Level::Low, Speed::VeryHigh);
-    let mut rf_switch = LoraE5RfSwitch::new(ctrl_enable, ctrl_mode);
+    let mut rf_switch = RfSwitch::new(ctrl_enable, ctrl_mode);
 
     // 3. Hardware reset radio
     radio.reset().await;

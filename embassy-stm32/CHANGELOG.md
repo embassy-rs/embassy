@@ -12,9 +12,9 @@ Atomic:
 - fix: stm32/atomic: make `AtomicClear::clear` atomic on targets without 8-bit atomic RMW (thumbv6m)
 
 SUBGHZ:
-- feat: stm32/subghz: add a driver for the on-chip sub-GHz radio of STM32WL and STM32WLE5 (`SubghzSpi`, `SubghzRadio`, `RfSwitch`). It covers the dedicated `SUBGHZSPI`, radio reset, `RFBUSY` waiting and the `SUBGHZ_RADIO` interrupt. The driver does not wrap the radio's command set: the caller sends the commands.
-- feat: stm32/subghz: `SubghzRadio::wait_on_busy_timeout` bounds the `RFBUSY` wait, `SubghzRadio::wakeup` wakes the radio from sleep, and `SubghzRadio::set_wakeup_sources` lets a radio interrupt or `RFBUSY` wake the CPU from Standby.
-- change: stm32/subghz: `SubghzRadio::wait_on_busy` sleeps on the `RFBUSY` falling edge (EXTI line 45, through the `SUBGHZ_RADIO` vector) instead of polling, once a wait outlasts a short spin. The executor can idle during calibration and wake from sleep.
+- feat: stm32/subghz: add a driver for the on-chip sub-GHz radio of STM32WL and STM32WLE5 (`SubghzSpi`, `SubghzControl`). It covers the dedicated `SUBGHZSPI`, radio reset, `RFBUSY` waiting and the `SUBGHZ_RADIO` interrupt. The driver does not wrap the radio's command set: the caller sends the commands.
+- feat: stm32/subghz: `SubghzControl::wait_on_busy_timeout` bounds the `RFBUSY` wait, `SubghzControl::wakeup` wakes the radio from sleep, and `SubghzControl::set_wakeup_sources` lets a radio interrupt or `RFBUSY` wake the CPU from Standby.
+- change: stm32/subghz: `SubghzControl::wait_on_busy` sleeps on the `RFBUSY` falling edge (EXTI line 45, through the `SUBGHZ_RADIO` vector) instead of polling, once a wait outlasts a short spin. The executor can idle during calibration and wake from sleep.
 - fix: stm32/subghz: an async `SubghzSpi` transaction that is cancelled releases `NSS` instead of leaving the radio selected.
 
 UCPD:
