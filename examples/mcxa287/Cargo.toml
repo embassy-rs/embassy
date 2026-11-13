@@ -13,6 +13,7 @@ defmt = "1.0"
 defmt-rtt = "1.0"
 embassy-embedded-hal = { version = "0.6.0", path = "../../embassy-embedded-hal" }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", default-features = false, features = ["executor-thread", "defmt"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-mcxa = { version = "0.1.0", path = "../../embassy-mcxa", features = ["defmt", "unstable-pac", "mcxa287"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embedded-io-async = "0.7.0"
@@ -37,5 +38,5 @@ debug = 2
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/mcxa287" }
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/mcxa287" },
 ]

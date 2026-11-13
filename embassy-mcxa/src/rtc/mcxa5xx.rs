@@ -8,7 +8,7 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embedded_mcu_hal::time::{Datetime, DatetimeClock, DatetimeClockError, DatetimeFields, Month as HalMonth};
 use maitake_sync::WaitCell;
 
-use crate::clocks::{WakeGuard, with_clocks};
+use crate::clocks::{Clock, WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
 use crate::pac::rtc::Swr;
@@ -385,7 +385,7 @@ const DESYNCED: u16 = 0xfffe;
 ///
 /// This is a distinct sentinel from [`DESYNCED`]: FFFFh means the counters are
 /// mid-update and the read should simply be retried, whereas FFFEh means the
-/// block has no clock at all and retrying will never succeed.
+/// register interface is synchronizing, possibly because its clock is stopped.
 const INVALID: u16 = 0xffff;
 
 /// Errors exclusive to HW initialization
@@ -454,7 +454,29 @@ pub struct Rtc<'a> {
 impl<'a> Rtc<'a> {
     const BASE_YEAR: i16 = 2112;
 
+    fn selected_clock(clksel: ClkSel) -> Result<Clock, SetupError> {
+        // RTC uses the VBAT-domain outputs, not the system/core outputs.
+        // A retained but unadvertised source is not an initialization opt-in.
+        with_clocks(|c| match clksel {
+            ClkSel::Clk16384 => c.clk_16k_vbat.clone(),
+            ClkSel::Clk32768 => {
+                #[cfg(not(feature = "rosc-32k-as-gpio"))]
+                {
+                    c.clk_32k_vbat.clone()
+                }
+                #[cfg(feature = "rosc-32k-as-gpio")]
+                None
+            }
+        })
+        .flatten()
+        .ok_or(SetupError::ClockSetup)
+    }
+
     /// Create an exclusive RTC handle and a cloneable, read-only time provider.
+    ///
+    /// Board clock setup must enable both the currently selected (possibly
+    /// retained) source and the requested source. This does not start oscillators;
+    /// it waits finitely for register synchronization before configuration.
     pub fn new<T: Instance>(
         _inst: Peri<'a, T>,
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
@@ -470,13 +492,7 @@ impl<'a> Rtc<'a> {
         // osc32k[2] (RM p.81527), not the system-domain [0] outputs. Measured
         // on FRDM-MCXA577 with CLK_SEL=0: the counter runs with FROCLKE=0b100
         // alone, and stops with 0b001 or 0b010.
-        let clocks = if config.clksel == ClkSel::Clk16384 {
-            with_clocks(|c| c.clk_16k_vbat.clone())
-        } else {
-            with_clocks(|c| c.clk_32k_vbat.clone())
-        };
-
-        let clk = clocks.flatten().ok_or(SetupError::ClockSetup)?;
+        let clk = Self::selected_clock(config.clksel)?;
 
         let mut inst = Self {
             info,
@@ -501,7 +517,26 @@ impl<'a> Rtc<'a> {
     }
 
     fn set_configuration(&mut self, config: &Config) -> Result<(), SetupError> {
-        critical_section::with(|_| self.set_configuration_inner(config))
+        let clk = Self::selected_clock(config.clksel)?;
+        let wg = WakeGuard::for_power(&clk.power);
+
+        // RM 38.3.1.2-3: FFFEh is normal for two oscillator cycles after the
+        // selected clock becomes available. Wait outside the protected-write
+        // critical section; a stopped source must still fail finitely. This is
+        // a CPU/bus-dependent poll budget, not a wall-clock timeout.
+        let mut polls = 1_000_000u32;
+        while self.info.regs().ctrl().read().0 == DESYNCED {
+            if polls == 0 {
+                return Err(SetupError::RegisterAccess);
+            }
+            polls -= 1;
+            core::hint::spin_loop();
+        }
+
+        critical_section::with(|_| self.set_configuration_inner(config))?;
+        self._freq = clk.frequency;
+        self._wg = wg;
+        Ok(())
     }
 
     fn set_configuration_inner(&mut self, config: &Config) -> Result<(), SetupError> {
@@ -512,7 +547,34 @@ impl<'a> Rtc<'a> {
             return Err(SetupError::RegisterAccess);
         }
 
-        self.disable_write_protect();
+        // The block may still be in its power-on unlocked window, whose age is
+        // unknown. Lock first so configuration gets a fresh two-second window
+        // rather than racing the inherited window's expiry (RM 38.3.7).
+        let mut attempts = 8u8;
+        loop {
+            if attempts == 0 {
+                return Err(SetupError::RegisterAccess);
+            }
+            attempts -= 1;
+
+            self.enable_write_protect();
+            let status = self.info.regs().status().read();
+            if status.0 == DESYNCED {
+                return Err(SetupError::RegisterAccess);
+            }
+            if !status.write_prot_en() {
+                continue;
+            }
+
+            self.disable_write_protect();
+            let status = self.info.regs().status().read();
+            if status.0 == DESYNCED {
+                return Err(SetupError::RegisterAccess);
+            }
+            if !status.write_prot_en() {
+                break;
+            }
+        }
 
         self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Asserted));
         self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Cleared));
@@ -555,6 +617,11 @@ impl<'a> Rtc<'a> {
         });
 
         self.enable_write_protect();
+
+        let status = self.info.regs().status().read();
+        if status.0 == DESYNCED || !status.write_prot_en() {
+            return Err(SetupError::RegisterAccess);
+        }
 
         // Selecting a clock that is not running desynchronizes the block on the
         // spot, so confirm CLK_SEL actually took the requested value. Check the
@@ -620,6 +687,9 @@ impl<'a> Rtc<'a> {
     /// # Errors
     ///
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
+    /// Returns `RtcError::Other` if the counters are inaccessible or the update
+    /// cannot be verified. An unsuccessful update may have changed some fields;
+    /// the caller can retry setting the complete datetime.
     pub fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
         Self::is_valid_datetime(t)?;
 
@@ -631,9 +701,33 @@ impl<'a> Rtc<'a> {
         let minute = t.minute;
         let second = t.second;
 
+        // RM 38.5.1.11: calendar writes during INVAL_BIT terminate normally but
+        // do not update the counters. Wait outside the critical section, bounded
+        // as in read_datetime so a stopped clock cannot hang the caller.
+        let mut spins = 1_000_000u32;
+        loop {
+            let status = self.info.regs().status().read();
+            if status.0 == DESYNCED {
+                return Err(RtcError::Other);
+            }
+            if !status.inval_bit() {
+                break;
+            }
+            if spins == 0 {
+                return Err(RtcError::Other);
+            }
+            spins -= 1;
+            core::hint::spin_loop();
+        }
+
         // A time provider may read from another interrupt context. Serialize the
         // complete calendar update with its snapshot, not each register alone.
         critical_section::with(|_| {
+            let status = self.info.regs().status().read();
+            if status.0 == DESYNCED || status.inval_bit() {
+                return Err(RtcError::Other);
+            }
+
             self.disable_write_protect();
 
             self.info.regs().yearmon().write(|w| {
@@ -654,9 +748,30 @@ impl<'a> Rtc<'a> {
             self.info.regs().seconds().write(|w| w.set_sec_cnt(second));
 
             self.enable_write_protect();
-        });
 
-        Ok(())
+            // A hardware counter update can still overlap the writes despite
+            // interrupt masking. INVAL_BIT may already have cleared again, so
+            // verify every field rather than trusting its final state alone.
+            let s = self.info.regs().seconds().read();
+            let hm = self.info.regs().hourmin().read();
+            let d = self.info.regs().days().read();
+            let ym = self.info.regs().yearmon().read();
+            let status = self.info.regs().status().read();
+            if status.0 == DESYNCED
+                || status.inval_bit()
+                || s.sec_cnt() != second
+                || hm.hour_cnt() != hour
+                || hm.min_cnt() != minute
+                || d.dow() != dow
+                || d.day_cnt() != day
+                || ym.yrofst() != year
+                || ym.mon_cnt() != month
+            {
+                return Err(RtcError::Other);
+            }
+
+            Ok(())
+        })
     }
 
     /// Set the Daylight Savings start and end time.

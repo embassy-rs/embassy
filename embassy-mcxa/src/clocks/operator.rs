@@ -444,229 +444,231 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
-    /// Configure the ROSC/OSC32K clock family
-    #[cfg(all(feature = "_mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
+    /// Validate retained VBAT controls before changing the FRO16K dependency.
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    pub(super) fn preflight_osc32k_clocks(&self) -> Result<(), ClockError> {
+        let Some(_) = self.config.osc32k.as_ref() else {
+            return Ok(());
+        };
+        if !self.config.fro16k.as_ref().is_some_and(|fro| fro.vbat_domain_active) {
+            return Err(ClockError::BadConfig {
+                clock: "osc32k",
+                reason: "FRO16K and its VBAT output must be requested",
+            });
+        }
+        if self.vbat0.frolcka().read().lock() && !self.vbat0.froctla().read().fro_en() {
+            return Err(ClockError::BadConfig {
+                clock: "osc32k",
+                reason: "FRO16K locked disabled; VBAT POR required",
+            });
+        }
+        // RM 31.7.1.17 requires at least one retained array whenever LDO_RAM is enabled.
+        // Retention policy belongs to the SRAM owner; reject rather than changing it.
+        let ram = self.vbat0.ldoramc().read();
+        if ram.ret0() && ram.ret1() && ram.ret2() && ram.ret3() {
+            return Err(ClockError::BadConfig {
+                clock: "osc32k",
+                reason: "LDO_RAM requires at least one retained SRAM array",
+            });
+        }
+        let ldo = self.vbat0.ldoctla().read();
+        if self.vbat0.ldolcka().read().lock() && !(ldo.ldo_en() && ldo.bg_en() && ldo.refresh_en()) {
+            return Err(ClockError::BadConfig {
+                clock: "osc32k",
+                reason: "LDO controls locked incompatible; VBAT POR required",
+            });
+        }
+        let osc = self.vbat0.oscctla().read();
+        if osc.osc_en() {
+            // Do not restart or retune an oscillator that may already supply the RTC.
+            if !self.osc32k_lp_controls_match() {
+                return Err(ClockError::BadConfig {
+                    clock: "osc32k",
+                    reason: "retained oscillator is not compatible LP; VBAT POR required",
+                });
+            }
+        } else if self.vbat0.osclcka().read().lock() {
+            return Err(ClockError::BadConfig {
+                clock: "osc32k",
+                reason: "oscillator locked disabled; VBAT POR required",
+            });
+        }
+        Ok(())
+    }
+
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    fn osc32k_lp_controls_match(&self) -> bool {
+        use config::Osc32KCoarseGain;
+        use nxp_pac::vbat::{CoarseAmpGain, ExtalCapSel, InitTrim, ModeEn, SupplyDet, XtalCapSel};
+
+        let Some(cfg) = self.config.osc32k.as_ref() else {
+            return false;
+        };
+        let gain = match cfg.coarse_amp_gain {
+            Osc32KCoarseGain::EsrRange0 => CoarseAmpGain::Gain05,
+            Osc32KCoarseGain::EsrRange1 => CoarseAmpGain::Gain10,
+            Osc32KCoarseGain::EsrRange2 => CoarseAmpGain::Gain18,
+            Osc32KCoarseGain::EsrRange3 => CoarseAmpGain::Gain33,
+        };
+        let supply = if cfg.vbat_exceeds_3v0 {
+            SupplyDet::G3vsupply
+        } else {
+            SupplyDet::L3vsupply
+        };
+        let osc = self.vbat0.oscctla().read();
+        osc.osc_en()
+            && !osc.osc_byp_en()
+            && osc.cap_sel_en()
+            && osc.mode_en() == ModeEn::Sw
+            && osc.xtal_cap_sel() == XtalCapSel::Sel0
+            && osc.extal_cap_sel() == ExtalCapSel::Sel0
+            && osc.coarse_amp_gain() == gain
+            && osc.supply_det() == supply
+            && self.vbat0.osccfga().read().init_trim() == InitTrim::Sel0
+    }
+
+    /// Establish LP OSC32K or adopt a compatible retained source without restarting it.
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     pub(super) fn configure_osc32k_clocks(&mut self) -> Result<(), ClockError> {
-        use config::{Osc32KCapSel, Osc32KCoarseGain, Osc32KMode};
+        use config::Osc32KCoarseGain;
         use nxp_pac::vbat::{
             CoarseAmpGain, ExtalCapSel, InitTrim, ModeEn, StatusaLdoRdy, StatusaOscRdy, SupplyDet, XtalCapSel,
         };
 
-        // Unlock the control first
-        self.vbat0.ldolcka().modify(|w| w.set_lock(false));
-
+        // None neither claims the source nor changes its controls, gates or locks.
         let Some(cfg) = self.config.osc32k.as_ref() else {
-            // TODO: how to ensure disabled?
-            // ???
-
-            // Re-lock after disabling
-            self.vbat0.ldolcka().modify(|w| w.set_lock(true));
             return Ok(());
         };
-
-        // To enable and lock the LDO and bandgap:
-        //
-        // NOTE(AJM): "The FRO16K must be enabled before enabling the SRAM LDO or the bandgap"
-        //
-        // 1. Enable the FRO16K.
-        //   * NOTE(AJM): clk_16k is always enabled if enabled at all.
-        //   * TODO(AJM): I'm not sure which domain needs to be active for this requirement.
-        //     It seems reasonable that it would be the vbat domain?
-
-        self.clocks.ensure_clk_16k_vbat_active(&PoweredClock::AlwaysEnabled)?;
-
-        // 2. Write 7h to LDO_RAM Control A (LDOCTLA).
-        self.vbat0.ldoctla().write(|w| {
-            w.set_refresh_en(true);
-            w.set_ldo_en(true);
-            w.set_bg_en(true);
-        });
-
-        // 3. Wait for STATUSA[LDO_RDY] to become 1.
-        while self.vbat0.statusa().read().ldo_rdy() != StatusaLdoRdy::Set {}
-
-        // 4. Write 1h to LDOLCKA[LOCK].
-        self.vbat0.ldolcka().modify(|w| w.set_lock(true));
-
-        match &cfg.mode {
-            Osc32KMode::HighPower {
-                coarse_amp_gain,
-                xtal_cap_sel,
-                extal_cap_sel,
-            } => {
-                // To configure and lock OSC32kHz for normal mode operation:
-                //
-                // 1. Configure OSCCTLA[EXTAL_CAP_SEL], OSCCTLA[XTAL_CAP_SEL] and OSCCTLA[COARSE_AMP_GAIN] as
-                // required based on the external crystal component ESR and CL values, and by the PCB parasitics on the EXTAL32K and
-                // XTAL32K pins. Configure 0h to OSCCTLA[MODE_EN], 1h to OSCCTLA[CAP_SEL_EN], and 1h to OSCCTLA[OSC_EN].
-                //   * NOTE(AJM): You must write 1 to this field and OSCCTLA[OSC_EN] simultaneously.
-                self.vbat0.oscctla().modify(|w| {
-                    w.set_xtal_cap_sel(match xtal_cap_sel {
-                        Osc32KCapSel::Cap2PicoF => XtalCapSel::Sel2,
-                        Osc32KCapSel::Cap4PicoF => XtalCapSel::Sel4,
-                        Osc32KCapSel::Cap6PicoF => XtalCapSel::Sel6,
-                        Osc32KCapSel::Cap8PicoF => XtalCapSel::Sel8,
-                        Osc32KCapSel::Cap10PicoF => XtalCapSel::Sel10,
-                        Osc32KCapSel::Cap12PicoF => XtalCapSel::Sel12,
-                        Osc32KCapSel::Cap14PicoF => XtalCapSel::Sel14,
-                        Osc32KCapSel::Cap16PicoF => XtalCapSel::Sel16,
-                        Osc32KCapSel::Cap18PicoF => XtalCapSel::Sel18,
-                        Osc32KCapSel::Cap20PicoF => XtalCapSel::Sel20,
-                        Osc32KCapSel::Cap22PicoF => XtalCapSel::Sel22,
-                        Osc32KCapSel::Cap24PicoF => XtalCapSel::Sel24,
-                        Osc32KCapSel::Cap26PicoF => XtalCapSel::Sel26,
-                        Osc32KCapSel::Cap28PicoF => XtalCapSel::Sel28,
-                        Osc32KCapSel::Cap30PicoF => XtalCapSel::Sel30,
-                    });
-                    w.set_extal_cap_sel(match extal_cap_sel {
-                        Osc32KCapSel::Cap2PicoF => ExtalCapSel::Sel2,
-                        Osc32KCapSel::Cap4PicoF => ExtalCapSel::Sel4,
-                        Osc32KCapSel::Cap6PicoF => ExtalCapSel::Sel6,
-                        Osc32KCapSel::Cap8PicoF => ExtalCapSel::Sel8,
-                        Osc32KCapSel::Cap10PicoF => ExtalCapSel::Sel10,
-                        Osc32KCapSel::Cap12PicoF => ExtalCapSel::Sel12,
-                        Osc32KCapSel::Cap14PicoF => ExtalCapSel::Sel14,
-                        Osc32KCapSel::Cap16PicoF => ExtalCapSel::Sel16,
-                        Osc32KCapSel::Cap18PicoF => ExtalCapSel::Sel18,
-                        Osc32KCapSel::Cap20PicoF => ExtalCapSel::Sel20,
-                        Osc32KCapSel::Cap22PicoF => ExtalCapSel::Sel22,
-                        Osc32KCapSel::Cap24PicoF => ExtalCapSel::Sel24,
-                        Osc32KCapSel::Cap26PicoF => ExtalCapSel::Sel26,
-                        Osc32KCapSel::Cap28PicoF => ExtalCapSel::Sel28,
-                        Osc32KCapSel::Cap30PicoF => ExtalCapSel::Sel30,
-                    });
-                    w.set_coarse_amp_gain(match coarse_amp_gain {
-                        Osc32KCoarseGain::EsrRange0 => CoarseAmpGain::Gain05,
-                        Osc32KCoarseGain::EsrRange1 => CoarseAmpGain::Gain10,
-                        Osc32KCoarseGain::EsrRange2 => CoarseAmpGain::Gain18,
-                        Osc32KCoarseGain::EsrRange3 => CoarseAmpGain::Gain33,
-                    });
-                    w.set_mode_en(ModeEn::Hp);
-                    w.set_cap_sel_en(true);
-                    w.set_osc_en(true);
-                });
-
-                // 2. Wait for STATUSA[OSC_RDY] to become 1.
-                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::Set {}
-
-                // 3. Write 1h to OSCLCKA[LOCK].
-                self.vbat0.osclcka().modify(|w| w.set_lock(true));
-
-                // 4. Write 0h to OSCCTLA[EXTAL_CAP_SEL] and 0h to OSCCTLA[XTAL_CAP_SEL].
-                self.vbat0.oscctla().modify(|w| {
-                    w.set_xtal_cap_sel(XtalCapSel::Sel0);
-                    w.set_extal_cap_sel(ExtalCapSel::Sel0);
-                });
-
-                // 5. Alter OSCCLKE[CLKE] to clock gate different OSC32K outputs to different peripherals to reduce power consumption.
-                const ENABLED: Option<Clock> = Some(Clock {
-                    frequency: 32_768,
-                    power: PoweredClock::NormalEnabledDeepSleepDisabled,
-                });
-                self.vbat0.oscclke().modify(|w| {
-                    w.set_clke(0, cfg.vsys_domain_active);
-                    w.set_clke(1, cfg.vdd_core_domain_active);
-                    w.set_clke(2, cfg.vbat_domain_active);
-                });
-                if cfg.vsys_domain_active {
-                    self.clocks.clk_32k_vsys = ENABLED;
-                }
-                if cfg.vdd_core_domain_active {
-                    self.clocks.clk_32k_vdd_core = ENABLED;
-                }
-                if cfg.vbat_domain_active {
-                    self.clocks.clk_32k_vbat = ENABLED;
-                }
-            }
-            Osc32KMode::LowPower {
-                coarse_amp_gain,
-                vbat_exceeds_3v0,
-            } => {
-                // To configure OSC32kHz for low power mode operation:
-                //
-                // 1. Write 3h to OSCCFGA[INIT_TRIM].
-                //   * NOTE(AJM): This is "1 second"?
-                self.vbat0.osccfga().modify(|w| w.set_init_trim(InitTrim::Sel3));
-
-                // 2. Configure OSCCTLA[EXTAL_CAP_SEL], OSCCTLA[XTAL_CAP_SEL] and OSCCTLA[COARSE_AMP_GAIN] as
-                // required based on the external crystal component ESR and CL values, and by the PCB parasitics on the EXTAL32K and
-                // XTAL32K pins. Configure 1h to OSCCTLA[MODE_EN], 1h to OSCCTLA[CAP_SEL_EN], and 1h to OSCCTLA[OSC_EN].
-                //   * NOTE(AJM): The configuration EXTAL_CAP_SEL=0000 and CAP_SEL_EN=1 is required in low power
-                //     mode and is not supported in other modes
-                self.vbat0.oscctla().modify(|w| {
-                    // TODO(AJM): Do we need to set these to reasonable values during the "startup" phase, and THEN
-                    // restore them to 0? RM is very unclear here.
-                    w.set_xtal_cap_sel(XtalCapSel::Sel0);
-                    w.set_extal_cap_sel(ExtalCapSel::Sel0);
-
-                    w.set_coarse_amp_gain(match coarse_amp_gain {
-                        Osc32KCoarseGain::EsrRange0 => CoarseAmpGain::Gain05,
-                        Osc32KCoarseGain::EsrRange1 => CoarseAmpGain::Gain10,
-                        Osc32KCoarseGain::EsrRange2 => CoarseAmpGain::Gain18,
-                        Osc32KCoarseGain::EsrRange3 => CoarseAmpGain::Gain33,
-                    });
-
-                    // TODO: This naming is bad
-                    //
-                    // pub enum ModeEn {
-                    //     #[doc = "Normal mode"]
-                    //     HP = 0x0,
-                    //     #[doc = "Startup mode"]
-                    //     LP = 0x01,
-                    //     _RESERVED_2 = 0x02,
-                    //     #[doc = "Low power mode"]
-                    //     SW = 0x03,
-                    // }
-
-                    w.set_mode_en(ModeEn::Lp);
-                    w.set_cap_sel_en(true);
-                    w.set_osc_en(true);
-                });
-
-                // 3. Wait for STATUSA[OSC_RDY] to become 1.
-                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::Set {}
-
-                // 4. Write 0h to OSCCFGA[INIT_TRIM].
-                self.vbat0.osccfga().modify(|w| w.set_init_trim(InitTrim::Sel0));
-
-                // 5. Configure 3h to OSCCTLA[MODE_EN], 0h to OSCCTLA[EXTAL_CAP_SEL] and 0h to OSCCTLA[XTAL_CAP_SEL].
-                // Configure OSCCTLA[SUPPLY_DET] as required by application.
-                self.vbat0.oscctla().modify(|w| {
-                    w.set_mode_en(ModeEn::Sw);
-                    w.set_xtal_cap_sel(XtalCapSel::Sel0);
-                    w.set_extal_cap_sel(ExtalCapSel::Sel0);
-                    w.set_supply_det(if *vbat_exceeds_3v0 {
-                        SupplyDet::G3vsupply
-                    } else {
-                        SupplyDet::L3vsupply
-                    });
-                });
-
-                // 6. Wait for STATUSA[OSC_RDY] to become 1.
-                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::Set {}
-
-                // 7. Alter OSCCLKE[CLKE] to clock gate different OSC32K outputs to different peripherals to reduce power consumption.
-                const ENABLED: Option<Clock> = Some(Clock {
-                    frequency: 32_768,
-                    power: PoweredClock::AlwaysEnabled,
-                });
-                self.vbat0.oscclke().modify(|w| {
-                    w.set_clke(0, cfg.vsys_domain_active);
-                    w.set_clke(1, cfg.vdd_core_domain_active);
-                    w.set_clke(2, cfg.vbat_domain_active);
-                });
-                if cfg.vsys_domain_active {
-                    self.clocks.clk_32k_vsys = ENABLED;
-                }
-                if cfg.vdd_core_domain_active {
-                    self.clocks.clk_32k_vdd_core = ENABLED;
-                }
-                if cfg.vbat_domain_active {
-                    self.clocks.clk_32k_vbat = ENABLED;
-                }
-            }
+        self.preflight_osc32k_clocks()?;
+        if !self.vbat0.froctla().read().fro_en() || !self.vbat0.froclke().read().clke(2) {
+            return Err(ClockError::BadConfig {
+                clock: "osc32k",
+                reason: "FRO16K VBAT dependency readback failed",
+            });
         }
 
+        let retained = self.vbat0.oscctla().read().osc_en();
+        let ldo = self.vbat0.ldoctla().read();
+        if !(ldo.ldo_en() && ldo.bg_en() && ldo.refresh_en()) {
+            // Only add enables: the LDO may already retain SRAM across system resets.
+            self.vbat0.ldoctla().modify(|w| {
+                w.set_refresh_en(true);
+                w.set_ldo_en(true);
+                w.set_bg_en(true);
+            });
+        }
+        let mut remaining = cfg.readiness_poll_budget.get();
+        while self.vbat0.statusa().read().ldo_rdy() != StatusaLdoRdy::Set {
+            remaining -= 1;
+            if remaining == 0 {
+                return Err(ClockError::BadConfig {
+                    clock: "osc32k",
+                    reason: "LDO readiness poll budget exhausted",
+                });
+            }
+        }
+        let ldo = self.vbat0.ldoctla().read();
+        if !(ldo.ldo_en() && ldo.bg_en() && ldo.refresh_en()) {
+            return Err(ClockError::BadConfig {
+                clock: "osc32k",
+                reason: "LDO control readback failed",
+            });
+        }
+
+        if !retained {
+            // RM 31.5 / SDK 26.09 LP sequence. Preserve all factory analog trim fields.
+            self.vbat0.osccfga().modify(|w| w.set_init_trim(InitTrim::Sel3));
+            self.vbat0.oscctla().modify(|w| {
+                w.set_xtal_cap_sel(XtalCapSel::from_bits(cfg.startup_xtal_cap_sel as u8));
+                w.set_extal_cap_sel(ExtalCapSel::from_bits(cfg.startup_extal_cap_sel as u8));
+                w.set_coarse_amp_gain(match cfg.coarse_amp_gain {
+                    Osc32KCoarseGain::EsrRange0 => CoarseAmpGain::Gain05,
+                    Osc32KCoarseGain::EsrRange1 => CoarseAmpGain::Gain10,
+                    Osc32KCoarseGain::EsrRange2 => CoarseAmpGain::Gain18,
+                    Osc32KCoarseGain::EsrRange3 => CoarseAmpGain::Gain33,
+                });
+                w.set_osc_byp_en(false);
+                // PAC names: Lp = startup (01), Sw = final LP (11), not Normal (00).
+                w.set_mode_en(ModeEn::Lp);
+                w.set_cap_sel_en(true);
+                w.set_osc_en(true);
+            });
+            let mut remaining = cfg.readiness_poll_budget.get();
+            while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::Set {
+                remaining -= 1;
+                if remaining == 0 {
+                    return Err(ClockError::BadConfig {
+                        clock: "osc32k",
+                        reason: "startup readiness poll budget exhausted",
+                    });
+                }
+            }
+
+            // Encoding 0 is an 8-second initialization trim, not a disabled timer.
+            self.vbat0.osccfga().modify(|w| w.set_init_trim(InitTrim::Sel0));
+            self.vbat0.oscctla().modify(|w| {
+                w.set_mode_en(ModeEn::Sw);
+                w.set_xtal_cap_sel(XtalCapSel::Sel0);
+                w.set_extal_cap_sel(ExtalCapSel::Sel0);
+                w.set_supply_det(if cfg.vbat_exceeds_3v0 {
+                    SupplyDet::G3vsupply
+                } else {
+                    SupplyDet::L3vsupply
+                });
+            });
+        }
+
+        let mut remaining = cfg.readiness_poll_budget.get();
+        while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::Set {
+            remaining -= 1;
+            if remaining == 0 {
+                return Err(ClockError::BadConfig {
+                    clock: "osc32k",
+                    reason: "LP readiness poll budget exhausted",
+                });
+            }
+        }
+        if !self.osc32k_lp_controls_match() {
+            return Err(ClockError::BadConfig {
+                clock: "osc32k",
+                reason: "LP control readback failed",
+            });
+        }
+
+        // Preserve retained gates that may feed an existing RTC; only claim requested outputs.
+        self.vbat0.oscclke().modify(|w| {
+            w.set_clke(0, cfg.vsys_domain_active || (retained && w.clke(0)));
+            w.set_clke(1, cfg.vdd_core_domain_active || (retained && w.clke(1)));
+            w.set_clke(2, cfg.vbat_domain_active || (retained && w.clke(2)));
+        });
+        let gates = self.vbat0.oscclke().read();
+        if (cfg.vsys_domain_active && !gates.clke(0))
+            || (cfg.vdd_core_domain_active && !gates.clke(1))
+            || (cfg.vbat_domain_active && !gates.clke(2))
+        {
+            return Err(ClockError::BadConfig {
+                clock: "osc32k",
+                reason: "output gate readback failed",
+            });
+        }
+
+        // Write-once locks clear only on VBAT POR. Lock only after successful readback.
+        // Failures deliberately leave supplies/source running, without rollback or cache publication.
+        self.vbat0.ldolcka().modify(|w| w.set_lock(true));
+        self.vbat0.osclcka().modify(|w| w.set_lock(true));
+        const ENABLED: Option<Clock> = Some(Clock {
+            frequency: 32_768,
+            power: PoweredClock::AlwaysEnabled,
+        });
+        if cfg.vsys_domain_active {
+            self.clocks.clk_32k_vsys = ENABLED;
+        }
+        if cfg.vdd_core_domain_active {
+            self.clocks.clk_32k_vdd_core = ENABLED;
+        }
+        if cfg.vbat_domain_active {
+            self.clocks.clk_32k_vbat = ENABLED;
+        }
         Ok(())
     }
 
