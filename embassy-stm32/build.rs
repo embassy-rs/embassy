@@ -3383,6 +3383,7 @@ macro_rules! {} {{
         out,
         "    }};
 }}
+#[allow(unused)]
 pub(crate) use {};        
 ",
         name
