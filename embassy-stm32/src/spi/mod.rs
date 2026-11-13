@@ -1110,6 +1110,19 @@ impl<'d> Spi<'d, Blocking, Master> {
             config,
         )
     }
+
+    #[cfg(stm32wl)]
+    /// Useful for on chip peripherals like SUBGHZ which are hardwired, in blocking mode.
+    pub fn new_subghz_blocking<T: Instance>(peri: Peri<'d, T>) -> Self {
+        let pclk3_freq = <crate::peripherals::SUBGHZSPI as crate::rcc::SealedRccPeripheral>::frequency().0;
+        let freq = Hertz(core::cmp::min(pclk3_freq / 2, 16_000_000));
+        let mut config = Config::default();
+        config.mode = MODE_0;
+        config.bit_order = BitOrder::MsbFirst;
+        config.frequency = freq;
+
+        Self::new_inner(peri, None, None, None, CsPinType::None, (), (), config)
+    }
 }
 
 #[cfg(feature = "exti")]
