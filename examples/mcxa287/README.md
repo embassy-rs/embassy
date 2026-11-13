@@ -75,3 +75,24 @@ cargo run --release --features time-driver-lptmr --bin lptmr
 
 Temperature channel 26 and constants match NXP's MCXA287 SDK.
 Temperature accuracy and TRNG entropy quality were not measured.
+
+## RTC
+
+The calendar RTC example needs the board's 32.768 kHz crystal:
+
+```sh
+cargo run --release --features unstable-osc32k --bin rtc-alarm
+```
+
+It enables OSC32K through the HAL clock configuration before constructing the
+RTC, while leaving the default FRO16K enabled. RTC clock selection survives a
+system reset; if the previously selected source is stopped, even the clock-select
+register is inaccessible. Keeping both sources available allows initialization
+from either retained selection. The example also allows the RTC register
+interface to synchronize after enabling clocks before accessing the block.
+
+The example selects OSC32K, sets the calendar, reads through a separate time
+provider while waiting for an alarm, and checks a minute rollover. It prints
+`RTC example complete - Test PASSED!` and stops at a breakpoint if a debugger is
+attached. Without a debugger, the task returns normally. This is a functional
+check, not a crystal-accuracy or low-power measurement.
