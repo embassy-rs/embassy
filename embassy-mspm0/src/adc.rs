@@ -641,3 +641,53 @@ macro_rules! impl_adc_pin {
         }
     };
 }
+
+/// ADC instances that can sample the internal temperature sensor.
+#[cfg(temp_sensor)]
+pub trait TempSenseChannel<T: Instance> {
+    /// Channel of the internal temperature sensor on this ADC.
+    ///
+    /// No external pin is required, the returned channel can be sampled like any other.
+    fn temp_channel(&self) -> BorrowedAdcChannel<'static, T>;
+}
+
+macro_rules! impl_temp_sense_channel {
+    ($inst: ident, $ch: expr) => {
+        impl<'d, M: Mode> TempSenseChannel<crate::peripherals::$inst> for Adc<'d, crate::peripherals::$inst, M> {
+            fn temp_channel(&self) -> BorrowedAdcChannel<'static, crate::peripherals::$inst> {
+                BorrowedAdcChannel {
+                    channel: $ch,
+                    _marker: PhantomData,
+                }
+            }
+        }
+    };
+}
+
+/// The ADC0 channel the temperature sensor is connected to.
+///
+/// See the "ADC Channel Mapping" table in the device specific data sheet.
+#[cfg(any(
+    mspm0c110x, mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0l110x, mspm0l130x,
+    mspm0l134x
+))]
+const TEMP_SENSOR_CHANNEL: u8 = 11;
+
+#[cfg(any(mspm0c1105_c1106, mspm0h321x))]
+const TEMP_SENSOR_CHANNEL: u8 = 28;
+
+#[cfg(any(mspm0g518x, mspm0l122x, mspm0l222x))]
+const TEMP_SENSOR_CHANNEL: u8 = 29;
+
+/// The ADC1 channel the temperature sensor is connected to.
+///
+/// Only the G1x0x/G3x0x parts route the temperature sensor to ADC1. On G151x/G351x, ADC1
+/// channels 11 and 12 are `A1_11` and `A1_12`, so the sensor is only reachable through ADC0.
+#[cfg(any(mspm0g110x, mspm0g150x, mspm0g310x, mspm0g350x))]
+const TEMP_SENSOR_CHANNEL_ADC1: u8 = 12;
+
+#[cfg(temp_sensor)]
+impl_temp_sense_channel!(ADC0, TEMP_SENSOR_CHANNEL);
+
+#[cfg(any(mspm0g110x, mspm0g150x, mspm0g310x, mspm0g350x))]
+impl_temp_sense_channel!(ADC1, TEMP_SENSOR_CHANNEL_ADC1);
