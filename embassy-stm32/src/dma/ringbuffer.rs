@@ -67,8 +67,19 @@ impl DmaIndex {
         // It is also not acceptable for approximated position to go backward, so it
         // must be modified such that it is at least not behind previous position.
         // This also happens when the DMA wrapped but the transfer complete interrupt
-        // hasn't run yet. Compare against the previous position including the laps
-        // just counted: `self.pos` may still be extended from a previous wrap.
+        // has not run yet. Compare against the previous position including the laps
+        // just counted because `self.pos` may still be extended from a previous wrap.
+        //
+        // It is possible for the following condition to be true in two cases:
+        // - This function is called when DMA wraps and complete count is not yet recorded.
+        //   So `laps_completed` is 0 and `pos < self.pos`. It is like `pos < prev_pos`
+        //   which indicating going backward, therefore the condition detects it.
+        // - The case above happens twice (or more) in a row.
+        //   After the first call `self.pos` is already extended. During the second call
+        //   DMA wraps again, but is not recorded in complete count, only the previous wrap is.
+        //   So `laps_completed` is 1 and `cap + pos < self.pos`. It is like `cap + pos < cap + prev_pos`
+        //   since `prev_pos` is already extended, so it is equivalent to `pos < prev_pos`
+        //   which indicating going backward, therefore the condition detects it.
         self.pos = if laps_completed * cap + pos < self.pos {
             // `self.complete_count` cannot be manually incremented here because in
             // next call to this function `laps_completed` will be 1, so it would
