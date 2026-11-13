@@ -1,0 +1,19 @@
+[target.thumbv8m.main-none-eabihf]
+runner = 'probe-rs run --chip MCXN947 --preverify --verify --protocol swd --speed 12000'
+
+rustflags = [
+  # `flip-link` (https://github.com/knurling-rs/flip-link) gives stack
+  # overflow protection by placing the stack below `.bss`/`.data`.
+  "-C", "linker=flip-link",
+  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tdefmt.x",
+  # This is needed if your flash or ram addresses are not aligned to 0x10000 in memory.x
+  # See https://github.com/rust-embedded/cortex-m-quickstart/pull/95
+  "-C", "link-arg=--nmagic",
+]
+
+[build]
+target = "thumbv8m.main-none-eabihf" # Cortex-M33
+
+[env]
+DEFMT_LOG = "trace"
