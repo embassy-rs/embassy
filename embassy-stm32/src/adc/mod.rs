@@ -29,9 +29,9 @@
 #![macro_use]
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::AtomicBool;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Interrupt;
@@ -834,7 +834,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
         r.set_eoc_interrupt(true);
         r.start();
 
-        let _stop = OnDrop::new(|| {
+        let _stop = DropGuard::new((), |()| {
             r.set_eoc_interrupt(false);
             r.stop();
         });
@@ -1027,7 +1027,7 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
         };
 
         // Stop conversions even if the future is dropped.
-        let _stop_adc = OnDrop::new(|| r.stop());
+        let _stop_adc = DropGuard::new((), |()| r.stop());
         r.start();
 
         transfer.await;

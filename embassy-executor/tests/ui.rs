@@ -14,7 +14,12 @@ fn ui() {
     t.compile_fail("tests/ui/nonstatic_ref_generic.rs");
     t.compile_fail("tests/ui/nonstatic_struct_anon.rs");
     #[cfg(not(feature = "nightly"))] // we can't catch this case with the macro, so the output changes on nightly.
-    t.compile_fail("tests/ui/nonstatic_struct_elided.rs");
+    if rustversion::cfg!(stable) {
+        // output is slightly different on the nightly compiler
+        t.compile_fail("tests/ui/nonstatic_struct_elided.rs");
+    } else {
+        t.compile_fail("tests/ui/nonstatic_struct_elided_nightly.rs");
+    }
     t.compile_fail("tests/ui/nonstatic_struct_generic.rs");
     t.compile_fail("tests/ui/not_async.rs");
     t.compile_fail("tests/ui/spawn_nonsend.rs");

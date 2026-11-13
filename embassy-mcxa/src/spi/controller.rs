@@ -1,12 +1,12 @@
 //! LPSPI Controller Driver.
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 pub use embedded_hal_1::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
 use nxp_pac::lpspi::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg, Prescale, Rrf, Rtf, Rxmsk, Txmsk};
 
@@ -1141,7 +1141,7 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
 
         self.info.regs().cfgr1().modify(|w| w.set_outcfg(Outcfg::Tristated));
 
-        let _on_drop = OnDrop::new(|| {
+        let _on_drop = DropGuard::new((), |()| {
             self.info.regs().der().modify(|w| w.set_rdde(false));
             self.info.regs().cfgr1().modify(|w| w.set_outcfg(Outcfg::Tristated));
         });
@@ -1163,7 +1163,7 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
             w.set_rxmsk(Rxmsk::Mask);
         });
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs().der().modify(|w| w.set_tdde(false));
         });
 
@@ -1171,7 +1171,7 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
             self.write_dma_chunk(chunk).await?;
         }
 
-        on_drop.defuse();
+        DropGuard::dismiss(on_drop);
 
         self.async_flush().await
     }
@@ -1190,7 +1190,7 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
             w.set_rxmsk(Rxmsk::Normal);
         });
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs().der().modify(|w| w.set_tdde(false));
         });
 
@@ -1227,7 +1227,7 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
             }
         }
 
-        on_drop.defuse();
+        DropGuard::dismiss(on_drop);
 
         self.async_flush().await
     }

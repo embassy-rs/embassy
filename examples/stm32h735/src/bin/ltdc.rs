@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![macro_use]
 #![allow(static_mut_refs)]
 
 /// This example demonstrates the LTDC lcd display peripheral and was tested to run on an stm32h735g-dk (embassy-stm32 feature "stm32h735ig" and probe-rs chip "STM32H735IGKx")

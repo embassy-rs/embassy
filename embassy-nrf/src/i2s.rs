@@ -4,12 +4,11 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::mem::size_of;
+use core::mem::{DropGuard, size_of};
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -684,7 +683,7 @@ impl<'d> I2S<'d> {
     }
 
     async fn wait_tx_ptr_update(r: pac::i2s::I2s, state: &State) {
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             trace!("TX DROP: Stopping");
 
             let device = Device::new(r);
@@ -714,7 +713,7 @@ impl<'d> I2S<'d> {
         })
         .await;
 
-        drop.defuse();
+        DropGuard::dismiss(drop);
     }
 
     async fn receive_from_ram<S>(r: pac::i2s::I2s, state: &State, buffer_ptr: *mut [S]) -> Result<(), Error>
@@ -740,7 +739,7 @@ impl<'d> I2S<'d> {
     }
 
     async fn wait_rx_ptr_update(r: pac::i2s::I2s, state: &State) {
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             trace!("RX DROP: Stopping");
 
             let device = Device::new(r);
@@ -770,7 +769,7 @@ impl<'d> I2S<'d> {
         })
         .await;
 
-        drop.defuse();
+        DropGuard::dismiss(drop);
     }
 }
 

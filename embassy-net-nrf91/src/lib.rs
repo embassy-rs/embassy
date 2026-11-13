@@ -12,7 +12,7 @@ pub mod context;
 use core::cell::RefCell;
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
-use core::mem::{self, MaybeUninit};
+use core::mem::{self, DropGuard, MaybeUninit};
 use core::ptr::{self, addr_of, addr_of_mut, copy_nonoverlapping};
 use core::slice;
 use core::sync::atomic::{Ordering, compiler_fence, fence};
@@ -868,7 +868,7 @@ impl<'a> Control<'a> {
         drop(state); // don't borrow state across awaits.
 
         // On cancel, unregister the request slot.
-        let _drop = OnDrop::new(|| {
+        let _drop = DropGuard::new((), |()| {
             // Remove request slot.
             let mut state = self.state.borrow_mut();
             let slot = &mut state.requests[req_slot_idx];
@@ -896,7 +896,7 @@ impl<'a> Control<'a> {
             }
         })
         .await;
-        _drop.defuse();
+        DropGuard::dismiss(_drop);
 
         if msg.data.is_null() {
             // no response data.
@@ -1163,24 +1163,4 @@ struct Message {
     data_len: usize,
     param_len: usize,
     param: [u8; 44],
-}
-
-struct OnDrop<F: FnOnce()> {
-    f: MaybeUninit<F>,
-}
-
-impl<F: FnOnce()> OnDrop<F> {
-    pub fn new(f: F) -> Self {
-        Self { f: MaybeUninit::new(f) }
-    }
-
-    pub fn defuse(self) {
-        mem::forget(self)
-    }
-}
-
-impl<F: FnOnce()> Drop for OnDrop<F> {
-    fn drop(&mut self) {
-        unsafe { self.f.as_ptr().read()() }
-    }
 }

@@ -38,9 +38,9 @@
 //!   configured at HAL initialization (CMP0: VSYS; A2 CMP1: VDD_CORE).
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::num::NonZeroU8;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_time::{Duration, Instant, Timer};
 use maitake_sync::WaitCell;
 
@@ -669,7 +669,7 @@ impl<'d> Cmp<'d, Blocking> {
             core::hint::spin_loop();
         }
         self.begin_wait();
-        let _cleanup = OnDrop::new(|| self.begin_wait());
+        let _cleanup = DropGuard::new((), |()| self.begin_wait());
         while !self.predicate(condition, false) {
             core::hint::spin_loop();
         }
@@ -727,7 +727,7 @@ impl<M: AsyncMode> Cmp<'_, M> {
             Timer::at(deadline).await;
         }
         self.begin_wait();
-        let _cleanup = OnDrop::new(|| self.begin_wait());
+        let _cleanup = DropGuard::new((), |()| self.begin_wait());
         self.info
             .wait_cell
             .wait_for(|| self.predicate(condition, true))

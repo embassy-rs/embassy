@@ -1,11 +1,11 @@
 use core::cmp;
 use core::future::poll_fn;
+use core::mem::DropGuard;
 use core::task::Poll;
 
 use config::{Address, OA2, OwnAddresses};
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::select::{Either, select};
-use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
 use mode::{Master, MultiMaster};
 use stm32_metapac::i2c::regs::Isr;
@@ -1158,7 +1158,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             w.set_errie(true);
             w.set_rxie(true);
         };
-        // The DMA transfer is done and its OnDrop has run, so no context expects these
+        // The DMA transfer is done and its DropGuard has run, so no context expects these
         // enabled anymore. Make sure they are off on every exit.
         let _irq = self.info.regs.cr1().enable_interrupts(arm);
 
@@ -1317,7 +1317,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         Ok(())
     }
 
-    /// What the DMA transfers' `OnDrop` does, minus the DMA enables: disarms the interrupt
+    /// What the DMA transfers' `DropGuard` does, minus the DMA enables: disarms the interrupt
     /// enables the transfer used and clears the error flags it may have left.
     fn finish_irq_transfer(regs: Regs) {
         let isr = regs.isr().read();
@@ -1383,7 +1383,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 .unchecked_extend_lifetime()
         };
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             let regs = self.info.regs;
             let isr = regs.isr().read();
             regs.cr1().modify(|w| {
@@ -1515,7 +1515,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 .unchecked_extend_lifetime()
         };
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             let regs = self.info.regs;
             let isr = regs.isr().read();
             regs.cr1().modify(|w| {
@@ -1597,7 +1597,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         timeout: Timeout,
     ) -> Result<(), Error> {
         let regs = self.info.regs;
-        let _on_drop = OnDrop::new(|| Self::finish_irq_transfer(regs));
+        let _on_drop = DropGuard::new((), |()| Self::finish_irq_transfer(regs));
 
         // Surface any error left over from a previous transfer before initiating.
         Self::error_flags(&regs.isr().read())?;
@@ -1642,7 +1642,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         timeout: Timeout,
     ) -> Result<(), Error> {
         let regs = self.info.regs;
-        let _on_drop = OnDrop::new(|| Self::finish_irq_transfer(regs));
+        let _on_drop = DropGuard::new((), |()| Self::finish_irq_transfer(regs));
 
         // Surface any error left over from a previous transfer before initiating.
         Self::error_flags(&regs.isr().read())?;
@@ -2002,7 +2002,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 .unchecked_extend_lifetime()
         };
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             let regs = self.info.regs;
             let isr = regs.isr().read();
             regs.cr1().modify(|w| {
@@ -2076,7 +2076,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         timeout: Timeout,
     ) -> Result<(), Error> {
         let regs = self.info.regs;
-        let _on_drop = OnDrop::new(|| Self::finish_irq_transfer(regs));
+        let _on_drop = DropGuard::new((), |()| Self::finish_irq_transfer(regs));
 
         // Surface any error left over from a previous transfer before initiating.
         Self::error_flags(&regs.isr().read())?;
@@ -2635,7 +2635,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 w.set_stopie(true);
                 w.set_addrie(true);
             });
-            let on_drop = OnDrop::new(|| {
+            let on_drop = DropGuard::new((), |()| {
                 regs.cr1().modify(|w| {
                     w.set_stopie(false);
                     w.set_addrie(false);
@@ -2696,7 +2696,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         let state = self.state;
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             regs.cr1().modify(|w| {
                 w.set_rxdmaen(false);
                 w.set_stopie(false);
@@ -2822,7 +2822,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 .unchecked_extend_lifetime()
         };
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             let regs = self.info.regs;
             regs.cr1().modify(|w| {
                 w.set_txdmaen(false);
@@ -2978,7 +2978,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     /// [`I2c::slave_read_internal`], with every wait on an interrupt.
     async fn read_irq_internal_slave(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
         let regs = self.info.regs;
-        let _on_drop = OnDrop::new(|| {
+        let _on_drop = DropGuard::new((), |()| {
             regs.cr1().modify(|w| {
                 w.set_rxie(false);
                 w.set_tcie(false);
@@ -3046,7 +3046,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     async fn write_irq_internal_slave(&mut self, buffer: &[u8], timeout: Timeout) -> Result<SendStatus, Error> {
         let regs = self.info.regs;
         let total_len = buffer.len();
-        let _on_drop = OnDrop::new(|| {
+        let _on_drop = DropGuard::new((), |()| {
             regs.cr1().modify(|w| {
                 w.set_txie(false);
                 w.set_tcie(false);

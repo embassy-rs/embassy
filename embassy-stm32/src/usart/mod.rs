@@ -4,13 +4,13 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::PeripheralType;
-use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{Phase, Polarity};
 
@@ -1113,7 +1113,7 @@ impl<'d> UartRx<'d, Async> {
         }
 
         // make sure USART state is restored to neutral state when this future is dropped
-        let on_drop = OnDrop::new(move || {
+        let on_drop = DropGuard::new((), move |()| {
             // clear all interrupts and DMA Rx Request
             r.cr1().clear_bits(|w| {
                 // disable RXNE interrupt

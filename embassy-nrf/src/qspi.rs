@@ -4,10 +4,10 @@
 
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::ptr;
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
@@ -248,7 +248,7 @@ impl<'d> Qspi<'d> {
 
     /// Do a custom QSPI instruction.
     pub async fn custom_instruction(&mut self, opcode: u8, req: &[u8], resp: &mut [u8]) -> Result<(), Error> {
-        let ondrop = OnDrop::new(Self::blocking_wait_ready);
+        let ondrop = DropGuard::new((), |()| Self::blocking_wait_ready());
 
         let len = core::cmp::max(req.len(), resp.len()) as u8;
         self.custom_instruction_start(opcode, req, len)?;
@@ -257,7 +257,7 @@ impl<'d> Qspi<'d> {
 
         self.custom_instruction_finish(resp)?;
 
-        ondrop.defuse();
+        DropGuard::dismiss(ondrop);
 
         Ok(())
     }
@@ -406,12 +406,12 @@ impl<'d> Qspi<'d> {
             return Ok(());
         }
 
-        let ondrop = OnDrop::new(Self::blocking_wait_ready);
+        let ondrop = DropGuard::new((), |()| Self::blocking_wait_ready());
 
         self.start_read(address, data)?;
         self.wait_ready().await;
 
-        ondrop.defuse();
+        DropGuard::dismiss(ondrop);
 
         Ok(())
     }
@@ -427,12 +427,12 @@ impl<'d> Qspi<'d> {
             return Ok(());
         }
 
-        let ondrop = OnDrop::new(Self::blocking_wait_ready);
+        let ondrop = DropGuard::new((), |()| Self::blocking_wait_ready());
 
         self.start_write(address, data)?;
         self.wait_ready().await;
 
-        ondrop.defuse();
+        DropGuard::dismiss(ondrop);
 
         Ok(())
     }
@@ -487,12 +487,12 @@ impl<'d> Qspi<'d> {
             return Err(Error::OutOfBounds);
         }
 
-        let ondrop = OnDrop::new(Self::blocking_wait_ready);
+        let ondrop = DropGuard::new((), |()| Self::blocking_wait_ready());
 
         self.start_erase(address)?;
         self.wait_ready().await;
 
-        ondrop.defuse();
+        DropGuard::dismiss(ondrop);
 
         Ok(())
     }

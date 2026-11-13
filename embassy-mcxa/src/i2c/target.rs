@@ -66,13 +66,13 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::ops::Range;
 use core::sync::atomic::{Ordering, fence};
 use core::task::Poll;
 
 use embassy_futures::select::select;
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPin};
 pub use crate::clocks::PoweredClock;
@@ -1248,7 +1248,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         let mut count = 0;
 
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs().sder().modify(|w| w.set_tdde(false));
         });
 
@@ -1259,7 +1259,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             match self.write_dma_chunk(chunk).await? {
                 TxChunkOutcome::Stopped(n) => {
                     count += n;
-                    on_drop.defuse();
+                    DropGuard::dismiss(on_drop);
                     return Ok(if is_last && count == total {
                         ReadStatus::Complete(count)
                     } else {
@@ -1268,7 +1268,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                 }
                 TxChunkOutcome::Restarted(n) => {
                     count += n;
-                    on_drop.defuse();
+                    DropGuard::dismiss(on_drop);
                     return Ok(if is_last && count == total {
                         ReadStatus::Complete(count)
                     } else {
@@ -1278,7 +1278,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                 TxChunkOutcome::NeedMore(n) => {
                     count += n;
                     if is_last {
-                        on_drop.defuse();
+                        DropGuard::dismiss(on_drop);
                         return Ok(ReadStatus::NeedMore(count));
                     }
                     // Non-last chunk completed normally: proceed to next
@@ -1289,7 +1289,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         }
 
         // Reached only when buf was empty.
-        on_drop.defuse();
+        DropGuard::dismiss(on_drop);
         Ok(ReadStatus::NeedMore(count))
     }
 
@@ -1299,7 +1299,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         self.clear_status();
 
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs().sder().modify(|w| w.set_rdde(false));
         });
 
@@ -1310,18 +1310,18 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             match self.read_dma_chunk(chunk).await? {
                 RxChunkOutcome::Stopped(n) => {
                     count += n;
-                    on_drop.defuse();
+                    DropGuard::dismiss(on_drop);
                     return Ok(WriteStatus::Stopped(count));
                 }
                 RxChunkOutcome::Restarted(n) => {
                     count += n;
-                    on_drop.defuse();
+                    DropGuard::dismiss(on_drop);
                     return Ok(WriteStatus::Restarted(count));
                 }
                 RxChunkOutcome::Filled(n) => {
                     count += n;
                     if is_last {
-                        on_drop.defuse();
+                        DropGuard::dismiss(on_drop);
                         return Ok(WriteStatus::BufferFull(count));
                     }
                     // Non-last chunk filled: proceed to next chunk.
@@ -1330,7 +1330,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         }
 
         // Reached only when buf was empty.
-        on_drop.defuse();
+        DropGuard::dismiss(on_drop);
         let _ = total;
         Ok(WriteStatus::BufferFull(count))
     }

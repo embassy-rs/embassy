@@ -1,5 +1,5 @@
 [toolchain]
-channel = "1.97"
+channel = "1.100"
 components = [ "rust-src", "rustfmt", "llvm-tools", "rust-analyzer" ]
 targets = [
     "thumbv7em-none-eabi",

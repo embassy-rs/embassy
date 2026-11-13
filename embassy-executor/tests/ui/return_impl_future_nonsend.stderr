@@ -13,5 +13,7 @@ note: captured value is not `Send`
 note: required by a bound in `SendSpawner::spawn`
   --> src/spawner.rs
    |
+   | impl SendSpawner {
+...
    |     pub fn spawn<S: Send>(&self, token: SpawnToken<S>) {
    |                     ^^^^ required by this bound in `SendSpawner::spawn`

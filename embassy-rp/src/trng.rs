@@ -2,10 +2,10 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::ops::Not;
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -367,7 +367,7 @@ impl<'d> Trng<'d, Async> {
 
         // Stop the block and the interrupt on completion and on cancellation.
         let info = self.info;
-        let _guard = OnDrop::new(move || {
+        let _guard = DropGuard::new((), move |()| {
             let regs = info.regs;
             regs.rnd_source_enable().write(|w| w.set_rnd_src_en(false));
             regs.rst_bits_counter().write(|w| w.set_rst_bits_counter(true));

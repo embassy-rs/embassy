@@ -146,64 +146,109 @@ impl_digest!(
     /// MD5.
     ///
     /// Broken as a cryptographic hash; provided for legacy protocols only.
-    Md5, Md5Impl, Md5ImplContext, 16
+    Md5,
+    Md5Impl,
+    Md5ImplContext,
+    16
 );
 impl_digest!(
     /// SHA-1.
     ///
     /// Collision-broken; provided for legacy protocols (HMAC-SHA-1 remains sound).
-    Sha1, Sha1Impl, Sha1ImplContext, 20
+    Sha1,
+    Sha1Impl,
+    Sha1ImplContext,
+    20
 );
 impl_digest!(
     /// SHA-224.
-    Sha224, Sha224Impl, Sha224ImplContext, 28
+    Sha224,
+    Sha224Impl,
+    Sha224ImplContext,
+    28
 );
 impl_digest!(
     /// SHA-256.
-    Sha256, Sha256Impl, Sha256ImplContext, 32
+    Sha256,
+    Sha256Impl,
+    Sha256ImplContext,
+    32
 );
 impl_digest!(
     /// SHA-384.
-    Sha384, Sha384Impl, Sha384ImplContext, 48
+    Sha384,
+    Sha384Impl,
+    Sha384ImplContext,
+    48
 );
 impl_digest!(
     /// SHA-512/224.
-    Sha512_224, Sha512_224Impl, Sha512_224ImplContext, 28
+    Sha512_224,
+    Sha512_224Impl,
+    Sha512_224ImplContext,
+    28
 );
 impl_digest!(
     /// SHA-512/256.
-    Sha512_256, Sha512_256Impl, Sha512_256ImplContext, 32
+    Sha512_256,
+    Sha512_256Impl,
+    Sha512_256ImplContext,
+    32
 );
 impl_digest!(
     /// SHA-512.
-    Sha512, Sha512Impl, Sha512ImplContext, 64
+    Sha512,
+    Sha512Impl,
+    Sha512ImplContext,
+    64
 );
 
 impl_hmac!(
     /// HMAC-SHA-1.
-    HmacSha1, HmacSha1Impl, HmacSha1ImplContext, 20
+    HmacSha1,
+    HmacSha1Impl,
+    HmacSha1ImplContext,
+    20
 );
 impl_hmac!(
     /// HMAC-SHA-224.
-    HmacSha224, HmacSha224Impl, HmacSha224ImplContext, 28
+    HmacSha224,
+    HmacSha224Impl,
+    HmacSha224ImplContext,
+    28
 );
 impl_hmac!(
     /// HMAC-SHA-256.
-    HmacSha256, HmacSha256Impl, HmacSha256ImplContext, 32
+    HmacSha256,
+    HmacSha256Impl,
+    HmacSha256ImplContext,
+    32
 );
 impl_hmac!(
     /// HMAC-SHA-384.
-    HmacSha384, HmacSha384Impl, HmacSha384ImplContext, 48
+    HmacSha384,
+    HmacSha384Impl,
+    HmacSha384ImplContext,
+    48
 );
 impl_hmac!(
     /// HMAC-SHA-512/224.
-    HmacSha512_224, HmacSha512_224Impl, HmacSha512_224ImplContext, 28
+    HmacSha512_224,
+    HmacSha512_224Impl,
+    HmacSha512_224ImplContext,
+    28
 );
 impl_hmac!(
     /// HMAC-SHA-512/256.
-    HmacSha512_256, HmacSha512_256Impl, HmacSha512_256ImplContext, 32
+    HmacSha512_256,
+    HmacSha512_256Impl,
+    HmacSha512_256ImplContext,
+    32
 );
 impl_hmac!(
     /// HMAC-SHA-512.
-    HmacSha512, HmacSha512Impl, HmacSha512ImplContext, 64
+    HmacSha512,
+    HmacSha512Impl,
+    HmacSha512ImplContext,
+    64
 );

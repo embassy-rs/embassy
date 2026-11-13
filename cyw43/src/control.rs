@@ -1,5 +1,6 @@
 use core::cmp::{max, min};
 use core::iter::zip;
+use core::mem::DropGuard;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::Relaxed;
 
@@ -758,23 +759,9 @@ impl<'a> Control<'a> {
     }
 
     async fn ioctl_inner(&mut self, kind: IoctlType, cmd: Ioctl, iface: u32, buf: &mut [u8]) -> usize {
-        struct CancelOnDrop<'a>(&'a IoctlState);
-
-        impl CancelOnDrop<'_> {
-            fn defuse(self) {
-                core::mem::forget(self);
-            }
-        }
-
-        impl Drop for CancelOnDrop<'_> {
-            fn drop(&mut self) {
-                self.0.cancel_ioctl();
-            }
-        }
-
-        let ioctl = CancelOnDrop(self.ioctl_state);
-        let resp_len = ioctl.0.do_ioctl(kind, cmd, iface, buf).await;
-        ioctl.defuse();
+        let ioctl = DropGuard::new(self.ioctl_state, |s| s.cancel_ioctl());
+        let resp_len = ioctl.do_ioctl(kind, cmd, iface, buf).await;
+        DropGuard::dismiss(ioctl);
 
         resp_len
     }

@@ -6,7 +6,7 @@
 mod fmt;
 
 use core::convert::Infallible;
-use core::mem::MaybeUninit;
+use core::mem::DropGuard;
 
 use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
@@ -77,7 +77,7 @@ impl<'d> Runner<'d> {
 
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.borrow_split();
         state_chan.set_link_state(LinkState::Down);
-        let _ondrop = OnDrop::new(|| state_chan.set_link_state(LinkState::Down));
+        let _ondrop = DropGuard::new((), |()| state_chan.set_link_state(LinkState::Down));
 
         let mut rx_buf = [0; 2048];
         let mut tx_buf = [0; 2048];
@@ -164,20 +164,4 @@ impl<'d> Runner<'d> {
 pub fn new<'a, const N_RX: usize, const N_TX: usize>(state: &'a mut State<N_RX, N_TX>) -> (Device<'a>, Runner<'a>) {
     let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ip, MTU);
     (device, Runner { ch: runner })
-}
-
-struct OnDrop<F: FnOnce()> {
-    f: MaybeUninit<F>,
-}
-
-impl<F: FnOnce()> OnDrop<F> {
-    fn new(f: F) -> Self {
-        Self { f: MaybeUninit::new(f) }
-    }
-}
-
-impl<F: FnOnce()> Drop for OnDrop<F> {
-    fn drop(&mut self) {
-        unsafe { self.f.as_ptr().read()() }
-    }
 }

@@ -3,9 +3,9 @@
 //! I2C driver.
 use core::future;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
@@ -295,7 +295,7 @@ impl<'d> I2c<'d, Async> {
         let mut abort_reason = Ok(());
 
         // Cancel-safety
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             // Abort
             p.ic_enable().write(|w| {
                 w.set_abort(true);
@@ -371,7 +371,7 @@ impl<'d> I2c<'d, Async> {
         }
 
         let res = self.wait_stop_det(abort_reason, send_stop).await;
-        on_drop.defuse();
+        DropGuard::dismiss(on_drop);
         res
     }
 
@@ -392,7 +392,7 @@ impl<'d> I2c<'d, Async> {
         }
 
         // Cancel-safety
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             // Abort
             p.ic_enable().write(|w| {
                 w.set_abort(true);
@@ -448,7 +448,7 @@ impl<'d> I2c<'d, Async> {
         };
 
         let res = self.wait_stop_det(res, send_stop).await;
-        on_drop.defuse();
+        DropGuard::dismiss(on_drop);
         res
     }
 
@@ -774,7 +774,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             // Cancel safety. The closure can't borrow the `Flex`es while the code below uses them,
             // so it works on the pin numbers.
             let (scl, sda) = (self.scl.pin_number(), self.sda.pin_number());
-            let on_drop = OnDrop::new(move || {
+            let on_drop = DropGuard::new((), move |()| {
                 // Set back to i2c mode
                 scl.gpio().ctrl().modify(|w| w.set_funcsel(I2C_FUNCSEL));
                 sda.gpio().ctrl().modify(|w| w.set_funcsel(I2C_FUNCSEL));

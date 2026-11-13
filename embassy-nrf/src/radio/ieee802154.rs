@@ -1,10 +1,9 @@
 //! IEEE 802.15.4 radio driver
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
-
-use embassy_hal_internal::drop::OnDrop;
 
 use super::{Error, InterruptHandler, TxPower};
 use crate::Peri;
@@ -322,7 +321,7 @@ impl<'d> Radio<'d> {
         // Start the read
         self.receive_start(packet);
 
-        let dropper = OnDrop::new(|| Self::receive_cancel());
+        let dropper = DropGuard::new((), |()| Self::receive_cancel());
 
         self.clear_all_interrupts();
         // wait until we have received something
@@ -342,7 +341,7 @@ impl<'d> Radio<'d> {
         .await;
 
         dma_end_fence();
-        dropper.defuse();
+        DropGuard::dismiss(dropper);
 
         let crc = r.rxcrc().read().rxcrc() as u16;
         if r.crcstatus().read().crcstatus() == vals::Crcstatus::CrcOk {

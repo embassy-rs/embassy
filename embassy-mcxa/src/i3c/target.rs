@@ -2,6 +2,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::num::NonZeroU32;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU8, AtomicU32, AtomicUsize, Ordering, fence};
@@ -13,7 +14,6 @@ use bbqueue::traits::coordination::cas::AtomicCoord;
 use bbqueue::traits::notifier::maitake::MaiNotSpsc;
 use bbqueue::traits::storage::Storage;
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 use grounded::uninit::GroundedCell;
 
 use super::{DeviceCharacteristics, Info, Instance, SclPin, SdaPin};
@@ -877,7 +877,7 @@ impl<'d> I3c<'d> {
 
         // Ensure EVENT is restored to NormalMode if the future is cancelled.
         let info = self.info;
-        let _on_drop = OnDrop::new(|| {
+        let _on_drop = DropGuard::new((), |()| {
             info.regs().sctrl().modify(|w| w.set_event(SctrlEvent::NormalMode));
         });
 
@@ -912,7 +912,7 @@ impl<'d> I3c<'d> {
         // address ACK).
         self.info.regs().sctrl().modify(|w| w.set_event(SctrlEvent::NormalMode));
 
-        _on_drop.defuse();
+        DropGuard::dismiss(_on_drop);
 
         self.check_status()?;
 
@@ -1176,7 +1176,7 @@ impl<'d> I3c<'d> {
     async fn dma_tx_run(&mut self, buf: &[u8]) -> Result<usize, IOError> {
         let (last, rest) = buf.split_last().ok_or(IOError::Other)?;
         let regs_ptr = self.info.regs();
-        let _drop = OnDrop::new(|| {
+        let _drop = DropGuard::new((), |()| {
             regs_ptr.sdmactrl().modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
         });
 
@@ -1208,7 +1208,7 @@ impl<'d> I3c<'d> {
         self.wait_tx_space().await?;
         self.info.regs().swdatabe().write(|w| w.set_data(*last));
 
-        _drop.defuse();
+        DropGuard::dismiss(_drop);
         Ok(rest.len())
     }
 
@@ -1401,7 +1401,7 @@ impl<'d> I3c<'d> {
             if status.stop() {
                 self.info.regs().sstatus().write(|w| w.set_stop(true));
                 // Disable TX-ready on end-of-chain. Defensive: the
-                // `async_respond_to_read` OnDrop normally handles this, but if
+                // `async_respond_to_read` DropGuard normally handles this, but if
                 // the read never started (e.g. controller aborted) leaving it
                 // armed would IRQ-storm.
                 self.info.regs().sintclr().write(|w| w.set_txsend(true));

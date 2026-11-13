@@ -4,10 +4,10 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -207,7 +207,7 @@ impl<'d> Pdm<'d> {
         }
 
         let r = self.r;
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             r.intenclr().write(|w| w.set_end(true));
             r.events_stopped().write_value(0);
 
@@ -237,7 +237,7 @@ impl<'d> Pdm<'d> {
         // wait till the user buffer is sampled
         self.wait_for_sample().await;
 
-        drop.defuse();
+        DropGuard::dismiss(drop);
 
         Ok(())
     }
@@ -309,7 +309,7 @@ impl<'d> Pdm<'d> {
         let mut done = false;
 
         let r = self.r;
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             r.tasks_stop().write_value(1);
             // N.B. It would be better if this were async, but Drop only support sync code
             while r.events_stopped().read() != 0 {}
@@ -354,7 +354,7 @@ impl<'d> Pdm<'d> {
             Poll::Pending
         })
         .await;
-        drop.defuse();
+        DropGuard::dismiss(drop);
         Ok(())
     }
 }

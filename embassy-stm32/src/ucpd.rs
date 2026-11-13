@@ -16,12 +16,12 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
-use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::atomic::{AtomicClear, AtomicModify};
@@ -429,7 +429,7 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     /// can't miss a change. The returned state can be equal to the one seen before, for example
     /// if the line changed and changed back.
     pub async fn wait_for_vstate_change(&mut self) -> (CcVState, CcVState) {
-        let _on_drop = OnDrop::new(|| self.enable_cc_interrupts(false));
+        let _on_drop = DropGuard::new((), |()| self.enable_cc_interrupts(false));
         poll_fn(|cx| {
             let sr = T::REGS.sr().read();
             if sr.typecevt1() || sr.typecevt2() {
@@ -551,7 +551,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 .read(r.rxdr().as_ptr() as *mut u8, buf, TransferOptions::default())
         };
 
-        let _on_drop = OnDrop::new(|| {
+        let _on_drop = DropGuard::new((), |()| {
             Self::enable_rx_interrupt(false);
             // Clear interrupt flags
             r.icr().write(|w| {
@@ -667,7 +667,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     }
 
     async fn wait_tx_done() -> Result<(), TxError> {
-        let _on_drop = OnDrop::new(|| Self::enable_tx_interrupts(false));
+        let _on_drop = DropGuard::new((), |()| Self::enable_tx_interrupts(false));
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();
@@ -716,7 +716,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             w.set_txhrst(true);
         });
 
-        let _on_drop = OnDrop::new(|| self.enable_hardreset_interrupts(false));
+        let _on_drop = DropGuard::new((), |()| self.enable_hardreset_interrupts(false));
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();

@@ -4,6 +4,7 @@ error[E0271]: type mismatch resolving `<() as _EmbassyInternalTaskTrait>::Fut ==
 3 | #[embassy_executor::task]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^
   | |
+  | `impl Send` returned here
   | types differ
   | type mismatch resolving `<() as _EmbassyInternalTaskTrait>::Fut == impl Send`
   |

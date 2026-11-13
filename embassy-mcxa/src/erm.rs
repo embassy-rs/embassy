@@ -6,9 +6,9 @@
 //! report samples multiple registers and is not an atomic snapshot.
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 use maitake_sync::WaitCell;
 
 use crate::clocks::periph_helpers::NoConfig;
@@ -279,7 +279,7 @@ impl<'d> Erm<'d, Async> {
     /// is not. Completion, cancellation, and errors mask all owned notification
     /// sources and preserve flags, SRAM attributes, and the corrected count.
     pub async fn wait_report(&mut self, events: Events) -> Result<Report, WaitError> {
-        let on_drop = OnDrop::new(|| self.info.mask_interrupts());
+        let on_drop = DropGuard::new((), |()| self.info.mask_interrupts());
         let mut report = None;
         self.info
             .wait_cell
@@ -291,7 +291,7 @@ impl<'d> Erm<'d, Async> {
             .await
             .map_err(|_| WaitError::WaitClosed)?;
         self.info.mask_interrupts();
-        on_drop.defuse();
+        DropGuard::dismiss(on_drop);
         // The predicate returns true only after storing a matching snapshot.
         Ok(report.unwrap())
     }

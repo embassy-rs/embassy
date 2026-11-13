@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![macro_use]
 
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;

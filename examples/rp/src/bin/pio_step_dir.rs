@@ -4,8 +4,6 @@
 #![no_std]
 #![no_main]
 
-use core::u32;
-
 use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;

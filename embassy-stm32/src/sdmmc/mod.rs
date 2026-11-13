@@ -4,13 +4,13 @@
 use core::default::Default;
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::slice;
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 use core::task::Poll;
 
 use ::sdio::{MmcBus, MmcError};
 use aligned::{A4, Aligned};
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -1658,7 +1658,7 @@ impl<'d> MmcBus for Sdmmc<'d> {
             return Ok(());
         }
 
-        let _guard = OnDrop::new(|| {
+        let _guard = DropGuard::new((), |()| {
             self.info.regs.dctrl().modify(|w| w.set_sdioen(false));
             self.info.regs.maskr().clear_bits(|w| w.set_sdioitie(false));
         });

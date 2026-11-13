@@ -38,12 +38,12 @@ mod mailbox;
 mod timing;
 
 use core::cell::Cell;
+use core::mem::DropGuard;
 use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 pub use asynchronous::{Async, InterruptHandler, RxQueue};
 pub use blocking::{Blocking, WithTimeout};
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, SendDynamicSender};
@@ -717,7 +717,7 @@ fn init<'d, T: Instance>(
     tx.as_tx();
     let rx: Peri<'_, AnyPin> = rx.into();
     let tx: Peri<'_, AnyPin> = tx.into();
-    let pin_rollback = OnDrop::new(|| {
+    let pin_rollback = DropGuard::new((), |()| {
         use crate::gpio::SealedPin;
 
         rx.set_as_disabled();
@@ -737,7 +737,7 @@ fn init<'d, T: Instance>(
     let parts = unsafe { enable_and_reset::<T>(&clock_cfg).map_err(InitError::ClockSetup)? };
     let src_clk_hz = parts.freq;
     let _wake_guard = parts.wake_guard;
-    let peripheral_rollback = OnDrop::new(|| match info.disable_peripheral() {
+    let peripheral_rollback = DropGuard::new((), |()| match info.disable_peripheral() {
         Ok(()) => (),
         Err(_err) => {
             #[cfg(feature = "defmt")]
@@ -804,8 +804,8 @@ fn init<'d, T: Instance>(
         .set(FlexCanPins::new(*tx, *rx))
         .map_err(|_| InitError::ReconstructionError)?;
 
-    peripheral_rollback.defuse();
-    pin_rollback.defuse();
+    DropGuard::dismiss(peripheral_rollback);
+    DropGuard::dismiss(pin_rollback);
     Ok((info, rx, tx, _wake_guard))
 }
 
