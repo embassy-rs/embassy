@@ -775,6 +775,36 @@ mod tests {
     }
 
     #[test]
+    fn dma_index_as_index_returns_index_mod_cap_by_default() {
+        let index = DmaIndex::default();
+        assert_eq!(index.as_index(CAP, 0), 0);
+        assert_eq!(index.as_index(CAP, 1), 1);
+        assert_eq!(index.as_index(CAP, 2), 2);
+        assert_eq!(index.as_index(CAP, 3), 3);
+        assert_eq!(index.as_index(CAP, 4), 4);
+        assert_eq!(index.as_index(CAP, CAP), 0);
+        assert_eq!(index.as_index(CAP, CAP + 1), 1);
+    }
+
+    #[test]
+    fn dma_index_advancing_increases_as_index() {
+        let mut index = DmaIndex::default();
+        assert_eq!(index.as_index(CAP, 0), 0);
+        index.advance(CAP, 1);
+        assert_eq!(index.as_index(CAP, 0), 1);
+        index.advance(CAP, 1);
+        assert_eq!(index.as_index(CAP, 0), 2);
+        index.advance(CAP, 1);
+        assert_eq!(index.as_index(CAP, 0), 3);
+        index.advance(CAP, 1);
+        assert_eq!(index.as_index(CAP, 0), 4);
+        index.advance(CAP, CAP - 4);
+        assert_eq!(index.as_index(CAP, 0), 0);
+        index.advance(CAP, 1);
+        assert_eq!(index.as_index(CAP, 0), 1);
+    }
+
+    #[test]
     fn read_partial() {
         let mut t = Reader::new();
         assert_eq!(t.read(3), Ok((vec![], 0)));
