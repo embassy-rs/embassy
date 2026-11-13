@@ -21,6 +21,7 @@ mod mcxa5xx_exclusive {
     pub use crate::chips::mcxa5xx::init;
 }
 
+#[cfg(any(feature = "_mcxa2xx", feature = "_mcxa5xx"))]
 pub mod rom;
 pub mod trace;
 
@@ -32,7 +33,7 @@ pub mod aoi;
 pub mod cdog;
 #[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
 pub mod clkout; // TODO: Add dummy driver to metadata
-#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
+#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx, feature = "_mcxn"))]
 pub mod clocks;
 #[cfg(mcxa_cmp)]
 pub mod cmp;
@@ -61,7 +62,7 @@ pub mod freqme;
 pub mod gdet;
 #[cfg(mcxa_glikey)]
 pub mod glikey;
-#[cfg(mcxa_gpio)]
+#[cfg(any(mcxa_gpio, mcx_n_gpio))]
 pub mod gpio;
 #[cfg(mcxa_lpi2c)]
 pub mod i2c;
@@ -75,7 +76,7 @@ pub mod lptmr;
 pub mod lpuart;
 #[cfg(mcxa_mbc)]
 pub mod mbc;
-#[cfg(all(mcxa_ostimer, time_driver_ostimer))]
+#[cfg(all(any(mcxa_ostimer, mcx_n_ostimer), time_driver_ostimer))]
 pub mod ostimer;
 pub mod perf_counters;
 #[cfg(mcxa_cmc)]
@@ -95,6 +96,8 @@ pub mod trng;
 #[cfg(mcxa_wwdt)]
 pub mod wwdt;
 
+#[cfg(feature = "_mcxn")]
+pub use chips::mcxn::init;
 #[cfg(feature = "_mcxa2xx")]
 pub use mcxa2xx_exclusive::*;
 #[cfg(feature = "_mcxa5xx")]
@@ -134,7 +137,9 @@ pub(crate) fn init_time_driver(priority: interrupt::Priority) {
     let _ = priority;
 }
 
-const HALS_SELECTED: usize = const { cfg!(feature = "_mcxa2xx") as usize + cfg!(feature = "_mcxa5xx") as usize };
+const HALS_SELECTED: usize = const {
+    cfg!(feature = "_mcxa2xx") as usize + cfg!(feature = "_mcxa5xx") as usize + cfg!(feature = "_mcxn") as usize
+};
 
 /// Ensure exactly one chip feature is set.
 #[doc(hidden)]

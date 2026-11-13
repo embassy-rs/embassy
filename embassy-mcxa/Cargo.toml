@@ -56,6 +56,20 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa266", "time-driver-lptmr"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa287", "time-driver-lptmr"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mcxa577", "time-driver-lptmr"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn235"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn236"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn246"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn247"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn526"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn527"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn536"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn537"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn546"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn547"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn556"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn557"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn946"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "unstable-pac", "mcxn947"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -84,6 +98,20 @@ flavors = [
     { name = "mcx-a566", target = "thumbv8m.main-none-eabihf", features = ["mcxa566"] },
     { name = "mcx-a567", target = "thumbv8m.main-none-eabihf", features = ["mcxa567"] },
     { name = "mcx-a577", target = "thumbv8m.main-none-eabihf", features = ["mcxa577"] },
+    { name = "mcx-n235", target = "thumbv8m.main-none-eabihf", features = ["mcxn235"] },
+    { name = "mcx-n236", target = "thumbv8m.main-none-eabihf", features = ["mcxn236"] },
+    { name = "mcx-n246", target = "thumbv8m.main-none-eabihf", features = ["mcxn246"] },
+    { name = "mcx-n247", target = "thumbv8m.main-none-eabihf", features = ["mcxn247"] },
+    { name = "mcx-n526", target = "thumbv8m.main-none-eabihf", features = ["mcxn526"] },
+    { name = "mcx-n527", target = "thumbv8m.main-none-eabihf", features = ["mcxn527"] },
+    { name = "mcx-n536", target = "thumbv8m.main-none-eabihf", features = ["mcxn536"] },
+    { name = "mcx-n537", target = "thumbv8m.main-none-eabihf", features = ["mcxn537"] },
+    { name = "mcx-n546", target = "thumbv8m.main-none-eabihf", features = ["mcxn546"] },
+    { name = "mcx-n547", target = "thumbv8m.main-none-eabihf", features = ["mcxn547"] },
+    { name = "mcx-n556", target = "thumbv8m.main-none-eabihf", features = ["mcxn556"] },
+    { name = "mcx-n557", target = "thumbv8m.main-none-eabihf", features = ["mcxn557"] },
+    { name = "mcx-n946", target = "thumbv8m.main-none-eabihf", features = ["mcxn946"] },
+    { name = "mcx-n947", target = "thumbv8m.main-none-eabihf", features = ["mcxn947"] },
 ]
 
 [dependencies]
@@ -118,13 +146,13 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "b4e880f34880072cf38271ffa0942715efa99ec7", features = ["rt"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "470a5aa3645e2d5a1e455a9d6462c070ed3b7779", features = ["rt"] }
 paste = "1.0.15"
 
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 [build-dependencies]
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "b4e880f34880072cf38271ffa0942715efa99ec7", default-features = false, features = ["metadata"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "470a5aa3645e2d5a1e455a9d6462c070ed3b7779", default-features = false, features = ["metadata"] }
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 convert_case = "0.12"
@@ -156,6 +184,7 @@ unstable-pac = []
 #
 # DISABLING this allows for use of SOSC, but reserves the GPIO pins required.
 # ENABLING this means SOSC cannot be set/configured, but makes the GPIO pins available
+# MCXA only: initial MCXN support does not reclaim oscillator pins for GPIO.
 sosc-as-gpio = []
 
 # Allows for using the ROSC (32k external clock) pins as normal GPIOs.
@@ -164,6 +193,7 @@ sosc-as-gpio = []
 # ENABLING this means the 32k clock cannot be set/configured, but makes the GPIO pins available
 #
 # NOTE: Only applicable to MCXA5xx.
+# No oscillator-pin reclamation is implemented on MCXN.
 rosc-32k-as-gpio = []
 
 # Allows for using SWDIO and SWCLK pins as normal GPIOs.
@@ -175,6 +205,7 @@ rosc-32k-as-gpio = []
 # in the HAL init function.
 #
 # This does NOT include the SWO pin.
+# MCXA only: on MCXN this does not change debug-pin modes or add GPIO support.
 swd-as-gpio = []
 
 # Allows for using the SWD SWO pins as a normal GPIO. This is not used for
@@ -182,12 +213,14 @@ swd-as-gpio = []
 #
 # If this feature is enabled, the relevant pin(s) will be set to floating inputs
 # in the HAL init function.
+# MCXA only: on MCXN this default feature does not reclaim the SWO pin.
 swd-swo-as-gpio = []
 
 # Allows for using the extra JTAG pins (TDI, ISPMODE_N) as normal GPIOs. You
 # must also select `swd-as-gpio`, `swd-swo-as-gpio`, and MAYBE `dangerous-reset-as-gpio`
 # to recover all JTAG pins. These are called "extras" because they aren't also used
 # for normal SWD/SWO.
+# MCXA only: initial MCXN support does not reclaim JTAG/ISP pins for GPIO.
 jtag-extras-as-gpio = []
 
 # Allows for using the reset pin as a normal GPIO.
@@ -195,6 +228,7 @@ jtag-extras-as-gpio = []
 # This is NOT recommended, and we have not currently tested whether it remains
 # possible to reset the device and reflash using probe-rs after enabling this
 # feature. Use at your own risk!
+# MCXA only: on MCXN this does not change reset-pin mode or add GPIO support.
 dangerous-reset-as-gpio = []
 
 # Unmasks DMA IPD_REQ hardware lines in AHBSC during init. (only on MCXA5xx)
@@ -204,9 +238,7 @@ dangerous-reset-as-gpio = []
 # This can either be another (trustzone secure) binary or from IFR0 CFPA Trustzone presets.
 dma-ipd-req = []
 
-# dummy feature to silence embassy-hal-internal lint
-#
-# This feature makes no change to embassy-mcxa's operation.
+## Runtime integration marker for embassy-hal-internal.
 rt = []
 
 # Enable perf counters
@@ -226,6 +258,22 @@ unstable-osc32k = []
 #
 # Chip selection
 #
+# Numeric chip selections share the PAC's matching S/T register maps.
+mcxn235 = ["_mcxn23x", "nxp-pac/mcxn235"]
+mcxn236 = ["_mcxn23x", "nxp-pac/mcxn236"]
+mcxn246 = ["_mcxn2xx", "nxp-pac/mcxn246"]
+mcxn247 = ["_mcxn2xx", "nxp-pac/mcxn247"]
+mcxn526 = ["_mcxn5xx", "nxp-pac/mcxn526"]
+mcxn527 = ["_mcxn5xx", "nxp-pac/mcxn527"]
+mcxn536 = ["_mcxn5xx", "nxp-pac/mcxn536"]
+mcxn537 = ["_mcxn5xx", "nxp-pac/mcxn537"]
+mcxn546 = ["_mcxn5xx", "nxp-pac/mcxn546"]
+mcxn547 = ["_mcxn5xx", "nxp-pac/mcxn547"]
+mcxn556 = ["_mcxn5xx", "nxp-pac/mcxn556"]
+mcxn557 = ["_mcxn5xx", "nxp-pac/mcxn557"]
+mcxn946 = ["_mcxn9xx", "nxp-pac/mcxn946"]
+mcxn947 = ["_mcxn9xx", "nxp-pac/mcxn947"]
+
 mcxa175 = ["_mcxa2xx", "nxp-pac/mcxa175"]
 mcxa176 = ["_mcxa2xx", "nxp-pac/mcxa176"]
 mcxa185 = ["_mcxa2xx", "nxp-pac/mcxa185"]
@@ -253,6 +301,11 @@ mcxa5xx = ["mcxa577"]
 
 _mcxa2xx = []
 _mcxa5xx = []
+_mcxn = []
+_mcxn2xx = ["_mcxn"]
+_mcxn23x = ["_mcxn2xx"]
+_mcxn5xx = ["_mcxn"]
+_mcxn9xx = ["_mcxn"]
 
 [dev-dependencies]
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"] }
