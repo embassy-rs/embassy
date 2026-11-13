@@ -184,6 +184,47 @@ pub(super) fn banks_swapped() -> bool {
     return false;
 }
 
+/// Swap flash banks 1 and 2 and reset into the swapped banks.
+///
+/// `SWAP_BANK` is loaded with `OBL_LAUNCH`, which resets the chip. Returns only if programming
+/// the option bytes failed (`OPTWERR`).
+///
+/// PLEASE READ THE REFERENCE MANUAL - there are nuances to this feature.
+#[cfg(all(flash_dual_bank, flash_v4_u5))]
+pub fn perform_bank_swap() -> Result<core::convert::Infallible, Error> {
+    const OPTKEY1: u32 = 0x0819_2A3B;
+    const OPTKEY2: u32 = 0x4C5D_6E7F;
+
+    wait_idle();
+    let _ = finish();
+
+    // Writing a key to an unlocked register locks it until reset.
+    unsafe { unlock() };
+    if pac::FLASH.nscr().read().optlock() {
+        pac::FLASH.optkeyr().write_value(OPTKEY1);
+        pac::FLASH.optkeyr().write_value(OPTKEY2);
+    }
+
+    let swapped = banks_swapped();
+    pac::FLASH.optr().modify(|w| w.set_swap_bank(!swapped));
+    pac::FLASH.nscr().modify(|w| w.set_optstrt(true));
+    wait_idle();
+
+    let sr = pac::FLASH.nssr().read();
+    if sr.optwerr() {
+        pac::FLASH.nssr().write_value(sr);
+        pac::FLASH.nscr().modify(|w| w.set_optlock(true));
+        unsafe { lock() };
+        return Err(Error::Hardware);
+    }
+
+    // OBL_LAUNCH is ignored unless both LOCK and OPTLOCK are clear.
+    pac::FLASH.nscr().modify(|w| w.set_obl_launch(true));
+    loop {
+        cortex_m::asm::nop();
+    }
+}
+
 #[cfg(bank_setup_configurable)]
 pub(super) fn dual_bank_mode() -> bool {
     let optr = pac::FLASH.optr().read();
