@@ -432,13 +432,22 @@ fn active_endpoints(config_descriptor: &[u8], interface: InterfaceNumber, alt_se
 /// Going through every descriptor of the interface (rather than deciding per descriptor
 /// from its own alternate setting) keeps shared endpoints enabled when a different
 /// alternate setting that also references them is selected.
-fn set_interface_endpoints(config_descriptor: &[u8], bus: &mut impl Bus, interface: InterfaceNumber, active: u32) {
+async fn set_interface_endpoints(
+    config_descriptor: &[u8],
+    bus: &mut impl Bus,
+    interface: InterfaceNumber,
+    active: u32,
+) {
+    let mut eps = heapless::Vec::<(EndpointAddress, bool), 32>::new();
     foreach_endpoint(config_descriptor, |ep| {
         if ep.interface == interface {
-            bus.endpoint_set_enabled(ep.ep_address, active & endpoint_bit(ep.ep_address) != 0);
+            let _ = eps.push((ep.ep_address, active & endpoint_bit(ep.ep_address) != 0));
         }
     })
     .unwrap();
+    for (ep_addr, enabled) in eps {
+        bus.endpoint_set_enabled(ep_addr, enabled).await;
+    }
 }
 
 /// Address of the endpoint selected by bit `n` of an [`endpoint_bit`] mask.
@@ -568,7 +577,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             resp_length = max_packet_size;
         }
 
-        match self.inner.handle_control_in(req, self.control_buf) {
+        match self.inner.handle_control_in(req, self.control_buf).await {
             InResponse::Accepted(data) => {
                 let len = data.len().min(resp_length);
                 let needs_zlp = len != resp_length && (len % max_packet_size) == 0;
@@ -612,7 +621,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         #[cfg(not(feature = "defmt"))]
         trace!("  control out data: {:02x?}", data);
 
-        match self.inner.handle_control_out(req, data) {
+        match self.inner.handle_control_out(req, data).await {
             OutResponse::Accepted => {
                 if self.inner.set_address_pending {
                     self.control.accept_set_address(self.inner.address).await;
@@ -697,7 +706,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
     /// every affected endpoint to its default, including halt clear and data
     /// toggle `DATA0`, even when the host selects the setting already in use.
     /// `only` limits that to one interface for `SET_INTERFACE`.
-    fn clear_enabled_halts(&mut self, only: Option<InterfaceNumber>) {
+    async fn clear_enabled_halts(&mut self, only: Option<InterfaceNumber>) {
         let mut alts = [None; MAX_INTERFACE_COUNT];
         for (i, iface) in self.interfaces.iter().enumerate() {
             if only.is_some_and(|number| number.0 as usize != i) {
@@ -722,7 +731,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
         for bit in 0..32u32 {
             if clear & (1 << bit) != 0 {
-                self.bus.endpoint_set_stalled(address_of_bit(bit), false);
+                self.bus.endpoint_set_stalled(address_of_bit(bit), false).await;
             }
         }
     }
@@ -786,7 +795,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
         }
     }
 
-    fn handle_control_out(&mut self, req: Request, data: &[u8]) -> OutResponse {
+    async fn handle_control_out(&mut self, req: Request, data: &[u8]) -> OutResponse {
         const CONFIGURATION_NONE_U16: u16 = CONFIGURATION_NONE as u16;
         const CONFIGURATION_VALUE_U16: u16 = CONFIGURATION_VALUE as u16;
 
@@ -851,16 +860,20 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         }
                     })
                     .unwrap();
+                    let mut eps_to_enable = heapless::Vec::<(EndpointAddress, bool), 32>::new();
                     foreach_endpoint(self.config_descriptor, |ep| {
-                        self.bus.endpoint_set_enabled(
+                        let _ = eps_to_enable.push((
                             ep.ep_address,
                             active[ep.interface.0 as usize] & endpoint_bit(ep.ep_address) != 0,
-                        );
+                        ));
                     })
                     .unwrap();
+                    for (ep_addr, en) in eps_to_enable {
+                        self.bus.endpoint_set_enabled(ep_addr, en).await;
+                    }
                     // Halt is cleared after the endpoints are enabled. Drivers are
                     // not required to drop STALL just because an endpoint is enabled.
-                    self.clear_enabled_halts(None);
+                    self.clear_enabled_halts(None).await;
 
                     // Notify handlers.
                     for h in &mut self.handlers {
@@ -875,10 +888,14 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         self.device_state = UsbDeviceState::Addressed;
 
                         // Disable all endpoints.
+                        let mut eps_to_disable = heapless::Vec::<EndpointAddress, 32>::new();
                         foreach_endpoint(self.config_descriptor, |ep| {
-                            self.bus.endpoint_set_enabled(ep.ep_address, false);
+                            let _ = eps_to_disable.push(ep.ep_address);
                         })
                         .unwrap();
+                        for ep_addr in eps_to_disable {
+                            self.bus.endpoint_set_enabled(ep_addr, false).await;
+                        }
 
                         // Notify handlers.
                         for h in &mut self.handlers {
@@ -951,8 +968,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         // and disable those only used by other settings. Endpoints shared
                         // between settings (for example MIDI 1.0 and 2.0) stay enabled.
                         let active = active_endpoints(self.config_descriptor, iface_num, new_altsetting);
-                        set_interface_endpoints(self.config_descriptor, &mut self.bus, iface_num, active);
-                        self.clear_enabled_halts(Some(iface_num));
+                        set_interface_endpoints(self.config_descriptor, &mut self.bus, iface_num, active).await;
+                        self.clear_enabled_halts(Some(iface_num)).await;
 
                         for h in &mut self.handlers {
                             h.set_alternate_setting(iface_num, new_altsetting);
@@ -972,7 +989,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         return OutResponse::Rejected;
                     };
                     self.bus
-                        .endpoint_set_stalled(ep_addr, req.request == Request::SET_FEATURE);
+                        .endpoint_set_stalled(ep_addr, req.request == Request::SET_FEATURE)
+                        .await;
                     OutResponse::Accepted
                 }
                 _ => OutResponse::Rejected,
@@ -981,7 +999,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
         }
     }
 
-    fn handle_control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
+    async fn handle_control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
         match (req.request_type, req.recipient) {
             (RequestType::Standard, Recipient::Device) => match req.request {
                 Request::GET_STATUS => {
@@ -1043,7 +1061,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     let mut status: u16 = 0x0000;
                     // Control-pipe protocol stalls are not the optional endpoint halt feature.
                     if matches!(ep_type, EndpointType::Bulk | EndpointType::Interrupt)
-                        && self.bus.endpoint_is_stalled(ep_addr)
+                        && self.bus.endpoint_is_stalled(ep_addr).await
                     {
                         status |= 0x0001;
                     }
