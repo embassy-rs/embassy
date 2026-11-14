@@ -150,10 +150,10 @@ impl<'d, D: Driver<'d>> WebEndpoints<'d, D> {
     async fn echo(&mut self) {
         let mut buf = [0; 64];
         loop {
-            let n = self.read_ep.read(&mut buf).await.unwrap();
+            let n = self.read_ep.read_transfer(&mut buf).await.unwrap();
             let data = &buf[..n];
             info!("Data read: {:x}", data);
-            self.write_ep.write(data).await.unwrap();
+            self.write_ep.write_transfer(data, false).await.unwrap();
         }
     }
 }
