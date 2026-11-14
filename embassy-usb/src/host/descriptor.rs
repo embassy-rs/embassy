@@ -1105,7 +1105,7 @@ impl From<EndpointDescriptor> for EndpointInfo {
             addr: value.endpoint_address.into(),
             ep_type: value.ep_type(),
             max_packet_size: value.max_packet_size,
-            interval_ms: value.interval,
+            interval: value.interval,
             max_burst: 0,
         }
     }

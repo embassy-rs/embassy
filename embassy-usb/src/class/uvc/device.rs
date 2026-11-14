@@ -973,7 +973,7 @@ mod tests {
                     addr: EndpointAddress::from_parts(3, Direction::In),
                     ep_type: config.ep_type,
                     max_packet_size: config.max_packet_size,
-                    interval_ms: config.interval_ms,
+                    interval: config.interval,
                     max_burst: config.max_burst,
                 };
                 Ok(MockEndpoint(info, self.0.clone()))
@@ -990,17 +990,21 @@ mod tests {
             }
             async fn wait_enabled(&mut self) {}
 
-            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            async fn is_enabled(&mut self) -> bool {
+                true
+            }
+
+            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
                 Ok(())
             }
 
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
+            async fn is_stalled(&mut self) -> Result<bool, Unsupported> {
                 Ok(false)
             }
         }
 
         impl EndpointIn for MockEndpoint {
-            async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+            async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointError> {
                 self.1.borrow_mut().push(buf.to_vec());
                 Ok(())
             }
@@ -1013,16 +1017,19 @@ mod tests {
             async fn wait_enabled(&mut self) {
                 unreachable!()
             }
-            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            async fn is_enabled(&mut self) -> bool {
                 unreachable!()
             }
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
+            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+                unreachable!()
+            }
+            async fn is_stalled(&mut self) -> Result<bool, Unsupported> {
                 unreachable!()
             }
         }
 
         impl EndpointOut for Unused {
-            async fn read(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
+            async fn read_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
                 unreachable!()
             }
         }
@@ -1037,13 +1044,16 @@ mod tests {
             async fn poll(&mut self) -> Event {
                 unreachable!()
             }
-            fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
+            async fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
                 unreachable!()
             }
-            fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
+            async fn endpoint_is_enabled(&mut self, _: EndpointAddress) -> bool {
                 unreachable!()
             }
-            fn endpoint_is_stalled(&mut self, _: EndpointAddress) -> bool {
+            async fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
+                unreachable!()
+            }
+            async fn endpoint_is_stalled(&mut self, _: EndpointAddress) -> bool {
                 unreachable!()
             }
             async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
@@ -1058,10 +1068,10 @@ mod tests {
             async fn setup(&mut self) -> [u8; 8] {
                 unreachable!()
             }
-            async fn data_out(&mut self, _: &mut [u8], _: bool, _: bool) -> Result<usize, EndpointError> {
+            async fn data_out_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
                 unreachable!()
             }
-            async fn data_in(&mut self, _: &[u8], _: bool, _: bool) -> Result<(), EndpointError> {
+            async fn data_in_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointError> {
                 unreachable!()
             }
             async fn accept(&mut self) {

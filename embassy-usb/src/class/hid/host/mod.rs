@@ -156,7 +156,7 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
             max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
-            interval_ms: 0,
+            interval: 0,
             max_burst: 0,
         };
 
@@ -164,7 +164,7 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
             addr: EndpointAddress::from_parts((info.interrupt_in_ep & 0x0F) as usize, UsbDirection::In),
             ep_type: EndpointType::Interrupt,
             max_packet_size: info.interrupt_in_mps,
-            interval_ms: info.interrupt_in_interval,
+            interval: info.interrupt_in_interval,
             max_burst: 0,
         };
 

@@ -548,7 +548,7 @@ where
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
             max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
-            interval_ms: 0,
+            interval: 0,
             max_burst: 0,
         };
 
@@ -595,7 +595,7 @@ where
             addr: EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_in_mps,
-            interval_ms: 0,
+            interval: 0,
             max_burst: 0,
         };
 
@@ -603,7 +603,7 @@ where
             addr: EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_out_mps,
-            interval_ms: 0,
+            interval: 0,
             max_burst: 0,
         };
 

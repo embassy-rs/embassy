@@ -404,16 +404,20 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
         self.inner.poll().await
     }
 
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        self.inner.endpoint_set_stalled(ep_addr, stalled)
+    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+        self.inner.endpoint_set_stalled(ep_addr, stalled).await
     }
 
-    fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        self.inner.endpoint_is_stalled(ep_addr)
+    async fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
+        self.inner.endpoint_is_stalled(ep_addr).await
     }
 
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
-        self.inner.endpoint_set_enabled(ep_addr, enabled)
+    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+        self.inner.endpoint_set_enabled(ep_addr, enabled).await
+    }
+
+    async fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool {
+        self.inner.endpoint_is_enabled(ep_addr).await
     }
 
     async fn enable(&mut self) {

@@ -145,7 +145,7 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
                 addr: ep_addr,
                 ep_type: config.ep_type,
                 max_packet_size: config.max_packet_size,
-                interval_ms: config.interval_ms,
+                interval: config.interval,
                 max_burst: 0,
             },
         ))
@@ -160,7 +160,7 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
                 addr: ep_addr,
                 ep_type: config.ep_type,
                 max_packet_size: config.max_packet_size,
-                interval_ms: config.interval_ms,
+                interval: config.interval,
                 max_burst: 0,
             },
         ))
@@ -340,15 +340,15 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
         })
     }
 
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
         set_endpoint_stalled(self.regs, ep_addr, stalled);
     }
 
-    fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
+    async fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
         is_endpoint_stalled(self.regs, ep_addr)
     }
 
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         let regs = self.regs;
 
         let i = ep_addr.index();
@@ -392,6 +392,15 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
 
                 Out::waker(i).wake();
             }
+        }
+    }
+
+    async fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool {
+        let i = ep_addr.index();
+        let mask = 1 << i;
+        match ep_addr.direction() {
+            Direction::In => (self.regs.epinen().read().0 & mask) != 0,
+            Direction::Out => (self.regs.epouten().read().0 & mask) != 0,
         }
     }
 
@@ -508,12 +517,17 @@ impl<'d, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, Dir> {
         self.wait_enabled_state(true).await
     }
 
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn is_enabled(&mut self) -> bool {
+        let i = self.info.addr.index();
+        Dir::is_enabled(self.regs, i)
+    }
+
+    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled(self.regs, self.info.addr, stalled);
         Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
+    async fn is_stalled(&mut self) -> Result<bool, Unsupported> {
         Ok(is_endpoint_stalled(self.regs, self.info.addr))
     }
 }
@@ -646,8 +660,8 @@ unsafe fn write_dma_inner(regs: pac::usbd::Usbd, i: usize, buf: &[u8]) {
     dma_end();
 }
 
-impl<'d> driver::EndpointOut for Endpoint<'d, Out> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+impl<'d> Endpoint<'d, Out> {
+    async fn read_packet_internal(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let i = self.info.addr.index();
         assert!(i != 0);
 
@@ -657,8 +671,27 @@ impl<'d> driver::EndpointOut for Endpoint<'d, Out> {
     }
 }
 
-impl<'d> driver::EndpointIn for Endpoint<'d, In> {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+impl<'d> driver::EndpointOut for Endpoint<'d, Out> {
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let max_packet_size = usize::from(self.info.max_packet_size);
+        let mut total = 0;
+        loop {
+            let chunk_len = (buf.len() - total).min(max_packet_size);
+            if chunk_len == 0 && total > 0 {
+                break;
+            }
+            let n = self.read_packet_internal(&mut buf[total..total + chunk_len]).await?;
+            total += n;
+            if n < max_packet_size || total == buf.len() {
+                break;
+            }
+        }
+        Ok(total)
+    }
+}
+
+impl<'d> Endpoint<'d, In> {
+    async fn write_packet_internal(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
         let i = self.info.addr.index();
         assert!(i != 0);
 
@@ -670,11 +703,97 @@ impl<'d> driver::EndpointIn for Endpoint<'d, In> {
     }
 }
 
+impl<'d> driver::EndpointIn for Endpoint<'d, In> {
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
+        let max_packet_size = usize::from(self.info.max_packet_size);
+        if buf.is_empty() {
+            return self.write_packet_internal(&[]).await;
+        }
+        for chunk in buf.chunks(max_packet_size) {
+            self.write_packet_internal(chunk).await?;
+        }
+        if needs_zlp && (buf.len() % max_packet_size == 0) {
+            self.write_packet_internal(&[]).await?;
+        }
+        Ok(())
+    }
+}
+
 /// USB control pipe.
 pub struct ControlPipe<'d> {
     regs: pac::usbd::Usbd,
     max_packet_size: u16,
     _phantom: PhantomData<&'d ()>,
+}
+
+impl<'d> ControlPipe<'d> {
+    async fn data_out_packet(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let regs = self.regs;
+
+        regs.events_ep0datadone().write_value(0);
+
+        // This starts a RX on EP0. events_ep0datadone notifies when done.
+        regs.tasks_ep0rcvout().write_value(1);
+
+        // Wait until ready
+        regs.intenset().write(|w| {
+            w.set_usbreset(true);
+            w.set_ep0setup(true);
+            w.set_ep0datadone(true);
+        });
+        poll_fn(|cx| {
+            EP0_WAKER.register(cx.waker());
+            let regs = self.regs;
+            if regs.events_ep0datadone().read() != 0 {
+                Poll::Ready(Ok(()))
+            } else if regs.events_usbreset().read() != 0 {
+                trace!("aborted control data_out: usb reset");
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else if regs.events_ep0setup().read() != 0 {
+                trace!("aborted control data_out: received another SETUP");
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await?;
+
+        unsafe { read_dma(self.regs, 0, buf) }
+    }
+
+    async fn data_in_packet(&mut self, buf: &[u8], last: bool) -> Result<(), EndpointError> {
+        let regs = self.regs;
+        regs.events_ep0datadone().write_value(0);
+
+        regs.shorts().write(|w| w.set_ep0datadone_ep0status(last));
+
+        // This starts a TX on EP0. events_ep0datadone notifies when done.
+        unsafe { write_dma(self.regs, 0, buf) }
+
+        regs.intenset().write(|w| {
+            w.set_usbreset(true);
+            w.set_ep0setup(true);
+            w.set_ep0datadone(true);
+        });
+
+        poll_fn(|cx| {
+            cx.waker().wake_by_ref();
+            EP0_WAKER.register(cx.waker());
+            let regs = self.regs;
+            if regs.events_ep0datadone().read() != 0 {
+                Poll::Ready(Ok(()))
+            } else if regs.events_usbreset().read() != 0 {
+                trace!("aborted control data_in: usb reset");
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else if regs.events_ep0setup().read() != 0 {
+                trace!("aborted control data_in: received another SETUP");
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
 }
 
 impl<'d> driver::ControlPipe for ControlPipe<'d> {
@@ -716,72 +835,39 @@ impl<'d> driver::ControlPipe for ControlPipe<'d> {
         buf
     }
 
-    async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
-        let regs = self.regs;
-
-        regs.events_ep0datadone().write_value(0);
-
-        // This starts a RX on EP0. events_ep0datadone notifies when done.
-        regs.tasks_ep0rcvout().write_value(1);
-
-        // Wait until ready
-        regs.intenset().write(|w| {
-            w.set_usbreset(true);
-            w.set_ep0setup(true);
-            w.set_ep0datadone(true);
-        });
-        poll_fn(|cx| {
-            EP0_WAKER.register(cx.waker());
-            let regs = self.regs;
-            if regs.events_ep0datadone().read() != 0 {
-                Poll::Ready(Ok(()))
-            } else if regs.events_usbreset().read() != 0 {
-                trace!("aborted control data_out: usb reset");
-                Poll::Ready(Err(EndpointError::Disabled))
-            } else if regs.events_ep0setup().read() != 0 {
-                trace!("aborted control data_out: received another SETUP");
-                Poll::Ready(Err(EndpointError::Disabled))
-            } else {
-                Poll::Pending
+    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let max_packet_size = self.max_packet_size();
+        let mut total = 0;
+        loop {
+            let chunk_len = (buf.len() - total).min(max_packet_size);
+            if chunk_len == 0 && total > 0 {
+                break;
             }
-        })
-        .await?;
-
-        unsafe { read_dma(self.regs, 0, buf) }
+            let n = self.data_out_packet(&mut buf[total..total + chunk_len]).await?;
+            total += n;
+            if n < max_packet_size || total == buf.len() {
+                break;
+            }
+        }
+        Ok(total)
     }
 
-    async fn data_in(&mut self, buf: &[u8], _first: bool, last: bool) -> Result<(), EndpointError> {
-        let regs = self.regs;
-        regs.events_ep0datadone().write_value(0);
-
-        regs.shorts().write(|w| w.set_ep0datadone_ep0status(last));
-
-        // This starts a TX on EP0. events_ep0datadone notifies when done.
-        unsafe { write_dma(self.regs, 0, buf) }
-
-        regs.intenset().write(|w| {
-            w.set_usbreset(true);
-            w.set_ep0setup(true);
-            w.set_ep0datadone(true);
-        });
-
-        poll_fn(|cx| {
-            cx.waker().wake_by_ref();
-            EP0_WAKER.register(cx.waker());
-            let regs = self.regs;
-            if regs.events_ep0datadone().read() != 0 {
-                Poll::Ready(Ok(()))
-            } else if regs.events_usbreset().read() != 0 {
-                trace!("aborted control data_in: usb reset");
-                Poll::Ready(Err(EndpointError::Disabled))
-            } else if regs.events_ep0setup().read() != 0 {
-                trace!("aborted control data_in: received another SETUP");
-                Poll::Ready(Err(EndpointError::Disabled))
-            } else {
-                Poll::Pending
+    async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
+        let max_packet_size = self.max_packet_size();
+        if data.is_empty() {
+            self.data_in_packet(&[], true).await?;
+        } else {
+            let chunk_count = data.chunks(max_packet_size).count();
+            let zlp = needs_zlp && (data.len() % max_packet_size == 0);
+            for (idx, chunk) in data.chunks(max_packet_size).enumerate() {
+                let last = !zlp && (idx + 1 == chunk_count);
+                self.data_in_packet(chunk, last).await?;
             }
-        })
-        .await
+            if zlp {
+                self.data_in_packet(&[], true).await?;
+            }
+        }
+        Ok(())
     }
 
     async fn accept(&mut self) {
