@@ -109,7 +109,7 @@ pub mod _export {
 
     trait TaskReturnValue {}
     impl TaskReturnValue for () {}
-    impl TaskReturnValue for Never {}
+    impl TaskReturnValue for ! {}
 
     #[diagnostic::on_unimplemented(
         message = "task futures must resolve to `()` or `!`",
@@ -256,18 +256,6 @@ pub mod _export {
         Align268435456: 268435456,
         Align536870912: 536870912,
     );
-
-    #[allow(dead_code)]
-    pub trait HasOutput {
-        type Output;
-    }
-
-    impl<O> HasOutput for fn() -> O {
-        type Output = O;
-    }
-
-    #[allow(dead_code)]
-    pub type Never = <fn() -> ! as HasOutput>::Output;
 }
 
 /// Implementation details for embassy macros.
@@ -281,17 +269,5 @@ pub mod _export {
     )]
     pub trait TaskReturnValue {}
     impl TaskReturnValue for () {}
-    impl TaskReturnValue for Never {}
-
-    #[allow(dead_code)]
-    pub trait HasOutput {
-        type Output;
-    }
-
-    impl<O> HasOutput for fn() -> O {
-        type Output = O;
-    }
-
-    #[allow(dead_code)]
-    pub type Never = <fn() -> ! as HasOutput>::Output;
+    impl TaskReturnValue for ! {}
 }

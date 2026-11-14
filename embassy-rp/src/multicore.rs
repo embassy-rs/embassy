@@ -191,12 +191,12 @@ unsafe fn SIO_IRQ_FIFO() {
 /// Spawn a function on this core
 pub fn spawn_core1<F, const SIZE: usize>(_core1: Peri<'static, CORE1>, stack: &'static mut Stack<SIZE>, entry: F)
 where
-    F: FnOnce() -> bad::Never + Send + 'static,
+    F: FnOnce() -> ! + Send + 'static,
 {
     // The first two ignored `u64` parameters are there to take up all of the registers,
     // which means that the rest of the arguments are taken from the stack,
     // where we're able to put them from core 0.
-    extern "C" fn core1_startup<F: FnOnce() -> bad::Never>(
+    extern "C" fn core1_startup<F: FnOnce() -> !>(
         _: u64,
         _: u64,
         entry: *mut ManuallyDrop<F>,
@@ -390,19 +390,4 @@ fn fifo_drain() {
     while sio.fifo().st().read().vld() {
         let _ = sio.fifo().rd().read();
     }
-}
-
-// https://github.com/nvzqz/bad-rs/blob/master/src/never.rs
-mod bad {
-    pub(crate) type Never = <F as HasOutput>::Output;
-
-    pub trait HasOutput {
-        type Output;
-    }
-
-    impl<O> HasOutput for fn() -> O {
-        type Output = O;
-    }
-
-    type F = fn() -> !;
 }
