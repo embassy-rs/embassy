@@ -173,9 +173,9 @@ impl<'d, A: UsbHostAllocator<'d>> CdcAcmHost<'d, A> {
         let ctrl_ep_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
-            max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
+            max_packet_size: enum_info.max_packet_size0(),
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
 
         let in_ep_info = EndpointInfo {
@@ -183,7 +183,7 @@ impl<'d, A: UsbHostAllocator<'d>> CdcAcmHost<'d, A> {
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_in_mps,
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
 
         let out_ep_info = EndpointInfo {
@@ -191,7 +191,7 @@ impl<'d, A: UsbHostAllocator<'d>> CdcAcmHost<'d, A> {
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_out_mps,
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
 
         let device_address = enum_info.device_address;

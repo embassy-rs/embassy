@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Host: support SuperSpeed devices.
 - Device: standard Chapter 9 requests follow USB 2.0. Remote wakeup is refused unless the configuration supports it, `GET_STATUS` reports `Config::self_powered`, interface requests stall until the device is configured, device and configuration descriptors reject a non-zero index, `SET_ADDRESS(0)` returns an addressed device to the default state, and `SET_CONFIGURATION` / `SET_INTERFACE` clear endpoint halt
 - Add CDC-ECM class (device and host) for Ethernet-over-USB networking
 - `VCP`: add CH34x and FTDI host drivers

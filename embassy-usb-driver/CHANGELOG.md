@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- **Breaking:** Add `Speed::Super` and `Speed::SuperPlus`, with `Speed::is_super()` and `Speed::uses_microframes()`.
 - **Breaking:** `Driver::alloc_endpoint_in()` and `Driver::alloc_endpoint_out()` take an `EndpointConfig`, which has the endpoint's address, type, max packet size and interval, the number of packet buffers, and the SuperSpeed fields.
-- **Breaking:** Add `EndpointInfo::max_burst`, the SuperSpeed burst size the endpoint was allocated with.
+- **Breaking:** Add `EndpointInfo::companion`, the endpoint's `SuperSpeedEndpointCompanionInfo`.
 - Fixed: `EndpointOut::read_transfer()` now returns when the buffer is full.
 - Add `ControlPipe::data_out_transfer()` and `ControlPipe::data_in_transfer()` provided methods.
 - Add `UsbHostAllocator::device_removed()` trait method with default.

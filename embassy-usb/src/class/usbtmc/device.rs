@@ -1224,7 +1224,7 @@ mod tests {
             ep_type: EndpointType::Bulk,
             max_packet_size: 64,
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
         UsbtmcClass {
             read_ep: MockEndpoint {

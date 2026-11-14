@@ -100,6 +100,17 @@ impl BusRoute {
     }
 }
 
+/// EP0 max packet size for a device descriptor's `bMaxPacketSize0`, or
+/// `None` if the value is illegal at `speed`. USB 2.0 §9.6.1 allows 8, 16,
+/// 32 and 64; a SuperSpeed device reports the exponent 9, for 512 (USB 3.2).
+pub(crate) const fn decode_max_packet_size0(speed: Speed, raw: u8) -> Option<u16> {
+    match (speed.is_super(), raw) {
+        (true, 9) => Some(512),
+        (false, 8 | 16 | 32 | 64) => Some(raw as u16),
+        _ => None,
+    }
+}
+
 /// Information obtained through preliminary enumeration.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -117,6 +128,16 @@ impl EnumerationInfo {
     /// Negotiated device speed.
     pub const fn speed(&self) -> Speed {
         self.route.device_speed()
+    }
+
+    /// EP0 max packet size. A SuperSpeed device descriptor holds its
+    /// exponent, which enumeration checks is 9 (USB 3.2).
+    pub const fn max_packet_size0(&self) -> u16 {
+        if self.speed().is_super() {
+            512
+        } else {
+            self.device_desc.max_packet_size0 as u16
+        }
     }
 
     /// Split-transaction routing, when this device is behind a hub that
@@ -279,7 +300,7 @@ mod tests {
     use embassy_time::{Duration, MockDriver};
     use embassy_usb_driver::host::{HostError, PipeError};
 
-    use super::retry_descriptor;
+    use super::{decode_max_packet_size0, retry_descriptor};
 
     /// Polls `fut` to completion, advancing the mock clock while it waits.
     fn run<F: Future>(fut: F) -> F::Output {
@@ -323,5 +344,17 @@ mod tests {
         }));
         assert_eq!(res, Ok(7));
         assert_eq!(calls, 2);
+    }
+
+    #[test]
+    fn max_packet_size0_follows_speed() {
+        use embassy_usb_driver::Speed;
+
+        assert_eq!(decode_max_packet_size0(Speed::Super, 9), Some(512));
+        assert_eq!(decode_max_packet_size0(Speed::SuperPlus, 9), Some(512));
+        assert_eq!(decode_max_packet_size0(Speed::Super, 64), None);
+        assert_eq!(decode_max_packet_size0(Speed::High, 64), Some(64));
+        assert_eq!(decode_max_packet_size0(Speed::Full, 8), Some(8));
+        assert_eq!(decode_max_packet_size0(Speed::High, 9), None);
     }
 }

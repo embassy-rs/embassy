@@ -121,10 +121,9 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
             &EndpointInfo {
                 addr: 0.into(),
                 ep_type: EndpointType::Control,
-                max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
-                    .min(enum_info.speed().max_packet_size()),
+                max_packet_size: enum_info.max_packet_size0().min(enum_info.speed().max_packet_size()),
                 interval_ms: 0,
-                max_burst: 0,
+                companion: None,
             },
             enum_info.split(),
         )?;
@@ -282,7 +281,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         };
         let samples_per_microframe = sampling_freq as f32
             / match self.speed {
-                Speed::High => 8000.0,
+                Speed::High | Speed::Super | Speed::SuperPlus => 8000.0,
                 _ => 1000.0,
             };
 
@@ -291,7 +290,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
             feedback_channel: self.feedback_channel.take(),
             speed: self.speed,
             samples_per_microframe,
-            microframes_per_microsecond: 1.0 / (if self.speed == Speed::High { 125.0 } else { 1000.0 }),
+            microframes_per_microsecond: 1.0 / (if self.speed.uses_microframes() { 125.0 } else { 1000.0 }),
             send_start: Instant::from_ticks(0),
             num_frames: 0,
             last_feedback_time: Instant::from_ticks(0),
@@ -835,7 +834,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacOut<'d, A> {
     }
 
     fn microseconds_per_microframe(&self) -> u64 {
-        if self.speed == Speed::High { 125 } else { 1000 }
+        if self.speed.uses_microframes() { 125 } else { 1000 }
     }
 
     fn lock_delay_samples(&self) -> u16 {
@@ -846,7 +845,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacOut<'d, A> {
     }
 
     fn microframes_per_frame(&self) -> u16 {
-        if self.speed == Speed::High { 8 } else { 1 }
+        if self.speed.uses_microframes() { 8 } else { 1 }
     }
 
     fn samples_per_frame(&self) -> f32 {
@@ -862,7 +861,7 @@ pub fn parse_feedback(speed: Speed, data: &[u8]) -> Option<f32> {
     match speed {
         Speed::Low => None, // Low-speed doesn't support isochronous transfers.
 
-        Speed::High => {
+        Speed::High | Speed::Super | Speed::SuperPlus => {
             if data.len() < 4 {
                 return None;
             }
