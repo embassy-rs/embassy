@@ -147,7 +147,88 @@ async fn main(_spawner: Spawner) {
         join(set_high_future, wait_for_any_edge_future).await;
         info!("test wait_for_any_edge (rising): OK\n");
     }
+    {
+        info!("test wait_for_high_inverted_input");
+        let mut output = Output::new(output_pin.reborrow(), Level::High);
+        let mut input = Input::new_async(input_pin.reborrow(), Irqs, Pull::None);
+        input.set_inversion(true);
 
+        assert!(input.is_low(), "input was expected to be low");
+
+        let set_high_future = async {
+            // Allow time for wait_for_high_future to await wait_for_high().
+            Timer::after_millis(10).await;
+            output.set_low();
+        };
+        let wait_for_high_future = async {
+            let start = Instant::now();
+            input.wait_for_high().await;
+            assert_duration(start);
+        };
+        join(set_high_future, wait_for_high_future).await;
+        info!("test wait_for_high_inverted_input: OK\n");
+    }
+
+    {
+        info!("test wait_for_low_inverted_input");
+        let mut output = Output::new(output_pin.reborrow(), Level::Low);
+        let mut input = Input::new_async(input_pin.reborrow(), Irqs, Pull::None);
+
+        input.set_inversion(true);
+        assert!(input.is_high(), "input was expected to be high");
+
+        let set_low_future = async {
+            Timer::after_millis(10).await;
+            output.set_high();
+        };
+        let wait_for_low_future = async {
+            let start = Instant::now();
+            input.wait_for_low().await;
+            assert_duration(start);
+        };
+        join(set_low_future, wait_for_low_future).await;
+        info!("test wait_for_low_inverted_input: OK\n");
+    }
+
+    {
+        info!("test wait_for_rising_edge_inverted_input");
+        let mut output = Output::new(output_pin.reborrow(), Level::High);
+        let mut input = Input::new_async(input_pin.reborrow(), Irqs, Pull::None);
+
+        input.set_inversion(true);
+        assert!(input.is_low(), "input was expected to be low");
+
+        let set_high_future = async {
+            Timer::after_millis(10).await;
+            output.set_low();
+        };
+        let wait_for_rising_edge_future = async {
+            let start = Instant::now();
+            input.wait_for_rising_edge().await;
+            assert_duration(start);
+        };
+        join(set_high_future, wait_for_rising_edge_future).await;
+        info!("test wait_for_rising_edge_inverted_input: OK\n");
+    }
+    {
+        info!("test wait_for_falling_edge_inverted_input");
+        let mut output = Output::new(output_pin.reborrow(), Level::Low);
+        let mut input = Input::new_async(input_pin.reborrow(), Irqs, Pull::None);
+        input.set_inversion(true);
+        assert!(input.is_high(), "input was expected to be high");
+
+        let set_low_future = async {
+            Timer::after_millis(10).await;
+            output.set_high();
+        };
+        let wait_for_falling_edge_future = async {
+            let start = Instant::now();
+            input.wait_for_falling_edge().await;
+            assert_duration(start);
+        };
+        join(set_low_future, wait_for_falling_edge_future).await;
+        info!("test wait_for_falling_edge_inverted_input: OK\n");
+    }
     info!("Test OK");
     cortex_m::asm::bkpt();
 

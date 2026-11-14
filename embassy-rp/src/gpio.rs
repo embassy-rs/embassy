@@ -735,25 +735,37 @@ impl<'d> Flex<'d, Async> {
     /// Wait until the pin is high. If it is already high, return immediately.
     #[inline]
     pub async fn wait_for_high(&mut self) {
-        InputFuture::new(self.pin, self.waker, InterruptTrigger::LevelHigh).await;
+        match self.is_input_inverted() {
+            true => InputFuture::new(self.pin, self.waker, InterruptTrigger::LevelLow).await,
+            false => InputFuture::new(self.pin, self.waker, InterruptTrigger::LevelHigh).await,
+        }
     }
 
     /// Wait until the pin is low. If it is already low, return immediately.
     #[inline]
     pub async fn wait_for_low(&mut self) {
-        InputFuture::new(self.pin, self.waker, InterruptTrigger::LevelLow).await;
+        match self.is_input_inverted() {
+            true => InputFuture::new(self.pin, self.waker, InterruptTrigger::LevelHigh).await,
+            false => InputFuture::new(self.pin, self.waker, InterruptTrigger::LevelLow).await,
+        }
     }
 
     /// Wait for the pin to undergo a transition from low to high.
     #[inline]
     pub async fn wait_for_rising_edge(&mut self) {
-        InputFuture::new(self.pin, self.waker, InterruptTrigger::EdgeHigh).await;
+        match self.is_input_inverted() {
+            true => InputFuture::new(self.pin, self.waker, InterruptTrigger::EdgeLow).await,
+            false => InputFuture::new(self.pin, self.waker, InterruptTrigger::EdgeHigh).await,
+        }
     }
 
     /// Wait for the pin to undergo a transition from high to low.
     #[inline]
     pub async fn wait_for_falling_edge(&mut self) {
-        InputFuture::new(self.pin, self.waker, InterruptTrigger::EdgeLow).await;
+        match self.is_input_inverted() {
+            true => InputFuture::new(self.pin, self.waker, InterruptTrigger::EdgeHigh).await,
+            false => InputFuture::new(self.pin, self.waker, InterruptTrigger::EdgeLow).await,
+        }
     }
 
     /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
@@ -914,6 +926,12 @@ impl<'d, M: Mode> Flex<'d, M> {
         });
     }
 
+    /// Get whether the input logic of this pin is inverted.
+    #[inline]
+    pub fn is_input_inverted(&self) -> bool {
+        self.pin.gpio().ctrl().read().inover() == pac::io::vals::Inover::Invert
+    }
+
     /// Configure the output enable inversion of this pin
     #[inline]
     pub fn set_output_enable_inversion(&mut self, invert: bool) {
@@ -936,6 +954,12 @@ impl<'d, M: Mode> Flex<'d, M> {
                 pac::io::vals::Outover::Normal
             })
         });
+    }
+
+    /// Get whether the output logic of this pin is inverted.
+    #[inline]
+    pub fn is_output_inverted(&self) -> bool {
+        self.pin.gpio().ctrl().read().outover() == pac::io::vals::Outover::Invert
     }
 
     /// Get whether the pin input level is high.
