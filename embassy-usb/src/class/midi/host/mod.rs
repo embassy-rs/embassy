@@ -1120,7 +1120,7 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
                     &embassy_usb_driver::EndpointInfo::new(
                         0.into(),
                         embassy_usb_driver::EndpointType::Control,
-                        (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed().max_packet_size()),
+                        enum_info.max_packet_size0().min(enum_info.speed().max_packet_size()),
                         EndpointInterval::NONE,
                     ),
                     enum_info.split(),

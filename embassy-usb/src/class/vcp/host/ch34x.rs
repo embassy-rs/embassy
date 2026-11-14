@@ -252,7 +252,7 @@ where
         let ctrl_ep_info = EndpointInfo::new(
             EndpointAddress::from_parts(0, UsbDirection::In),
             EndpointType::Control,
-            enum_info.device_desc.max_packet_size0 as u16,
+            enum_info.max_packet_size0(),
             EndpointInterval::NONE,
         );
 

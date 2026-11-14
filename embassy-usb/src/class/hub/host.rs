@@ -72,10 +72,11 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             &EndpointInfo::new(
                 0.into(),
                 EndpointType::Control,
-                enum_info
-                    .device_desc
-                    .max_packet_size0
-                    .min(if ls_over_fs { 8 } else { 64 }) as u16,
+                enum_info.max_packet_size0().min(if ls_over_fs {
+                    8
+                } else {
+                    enum_info.speed().max_packet_size()
+                }),
                 EndpointInterval::NONE,
             ),
             enum_info.split(),
