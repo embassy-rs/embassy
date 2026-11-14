@@ -156,16 +156,15 @@ pub struct EndpointInfo {
     pub max_packet_size: u16,
     /// Polling interval.
     pub interval: EndpointInterval,
-    /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets. 0 below
-    /// SuperSpeed.
-    pub max_burst: u8,
     /// High-speed additional transaction opportunities per microframe (`wMaxPacketSize` bits
     /// 12..11, `0..=2`) for isochronous and interrupt endpoints. 0 otherwise.
     pub additional_transactions: u8,
+    /// SuperSpeed Endpoint Companion fields. `None` below SuperSpeed.
+    pub companion: Option<SuperSpeedEndpointCompanionInfo>,
 }
 
 impl EndpointInfo {
-    /// An endpoint with `max_burst` and `additional_transactions` 0.
+    /// An endpoint with `additional_transactions` 0, and without SuperSpeed Endpoint Companion fields.
     pub const fn new(
         addr: EndpointAddress,
         ep_type: EndpointType,
@@ -177,10 +176,25 @@ impl EndpointInfo {
             ep_type,
             max_packet_size,
             interval,
-            max_burst: 0,
             additional_transactions: 0,
+            companion: None,
         }
     }
+}
+
+/// The fields of an endpoint's SuperSpeed Endpoint Companion descriptor (USB 3.2).
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SuperSpeedEndpointCompanionInfo {
+    /// `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets.
+    pub max_burst: u8,
+    /// Bulk `MaxStreams`: the endpoint has `2^max_streams` streams, or none when 0.
+    pub max_streams: u8,
+    /// Isochronous `Mult`: the endpoint moves up to `mult + 1` bursts per service interval.
+    pub mult: u8,
+    /// Periodic `wBytesPerInterval`, or the `dwBytesPerInterval` of a SuperSpeedPlus
+    /// isochronous endpoint: the bytes the endpoint moves per service interval.
+    pub bytes_per_interval: u32,
 }
 
 /// Configuration to allocate an endpoint with.
@@ -213,7 +227,7 @@ pub struct EndpointConfig {
     pub buffers: u8,
     /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets.
     ///
-    /// Drivers may use a lower value, and report it in [`EndpointInfo::max_burst`].
+    /// Drivers may use a lower value, and report it in [`EndpointInfo::companion`].
     pub max_burst: u8,
     /// SuperSpeed bulk `MaxStreams`: the endpoint has `2^max_streams` streams, or none when 0.
     pub max_streams: u8,
