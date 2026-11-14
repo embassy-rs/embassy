@@ -37,6 +37,17 @@ impl Speed {
             Speed::Super | Speed::SuperPlus => 512, // USB 3.0 spec requires 512 for SuperSpeed control EP0
         }
     }
+
+    /// Whether this is SuperSpeed or SuperSpeedPlus.
+    pub const fn is_super(self) -> bool {
+        matches!(self, Speed::Super | Speed::SuperPlus)
+    }
+
+    /// Whether periodic endpoints are serviced in 125 us bus intervals
+    /// rather than 1 ms frames.
+    pub const fn uses_microframes(self) -> bool {
+        matches!(self, Speed::High | Speed::Super | Speed::SuperPlus)
+    }
 }
 
 /// Direction of USB traffic. Note that in the USB standard the direction is always indicated from

@@ -444,10 +444,8 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
                 }
             }
         };
-        // USB 2.0 §9.6.1: legal EP0 max packet sizes are 8, 16, 32, 64.
-        if !matches!(max_packet_size0, 8 | 16 | 32 | 64) {
-            return Err(EnumerationError::InvalidDescriptor);
-        }
+        let max_packet_size0 = crate::host::handler::decode_max_packet_size0(route.device_speed(), max_packet_size0)
+            .ok_or(EnumerationError::InvalidDescriptor)?;
 
         ch.device_set_address(addr.addr()).await?;
         // USB 2.0 §9.2.6.3: allow the device a 2ms recovery interval after SET_ADDRESS.
@@ -463,7 +461,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
         let ep0_info = EndpointInfo::new(
             EndpointAddress::from_parts(0, UsbDirection::In),
             EndpointType::Control,
-            max_packet_size0 as u16,
+            max_packet_size0,
             EndpointInterval::NONE,
         );
 
