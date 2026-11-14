@@ -505,7 +505,7 @@ pub enum TxError {
     /// Concurrent receive in progress or excessive noise on the line.
     Discarded,
 
-    /// Hard Reset received before or during transmission.
+    /// Hard Reset received during transmission.
     HardReset,
 }
 
@@ -635,28 +635,14 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     ///
     /// Messages are received in the background, so a message that arrived before this call is
     /// returned right away. One message can wait for this call; one that arrives while another one
-    /// is still waiting is dropped, and reported as [`RxError::Overrun`].
+    /// is still waiting is dropped, and reported as [`RxError::Overrun`]. A received Hard Reset
+    /// discards the waiting message, and is reported as [`RxError::HardReset`].
     ///
     /// Returns the start of packet type and number of received bytes or an error.
     pub async fn receive_with_sop(&mut self, buf: &mut [u8]) -> Result<(Sop, usize), RxError> {
-        let r = T::REGS;
-
         poll_fn(|cx| {
-            if r.sr().read().rxhrstdet() {
-                // Clean and re-enable hard reset receive interrupt.
-                r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
-                // Discard what was received before the Hard Reset.
-                critical_section::with(|cs| {
-                    let mut rx = T::state().rx.borrow_ref_mut(cs);
-                    rx.ready = None;
-                    rx.error = None;
-                });
-                return Poll::Ready(Err(RxError::HardReset));
-            }
-
             T::state().rx_waker.register(cx.waker());
-            match critical_section::with(|cs| T::state().rx.borrow_ref_mut(cs).next()) {
+            match critical_section::with(|cs| T::state().rx.borrow_ref_mut(cs).take_next()) {
                 None => Poll::Pending,
                 Some(Err(error)) => Poll::Ready(Err(error)),
                 Some(Ok(msg)) => Poll::Ready(Self::take_message(msg, buf)),
@@ -673,12 +659,12 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             // The DMA wrote the message before the interrupt recorded it.
             fence(Ordering::Acquire);
             // SAFETY: the buffers stay borrowed while reception is on, and the DMA doesn't write
-            // into the buffer of the waiting message.
+            // into the message's buffer until it is handed back below.
             buf[..msg.len].copy_from_slice(unsafe { slice::from_raw_parts(msg.data, msg.len) });
             msg.sop().map(|sop| (sop, msg.len))
         };
 
-        critical_section::with(|cs| T::state().rx.borrow_ref_mut(cs).ready = None);
+        critical_section::with(|cs| T::state().rx.borrow_ref_mut(cs).other = OtherBuffer::Free);
         result
     }
 
@@ -690,6 +676,9 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     /// Transmits a PD message with a given SOP.
     pub async fn transmit_with_sop(&mut self, sop: Sop, buf: &[u8]) -> Result<(), TxError> {
         let r = T::REGS;
+
+        // Only a Hard Reset received from now on ends this transmission.
+        T::state().tx_hard_reset.store(false, Ordering::Relaxed);
 
         // When a previous transmission was dropped before it had finished it
         // might still be running because there is no way to abort an ongoing
@@ -729,10 +718,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();
-            if sr.rxhrstdet() {
-                // Clean and re-enable hard reset receive interrupt.
-                r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
+            if T::state().tx_hard_reset.clear() {
                 Poll::Ready(Err(TxError::HardReset))
             } else if sr.txmsgdisc() {
                 Poll::Ready(Err(TxError::Discarded))
@@ -763,6 +749,9 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
     /// Transmit a hard reset.
     pub async fn transmit_hardreset(&mut self) -> Result<(), TxError> {
+        // Only a Hard Reset received from now on ends this transmission.
+        T::state().tx_hard_reset.store(false, Ordering::Relaxed);
+
         // Clear the hardreset interrupt flags.
         T::REGS.icr().write(|w| {
             w.set_hrstdisccf(true);
@@ -778,10 +767,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();
-            if sr.rxhrstdet() {
-                // Clean and re-enable hard reset receive interrupt.
-                r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
+            if T::state().tx_hard_reset.clear() {
                 Poll::Ready(Err(TxError::HardReset))
             } else if sr.hrstdisc() {
                 Poll::Ready(Err(TxError::Discarded))
@@ -901,16 +887,20 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             state.cc_waker.wake();
         }
 
-        if sr.rxhrstdet() {
-            r.imr().clear_bits(|w| w.set_rxhrstdetie(false));
-            // A received Hard Reset ends both a pending reception and a pending transmission.
-            state.rx_waker.wake();
-            state.tx_waker.wake();
-        }
-
         if sr.rxmsgend() {
             critical_section::with(|cs| state.rx.borrow_ref_mut(cs).on_message_end(r, sr));
             state.rx_waker.wake();
+        }
+
+        // After RXMSGEND, so that it also discards a message that ended before it.
+        if sr.rxhrstdet() {
+            r.icr().write(|w| w.set_rxhrstdetcf(true));
+            // A received Hard Reset is reported to both a reception and a transmission. Only the
+            // interrupt consumes the flag, so neither can hide it from the other.
+            critical_section::with(|cs| state.rx.borrow_ref_mut(cs).on_hard_reset());
+            state.tx_hard_reset.store(true, Ordering::Relaxed);
+            state.rx_waker.wake();
+            state.tx_waker.wake();
         }
 
         if sr.txmsgdisc() || sr.txmsgsent() {
@@ -942,6 +932,8 @@ struct State {
     // Inverted logic for a default state of 0 so that the data goes into the .bss section.
     drop_not_ready: AtomicBool,
     rx: Mutex<RefCell<RxState>>,
+    /// A Hard Reset was received since the current transmission started.
+    tx_hard_reset: AtomicBool,
 }
 
 impl State {
@@ -952,6 +944,7 @@ impl State {
             tx_waker: AtomicWaker::new(),
             drop_not_ready: AtomicBool::new(false),
             rx: Mutex::new(RefCell::new(RxState::new())),
+            tx_hard_reset: AtomicBool::new(false),
         }
     }
 }
@@ -959,15 +952,16 @@ impl State {
 /// Reception state, shared by the interrupt and [`PdPhy::receive_with_sop`].
 ///
 /// The DMA receives into one of the two [`RxBuffers`]. At the end of a message, the interrupt
-/// keeps it for `receive`, and restarts the DMA at the start of the other buffer. While a message
-/// waits, the DMA stays in its buffer: further messages are dropped, and reported as lost.
+/// keeps it for `receive`, and restarts the DMA at the start of the other buffer. While the other
+/// buffer is taken, the DMA stays in its buffer: further messages are dropped, and reported as
+/// lost.
 struct RxState {
     /// Set while reception is on.
     dma: Option<RxDmaState>,
     /// The buffer the DMA receives into.
     receiving: usize,
-    /// The message that waits for `receive`, in the other buffer.
-    ready: Option<RxMessage>,
+    /// The buffer the DMA doesn't receive into.
+    other: OtherBuffer,
     /// An error to report with the next `receive`.
     error: Option<RxError>,
 }
@@ -976,24 +970,41 @@ struct RxState {
 // started reception, which keeps the buffers borrowed until it stops reception.
 unsafe impl Send for RxState {}
 
+/// The buffer the DMA doesn't receive into.
+#[derive(Clone, Copy)]
+enum OtherBuffer {
+    /// The DMA can switch to it at the end of a message.
+    Free,
+    /// Holds a message that waits for `receive`.
+    Ready(RxMessage),
+    /// `receive` is copying a message out of it.
+    Copying,
+}
+
 impl RxState {
     const fn new() -> Self {
         Self {
             dma: None,
             receiving: 0,
-            ready: None,
+            other: OtherBuffer::Free,
             error: None,
         }
     }
 
-    /// Returns what the next `receive` returns: an error, else the waiting message.
+    /// Takes what the next `receive` returns: an error, else the waiting message.
     ///
-    /// The message stays in `ready` until it was copied out, so that the DMA doesn't reuse its
-    /// buffer meanwhile.
-    fn next(&mut self) -> Option<Result<RxMessage, RxError>> {
-        match self.error.take() {
-            Some(error) => Some(Err(error)),
-            None => self.ready.map(Ok),
+    /// The message's buffer stays taken until `receive` has copied the message out, so that the
+    /// DMA doesn't reuse it meanwhile.
+    fn take_next(&mut self) -> Option<Result<RxMessage, RxError>> {
+        if let Some(error) = self.error.take() {
+            return Some(Err(error));
+        }
+        match self.other {
+            OtherBuffer::Ready(msg) => {
+                self.other = OtherBuffer::Copying;
+                Some(Ok(msg))
+            }
+            OtherBuffer::Free | OtherBuffer::Copying => None,
         }
     }
 
@@ -1021,8 +1032,8 @@ impl RxState {
             Err(RxError::Overrun)
         } else if sr.rxerr() {
             Err(RxError::Crc)
-        } else if self.ready.is_some() {
-            // The previous message wasn't taken yet: keep it, and drop this one.
+        } else if !matches!(self.other, OtherBuffer::Free) {
+            // The other buffer is still taken: keep its message, and drop this one.
             Err(RxError::Overrun)
         } else {
             Ok(())
@@ -1031,7 +1042,7 @@ impl RxState {
         match result {
             Ok(()) => {
                 // Keep the message, and receive the next one into the other buffer.
-                self.ready = Some(RxMessage {
+                self.other = OtherBuffer::Ready(RxMessage {
                     data: dma.buffer(self.receiving) as *const u8,
                     len,
                     ordset: sop,
@@ -1044,6 +1055,21 @@ impl RxState {
             }
         }
         dma.receive_into(self.receiving);
+    }
+
+    /// Discards what was received before the Hard Reset, and records it for the next `receive`.
+    ///
+    /// A message that `receive` is copying out already isn't discarded: it is returned before
+    /// the Hard Reset, and its buffer stays taken until the copy is done.
+    fn on_hard_reset(&mut self) {
+        if let OtherBuffer::Ready(_) = self.other {
+            self.other = OtherBuffer::Free;
+        }
+        self.error = Some(RxError::HardReset);
+        // Also discard a message that the Hard Reset cut short.
+        if let Some(dma) = &mut self.dma {
+            dma.receive_into(self.receiving);
+        }
     }
 }
 
