@@ -16,6 +16,10 @@ pub enum Speed {
     Full,
     /// 480 Mbit/s
     High,
+    /// 5 Gbit/s
+    Super,
+    /// 10 Gbit/s or more
+    SuperPlus,
 }
 
 impl Speed {
@@ -25,7 +29,19 @@ impl Speed {
             Speed::Low => 8,
             Speed::Full => 64,
             Speed::High => 64, // USB 2.0 spec requires 64 for high-speed control EP0
+            Speed::Super | Speed::SuperPlus => 512, // USB 3.2
         }
+    }
+
+    /// Whether this is SuperSpeed or SuperSpeedPlus.
+    pub const fn is_super(self) -> bool {
+        matches!(self, Speed::Super | Speed::SuperPlus)
+    }
+
+    /// Whether periodic endpoints are serviced in 125 us bus intervals
+    /// rather than 1 ms frames.
+    pub const fn uses_microframes(self) -> bool {
+        matches!(self, Speed::High | Speed::Super | Speed::SuperPlus)
     }
 }
 

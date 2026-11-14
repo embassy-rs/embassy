@@ -72,10 +72,11 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             &EndpointInfo {
                 addr: 0.into(),
                 ep_type: EndpointType::Control,
-                max_packet_size: enum_info
-                    .device_desc
-                    .max_packet_size0
-                    .min(if ls_over_fs { 8 } else { 64 }) as u16,
+                max_packet_size: enum_info.max_packet_size0().min(if ls_over_fs {
+                    8
+                } else {
+                    enum_info.speed().max_packet_size()
+                }),
                 interval_ms: 0,
                 max_burst: 0,
             },
@@ -390,7 +391,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                     parent_split.port(),
                     SplitSpeed::Full,
                 )),
-                Speed::High => BusRoute::Direct(speed),
+                Speed::High | Speed::Super | Speed::SuperPlus => BusRoute::Direct(speed),
             },
             None => {
                 let split_speed = match (speed, self.route.device_speed()) {

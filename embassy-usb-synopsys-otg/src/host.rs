@@ -793,7 +793,7 @@ where
                             let frivl = if phy_type.high_speed() { 60_000 } else { 48_000 };
                             r.hfir().write(|w| w.set_frivl(frivl));
                         }
-                        Speed::High => {} // Keep HS defaults
+                        Speed::High | Speed::Super | Speed::SuperPlus => {} // Keep HS defaults
                     }
 
                     return DeviceEvent::Connected(speed);

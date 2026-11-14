@@ -23,11 +23,12 @@ fn check_ump_len(len: usize) -> Result<(), MidiPacketError> {
 }
 
 /// Polling interval in ms for an interrupt endpoint's raw `bInterval`: frames at low and full speed,
-/// `2^(n-4)` ms at high speed (USB 2.0 §9.6.6). Sub-millisecond values round up to 1 ms.
+/// `2^(n-4)` ms at high speed and above (USB 2.0 §9.6.6, USB 3.2). Sub-millisecond values
+/// round up to 1 ms.
 fn polling_interval_ms(speed: Speed, b_interval: u8) -> u8 {
     match speed {
         Speed::Low | Speed::Full => b_interval,
-        Speed::High => 1u32
+        Speed::High | Speed::Super | Speed::SuperPlus => 1u32
             .checked_shl(u32::from(b_interval).saturating_sub(4))
             .map_or(u8::MAX, |ms| ms.min(255) as u8),
     }
