@@ -8,7 +8,7 @@ use common::*;
 use defmt::{assert, assert_eq};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::ucpd::{self, CcPhy, CcPull, CcSel, CcVState, RxError, Ucpd};
+use embassy_stm32::ucpd::{self, CcPhy, CcPull, CcSel, CcVState, RxBuffers, RxError, Ucpd};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_time::Timer;
 
@@ -46,7 +46,8 @@ async fn source(
     debug!("source: sink detected, setting 3.0A current pull-up");
     ucpd.cc_phy().set_pull(CcPull::Source3_0A);
 
-    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1);
+    let mut rx_buffers = RxBuffers::new();
+    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1, &mut rx_buffers);
 
     // Listen for an incoming message
     debug!("source: wait for message from sink");
@@ -86,7 +87,8 @@ async fn sink(
     // TODO: not working yet, why? no idea, replace with timer for now
     Timer::after_millis(100).await;
 
-    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1);
+    let mut rx_buffers = RxBuffers::new();
+    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1, &mut rx_buffers);
 
     // Send message
     debug!("sink: sending message");

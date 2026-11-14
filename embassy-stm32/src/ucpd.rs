@@ -14,18 +14,21 @@
 // be disabled by setting a bit in PWR/SYSCFG registers. The exact name and location for that
 // bit is different for each familily.
 
+use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem::DropGuard;
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering, fence};
 use core::task::Poll;
+use core::{mem, slice};
 
+use critical_section::Mutex;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::atomic::{AtomicClear, AtomicModify};
-use crate::dma::{ChannelAndRequest, TransferOptions};
+use crate::dma::{ChannelAndRequest, Transfer, TransferOptions};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, Rxordset, TypecVstateCc as CcVState};
@@ -219,6 +222,9 @@ impl<'d, T: Instance> Ucpd<'d, T> {
 
     /// Splits the UCPD driver into a TypeC PHY to control and monitor CC voltage
     /// and a Power Delivery (PD) PHY with receiver and transmitter.
+    ///
+    /// PD messages are received into `rx_buffers` in the background, so that messages arriving
+    /// between two calls of [`PdPhy::receive`] are not lost.
     pub fn split_pd_phy<RX, TX>(
         self,
         rx_dma: Peri<'d, RX>,
@@ -227,13 +233,16 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         + interrupt::typelevel::Binding<TX::Interrupt, crate::dma::InterruptHandler<TX>>
         + 'd,
         cc_sel: CcSel,
+        rx_buffers: &'d mut RxBuffers,
     ) -> (CcPhy<'d, T>, PdPhy<'d, T>)
     where
         RX: RxDma<T>,
         TX: TxDma<T>,
     {
-        enable_pd::<T>(cc_sel);
-        self.split_disabled_pd_phy(rx_dma, tx_dma, irqs)
+        let (cc_phy, mut pd_phy) = self.split_disabled_pd_phy(rx_dma, tx_dma, irqs);
+        // SAFETY: `rx_buffers` is borrowed for `'d`, and dropping `pd_phy` stops reception.
+        unsafe { pd_phy.start_reception(cc_sel, rx_buffers) };
+        (cc_phy, pd_phy)
     }
 
     /// Splits the UCPD driver like [`split_pd_phy`](Self::split_pd_phy), but with PD
@@ -284,20 +293,6 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             },
         )
     }
-}
-
-/// Enables PD communication on the given CC line.
-fn enable_pd<T: Instance>(cc_sel: CcSel) {
-    let r = T::REGS;
-
-    // Enable the receiver on one of the two CC lines.
-    modify_cr::<T>(|w| w.set_phyccsel(cc_sel));
-
-    // Enable hard reset receive interrupt.
-    r.imr().set_bits(|w| w.set_rxhrstdetie(true));
-
-    // Enable PD packet reception
-    modify_cr::<T>(|w| w.set_phyrxen(true));
 }
 
 /// Control and monitoring of TypeC CC pin functionality.
@@ -494,7 +489,9 @@ pub enum RxError {
     /// Incorrect CRC or truncated message (a line becoming static before EOP is met).
     Crc,
 
-    /// Provided buffer was too small for the received message.
+    /// The provided buffer was too small for the received message, or messages were lost: a
+    /// message arrived while the previous one still waited for [`PdPhy::receive`], or bytes of a
+    /// message were lost.
     Overrun,
 
     /// Hard Reset received before or during reception.
@@ -508,8 +505,44 @@ pub enum TxError {
     /// Concurrent receive in progress or excessive noise on the line.
     Discarded,
 
-    /// Hard Reset received before or during transmission.
+    /// Hard Reset received during transmission.
     HardReset,
+}
+
+/// Size of the largest message: header, extended header and 260 data bytes of an unchunked
+/// extended message.
+const MAX_MESSAGE_LEN: usize = 264;
+
+/// Size of an RX buffer: one byte more than the largest message.
+///
+/// An over-long frame fills the buffer and leaves its next byte in RXDR, which the DMA then puts
+/// at the start of the next buffer. Thanks to the spare byte, that byte always shows up in the
+/// byte count of the next message, even for a message of the largest size, which is then dropped
+/// instead of being returned shifted by one byte.
+const RX_BUFFER_LEN: usize = MAX_MESSAGE_LEN + 1;
+
+/// Buffers for received PD messages, given to [`Ucpd::split_pd_phy`] or
+/// [`IdlePdPhy::activate`].
+///
+/// Holds two messages of the largest size: while one waits for [`PdPhy::receive`], the next one
+/// is received into the other.
+pub struct RxBuffers {
+    bufs: [[u8; RX_BUFFER_LEN]; 2],
+}
+
+impl RxBuffers {
+    /// Creates the buffers.
+    pub const fn new() -> Self {
+        Self {
+            bufs: [[0; RX_BUFFER_LEN]; 2],
+        }
+    }
+}
+
+impl Default for RxBuffers {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Power Delivery (PD) PHY.
@@ -521,11 +554,10 @@ pub struct PdPhy<'d, T: Instance> {
 
 impl<'d, T: Instance> Drop for PdPhy<'d, T> {
     fn drop(&mut self) {
-        let r = T::REGS;
-        modify_cr::<T>(|w| w.set_phyrxen(false));
+        self.stop_reception();
         // Check if the CcPhy part was dropped already.
         if !T::state().drop_not_ready.clear() {
-            r.cfgr1().write(|w| w.set_ucpden(false));
+            T::REGS.cfgr1().write(|w| w.set_ucpden(false));
             rcc::disable::<T>();
             T::Interrupt::disable();
         }
@@ -533,6 +565,65 @@ impl<'d, T: Instance> Drop for PdPhy<'d, T> {
 }
 
 impl<'d, T: Instance> PdPhy<'d, T> {
+    /// Starts receiving on the given CC line, into `rx_buffers`.
+    ///
+    /// From now on, the interrupt owns the RX DMA: at the end of every message it restarts the
+    /// DMA at the start of a buffer, so that the DMA is always ready for the next message.
+    ///
+    /// # Safety
+    ///
+    /// `rx_buffers` must stay borrowed until reception stops.
+    unsafe fn start_reception(&mut self, cc_sel: CcSel, rx_buffers: &mut RxBuffers) {
+        let r = T::REGS;
+
+        // `stop_reception` takes the DMA back before `'d` ends, and before `rx_buffers` is released.
+        let mut dma = RxDmaState::new(&self.rx_dma, rx_buffers, r.rxdr().as_ptr() as *mut u8);
+        dma.receive_into(0);
+        critical_section::with(|cs| {
+            *T::state().rx.borrow_ref_mut(cs) = RxState {
+                dma: Some(dma),
+                ..RxState::new()
+            }
+        });
+
+        r.icr().write(|w| {
+            w.set_rxhrstdetcf(true);
+            w.set_rxmsgendcf(true);
+            w.set_rxovrcf(true);
+        });
+        r.imr().set_bits(|w| {
+            w.set_rxmsgendie(true);
+            w.set_rxhrstdetie(true);
+        });
+        modify_cr::<T>(|w| {
+            w.set_phyccsel(cc_sel);
+            w.set_phyrxen(true);
+        });
+    }
+
+    /// Stops receiving, if reception is on.
+    fn stop_reception(&mut self) {
+        let r = T::REGS;
+
+        modify_cr::<T>(|w| w.set_phyrxen(false));
+        r.imr().clear_bits(|w| {
+            w.set_rxmsgendie(false);
+            w.set_rxhrstdetie(false);
+        });
+
+        let Some(mut dma) = critical_section::with(|cs| T::state().rx.borrow_ref_mut(cs).dma.take()) else {
+            return;
+        };
+
+        // A byte left in RXDR leaves a DMA request pending, which neither reading RXDR nor
+        // clearing RXNE cancels: the next reception would start with it. Let the DMA take it,
+        // restarted first in case the current buffer is full.
+        dma.receive_into(0);
+        while r.sr().read().rxne() {}
+
+        // Dropping `dma` stops the DMA.
+    }
+
     /// Receives a PD message into the provided buffer.
     ///
     /// Returns the number of received bytes or an error.
@@ -542,86 +633,39 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
     /// Receives SOP and a PD message into the provided buffer.
     ///
+    /// Messages are received in the background, so a message that arrived before this call is
+    /// returned right away. One message can wait for this call; one that arrives while another one
+    /// is still waiting is dropped, and reported as [`RxError::Overrun`] after the waiting one. A
+    /// received Hard Reset discards the waiting message, and is reported as [`RxError::HardReset`].
+    ///
     /// Returns the start of packet type and number of received bytes or an error.
     pub async fn receive_with_sop(&mut self, buf: &mut [u8]) -> Result<(Sop, usize), RxError> {
-        let r = T::REGS;
-
-        let mut dma = unsafe {
-            self.rx_dma
-                .read(r.rxdr().as_ptr() as *mut u8, buf, TransferOptions::default())
-        };
-
-        let _on_drop = DropGuard::new((), |()| {
-            Self::enable_rx_interrupt(false);
-            // Clear interrupt flags
-            r.icr().write(|w| {
-                w.set_rxorddetcf(true);
-                w.set_rxovrcf(true);
-                w.set_rxmsgendcf(true);
-            });
-        });
-
-        let mut rxpaysz = 0;
-
-        // Stop DMA reception immediately after receiving a packet, to prevent storing multiple packets in the same buffer.
         poll_fn(|cx| {
-            let sr = r.sr().read();
-
-            if sr.rxhrstdet() {
-                dma.request_pause();
-
-                // Clean and re-enable hard reset receive interrupt.
-                r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
-                Poll::Ready(Err(RxError::HardReset))
-            } else if sr.rxmsgend() {
-                dma.request_pause();
-                // Should be read immediately on interrupt.
-                rxpaysz = r.rx_payszr().read().rxpaysz().into();
-
-                let ret = if sr.rxovr() {
-                    Err(RxError::Overrun)
-                } else if sr.rxerr() {
-                    Err(RxError::Crc)
-                } else {
-                    Ok(())
-                };
-                Poll::Ready(ret)
-            } else {
-                T::state().rx_waker.register(cx.waker());
-                Self::enable_rx_interrupt(true);
-                Poll::Pending
+            T::state().rx_waker.register(cx.waker());
+            match critical_section::with(|cs| T::state().rx.borrow_ref_mut(cs).take_next()) {
+                None => Poll::Pending,
+                Some(Err(error)) => Poll::Ready(Err(error)),
+                Some(Ok(msg)) => Poll::Ready(Self::take_message(msg, buf)),
             }
         })
-        .await?;
-
-        // Make sure that the last byte was fetched by DMA.
-        while r.sr().read().rxne() {
-            if dma.get_remaining_transfers() == 0 {
-                return Err(RxError::Overrun);
-            }
-        }
-
-        let sop = match r.rx_ordsetr().read().rxordset() {
-            Rxordset::Sop => Sop::Sop,
-            Rxordset::SopPrime => Sop::SopPrime,
-            Rxordset::SopDoublePrime => Sop::SopDoublePrime,
-            Rxordset::SopPrimeDebug => Sop::SopPrimeDebug,
-            Rxordset::SopDoublePrimeDebug => Sop::SopDoublePrimeDebug,
-            Rxordset::CableReset => return Err(RxError::HardReset),
-            // Extension headers are not supported
-            _ => unreachable!(),
-        };
-
-        Ok((sop, rxpaysz))
+        .await
     }
 
-    fn enable_rx_interrupt(enable: bool) {
-        if enable {
-            T::REGS.imr().set_bits(|w| w.set_rxmsgendie(true));
+    /// Copies the waiting message into `buf`, and hands its buffer back to the DMA.
+    fn take_message(msg: RxMessage, buf: &mut [u8]) -> Result<(Sop, usize), RxError> {
+        let result = if msg.len > buf.len() {
+            Err(RxError::Overrun)
         } else {
-            T::REGS.imr().clear_bits(|w| w.set_rxmsgendie(false));
-        }
+            // The DMA wrote the message before the interrupt recorded it.
+            fence(Ordering::Acquire);
+            // SAFETY: the buffers stay borrowed while reception is on, and the DMA doesn't write
+            // into the message's buffer until it is handed back below.
+            buf[..msg.len].copy_from_slice(unsafe { slice::from_raw_parts(msg.data, msg.len) });
+            msg.sop().map(|sop| (sop, msg.len))
+        };
+
+        critical_section::with(|cs| T::state().rx.borrow_ref_mut(cs).release_buffer());
+        result
     }
 
     /// Transmits an SOP PD message.
@@ -632,6 +676,9 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     /// Transmits a PD message with a given SOP.
     pub async fn transmit_with_sop(&mut self, sop: Sop, buf: &[u8]) -> Result<(), TxError> {
         let r = T::REGS;
+
+        // Only a Hard Reset received from now on ends this transmission.
+        T::state().tx_hard_reset.store(false, Ordering::Relaxed);
 
         // When a previous transmission was dropped before it had finished it
         // might still be running because there is no way to abort an ongoing
@@ -671,10 +718,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();
-            if sr.rxhrstdet() {
-                // Clean and re-enable hard reset receive interrupt.
-                r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
+            if T::state().tx_hard_reset.clear() {
                 Poll::Ready(Err(TxError::HardReset))
             } else if sr.txmsgdisc() {
                 Poll::Ready(Err(TxError::Discarded))
@@ -705,6 +749,9 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
     /// Transmit a hard reset.
     pub async fn transmit_hardreset(&mut self) -> Result<(), TxError> {
+        // Only a Hard Reset received from now on ends this transmission.
+        T::state().tx_hard_reset.store(false, Ordering::Relaxed);
+
         // Clear the hardreset interrupt flags.
         T::REGS.icr().write(|w| {
             w.set_hrstdisccf(true);
@@ -720,10 +767,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();
-            if sr.rxhrstdet() {
-                // Clean and re-enable hard reset receive interrupt.
-                r.icr().write(|w| w.set_rxhrstdetcf(true));
-                r.imr().set_bits(|w| w.set_rxhrstdetie(true));
+            if T::state().tx_hard_reset.clear() {
                 Poll::Ready(Err(TxError::HardReset))
             } else if sr.hrstdisc() {
                 Poll::Ready(Err(TxError::Discarded))
@@ -762,23 +806,13 @@ pub struct IdlePdPhy<'d, T: Instance> {
 impl<'d, T: Instance> IdlePdPhy<'d, T> {
     /// Enables PD communication on the given CC line.
     ///
-    /// PD reception is disabled again when the returned [`ActivePdPhy`] is dropped.
-    pub fn activate(&mut self, cc_sel: CcSel) -> ActivePdPhy<'_, 'd, T> {
-        let r = T::REGS;
-
-        // Discard what a previous activation left behind: a received Hard Reset or message, and
-        // a byte still waiting in RXDR, which the next reception would otherwise pick up.
-        r.icr().write(|w| {
-            w.set_rxhrstdetcf(true);
-            w.set_rxmsgendcf(true);
-            w.set_rxovrcf(true);
-            w.set_rxorddetcf(true);
-        });
-        if r.sr().read().rxne() {
-            r.rxdr().read();
-        }
-
-        enable_pd::<T>(cc_sel);
+    /// PD messages are received into `rx_buffers` in the background, so that messages arriving
+    /// between two calls of [`PdPhy::receive`] are not lost. PD reception is disabled again when
+    /// the returned [`ActivePdPhy`] is dropped.
+    pub fn activate<'a>(&'a mut self, cc_sel: CcSel, rx_buffers: &'a mut RxBuffers) -> ActivePdPhy<'a, 'd, T> {
+        // SAFETY: `rx_buffers` is borrowed for as long as the returned `ActivePdPhy`, and dropping
+        // it stops reception.
+        unsafe { self.pd_phy.start_reception(cc_sel, rx_buffers) };
         ActivePdPhy {
             pd_phy: &mut self.pd_phy,
         }
@@ -795,9 +829,7 @@ pub struct ActivePdPhy<'a, 'd, T: Instance> {
 
 impl<'a, 'd, T: Instance> Drop for ActivePdPhy<'a, 'd, T> {
     fn drop(&mut self) {
-        // Undo `enable_pd`, apart from the CC line selection, which only matters while enabled.
-        modify_cr::<T>(|w| w.set_phyrxen(false));
-        T::REGS.imr().clear_bits(|w| w.set_rxhrstdetie(false));
+        self.pd_phy.stop_reception();
     }
 }
 
@@ -855,16 +887,20 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             state.cc_waker.wake();
         }
 
-        if sr.rxhrstdet() {
-            r.imr().clear_bits(|w| w.set_rxhrstdetie(false));
-            // A received Hard Reset ends both a pending reception and a pending transmission.
+        if sr.rxmsgend() {
+            critical_section::with(|cs| state.rx.borrow_ref_mut(cs).on_message_end(r, sr));
             state.rx_waker.wake();
-            state.tx_waker.wake();
         }
 
-        if sr.rxmsgend() {
-            r.imr().clear_bits(|w| w.set_rxmsgendie(false));
+        // After RXMSGEND, so that it also discards a message that ended before it.
+        if sr.rxhrstdet() {
+            r.icr().write(|w| w.set_rxhrstdetcf(true));
+            // A received Hard Reset is reported to both a reception and a transmission. Only the
+            // interrupt consumes the flag, so neither can hide it from the other.
+            critical_section::with(|cs| state.rx.borrow_ref_mut(cs).on_hard_reset());
+            state.tx_hard_reset.store(true, Ordering::Relaxed);
             state.rx_waker.wake();
+            state.tx_waker.wake();
         }
 
         if sr.txmsgdisc() || sr.txmsgsent() {
@@ -895,6 +931,9 @@ struct State {
     tx_waker: AtomicWaker,
     // Inverted logic for a default state of 0 so that the data goes into the .bss section.
     drop_not_ready: AtomicBool,
+    rx: Mutex<RefCell<RxState>>,
+    /// A Hard Reset was received since the current transmission started.
+    tx_hard_reset: AtomicBool,
 }
 
 impl State {
@@ -904,7 +943,228 @@ impl State {
             rx_waker: AtomicWaker::new(),
             tx_waker: AtomicWaker::new(),
             drop_not_ready: AtomicBool::new(false),
+            rx: Mutex::new(RefCell::new(RxState::new())),
+            tx_hard_reset: AtomicBool::new(false),
         }
+    }
+}
+
+/// Reception state, shared by the interrupt and [`PdPhy::receive_with_sop`].
+///
+/// The DMA receives into one of the two [`RxBuffers`]. At the end of a message, the interrupt
+/// keeps it for `receive`, and restarts the DMA at the start of the other buffer. While the other
+/// buffer is taken, the DMA stays in its buffer: further messages are dropped, and reported as
+/// lost.
+struct RxState {
+    /// Set while reception is on.
+    dma: Option<RxDmaState>,
+    /// The buffer the DMA receives into.
+    receiving: usize,
+    /// The buffer the DMA doesn't receive into.
+    other: OtherBuffer,
+    /// An error to report with the next `receive`, before the waiting message.
+    error: Option<RxError>,
+    /// An error that happened while the other buffer was taken, to report after its message.
+    later_error: Option<RxError>,
+}
+
+// SAFETY: the pointers into the RX buffers are only used by the interrupt and by the `PdPhy` that
+// started reception, which keeps the buffers borrowed until it stops reception.
+unsafe impl Send for RxState {}
+
+/// The buffer the DMA doesn't receive into.
+#[derive(Clone, Copy)]
+enum OtherBuffer {
+    /// The DMA can switch to it at the end of a message.
+    Free,
+    /// Holds a message that waits for `receive`.
+    Ready(RxMessage),
+    /// `receive` is copying a message out of it.
+    Copying,
+}
+
+impl RxState {
+    const fn new() -> Self {
+        Self {
+            dma: None,
+            receiving: 0,
+            other: OtherBuffer::Free,
+            error: None,
+            later_error: None,
+        }
+    }
+
+    /// Takes what the next `receive` returns: an error, else the waiting message.
+    ///
+    /// The message's buffer stays taken until `receive` has copied the message out, so that the
+    /// DMA doesn't reuse it meanwhile.
+    fn take_next(&mut self) -> Option<Result<RxMessage, RxError>> {
+        if let Some(error) = self.error.take() {
+            return Some(Err(error));
+        }
+        match self.other {
+            OtherBuffer::Ready(msg) => {
+                self.other = OtherBuffer::Copying;
+                Some(Ok(msg))
+            }
+            OtherBuffer::Free | OtherBuffer::Copying => None,
+        }
+    }
+
+    /// Hands the buffer of a message that `receive` has copied out back to the DMA.
+    fn release_buffer(&mut self) {
+        self.other = OtherBuffer::Free;
+        // The message has been returned, so an error that happened after it is next.
+        self.error = self.later_error.take();
+    }
+
+    /// Records a received message, and restarts the DMA for the next one.
+    ///
+    /// RX_PAYSZR, RX_ORDSETR and the error flags describe the message until the next one starts,
+    /// at least ~300 us after this one ended (inter-frame gap, preamble and SOP).
+    fn on_message_end(&mut self, r: crate::pac::ucpd::Ucpd, sr: crate::pac::ucpd::regs::Sr) {
+        let len = r.rx_payszr().read().rxpaysz() as usize;
+        let sop = r.rx_ordsetr().read().rxordset();
+        r.icr().write(|w| {
+            w.set_rxmsgendcf(true);
+            w.set_rxovrcf(true);
+        });
+
+        let Some(dma) = &mut self.dma else {
+            return;
+        };
+
+        let result = if dma.received() != len || len > MAX_MESSAGE_LEN || sr.rxovr() {
+            // The DMA must have received exactly the bytes the UCPD counted. Its last byte reached
+            // RXDR before the CRC and EOP, at least ~150 us ago, so the DMA has long taken it. If
+            // the counts differ, bytes were lost, a byte was left over from an over-long frame, or
+            // the interrupt was so late that the next message has started.
+            Err(RxError::Overrun)
+        } else if sr.rxerr() {
+            Err(RxError::Crc)
+        } else if !matches!(self.other, OtherBuffer::Free) {
+            // The other buffer is still taken: keep its message, and drop this one.
+            Err(RxError::Overrun)
+        } else {
+            Ok(())
+        };
+
+        match result {
+            Ok(()) => {
+                // Keep the message, and receive the next one into the other buffer.
+                self.other = OtherBuffer::Ready(RxMessage {
+                    data: dma.buffer(self.receiving) as *const u8,
+                    len,
+                    ordset: sop,
+                });
+                self.receiving ^= 1;
+            }
+            Err(error) => {
+                // Drop the message: its buffer is reused for the next one. If a message is
+                // waiting, it was received first, so the error is reported after it.
+                let slot = match self.other {
+                    OtherBuffer::Free => &mut self.error,
+                    OtherBuffer::Ready(_) | OtherBuffer::Copying => &mut self.later_error,
+                };
+                slot.get_or_insert(error);
+            }
+        }
+        dma.receive_into(self.receiving);
+    }
+
+    /// Discards what was received before the Hard Reset, and records it for the next `receive`.
+    ///
+    /// A message that `receive` is copying out already isn't discarded: it is returned before
+    /// the Hard Reset, and its buffer stays taken until the copy is done.
+    fn on_hard_reset(&mut self) {
+        match self.other {
+            OtherBuffer::Copying => self.later_error = Some(RxError::HardReset),
+            OtherBuffer::Free | OtherBuffer::Ready(_) => {
+                self.other = OtherBuffer::Free;
+                self.error = Some(RxError::HardReset);
+                self.later_error = None;
+            }
+        }
+        // Also discard a message that the Hard Reset cut short.
+        if let Some(dma) = &mut self.dma {
+            dma.receive_into(self.receiving);
+        }
+    }
+}
+
+/// A received message that waits for `receive`.
+#[derive(Clone, Copy)]
+struct RxMessage {
+    /// Its bytes, at the start of an RX buffer.
+    data: *const u8,
+    len: usize,
+    ordset: Rxordset,
+}
+
+impl RxMessage {
+    fn sop(&self) -> Result<Sop, RxError> {
+        match self.ordset {
+            Rxordset::Sop => Ok(Sop::Sop),
+            Rxordset::SopPrime => Ok(Sop::SopPrime),
+            Rxordset::SopDoublePrime => Ok(Sop::SopDoublePrime),
+            Rxordset::SopPrimeDebug => Ok(Sop::SopPrimeDebug),
+            Rxordset::SopDoublePrimeDebug => Ok(Sop::SopDoublePrimeDebug),
+            Rxordset::CableReset => Err(RxError::HardReset),
+            // Extension headers are not supported
+            _ => unreachable!(),
+        }
+    }
+}
+
+/// The RX DMA, which belongs to the interrupt while reception is on.
+struct RxDmaState {
+    channel: ChannelAndRequest<'static>,
+    transfer: Option<Transfer<'static>>,
+    buffers: *mut RxBuffers,
+    rxdr: *mut u8,
+}
+
+impl RxDmaState {
+    /// Creates the RX DMA state, without starting the DMA.
+    ///
+    /// # Safety
+    ///
+    /// `channel` and `buffers` must outlive the returned value.
+    unsafe fn new(channel: &ChannelAndRequest<'_>, buffers: *mut RxBuffers, rxdr: *mut u8) -> Self {
+        Self {
+            channel: mem::transmute::<ChannelAndRequest<'_>, ChannelAndRequest<'static>>(channel.clone_unchecked()),
+            transfer: None,
+            buffers,
+            rxdr,
+        }
+    }
+
+    /// The RX buffer with the given index.
+    fn buffer(&self, index: usize) -> *mut [u8; RX_BUFFER_LEN] {
+        // SAFETY: `buffers` outlives `self`, see `new`.
+        unsafe { &raw mut (*self.buffers).bufs[index] }
+    }
+
+    /// Restarts the DMA at the start of buffer `index`.
+    fn receive_into(&mut self, index: usize) {
+        // Dropping the transfer stops it.
+        self.transfer = None;
+        let buf: *mut [u8] = self.buffer(index);
+        // SAFETY: `channel` and `buffers` outlive `self`, see `new`, and the transfer is stopped
+        // before `self` is dropped.
+        self.transfer = Some(unsafe {
+            self.channel
+                .clone_unchecked()
+                .read_raw(self.rxdr, buf, TransferOptions::default())
+                .unchecked_extend_lifetime()
+        });
+    }
+
+    /// Number of bytes the DMA has received into its buffer.
+    fn received(&self) -> usize {
+        self.transfer
+            .as_ref()
+            .map_or(0, |t| RX_BUFFER_LEN - t.get_remaining_transfers() as usize)
     }
 }
 
