@@ -5,8 +5,11 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{Peri, PeripheralType};
 
 use super::{DriveStrength, Flex, Inverter, Mode, OpenDrain, Pull, SlewRate};
-// N has native per-pad PCR types, not A's uniform PORT/PCR model. Keep the
-// dispatch local to pin control; the GPIO registers and public driver are shared.
+use crate::_generated::{mcxn_pcr_modify, mcxn_pcr_modify_drive};
+
+// N has native per-pad PCR types, not A's uniform PORT/PCR model. `build.rs`
+// generates the `(port, pin)` dispatch to them from the PAC's GPIO pads; the GPIO
+// registers and public driver are shared.
 
 type Dse = DriveStrength;
 
@@ -18,17 +21,19 @@ pub(crate) enum Mux {
 
 macro_rules! modify_mcxn_pcr {
     ($pin:expr, |$w:ident| $body:block) => {
-        match ($pin.port(), $pin.pin()) {
-            #[cfg(not(feature = "_mcxn23x"))]
-            (0, 10) => crate::pac::PORT0.pcr10().modify(|$w| $body),
-            (0, 27) => crate::pac::PORT0.pcr27().modify(|$w| $body),
-            (1, 2) => crate::pac::PORT1.pcr2().modify(|$w| $body),
-            _ => unreachable!("unimplemented MCXN pad"),
-        }
+        mcxn_pcr_modify!($pin.port(), $pin.pin(), |$w| $body)
     };
 }
 
-// N556S PCR encodings. Match the setting explicitly: declaration order of the
+/// Like `modify_mcxn_pcr!`, for `DSE`/`SRE`. Pads without those fields (PORT5)
+/// are left unchanged.
+macro_rules! modify_mcxn_pcr_drive {
+    ($pin:expr, |$w:ident| $body:block) => {
+        mcxn_pcr_modify_drive!($pin.port(), $pin.pin(), |$w| $body)
+    };
+}
+
+// MCXN PCR encodings. Match the setting explicitly: declaration order of the
 // shared public enums is not part of the register-programming contract.
 const fn drive_strength_bits(strength: DriveStrength) -> bool {
     match strength {
@@ -108,11 +113,11 @@ pub(crate) trait SealedPin {
     }
 
     fn set_drive_strength(&self, strength: Dse) {
-        modify_mcxn_pcr!(self, |w| { w.set_dse(drive_strength_bits(strength)) });
+        modify_mcxn_pcr_drive!(self, |w| { w.set_dse(drive_strength_bits(strength)) });
     }
 
     fn set_slew_rate(&self, slew: Sre) {
-        modify_mcxn_pcr!(self, |w| { w.set_sre(slew_rate_bits(slew)) });
+        modify_mcxn_pcr_drive!(self, |w| { w.set_sre(slew_rate_bits(slew)) });
     }
 
     fn set_enable_input_buffer(&self, enabled: bool) {

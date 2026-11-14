@@ -8,7 +8,7 @@ use core::cell::RefCell;
 
 use cortex_m::peripheral::SCB;
 
-use crate::{pac, peripherals};
+use crate::pac;
 
 /// Configuration of the fixed MCXN clock profile.
 pub mod config {
@@ -283,12 +283,8 @@ macro_rules! impl_mcxn_gate {
 
 pub(crate) fn init_gpio_clocks() -> Result<(), ClockError> {
     // Resetting whole GPIO/PORT blocks would discard inherited access policy,
-    // protection locks, and pad state beyond the three owned RGB pins.
-    <peripherals::PORT0 as Gate>::enable()?;
-    <peripherals::GPIO0 as Gate>::enable()?;
-    <peripherals::PORT1 as Gate>::enable()?;
-    <peripherals::GPIO1 as Gate>::enable()?;
-    Ok(())
+    // protection locks, and the state of pads this HAL does not own.
+    crate::_generated::enable_gpio_clocks()
 }
 
 #[cfg(time_driver_ostimer)]
@@ -298,5 +294,5 @@ pub(crate) fn enable_ostimer_clock() -> Result<(), ClockError> {
     if pac::SYSCON0.ostimerclksel().read().sel().to_bits() != 2 {
         return Err(ClockError::InvalidReadback(ClockPhase::PeripheralGate));
     }
-    unsafe { <peripherals::OSTIMER0 as Gate>::initialize() }
+    unsafe { <crate::peripherals::OSTIMER0 as Gate>::initialize() }
 }
