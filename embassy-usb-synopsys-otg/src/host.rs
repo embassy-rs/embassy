@@ -794,6 +794,7 @@ where
                             r.hfir().write(|w| w.set_frivl(frivl));
                         }
                         Speed::High => {} // Keep HS defaults
+                        _ => {}
                     }
 
                     return DeviceEvent::Connected(speed);
