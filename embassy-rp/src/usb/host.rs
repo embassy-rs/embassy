@@ -593,7 +593,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             max_packet_size: ep_info.max_packet_size,
             // The register carries the endpoint number; direction is configured separately.
             ep_addr: u8::from(ep_info.addr) & 0x0f,
-            interval: ep_info.interval_ms,
+            interval: ep_info.interval,
             pid: false,
             pre,
             timeout: default_timeout(),

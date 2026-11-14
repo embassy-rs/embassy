@@ -636,13 +636,13 @@ where
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval_ms: u8,
+        interval: u8,
     ) -> Result<Endpoint<'d, D, M>, EndpointAllocError> {
         trace!(
-            "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
+            "allocating type={:?} mps={:?} interval={}, dir={:?}",
             ep_type,
             max_packet_size,
-            interval_ms,
+            interval,
             D::dir()
         );
 
@@ -747,7 +747,7 @@ where
                 addr: EndpointAddress::from_parts(index, D::dir()),
                 ep_type,
                 max_packet_size,
-                interval_ms,
+                interval,
                 max_burst: 0,
             },
         })
@@ -764,11 +764,11 @@ where
     type Bus = Bus<'d, M>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -1550,7 +1550,7 @@ where
         .await
     }
 
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
         trace!("endpoint_set_stalled ep={:?} en={}", ep_addr, stalled);
 
         let regs = self.instance.regs;
@@ -1572,7 +1572,7 @@ where
         );
     }
 
-    fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
+    async fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
         assert!(
             ep_addr.index() < self.instance.state.endpoint_count(),
             "endpoint_is_stalled index {} out of range",
@@ -1582,7 +1582,7 @@ where
         is_endpoint_stalled(self.instance.regs, ep_addr.index(), ep_addr.direction())
     }
 
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         trace!("endpoint_set_enabled ep={:?} en={}", ep_addr, enabled);
 
         assert!(
@@ -1671,6 +1671,22 @@ where
                 // Wake `Endpoint::wait_enabled()`
                 st.ep_states[ep_addr.index()].in_waker.wake();
             }
+        }
+    }
+
+    async fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool {
+        assert!(
+            ep_addr.index() < self.instance.state.endpoint_count(),
+            "endpoint_is_enabled index {} out of range",
+            ep_addr.index()
+        );
+        match ep_addr.direction() {
+            Direction::Out => self.instance.state.ep_states[ep_addr.index()]
+                .out_enabled
+                .load(Ordering::Acquire),
+            Direction::In => self.instance.state.ep_states[ep_addr.index()]
+                .in_enabled
+                .load(Ordering::Acquire),
         }
     }
 
@@ -1773,7 +1789,11 @@ where
         .await
     }
 
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn is_enabled(&mut self) -> bool {
+        self.state.in_enabled.load(Ordering::Acquire)
+    }
+
+    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled(
             self.regs,
             self.mutex,
@@ -1785,7 +1805,7 @@ where
         Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
+    async fn is_stalled(&mut self) -> Result<bool, Unsupported> {
         Ok(is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::In))
     }
 }
@@ -1811,7 +1831,11 @@ where
         .await
     }
 
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn is_enabled(&mut self) -> bool {
+        self.state.out_enabled.load(Ordering::Acquire)
+    }
+
+    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled(
             self.regs,
             self.mutex,
@@ -1823,7 +1847,7 @@ where
         Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
+    async fn is_stalled(&mut self) -> Result<bool, Unsupported> {
         Ok(is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::Out))
     }
 }
@@ -2246,26 +2270,25 @@ where
         .await
     }
 
-    async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
-        trace!("control: data_out");
+    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        trace!("control: data_out_transfer len={}", buf.len());
         let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
-        let len = abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_out.read(buf)).await?;
-        trace!("control: data_out read: {:?}", Bytes(&buf[..len]));
+        let len =
+            abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_out.read_transfer(buf)).await?;
+        trace!("control: data_out_transfer read: {:?}", Bytes(&buf[..len]));
         Ok(len)
     }
 
-    async fn data_in(&mut self, data: &[u8], _first: bool, last: bool) -> Result<(), EndpointError> {
-        trace!("control: data_in write: {:?}", Bytes(data));
+    async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
+        trace!("control: data_in_transfer len={} zlp={}", data.len(), needs_zlp);
         let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
         abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, async {
-            self.ep_in.write(data).await?;
+            self.ep_in.write_transfer(data, needs_zlp).await?;
 
-            // wait for status response from host after sending the last packet
-            if last {
-                trace!("control: data_in waiting for status");
-                self.ep_out.read(&mut []).await?;
-                trace!("control: complete");
-            }
+            // wait for status response from host after completing transfer
+            trace!("control: data_in waiting for status");
+            self.ep_out.read_transfer(&mut []).await?;
+            trace!("control: complete");
 
             Ok(())
         })

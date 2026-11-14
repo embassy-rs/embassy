@@ -456,9 +456,19 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
         self.control.rts.load(Ordering::Relaxed)
     }
 
+    /// Writes data to the IN endpoint.
+    ///
+    /// The transfer can be larger than max_packet_size; the driver handles packetization.
+    pub async fn write_transfer(&mut self, data: &[u8]) -> Result<(), EndpointError> {
+        let _ = self.write_ep.write_transfer(data, false).await?;
+        let max_packet_size = self.max_packet_size() as usize;
+        self.needs_zlp = !data.is_empty() && (data.len() % max_packet_size == 0);
+        Ok(())
+    }
+
     /// Writes a single packet into the IN endpoint.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        let _ = self.write_ep.write(data).await?;
+        let _ = self.write_ep.write_packet(data).await?;
         self.needs_zlp = data.len() == self.max_packet_size() as usize;
         Ok(())
     }
@@ -475,9 +485,12 @@ impl<'d, D: Driver<'d>> embedded_io_async::ErrorType for Sender<'d, D> {
 
 impl<'d, D: Driver<'d>> embedded_io_async::Write for Sender<'d, D> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let len = core::cmp::min(buf.len(), self.max_packet_size() as usize);
-        match self.write_packet(&buf[..len]).await {
-            Ok(()) => Ok(len),
+        match self.write_ep.write_transfer(buf, false).await {
+            Ok(()) => {
+                let max_packet_size = self.max_packet_size() as usize;
+                self.needs_zlp = !buf.is_empty() && (buf.len() % max_packet_size == 0);
+                Ok(buf.len())
+            }
             Err(EndpointError::BufferOverflow) => unreachable!(),
             Err(EndpointError::Disabled) => Err(CdcAcmError::NotConnected),
         }
@@ -485,10 +498,11 @@ impl<'d, D: Driver<'d>> embedded_io_async::Write for Sender<'d, D> {
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
         if self.needs_zlp {
-            self.write_packet(&[]).await.map_err(|e| match e {
+            self.write_ep.write_transfer(&[], false).await.map_err(|e| match e {
                 EndpointError::BufferOverflow => unreachable!(),
                 EndpointError::Disabled => CdcAcmError::NotConnected,
             })?;
+            self.needs_zlp = false;
         }
         Ok(())
     }
@@ -525,10 +539,17 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
         self.control.rts.load(Ordering::Relaxed)
     }
 
+    /// Reads data from the OUT endpoint.
+    ///
+    /// Reads multi-packet transfers into `data` until the buffer is filled or a short packet is received.
+    pub async fn read_transfer(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
+        self.read_ep.read_transfer(data).await
+    }
+
     /// Reads a single packet from the OUT endpoint.
     /// Must be called with a buffer large enough to hold max_packet_size bytes.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        self.read_ep.read(data).await
+        self.read_ep.read_packet(data).await
     }
 
     /// Waits for the USB host to enable this interface
@@ -614,7 +635,7 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
         // If the caller's buffer is large enough to contain an entire packet, read directly into
         // that instead of buffering the packet internally.
         if buf.len() > self.receiver.max_packet_size() as usize {
-            return match self.receiver.read_packet(buf).await {
+            return match self.receiver.read_transfer(buf).await {
                 Ok(n) => Ok(n),
                 Err(EndpointError::BufferOverflow) => unreachable!(),
                 Err(EndpointError::Disabled) => Err(CdcAcmError::NotConnected),
