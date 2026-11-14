@@ -16,7 +16,7 @@ use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::{self, I2c};
-use embassy_stm32::ucpd::{self, CcPhy, CcPull, CcSel, CcVState, PdPhy, Ucpd};
+use embassy_stm32::ucpd::{self, CcPhy, CcPull, CcSel, CcVState, PdPhy, RxBuffers, Ucpd};
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::{Duration, Timer, with_timeout};
 use panic_probe as _;
@@ -117,6 +117,7 @@ async fn main(_spawner: Spawner) {
 
     // Both parts are kept across attach/detach cycles; PD is only enabled while attached.
     let (mut cc_phy, mut pd_phy) = ucpd.split_idle_pd_phy(p.DMA1_CH1, p.DMA1_CH2, Irqs);
+    let mut rx_buffers = RxBuffers::new();
 
     loop {
         info!("Waiting for USB connection...");
@@ -134,7 +135,7 @@ async fn main(_spawner: Spawner) {
         };
 
         info!("Starting PD communication on {}", cc_sel);
-        let mut active_pd_phy = pd_phy.activate(cc_sel);
+        let mut active_pd_phy = pd_phy.activate(cc_sel, &mut rx_buffers);
         match select(wait_detached(&mut cc_phy), receive_messages(&mut active_pd_phy)).await {
             Either::First(()) => {}
             Either::Second(()) => {
