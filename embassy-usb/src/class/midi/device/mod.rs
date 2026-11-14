@@ -848,15 +848,18 @@ mod tests {
                 &self.info
             }
             async fn wait_enabled(&mut self) {}
-            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            async fn is_enabled(&mut self) -> bool {
+                true
+            }
+            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
                 Err(Unsupported)
             }
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
+            async fn is_stalled(&mut self) -> Result<bool, Unsupported> {
                 Err(Unsupported)
             }
         }
         impl EndpointIn for Capture {
-            async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+            async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointError> {
                 self.writes.push(heapless::Vec::from_slice(buf).unwrap()).unwrap();
                 Ok(())
             }
@@ -866,7 +869,7 @@ mod tests {
                 addr: EndpointAddress::from(0x81),
                 ep_type: EndpointType::Bulk,
                 max_packet_size,
-                interval_ms: 0,
+                interval: 0,
                 max_burst: 0,
             },
             writes: heapless::Vec::new(),
@@ -913,10 +916,13 @@ mod tests {
             async fn wait_enabled(&mut self) {
                 core::future::pending::<()>().await
             }
-            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            async fn is_enabled(&mut self) -> bool {
+                false
+            }
+            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
                 Err(Unsupported)
             }
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
+            async fn is_stalled(&mut self) -> Result<bool, Unsupported> {
                 Err(Unsupported)
             }
         }
@@ -925,10 +931,13 @@ mod tests {
                 &self.0
             }
             async fn wait_enabled(&mut self) {}
-            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            async fn is_enabled(&mut self) -> bool {
+                true
+            }
+            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
                 Err(Unsupported)
             }
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
+            async fn is_stalled(&mut self) -> Result<bool, Unsupported> {
                 Err(Unsupported)
             }
         }
@@ -936,7 +945,7 @@ mod tests {
             addr: EndpointAddress::from(0x01),
             ep_type: EndpointType::Bulk,
             max_packet_size: 64,
-            interval_ms: 0,
+            interval: 0,
             max_burst: 0,
         };
 

@@ -390,7 +390,7 @@ impl<'a> DescriptorWriter<'a> {
     ) {
         self.endpoint_raw(
             endpoint,
-            endpoint.interval_ms,
+            endpoint.interval,
             synchronization_type,
             usage_type,
             extra_fields,
@@ -465,10 +465,10 @@ impl<'a> DescriptorWriter<'a> {
         addr: Option<EndpointAddress>,
         ep_type: EndpointType,
         max_packet_size: u16,
-        interval_ms: u8,
+        interval: u8,
         options: EndpointOptions,
     ) -> EndpointConfig {
-        let mut config = EndpointConfig::new(addr, ep_type, max_packet_size, interval_ms);
+        let mut config = EndpointConfig::new(addr, ep_type, max_packet_size, interval);
         config.buffers = options.buffers;
         if self.superspeed {
             if ep_type == EndpointType::Bulk {

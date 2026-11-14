@@ -149,7 +149,7 @@ impl<'d, A: UsbHostAllocator<'d>> CcidHost<'d, A> {
             addr: EndpointAddress::from_parts((ep & 0x0f) as usize, direction),
             ep_type: EndpointType::Bulk,
             max_packet_size,
-            interval_ms: 0,
+            interval: 0,
             max_burst: 0,
         };
 

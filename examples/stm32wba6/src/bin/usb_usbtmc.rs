@@ -142,10 +142,10 @@ async fn main(_spawner: Spawner) {
             // what the driver reads back. This exercises the real halt feature (registers,
             // not just class bookkeeping) before the host starts a transfer, and leaves the
             // endpoints usable.
-            if tmc.stall().is_ok() {
-                info!("self-test: stalled = {}", tmc.is_stalled());
-                tmc.clear_stall();
-                info!("self-test: stalled after clear = {}", tmc.is_stalled());
+            if tmc.stall().await.is_ok() {
+                info!("self-test: stalled = {}", tmc.is_stalled().await);
+                tmc.clear_stall().await;
+                info!("self-test: stalled after clear = {}", tmc.is_stalled().await);
             } else {
                 info!("self-test: this driver cannot halt endpoints");
             }
@@ -185,9 +185,9 @@ async fn main(_spawner: Spawner) {
                     // host sees the failed transfer and clears the halt with
                     // CLEAR_FEATURE(ENDPOINT_HALT) or `viClear()`; the device recovers
                     // on its own once that happens.
-                    if tmc.stall().is_ok() {
+                    if tmc.stall().await.is_ok() {
                         info!("Stalling the bulk endpoints on request");
-                        info!("Stalled = {}", tmc.is_stalled());
+                        info!("Stalled = {}", tmc.is_stalled().await);
                     } else {
                         info!("This driver cannot halt endpoints");
                     }

@@ -394,9 +394,12 @@ impl<'d, D: Driver<'d>> embedded_io_async::ErrorType for Sender<'d, D> {
 #[cfg(feature = "embedded-io")]
 impl<'d, D: Driver<'d>> embedded_io_async::Write for Sender<'d, D> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let len = core::cmp::min(buf.len(), self.max_packet_size() as usize);
-        match self.write_packet(&buf[..len]).await {
-            Ok(()) => Ok(len),
+        let max_packet_size = self.max_packet_size() as usize;
+        match self.write_transfer(buf, false).await {
+            Ok(()) => {
+                self.needs_zlp = !buf.is_empty() && (buf.len() % max_packet_size == 0);
+                Ok(buf.len())
+            }
             Err(EndpointError::BufferOverflow) => unreachable!(),
             Err(EndpointError::Disabled) => Err(VendorError::NotConnected),
         }
@@ -404,10 +407,11 @@ impl<'d, D: Driver<'d>> embedded_io_async::Write for Sender<'d, D> {
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
         if self.needs_zlp {
-            self.write_packet(&[]).await.map_err(|e| match e {
+            self.write_transfer(&[], false).await.map_err(|e| match e {
                 EndpointError::BufferOverflow => unreachable!(),
                 EndpointError::Disabled => VendorError::NotConnected,
             })?;
+            self.needs_zlp = false;
         }
         Ok(())
     }
@@ -497,7 +501,7 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
         }
 
         if buf.len() > self.receiver.max_packet_size() as usize {
-            return match self.receiver.read_packet(buf).await {
+            return match self.receiver.read_transfer(buf).await {
                 Ok(n) => Ok(n),
                 Err(EndpointError::BufferOverflow) => unreachable!(),
                 Err(EndpointError::Disabled) => Err(VendorError::NotConnected),

@@ -67,24 +67,28 @@ impl Endpoint for TestEndpoint {
         unreachable!()
     }
 
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn is_enabled(&mut self) -> bool {
+        true
+    }
+
+    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         self.stalled.set(stalled);
         Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
+    async fn is_stalled(&mut self) -> Result<bool, Unsupported> {
         Ok(self.stalled.get())
     }
 }
 
 impl EndpointIn for TestEndpoint {
-    async fn write(&mut self, _buf: &[u8]) -> Result<(), EndpointError> {
+    async fn write_transfer(&mut self, _buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointError> {
         unreachable!()
     }
 }
 
 impl EndpointOut for TestEndpoint {
-    async fn read(&mut self, _buf: &mut [u8]) -> Result<usize, EndpointError> {
+    async fn read_transfer(&mut self, _buf: &mut [u8]) -> Result<usize, EndpointError> {
         unreachable!()
     }
 }
@@ -122,7 +126,7 @@ impl TestBus {
             addr,
             ep_type: config.ep_type,
             max_packet_size: config.max_packet_size,
-            interval_ms: config.interval_ms,
+            interval: config.interval,
             max_burst: config.max_burst,
         };
         let slot = Self::slot(addr);
@@ -155,18 +159,23 @@ impl Bus for TestBus {
         pending().await
     }
 
-    fn endpoint_set_enabled(&mut self, addr: EndpointAddress, enabled: bool) {
+    async fn endpoint_set_enabled(&mut self, addr: EndpointAddress, enabled: bool) {
         let slot = Self::slot(addr);
         assert!(self.endpoints[slot].is_some());
         self.enabled[slot] = enabled;
     }
 
-    fn endpoint_set_stalled(&mut self, addr: EndpointAddress, stalled: bool) {
+    async fn endpoint_is_enabled(&mut self, addr: EndpointAddress) -> bool {
+        let slot = Self::slot(addr);
+        self.enabled[slot]
+    }
+
+    async fn endpoint_set_stalled(&mut self, addr: EndpointAddress, stalled: bool) {
         let slot = self.check_halt(addr);
         self.stalled[slot].set(stalled);
     }
 
-    fn endpoint_is_stalled(&mut self, addr: EndpointAddress) -> bool {
+    async fn endpoint_is_stalled(&mut self, addr: EndpointAddress) -> bool {
         let slot = self.check_halt(addr);
         self.stalled[slot].get()
     }
@@ -201,15 +210,14 @@ impl ControlPipe for TestControlPipe {
         unreachable!()
     }
 
-    async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
+    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         buf.fill(0);
         let len = buf.len().min(self.out_data.len());
         buf[..len].copy_from_slice(&self.out_data[..len]);
         Ok(buf.len())
     }
 
-    async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError> {
-        assert!(first && last);
+    async fn data_in_transfer(&mut self, data: &[u8], _needs_zlp: bool) -> Result<(), EndpointError> {
         let status = match data {
             [b] => u16::from(*b),
             [lo, hi] => u16::from_le_bytes([*lo, *hi]),
@@ -622,7 +630,7 @@ fn get_descriptor_rejects_nonzero_index() {
             length: 9,
         };
         assert!(matches!(
-            usb.inner.handle_control_in(req, &mut buf),
+            block_on(usb.inner.handle_control_in(req, &mut buf)),
             InResponse::Accepted(_)
         ));
     });
@@ -653,7 +661,7 @@ fn get_descriptor_rejects_nonzero_index() {
             index: 0,
             length: 10,
         };
-        match usb.inner.handle_control_in(req, &mut buf) {
+        match block_on(usb.inner.handle_control_in(req, &mut buf)) {
             InResponse::Accepted(data) => assert_eq!(data.len(), 10),
             InResponse::Rejected => panic!("device qualifier index 0 should be accepted"),
         }
@@ -780,11 +788,11 @@ fn test_endpoint_stall_from_class() {
     let mut usb = builder.build();
 
     configure(&mut usb);
-    assert!(!ep_out.is_stalled().unwrap());
+    assert!(!block_on(ep_out.is_stalled()).unwrap());
 
     // A class driver can reject traffic on its own endpoint, and the host sees the halt.
-    ep_out.set_stall(true).unwrap();
-    assert!(ep_out.is_stalled().unwrap());
+    block_on(ep_out.set_stall(true)).unwrap();
+    assert!(block_on(ep_out.is_stalled()).unwrap());
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(1));
 
     // The host clearing the halt recovers the endpoint, without the class doing anything.
@@ -792,13 +800,13 @@ fn test_endpoint_stall_from_class() {
         endpoint_request(&mut usb, Request::CLEAR_FEATURE, 1),
         Response::Accepted
     );
-    assert!(!ep_out.is_stalled().unwrap());
+    assert!(!block_on(ep_out.is_stalled()).unwrap());
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(0));
 
     // The class can also clear its own stall.
-    ep_out.set_stall(true).unwrap();
+    block_on(ep_out.set_stall(true)).unwrap();
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(1));
-    ep_out.set_stall(false).unwrap();
+    block_on(ep_out.set_stall(false)).unwrap();
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(0));
 }
 
@@ -1187,7 +1195,7 @@ fn test_endpoint_interval_and_other_speed_config() {
         index: 0,
         length: 256,
     };
-    match usb.inner.handle_control_in(req, &mut buf) {
+    match block_on(usb.inner.handle_control_in(req, &mut buf)) {
         InResponse::Accepted(data) => {
             assert_eq!(data[1], descriptor_type::OTHER_SPEED_CONFIGURATION);
             assert_eq!(data.len(), other_desc.len());
@@ -1206,7 +1214,7 @@ fn test_endpoint_interval_and_other_speed_config() {
         length: 256,
     };
     assert!(matches!(
-        usb.inner.handle_control_in(req_invalid_idx, &mut buf),
+        block_on(usb.inner.handle_control_in(req_invalid_idx, &mut buf)),
         InResponse::Rejected
     ));
 }
@@ -1243,7 +1251,7 @@ fn test_other_speed_config_rejected_on_full_speed_or_missing_buffer() {
         length: 256,
     };
     assert!(matches!(
-        usb.inner.handle_control_in(req, &mut buf),
+        block_on(usb.inner.handle_control_in(req, &mut buf)),
         InResponse::Rejected
     ));
 
@@ -1268,7 +1276,7 @@ fn test_other_speed_config_rejected_on_full_speed_or_missing_buffer() {
     let mut usb_fs = builder_fs.build();
 
     assert!(matches!(
-        usb_fs.inner.handle_control_in(req, &mut buf),
+        block_on(usb_fs.inner.handle_control_in(req, &mut buf)),
         InResponse::Rejected
     ));
 }
@@ -1955,7 +1963,10 @@ fn test_midi2_device_enumeration_and_control() {
         index: 0,
         length: 0,
     };
-    assert_eq!(usb.inner.handle_control_out(set_config_req, &[]), OutResponse::Accepted);
+    assert_eq!(
+        block_on(usb.inner.handle_control_out(set_config_req, &[])),
+        OutResponse::Accepted
+    );
 
     let slot = |addr: u8| {
         let addr = EndpointAddress::from(addr);
@@ -1974,7 +1985,10 @@ fn test_midi2_device_enumeration_and_control() {
         index: 1,
         length: 0,
     };
-    assert_eq!(usb.inner.handle_control_out(set_alt_req, &[]), OutResponse::Accepted);
+    assert_eq!(
+        block_on(usb.inner.handle_control_out(set_alt_req, &[])),
+        OutResponse::Accepted
+    );
     assert!(usb.inner.bus.enabled[slot(0x81)]);
     assert!(usb.inner.bus.enabled[slot(0x01)]);
 
@@ -1983,7 +1997,10 @@ fn test_midi2_device_enumeration_and_control() {
         value: 0,
         ..set_alt_req
     };
-    assert_eq!(usb.inner.handle_control_out(set_alt0_req, &[]), OutResponse::Accepted);
+    assert_eq!(
+        block_on(usb.inner.handle_control_out(set_alt0_req, &[])),
+        OutResponse::Accepted
+    );
     assert!(usb.inner.bus.enabled[slot(0x81)]);
     assert!(usb.inner.bus.enabled[slot(0x01)]);
 
@@ -1998,7 +2015,7 @@ fn test_midi2_device_enumeration_and_control() {
         length: 0,
     };
     assert_eq!(
-        usb.inner.handle_control_out(set_alt_invalid, &[]),
+        block_on(usb.inner.handle_control_out(set_alt_invalid, &[])),
         OutResponse::Rejected
     );
 
@@ -2022,7 +2039,7 @@ fn test_midi2_device_enumeration_and_control() {
         ..get_gtb_req
     };
     assert!(matches!(
-        usb.inner.handle_control_in(class_gtb_req, &mut resp_buf),
+        block_on(usb.inner.handle_control_in(class_gtb_req, &mut resp_buf)),
         InResponse::Rejected
     ));
 
@@ -2032,11 +2049,11 @@ fn test_midi2_device_enumeration_and_control() {
         ..get_gtb_req
     };
     assert!(matches!(
-        usb.inner.handle_control_in(wrong_alt_gtb_req, &mut resp_buf),
+        block_on(usb.inner.handle_control_in(wrong_alt_gtb_req, &mut resp_buf)),
         InResponse::Rejected
     ));
 
-    match usb.inner.handle_control_in(get_gtb_req, &mut resp_buf) {
+    match block_on(usb.inner.handle_control_in(get_gtb_req, &mut resp_buf)) {
         InResponse::Accepted(data) => {
             let blocks: heapless::Vec<_, 4> = parse_gtb_descriptors(data).expect("valid GTB descriptors");
             assert_eq!(blocks.len(), 2);

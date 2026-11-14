@@ -60,7 +60,7 @@ impl<'d, A: UsbHostAllocator<'d>> KbdHandler<'d, A> {
                 ep_type: EndpointType::Control,
                 max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
                     .min(enum_info.speed().max_packet_size()),
-                interval_ms: 0,
+                interval: 0,
                 max_burst: 0,
             },
             enum_info.split(),

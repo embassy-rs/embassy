@@ -162,7 +162,7 @@ impl<'d, A: UsbHostAllocator<'d>> PrinterHost<'d, A> {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
             max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
-            interval_ms: 0,
+            interval: 0,
             max_burst: 0,
         };
         let ctrl = alloc
@@ -173,7 +173,7 @@ impl<'d, A: UsbHostAllocator<'d>> PrinterHost<'d, A> {
             addr: EndpointAddress::from(info.bulk_out_ep),
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_out_mps,
-            interval_ms: 0,
+            interval: 0,
             max_burst: 0,
         };
         let out_ch = alloc
@@ -185,7 +185,7 @@ impl<'d, A: UsbHostAllocator<'d>> PrinterHost<'d, A> {
                 addr: EndpointAddress::from(in_ep),
                 ep_type: EndpointType::Bulk,
                 max_packet_size: in_mps,
-                interval_ms: 0,
+                interval: 0,
                 max_burst: 0,
             };
             Some(
