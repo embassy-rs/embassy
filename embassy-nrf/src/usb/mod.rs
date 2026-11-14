@@ -146,7 +146,7 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
                 ep_type: config.ep_type,
                 max_packet_size: config.max_packet_size,
                 interval_ms: config.interval_ms,
-                max_burst: 0,
+                companion: None,
             },
         ))
     }
@@ -161,7 +161,7 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
                 ep_type: config.ep_type,
                 max_packet_size: config.max_packet_size,
                 interval_ms: config.interval_ms,
-                max_burst: 0,
+                companion: None,
             },
         ))
     }

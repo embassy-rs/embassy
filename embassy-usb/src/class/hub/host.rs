@@ -78,7 +78,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                     enum_info.speed().max_packet_size()
                 }),
                 interval_ms: 0,
-                max_burst: 0,
+                companion: None,
             },
             enum_info.split(),
         )?;

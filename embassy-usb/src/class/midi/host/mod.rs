@@ -1121,7 +1121,7 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
                         ep_type: embassy_usb_driver::EndpointType::Control,
                         max_packet_size: enum_info.max_packet_size0().min(enum_info.speed().max_packet_size()),
                         interval_ms: 0,
-                        max_burst: 0,
+                        companion: None,
                     },
                     enum_info.split(),
                 )
@@ -1645,7 +1645,7 @@ mod tests {
             ep_type: EndpointType::Control,
             max_packet_size: 64,
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
         let mut control = host
             .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &control_ep, enum_info.split())
@@ -1726,7 +1726,7 @@ mod tests {
             ep_type: EndpointType::Control,
             max_packet_size: 64,
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
         let mut control = host
             .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &control_ep, enum_info.split())
@@ -1842,7 +1842,7 @@ mod tests {
             ep_type: EndpointType::Control,
             max_packet_size: 64,
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
         let mut control = host
             .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &control_ep, enum_info.split())

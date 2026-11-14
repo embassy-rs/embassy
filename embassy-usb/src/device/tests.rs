@@ -123,7 +123,12 @@ impl TestBus {
             ep_type: config.ep_type,
             max_packet_size: config.max_packet_size,
             interval_ms: config.interval_ms,
-            max_burst: config.max_burst,
+            companion: Some(embassy_usb_driver::SuperSpeedEndpointCompanionInfo {
+                max_burst: config.max_burst,
+                max_streams: config.max_streams,
+                mult: config.mult,
+                bytes_per_interval: config.bytes_per_interval,
+            }),
         };
         let slot = Self::slot(addr);
         assert!(self.endpoints[slot].replace(info).is_none());

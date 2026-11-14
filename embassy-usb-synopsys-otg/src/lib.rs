@@ -748,7 +748,7 @@ where
                 ep_type,
                 max_packet_size,
                 interval_ms,
-                max_burst: 0,
+                companion: None,
             },
         })
     }

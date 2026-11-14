@@ -157,7 +157,7 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
             ep_type: EndpointType::Control,
             max_packet_size: enum_info.max_packet_size0(),
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
 
         let in_ep_info = EndpointInfo {
@@ -165,7 +165,7 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
             ep_type: EndpointType::Interrupt,
             max_packet_size: info.interrupt_in_mps,
             interval_ms: info.interrupt_in_interval,
-            max_burst: 0,
+            companion: None,
         };
 
         let device_address = enum_info.device_address;

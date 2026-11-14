@@ -150,7 +150,7 @@ impl<'d, A: UsbHostAllocator<'d>> CcidHost<'d, A> {
             ep_type: EndpointType::Bulk,
             max_packet_size,
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
 
         let in_pipe = alloc

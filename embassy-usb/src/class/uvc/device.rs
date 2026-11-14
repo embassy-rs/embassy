@@ -974,7 +974,7 @@ mod tests {
                     ep_type: config.ep_type,
                     max_packet_size: config.max_packet_size,
                     interval_ms: config.interval_ms,
-                    max_burst: config.max_burst,
+                    companion: None,
                 };
                 Ok(MockEndpoint(info, self.0.clone()))
             }

@@ -45,7 +45,7 @@ fn endpoint_info(endpoint: &MidiEndpointDescriptor, speed: Speed) -> EndpointInf
         } else {
             0
         },
-        max_burst: 0,
+        companion: None,
     }
 }
 

@@ -527,7 +527,7 @@ impl<'d, A: UsbHostAllocator<'d>, DEV: GipDevice> GipHost<'d, A, DEV> {
             ep_type: EndpointType::Interrupt,
             max_packet_size: info.interrupt_in_mps,
             interval_ms: info.interrupt_in_interval,
-            max_burst: 0,
+            companion: None,
         };
 
         let out_ep_info = EndpointInfo {
@@ -535,7 +535,7 @@ impl<'d, A: UsbHostAllocator<'d>, DEV: GipDevice> GipHost<'d, A, DEV> {
             ep_type: EndpointType::Interrupt,
             max_packet_size: info.interrupt_out_mps,
             interval_ms: info.interrupt_out_interval,
-            max_burst: 0,
+            companion: None,
         };
 
         let device_address = enum_info.device_address;

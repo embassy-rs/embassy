@@ -867,7 +867,7 @@ mod tests {
                 ep_type: EndpointType::Bulk,
                 max_packet_size,
                 interval_ms: 0,
-                max_burst: 0,
+                companion: None,
             },
             writes: heapless::Vec::new(),
         };
@@ -937,7 +937,7 @@ mod tests {
             ep_type: EndpointType::Bulk,
             max_packet_size: 64,
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
 
         block_on(wait_any_enabled(&mut Some(Never(info)), &mut Some(Enabled(info))));

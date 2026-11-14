@@ -254,7 +254,7 @@ where
             ep_type: EndpointType::Control,
             max_packet_size: enum_info.max_packet_size0(),
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
 
         let device_address = enum_info.device_address;
@@ -286,14 +286,14 @@ where
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_in_mps,
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
         let out_ep_info = EndpointInfo {
             addr: EndpointAddress::from(info.bulk_out_ep),
             ep_type: EndpointType::Bulk,
             max_packet_size: info.bulk_out_mps,
             interval_ms: 0,
-            max_burst: 0,
+            companion: None,
         };
 
         let in_ch = self

@@ -448,7 +448,7 @@ impl<'a> DescriptorWriter<'a> {
             self.write(
                 descriptor_type::SS_ENDPOINT_COMPANION,
                 &[
-                    endpoint.max_burst,
+                    endpoint.companion.map_or(0, |c| c.max_burst),
                     0,
                     bytes_per_interval as u8,
                     (bytes_per_interval >> 8) as u8,

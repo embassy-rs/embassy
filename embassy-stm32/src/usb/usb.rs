@@ -793,7 +793,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 ep_type: EndpointType::Bulk,
                 max_packet_size,
                 interval_ms: 0,
-                max_burst: 0,
+                companion: None,
             },
             // The second packet buffer directly follows the first one.
             buf: EndpointBuffer {
@@ -914,7 +914,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 ep_type,
                 max_packet_size,
                 interval_ms,
-                max_burst: 0,
+                companion: None,
             },
             buf,
             #[cfg(any(usb_v1, usb_v3, usb_v4))]
