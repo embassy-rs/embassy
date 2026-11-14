@@ -189,7 +189,7 @@ xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131d
 embassy-crypto = { version = "0.1.0", path = "../embassy-crypto", features = ["large-contexts"] }
 crypto-bigint = { version = "0.7.5", default-features = false, optional = true }
 embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }
-embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
+embassy-usb-driver = { version = "0.3.0", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
 
