@@ -1,7 +1,7 @@
 //! Utilities for writing USB descriptors.
 use embassy_usb_driver::EndpointType;
 
-use crate::driver::{EndpointAddress, EndpointConfig, EndpointInfo, EndpointInterval};
+use crate::driver::{EndpointAddress, EndpointConfig, EndpointInfo, EndpointInterval, SuperSpeedEndpointCompanionInfo};
 use crate::types::{InterfaceNumber, StringIndex};
 use crate::{CONFIGURATION_VALUE, Config, EndpointOptions, UsbDeviceSpeed};
 
@@ -336,7 +336,7 @@ impl<'a> DescriptorWriter<'a> {
             self.write(
                 descriptor_type::SS_ENDPOINT_COMPANION,
                 &[
-                    endpoint.max_burst,
+                    endpoint.companion.map_or(0, |c| c.max_burst),
                     0,
                     bytes_per_interval as u8,
                     (bytes_per_interval >> 8) as u8,
@@ -362,10 +362,16 @@ impl<'a> DescriptorWriter<'a> {
             config.additional_transactions = options.additional_transactions;
         }
         if self.superspeed {
-            if ep_type == EndpointType::Bulk {
-                config.max_burst = options.max_burst;
-            }
             config.bytes_per_interval = periodic_bytes_per_interval(ep_type, max_packet_size).into();
+            let max_burst = match ep_type {
+                EndpointType::Bulk => options.max_burst,
+                _ => 0,
+            };
+            config.companion = Some(SuperSpeedEndpointCompanionInfo {
+                max_burst,
+                max_streams: 0,
+                mult: 0,
+            });
         }
         config
     }

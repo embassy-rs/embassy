@@ -1780,12 +1780,14 @@ mod test {
                         attributes: 5,
                         max_packet_size: 512,
                         interval: 1,
+                        companion: None,
                     }),
                     feedback_endpoint_descriptor: Some(EndpointDescriptor {
                         endpoint_address: 129,
                         attributes: 17,
                         max_packet_size: 4,
                         interval: 4,
+                        companion: None,
                     }),
                     audio_endpoint_descriptor: Some(AudioEndpointDescriptor {
                         attributes_bitmap: 0,
@@ -1833,6 +1835,7 @@ mod test {
                         attributes: 5,
                         max_packet_size: 512,
                         interval: 1,
+                        companion: None,
                     }),
                     feedback_endpoint_descriptor: None,
                     audio_endpoint_descriptor: Some(AudioEndpointDescriptor {

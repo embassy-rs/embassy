@@ -2331,7 +2331,6 @@ mod tests {
                         config.max_packet_size,
                         config.interval,
                     );
-                    info.max_burst = config.max_burst;
                     info.additional_transactions = config.additional_transactions;
                     info
                 };
