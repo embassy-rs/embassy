@@ -30,6 +30,7 @@ fn polling_interval_ms(speed: Speed, b_interval: u8) -> u8 {
         Speed::High => 1u32
             .checked_shl(u32::from(b_interval).saturating_sub(4))
             .map_or(u8::MAX, |ms| ms.min(255) as u8),
+        _ => b_interval,
     }
 }
 
@@ -39,7 +40,7 @@ fn endpoint_info(endpoint: &MidiEndpointDescriptor, speed: Speed) -> EndpointInf
         ep_type: endpoint.ep_type,
         max_packet_size: endpoint.max_packet_size,
         // Bulk has no polling interval (§5.3.1).
-        interval_ms: if endpoint.ep_type == EndpointType::Interrupt {
+        interval: if endpoint.ep_type == EndpointType::Interrupt {
             polling_interval_ms(speed, endpoint.interval)
         } else {
             0

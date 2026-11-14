@@ -123,7 +123,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 ep_type: EndpointType::Control,
                 max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
                     .min(enum_info.speed().max_packet_size()),
-                interval_ms: 0,
+                interval: 0,
                 max_burst: 0,
             },
             enum_info.split(),
@@ -888,6 +888,8 @@ pub fn parse_feedback(speed: Speed, data: &[u8]) -> Option<f32> {
             // Convert fractional part to float (divide by 2^16 since it's a 16-bit fraction)
             Some(integer_part as f32 + (fractional_part as f32 / 65536.0))
         }
+
+        _ => None,
     }
 }
 

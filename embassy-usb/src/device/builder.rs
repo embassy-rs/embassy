@@ -747,7 +747,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ) {
         self.endpoint_descriptor_with_interval(
             endpoint,
-            EndpointInterval::Milliseconds(endpoint.interval_ms),
+            EndpointInterval::Milliseconds(endpoint.interval),
             synchronization_type,
             usage_type,
             extra_fields,
@@ -822,14 +822,14 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval_ms: u8,
+        interval: u8,
         options: EndpointOptions,
     ) -> D::EndpointIn {
         options.check();
         let config =
             self.builder
                 .config_descriptor
-                .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms, options);
+                .endpoint_config(ep_addr, ep_type, max_packet_size, interval, options);
         self.builder
             .driver
             .alloc_endpoint_in(&config)
@@ -899,14 +899,14 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval_ms: u8,
+        interval: u8,
         options: EndpointOptions,
     ) -> D::EndpointOut {
         options.check();
         let config =
             self.builder
                 .config_descriptor
-                .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms, options);
+                .endpoint_config(ep_addr, ep_type, max_packet_size, interval, options);
         self.builder
             .driver
             .alloc_endpoint_out(&config)

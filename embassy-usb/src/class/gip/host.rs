@@ -526,7 +526,7 @@ impl<'d, A: UsbHostAllocator<'d>, DEV: GipDevice> GipHost<'d, A, DEV> {
             addr: EndpointAddress::from_parts((info.interrupt_in_ep & 0x0F) as usize, UsbDirection::In),
             ep_type: EndpointType::Interrupt,
             max_packet_size: info.interrupt_in_mps,
-            interval_ms: info.interrupt_in_interval,
+            interval: info.interrupt_in_interval,
             max_burst: 0,
         };
 
@@ -534,7 +534,7 @@ impl<'d, A: UsbHostAllocator<'d>, DEV: GipDevice> GipHost<'d, A, DEV> {
             addr: EndpointAddress::from_parts((info.interrupt_out_ep & 0x0F) as usize, UsbDirection::Out),
             ep_type: EndpointType::Interrupt,
             max_packet_size: info.interrupt_out_mps,
-            interval_ms: info.interrupt_out_interval,
+            interval: info.interrupt_out_interval,
             max_burst: 0,
         };
 
