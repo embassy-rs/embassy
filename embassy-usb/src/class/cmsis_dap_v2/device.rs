@@ -132,7 +132,7 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
 
     /// Write data to the host.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.write_ep.write_transfer(data, true).await
+        Ok(self.write_ep.write_transfer(data, true).await?)
     }
 
     /// Write data to the host via the trace output endpoint.
@@ -142,7 +142,7 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
         let Some(ep) = self.trace_ep.as_mut() else {
             return Err(EndpointError::Disabled);
         };
-        ep.write_transfer(data, true).await
+        Ok(ep.write_transfer(data, true).await?)
     }
 
     /// Read data from the host.

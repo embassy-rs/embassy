@@ -157,7 +157,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     async fn read_cbw(&mut self, buf: &mut [u8]) -> Result<Option<Cbw>, EndpointError> {
         let n = self
             .read_ep
-            .read(&mut buf[..self.read_ep.info().max_packet_size as usize])
+            .read_transfer(&mut buf[..self.read_ep.info().max_packet_size as usize])
             .await?;
 
         if n != CBW_LEN {
@@ -178,7 +178,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
 
     async fn write_csw(&mut self, tag: u32, residue: u32, status: CswStatus) -> Result<(), EndpointError> {
         let csw = Csw { tag, residue, status };
-        self.write_ep.write(&csw.encode()).await
+        Ok(self.write_ep.write_transfer(&csw.encode(), false).await?)
     }
 
     async fn process_cbw<B: AsyncBlockDevice>(
@@ -226,7 +226,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             && result.residue == cbw.data_transfer_length
             && cbw.data_transfer_length > 0
         {
-            let _ = self.write_ep.write(&[]).await;
+            let _ = self.write_ep.write_transfer(&[], false).await;
         }
 
         Ok(result)
@@ -320,7 +320,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         if (transfer_len as u32) < cbw.data_transfer_length
             && transfer_len.is_multiple_of(self.write_ep.info().max_packet_size as usize)
         {
-            self.write_ep.write(&[]).await?;
+            self.write_ep.write_transfer(&[], false).await?;
         }
 
         let residue = cbw.data_transfer_length.saturating_sub(transfer_len as u32);
@@ -334,9 +334,8 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
 
         let max_pkt = self.read_ep.info().max_packet_size as usize;
         while len > 0 {
-            // Read at least max_packet_size into scratch if possible to avoid BufferOverflow.
-            let chunk_len = min(scratch.len(), core::cmp::max(len as usize, max_pkt));
-            let n = self.read_ep.read(&mut scratch[..chunk_len]).await?;
+            let chunk_len = min(scratch.len(), max_pkt);
+            let n = self.read_ep.read_transfer(&mut scratch[..chunk_len]).await?;
             len = len.saturating_sub(n as u32);
             if n < max_pkt {
                 break;

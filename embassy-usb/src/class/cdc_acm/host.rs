@@ -123,9 +123,9 @@ pub fn find_cdc_acm(config_desc: &[u8]) -> Option<CdcAcmInfo> {
                 if ep.transfer_type() == 0x02 {
                     // Bulk
                     if ep.is_in() {
-                        bulk_in = Some((ep.endpoint_address, ep.max_packet_size));
+                        bulk_in = Some((ep.endpoint_address, ep.packet_size()));
                     } else {
-                        bulk_out = Some((ep.endpoint_address, ep.max_packet_size));
+                        bulk_out = Some((ep.endpoint_address, ep.packet_size()));
                     }
                 }
             }
@@ -170,29 +170,26 @@ impl<'d, A: UsbHostAllocator<'d>> CdcAcmHost<'d, A> {
     /// This is the allocation half of [`HostClass::open`]; it does not parse the
     /// configuration descriptor again.
     pub fn new_with_info(alloc: &A, info: CdcAcmInfo, enum_info: &EnumerationInfo) -> Result<Self, CdcAcmError> {
-        let ctrl_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let ctrl_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts(0, UsbDirection::In),
+            EndpointType::Control,
+            enum_info.device_desc.max_packet_size0 as u16,
+            0,
+        );
 
-        let in_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
-            ep_type: EndpointType::Bulk,
-            max_packet_size: info.bulk_in_mps,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let in_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
+            EndpointType::Bulk,
+            info.bulk_in_mps,
+            0,
+        );
 
-        let out_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
-            ep_type: EndpointType::Bulk,
-            max_packet_size: info.bulk_out_mps,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let out_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
+            EndpointType::Bulk,
+            info.bulk_out_mps,
+            0,
+        );
 
         let device_address = enum_info.device_address;
         let split = enum_info.split();

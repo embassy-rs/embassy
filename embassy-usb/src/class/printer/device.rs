@@ -7,7 +7,7 @@
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
-use embassy_usb_driver::{Driver, EndpointError, EndpointIn, EndpointOut};
+use embassy_usb_driver::{Driver, EndpointDisabledError, EndpointError, EndpointIn, EndpointOut};
 
 use super::{
     PRINTER_SUBCLASS_PRINTER, PROTOCOL_BIDIRECTIONAL, PortStatus, REQ_GET_DEVICE_ID, REQ_GET_PORT_STATUS,
@@ -191,11 +191,11 @@ impl<'d, D: Driver<'d>> PrinterClass<'d, D> {
 
     /// Read incoming print job data sent by the USB host.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        self.read_ep.read(buf).await
+        self.read_ep.read_transfer(buf).await
     }
 
     /// Write status or response data back to the USB host.
-    pub async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+    pub async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointDisabledError> {
         self.write_ep.write_transfer(buf, true).await
     }
 
@@ -235,7 +235,7 @@ pub struct PrinterReader<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> PrinterReader<'d, D> {
     /// Read incoming print job data sent by the USB host.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        self.read_ep.read(buf).await
+        self.read_ep.read_transfer(buf).await
     }
 }
 
@@ -246,20 +246,66 @@ pub struct PrinterWriter<'d, D: Driver<'d>> {
 
 impl<'d, D: Driver<'d>> PrinterWriter<'d, D> {
     /// Write status or response data back to the USB host.
-    pub async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+    pub async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointDisabledError> {
         self.write_ep.write_transfer(buf, true).await
+    }
+}
+
+/// Errors that can occur when communicating with a printer device.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PrinterError {
+    /// Endpoint is disabled (e.g. cable disconnected).
+    NotConnected,
+    /// Buffer overflow occurred.
+    BufferOverflow,
+}
+
+impl core::fmt::Display for PrinterError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::NotConnected => f.write_str("NotConnected"),
+            Self::BufferOverflow => f.write_str("BufferOverflow"),
+        }
+    }
+}
+
+impl core::error::Error for PrinterError {}
+
+#[cfg(feature = "embedded-io")]
+impl embedded_io_async::Error for PrinterError {
+    fn kind(&self) -> embedded_io_async::ErrorKind {
+        match self {
+            Self::NotConnected => embedded_io_async::ErrorKind::NotConnected,
+            Self::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
+        }
+    }
+}
+
+impl From<EndpointDisabledError> for PrinterError {
+    fn from(_: EndpointDisabledError) -> Self {
+        PrinterError::NotConnected
+    }
+}
+
+impl From<EndpointError> for PrinterError {
+    fn from(val: EndpointError) -> Self {
+        match val {
+            EndpointError::BufferOverflow => PrinterError::BufferOverflow,
+            EndpointError::Disabled => PrinterError::NotConnected,
+        }
     }
 }
 
 #[cfg(feature = "embedded-io")]
 impl<'d, D: Driver<'d>> embedded_io_async::ErrorType for PrinterClass<'d, D> {
-    type Error = EndpointError;
+    type Error = PrinterError;
 }
 
 #[cfg(feature = "embedded-io")]
 impl<'d, D: Driver<'d>> embedded_io_async::Read for PrinterClass<'d, D> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        PrinterClass::read(self, buf).await
+        PrinterClass::read(self, buf).await.map_err(Into::into)
     }
 }
 
@@ -277,19 +323,19 @@ impl<'d, D: Driver<'d>> embedded_io_async::Write for PrinterClass<'d, D> {
 
 #[cfg(feature = "embedded-io")]
 impl<'d, D: Driver<'d>> embedded_io_async::ErrorType for PrinterReader<'d, D> {
-    type Error = EndpointError;
+    type Error = PrinterError;
 }
 
 #[cfg(feature = "embedded-io")]
 impl<'d, D: Driver<'d>> embedded_io_async::Read for PrinterReader<'d, D> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        PrinterReader::read(self, buf).await
+        PrinterReader::read(self, buf).await.map_err(Into::into)
     }
 }
 
 #[cfg(feature = "embedded-io")]
 impl<'d, D: Driver<'d>> embedded_io_async::ErrorType for PrinterWriter<'d, D> {
-    type Error = EndpointError;
+    type Error = PrinterError;
 }
 
 #[cfg(feature = "embedded-io")]

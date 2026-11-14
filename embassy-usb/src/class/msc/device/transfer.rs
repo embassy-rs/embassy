@@ -46,7 +46,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
                 warn!("msc: read_blocks failed at lba {}", chunk_lba);
                 self.sense = SenseData::UNRECOVERED_READ_ERROR;
                 if residue < cbw.data_transfer_length {
-                    let _ = self.write_ep.write(&[]).await;
+                    let _ = self.write_ep.write_transfer(&[], false).await;
                 }
                 return Ok(CommandResult::failed(residue));
             }

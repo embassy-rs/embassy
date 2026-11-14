@@ -75,6 +75,13 @@ pub struct EndpointOptions {
     /// Default: 0
     /// Max: 15
     pub max_burst: u8,
+
+    /// Additional transaction opportunities per microframe at high speed (`wMaxPacketSize` bits
+    /// 12..11). Ignored for non-periodic endpoints and at other speeds.
+    ///
+    /// Default: 0
+    /// Max: 2
+    pub additional_transactions: u8,
 }
 
 impl EndpointOptions {
@@ -84,12 +91,17 @@ impl EndpointOptions {
             max_packet_size: None,
             buffers: 1,
             max_burst: 0,
+            additional_transactions: 0,
         }
     }
 
     fn check(&self) {
         assert!(self.buffers >= 1, "`buffers` must be at least 1");
         assert!(self.max_burst <= 15, "The maximum allowed value for `max_burst` is 15");
+        assert!(
+            self.additional_transactions <= 2,
+            "The maximum allowed value for `additional_transactions` is 2"
+        );
     }
 }
 
@@ -432,6 +444,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
                 msos_descriptor,
 
                 device_state: UsbDeviceState::Unpowered,
+                speed: None,
                 suspended: false,
                 remote_wakeup_enabled: false,
                 u1_enabled: false,
@@ -747,7 +760,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ) {
         self.endpoint_descriptor_with_interval(
             endpoint,
-            EndpointInterval::Milliseconds(endpoint.interval_ms),
+            EndpointInterval::Milliseconds(endpoint.interval),
             synchronization_type,
             usage_type,
             extra_fields,
@@ -822,14 +835,14 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval_ms: u8,
+        interval: u8,
         options: EndpointOptions,
     ) -> D::EndpointIn {
         options.check();
         let config =
             self.builder
                 .config_descriptor
-                .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms, options);
+                .endpoint_config(ep_addr, ep_type, max_packet_size, interval, options);
         self.builder
             .driver
             .alloc_endpoint_in(&config)
@@ -852,13 +865,13 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         extra_fields: &[u8],
         options: EndpointOptions,
     ) -> D::EndpointIn {
-        let interval_ms = match interval {
+        let interval_val = match interval {
             EndpointInterval::Milliseconds(ms) => ms,
             EndpointInterval::Microframes(uframes) => ((uframes + 7) / 8).min(255) as u8,
             EndpointInterval::Raw(val) => val,
         };
-        let ep = self.alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms, options);
-        self.endpoint_descriptor_with_interval(ep.info(), interval, synchronization_type, usage_type, extra_fields);
+        let ep = self.alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_val, options);
+        self.endpoint_descriptor_with_interval(&ep.info(), interval, synchronization_type, usage_type, extra_fields);
 
         ep
     }
@@ -899,14 +912,14 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval_ms: u8,
+        interval: u8,
         options: EndpointOptions,
     ) -> D::EndpointOut {
         options.check();
         let config =
             self.builder
                 .config_descriptor
-                .endpoint_config(ep_addr, ep_type, max_packet_size, interval_ms, options);
+                .endpoint_config(ep_addr, ep_type, max_packet_size, interval, options);
         self.builder
             .driver
             .alloc_endpoint_out(&config)
@@ -929,13 +942,13 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         extra_fields: &[u8],
         options: EndpointOptions,
     ) -> D::EndpointOut {
-        let interval_ms = match interval {
+        let interval_val = match interval {
             EndpointInterval::Milliseconds(ms) => ms,
             EndpointInterval::Microframes(uframes) => ((uframes + 7) / 8).min(255) as u8,
             EndpointInterval::Raw(val) => val,
         };
-        let ep = self.alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms, options);
-        self.endpoint_descriptor_with_interval(ep.info(), interval, synchronization_type, usage_type, extra_fields);
+        let ep = self.alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_val, options);
+        self.endpoint_descriptor_with_interval(&ep.info(), interval, synchronization_type, usage_type, extra_fields);
 
         ep
     }

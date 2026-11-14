@@ -239,7 +239,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     /// Writes `report` to its interrupt endpoint.
     pub async fn write(&mut self, report: &[u8]) -> Result<(), EndpointError> {
         assert!(report.len() <= N);
-        self.ep_in.write_transfer(report, report.len() < N).await
+        Ok(self.ep_in.write_transfer(report, report.len() < N).await?)
     }
 }
 
@@ -297,7 +297,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
         let mut total = starting_offset;
         loop {
             for chunk in buf[starting_offset..N].chunks_mut(max_packet_size) {
-                match self.ep_out.read(chunk).await {
+                match self.ep_out.read_transfer(chunk).await {
                     Ok(size) => {
                         total += size;
                         if size < max_packet_size || total == N {

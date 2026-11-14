@@ -507,7 +507,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
     ///
     /// Endpoint errors are not protocol errors - the driver or the host already knows
     /// about those - so they are passed through without stalling.
-    fn fail(&mut self, e: UsbtmcError) -> UsbtmcError {
+    async fn fail(&mut self, e: UsbtmcError) -> UsbtmcError {
         if matches!(
             e,
             UsbtmcError::InvalidTag
@@ -516,7 +516,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
                 | UsbtmcError::BufferTooSmall
                 | UsbtmcError::MessageTruncated
         ) {
-            let _ = self.read_ep.set_stall(true);
+            let _ = self.read_ep.set_stall(true).await;
         }
         e
     }
@@ -528,10 +528,13 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         n: usize,
     ) -> Result<ReceivedMessage<'a>, UsbtmcError> {
         let max_pkt = self.read_ep.info().max_packet_size as usize;
-        let header = DevDepMsgOutHeader::parse(packet_buf[0..12].try_into().unwrap()).map_err(|e| self.fail(e))?;
+        let header = match DevDepMsgOutHeader::parse(packet_buf[0..12].try_into().unwrap()) {
+            Ok(h) => h,
+            Err(e) => return Err(self.fail(e).await),
+        };
         let transfer_size = header.transfer_size as usize;
         if transfer_size > buf.len() {
-            return Err(self.fail(UsbtmcError::BufferTooSmall));
+            return Err(self.fail(UsbtmcError::BufferTooSmall).await);
         }
 
         let first_chunk = core::cmp::min(transfer_size, n - 12);
@@ -542,7 +545,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         let mut total_wire_read = n;
 
         while total_wire_read < total_wire_bytes {
-            let m = self.read_ep.read(packet_buf).await?;
+            let m = self.read_ep.read_transfer(packet_buf).await?;
             if m == 0 {
                 break;
             }
@@ -558,7 +561,7 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         }
 
         if bytes_copied < transfer_size {
-            return Err(self.fail(UsbtmcError::MessageTruncated));
+            return Err(self.fail(UsbtmcError::MessageTruncated).await);
         }
 
         self.shared.add_bytes_rx(total_wire_read as u32);
@@ -574,9 +577,9 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         let mut packet = [0u8; 512];
         let max_pkt = self.read_ep.info().max_packet_size as usize;
         let packet_buf = &mut packet[..max_pkt];
-        let n = self.read_ep.read(packet_buf).await?;
+        let n = self.read_ep.read_transfer(packet_buf).await?;
         if n < 12 {
-            return Err(self.fail(UsbtmcError::PacketTooShort));
+            return Err(self.fail(UsbtmcError::PacketTooShort).await);
         }
 
         match packet_buf[0] {
@@ -589,18 +592,23 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
                 Ok(UsbtmcEvent::VendorSpecific(msg))
             }
             MSG_ID_REQUEST_DEV_DEP_MSG_IN | MSG_ID_REQUEST_VENDOR_SPECIFIC_IN => {
-                let header =
-                    RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap()).map_err(|e| self.fail(e))?;
+                let header = match RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap()) {
+                    Ok(h) => h,
+                    Err(e) => return Err(self.fail(e).await),
+                };
                 self.shared.add_bytes_rx(n as u32);
                 Ok(UsbtmcEvent::RequestIn(header))
             }
             MSG_ID_TRIGGER => {
-                let base = MsgHeader::parse(packet_buf[0..4].try_into().unwrap()).map_err(|e| self.fail(e))?;
+                let base = match MsgHeader::parse(packet_buf[0..4].try_into().unwrap()) {
+                    Ok(h) => h,
+                    Err(e) => return Err(self.fail(e).await),
+                };
                 self.shared.add_bytes_rx(n as u32);
                 self.shared.trigger();
                 Ok(UsbtmcEvent::Trigger(base.b_tag))
             }
-            id => Err(self.fail(UsbtmcError::UnexpectedMsgId(id))),
+            id => Err(self.fail(UsbtmcError::UnexpectedMsgId(id)).await),
         }
     }
 
@@ -613,9 +621,9 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
             let mut packet = [0u8; 512];
             let max_pkt = self.read_ep.info().max_packet_size as usize;
             let packet_buf = &mut packet[..max_pkt];
-            let n = self.read_ep.read(packet_buf).await?;
+            let n = self.read_ep.read_transfer(packet_buf).await?;
             if n < 12 {
-                return Err(self.fail(UsbtmcError::PacketTooShort));
+                return Err(self.fail(UsbtmcError::PacketTooShort).await);
             }
 
             match packet_buf[0] {
@@ -623,17 +631,22 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
                     return self.read_message_payload(buf, packet_buf, n).await;
                 }
                 MSG_ID_REQUEST_DEV_DEP_MSG_IN | MSG_ID_REQUEST_VENDOR_SPECIFIC_IN => {
-                    let header = RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap())
-                        .map_err(|e| self.fail(e))?;
+                    let header = match RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap()) {
+                        Ok(h) => h,
+                        Err(e) => return Err(self.fail(e).await),
+                    };
                     self.shared.add_bytes_rx(n as u32);
                     self.pending_request_in = Some(header);
                 }
                 MSG_ID_TRIGGER => {
-                    let _base = MsgHeader::parse(packet_buf[0..4].try_into().unwrap()).map_err(|e| self.fail(e))?;
+                    let _base = match MsgHeader::parse(packet_buf[0..4].try_into().unwrap()) {
+                        Ok(h) => h,
+                        Err(e) => return Err(self.fail(e).await),
+                    };
                     self.shared.add_bytes_rx(n as u32);
                     self.shared.trigger();
                 }
-                id => return Err(self.fail(UsbtmcError::UnexpectedMsgId(id))),
+                id => return Err(self.fail(UsbtmcError::UnexpectedMsgId(id)).await),
             }
         }
     }
@@ -647,14 +660,16 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         let max_pkt = self.read_ep.info().max_packet_size as usize;
         let packet_buf = &mut packet[..max_pkt];
         loop {
-            let n = self.read_ep.read(packet_buf).await?;
+            let n = self.read_ep.read_transfer(packet_buf).await?;
             if n < 12 {
-                return Err(self.fail(UsbtmcError::PacketTooShort));
+                return Err(self.fail(UsbtmcError::PacketTooShort).await);
             }
             match packet_buf[0] {
                 MSG_ID_REQUEST_DEV_DEP_MSG_IN | MSG_ID_REQUEST_VENDOR_SPECIFIC_IN => {
-                    let header = RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap())
-                        .map_err(|e| self.fail(e))?;
+                    let header = match RequestDevDepMsgInHeader::parse(packet_buf[0..12].try_into().unwrap()) {
+                        Ok(h) => h,
+                        Err(e) => return Err(self.fail(e).await),
+                    };
                     self.shared.add_bytes_rx(n as u32);
                     return Ok(header);
                 }
@@ -697,23 +712,28 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
         if 12 + first_data_len < first_len {
             packet[12 + first_data_len..first_len].fill(0);
         }
-        self.write_ep.write(&packet[..first_len]).await?;
+        self.write_ep.write_transfer(&packet[..first_len], false).await?;
 
         let mut data_offset = first_data_len;
-        while data_offset + max_pkt <= transfer_size {
-            self.write_ep.write(&data[data_offset..data_offset + max_pkt]).await?;
-            data_offset += max_pkt;
+        let full_chunks = ((transfer_size - data_offset) / max_pkt) * max_pkt;
+        if full_chunks > 0 {
+            self.write_ep
+                .write_transfer(&data[data_offset..data_offset + full_chunks], false)
+                .await?;
+            data_offset += full_chunks;
         }
 
         if data_offset < transfer_size || (total_wire_bytes > first_len && padding > 0) {
             let rem_data = transfer_size - data_offset;
             packet[..rem_data].copy_from_slice(&data[data_offset..]);
             packet[rem_data..rem_data + padding].fill(0);
-            self.write_ep.write(&packet[..rem_data + padding]).await?;
+            self.write_ep
+                .write_transfer(&packet[..rem_data + padding], false)
+                .await?;
         }
 
         if total_wire_bytes % max_pkt == 0 {
-            self.write_ep.write(&[]).await?;
+            self.write_ep.write_transfer(&[], false).await?;
         }
 
         self.shared.add_bytes_tx(total_wire_bytes as u32);
@@ -745,9 +765,9 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
     /// A clear also clears any STALL condition left by an unparseable message, so the
     /// instrument can be used again without the application calling [`Self::clear_stall`]
     /// itself.
-    pub fn check_clear(&mut self) -> bool {
+    pub async fn check_clear(&mut self) -> bool {
         if self.shared.check_clear() {
-            self.clear_stall();
+            self.clear_stall().await;
             true
         } else {
             false
@@ -774,9 +794,9 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
     /// # Errors
     ///
     /// * [`Unsupported`] - The driver cannot halt endpoints, so nothing was stalled.
-    pub fn stall(&mut self) -> Result<(), Unsupported> {
-        self.read_ep.set_stall(true)?;
-        self.write_ep.set_stall(true)
+    pub async fn stall(&mut self) -> Result<(), Unsupported> {
+        self.read_ep.set_stall(true).await?;
+        self.write_ep.set_stall(true).await
     }
 
     /// Clears the STALL condition on the bulk endpoints that are actually stalled.
@@ -790,12 +810,12 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
     /// leaves the two sides out of step and the next transfer gets discarded as a
     /// retransmission. Only call this when the host is going to clear the halt as well,
     /// or after a bus reset, which resets both sides.
-    pub fn clear_stall(&mut self) {
+    pub async fn clear_stall(&mut self) {
         if self.read_ep.is_stalled().unwrap_or(false) {
-            let _ = self.read_ep.set_stall(false);
+            let _ = self.read_ep.set_stall(false).await;
         }
         if self.write_ep.is_stalled().unwrap_or(false) {
-            let _ = self.write_ep.set_stall(false);
+            let _ = self.write_ep.set_stall(false).await;
         }
     }
 
@@ -831,8 +851,8 @@ mod tests {
     use super::*;
     use crate::control::{Recipient, Request, RequestType};
     use crate::driver::{
-        Bus, ControlPipe, Direction, EndpointAllocError, EndpointConfig, EndpointError, EndpointInfo, EndpointType,
-        Event, Unsupported,
+        Bus, ControlPipe, Direction, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError,
+        EndpointInfo, EndpointType, Event, Unsupported,
     };
 
     #[test]
@@ -1058,13 +1078,17 @@ mod tests {
     }
 
     impl Endpoint for MockEndpoint {
-        fn info(&self) -> &EndpointInfo {
-            &self.info
+        fn info(&self) -> EndpointInfo {
+            self.info
         }
 
         async fn wait_enabled(&mut self) {}
 
-        fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+        fn is_enabled(&self) -> bool {
+            true
+        }
+
+        async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
             match self.dir {
                 Direction::Out => {
                     self.state.out_stall_calls.set(self.state.out_stall_calls.get() + 1);
@@ -1087,7 +1111,7 @@ mod tests {
     }
 
     impl EndpointOut for MockEndpoint {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
             if self.state.fail_read.get() {
                 return Err(EndpointError::Disabled);
             }
@@ -1098,7 +1122,7 @@ mod tests {
     }
 
     impl EndpointIn for MockEndpoint {
-        async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+        async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
             self.state.written.borrow_mut().push(buf.to_vec());
             Ok(())
         }
@@ -1128,7 +1152,7 @@ mod tests {
     struct Unused;
 
     impl Endpoint for Unused {
-        fn info(&self) -> &EndpointInfo {
+        fn info(&self) -> EndpointInfo {
             unreachable!()
         }
 
@@ -1136,7 +1160,11 @@ mod tests {
             unreachable!()
         }
 
-        fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
+        fn is_enabled(&self) -> bool {
+            unreachable!()
+        }
+
+        async fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
             unreachable!()
         }
 
@@ -1146,13 +1174,13 @@ mod tests {
     }
 
     impl EndpointOut for Unused {
-        async fn read(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
+        async fn read_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
             unreachable!()
         }
     }
 
     impl EndpointIn for Unused {
-        async fn write(&mut self, _: &[u8]) -> Result<(), EndpointError> {
+        async fn write_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
             unreachable!()
         }
     }
@@ -1170,11 +1198,15 @@ mod tests {
             unreachable!()
         }
 
-        fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
+        async fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
             unreachable!()
         }
 
-        fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
+        fn endpoint_is_enabled(&mut self, _: EndpointAddress) -> bool {
+            unreachable!()
+        }
+
+        async fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
             unreachable!()
         }
 
@@ -1196,11 +1228,11 @@ mod tests {
             unreachable!()
         }
 
-        async fn data_out(&mut self, _: &mut [u8], _: bool, _: bool) -> Result<usize, EndpointError> {
+        async fn data_out_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
             unreachable!()
         }
 
-        async fn data_in(&mut self, _: &[u8], _: bool, _: bool) -> Result<(), EndpointError> {
+        async fn data_in_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
             unreachable!()
         }
 
@@ -1219,13 +1251,7 @@ mod tests {
 
     fn class(state: &Rc<MockState>) -> UsbtmcClass<'static, MockDriver> {
         let shared: &'static ControlShared = Box::leak(Box::new(ControlShared::new(Capabilities::default(), true)));
-        let info = |addr| EndpointInfo {
-            addr,
-            ep_type: EndpointType::Bulk,
-            max_packet_size: 64,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let info = |addr| EndpointInfo::new(addr, EndpointType::Bulk, 64, 0);
         UsbtmcClass {
             read_ep: MockEndpoint {
                 info: info(EndpointAddress::from(0x01)),
@@ -1271,7 +1297,7 @@ mod tests {
         ));
         assert!(tmc.is_stalled());
 
-        tmc.clear_stall();
+        block_on(tmc.clear_stall());
         assert!(!tmc.is_stalled());
     }
 
@@ -1371,7 +1397,7 @@ mod tests {
 
         // viClear() from the host: the class clears the stall by itself.
         tmc.shared.set_clear_pending(true);
-        assert!(tmc.check_clear());
+        assert!(block_on(tmc.check_clear()));
         assert!(!tmc.is_stalled());
     }
 
@@ -1391,7 +1417,7 @@ mod tests {
         ));
         let in_calls = state.in_stall_calls.get();
 
-        tmc.clear_stall();
+        block_on(tmc.clear_stall());
         assert!(!state.out_stalled.get());
         assert_eq!(state.in_stall_calls.get(), in_calls);
     }
@@ -1401,12 +1427,12 @@ mod tests {
         let state = Rc::new(MockState::default());
         let mut tmc = class(&state);
 
-        tmc.stall().unwrap();
+        block_on(tmc.stall()).unwrap();
         assert!(tmc.is_stalled());
         assert!(state.out_stalled.get());
         assert!(state.in_stalled.get());
 
-        tmc.clear_stall();
+        block_on(tmc.clear_stall());
         assert!(!tmc.is_stalled());
         assert!(!state.out_stalled.get());
         assert!(!state.in_stalled.get());

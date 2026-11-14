@@ -657,7 +657,7 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
         );
         let mut alt1 = vs.alt_setting(USB_CLASS_VIDEO, SC_VIDEOSTREAMING, PC_PROTOCOL_UNDEFINED, None);
         alt1.endpoint_descriptor(
-            endpoint.info(),
+            &endpoint.info(),
             SynchronizationType::Asynchronous,
             UsageType::DataEndpoint,
             &[],
@@ -735,7 +735,9 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
             packet[0] = PAYLOAD_HEADER_LEN as u8;
             packet[1] = header;
             packet[PAYLOAD_HEADER_LEN..PAYLOAD_HEADER_LEN + len].copy_from_slice(&frame[offset..offset + len]);
-            self.endpoint.write(&packet[..PAYLOAD_HEADER_LEN + len]).await?;
+            self.endpoint
+                .write_transfer(&packet[..PAYLOAD_HEADER_LEN + len], false)
+                .await?;
             offset += len;
             if last {
                 return Ok(());
@@ -969,12 +971,16 @@ mod tests {
             }
 
             fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<MockEndpoint, EndpointAllocError> {
-                let info = EndpointInfo {
-                    addr: EndpointAddress::from_parts(3, Direction::In),
-                    ep_type: config.ep_type,
-                    max_packet_size: config.max_packet_size,
-                    interval_ms: config.interval_ms,
-                    max_burst: config.max_burst,
+                let info = {
+                    let mut info = EndpointInfo::new(
+                        EndpointAddress::from_parts(3, Direction::In),
+                        config.ep_type,
+                        config.max_packet_size,
+                        config.interval,
+                    );
+                    info.max_burst = config.max_burst;
+                    info.additional_transactions = config.additional_transactions;
+                    info
                 };
                 Ok(MockEndpoint(info, self.0.clone()))
             }
@@ -985,12 +991,16 @@ mod tests {
         }
 
         impl Endpoint for MockEndpoint {
-            fn info(&self) -> &EndpointInfo {
-                &self.0
+            fn info(&self) -> EndpointInfo {
+                self.0
             }
             async fn wait_enabled(&mut self) {}
 
-            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            fn is_enabled(&self) -> bool {
+                true
+            }
+
+            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
                 Ok(())
             }
 
@@ -1000,20 +1010,23 @@ mod tests {
         }
 
         impl EndpointIn for MockEndpoint {
-            async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+            async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
                 self.1.borrow_mut().push(buf.to_vec());
                 Ok(())
             }
         }
 
         impl Endpoint for Unused {
-            fn info(&self) -> &EndpointInfo {
+            fn info(&self) -> EndpointInfo {
                 unreachable!()
             }
             async fn wait_enabled(&mut self) {
                 unreachable!()
             }
-            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            fn is_enabled(&self) -> bool {
+                unreachable!()
+            }
+            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
                 unreachable!()
             }
             fn is_stalled(&self) -> Result<bool, Unsupported> {
@@ -1022,7 +1035,7 @@ mod tests {
         }
 
         impl EndpointOut for Unused {
-            async fn read(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
+            async fn read_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
                 unreachable!()
             }
         }
@@ -1037,10 +1050,13 @@ mod tests {
             async fn poll(&mut self) -> Event {
                 unreachable!()
             }
-            fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
+            async fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
                 unreachable!()
             }
-            fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
+            fn endpoint_is_enabled(&mut self, _: EndpointAddress) -> bool {
+                unreachable!()
+            }
+            async fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
                 unreachable!()
             }
             fn endpoint_is_stalled(&mut self, _: EndpointAddress) -> bool {
@@ -1058,10 +1074,10 @@ mod tests {
             async fn setup(&mut self) -> [u8; 8] {
                 unreachable!()
             }
-            async fn data_out(&mut self, _: &mut [u8], _: bool, _: bool) -> Result<usize, EndpointError> {
+            async fn data_out_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
                 unreachable!()
             }
-            async fn data_in(&mut self, _: &[u8], _: bool, _: bool) -> Result<(), EndpointError> {
+            async fn data_in_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
                 unreachable!()
             }
             async fn accept(&mut self) {

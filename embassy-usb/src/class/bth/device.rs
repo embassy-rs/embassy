@@ -279,7 +279,7 @@ impl<'d, D: Driver<'d>> HciEventWriter<'d, D> {
 
     /// Send an HCI Event packet to the host.
     pub async fn send_event(&mut self, event: &[u8]) -> Result<(), EndpointError> {
-        self.event_ep.write_transfer(event, true).await
+        Ok(self.event_ep.write_transfer(event, true).await?)
     }
 }
 
@@ -313,7 +313,7 @@ impl<'d, D: Driver<'d>> AclWriter<'d, D> {
 
     /// Send an ACL data packet to the host.
     pub async fn send_acl(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.acl_in_ep.write_transfer(data, true).await
+        Ok(self.acl_in_ep.write_transfer(data, true).await?)
     }
 }
 

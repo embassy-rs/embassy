@@ -295,9 +295,9 @@ pub fn find_msc(config_desc: &[u8]) -> Option<MscInfo> {
                 continue;
             }
             if ep.is_in() {
-                in_ep = Some((ep.endpoint_address, ep.max_packet_size));
+                in_ep = Some((ep.endpoint_address, ep.packet_size()));
             } else {
-                out_ep = Some((ep.endpoint_address, ep.max_packet_size));
+                out_ep = Some((ep.endpoint_address, ep.packet_size()));
             }
         }
 
@@ -375,29 +375,26 @@ where
     ) -> Result<Self, MscError> {
         let info = find_msc(config_desc).ok_or(MscError::NoInterface)?;
 
-        let ctrl_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let ctrl_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts(0, UsbDirection::In),
+            EndpointType::Control,
+            enum_info.device_desc.max_packet_size0 as u16,
+            0,
+        );
 
-        let in_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
-            ep_type: EndpointType::Bulk,
-            max_packet_size: info.bulk_in_mps,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let in_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
+            EndpointType::Bulk,
+            info.bulk_in_mps,
+            0,
+        );
 
-        let out_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
-            ep_type: EndpointType::Bulk,
-            max_packet_size: info.bulk_out_mps,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let out_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
+            EndpointType::Bulk,
+            info.bulk_out_mps,
+            0,
+        );
 
         let device_address = enum_info.device_address;
         let split: Option<SplitInfo> = enum_info.split();

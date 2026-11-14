@@ -1128,7 +1128,7 @@ impl<'d, D: Driver<'d>> GudClass<'d, D> {
     /// [`BufferInfo::transfer_size`] bytes before awaiting the next event.
     /// Not cancel-safe.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        self.read_ep.read(data).await
+        crate::class::read_packet(&mut self.read_ep, data).await
     }
 
     /// Stream `info` through an async callback, returning its total consumed bytes.
@@ -1148,7 +1148,7 @@ impl<'d, D: Driver<'d>> GudClass<'d, D> {
             let cap = remaining.min(chunk.len());
             let n = self
                 .read_ep
-                .read(&mut chunk[..cap])
+                .read_transfer(&mut chunk[..cap])
                 .await
                 .map_err(ReadBufferError::Endpoint)?;
             consumed += f(&chunk[..n]).await.map_err(ReadBufferError::Callback)?;
@@ -1218,8 +1218,8 @@ mod tests {
 
     use super::*;
     use crate::driver::{
-        Bus, ControlPipe, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointIn, EndpointInfo, Event,
-        Unsupported,
+        Bus, ControlPipe, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointIn,
+        EndpointInfo, Event, Unsupported,
     };
 
     struct ScriptedEndpoint<'a> {
@@ -1228,15 +1228,24 @@ mod tests {
     }
 
     impl Endpoint for ScriptedEndpoint<'_> {
-        fn info(&self) -> &EndpointInfo {
-            unreachable!()
+        fn info(&self) -> EndpointInfo {
+            EndpointInfo::new(
+                EndpointAddress::from_parts(1, crate::driver::Direction::Out),
+                crate::driver::EndpointType::Bulk,
+                64,
+                0,
+            )
         }
 
         async fn wait_enabled(&mut self) {
             unreachable!()
         }
 
-        fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+        fn is_enabled(&self) -> bool {
+            true
+        }
+
+        async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
             unreachable!()
         }
 
@@ -1246,7 +1255,7 @@ mod tests {
     }
 
     impl EndpointOut for ScriptedEndpoint<'_> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
             let index = self.reads.get();
             self.reads.set(index + 1);
             let packet = self.packets[index]?;
@@ -1279,7 +1288,7 @@ mod tests {
     struct Unused;
 
     impl Endpoint for Unused {
-        fn info(&self) -> &EndpointInfo {
+        fn info(&self) -> EndpointInfo {
             unreachable!()
         }
 
@@ -1287,7 +1296,11 @@ mod tests {
             unreachable!()
         }
 
-        fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+        fn is_enabled(&self) -> bool {
+            unreachable!()
+        }
+
+        async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
             unreachable!()
         }
 
@@ -1297,7 +1310,7 @@ mod tests {
     }
 
     impl EndpointIn for Unused {
-        async fn write(&mut self, _: &[u8]) -> Result<(), EndpointError> {
+        async fn write_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
             unreachable!()
         }
     }
@@ -1315,11 +1328,15 @@ mod tests {
             unreachable!()
         }
 
-        fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
+        async fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
             unreachable!()
         }
 
-        fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
+        fn endpoint_is_enabled(&mut self, _: EndpointAddress) -> bool {
+            unreachable!()
+        }
+
+        async fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
             unreachable!()
         }
 
@@ -1341,11 +1358,11 @@ mod tests {
             unreachable!()
         }
 
-        async fn data_out(&mut self, _: &mut [u8], _: bool, _: bool) -> Result<usize, EndpointError> {
+        async fn data_out_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
             unreachable!()
         }
 
-        async fn data_in(&mut self, _: &[u8], _: bool, _: bool) -> Result<(), EndpointError> {
+        async fn data_in_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
             unreachable!()
         }
 

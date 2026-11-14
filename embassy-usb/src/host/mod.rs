@@ -408,13 +408,12 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
         // use smallest size "8", since some devices use lower than default for given speed.
         const DEFAULT_MAX_PACKET_SIZE: u16 = 8;
 
-        let ep0_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: DEFAULT_MAX_PACKET_SIZE,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let ep0_info = EndpointInfo::new(
+            EndpointAddress::from_parts(0, UsbDirection::In),
+            EndpointType::Control,
+            DEFAULT_MAX_PACKET_SIZE,
+            0,
+        );
 
         let mut ch = self
             .alloc
@@ -459,13 +458,12 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
         // Drop pipe to re-allocate with new address and correct max_packet_size.
         drop(ch);
 
-        let ep0_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: max_packet_size0 as u16,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let ep0_info = EndpointInfo::new(
+            EndpointAddress::from_parts(0, UsbDirection::In),
+            EndpointType::Control,
+            max_packet_size0 as u16,
+            0,
+        );
 
         let mut ch = self
             .alloc

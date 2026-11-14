@@ -55,14 +55,12 @@ impl<'d, A: UsbHostAllocator<'d>> KbdHandler<'d, A> {
     pub async fn try_register(alloc: &A, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
         let mut control_channel = alloc.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
-            &EndpointInfo {
-                addr: 0.into(),
-                ep_type: EndpointType::Control,
-                max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
-                    .min(enum_info.speed().max_packet_size()),
-                interval_ms: 0,
-                max_burst: 0,
-            },
+            &EndpointInfo::new(
+                0.into(),
+                EndpointType::Control,
+                (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed().max_packet_size()),
+                0,
+            ),
             enum_info.split(),
         )?;
 

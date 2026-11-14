@@ -192,6 +192,7 @@ pub(crate) struct DescriptorWriter<'a> {
     position: usize,
     num_interfaces_mark: Option<usize>,
     num_endpoints_mark: Option<usize>,
+    high_speed: bool,
     superspeed: bool,
 }
 
@@ -204,6 +205,7 @@ impl<'a> DescriptorWriter<'a> {
             position: 0,
             num_interfaces_mark: None,
             num_endpoints_mark: None,
+            high_speed: false,
             superspeed: false,
         }
     }
@@ -251,6 +253,7 @@ impl<'a> DescriptorWriter<'a> {
         self.num_interfaces_mark = Some(self.position + 4);
 
         let superspeed = config.max_speed >= UsbDeviceSpeed::Super;
+        self.high_speed = config.max_speed == UsbDeviceSpeed::High;
         self.superspeed = superspeed;
         let max_power = if superspeed {
             config.max_power.div_ceil(8)
@@ -390,7 +393,7 @@ impl<'a> DescriptorWriter<'a> {
     ) {
         self.endpoint_raw(
             endpoint,
-            endpoint.interval_ms,
+            endpoint.interval,
             synchronization_type,
             usage_type,
             extra_fields,
@@ -430,14 +433,24 @@ impl<'a> DescriptorWriter<'a> {
             bm_attributes |= usage_bm_attributes | synchronization_bm_attributes;
         }
 
+        assert!(
+            endpoint.max_packet_size <= 0x07ff,
+            "max_packet_size must fit in 11 bits"
+        );
+        assert!(
+            endpoint.additional_transactions <= 2,
+            "additional_transactions must be 0..=2"
+        );
+        let w_max_packet_size = endpoint.max_packet_size | (u16::from(endpoint.additional_transactions) << 11);
+
         self.write(
             descriptor_type::ENDPOINT,
             &[
                 endpoint.addr.into(), // bEndpointAddress
                 bm_attributes,        // bmAttributes
-                endpoint.max_packet_size as u8,
-                (endpoint.max_packet_size >> 8) as u8, // wMaxPacketSize
-                b_interval,                            // bInterval
+                w_max_packet_size as u8,
+                (w_max_packet_size >> 8) as u8, // wMaxPacketSize
+                b_interval,                     // bInterval
             ],
             extra_fields,
         );
@@ -465,11 +478,14 @@ impl<'a> DescriptorWriter<'a> {
         addr: Option<EndpointAddress>,
         ep_type: EndpointType,
         max_packet_size: u16,
-        interval_ms: u8,
+        interval: u8,
         options: EndpointOptions,
     ) -> EndpointConfig {
-        let mut config = EndpointConfig::new(addr, ep_type, max_packet_size, interval_ms);
+        let mut config = EndpointConfig::new(addr, ep_type, max_packet_size, interval);
         config.buffers = options.buffers;
+        if self.high_speed && matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous) {
+            config.additional_transactions = options.additional_transactions;
+        }
         if self.superspeed {
             if ep_type == EndpointType::Bulk {
                 config.max_burst = options.max_burst;

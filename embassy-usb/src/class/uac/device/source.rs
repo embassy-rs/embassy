@@ -7,7 +7,7 @@ use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, State};
 use super::{Channel, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
 use crate::class::uac::terminal_type::TerminalType;
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointType};
 use crate::{Builder, EndpointOptions};
 
 /// Everything the audio source advertises to the host.
@@ -134,7 +134,7 @@ pub struct Stream<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> Stream<'d, D> {
     /// Writes a single packet into the IN endpoint
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.streaming_endpoint.write(data).await
+        crate::class::write_packet(&mut self.streaming_endpoint, data).await
     }
 
     /// Waits for the USB host to enable this interface: it is listening.

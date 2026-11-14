@@ -67,9 +67,9 @@ pub fn find_ccid(config_desc: &[u8]) -> Option<CcidInfo> {
                 continue;
             }
             if ep.is_in() {
-                bulk_in = Some((ep.endpoint_address, ep.max_packet_size));
+                bulk_in = Some((ep.endpoint_address, ep.packet_size()));
             } else {
-                bulk_out = Some((ep.endpoint_address, ep.max_packet_size));
+                bulk_out = Some((ep.endpoint_address, ep.packet_size()));
             }
         }
 
@@ -145,12 +145,13 @@ impl<'d, A: UsbHostAllocator<'d>> CcidHost<'d, A> {
         let info = find_ccid(config_desc).ok_or(CcidError::NoInterface)?;
         let split = enum_info.split();
         let address = enum_info.device_address;
-        let endpoint = |(ep, max_packet_size), direction| EndpointInfo {
-            addr: EndpointAddress::from_parts((ep & 0x0f) as usize, direction),
-            ep_type: EndpointType::Bulk,
-            max_packet_size,
-            interval_ms: 0,
-            max_burst: 0,
+        let endpoint = |(ep, max_packet_size), direction| {
+            EndpointInfo::new(
+                EndpointAddress::from_parts((ep & 0x0f) as usize, direction),
+                EndpointType::Bulk,
+                max_packet_size,
+                0,
+            )
         };
 
         let in_pipe = alloc

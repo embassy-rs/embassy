@@ -99,3 +99,26 @@ compile_error!("feature `class-msc` requires at least one of `device` or `host`"
 compile_error!("feature `class-printer` requires at least one of `device` or `host`");
 #[cfg(all(feature = "class-uac", not(any(feature = "device", feature = "host"))))]
 compile_error!("feature `class-uac` requires at least one of `device` or `host`");
+
+#[cfg(feature = "device")]
+#[allow(dead_code)]
+pub(crate) async fn read_packet<E: crate::driver::EndpointOut>(
+    ep: &mut E,
+    buf: &mut [u8],
+) -> Result<usize, crate::driver::EndpointError> {
+    let cap = buf.len().min(ep.info().max_packet_size as usize);
+    ep.read_transfer(&mut buf[..cap]).await
+}
+
+#[cfg(feature = "device")]
+#[allow(dead_code)]
+pub(crate) async fn write_packet<E: crate::driver::EndpointIn>(
+    ep: &mut E,
+    buf: &[u8],
+) -> Result<(), crate::driver::EndpointError> {
+    if buf.len() > ep.info().max_packet_size as usize {
+        return Err(crate::driver::EndpointError::BufferOverflow);
+    }
+    ep.write_transfer(buf, false).await?;
+    Ok(())
+}
