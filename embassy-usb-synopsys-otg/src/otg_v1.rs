@@ -4985,7 +4985,8 @@ pub mod vals {
         HIGH_SPEED = 0x0,
         #[doc = "Full speed using external ULPI PHY"]
         FULL_SPEED_EXTERNAL = 0x01,
-        _RESERVED_2 = 0x02,
+        #[doc = "Low speed"]
+        LOW_SPEED = 0x02,
         #[doc = "Full speed using internal embedded PHY"]
         FULL_SPEED_INTERNAL = 0x03,
     }

@@ -619,6 +619,10 @@ where
         endpoint: &EndpointInfo,
         split: Option<SplitInfo>,
     ) -> Result<Self::Pipe<T, D>, HostError> {
+        if endpoint.additional_transactions != 0 {
+            return Err(HostError::Other("high-speed additional transactions not supported"));
+        }
+
         let ep_number = endpoint.addr.index() as u8;
         let max_packet_size = endpoint.max_packet_size;
 
@@ -794,6 +798,7 @@ where
                             r.hfir().write(|w| w.set_frivl(frivl));
                         }
                         Speed::High => {} // Keep HS defaults
+                        _ => {}
                     }
 
                     return DeviceEvent::Connected(speed);

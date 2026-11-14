@@ -21,8 +21,8 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
-    Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointError, EndpointInfo, EndpointType, Event,
-    Unsupported,
+    Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
+    EndpointType, Event, Speed, Unsupported,
 };
 #[cfg(usb_v4)]
 pub use usb_host::*;
@@ -394,12 +394,19 @@ fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, double_buffered: 
     }
 }
 
-fn is_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress) -> bool {
-    let regs = T::regs();
+fn is_endpoint_stalled(regs: crate::pac::usb::Usb, ep_addr: EndpointAddress) -> bool {
     let epr = regs.epr(ep_addr.index() as _).read();
     match ep_addr.direction() {
         Direction::In => epr.stat_tx() == Stat::Stall,
         Direction::Out => epr.stat_rx() == Stat::Stall,
+    }
+}
+
+fn is_endpoint_enabled(regs: crate::pac::usb::Usb, ep_addr: EndpointAddress) -> bool {
+    let epr = regs.epr(ep_addr.index() as _).read();
+    match ep_addr.direction() {
+        Direction::In => epr.stat_tx() != Stat::Disabled,
+        Direction::Out => epr.stat_rx() != Stat::Disabled,
     }
 }
 
@@ -790,13 +797,12 @@ impl<'d, T: Instance> Driver<'d, T> {
         critical_section::with(|cs| DOUBLE_BUFFERED.borrow(cs).borrow_mut()[index] = Some(state));
         Ok(Endpoint {
             _marker: PhantomData,
-            info: EndpointInfo {
-                addr: EndpointAddress::from_parts(index, D::dir()),
-                ep_type: EndpointType::Bulk,
+            info: EndpointInfo::new(
+                EndpointAddress::from_parts(index, D::dir()),
+                EndpointType::Bulk,
                 max_packet_size,
-                interval_ms: 0,
-                max_burst: 0,
-            },
+                0,
+            ),
             // The second packet buffer directly follows the first one.
             buf: EndpointBuffer {
                 addr,
@@ -818,7 +824,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 return Ok(ep);
             }
         }
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
     fn alloc_endpoint<D: Dir>(
@@ -826,13 +832,13 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval_ms: u8,
+        interval: u8,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
         trace!(
-            "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
+            "allocating type={:?} mps={:?} interval={}, dir={:?}",
             ep_type,
             max_packet_size,
-            interval_ms,
+            interval,
             D::dir()
         );
 
@@ -911,13 +917,12 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         Ok(Endpoint {
             _marker: PhantomData,
-            info: EndpointInfo {
-                addr: EndpointAddress::from_parts(index, D::dir()),
+            info: EndpointInfo::new(
+                EndpointAddress::from_parts(index, D::dir()),
                 ep_type,
                 max_packet_size,
-                interval_ms,
-                max_burst: 0,
-            },
+                interval,
+            ),
             buf,
             #[cfg(any(usb_v1, usb_v3, usb_v4))]
             double_buffered: false,
@@ -1017,6 +1022,83 @@ pub struct Bus<'d, T: Instance> {
     power_present: bool,
 }
 
+impl<'d, T: Instance> Bus<'d, T> {
+    fn set_endpoint_enabled_internal(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+        trace!("set_enabled {:?} {}", ep_addr, enabled);
+        #[cfg(any(usb_v1, usb_v3, usb_v4))]
+        let index = ep_addr.index();
+        #[cfg(any(usb_v1, usb_v3, usb_v4))]
+        if self.double_buffered & (1 << index) != 0
+            && critical_section::with(|cs| {
+                let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
+                match (ep_addr.direction(), states[index].as_mut()) {
+                    (Direction::In, Some(DoubleState::In(queue))) => {
+                        reset_bulk_in::<T>(index, if enabled { Stat::Nak } else { Stat::Disabled }, queue);
+                        EP_IN_WAKERS[index].wake();
+                    }
+                    (Direction::Out, Some(DoubleState::Out(state))) => {
+                        reset_bulk_out::<T>(index, if enabled { Stat::Valid } else { Stat::Disabled }, state);
+                        EP_OUT_WAKERS[index].wake();
+                    }
+                    _ => return false,
+                }
+                true
+            })
+        {
+            return;
+        }
+        // This can race, so do a retry loop.
+        //
+        // Enabling an endpoint (SET_CONFIGURATION, or SET_INTERFACE even when the alternate
+        // setting does not change) resets its data toggle to DATA0 (USB 2.0 section 9.1.1.5).
+        // Writing 1 to DTOG toggles it, so writing its current value clears it.
+        // Isochronous endpoints use DTOG as the buffer selector and are left alone.
+        let epr = T::regs().epr(ep_addr.index() as _);
+        trace!("EPR before: {:04x}", epr.read().0);
+        match ep_addr.direction() {
+            Direction::In => {
+                loop {
+                    let r = epr.read();
+                    let iso = r.ep_type() == EpType::Iso;
+                    let want_stat = match enabled {
+                        false => Stat::Disabled,
+                        true if iso => Stat::Valid,
+                        true => Stat::Nak,
+                    };
+                    let reset_dtog = enabled && !iso && r.dtog_tx();
+                    if r.stat_tx() == want_stat && !reset_dtog {
+                        break;
+                    }
+                    let mut w = invariant(r);
+                    w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_tx(reset_dtog);
+                    epr.write_value(w);
+                }
+                EP_IN_WAKERS[ep_addr.index()].wake();
+            }
+            Direction::Out => {
+                loop {
+                    let r = epr.read();
+                    let want_stat = match enabled {
+                        false => Stat::Disabled,
+                        true => Stat::Valid,
+                    };
+                    let reset_dtog = enabled && r.ep_type() != EpType::Iso && r.dtog_rx();
+                    if r.stat_rx() == want_stat && !reset_dtog {
+                        break;
+                    }
+                    let mut w = invariant(r);
+                    w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
+                    w.set_dtog_rx(reset_dtog);
+                    epr.write_value(w);
+                }
+                EP_OUT_WAKERS[ep_addr.index()].wake();
+            }
+        }
+        trace!("EPR after: {:04x}", epr.read().0);
+    }
+}
+
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
@@ -1059,8 +1141,8 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 if removed {
                     // Wake pending transfers so they return EndpointError::Disabled.
                     for i in 0..EP_COUNT {
-                        self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::In), false);
-                        self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::Out), false);
+                        self.set_endpoint_enabled_internal(EndpointAddress::from_parts(i, Direction::In), false);
+                        self.set_endpoint_enabled_internal(EndpointAddress::from_parts(i, Direction::Out), false);
                     }
 
                     // Clear DPPU to signal a disconnect to the host (RM0444 37.6.6,
@@ -1147,7 +1229,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                     w.wake()
                 }
 
-                return Poll::Ready(Event::Reset);
+                return Poll::Ready(Event::Reset(Speed::Full));
             }
 
             if IRQ_SUSPEND.load(Ordering::Acquire) {
@@ -1160,7 +1242,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         .await
     }
 
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
         #[cfg(any(usb_v1, usb_v3, usb_v4))]
         let double_buffered = self.double_buffered & (1 << ep_addr.index()) != 0;
         #[cfg(not(any(usb_v1, usb_v3, usb_v4)))]
@@ -1169,82 +1251,15 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        is_endpoint_stalled::<T>(ep_addr)
+        is_endpoint_stalled(T::regs(), ep_addr)
     }
 
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
-        trace!("set_enabled {:?} {}", ep_addr, enabled);
-        #[cfg(any(usb_v1, usb_v3, usb_v4))]
-        let index = ep_addr.index();
-        #[cfg(any(usb_v1, usb_v3, usb_v4))]
-        if self.double_buffered & (1 << index) != 0
-            && critical_section::with(|cs| {
-                let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
-                match (ep_addr.direction(), states[index].as_mut()) {
-                    (Direction::In, Some(DoubleState::In(queue))) => {
-                        reset_bulk_in::<T>(index, if enabled { Stat::Nak } else { Stat::Disabled }, queue);
-                        EP_IN_WAKERS[index].wake();
-                    }
-                    (Direction::Out, Some(DoubleState::Out(state))) => {
-                        reset_bulk_out::<T>(index, if enabled { Stat::Valid } else { Stat::Disabled }, state);
-                        EP_OUT_WAKERS[index].wake();
-                    }
-                    _ => return false,
-                }
-                true
-            })
-        {
-            return;
-        }
-        // This can race, so do a retry loop.
-        //
-        // Enabling an endpoint (SET_CONFIGURATION, or SET_INTERFACE even when the alternate
-        // setting does not change) resets its data toggle to DATA0 (USB 2.0 section 9.1.1.5).
-        // Writing 1 to DTOG toggles it, so writing its current value clears it.
-        // Isochronous endpoints use DTOG as the buffer selector and are left alone.
-        let epr = T::regs().epr(ep_addr.index() as _);
-        trace!("EPR before: {:04x}", epr.read().0);
-        match ep_addr.direction() {
-            Direction::In => {
-                loop {
-                    let r = epr.read();
-                    let iso = r.ep_type() == EpType::Iso;
-                    let want_stat = match enabled {
-                        false => Stat::Disabled,
-                        true if iso => Stat::Valid,
-                        true => Stat::Nak,
-                    };
-                    let reset_dtog = enabled && !iso && r.dtog_tx();
-                    if r.stat_tx() == want_stat && !reset_dtog {
-                        break;
-                    }
-                    let mut w = invariant(r);
-                    w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
-                    w.set_dtog_tx(reset_dtog);
-                    epr.write_value(w);
-                }
-                EP_IN_WAKERS[ep_addr.index()].wake();
-            }
-            Direction::Out => {
-                loop {
-                    let r = epr.read();
-                    let want_stat = match enabled {
-                        false => Stat::Disabled,
-                        true => Stat::Valid,
-                    };
-                    let reset_dtog = enabled && r.ep_type() != EpType::Iso && r.dtog_rx();
-                    if r.stat_rx() == want_stat && !reset_dtog {
-                        break;
-                    }
-                    let mut w = invariant(r);
-                    w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
-                    w.set_dtog_rx(reset_dtog);
-                    epr.write_value(w);
-                }
-                EP_OUT_WAKERS[ep_addr.index()].wake();
-            }
-        }
-        trace!("EPR after: {:04x}", epr.read().0);
+    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+        self.set_endpoint_enabled_internal(ep_addr, enabled);
+    }
+
+    fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool {
+        is_endpoint_enabled(T::regs(), ep_addr)
     }
 
     async fn enable(&mut self) {
@@ -1337,7 +1352,7 @@ impl<'d, T: Instance, D> Endpoint<'d, T, D> {
 
 #[cfg(any(usb_v1, usb_v3, usb_v4))]
 impl<'d, T: Instance> Endpoint<'d, T, In> {
-    async fn write_double_buffered(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+    async fn write_double_buffered(&mut self, buf: &[u8]) -> Result<(), EndpointDisabledError> {
         let index = self.info.addr.index();
         poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
@@ -1345,14 +1360,14 @@ impl<'d, T: Instance> Endpoint<'d, T, In> {
                 let reg = T::regs().epr(index);
                 let r = reg.read();
                 if r.stat_tx() == Stat::Disabled || IRQ_RESET.load(Ordering::Acquire) {
-                    return Poll::Ready(Err(EndpointError::Disabled));
+                    return Poll::Ready(Err(EndpointDisabledError));
                 }
                 if r.stat_tx() == Stat::Stall {
                     return Poll::Pending;
                 }
                 let mut states = DOUBLE_BUFFERED.borrow(cs).borrow_mut();
                 let Some(DoubleState::In(queue)) = states[index].as_mut() else {
-                    return Poll::Ready(Err(EndpointError::Disabled));
+                    return Poll::Ready(Err(EndpointDisabledError));
                 };
                 let Some(buffer) = queue.free_buffer() else {
                     return Poll::Pending;
@@ -1431,8 +1446,8 @@ impl<'d, T: Instance, D> Endpoint<'d, T, D> {
 }
 
 impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
-    fn info(&self) -> &EndpointInfo {
-        &self.info
+    fn info(&self) -> EndpointInfo {
+        self.info
     }
 
     async fn wait_enabled(&mut self) {
@@ -1451,19 +1466,23 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         trace!("wait_enabled IN OK");
     }
 
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled::<T>(self.info.addr, self.double_buffered_flag(), stalled);
         Ok(())
     }
 
     fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled::<T>(self.info.addr))
+        Ok(is_endpoint_stalled(T::regs(), self.info.addr))
+    }
+
+    fn is_enabled(&self) -> bool {
+        is_endpoint_enabled(T::regs(), self.info.addr)
     }
 }
 
 impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
-    fn info(&self) -> &EndpointInfo {
-        &self.info
+    fn info(&self) -> EndpointInfo {
+        self.info
     }
 
     async fn wait_enabled(&mut self) {
@@ -1482,13 +1501,17 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         trace!("wait_enabled OUT OK");
     }
 
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled::<T>(self.info.addr, self.double_buffered_flag(), stalled);
         Ok(())
     }
 
     fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled::<T>(self.info.addr))
+        Ok(is_endpoint_stalled(T::regs(), self.info.addr))
+    }
+
+    fn is_enabled(&self) -> bool {
+        is_endpoint_enabled(T::regs(), self.info.addr)
     }
 }
 
@@ -1531,8 +1554,8 @@ impl<'d, T: Instance> Endpoint<'d, T, Out> {
     }
 }
 
-impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+impl<'d, T: Instance> Endpoint<'d, T, Out> {
+    async fn read_packet_internal(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         #[cfg(any(usb_v1, usb_v3, usb_v4))]
         if self.double_buffered {
             return self.read_double_buffered(buf).await;
@@ -1601,11 +1624,27 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     }
 }
 
-impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
-        if buf.len() > self.info.max_packet_size as usize {
-            return Err(EndpointError::BufferOverflow);
+impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let max_packet_size = self.info.max_packet_size as usize;
+        let mut total = 0;
+        loop {
+            let chunk_len = (buf.len() - total).min(max_packet_size);
+            if chunk_len == 0 && total > 0 {
+                break;
+            }
+            let n = self.read_packet_internal(&mut buf[total..total + chunk_len]).await?;
+            total += n;
+            if n < max_packet_size || total == buf.len() {
+                break;
+            }
         }
+        Ok(total)
+    }
+}
+
+impl<'d, T: Instance> Endpoint<'d, T, In> {
+    async fn write_packet_internal(&mut self, buf: &[u8]) -> Result<(), EndpointDisabledError> {
         #[cfg(any(usb_v1, usb_v3, usb_v4))]
         if self.double_buffered {
             return self.write_double_buffered(buf).await;
@@ -1650,7 +1689,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         .await;
 
         if stat == Stat::Disabled {
-            return Err(EndpointError::Disabled);
+            return Err(EndpointDisabledError);
         }
 
         if self.info.ep_type != EndpointType::Isochronous {
@@ -1668,6 +1707,22 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         TX_PENDING[index].store(true, Ordering::Relaxed);
         trace!("WRITE OK");
 
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        let max_packet_size = self.info.max_packet_size as usize;
+        if buf.is_empty() {
+            return self.write_packet_internal(&[]).await;
+        }
+        for chunk in buf.chunks(max_packet_size) {
+            self.write_packet_internal(chunk).await?;
+        }
+        if needs_zlp && (buf.len() % max_packet_size == 0) {
+            self.write_packet_internal(&[]).await?;
+        }
         Ok(())
     }
 }
@@ -1696,40 +1751,8 @@ fn register_ep0_wakers(cx: &mut Context) {
     BUS_WAKER.register(cx.waker());
 }
 
-impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
-    fn max_packet_size(&self) -> usize {
-        usize::from(self.max_packet_size)
-    }
-
-    async fn setup(&mut self) -> [u8; 8] {
-        loop {
-            trace!("SETUP read waiting");
-            poll_fn(|cx| {
-                EP_OUT_WAKERS[0].register(cx.waker());
-                if EP0_SETUP.load(Ordering::Relaxed) {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            wait_for_out_packet_memory();
-            let mut buf = [0; 8];
-            let rx_len = self.ep_out.read_data(&mut buf);
-            if rx_len != Ok(8) {
-                trace!("SETUP read failed: {:?}", rx_len);
-                continue;
-            }
-
-            EP0_SETUP.store(false, Ordering::Relaxed);
-
-            trace!("SETUP read ok");
-            return buf;
-        }
-    }
-
-    async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError> {
+impl<'d, T: Instance> ControlPipe<'d, T> {
+    async fn data_out_packet(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError> {
         let regs = T::regs();
 
         // When a SETUP is received, Stat/Stat is set to NAK.
@@ -1795,12 +1818,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         Ok(rx_len)
     }
 
-    async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError> {
+    async fn data_in_packet(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointDisabledError> {
         trace!("control: data_in");
-
-        if data.len() > self.ep_in.info.max_packet_size as usize {
-            return Err(EndpointError::BufferOverflow);
-        }
 
         let regs = T::regs();
 
@@ -1842,7 +1861,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         if control_aborted() {
             trace!("received another SETUP or a bus reset, aborting data_in.");
-            return Err(EndpointError::Disabled);
+            return Err(EndpointDisabledError);
         }
 
         self.ep_in.write_data(data);
@@ -1858,6 +1877,98 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         trace!("WRITE OK");
 
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
+    fn max_packet_size(&self) -> usize {
+        usize::from(self.max_packet_size)
+    }
+
+    async fn setup(&mut self) -> [u8; 8] {
+        loop {
+            trace!("SETUP read waiting");
+            poll_fn(|cx| {
+                EP_OUT_WAKERS[0].register(cx.waker());
+                if EP0_SETUP.load(Ordering::Relaxed) {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+
+            wait_for_out_packet_memory();
+            let mut buf = [0; 8];
+            let rx_len = self.ep_out.read_data(&mut buf);
+            if rx_len != Ok(8) {
+                trace!("SETUP read failed: {:?}", rx_len);
+                continue;
+            }
+
+            EP0_SETUP.store(false, Ordering::Relaxed);
+
+            trace!("SETUP read ok");
+            return buf;
+        }
+    }
+
+    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let max_packet_size = self.max_packet_size();
+        let mut total = 0;
+        let mut first = true;
+        loop {
+            let chunk = &mut buf[total..];
+            let chunk_len = chunk.len().min(max_packet_size);
+            let last = (chunk.len() - chunk_len) == 0;
+            let rx_len = self.data_out_packet(&mut chunk[..chunk_len], first, last).await?;
+            total += rx_len;
+            first = false;
+            if rx_len < chunk_len || last {
+                if !last {
+                    let regs = T::regs();
+                    let epr = regs.epr(0).read();
+                    regs.epr(0).write(|w| {
+                        w.set_ep_type(EpType::Control);
+                        w.set_stat_rx(Stat::from_bits(epr.stat_rx().to_bits() ^ Stat::Stall.to_bits()));
+                        w.set_stat_tx(Stat::from_bits(epr.stat_tx().to_bits() ^ Stat::Nak.to_bits()));
+                        w.set_ctr_rx(true);
+                        w.set_ctr_tx(true);
+                    });
+                }
+                break;
+            }
+        }
+        Ok(total)
+    }
+
+    async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        if data.is_empty() {
+            return self.data_in_packet(&[], true, true).await;
+        }
+        let max_packet_size = self.max_packet_size();
+        let total_packets = (data.len() + max_packet_size - 1) / max_packet_size
+            + if needs_zlp && data.len() % max_packet_size == 0 {
+                1
+            } else {
+                0
+            };
+
+        let mut offset = 0;
+        for i in 0..total_packets {
+            let first = i == 0;
+            let last = i == total_packets - 1;
+            let chunk = if offset < data.len() {
+                let end = (offset + max_packet_size).min(data.len());
+                let slice = &data[offset..end];
+                offset = end;
+                slice
+            } else {
+                &[]
+            };
+            self.data_in_packet(chunk, first, last).await?;
+        }
         Ok(())
     }
 

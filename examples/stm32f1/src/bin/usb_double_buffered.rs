@@ -81,10 +81,10 @@ async fn main(_spawner: Spawner) {
             out.wait_enabled().await;
             loop {
                 let mut packet = [0; 64];
-                let Ok(len) = out.read(&mut packet).await else {
+                let Ok(len) = out.read_transfer(&mut packet).await else {
                     break;
                 };
-                if inp.write(&packet[..len]).await.is_err() {
+                if inp.write_transfer(&packet[..len], false).await.is_err() {
                     break;
                 }
             }
