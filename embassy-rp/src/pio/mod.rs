@@ -1606,8 +1606,28 @@ trait SealedInstance {
 
     #[inline]
     fn wakers() -> &'static Wakers {
-        static WAKERS: Wakers = Wakers([const { AtomicWaker::new() }; 12]);
-        &WAKERS
+        match Self::PIO_NO {
+            0 => {
+                static WAKERS_0: Wakers = Wakers([const { AtomicWaker::new() }; 12]);
+
+                &WAKERS_0
+            }
+            1 => {
+                static WAKERS_1: Wakers = Wakers([const { AtomicWaker::new() }; 12]);
+
+                &WAKERS_1
+            }
+            #[cfg(feature = "_rp235x")]
+            2 => {
+                static WAKERS_2: Wakers = Wakers([const { AtomicWaker::new() }; 12]);
+
+                &WAKERS_2
+            }
+            #[cfg(feature = "_rp235x")]
+            _ => panic!("Invalid PIO_NO: {}, expected one of 0,1,2", Self::PIO_NO),
+            #[cfg(not(feature = "_rp235x"))]
+            _ => panic!("Invalid PIO_NO: {}, expected one of 0,1", Self::PIO_NO),
+        }
     }
 
     #[inline]
