@@ -635,8 +635,8 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     ///
     /// Messages are received in the background, so a message that arrived before this call is
     /// returned right away. One message can wait for this call; one that arrives while another one
-    /// is still waiting is dropped, and reported as [`RxError::Overrun`]. A received Hard Reset
-    /// discards the waiting message, and is reported as [`RxError::HardReset`].
+    /// is still waiting is dropped, and reported as [`RxError::Overrun`] after the waiting one. A
+    /// received Hard Reset discards the waiting message, and is reported as [`RxError::HardReset`].
     ///
     /// Returns the start of packet type and number of received bytes or an error.
     pub async fn receive_with_sop(&mut self, buf: &mut [u8]) -> Result<(Sop, usize), RxError> {
@@ -664,7 +664,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             msg.sop().map(|sop| (sop, msg.len))
         };
 
-        critical_section::with(|cs| T::state().rx.borrow_ref_mut(cs).other = OtherBuffer::Free);
+        critical_section::with(|cs| T::state().rx.borrow_ref_mut(cs).release_buffer());
         result
     }
 
@@ -962,8 +962,10 @@ struct RxState {
     receiving: usize,
     /// The buffer the DMA doesn't receive into.
     other: OtherBuffer,
-    /// An error to report with the next `receive`.
+    /// An error to report with the next `receive`, before the waiting message.
     error: Option<RxError>,
+    /// An error that happened while the other buffer was taken, to report after its message.
+    later_error: Option<RxError>,
 }
 
 // SAFETY: the pointers into the RX buffers are only used by the interrupt and by the `PdPhy` that
@@ -988,6 +990,7 @@ impl RxState {
             receiving: 0,
             other: OtherBuffer::Free,
             error: None,
+            later_error: None,
         }
     }
 
@@ -1006,6 +1009,13 @@ impl RxState {
             }
             OtherBuffer::Free | OtherBuffer::Copying => None,
         }
+    }
+
+    /// Hands the buffer of a message that `receive` has copied out back to the DMA.
+    fn release_buffer(&mut self) {
+        self.other = OtherBuffer::Free;
+        // The message has been returned, so an error that happened after it is next.
+        self.error = self.later_error.take();
     }
 
     /// Records a received message, and restarts the DMA for the next one.
@@ -1050,8 +1060,13 @@ impl RxState {
                 self.receiving ^= 1;
             }
             Err(error) => {
-                // Drop the message: its buffer is reused for the next one.
-                self.error.get_or_insert(error);
+                // Drop the message: its buffer is reused for the next one. If a message is
+                // waiting, it was received first, so the error is reported after it.
+                let slot = match self.other {
+                    OtherBuffer::Free => &mut self.error,
+                    OtherBuffer::Ready(_) | OtherBuffer::Copying => &mut self.later_error,
+                };
+                slot.get_or_insert(error);
             }
         }
         dma.receive_into(self.receiving);
@@ -1062,10 +1077,14 @@ impl RxState {
     /// A message that `receive` is copying out already isn't discarded: it is returned before
     /// the Hard Reset, and its buffer stays taken until the copy is done.
     fn on_hard_reset(&mut self) {
-        if let OtherBuffer::Ready(_) = self.other {
-            self.other = OtherBuffer::Free;
+        match self.other {
+            OtherBuffer::Copying => self.later_error = Some(RxError::HardReset),
+            OtherBuffer::Free | OtherBuffer::Ready(_) => {
+                self.other = OtherBuffer::Free;
+                self.error = Some(RxError::HardReset);
+                self.later_error = None;
+            }
         }
-        self.error = Some(RxError::HardReset);
         // Also discard a message that the Hard Reset cut short.
         if let Some(dma) = &mut self.dma {
             dma.receive_into(self.receiving);
