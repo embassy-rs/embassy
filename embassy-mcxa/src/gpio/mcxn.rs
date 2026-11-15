@@ -1,4 +1,4 @@
-//! MCXN native PCR and blocking GPIO capabilities.
+//! MCXN native PCR control and type erasure.
 
 use core::marker::PhantomData;
 
@@ -68,12 +68,18 @@ pub struct AnyPin {
     port: u8,
     pin: u8,
     gpio: crate::pac::gpio::Gpio,
+    irq_bound: bool,
 }
 
 impl AnyPin {
     /// Create an `AnyPin` from raw components.
-    pub(crate) fn new(port: u8, pin: u8, gpio: crate::pac::gpio::Gpio) -> Self {
-        Self { port, pin, gpio }
+    pub(crate) fn new(port: u8, pin: u8, gpio: crate::pac::gpio::Gpio, irq_bound: bool) -> Self {
+        Self {
+            port,
+            pin,
+            gpio,
+            irq_bound,
+        }
     }
 
     #[inline(always)]
@@ -89,6 +95,11 @@ impl AnyPin {
     #[inline(always)]
     pub fn pin_index(&self) -> u8 {
         self.pin
+    }
+
+    #[inline(always)]
+    pub(super) fn irq_bound(&self) -> bool {
+        self.irq_bound
     }
 }
 
@@ -146,7 +157,7 @@ pub trait GpioPin: SealedPin + Sized + PeripheralType + Into<AnyPin> + 'static {
         // SAFETY: This is only called within the GpioPin trait, which is only
         // implemented within this module on valid pin peripherals and thus
         // has been verified to be correct.
-        AnyPin::new(self.port(), self.pin(), self.gpio())
+        AnyPin::new(self.port(), self.pin(), self.gpio(), false)
     }
 }
 
@@ -194,12 +205,32 @@ macro_rules! impl_gpio_pin {
                 pub fn degrade(&self) -> $crate::gpio::AnyPin {
                     use $crate::gpio::SealedPin;
 
-                    $crate::gpio::AnyPin::new(
-                        self.port(),
-                        self.pin(),
-                        self.gpio(),
+                    $crate::gpio::AnyPin::new(self.port(), self.pin(), self.gpio(), false)
+                }
+            }
 
-                    )
+            impl $crate::gpio::HasGpioInstance for $crate::peripherals::$peri {
+                type Instance = $crate::peripherals::$block;
+                fn degrade_async<'p>(
+                    this: embassy_hal_internal::Peri<'p, Self>,
+                    _irq: impl $crate::interrupt::typelevel::Binding<
+                        <Self::Instance as $crate::gpio::Instance>::Interrupt,
+                        $crate::gpio::InterruptHandler<Self::Instance>,
+                    >,
+                ) -> embassy_hal_internal::Peri<'p, $crate::gpio::AnyPin> {
+                    use $crate::interrupt::typelevel::Interrupt;
+                    use $crate::gpio::SealedPin;
+                    unsafe {
+                        <<Self as $crate::gpio::HasGpioInstance>::Instance as $crate::gpio::Instance>::Interrupt::enable();
+                    }
+                    unsafe {
+                        embassy_hal_internal::Peri::new_unchecked($crate::gpio::AnyPin::new(
+                            this.port(),
+                            this.pin(),
+                            this.gpio(),
+                            true,
+                        ))
+                    }
                 }
             }
 

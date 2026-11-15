@@ -10,7 +10,6 @@ pub struct Config {
     pub rtc_interrupt_priority: Priority,
     #[cfg(not(feature = "_mcxn"))]
     pub adc_interrupt_priority: Priority,
-    #[cfg(not(feature = "_mcxn"))]
     pub gpio_interrupt_priority: Priority,
     #[cfg(not(feature = "_mcxn"))]
     pub wwdt_interrupt_priority: Priority,
@@ -27,7 +26,6 @@ impl Default for Config {
             rtc_interrupt_priority: Priority::from(0),
             #[cfg(not(feature = "_mcxn"))]
             adc_interrupt_priority: Priority::from(0),
-            #[cfg(not(feature = "_mcxn"))]
             gpio_interrupt_priority: Priority::from(0),
             #[cfg(not(feature = "_mcxn"))]
             wwdt_interrupt_priority: Priority::from(0),

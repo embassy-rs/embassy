@@ -88,6 +88,7 @@ fn main() {
         let device_type = 0x1000u16 | u16::from_str_radix(digits, 16).expect("MCXN part digits");
         generated.push(quote! { pub(crate) const MCXN_DEVICE_TYPE: u16 = #device_type; });
     }
+    generated.push(generate_instance_calls());
     if is_mcxn() {
         generated.push(generate_mcxn_pcr_dispatch());
         generated.push(generate_mcxn_gpio_clock_enable());
@@ -95,7 +96,6 @@ fn main() {
     if !is_mcxn() {
         generated.extend([
             generate_dma_requests_enum(),
-            generate_instance_calls(),
             generate_adc_pin_impls(),
             generate_cmp_pin_impls(),
             generate_clkout_impls(),
@@ -302,6 +302,12 @@ fn generate_instance_calls() -> TokenStream {
         "adc", "cmp", "crc", "dac", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi",
         "can",
     ];
+    const MCXN_REQUIRES_INSTANCE: &[&str] = &["gpio"];
+    let requires_instance = if is_mcxn() {
+        MCXN_REQUIRES_INSTANCE
+    } else {
+        REQUIRES_INSTANCE
+    };
 
     for peripheral in METADATA.peripherals {
         if peripheral.driver_name.is_empty() {
@@ -317,7 +323,7 @@ fn generate_instance_calls() -> TokenStream {
         let peripheral_name = name.to_lowercase();
         let peripheral_number = leading_num(&peripheral.name[name.len()..]);
 
-        if REQUIRES_INSTANCE.contains(&peripheral_name.as_str()) {
+        if requires_instance.contains(&peripheral_name.as_str()) {
             let arg = if let Some(peripheral_number) = peripheral_number {
                 proc_macro2::Literal::u32_unsuffixed(peripheral_number).into_token_stream()
             } else {

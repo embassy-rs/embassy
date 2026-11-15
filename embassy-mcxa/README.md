@@ -18,8 +18,10 @@ capacity, or errata. Use a linker memory layout appropriate for the actual chip
 and pins bonded on the actual package.
 
 The initial profile supports the primary core with FRO12 at 12 MHz, a 3 MHz
-slow bus, the 1 MHz OSTIMER time driver, and blocking GPIO on every pad in the
-chip's PAC metadata. PORT5 pads (the VBAT domain) have no drive-strength or
+slow bus, the 1 MHz OSTIMER time driver, and blocking and async GPIO on every
+pad in the chip's PAC metadata. Async GPIO routes each pin's events to its
+port's first interrupt line, so bind `GPIOn0` (e.g. `GPIO00 =>
+gpio::InterruptHandler<peripherals::GPIO0>`); `GPIOn1` is not used. PORT5 pads (the VBAT domain) have no drive-strength or
 slew-rate control, so `set_drive_strength` and `set_slew_rate` leave them
 unchanged. N2xx is single-core; on dual-core N5xx/N9xx, CPU1 must remain held
 in reset. Other MCXN peripherals are not supported yet. Only MCXN556S and
