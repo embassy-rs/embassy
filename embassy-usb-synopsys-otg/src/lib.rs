@@ -82,6 +82,11 @@ where
                 let data = &state.cp_state.setup_data;
                 data[0].store(r.fifo(0).read().data(), Ordering::Relaxed);
                 data[1].store(r.fifo(0).read().data(), Ordering::Relaxed);
+
+                // The core gives this SETUP to the software with STUP. Until then, and until
+                // `setup()` takes it, nothing must clear NAK on EP0 OUT.
+                state.cp_state.setup_ready.store(false, Ordering::Release);
+                state.cp_state.setup_pending.store(true, Ordering::Release);
             }
             vals::Pktstsd::OUT_DATA_RX => {
                 trace!("OUT_DATA_RX ep={} len={}", ep_num, len);
@@ -355,6 +360,9 @@ struct ControlPipeSetupState {
     /// Holds received SETUP packets. Available if [Ep0State::setup_ready] is true.
     setup_data: [AtomicU32; 2],
     setup_ready: AtomicBool,
+    /// Set when the data of a SETUP packet is read from the RX FIFO, which is before its STUP
+    /// interrupt sets `setup_ready`. Cleared when `setup()` takes the packet.
+    setup_pending: AtomicBool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -475,6 +483,7 @@ where
             ep.out_enabled.store(false, Ordering::Release);
         }
         self.cp_state.setup_ready.store(false, Ordering::Release);
+        self.cp_state.setup_pending.store(false, Ordering::Release);
     }
 
     /// # Safety
@@ -509,6 +518,7 @@ where
             cp_state: ControlPipeSetupState {
                 setup_data: [const { AtomicU32::new(0) }; 2],
                 setup_ready: AtomicBool::new(false),
+                setup_pending: AtomicBool::new(false),
             },
             ep_states: [const {
                 EpState {
@@ -1302,6 +1312,7 @@ where
         // A packet or a SETUP in these buffers is from the previous session. If the software
         // keeps this data, the stack receives it as data from after the reset.
         st.cp_state.setup_ready.store(false, Ordering::Release);
+        st.cp_state.setup_pending.store(false, Ordering::Release);
         for ep in st.ep_states {
             ep.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
         }
@@ -2220,27 +2231,55 @@ where
         poll_fn(|cx| {
             self.ep_out.state.out_waker.register(cx.waker());
 
-            if self.setup_state.setup_ready.load(Ordering::Acquire) {
+            if !self.setup_state.setup_ready.load(Ordering::Acquire) {
+                trace!("SETUP waiting");
+                return Poll::Pending;
+            }
+
+            // Take the SETUP and arm EP0 OUT for its transfer in one critical section, so that the
+            // interrupt handler cannot read a newer SETUP from the RX FIFO in between.
+            let data = self.mutex.lock(|| {
+                // An entry that the interrupt handler did not read yet can be a newer SETUP.
+                if self.regs.gintsts().read().rxflvl() {
+                    return None;
+                }
+
                 let mut data = [0; 8];
                 data[0..4].copy_from_slice(&self.setup_state.setup_data[0].load(Ordering::Relaxed).to_ne_bytes());
                 data[4..8].copy_from_slice(&self.setup_state.setup_data[1].load(Ordering::Relaxed).to_ne_bytes());
                 self.setup_state.setup_ready.store(false, Ordering::Release);
+                self.setup_state.setup_pending.store(false, Ordering::Release);
 
-                // EP0 should not be controlled by `Bus` so this RMW does not need a critical section
-                self.regs.doeptsiz(self.ep_out.info.addr.index()).modify(|w| {
+                // Discard a packet that an aborted stage of the previous transfer did not read.
+                self.ep_out.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
+
+                // Clear NAK to indicate we are ready to receive more data. This is the only place
+                // that arms EP0 OUT for the first packet of a transfer: the status stage does
+                // not arm it again.
+                let index = self.ep_out.info.addr.index();
+                self.regs.doeptsiz(index).modify(|w| {
                     w.set_rxdpid_stupcnt(3);
+                    w.set_pktcnt(1);
+                    w.set_xfrsiz(u32::from(self.max_packet_size));
+                });
+                self.regs.doepctl(index).modify(|w| {
+                    w.set_epena(true);
+                    w.set_cnak(true);
                 });
 
-                // Clear NAK to indicate we are ready to receive more data
-                self.regs
-                    .doepctl(self.ep_out.info.addr.index())
-                    .modify(|w| w.set_cnak(true));
+                Some(data)
+            });
 
-                trace!("SETUP received: {:?}", Bytes(&data));
-                Poll::Ready(data)
-            } else {
-                trace!("SETUP waiting");
-                Poll::Pending
+            match data {
+                Some(data) => {
+                    trace!("SETUP received: {:?}", Bytes(&data));
+                    Poll::Ready(data)
+                }
+                None => {
+                    // The interrupt handler empties the RX FIFO. Then try again.
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
             }
         })
         .await
@@ -2263,7 +2302,9 @@ where
             // wait for status response from host after sending the last packet
             if last {
                 trace!("control: data_in waiting for status");
-                self.ep_out.read(&mut []).await?;
+                // Do not arm EP0 OUT again after the status packet: the next SETUP can already
+                // be on its way, and a clear of NAK before its STUP corrupts the RX FIFO.
+                self.ep_out.read_packet(&mut []).await?;
                 trace!("control: complete");
             }
 
@@ -2324,8 +2365,10 @@ async fn abort_on_new_setup_or_reset<T, M: RawMutex>(
         // The interrupt wakes this waker on a SETUP and on any bus event.
         ep0_out.out_waker.register(cx.waker());
         // Check before polling the stage, so that it does not start a transfer after a reset.
-        // Leave both set: setup() consumes `setup_ready` and Bus::poll clears USBRST.
-        if setup_state.setup_ready.load(Ordering::Acquire) || regs.gintsts().read().usbrst() {
+        // Leave both set: setup() consumes the SETUP and Bus::poll clears USBRST. A SETUP aborts
+        // the stage from the moment its data is read, before STUP, so that the stage does not
+        // arm EP0 OUT in between.
+        if setup_state.setup_pending.load(Ordering::Acquire) || regs.gintsts().read().usbrst() {
             trace!("control: received another SETUP or a bus reset, aborting");
             return Poll::Ready(Err(EndpointError::Disabled));
         }
@@ -2422,6 +2465,7 @@ mod tests {
         state.ep_states[0].in_enabled.store(true, Ordering::Release);
         state.ep_states[1].out_enabled.store(true, Ordering::Release);
         state.cp_state.setup_ready.store(true, Ordering::Release);
+        state.cp_state.setup_pending.store(true, Ordering::Release);
 
         let mut buf = [0; 256];
         let mut driver = Driver::new(&mut buf, instance(state), Config::default());
@@ -2432,6 +2476,7 @@ mod tests {
         assert!(!state.ep_states[0].in_enabled.load(Ordering::Acquire));
         assert!(!state.ep_states[1].out_enabled.load(Ordering::Acquire));
         assert!(!state.cp_state.setup_ready.load(Ordering::Acquire));
+        assert!(!state.cp_state.setup_pending.load(Ordering::Acquire));
         let _ = driver.start(64);
     }
 }
