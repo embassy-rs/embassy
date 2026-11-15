@@ -679,6 +679,11 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             return Err(TxError::HardReset);
         }
 
+        // If a Hard Reset was received and not reported yet, report it instead of transmitting.
+        if Self::take_hard_reset() {
+            return Err(TxError::HardReset);
+        }
+
         // Clear the TX interrupt flags.
         T::REGS.icr().write(|w| {
             w.set_txmsgdisccf(true);
@@ -703,12 +708,17 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         Self::wait_tx_done().await
     }
 
+    /// Takes a received Hard Reset that hasn't been reported yet.
+    fn take_hard_reset() -> bool {
+        T::state().with_rx(RxState::take_hard_reset).unwrap_or(false)
+    }
+
     async fn wait_tx_done() -> Result<(), TxError> {
         let _on_drop = DropGuard::new((), |()| Self::enable_tx_interrupts(false));
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();
-            if T::state().with_rx(RxState::take_hard_reset).unwrap_or(false) {
+            if Self::take_hard_reset() {
                 Poll::Ready(Err(TxError::HardReset))
             } else if sr.txmsgdisc() {
                 Poll::Ready(Err(TxError::Discarded))
@@ -739,6 +749,11 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
     /// Transmit a hard reset.
     pub async fn transmit_hardreset(&mut self) -> Result<(), TxError> {
+        // If a Hard Reset was received and not reported yet, report it instead of sending one.
+        if Self::take_hard_reset() {
+            return Err(TxError::HardReset);
+        }
+
         // Clear the hardreset interrupt flags.
         T::REGS.icr().write(|w| {
             w.set_hrstdisccf(true);
@@ -754,7 +769,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();
-            if T::state().with_rx(RxState::take_hard_reset).unwrap_or(false) {
+            if Self::take_hard_reset() {
                 Poll::Ready(Err(TxError::HardReset))
             } else if sr.hrstdisc() {
                 Poll::Ready(Err(TxError::Discarded))

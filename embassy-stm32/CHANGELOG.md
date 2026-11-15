@@ -29,6 +29,7 @@ UCPD:
 - fix: stm32/ucpd: enable SOP'_Debug and SOP''_Debug reception on the right `RXORDSETEN` bits. `sop_prime_debug` enabled Cable Reset detection and `sop_double_prime_debug` enabled SOP'_Debug.
 - fix: stm32/ucpd: receive PD messages in the background ([#7527](https://github.com/embassy-rs/embassy/issues/7527)). The RX DMA only ran while `PdPhy::receive` was pending, so a message arriving between two calls was lost, and its first byte left a DMA request pending that put a stale byte in front of the next received message. The interrupt now restarts the DMA after every message, alternating between two buffers; one message can wait for `receive`.
 - change: stm32/ucpd: `Ucpd::split_pd_phy` and `IdlePdPhy::activate` take the receive buffers, `&mut RxBuffers`.
+- fix: stm32/ucpd: `PdPhy::transmit_with_sop` and `PdPhy::transmit_hardreset` return `TxError::HardReset` without transmitting if a Hard Reset was received that hasn't been reported yet. They started the transmission first, so a message was cut short when its DMA was stopped, or a Hard Reset was sent back.
 
 VREFBUF:
 - feat: stm32/vrefbuf g0x1: enable the VREFBUF clock. On G0x1, including G0B1, it is `SYSCFGEN` in `RCC_APBENR2`, shared with SYSCFG and COMP (RM0444 5.4.16). Without it `VoltageReferenceBuffer::new` never sees `VRR` and waits forever.
