@@ -578,8 +578,8 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     ///
     /// Messages are received in the background, so a message that arrived before this call is
     /// returned right away. One message can wait for this call; one that arrives while another one
-    /// is still waiting is dropped, and reported as [`RxError::Overrun`]. A received Hard Reset
-    /// discards the waiting message, and is reported as [`RxError::HardReset`].
+    /// is still waiting is dropped, and reported as [`RxError::Overrun`] after the waiting one. A
+    /// received Hard Reset discards the waiting message, and is reported as [`RxError::HardReset`].
     ///
     /// Returns the start of packet type and number of received bytes or an error.
     pub async fn receive_with_sop(&mut self, buf: &mut [u8]) -> Result<(Sop, usize), RxError> {
@@ -955,8 +955,10 @@ struct RxState {
     dma: RxDmaState,
     /// The buffer the DMA doesn't receive into.
     spare: Spare,
-    /// An error to report with the next `receive`.
+    /// An error to report with the next `receive`, before the waiting message.
     error: Option<RxError>,
+    /// An error that happened while the spare buffer was taken, to report after its message.
+    later_error: Option<RxError>,
 }
 
 /// The buffer the DMA doesn't receive into.
@@ -975,6 +977,7 @@ impl RxState {
             dma,
             spare: Spare::Free(spare),
             error: None,
+            later_error: None,
         }
     }
 
@@ -997,6 +1000,14 @@ impl RxState {
     /// Hands back the buffer of a message that `receive` has copied out.
     fn release_buffer(&mut self, buffer: RxBuffer) {
         self.spare = Spare::Free(buffer);
+        // Moving `later_error` forward must not overwrite an error. It can't: a message is only
+        // taken while `error` is empty, and while its buffer is taken, errors go to `later_error`.
+        assert!(
+            self.error.is_none(),
+            "ucpd: an RX error was recorded before the message being copied"
+        );
+        // The message has been returned, so an error that happened after it is next.
+        self.error = self.later_error.take();
     }
 
     /// Records a received message, and restarts the DMA for the next one.
@@ -1031,8 +1042,13 @@ impl RxState {
             }
             (error, spare) => {
                 // Drop the message, as it is broken or the spare buffer is taken: the next one is
-                // received into the same buffer.
-                self.error.get_or_insert(error.unwrap_or(RxError::Overrun));
+                // received into the same buffer. A message that waits or is being copied was
+                // received first, so the error is reported after it.
+                let slot = match &spare {
+                    Spare::Free(_) => &mut self.error,
+                    Spare::Ready(_) | Spare::Taken => &mut self.later_error,
+                };
+                slot.get_or_insert(error.unwrap_or(RxError::Overrun));
                 self.spare = spare;
                 self.dma.restart();
             }
@@ -1046,16 +1062,22 @@ impl RxState {
     /// and the Hard Reset after it.
     fn on_hard_reset(&mut self) {
         match mem::replace(&mut self.spare, Spare::Taken) {
-            Spare::Free(buffer) | Spare::Ready(RxMessage { buffer, .. }) => self.spare = Spare::Free(buffer),
-            Spare::Taken => {}
+            Spare::Taken => self.later_error = Some(RxError::HardReset),
+            Spare::Free(buffer) | Spare::Ready(RxMessage { buffer, .. }) => {
+                self.spare = Spare::Free(buffer);
+                self.error = Some(RxError::HardReset);
+                self.later_error = None;
+            }
         }
-        self.error = Some(RxError::HardReset);
         // Also discard a message that the Hard Reset cut short.
         self.dma.restart();
     }
 
     /// Takes a Hard Reset that `receive` hasn't returned yet, so that a transmission returns it
     /// instead: each Hard Reset is returned once.
+    ///
+    /// A Hard Reset only goes to `later_error` while `receive` is copying a message out, and no
+    /// transmission can run meanwhile. Once the copy is done, it is in `error`.
     fn take_hard_reset(&mut self) -> bool {
         let taken = matches!(self.error, Some(RxError::HardReset));
         if taken {
