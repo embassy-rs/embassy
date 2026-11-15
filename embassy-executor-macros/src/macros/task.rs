@@ -157,7 +157,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
             if f.sig.asyncness.is_some() && matches!(**maybe_never, Type::Never(_)) =>
         {
             quote! {
-                #arrow impl ::core::future::Future<Output=#embassy_executor::_export::Never>
+                #arrow impl ::core::future::Future<Output=!>
             }
         }
         ReturnType::Type(arrow, maybe_never) if matches!(**maybe_never, Type::Never(_)) => quote! {
