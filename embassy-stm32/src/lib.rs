@@ -92,7 +92,6 @@ pub mod gpio;
 pub mod rcc;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
-#[cfg(not(stm32g5))]
 pub mod timer;
 
 #[cfg(any(adf, mdf))]
@@ -221,7 +220,7 @@ pub mod gfxtim;
 pub mod gpu2d;
 #[cfg(all(hash, not(stm32c5)))]
 pub mod hash;
-#[cfg(all(hrtim, not(stm32g5)))]
+#[cfg(hrtim)]
 pub mod hrtim;
 #[cfg(hsem)]
 pub mod hsem;
