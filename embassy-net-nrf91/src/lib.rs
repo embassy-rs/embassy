@@ -21,6 +21,7 @@ use core::task::{Poll, Waker};
 use cortex_m::peripheral::NVIC;
 use embassy_net_driver_channel as ch;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe;
 use embassy_sync::waitqueue::{AtomicWaker, WakerRegistration};
 use heapless::Vec;
@@ -230,6 +231,7 @@ async fn new_internal<'a>(
 
         tx_seq_no: 0,
         tx_buf_used: [false; TX_BUF_COUNT],
+        ctrl_buf_used: [false; CTRL_BUF_COUNT],
         tx_waker: WakerRegistration::new(),
 
         trace_chans: Vec::new(),
@@ -245,6 +247,7 @@ async fn new_internal<'a>(
     let control = Control {
         state: state_inner,
         state_ch,
+        at_lock: &state.at_lock,
     };
 
     let (trace_reader, trace_writer) = if let Some(trace) = trace_buffer {
@@ -287,6 +290,7 @@ impl TraceBuffer {
 pub struct State {
     ch: ch::State<4, 4>,
     inner: MaybeUninit<RefCell<StateInner>>,
+    at_lock: Mutex<NoopRawMutex, ()>,
 }
 
 impl State {
@@ -295,12 +299,31 @@ impl State {
         Self {
             ch: ch::State::new(),
             inner: MaybeUninit::uninit(),
+            at_lock: Mutex::new(()),
         }
     }
 }
 
+#[cfg(all(feature = "tx-buf-count-4", feature = "tx-buf-count-8"))]
+compile_error!("Select only one of the features `tx-buf-count-4` and `tx-buf-count-8`.");
+#[cfg(not(any(feature = "tx-buf-count-4", feature = "tx-buf-count-8")))]
+compile_error!("Select one of the features `tx-buf-count-4` or `tx-buf-count-8`.");
+
+#[cfg(feature = "tx-buf-count-4")]
 const TX_BUF_COUNT: usize = 4;
+#[cfg(not(feature = "tx-buf-count-4"))]
+const TX_BUF_COUNT: usize = 8;
 const TX_BUF_SIZE: usize = 1500;
+/// The modem can hold a control buffer after the response, until it gets the next message.
+const CTRL_BUF_COUNT: usize = 2;
+
+/// Control requests use dedicated buffers, so full IP buffers cannot block them.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum TxKind {
+    Ip,
+    Control,
+}
 
 struct TraceChannelInfo {
     ptr: *mut TraceChannel,
@@ -318,7 +341,10 @@ struct PendingRequest {
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-struct NoFreeBufs;
+enum NoFreeBufs {
+    TxBuf,
+    MsgSlot,
+}
 
 struct StateInner {
     init: bool,
@@ -343,6 +369,7 @@ struct StateInner {
 
     tx_seq_no: u16,
     tx_buf_used: [bool; TX_BUF_COUNT],
+    ctrl_buf_used: [bool; CTRL_BUF_COUNT],
     tx_waker: WakerRegistration,
 
     trace_chans: Vec<TraceChannelInfo, TRACE_CHANNEL_COUNT>,
@@ -544,26 +571,38 @@ impl StateInner {
         return None;
     }
 
-    fn send_message(&mut self, msg: &mut Message, data: &[u8]) -> Result<(), NoFreeBufs> {
+    fn alloc_tx_buf(&mut self, kind: TxKind) -> Option<*mut u8> {
+        match kind {
+            TxKind::Ip => {
+                let idx = self.find_free_tx_buf()?;
+                self.tx_buf_used[idx] = true;
+                Some(unsafe { addr_of_mut!((*self.cb).tx_bufs[idx]) } as *mut u8)
+            }
+            TxKind::Control => {
+                let idx = self.ctrl_buf_used.iter().position(|&u| !u)?;
+                self.ctrl_buf_used[idx] = true;
+                Some(unsafe { addr_of_mut!((*self.cb).ctrl_bufs[idx]) } as *mut u8)
+            }
+        }
+    }
+
+    fn send_message(&mut self, msg: &mut Message, data: &[u8], kind: TxKind) -> Result<(), NoFreeBufs> {
         if data.is_empty() {
             msg.data = ptr::null_mut();
             msg.data_len = 0;
             self.send_message_raw(msg)
         } else {
             assert!(data.len() <= TX_BUF_SIZE);
-            let buf_idx = self.find_free_tx_buf().ok_or(NoFreeBufs)?;
-            let buf = unsafe { addr_of_mut!((*self.cb).tx_bufs[buf_idx]) } as *mut u8;
+            let buf = self.alloc_tx_buf(kind).ok_or(NoFreeBufs::TxBuf)?;
             unsafe { copy_nonoverlapping(data.as_ptr(), buf, data.len()) }
             msg.data = buf;
             msg.data_len = data.len();
-            self.tx_buf_used[buf_idx] = true;
 
             fence(Ordering::SeqCst); // synchronize copy_nonoverlapping (non-volatile) with volatile writes below.
             if let Err(e) = self.send_message_raw(msg) {
                 msg.data = ptr::null_mut();
                 msg.data_len = 0;
-                self.tx_buf_used[buf_idx] = false;
-                self.tx_waker.wake();
+                self.handle_control_free(buf);
                 Err(e)
             } else {
                 Ok(())
@@ -579,7 +618,7 @@ impl StateInner {
         };
 
         // allocate a msg.
-        let idx = self.find_free_message(ch).ok_or(NoFreeBufs)?;
+        let idx = self.find_free_message(ch).ok_or(NoFreeBufs::MsgSlot)?;
 
         debug!("tx seq {} msg: {:?}", self.tx_seq_no, msg);
 
@@ -604,6 +643,21 @@ impl StateInner {
     }
 
     fn handle_control_free(&mut self, ptr: *mut u8) {
+        for idx in 0..CTRL_BUF_COUNT {
+            if ptr == unsafe { addr_of!((*self.cb).ctrl_bufs[idx]) } as *mut u8 {
+                trace!("control free pointer {:08x} (control buf {})", ptr as usize, idx);
+                if !self.ctrl_buf_used[idx] {
+                    warn!(
+                        "control free pointer {:08x}: control buf {} was already free??",
+                        ptr as usize, idx
+                    );
+                }
+                self.ctrl_buf_used[idx] = false;
+                self.tx_waker.wake();
+                return;
+            }
+        }
+
         let base = unsafe { addr_of!((*self.cb).tx_bufs) } as usize;
         let ptr = ptr as usize;
 
@@ -801,6 +855,7 @@ impl PointerChecker {
 pub struct Control<'a> {
     state: &'a RefCell<StateInner>,
     state_ch: ch::StateRunner<'a>,
+    at_lock: &'a Mutex<NoopRawMutex, ()>,
 }
 
 impl<'a> Control<'a> {
@@ -839,12 +894,24 @@ impl<'a> Control<'a> {
 
         msg.param[0..4].copy_from_slice(&req_serial.to_le_bytes());
 
+        let mut waiting = false;
         poll_fn(|cx| {
             let mut state = self.state.borrow_mut();
             state.tx_waker.register(cx.waker());
-            match state.send_message(msg, req_data) {
-                Ok(_) => Poll::Ready(()),
-                Err(NoFreeBufs) => Poll::Pending,
+            match state.send_message(msg, req_data, TxKind::Control) {
+                Ok(_) => {
+                    if waiting {
+                        warn!("request {:08x}: sent after waiting", msg.id);
+                    }
+                    Poll::Ready(())
+                }
+                Err(e) => {
+                    if !waiting {
+                        warn!("request {:08x}: waiting, no free {:?}", msg.id, e);
+                        waiting = true;
+                    }
+                    Poll::Pending
+                }
             }
         })
         .await;
@@ -921,6 +988,8 @@ impl<'a> Control<'a> {
     ///
     /// The response is written in `resp` and its length returned.
     pub async fn at_command(&self, req: &[u8], resp: &mut [u8]) -> usize {
+        let _at = self.at_lock.lock().await;
+
         let mut msg: Message = unsafe { mem::zeroed() };
         msg.channel = 2; // data
         msg.id = 0x0001_0003; // AT command
@@ -1051,7 +1120,7 @@ impl<'a> Runner<'a> {
                     msg.id = 0x7006_0004; // IP send
                     msg.param_len = 12;
                     msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
-                    if let Err(e) = state.send_message(&mut msg, &buf) {
+                    if let Err(e) = state.send_message(&mut msg, &buf, TxKind::Ip) {
                         warn!("tx failed: {:?}", e);
                     }
                 }
@@ -1084,6 +1153,7 @@ struct ControlBlock {
     msgs: [[Message; LIST_LEN]; 2],
 
     tx_bufs: [[u8; TX_BUF_SIZE]; TX_BUF_COUNT],
+    ctrl_bufs: [[u8; TX_BUF_SIZE]; CTRL_BUF_COUNT],
 }
 
 #[repr(C)]
@@ -1163,4 +1233,112 @@ struct Message {
     data_len: usize,
     param_len: usize,
     param: [u8; 44],
+}
+#[cfg(test)]
+mod tests {
+    extern crate std;
+    use std::boxed::Box;
+
+    use super::*;
+
+    fn state(cb: *mut ControlBlock) -> StateInner {
+        StateInner {
+            init: false,
+            init_waker: WakerRegistration::new(),
+            cb,
+            requests: [const { None }; REQ_COUNT],
+            next_req_serial: 1,
+            net_fd: None,
+            net_fd_waker: WakerRegistration::new(),
+            keep_open: false,
+            rx_control_list: ptr::null_mut(),
+            rx_data_list: ptr::null_mut(),
+            rx_control_len: 0,
+            rx_data_len: 0,
+            rx_seq_no: 0,
+            rx_check: PointerChecker {
+                start: ptr::null_mut(),
+                end: ptr::null_mut(),
+            },
+            tx_seq_no: 0,
+            tx_buf_used: [false; TX_BUF_COUNT],
+            ctrl_buf_used: [false; CTRL_BUF_COUNT],
+            tx_waker: WakerRegistration::new(),
+            trace_chans: Vec::new(),
+            trace_check: PointerChecker {
+                start: ptr::null_mut(),
+                end: ptr::null_mut(),
+            },
+        }
+    }
+
+    fn control_block() -> Box<ControlBlock> {
+        Box::new(unsafe { mem::zeroed() })
+    }
+
+    #[test]
+    fn ip_uses_all_ip_buffers_but_never_the_control_buffer() {
+        let mut cb = control_block();
+        let mut s = state(&mut *cb);
+        let ctrl0 = addr_of!(cb.ctrl_bufs[0]) as *mut u8;
+        let ctrl1 = addr_of!(cb.ctrl_bufs[1]) as *mut u8;
+
+        let bufs: std::vec::Vec<_> = (0..TX_BUF_COUNT).map(|_| s.alloc_tx_buf(TxKind::Ip).unwrap()).collect();
+        assert!(bufs.iter().all(|&b| b != ctrl0 && b != ctrl1));
+        assert_eq!(s.alloc_tx_buf(TxKind::Ip), None);
+        assert_eq!(s.ctrl_buf_used, [false; CTRL_BUF_COUNT]);
+
+        assert_eq!(s.alloc_tx_buf(TxKind::Control), Some(ctrl0));
+        assert_eq!(s.alloc_tx_buf(TxKind::Control), Some(ctrl1));
+        assert_eq!(s.alloc_tx_buf(TxKind::Control), None);
+    }
+
+    #[test]
+    fn control_uses_the_second_buffer_when_the_first_is_held() {
+        let mut cb = control_block();
+        let mut s = state(&mut *cb);
+        let first = s.alloc_tx_buf(TxKind::Control).unwrap();
+        let second = s.alloc_tx_buf(TxKind::Control).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(s.tx_buf_used, [false; TX_BUF_COUNT]);
+
+        s.handle_control_free(first);
+        assert_eq!(s.ctrl_buf_used, [false, true]);
+        assert_eq!(s.alloc_tx_buf(TxKind::Control), Some(first));
+    }
+
+    #[test]
+    fn free_by_pointer() {
+        let mut cb = control_block();
+        let mut s = state(&mut *cb);
+
+        let ctrl = s.alloc_tx_buf(TxKind::Control).unwrap();
+        let ip: std::vec::Vec<_> = (0..TX_BUF_COUNT).map(|_| s.alloc_tx_buf(TxKind::Ip).unwrap()).collect();
+
+        s.handle_control_free(ctrl);
+        assert_eq!(s.ctrl_buf_used, [false; CTRL_BUF_COUNT]);
+        assert!(s.tx_buf_used.iter().all(|&u| u));
+
+        s.handle_control_free(ip[2]);
+        assert!(!s.tx_buf_used[2]);
+        assert_eq!(s.alloc_tx_buf(TxKind::Ip), Some(ip[2]));
+    }
+
+    #[test]
+    fn bad_pointer_is_ignored() {
+        let mut cb = control_block();
+        let mut s = state(&mut *cb);
+        let ip = s.alloc_tx_buf(TxKind::Ip).unwrap();
+        let ctrl = s.alloc_tx_buf(TxKind::Control).unwrap();
+
+        s.handle_control_free(ip.wrapping_add(1));
+        s.handle_control_free(ptr::null_mut());
+        assert!(s.tx_buf_used[0]);
+        assert!(s.ctrl_buf_used[0]);
+
+        s.handle_control_free(ip);
+        s.handle_control_free(ctrl);
+        assert!(!s.tx_buf_used[0]);
+        assert!(!s.ctrl_buf_used[0]);
+    }
 }
