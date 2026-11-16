@@ -62,8 +62,9 @@ async fn main(spawner: Spawner) {
         config.rcc.hsi = true;
         config.rcc.pll1 = Some(Pll {
             source: PllSource::Hsi,
-            prediv: PllPreDiv::Div1,  // 16 MHz
-            mul: PllMul::Mul10,       // VCO = 16 × 10 = 160 MHz
+            prediv: PllPreDiv::Div1, // 16 MHz
+            mul: PllMul::Mul10,      // VCO = 16 × 10 = 160 MHz
+            fracn: None,
             divp: None,               // unused
             divq: Some(PllDiv::Div4), // 40 MHz FDCAN kernel clock
             divr: Some(PllDiv::Div1), // 160 MHz for the CPU

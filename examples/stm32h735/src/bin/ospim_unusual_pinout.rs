@@ -202,16 +202,18 @@ mod rcc_setup {
         config.rcc.csi = false;
         config.rcc.pll1 = Some(Pll {
             source: PllSource::Hse,
-            prediv: PllPreDiv::Div4,  // 12.5Mhz
-            mul: PllMul::Mul44,       // 550Mhz
+            prediv: PllPreDiv::Div4, // 12.5Mhz
+            mul: PllMul::Mul44,      // 550Mhz
+            fracn: None,
             divp: Some(PllDiv::Div1), // 550Mhz
             divq: Some(PllDiv::Div4), // 110Mhz
             divr: Some(PllDiv::Div2), // 275Mhz
         });
         config.rcc.pll2 = Some(Pll {
             source: PllSource::Hse,
-            prediv: PllPreDiv::Div5,  // 10Mhz
-            mul: PllMul::Mul40,       // 400Mhz
+            prediv: PllPreDiv::Div5, // 10Mhz
+            mul: PllMul::Mul40,      // 400Mhz
+            fracn: None,
             divp: Some(PllDiv::Div5), // 80Mhz
             divq: Some(PllDiv::Div2), // 200Mhz
             divr: Some(PllDiv::Div3), // 133.33Mhz (for OSPI)
@@ -222,6 +224,7 @@ mod rcc_setup {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div25, // 2Mhz
             mul: PllMul::Mul96,       // 192Mhz
+            fracn: None,
             divp: Some(PllDiv::Div1), // 192Mhz
             divq: Some(PllDiv::Div8), // 24Mhz
             divr: Some(PllDiv::Div4), // 48Mhz

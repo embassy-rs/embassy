@@ -193,6 +193,7 @@ fn main() -> ! {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul50,
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: Some(PllDiv::Div8), // 100 MHz for SPI 1 and 3
             divr: None,

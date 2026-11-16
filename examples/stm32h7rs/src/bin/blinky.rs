@@ -23,6 +23,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div3,
             mul: PllMul::Mul150,
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: None,
             divr: None,

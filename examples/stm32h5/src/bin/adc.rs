@@ -20,6 +20,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul25,
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: Some(PllDiv::Div4), // SPI1 cksel defaults to pll1_q
             divr: None,
@@ -28,6 +29,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul25,
+            fracn: None,
             divp: None,
             divq: None,
             divr: Some(PllDiv::Div4), // 100mhz

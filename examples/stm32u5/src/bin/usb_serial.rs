@@ -28,6 +28,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::Hsi, // 16 MHz
             prediv: PllPreDiv::Div1,
             mul: PllMul::Mul10,
+            fracn: None,
             divp: None,
             divq: None,
             divr: Some(PllDiv::Div1), // 160 MHz
