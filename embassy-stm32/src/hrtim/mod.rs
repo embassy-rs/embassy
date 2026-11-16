@@ -39,7 +39,7 @@ pub enum Channel {
     ChD,
     /// Channel E.
     ChE,
-    #[cfg(hrtim_v2)]
+    #[cfg(any(hrtim_v2, hrtim_g5))]
     /// Channel F.
     ChF,
 }
@@ -62,7 +62,7 @@ pub enum ChD {}
 /// Channel E marker type.
 pub enum ChE {}
 
-#[cfg(hrtim_v2)]
+#[cfg(any(hrtim_v2, hrtim_g5))]
 /// Channel F marker type.
 pub enum ChF {}
 
@@ -95,7 +95,7 @@ impl HRTimerChannel for ChE {
     const CHANNEL: Channel = Channel::ChE;
 }
 
-#[cfg(hrtim_v2)]
+#[cfg(any(hrtim_v2, hrtim_g5))]
 impl HRTimerChannel for ChF {
     const CHANNEL: Channel = Channel::ChF;
 }
@@ -105,7 +105,7 @@ impl SealedTimerChannel for ChB {}
 impl SealedTimerChannel for ChC {}
 impl SealedTimerChannel for ChD {}
 impl SealedTimerChannel for ChE {}
-#[cfg(hrtim_v2)]
+#[cfg(any(hrtim_v2, hrtim_g5))]
 impl SealedTimerChannel for ChF {}
 
 /// PWM pin wrapper.
