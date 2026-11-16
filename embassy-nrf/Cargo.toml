@@ -87,6 +87,7 @@ defmt = [
     "embassy-usb-synopsys-otg/defmt",
     "embassy-embedded-hal/defmt",
     "embassy-crypto/defmt",
+    "nrf-pac/defmt"
 ]
 ## Enable log
 log = ["dep:log"]
