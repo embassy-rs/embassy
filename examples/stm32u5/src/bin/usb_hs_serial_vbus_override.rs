@@ -33,8 +33,9 @@ async fn main(_spawner: Spawner) {
         });
         config.rcc.pll1 = Some(Pll {
             source: PllSource::Hse,
-            prediv: PllPreDiv::Div2,   // HSE / 2 = 8MHz
-            mul: PllMul::Mul60,        // 8MHz * 60 = 480MHz
+            prediv: PllPreDiv::Div2, // HSE / 2 = 8MHz
+            mul: PllMul::Mul60,      // 8MHz * 60 = 480MHz
+            fracn: None,
             divr: Some(PllDiv::Div3),  // 480MHz / 3 = 160MHz (sys_ck)
             divq: Some(PllDiv::Div10), // 480MHz / 10 = 48MHz (USB)
             divp: Some(PllDiv::Div15), // 480MHz / 15 = 32MHz (USBOTG)

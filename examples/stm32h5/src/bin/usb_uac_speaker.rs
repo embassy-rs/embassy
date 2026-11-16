@@ -265,6 +265,7 @@ async fn main(spawner: Spawner) {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div2,
             mul: PllMul::Mul125,
+            fracn: None,
             divp: Some(PllDiv::Div2), // 250 Mhz
             divq: None,
             divr: None,
@@ -273,6 +274,7 @@ async fn main(spawner: Spawner) {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul123,
+            fracn: None,
             divp: Some(PllDiv::Div20), // 12.3 Mhz, close to 12.288 MHz for 48 kHz audio
             divq: None,
             divr: None,

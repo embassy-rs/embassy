@@ -50,6 +50,8 @@ pub struct Pll {
     /// The multiplied clock – `source` divided by `m` times `n` – must be between 128 and 544
     /// MHz. The upper limit may be lower depending on the `Config { voltage_range }`.
     pub mul: PllMul,
+    /// The PLL fractional multiplier (0..=8191).
+    pub fracn: Option<u16>,
     /// The divider for the P output.
     ///
     /// The P output is one of several options
@@ -634,7 +636,7 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput, voltag
     };
 
     // Calculate the PLL VCO clock
-    let vco_freq = ref_freq * pll.mul;
+    let vco_freq = super::util::calc_pll_vco(ref_freq, pll.mul.to_bits() + 1, pll.fracn);
     assert!(vco_freq >= vco_min && vco_freq <= vco_max);
 
     // Calculate output clocks.
@@ -664,11 +666,26 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput, voltag
         _ => Pllrge::Freq8to16mhz,
     };
 
+    // RM0456 §11.4.6: PLLxFRACN must only be updated while PLLxFRACEN = 0,
+    // and latching requires a 0 -> 1 transition on PLLxFRACEN.
+    match instance {
+        PllInstance::Pll1 => RCC.pll1cfgr().modify(|w| w.set_pllfracen(false)),
+        PllInstance::Pll2 => RCC.pll2cfgr().modify(|w| w.set_pllfracen(false)),
+        PllInstance::Pll3 => RCC.pll3cfgr().modify(|w| w.set_pllfracen(false)),
+    }
+    let fracr = match instance {
+        PllInstance::Pll1 => RCC.pll1fracr(),
+        PllInstance::Pll2 => RCC.pll2fracr(),
+        PllInstance::Pll3 => RCC.pll3fracr(),
+    };
+    fracr.modify(|w| w.set_pllfracn(pll.fracn.unwrap_or(0)));
+
     macro_rules! write_fields {
         ($w:ident) => {
             $w.set_pllpen(pll.divp.is_some());
             $w.set_pllqen(pll.divq.is_some());
             $w.set_pllren(pll.divr.is_some());
+            $w.set_pllfracen(pll.fracn.is_some());
             $w.set_pllm(pll.prediv);
             $w.set_pllsrc(pll.source);
             $w.set_pllrge(input_range);

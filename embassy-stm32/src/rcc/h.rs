@@ -80,8 +80,7 @@ pub struct Pll {
     /// PLL multiplication factor.
     pub mul: PllMul,
 
-    #[cfg(any(stm32h743, stm32h730, stm32h753))]
-    /// PLL Fractional multiplier.
+    /// PLL fractional multiplier (0..=8191).
     pub fracn: Option<u16>,
 
     /// PLL P division factor. If None, PLL P output is disabled.
@@ -980,15 +979,7 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
     // be chosen when the reference clock frequency is lower than 2 MHz.
     let wide_allowed = ref_range != Pllrge::Range1;
 
-    #[cfg(any(stm32h743, stm32h730, stm32h753))]
-    let vco_clk = match config.fracn {
-        Some(fracn) => {
-            Hertz::hz((ref_clk.0 as f32 * ((config.mul.to_bits() + 1) as f32 + (fracn as f32 / 8192.0))) as u32)
-        }
-        None => ref_clk * config.mul,
-    };
-    #[cfg(not(any(stm32h743, stm32h730, stm32h753)))]
-    let vco_clk = ref_clk * config.mul;
+    let vco_clk = super::util::calc_pll_vco(ref_clk, config.mul.to_bits() + 1, config.fracn);
 
     let vco_range = if VCO_RANGE.contains(&vco_clk) {
         Pllvcosel::MediumVco
@@ -1018,16 +1009,23 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
     let t = config.divt.map(|div| vco_clk / div);
 
     #[cfg(stm32h5)]
-    RCC.pllcfgr(num).write(|w| {
-        w.set_pllsrc(config.source);
-        w.set_divm(config.prediv);
-        w.set_pllvcosel(vco_range);
-        w.set_pllrge(ref_range);
-        w.set_pllfracen(false);
-        w.set_pllpen(p.is_some());
-        w.set_pllqen(q.is_some());
-        w.set_pllren(r.is_some());
-    });
+    {
+        if config.fracn.is_some() {
+            // Clear PLLxFRACEN first so setting it to 1 below creates the 0 -> 1 latch edge.
+            RCC.pllcfgr(num).modify(|w| w.set_pllfracen(false));
+        }
+        RCC.pllfracr(num).modify(|w| w.set_pllfracn(config.fracn.unwrap_or(0)));
+        RCC.pllcfgr(num).write(|w| {
+            w.set_pllsrc(config.source);
+            w.set_divm(config.prediv);
+            w.set_pllvcosel(vco_range);
+            w.set_pllrge(ref_range);
+            w.set_pllfracen(config.fracn.is_some());
+            w.set_pllpen(p.is_some());
+            w.set_pllqen(q.is_some());
+            w.set_pllren(r.is_some());
+        });
+    }
 
     #[cfg(any(stm32h7, stm32h7rs))]
     {
@@ -1036,24 +1034,20 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
             w.set_pllsrc(config.source);
         });
 
-        #[cfg(any(stm32h743, stm32h730, stm32h753))]
-        if let Some(fracn) = config.fracn {
-            RCC.pllfracr(num).modify(|w| w.set_fracn(fracn))
-        }
+        // Clear PLLxFRACEN first so writing FRACN happens with latch disabled,
+        // and any subsequent 0 -> 1 transition latches cleanly into the SDM.
+        RCC.pllcfgr().modify(|w| w.set_pllfracen(num, false));
+        RCC.pllfracr(num).modify(|w| w.set_fracn(config.fracn.unwrap_or(0)));
 
         RCC.pllcfgr().modify(|w| {
             w.set_pllvcosel(num, vco_range);
             w.set_pllrge(num, ref_range);
 
-            #[cfg(any(stm32h743, stm32h730, stm32h753))]
-            if config.fracn.is_some() {
-                w.set_pllfracen(num, true);
-            } else {
-                w.set_pllfracen(num, false);
-            }
-
-            #[cfg(not(any(stm32h743, stm32h730, stm32h753)))]
-            w.set_pllfracen(num, false);
+            #[cfg(stm32h7rs)]
+            // RM0477 §7.7.1: even integer mode must latch 0 into the SDM via 0 -> 1 edge.
+            w.set_pllfracen(num, true);
+            #[cfg(not(stm32h7rs))]
+            w.set_pllfracen(num, config.fracn.is_some());
 
             w.set_divpen(num, p.is_some());
             w.set_divqen(num, q.is_some());
@@ -1063,6 +1057,11 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
             #[cfg(stm32h7rs)]
             w.set_divten(num, t.is_some());
         });
+
+        // RM0477 §7.7.1: wait at least 5 us after latching FRACN into the SDM.
+        // SYSCLK is HSI (max HSI_FREQ = 64 MHz) at this point.
+        #[cfg(stm32h7rs)]
+        cortex_m::asm::delay(5 * (HSI_FREQ.0 / 1_000_000));
     }
 
     RCC.plldivr(num).write(|w| {
