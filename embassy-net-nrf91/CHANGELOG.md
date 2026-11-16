@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - changed: add `keep_open` config option to keep sockets open across PDN loss/reattach.
 - changed: link state follows the PDN deactivated/activated socket status notifications rather than polling attach.
 - fixed: reopen the raw socket when the modem closes it, instead of polling for a detach.
+- changed: select the number of IP TX buffers with the `tx-buf-count-4` or `tx-buf-count-8` feature (exactly one is required).
+- fixed: AT commands and socket requests use a dedicated TX buffer, so they are not blocked when IP packets hold all TX buffers.
+- fixed: only one AT command runs at a time.
 
 ## 0.2.0 - 2026-03-10
 
