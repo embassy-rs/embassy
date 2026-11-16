@@ -4,6 +4,7 @@
 
 pub mod vbus_detect;
 
+use core::cell::RefCell;
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
@@ -11,6 +12,7 @@ use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 use core::task::Poll;
 
 use cortex_m::peripheral::NVIC;
+use critical_section::{CriticalSection, Mutex};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
@@ -34,6 +36,165 @@ static READY_ENDPOINTS: AtomicU32 = AtomicU32::new(0);
 // nRF uses dedicated Endpoint 8 for ISO, not the EPIN/EPOUT arrays.
 const ISO_EP: usize = 8;
 const ISO_MAX_PACKET_SIZE: usize = 1023;
+const BULK_EP_COUNT: usize = 7;
+
+static EP_IN_XFERS: Mutex<RefCell<[Option<InXfer>; BULK_EP_COUNT]>> =
+    Mutex::new(RefCell::new([const { None }; BULK_EP_COUNT]));
+static EP_OUT_XFERS: Mutex<RefCell<[Option<OutXfer>; BULK_EP_COUNT]>> =
+    Mutex::new(RefCell::new([const { None }; BULK_EP_COUNT]));
+static EP0_XFER: Mutex<RefCell<Option<Ep0Xfer>>> = Mutex::new(RefCell::new(None));
+
+struct OutXfer {
+    buf_ptr: *mut u8,
+    buf_len: usize,
+    total: usize,
+    max_packet_size: usize,
+    result: Option<Result<usize, EndpointError>>,
+}
+
+// SAFETY: `OutXfer` is only kept active while the owning future holds `&mut [u8]`
+// and is cleared by its Drop guard inside a critical section.
+unsafe impl Send for OutXfer {}
+
+impl OutXfer {
+    fn new(buf: &mut [u8], max_packet_size: usize) -> Self {
+        Self {
+            buf_ptr: buf.as_mut_ptr(),
+            buf_len: buf.len(),
+            total: 0,
+            max_packet_size,
+            result: None,
+        }
+    }
+
+    fn on_packet(&mut self, cs: CriticalSection, regs: pac::usbd::Usbd, i: usize) -> bool {
+        if self.result.is_some() {
+            return false;
+        }
+        let chunk_len = (self.buf_len - self.total).min(self.max_packet_size);
+        // SAFETY: `self.buf_ptr..self.buf_ptr + self.buf_len` is borrowed for the lifetime
+        // of the active transfer future, and `self.total + chunk_len <= self.buf_len`.
+        let dst = unsafe { core::slice::from_raw_parts_mut(self.buf_ptr.add(self.total), chunk_len) };
+        match unsafe { read_dma_in_cs(cs, regs, i, dst) } {
+            Ok(n) => {
+                self.total += n;
+                if n < self.max_packet_size || self.total == self.buf_len {
+                    self.result = Some(Ok(self.total));
+                    true
+                } else {
+                    false
+                }
+            }
+            Err(e) => {
+                if i != 0 {
+                    READY_ENDPOINTS.fetch_or(Out::mask(i), Ordering::AcqRel);
+                }
+                self.result = Some(Err(e));
+                true
+            }
+        }
+    }
+}
+
+struct InXfer {
+    buf_ptr: *const u8,
+    buf_len: usize,
+    offset: usize,
+    send_zlp: bool,
+    max_packet_size: usize,
+    wait_last_complete: bool,
+    done: bool,
+    error: Option<EndpointDisabledError>,
+}
+
+// SAFETY: `InXfer` is only kept active while the owning future holds `&[u8]`
+// and is cleared by its Drop guard inside a critical section.
+unsafe impl Send for InXfer {}
+
+impl InXfer {
+    fn has_more(&self) -> bool {
+        self.offset < self.buf_len || self.send_zlp
+    }
+
+    fn on_packet(&mut self, cs: CriticalSection, regs: pac::usbd::Usbd, i: usize) -> bool {
+        if self.done || self.error.is_some() {
+            return false;
+        }
+
+        if self.offset < self.buf_len {
+            let chunk_len = (self.buf_len - self.offset).min(self.max_packet_size);
+            // SAFETY: `self.buf_ptr..self.buf_ptr + self.buf_len` is borrowed for the lifetime
+            // of the active transfer future.
+            let chunk = unsafe { core::slice::from_raw_parts(self.buf_ptr.add(self.offset), chunk_len) };
+            self.offset += chunk_len;
+
+            if i == 0 {
+                let is_last = !self.has_more();
+                regs.events_ep0datadone().write_value(0);
+                regs.shorts().write(|w| w.set_ep0datadone_ep0status(is_last));
+            }
+            unsafe { write_dma_in_cs(cs, regs, i, chunk) };
+
+            if !self.wait_last_complete && !self.has_more() {
+                self.done = true;
+                return true;
+            }
+            false
+        } else if self.send_zlp {
+            self.send_zlp = false;
+            if i == 0 {
+                regs.events_ep0datadone().write_value(0);
+                regs.shorts().write(|w| w.set_ep0datadone_ep0status(true));
+            }
+            unsafe { write_dma_in_cs(cs, regs, i, &[]) };
+
+            if !self.wait_last_complete {
+                self.done = true;
+                return true;
+            }
+            false
+        } else {
+            self.done = true;
+            true
+        }
+    }
+}
+
+enum Ep0Xfer {
+    In(InXfer),
+    Out(OutXfer),
+}
+
+struct OutXferGuard(usize);
+
+impl Drop for OutXferGuard {
+    fn drop(&mut self) {
+        critical_section::with(|cs| {
+            EP_OUT_XFERS.borrow(cs).borrow_mut()[self.0 - 1] = None;
+        });
+    }
+}
+
+struct InXferGuard(usize);
+
+impl Drop for InXferGuard {
+    fn drop(&mut self) {
+        critical_section::with(|cs| {
+            EP_IN_XFERS.borrow(cs).borrow_mut()[self.0 - 1] = None;
+        });
+    }
+}
+
+struct Ep0XferGuard;
+
+impl Drop for Ep0XferGuard {
+    fn drop(&mut self) {
+        critical_section::with(|cs| {
+            *EP0_XFER.borrow(cs).borrow_mut() = None;
+            crate::pac::USBD.intenclr().write(|w| w.set_ep0datadone(true));
+        });
+    }
+}
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -56,8 +217,35 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         }
 
         if regs.events_ep0datadone().read() != 0 {
-            regs.intenclr().write(|w| w.set_ep0datadone(true));
-            EP0_WAKER.wake();
+            if regs.events_usbreset().read() != 0 || regs.events_ep0setup().read() != 0 {
+                regs.intenclr().write(|w| w.set_ep0datadone(true));
+                EP0_WAKER.wake();
+            } else {
+                critical_section::with(|cs| {
+                    let mut ep0 = EP0_XFER.borrow(cs).borrow_mut();
+                    match ep0.as_mut() {
+                        Some(Ep0Xfer::In(xfer)) => {
+                            if xfer.on_packet(cs, regs, 0) {
+                                regs.intenclr().write(|w| w.set_ep0datadone(true));
+                                EP0_WAKER.wake();
+                            }
+                        }
+                        Some(Ep0Xfer::Out(xfer)) => {
+                            if xfer.on_packet(cs, regs, 0) {
+                                regs.intenclr().write(|w| w.set_ep0datadone(true));
+                                EP0_WAKER.wake();
+                            } else {
+                                regs.events_ep0datadone().write_value(0);
+                                regs.tasks_ep0rcvout().write_value(1);
+                            }
+                        }
+                        None => {
+                            regs.intenclr().write(|w| w.set_ep0datadone(true));
+                            EP0_WAKER.wake();
+                        }
+                    }
+                });
+            }
         }
 
         // USBEVENT and EPDATA events are weird. They're the "aggregate"
@@ -89,15 +277,51 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
             let r = regs.epdatastatus().read();
             regs.epdatastatus().write_value(r);
-            READY_ENDPOINTS.fetch_or(r.0, Ordering::AcqRel);
-            for i in 1..=7 {
-                if r.0 & In::mask(i) != 0 {
-                    In::waker(i).wake();
+
+            critical_section::with(|cs| {
+                let mut in_xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                let mut out_xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+
+                for i in 1..=7 {
+                    if r.0 & In::mask(i) != 0 {
+                        if let Some(xfer) = in_xfers[i - 1].as_mut() {
+                            if !xfer.done && xfer.error.is_none() {
+                                if !In::is_enabled(regs, i) {
+                                    xfer.error = Some(EndpointDisabledError);
+                                    In::waker(i).wake();
+                                } else if xfer.on_packet(cs, regs, i) {
+                                    In::waker(i).wake();
+                                }
+                            } else {
+                                READY_ENDPOINTS.fetch_or(In::mask(i), Ordering::AcqRel);
+                                In::waker(i).wake();
+                            }
+                        } else {
+                            READY_ENDPOINTS.fetch_or(In::mask(i), Ordering::AcqRel);
+                            In::waker(i).wake();
+                        }
+                    }
+
+                    if r.0 & Out::mask(i) != 0 {
+                        if let Some(xfer) = out_xfers[i - 1].as_mut() {
+                            if xfer.result.is_none() {
+                                if !Out::is_enabled(regs, i) {
+                                    xfer.result = Some(Err(EndpointError::Disabled));
+                                    Out::waker(i).wake();
+                                } else if xfer.on_packet(cs, regs, i) {
+                                    Out::waker(i).wake();
+                                }
+                            } else {
+                                READY_ENDPOINTS.fetch_or(Out::mask(i), Ordering::AcqRel);
+                                Out::waker(i).wake();
+                            }
+                        } else {
+                            READY_ENDPOINTS.fetch_or(Out::mask(i), Ordering::AcqRel);
+                            Out::waker(i).wake();
+                        }
+                    }
                 }
-                if r.0 & Out::mask(i) != 0 {
-                    Out::waker(i).wake();
-                }
-            }
+            });
         }
     }
 }
@@ -273,9 +497,21 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
                 regs.intenset().write(|w| w.set_usbreset(true));
 
                 // Disable all endpoints except EP0
-                regs.epinen().write(|w| w.0 = 0x01);
-                regs.epouten().write(|w| w.0 = 0x01);
-                READY_ENDPOINTS.store(In::mask(0), Ordering::Release);
+                critical_section::with(|cs| {
+                    regs.epinen().write(|w| w.0 = 0x01);
+                    regs.epouten().write(|w| w.0 = 0x01);
+                    READY_ENDPOINTS.store(In::mask(0), Ordering::Release);
+                    for xfer in EP_IN_XFERS.borrow(cs).borrow_mut().iter_mut().flatten() {
+                        if !xfer.done && xfer.error.is_none() {
+                            xfer.error = Some(EndpointDisabledError);
+                        }
+                    }
+                    for xfer in EP_OUT_XFERS.borrow(cs).borrow_mut().iter_mut().flatten() {
+                        if xfer.result.is_none() {
+                            xfer.result = Some(Err(EndpointError::Disabled));
+                        }
+                    }
+                });
                 for i in 1..=7 {
                     In::waker(i).wake();
                     Out::waker(i).wake();
@@ -363,37 +599,55 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
 
         match ep_addr.direction() {
             Direction::In => {
-                let mut was_enabled = false;
-                regs.epinen().modify(|w| {
-                    was_enabled = (w.0 & mask) != 0;
-                    if enabled { w.0 |= mask } else { w.0 &= !mask }
-                });
+                critical_section::with(|cs| {
+                    let mut was_enabled = false;
+                    regs.epinen().modify(|w| {
+                        was_enabled = (w.0 & mask) != 0;
+                        if enabled { w.0 |= mask } else { w.0 &= !mask }
+                    });
 
-                let ready_mask = In::mask(i);
-                if enabled {
-                    if !was_enabled {
-                        READY_ENDPOINTS.fetch_or(ready_mask, Ordering::AcqRel);
+                    let ready_mask = In::mask(i);
+                    if enabled {
+                        if !was_enabled {
+                            READY_ENDPOINTS.fetch_or(ready_mask, Ordering::AcqRel);
+                        }
+                    } else {
+                        READY_ENDPOINTS.fetch_and(!ready_mask, Ordering::AcqRel);
+                        if (1..=BULK_EP_COUNT).contains(&i) {
+                            if let Some(xfer) = EP_IN_XFERS.borrow(cs).borrow_mut()[i - 1].as_mut() {
+                                if !xfer.done && xfer.error.is_none() {
+                                    xfer.error = Some(EndpointDisabledError);
+                                }
+                            }
+                        }
                     }
-                } else {
-                    READY_ENDPOINTS.fetch_and(!ready_mask, Ordering::AcqRel);
-                }
+                });
 
                 In::waker(i).wake();
             }
             Direction::Out => {
-                regs.epouten()
-                    .modify(|w| if enabled { w.0 |= mask } else { w.0 &= !mask });
+                critical_section::with(|cs| {
+                    regs.epouten()
+                        .modify(|w| if enabled { w.0 |= mask } else { w.0 &= !mask });
 
-                let ready_mask = Out::mask(i);
-                if enabled {
-                    // when first enabled, bulk/interrupt OUT endpoints will *not* receive data (the
-                    // peripheral will NAK all incoming packets) until we write a zero to the SIZE
-                    // register (see figure 203 of the 52840 manual). To avoid that we write a 0 to the
-                    // SIZE register
-                    regs.size().epout(i).write(|_| ());
-                } else {
-                    READY_ENDPOINTS.fetch_and(!ready_mask, Ordering::AcqRel);
-                }
+                    let ready_mask = Out::mask(i);
+                    if enabled {
+                        // when first enabled, bulk/interrupt OUT endpoints will *not* receive data (the
+                        // peripheral will NAK all incoming packets) until we write a zero to the SIZE
+                        // register (see figure 203 of the 52840 manual). To avoid that we write a 0 to the
+                        // SIZE register
+                        regs.size().epout(i).write(|_| ());
+                    } else {
+                        READY_ENDPOINTS.fetch_and(!ready_mask, Ordering::AcqRel);
+                        if (1..=BULK_EP_COUNT).contains(&i) {
+                            if let Some(xfer) = EP_OUT_XFERS.borrow(cs).borrow_mut()[i - 1].as_mut() {
+                                if xfer.result.is_none() {
+                                    xfer.result = Some(Err(EndpointError::Disabled));
+                                }
+                            }
+                        }
+                    }
+                });
 
                 Out::waker(i).wake();
             }
@@ -450,38 +704,130 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
     }
 
     async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let regs = self.regs;
         let max_packet_size = self.control_max_packet_size();
-        let mut total = 0;
-        loop {
-            let chunk_len = (buf.len() - total).min(max_packet_size);
-            if chunk_len == 0 && total > 0 {
-                break;
+
+        let aborted = critical_section::with(|cs| {
+            if regs.events_usbreset().read() != 0
+                || regs.events_ep0setup().read() != 0
+                || regs.eventcause().read().suspend()
+            {
+                return true;
             }
-            let n = self.data_out_packet(&mut buf[total..total + chunk_len]).await?;
-            total += n;
-            if n < max_packet_size || total == buf.len() {
-                break;
-            }
+            regs.events_ep0datadone().write_value(0);
+            regs.tasks_ep0rcvout().write_value(1);
+            *EP0_XFER.borrow(cs).borrow_mut() = Some(Ep0Xfer::Out(OutXfer::new(buf, max_packet_size)));
+            regs.intenset().write(|w| {
+                w.set_usbreset(true);
+                w.set_ep0setup(true);
+                w.set_ep0datadone(true);
+            });
+            false
+        });
+        if aborted {
+            return Err(EndpointError::Disabled);
         }
-        Ok(total)
+
+        let _guard = Ep0XferGuard;
+        poll_fn(|cx| {
+            EP0_WAKER.register(cx.waker());
+            BUS_WAKER.register(cx.waker());
+            if regs.events_usbreset().read() != 0 {
+                trace!("aborted control data_out: usb reset");
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
+            if regs.eventcause().read().suspend() {
+                trace!("aborted control data_out: suspend");
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
+            if regs.events_ep0setup().read() != 0 {
+                trace!("aborted control data_out: received another SETUP");
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
+            critical_section::with(|cs| {
+                let mut ep0 = EP0_XFER.borrow(cs).borrow_mut();
+                if let Some(Ep0Xfer::Out(xfer)) = ep0.as_mut() {
+                    if let Some(res) = xfer.result {
+                        *ep0 = None;
+                        return Poll::Ready(res);
+                    }
+                }
+                Poll::Pending
+            })
+        })
+        .await
     }
 
     async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        let regs = self.regs;
         let max_packet_size = self.control_max_packet_size();
-        if data.is_empty() {
-            self.data_in_packet(&[], true).await?;
-        } else {
-            let chunk_count = data.chunks(max_packet_size).count();
-            let zlp = needs_zlp && (data.len() % max_packet_size == 0);
-            for (idx, chunk) in data.chunks(max_packet_size).enumerate() {
-                let last = !zlp && (idx + 1 == chunk_count);
-                self.data_in_packet(chunk, last).await?;
+        let first_len = data.len().min(max_packet_size);
+        let send_zlp = needs_zlp && !data.is_empty() && data.len().is_multiple_of(max_packet_size);
+        let is_last = first_len == data.len() && !send_zlp;
+
+        let aborted = critical_section::with(|cs| {
+            if regs.events_usbreset().read() != 0
+                || regs.events_ep0setup().read() != 0
+                || regs.eventcause().read().suspend()
+            {
+                return true;
             }
-            if zlp {
-                self.data_in_packet(&[], true).await?;
-            }
+            regs.events_ep0datadone().write_value(0);
+            regs.shorts().write(|w| w.set_ep0datadone_ep0status(is_last));
+            unsafe { write_dma_in_cs(cs, regs, 0, &data[..first_len]) };
+            *EP0_XFER.borrow(cs).borrow_mut() = Some(Ep0Xfer::In(InXfer {
+                buf_ptr: data.as_ptr(),
+                buf_len: data.len(),
+                offset: first_len,
+                send_zlp,
+                max_packet_size,
+                wait_last_complete: true,
+                done: false,
+                error: None,
+            }));
+            regs.intenset().write(|w| {
+                w.set_usbreset(true);
+                w.set_ep0setup(true);
+                w.set_ep0datadone(true);
+            });
+            false
+        });
+        if aborted {
+            return Err(EndpointDisabledError);
         }
-        Ok(())
+
+        let _guard = Ep0XferGuard;
+        poll_fn(|cx| {
+            EP0_WAKER.register(cx.waker());
+            BUS_WAKER.register(cx.waker());
+            if regs.events_usbreset().read() != 0 {
+                trace!("aborted control data_in: usb reset");
+                return Poll::Ready(Err(EndpointDisabledError));
+            }
+            if regs.eventcause().read().suspend() {
+                trace!("aborted control data_in: suspend");
+                return Poll::Ready(Err(EndpointDisabledError));
+            }
+            if regs.events_ep0setup().read() != 0 {
+                trace!("aborted control data_in: received another SETUP");
+                return Poll::Ready(Err(EndpointDisabledError));
+            }
+            critical_section::with(|cs| {
+                let mut ep0 = EP0_XFER.borrow(cs).borrow_mut();
+                if let Some(Ep0Xfer::In(xfer)) = ep0.as_mut() {
+                    if let Some(err) = xfer.error {
+                        *ep0 = None;
+                        return Poll::Ready(Err(err));
+                    }
+                    if xfer.done {
+                        *ep0 = None;
+                        return Poll::Ready(Ok(()));
+                    }
+                }
+                Poll::Pending
+            })
+        })
+        .await
     }
 
     async fn control_accept(&mut self) {
@@ -640,7 +986,12 @@ impl<'d, Dir> Endpoint<'d, Dir> {
     }
 }
 
-unsafe fn read_dma(regs: pac::usbd::Usbd, i: usize, buf: &mut [u8]) -> Result<usize, EndpointError> {
+unsafe fn read_dma_in_cs(
+    _cs: CriticalSection,
+    regs: pac::usbd::Usbd,
+    i: usize,
+    buf: &mut [u8],
+) -> Result<usize, EndpointError> {
     // Check that the packet fits into the buffer
     let size = regs.size().epout(i).read().0 as usize;
     if size > buf.len() {
@@ -670,30 +1021,30 @@ unsafe fn read_dma(regs: pac::usbd::Usbd, i: usize, buf: &mut [u8]) -> Result<us
     Ok(size)
 }
 
-unsafe fn write_dma(regs: pac::usbd::Usbd, i: usize, buf: &[u8]) {
+unsafe fn write_dma_in_cs(cs: CriticalSection, regs: pac::usbd::Usbd, i: usize, buf: &[u8]) {
     assert!(buf.len() <= if i == ISO_EP { ISO_MAX_PACKET_SIZE } else { 64 });
 
     if slice_in_ram(buf) {
-        write_dma_inner(regs, i, buf);
+        write_dma_inner(cs, regs, i, buf);
     } else if i == ISO_EP {
-        write_dma_buffered::<1024>(regs, i, buf);
+        write_dma_buffered::<1024>(cs, regs, i, buf);
     } else {
-        write_dma_buffered::<64>(regs, i, buf);
+        write_dma_buffered::<64>(cs, regs, i, buf);
     }
 }
 
 // Keep Flash staging buffers off the direct DMA path.
 #[inline(never)]
-unsafe fn write_dma_buffered<const SIZE: usize>(regs: pac::usbd::Usbd, i: usize, buf: &[u8]) {
+unsafe fn write_dma_buffered<const SIZE: usize>(cs: CriticalSection, regs: pac::usbd::Usbd, i: usize, buf: &[u8]) {
     assert!(buf.len() <= SIZE);
 
     let mut ram_buf: MaybeUninit<[u8; SIZE]> = MaybeUninit::uninit();
     let ptr = ram_buf.as_mut_ptr() as *mut u8;
     core::ptr::copy_nonoverlapping(buf.as_ptr(), ptr, buf.len());
-    write_dma_inner(regs, i, core::slice::from_raw_parts(ptr, buf.len()));
+    write_dma_inner(cs, regs, i, core::slice::from_raw_parts(ptr, buf.len()));
 }
 
-unsafe fn write_dma_inner(regs: pac::usbd::Usbd, i: usize, buf: &[u8]) {
+unsafe fn write_dma_inner(_cs: CriticalSection, regs: pac::usbd::Usbd, i: usize, buf: &[u8]) {
     let ptr = buf.as_ptr();
     if i == ISO_EP {
         regs.isoin().ptr().write_value(ptr as u32);
@@ -726,26 +1077,68 @@ impl<'d> Endpoint<'d, Out> {
 
         self.wait_data_ready().await.map_err(|_| EndpointError::Disabled)?;
 
-        unsafe { read_dma(self.regs, i, buf) }
+        critical_section::with(|cs| unsafe { read_dma_in_cs(cs, self.regs, i, buf) })
     }
 }
 
 impl<'d> driver::EndpointOut for Endpoint<'d, Out> {
     async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let i = self.info.addr.index();
+        assert!(i != 0);
         let max_packet_size = usize::from(self.info.max_packet_size);
-        let mut total = 0;
-        loop {
-            let chunk_len = (buf.len() - total).min(max_packet_size);
-            if chunk_len == 0 && total > 0 {
-                break;
+
+        if i == ISO_EP {
+            let mut total = 0;
+            loop {
+                let chunk_len = (buf.len() - total).min(max_packet_size);
+                if chunk_len == 0 && total > 0 {
+                    break;
+                }
+                let n = self.read_packet_internal(&mut buf[total..total + chunk_len]).await?;
+                total += n;
+                if n < max_packet_size || total == buf.len() {
+                    break;
+                }
             }
-            let n = self.read_packet_internal(&mut buf[total..total + chunk_len]).await?;
-            total += n;
-            if n < max_packet_size || total == buf.len() {
-                break;
-            }
+            return Ok(total);
         }
-        Ok(total)
+
+        let immediate = critical_section::with(|cs| {
+            if !Out::is_enabled(self.regs, i) {
+                return Some(Err(EndpointError::Disabled));
+            }
+            let mut xfer = OutXfer::new(buf, max_packet_size);
+            if READY_ENDPOINTS.load(Ordering::Acquire) & Out::mask(i) != 0 {
+                READY_ENDPOINTS.fetch_and(!Out::mask(i), Ordering::AcqRel);
+                if xfer.on_packet(cs, self.regs, i) {
+                    return xfer.result;
+                }
+            }
+            EP_OUT_XFERS.borrow(cs).borrow_mut()[i - 1] = Some(xfer);
+            None
+        });
+        if let Some(res) = immediate {
+            return res;
+        }
+
+        let _guard = OutXferGuard(i);
+        poll_fn(|cx| {
+            Out::waker(i).register(cx.waker());
+            critical_section::with(|cs| {
+                let mut xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+                let xfer = xfers[i - 1].as_mut().unwrap();
+                if let Some(res) = xfer.result {
+                    xfers[i - 1] = None;
+                    return Poll::Ready(res);
+                }
+                if !Out::is_enabled(self.regs, i) {
+                    xfers[i - 1] = None;
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                Poll::Pending
+            })
+        })
+        .await
     }
 }
 
@@ -756,7 +1149,17 @@ impl<'d> Endpoint<'d, In> {
 
         self.wait_data_ready().await.map_err(|_| EndpointDisabledError)?;
 
-        unsafe { write_dma(self.regs, i, buf) }
+        if i == ISO_EP && !slice_in_ram(buf) {
+            let mut ram_buf: MaybeUninit<[u8; 1024]> = MaybeUninit::uninit();
+            let ptr = ram_buf.as_mut_ptr() as *mut u8;
+            unsafe {
+                core::ptr::copy_nonoverlapping(buf.as_ptr(), ptr, buf.len());
+                let ram_slice = core::slice::from_raw_parts(ptr, buf.len());
+                critical_section::with(|cs| write_dma_inner(cs, self.regs, i, ram_slice));
+            }
+        } else {
+            critical_section::with(|cs| unsafe { write_dma_in_cs(cs, self.regs, i, buf) });
+        }
 
         Ok(())
     }
@@ -764,93 +1167,81 @@ impl<'d> Endpoint<'d, In> {
 
 impl<'d> driver::EndpointIn for Endpoint<'d, In> {
     async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        let i = self.info.addr.index();
+        assert!(i != 0);
         let max_packet_size = usize::from(self.info.max_packet_size);
-        if buf.is_empty() {
-            return self.write_packet_internal(&[]).await;
-        }
-        for chunk in buf.chunks(max_packet_size) {
-            self.write_packet_internal(chunk).await?;
-        }
-        if needs_zlp && (buf.len() % max_packet_size == 0) {
-            self.write_packet_internal(&[]).await?;
-        }
-        Ok(())
-    }
-}
 
-impl<'d, V: VbusDetect> Bus<'d, V> {
-    async fn data_out_packet(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        let regs = self.regs;
-
-        regs.events_ep0datadone().write_value(0);
-
-        // This starts a RX on EP0. events_ep0datadone notifies when done.
-        regs.tasks_ep0rcvout().write_value(1);
-
-        // Wait until ready
-        regs.intenset().write(|w| {
-            w.set_usbreset(true);
-            w.set_ep0setup(true);
-            w.set_ep0datadone(true);
-        });
-        poll_fn(|cx| {
-            EP0_WAKER.register(cx.waker());
-            BUS_WAKER.register(cx.waker());
-            let regs = self.regs;
-            if regs.events_ep0datadone().read() != 0 {
-                Poll::Ready(Ok(()))
-            } else if regs.events_usbreset().read() != 0 {
-                trace!("aborted control data_out: usb reset");
-                Poll::Ready(Err(EndpointError::Disabled))
-            } else if regs.eventcause().read().suspend() {
-                trace!("aborted control data_out: suspend");
-                Poll::Ready(Err(EndpointError::Disabled))
-            } else if regs.events_ep0setup().read() != 0 {
-                trace!("aborted control data_out: received another SETUP");
-                Poll::Ready(Err(EndpointError::Disabled))
-            } else {
-                Poll::Pending
+        if i == ISO_EP {
+            if buf.is_empty() {
+                return self.write_packet_internal(&[]).await;
             }
+            for chunk in buf.chunks(max_packet_size) {
+                self.write_packet_internal(chunk).await?;
+            }
+            if needs_zlp && buf.len().is_multiple_of(max_packet_size) {
+                self.write_packet_internal(&[]).await?;
+            }
+            return Ok(());
+        }
+
+        let needs_wait = poll_fn(|cx| {
+            In::waker(i).register(cx.waker());
+            critical_section::with(|cs| {
+                if !In::is_enabled(self.regs, i) {
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                if READY_ENDPOINTS.load(Ordering::Acquire) & In::mask(i) == 0 {
+                    return Poll::Pending;
+                }
+                READY_ENDPOINTS.fetch_and(!In::mask(i), Ordering::AcqRel);
+
+                let first_len = buf.len().min(max_packet_size);
+                unsafe { write_dma_in_cs(cs, self.regs, i, &buf[..first_len]) };
+
+                let send_zlp = needs_zlp && !buf.is_empty() && buf.len().is_multiple_of(max_packet_size);
+                if first_len == buf.len() && !send_zlp {
+                    return Poll::Ready(Ok(false));
+                }
+
+                EP_IN_XFERS.borrow(cs).borrow_mut()[i - 1] = Some(InXfer {
+                    buf_ptr: buf.as_ptr(),
+                    buf_len: buf.len(),
+                    offset: first_len,
+                    send_zlp,
+                    max_packet_size,
+                    wait_last_complete: false,
+                    done: false,
+                    error: None,
+                });
+                Poll::Ready(Ok(true))
+            })
         })
         .await?;
 
-        unsafe { read_dma(self.regs, 0, buf) }
-    }
+        if !needs_wait {
+            return Ok(());
+        }
 
-    async fn data_in_packet(&mut self, buf: &[u8], last: bool) -> Result<(), EndpointDisabledError> {
-        let regs = self.regs;
-        regs.events_ep0datadone().write_value(0);
-
-        regs.shorts().write(|w| w.set_ep0datadone_ep0status(last));
-
-        // This starts a TX on EP0. events_ep0datadone notifies when done.
-        unsafe { write_dma(self.regs, 0, buf) }
-
-        regs.intenset().write(|w| {
-            w.set_usbreset(true);
-            w.set_ep0setup(true);
-            w.set_ep0datadone(true);
-        });
-
+        let _guard = InXferGuard(i);
         poll_fn(|cx| {
-            cx.waker().wake_by_ref();
-            EP0_WAKER.register(cx.waker());
-            BUS_WAKER.register(cx.waker());
-            let regs = self.regs;
-            if regs.events_ep0datadone().read() != 0 {
-                Poll::Ready(Ok(()))
-            } else if regs.events_usbreset().read() != 0 {
-                trace!("aborted control data_in: usb reset");
-                Poll::Ready(Err(EndpointDisabledError))
-            } else if regs.eventcause().read().suspend() {
-                trace!("aborted control data_in: suspend");
-                Poll::Ready(Err(EndpointDisabledError))
-            } else if regs.events_ep0setup().read() != 0 {
-                trace!("aborted control data_in: received another SETUP");
-                Poll::Ready(Err(EndpointDisabledError))
-            } else {
+            In::waker(i).register(cx.waker());
+            critical_section::with(|cs| {
+                let mut xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                let xfer = xfers[i - 1].as_mut().unwrap();
+                if let Some(err) = xfer.error {
+                    xfers[i - 1] = None;
+                    return Poll::Ready(Err(err));
+                }
+                if !In::is_enabled(self.regs, i) {
+                    xfers[i - 1] = None;
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                if xfer.done {
+                    xfers[i - 1] = None;
+                    return Poll::Ready(Ok(()));
+                }
                 Poll::Pending
-            }
+            })
         })
         .await
     }
