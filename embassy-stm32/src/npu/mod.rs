@@ -164,9 +164,9 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 .write_value(pac::npu::regs::Intstatus(0xFFFF_FFFF));
             ERRORS.fetch_or(raw_errors, Ordering::Relaxed);
             error!(
-                "NPU fault: intreg=0x{:08x} ectrl_ctrl={:?} ectrl_irq={:?} label=0x{:08x} bc=0x{:08x} streng_irq={:08x} busif_err={:08x}",
+                "NPU fault: intreg=0x{:08x} ectrl_ctrl=0x{:08x} ectrl_irq={:?} label=0x{:08x} bc=0x{:08x} streng_irq={:08x} busif_err={:08x}",
                 irqs.0,
-                ectrl_ctrl,
+                ectrl_ctrl.0,
                 ectrl_irq.map(|v| v.0),
                 ectrl_label.label(),
                 ectrl_bc.count(),

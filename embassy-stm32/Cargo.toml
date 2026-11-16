@@ -228,11 +228,11 @@ aligned = "0.4.3"
 heapless = "0.9.3"
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-28b3824f0eea177b2c3c13f880df14538eaaf4f1" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-fd34889518b3810c9e7bb13223aace8e509240b3" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-28b3824f0eea177b2c3c13f880df14538eaaf4f1", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-fd34889518b3810c9e7bb13223aace8e509240b3", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
@@ -260,10 +260,13 @@ defmt = [
     "embassy-ptp-driver?/defmt",
     "embassy-time?/defmt",
     "embassy-usb-synopsys-otg/defmt",
-    "stm32-metapac/defmt",
     "sdio/defmt",
     "embassy-crypto/defmt",
 ]
+## Implement `defmt::Format` for PAC types.
+pac-defmt = ["stm32-metapac/defmt"]
+## Implement `core::fmt::Debug` for PAC types.
+pac-debug = ["stm32-metapac/debug"]
 
 ## Use log for logging
 log = ["dep:log"]

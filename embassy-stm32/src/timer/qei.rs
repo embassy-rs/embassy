@@ -42,7 +42,6 @@ impl<T: CoreInstance> Default for Config<T> {
 ///
 /// This extends [`Config`] with optional encoder-index controls on timer variants
 /// that expose TIMx_ECR/TIMx_SR index fields.
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy)]
 pub struct AdvancedConfig<T: CoreInstance> {
     /// Base QEI configuration.
@@ -105,7 +104,6 @@ impl From<QeiMode> for Sms {
 
 #[cfg(timer_v2)]
 /// Encoder index configuration (TIMx_ECR fields).
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy)]
 pub struct IndexConfig {
     /// Index-direction selection.

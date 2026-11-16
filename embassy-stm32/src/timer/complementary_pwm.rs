@@ -985,7 +985,7 @@ mod tests {
         for dtg in 0u8..=255u8 {
             let dt = reference_dtg_to_dt(dtg);
             let (ckd, bits) = compute_dead_time_value(dt);
-            assert_eq!(ckd, Ckd::Div1);
+            assert!(ckd == Ckd::Div1);
             assert_eq!(bits, dtg);
         }
     }
@@ -996,7 +996,7 @@ mod tests {
             let dt = reference_dtg_to_dt(dtg);
             if dt * 2 > 1008 {
                 let (ckd, bits) = compute_dead_time_value(dt * 2);
-                assert_eq!(ckd, Ckd::Div2);
+                assert!(ckd == Ckd::Div2);
                 assert_eq!(bits, dtg);
             }
         }
@@ -1008,7 +1008,7 @@ mod tests {
             let dt = reference_dtg_to_dt(dtg);
             if dt * 4 > 1008 * 2 {
                 let (ckd, bits) = compute_dead_time_value(dt * 4);
-                assert_eq!(ckd, Ckd::Div4);
+                assert!(ckd == Ckd::Div4);
                 assert_eq!(bits, dtg);
             }
         }

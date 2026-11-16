@@ -50,6 +50,10 @@ rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt", "chrono?/defmt", "embassy-crypto?/defmt", "embassy-time/defmt"]
+## Implement `defmt::Format` for PAC types.
+pac-defmt = ["rp-pac/defmt"]
+## Implement `core::fmt::Debug` for PAC types.
+pac-debug = ["rp-pac/debug"]
 ## Enable log support
 log = ["dep:log"]
 ## Enable chrono support
@@ -187,7 +191,7 @@ embedded-io-async = { version = "0.7.0" }
 embedded-storage = { version = "0.3" }
 embedded-storage-async = { version = "0.4.1" }
 
-rp-pac = { git = "https://github.com/embassy-rs/rp-pac", rev = "c2e27609b021c444f634673155318977d7f0bdf6" }
+rp-pac = { git = "https://github.com/embassy-rs/rp-pac", rev = "9e59c6d5274f6fe910353a9791bc2940d390a0e5" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }

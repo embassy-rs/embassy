@@ -29,7 +29,7 @@ pub const DMA_SIZE: usize = crate::util::easy_dma_max!(RxMaxcnt, set_maxcnt, max
 
 /// TWIM config.
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Config {
     /// Frequency
     pub frequency: Frequency,

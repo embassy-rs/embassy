@@ -61,6 +61,9 @@ rt = ["nxp-pac?/rt"]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt"]
+## Implement `defmt::Format` for PAC types.
+pac-defmt = ["nxp-pac?/defmt"]
+# TODO: add pac-debug once the PAC has it
 
 log = ["dep:log"]
 

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+- Add `pac-defmt` Cargo feature, which implements `defmt::Format` for PAC types.
 - LPC55: blocking version of SPI
 - Codegen using `nxp-pac` metadata
 - LPC55: PWM simple

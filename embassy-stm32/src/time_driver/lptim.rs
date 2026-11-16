@@ -164,8 +164,8 @@ impl RtcDriver {
         r.cnt().write(|w| w.set_cnt(0));
 
         // let psc = timer_freq.0 / TICK_HZ as u32 - 1;
-        let psc = timer_freq.0 / TICK_HZ as u32;
-        let psc = match psc {
+        let div = timer_freq.0 / TICK_HZ as u32;
+        let psc = match div {
             128 => vals::Presc::Div128,
             64 => vals::Presc::Div64,
             32 => vals::Presc::Div32,
@@ -175,18 +175,18 @@ impl RtcDriver {
             2 => vals::Presc::Div2,
             1 => vals::Presc::Div1,
             // TODO: we could compute the valid TICK_HZ for the valid prescalers to include in the panic message
-            _ => panic!("Invalid prescaler: {} for timer frequency: {}Hz", psc, timer_freq.0),
+            _ => panic!("Invalid prescaler: {} for timer frequency: {}Hz", div, timer_freq.0),
         };
 
         trace!(
-            "init: setting presc: {:?} timer_freq: {}Hz TICK_HZ: {}",
-            psc, timer_freq, TICK_HZ
+            "init: setting presc: {} timer_freq: {}Hz TICK_HZ: {}",
+            div, timer_freq, TICK_HZ
         );
         r.cfgr().modify(|w| w.set_presc(psc));
 
         // RM says timer must be enabled before setting arr or cmp
         r.cr().modify(|w| w.set_enable(true));
-        trace!("init: arr: {:?}", r.arr().read());
+        trace!("init: arr: {}", r.arr().read().arr());
         // TRM says this is updated immediately if the timer is not started so no need to check for arrok! (stm32wl5 & stm32wle)
         r.arr().write(|w| w.set_arr(u16::MAX));
 

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+PAC:
+- change: stm32: the `defmt` feature no longer enables `defmt` in `stm32-metapac`. PAC types, including the ones re-exported by the HAL (e.g. `rcc::AHBPrescaler`), no longer implement `defmt::Format` by default.
+- change: stm32: PAC types no longer implement `Debug` by default.
+- feat: stm32: add the `pac-defmt` and `pac-debug` features, which implement `defmt::Format` and `Debug` for PAC types.
+
 Atomic:
 - fix: stm32/atomic: make `AtomicClear::clear` atomic on targets without 8-bit atomic RMW (thumbv6m)
 
@@ -182,6 +187,7 @@ USB:
 - fix: a bus reset during a control transfer no longer wedges the device until power is removed. The EP0 data and status stages end on a bus reset as they do on a new SETUP, `SET_ADDRESS` keeps the old address when its status stage does not complete, and the reset discards a SETUP and a suspend received before it, so the device enumerates again.
 
 DMA:
+- change: stm32/gpdma: `LinearItem` no longer implements `Debug`, and `TransferOptions` no longer implements `Debug` or `defmt::Format`.
 - fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
 - fix: stm32/dma: defer read_index advance until after copy in read_raw to avoid partial-advance on overrun
 - fix: stm32/dma: eliminate second sync_len() call in read_raw to prevent consuming a lap count mid-copy
