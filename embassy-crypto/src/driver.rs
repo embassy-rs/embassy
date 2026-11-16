@@ -1,5 +1,7 @@
 //! Driver interface
 
+use core::fmt::{self, Display, Formatter};
+
 /// Error type for crypto operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -18,6 +20,21 @@ pub enum Error {
     /// The hardware reported an error.
     HardwareError,
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Unsupported => "Unsupported",
+            Self::InvalidKey => "Invalid Key",
+            Self::InvalidInput => "Invalid Input",
+            Self::InvalidSignature => "Invalid Signature",
+            Self::BufferTooSmall => "Buffer too small",
+            Self::HardwareError => "Hardware Error",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// Error returned when a pair of input/output slices have unequal lengths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
