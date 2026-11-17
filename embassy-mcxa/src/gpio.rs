@@ -12,8 +12,8 @@ use maitake_sync::WaitMap;
 
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac::common::{RW, Reg};
-use crate::pac::gpio::{Irqc, Isf, Pdd, Pid, Ptco, Ptso};
-use crate::pac::port::{Dse, Ibe, Inv, Mux, Ode, Pcr, Pe, Ps, Sre};
+use crate::pac::gpio::Irqc;
+use crate::pac::port::{Mux, Pcr};
 
 struct BitIter(u32);
 
@@ -149,11 +149,11 @@ pub enum OpenDrain {
     Yes,
 }
 
-impl From<OpenDrain> for Ode {
-    fn from(open_drain: OpenDrain) -> Self {
+impl From<OpenDrain> for bool {
+    fn from(open_drain: OpenDrain) -> bool {
         match open_drain {
-            OpenDrain::No => Ode::Ode0,
-            OpenDrain::Yes => Ode::Ode1,
+            OpenDrain::No => false,
+            OpenDrain::Yes => true,
         }
     }
 }
@@ -182,12 +182,12 @@ pub enum Pull {
     Down,
 }
 
-impl From<Pull> for (Pe, Ps) {
+impl From<Pull> for (bool, bool) {
     fn from(pull: Pull) -> Self {
         match pull {
-            Pull::Disabled => (Pe::Pe0, Ps::Ps0),
-            Pull::Up => (Pe::Pe1, Ps::Ps1),
-            Pull::Down => (Pe::Pe1, Ps::Ps0),
+            Pull::Disabled => (false, false),
+            Pull::Up => (true, true),
+            Pull::Down => (true, false),
         }
     }
 }
@@ -198,11 +198,11 @@ pub enum SlewRate {
     Slow,
 }
 
-impl From<SlewRate> for Sre {
-    fn from(slew_rate: SlewRate) -> Self {
+impl From<SlewRate> for bool {
+    fn from(slew_rate: SlewRate) -> bool {
         match slew_rate {
-            SlewRate::Fast => Sre::Sre0,
-            SlewRate::Slow => Sre::Sre1,
+            SlewRate::Fast => false,
+            SlewRate::Slow => true,
         }
     }
 }
@@ -213,11 +213,11 @@ pub enum DriveStrength {
     Double,
 }
 
-impl From<DriveStrength> for Dse {
-    fn from(strength: DriveStrength) -> Self {
+impl From<DriveStrength> for bool {
+    fn from(strength: DriveStrength) -> bool {
         match strength {
-            DriveStrength::Normal => Dse::Dse0,
-            DriveStrength::Double => Dse::Dse1,
+            DriveStrength::Normal => false,
+            DriveStrength::Double => true,
         }
     }
 }
@@ -228,11 +228,11 @@ pub enum Inverter {
     Enabled,
 }
 
-impl From<Inverter> for Inv {
-    fn from(strength: Inverter) -> Self {
+impl From<Inverter> for bool {
+    fn from(strength: Inverter) -> bool {
         match strength {
-            Inverter::Disabled => Inv::Inv0,
-            Inverter::Enabled => Inv::Inv1,
+            Inverter::Disabled => false,
+            Inverter::Enabled => true,
         }
     }
 }
@@ -317,9 +317,9 @@ pub(crate) trait SealedPin {
 
     fn set_pull(&self, pull: Pull);
 
-    fn set_drive_strength(&self, strength: Dse);
+    fn set_drive_strength(&self, strength: bool);
 
-    fn set_slew_rate(&self, slew_rate: Sre);
+    fn set_slew_rate(&self, slew_rate: bool);
 
     fn set_enable_input_buffer(&self, buffer_enabled: bool);
 
@@ -388,31 +388,30 @@ impl SealedPin for AnyPin {
     }
 
     #[inline(always)]
-    fn set_drive_strength(&self, strength: Dse) {
+    fn set_drive_strength(&self, strength: bool) {
         self.pcr_reg().modify(|w| w.set_dse(strength));
     }
 
     #[inline(always)]
-    fn set_slew_rate(&self, slew_rate: Sre) {
+    fn set_slew_rate(&self, slew_rate: bool) {
         self.pcr_reg().modify(|w| w.set_sre(slew_rate));
     }
 
     #[inline(always)]
     fn set_enable_input_buffer(&self, buffer_enabled: bool) {
-        self.pcr_reg()
-            .modify(|w| w.set_ibe(if buffer_enabled { Ibe::Ibe1 } else { Ibe::Ibe0 }));
+        self.pcr_reg().modify(|w| w.set_ibe(buffer_enabled));
     }
 
     #[inline(always)]
     fn set_as_disabled(&self) {
         // Set GPIO direction as input
-        self.gpio().pddr().modify(|w| w.set_pdd(self.pin() as usize, Pdd::Pdd0));
+        self.gpio().pddr().modify(|w| w.set_pdd(self.pin() as usize, false));
         // Set input buffer as disabled
         self.set_enable_input_buffer(false);
         // Set mode as GPIO (vs other potential functions)
         self.set_function(Mux::Mux0);
         // Set pin as disabled
-        self.gpio().pidr().modify(|w| w.set_pid(self.pin() as usize, Pid::Pid1));
+        self.gpio().pidr().modify(|w| w.set_pid(self.pin() as usize, true));
     }
 
     #[inline(always)]
@@ -421,7 +420,7 @@ impl SealedPin for AnyPin {
         // if `input_enabled` is false then we want Pid1 since this means "Disabled for general-purpose input".
         self.gpio()
             .pidr()
-            .modify(|w| w.set_pid(self.pin() as usize, if input_enabled { Pid::Pid0 } else { Pid::Pid1 }))
+            .modify(|w| w.set_pid(self.pin() as usize, !input_enabled))
     }
 }
 
@@ -473,25 +472,24 @@ macro_rules! impl_gpio_pin {
                 }
 
                 #[inline(always)]
-                fn set_drive_strength(&self, strength: $crate::pac::port::Dse) {
+                fn set_drive_strength(&self, strength: bool) {
                     self.pcr_reg().modify(|w| w.set_dse(strength));
                 }
 
                 #[inline(always)]
-                fn set_slew_rate(&self, slew_rate: $crate::pac::port::Sre) {
+                fn set_slew_rate(&self, slew_rate: bool) {
                     self.pcr_reg().modify(|w| w.set_sre(slew_rate));
                 }
 
                 #[inline(always)]
                 fn set_enable_input_buffer(&self, buffer_enabled: bool) {
-                    use $crate::pac::port::Ibe;
-                    self.pcr_reg().modify(|w| w.set_ibe(if buffer_enabled { Ibe::Ibe1 } else { Ibe::Ibe0 }));
+                    self.pcr_reg().modify(|w| w.set_ibe(buffer_enabled));
                 }
 
                 #[inline(always)]
                 fn set_as_disabled(&self) {
                     // Set GPIO direction as input
-                    self.gpio().pddr().modify(|w| w.set_pdd(self.pin() as usize, $crate::pac::gpio::Pdd::Pdd0));
+                    self.gpio().pddr().modify(|w| w.set_pdd(self.pin() as usize, false));
                     // Set input buffer as disabled
                     self.set_enable_input_buffer(false);
                     // Set mode as GPIO (vs other potential functions)
@@ -504,7 +502,7 @@ macro_rules! impl_gpio_pin {
                 fn set_input_enabled(&self, input_enabled: bool) {
                     // if `input_enabled` is true then we want Pid0 since this means "Configured for general-purpose input."
                     // if `input_enabled` is false then we want Pid1 since this means "Disabled for general-purpose input".
-                    self.gpio().pidr().modify(|w| w.set_pid(self.pin() as usize, if input_enabled { $crate::pac::gpio::Pid::Pid0 } else { $crate::pac::gpio::Pid::Pid1 }))
+                    self.gpio().pidr().modify(|w| w.set_pid(self.pin() as usize, !input_enabled))
                 }
             }
 
@@ -608,10 +606,10 @@ impl<'d, M: Mode> Flex<'d, M> {
         // which permanently disables input reads (always returns 0).
         self.gpio()
             .pidr()
-            .modify(|w| w.set_pid(self.pin.pin_index() as usize, Pid::Pid0));
+            .modify(|w| w.set_pid(self.pin.pin_index() as usize, false));
         self.gpio()
             .pddr()
-            .modify(|w| w.set_pdd(self.pin.pin_index() as usize, Pdd::Pdd0));
+            .modify(|w| w.set_pdd(self.pin.pin_index() as usize, false));
     }
 
     /// Put the pin into output mode.
@@ -620,10 +618,10 @@ impl<'d, M: Mode> Flex<'d, M> {
         // Clear PIDR in case this pin was previously disabled.
         self.gpio()
             .pidr()
-            .modify(|w| w.set_pid(self.pin.pin_index() as usize, Pid::Pid0));
+            .modify(|w| w.set_pid(self.pin.pin_index() as usize, false));
         self.gpio()
             .pddr()
-            .modify(|w| w.set_pdd(self.pin.pin_index() as usize, Pdd::Pdd1));
+            .modify(|w| w.set_pdd(self.pin.pin_index() as usize, true));
     }
 
     /// Set output level to High.
@@ -631,7 +629,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     pub fn set_high(&mut self) {
         self.gpio()
             .psor()
-            .write(|w| w.set_ptso(self.pin.pin_index() as usize, Ptso::Ptso1));
+            .write(|w| w.set_ptso(self.pin.pin_index() as usize, true));
     }
 
     /// Set output level to Low.
@@ -639,7 +637,7 @@ impl<'d, M: Mode> Flex<'d, M> {
     pub fn set_low(&mut self) {
         self.gpio()
             .pcor()
-            .write(|w| w.set_ptco(self.pin.pin_index() as usize, Ptco::Ptco1));
+            .write(|w| w.set_ptco(self.pin.pin_index() as usize, true));
     }
 
     /// Set output level to the given `Level`.
@@ -789,10 +787,7 @@ impl<'d> Flex<'d, Async> {
         //
         // Clear any existing pending interrupt on this pin
         self.pin.gpio().isfr(0).write(|w| w.0 = 1 << self.pin.pin());
-        self.pin
-            .gpio()
-            .icr(self.pin.pin().into())
-            .write(|w| w.set_isf(Isf::Isf1));
+        self.pin.gpio().icr(self.pin.pin().into()).write(|w| w.set_isf(true));
 
         // Pin interrupt configuration
         self.pin.gpio().icr(self.pin.pin().into()).modify(|w| w.set_irqc(level));

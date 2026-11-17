@@ -11,7 +11,6 @@ use maitake_sync::WaitCell;
 use crate::clocks::{Clock, WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::rtc::Swr;
 
 /// RTC interrupt handler.
 pub struct InterruptHandler<I: Instance> {
@@ -576,8 +575,8 @@ impl<'a> Rtc<'a> {
             }
         }
 
-        self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Asserted));
-        self.info.regs().ctrl().modify(|w| w.set_swr(Swr::Cleared));
+        self.info.regs().ctrl().modify(|w| w.set_swr(true));
+        self.info.regs().ctrl().modify(|w| w.set_swr(false));
 
         self.info.regs().ctrl().modify(|w| {
             w.set_clkout(config.clkout.into());

@@ -203,12 +203,6 @@ impl fmt::Debug for Mbc<'_> {
     }
 }
 
-#[cfg(feature = "_mcxa2xx")]
-fn nonsecure(value: pac::mbc::Nse) -> bool {
-    value == pac::mbc::Nse::Notallowed
-}
-
-#[cfg(feature = "_mcxa5xx")]
 fn nonsecure(value: bool) -> bool {
     value
 }

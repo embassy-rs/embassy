@@ -12,7 +12,7 @@ use crate::clocks::config::VddLevel;
 pub use crate::clocks::periph_helpers::Div4;
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, with_clocks};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::mrcc::{ClkdivHalt, ClkdivReset, ClkdivUnstab, ClkoutClkselMux as Mux};
+use crate::pac::mrcc::ClkoutClkselMux as Mux;
 use crate::peripherals::CLKOUT;
 
 /// A peripheral representing the CLKOUT pseudo-peripheral
@@ -203,13 +203,13 @@ fn setup_clkout(mux: Mux, div: Div4) {
 
     // Set up clkdiv
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.set_halt(ClkdivHalt::Off);
-        w.set_reset(ClkdivReset::Off);
+        w.set_halt(true);
+        w.set_reset(true);
         w.set_div(div.into_bits());
     });
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.set_halt(ClkdivHalt::On);
-        w.set_reset(ClkdivReset::On);
+        w.set_halt(false);
+        w.set_reset(false);
         w.set_div(div.into_bits());
     });
 
@@ -219,7 +219,7 @@ fn setup_clkout(mux: Mux, div: Div4) {
     // (MCXA2xx RM Rev 2 14.5.2.81, MCXA5xx RM Rev 1 22.5.2.112), so the loop
     // must spin while the field reads `Off`. Comparing against `On` spun while
     // the clock was already stable instead.
-    while mrcc.mrcc_clkout_clkdiv().read().unstab() == ClkdivUnstab::Off {}
+    while mrcc.mrcc_clkout_clkdiv().read().unstab() {}
 }
 
 /// Stop the
@@ -229,8 +229,8 @@ fn disable_clkout() {
     // TODO: restore the pin to hi-z or something?
     let mrcc = crate::pac::MRCC0;
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.set_reset(ClkdivReset::Off);
-        w.set_halt(ClkdivHalt::Off);
+        w.set_reset(true);
+        w.set_halt(true);
         w.set_div(0);
     });
     mrcc.mrcc_clkout_clksel().write(|w| w.0 = 0b111);

@@ -20,7 +20,7 @@ use embassy_mcxa as hal;
 use hal::clocks::VddLevel;
 use hal::gdet::{Error, Gdet, SetupError, State};
 use hal::pac;
-use hal::pac::spc::{ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl};
+use hal::pac::spc::ActiveCfgCoreldoVddLvl;
 use panic_probe as _;
 
 // Read documented controls only; never inspect opaque calibration registers.
@@ -62,7 +62,7 @@ async fn main(_spawner: Spawner) {
     // Interpret only the settled, normal-drive regulator path; do not change it.
     assert!(!pac::SPC0.sc().read().busy());
     let active = pac::SPC0.active_cfg().read();
-    assert_eq!(active.coreldo_vdd_ds(), ActiveCfgCoreldoVddDs::Normal);
+    assert_eq!(active.coreldo_vdd_ds(), true);
     let applied_voltage = match active.coreldo_vdd_lvl() {
         ActiveCfgCoreldoVddLvl::Mid => VddLevel::MidDriveMode,
         ActiveCfgCoreldoVddLvl::Normal => VddLevel::NormalMode,

@@ -24,8 +24,8 @@ use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i3c::{
-    Evdet, Ibidis, Mstena, SctrlEvent, SdatactrlTxtrig, SdmactrlDmafb, SdmactrlDmatb, SdmactrlDmawidth, Sstatus,
-    SstatusStart, SstatusTxnotfull, Stnotstop, Streqrd, Type,
+    Evdet, Mstena, SctrlEvent, SdatactrlTxtrig, SdmactrlDmafb, SdmactrlDmafb as SdmactrlDmatb, SdmactrlDmawidth,
+    Sstatus, Type,
 };
 
 /// Maximum number of bytes accepted in the ibi payload argument of the
@@ -823,7 +823,7 @@ impl<'d> I3c<'d> {
     /// (`STNOTSTOP == Stopped`). Ignores the sticky `stop`/`start` flags so
     /// stale events from a previous transaction don't satisfy us.
     async fn wait_for_end_of_chain(&self) -> Result<(), IOError> {
-        if self.info.regs().sstatus().read().stnotstop() == Stnotstop::Stopped {
+        if !self.info.regs().sstatus().read().stnotstop() {
             return Ok(());
         }
 
@@ -835,7 +835,7 @@ impl<'d> I3c<'d> {
                     w.set_stop(true);
                 });
                 let status = self.info.regs().sstatus().read();
-                status.errwarn() || status.stnotstop() == Stnotstop::Stopped
+                status.errwarn() || !status.stnotstop()
             })
             .await
             .map_err(|_| IOError::Other)?;
@@ -864,7 +864,7 @@ impl<'d> I3c<'d> {
         }
 
         // Bail out early if the controller has disabled IBIs via DISEC CCC.
-        if self.info.regs().sstatus().read().ibidis() == Ibidis::InterruptsDisabled {
+        if self.info.regs().sstatus().read().ibidis() {
             return Err(IOError::IbiDisabled);
         }
 
@@ -894,7 +894,7 @@ impl<'d> I3c<'d> {
                 });
 
                 let status = self.info.regs().sstatus().read();
-                status.errwarn() || status.event() || status.start() == SstatusStart::StartDetected
+                status.errwarn() || status.event() || status.start()
             })
             .await
             .map_err(|_| IOError::Other)?;
@@ -953,7 +953,7 @@ impl<'d> I3c<'d> {
             return Err(IOError::IbiPayloadTooLarge);
         }
 
-        if self.info.regs().sstatus().read().ibidis() == Ibidis::InterruptsDisabled {
+        if self.info.regs().sstatus().read().ibidis() {
             return Err(IOError::IbiDisabled);
         }
 
@@ -1126,7 +1126,7 @@ impl<'d> I3c<'d> {
         // Cap at 32 — the PAC's TXCOUNT field is 5 bits.
         while count < 32 {
             let dc = self.info.regs().sdatactrl().read();
-            if dc.txfull() == crate::pac::i3c::SdatactrlTxfull::Txisfull {
+            if dc.txfull() {
                 break;
             }
             self.info.regs().swdatab().write(|w| w.set_data(0));
@@ -1213,7 +1213,7 @@ impl<'d> I3c<'d> {
     }
 
     async fn wait_tx_space(&self) -> Result<(), IOError> {
-        if self.info.regs().sstatus().read().txnotfull() == SstatusTxnotfull::NotFull {
+        if self.info.regs().sstatus().read().txnotfull() {
             return Ok(());
         }
         self.info
@@ -1224,7 +1224,7 @@ impl<'d> I3c<'d> {
                     w.set_txsend(true);
                 });
                 let status = self.info.regs().sstatus().read();
-                status.errwarn() || status.txnotfull() == SstatusTxnotfull::NotFull
+                status.errwarn() || status.txnotfull()
             })
             .await
             .map_err(|_| IOError::Other)?;
@@ -1300,12 +1300,12 @@ impl<'d> I3c<'d> {
 
                     // Arm TX-ready only when the controller is actively reading
                     // us; otherwise it would IRQ-storm during writes / at idle.
-                    if status.streqrd() == Streqrd::Busy {
+                    if status.streqrd() {
                         self.info.regs().sintset().write(|w| w.set_txsend(true));
                     }
 
                     status.stop()
-                        || status.start() == SstatusStart::StartDetected
+                        || status.start()
                         || status.matched()
                         || status.hdrmatch()
                         || status.ccc()
@@ -1314,7 +1314,7 @@ impl<'d> I3c<'d> {
                         || status.event()
                         || status.rx_pend()
                         || self.bbq_state.has_pending()
-                        || (status.txnotfull() == SstatusTxnotfull::NotFull && status.streqrd() == Streqrd::Busy)
+                        || (status.txnotfull() && status.streqrd())
                 })
                 .await
                 .map_err(|_| IOError::Other)?;
@@ -1339,11 +1339,8 @@ impl<'d> I3c<'d> {
             // by them) BEFORE we W1C the stop bit and flush the FIFOs. Otherwise a
             // full transaction that completes between two `listen()` calls would
             // be observed as Stop-only and the data lost.
-            if status.start() == SstatusStart::StartDetected {
-                self.info
-                    .regs()
-                    .sstatus()
-                    .write(|w| w.set_start(SstatusStart::StartDetected));
+            if status.start() {
+                self.info.regs().sstatus().write(|w| w.set_start(true));
                 // NOTE: NXP SDK `I3C_SlaveTransferHandleBusStart` flushes the
                 // TX FIFO here. We deliberately do *not* — for an IBI+read
                 // sequence the TX FIFO was pre-loaded by
@@ -1365,7 +1362,7 @@ impl<'d> I3c<'d> {
                 // controller starts clocking SCL almost immediately after the
                 // header ACK, so any extra round-trip through user code risks a
                 // TX-FIFO underrun before the first byte is queued.
-                if status.streqrd() == Streqrd::Busy {
+                if status.streqrd() {
                     self.info.regs().sintclr().write(|w| w.set_txsend(true));
                     return Ok(Event::TxPending);
                 }
@@ -1375,7 +1372,7 @@ impl<'d> I3c<'d> {
                 self.info.regs().sstatus().write(|w| w.set_hdrmatch(true));
                 return Ok(Event::HdrMatched);
             }
-            if status.txnotfull() == SstatusTxnotfull::NotFull && status.streqrd() == Streqrd::Busy {
+            if status.txnotfull() && status.streqrd() {
                 // Fallback path: STREQRD became Busy after the match was already
                 // W1C'd (e.g. Sr→read on an already-matched DA). Disable TX-ready
                 // until the caller re-arms it via `async_respond_to_read`;

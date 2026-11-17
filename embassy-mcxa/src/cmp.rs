@@ -49,7 +49,7 @@ use crate::clocks::{ClockError, Gate, WakeGuard, enable_and_reset, with_clocks};
 use crate::gpio::{AnyPin, GpioPin, Pull, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 pub use crate::pac::cmp::Hystctr as Hysteresis;
-use crate::pac::cmp::{CmpHpmd, CoutSel, FiltCnt, FuncClkSel, Vrsel};
+use crate::pac::cmp::{FiltCnt, FuncClkSel};
 use crate::{Peri, PeripheralType, interrupt, pac};
 
 /// Analog comparison speed/power selection.
@@ -124,7 +124,7 @@ pub enum Filter {
 }
 
 /// Comparison configuration; input ownership is fixed at construction.
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 #[non_exhaustive]
 pub struct Config {
     /// Analog speed/power tradeoff.
@@ -474,7 +474,7 @@ impl<'d, M: Mode> Cmp<'d, M> {
         with_regs!(self.info.regs, r, {
             r.ccr1().write(|w| {
                 w.set_cout_inv(config.invert);
-                w.set_cout_sel((CoutSel::Cout as u8).into());
+                w.set_cout_sel(false);
                 match config.filter {
                     Filter::Disabled => {
                         w.set_filt_cnt((FiltCnt::Bypassed as u8).into());
@@ -488,14 +488,7 @@ impl<'d, M: Mode> Cmp<'d, M> {
                 }
             });
             r.ccr2().modify(|w| {
-                w.set_cmp_hpmd(
-                    (if config.performance == Performance::HighSpeed {
-                        CmpHpmd::High
-                    } else {
-                        CmpHpmd::Low
-                    } as u8)
-                        .into(),
-                );
+                w.set_cmp_hpmd(config.performance == Performance::HighSpeed);
                 w.set_cmp_npmd(config.performance == Performance::NanoPower);
                 w.set_hystctr((config.hysteresis as u8).into());
             });
@@ -503,13 +496,7 @@ impl<'d, M: Mode> Cmp<'d, M> {
                 if let Some(dac) = self.dac {
                     w.set_dac_data(dac.code);
                     w.set_dac_hpmd(dac.power == DacPower::High);
-                    w.set_vrsel(
-                        (match dac.reference {
-                            DacReference::Supply => Vrsel::Vref0,
-                            DacReference::VrefI => Vrsel::Vref1,
-                        } as u8)
-                            .into(),
-                    );
+                    w.set_vrsel(matches!(dac.reference, DacReference::VrefI));
                 }
             });
         });

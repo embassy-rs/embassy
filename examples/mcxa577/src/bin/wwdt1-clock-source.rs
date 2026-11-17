@@ -83,7 +83,7 @@ fn dump_mux(tag: &str) {
         tag,
         mux,
         div.div(),
-        div.unstab().to_bits(),
+        u8::from(div.unstab()),
     );
 }
 

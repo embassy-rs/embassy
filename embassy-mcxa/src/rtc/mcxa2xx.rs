@@ -12,7 +12,6 @@ use maitake_sync::WaitCell;
 use crate::clocks::{WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::rtc::{Swr, Um};
 
 /// RTC interrupt handler.
 pub struct InterruptHandler<I: Instance> {
@@ -91,27 +90,15 @@ pub struct DateTime {
     pub second: u8,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct Config {
     #[allow(dead_code)]
     wakeup_select: bool,
-    update_mode: Um,
+    update_mode: bool,
     #[allow(dead_code)]
     supervisor_access: bool,
     compensation_interval: u8,
     compensation_time: u8,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            wakeup_select: false,
-            update_mode: Um::Um0,
-            supervisor_access: false,
-            compensation_interval: 0,
-            compensation_time: 0,
-        }
-    }
 }
 
 /// RTC interrupt enable flags
@@ -309,8 +296,8 @@ impl<'a> Rtc<'a> {
     }
 
     fn set_configuration(&mut self, config: &Config) {
-        self.info.regs().cr().modify(|w| w.set_swr(Swr::Swr1));
-        self.info.regs().cr().modify(|w| w.set_swr(Swr::Swr0));
+        self.info.regs().cr().modify(|w| w.set_swr(true));
+        self.info.regs().cr().modify(|w| w.set_swr(false));
         self.info.regs().tsr().write(|w| w.0 = 1);
 
         self.info.regs().cr().modify(|w| w.set_um(config.update_mode));

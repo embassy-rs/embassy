@@ -379,10 +379,9 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
         }
 
         // Handle when BusOff autorecovery has finished
-        if esr1.boffdoneint() == crate::pac::can::Boffdoneint::BusOffDone {
+        if esr1.boffdoneint() {
             // Acknowledge the flag (write 1 to clear)
-            can.esr1()
-                .write(|w| w.set_boffdoneint(crate::pac::can::Boffdoneint::BusOffDone));
+            can.esr1().write(|w| w.set_boffdoneint(true));
             let _ = can.esr1().read(); // Make sure the clear lands before returning
 
             // the DEVGUIDE says to "wake all waiters on global events" so we need to wake up tx_waker here

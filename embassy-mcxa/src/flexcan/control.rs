@@ -37,11 +37,11 @@ impl Control {
         use embassy_time::Instant;
 
         // Request module enable by clearing MCR[MDIS].
-        self.regs.mcr().modify(|m| m.set_mdis(pac::Mdis::FlexcanEnabled));
+        self.regs.mcr().modify(|m| m.set_mdis(false));
 
         // Busy-wait for the low-power-mode acknowledge to clear.
         let deadline = timeout.map(|t| Instant::now() + t);
-        while self.regs.mcr().read().lpmack() != pac::Lpmack::LowPowerNo {
+        while self.regs.mcr().read().lpmack() {
             if let Some(deadline) = deadline
                 && Instant::now() >= deadline
             {
@@ -59,10 +59,10 @@ impl Control {
     pub(in crate::flexcan) fn disable(&self, timeout: Option<Duration>) -> Result<(), ControlError> {
         use embassy_time::Instant;
 
-        self.regs.mcr().modify(|m| m.set_mdis(pac::Mdis::FlexcanDisabled));
+        self.regs.mcr().modify(|m| m.set_mdis(true));
 
         let deadline = timeout.map(|t| Instant::now() + t);
-        while self.regs.mcr().read().lpmack() != pac::Lpmack::LowPowerYes {
+        while !self.regs.mcr().read().lpmack() {
             if let Some(deadline) = deadline
                 && Instant::now() >= deadline
             {
@@ -87,8 +87,8 @@ impl Control {
 
         // Request Freeze via MCR[FRZ]=1 and MCR[HALT]=1
         self.regs.mcr().modify(|m| {
-            m.set_frz(pac::Frz::FreezeModeEnabled);
-            m.set_halt(pac::Halt::HaltEnable);
+            m.set_frz(true);
+            m.set_halt(true);
         });
 
         // Busy-wait for the freeze acknowledge
@@ -108,17 +108,15 @@ impl Control {
     pub(in crate::flexcan) fn unfreeze(&self) {
         // Need to set MCR[HALT]=0 and MCR[FRZ]=0
         self.regs.mcr().modify(|m| {
-            m.set_halt(pac::Halt::HaltDisable);
-            m.set_frz(pac::Frz::FreezeModeDisabled);
+            m.set_halt(false);
+            m.set_frz(false);
         })
     }
 
     /// Checks whether or not FlexCAN is actively in Freeze mode.
     pub(in crate::flexcan) fn is_frozen(&self) -> bool {
         let mcr = self.regs.mcr().read();
-        (mcr.halt() == pac::Halt::HaltEnable)
-            && (mcr.frz() == pac::Frz::FreezeModeEnabled)
-            && (mcr.frzack() == pac::Frzack::FreezeModeYes)
+        (mcr.halt()) && (mcr.frz()) && (mcr.frzack())
     }
 }
 

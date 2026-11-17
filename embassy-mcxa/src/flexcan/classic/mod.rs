@@ -325,10 +325,7 @@ impl Info {
             w.set_erfwmiie(false);
             w.set_erfdaie(false);
         });
-        self.control
-            .regs()
-            .ctrl1()
-            .modify(|w| w.set_boffmsk(pac::Boffmsk::BusOffIntDisabled));
+        self.control.regs().ctrl1().modify(|w| w.set_boffmsk(false));
         self.control.regs().ctrl2().modify(|w| w.set_boffdonemsk(false));
 
         // Clear all sticky sources before the next construction enables this IRQ again.
@@ -336,12 +333,12 @@ impl Info {
         self.control.regs().erfsr().write(|w| {
             w.set_erfufw(true);
             w.set_erfovf(true);
-            w.set_erfwmi(pac::Erfwmi::WatermarkYes);
+            w.set_erfwmi(true);
             w.set_erfda(true);
         });
         self.control.regs().esr1().write(|w| {
             w.set_boffint(true);
-            w.set_boffdoneint(pac::Boffdoneint::BusOffDone);
+            w.set_boffdoneint(true);
         });
 
         self.rx_sender.lock(|sender| sender.set(None));
@@ -768,15 +765,12 @@ fn init<'d, T: Instance>(
     }
 
     // Disable FDCAN
-    info.control
-        .regs()
-        .mcr()
-        .modify(|m| m.set_fden(pac::Fden::CanFdDisabled));
+    info.control.regs().mcr().modify(|m| m.set_fden(false));
 
     // Route bus-off events to the ISR, and enable autorecovery.
     info.control.regs().ctrl1().modify(|w| {
-        w.set_boffmsk(pac::Boffmsk::BusOffIntEnabled);
-        w.set_boffrec(pac::Boffrec::AutoRecoverEnabled);
+        w.set_boffmsk(true);
+        w.set_boffrec(false);
     });
 
     // Enable BOFFDONE interrupt

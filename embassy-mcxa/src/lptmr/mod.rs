@@ -13,7 +13,7 @@ use maitake_sync::WaitCell;
 use crate::clocks::periph_helpers::{Div4, LptmrClockSel, LptmrConfig, SPConfHelper};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, with_clocks};
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::lptmr::{Pbyp, Pcs, Prescale, Ten, Tfc, Tie};
+use crate::pac::lptmr::{Pcs, Prescale};
 use crate::{Peri, interrupt, pac, peripherals};
 
 #[cfg(feature = "time-driver-lptmr")]
@@ -98,7 +98,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::LPTMR0> for InterruptHa
             // accidentally through a read-modify-write of CSR.
             pac::LPTMR0.csr().modify(|w| {
                 w.set_tcf(false);
-                w.set_tie(Tie::Tie0);
+                w.set_tie(false);
             });
             WAIT_CELL.wake();
         }
@@ -132,11 +132,7 @@ pub(crate) fn configure(config: Config) -> Result<crate::clocks::periph_helpers:
         } else {
             Pcs::Pcs11
         });
-        w.set_pbyp(if config.prescaler.0 == 0 {
-            Pbyp::Pbyp1
-        } else {
-            Pbyp::Pbyp0
-        });
+        w.set_pbyp(config.prescaler.0 == 0);
         w.set_prescale(Prescale::from_bits(config.prescaler.0.saturating_sub(1)));
     });
     Ok(parts)
@@ -178,7 +174,7 @@ impl<'d> Lptmr<'d> {
 
     /// Is the counter enabled?
     pub fn is_running(&self) -> bool {
-        pac::LPTMR0.csr().read().ten() == Ten::Ten1
+        pac::LPTMR0.csr().read().ten()
     }
 
     /// Latched compare status (not automatically cleared by this method).
@@ -210,8 +206,8 @@ impl<'d> Lptmr<'d> {
         self.stop();
         pac::LPTMR0.cmr().write(|w| w.set_compare(ticks - 1));
         pac::LPTMR0.csr().write(|w| {
-            w.set_tfc(if self.free_running { Tfc::Tfc1 } else { Tfc::Tfc0 });
-            w.set_ten(Ten::Ten1);
+            w.set_tfc(self.free_running);
+            w.set_ten(true);
         });
         Ok(())
     }
@@ -231,7 +227,7 @@ impl<'d> Lptmr<'d> {
                     }
                     pac::LPTMR0.csr().modify(|w| {
                         w.set_tcf(false);
-                        w.set_tie(Tie::Tie1);
+                        w.set_tie(true);
                     });
                     false
                 })

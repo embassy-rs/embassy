@@ -14,9 +14,7 @@ use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::i3c::{
-    Disto, Hkeep, Ibiresp, Ibitype, MctrlDir as I3cDir, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type,
-};
+use crate::pac::i3c::{Hkeep, Ibiresp, Ibitype, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type};
 
 const MAX_CHUNK_SIZE: usize = 256;
 
@@ -163,11 +161,11 @@ pub enum Payload {
     Yes,
 }
 
-impl From<Payload> for crate::pac::i3c::Nobyte {
-    fn from(value: Payload) -> Self {
+impl From<Payload> for bool {
+    fn from(value: Payload) -> bool {
         match value {
-            Payload::Yes => Self::Ibibyte,
-            Payload::No => Self::NoIbibyte,
+            Payload::Yes => false,
+            Payload::No => true,
         }
     }
 }
@@ -203,11 +201,11 @@ enum Dir {
     Read,
 }
 
-impl From<Dir> for I3cDir {
-    fn from(value: Dir) -> Self {
+impl From<Dir> for bool {
+    fn from(value: Dir) -> bool {
         match value {
-            Dir::Write => Self::Dirwrite,
-            Dir::Read => Self::Dirread,
+            Dir::Write => false,
+            Dir::Read => true,
         }
     }
 }
@@ -393,7 +391,7 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_odbaud(odbaud as u8);
             w.set_i2cbaud(i2cbaud as u8);
             w.set_mstena(Mstena::MasterOn);
-            w.set_disto(Disto::Enable);
+            w.set_disto(false);
             w.set_hkeep(Hkeep::None);
             w.set_odstop(false);
             w.set_odhpp(odhpp_enabled);

@@ -7,7 +7,7 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use crate::clocks::periph_helpers::NoConfig;
 use crate::clocks::{Gate, enable_and_reset};
 use crate::pac;
-use crate::pac::crc::{Fxor, Tcrc, Tot, Totr, Was};
+use crate::pac::crc::{Tot, Tot as Totr};
 
 /// CRC driver.
 pub struct Crc<'d, M> {
@@ -27,19 +27,19 @@ impl<'d, M: Mode> Crc<'d, M> {
     }
 
     // Configure the underlying peripheral according to the reference manual.
-    fn configure(&mut self, config: Config, width: Tcrc) {
+    fn configure(&mut self, config: Config, width: bool) {
         self.info.regs().ctrl().modify(|w| {
             w.set_fxor(config.complement_out.into());
-            w.set_totr(config.reflect_out.into());
-            w.set_tot(config.reflect_in.into());
-            w.set_was(Was::Data);
+            w.set_totr(config.reflect_out.output_mode());
+            w.set_tot(config.reflect_in.input_mode());
+            w.set_was(false);
             w.set_tcrc(width);
         });
 
         self.info.regs().gpoly32().write(|w| *w = config.polynomial);
-        self.info.regs().ctrl().modify(|w| w.set_was(Was::Seed));
+        self.info.regs().ctrl().modify(|w| w.set_was(true));
         self.info.regs().data32().write(|w| *w = config.seed);
-        self.info.regs().ctrl().modify(|w| w.set_was(Was::Data));
+        self.info.regs().ctrl().modify(|w| w.set_was(false));
     }
 
     /// Read the computed CRC value
@@ -83,7 +83,7 @@ impl<'d> Crc<'d, Crc16> {
     /// Instantiates a new CRC peripheral driver in 16-bit mode
     pub fn new_crc16<T: Instance>(peri: Peri<'d, T>, config: Config) -> Self {
         let mut inst = Self::new_inner(peri);
-        inst.configure(config, Tcrc::B16);
+        inst.configure(config, false);
         inst
     }
 
@@ -226,7 +226,7 @@ impl<'d> Crc<'d, Crc32> {
     /// Instantiates a new CRC peripheral driver in 32-bit mode
     pub fn new_crc32<T: Instance>(peri: Peri<'d, T>, config: Config) -> Self {
         let mut inst = Self::new_inner(peri);
-        inst.configure(config, Tcrc::B32);
+        inst.configure(config, true);
         inst
     }
 
@@ -714,18 +714,15 @@ pub enum Reflect {
     Yes,
 }
 
-impl From<Reflect> for Tot {
-    fn from(value: Reflect) -> Tot {
-        match value {
+impl Reflect {
+    fn input_mode(self) -> Tot {
+        match self {
             Reflect::No => Tot::BytsTrnps,
             Reflect::Yes => Tot::BytsBtsTrnps,
         }
     }
-}
-
-impl From<Reflect> for Totr {
-    fn from(value: Reflect) -> Totr {
-        match value {
+    fn output_mode(self) -> Totr {
+        match self {
             Reflect::No => Totr::Notrnps,
             Reflect::Yes => Totr::BytsBtsTrnps,
         }
@@ -739,11 +736,11 @@ pub enum Complement {
     Yes,
 }
 
-impl From<Complement> for Fxor {
-    fn from(value: Complement) -> Fxor {
+impl From<Complement> for bool {
+    fn from(value: Complement) -> bool {
         match value {
-            Complement::No => Fxor::Noxor,
-            Complement::Yes => Fxor::Invert,
+            Complement::No => false,
+            Complement::Yes => true,
         }
     }
 }
