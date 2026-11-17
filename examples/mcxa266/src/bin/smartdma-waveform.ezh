@@ -1,0 +1,21 @@
+// Application-authored one-shot launch ABI: word0 stack base, word1 PIO mask,
+// word2 raw heartbeat reload. Stack grows upward. No hidden assembler prologue.
+.entry start
+start:
+    nop
+    per_read r0, 0xe040
+    and_imm r0, r0, -4
+    ldr sp, r0, 0
+    ldr r1, r0, 1
+    ldr r2, r0, 2
+    load_imm r3, 0
+    mov gpo, r3
+    mov gpd, r1
+    heart_rythm r2
+    wait_for_beat
+again:
+    xor gpo, gpo, r1
+    add_imm r3, r3, 1
+    per_write r3, 0xe044
+    wait_for_beat
+    goto again

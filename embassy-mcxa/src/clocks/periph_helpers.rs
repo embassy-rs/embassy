@@ -240,6 +240,20 @@ impl SPConfHelper for Clk1MConfig {
     }
 }
 
+/// SmartDMA uses the CPU/system clock and must keep the system out of deep sleep.
+#[derive(Default)]
+pub struct SmartDmaConfig;
+
+impl SPConfHelper for SmartDmaConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let power = PoweredClock::NormalEnabledDeepSleepDisabled;
+        Ok(PreEnableParts {
+            freq: clocks.ensure_cpu_system_clk_active(&power)?,
+            wake_guard: WakeGuard::for_power(&power),
+        })
+    }
+}
+
 //
 // CMP
 //

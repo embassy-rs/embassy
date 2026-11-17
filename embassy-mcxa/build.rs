@@ -28,6 +28,10 @@ fn main() {
 
     let mut cfgs = CfgSet::new();
     build_common::set_target_cfgs(&mut cfgs);
+    // Both names are used by the A2/A5 PAC wrappers; declare both even when
+    // the selected family's META_PERIPHERALS contains only one spelling.
+    cfgs.declare("mcxa_smartdma");
+    cfgs.declare("mcxa_smartdma0");
 
     cfgs.declare("time_driver_ostimer");
     cfgs.declare("time_driver_lptmr");
@@ -71,6 +75,7 @@ fn main() {
         generate_gpio_pin_impls(),
         generate_adc_pin_impls(),
         generate_cmp_pin_impls(),
+        generate_smartdma_pin_impls(),
         generate_clkout_impls(),
         generate_lpi2c_pin_impls(),
         generate_i3c_pin_impls(),
@@ -209,6 +214,8 @@ fn generate_cc_gates() -> TokenStream {
                 format_ident!("CmpConfig")
             } else if peripheral.driver_name == "mcxa/FREQME" {
                 format_ident!("FreqmeConfig")
+            } else if is_smartdma(peripheral.name) {
+                format_ident!("SmartDmaConfig")
             } else {
                 format_ident!("NoConfig")
             }
@@ -250,6 +257,12 @@ fn generate_instance_calls() -> TokenStream {
     for peripheral in METADATA.peripherals {
         if peripheral.driver_name.is_empty() {
             // Only use peripherals that have a driver
+            continue;
+        }
+
+        if is_smartdma(peripheral.name) {
+            let name = format_ident!("{}", peripheral.name);
+            generated.extend(quote! { crate::impl_smartdma_instance!(#name); });
             continue;
         }
 
@@ -369,6 +382,52 @@ fn generate_cmp_pin_impls() -> TokenStream {
                 }
             }
         }
+    }
+    generated
+}
+
+fn is_smartdma(name: &str) -> bool {
+    name == "SMART_DMA0" || name == "SmartDMA0"
+}
+
+fn generate_smartdma_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+    let mut pins = Vec::new();
+    for peripheral in METADATA
+        .peripherals
+        .iter()
+        .filter(|peripheral| is_smartdma(peripheral.name))
+    {
+        for signal in peripheral.signals {
+            let Some(number) = signal.name.strip_prefix("PIO") else {
+                continue;
+            };
+            let pio: u8 = number.parse().expect("Unexpected SmartDMA PIO signal");
+            assert!(pio < 32);
+            for pin in signal.pins {
+                pins.push((pin.pin, pio, pin.alt));
+            }
+        }
+    }
+    for (index, &(pin, pio, alt)) in pins.iter().enumerate() {
+        // Some PAC metadata assigns the same physical pin/mux to two PIO bits.
+        // Exclude ambiguous capabilities rather than choosing an unverified bit
+        // (or generating conflicting trait implementations). Fix those upstream.
+        if pins
+            .iter()
+            .any(|&(other_pin, other_pio, other_alt)| pin == other_pin && (pio != other_pio || alt != other_alt))
+            || pins[..index].iter().any(|&(other_pin, _, _)| pin == other_pin)
+        {
+            continue;
+        }
+        let name = format_ident!("{pin}");
+        let mux = format_ident!("Mux{alt}");
+        let pio = proc_macro2::Literal::u8_unsuffixed(pio);
+        let gate = pin_feature_gate(pin);
+        generated.extend(quote! {
+            #gate
+            crate::impl_smartdma_pin!(#name, #pio, #mux);
+        });
     }
     generated
 }

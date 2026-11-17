@@ -1,0 +1,16 @@
+// A file-based, application-authored program, not a precompiled firmware blob.
+// Stack/parameter setup and execution belong to the future loader/engine layer.
+.entry start
+.entry done
+
+start:
+    load_imm r0, 3
+again:
+    sub_imms r0, r0, 1
+    goto.nz again
+done:
+    hold
+
+// A program-local pointer in a data word: resolved at load time, not here.
+start_pointer:
+    .addr start
