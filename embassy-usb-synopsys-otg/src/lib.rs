@@ -2391,20 +2391,43 @@ where
             self.ep_out.state,
             self.power_events,
         );
-        abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, power_events, async {
-            self.ep_in.write_transfer(data, needs_zlp).await?;
+        abort_on_new_setup_or_reset(
+            regs,
+            mutex,
+            setup_state,
+            ep0_out,
+            power_events,
+            self.ep_in.write_transfer(data, needs_zlp),
+        )
+        .await?;
 
-            // wait for status response from host after completing transfer
-            trace!("control: data_in waiting for status");
-            // Do not arm EP0 OUT again after the status packet: the next SETUP can already
-            // be on its way, and a clear of NAK before its STUP corrupts the RX FIFO.
-            self.ep_out
-                .read_packet_inner(&mut [])
-                .await
-                .map_err(|_| EndpointDisabledError)?;
-            trace!("control: complete");
+        // Wait for the status ZLP from the host. Check whether it already arrived before
+        // checking `setup_pending`: at High Speed the host can send the status ZLP and the next
+        // SETUP back-to-back before this task is polled again. Do not arm EP0 OUT again after the
+        // status packet: the next SETUP can already be on its way, and clearing NAK before its
+        // STUP corrupts the RX FIFO.
+        trace!("control: data_in waiting for status");
+        poll_fn(|cx| {
+            ep0_out.out_waker.register(cx.waker());
 
-            Ok(())
+            let len = ep0_out.out_size.load(Ordering::Acquire);
+            if len != EP_OUT_BUFFER_EMPTY {
+                ep0_out.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
+                return if len == 0 {
+                    trace!("control: complete");
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Ready(Err(EndpointDisabledError))
+                };
+            }
+
+            if !ep0_out.out_enabled.load(Ordering::Acquire)
+                || control_stage_aborted(regs, &mutex, setup_state, power_events)
+            {
+                return Poll::Ready(Err(EndpointDisabledError));
+            }
+
+            Poll::Pending
         })
         .await
     }
@@ -2458,6 +2481,36 @@ where
     }
 }
 
+/// Returns `true` if a control stage was aborted by a new SETUP or a bus event, and keeps
+/// `USBRST` unmasked so a reset after a suspend still wakes the control stage.
+fn control_stage_aborted<M: RawMutex>(
+    regs: Otg,
+    mutex: &M,
+    setup_state: &ControlPipeSetupState,
+    power_events: bool,
+) -> bool {
+    // Leave all of them set: Bus::poll consumes the SETUP and clears USBRST, USBSUSP and the
+    // session end. A SETUP aborts the stage from the moment its data is read, before STUP, so
+    // that the stage does not arm EP0 OUT in between.
+    let ints = regs.gintsts().read();
+    if setup_state.setup_pending.load(Ordering::Acquire)
+        || ints.usbrst()
+        || ints.usbsusp()
+        || (power_events && ints.otgint() && regs.gotgint().read().sedet())
+    {
+        trace!("control: received another SETUP or a bus event, aborting");
+        return true;
+    }
+
+    // A bus event masks USBRST until Bus::poll runs, so a reset after a suspend would raise
+    // no interrupt.
+    if !regs.gintmsk().read().usbrst() {
+        mutex.lock(|| regs.gintmsk().modify(|w| w.set_usbrst(true)));
+    }
+
+    false
+}
+
 /// Runs a control transfer stage until it completes or it can no longer complete: the host
 /// abandoned it with a new SETUP, or the bus was reset or suspended, or VBUS was removed
 /// (`power_events`). EP0's EPENA and enabled flags survive a reset, so without this a stage can
@@ -2476,23 +2529,8 @@ async fn abort_on_new_setup_or_reset<T, E: From<EndpointDisabledError>, M: RawMu
         // The interrupt wakes this waker on a SETUP and on any bus event.
         ep0_out.out_waker.register(cx.waker());
         // Check before polling the stage, so that it does not start a transfer after a reset.
-        // Leave all of them set: Bus::poll consumes the SETUP and clears USBRST, USBSUSP and the
-        // session end. A SETUP aborts the stage from the moment its data is read, before STUP, so
-        // that the stage does not arm EP0 OUT in between.
-        let ints = regs.gintsts().read();
-        if setup_state.setup_pending.load(Ordering::Acquire)
-            || ints.usbrst()
-            || ints.usbsusp()
-            || (power_events && ints.otgint() && regs.gotgint().read().sedet())
-        {
-            trace!("control: received another SETUP or a bus event, aborting");
+        if control_stage_aborted(regs, &mutex, setup_state, power_events) {
             return Poll::Ready(Err(EndpointDisabledError.into()));
-        }
-
-        // A bus event masks USBRST until Bus::poll runs, so a reset after a suspend would raise
-        // no interrupt.
-        if !regs.gintmsk().read().usbrst() {
-            mutex.lock(|| regs.gintmsk().modify(|w| w.set_usbrst(true)));
         }
 
         stage.as_mut().poll(cx)
