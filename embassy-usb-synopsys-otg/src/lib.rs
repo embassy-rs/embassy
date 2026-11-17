@@ -2222,6 +2222,36 @@ where
     }
 }
 
+/// Aborts an IN transfer that `write_transfer` programmed but did not finish copying into the
+/// transmit FIFO.
+///
+/// The core sends only the bytes that are in the FIFO, and it leaves EPENA set until every
+/// programmed packet has been written. Dropping the future between those writes would otherwise
+/// leave EPENA set, and the next write would wait in `wait_in_idle` until a bus reset.
+struct InXferGuard<'d> {
+    regs: Otg,
+    index: usize,
+    in_waker: &'d AtomicWaker,
+    /// Cleared once every packet of the programmed transfer is in the FIFO.
+    active: bool,
+}
+
+impl Drop for InXferGuard<'_> {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+
+        let tx_fifo = self.regs.diepctl(self.index).read().txfnum();
+        if self.regs.diepctl(self.index).read().epena() {
+            abort_in_endpoint(self.regs, self.index);
+        }
+        // The FIFO still holds the part of the transfer that was copied before the cancel.
+        flush_tx_fifo(self.regs, tx_fifo);
+        self.in_waker.wake();
+    }
+}
+
 impl<'d, M> embassy_usb_driver::EndpointIn for Endpoint<'d, In, M>
 where
     M: RawMutex + Copy,
@@ -2240,11 +2270,21 @@ where
             self.wait_in_idle().await?;
             self.mutex.lock(|| self.start_in_transfer(transfer.len()));
 
+            // `start_in_transfer` enables the endpoint for every packet of `transfer`. If this
+            // future is dropped before those packets are in the FIFO, stop the endpoint.
+            let mut guard = InXferGuard {
+                regs: self.regs,
+                index: self.info.addr.index(),
+                in_waker: &self.state.in_waker,
+                active: true,
+            };
             for packet in transfer.chunks(max_packet_size) {
                 self.wait_fifo_space(packet.len()).await?;
                 // ERRATA: see `write_packet_inner`.
                 self.mutex.lock(|| self.write_fifo(packet));
             }
+            // The core finishes sending what is now in the FIFO and clears EPENA on its own.
+            guard.active = false;
         }
 
         if needs_zlp && buf.len().is_multiple_of(max_packet_size) {
