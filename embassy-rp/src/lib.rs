@@ -27,6 +27,7 @@ pub mod aon_timer;
 pub mod block;
 pub mod bootsel;
 pub mod clocks;
+#[cfg(feature = "rp2040")]
 pub(crate) mod datetime;
 pub mod dma;
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
