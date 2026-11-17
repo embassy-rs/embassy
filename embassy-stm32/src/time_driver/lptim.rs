@@ -117,13 +117,17 @@ fn write_compare(r: Lptim, val: u16) {
     }
     #[cfg(any(stm32wba, stm32u5, stm32u3))]
     {
+        // An unchanged CCR is not rewritten, so it costs no CMPOK wait.
+        if r.ccr(0).read().ccr() == val {
+            return;
+        }
+
         // As on STM32WL, clear the stale CMPOK.
         r.icr().write(|w| w.set_cmpokcf(0, true));
         r.ccr(0).write(|w| w.set_ccr(val));
 
-        // Whatever CCR holds after a lost write, a match on it runs `trigger_alarm`, which writes
-        // CCR again, and an alarm it misses is fired by `next_period` at the first overflow after
-        // it is due.
+        // An alarm a lost write misses is fired by `next_period` at the first overflow after it is
+        // due.
         wait_for(|| r.isr().read().cmpok(0));
     }
 }
@@ -305,7 +309,8 @@ impl RtcDriver {
                 ier_set_ccie(r, 0, true);
 
                 // The overflow interrupt may run after an alarm a few ticks into the new cycle
-                // has already passed; the compare match was then missed. Fire it now.
+                // has already passed; the compare match was then missed, or its flag cleared by
+                // enabling CCIE (ES0553 2.12.3). Fire it now.
                 if at <= self.now() {
                     self.trigger_alarm(cs);
                 }
@@ -331,9 +336,7 @@ impl RtcDriver {
         if timestamp <= t {
             trace!("set_alarm: timestamp <= t");
             // If alarm timestamp has passed the alarm will not fire.
-            // Disarm the alarm and return `false` to indicate that.
-            ier_set_ccie(r, 0, false);
-
+            // Return `false` to indicate that, leaving CCIE for the caller's retry to write once.
             self.alarm.borrow(cs).timestamp.set(u64::MAX);
 
             return false;
@@ -353,10 +356,8 @@ impl RtcDriver {
             trace!("set_alarm: timestamp <= t (after set)");
             // If alarm timestamp has passed since we set it, we have a race condition and
             // the alarm may or may not have fired.
-            // Disarm the alarm and return `false` to indicate that.
+            // Return `false` to indicate that, leaving CCIE as above.
             // It is the caller's responsibility to handle this ambiguity.
-            ier_set_ccie(r, 0, false);
-
             self.alarm.borrow(cs).timestamp.set(u64::MAX);
 
             return false;
