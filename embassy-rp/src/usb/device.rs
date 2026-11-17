@@ -323,6 +323,16 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     }
 }
 
+/// Enables the bus event interrupts that `on_interrupt` masks when they fire, and the SETUP one.
+fn rearm_bus_irqs<T: Instance>() {
+    T::regs().inte().write_set(|w| {
+        w.set_bus_reset(true);
+        w.set_dev_resume_from_host(true);
+        w.set_dev_suspend(true);
+        w.set_setup_req(true);
+    });
+}
+
 /// Set or clear the STALL handshake of an endpoint.
 ///
 /// `max_packet_size` is the max packet size of the endpoint, used to re-arm the buffer
@@ -462,16 +472,15 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 T::dpram().ep_out_buffer_control(0).write(|w| w.set_pid(0, false));
 
                 trace!("SETUP read ok");
+                // The control request that follows does not poll the bus, so a reset or suspend during
+                // it must wake the stage through its interrupt. Arm them here too: only the path below
+                // used to, because the control pipe was polled after the bus.
+                rearm_bus_irqs::<T>();
                 return Poll::Ready(Event::Setup(buf));
             }
 
             // no pending event. Reenable all irqs, including the one for SETUP.
-            regs.inte().write_set(|w| {
-                w.set_bus_reset(true);
-                w.set_dev_resume_from_host(true);
-                w.set_dev_suspend(true);
-                w.set_setup_req(true);
-            });
+            rearm_bus_irqs::<T>();
             Poll::Pending
         })
         .await

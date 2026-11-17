@@ -528,7 +528,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
 
     /// Waits for a resume condition on the USB bus.
     ///
-    /// This future is cancel-safe.
+    /// This future is cancel-safe, except that it handles a control request that arrives while it
+    /// waits, for example when the `Resume` event was missed. Dropping it in the middle of one
+    /// leaves that transfer unfinished until the host sends its next SETUP.
     pub async fn wait_resume(&mut self) {
         while self.inner.suspended {
             let evt = self.bus.poll().await;

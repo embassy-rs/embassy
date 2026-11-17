@@ -70,6 +70,9 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         if istr.wkup() {
             //trace!("USB IRQ: wkup");
             IRQ_RESUME.store(true, Ordering::Relaxed);
+            // A suspend that this resume ends is over. Left set, it is reported after the resume, and
+            // control_aborted() takes it for a suspend in the middle of a control transfer.
+            IRQ_SUSPEND.store(false, Ordering::Relaxed);
             regs.cntr().modify(|w| {
                 w.set_fsusp(false);
                 w.set_lpmode(false);
@@ -1798,7 +1801,13 @@ struct ControlPipe<'d, T: Instance> {
 /// the bus during a control transfer.
 fn control_aborted() -> bool {
     // Leave the flags set: Bus::poll consumes all of them.
-    EP0_SETUP.load(Ordering::Relaxed) || IRQ_RESET.load(Ordering::Acquire) || IRQ_SUSPEND.load(Ordering::Acquire)
+    control_restarted() || IRQ_SUSPEND.load(Ordering::Acquire)
+}
+
+/// Tells if the host restarted the control transfer with a new SETUP, or reset the bus. Unlike a
+/// suspend, this means that a status stage that completed before it did not count.
+fn control_restarted() -> bool {
+    EP0_SETUP.load(Ordering::Relaxed) || IRQ_RESET.load(Ordering::Acquire)
 }
 
 /// Runs a control stage until it completes, or until VBUS is removed, which gives `aborted`.
@@ -2094,8 +2103,8 @@ impl<'d, T: Instance> ControlPipe<'d, T> {
         self.accept().await;
 
         // The address changes only after a completed status stage (USB 2.0 §9.4.6). After a bus
-        // reset, Bus::poll sets address 0.
-        if control_aborted() {
+        // reset, Bus::poll sets address 0. A suspend does not undo the status stage.
+        if control_restarted() {
             trace!("control: SET_ADDRESS aborted, keeping the address");
             return;
         }

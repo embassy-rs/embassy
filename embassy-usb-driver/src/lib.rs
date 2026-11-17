@@ -306,7 +306,8 @@ pub trait Driver<'a> {
 /// [`EndpointDisabledError`] where they have an error to return. This is the case when:
 ///
 /// * the bus is reset ([`Event::Reset`]),
-/// * the bus is suspended ([`Event::Suspend`]), or power is removed ([`Event::PowerRemoved`]),
+/// * the bus is suspended ([`Event::Suspend`]), or power is removed ([`Event::PowerRemoved`]) in
+///   drivers that detect it,
 /// * the host abandoned the request and sent a new SETUP packet.
 ///
 /// Returning early must not consume the event: the next call to [`poll`](Self::poll) must still
