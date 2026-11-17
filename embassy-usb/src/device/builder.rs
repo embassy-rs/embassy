@@ -426,15 +426,14 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
 
         // Start the USB bus.
         // This prevent further allocation by consuming the driver.
-        let (bus, control) = driver.start(descriptor::control_max_packet_size(&config));
+        let bus = driver.start(descriptor::control_max_packet_size(&config));
         let device_descriptor = descriptor::device_descriptor(&config);
         let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
 
         UsbDevice {
             control_buf,
-            control,
+            bus,
             inner: Inner {
-                bus,
                 config,
                 device_descriptor,
                 device_qualifier_descriptor,

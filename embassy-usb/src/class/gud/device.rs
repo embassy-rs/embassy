@@ -1220,8 +1220,8 @@ mod tests {
 
     use super::*;
     use crate::driver::{
-        Bus, ControlPipe, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointIn,
-        EndpointInfo, Event, Unsupported,
+        Bus, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointIn, EndpointInfo,
+        Event, Unsupported,
     };
 
     struct ScriptedEndpoint<'a> {
@@ -1271,7 +1271,6 @@ mod tests {
     impl<'a> Driver<'a> for ScriptedDriver {
         type EndpointOut = ScriptedEndpoint<'a>;
         type EndpointIn = Unused;
-        type ControlPipe = Unused;
         type Bus = Unused;
 
         fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
@@ -1282,7 +1281,7 @@ mod tests {
             unreachable!()
         }
 
-        fn start(self, _: u16) -> (Self::Bus, Self::ControlPipe) {
+        fn start(self, _: u16) -> Self::Bus {
             unreachable!()
         }
     }
@@ -1318,6 +1317,24 @@ mod tests {
     }
 
     impl Bus for Unused {
+        fn control_max_packet_size(&self) -> usize {
+            unreachable!()
+        }
+        async fn control_data_out(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
+            unreachable!()
+        }
+        async fn control_data_in(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
+            unreachable!()
+        }
+        async fn control_accept(&mut self) {
+            unreachable!()
+        }
+        async fn control_reject(&mut self) {
+            unreachable!()
+        }
+        async fn control_accept_set_address(&mut self, _: u8) {
+            unreachable!()
+        }
         async fn enable(&mut self) {
             unreachable!()
         }
@@ -1347,36 +1364,6 @@ mod tests {
         }
 
         async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-            unreachable!()
-        }
-    }
-
-    impl ControlPipe for Unused {
-        fn max_packet_size(&self) -> usize {
-            unreachable!()
-        }
-
-        async fn setup(&mut self) -> [u8; 8] {
-            unreachable!()
-        }
-
-        async fn data_out_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
-            unreachable!()
-        }
-
-        async fn data_in_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
-            unreachable!()
-        }
-
-        async fn accept(&mut self) {
-            unreachable!()
-        }
-
-        async fn reject(&mut self) {
-            unreachable!()
-        }
-
-        async fn accept_set_address(&mut self, _: u8) {
             unreachable!()
         }
     }

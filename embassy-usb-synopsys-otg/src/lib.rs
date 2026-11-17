@@ -16,7 +16,7 @@ use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::pin::pin;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
-use core::task::Poll;
+use core::task::{Context, Poll};
 
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -769,7 +769,6 @@ where
 {
     type EndpointOut = Endpoint<'d, Out, M>;
     type EndpointIn = Endpoint<'d, In, M>;
-    type ControlPipe = ControlPipe<'d, M>;
     type Bus = Bus<'d, M>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
@@ -780,7 +779,7 @@ where
         self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
-    fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+    fn start(mut self, control_max_packet_size: u16) -> Self::Bus {
         let ep_out = self
             .alloc_endpoint(
                 EndpointType::Control,
@@ -805,21 +804,21 @@ where
         let regs = self.instance.regs;
         let setup_state = self.instance.state.cp_state;
         let mutex = self.instance.state.mutex;
-        (
-            Bus {
-                config: self.config,
-                inited: false,
-                instance: self.instance,
-            },
-            ControlPipe {
-                max_packet_size: control_max_packet_size,
-                setup_state,
-                ep_out,
-                ep_in,
-                regs,
-                mutex,
-            },
-        )
+        let control = ControlPipe {
+            max_packet_size: control_max_packet_size,
+            setup_state,
+            ep_out,
+            ep_in,
+            regs,
+            mutex,
+            power_events: self.config.vbus_detection || self.config.vbus_valid_override,
+        };
+        Bus {
+            config: self.config,
+            inited: false,
+            instance: self.instance,
+            control,
+        }
     }
 }
 
@@ -1034,12 +1033,123 @@ where
     config: Config,
     instance: OtgInstance<'d, M>,
     inited: bool,
+    control: ControlPipe<'d, M>,
 }
 
 impl<'d, M> Bus<'d, M>
 where
     M: RawMutex + Copy,
 {
+    /// Checks for bus events, without a pending SETUP packet.
+    fn poll_bus(&mut self, cx: &mut Context<'_>) -> Poll<Event> {
+        if !self.inited {
+            self.init_device();
+            // If no vbus detection, just return a single PowerDetected event at startup.
+            if !self.config.vbus_detection && !self.config.vbus_valid_override {
+                return Poll::Ready(Event::PowerDetected);
+            }
+        }
+
+        let regs = self.instance.regs;
+        let st = self.instance.state;
+        st.bus_waker.register(cx.waker());
+
+        let mut ints = regs.gintsts().read();
+
+        if ints.srqint() {
+            trace!("vbus detected");
+
+            regs.gintsts().write(|w| w.set_srqint(true)); // clear
+            self.restore_irqs();
+
+            if self.config.vbus_detection || self.config.vbus_valid_override {
+                return Poll::Ready(Event::PowerDetected);
+            }
+        }
+
+        if ints.otgint() {
+            let otgints = regs.gotgint().read();
+            regs.gotgint().write_value(otgints); // clear all
+            self.restore_irqs();
+
+            if otgints.sedet() {
+                trace!("vbus removed");
+                if self.config.vbus_detection || self.config.vbus_valid_override {
+                    self.disable_all_endpoints();
+                    return Poll::Ready(Event::PowerRemoved);
+                }
+            }
+        }
+
+        if ints.usbrst() {
+            trace!("reset");
+
+            self.init_fifo();
+            self.configure_endpoints();
+
+            // Reset address
+            st.mutex.lock(|| {
+                regs.dcfg().modify(|w| {
+                    w.set_dad(0);
+                });
+            });
+
+            // A suspend from before the reset is no longer applicable, because the reset
+            // signal ends the suspend state. If this bit stays set, the next poll reports a
+            // suspend that did not occur. `embassy-usb` then waits for a resume and does not
+            // answer SETUP packets. Thus the enumeration does not complete.
+            regs.gintsts().write(|w| {
+                w.set_usbrst(true);
+                w.set_usbsusp(true);
+            });
+            // `ints` is a copy of the register from before this clear. The software must
+            // also clear the bit in the copy. If it does not, the suspend condition below
+            // uses the old value.
+            ints.set_usbsusp(false);
+            self.restore_irqs();
+        }
+
+        if ints.enumdne() {
+            trace!("enumdne");
+
+            let speed = regs.dsts().read().enumspd();
+            let trdt = (self.instance.calculate_trdt_fn)(speed);
+            trace!("  speed={} trdt={}", speed.to_bits(), trdt);
+            regs.gusbcfg().modify(|w| w.set_trdt(trdt));
+            let usb_speed = match speed {
+                vals::Dspd::HIGH_SPEED => Speed::High,
+                vals::Dspd::FULL_SPEED_EXTERNAL | vals::Dspd::FULL_SPEED_INTERNAL => Speed::Full,
+                vals::Dspd::LOW_SPEED => Speed::Low,
+            };
+
+            // Clear a suspend that is no longer applicable here also. An earlier poll can
+            // process the reset. The core can set USBSUSP again after that poll.
+            regs.gintsts().write(|w| {
+                w.set_usbsusp(true);
+                w.set_enumdne(true);
+            });
+            self.restore_irqs();
+
+            return Poll::Ready(Event::Reset(usb_speed));
+        }
+
+        if ints.usbsusp() {
+            trace!("suspend");
+            regs.gintsts().write(|w| w.set_usbsusp(true)); // clear
+            self.restore_irqs();
+            return Poll::Ready(Event::Suspend);
+        }
+
+        if ints.wkupint() {
+            trace!("resume");
+            regs.gintsts().write(|w| w.set_wkupint(true)); // clear
+            self.restore_irqs();
+            return Poll::Ready(Event::Resume);
+        }
+
+        Poll::Pending
+    }
+
     fn restore_irqs(&mut self) {
         self.instance.regs.gintmsk().write(|w| {
             w.set_usbrst(true);
@@ -1464,115 +1574,36 @@ where
     M: RawMutex + Copy,
 {
     async fn poll(&mut self) -> Event {
-        poll_fn(move |cx| {
-            if !self.inited {
-                self.init_device();
-                // If no vbus detection, just return a single PowerDetected event at startup.
-                if !self.config.vbus_detection && !self.config.vbus_valid_override {
-                    return Poll::Ready(Event::PowerDetected);
-                }
-            }
-
-            let regs = self.instance.regs;
-            let st = self.instance.state;
-            st.bus_waker.register(cx.waker());
-
-            let mut ints = regs.gintsts().read();
-
-            if ints.srqint() {
-                trace!("vbus detected");
-
-                regs.gintsts().write(|w| w.set_srqint(true)); // clear
-                self.restore_irqs();
-
-                if self.config.vbus_detection || self.config.vbus_valid_override {
-                    return Poll::Ready(Event::PowerDetected);
-                }
-            }
-
-            if ints.otgint() {
-                let otgints = regs.gotgint().read();
-                regs.gotgint().write_value(otgints); // clear all
-                self.restore_irqs();
-
-                if otgints.sedet() {
-                    trace!("vbus removed");
-                    if self.config.vbus_detection || self.config.vbus_valid_override {
-                        self.disable_all_endpoints();
-                        return Poll::Ready(Event::PowerRemoved);
-                    }
-                }
-            }
-
-            if ints.usbrst() {
-                trace!("reset");
-
-                self.init_fifo();
-                self.configure_endpoints();
-
-                // Reset address
-                st.mutex.lock(|| {
-                    regs.dcfg().modify(|w| {
-                        w.set_dad(0);
-                    });
-                });
-
-                // A suspend from before the reset is no longer applicable, because the reset
-                // signal ends the suspend state. If this bit stays set, the next poll reports a
-                // suspend that did not occur. `embassy-usb` then waits for a resume and does not
-                // answer SETUP packets. Thus the enumeration does not complete.
-                regs.gintsts().write(|w| {
-                    w.set_usbrst(true);
-                    w.set_usbsusp(true);
-                });
-                // `ints` is a copy of the register from before this clear. The software must
-                // also clear the bit in the copy. If it does not, the suspend condition below
-                // uses the old value.
-                ints.set_usbsusp(false);
-                self.restore_irqs();
-            }
-
-            if ints.enumdne() {
-                trace!("enumdne");
-
-                let speed = regs.dsts().read().enumspd();
-                let trdt = (self.instance.calculate_trdt_fn)(speed);
-                trace!("  speed={} trdt={}", speed.to_bits(), trdt);
-                regs.gusbcfg().modify(|w| w.set_trdt(trdt));
-                let usb_speed = match speed {
-                    vals::Dspd::HIGH_SPEED => Speed::High,
-                    vals::Dspd::FULL_SPEED_EXTERNAL | vals::Dspd::FULL_SPEED_INTERNAL => Speed::Full,
-                    vals::Dspd::LOW_SPEED => Speed::Low,
-                };
-
-                // Clear a suspend that is no longer applicable here also. An earlier poll can
-                // process the reset. The core can set USBSUSP again after that poll.
-                regs.gintsts().write(|w| {
-                    w.set_usbsusp(true);
-                    w.set_enumdne(true);
-                });
-                self.restore_irqs();
-
-                return Poll::Ready(Event::Reset(usb_speed));
-            }
-
-            if ints.usbsusp() {
-                trace!("suspend");
-                regs.gintsts().write(|w| w.set_usbsusp(true)); // clear
-                self.restore_irqs();
-                return Poll::Ready(Event::Suspend);
-            }
-
-            if ints.wkupint() {
-                trace!("resume");
-                regs.gintsts().write(|w| w.set_wkupint(true)); // clear
-                self.restore_irqs();
-                return Poll::Ready(Event::Resume);
-            }
-
-            Poll::Pending
+        poll_fn(|cx| match self.poll_bus(cx) {
+            Poll::Ready(evt) => Poll::Ready(evt),
+            // A bus event goes first: it makes a SETUP received before it stale.
+            Poll::Pending => self.control.poll_setup(cx).map(Event::Setup),
         })
         .await
+    }
+
+    fn control_max_packet_size(&self) -> usize {
+        self.control.max_packet_size()
+    }
+
+    async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        self.control.data_out_transfer(buf).await
+    }
+
+    async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        self.control.data_in_transfer(data, needs_zlp).await
+    }
+
+    async fn control_accept(&mut self) {
+        self.control.accept().await
+    }
+
+    async fn control_reject(&mut self) {
+        self.control.reject().await
+    }
+
+    async fn control_accept_set_address(&mut self, addr: u8) {
+        self.control.accept_set_address(addr).await
     }
 
     async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
@@ -2250,8 +2281,8 @@ where
     }
 }
 
-/// USB control pipe.
-pub struct ControlPipe<'d, M = CriticalSectionRawMutex>
+/// The control pipe, which `Bus` drives with its `control_*` methods.
+struct ControlPipe<'d, M = CriticalSectionRawMutex>
 where
     M: RawMutex + Copy,
 {
@@ -2261,9 +2292,11 @@ where
     ep_in: Endpoint<'d, In, M>,
     ep_out: Endpoint<'d, Out, M>,
     mutex: M,
+    /// Whether VBUS removal is reported as `Event::PowerRemoved`.
+    power_events: bool,
 }
 
-impl<'d, M> embassy_usb_driver::ControlPipe for ControlPipe<'d, M>
+impl<'d, M> ControlPipe<'d, M>
 where
     M: RawMutex + Copy,
 {
@@ -2271,77 +2304,94 @@ where
         usize::from(self.max_packet_size)
     }
 
-    async fn setup(&mut self) -> [u8; 8] {
-        poll_fn(|cx| {
-            self.ep_out.state.out_waker.register(cx.waker());
+    /// Takes a pending SETUP packet, and arms EP0 OUT for its transfer.
+    fn poll_setup(&mut self, cx: &mut Context<'_>) -> Poll<[u8; 8]> {
+        self.ep_out.state.out_waker.register(cx.waker());
 
-            if !self.setup_state.setup_ready.load(Ordering::Acquire) {
-                trace!("SETUP waiting");
-                return Poll::Pending;
+        if !self.setup_state.setup_ready.load(Ordering::Acquire) {
+            trace!("SETUP waiting");
+            return Poll::Pending;
+        }
+
+        // Take the SETUP and arm EP0 OUT for its transfer in one critical section, so that the
+        // interrupt handler cannot read a newer SETUP from the RX FIFO in between.
+        let data = self.mutex.lock(|| {
+            // An entry that the interrupt handler did not read yet can be a newer SETUP.
+            if self.regs.gintsts().read().rxflvl() {
+                return None;
             }
 
-            // Take the SETUP and arm EP0 OUT for its transfer in one critical section, so that the
-            // interrupt handler cannot read a newer SETUP from the RX FIFO in between.
-            let data = self.mutex.lock(|| {
-                // An entry that the interrupt handler did not read yet can be a newer SETUP.
-                if self.regs.gintsts().read().rxflvl() {
-                    return None;
-                }
+            let mut data = [0; 8];
+            data[0..4].copy_from_slice(&self.setup_state.setup_data[0].load(Ordering::Relaxed).to_ne_bytes());
+            data[4..8].copy_from_slice(&self.setup_state.setup_data[1].load(Ordering::Relaxed).to_ne_bytes());
+            self.setup_state.setup_ready.store(false, Ordering::Release);
+            self.setup_state.setup_pending.store(false, Ordering::Release);
 
-                let mut data = [0; 8];
-                data[0..4].copy_from_slice(&self.setup_state.setup_data[0].load(Ordering::Relaxed).to_ne_bytes());
-                data[4..8].copy_from_slice(&self.setup_state.setup_data[1].load(Ordering::Relaxed).to_ne_bytes());
-                self.setup_state.setup_ready.store(false, Ordering::Release);
-                self.setup_state.setup_pending.store(false, Ordering::Release);
+            // Discard a packet that an aborted stage of the previous transfer did not read.
+            self.ep_out.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
 
-                // Discard a packet that an aborted stage of the previous transfer did not read.
-                self.ep_out.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
-
-                // Clear NAK to indicate we are ready to receive more data. This is the only place
-                // that arms EP0 OUT for the first packet of a transfer: the status stage does
-                // not arm it again.
-                let index = self.ep_out.info.addr.index();
-                self.regs.doeptsiz(index).modify(|w| {
-                    w.set_rxdpid_stupcnt(3);
-                    w.set_pktcnt(1);
-                    w.set_xfrsiz(u32::from(self.max_packet_size));
-                });
-                self.regs.doepctl(index).modify(|w| {
-                    w.set_epena(true);
-                    w.set_cnak(true);
-                });
-
-                Some(data)
+            // Clear NAK to indicate we are ready to receive more data. This is the only place
+            // that arms EP0 OUT for the first packet of a transfer: the status stage does
+            // not arm it again.
+            let index = self.ep_out.info.addr.index();
+            self.regs.doeptsiz(index).modify(|w| {
+                w.set_rxdpid_stupcnt(3);
+                w.set_pktcnt(1);
+                w.set_xfrsiz(u32::from(self.max_packet_size));
+            });
+            self.regs.doepctl(index).modify(|w| {
+                w.set_epena(true);
+                w.set_cnak(true);
             });
 
-            match data {
-                Some(data) => {
-                    trace!("SETUP received: {:?}", Bytes(&data));
-                    Poll::Ready(data)
-                }
-                None => {
-                    // The interrupt handler empties the RX FIFO. Then try again.
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                }
+            Some(data)
+        });
+
+        match data {
+            Some(data) => {
+                trace!("SETUP received: {:?}", Bytes(&data));
+                Poll::Ready(data)
             }
-        })
-        .await
+            None => {
+                // The interrupt handler empties the RX FIFO. Then try again.
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+        }
     }
 
     async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         trace!("control: data_out_transfer len={}", buf.len());
-        let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
-        let len =
-            abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_out.read_transfer(buf)).await?;
+        let (regs, mutex, setup_state, ep0_out, power_events) = (
+            self.regs,
+            self.mutex,
+            self.setup_state,
+            self.ep_out.state,
+            self.power_events,
+        );
+        let len = abort_on_new_setup_or_reset(
+            regs,
+            mutex,
+            setup_state,
+            ep0_out,
+            power_events,
+            self.ep_out.read_transfer(buf),
+        )
+        .await?;
         trace!("control: data_out_transfer read: {:?}", Bytes(&buf[..len]));
         Ok(len)
     }
 
     async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
         trace!("control: data_in_transfer len={} zlp={}", data.len(), needs_zlp);
-        let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
-        abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, async {
+        let (regs, mutex, setup_state, ep0_out, power_events) = (
+            self.regs,
+            self.mutex,
+            self.setup_state,
+            self.ep_out.state,
+            self.power_events,
+        );
+        abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, power_events, async {
             self.ep_in.write_transfer(data, needs_zlp).await?;
 
             // wait for status response from host after completing transfer
@@ -2362,10 +2412,23 @@ where
     async fn accept(&mut self) {
         trace!("control: accept");
 
-        let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
-        abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_in.write_transfer(&[], false))
-            .await
-            .ok();
+        let (regs, mutex, setup_state, ep0_out, power_events) = (
+            self.regs,
+            self.mutex,
+            self.setup_state,
+            self.ep_out.state,
+            self.power_events,
+        );
+        abort_on_new_setup_or_reset(
+            regs,
+            mutex,
+            setup_state,
+            ep0_out,
+            power_events,
+            self.ep_in.write_transfer(&[], false),
+        )
+        .await
+        .ok();
 
         trace!("control: accept OK");
     }
@@ -2395,15 +2458,17 @@ where
     }
 }
 
-/// Runs a control transfer stage until it completes or the host abandons the transfer with a new
-/// SETUP or a bus reset. EP0's EPENA and enabled flags survive a reset, so without this a stage can
-/// wait forever, and the reset is never handled: embassy-usb doesn't poll the bus during a control
+/// Runs a control transfer stage until it completes or it can no longer complete: the host
+/// abandoned it with a new SETUP, or the bus was reset or suspended, or VBUS was removed
+/// (`power_events`). EP0's EPENA and enabled flags survive a reset, so without this a stage can
+/// wait forever, and the event is never handled: embassy-usb doesn't poll the bus during a control
 /// transfer. Returns `EndpointDisabledError` when the transfer was abandoned.
 async fn abort_on_new_setup_or_reset<T, E: From<EndpointDisabledError>, M: RawMutex>(
     regs: Otg,
     mutex: M,
     setup_state: &ControlPipeSetupState,
     ep0_out: &EpState,
+    power_events: bool,
     stage: impl Future<Output = Result<T, E>>,
 ) -> Result<T, E> {
     let mut stage = pin!(stage);
@@ -2411,11 +2476,16 @@ async fn abort_on_new_setup_or_reset<T, E: From<EndpointDisabledError>, M: RawMu
         // The interrupt wakes this waker on a SETUP and on any bus event.
         ep0_out.out_waker.register(cx.waker());
         // Check before polling the stage, so that it does not start a transfer after a reset.
-        // Leave both set: setup() consumes the SETUP and Bus::poll clears USBRST. A SETUP aborts
-        // the stage from the moment its data is read, before STUP, so that the stage does not
-        // arm EP0 OUT in between.
-        if setup_state.setup_pending.load(Ordering::Acquire) || regs.gintsts().read().usbrst() {
-            trace!("control: received another SETUP or a bus reset, aborting");
+        // Leave all of them set: Bus::poll consumes the SETUP and clears USBRST, USBSUSP and the
+        // session end. A SETUP aborts the stage from the moment its data is read, before STUP, so
+        // that the stage does not arm EP0 OUT in between.
+        let ints = regs.gintsts().read();
+        if setup_state.setup_pending.load(Ordering::Acquire)
+            || ints.usbrst()
+            || ints.usbsusp()
+            || (power_events && ints.otgint() && regs.gotgint().read().sedet())
+        {
+            trace!("control: received another SETUP or a bus event, aborting");
             return Poll::Ready(Err(EndpointDisabledError.into()));
         }
 

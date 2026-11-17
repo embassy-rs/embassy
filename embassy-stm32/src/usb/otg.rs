@@ -1,12 +1,14 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
-use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointConfig, Event, Unsupported};
+use embassy_usb_driver::{
+    EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, Event, Unsupported,
+};
 pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State,
+    Bus as OtgBus, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -266,7 +268,6 @@ impl<'d, T: Instance> Driver<'d, T> {
 impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
-    type ControlPipe = ControlPipe<'d>;
     type Bus = Bus<'d, T>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
@@ -277,17 +278,14 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
         self.inner.alloc_endpoint_out(config)
     }
 
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
-        let (bus, cp) = self.inner.start(control_max_packet_size);
+    fn start(self, control_max_packet_size: u16) -> Self::Bus {
+        let bus = self.inner.start(control_max_packet_size);
 
-        (
-            Bus {
-                phantom: PhantomData,
-                inner: bus,
-                inited: false,
-            },
-            cp,
-        )
+        Bus {
+            phantom: PhantomData,
+            inner: bus,
+            inited: false,
+        }
     }
 }
 
@@ -402,6 +400,30 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
         }
 
         self.inner.poll().await
+    }
+
+    fn control_max_packet_size(&self) -> usize {
+        self.inner.control_max_packet_size()
+    }
+
+    async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        self.inner.control_data_out(buf).await
+    }
+
+    async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        self.inner.control_data_in(data, needs_zlp).await
+    }
+
+    async fn control_accept(&mut self) {
+        self.inner.control_accept().await
+    }
+
+    async fn control_reject(&mut self) {
+        self.inner.control_reject().await
+    }
+
+    async fn control_accept_set_address(&mut self, addr: u8) {
+        self.inner.control_accept_set_address(addr).await
     }
 
     async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
