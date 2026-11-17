@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `trace` feature callbacks are now defined as a trait: implement
   `embassy_executor::raw::trace::Trace` and register it with
   `embassy_executor::trace_impl!`.
+- With the `trace` feature, each task now has a user-defined trace data pointer
+  (`MetadataRef::trace_data` / `set_trace_data`), reset to `None` on spawn, e.g. to attach
+  per-task profiling statistics that are cheaply reachable from the trace hooks.
 - Added `platform-riscv64` for RISC-V 64-bit targets (thread executor only, uses `WFI`; shares implementation with `platform-riscv32`).
 - Relaxed memory ordering of work flag in RISC-V thread executor.
 - Skip the run queue's `take_all` write when the queue is empty.
