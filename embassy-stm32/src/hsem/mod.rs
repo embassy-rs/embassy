@@ -1,11 +1,12 @@
 //! Hardware Semaphore (HSEM)
 
+use core::cell::Cell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
-use critical_section::CriticalSection;
+use critical_section::{CriticalSection, Mutex};
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use interrupt::typelevel::Interrupt;
@@ -60,6 +61,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for HardwareSemaph
         let core = CoreId::current();
         // Get pending semaphore bits from masked ISR for the current core
         let mut pending = T::regs().misr(core.to_index().into()).read().0;
+
+        // Clear the pending flags here. Disabling a semaphore in IER does not clear an already set
+        // MISF, and the interrupt line stays asserted until every MISF of the enabled semaphores is
+        // cleared (RM0399 11.3.7), so leaving this to `listen()` re-enters the handler forever.
+        // The cleared flags are latched in the state for the woken `listen()` futures.
+        T::regs().icr(core.to_index().into()).write(|w| w.0 = pending);
+        T::state().latch(pending);
 
         T::regs().ier(core.to_index().into()).modify(|w| {
             while pending != 0 {
@@ -199,12 +207,19 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
         let _scoped_wake_guard = T::RCC_INFO.wake_guard();
         let core = CoreId::current();
 
+        // Discard notifications latched before this call, like the flag clear below.
+        T::state().take(self.index);
         let _irq = self.clear_and_enable_interupt(core);
         // Wait for the semaphore interrupt flag
         poll_fn(|cx| {
             T::state().waker_for(self.index).register(cx.waker());
 
             compiler_fence(Ordering::SeqCst);
+
+            // Notification seen and cleared by the interrupt handler.
+            if T::state().take(self.index) {
+                return Poll::Ready(());
+            }
 
             if T::regs().misr(core.to_index().into()).read().misf(self.index.into()) {
                 T::regs()
@@ -437,17 +452,40 @@ pub(crate) const fn get_hsem<'a>(index: usize) -> HardwareSemaphoreChannel<'a, c
 
 struct State {
     wakers: [AtomicWaker; CHANNELS],
+    /// Notifications cleared by the interrupt handler and not yet consumed by `listen()`, one bit per
+    /// semaphore. A critical section instead of an atomic, for cores without atomic RMW (Cortex-M0+).
+    pending: Mutex<Cell<u32>>,
 }
 
 impl State {
     const fn new() -> Self {
         Self {
             wakers: [const { AtomicWaker::new() }; CHANNELS],
+            pending: Mutex::new(Cell::new(0)),
         }
     }
 
     const fn waker_for(&self, index: u8) -> &AtomicWaker {
         &self.wakers[index as usize]
+    }
+
+    /// Record notifications cleared by the interrupt handler.
+    fn latch(&self, bits: u32) {
+        critical_section::with(|cs| {
+            let pending = self.pending.borrow(cs);
+            pending.set(pending.get() | bits);
+        });
+    }
+
+    /// Consume the latched notification for semaphore `index`, returning whether there was one.
+    fn take(&self, index: u8) -> bool {
+        critical_section::with(|cs| {
+            let pending = self.pending.borrow(cs);
+            let bit = 1u32 << index;
+            let was_set = pending.get() & bit != 0;
+            pending.set(pending.get() & !bit);
+            was_set
+        })
     }
 }
 
