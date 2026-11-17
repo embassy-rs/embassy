@@ -2,7 +2,7 @@
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::interrupt::InterruptExt;
@@ -31,6 +31,12 @@ impl<T: ChannelInstance> interrupt::typelevel::Handler<T::Interrupt> for Interru
         let ints0 = pac::DMA.ints(0).read();
         if ints0 & (1 << channel) != 0 {
             pac::DMA.ints(0).write_value(1 << channel);
+
+            // A plain load/store rather than fetch_add: thumbv6m has no atomic RMW, and this
+            // handler is the only writer. A lost count if two cores ever service the same
+            // channel is tolerable — consumers cross-check against the channel address.
+            let completions = &CHANNEL_COMPLETIONS[channel];
+            completions.store(completions.load(Ordering::Relaxed).wrapping_add(1), Ordering::Relaxed);
 
             CHANNEL_WAKERS[channel].wake();
         }
@@ -331,6 +337,30 @@ pub(crate) const CHANNEL_COUNT: usize = 12;
 #[cfg(feature = "_rp235x")]
 pub(crate) const CHANNEL_COUNT: usize = 16;
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [const { AtomicWaker::new() }; CHANNEL_COUNT];
+
+/// Waker woken by [`InterruptHandler`] when the given channel completes a transfer.
+///
+/// Drivers that drive a channel through the raw registers rather than through [`Transfer`]
+/// (for example a continuously chained ring) can register on this to be woken on completion.
+/// The channel must be configured with `irq_quiet = false` and have its `INTE` bit set, which
+/// [`Channel::new`] does.
+pub(crate) fn channel_waker(number: u8) -> &'static AtomicWaker {
+    &CHANNEL_WAKERS[number as usize]
+}
+
+static CHANNEL_COMPLETIONS: [AtomicU32; CHANNEL_COUNT] = [const { AtomicU32::new(0) }; CHANNEL_COUNT];
+
+/// Number of transfers [`InterruptHandler`] has seen the given channel complete.
+///
+/// Wraps on overflow; compare with a baseline using `wrapping_sub`. Only meaningful for a
+/// channel configured with `irq_quiet = false`.
+///
+/// A channel's `INTS` bit is a single latched flag, so completions occurring before the handler
+/// runs are counted once. Callers must treat this as a lower bound and cross-check it against
+/// the channel's live address.
+pub(crate) fn channel_completions(number: u8) -> u32 {
+    CHANNEL_COMPLETIONS[number as usize].load(Ordering::Relaxed)
+}
 
 trait SealedChannelInstance {}
 trait SealedWord {}
