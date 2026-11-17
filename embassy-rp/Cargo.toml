@@ -12,14 +12,10 @@ documentation = "https://docs.embassy.dev/embassy-rp"
 [package.metadata.embassy]
 build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "rp2040", "time-driver"]},
-    {target = "thumbv6m-none-eabi", features = ["chrono", "rp2040", "time-driver"]},
-    {target = "thumbv6m-none-eabi", features = ["chrono", "defmt", "rp2040", "time-driver"]},
     {target = "thumbv6m-none-eabi", features = ["log", "rp2040", "time-driver"]},
     {target = "thumbv6m-none-eabi", features = ["intrinsics", "rp2040", "time-driver"]},
     {target = "thumbv6m-none-eabi", features = ["qspi-as-gpio", "rp2040", "time-driver"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "rp235xa", "time-driver"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["chrono", "rp235xa", "time-driver"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["chrono", "defmt", "rp235xa", "time-driver"]},
     {target = "thumbv8m.main-none-eabihf", features = ["log", "rp235xa", "time-driver"]},
     {target = "thumbv8m.main-none-eabihf", features = ["binary-info", "rp235xa", "time-driver"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "rp235xa", "time-driver", "embassy-crypto-rng"]},
@@ -49,15 +45,18 @@ default = [ "rt" ]
 rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
-defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt", "chrono?/defmt", "embassy-crypto?/defmt", "embassy-time/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt", "embassy-crypto?/defmt", "embassy-time/defmt"]
 ## Implement `defmt::Format` for PAC types.
 pac-defmt = ["rp-pac/defmt"]
 ## Implement `core::fmt::Debug` for PAC types.
 pac-debug = ["rp-pac/debug"]
 ## Enable log support
 log = ["dep:log"]
-## Enable chrono support
-chrono = ["dep:chrono"]
+## Enable the RTC API based on `jiff::civil::DateTime`: `Rtc::read` and `Rtc::set`. Only the RP2040
+## has an RTC.
+##
+## On the RP2040, jiff needs `portable-atomic` with its `critical-section` feature enabled.
+jiff = ["dep:jiff"]
 
 ## Configure the [`critical-section`](https://docs.rs/critical-section) crate to use an implementation that is safe for multicore use on rp2040.
 critical-section-impl = ["critical-section/restore-state-u8"]
@@ -185,7 +184,7 @@ log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 critical-section = "1.2.0"
-chrono = { version = "0.4.43", default-features = false, optional = true }
+jiff = { version = "1.0.0", default-features = false, optional = true }
 embedded-io = { version = "0.7.1" }
 embedded-io-async = { version = "0.7.0" }
 embedded-storage = { version = "0.3" }

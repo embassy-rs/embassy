@@ -25,7 +25,7 @@ cargo test --manifest-path ./embassy-boot/Cargo.toml
 
 cargo test --manifest-path ./embassy-nrf/Cargo.toml --no-default-features --features nrf52840,time-driver-rtc1
 
-cargo test --manifest-path ./embassy-rp/Cargo.toml --no-default-features --features time-driver,rp2040,_test
+cargo test --manifest-path ./embassy-rp/Cargo.toml --no-default-features --features time-driver,rp2040,jiff,_test
 cargo test --manifest-path ./embassy-rp/Cargo.toml --no-default-features --features time-driver,rp235xa,_test
 
 cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f429vg,time-driver-any,exti,single-bank,low-power,jiff,test

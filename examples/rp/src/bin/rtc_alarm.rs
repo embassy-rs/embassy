@@ -8,7 +8,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_rp::bind_interrupts;
-use embassy_rp::rtc::{DateTime, DateTimeFilter, DayOfWeek, Rtc};
+use embassy_rp::rtc::{DateTimeFilter, RawDateTime, Rtc};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -24,16 +24,16 @@ async fn main(_spawner: Spawner) {
 
     if !rtc.is_running() {
         info!("Start RTC");
-        let now = DateTime {
+        // The raw API does no validation: these values are written to the RTC registers as is.
+        rtc.set_raw(RawDateTime {
             year: 2000,
             month: 1,
             day: 1,
-            day_of_week: DayOfWeek::Saturday,
+            day_of_week: 6, // Saturday
             hour: 0,
             minute: 0,
             second: 0,
-        };
-        rtc.set_datetime(now).unwrap();
+        });
     }
 
     loop {
@@ -41,7 +41,7 @@ async fn main(_spawner: Spawner) {
         match select(Timer::after_secs(5), rtc.wait_for_alarm()).await {
             // Timer expired
             Either::First(_) => {
-                let dt = rtc.now().unwrap();
+                let dt = rtc.read_raw();
                 info!(
                     "Now: {}-{:02}-{:02} {}:{:02}:{:02}",
                     dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
@@ -56,7 +56,7 @@ async fn main(_spawner: Spawner) {
             }
             // Alarm triggered
             Either::Second(_) => {
-                let dt = rtc.now().unwrap();
+                let dt = rtc.read_raw();
                 info!(
                     "ALARM TRIGGERED! Now: {}-{:02}-{:02} {}:{:02}:{:02}",
                     dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
