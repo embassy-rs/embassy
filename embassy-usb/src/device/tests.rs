@@ -210,6 +210,11 @@ impl ControlPipe for TestControlPipe {
     }
 
     async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        // Drivers wait for a data packet here, so a request without a data stage must not call it.
+        assert!(
+            !buf.is_empty(),
+            "data_out_transfer called for a request without a data stage"
+        );
         buf.fill(0);
         let len = buf.len().min(self.out_data.len());
         buf[..len].copy_from_slice(&self.out_data[..len]);
