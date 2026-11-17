@@ -42,8 +42,7 @@ pub enum HealthTestConfig {
 
 #[cfg(not(rng_v1))]
 /// RNG configuration knobs for reset/initialization policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct RngConfig {
     /// NIST/custom conditioning mode selection.
     pub nistc: pac::rng::vals::Nistc,

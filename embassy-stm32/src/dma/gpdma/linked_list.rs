@@ -111,8 +111,7 @@ pub trait LinkedListItem: Copy + Default + Sized {
 /// This is the first 5 words of every GPDMA linked-list descriptor.
 /// Both [`LinearItem`] and [`TwoDItem`](super::two_d::TwoDItem) embed
 /// this as their first field so the `#[repr(C)]` hardware layout is preserved.
-#[derive(Debug, Copy, Clone, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, Default)]
 #[repr(C)]
 pub struct Item {
     /// Transfer register 1.
@@ -208,8 +207,7 @@ impl Item {
 /// A linked-list item for linear GPDMA transfers.
 ///
 /// Also works for 2D-capable GPDMA channels, but does not use 2D capabilities.
-#[derive(Debug, Copy, Clone, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, Default)]
 #[repr(C)]
 pub struct LinearItem {
     /// Common item fields (TR1, TR2, BR1, SAR, DAR).

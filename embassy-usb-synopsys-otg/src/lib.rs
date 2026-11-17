@@ -23,8 +23,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "embassy-time")]
 use embassy_time::{Duration, Instant};
 use embassy_usb_driver::{
-    Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointError, EndpointIn, EndpointInfo,
-    EndpointOut, EndpointType, Event, Unsupported,
+    Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointIn,
+    EndpointInfo, EndpointOut, EndpointType, Event, Speed, Unsupported,
 };
 
 use crate::fmt::Bytes;
@@ -82,6 +82,11 @@ where
                 let data = &state.cp_state.setup_data;
                 data[0].store(r.fifo(0).read().data(), Ordering::Relaxed);
                 data[1].store(r.fifo(0).read().data(), Ordering::Relaxed);
+
+                // The core gives this SETUP to the software with STUP. Until then, and until
+                // `setup()` takes it, nothing must clear NAK on EP0 OUT.
+                state.cp_state.setup_ready.store(false, Ordering::Release);
+                state.cp_state.setup_pending.store(true, Ordering::Release);
             }
             vals::Pktstsd::OUT_DATA_RX => {
                 trace!("OUT_DATA_RX ep={} len={}", ep_num, len);
@@ -355,6 +360,9 @@ struct ControlPipeSetupState {
     /// Holds received SETUP packets. Available if [Ep0State::setup_ready] is true.
     setup_data: [AtomicU32; 2],
     setup_ready: AtomicBool,
+    /// Set when the data of a SETUP packet is read from the RX FIFO, which is before its STUP
+    /// interrupt sets `setup_ready`. Cleared when `setup()` takes the packet.
+    setup_pending: AtomicBool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -475,6 +483,7 @@ where
             ep.out_enabled.store(false, Ordering::Release);
         }
         self.cp_state.setup_ready.store(false, Ordering::Release);
+        self.cp_state.setup_pending.store(false, Ordering::Release);
     }
 
     /// # Safety
@@ -509,6 +518,7 @@ where
             cp_state: ControlPipeSetupState {
                 setup_data: [const { AtomicU32::new(0) }; 2],
                 setup_ready: AtomicBool::new(false),
+                setup_pending: AtomicBool::new(false),
             },
             ep_states: [const {
                 EpState {
@@ -636,13 +646,13 @@ where
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval_ms: u8,
+        interval: u8,
     ) -> Result<Endpoint<'d, D, M>, EndpointAllocError> {
         trace!(
-            "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
+            "allocating type={:?} mps={:?} interval={}, dir={:?}",
             ep_type,
             max_packet_size,
-            interval_ms,
+            interval,
             D::dir()
         );
 
@@ -743,13 +753,12 @@ where
             regs: self.instance.regs,
             mutex: self.instance.state.mutex,
             state: ep_state,
-            info: EndpointInfo {
-                addr: EndpointAddress::from_parts(index, D::dir()),
+            info: EndpointInfo::new(
+                EndpointAddress::from_parts(index, D::dir()),
                 ep_type,
                 max_packet_size,
-                interval_ms,
-                max_burst: 0,
-            },
+                interval,
+            ),
         })
     }
 }
@@ -764,11 +773,11 @@ where
     type Bus = Bus<'d, M>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -1302,6 +1311,7 @@ where
         // A packet or a SETUP in these buffers is from the previous session. If the software
         // keeps this data, the stack receives it as data from after the reset.
         st.cp_state.setup_ready.store(false, Ordering::Release);
+        st.cp_state.setup_pending.store(false, Ordering::Release);
         for ep in st.ep_states {
             ep.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
         }
@@ -1519,6 +1529,11 @@ where
                 let trdt = (self.instance.calculate_trdt_fn)(speed);
                 trace!("  speed={} trdt={}", speed.to_bits(), trdt);
                 regs.gusbcfg().modify(|w| w.set_trdt(trdt));
+                let usb_speed = match speed {
+                    vals::Dspd::HIGH_SPEED => Speed::High,
+                    vals::Dspd::FULL_SPEED_EXTERNAL | vals::Dspd::FULL_SPEED_INTERNAL => Speed::Full,
+                    vals::Dspd::LOW_SPEED => Speed::Low,
+                };
 
                 // Clear a suspend that is no longer applicable here also. An earlier poll can
                 // process the reset. The core can set USBSUSP again after that poll.
@@ -1528,7 +1543,7 @@ where
                 });
                 self.restore_irqs();
 
-                return Poll::Ready(Event::Reset);
+                return Poll::Ready(Event::Reset(usb_speed));
             }
 
             if ints.usbsusp() {
@@ -1550,7 +1565,7 @@ where
         .await
     }
 
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
         trace!("endpoint_set_stalled ep={:?} en={}", ep_addr, stalled);
 
         let regs = self.instance.regs;
@@ -1582,7 +1597,7 @@ where
         is_endpoint_stalled(self.instance.regs, ep_addr.index(), ep_addr.direction())
     }
 
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         trace!("endpoint_set_enabled ep={:?} en={}", ep_addr, enabled);
 
         assert!(
@@ -1674,6 +1689,22 @@ where
         }
     }
 
+    fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool {
+        assert!(
+            ep_addr.index() < self.instance.state.endpoint_count(),
+            "endpoint_is_enabled index {} out of range",
+            ep_addr.index()
+        );
+        match ep_addr.direction() {
+            Direction::Out => self.instance.state.ep_states[ep_addr.index()]
+                .out_enabled
+                .load(Ordering::Acquire),
+            Direction::In => self.instance.state.ep_states[ep_addr.index()]
+                .in_enabled
+                .load(Ordering::Acquire),
+        }
+    }
+
     async fn enable(&mut self) {
         trace!("enable");
         self.init_device();
@@ -1756,8 +1787,8 @@ impl<'d, M> embassy_usb_driver::Endpoint for Endpoint<'d, In, M>
 where
     M: RawMutex + Copy,
 {
-    fn info(&self) -> &EndpointInfo {
-        &self.info
+    fn info(&self) -> EndpointInfo {
+        self.info
     }
 
     async fn wait_enabled(&mut self) {
@@ -1773,7 +1804,11 @@ where
         .await
     }
 
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    fn is_enabled(&self) -> bool {
+        self.state.in_enabled.load(Ordering::Acquire)
+    }
+
+    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled(
             self.regs,
             self.mutex,
@@ -1794,8 +1829,8 @@ impl<'d, M> embassy_usb_driver::Endpoint for Endpoint<'d, Out, M>
 where
     M: RawMutex + Copy,
 {
-    fn info(&self) -> &EndpointInfo {
-        &self.info
+    fn info(&self) -> EndpointInfo {
+        self.info
     }
 
     async fn wait_enabled(&mut self) {
@@ -1811,7 +1846,11 @@ where
         .await
     }
 
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    fn is_enabled(&self) -> bool {
+        self.state.out_enabled.load(Ordering::Acquire)
+    }
+
+    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled(
             self.regs,
             self.mutex,
@@ -1839,6 +1878,12 @@ where
             // One packet per transfer, so that each packet gets its own frame parity.
             return max_packet_size;
         }
+        if self.info.addr.index() == 0 {
+            // The transfer size registers of EP0 are much narrower than GHWCFG3 says for the other
+            // endpoints: XFRSIZ has 7 bits, so 128 bytes would program as 0, and the packet count
+            // has 2 bits for IN and 1 bit for OUT. Do one packet per transfer, as other stacks do.
+            return max_packet_size;
+        }
 
         // GHWCFG3 gives the width of the transfer size counter, minus 11, and of the packet
         // counter, minus 4.
@@ -1854,7 +1899,7 @@ where
     M: RawMutex + Copy,
 {
     /// Waits for a packet and reads it from `out_buffer`. The endpoint is idle afterwards.
-    async fn read_packet(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+    async fn read_packet_inner(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         trace!("read start len={}", buf.len());
 
         poll_fn(|cx| {
@@ -1981,7 +2026,7 @@ impl<M: RawMutex + Copy> Drop for OutXferGuard<'_, '_, M> {
         // SAFETY: `State::mutex` is held.
         ep.mutex.lock(|| unsafe { *ep.state.out_xfer.get() = None });
 
-        // The data of the transfer is lost. Wait for the next packet, like `read` does.
+        // The data of the transfer is lost. Wait for the next packet, like `read_packet` does.
         if ep.state.out_enabled.load(Ordering::Acquire) {
             ep.arm_out(1);
         }
@@ -1992,17 +2037,11 @@ impl<'d, M> embassy_usb_driver::EndpointOut for Endpoint<'d, Out, M>
 where
     M: RawMutex + Copy,
 {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        let len = self.read_packet(buf).await?;
-        self.arm_out(1);
-        Ok(len)
-    }
-
     async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let max_packet_size = usize::from(self.info.max_packet_size);
 
-        // The endpoint is already armed for one packet, by `read` or when it was enabled.
-        let mut n = self.read_packet(buf).await?;
+        // The endpoint is already armed for one packet, by `read_transfer` or when it was enabled.
+        let mut n = self.read_packet_inner(buf).await?;
         let mut ended = n < max_packet_size;
 
         // Receive the whole packets that fit in the rest of `buf` as multi-packet transfers.
@@ -2016,7 +2055,8 @@ where
 
         // Less than a max-size packet of space is left.
         if !ended && n < buf.len() {
-            n += self.read(&mut buf[n..]).await?;
+            n += self.read_packet_inner(&mut buf[n..]).await?;
+            self.arm_out(1);
         }
         Ok(n)
     }
@@ -2027,14 +2067,14 @@ where
     M: RawMutex + Copy,
 {
     /// Waits for the previous transfer to complete.
-    async fn wait_in_idle(&mut self) -> Result<(), EndpointError> {
+    async fn wait_in_idle(&mut self) -> Result<(), EndpointDisabledError> {
         let index = self.info.addr.index();
         poll_fn(|cx| {
             self.state.in_waker.register(cx.waker());
 
             if !self.state.in_enabled.load(Ordering::Acquire) {
                 trace!("write ep={:?} wait for prev: error disabled", self.info.addr);
-                return Poll::Ready(Err(EndpointError::Disabled));
+                return Poll::Ready(Err(EndpointDisabledError));
             }
 
             let diepctl = self.regs.diepctl(index).read();
@@ -2055,13 +2095,13 @@ where
     }
 
     /// Waits for space for `len` bytes in the transmit FIFO.
-    async fn wait_fifo_space(&mut self, len: usize) -> Result<(), EndpointError> {
+    async fn wait_fifo_space(&mut self, len: usize) -> Result<(), EndpointDisabledError> {
         let index = self.info.addr.index();
         poll_fn(|cx| {
             self.state.in_waker.register(cx.waker());
 
             if !self.state.in_enabled.load(Ordering::Acquire) {
-                return Poll::Ready(Err(EndpointError::Disabled));
+                return Poll::Ready(Err(EndpointDisabledError));
             }
 
             let size_words = (len + 3) / 4;
@@ -2145,12 +2185,40 @@ impl<'d, M> embassy_usb_driver::EndpointIn for Endpoint<'d, In, M>
 where
     M: RawMutex + Copy,
 {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
-        trace!("write ep={:?} data={:?}", self.info.addr, Bytes(buf));
-
-        if buf.len() > self.info.max_packet_size as usize {
-            return Err(EndpointError::BufferOverflow);
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        if buf.is_empty() {
+            return self.write_packet_inner(&[]).await;
         }
+
+        let max_packet_size = usize::from(self.info.max_packet_size);
+
+        // The core sends each packet as soon as it is in the FIFO, so the next packets are written
+        // while earlier ones go out.
+        for transfer in buf.chunks(self.max_transfer_len()) {
+            trace!("write_transfer ep={:?} len={}", self.info.addr, transfer.len());
+            self.wait_in_idle().await?;
+            self.mutex.lock(|| self.start_in_transfer(transfer.len()));
+
+            for packet in transfer.chunks(max_packet_size) {
+                self.wait_fifo_space(packet.len()).await?;
+                // ERRATA: see `write_packet_inner`.
+                self.mutex.lock(|| self.write_fifo(packet));
+            }
+        }
+
+        if needs_zlp && buf.len().is_multiple_of(max_packet_size) {
+            self.write_packet_inner(&[]).await?;
+        }
+        Ok(())
+    }
+}
+
+impl<'d, M> Endpoint<'d, In, M>
+where
+    M: RawMutex + Copy,
+{
+    async fn write_packet_inner(&mut self, buf: &[u8]) -> Result<(), EndpointDisabledError> {
+        trace!("write_packet ep={:?} data={:?}", self.info.addr, Bytes(buf));
 
         self.wait_in_idle().await?;
         if buf.len() > 0 {
@@ -2166,31 +2234,8 @@ where
             self.write_fifo(buf);
         });
 
-        trace!("write done ep={:?}", self.info.addr);
+        trace!("write_packet done ep={:?}", self.info.addr);
 
-        Ok(())
-    }
-
-    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
-        let max_packet_size = usize::from(self.info.max_packet_size);
-
-        // The core sends each packet as soon as it is in the FIFO, so the next packets are written
-        // while earlier ones go out.
-        for transfer in buf.chunks(self.max_transfer_len()) {
-            trace!("write_transfer ep={:?} len={}", self.info.addr, transfer.len());
-            self.wait_in_idle().await?;
-            self.mutex.lock(|| self.start_in_transfer(transfer.len()));
-
-            for packet in transfer.chunks(max_packet_size) {
-                self.wait_fifo_space(packet.len()).await?;
-                // ERRATA: see `write`.
-                self.mutex.lock(|| self.write_fifo(packet));
-            }
-        }
-
-        if needs_zlp && buf.len().is_multiple_of(max_packet_size) {
-            self.write(&[]).await?;
-        }
         Ok(())
     }
 }
@@ -2220,52 +2265,84 @@ where
         poll_fn(|cx| {
             self.ep_out.state.out_waker.register(cx.waker());
 
-            if self.setup_state.setup_ready.load(Ordering::Acquire) {
+            if !self.setup_state.setup_ready.load(Ordering::Acquire) {
+                trace!("SETUP waiting");
+                return Poll::Pending;
+            }
+
+            // Take the SETUP and arm EP0 OUT for its transfer in one critical section, so that the
+            // interrupt handler cannot read a newer SETUP from the RX FIFO in between.
+            let data = self.mutex.lock(|| {
+                // An entry that the interrupt handler did not read yet can be a newer SETUP.
+                if self.regs.gintsts().read().rxflvl() {
+                    return None;
+                }
+
                 let mut data = [0; 8];
                 data[0..4].copy_from_slice(&self.setup_state.setup_data[0].load(Ordering::Relaxed).to_ne_bytes());
                 data[4..8].copy_from_slice(&self.setup_state.setup_data[1].load(Ordering::Relaxed).to_ne_bytes());
                 self.setup_state.setup_ready.store(false, Ordering::Release);
+                self.setup_state.setup_pending.store(false, Ordering::Release);
 
-                // EP0 should not be controlled by `Bus` so this RMW does not need a critical section
-                self.regs.doeptsiz(self.ep_out.info.addr.index()).modify(|w| {
+                // Discard a packet that an aborted stage of the previous transfer did not read.
+                self.ep_out.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
+
+                // Clear NAK to indicate we are ready to receive more data. This is the only place
+                // that arms EP0 OUT for the first packet of a transfer: the status stage does
+                // not arm it again.
+                let index = self.ep_out.info.addr.index();
+                self.regs.doeptsiz(index).modify(|w| {
                     w.set_rxdpid_stupcnt(3);
+                    w.set_pktcnt(1);
+                    w.set_xfrsiz(u32::from(self.max_packet_size));
+                });
+                self.regs.doepctl(index).modify(|w| {
+                    w.set_epena(true);
+                    w.set_cnak(true);
                 });
 
-                // Clear NAK to indicate we are ready to receive more data
-                self.regs
-                    .doepctl(self.ep_out.info.addr.index())
-                    .modify(|w| w.set_cnak(true));
+                Some(data)
+            });
 
-                trace!("SETUP received: {:?}", Bytes(&data));
-                Poll::Ready(data)
-            } else {
-                trace!("SETUP waiting");
-                Poll::Pending
+            match data {
+                Some(data) => {
+                    trace!("SETUP received: {:?}", Bytes(&data));
+                    Poll::Ready(data)
+                }
+                None => {
+                    // The interrupt handler empties the RX FIFO. Then try again.
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
             }
         })
         .await
     }
 
-    async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
-        trace!("control: data_out");
+    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        trace!("control: data_out_transfer len={}", buf.len());
         let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
-        let len = abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_out.read(buf)).await?;
-        trace!("control: data_out read: {:?}", Bytes(&buf[..len]));
+        let len =
+            abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_out.read_transfer(buf)).await?;
+        trace!("control: data_out_transfer read: {:?}", Bytes(&buf[..len]));
         Ok(len)
     }
 
-    async fn data_in(&mut self, data: &[u8], _first: bool, last: bool) -> Result<(), EndpointError> {
-        trace!("control: data_in write: {:?}", Bytes(data));
+    async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        trace!("control: data_in_transfer len={} zlp={}", data.len(), needs_zlp);
         let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
         abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, async {
-            self.ep_in.write(data).await?;
+            self.ep_in.write_transfer(data, needs_zlp).await?;
 
-            // wait for status response from host after sending the last packet
-            if last {
-                trace!("control: data_in waiting for status");
-                self.ep_out.read(&mut []).await?;
-                trace!("control: complete");
-            }
+            // wait for status response from host after completing transfer
+            trace!("control: data_in waiting for status");
+            // Do not arm EP0 OUT again after the status packet: the next SETUP can already
+            // be on its way, and a clear of NAK before its STUP corrupts the RX FIFO.
+            self.ep_out
+                .read_packet_inner(&mut [])
+                .await
+                .map_err(|_| EndpointDisabledError)?;
+            trace!("control: complete");
 
             Ok(())
         })
@@ -2276,7 +2353,7 @@ where
         trace!("control: accept");
 
         let (regs, mutex, setup_state, ep0_out) = (self.regs, self.mutex, self.setup_state, self.ep_out.state);
-        abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_in.write(&[]))
+        abort_on_new_setup_or_reset(regs, mutex, setup_state, ep0_out, self.ep_in.write_transfer(&[], false))
             .await
             .ok();
 
@@ -2311,23 +2388,25 @@ where
 /// Runs a control transfer stage until it completes or the host abandons the transfer with a new
 /// SETUP or a bus reset. EP0's EPENA and enabled flags survive a reset, so without this a stage can
 /// wait forever, and the reset is never handled: embassy-usb doesn't poll the bus during a control
-/// transfer. Returns `EndpointError::Disabled` when the transfer was abandoned.
-async fn abort_on_new_setup_or_reset<T, M: RawMutex>(
+/// transfer. Returns `EndpointDisabledError` when the transfer was abandoned.
+async fn abort_on_new_setup_or_reset<T, E: From<EndpointDisabledError>, M: RawMutex>(
     regs: Otg,
     mutex: M,
     setup_state: &ControlPipeSetupState,
     ep0_out: &EpState,
-    stage: impl Future<Output = Result<T, EndpointError>>,
-) -> Result<T, EndpointError> {
+    stage: impl Future<Output = Result<T, E>>,
+) -> Result<T, E> {
     let mut stage = pin!(stage);
     poll_fn(|cx| {
         // The interrupt wakes this waker on a SETUP and on any bus event.
         ep0_out.out_waker.register(cx.waker());
         // Check before polling the stage, so that it does not start a transfer after a reset.
-        // Leave both set: setup() consumes `setup_ready` and Bus::poll clears USBRST.
-        if setup_state.setup_ready.load(Ordering::Acquire) || regs.gintsts().read().usbrst() {
+        // Leave both set: setup() consumes the SETUP and Bus::poll clears USBRST. A SETUP aborts
+        // the stage from the moment its data is read, before STUP, so that the stage does not
+        // arm EP0 OUT in between.
+        if setup_state.setup_pending.load(Ordering::Acquire) || regs.gintsts().read().usbrst() {
             trace!("control: received another SETUP or a bus reset, aborting");
-            return Poll::Ready(Err(EndpointError::Disabled));
+            return Poll::Ready(Err(EndpointDisabledError.into()));
         }
 
         // A bus event masks USBRST until Bus::poll runs, so a reset after a suspend would raise
@@ -2406,6 +2485,26 @@ mod tests {
     }
 
     #[test]
+    fn control_endpoint_transfers_one_packet_at_a_time() {
+        // The registers of EP0 are too narrow for more, see `max_transfer_len`. The test registers
+        // are a null pointer, so this also checks that it does not read them.
+        for max_packet_size in [8u16, 16, 32, 64] {
+            let storage = StateStorage::<4>::new(CriticalSectionRawMutex::new());
+            let mut buf = [0; 256];
+            let mut driver = Driver::new(&mut buf, instance(storage.as_state()), Config::default());
+            let ep_out = driver
+                .alloc_endpoint::<Out>(EndpointType::Control, None, max_packet_size, 0)
+                .unwrap();
+            let ep_in = driver
+                .alloc_endpoint::<In>(EndpointType::Control, None, max_packet_size, 0)
+                .unwrap();
+            assert_eq!(ep_in.info.addr.index(), 0);
+            assert_eq!(ep_in.max_transfer_len(), usize::from(max_packet_size));
+            assert_eq!(ep_out.max_transfer_len(), usize::from(max_packet_size));
+        }
+    }
+
+    #[test]
     fn rebuilt_driver_starts_from_clean_state() {
         let storage = StateStorage::<4>::new(CriticalSectionRawMutex::new());
         let state = storage.as_state();
@@ -2422,6 +2521,7 @@ mod tests {
         state.ep_states[0].in_enabled.store(true, Ordering::Release);
         state.ep_states[1].out_enabled.store(true, Ordering::Release);
         state.cp_state.setup_ready.store(true, Ordering::Release);
+        state.cp_state.setup_pending.store(true, Ordering::Release);
 
         let mut buf = [0; 256];
         let mut driver = Driver::new(&mut buf, instance(state), Config::default());
@@ -2432,6 +2532,7 @@ mod tests {
         assert!(!state.ep_states[0].in_enabled.load(Ordering::Acquire));
         assert!(!state.ep_states[1].out_enabled.load(Ordering::Acquire));
         assert!(!state.cp_state.setup_ready.load(Ordering::Acquire));
+        assert!(!state.cp_state.setup_pending.load(Ordering::Acquire));
         let _ = driver.start(64);
     }
 }

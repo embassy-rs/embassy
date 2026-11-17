@@ -289,7 +289,7 @@ impl<'d, D: Driver<'d>> CdcEcmClass<'d, D> {
 
     /// Write an Ethernet frame.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.write_ep.write_transfer(data, true).await
+        Ok(self.write_ep.write_transfer(data, true).await?)
     }
 
     /// Read an Ethernet frame.
@@ -313,10 +313,9 @@ impl<'d, D: Driver<'d>> CdcEcmClass<'d, D> {
                 0x00,                // wLength
                 0x00,                // |
             ];
-            match self.comm_ep.write(&buf).await {
+            match self.comm_ep.write_transfer(&buf, false).await {
                 Ok(()) => break,
-                Err(EndpointError::Disabled) => {}
-                Err(e) => return Err(e),
+                Err(_) => {}
             }
         }
         Ok(())
@@ -331,7 +330,7 @@ pub struct Sender<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> Sender<'d, D> {
     /// Write an Ethernet frame to the host.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.write_ep.write_transfer(data, true).await
+        Ok(self.write_ep.write_transfer(data, true).await?)
     }
 }
 
@@ -364,10 +363,9 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
                 0x00,                // wLength
                 0x00,                // |
             ];
-            match self.comm_ep.write(&buf).await {
+            match self.comm_ep.write_transfer(&buf, false).await {
                 Ok(()) => break,
-                Err(EndpointError::Disabled) => {}
-                Err(e) => return Err(e),
+                Err(_) => {}
             }
         }
         Ok(())

@@ -1,6 +1,6 @@
 //! Sub-GHz Radio demonstration for STM32WLE5CC (single-core Cortex-M4).
 //!
-//! Uses the on-chip `SUBGHZSPI` interface and `SubghzRadio` controller to communicate
+//! Uses the on-chip `SUBGHZSPI` interface and `SubghzControl` controller to communicate
 //! with the internal SX1262 radio transceiver.
 
 #![no_std]
@@ -10,7 +10,7 @@ use defmt::{info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::subghz::{LoraE5RfSwitch, RadioInterruptHandler, RfSwitch, Subghz};
+use embassy_stm32::subghz::{RadioInterruptHandler, SubghzControl, SubghzSpi};
 use embassy_stm32::{bind_interrupts, dma, peripherals};
 use panic_probe as _;
 
@@ -35,13 +35,13 @@ async fn main(_spawner: Spawner) {
 
     info!("Starting STM32WLE5CC SUBGHZ demonstration!");
 
-    // 1. Initialize RF switch (LoRa-E5 module 2-pin switch: PB8 = power/enable, PB5 = mode)
-    let ctrl_enable = Output::new(p.PB8, Level::Low, Speed::VeryHigh);
-    let ctrl_mode = Output::new(p.PB5, Level::Low, Speed::VeryHigh);
-    let mut rf_switch = LoraE5RfSwitch::new(ctrl_enable, ctrl_mode);
+    // 1. Initialize the RF switch pins (LoRa-E5 module: PB8 high = RX, PB5 high = TX). Board-specific, so done here.
+    let mut ctrl_enable = Output::new(p.PB8, Level::Low, Speed::VeryHigh);
+    let mut ctrl_mode = Output::new(p.PB5, Level::Low, Speed::VeryHigh);
 
     // 2. Initialize Sub-GHz SPI and Radio controller
-    let (mut spi, mut radio) = Subghz::new(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2, Irqs);
+    let mut spi = SubghzSpi::new(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2, Irqs);
+    let mut radio = SubghzControl::new(Irqs);
 
     // 3. Hardware reset the radio
     info!("Resetting radio via RCC_CSR.RFRST...");
@@ -77,7 +77,8 @@ async fn main(_spawner: Spawner) {
 
     // 8. Configure RF switch for reception
     info!("Switching RF front-end to RX...");
-    rf_switch.set_rx();
+    ctrl_enable.set_high();
+    ctrl_mode.set_low();
 
     info!("STM32WLE5CC SUBGHZ bring-up verified successfully!");
 }

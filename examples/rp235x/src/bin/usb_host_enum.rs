@@ -324,6 +324,9 @@ impl Format for Sp {
             Speed::Low => defmt::write!(f, "LS"),
             Speed::Full => defmt::write!(f, "FS"),
             Speed::High => defmt::write!(f, "HS"),
+            Speed::Super => defmt::write!(f, "SS"),
+            Speed::SuperPlus => defmt::write!(f, "SSP"),
+            _ => defmt::write!(f, "?"),
         }
     }
 }

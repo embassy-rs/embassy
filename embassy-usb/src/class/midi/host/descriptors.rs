@@ -334,11 +334,14 @@ impl MidiStreamingInterface {
                     result.out_jacks.push(jack).map_err(|_| MidiDescriptorError::Capacity)?
                 }
                 MidiDescriptor::Endpoint(endpoint) => {
+                    if endpoint.additional_transactions() != 0 {
+                        return Err(MidiDescriptorError::InvalidDescriptor);
+                    }
                     result
                         .endpoints
                         .push(MidiEndpointDescriptor {
                             address: endpoint.endpoint_address,
-                            max_packet_size: endpoint.max_packet_size,
+                            max_packet_size: endpoint.packet_size(),
                             ep_type: endpoint.ep_type(),
                             interval: endpoint.interval,
                             jack_ids: Vec::new(),

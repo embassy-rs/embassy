@@ -21,7 +21,7 @@ use bt_hci::event::le::{
     LePhyUpdateComplete, LeRemoteConnectionParameterRequest,
 };
 use bt_hci::event::{DisconnectionComplete, Event, EventKind, EventPacket};
-use bt_hci::param::{ConnHandle, Duration, EventMask, LeEventMask, PhyOptions};
+use bt_hci::param::{ConnHandle, Duration, EventMask, LeEventMask, PhyOptions, Status};
 use bt_hci::{ControllerToHostPacket, FromHciBytes};
 use embassy_futures::yield_now;
 use embassy_stm32::interrupt;
@@ -633,7 +633,7 @@ impl<'d> HCI<'d, Normal> {
                     let conn = Connection::new(*handle, *role, peer_address, interval);
                     self.on_connected(conn).await
                 } else {
-                    None
+                    self.on_connection_failed(*status)
                 }
             }
             Event::Le(LeEvent::LeEnhancedConnectionComplete(LeEnhancedConnectionComplete {
@@ -662,7 +662,7 @@ impl<'d> HCI<'d, Normal> {
                     );
                     self.on_connected(conn).await
                 } else {
-                    None
+                    self.on_connection_failed(*status)
                 }
             }
             Event::DisconnectionComplete(DisconnectionComplete { status, handle, reason }) => {
@@ -770,6 +770,18 @@ impl<'d> HCI<'d, Normal> {
         // LL stops advertising automatically on connection
         self.is_advertising = false;
         Some(GapEvent::Connected(conn))
+    }
+
+    fn on_connection_failed(&mut self, status: Status) -> Option<GapEvent> {
+        // High duty cycle directed advertising reports this status when no central
+        // connected in time (Core Spec Vol 4, Part E, 7.7.65.1). The controller has stopped
+        // advertising by then. Without clearing the flag, the next `start_advertising`
+        // tries to stop it first, which the stack refuses.
+        if status.to_result() == Err(bt_hci::param::Error::ADV_TIMEOUT) {
+            self.is_advertising = false;
+        }
+
+        None
     }
 
     /// Convert a raw HCI event into a high-level GATT event when applicable.

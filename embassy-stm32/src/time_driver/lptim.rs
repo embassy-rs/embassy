@@ -72,14 +72,24 @@ fn dier_modify(r: Lptim, f: impl FnOnce(&mut stm32_metapac::lptim::regs::DierAdv
     r.icr().write(|w| w.set_dierokcf(true));
     r.dier().write_value(new);
 
-    // DIEROK takes a few kernel clock cycles. A poll takes at least one CPU cycle, so this waits
-    // at least 64 of them. If it never comes, carry on rather than hang in a critical section:
-    // a lost CCIE enable delays the alarm to the next overflow, where `next_period` enables CCIE
+    // A lost CCIE enable delays the alarm to the next overflow, where `next_period` enables CCIE
     // again, and a lost disable is an interrupt that finds no alarm due.
+    wait_for(|| r.isr().read().dierok());
+}
+
+/// Counter clock cycles to wait for `DIEROK` or `CMPOK`, which follow the counter clock, not the
+/// kernel clock.
+#[cfg(any(stm32wba, stm32u5, stm32u3))]
+const ACK_TIMEOUT_TICKS: u32 = 64;
+
+/// Poll `ok` until it returns true, giving up after `ACK_TIMEOUT_TICKS` so a lost acknowledgement
+/// cannot hang the critical section it runs in.
+#[cfg(any(stm32wba, stm32u5, stm32u3))]
+fn wait_for(ok: impl Fn() -> bool) {
     let sys = unwrap!(unsafe { crate::rcc::get_freqs() }.sys.to_hertz()).0;
-    let polls = (sys / T::frequency().0 + 1) * 64;
+    let polls = (sys / TICK_HZ as u32 + 1) * ACK_TIMEOUT_TICKS;
     for _ in 0..polls {
-        if r.isr().read().dierok() {
+        if ok() {
             return;
         }
     }
@@ -110,7 +120,11 @@ fn write_compare(r: Lptim, val: u16) {
         // As on STM32WL, clear the stale CMPOK.
         r.icr().write(|w| w.set_cmpokcf(0, true));
         r.ccr(0).write(|w| w.set_ccr(val));
-        while !r.isr().read().cmpok(0) {}
+
+        // Whatever CCR holds after a lost write, a match on it runs `trigger_alarm`, which writes
+        // CCR again, and an alarm it misses is fired by `next_period` at the first overflow after
+        // it is due.
+        wait_for(|| r.isr().read().cmpok(0));
     }
 }
 
@@ -150,8 +164,8 @@ impl RtcDriver {
         r.cnt().write(|w| w.set_cnt(0));
 
         // let psc = timer_freq.0 / TICK_HZ as u32 - 1;
-        let psc = timer_freq.0 / TICK_HZ as u32;
-        let psc = match psc {
+        let div = timer_freq.0 / TICK_HZ as u32;
+        let psc = match div {
             128 => vals::Presc::Div128,
             64 => vals::Presc::Div64,
             32 => vals::Presc::Div32,
@@ -161,18 +175,18 @@ impl RtcDriver {
             2 => vals::Presc::Div2,
             1 => vals::Presc::Div1,
             // TODO: we could compute the valid TICK_HZ for the valid prescalers to include in the panic message
-            _ => panic!("Invalid prescaler: {} for timer frequency: {}Hz", psc, timer_freq.0),
+            _ => panic!("Invalid prescaler: {} for timer frequency: {}Hz", div, timer_freq.0),
         };
 
         trace!(
-            "init: setting presc: {:?} timer_freq: {}Hz TICK_HZ: {}",
-            psc, timer_freq, TICK_HZ
+            "init: setting presc: {} timer_freq: {}Hz TICK_HZ: {}",
+            div, timer_freq, TICK_HZ
         );
         r.cfgr().modify(|w| w.set_presc(psc));
 
         // RM says timer must be enabled before setting arr or cmp
         r.cr().modify(|w| w.set_enable(true));
-        trace!("init: arr: {:?}", r.arr().read());
+        trace!("init: arr: {}", r.arr().read().arr());
         // TRM says this is updated immediately if the timer is not started so no need to check for arrok! (stm32wl5 & stm32wle)
         r.arr().write(|w| w.set_arr(u16::MAX));
 

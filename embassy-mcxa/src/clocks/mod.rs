@@ -122,6 +122,10 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
         cmc: pac::CMC,
     };
 
+    // Reject incompatible retained VBAT state before changing any clock dependencies.
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    operator.preflight_osc32k_clocks()?;
+
     operator.unlock_mrcc();
 
     // Before applying any requested clocks, apply the requested VDD_CORE
@@ -135,7 +139,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     operator.configure_fro16k_clocks()?;
 
     // NOTE: OSC32K must be configured AFTER FRO16K.
-    #[cfg(all(feature = "_mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     operator.configure_osc32k_clocks()?;
 
     #[cfg(not(feature = "sosc-as-gpio"))]

@@ -38,6 +38,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div12,
             mul: PllMul::Mul300,
+            fracn: None,
             divp: Some(PllDiv::Div1), //600 MHz
             divq: Some(PllDiv::Div2), // 300 MHz
             divr: Some(PllDiv::Div2), // 300 MHz

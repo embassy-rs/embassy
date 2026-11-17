@@ -8,7 +8,7 @@ use embassy_mcxa as hal;
 use embassy_mcxa::bind_interrupts;
 use embassy_time::Timer;
 use hal::peripherals::RTC0;
-use hal::rtc::{DateTime, InterruptHandler, Month, Rtc, Weekday};
+use hal::rtc::{ClkSel, DateTime, InterruptHandler, Month, Rtc, Weekday};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -17,11 +17,18 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = hal::init(hal::config::Config::default());
-
     defmt::info!("=== RTC Alarm Example ===");
+    let mut config = hal::config::Config::default();
+    // VBAT POR selects OSC32K; system resets can retain either selection.
+    // Keep default FRO16K and the crystal available before adopting the RTC.
+    // OSC32K defaults use the SDK 26.09 startup profile, then LP operation;
+    // supply, crystal/PCB loading, drive, and startup require qualification.
+    config.clock_cfg.osc32k = Some(Default::default());
+    let p = hal::init(config);
+    defmt::info!("Board clocks initialized; adopting RTC");
 
-    let (mut rtc, time_provider) = Rtc::new(p.RTC0, Irqs, Default::default()).unwrap();
+    let rtc_config = hal::rtc::Config::default().with_clksel(ClkSel::Clk32768);
+    let (mut rtc, time_provider) = Rtc::new(p.RTC0, Irqs, rtc_config).unwrap();
 
     let now = DateTime {
         year: 2026,

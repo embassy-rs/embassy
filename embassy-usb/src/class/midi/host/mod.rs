@@ -1116,14 +1116,12 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
             alloc
                 .alloc_pipe::<pipe::Control, pipe::InOut>(
                     enum_info.device_address,
-                    &embassy_usb_driver::EndpointInfo {
-                        addr: 0.into(),
-                        ep_type: embassy_usb_driver::EndpointType::Control,
-                        max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
-                            .min(enum_info.speed().max_packet_size()),
-                        interval_ms: 0,
-                        max_burst: 0,
-                    },
+                    &embassy_usb_driver::EndpointInfo::new(
+                        0.into(),
+                        embassy_usb_driver::EndpointType::Control,
+                        (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed().max_packet_size()),
+                        0,
+                    ),
                     enum_info.split(),
                 )
                 .map_err(|_| MidiError::NoPipe)
@@ -1641,13 +1639,7 @@ mod tests {
         let state = MockState::new();
         state.set_gtb_descriptors(MIDI2_GTB);
         let host = MockHost::new(&state);
-        let control_ep = EndpointInfo {
-            addr: 0.into(),
-            ep_type: EndpointType::Control,
-            max_packet_size: 64,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let control_ep = EndpointInfo::new(0.into(), EndpointType::Control, 64, 0);
         let mut control = host
             .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &control_ep, enum_info.split())
             .unwrap();
@@ -1722,13 +1714,7 @@ mod tests {
         // No blocks to read: activation fails and puts the device back on alternate setting 0.
         let state = MockState::new();
         let host = MockHost::new(&state);
-        let control_ep = EndpointInfo {
-            addr: 0.into(),
-            ep_type: EndpointType::Control,
-            max_packet_size: 64,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let control_ep = EndpointInfo::new(0.into(), EndpointType::Control, 64, 0);
         let mut control = host
             .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &control_ep, enum_info.split())
             .unwrap();
@@ -1838,13 +1824,7 @@ mod tests {
         let state = MockState::new();
         state.set_string("Main \u{e9}");
         let host = MockHost::new(&state);
-        let control_ep = EndpointInfo {
-            addr: 0.into(),
-            ep_type: EndpointType::Control,
-            max_packet_size: 64,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let control_ep = EndpointInfo::new(0.into(), EndpointType::Control, 64, 0);
         let mut control = host
             .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &control_ep, enum_info.split())
             .unwrap();

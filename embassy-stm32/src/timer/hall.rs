@@ -11,7 +11,6 @@ use crate::Peri;
 use crate::gpio::{AfType, Flex, Pull};
 
 /// Hall interface configuration.
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy)]
 pub struct HallConfig {
     /// Pull configuration for Hall input pins.

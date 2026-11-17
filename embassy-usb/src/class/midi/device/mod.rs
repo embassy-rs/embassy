@@ -13,7 +13,7 @@ use super::{
 };
 use crate::control::{InResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
 use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Builder, EndpointOptions, Handler};
 
@@ -526,7 +526,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                         // USB MIDI 1.0 appends bRefresh and bSynchAddress. USB MIDI 2.0 does not
                         // (note under Table 5-3); alternate setting 1 passes an empty tail.
                         alt.endpoint_descriptor(
-                            read_ep.as_ref().unwrap().info(),
+                            &read_ep.as_ref().unwrap().info(),
                             SynchronizationType::NoSynchronization,
                             UsageType::DataEndpoint,
                             &[0, 0],
@@ -540,7 +540,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
                             endpoint_data[2 + i as usize] = out_jack_id_emb(i);
                         }
                         alt.endpoint_descriptor(
-                            write_ep.as_ref().unwrap().info(),
+                            &write_ep.as_ref().unwrap().info(),
                             SynchronizationType::NoSynchronization,
                             UsageType::DataEndpoint,
                             &[0, 0],
@@ -602,7 +602,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             // USB MIDI 1.0 requires to be bulk.
             if midi2_from_host {
                 alt1.endpoint_descriptor(
-                    read_ep.as_ref().unwrap().info(),
+                    &read_ep.as_ref().unwrap().info(),
                     SynchronizationType::NoSynchronization,
                     UsageType::DataEndpoint,
                     &[],
@@ -611,7 +611,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             }
             if midi2_to_host {
                 alt1.endpoint_descriptor(
-                    write_ep.as_ref().unwrap().info(),
+                    &write_ep.as_ref().unwrap().info(),
                     SynchronizationType::NoSynchronization,
                     UsageType::DataEndpoint,
                     &[],
@@ -659,13 +659,13 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
     /// Writes a single packet into the MIDI 1.0 IN endpoint.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
         let write_ep = self.write_ep.as_mut().ok_or(EndpointError::Disabled)?;
-        write_ep.write(data).await
+        crate::class::write_packet(write_ep, data).await
     }
 
     /// Reads a single packet from the MIDI 1.0 OUT endpoint.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
         let read_ep = self.read_ep.as_mut().ok_or(EndpointError::Disabled)?;
-        read_ep.read(data).await
+        crate::class::read_packet(read_ep, data).await
     }
 
     /// Writes UMPs to the host, cut between packets at the packet size, with a ZLP after a full last transfer.
@@ -680,7 +680,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
     /// This is only meaningful while Alternate Setting 1 (MIDI 2.0) is active.
     pub async fn write_ump_bytes(&mut self, data: &[u8]) -> Result<(), EndpointError> {
         let write_ep = self.write_ep.as_mut().ok_or(EndpointError::Disabled)?;
-        write_ep.write(data).await
+        Ok(write_ep.write_transfer(data, false).await?)
     }
 
     /// Reads Universal MIDI Packets from the host.
@@ -688,7 +688,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
     /// This is only meaningful while Alternate Setting 1 (MIDI 2.0) is active.
     pub async fn read_ump<'a>(&mut self, data: &'a mut [u8]) -> Result<UmpReader<'a>, EndpointError> {
         let read_ep = self.read_ep.as_mut().ok_or(EndpointError::Disabled)?;
-        let n = read_ep.read(data).await?;
+        let n = crate::class::read_packet(read_ep, data).await?;
         Ok(UmpReader::new(&data[..n]))
     }
 
@@ -733,7 +733,7 @@ async fn write_umps<E: EndpointIn>(ep: &mut E, packets: &[UmpPacket]) -> Result<
     let mut len = 0;
     for packet in packets {
         if len + packet.byte_count() > limit {
-            ep.write(&buf[..len]).await?;
+            ep.write_transfer(&buf[..len], false).await?;
             len = 0;
         }
         for word in packet.words() {
@@ -742,9 +742,9 @@ async fn write_umps<E: EndpointIn>(ep: &mut E, packets: &[UmpPacket]) -> Result<
         }
     }
     if len != 0 {
-        ep.write(&buf[..len]).await?;
+        ep.write_transfer(&buf[..len], false).await?;
         if len == max_packet_size {
-            ep.write(&[]).await?;
+            ep.write_transfer(&[], false).await?;
         }
     }
     Ok(())
@@ -765,7 +765,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
 
     /// Writes a single packet.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.write_ep.write(data).await
+        crate::class::write_packet(&mut self.write_ep, data).await
     }
 
     /// Writes Universal MIDI Packets (UMPs); see [`MidiClass::write_ump`].
@@ -794,12 +794,12 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
 
     /// Reads a single packet.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        self.read_ep.read(data).await
+        crate::class::read_packet(&mut self.read_ep, data).await
     }
 
     /// Reads Universal MIDI Packets, returning a `UmpReader`.
     pub async fn read_ump<'a>(&mut self, data: &'a mut [u8]) -> Result<UmpReader<'a>, EndpointError> {
-        let n = self.read_ep.read(data).await?;
+        let n = crate::class::read_packet(&mut self.read_ep, data).await?;
         Ok(UmpReader::new(&data[..n]))
     }
 
@@ -837,18 +837,23 @@ mod tests {
     #[test]
     fn write_ump_cuts_between_packets_and_ends_a_full_transfer_with_a_zlp() {
         use embassy_futures::block_on;
-        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointIn, EndpointInfo, EndpointType, Unsupported};
+        use embassy_usb_driver::{
+            Endpoint, EndpointAddress, EndpointDisabledError, EndpointIn, EndpointInfo, EndpointType, Unsupported,
+        };
 
         struct Capture {
             info: EndpointInfo,
             writes: heapless::Vec<heapless::Vec<u8, 64>, 8>,
         }
         impl Endpoint for Capture {
-            fn info(&self) -> &EndpointInfo {
-                &self.info
+            fn info(&self) -> EndpointInfo {
+                self.info
             }
             async fn wait_enabled(&mut self) {}
-            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            fn is_enabled(&self) -> bool {
+                true
+            }
+            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
                 Err(Unsupported)
             }
             fn is_stalled(&self) -> Result<bool, Unsupported> {
@@ -856,19 +861,13 @@ mod tests {
             }
         }
         impl EndpointIn for Capture {
-            async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+            async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
                 self.writes.push(heapless::Vec::from_slice(buf).unwrap()).unwrap();
                 Ok(())
             }
         }
         let capture = |max_packet_size| Capture {
-            info: EndpointInfo {
-                addr: EndpointAddress::from(0x81),
-                ep_type: EndpointType::Bulk,
-                max_packet_size,
-                interval_ms: 0,
-                max_burst: 0,
-            },
+            info: EndpointInfo::new(EndpointAddress::from(0x81), EndpointType::Bulk, max_packet_size, 0),
             writes: heapless::Vec::new(),
         };
         let quad = UmpPacket::from_u32_quad(0x5000_0001, 2, 3, 4).unwrap();
@@ -907,13 +906,16 @@ mod tests {
         struct Never(EndpointInfo);
         struct Enabled(EndpointInfo);
         impl Endpoint for Never {
-            fn info(&self) -> &EndpointInfo {
-                &self.0
+            fn info(&self) -> EndpointInfo {
+                self.0
             }
             async fn wait_enabled(&mut self) {
                 core::future::pending::<()>().await
             }
-            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            fn is_enabled(&self) -> bool {
+                false
+            }
+            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
                 Err(Unsupported)
             }
             fn is_stalled(&self) -> Result<bool, Unsupported> {
@@ -921,24 +923,21 @@ mod tests {
             }
         }
         impl Endpoint for Enabled {
-            fn info(&self) -> &EndpointInfo {
-                &self.0
+            fn info(&self) -> EndpointInfo {
+                self.0
             }
             async fn wait_enabled(&mut self) {}
-            fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            fn is_enabled(&self) -> bool {
+                true
+            }
+            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
                 Err(Unsupported)
             }
             fn is_stalled(&self) -> Result<bool, Unsupported> {
                 Err(Unsupported)
             }
         }
-        let info = EndpointInfo {
-            addr: EndpointAddress::from(0x01),
-            ep_type: EndpointType::Bulk,
-            max_packet_size: 64,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let info = EndpointInfo::new(EndpointAddress::from(0x01), EndpointType::Bulk, 64, 0);
 
         block_on(wait_any_enabled(&mut Some(Never(info)), &mut Some(Enabled(info))));
         block_on(wait_any_enabled(&mut Some(Enabled(info)), &mut Some(Never(info))));

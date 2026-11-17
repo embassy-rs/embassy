@@ -13,6 +13,9 @@
 
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;
+// workaround https://github.com/rust-lang/rust-analyzer/issues/23656
+#[macro_use]
+extern crate core;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
 // Utilities

@@ -18,7 +18,7 @@ use self::descriptor_reader::foreach_endpoint;
 use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{descriptor_type, lang_id};
-use crate::driver::{self, Bus, ControlPipe, Direction, Driver, EndpointAddress, EndpointType, Event};
+use crate::driver::{self, Bus, ControlPipe, Direction, Driver, EndpointAddress, EndpointType, Event, Speed};
 use crate::types::{InterfaceNumber, StringIndex};
 
 /// The global state of the USB device.
@@ -387,6 +387,7 @@ struct Inner<'d, D: Driver<'d>> {
     msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 
     device_state: UsbDeviceState,
+    speed: Option<Speed>,
     suspended: bool,
     remote_wakeup_enabled: bool,
     u1_enabled: bool,
@@ -432,13 +433,22 @@ fn active_endpoints(config_descriptor: &[u8], interface: InterfaceNumber, alt_se
 /// Going through every descriptor of the interface (rather than deciding per descriptor
 /// from its own alternate setting) keeps shared endpoints enabled when a different
 /// alternate setting that also references them is selected.
-fn set_interface_endpoints(config_descriptor: &[u8], bus: &mut impl Bus, interface: InterfaceNumber, active: u32) {
+async fn set_interface_endpoints(
+    config_descriptor: &[u8],
+    bus: &mut impl Bus,
+    interface: InterfaceNumber,
+    active: u32,
+) {
+    let mut eps = heapless::Vec::<(EndpointAddress, bool), 32>::new();
     foreach_endpoint(config_descriptor, |ep| {
         if ep.interface == interface {
-            bus.endpoint_set_enabled(ep.ep_address, active & endpoint_bit(ep.ep_address) != 0);
+            let _ = eps.push((ep.ep_address, active & endpoint_bit(ep.ep_address) != 0));
         }
     })
     .unwrap();
+    for (ep_addr, enabled) in eps {
+        bus.endpoint_set_enabled(ep_addr, enabled).await;
+    }
 }
 
 /// Address of the endpoint selected by bit `n` of an [`endpoint_bit`] mask.
@@ -450,6 +460,12 @@ fn address_of_bit(bit: u32) -> EndpointAddress {
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
+    /// Returns the bus speed negotiated on the most recent USB reset, or `None` if no reset has
+    /// occurred since power-on / disable.
+    pub fn speed(&self) -> Option<Speed> {
+        self.inner.speed
+    }
+
     /// Returns a report of the consumed buffers
     ///
     /// Useful for tuning buffer sizes for actual usage
@@ -497,6 +513,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         if self.inner.device_state != UsbDeviceState::Disabled {
             self.inner.bus.disable().await;
             self.inner.device_state = UsbDeviceState::Disabled;
+            self.inner.speed = None;
             self.inner.suspended = false;
             self.inner.remote_wakeup_enabled = false;
             self.inner.u1_enabled = false;
@@ -568,7 +585,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             resp_length = max_packet_size;
         }
 
-        match self.inner.handle_control_in(req, self.control_buf) {
+        match self.inner.handle_control_in(req, self.control_buf).await {
             InResponse::Accepted(data) => {
                 let len = data.len().min(resp_length);
                 let needs_zlp = len != resp_length && (len % max_packet_size) == 0;
@@ -594,15 +611,22 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             return;
         }
 
-        let total = match self
-            .control
-            .data_out_transfer(&mut self.control_buf[..req_length])
-            .await
-        {
-            Ok(total) => total,
-            Err(e) => {
-                warn!("usb: failed to receive CONTROL OUT data stage: {:?}", e);
-                return;
+        // A request without a data stage, for example SET_ADDRESS or SET_CONFIGURATION, has
+        // nothing to receive. `data_out_transfer` is only for requests with a data stage, and
+        // drivers wait for a packet that the host never sends.
+        let total = if req_length == 0 {
+            0
+        } else {
+            match self
+                .control
+                .data_out_transfer(&mut self.control_buf[..req_length])
+                .await
+            {
+                Ok(total) => total,
+                Err(e) => {
+                    warn!("usb: failed to receive CONTROL OUT data stage: {:?}", e);
+                    return;
+                }
             }
         };
 
@@ -612,7 +636,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         #[cfg(not(feature = "defmt"))]
         trace!("  control out data: {:02x?}", data);
 
-        match self.inner.handle_control_out(req, data) {
+        match self.inner.handle_control_out(req, data).await {
             OutResponse::Accepted => {
                 if self.inner.set_address_pending {
                     self.control.accept_set_address(self.inner.address).await;
@@ -697,7 +721,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
     /// every affected endpoint to its default, including halt clear and data
     /// toggle `DATA0`, even when the host selects the setting already in use.
     /// `only` limits that to one interface for `SET_INTERFACE`.
-    fn clear_enabled_halts(&mut self, only: Option<InterfaceNumber>) {
+    async fn clear_enabled_halts(&mut self, only: Option<InterfaceNumber>) {
         let mut alts = [None; MAX_INTERFACE_COUNT];
         for (i, iface) in self.interfaces.iter().enumerate() {
             if only.is_some_and(|number| number.0 as usize != i) {
@@ -722,16 +746,17 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
         for bit in 0..32u32 {
             if clear & (1 << bit) != 0 {
-                self.bus.endpoint_set_stalled(address_of_bit(bit), false);
+                self.bus.endpoint_set_stalled(address_of_bit(bit), false).await;
             }
         }
     }
 
     async fn handle_bus_event(&mut self, evt: Event) {
         match evt {
-            Event::Reset => {
-                trace!("usb: reset");
+            Event::Reset(speed) => {
+                trace!("usb: reset (speed: {:?})", speed);
                 self.device_state = UsbDeviceState::Default;
+                self.speed = Some(speed);
                 self.suspended = false;
                 self.remote_wakeup_enabled = false;
                 self.u1_enabled = false;
@@ -778,6 +803,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 trace!("usb: power removed");
                 self.bus.disable().await;
                 self.device_state = UsbDeviceState::Unpowered;
+                self.speed = None;
 
                 for h in &mut self.handlers {
                     h.enabled(false);
@@ -786,7 +812,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
         }
     }
 
-    fn handle_control_out(&mut self, req: Request, data: &[u8]) -> OutResponse {
+    async fn handle_control_out(&mut self, req: Request, data: &[u8]) -> OutResponse {
         const CONFIGURATION_NONE_U16: u16 = CONFIGURATION_NONE as u16;
         const CONFIGURATION_VALUE_U16: u16 = CONFIGURATION_VALUE as u16;
 
@@ -851,16 +877,20 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         }
                     })
                     .unwrap();
+                    let mut eps_to_enable = heapless::Vec::<(EndpointAddress, bool), 32>::new();
                     foreach_endpoint(self.config_descriptor, |ep| {
-                        self.bus.endpoint_set_enabled(
+                        let _ = eps_to_enable.push((
                             ep.ep_address,
                             active[ep.interface.0 as usize] & endpoint_bit(ep.ep_address) != 0,
-                        );
+                        ));
                     })
                     .unwrap();
+                    for (ep_addr, en) in eps_to_enable {
+                        self.bus.endpoint_set_enabled(ep_addr, en).await;
+                    }
                     // Halt is cleared after the endpoints are enabled. Drivers are
                     // not required to drop STALL just because an endpoint is enabled.
-                    self.clear_enabled_halts(None);
+                    self.clear_enabled_halts(None).await;
 
                     // Notify handlers.
                     for h in &mut self.handlers {
@@ -875,10 +905,14 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         self.device_state = UsbDeviceState::Addressed;
 
                         // Disable all endpoints.
+                        let mut eps_to_disable = heapless::Vec::<EndpointAddress, 32>::new();
                         foreach_endpoint(self.config_descriptor, |ep| {
-                            self.bus.endpoint_set_enabled(ep.ep_address, false);
+                            let _ = eps_to_disable.push(ep.ep_address);
                         })
                         .unwrap();
+                        for ep_addr in eps_to_disable {
+                            self.bus.endpoint_set_enabled(ep_addr, false).await;
+                        }
 
                         // Notify handlers.
                         for h in &mut self.handlers {
@@ -951,8 +985,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         // and disable those only used by other settings. Endpoints shared
                         // between settings (for example MIDI 1.0 and 2.0) stay enabled.
                         let active = active_endpoints(self.config_descriptor, iface_num, new_altsetting);
-                        set_interface_endpoints(self.config_descriptor, &mut self.bus, iface_num, active);
-                        self.clear_enabled_halts(Some(iface_num));
+                        set_interface_endpoints(self.config_descriptor, &mut self.bus, iface_num, active).await;
+                        self.clear_enabled_halts(Some(iface_num)).await;
 
                         for h in &mut self.handlers {
                             h.set_alternate_setting(iface_num, new_altsetting);
@@ -972,7 +1006,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         return OutResponse::Rejected;
                     };
                     self.bus
-                        .endpoint_set_stalled(ep_addr, req.request == Request::SET_FEATURE);
+                        .endpoint_set_stalled(ep_addr, req.request == Request::SET_FEATURE)
+                        .await;
                     OutResponse::Accepted
                 }
                 _ => OutResponse::Rejected,
@@ -981,7 +1016,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
         }
     }
 
-    fn handle_control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
+    async fn handle_control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
         match (req.request_type, req.recipient) {
             (RequestType::Standard, Recipient::Device) => match req.request {
                 Request::GET_STATUS => {

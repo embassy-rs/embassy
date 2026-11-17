@@ -8,13 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+PAC:
+- change: stm32: the `defmt` feature no longer enables `defmt` in `stm32-metapac`. PAC types, including the ones re-exported by the HAL (e.g. `rcc::AHBPrescaler`), no longer implement `defmt::Format` by default.
+- change: stm32: PAC types no longer implement `Debug` by default.
+- feat: stm32: add the `pac-defmt` and `pac-debug` features, which implement `defmt::Format` and `Debug` for PAC types.
+
 Atomic:
 - fix: stm32/atomic: make `AtomicClear::clear` atomic on targets without 8-bit atomic RMW (thumbv6m)
 
 SUBGHZ:
-- feat: stm32/subghz: add a driver for the on-chip sub-GHz radio of STM32WL and STM32WLE5 (`SubghzSpi`, `SubghzRadio`, `RfSwitch`). It covers the dedicated `SUBGHZSPI`, radio reset, `RFBUSY` waiting and the `SUBGHZ_RADIO` interrupt. The driver does not wrap the radio's command set: the caller sends the commands.
-- feat: stm32/subghz: `SubghzRadio::wait_on_busy_timeout` bounds the `RFBUSY` wait, `SubghzRadio::wakeup` wakes the radio from sleep, and `SubghzRadio::set_wakeup_sources` lets a radio interrupt or `RFBUSY` wake the CPU from Standby.
-- change: stm32/subghz: `SubghzRadio::wait_on_busy` sleeps on the `RFBUSY` falling edge (EXTI line 45, through the `SUBGHZ_RADIO` vector) instead of polling, once a wait outlasts a short spin. The executor can idle during calibration and wake from sleep.
+- feat: stm32/subghz: add a driver for the on-chip sub-GHz radio of STM32WL and STM32WLE5 (`SubghzSpi`, `SubghzControl`). It covers the dedicated `SUBGHZSPI`, radio reset, `RFBUSY` waiting and the `SUBGHZ_RADIO` interrupt. The driver does not wrap the radio's command set: the caller sends the commands.
+- feat: stm32/subghz: `SubghzControl::wait_on_busy_timeout` bounds the `RFBUSY` wait, `SubghzControl::wakeup` wakes the radio from sleep, and `SubghzControl::set_wakeup_sources` lets a radio interrupt or `RFBUSY` wake the CPU from Standby.
+- change: stm32/subghz: `SubghzControl::wait_on_busy` sleeps on the `RFBUSY` falling edge (EXTI line 45, through the `SUBGHZ_RADIO` vector) instead of polling, once a wait outlasts a short spin. The executor can idle during calibration and wake from sleep.
 - fix: stm32/subghz: an async `SubghzSpi` transaction that is cancelled releases `NSS` instead of leaving the radio selected.
 
 UCPD:
@@ -26,6 +31,10 @@ UCPD:
 - fix: stm32/ucpd: when `CcPhy` and `PdPhy` were dropped at the same time from different priority levels, the peripheral could be left enabled.
 - fix: stm32/ucpd: update the control register (CR) without lost updates or repeated commands. `CcPhy` and `PdPhy` could overwrite each other's settings, and any CR update could write back a `TXSEND` or `TXHRST` the hardware had just cleared, sending a message or Hard Reset twice.
 - feat: stm32/ucpd: add `Ucpd::split_idle_pd_phy`, which keeps the `CcPhy` and an `IdlePdPhy` for the whole lifetime of the driver. `IdlePdPhy::activate` enables PD on a CC line and returns an `ActivePdPhy` guard that disables it again when dropped, so PD can be turned on and off on every attach and detach without recreating `Ucpd` or touching the CC terminations.
+- fix: stm32/ucpd: enable SOP'_Debug and SOP''_Debug reception on the right `RXORDSETEN` bits. `sop_prime_debug` enabled Cable Reset detection and `sop_double_prime_debug` enabled SOP'_Debug.
+- fix: stm32/ucpd: receive PD messages in the background ([#7527](https://github.com/embassy-rs/embassy/issues/7527)). The RX DMA only ran while `PdPhy::receive` was pending, so a message arriving between two calls was lost, and its first byte left a DMA request pending that put a stale byte in front of the next received message. The interrupt now restarts the DMA after every message, alternating between two buffers; one message can wait for `receive`.
+- change: stm32/ucpd: `Ucpd::split_pd_phy` and `IdlePdPhy::activate` take the receive buffers, `&mut RxBuffers`.
+- fix: stm32/ucpd: `PdPhy::transmit_with_sop` and `PdPhy::transmit_hardreset` return `TxError::HardReset` without transmitting if a Hard Reset was received that hasn't been reported yet. They started the transmission first, so a message was cut short when its DMA was stopped, or a Hard Reset was sent back.
 
 VREFBUF:
 - feat: stm32/vrefbuf g0x1: enable the VREFBUF clock. On G0x1, including G0B1, it is `SYSCFGEN` in `RCC_APBENR2`, shared with SYSCFG and COMP (RM0444 5.4.16). Without it `VoltageReferenceBuffer::new` never sees `VRR` and waits forever.
@@ -50,6 +59,7 @@ Time driver:
 - fix: stm32/time-driver-lptim: the interrupt handler clears only the flags it read; it also cleared every enabled flag, so an overflow that arrived during the handler was lost and time fell back one counter period
 - fix: stm32/time-driver-lptim: on U5, U3 and WBA, wait for `DIEROK` after each `DIER` change; a `CCIE` write still in flight when entering Stop lost the alarm wakeup until the next overflow
 - fix: stm32/time-driver-lptim: `now()` retries if the update event flag changes while it reads the counter; a wrap between the two reads returned a time one counter period ahead, then time went backwards
+- fix: stm32/time-driver-lptim: on U5, U3 and WBA, the wait for `CMPOK` after a compare write is bounded, as the `DIEROK` wait is, instead of spinning forever with interrupts masked; both bounds now count counter clock cycles, so a prescaled counter no longer gives up on a `DIEROK` that is only slow
 
 I2C:
 - fix: stm32/i2c v2: clamp SDADEL and SCLDEL to 15. They are 4-bit fields in TIMINGR and the computed values were often larger, so only their low 4 bits were written. With a 100 MHz I2C kernel clock, 400 kHz got a data setup time of 20 ns instead of at least 100 ns, and 100 kHz got 80 ns instead of at least 250 ns.
@@ -173,9 +183,11 @@ USB:
 - fix: `ClearFeature(ENDPOINT_HALT)` on an endpoint that was not halted looped forever and hung the device; on a halted endpoint it left the halt set, and setting a halt while a transfer completed could disable the endpoint. Halt requests now apply only to bulk and interrupt endpoints.
 - fix: reset the data toggle to DATA0 when a halt is cleared and when `SET_CONFIGURATION` or `SET_INTERFACE` enables an endpoint (USB 2.0 §9.4.5, §9.1.1.5).
 - fix: the USB errata delay before reading a received packet now waits at least 800 ns, counted in CPU cycles, covers EP0 SETUP and control OUT data, and also applies to STM32U3, which has the same erratum. On STM32H5 it could end after less than 800 ns with the `time` feature and busy-waited 800 µs on every packet without it.
+- fix: the USB errata delay before reading a received packet also applies to STM32C5 and STM32U535/U545, whose errata sheets list the same erratum.
 - fix: a bus reset during a control transfer no longer wedges the device until power is removed. The EP0 data and status stages end on a bus reset as they do on a new SETUP, `SET_ADDRESS` keeps the old address when its status stage does not complete, and the reset discards a SETUP and a suspend received before it, so the device enumerates again.
 
 DMA:
+- change: stm32/gpdma: `LinearItem` no longer implements `Debug`, and `TransferOptions` no longer implements `Debug` or `defmt::Format`.
 - fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
 - fix: stm32/dma: defer read_index advance until after copy in read_raw to avoid partial-advance on overrun
 - fix: stm32/dma: eliminate second sync_len() call in read_raw to prevent consuming a lap count mid-copy
@@ -294,6 +306,7 @@ CORDIC:
 RTC:
 - fix: stm32/rtc: compute the prescalers so the calendar advances once per second. PREDIV_A is 7 bits, but the asynchronous divider was taken as clock / `RtcConfig::frequency` without a limit, so with the default 256 Hz and a 40 kHz LSI (F0, F3) 155 was written as 27 and the RTC ran about 5.6 times too fast. A requested frequency the clock cannot produce exactly is now rounded to the nearest lower divider that divides the clock evenly.
 - fix: stm32/low-power: with a TIM time driver, the driver no longer panics when the RTC calendar holds an invalid date or time, such as month 0, hour 24 or weekday 0. It measures the time spent in Stop mode from the calendar and read it through `RtcTimeProvider::now().unwrap()`, so such a calendar panicked in `embassy_stm32::init`, and as the calendar survives a reset, on every boot. It now resets such a calendar to 2000-01-01 00:00:00, the date a backup-domain reset leaves, at boot or at a wakeup from Stop.
+- fix: stm32/rtc: `DateTime::from` returns `Error::InvalidDay` for a day the month does not have, such as February 30, or February 29 outside a leap year. It accepted any day up to 31, so `RtcTimeProvider::now` on a corrupted calendar returned such a date and converting it to a `chrono::NaiveDateTime` panicked. `now` now returns `RtcError::InvalidDateTime` instead, so code that unwraps it panics on such a calendar instead of receiving the impossible date. This includes the low-power driver with a TIM time driver, which already panicked in `embassy_stm32::init` on an invalid month or hour.
 
 SDMMC:
 - fix: stm32/sdmmc v1: a divisor of 258 was accepted and written as CLKDIV 256, which the 8-bit field stores as 0, so the card clock ran at half the kernel clock instead of 1/258 of it. 257 is now the largest divisor.

@@ -82,7 +82,7 @@ use crate::class::uac::uac2_codes::{
 };
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
 use crate::types::InterfaceNumber;
 use crate::{Builder, EndpointOptions, Handler, UsbDeviceSpeed};
 
@@ -501,7 +501,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         );
 
         out_alt.endpoint_descriptor(
-            out_ep.info(),
+            &out_ep.info(),
             SynchronizationType::Asynchronous,
             UsageType::DataEndpoint,
             &[],
@@ -516,7 +516,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
             EndpointOptions::new(),
         );
         out_alt.endpoint_descriptor(
-            feedback_ep.info(),
+            &feedback_ep.info(),
             SynchronizationType::NoSynchronization,
             UsageType::FeedbackEndpoint,
             &[],
@@ -541,7 +541,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         );
         in_alt.descriptor(descriptor_type::CS_INTERFACE, &format_type_i(sample_width));
         in_alt.endpoint_descriptor(
-            in_ep.info(),
+            &in_ep.info(),
             SynchronizationType::Asynchronous,
             UsageType::DataEndpoint,
             &[],
@@ -709,7 +709,7 @@ pub struct LineOutStream<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> LineOutStream<'d, D> {
     /// Reads one audio packet from the host. Returns the number of bytes received.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        self.ep.read(data).await
+        crate::class::read_packet(&mut self.ep, data).await
     }
 
     /// Waits for the host to select the streaming alternate setting.
@@ -731,7 +731,7 @@ pub struct LineInStream<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> LineInStream<'d, D> {
     /// Writes one audio packet to the host: the frames captured since the last one.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.ep.write(data).await
+        crate::class::write_packet(&mut self.ep, data).await
     }
 
     /// Waits for the host to select the streaming alternate setting.
@@ -761,7 +761,7 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
     /// sent as 10.14.
     pub async fn write_packet(&mut self, value: u32) -> Result<(), EndpointError> {
         let value = if self.len == 3 { value >> 2 } else { value };
-        self.ep.write(&value.to_le_bytes()[..self.len]).await
+        crate::class::write_packet(&mut self.ep, &value.to_le_bytes()[..self.len]).await
     }
 
     /// Waits for the host to select line out's streaming alternate setting.
@@ -822,7 +822,7 @@ impl<'d, D: Driver<'d>, const N: usize> Interrupt<'d, D, N> {
                     self.interface,
                     entity,
                 ];
-                self.ep.write(&msg).await?;
+                self.ep.write_transfer(&msg, false).await?;
             }
         }
         Ok(())

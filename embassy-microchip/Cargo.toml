@@ -46,7 +46,10 @@ default = ["rt"]
 rt = ["mec17xx-pac/rt"]
 
 ## Enable defmt
-defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "mec17xx-pac/defmt"]
+defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt"]
+## Implement `defmt::Format` for PAC types.
+pac-defmt = ["mec17xx-pac/defmt"]
+# TODO: add pac-debug once the PAC has it
 
 ## Reexport the PAC for the currently enabled chip at `embassy_imxrt::pac` (unstable)
 unstable-pac = []

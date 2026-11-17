@@ -316,6 +316,7 @@ mod rcc_setup {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div5, // 25MHz / 5 = 5MHz
             mul: PllMul::Mul160,     // 5MHz * 160 = 800MHz
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: Some(PllDiv::Div2),
             divr: Some(PllDiv::Div83), // 800MHz / 83 = 9.63MHz for LTDC

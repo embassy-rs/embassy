@@ -21,7 +21,7 @@ use crate::class::uac::terminal_type::TerminalType;
 use crate::class::uac::uac1_codes::*;
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointInfo, EndpointType};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointInfo, EndpointType};
 use crate::types::InterfaceNumber;
 use crate::{Builder, EndpointOptions, Handler, InterfaceAltBuilder};
 
@@ -621,7 +621,7 @@ impl<'d> AudioFunction<'d> {
         // The audio data endpoint's descriptors point at the synch endpoint; the synch endpoint's go after.
         Self::write_as_endpoint_descriptors(
             &mut alt,
-            streaming_endpoint.info(),
+            &streaming_endpoint.info(),
             feedback.as_ref().map(|(feedback, _)| feedback),
         );
         if let Some((feedback, refresh)) = &feedback {
@@ -847,7 +847,7 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
     /// separate step.
     fn write_descriptor(&self, alt: &mut InterfaceAltBuilder<'_, 'd, D>, refresh: FeedbackRefresh) {
         alt.endpoint_descriptor(
-            self.feedback_endpoint.info(),
+            &self.feedback_endpoint.info(),
             SynchronizationType::NoSynchronization,
             UsageType::FeedbackEndpoint,
             &[
@@ -859,7 +859,7 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
 
     /// Writes a single packet into the IN endpoint.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.feedback_endpoint.write(data).await
+        crate::class::write_packet(&mut self.feedback_endpoint, data).await
     }
 
     /// Waits for the USB host to enable this interface.

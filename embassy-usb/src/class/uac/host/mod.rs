@@ -118,14 +118,12 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
 
         let mut control_channel = alloc.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
-            &EndpointInfo {
-                addr: 0.into(),
-                ep_type: EndpointType::Control,
-                max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
-                    .min(enum_info.speed().max_packet_size()),
-                interval_ms: 0,
-                max_burst: 0,
-            },
+            &EndpointInfo::new(
+                0.into(),
+                EndpointType::Control,
+                (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed().max_packet_size()),
+                0,
+            ),
             enum_info.split(),
         )?;
 
@@ -264,7 +262,9 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
             }
             _ => return Err(RequestError::NoSupportedInterface),
         };
-        let max_bytes_per_packet = output_interface.endpoint_descriptor.unwrap().max_packet_size as usize;
+        let out_ep_desc = output_interface.endpoint_descriptor.unwrap();
+        let max_bytes_per_packet =
+            usize::from(out_ep_desc.packet_size()) * (1 + usize::from(out_ep_desc.additional_transactions()));
         // Get the sampling frequency
         let mut num_retries = 3;
         let sampling_freq = loop {
@@ -888,6 +888,8 @@ pub fn parse_feedback(speed: Speed, data: &[u8]) -> Option<f32> {
             // Convert fractional part to float (divide by 2^16 since it's a 16-bit fraction)
             Some(integer_part as f32 + (fractional_part as f32 / 65536.0))
         }
+
+        _ => None,
     }
 }
 

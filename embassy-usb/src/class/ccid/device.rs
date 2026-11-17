@@ -520,24 +520,10 @@ impl<'d, D: Driver<'d>> CcidWriter<'d, D> {
             let mut packet = [0u8; 512];
             packet[..HEADER_LEN].copy_from_slice(&header);
             packet[HEADER_LEN..max_pkt].copy_from_slice(&data[..first_data_len]);
-            self.write_ep.write(&packet[..max_pkt]).await?;
+            self.write_ep.write_transfer(&packet[..max_pkt], false).await?;
 
-            // Remaining data chunks
-            let mut offset = first_data_len;
-            while offset + max_pkt <= data.len() {
-                self.write_ep.write(&data[offset..offset + max_pkt]).await?;
-                offset += max_pkt;
-            }
-
-            // Final short data packet
-            if offset < data.len() {
-                self.write_ep.write(&data[offset..]).await?;
-            }
-
-            // Zero-Length Packet if the entire transfer length is a multiple of max_packet_size
-            if total_wire_bytes % max_pkt == 0 {
-                self.write_ep.write(&[]).await?;
-            }
+            // Remaining data and ZLP if the entire transfer length is a multiple of max_packet_size
+            self.write_ep.write_transfer(&data[first_data_len..], true).await?;
         }
 
         Ok(())
@@ -559,7 +545,7 @@ impl<'d, D: Driver<'d>> CcidWriter<'d, D> {
         msg[7] = status;
         msg[8] = error;
         msg[9] = clock_status;
-        self.write_ep.write_transfer(&msg, true).await
+        Ok(self.write_ep.write_transfer(&msg, true).await?)
     }
 
     /// Send an `RDR_to_PC_Parameters` message.
@@ -583,9 +569,10 @@ impl<'d, D: Driver<'d>> CcidWriter<'d, D> {
         msg[9] = protocol_num;
         let copy_len = params.len().min(16);
         msg[HEADER_LEN..HEADER_LEN + copy_len].copy_from_slice(&params[..copy_len]);
-        self.write_ep
+        Ok(self
+            .write_ep
             .write_transfer(&msg[..total_len.min(msg.len())], true)
-            .await
+            .await?)
     }
 
     /// Send an `RDR_to_PC_NotifySlotChange` interrupt event.
@@ -597,7 +584,7 @@ impl<'d, D: Driver<'d>> CcidWriter<'d, D> {
             let shift = (slot & 0x03) * 2;
             let state_bits = if card_present { 0x03 } else { 0x02 };
             msg[1] = state_bits << shift;
-            int_ep.write_transfer(&msg, true).await
+            Ok(int_ep.write_transfer(&msg, true).await?)
         } else {
             Ok(())
         }

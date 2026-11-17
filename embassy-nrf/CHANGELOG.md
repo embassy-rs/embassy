@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- changed: PAC types no longer implement `Debug` by default.
+- added: `pac-defmt` and `pac-debug` Cargo features, which implement `defmt::Format` and `Debug` for PAC types.
 - removed: `gpio::AnyPin` is no longer public. Pass type-erased pins around as `gpio::Flex`, `gpio::Input` or `gpio::Output`.
 - changed: `gpio` `persist()` no longer requires a `'static` pin.
 - changed: drivers take per-signal pin traits instead of `gpio::Pin`: `spim::{SckPin, MosiPin, MisoPin}`, `spis::{SckPin, MosiPin, MisoPin, CsPin}`, `uarte::{TxPin, RxPin, CtsPin, RtsPin}` (also used by `buffered_uarte`), `twim::{SclPin, SdaPin}`, `twis::{SclPin, SdaPin}`, `pwm::OutPin`, `pdm::{ClkPin, DinPin}`, `i2s::{MckPin, SckPin, LrckPin}`, `qdec::{APin, BPin, LedPin}`, `qspi::{SckPin, CsPin, Io0Pin, Io1Pin, Io2Pin, Io3Pin}` and `sqspi::{SckPin, CsPin, Io0Pin, Io1Pin, Io2Pin, Io3Pin}`. They're implemented for all pins, except on nRF54L.

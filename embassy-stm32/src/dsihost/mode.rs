@@ -428,29 +428,4 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             w.set_pge(enable);
         });
     }
-
-    /// Debug dump registers to defmt
-    #[cfg(feature = "defmt")]
-    pub fn debug_registers() {
-        debug!("{}", T::regs().mcr().read());
-        debug!("{}", T::regs().wcfgr().read());
-        debug!("{}", T::regs().vmcr().read());
-        debug!("{}", T::regs().wcr().read());
-        debug!("{}", T::regs().vpcr().read());
-        debug!("{}", T::regs().vccr().read());
-        debug!("{}", T::regs().vnpcr().read());
-        debug!("{}", T::regs().vhsacr().read());
-        debug!("{}", T::regs().vhbpcr().read());
-        debug!("{}", T::regs().vlcr().read());
-        debug!("{}", T::regs().vvsacr().read());
-        debug!("{}", T::regs().vvbpcr().read());
-        debug!("{}", T::regs().vvfpcr().read());
-        debug!("{}", T::regs().vvacr().read());
-        debug!("{}", T::regs().lcolcr().read());
-        debug!("{}", T::regs().gpsr().read());
-        debug!("{}", T::regs().wisr().read());
-        debug!("{}", T::regs().isr0().read());
-        debug!("{}", T::regs().isr1().read());
-        debug!("{}", T::regs().cr().read());
-    }
 }

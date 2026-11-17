@@ -69,16 +69,15 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
         let ls_over_fs = matches!(enum_info.split(), Some(s) if s.device_speed() == SplitSpeed::Low);
         let mut control_channel = bus.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
-            &EndpointInfo {
-                addr: 0.into(),
-                ep_type: EndpointType::Control,
-                max_packet_size: enum_info
+            &EndpointInfo::new(
+                0.into(),
+                EndpointType::Control,
+                enum_info
                     .device_desc
                     .max_packet_size0
                     .min(if ls_over_fs { 8 } else { 64 }) as u16,
-                interval_ms: 0,
-                max_burst: 0,
-            },
+                0,
+            ),
             enum_info.split(),
         )?;
 
@@ -390,7 +389,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                     parent_split.port(),
                     SplitSpeed::Full,
                 )),
-                Speed::High => BusRoute::Direct(speed),
+                _ => BusRoute::Direct(speed),
             },
             None => {
                 let split_speed = match (speed, self.route.device_speed()) {

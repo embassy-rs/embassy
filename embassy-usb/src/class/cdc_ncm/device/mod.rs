@@ -501,12 +501,16 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
             // First packet is not full, just send it.
             // No need to send ZLP because it's short for sure.
             buf[OUT_HEADER_LEN..][..data.len()].copy_from_slice(data);
-            self.write_ep.write(&buf[..OUT_HEADER_LEN + data.len()]).await?;
+            self.write_ep
+                .write_transfer(&buf[..OUT_HEADER_LEN + data.len()], false)
+                .await?;
         } else {
             let (d1, d2) = data.split_at(self.max_packet_size - OUT_HEADER_LEN);
 
             buf[OUT_HEADER_LEN..self.max_packet_size].copy_from_slice(d1);
-            self.write_ep.write(&buf[..self.max_packet_size]).await?;
+            self.write_ep
+                .write_transfer(&buf[..self.max_packet_size], false)
+                .await?;
 
             self.write_ep.write_transfer(d2, true).await?;
         }
@@ -598,10 +602,9 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
                 0x00, // wLength
                 0x00,
             ];
-            match self.comm_ep.write(&buf).await {
-                Ok(()) => break,                   // Done!
-                Err(EndpointError::Disabled) => {} // Got disabled again, wait again.
-                Err(e) => return Err(e),
+            match self.comm_ep.write_transfer(&buf, false).await {
+                Ok(()) => break, // Done!
+                Err(_) => {}     // Got disabled again, wait again.
             }
         }
 
@@ -617,21 +620,30 @@ mod tests {
 
     use super::*;
     use crate::driver::{
-        Bus, ControlPipe, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointError, EndpointIn, EndpointInfo,
-        EndpointOut, Event, Unsupported,
+        Bus, ControlPipe, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError,
+        EndpointIn, EndpointInfo, EndpointOut, Event, Unsupported,
     };
 
     /// An enabled interrupt endpoint that keeps what the class writes to it.
     struct Notifications<'a>(&'a RefCell<[u8; 8]>);
 
     impl Endpoint for Notifications<'_> {
-        fn info(&self) -> &EndpointInfo {
-            unreachable!()
+        fn info(&self) -> EndpointInfo {
+            EndpointInfo::new(
+                EndpointAddress::from_parts(1, crate::driver::Direction::In),
+                crate::driver::EndpointType::Interrupt,
+                16,
+                10,
+            )
         }
 
         async fn wait_enabled(&mut self) {}
 
-        fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
+        fn is_enabled(&self) -> bool {
+            true
+        }
+
+        async fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
             Err(Unsupported)
         }
 
@@ -641,7 +653,7 @@ mod tests {
     }
 
     impl EndpointIn for Notifications<'_> {
-        async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+        async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
             self.0.borrow_mut().copy_from_slice(buf);
             Ok(())
         }
@@ -651,13 +663,17 @@ mod tests {
     struct Enabled;
 
     impl Endpoint for Enabled {
-        fn info(&self) -> &EndpointInfo {
+        fn info(&self) -> EndpointInfo {
             unreachable!()
         }
 
         async fn wait_enabled(&mut self) {}
 
-        fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
+        fn is_enabled(&self) -> bool {
+            true
+        }
+
+        async fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
             Err(Unsupported)
         }
 
@@ -667,7 +683,7 @@ mod tests {
     }
 
     impl EndpointOut for Enabled {
-        async fn read(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
+        async fn read_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
             unreachable!()
         }
     }
@@ -718,7 +734,7 @@ mod tests {
     }
 
     impl<const N: usize> Endpoint for Transfers<N> {
-        fn info(&self) -> &EndpointInfo {
+        fn info(&self) -> EndpointInfo {
             unreachable!()
         }
 
@@ -726,7 +742,11 @@ mod tests {
             unreachable!()
         }
 
-        fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
+        fn is_enabled(&self) -> bool {
+            true
+        }
+
+        async fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
             Err(Unsupported)
         }
 
@@ -736,10 +756,6 @@ mod tests {
     }
 
     impl<const N: usize> EndpointOut for Transfers<N> {
-        async fn read(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
-            unreachable!()
-        }
-
         async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
             let (ntb, len) = self.ntbs[self.next];
             self.next += 1;
@@ -772,7 +788,7 @@ mod tests {
     struct Unused;
 
     impl Endpoint for Unused {
-        fn info(&self) -> &EndpointInfo {
+        fn info(&self) -> EndpointInfo {
             unreachable!()
         }
 
@@ -780,7 +796,11 @@ mod tests {
             unreachable!()
         }
 
-        fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
+        fn is_enabled(&self) -> bool {
+            unreachable!()
+        }
+
+        async fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
             unreachable!()
         }
 
@@ -790,7 +810,7 @@ mod tests {
     }
 
     impl EndpointIn for Unused {
-        async fn write(&mut self, _: &[u8]) -> Result<(), EndpointError> {
+        async fn write_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
             unreachable!()
         }
     }
@@ -804,11 +824,11 @@ mod tests {
             unreachable!()
         }
 
-        async fn data_out(&mut self, _: &mut [u8], _: bool, _: bool) -> Result<usize, EndpointError> {
+        async fn data_out_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
             unreachable!()
         }
 
-        async fn data_in(&mut self, _: &[u8], _: bool, _: bool) -> Result<(), EndpointError> {
+        async fn data_in_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
             unreachable!()
         }
 
@@ -838,11 +858,15 @@ mod tests {
             unreachable!()
         }
 
-        fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
+        async fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
             unreachable!()
         }
 
-        fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
+        fn endpoint_is_enabled(&mut self, _: EndpointAddress) -> bool {
+            unreachable!()
+        }
+
+        async fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
             unreachable!()
         }
 

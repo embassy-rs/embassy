@@ -560,6 +560,19 @@ mod util {
         }
         Ok(Some(x))
     }
+
+    #[allow(dead_code)]
+    /// Computes VCO frequency for PLLs with a 13-bit fractional multiplier (`fracn < 8192`).
+    pub fn calc_pll_vco(ref_clk: Hertz, mul: u16, fracn: Option<u16>) -> Hertz {
+        match fracn {
+            Some(fracn) => {
+                assert!(fracn < 8192);
+                let vco_hz = ((u64::from(ref_clk.0) * ((u64::from(mul) << 13) + u64::from(fracn))) >> 13) as u32;
+                Hertz::hz(vco_hz)
+            }
+            None => ref_clk * u32::from(mul),
+        }
+    }
 }
 
 /// Get the kernel clock frequency of the peripheral `T`.

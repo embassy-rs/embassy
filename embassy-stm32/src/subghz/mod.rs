@@ -5,10 +5,8 @@
 //!
 //! This module provides:
 //! - [`SubghzSpi`]: `SpiDevice` driver managing `SUBGHZSPI` and hardware slave-select line (`PWR_SUBGHZSPICR.NSS`).
-//! - [`SubghzRadio`]: Control of radio reset (`RCC_CSR.RFRST`), BUSY status polling / awaiting, and event interrupts (`SUBGHZ_RADIO`).
-//! - [`rf_switch`]: Multi-pin RF front-end switch abstractions ([`rf_switch::NucleoRfSwitch`], [`rf_switch::LoraE5RfSwitch`]).
+//! - [`SubghzControl`]: Control of radio reset (`RCC_CSR.RFRST`), BUSY status polling / awaiting, and event interrupts (`SUBGHZ_RADIO`).
 
-pub mod rf_switch;
 pub mod spi;
 
 use core::future::poll_fn;
@@ -17,13 +15,10 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
-pub use rf_switch::{DummyRfSwitch, LoraE5RfSwitch, NucleoRfSwitch, RfMode, RfSwitch};
 pub use spi::SubghzSpi;
 
 use crate::interrupt::typelevel::Interrupt;
-use crate::mode::{Async, Blocking};
-use crate::spi::{Instance, RxDma, TxDma};
-use crate::{Peri, pac};
+use crate::pac;
 
 static RADIO_WAKER: AtomicWaker = AtomicWaker::new();
 static RADIO_PENDING: AtomicBool = AtomicBool::new(false);
@@ -108,13 +103,15 @@ pub fn set_nss_source(source: NssSource) {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct BusyTimeout;
 
-/// Sub-GHz radio physical control driver (reset, busy monitoring, and interrupts).
-pub struct SubghzRadio<'d> {
+/// Control of the sub-GHz radio: reset, `RFBUSY` monitoring, wakeup and interrupts.
+///
+/// This is not a radio driver. It does not know the radio's command set; send commands through [`SubghzSpi`].
+pub struct SubghzControl<'d> {
     _phantom: PhantomData<&'d ()>,
 }
 
-impl<'d> SubghzRadio<'d> {
-    /// Create a new `SubghzRadio` driver instance.
+impl<'d> SubghzControl<'d> {
+    /// Create a new `SubghzControl` driver instance.
     pub fn new(
         _irq: impl crate::interrupt::typelevel::Binding<crate::interrupt::typelevel::SUBGHZ_RADIO, RadioInterruptHandler>
         + 'd,
@@ -310,36 +307,5 @@ impl<'d> SubghzRadio<'d> {
             Poll::Pending
         })
         .await;
-    }
-}
-
-/// Sub-GHz peripheral manager and factory.
-pub struct Subghz;
-
-impl Subghz {
-    /// Initialize both the asynchronous `SubghzSpi` interface (with DMA) and the `SubghzRadio` controller.
-    pub fn new<'d, T: Instance, D1: TxDma<T>, D2: RxDma<T>>(
-        peri: Peri<'d, T>,
-        tx_dma: Peri<'d, D1>,
-        rx_dma: Peri<'d, D2>,
-        irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
-        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
-        + crate::interrupt::typelevel::Binding<crate::interrupt::typelevel::SUBGHZ_RADIO, RadioInterruptHandler>
-        + 'd,
-    ) -> (SubghzSpi<'d, Async>, SubghzRadio<'d>) {
-        let spi = SubghzSpi::new(peri, tx_dma, rx_dma, irq);
-        let radio = SubghzRadio::new(irq);
-        (spi, radio)
-    }
-
-    /// Initialize both the blocking `SubghzSpi` interface (without DMA) and the `SubghzRadio` controller.
-    pub fn new_blocking<'d, T: Instance>(
-        peri: Peri<'d, T>,
-        irq: impl crate::interrupt::typelevel::Binding<crate::interrupt::typelevel::SUBGHZ_RADIO, RadioInterruptHandler>
-        + 'd,
-    ) -> (SubghzSpi<'d, Blocking>, SubghzRadio<'d>) {
-        let spi = SubghzSpi::new_blocking(peri);
-        let radio = SubghzRadio::new(irq);
-        (spi, radio)
     }
 }

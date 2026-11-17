@@ -15,7 +15,7 @@ use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, Feedback, State};
 use super::{Channel, FeedbackRefresh, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
 use crate::class::uac::terminal_type::TerminalType;
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointOut, EndpointType};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointType};
 use crate::{Builder, EndpointOptions};
 
 /// Speaker stream settings and optional host controls.
@@ -136,7 +136,7 @@ pub struct Stream<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> Stream<'d, D> {
     /// Reads a single packet from the OUT endpoint
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        self.streaming_endpoint.read(data).await
+        crate::class::read_packet(&mut self.streaming_endpoint, data).await
     }
 
     /// Waits for the USB host to enable this interface

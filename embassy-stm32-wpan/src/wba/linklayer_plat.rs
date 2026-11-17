@@ -330,6 +330,34 @@ pub fn earliest_timer_deadline() -> Instant {
     }
 }
 
+/// Forget the platform state of a BLE stack instance that is being torn down.
+///
+/// The host stack memory is zeroed right after, so a timer left armed would
+/// later call `BLEPLATCB_TimerExpiry` into a stack that no longer exists, and a
+/// stalled event flow or a P-256 request would carry over into the next one.
+pub(crate) fn reset_ble_platform_state() {
+    let mut cancelled = 0;
+    unsafe {
+        for slot in TIMER_SLOTS.iter_mut() {
+            if slot.0 != TIMER_SLOT_FREE {
+                cancelled += 1;
+            }
+
+            *slot = (TIMER_SLOT_FREE, Instant::MAX);
+        }
+    }
+
+    EVENT_FLOW_STALLED.store(false, Ordering::Release);
+    EVENT_FLOW_RESUME.store(false, Ordering::Release);
+
+    if let Some(platform) = unsafe { PLATFORM.as_ref() } {
+        platform.get_p256_req().reset();
+        platform.get_p256_resp().reset();
+    }
+
+    debug!("BLE platform reset: {} timer(s) cancelled", cancelled);
+}
+
 #[cfg(feature = "ble-stack-llo")]
 pub fn check_expired_timers() {}
 

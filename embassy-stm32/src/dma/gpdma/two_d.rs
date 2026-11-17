@@ -42,8 +42,7 @@ pub struct TwoDConfig {
 /// This is an 8-word (32 byte) descriptor that includes TR3 and BR2
 /// registers for per-burst and per-block-repeat address stepping.
 /// Only usable on GPDMA channels that support 2D addressing.
-#[derive(Debug, Copy, Clone, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, Default)]
 #[repr(C)]
 pub struct TwoDItem {
     /// Common item fields (TR1, TR2, BR1, SAR, DAR).
