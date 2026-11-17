@@ -73,4 +73,7 @@ apollo3 = ["dep:apollo3-pac"]
 svl-vtor = []
 
 # Other features
-defmt = ["embassy-hal-internal/defmt", "embassy-sync/defmt", "apollo3-pac?/defmt"]
+defmt = ["embassy-hal-internal/defmt", "embassy-sync/defmt"]
+# Implement `defmt::Format` for PAC types.
+pac-defmt = ["apollo3-pac?/defmt"]
+# TODO: add pac-debug once the PAC has it

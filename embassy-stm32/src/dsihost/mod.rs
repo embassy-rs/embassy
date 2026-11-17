@@ -313,7 +313,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 
         let status = T::regs().isr1().read();
         if status.0 != 0 {
-            error!("ISR1 after short_write(): {}", status);
+            error!("ISR1 after short_write(): 0x{:08x}", status.0);
         }
         Ok(())
     }
@@ -579,12 +579,12 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let isr0 = T::regs().isr0().read();
         let isr1 = T::regs().isr1().read();
         if isr0.0 != 0 {
-            warn!("{}", isr0);
+            warn!("ISR0: 0x{:08x}", isr0.0);
             unsafe { T::Interrupt::enable() };
         }
 
         if isr1.0 != 0 {
-            warn!("{}", isr1);
+            warn!("ISR1: 0x{:08x}", isr1.0);
             unsafe { T::Interrupt::enable() };
         }
 

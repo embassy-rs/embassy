@@ -352,8 +352,7 @@ pub enum Clock {
 }
 
 /// ADC configuration.
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone)]
 #[non_exhaustive]
 pub struct Config {
     /// Conversion resolution. `None` keeps the hardware default, which is the highest resolution

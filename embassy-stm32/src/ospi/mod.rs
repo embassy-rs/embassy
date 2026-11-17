@@ -599,13 +599,6 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                 Self::configure_octospim_data_group(ioh_pgroup, Self::octospim_high_data_src());
             }
 
-            let cr = T::OCTOSPIM_REGS.cr().read();
-            let p1cr = T::OCTOSPIM_REGS.p1cr().read();
-            let p2cr = T::OCTOSPIM_REGS.p2cr().read();
-            debug!("OCTOSPIM_CR: 0x{:08X} - {:?}", cr.0, cr);
-            debug!("OCTOSPIM_P1CR: 0x{:08X} - {:?}", p1cr.0, p1cr);
-            debug!("OCTOSPIM_P2CR: 0x{:08X} - {:?}", p2cr.0, p2cr);
-
             previously_enabled_instances
         };
 

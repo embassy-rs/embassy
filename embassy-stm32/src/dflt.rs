@@ -5,8 +5,7 @@ pub use crate::pac::adf::vals::{
 };
 
 /// Clock generator configuration shared by ADF and MDF.
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy)]
 pub struct ClockConfig {
     /// Divider applied to the kernel clock to produce the processing clock.
     ///
@@ -32,8 +31,7 @@ impl Default for ClockConfig {
 }
 
 /// Serial interface (SITF) configuration.
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy)]
 pub struct SitfConfig {
     /// Serial interface mode.
     pub mode: Sitfmod,
@@ -54,8 +52,7 @@ impl Default for SitfConfig {
 }
 
 /// Digital filter configuration.
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy)]
 pub struct FilterConfig {
     /// Bitstream routed into the filter.
     pub bitstream: Bssel,

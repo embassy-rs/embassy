@@ -95,6 +95,9 @@ defmt = [
     "embassy-hal-internal/defmt",
     "mspm0-metapac/defmt",
 ]
+## Implement `defmt::Format` for PAC types.
+pac-defmt = ["mspm0-metapac/defmt"]
+# TODO: add pac-debug once the PAC has it
 
 ## Use log for logging
 log = ["dep:log"]

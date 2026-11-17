@@ -88,6 +88,10 @@ defmt = [
     "embassy-embedded-hal/defmt",
     "embassy-crypto/defmt",
 ]
+## Implement `defmt::Format` for PAC types.
+pac-defmt = ["nrf-pac/defmt"]
+## Implement `core::fmt::Debug` for PAC types.
+pac-debug = ["nrf-pac/debug"]
 ## Enable log
 log = ["dep:log"]
 
@@ -348,7 +352,7 @@ embedded-io-async = { version = "0.7.0" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 # nrf-pac = "0.4.0"
-nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "8a9f841b2378f0697d2831670eda515cda990d1c" }
+nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "610182af38330770206fc81899d3c89edbfa88fc" }
 
 defmt = { version = "1.0.1", optional = true }
 bitflags = "2.10.0"

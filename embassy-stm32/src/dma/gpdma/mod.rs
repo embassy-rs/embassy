@@ -433,8 +433,7 @@ impl From<Burst> for u8 {
 }
 
 /// GPDMA transfer options.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TransferOptions {
     /// Request priority level.

@@ -134,7 +134,7 @@ async fn main(_spawner: Spawner) {
             }
         };
 
-        info!("Starting PD communication on {}", cc_sel);
+        info!("Starting PD communication");
         let mut active_pd_phy = pd_phy.activate(cc_sel, &mut rx_buffers);
         match select(wait_detached(&mut cc_phy), receive_messages(&mut active_pd_phy)).await {
             Either::First(()) => {}

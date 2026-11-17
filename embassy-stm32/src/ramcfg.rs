@@ -155,8 +155,7 @@ impl Sram2<'_> {
 }
 
 /// Parity error location, read from `M2PEAR`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ParityErrorAddress {
     /// Word-aligned SRAM2 offset of the failing access.
     pub offset: u16,
