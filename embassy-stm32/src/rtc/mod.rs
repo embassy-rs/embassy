@@ -165,7 +165,7 @@ impl<'a> ops::DerefMut for RtcBorrow<'a> {
 /// RTC driver.
 pub struct Rtc {
     #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-    epoch: i64,
+    anchor: Option<low_power::Anchor>,
     _private: (),
 }
 
@@ -236,7 +236,7 @@ impl Rtc {
 
         let mut this = Self {
             #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-            epoch: 0i64,
+            anchor: None,
             _private: (),
         };
 
@@ -252,10 +252,7 @@ impl Rtc {
         }
 
         #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-        {
-            this.enable_wakeup_line();
-            this.reset_epoch();
-        }
+        this.enable_wakeup_line();
 
         this
     }
@@ -307,7 +304,9 @@ impl Rtc {
         });
 
         #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-        self.reset_epoch();
+        {
+            self.anchor = None;
+        }
 
         Ok(())
     }
@@ -337,6 +336,11 @@ impl Rtc {
                 });
             });
         });
+
+        #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+        {
+            self.anchor = None;
+        }
     }
 
     /// Check if daylight savings time is active.
@@ -350,9 +354,6 @@ impl Rtc {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| w.set_bkp(daylight_savings));
         });
-
-        #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-        self.reset_epoch();
     }
 
     /// Number of backup registers of this instance.

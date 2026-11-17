@@ -5,13 +5,13 @@
 #[path = "../common.rs"]
 mod common;
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::rcc::{LsConfig, StopMode, get_stop_mode};
-use embassy_stm32::rtc::Rtc;
-use embassy_time::Timer;
+use embassy_stm32::rtc::{Rtc, RtcTimeProvider};
+use embassy_time::{Instant, Timer};
 
 /// Get whether the core is ready to enter the given stop mode.
 ///
@@ -34,12 +34,20 @@ async fn task_1() {
 }
 
 #[embassy_executor::task]
-async fn task_2() {
+async fn task_2(time_provider: RtcTimeProvider, start_rtc: NaiveDateTime, start: Instant) {
     for _ in 0..5 {
         info!("task 2: waiting for 1000ms...");
         defmt::assert!(stop_ready(StopMode::Stop2));
         Timer::after_millis(1000).await;
     }
+
+    // The time spent in stop mode is measured with the RTC, so embassy-time must track it.
+    let rtc_elapsed = (NaiveDateTime::from(time_provider.now().unwrap()) - start_rtc)
+        .num_microseconds()
+        .unwrap();
+    let elapsed = start.elapsed().as_micros() as i64;
+    info!("elapsed: rtc {} us, embassy-time {} us", rtc_elapsed, elapsed);
+    defmt::assert!((rtc_elapsed - elapsed).abs() < 20_000);
 
     info!("Test OK");
     cortex_m::asm::bkpt();
@@ -67,14 +75,17 @@ async fn async_main(spawner: Spawner) {
         .and_hms_opt(10, 30, 15)
         .unwrap();
 
-    let (rtc, _time_provider) = Rtc::new(p.RTC);
+    let (rtc, time_provider) = Rtc::new(p.RTC);
 
     info!("set datetime");
     critical_section::with(|cs| {
         rtc.borrow_mut(cs).set_datetime(now.into()).expect("datetime not set");
     });
 
+    let start_rtc = NaiveDateTime::from(time_provider.now().unwrap());
+    let start = Instant::now();
+
     info!("spawn");
     spawner.spawn(task_1().unwrap());
-    spawner.spawn(task_2().unwrap());
+    spawner.spawn(task_2(time_provider, start_rtc, start).unwrap());
 }

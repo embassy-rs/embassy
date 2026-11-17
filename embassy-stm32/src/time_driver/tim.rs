@@ -341,7 +341,7 @@ impl super::LPTimeDriver for RtcDriver {
                 .borrow_mut()
                 .as_mut()
                 .unwrap()
-                .start_wakeup_alarm(time_until_next_alarm);
+                .start_wakeup_alarm(time_until_next_alarm, embassy_time::Instant::from_ticks(self.now()));
 
             regs_gp16().cr1().modify(|w| w.set_cen(false));
             Ok(())
@@ -351,16 +351,8 @@ impl super::LPTimeDriver for RtcDriver {
     fn resume_time(&self, cs: CriticalSection) {
         assert!(!regs_gp16().cr1().read().cen());
 
-        self.set_time(
-            self.rtc
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .stop_wakeup_alarm()
-                .as_ticks(),
-            cs,
-        );
+        let now = self.rtc.borrow(cs).borrow_mut().as_mut().unwrap().stop_wakeup_alarm();
+        self.set_time(now.map_or(self.now(), |now| now.as_ticks()), cs);
 
         regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
