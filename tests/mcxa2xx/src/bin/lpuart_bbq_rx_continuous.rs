@@ -6,6 +6,9 @@
 #![no_main]
 
 teleprobe_meta::target!(b"frdm-mcx-a266");
+// LPTMR's coarse alarms make the idle-boundary phase take about 8 seconds,
+// in addition to the sustained transfer and overrun/recovery phases.
+teleprobe_meta::timeout!(30);
 
 use defmt::{error, info};
 use defmt_rtt as _;
