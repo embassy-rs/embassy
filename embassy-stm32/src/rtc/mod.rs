@@ -254,6 +254,12 @@ impl Rtc {
         #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
         {
             this.enable_wakeup_line();
+            // `reset_epoch` unwraps `now`, so a calendar holding an invalid date or time, such as a corrupted one,
+            // would panic here on every boot. Reset it to the date a backup-domain reset leaves.
+            if let Err(RtcError::InvalidDateTime(_)) = RtcTimeProvider::new().now() {
+                let reset = DateTime::from(2000, 1, 1, DayOfWeek::Saturday, 0, 0, 0, 0).unwrap();
+                this.set_datetime(reset).unwrap();
+            }
             this.reset_epoch();
         }
 
