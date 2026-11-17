@@ -152,7 +152,7 @@ impl SealedInstance for crate::peripherals::RTC {
     #[cfg(feature = "low-power")]
     #[cfg(not(feature = "_lp-time-driver"))]
     cfg_select! {
-        any(stm32g4, stm32wl) => {
+        any(stm32g4, stm32wl, stm32l4) => {
             const EXTI_WAKEUP_LINE: usize = 20;
         }
         stm32g0 => {
@@ -166,7 +166,7 @@ impl SealedInstance for crate::peripherals::RTC {
 
     #[cfg(feature = "low-power")]
     cfg_select! {
-        any(stm32g4, stm32wl) => {
+        any(stm32g4, stm32wl, stm32l4) => {
             #[cfg(not(feature = "_core-cm0p"))]
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
             #[cfg(feature = "_core-cm0p")]

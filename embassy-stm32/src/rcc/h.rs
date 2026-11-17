@@ -13,6 +13,7 @@ pub use crate::pac::rcc::vals::{
 };
 use crate::pac::rcc::vals::{Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::LSI_FREQ;
 #[cfg(dsihost)]
 use crate::rcc::dsi;
 #[cfg(dsihost)]
@@ -882,8 +883,8 @@ pub(crate) unsafe fn init(config: Config) {
         csi: csi,
         hse: hse,
 
-        lse: None,
-        lsi: None,
+        lse: config.ls.lse.map(|l| l.frequency),
+        lsi: config.ls.lsi.then_some(LSI_FREQ),
 
         pll1_q: pll1.q,
         pll2_p: pll2.p,

@@ -11,6 +11,7 @@ pub use crate::pac::rcc::vals::{
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{FLASH, RCC};
+use crate::rcc::LSI_FREQ;
 #[cfg(dsihost)]
 use crate::rcc::dsi;
 #[cfg(dsihost)]
@@ -338,8 +339,8 @@ pub(crate) unsafe fn init(config: Config) {
     set_clocks!(
         hsi: hsi,
         hse: hse,
-        lse: None, // TODO
-        lsi: None, // TODO
+        lse: config.ls.lse.map(|l| l.frequency),
+        lsi: config.ls.lsi.then_some(LSI_FREQ),
         sys: Some(sys),
         hclk1: Some(hclk),
         hclk2: Some(hclk),

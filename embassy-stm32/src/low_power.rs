@@ -74,7 +74,7 @@ foreach_interrupt! {
     };
 }
 
-#[cfg(all(feature = "rt", stm32u0))]
+#[cfg(all(feature = "rt", stm32u0, not(feature = "_lp-time-driver")))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
         #[interrupt]

@@ -183,7 +183,7 @@ pub fn get_stop_mode(_cs: CriticalSection) -> Option<StopMode> {
 }
 
 #[cfg(feature = "low-power")]
-fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+pub(crate) fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
     match stop_mode {
         StopMode::Standby => {}
         StopMode::Stop2 => unsafe {
@@ -196,7 +196,7 @@ fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
 }
 
 #[cfg(feature = "low-power")]
-fn decrement_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+pub(crate) fn decrement_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
     match stop_mode {
         StopMode::Standby => {}
         StopMode::Stop2 => unsafe {
@@ -683,87 +683,6 @@ pub(crate) fn reinit_saved(_cs: CriticalSection) {
 
 pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
     unsafe {
-        // if we are using a lp timer as the time driver, we need to make sure that the clock selection is sane
-        // TODO: how to share this config from the secondary core thats using a lp timer? (right now its not detected as missing!)
-        #[cfg(feature = "_lp-time-driver")]
-        let config = {
-            let mut config = config;
-
-            // Ensure the LPTIM clock source is suitable for use as a time
-            // driver during STOP mode.  If the default APB clock is selected,
-            // switch to LSI; otherwise verify that the chosen source is enabled.
-            //
-            // STM32WBA and STM32L4 use per-timer mux enums (Lptim1sel / Lptim2sel)
-            // while other families share a single Lptimsel enum.
-            macro_rules! ensure_lptim_clk {
-                ($field:ident, $Sel:path, $pclk:pat) => {
-                    match config.mux.$field {
-                        $pclk => {
-                            config.mux.$field = <$Sel>::Lsi;
-                            config.ls.lsi = true;
-                        }
-                        <$Sel>::Lsi => {
-                            config.ls.lsi = true;
-                        }
-                        <$Sel>::Hsi => {
-                            config.hsi = true;
-                        }
-                        <$Sel>::Lse => {
-                            if config.ls.lse.is_none() {
-                                panic!("LSE is not configured, but selected for time_driver!!!");
-                            }
-                            #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
-                            if let Some(mut lse_config) = config.ls.lse {
-                                lse_config.peripherals_clocked = true;
-                                config.ls.lse = Some(lse_config);
-                            }
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => {}
-                    }
-                };
-            }
-
-            #[cfg(time_driver_lptim1)]
-            {
-                #[cfg(not(any(stm32wba, rcc_l4, rcc_l4plus)))]
-                {
-                    use crate::pac::rcc::vals::Lptimsel;
-                    #[cfg(any(stm32u5, stm32u3))]
-                    ensure_lptim_clk!(lptim1sel, Lptimsel, Lptimsel::Msik);
-                    #[cfg(not(any(stm32u5, stm32u3)))]
-                    ensure_lptim_clk!(lptim1sel, Lptimsel, Lptimsel::Pclk1);
-                }
-                #[cfg(any(stm32wba, rcc_l4, rcc_l4plus))]
-                {
-                    use crate::pac::rcc::vals::Lptim1sel;
-                    #[cfg(stm32wba)]
-                    ensure_lptim_clk!(lptim1sel, Lptim1sel, Lptim1sel::Pclk7);
-                    #[cfg(not(stm32wba))]
-                    ensure_lptim_clk!(lptim1sel, Lptim1sel, Lptim1sel::Pclk1);
-                }
-            }
-            #[cfg(time_driver_lptim2)]
-            {
-                #[cfg(not(any(stm32wba, rcc_l4, rcc_l4plus)))]
-                {
-                    use crate::pac::rcc::vals::Lptimsel;
-                    ensure_lptim_clk!(lptim2sel, Lptimsel, Lptimsel::Pclk1);
-                }
-                #[cfg(any(stm32wba, rcc_l4, rcc_l4plus))]
-                {
-                    use crate::pac::rcc::vals::Lptim2sel;
-                    ensure_lptim_clk!(lptim2sel, Lptim2sel, Lptim2sel::Pclk1);
-                }
-            }
-            #[cfg(time_driver_lptim3)]
-            {
-                use crate::pac::rcc::vals::Lptimsel;
-                ensure_lptim_clk!(lptim3sel, Lptimsel, Lptimsel::Pclk1);
-            }
-            config
-        };
-
         init(config);
 
         #[cfg(feature = "low-power")]

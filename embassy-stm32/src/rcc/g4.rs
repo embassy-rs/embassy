@@ -4,6 +4,7 @@ pub use crate::pac::rcc::vals::{
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
 /// HSI speed
@@ -332,8 +333,8 @@ pub(crate) unsafe fn init(config: Config) {
         hsi48: hsi48,
         rtc: rtc,
         i2s_ckin: None,
-        lsi: None,
-        lse: None,
+        lsi: config.ls.lsi.then_some(LSI_FREQ),
+        lse: config.ls.lse.map(|l| l.frequency),
     );
 }
 
