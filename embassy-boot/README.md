@@ -33,3 +33,13 @@ The bootloader supports different hardware in separate crates:
 * `embassy-boot-nrf` - for the nRF microcontrollers.
 * `embassy-boot-rp` - for the RP2040, RP235x microcontrollers.
 * `embassy-boot-stm32` - for the STM32 microcontrollers.
+
+## Direct-XIP
+
+Direct-XIP boots firmware from either of two slots. Link each image for its slot's address, unless the chip remaps flash.
+
+Use `DirectXipState` for async flash or `BlockingDirectXipState` for blocking flash. Both use the same record format and need a dedicated two-erase-page state partition, separate from swap state.
+
+Each record needs 16 bytes, padded to the flash driver's read and write sizes. Use the state type's `BUFFER_SIZE` constant for the scratch buffer length.
+
+Use separate instances and state partitions to mix modes, such as a swapped network-core image and a direct-XIP application. The application coordinates version compatibility between images.
