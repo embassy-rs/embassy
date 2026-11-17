@@ -83,13 +83,25 @@ fn dier_modify(r: Lptim, f: impl FnOnce(&mut stm32_metapac::lptim::regs::DierAdv
 const ACK_TIMEOUT_TICKS: u32 = 64;
 
 /// Poll `ok` until it returns true, giving up after `ACK_TIMEOUT_TICKS` so a lost acknowledgement
-/// cannot hang the critical section it runs in.
+/// cannot hang the critical section it runs in. The bound is timed by CYCCNT, with the poll count
+/// as a backstop.
 #[cfg(any(stm32wba, stm32u5, stm32u3))]
 fn wait_for(ok: impl Fn() -> bool) {
-    let sys = unwrap!(unsafe { crate::rcc::get_freqs() }.sys.to_hertz()).0;
-    let polls = (sys / TICK_HZ as u32 + 1) * ACK_TIMEOUT_TICKS;
-    for _ in 0..polls {
-        if ok() {
+    use cortex_m::peripheral::{DCB, DWT};
+
+    if !DWT::cycle_counter_enabled() {
+        // SAFETY: DCB and DWT are zero-sized handles. `Peripherals::steal` would mark the core
+        // peripherals taken for the application.
+        let (mut dcb, mut dwt): (DCB, DWT) = unsafe { core::mem::transmute(((), ())) };
+        dcb.enable_trace();
+        dwt.enable_cycle_counter();
+    }
+
+    let hclk = unwrap!(unsafe { crate::rcc::get_freqs() }.hclk1.to_hertz()).0;
+    let limit = (hclk / TICK_HZ as u32 + 1) * ACK_TIMEOUT_TICKS;
+    let start = DWT::cycle_count();
+    for _ in 0..limit {
+        if ok() || DWT::cycle_count().wrapping_sub(start) >= limit {
             return;
         }
     }
