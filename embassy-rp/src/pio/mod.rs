@@ -22,7 +22,7 @@ mod instr;
 pub use pio as program;
 
 /// Wakers for interrupts and FIFOs.
-pub struct Wakers([AtomicWaker; 12]);
+struct Wakers([AtomicWaker; 12]);
 
 impl Wakers {
     #[inline(always)]
@@ -115,7 +115,7 @@ impl<PIO: Instance> Handler<PIO::Interrupt> for InterruptHandler<PIO> {
         let ints = PIO::PIO.irqs(0).ints().read().0;
         for bit in 0..12 {
             if ints & (1 << bit) != 0 {
-                PIO::wakers().0[bit].wake();
+                PIO::state().wakers.0[bit].wake();
             }
         }
         PIO::PIO.irqs(0).inte().write_clear(|m| m.0 = ints);
@@ -143,7 +143,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoOutFuture<'a, 'd, PI
         if self.get_mut().sm_tx.try_push(value) {
             Poll::Ready(())
         } else {
-            PIO::wakers().fifo_out()[SM].register(cx.waker());
+            PIO::state().wakers.fifo_out()[SM].register(cx.waker());
             PIO::PIO.irqs(0).inte().write_set(|m| {
                 m.0 = TXNFULL_MASK << SM;
             });
@@ -179,7 +179,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoInFuture<'a, 'd, PIO
         if let Some(v) = self.sm_rx.try_pull() {
             Poll::Ready(v)
         } else {
-            PIO::wakers().fifo_in()[SM].register(cx.waker());
+            PIO::state().wakers.fifo_in()[SM].register(cx.waker());
             PIO::PIO.irqs(0).inte().write_set(|m| {
                 m.0 = RXNEMPTY_MASK << SM;
             });
@@ -215,7 +215,7 @@ impl<'a, 'd, PIO: Instance> Future for IrqFuture<'a, 'd, PIO> {
             return Poll::Ready(());
         }
 
-        PIO::wakers().irq()[self.irq_no as usize].register(cx.waker());
+        PIO::state().wakers.irq()[self.irq_no as usize].register(cx.waker());
         PIO::PIO.irqs(0).inte().write_set(|m| {
             m.0 = SMIRQ_MASK << self.irq_no;
         });
@@ -1569,16 +1569,26 @@ impl AtomicU64 {
     }
 }
 
-/// Representation of the PIO state keeping a record of which pins are assigned to
-/// each PIO.
-// make_pio_pin notionally takes ownership of the pin it is given, but the wrapped pin
-// cannot be treated as an owned resource since dropping it would have to deconfigure
-// the pin, breaking running state machines in the process. pins are also shared
-// between all state machines, which makes ownership even messier to track any
-// other way.
-pub struct State {
+/// Per-PIO-block state.
+pub(crate) struct State {
     users: AtomicU8,
+    // make_pio_pin notionally takes ownership of the pin it is given, but the wrapped pin
+    // cannot be treated as an owned resource since dropping it would have to deconfigure
+    // the pin, breaking running state machines in the process. pins are also shared
+    // between all state machines, which makes ownership even messier to track any
+    // other way.
     used_pins: AtomicU64,
+    wakers: Wakers,
+}
+
+impl State {
+    const fn new() -> Self {
+        Self {
+            users: AtomicU8::new(0),
+            used_pins: AtomicU64::new(0),
+            wakers: Wakers([const { AtomicWaker::new() }; 12]),
+        }
+    }
 }
 
 fn on_pio_drop<PIO: Instance>() {
@@ -1603,47 +1613,7 @@ trait SealedInstance {
     const PIO_NO: u8;
     const PIO: &'static crate::pac::pio::Pio;
     const FUNCSEL: crate::pac::io::vals::Gpio0CtrlFuncsel;
-
-    #[inline]
-    fn wakers() -> &'static Wakers {
-        static WAKERS: Wakers = Wakers([const { AtomicWaker::new() }; 12]);
-        &WAKERS
-    }
-
-    #[inline]
-    fn state() -> &'static State {
-        match Self::PIO_NO {
-            0 => {
-                static STATE_0: State = State {
-                    users: AtomicU8::new(0),
-                    used_pins: AtomicU64::new(0),
-                };
-
-                &STATE_0
-            }
-            1 => {
-                static STATE_1: State = State {
-                    users: AtomicU8::new(0),
-                    used_pins: AtomicU64::new(0),
-                };
-
-                &STATE_1
-            }
-            #[cfg(feature = "_rp235x")]
-            2 => {
-                static STATE_2: State = State {
-                    users: AtomicU8::new(0),
-                    used_pins: AtomicU64::new(0),
-                };
-
-                &STATE_2
-            }
-            #[cfg(feature = "_rp235x")]
-            _ => panic!("Invalid PIO_NO: {}, expected one of 0,1,2", Self::PIO_NO),
-            #[cfg(not(feature = "_rp235x"))]
-            _ => panic!("Invalid PIO_NO: {}, expected one of 0,1", Self::PIO_NO),
-        }
-    }
+    fn state() -> &'static State;
 }
 
 /// PIO instance.
@@ -1659,6 +1629,10 @@ macro_rules! impl_pio {
             const PIO_NO: u8 = $pio;
             const PIO: &'static pac::pio::Pio = &pac::$pac;
             const FUNCSEL: pac::io::vals::Gpio0CtrlFuncsel = pac::io::vals::Gpio0CtrlFuncsel::$funcsel;
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
+            }
         }
         impl Instance for peripherals::$name {
             type Interrupt = crate::interrupt::typelevel::$irq;
