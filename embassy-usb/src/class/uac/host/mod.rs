@@ -30,6 +30,8 @@
 //! }).await?;
 //! ```
 
+use embassy_usb_driver::EndpointInterval;
+
 use super::uac2_codes;
 pub mod descriptors;
 
@@ -122,7 +124,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 0.into(),
                 EndpointType::Control,
                 (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed().max_packet_size()),
-                0,
+                EndpointInterval::NONE,
             ),
             enum_info.split(),
         )?;
@@ -206,18 +208,23 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         );
 
         if streaming_interface.num_endpoints > 0 {
-            output_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::Out>(
-                enum_info.device_address,
-                &output_interface.endpoint_descriptor.unwrap().into(),
-                enum_info.split(),
-            )?);
+            output_channel = Some(
+                alloc.alloc_pipe::<pipe::Isochronous, pipe::Out>(
+                    enum_info.device_address,
+                    &output_interface
+                        .endpoint_descriptor
+                        .unwrap()
+                        .endpoint_info(enum_info.speed()),
+                    enum_info.split(),
+                )?,
+            );
         }
         if streaming_interface.num_endpoints > 1
             && let Some(feedback_endpoint) = output_interface.feedback_endpoint_descriptor
         {
             feedback_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::In>(
                 enum_info.device_address,
-                &feedback_endpoint.into(),
+                &feedback_endpoint.endpoint_info(enum_info.speed()),
                 enum_info.split(),
             )?);
         }

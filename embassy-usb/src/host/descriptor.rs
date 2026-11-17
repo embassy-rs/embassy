@@ -2,7 +2,7 @@
 #![allow(missing_docs)]
 
 use embassy_usb_driver::host::HostError;
-use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
+use embassy_usb_driver::{Direction, EndpointInfo, EndpointInterval, EndpointType, Speed};
 use heapless::{String, Vec};
 
 /// Standard descriptor type constants.
@@ -1034,6 +1034,27 @@ pub struct EndpointDescriptor {
 }
 
 impl EndpointDescriptor {
+    /// The [`EndpointInfo`] of this endpoint on a device that enumerated at `speed`.
+    ///
+    /// The descriptor's `bInterval` is only meaningful together with the speed and transfer type,
+    /// so this is where it is decoded into an [`EndpointInterval`].
+    pub fn endpoint_info(&self, speed: Speed) -> EndpointInfo {
+        let ep_type = self.ep_type();
+        let additional_transactions = if matches!(ep_type, EndpointType::Isochronous | EndpointType::Interrupt) {
+            self.additional_transactions()
+        } else {
+            0
+        };
+        let mut info = EndpointInfo::new(
+            self.endpoint_address.into(),
+            ep_type,
+            self.packet_size(),
+            EndpointInterval::from_b_interval(speed, ep_type, self.interval),
+        );
+        info.additional_transactions = additional_transactions;
+        info
+    }
+
     /// Returns the endpoint direction.
     pub fn ep_dir(&self) -> Direction {
         match self.endpoint_address & 0x80 {
@@ -1108,25 +1129,6 @@ impl WritableDescriptor for EndpointDescriptor {
         [bytes[4], bytes[5]] = self.max_packet_size.to_le_bytes();
         bytes[6] = self.interval;
         Ok(bytes[0] as usize)
-    }
-}
-
-impl From<EndpointDescriptor> for EndpointInfo {
-    fn from(value: EndpointDescriptor) -> Self {
-        let additional_transactions = if matches!(value.ep_type(), EndpointType::Isochronous | EndpointType::Interrupt)
-        {
-            value.additional_transactions()
-        } else {
-            0
-        };
-        let mut info = EndpointInfo::new(
-            value.endpoint_address.into(),
-            value.ep_type(),
-            value.packet_size(),
-            value.interval,
-        );
-        info.additional_transactions = additional_transactions;
-        info
     }
 }
 
@@ -1635,7 +1637,7 @@ mod test {
         };
         assert_eq!(iso.packet_size(), 1024);
         assert_eq!(iso.additional_transactions(), 2);
-        let iso_info = EndpointInfo::from(iso);
+        let iso_info = iso.endpoint_info(Speed::High);
         assert_eq!(iso_info.max_packet_size, 1024);
         assert_eq!(iso_info.additional_transactions, 2);
 
@@ -1646,7 +1648,7 @@ mod test {
             max_packet_size: (1 << 11) | 512,
             interval: 0,
         };
-        let bulk_info = EndpointInfo::from(bulk);
+        let bulk_info = bulk.endpoint_info(Speed::High);
         assert_eq!(bulk_info.max_packet_size, 512);
         assert_eq!(bulk_info.additional_transactions, 0);
     }

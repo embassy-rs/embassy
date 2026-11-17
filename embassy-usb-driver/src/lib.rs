@@ -5,6 +5,9 @@
 #![warn(missing_docs)]
 
 pub mod host;
+mod interval;
+
+pub use interval::EndpointInterval;
 
 /// Speed of a device or port
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -139,8 +142,8 @@ pub struct EndpointInfo {
     pub ep_type: EndpointType,
     /// Max packet size per transaction, in bytes (0..=1024).
     pub max_packet_size: u16,
-    /// Polling interval (`bInterval`).
-    pub interval: u8,
+    /// Polling interval.
+    pub interval: EndpointInterval,
     /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets. 0 below
     /// SuperSpeed.
     pub max_burst: u8,
@@ -151,7 +154,12 @@ pub struct EndpointInfo {
 
 impl EndpointInfo {
     /// An endpoint with `max_burst` and `additional_transactions` 0.
-    pub const fn new(addr: EndpointAddress, ep_type: EndpointType, max_packet_size: u16, interval: u8) -> Self {
+    pub const fn new(
+        addr: EndpointAddress,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval: EndpointInterval,
+    ) -> Self {
         Self {
             addr,
             ep_type,
@@ -181,8 +189,8 @@ pub struct EndpointConfig {
     pub ep_type: EndpointType,
     /// Max packet size per transaction, in bytes (0..=1024).
     pub max_packet_size: u16,
-    /// Polling interval (`bInterval`).
-    pub interval: u8,
+    /// Polling interval.
+    pub interval: EndpointInterval,
     /// Number of packets the hardware may buffer for the endpoint.
     ///
     /// More buffers let the hardware move the next packet while software is still busy with the
@@ -214,7 +222,12 @@ pub struct EndpointConfig {
 
 impl EndpointConfig {
     /// An endpoint with one buffer and all SuperSpeed/high-bandwidth fields 0.
-    pub const fn new(addr: Option<EndpointAddress>, ep_type: EndpointType, max_packet_size: u16, interval: u8) -> Self {
+    pub const fn new(
+        addr: Option<EndpointAddress>,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval: EndpointInterval,
+    ) -> Self {
         Self {
             addr,
             ep_type,

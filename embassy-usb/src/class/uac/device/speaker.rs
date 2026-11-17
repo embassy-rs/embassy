@@ -10,6 +10,8 @@
 //!
 //! Mute and volume controls are optional and configured through [`Config::feature_unit`].
 
+use embassy_usb_driver::EndpointInterval;
+
 pub use super::Volume;
 use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, Feedback, State};
@@ -114,7 +116,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
                     EndpointType::Isochronous,
                     None,
                     max_packet_size,
-                    1,
+                    EndpointInterval::from_ms(1),
                     EndpointOptions::new(),
                 )
             },

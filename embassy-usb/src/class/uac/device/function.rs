@@ -10,6 +10,7 @@ use core::sync::atomic::Ordering;
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
+use embassy_usb_driver::EndpointInterval;
 use heapless::Vec;
 #[cfg(not(target_has_atomic = "32"))]
 use portable_atomic::AtomicU32;
@@ -831,7 +832,7 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
                 EndpointType::Isochronous,
                 None,
                 4, // Feedback packets are 3 bytes (10.14 format) at full speed, 4 (16.16) at high speed.
-                1,
+                EndpointInterval::from_ms(1),
                 EndpointOptions::new(),
             ),
         }

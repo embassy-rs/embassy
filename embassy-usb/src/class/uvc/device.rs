@@ -13,6 +13,7 @@ use core::cell::Cell;
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
+use embassy_usb_driver::EndpointInterval;
 use heapless::Vec;
 
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
@@ -635,7 +636,7 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
             EndpointType::Isochronous,
             None,
             max_packet_size,
-            0,
+            EndpointInterval::NONE,
             EndpointOptions::new(),
         );
         let endpoint_address = endpoint.info().addr.into();

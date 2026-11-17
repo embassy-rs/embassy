@@ -10,7 +10,7 @@ use core::ops::Deref;
 use bitflags::bitflags;
 use embassy_time::Timer;
 use embassy_usb_driver::host::{HostError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbPipe, pipe};
-use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
+use embassy_usb_driver::{Direction, EndpointInfo, EndpointInterval, EndpointType, Speed};
 
 use crate::control::Request;
 use crate::host::class::ClassMatch;
@@ -76,7 +76,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                     .device_desc
                     .max_packet_size0
                     .min(if ls_over_fs { 8 } else { 64 }) as u16,
-                0,
+                EndpointInterval::NONE,
             ),
             enum_info.split(),
         )?;
@@ -122,7 +122,7 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
 
         let interrupt_channel = bus.alloc_pipe::<pipe::Interrupt, pipe::In>(
             enum_info.device_address,
-            &interrupt_ep.into(),
+            &interrupt_ep.endpoint_info(enum_info.speed()),
             enum_info.split(),
         )?;
 

@@ -22,7 +22,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
-    EndpointType, Event, Speed, Unsupported,
+    EndpointInterval, EndpointType, Event, Speed, Unsupported,
 };
 #[cfg(usb_v4)]
 pub use usb_host::*;
@@ -801,7 +801,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 EndpointAddress::from_parts(index, D::dir()),
                 EndpointType::Bulk,
                 max_packet_size,
-                0,
+                EndpointInterval::NONE,
             ),
             // The second packet buffer directly follows the first one.
             buf: EndpointBuffer {
@@ -832,10 +832,10 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval: u8,
+        interval: EndpointInterval,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
         trace!(
-            "allocating type={:?} mps={:?} interval={}, dir={:?}",
+            "allocating type={:?} mps={:?} interval={:?}, dir={:?}",
             ep_type,
             max_packet_size,
             interval,
@@ -946,10 +946,20 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         let ep_out = self
-            .alloc_endpoint(EndpointType::Control, None, control_max_packet_size, 0)
+            .alloc_endpoint(
+                EndpointType::Control,
+                None,
+                control_max_packet_size,
+                EndpointInterval::NONE,
+            )
             .unwrap();
         let ep_in = self
-            .alloc_endpoint(EndpointType::Control, None, control_max_packet_size, 0)
+            .alloc_endpoint(
+                EndpointType::Control,
+                None,
+                control_max_packet_size,
+                EndpointInterval::NONE,
+            )
             .unwrap();
         assert_eq!(ep_out.info.addr.index(), 0);
         assert_eq!(ep_in.info.addr.index(), 0);

@@ -3,6 +3,7 @@
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use embassy_futures::select::select;
+use embassy_usb_driver::EndpointInterval;
 
 use super::{
     CS_GR_TRM_BLOCK, GR_TRM_BLOCK_HEADER_LEN, GR_TRM_BLOCK_LEN, GroupTerminalBlock, GroupTerminalBlockConfig, MAX_GTBS,
@@ -433,10 +434,24 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         // An endpoint is described in Alt 0 when the corresponding jack count is
         // non-zero, and in Alt 1 when a Group Terminal Block carries that direction.
         // The same address is used for both (§3.1.1 shares the streaming interface).
-        let read_ep = (n_out_jacks > 0 || midi2_from_host)
-            .then(|| alt.alloc_endpoint_out(EndpointType::Bulk, None, max_packet_size, 0, EndpointOptions::new()));
-        let write_ep = (n_in_jacks > 0 || midi2_to_host)
-            .then(|| alt.alloc_endpoint_in(EndpointType::Bulk, None, max_packet_size, 0, EndpointOptions::new()));
+        let read_ep = (n_out_jacks > 0 || midi2_from_host).then(|| {
+            alt.alloc_endpoint_out(
+                EndpointType::Bulk,
+                None,
+                max_packet_size,
+                EndpointInterval::NONE,
+                EndpointOptions::new(),
+            )
+        });
+        let write_ep = (n_in_jacks > 0 || midi2_to_host).then(|| {
+            alt.alloc_endpoint_in(
+                EndpointType::Bulk,
+                None,
+                max_packet_size,
+                EndpointInterval::NONE,
+                EndpointOptions::new(),
+            )
+        });
 
         if n_in_jacks > 0 || n_out_jacks > 0 {
             let midi_streaming_total_length = MS_HEADER_LEN as usize
@@ -867,7 +882,12 @@ mod tests {
             }
         }
         let capture = |max_packet_size| Capture {
-            info: EndpointInfo::new(EndpointAddress::from(0x81), EndpointType::Bulk, max_packet_size, 0),
+            info: EndpointInfo::new(
+                EndpointAddress::from(0x81),
+                EndpointType::Bulk,
+                max_packet_size,
+                EndpointInterval::NONE,
+            ),
             writes: heapless::Vec::new(),
         };
         let quad = UmpPacket::from_u32_quad(0x5000_0001, 2, 3, 4).unwrap();
@@ -937,7 +957,12 @@ mod tests {
                 Err(Unsupported)
             }
         }
-        let info = EndpointInfo::new(EndpointAddress::from(0x01), EndpointType::Bulk, 64, 0);
+        let info = EndpointInfo::new(
+            EndpointAddress::from(0x01),
+            EndpointType::Bulk,
+            64,
+            EndpointInterval::NONE,
+        );
 
         block_on(wait_any_enabled(&mut Some(Never(info)), &mut Some(Enabled(info))));
         block_on(wait_any_enabled(&mut Some(Enabled(info)), &mut Some(Never(info))));

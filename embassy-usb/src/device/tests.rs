@@ -8,10 +8,10 @@ use embassy_futures::block_on;
 
 use super::*;
 use crate::control::{OutResponse, Recipient};
-use crate::descriptor::{EndpointInterval, SynchronizationType, UsageType};
+use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{
     Direction, Endpoint, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointIn,
-    EndpointInfo, EndpointOut, Speed, Unsupported,
+    EndpointInfo, EndpointInterval, EndpointOut, Speed, Unsupported,
 };
 use crate::types::InterfaceNumber;
 
@@ -1113,21 +1113,21 @@ fn test_endpoint_interval_and_other_speed_config() {
     let mut interface = function.interface();
     let mut alt = interface.alt_setting(0xff, 0, 0, None);
 
-    // 1. Interrupt IN endpoint with 4 ms (Interval::Milliseconds(4))
+    // 1. Interrupt IN endpoint with 4 ms (from_ms(4))
     alt.endpoint_interrupt_in(Some(0x81.into()), 64, 4);
 
-    // 2. High-speed sub-millisecond Isochronous IN endpoint with 250 µs (Microframes(2))
+    // 2. High-speed sub-millisecond Isochronous IN endpoint with 250 µs (from_microframes(2))
     alt.endpoint_isochronous_in_interval(
         Some(0x82.into()),
         64,
-        EndpointInterval::Microframes(2),
+        EndpointInterval::from_microframes(2),
         SynchronizationType::NoSynchronization,
         UsageType::DataEndpoint,
         &[],
         EndpointOptions::new(),
     );
 
-    // 3. Isochronous OUT endpoint with 4 ms (Milliseconds(4))
+    // 3. Isochronous OUT endpoint with 4 ms (from_ms(4))
     alt.endpoint_isochronous_out(
         Some(0x03.into()),
         64,
@@ -1138,8 +1138,38 @@ fn test_endpoint_interval_and_other_speed_config() {
         EndpointOptions::new(),
     );
 
-    // 4. Raw endpoint with bInterval = 42 (Raw(42))
-    alt.endpoint_interrupt_out_interval(Some(0x04.into()), 64, EndpointInterval::Raw(42));
+    // 4. Endpoint described with a raw bInterval of 42, which is written as is.
+    let raw_ep = alt.alloc_endpoint_out(
+        EndpointType::Interrupt,
+        Some(0x04.into()),
+        64,
+        EndpointInterval::NONE,
+        EndpointOptions::new(),
+    );
+    alt.endpoint_descriptor_raw(
+        &raw_ep.info(),
+        42,
+        SynchronizationType::NoSynchronization,
+        UsageType::DataEndpoint,
+        &[],
+    );
+
+    // 5. Endpoint allocated first and described later: the descriptor must come from the
+    // interval it was allocated with (250 µs), not from a lossy copy of it.
+    let late_ep = alt.alloc_endpoint_in(
+        EndpointType::Isochronous,
+        Some(0x85.into()),
+        64,
+        EndpointInterval::from_microframes(2),
+        EndpointOptions::new(),
+    );
+    assert_eq!(late_ep.info().interval, EndpointInterval::from_microframes(2));
+    alt.endpoint_descriptor(
+        &late_ep.info(),
+        SynchronizationType::NoSynchronization,
+        UsageType::DataEndpoint,
+        &[],
+    );
 
     drop(function);
     let mut usb = builder.build();
@@ -1168,6 +1198,9 @@ fn test_endpoint_interval_and_other_speed_config() {
     // 4. Raw Interrupt OUT: 42 -> unchanged
     assert_eq!(find_interval(hs_desc, 0x04), 42);
 
+    // 5. Described after allocation: 2 microframes -> bInterval = 2
+    assert_eq!(find_interval(hs_desc, 0x85), 2);
+
     // Check Other-Speed (Full-Speed) Configuration Descriptor
     let other_desc = usb
         .inner
@@ -1187,6 +1220,9 @@ fn test_endpoint_interval_and_other_speed_config() {
 
     // 4. Raw Interrupt OUT at FS: 42 -> unchanged
     assert_eq!(find_interval(other_desc, 0x04), 42);
+
+    // 5. Described after allocation, at FS: 2 microframes -> 1 frame -> bInterval = 1
+    assert_eq!(find_interval(other_desc, 0x85), 1);
 
     // Test GET_DESCRIPTOR for OTHER_SPEED_CONFIGURATION via control transfer
     let mut buf = [0u8; 256];
@@ -1488,7 +1524,13 @@ fn test_superspeed_endpoint_config() {
         let mut alt = interface.alt_setting(0xff, 0, 0, None);
         alt.endpoint_bulk_out(Some(0x01.into()), burst(max_burst));
         alt.endpoint_bulk_in(Some(0x81.into()), burst(max_burst));
-        let endpoint = alt.alloc_endpoint_out(EndpointType::Bulk, Some(0x02.into()), 1024, 0, burst(max_burst));
+        let endpoint = alt.alloc_endpoint_out(
+            EndpointType::Bulk,
+            Some(0x02.into()),
+            1024,
+            EndpointInterval::NONE,
+            burst(max_burst),
+        );
         alt.endpoint_descriptor(
             &endpoint.info(),
             SynchronizationType::NoSynchronization,
@@ -1798,7 +1840,13 @@ fn shared_endpoints_stay_enabled_across_alternate_settings() {
 
     // Alternate setting 0 references only the shared IN endpoint.
     let mut alt0 = interface.alt_setting(0xff, 0, 0, None);
-    let shared_in = alt0.alloc_endpoint_in(EndpointType::Bulk, None, 64, 0, EndpointOptions::new());
+    let shared_in = alt0.alloc_endpoint_in(
+        EndpointType::Bulk,
+        None,
+        64,
+        EndpointInterval::NONE,
+        EndpointOptions::new(),
+    );
     alt0.endpoint_descriptor(
         &shared_in.info(),
         SynchronizationType::NoSynchronization,
@@ -1814,7 +1862,13 @@ fn shared_endpoints_stay_enabled_across_alternate_settings() {
         UsageType::DataEndpoint,
         &[],
     );
-    let alt1_out = alt1.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0, EndpointOptions::new());
+    let alt1_out = alt1.alloc_endpoint_out(
+        EndpointType::Bulk,
+        None,
+        64,
+        EndpointInterval::NONE,
+        EndpointOptions::new(),
+    );
     alt1.endpoint_descriptor(
         &alt1_out.info(),
         SynchronizationType::NoSynchronization,

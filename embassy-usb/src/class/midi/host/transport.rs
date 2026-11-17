@@ -5,7 +5,7 @@
 //! interrupt IN). The MIDI 1.0 and UMP pipes differ only in their framing checks.
 
 use embassy_usb_driver::host::{UsbHostAllocator, UsbPipe, pipe};
-use embassy_usb_driver::{EndpointAddress, EndpointInfo, EndpointType, Speed};
+use embassy_usb_driver::{EndpointAddress, EndpointInfo, EndpointInterval, EndpointType, Speed};
 
 use super::{MidiEndpointDescriptor, MidiError};
 use crate::class::midi::packet::check_transfer_len;
@@ -22,25 +22,9 @@ fn check_ump_len(len: usize) -> Result<(), MidiPacketError> {
     Ok(())
 }
 
-/// Polling interval in ms for an interrupt endpoint's raw `bInterval`: frames at low and full speed,
-/// `2^(n-4)` ms at high speed (USB 2.0 §9.6.6). Sub-millisecond values round up to 1 ms.
-fn polling_interval_ms(speed: Speed, b_interval: u8) -> u8 {
-    match speed {
-        Speed::Low | Speed::Full => b_interval,
-        Speed::High => 1u32
-            .checked_shl(u32::from(b_interval).saturating_sub(4))
-            .map_or(u8::MAX, |ms| ms.min(255) as u8),
-        _ => b_interval,
-    }
-}
-
 fn endpoint_info(endpoint: &MidiEndpointDescriptor, speed: Speed) -> EndpointInfo {
     // Bulk has no polling interval (§5.3.1).
-    let interval = if endpoint.ep_type == EndpointType::Interrupt {
-        polling_interval_ms(speed, endpoint.interval)
-    } else {
-        0
-    };
+    let interval = EndpointInterval::from_b_interval(speed, endpoint.ep_type, endpoint.interval);
     EndpointInfo::new(
         EndpointAddress::from(endpoint.address),
         endpoint.ep_type,
@@ -319,19 +303,5 @@ mod tests {
         for len in [0, MIDI_PACKET_SIZE - 1, MIDI_PACKET_SIZE + 1] {
             assert_eq!(check_transfer_len(len), Err(MidiPacketError::InvalidPacketLength));
         }
-    }
-
-    #[test]
-    fn interrupt_intervals_follow_the_bus_speed() {
-        // Low and full speed: already milliseconds.
-        assert_eq!(
-            (polling_interval_ms(Speed::Full, 1), polling_interval_ms(Speed::Low, 10)),
-            (1, 10)
-        );
-        // High speed: 4 is 1 ms, 7 is 8 ms, and faster than 1 ms rounds up.
-        assert_eq!(
-            [1, 3, 4, 7, 12, 16].map(|n| polling_interval_ms(Speed::High, n)),
-            [1, 1, 1, 8, 255, 255]
-        );
     }
 }

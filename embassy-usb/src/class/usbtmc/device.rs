@@ -847,6 +847,7 @@ mod tests {
     use std::vec::Vec;
 
     use embassy_futures::block_on;
+    use embassy_usb_driver::EndpointInterval;
 
     use super::*;
     use crate::control::{Recipient, Request, RequestType};
@@ -1251,7 +1252,7 @@ mod tests {
 
     fn class(state: &Rc<MockState>) -> UsbtmcClass<'static, MockDriver> {
         let shared: &'static ControlShared = Box::leak(Box::new(ControlShared::new(Capabilities::default(), true)));
-        let info = |addr| EndpointInfo::new(addr, EndpointType::Bulk, 64, 0);
+        let info = |addr| EndpointInfo::new(addr, EndpointType::Bulk, 64, EndpointInterval::NONE);
         UsbtmcClass {
             read_ep: MockEndpoint {
                 info: info(EndpointAddress::from(0x01)),

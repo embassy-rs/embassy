@@ -617,6 +617,7 @@ mod tests {
     use core::cell::RefCell;
 
     use embassy_futures::block_on;
+    use embassy_usb_driver::EndpointInterval;
 
     use super::*;
     use crate::driver::{
@@ -633,7 +634,7 @@ mod tests {
                 EndpointAddress::from_parts(1, crate::driver::Direction::In),
                 crate::driver::EndpointType::Interrupt,
                 16,
-                10,
+                EndpointInterval::from_ms(10),
             )
         }
 

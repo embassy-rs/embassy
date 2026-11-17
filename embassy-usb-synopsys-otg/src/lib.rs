@@ -24,7 +24,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointIn,
-    EndpointInfo, EndpointOut, EndpointType, Event, Speed, Unsupported,
+    EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, Speed, Unsupported,
 };
 
 use crate::fmt::Bytes;
@@ -646,10 +646,10 @@ where
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval: u8,
+        interval: EndpointInterval,
     ) -> Result<Endpoint<'d, D, M>, EndpointAllocError> {
         trace!(
-            "allocating type={:?} mps={:?} interval={}, dir={:?}",
+            "allocating type={:?} mps={:?} interval={:?}, dir={:?}",
             ep_type,
             max_packet_size,
             interval,
@@ -782,10 +782,20 @@ where
 
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         let ep_out = self
-            .alloc_endpoint(EndpointType::Control, None, control_max_packet_size, 0)
+            .alloc_endpoint(
+                EndpointType::Control,
+                None,
+                control_max_packet_size,
+                EndpointInterval::NONE,
+            )
             .unwrap();
         let ep_in = self
-            .alloc_endpoint(EndpointType::Control, None, control_max_packet_size, 0)
+            .alloc_endpoint(
+                EndpointType::Control,
+                None,
+                control_max_packet_size,
+                EndpointInterval::NONE,
+            )
             .unwrap();
         assert_eq!(ep_out.info.addr.index(), 0);
         assert_eq!(ep_in.info.addr.index(), 0);
@@ -2493,10 +2503,10 @@ mod tests {
             let mut buf = [0; 256];
             let mut driver = Driver::new(&mut buf, instance(storage.as_state()), Config::default());
             let ep_out = driver
-                .alloc_endpoint::<Out>(EndpointType::Control, None, max_packet_size, 0)
+                .alloc_endpoint::<Out>(EndpointType::Control, None, max_packet_size, EndpointInterval::NONE)
                 .unwrap();
             let ep_in = driver
-                .alloc_endpoint::<In>(EndpointType::Control, None, max_packet_size, 0)
+                .alloc_endpoint::<In>(EndpointType::Control, None, max_packet_size, EndpointInterval::NONE)
                 .unwrap();
             assert_eq!(ep_in.info.addr.index(), 0);
             assert_eq!(ep_in.max_transfer_len(), usize::from(max_packet_size));
@@ -2512,10 +2522,20 @@ mod tests {
         let mut buf = [0; 256];
         let mut driver = Driver::new(&mut buf, instance(state), Config::default());
         driver
-            .alloc_endpoint_out(&EndpointConfig::new(None, EndpointType::Bulk, 64, 0))
+            .alloc_endpoint_out(&EndpointConfig::new(
+                None,
+                EndpointType::Bulk,
+                64,
+                EndpointInterval::NONE,
+            ))
             .unwrap();
         driver
-            .alloc_endpoint_in(&EndpointConfig::new(None, EndpointType::Bulk, 64, 0))
+            .alloc_endpoint_in(&EndpointConfig::new(
+                None,
+                EndpointType::Bulk,
+                64,
+                EndpointInterval::NONE,
+            ))
             .unwrap();
         let _ = driver.start(64);
         state.ep_states[0].in_enabled.store(true, Ordering::Release);
@@ -2526,7 +2546,12 @@ mod tests {
         let mut buf = [0; 256];
         let mut driver = Driver::new(&mut buf, instance(state), Config::default());
         let ep = driver
-            .alloc_endpoint_out(&EndpointConfig::new(None, EndpointType::Bulk, 64, 0))
+            .alloc_endpoint_out(&EndpointConfig::new(
+                None,
+                EndpointType::Bulk,
+                64,
+                EndpointInterval::NONE,
+            ))
             .unwrap();
         assert_eq!(ep.info.addr.index(), 1);
         assert!(!state.ep_states[0].in_enabled.load(Ordering::Acquire));

@@ -1216,6 +1216,8 @@ mod tests {
     use core::pin::{Pin, pin};
     use core::task::{Context, Poll, Waker};
 
+    use embassy_usb_driver::EndpointInterval;
+
     use super::*;
     use crate::driver::{
         Bus, ControlPipe, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointIn,
@@ -1233,7 +1235,7 @@ mod tests {
                 EndpointAddress::from_parts(1, crate::driver::Direction::Out),
                 crate::driver::EndpointType::Bulk,
                 64,
-                0,
+                EndpointInterval::NONE,
             )
         }
 

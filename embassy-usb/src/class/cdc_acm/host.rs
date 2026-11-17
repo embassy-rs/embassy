@@ -3,7 +3,7 @@
 //! This driver can communicate with USB CDC ACM devices (virtual serial ports).
 
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType};
 
 use super::{
     CDC_PROTOCOL_NONE, CDC_SUBCLASS_ACM, LineCoding, REQ_SET_CONTROL_LINE_STATE, REQ_SET_LINE_CODING, USB_CLASS_CDC,
@@ -174,21 +174,21 @@ impl<'d, A: UsbHostAllocator<'d>> CdcAcmHost<'d, A> {
             EndpointAddress::from_parts(0, UsbDirection::In),
             EndpointType::Control,
             enum_info.device_desc.max_packet_size0 as u16,
-            0,
+            EndpointInterval::NONE,
         );
 
         let in_ep_info = EndpointInfo::new(
             EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
             EndpointType::Bulk,
             info.bulk_in_mps,
-            0,
+            EndpointInterval::NONE,
         );
 
         let out_ep_info = EndpointInfo::new(
             EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
             EndpointType::Bulk,
             info.bulk_out_mps,
-            0,
+            EndpointInterval::NONE,
         );
 
         let device_address = enum_info.device_address;
