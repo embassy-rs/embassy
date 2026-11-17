@@ -1878,6 +1878,12 @@ where
             // One packet per transfer, so that each packet gets its own frame parity.
             return max_packet_size;
         }
+        if self.info.addr.index() == 0 {
+            // The transfer size registers of EP0 are much narrower than GHWCFG3 says for the other
+            // endpoints: XFRSIZ has 7 bits, so 128 bytes would program as 0, and the packet count
+            // has 2 bits for IN and 1 bit for OUT. Do one packet per transfer, as other stacks do.
+            return max_packet_size;
+        }
 
         // GHWCFG3 gives the width of the transfer size counter, minus 11, and of the packet
         // counter, minus 4.
@@ -2475,6 +2481,26 @@ mod tests {
             extra_rx_fifo_words: 30,
             tx_fifo_count: 4,
             calculate_trdt_fn: |_| 0,
+        }
+    }
+
+    #[test]
+    fn control_endpoint_transfers_one_packet_at_a_time() {
+        // The registers of EP0 are too narrow for more, see `max_transfer_len`. The test registers
+        // are a null pointer, so this also checks that it does not read them.
+        for max_packet_size in [8u16, 16, 32, 64] {
+            let storage = StateStorage::<4>::new(CriticalSectionRawMutex::new());
+            let mut buf = [0; 256];
+            let mut driver = Driver::new(&mut buf, instance(storage.as_state()), Config::default());
+            let ep_out = driver
+                .alloc_endpoint::<Out>(EndpointType::Control, None, max_packet_size, 0)
+                .unwrap();
+            let ep_in = driver
+                .alloc_endpoint::<In>(EndpointType::Control, None, max_packet_size, 0)
+                .unwrap();
+            assert_eq!(ep_in.info.addr.index(), 0);
+            assert_eq!(ep_in.max_transfer_len(), usize::from(max_packet_size));
+            assert_eq!(ep_out.max_transfer_len(), usize::from(max_packet_size));
         }
     }
 
