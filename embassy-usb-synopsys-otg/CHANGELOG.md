@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- Fixed: control transfers longer than 127 bytes. The size registers of EP0 are only 7 bits wide, so a 128 byte IN data stage was sent as 0 bytes, and a longer OUT data stage did not complete. EP0 now does one packet per transfer.
 - **Breaking:** Add `tx_fifo_count` to `OtgInstance`. This is the number of TX FIFOs. If there is no free TX FIFO, allocation of an IN endpoint fails. The TX FIFO number is not the endpoint number.
 - Changed: `embassy-time` is now an optional feature for device mode. Remote wakeup is now supported via `embassy-time`.
 - Changed: The driver can be configured with any `embassy_sync` raw mutex implementation.
