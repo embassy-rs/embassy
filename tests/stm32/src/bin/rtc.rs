@@ -51,6 +51,43 @@ async fn main(_spawner: Spawner) {
     info!("raw: {}", read);
     assert_eq!(RawDateTime { subsecond: 0, ..read }, raw);
 
+    // The day of week is incremented with the date, wrapping from 7 to 1. Setting the calendar
+    // restarts the second, so the tick is 1 s later.
+    rtc.set_raw(RawDateTime {
+        year: 20,
+        month: 12,
+        day: 31,
+        day_of_week: 7,
+        hour: 23,
+        minute: 59,
+        second: 59,
+        subsecond: 0,
+    });
+    Timer::after_millis(1100).await;
+    let read = time_provider.read_raw();
+    info!("rollover: {}", read);
+    assert_eq!(
+        RawDateTime { subsecond: 0, ..read },
+        RawDateTime {
+            year: 21,
+            month: 1,
+            day: 1,
+            day_of_week: 1,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            subsecond: 0,
+        }
+    );
+
+    // `read` rejects a date that doesn't exist.
+    rtc.set_raw(RawDateTime {
+        day: 30,
+        month: 2,
+        ..raw
+    });
+    assert!(time_provider.read().is_err());
+
     let now = date(2020, 5, 15).at(10, 30, 15, 0);
     rtc.set(now).unwrap();
     assert!(rtc.set(date(2100, 1, 1).at(0, 0, 0, 0)).is_err());
