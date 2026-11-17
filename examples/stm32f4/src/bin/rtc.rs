@@ -1,13 +1,13 @@
 #![no_std]
 #![no_main]
 
-use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_time::Timer;
+use jiff::civil::{DateTime, date};
 use panic_probe as _;
 
 #[embassy_executor::main]
@@ -17,20 +17,28 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let now = NaiveDate::from_ymd_opt(2020, 5, 15)
-        .unwrap()
-        .and_hms_opt(10, 30, 15)
-        .unwrap();
+    let now = date(2020, 5, 15).at(10, 30, 15, 0);
 
     let (mut rtc, time_provider) = Rtc::new(p.RTC, RtcConfig::default());
 
-    rtc.set_datetime(now.into()).expect("datetime not set");
+    rtc.set(now).unwrap();
 
     loop {
-        let now: NaiveDateTime = time_provider.now().unwrap().into();
-
-        info!("{}", now.and_utc().timestamp());
+        let now = time_provider.read().unwrap();
+        print_datetime(now);
 
         Timer::after_millis(1000).await;
     }
+}
+
+fn print_datetime(t: DateTime) {
+    info!(
+        "{}-{}-{} {}:{}:{}",
+        t.year(),
+        t.month(),
+        t.day(),
+        t.hour(),
+        t.minute(),
+        t.second()
+    );
 }

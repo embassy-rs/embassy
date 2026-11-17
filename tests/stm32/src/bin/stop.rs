@@ -1,17 +1,17 @@
-// required-features: stop,chrono
+// required-features: stop,jiff
 
 #![no_std]
 #![no_main]
 #[path = "../common.rs"]
 mod common;
 
-use chrono::{NaiveDate, NaiveDateTime};
 use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::rcc::{LsConfig, StopMode, get_stop_mode};
 use embassy_stm32::rtc::{Rtc, RtcTimeProvider};
 use embassy_time::{Instant, Timer};
+use jiff::civil::{DateTime, date};
 
 /// Get whether the core is ready to enter the given stop mode.
 ///
@@ -34,7 +34,7 @@ async fn task_1() {
 }
 
 #[embassy_executor::task]
-async fn task_2(time_provider: RtcTimeProvider, start_rtc: NaiveDateTime, start: Instant) {
+async fn task_2(time_provider: RtcTimeProvider, start_rtc: DateTime, start: Instant) {
     for _ in 0..5 {
         info!("task 2: waiting for 1000ms...");
         defmt::assert!(stop_ready(StopMode::Stop2));
@@ -42,9 +42,7 @@ async fn task_2(time_provider: RtcTimeProvider, start_rtc: NaiveDateTime, start:
     }
 
     // The time spent in stop mode is measured with the RTC, so embassy-time must track it.
-    let rtc_elapsed = (NaiveDateTime::from(time_provider.now().unwrap()) - start_rtc)
-        .num_microseconds()
-        .unwrap();
+    let rtc_elapsed = time_provider.read().unwrap().duration_since(start_rtc).as_micros() as i64;
     let elapsed = start.elapsed().as_micros() as i64;
     info!("elapsed: rtc {} us, embassy-time {} us", rtc_elapsed, elapsed);
     defmt::assert!((rtc_elapsed - elapsed).abs() < 20_000);
@@ -70,19 +68,16 @@ async fn async_main(spawner: Spawner) {
     let p = init_with_config(config);
     info!("Hello World!");
 
-    let now = NaiveDate::from_ymd_opt(2020, 5, 15)
-        .unwrap()
-        .and_hms_opt(10, 30, 15)
-        .unwrap();
+    let now = date(2020, 5, 15).at(10, 30, 15, 0);
 
     let (rtc, time_provider) = Rtc::new(p.RTC);
 
     info!("set datetime");
     critical_section::with(|cs| {
-        rtc.borrow_mut(cs).set_datetime(now.into()).expect("datetime not set");
+        rtc.borrow_mut(cs).set(now).unwrap();
     });
 
-    let start_rtc = NaiveDateTime::from(time_provider.now().unwrap());
+    let start_rtc = time_provider.read().unwrap();
     let start = Instant::now();
 
     info!("spawn");

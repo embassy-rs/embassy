@@ -16,8 +16,9 @@ use embassy_sync::blocking_mutex::Mutex;
 #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
-use self::datetime::{day_of_week_from_u8, day_of_week_to_u8};
+pub use self::datetime::RawDateTime;
+#[cfg(feature = "jiff")]
+pub use self::datetime::{InvalidDateTimeError, OutOfRangeError};
 use crate::pac::rtc::regs::{Dr, Tr};
 use crate::time::Hertz;
 
@@ -32,21 +33,6 @@ pub use _version::*;
 use crate::Peri;
 use crate::peripherals::RTC;
 
-/// Errors that can occur on methods on [Rtc]
-#[non_exhaustive]
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum RtcError {
-    /// An invalid DateTime was given or stored on the hardware.
-    InvalidDateTime(DateTimeError),
-
-    /// The current time could not be read
-    ReadFailure,
-
-    /// The RTC clock is not running
-    NotRunning,
-}
-
 /// Provides immutable access to the current time of the RTC.
 #[derive(Clone)]
 pub struct RtcTimeProvider {
@@ -59,38 +45,44 @@ impl RtcTimeProvider {
         Self { _private: () }
     }
 
-    /// Return the current datetime.
+    /// Read the current date and time.
+    ///
+    /// Ignores the day of week stored in the RTC.
     ///
     /// # Errors
     ///
-    /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid date and time,
-    /// such as February 30, or not a valid [`DayOfWeek`].
-    pub fn now(&self) -> Result<DateTime, RtcError> {
-        self.read(|dr, tr, _ss| {
-            let second = bcd2_to_byte((tr.st(), tr.su()));
-            let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
-            let hour = bcd2_to_byte((tr.ht(), tr.hu()));
+    /// Returns [`InvalidDateTimeError`] if the RTC holds a date and time that does not exist, such as
+    /// February 30.
+    #[cfg(feature = "jiff")]
+    pub fn read(&self) -> Result<jiff::civil::DateTime, InvalidDateTimeError> {
+        // F2 has no subsecond counter: `subsecond` is 0, so `prediv_s` must be 0 too for the
+        // second to read as just started.
+        #[cfg(not(rtc_v2_f2))]
+        let prediv_s = RTC::regs().prer().read().prediv_s();
+        #[cfg(rtc_v2_f2)]
+        let prediv_s = 0;
 
-            let weekday = day_of_week_from_u8(dr.wdu()).map_err(RtcError::InvalidDateTime)?;
-            let day = bcd2_to_byte((dr.dt(), dr.du()));
-            let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
-            let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 2000_u16;
+        datetime::to_jiff(self.read_raw(), prediv_s)
+    }
 
-            // Calculate second fraction and multiply to microseconds
-            // Formula from RM0410
-            #[cfg(not(rtc_v2_f2))]
-            let us = {
-                let prediv = RTC::regs().prer().read().prediv_s() as f32;
-                (((prediv - _ss as f32) / (prediv + 1.0)) * 1e6).min(999_999.0) as u32
-            };
-            #[cfg(rtc_v2_f2)]
-            let us = 0;
-
-            DateTime::from(year, month, day, weekday, hour, minute, second, us).map_err(RtcError::InvalidDateTime)
+    /// Read the raw contents of the RTC calendar registers.
+    ///
+    /// See [`RawDateTime`]: the values are not validated.
+    pub fn read_raw(&self) -> RawDateTime {
+        self.read_regs(|dr, tr, ss| RawDateTime {
+            year: bcd2_to_byte((dr.yt(), dr.yu())),
+            month: bcd2_to_byte((dr.mt() as u8, dr.mu())),
+            day: bcd2_to_byte((dr.dt(), dr.du())),
+            day_of_week: dr.wdu(),
+            hour: bcd2_to_byte((tr.ht(), tr.hu())),
+            minute: bcd2_to_byte((tr.mnt(), tr.mnu())),
+            second: bcd2_to_byte((tr.st(), tr.su())),
+            subsecond: ss,
         })
     }
 
-    fn read<R>(&self, mut f: impl FnMut(Dr, Tr, u16) -> Result<R, RtcError>) -> Result<R, RtcError> {
+    /// Read the calendar registers, retrying until no RTCCLK edge occurs during the read.
+    fn read_regs<R>(&self, f: impl FnOnce(Dr, Tr, u16) -> R) -> R {
         let r = RTC::regs();
 
         #[cfg(not(rtc_v2_f2))]
@@ -99,7 +91,7 @@ impl RtcTimeProvider {
         let read_ss = || 0;
 
         let mut ss = read_ss();
-        for _ in 0..5 {
+        loop {
             let tr = r.tr().read();
             let dr = r.dr().read();
             let ss_after = read_ss();
@@ -107,13 +99,11 @@ impl RtcTimeProvider {
             // If an RTCCLK edge occurs during read we may see inconsistent values
             // so read ssr again and see if it has changed. (see RM0433 Rev 7 46.3.9)
             if ss == ss_after {
-                return f(dr, tr, ss.try_into().unwrap());
+                return f(dr, tr, ss as u16);
             } else {
                 ss = ss_after
             }
         }
-
-        Err(RtcError::ReadFailure)
     }
 }
 
@@ -247,8 +237,8 @@ impl Rtc {
         // Wait for the clock to update after initialization
         #[cfg(not(rtc_v2_f2))]
         {
-            let now = RtcTimeProvider::new().read(|_, _, ss| Ok(ss)).unwrap();
-            while now == RtcTimeProvider::new().read(|_, _, ss| Ok(ss)).unwrap() {}
+            let now = RtcTimeProvider::new().read_regs(|_, _, ss| ss);
+            while now == RtcTimeProvider::new().read_regs(|_, _, ss| ss) {}
         }
 
         #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
@@ -261,24 +251,34 @@ impl Rtc {
         unsafe { crate::rcc::get_freqs() }.rtc.to_hertz().unwrap()
     }
 
-    /// Set the datetime to a new value.
+    /// Set the date and time.
     ///
     /// This function has second precision, and sets subseconds to 0.
     ///
+    /// Writes a dummy day of week (Monday) to the RTC, which [`RtcTimeProvider::read`] ignores. Use
+    /// [`set_raw`](Self::set_raw) if you need the hardware day of week.
+    ///
     /// # Errors
     ///
-    /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
-    pub fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
-        self.write(true, |rtc| {
-            let (ht, hu) = byte_to_bcd2(t.hour());
-            let (mnt, mnu) = byte_to_bcd2(t.minute());
-            let (st, su) = byte_to_bcd2(t.second());
+    /// Returns [`OutOfRangeError`] if the year is not in `2000..=2099`.
+    #[cfg(feature = "jiff")]
+    pub fn set(&mut self, t: jiff::civil::DateTime) -> Result<(), OutOfRangeError> {
+        self.set_raw(datetime::from_jiff(t)?);
+        Ok(())
+    }
 
-            let (dt, du) = byte_to_bcd2(t.day());
-            let (mt, mu) = byte_to_bcd2(t.month());
-            let yr = t.year();
-            let yr_offset = (yr - 2000_u16) as u8;
-            let (yt, yu) = byte_to_bcd2(yr_offset);
+    /// Write raw values to the RTC calendar registers.
+    ///
+    /// See [`RawDateTime`]: the values are not validated, and `subsecond` is ignored. This function sets subseconds to 0.
+    pub fn set_raw(&mut self, t: RawDateTime) {
+        self.write(true, |rtc| {
+            let (ht, hu) = byte_to_bcd2(t.hour);
+            let (mnt, mnu) = byte_to_bcd2(t.minute);
+            let (st, su) = byte_to_bcd2(t.second);
+
+            let (dt, du) = byte_to_bcd2(t.day);
+            let (mt, mu) = byte_to_bcd2(t.month);
+            let (yt, yu) = byte_to_bcd2(t.year);
 
             use crate::pac::rtc::vals::Ampm;
 
@@ -299,7 +299,7 @@ impl Rtc {
                 w.set_mu(mu);
                 w.set_yt(yt);
                 w.set_yu(yu);
-                w.set_wdu(day_of_week_to_u8(t.day_of_week()));
+                w.set_wdu(t.day_of_week);
             });
         });
 
@@ -307,8 +307,6 @@ impl Rtc {
         {
             self.anchor = None;
         }
-
-        Ok(())
     }
 
     /// Synchronize to a remote clock with a high degree of precision.
@@ -386,8 +384,14 @@ impl Rtc {
 
 /// Trait applicable to an `Rtc` or an `RtcContainer`
 pub trait AnyRtc {
-    /// Set the datetime to a new value.
-    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError>;
+    /// Set the date and time. See [`Rtc::set`].
+    #[cfg(feature = "jiff")]
+    fn set(&mut self, t: jiff::civil::DateTime) -> Result<(), OutOfRangeError> {
+        self.set_raw(datetime::from_jiff(t)?);
+        Ok(())
+    }
+    /// Write raw values to the RTC calendar registers. See [`Rtc::set_raw`].
+    fn set_raw(&mut self, t: RawDateTime);
     /// Check if daylight savings time is active.
     fn get_daylight_savings(&self) -> bool;
     /// Enable/disable daylight savings time.
@@ -400,8 +404,8 @@ pub trait AnyRtc {
 
 #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 impl AnyRtc for RtcContainer {
-    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
-        critical_section::with(|cs| self.borrow_mut(cs).set_datetime(t))
+    fn set_raw(&mut self, t: RawDateTime) {
+        critical_section::with(|cs| self.borrow_mut(cs).set_raw(t))
     }
 
     fn get_daylight_savings(&self) -> bool {
@@ -422,8 +426,8 @@ impl AnyRtc for RtcContainer {
 }
 
 impl AnyRtc for Rtc {
-    fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
-        self.set_datetime(t)
+    fn set_raw(&mut self, t: RawDateTime) {
+        self.set_raw(t)
     }
 
     fn get_daylight_savings(&self) -> bool {
@@ -443,16 +447,9 @@ impl AnyRtc for Rtc {
     }
 }
 
+/// Split `byte` into its tens and units digits.
 pub(crate) fn byte_to_bcd2(byte: u8) -> (u8, u8) {
-    let mut bcd_high: u8 = 0;
-    let mut value = byte;
-
-    while value >= 10 {
-        bcd_high += 1;
-        value -= 10;
-    }
-
-    (bcd_high, ((bcd_high << 4) | value))
+    (byte / 10, byte % 10)
 }
 
 pub(crate) fn bcd2_to_byte(bcd: (u8, u8)) -> u8 {

@@ -34,18 +34,16 @@ fn subsecond_hz() -> u32 {
 
 /// The current time of day, in RTC subsecond ticks.
 fn time_of_day(subsecond_hz: u32) -> u32 {
-    let ticks = RtcTimeProvider::new()
-        .read(|_, tr, ss| {
-            let hour = bcd2_to_byte((tr.ht(), tr.hu())) as u32;
-            let minute = bcd2_to_byte((tr.mnt(), tr.mnu())) as u32;
-            let second = bcd2_to_byte((tr.st(), tr.su())) as u32;
-            let seconds = (hour * 60 + minute) * 60 + second;
+    let ticks = RtcTimeProvider::new().read_regs(|_, tr, ss| {
+        let hour = bcd2_to_byte((tr.ht(), tr.hu())) as u32;
+        let minute = bcd2_to_byte((tr.mnt(), tr.mnu())) as u32;
+        let second = bcd2_to_byte((tr.st(), tr.su())) as u32;
+        let seconds = (hour * 60 + minute) * 60 + second;
 
-            // SS counts down from PREDIV_S. Right after a shift operation it can be above
-            // PREDIV_S, and the time is then before `seconds`.
-            Ok(seconds as i64 * subsecond_hz as i64 + (subsecond_hz - 1) as i64 - ss as i64)
-        })
-        .unwrap();
+        // SS counts down from PREDIV_S. Right after a shift operation it can be above
+        // PREDIV_S, and the time is then before `seconds`.
+        seconds as i64 * subsecond_hz as i64 + (subsecond_hz - 1) as i64 - ss as i64
+    });
 
     ticks.rem_euclid(SECONDS_PER_DAY as i64 * subsecond_hz as i64) as u32
 }

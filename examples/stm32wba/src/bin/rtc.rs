@@ -6,7 +6,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::rcc::*;
-use embassy_stm32::rtc::{DateTime, DayOfWeek, Rtc, RtcConfig};
+use embassy_stm32::rtc::{RawDateTime, Rtc, RtcConfig};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -45,18 +45,22 @@ async fn main(_spawner: Spawner) {
     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
 
     // Setting datetime
-    let initial_datetime = DateTime::from(1970, 1, 1, DayOfWeek::Thursday, 0, 00, 00, 0).unwrap();
-    match rtc.0.set_datetime(initial_datetime) {
-        Ok(()) => info!("RTC set successfully."),
-        Err(e) => error!("Failed to set RTC date/time: {:?}", e),
-    }
+    // The raw API does no validation: these values are written to the RTC registers as is.
+    let initial_datetime = RawDateTime {
+        year: 0, // 2000
+        month: 1,
+        day: 1,
+        day_of_week: 6, // Saturday
+        hour: 0,
+        minute: 0,
+        second: 0,
+        subsecond: 0,
+    };
+    rtc.0.set_raw(initial_datetime);
 
     // Reading datetime every 1s
     loop {
-        match rtc.1.now() {
-            Ok(result) => info!("{}", result),
-            Err(e) => error!("Failed to set RTC date/time: {:?}", e),
-        }
+        info!("{}", rtc.1.read_raw());
 
         Timer::after_millis(1000).await;
     }

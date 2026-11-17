@@ -14,7 +14,6 @@ embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [
   "exti",
   "memory-x",
   "unstable-pac",
-  "chrono",
   "low-power",
   "executor-thread"
 ]}
