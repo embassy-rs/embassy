@@ -219,7 +219,7 @@ embedded-nn = { version = "0.2.3", optional = true, default-features = false, fe
 stm32-fmc = "0.4.0"
 embedded-io = { version = "0.7.1" }
 embedded-io-async = { version = "0.7.0" }
-chrono = { version = "^0.4", default-features = false, optional = true }
+jiff = { version = "1.0.0", default-features = false, optional = true }
 document-features = "0.2.12"
 
 bitflags = "2.13.1"
@@ -276,8 +276,11 @@ ptp = ["xarxa-driver/packetmeta-timestamp", "dep:embassy-ptp-driver"]
 eth-2k-frames = []
 ## Accept and send 9018-byte jumbo Ethernet frames, FCS included.
 eth-jumbo-frames = []
-## Enable chrono support
-chrono = ["dep:chrono"]
+## Enable the RTC API based on `jiff::civil::DateTime`: `RtcTimeProvider::read` and `Rtc::set`.
+##
+## On targets without atomic compare-and-swap (Cortex-M0/M0+), jiff needs `portable-atomic` with
+## its `critical-section` (or `unsafe-assume-single-core`) feature enabled.
+jiff = ["dep:jiff"]
 
 stm32-hrtim = ["dep:stm32-hrtim"]
 

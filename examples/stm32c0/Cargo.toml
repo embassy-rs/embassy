@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Change stm32c031c6 to your chip name, if necessary.
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "time-driver-any", "stm32c031c6", "memory-x", "unstable-pac", "exti", "chrono"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "time-driver-any", "stm32c031c6", "memory-x", "unstable-pac", "exti", "jiff"]  }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 
@@ -17,7 +17,8 @@ defmt-rtt = "1.0.0"
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-chrono = { version = "^0.4", default-features = false}
+jiff = { version = "1.0.0", default-features = false }
+portable-atomic = { version = "1.13", features = ["critical-section"] }
 
 [profile.release]
 debug = 2
