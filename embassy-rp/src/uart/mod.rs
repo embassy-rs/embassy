@@ -1128,19 +1128,7 @@ impl<'d, M: Mode> Uart<'d, M> {
     fn set_baudrate_nowait(info: &Info, baudrate: u32) {
         let r = info.regs;
 
-        let clk_base = crate::clocks::clk_peri_freq();
-
-        let baud_rate_div = (8 * clk_base) / baudrate;
-        let mut baud_ibrd = baud_rate_div >> 7;
-        let mut baud_fbrd = (baud_rate_div & 0x7f).div_ceil(2);
-
-        if baud_ibrd == 0 {
-            baud_ibrd = 1;
-            baud_fbrd = 0;
-        } else if baud_ibrd >= 65535 {
-            baud_ibrd = 65535;
-            baud_fbrd = 0;
-        }
+        let (baud_ibrd, baud_fbrd) = baud_divisors(crate::clocks::clk_peri_freq(), baudrate);
 
         // Load PL011's baud divisor registers
         r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
@@ -1498,3 +1486,45 @@ impl_pin!(PIN_43, UART1, RxPin);
 impl_pin!(PIN_46, UART0, TxPin);
 #[cfg(feature = "rp235xb")]
 impl_pin!(PIN_47, UART0, RxPin);
+
+/// PL011 integer and fractional (1/64) baud rate divisors, rounded to nearest.
+fn baud_divisors(clk_base: u32, baudrate: u32) -> (u32, u32) {
+    // Divisor in 1/128 steps plus one, so that dropping the last bit rounds to nearest.
+    // Rounding the half up instead gives 64 when the low 7 bits are all set, which does
+    // not fit in the 6-bit UARTFBRD and leaves the fraction at 0.
+    let baud_rate_div = (8 * clk_base) / baudrate + 1;
+    let mut baud_ibrd = baud_rate_div >> 7;
+    let mut baud_fbrd = (baud_rate_div & 0x7f) >> 1;
+
+    if baud_ibrd == 0 {
+        baud_ibrd = 1;
+        baud_fbrd = 0;
+    } else if baud_ibrd >= 65535 {
+        baud_ibrd = 65535;
+        baud_fbrd = 0;
+    }
+
+    (baud_ibrd, baud_fbrd)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::baud_divisors;
+
+    #[test]
+    fn baud_divisor_math() {
+        // 125 MHz / (16 * 115200) = 67.817
+        assert_eq!(baud_divisors(125_000_000, 115_200), (67, 52));
+        // 125 MHz / (16 * 977000) = 7.996, used to give a fraction of 64
+        assert_eq!(baud_divisors(125_000_000, 977_000), (8, 0));
+
+        for clk_base in [48_000_000, 125_000_000, 150_000_000] {
+            for baudrate in (clk_base / 65535 / 16 + 1)..=(clk_base / 16) {
+                let (ibrd, fbrd) = baud_divisors(clk_base, baudrate);
+                assert!(fbrd < 64);
+                let actual = clk_base as f64 / (16.0 * (ibrd as f64 + fbrd as f64 / 64.0));
+                assert!((actual / baudrate as f64 - 1.0).abs() < 0.01, "{clk_base} {baudrate}");
+            }
+        }
+    }
+}
