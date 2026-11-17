@@ -297,19 +297,19 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
         let mut pending_events = 0;
         let mut clear_command_flags = false;
 
-        if status.ipcmddone() && inten.ipcmddoneen() == pac::flexspi::Ipcmddoneen::Value1 {
+        if status.ipcmddone() && inten.ipcmddoneen() {
             pending_events |= IRQ_EVENT_COMMAND_DONE;
             clear_command_flags = true;
         }
-        if status.ipcmdge() && inten.ipcmdgeen() == pac::flexspi::Ipcmdgeen::Value1 {
+        if status.ipcmdge() && inten.ipcmdgeen() {
             pending_events |= IRQ_EVENT_COMMAND_GRANT;
             clear_command_flags = true;
         }
-        if status.ipcmderr() && inten.ipcmderren() == pac::flexspi::Ipcmderren::Value1 {
+        if status.ipcmderr() && inten.ipcmderren() {
             pending_events |= IRQ_EVENT_COMMAND_ERROR;
             clear_command_flags = true;
         }
-        if status.iptxwe() && inten.iptxween() == pac::flexspi::Iptxween::Value1 {
+        if status.iptxwe() && inten.iptxween() {
             pending_events |= IRQ_EVENT_TX_WATERMARK;
         }
 
@@ -506,12 +506,54 @@ impl From<IoError> for SetupError {
     }
 }
 
+/// IP command error code, from `STS1[IPCMDERRCODE]`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum CommandErrorCode {
+    /// Data size is not a multiple of two bytes while parallel mode is enabled.
+    ParallelModeOddSize,
+    /// The sequence uses a `JMP_ON_CS` instruction.
+    JmpOnCs,
+    /// Unknown instruction opcode in the sequence.
+    UnknownOpcode,
+    /// `DUMMY_SDR` or `DUMMY_RWDS_SDR` instruction in a DDR sequence.
+    SdrDummyInDdrSequence,
+    /// `DUMMY_DDR` or `DUMMY_RWDS_DDR` instruction in an SDR sequence.
+    DdrDummyInSdrSequence,
+    /// Start address exceeds the flash address range.
+    AddressOutOfRange,
+    /// Sequence execution timeout.
+    Timeout,
+    /// Flash boundary crossed.
+    BoundaryCrossed,
+    /// Reserved error code.
+    Reserved(u8),
+}
+
+impl From<pac::flexspi::Ipcmderrcode> for CommandErrorCode {
+    fn from(code: pac::flexspi::Ipcmderrcode) -> Self {
+        use pac::flexspi::Ipcmderrcode as C;
+        match code {
+            C::Val1 => Self::ParallelModeOddSize,
+            C::Val2 => Self::JmpOnCs,
+            C::Val3 => Self::UnknownOpcode,
+            C::Val4 => Self::SdrDummyInDdrSequence,
+            C::Val5 => Self::DdrDummyInSdrSequence,
+            C::Val6 => Self::AddressOutOfRange,
+            C::Val7 => Self::Timeout,
+            C::Val8 => Self::BoundaryCrossed,
+            other => Self::Reserved(other as u8),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum IoError {
     Command {
-        error_code: pac::flexspi::Ipcmderrcode,
+        error_code: CommandErrorCode,
     },
     CommandGrantTimeout,
     Dma(crate::dma::TransferErrors),
@@ -640,7 +682,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
 
     fn configure_controller(&mut self) {
         self.info.regs.mcr0().write(|r: &mut Mcr0| {
-            r.set_mdis(pac::flexspi::Mdis::Val0);
+            r.set_mdis(false);
             r.set_rxclksrc(pac::flexspi::Rxclksrc::Val1);
             // Match the SDK's arbitration / low-power defaults. IPGRANTWAIT and
             // AHBGRANTWAIT bound how many (1024-serial-clock) cycles an IP- or
@@ -650,18 +692,18 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             // low power). A bare `write` would otherwise leave all three at 0.
             r.set_ipgrantwait(0xff);
             r.set_ahbgrantwait(0xff);
-            r.set_dozeen(pac::flexspi::Dozeen::Val1);
+            r.set_dozeen(true);
         });
         self.info.regs.ahbcr().write(|r: &mut Ahbcr| {
-            r.set_aparen(pac::flexspi::Aparen::Individual);
-            r.set_clrahbrxbuf(pac::flexspi::Clrahbrxbuf::Val0);
-            r.set_clrahbtxbuf(pac::flexspi::Clrahbtxbuf::Val0);
-            r.set_cachableen(pac::flexspi::Cachableen::Val1);
-            r.set_bufferableen(pac::flexspi::Bufferableen::Val1);
-            r.set_prefetchen(pac::flexspi::AhbcrPrefetchen::Value1);
-            r.set_readaddropt(pac::flexspi::Readaddropt::Val0);
-            r.set_resumedisable(pac::flexspi::Resumedisable::Val0);
-            r.set_readszalign(pac::flexspi::Readszalign::Val0);
+            r.set_aparen(false);
+            r.set_clrahbrxbuf(false);
+            r.set_clrahbtxbuf(false);
+            r.set_cachableen(true);
+            r.set_bufferableen(true);
+            r.set_prefetchen(true);
+            r.set_readaddropt(false);
+            r.set_resumedisable(false);
+            r.set_readszalign(false);
             // AFLASHBASE (AHBCR[31:28], 256 MB-granular) must stay 0 on MCXA577.
             // The SoC bus matrix strips the AHB window base (secure 0x9000_0000 /
             // non-secure 0x8000_0000) and presents the controller a window-relative
@@ -675,7 +717,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             r.set_bufsz(0xff);
             r.set_mstrid(0);
             r.set_priority(0);
-            r.set_prefetchen(pac::flexspi::Ahbrxbuf0cr0Prefetchen::Value1);
+            r.set_prefetchen(true);
         });
         self.info
             .regs
@@ -689,9 +731,9 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             .write(|r: &mut Flshcr1| {
                 r.set_tcss(3);
                 r.set_tcsh(3);
-                r.set_wa(pac::flexspi::Wa::Value0);
+                r.set_wa(false);
                 r.set_cas(0);
-                r.set_csintervalunit(pac::flexspi::Csintervalunit::Val0);
+                r.set_csintervalunit(false);
                 r.set_csinterval(2);
             });
         self.info
@@ -713,9 +755,9 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             });
         self.info.regs.flshcr4().write(|r: &mut Flshcr4| {
             r.set_wmopt1(false);
-            r.set_wmopt2b(pac::flexspi::Wmopt2b::Val0);
-            r.set_wmena(pac::flexspi::Wmena::Val0);
-            r.set_wmenb(pac::flexspi::Wmenb::Val0);
+            r.set_wmopt2b(false);
+            r.set_wmena(false);
+            r.set_wmenb(false);
         });
         self.info.regs.iptxfcr().modify(|r: &mut Iptxfcr| r.set_txwmrk(0));
         self.info.regs.iprxfcr().modify(|r: &mut Iprxfcr| r.set_rxwmrk(0));
@@ -729,7 +771,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         self.info
             .regs
             .dllcr((self.chip_index >> 1) as usize)
-            .write(|r: &mut Dllcr| r.set_ovrden(pac::flexspi::Ovrden::Value1));
+            .write(|r: &mut Dllcr| r.set_ovrden(true));
 
         self.load_lut(self.flash.lookup_table);
         self.software_reset();
@@ -881,11 +923,8 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     fn software_reset(&mut self) {
-        self.info
-            .regs
-            .mcr0()
-            .modify(|r: &mut Mcr0| r.set_swreset(pac::flexspi::Swreset::Val1));
-        while self.info.regs.mcr0().read().swreset() == pac::flexspi::Swreset::Val1 {}
+        self.info.regs.mcr0().modify(|r: &mut Mcr0| r.set_swreset(true));
+        while self.info.regs.mcr0().read().swreset() {}
     }
 
     fn set_lut_lock(&mut self, lock: bool) {
@@ -901,7 +940,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     fn wait_idle(&self) {
-        while self.info.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {}
+        while !self.info.regs.sts0().read().seqidle() {}
     }
 
     fn prepare_ip_transfer(&mut self) {
@@ -921,7 +960,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         // (wrap the async op in `with_timeout` with an application-specific
         // budget). The driver only guarantees that a cancelled op does not wedge
         // the next one.
-        if self.info.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {
+        if !self.info.regs.sts0().read().seqidle() {
             self.software_reset();
         }
         self.wait_idle();
@@ -939,14 +978,8 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             r.set_ipcmdge(true);
             r.set_ipcmddone(true);
         });
-        self.info
-            .regs
-            .iptxfcr()
-            .modify(|r: &mut Iptxfcr| r.set_clriptxf(pac::flexspi::Clriptxf::Value1));
-        self.info
-            .regs
-            .iprxfcr()
-            .modify(|r: &mut Iprxfcr| r.set_clriprxf(pac::flexspi::Clriprxf::Value1));
+        self.info.regs.iptxfcr().modify(|r: &mut Iptxfcr| r.set_clriptxf(true));
+        self.info.regs.iprxfcr().modify(|r: &mut Iprxfcr| r.set_clriprxf(true));
     }
 
     fn wait_ip_command_done(&self) {
@@ -959,7 +992,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             Ok(())
         } else {
             Err(IoError::Command {
-                error_code: status.ipcmderrcode(),
+                error_code: status.ipcmderrcode().into(),
             })
         }
     }
@@ -985,10 +1018,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             self.info.regs.tfdr(0).write_value(Tfdr(word));
         }
 
-        self.info
-            .regs
-            .ipcmd()
-            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
+        self.info.regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(true));
         self.wait_ip_command_done();
         self.wait_idle();
         self.wait_no_ip_error()
@@ -1005,10 +1035,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             r.set_iparen(false);
         });
 
-        self.info
-            .regs
-            .ipcmd()
-            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
+        self.info.regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(true));
 
         let tx_watermark = self.info.regs.iptxfcr().read().txwmrk() as usize + 1;
         let mut offset = 0;
@@ -1044,10 +1071,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             r.set_iparen(false);
         });
 
-        self.info
-            .regs
-            .ipcmd()
-            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
+        self.info.regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(true));
         self.wait_ip_command_done();
         self.wait_idle();
         self.wait_no_ip_error()?;
@@ -1188,7 +1212,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
     }
 
     async fn wait_idle_async(&self) {
-        while self.info.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {
+        while !self.info.regs.sts0().read().seqidle() {
             yield_now().await;
         }
     }
@@ -1214,10 +1238,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
             self.info.regs.tfdr(0).write_value(Tfdr(word));
         }
 
-        self.info
-            .regs
-            .ipcmd()
-            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
+        self.info.regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(true));
         self.wait_for_command_completion_async().await
     }
 
@@ -1237,10 +1258,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
             r.set_iparen(false);
         });
 
-        self.info
-            .regs
-            .ipcmd()
-            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
+        self.info.regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(true));
 
         let tx_watermark = self.info.regs.iptxfcr().read().txwmrk() as usize + 1;
         let mut offset = 0;
@@ -1280,10 +1298,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
             r.set_iparen(false);
         });
 
-        self.info
-            .regs
-            .ipcmd()
-            .write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
+        self.info.regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(true));
         self.wait_for_command_completion_async().await?;
 
         for (index, chunk) in buffer.chunks_mut(4).enumerate() {
@@ -1316,7 +1331,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
         });
 
         let regs = self.info.regs;
-        regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
+        regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(true));
 
         let tx_words_per_watermark = 2 * (regs.iptxfcr().read().txwmrk() as usize + 1);
         let mut offset = 0;
@@ -1364,7 +1379,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
         });
 
         let regs = self.info.regs;
-        regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(pac::flexspi::Trg::Value1));
+        regs.ipcmd().write(|r: &mut Ipcmd| r.set_trg(true));
 
         self.wait_for_command_completion_async().await?;
 
@@ -1386,9 +1401,9 @@ impl<'d> InnerFlexSpi<'d, Async> {
             self.info.waker().register(cx.waker());
 
             self.info.regs.inten().write(|w| {
-                w.set_ipcmddoneen(pac::flexspi::Ipcmddoneen::Value1);
-                w.set_ipcmdgeen(pac::flexspi::Ipcmdgeen::Value1);
-                w.set_ipcmderren(pac::flexspi::Ipcmderren::Value1);
+                w.set_ipcmddoneen(true);
+                w.set_ipcmdgeen(true);
+                w.set_ipcmderren(true);
             });
 
             let pending_events = self.info.pending_events().load(Ordering::Acquire);
@@ -1430,9 +1445,9 @@ impl<'d> InnerFlexSpi<'d, Async> {
             self.info.waker().register(cx.waker());
 
             self.info.regs.inten().write(|w| {
-                w.set_iptxween(pac::flexspi::Iptxween::Value1);
-                w.set_ipcmdgeen(pac::flexspi::Ipcmdgeen::Value1);
-                w.set_ipcmderren(pac::flexspi::Ipcmderren::Value1);
+                w.set_iptxween(true);
+                w.set_ipcmdgeen(true);
+                w.set_ipcmderren(true);
             });
 
             let pending_events = self.info.pending_events().load(Ordering::Acquire);

@@ -16,8 +16,8 @@ use nxp_pac::can as pac;
 /// For Classic CAN, this is the CS Register (4 bytes), the Id Register (4 bytes), and the 8-byte message payload.
 /// This structure is used for both TX and RX messages. As mentioned, TX messages live in the FlexCAN message buffer, while RX messages live in the Enhanced RX FIFO.
 struct Message {
-    pub cs: pac::Cs,
-    pub id: pac::Id,
+    pub cs: pac::MbbCs,
+    pub id: pac::MbbId,
     pub payload: [u8; 8],
 }
 
@@ -206,8 +206,8 @@ pub(in crate::flexcan) mod tx {
         fn from(frame: &Frame) -> Self {
             let mut message = TxMessage {
                 inner: Message {
-                    cs: pac::Cs(0),
-                    id: pac::Id(0),
+                    cs: pac::MbbCs(0),
+                    id: pac::MbbId(0),
                     payload: frame.data,
                 },
             };
@@ -444,17 +444,14 @@ pub(in crate::flexcan) mod rx {
         }
 
         // Misc basic setup
-        info.control.regs().mcr().modify(|m| m.set_rfen(pac::Rfen::Id1)); // Turn off the Legacy FIFO
-        info.control
-            .regs()
-            .ctrl2()
-            .modify(|m| m.set_rrs(pac::Rrs::RemoteResponseFrameNotGenerated)); // Store incoming REMOTE frames instead of auto-generating a response frame.
+        info.control.regs().mcr().modify(|m| m.set_rfen(false)); // Turn off the Legacy FIFO
+        info.control.regs().ctrl2().modify(|m| m.set_rrs(false)); // Store incoming REMOTE frames instead of auto-generating a response frame.
         info.control.regs().erfcr().modify(|m| m.set_erfen(true)); // Enable the Enhanced FIFO
-        info.control.regs().erfsr().modify(|m| m.set_erfclr(pac::Erfclr::Clear)); // Clear the Enhanced FIFO
+        info.control.regs().erfsr().modify(|m| m.set_erfclr(true)); // Clear the Enhanced FIFO
         info.control.regs().erfsr().write(|w| {
             w.set_erfufw(true); // Clear the Enhanced FIFO Underflow Flag (write-1-to-clear)
             w.set_erfovf(true); // Clear the Enhanced FIFO Overflow Flag (write-1-to-clear)
-            w.set_erfwmi(pac::Erfwmi::WatermarkYes); // Clear the Enhanced FIFO Watermark Indication Flag (write-1-to-clear)
+            w.set_erfwmi(true); // Clear the Enhanced FIFO Watermark Indication Flag (write-1-to-clear)
             w.set_erfda(true); // Clear the Enhanced FIFO Data Available Flag (write-1-to-clear)
         });
 

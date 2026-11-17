@@ -155,7 +155,7 @@ macro_rules! impl_lpi2c_pin {
                 self.set_enable_input_buffer(true);
                 // I2C requires open-drain so multiple devices can share the bus.
                 self.pcr_reg().modify(|w| {
-                    w.set_ode($crate::pac::port::Ode::Ode1);
+                    w.set_ode(true);
                 });
             }
         }

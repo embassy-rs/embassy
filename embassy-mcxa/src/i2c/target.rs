@@ -82,7 +82,7 @@ use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::lpi2c::{Addrcfg, Filtdz, ScrRrf, ScrRtf};
+use crate::pac::lpi2c::Addrcfg;
 
 /// Errors exclusive to hardware Initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -365,7 +365,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             self.info.regs().scr().modify(|w| w.set_rst(false));
 
             self.info.regs().scr().modify(|w| {
-                w.set_filtdz(Filtdz::FilterDisabled);
+                w.set_filtdz(true);
                 w.set_filten(false);
             });
 
@@ -454,8 +454,8 @@ impl<'d, M: Mode> I2c<'d, M> {
         // read-modify-write operation.
         critical_section::with(|_| {
             self.info.regs().scr().modify(|w| {
-                w.set_rtf(ScrRtf::NowEmpty);
-                w.set_rrf(ScrRrf::NowEmpty);
+                w.set_rtf(true);
+                w.set_rrf(true);
             });
         });
     }
@@ -1470,8 +1470,8 @@ impl<'d, M: Mode> I2c<'d, M> {
 
             // Drop any in-flight FIFO bytes.
             self.info.regs().scr().modify(|w| {
-                w.set_rtf(ScrRtf::NowEmpty);
-                w.set_rrf(ScrRrf::NowEmpty);
+                w.set_rtf(true);
+                w.set_rrf(true);
             });
 
             // Disable any DMA request enables left set by a cancelled DMA

@@ -15,7 +15,7 @@
 
 use crate::clocks::{VddLevel, gdet_access_ready};
 use crate::pac::gdet::VolSel;
-use crate::pac::seccon::{Gdet0CtrlGdetErrClr, Gdet0CtrlGdetEvtcntClr, Gdet0CtrlGdetIsoSw};
+use crate::pac::seccon::Gdet0CtrlGdetIsoSw;
 use crate::{Peri, pac, peripherals};
 
 struct Info {
@@ -215,8 +215,8 @@ impl<'d> Gdet<'d> {
     // Call only inside a critical section; the token owns this register alone.
     fn write_isolation(&self, isolation: Gdet0CtrlGdetIsoSw) {
         let mut control = pac::seccon::Gdet0Ctrl::default();
-        control.set_gdet_evtcnt_clr(Gdet0CtrlGdetEvtcntClr::Disable);
-        control.set_gdet_err_clr(Gdet0CtrlGdetErrClr::Disable);
+        control.set_gdet_evtcnt_clr(false);
+        control.set_gdet_err_clr(false);
         control.set_gdet_iso_sw(isolation);
         self.info.control.gdet0_ctrl().write_value(control);
     }

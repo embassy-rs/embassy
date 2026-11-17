@@ -288,13 +288,13 @@ impl<'d, M: Mode> Sgi<'d, M> {
         // Enable hash engine with FIFO limits.
         self.info.regs().sgi_sha2_ctrl().write(|w| {
             w.set_sha2_en(true);
-            w.set_sha2_mode((sha2_mode_auto as u8).into());
+            w.set_sha2_mode(sha2_mode_auto);
             w.set_sha2_size(sha2_size.into());
             w.set_sha2_low_lim(fifo_low_lim);
             w.set_sha2_high_lim(fifo_high_lim);
-            w.set_sha2_count_en((true as u8).into());
+            w.set_sha2_count_en(true);
             w.set_hash_reload(hash_reload);
-            w.set_no_auto_init((no_auto_init as u8).into());
+            w.set_no_auto_init(no_auto_init);
         });
         Ok(())
     }
@@ -312,7 +312,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
         self.info
             .regs()
             .sgi_ctrl2()
-            .modify(|w| w.set_bytes_order(((!byte_order_big) as u8).into()));
+            .modify(|w| w.set_bytes_order(!byte_order_big));
         Ok(())
     }
 
@@ -328,7 +328,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
         // Keep as a single write to the CTRL register.
         self.info.regs().sgi_ctrl().write(|w| {
             w.set_crypto_op((CryptoOp::Sha2 as u8).into());
-            w.set_start((true as u8).into());
+            w.set_start(true);
         });
         Ok(())
     }
@@ -541,15 +541,12 @@ impl<'d, M: Mode> Sgi<'d, M> {
 
     /// Clears SGI errors by flushing the registers.
     fn clear_errors(&self) {
-        self.info.regs().sgi_ctrl2().write(|w| w.set_flush((true as u8).into()));
+        self.info.regs().sgi_ctrl2().write(|w| w.set_flush(true));
     }
 
     /// Issue stop command to halt the SHA2 operation.
     fn sgi_stop_sha2_cmd(&self) {
-        self.info
-            .regs()
-            .sgi_sha2_ctrl()
-            .modify(|w| w.set_sha2_stop((true as u8).into()));
+        self.info.regs().sgi_sha2_ctrl().modify(|w| w.set_sha2_stop(true));
     }
 
     /// Reads the hash output from the SGI dataout registers into the provided buffer. This should be called after confirming operation completion,
@@ -563,10 +560,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
 
         if options.op_mode == HashMode::Auto {
             // Automatic mode
-            self.info
-                .regs()
-                .sgi_sha2_ctrl()
-                .modify(|w| w.set_sha2_stop((true as u8).into())); // Stop AUTO hash.
+            self.info.regs().sgi_sha2_ctrl().modify(|w| w.set_sha2_stop(true)); // Stop AUTO hash.
             let mut loop_counter = 0;
             while self.is_busy() && loop_counter < 1000 {
                 loop_counter += 1;
@@ -598,7 +592,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
         for i in 0..max_sha2_dataout_pass {
             self.info.regs().sgi_ctrl().write(|w| {
                 w.set_datout_res((DataOutRes::TriggerUp as u8).into());
-                w.set_start((true as u8).into());
+                w.set_start(true);
             });
             self.wait_until_sha2_not_busy()?;
             self.read_dataout_block(output, idx + (16 * (i + 1)))?; // Each block is 16 bytes
@@ -613,10 +607,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
         }
         if options.op_mode == HashMode::Auto {
             // Automatic mode
-            self.info
-                .regs()
-                .sgi_sha2_ctrl()
-                .modify(|w| w.set_sha2_stop((true as u8).into())); // Stop AUTO hash.
+            self.info.regs().sgi_sha2_ctrl().modify(|w| w.set_sha2_stop(true)); // Stop AUTO hash.
             let mut loop_counter = 0;
             while self.is_busy() && loop_counter < 1000 {
                 loop_counter += 1;
@@ -645,7 +636,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
         for i in 0..max_sha2_dataout_pass {
             self.info.regs().sgi_ctrl().write(|w| {
                 w.set_datout_res((DataOutRes::TriggerUp as u8).into());
-                w.set_start((true as u8).into());
+                w.set_start(true);
             });
             self.wait_until_sha2_not_busy()?;
             self.read_dataout_block(output, idx + (16 * (i + 1)))?; // Each block is 16 bytes

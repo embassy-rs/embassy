@@ -15,9 +15,8 @@ use embassy_futures::select::{Either, select};
 use embassy_hal_internal::Peri;
 use grounded::uninit::GroundedCell;
 use maitake_sync::WaitCell;
-use nxp_pac::lpuart::Tc;
 
-use super::{CtsPin, DataBits, IdleConfig, Info, MsbFirst, Parity, RtsPin, RxPin, StopBits, TxPin, TxPins};
+use super::{CtsPin, IdleConfig, Info, RtsPin, RxPin, TxPin, TxPins};
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel};
 use crate::clocks::{PoweredClock, WakeGuard};
 use crate::dma::{
@@ -27,7 +26,6 @@ use crate::dma::{
 use crate::gpio::{AnyPin, HasGpioInstance, PeriGpioExt};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::lpuart::{Instance, RxPins};
-use crate::pac::lpuart::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
 
 /// Error Type
 #[derive(Debug, PartialEq)]
@@ -232,7 +230,7 @@ fn prepare_rx_buffer(buffer: &'static mut [u8], mode: BbqRxMode) -> Result<RxBuf
 }
 
 /// Lpuart config
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 #[non_exhaustive]
 pub struct BbqConfig {
     /// Power state required for this peripheral
@@ -243,20 +241,23 @@ pub struct BbqConfig {
     pub div: Div4,
     /// Baud rate in bits per second
     pub baudrate_bps: u32,
-    /// Parity configuration
-    pub parity_mode: Option<Parity>,
-    /// Number of data bits
-    pub data_bits_count: DataBits,
-    /// MSB First or LSB First configuration
-    pub msb_first: MsbFirst,
-    /// Number of stop bits
-    pub stop_bits_count: StopBits,
+    /// Parity: `None` disables it, `Some(false)` selects even parity, and
+    /// `Some(true)` selects odd parity.
+    pub parity_mode: Option<bool>,
+    /// Data-bit mode: `false` selects eight bits and `true` selects nine bits.
+    pub data_bits_count: bool,
+    /// Bit order: `false` sends LSB first and `true` sends MSB first.
+    pub msb_first: bool,
+    /// Stop bits: `false` selects one stop bit and `true` selects two.
+    pub stop_bits_count: bool,
     /// RX IDLE configuration
     pub rx_idle_config: IdleConfig,
-    /// TX CTS source
-    pub tx_cts_source: TxCtsSource,
-    /// TX CTS configuration
-    pub tx_cts_config: TxCtsConfig,
+    /// CTS source: `false` uses the CTS_B pin and `true` uses the internal
+    /// receiver address-match result.
+    pub tx_cts_source: bool,
+    /// CTS sampling: `false` samples at the start of each character and `true`
+    /// samples when the transmitter is idle.
+    pub tx_cts_config: bool,
 }
 
 impl Default for BbqConfig {
@@ -264,15 +265,15 @@ impl Default for BbqConfig {
         Self {
             baudrate_bps: 115_200u32,
             parity_mode: None,
-            data_bits_count: DataBits::Data8,
-            msb_first: MsbFirst::LsbFirst,
-            stop_bits_count: StopBits::One,
+            data_bits_count: false,
+            msb_first: false,
+            stop_bits_count: false,
             rx_idle_config: IdleConfig::Idle1,
             power: PoweredClock::AlwaysEnabled,
             source: LpuartClockSel::FroLfDiv,
             div: Div4::no_div(),
-            tx_cts_source: TxCtsSource::Cts,
-            tx_cts_config: TxCtsConfig::Start,
+            tx_cts_source: false,
+            tx_cts_config: false,
         }
     }
 }
@@ -2092,7 +2093,7 @@ impl BbqState {
         // immediately retrigger an interrupt.
         //
         // TODO: I'm not sure this actually ever happens, this is a defensive check
-        while info.regs.stat().read().tc() == Tc::Complete {}
+        while info.regs.stat().read().tc() {}
 
         true
     }
@@ -2340,7 +2341,7 @@ unsafe fn handler(info: &'static Info, state: &'static BbqState) {
         // try to do this a bit earlier if the DMA completes but we haven't yet
         // drained the TX fifo yet.
         let txie_set = ctrl.tcie();
-        let tc_complete = regs.stat().read().tc() == Tc::Complete;
+        let tc_complete = regs.stat().read().tc();
         let txgr_present = (tx_state & STATE_TXGR_ACTIVE) != 0;
 
         let tx_did_finish = txie_set && tc_complete && txgr_present;

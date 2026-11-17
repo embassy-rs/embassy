@@ -6,7 +6,6 @@ use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 
 use super::{AnyChannel, CTimer, CTimerChannel, Channel, Info, Instance, OutputPin};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::ctimer::Pwmen;
 
 /// PWM error.
 #[derive(Debug)]
@@ -76,16 +75,16 @@ impl<'d> Pwm<'d> {
     fn set_pwm_mode(&self) {
         self.info.regs().pwmc().modify(|w| match self.duty_ch.number() {
             Channel::Zero => {
-                w.set_pwmen0(Pwmen::Pwm);
+                w.set_pwmen0(true);
             }
             Channel::One => {
-                w.set_pwmen1(Pwmen::Pwm);
+                w.set_pwmen1(true);
             }
             Channel::Two => {
-                w.set_pwmen2(Pwmen::Pwm);
+                w.set_pwmen2(true);
             }
             Channel::Three => {
-                w.set_pwmen3(Pwmen::Pwm);
+                w.set_pwmen3(true);
             }
         });
     }

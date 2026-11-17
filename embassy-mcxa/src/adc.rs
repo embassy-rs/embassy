@@ -4,16 +4,13 @@ use core::ops::{Deref, RangeInclusive};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
-use nxp_pac::adc::{AdcActive, TcompIe, TcompInt};
+use nxp_pac::adc::TcompIe;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4, PreEnableParts};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, GpioPin, SealedPin};
 use crate::interrupt::typelevel::{Handler, Interrupt};
-use crate::pac::adc::{
-    Avgs, CalAvgs, CalRdy, CalReq, Calofs, Cmpen, Dozen, Gcc0Rdy, HptExdi, Loop as HwLoop, Mode as ConvMode, Next,
-    Pwrsel, Refsel, Rst, Rstfifo0, Sts, Tcmd, Tpri, Tprictrl,
-};
+use crate::pac::adc::{CalAvgs as Avgs, CalAvgs, Cmpen, Loop as HwLoop, Next, Refsel, Sts, Tcmd, Tpri, Tprictrl};
 use crate::pac::port::Mux;
 use crate::pac::{self};
 
@@ -44,7 +41,7 @@ pub enum ReferenceVoltage {
 }
 
 /// Configuration for the LPADC peripheral.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Config {
     /// Control system transition to Stop and Wait power modes while
     /// ADC is converting.
@@ -71,8 +68,8 @@ pub struct Config {
     /// Reference voltage source selection
     pub reference_voltage_source: ReferenceVoltage,
 
-    /// Power configuration selection.
-    pub power_level_mode: Pwrsel,
+    /// Power mode: `false` selects low power and `true` selects high power.
+    pub power_level_mode: bool,
 
     /// Trigger priority policy for handling multiple triggers
     pub trigger_priority_policy: TriggerPriorityPolicy,
@@ -103,7 +100,7 @@ impl Default for Config {
             power_pre_enabled: false,
             power_up_delay: 0x80,
             reference_voltage_source: Default::default(),
-            power_level_mode: Pwrsel::Lowest,
+            power_level_mode: false,
             trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
             conv_pause_delay: None,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
@@ -297,7 +294,7 @@ impl<'a, T: Instance> Command<'a, T> {
 }
 
 /// Configuration for a conversion command
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct CommandConfig {
     /// The command that will be executed next.
     ///
@@ -309,8 +306,9 @@ pub struct CommandConfig {
     pub sample_time: Sts,
     /// The compare function being used
     pub compare: Compare,
-    /// The resolution of a conversion
-    pub resolution: ConvMode,
+    /// Resolution: `false` selects standard single-ended 12-bit conversion and
+    /// `true` selects high-resolution single-ended 16-bit conversion.
+    pub resolution: bool,
     /// When false, the command will not wait for a trigger once the command sequence has been started.
     /// When true, a trigger is required before the command is started.
     pub wait_for_trigger: bool,
@@ -323,7 +321,7 @@ impl Default for CommandConfig {
             averaging: Avgs::NoAverage,
             sample_time: Sts::Sample3p5,
             compare: Compare::Disabled,
-            resolution: ConvMode::Data12Bits,
+            resolution: false,
             wait_for_trigger: false,
         }
     }
@@ -332,7 +330,7 @@ impl Default for CommandConfig {
 /// Configuration for a conversion trigger.
 ///
 /// Defines how a trigger initiates ADC conversions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Trigger {
     /// The command that is triggered by this trigger
     pub target_command_id: CommandId,
@@ -532,10 +530,7 @@ impl<'a, M: Mode> Adc<'a, M> {
     ///
     /// Clears all pending conversion results from the FIFO.
     pub fn do_reset_fifo(&mut self) {
-        self.info
-            .regs()
-            .ctrl()
-            .modify(|w| w.set_rstfifo0(Rstfifo0::TriggerReset));
+        self.info.regs().ctrl().modify(|w| w.set_rstfifo0(true));
     }
 
     /// Get conversion result from FIFO.
@@ -546,7 +541,7 @@ impl<'a, M: Mode> Adc<'a, M> {
     /// - [Error::FifoPending] if the FIFO is empty, but the adc is active
     pub fn try_get_conversion(&mut self) -> Result<Conversion, Error> {
         if self.info.regs().fctrl0().read().fcount() == 0 {
-            if self.info.regs().stat().read().adc_active() == AdcActive::Busy {
+            if self.info.regs().stat().read().adc_active() {
                 return Err(Error::FifoPending);
             }
             return Err(Error::FifoEmpty);
@@ -563,8 +558,8 @@ impl<'a, M: Mode> Adc<'a, M> {
         // In 16-bit mode, the full 16-bit range is used and no shift is needed.
         let conv_value = if cmd_index > 0 && cmd_index <= self.commands.len() {
             match self.commands[cmd_index - 1].config.resolution {
-                ConvMode::Data12Bits => raw_value >> 3,
-                ConvMode::Data16Bits => raw_value,
+                false => raw_value >> 3,
+                true => raw_value,
             }
         } else {
             raw_value
@@ -612,22 +607,16 @@ impl<'a, M: Mode> Adc<'a, M> {
         let adc = info.regs();
 
         /* Reset the module. */
-        adc.ctrl().modify(|w| w.set_rst(Rst::HeldInReset));
-        adc.ctrl().modify(|w| w.set_rst(Rst::ReleasedFromReset));
+        adc.ctrl().modify(|w| w.set_rst(true));
+        adc.ctrl().modify(|w| w.set_rst(false));
 
-        adc.ctrl().modify(|w| w.set_rstfifo0(Rstfifo0::TriggerReset));
+        adc.ctrl().modify(|w| w.set_rstfifo0(true));
 
         /* Disable the module before setting configuration. */
         adc.ctrl().modify(|w| w.set_adcen(false));
 
         /* Configure the module generally. */
-        adc.ctrl().modify(|w| {
-            w.set_dozen(if config.enable_in_doze_mode {
-                Dozen::Enabled
-            } else {
-                Dozen::Disabled
-            })
-        });
+        adc.ctrl().modify(|w| w.set_dozen(!config.enable_in_doze_mode));
 
         /* Set calibration average mode. */
         adc.ctrl().modify(|w| w.set_cal_avgs(config.calibration_average_mode));
@@ -663,10 +652,10 @@ impl<'a, M: Mode> Adc<'a, M> {
                     | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed
                     | TriggerPriorityPolicy::TriggerPriorityExceptionDisabled
             ));
-            w.set_hpt_exdi(match config.trigger_priority_policy {
-                TriggerPriorityPolicy::TriggerPriorityExceptionDisabled => HptExdi::Disabled,
-                _ => HptExdi::Enabled,
-            });
+            w.set_hpt_exdi(matches!(
+                config.trigger_priority_policy,
+                TriggerPriorityPolicy::TriggerPriorityExceptionDisabled
+            ));
         });
 
         if let Some(pause_delay) = config.conv_pause_delay {
@@ -742,13 +731,10 @@ impl<'a, M: Mode> Adc<'a, M> {
     /// Waits for calibration to complete before returning.
     pub fn do_offset_calibration(&mut self) {
         // Enable calibration mode
-        self.info
-            .regs()
-            .ctrl()
-            .modify(|w| w.set_calofs(Calofs::OffsetCalibrationRequestPending));
+        self.info.regs().ctrl().modify(|w| w.set_calofs(true));
 
         // Wait for calibration to complete (polling status register)
-        while self.info.regs().stat().read().cal_rdy() == CalRdy::NotSet {}
+        while !self.info.regs().stat().read().cal_rdy() {}
     }
 
     /// Calculate gain conversion result from gain adjustment factor.
@@ -778,12 +764,9 @@ impl<'a, M: Mode> Adc<'a, M> {
 
     /// Perform automatic gain calibration.
     pub fn do_auto_calibration(&mut self) {
-        self.info
-            .regs()
-            .ctrl()
-            .modify(|w| w.set_cal_req(CalReq::CalibrationRequestPending));
+        self.info.regs().ctrl().modify(|w| w.set_cal_req(true));
 
-        while self.info.regs().gcc0().read().rdy() == Gcc0Rdy::GainCalNotValid {}
+        while !self.info.regs().gcc0().read().rdy() {}
 
         let mut gcca = self.info.regs().gcc0().read().gain_cal() as u32;
         if gcca & 0x8000 != 0 {
@@ -798,7 +781,7 @@ impl<'a, M: Mode> Adc<'a, M> {
         self.info.regs().gcr0().modify(|w| w.set_rdy(true));
 
         // Wait for calibration to complete (polling status register)
-        while self.info.regs().stat().read().cal_rdy() == CalRdy::NotSet {}
+        while !self.info.regs().stat().read().cal_rdy() {}
     }
 }
 
@@ -828,10 +811,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
         T::info().regs().ie().write(|_| {});
         // Stat tcomp should go to 0 when `ie` is disabled, but it doesn't.
         // So we have to do it manually. Errata?
-        T::info()
-            .regs()
-            .stat()
-            .write(|reg| reg.set_tcomp_int(TcompInt::CompletionDetected));
+        T::info().regs().stat().write(|reg| reg.set_tcomp_int(true));
         T::info().wait_cell().wake();
     }
 }

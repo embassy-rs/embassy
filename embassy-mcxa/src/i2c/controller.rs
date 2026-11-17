@@ -74,7 +74,7 @@ use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::lpi2c::{Alf, Cmd, Dmf, Dozen, Epf, McrRrf, McrRtf, Msr, MsrFef, MsrSdf, Ndf, Pltf, Prescale, Stf};
+use crate::pac::lpi2c::{Cmd, Msr, Prescale};
 
 /// Errors exclusive to HW initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -738,7 +738,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             self.info.regs().mcr().modify(|w| w.set_rst(false));
 
             self.info.regs().mcr().modify(|w| {
-                w.set_dozen(Dozen::Enabled);
+                w.set_dozen(false);
                 w.set_dbgen(false);
             });
         });
@@ -764,14 +764,14 @@ impl<'d, M: Mode> I2c<'d, M> {
 
         // Clear all flags
         self.info.regs().msr().write(|w| {
-            w.set_epf(Epf::IntYes);
-            w.set_sdf(MsrSdf::IntYes);
-            w.set_ndf(Ndf::IntYes);
-            w.set_alf(Alf::IntYes);
-            w.set_fef(MsrFef::IntYes);
-            w.set_pltf(Pltf::IntYes);
-            w.set_dmf(Dmf::IntYes);
-            w.set_stf(Stf::IntYes);
+            w.set_epf(true);
+            w.set_sdf(true);
+            w.set_ndf(true);
+            w.set_alf(true);
+            w.set_fef(true);
+            w.set_pltf(true);
+            w.set_dmf(true);
+            w.set_stf(true);
         });
 
         Ok(())
@@ -803,8 +803,8 @@ impl<'d, M: Mode> I2c<'d, M> {
     fn reset_fifos(&self) {
         critical_section::with(|_| {
             self.info.regs().mcr().modify(|w| {
-                w.set_rtf(McrRtf::Reset);
-                w.set_rrf(McrRrf::Reset);
+                w.set_rtf(true);
+                w.set_rrf(true);
             });
         });
     }
@@ -816,14 +816,14 @@ impl<'d, M: Mode> I2c<'d, M> {
     fn recover_from_error(&self) {
         self.reset_fifos();
         self.info.regs().msr().write(|w| {
-            w.set_epf(Epf::IntYes);
-            w.set_sdf(MsrSdf::IntYes);
-            w.set_ndf(Ndf::IntYes);
-            w.set_alf(Alf::IntYes);
-            w.set_fef(MsrFef::IntYes);
-            w.set_pltf(Pltf::IntYes);
-            w.set_dmf(Dmf::IntYes);
-            w.set_stf(Stf::IntYes);
+            w.set_epf(true);
+            w.set_sdf(true);
+            w.set_ndf(true);
+            w.set_alf(true);
+            w.set_fef(true);
+            w.set_pltf(true);
+            w.set_dmf(true);
+            w.set_stf(true);
         });
     }
 
@@ -850,7 +850,7 @@ impl<'d, M: Mode> I2c<'d, M> {
     fn is_stop_complete_or_error(&self) -> bool {
         let msr = self.info.regs().msr().read();
 
-        if msr.sdf() == MsrSdf::IntYes {
+        if msr.sdf() {
             return true;
         }
 
@@ -865,13 +865,13 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// Parses the controller status producing an
     /// appropriate `Result<(), Error>` variant.
     fn parse_status(&self, msr: &Msr) -> Result<(), IOError> {
-        if msr.alf() == Alf::IntYes {
+        if msr.alf() {
             Err(IOError::ArbitrationLoss)
-        } else if msr.fef() == MsrFef::IntYes {
+        } else if msr.fef() {
             Err(IOError::FifoError)
-        } else if msr.pltf() == Pltf::IntYes {
+        } else if msr.pltf() {
             Err(IOError::Other)
-        } else if msr.ndf() == Ndf::IntYes {
+        } else if msr.ndf() {
             Err(IOError::AddressNack)
         } else {
             Ok(())
@@ -937,13 +937,7 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// command.
     fn send_cmd(&self, cmd: Cmd, data: u8) {
         #[cfg(feature = "defmt")]
-        defmt::trace!(
-            "Sending cmd '{}' ({}) with data '{:08x}' MSR: {:08x}",
-            cmd,
-            cmd as u8,
-            data,
-            self.info.regs().msr().read()
-        );
+        defmt::trace!("Sending cmd {} with data '{:08x}'", cmd as u8, data);
 
         self.info.regs().mtdr().write(|w| {
             w.set_data(data);

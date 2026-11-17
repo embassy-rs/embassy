@@ -21,7 +21,6 @@ use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset}
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::wwdt::{Wden, Wdprotect, Wdreset};
 
 /// WWDT0 Error types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,23 +191,23 @@ impl<'d> Watchdog<'d> {
     /// Enable the watchdog timer.
     /// Function is blocking until the watchdog is actually started.
     fn enable(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wden(Wden::Run));
+        self.info.regs().mod_().modify(|w| w.set_wden(true));
         while self.info.regs().tc().read().count() == 0xFF {}
     }
 
     /// Set the watchdog protection mode to flexible.
     fn set_flexible_mode(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdprotect(Wdprotect::Flexible));
+        self.info.regs().mod_().modify(|w| w.set_wdprotect(false));
     }
 
     /// Enable interrupt mode.
     fn enable_interrupt(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::Interrupt));
+        self.info.regs().mod_().modify(|w| w.set_wdreset(false));
     }
 
     /// Enable reset mode.
     fn enable_reset(&self) {
-        self.info.regs().mod_().modify(|w| w.set_wdreset(Wdreset::Reset));
+        self.info.regs().mod_().modify(|w| w.set_wdreset(true));
     }
 
     /// Set the timeout value in clock cycles.

@@ -8,7 +8,6 @@ use crate::dma::{
     PeripheralWriteOperation, RingBuffer, TransferOptions,
 };
 use crate::gpio::AnyPin;
-use crate::pac::lpuart::{Rxflush, Tc, Tdre};
 
 /// DMA mode.
 pub struct Dma<'d> {
@@ -284,7 +283,7 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
     /// Blocking write (fallback when DMA is not needed)
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<(), Error> {
         for &byte in buf {
-            while self.info.regs().stat().read().tdre() == Tdre::Txdata {}
+            while !self.info.regs().stat().read().tdre() {}
             self.info.regs().data().write(|w| w.0 = byte as u32);
         }
         Ok(())
@@ -293,13 +292,13 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
     /// Flush TX blocking
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         while self.info.regs().water().read().txcount() != 0 {}
-        while self.info.regs().stat().read().tc() == Tc::Active {}
+        while !self.info.regs().stat().read().tc() {}
         Ok(())
     }
     /// Wait until all written bytes have been fully transmitted on the wire.
     pub async fn flush(&mut self) -> Result<(), Error> {
         // DMA mode doesn't bind the LPUART interrupt, so there's no waker for TC. Poll instead.
-        while self.info.regs().water().read().txcount() != 0 || self.info.regs().stat().read().tc() == Tc::Active {
+        while self.info.regs().water().read().txcount() != 0 || !self.info.regs().stat().read().tc() {
             embassy_futures::yield_now().await;
         }
         Ok(())
@@ -511,7 +510,7 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
 
     /// Discard all bytes currently buffered in the hardware RX FIFO.
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
-        self.info.regs().fifo().modify(|w| w.set_rxflush(Rxflush::RxfifoRst));
+        self.info.regs().fifo().modify(|w| w.set_rxflush(true));
 
         // Flushing is a recovery operation, so clear stale receive errors
         // without reporting them to the next transfer.

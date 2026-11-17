@@ -118,11 +118,7 @@ pub(crate) use crate::_generated::DmaRequest;
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::dma::sealed::SealedChannel;
-use crate::pac::dma::Halt;
-use crate::pac::edma_tcd::{
-    Bwc, Dpa, Dreq, Ecp, Esg, Size, Start, TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr, TcdNbytesMloffnoDmloe,
-    TcdNbytesMloffnoSmloe,
-};
+use crate::pac::edma_tcd::{Bwc, Size, TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr};
 use crate::pac::{self, Interrupt};
 use crate::peripherals::DMA0;
 #[cfg(feature = "_mcxa5xx")]
@@ -142,7 +138,7 @@ pub(crate) fn init() {
     pac::DMA0.mp_csr().modify(|w| {
         w.set_edbg(true);
         w.set_erca(true);
-        w.set_halt(Halt::NormalOperation);
+        w.set_halt(false);
         w.set_gclc(true);
         w.set_gmrc(true);
     });
@@ -157,7 +153,7 @@ pub(crate) fn init() {
         pac::DMA1.mp_csr().modify(|w| {
             w.set_edbg(true);
             w.set_erca(true);
-            w.set_halt(Halt::NormalOperation);
+            w.set_halt(false);
             w.set_gclc(true);
             w.set_gmrc(true);
         });
@@ -564,7 +560,7 @@ pub trait Channel: sealed::SealedChannel + PeripheralType + Into<AnyChannel> + '
 ///     DmaChannel::new(anychannel);
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct AnyChannel {
     pub(crate) dma: u8,
     pub(crate) channel: u8,
@@ -942,8 +938,8 @@ impl DmaChannel<'_> {
     #[inline]
     fn set_major_loop_nbytes_without_minor(t: &pac::edma_tcd::Tcd, count: u32) {
         t.tcd_nbytes_mloffno().write(|w| {
-            w.set_smloe(TcdNbytesMloffnoSmloe::OffsetNotApplied);
-            w.set_dmloe(TcdNbytesMloffnoDmloe::OffsetNotApplied);
+            w.set_smloe(false);
+            w.set_dmloe(false);
             w.set_nbytes(count)
         });
     }
@@ -988,8 +984,8 @@ impl DmaChannel<'_> {
     #[inline]
     fn set_fixed_priority(t: &pac::edma_tcd::Tcd, p: Priority) {
         t.ch_pri().write(|w| {
-            w.set_dpa(Dpa::Suspend);
-            w.set_ecp(Ecp::Suspend);
+            w.set_dpa(false);
+            w.set_ecp(true);
             w.set_apl(p as u8);
         });
     }
@@ -1110,21 +1106,17 @@ impl DmaChannel<'_> {
         t.tcd_csr().write(|w| {
             w.set_intmajor(params.options.complete_transfer_interrupt);
             w.set_inthalf(params.options.half_transfer_interrupt);
-            w.set_start(if params.software {
-                Start::ChannelStarted
-            } else {
-                Start::ChannelNotStarted
-            });
-            w.set_esg(Esg::NormalFormat);
+            w.set_start(params.software);
+            w.set_esg(false);
             w.set_majorelink(false);
             w.set_eeop(false);
             w.set_esda(false);
             w.set_bwc(Bwc::NoStall);
 
             w.set_dreq(if params.circular {
-                Dreq::ChannelNotAffected // Don't clear ERQ on complete (circular)
+                false // Don't clear ERQ on complete (circular)
             } else {
-                Dreq::ErqFieldClear // Auto-disable request after major loop
+                true // Auto-disable request after major loop
             });
         });
 
@@ -1335,13 +1327,13 @@ impl DmaChannel<'_> {
                 current_tcd.dlast_sga = next_tcd as *const Tcd as i32;
 
                 // Set ESG=ScatterGatherFormat for all but the last TCD to enable chaining.
-                csr.set_esg(Esg::ScatterGatherFormat);
+                csr.set_esg(true);
             } else {
                 // Last TCD in the sequence, no next TCD.
                 current_tcd.dlast_sga = 0;
 
                 // For the last TCD, clear DREQ to auto-disable requests on completion.
-                csr.set_dreq(Dreq::ErqFieldClear);
+                csr.set_dreq(true);
                 // Enable INTMAJOR to fire a completion interrupt when the last TCD finishes.
                 csr.set_intmajor(true);
             }
@@ -1854,7 +1846,7 @@ impl DmaChannel<'_> {
     #[allow(unused)]
     pub(crate) unsafe fn trigger_start(&self) {
         let t = self.tcd();
-        t.tcd_csr().modify(|w| w.set_start(Start::ChannelStarted));
+        t.tcd_csr().modify(|w| w.set_start(true));
     }
 
     /// Get the wait cell for this channel
@@ -2899,7 +2891,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
         cortex_m::asm::dsb();
 
         // Start the transfer
-        t.tcd_csr().modify(|w| w.set_start(Start::ChannelStarted));
+        t.tcd_csr().modify(|w| w.set_start(true));
 
         Ok(Transfer::new(channel))
     }

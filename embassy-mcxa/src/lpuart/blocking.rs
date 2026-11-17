@@ -1,7 +1,6 @@
 use embassy_hal_internal::Peri;
 
 use super::*;
-use crate::pac::lpuart::{Tc, Tdre};
 
 /// Blocking mode.
 pub struct Blocking;
@@ -139,12 +138,12 @@ impl<'a> LpuartTx<'a, Blocking> {
     }
 
     fn blocking_write_byte(&mut self, byte: u8) -> Result<(), Error> {
-        while self.info.regs().stat().read().tdre() == Tdre::Txdata {}
+        while !self.info.regs().stat().read().tdre() {}
         self.write_byte_internal(byte)
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<(), Error> {
-        if self.info.regs().stat().read().tdre() == Tdre::Txdata {
+        if !self.info.regs().stat().read().tdre() {
             Err(Error::TxFifoFull)
         } else {
             self.write_byte_internal(byte)
@@ -180,7 +179,7 @@ impl<'a> LpuartTx<'a, Blocking> {
         }
 
         // Wait for last character to shift out
-        while self.info.regs().stat().read().tc() == Tc::Active {
+        while !self.info.regs().stat().read().tc() {
             // Wait for transmission to complete
         }
 
@@ -195,7 +194,7 @@ impl<'a> LpuartTx<'a, Blocking> {
         }
 
         // Check if transmission is complete
-        if self.info.regs().stat().read().tc() == Tc::Active {
+        if !self.info.regs().stat().read().tc() {
             return Err(Error::TxBusy);
         }
 
