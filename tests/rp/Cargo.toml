@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
-rp2040 = ["embassy-rp/rp2040"]
+rp2040 = ["embassy-rp/rp2040", "embassy-rp/jiff", "dep:jiff"]
 rp235xa = ["embassy-rp/rp235xa"]
 rp235xb = ["embassy-rp/rp235xb"]
 
@@ -40,6 +40,7 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 embedded-io-async = { version = "0.7.0" }
 static_cell = "2"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
+jiff = { version = "1.0.0", default-features = false, optional = true }
 
 # 2350 devboard isn't a W
 [[bin]]

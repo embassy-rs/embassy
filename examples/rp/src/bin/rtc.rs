@@ -7,8 +7,9 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::rtc::{DateTime, DayOfWeek, Rtc};
+use embassy_rp::rtc::Rtc;
 use embassy_time::Timer;
+use jiff::civil::date;
 use panic_probe as _;
 
 // Bind the RTC interrupt to the handler
@@ -25,24 +26,20 @@ async fn main(_spawner: Spawner) {
 
     if !rtc.is_running() {
         info!("Start RTC");
-        let now = DateTime {
-            year: 2000,
-            month: 1,
-            day: 1,
-            day_of_week: DayOfWeek::Saturday,
-            hour: 0,
-            minute: 0,
-            second: 0,
-        };
-        rtc.set_datetime(now).unwrap();
+        rtc.set(date(2000, 1, 1).at(0, 0, 0, 0)).unwrap();
     }
 
     Timer::after_millis(20000).await;
 
-    if let Ok(dt) = rtc.now() {
+    if let Ok(dt) = rtc.read() {
         info!(
             "Now: {}-{:02}-{:02} {}:{:02}:{:02}",
-            dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
+            dt.year(),
+            dt.month(),
+            dt.day(),
+            dt.hour(),
+            dt.minute(),
+            dt.second(),
         );
     }
 
