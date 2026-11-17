@@ -611,15 +611,22 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             return;
         }
 
-        let total = match self
-            .control
-            .data_out_transfer(&mut self.control_buf[..req_length])
-            .await
-        {
-            Ok(total) => total,
-            Err(e) => {
-                warn!("usb: failed to receive CONTROL OUT data stage: {:?}", e);
-                return;
+        // A request without a data stage, for example SET_ADDRESS or SET_CONFIGURATION, has
+        // nothing to receive. `data_out_transfer` is only for requests with a data stage, and
+        // drivers wait for a packet that the host never sends.
+        let total = if req_length == 0 {
+            0
+        } else {
+            match self
+                .control
+                .data_out_transfer(&mut self.control_buf[..req_length])
+                .await
+            {
+                Ok(total) => total,
+                Err(e) => {
+                    warn!("usb: failed to receive CONTROL OUT data stage: {:?}", e);
+                    return;
+                }
             }
         };
 
