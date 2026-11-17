@@ -10,6 +10,14 @@ An adaptation of `embassy-boot` for nRF.
 - Configure bootloader partitions based on linker script.
 - Using watchdog timer to detect application failure.
 
+## Direct-XIP
+
+Pass a `BlockingDirectXipState` and your slot validation results to `BootLoader::try_prepare_direct_xip`. Pass the selected slot's start address to `BootLoader::load`.
+
+Use `BlockingDirectXipState::<STATE>::BUFFER_SIZE` to size the state object's scratch buffer. See `embassy-boot` for the flash layout and update flow.
+
+The SoftDevice uses a fixed application address, so this helper is unavailable with `softdevice`.
+
 ## Working with a SoftDevice
 
 When a SoftDevice is present, it handles starting the bootloader and the application as needed.
