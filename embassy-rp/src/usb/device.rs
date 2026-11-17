@@ -8,7 +8,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
-    EndpointType, Event, Speed, Unsupported,
+    EndpointInterval, EndpointType, Event, Speed, Unsupported,
 };
 
 use super::{Dir, In, Instance, Out};
@@ -133,10 +133,10 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval: u8,
+        interval: EndpointInterval,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
         trace!(
-            "allocating type={:?} mps={:?} interval={}, dir={:?}",
+            "allocating type={:?} mps={:?} interval={:?}, dir={:?}",
             ep_type,
             max_packet_size,
             interval,
@@ -285,7 +285,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     type EndpointOut = Endpoint<'d, T, Out>;
     type EndpointIn = Endpoint<'d, T, In>;
-    type ControlPipe = ControlPipe<'d, T>;
     type Bus = Bus<'d, T>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
@@ -296,7 +295,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+    fn start(self, control_max_packet_size: u16) -> Self::Bus {
         let regs = T::regs();
         regs.inte().write(|w| {
             w.set_bus_reset(true);
@@ -315,18 +314,23 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
         trace!("enabled");
 
-        (
-            Bus {
-                phantom: PhantomData,
-                inited: false,
-                ep_out: self.ep_out,
-            },
-            ControlPipe {
-                _phantom: PhantomData,
-                max_packet_size: control_max_packet_size,
-            },
-        )
+        Bus {
+            phantom: PhantomData,
+            inited: false,
+            ep_out: self.ep_out,
+            control_max_packet_size,
+        }
     }
+}
+
+/// Enables the bus event interrupts that `on_interrupt` masks when they fire, and the SETUP one.
+fn rearm_bus_irqs<T: Instance>() {
+    T::regs().inte().write_set(|w| {
+        w.set_bus_reset(true);
+        w.set_dev_resume_from_host(true);
+        w.set_dev_suspend(true);
+        w.set_setup_req(true);
+    });
 }
 
 /// Set or clear the STALL handshake of an endpoint.
@@ -403,12 +407,14 @@ pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ep_out: [EndpointData; EP_COUNT],
     inited: bool,
+    control_max_packet_size: u16,
 }
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
             BUS_WAKER.register(cx.waker());
+            EP_OUT_WAKERS[0].register(cx.waker());
 
             // TODO: implement VBUS detection.
             if !self.inited {
@@ -455,12 +461,26 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 return Poll::Ready(Event::Suspend);
             }
 
-            // no pending event. Reenable all irqs.
-            regs.inte().write_set(|w| {
-                w.set_bus_reset(true);
-                w.set_dev_resume_from_host(true);
-                w.set_dev_suspend(true);
-            });
+            // Bus events come first: a reset or suspend makes a SETUP received before it stale.
+            if siestatus.setup_rec() {
+                let mut buf = [0; 8];
+                EndpointBuffer::<T>::new(0, 8).read(&mut buf);
+                regs.sie_status().write(|w| w.set_setup_rec(true));
+
+                // set PID to 0, so (after toggling) first DATA is PID 1
+                T::dpram().ep_in_buffer_control(0).write(|w| w.set_pid(0, false));
+                T::dpram().ep_out_buffer_control(0).write(|w| w.set_pid(0, false));
+
+                trace!("SETUP read ok");
+                // The control request that follows does not poll the bus, so a reset or suspend during
+                // it must wake the stage through its interrupt. Arm them here too: only the path below
+                // used to, because the control pipe was polled after the bus.
+                rearm_bus_irqs::<T>();
+                return Poll::Ready(Event::Setup(buf));
+            }
+
+            // no pending event. Reenable all irqs, including the one for SETUP.
+            rearm_bus_irqs::<T>();
             Poll::Pending
         })
         .await
@@ -539,6 +559,153 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         // calling it in any other bus state is unsupported.
         T::regs().sie_ctrl().modify(|w| w.set_resume(true));
         Ok(())
+    }
+
+    fn control_max_packet_size(&self) -> usize {
+        64
+    }
+
+    async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let mut total = 0;
+        loop {
+            let chunk_len = (buf.len() - total).min(self.control_max_packet_size as usize);
+            if chunk_len == 0 && total > 0 {
+                break;
+            }
+
+            let bufcontrol = T::dpram().ep_out_buffer_control(0);
+            let pid = !bufcontrol.read().pid(0);
+            bufcontrol.write(|w| {
+                w.set_length(0, self.control_max_packet_size);
+                w.set_pid(0, pid);
+            });
+            // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
+            cortex_m::asm::delay(12);
+            bufcontrol.write(|w| {
+                w.set_length(0, self.control_max_packet_size);
+                w.set_pid(0, pid);
+                w.set_available(0, true);
+            });
+
+            trace!("control: data_out chunk len={}", chunk_len);
+            let val = poll_fn(|cx| {
+                register_ep0_wakers(cx);
+                if control_aborted::<T>() {
+                    trace!("control: data_out aborted");
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                let val = T::dpram().ep_out_buffer_control(0).read();
+                if val.available(0) {
+                    Poll::Pending
+                } else {
+                    Poll::Ready(Ok(val))
+                }
+            })
+            .await?;
+
+            let rx_len = val.length(0) as usize;
+            trace!("control data_out DONE, rx_len = {}", rx_len);
+
+            if rx_len > chunk_len {
+                return Err(EndpointError::BufferOverflow);
+            }
+            EndpointBuffer::<T>::new(0x100, 64).read(&mut buf[total..total + rx_len]);
+            total += rx_len;
+
+            if rx_len < self.control_max_packet_size as usize || total == buf.len() {
+                break;
+            }
+        }
+
+        Ok(total)
+    }
+
+    async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        trace!("control: data_in_transfer len={} zlp={}", data.len(), needs_zlp);
+
+        let max_packet_size = self.control_max_packet_size as usize;
+        if data.is_empty() {
+            self.send_data_in_packet(&[]).await?;
+        } else {
+            for chunk in data.chunks(max_packet_size) {
+                self.send_data_in_packet(chunk).await?;
+            }
+            if needs_zlp && (data.len() % max_packet_size == 0) {
+                self.send_data_in_packet(&[]).await?;
+            }
+        }
+
+        // prepare status phase right away.
+        let bufcontrol = T::dpram().ep_out_buffer_control(0);
+        bufcontrol.write(|w| {
+            w.set_length(0, 0);
+            w.set_pid(0, true);
+        });
+        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
+        cortex_m::asm::delay(12);
+        bufcontrol.write(|w| {
+            w.set_length(0, 0);
+            w.set_pid(0, true);
+            w.set_available(0, true);
+        });
+
+        Ok(())
+    }
+
+    async fn control_accept(&mut self) {
+        trace!("control: accept");
+
+        let bufcontrol = T::dpram().ep_in_buffer_control(0);
+        bufcontrol.write(|w| {
+            w.set_length(0, 0);
+            w.set_pid(0, true);
+            w.set_full(0, true);
+        });
+        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
+        cortex_m::asm::delay(12);
+        bufcontrol.write(|w| {
+            w.set_length(0, 0);
+            w.set_pid(0, true);
+            w.set_full(0, true);
+            w.set_available(0, true);
+        });
+
+        // wait for completion before returning, needed so
+        // set_address() doesn't happen early.
+        poll_fn(|cx| {
+            register_ep0_wakers(cx);
+            // accept has no error channel, returning early is enough.
+            if control_aborted::<T>() {
+                trace!("control: accept aborted");
+                return Poll::Ready(());
+            }
+            if bufcontrol.read().available(0) {
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })
+        .await;
+    }
+
+    async fn control_reject(&mut self) {
+        trace!("control: reject");
+
+        let regs = T::regs();
+        regs.ep_stall_arm().write_set(|w| {
+            w.set_ep0_in(true);
+            w.set_ep0_out(true);
+        });
+        T::dpram().ep_out_buffer_control(0).write(|w| w.set_stall(true));
+        T::dpram().ep_in_buffer_control(0).write(|w| w.set_stall(true));
+    }
+
+    async fn control_accept_set_address(&mut self, addr: u8) {
+        self.control_accept().await;
+
+        let regs = T::regs();
+        trace!("setting addr: {}", addr);
+        regs.addr_endp().write(|w| w.set_address(addr))
     }
 }
 
@@ -737,13 +904,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
     }
 }
 
-/// Control pipe for RP USB driver.
-pub struct ControlPipe<'d, T: Instance> {
-    _phantom: PhantomData<&'d mut T>,
-    max_packet_size: u16,
-}
-
-impl<'d, T: Instance> ControlPipe<'d, T> {
+impl<'d, T: Instance> Bus<'d, T> {
     async fn send_data_in_packet(&mut self, chunk: &[u8]) -> Result<(), EndpointDisabledError> {
         debug_assert!(chunk.len() <= 64);
         EndpointBuffer::<T>::new(0x100, 64).write(chunk);
@@ -784,14 +945,16 @@ impl<'d, T: Instance> ControlPipe<'d, T> {
 }
 
 /// Tells if the transfer in progress can no longer complete, because the host abandoned it with a
-/// new SETUP or reset the bus. Without this the stage waits forever, wedging the whole USB task.
+/// new SETUP, reset the bus, or the bus got suspended. Without this the stage waits forever, wedging
+/// the whole USB task.
 fn control_aborted<T: Instance>() -> bool {
-    // on_interrupt masks setup_req when it fires, and only setup() re-arms it.
+    // on_interrupt masks setup_req when it fires, and only Bus::poll re-arms it.
     T::regs().inte().write_set(|w| w.set_setup_req(true));
     let status = T::regs().sie_status().read();
-    // embassy-usb holds the bus across a control transfer, so it can't spot a reset itself.
-    // leave both flags set, setup() consumes setup_rec and Bus::poll consumes bus_reset.
-    status.setup_rec() || status.bus_reset()
+    let intr = T::regs().intr().read();
+    // embassy-usb holds the bus across a control transfer, so it can't spot these itself.
+    // Leave the flags set, Bus::poll consumes all of them.
+    status.setup_rec() || status.bus_reset() || (status.suspended() && intr.dev_suspend())
 }
 
 /// Wake on the transfer completing, a new SETUP, or a bus reset.
@@ -799,183 +962,4 @@ fn register_ep0_wakers(cx: &mut core::task::Context) {
     EP_IN_WAKERS[0].register(cx.waker());
     EP_OUT_WAKERS[0].register(cx.waker());
     BUS_WAKER.register(cx.waker());
-}
-
-impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
-    fn max_packet_size(&self) -> usize {
-        64
-    }
-
-    async fn setup(&mut self) -> [u8; 8] {
-        trace!("SETUP read waiting");
-        let regs = T::regs();
-        regs.inte().write_set(|w| w.set_setup_req(true));
-
-        poll_fn(|cx| {
-            EP_OUT_WAKERS[0].register(cx.waker());
-            let regs = T::regs();
-            if regs.sie_status().read().setup_rec() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        let mut buf = [0; 8];
-        EndpointBuffer::<T>::new(0, 8).read(&mut buf);
-
-        let regs = T::regs();
-        regs.sie_status().write(|w| w.set_setup_rec(true));
-
-        // set PID to 0, so (after toggling) first DATA is PID 1
-        T::dpram().ep_in_buffer_control(0).write(|w| w.set_pid(0, false));
-        T::dpram().ep_out_buffer_control(0).write(|w| w.set_pid(0, false));
-
-        trace!("SETUP read ok");
-        buf
-    }
-
-    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        let mut total = 0;
-        loop {
-            let chunk_len = (buf.len() - total).min(self.max_packet_size as usize);
-            if chunk_len == 0 && total > 0 {
-                break;
-            }
-
-            let bufcontrol = T::dpram().ep_out_buffer_control(0);
-            let pid = !bufcontrol.read().pid(0);
-            bufcontrol.write(|w| {
-                w.set_length(0, self.max_packet_size);
-                w.set_pid(0, pid);
-            });
-            // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
-            cortex_m::asm::delay(12);
-            bufcontrol.write(|w| {
-                w.set_length(0, self.max_packet_size);
-                w.set_pid(0, pid);
-                w.set_available(0, true);
-            });
-
-            trace!("control: data_out chunk len={}", chunk_len);
-            let val = poll_fn(|cx| {
-                register_ep0_wakers(cx);
-                if control_aborted::<T>() {
-                    trace!("control: data_out aborted");
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                let val = T::dpram().ep_out_buffer_control(0).read();
-                if val.available(0) {
-                    Poll::Pending
-                } else {
-                    Poll::Ready(Ok(val))
-                }
-            })
-            .await?;
-
-            let rx_len = val.length(0) as usize;
-            trace!("control data_out DONE, rx_len = {}", rx_len);
-
-            if rx_len > chunk_len {
-                return Err(EndpointError::BufferOverflow);
-            }
-            EndpointBuffer::<T>::new(0x100, 64).read(&mut buf[total..total + rx_len]);
-            total += rx_len;
-
-            if rx_len < self.max_packet_size as usize || total == buf.len() {
-                break;
-            }
-        }
-
-        Ok(total)
-    }
-
-    async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-        trace!("control: data_in_transfer len={} zlp={}", data.len(), needs_zlp);
-
-        let max_packet_size = self.max_packet_size as usize;
-        if data.is_empty() {
-            self.send_data_in_packet(&[]).await?;
-        } else {
-            for chunk in data.chunks(max_packet_size) {
-                self.send_data_in_packet(chunk).await?;
-            }
-            if needs_zlp && (data.len() % max_packet_size == 0) {
-                self.send_data_in_packet(&[]).await?;
-            }
-        }
-
-        // prepare status phase right away.
-        let bufcontrol = T::dpram().ep_out_buffer_control(0);
-        bufcontrol.write(|w| {
-            w.set_length(0, 0);
-            w.set_pid(0, true);
-        });
-        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
-        cortex_m::asm::delay(12);
-        bufcontrol.write(|w| {
-            w.set_length(0, 0);
-            w.set_pid(0, true);
-            w.set_available(0, true);
-        });
-
-        Ok(())
-    }
-
-    async fn accept(&mut self) {
-        trace!("control: accept");
-
-        let bufcontrol = T::dpram().ep_in_buffer_control(0);
-        bufcontrol.write(|w| {
-            w.set_length(0, 0);
-            w.set_pid(0, true);
-            w.set_full(0, true);
-        });
-        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
-        cortex_m::asm::delay(12);
-        bufcontrol.write(|w| {
-            w.set_length(0, 0);
-            w.set_pid(0, true);
-            w.set_full(0, true);
-            w.set_available(0, true);
-        });
-
-        // wait for completion before returning, needed so
-        // set_address() doesn't happen early.
-        poll_fn(|cx| {
-            register_ep0_wakers(cx);
-            // accept has no error channel, returning early is enough.
-            if control_aborted::<T>() {
-                trace!("control: accept aborted");
-                return Poll::Ready(());
-            }
-            if bufcontrol.read().available(0) {
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
-        .await;
-    }
-
-    async fn reject(&mut self) {
-        trace!("control: reject");
-
-        let regs = T::regs();
-        regs.ep_stall_arm().write_set(|w| {
-            w.set_ep0_in(true);
-            w.set_ep0_out(true);
-        });
-        T::dpram().ep_out_buffer_control(0).write(|w| w.set_stall(true));
-        T::dpram().ep_in_buffer_control(0).write(|w| w.set_stall(true));
-    }
-
-    async fn accept_set_address(&mut self, addr: u8) {
-        self.accept().await;
-
-        let regs = T::regs();
-        trace!("setting addr: {}", addr);
-        regs.addr_endp().write(|w| w.set_address(addr))
-    }
 }

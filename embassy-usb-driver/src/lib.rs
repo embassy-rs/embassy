@@ -5,6 +5,9 @@
 #![warn(missing_docs)]
 
 pub mod host;
+mod interval;
+
+pub use interval::EndpointInterval;
 
 /// Speed of a device or port
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -139,8 +142,8 @@ pub struct EndpointInfo {
     pub ep_type: EndpointType,
     /// Max packet size per transaction, in bytes (0..=1024).
     pub max_packet_size: u16,
-    /// Polling interval (`bInterval`).
-    pub interval: u8,
+    /// Polling interval.
+    pub interval: EndpointInterval,
     /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets. 0 below
     /// SuperSpeed.
     pub max_burst: u8,
@@ -151,7 +154,12 @@ pub struct EndpointInfo {
 
 impl EndpointInfo {
     /// An endpoint with `max_burst` and `additional_transactions` 0.
-    pub const fn new(addr: EndpointAddress, ep_type: EndpointType, max_packet_size: u16, interval: u8) -> Self {
+    pub const fn new(
+        addr: EndpointAddress,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval: EndpointInterval,
+    ) -> Self {
         Self {
             addr,
             ep_type,
@@ -181,8 +189,8 @@ pub struct EndpointConfig {
     pub ep_type: EndpointType,
     /// Max packet size per transaction, in bytes (0..=1024).
     pub max_packet_size: u16,
-    /// Polling interval (`bInterval`).
-    pub interval: u8,
+    /// Polling interval.
+    pub interval: EndpointInterval,
     /// Number of packets the hardware may buffer for the endpoint.
     ///
     /// More buffers let the hardware move the next packet while software is still busy with the
@@ -214,7 +222,12 @@ pub struct EndpointConfig {
 
 impl EndpointConfig {
     /// An endpoint with one buffer and all SuperSpeed/high-bandwidth fields 0.
-    pub const fn new(addr: Option<EndpointAddress>, ep_type: EndpointType, max_packet_size: u16, interval: u8) -> Self {
+    pub const fn new(
+        addr: Option<EndpointAddress>,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval: EndpointInterval,
+    ) -> Self {
         Self {
             addr,
             ep_type,
@@ -238,8 +251,6 @@ pub trait Driver<'a> {
     type EndpointOut: EndpointOut + 'a;
     /// Type of the IN endpoints for this driver.
     type EndpointIn: EndpointIn + 'a;
-    /// Type of the control pipe for this driver.
-    type ControlPipe: ControlPipe + 'a;
     /// Type for bus control for this driver.
     type Bus: Bus + 'a;
 
@@ -257,19 +268,52 @@ pub trait Driver<'a> {
 
     /// Start operation of the USB device.
     ///
-    /// This returns the `Bus` and `ControlPipe` instances that are used to operate
-    /// the USB device. Additionally, this makes all the previously allocated endpoints
+    /// This returns the `Bus` instance that is used to operate the USB device, including its
+    /// control pipe. Additionally, this makes all the previously allocated endpoints
     /// start operating.
     ///
     /// This consumes the `Driver` instance, so it's no longer possible to allocate more
     /// endpoints.
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe);
+    fn start(self, control_max_packet_size: u16) -> Self::Bus;
 }
 
 /// USB bus trait.
 ///
-/// This trait provides methods that act on the whole bus. It is kept owned by
-/// the main USB task, and used to manage the bus.
+/// This trait provides methods that act on the whole bus, and on the control pipe. It is kept
+/// owned by the main USB task, and used to manage the bus.
+///
+/// # Control pipe
+///
+/// The control pipe owns both OUT endpoint 0 and IN endpoint 0 in a single unit, and manages them
+/// together to implement the control pipe state machine. It is part of `Bus` instead of
+/// [`Endpoint`]/[`EndpointIn`]/[`EndpointOut`] because many USB peripherals treat the control
+/// endpoints differently (different registers, different procedures), usually to accelerate
+/// processing in hardware somehow.
+///
+/// A control request starts with [`Event::Setup`] from [`poll`](Self::poll). The stack then
+/// calls `control_data_out`/`control_data_in` for the data stage, if any, and finishes the
+/// request with `control_accept` or `control_reject`. The driver is responsible for handling the
+/// status stage. The stack DOES NOT do zero-length calls to `control_data_in` or
+/// `control_data_out` for the status zero-length packet. The status stage should be triggered by
+/// either `control_accept()`, or following `control_data_in`.
+///
+/// ## Aborting a control transfer
+///
+/// The stack does not call [`poll`](Self::poll) while it is in the middle of a control request,
+/// so it cannot notice by itself that something happened to the bus. Therefore, if the transfer
+/// can no longer complete, `control_data_out`, `control_data_in`, `control_accept`, `control_reject` and
+/// `control_accept_set_address` must **immediately** return, with [`EndpointError::Disabled`] or
+/// [`EndpointDisabledError`] where they have an error to return. This is the case when:
+///
+/// * the bus is reset ([`Event::Reset`]),
+/// * the bus is suspended ([`Event::Suspend`]), or power is removed ([`Event::PowerRemoved`]) in
+///   drivers that detect it,
+/// * the host abandoned the request and sent a new SETUP packet.
+///
+/// Returning early must not consume the event: the next call to [`poll`](Self::poll) must still
+/// return it (for a new SETUP packet, [`Event::Setup`]). Not doing so will cause things to get
+/// stuck, because the stack never gets to see the event, and the host will never read/send the
+/// packet we're waiting for.
 pub trait Bus {
     /// Enable the USB peripheral.
     async fn enable(&mut self);
@@ -281,7 +325,59 @@ pub trait Bus {
     ///
     /// This method should asynchronously wait for an event to happen, then
     /// return it. See [`Event`] for the list of events this method should return.
+    ///
+    /// If a bus event and a SETUP packet are both pending, the bus event must be returned first,
+    /// because a reset or a suspend makes a SETUP packet received before it stale.
+    ///
+    /// This future must be cancel-safe: dropping it must not lose an event.
     async fn poll(&mut self) -> Event;
+
+    /// Maximum packet size for the control pipe.
+    fn control_max_packet_size(&self) -> usize;
+
+    /// Read a DATA OUT transfer into `buf` in response to a control write request.
+    ///
+    /// Must be called after [`Event::Setup`] for requests with `direction` of `Out`
+    /// and request length greater than zero.
+    ///
+    /// `buf` must be **at most** as large as the request length.
+    ///
+    /// # Errors
+    ///
+    /// * [`EndpointError::Disabled`] - The control transfer was aborted, see
+    ///   [aborting a control transfer](Bus#aborting-a-control-transfer).
+    /// * [`EndpointError::BufferOverflow`] - A received packet is larger than the remaining space
+    ///   in `buf`.
+    async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
+
+    /// Send a DATA IN transfer with `data` in response to a control read request.
+    ///
+    /// If `needs_zlp` is true and `data.len()` is an exact non-zero multiple of the control
+    /// max packet size, a zero-length packet must be transmitted.
+    /// The driver is responsible for handling the status stage following the transfer.
+    ///
+    /// # Errors
+    ///
+    /// * [`EndpointDisabledError`] - The control transfer was aborted, see
+    ///   [aborting a control transfer](Bus#aborting-a-control-transfer).
+    async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError>;
+
+    /// Accept a control request.
+    ///
+    /// Causes the STATUS packet for the current request to be ACKed. Returns early if the transfer
+    /// is aborted, see [aborting a control transfer](Bus#aborting-a-control-transfer).
+    async fn control_accept(&mut self);
+
+    /// Reject a control request.
+    ///
+    /// Sets a STALL condition on the pipe to indicate an error.
+    async fn control_reject(&mut self);
+
+    /// Accept SET_ADDRESS control and change bus address.
+    ///
+    /// For most drivers this function should firstly call `control_accept()` and then change the bus address.
+    /// However, there are peripherals (Synopsys USB OTG) that have reverse order.
+    async fn control_accept_set_address(&mut self, addr: u8);
 
     /// Enable or disable an endpoint.
     ///
@@ -384,78 +480,6 @@ pub trait EndpointOut: Endpoint {
     async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
 }
 
-/// USB control pipe trait.
-///
-/// The USB control pipe owns both OUT endpoint 0 and IN endpoint 0 in a single
-/// unit, and manages them together to implement the control pipe state machine.
-///
-/// The reason this is a separate trait instead of using EndpointOut/EndpointIn is that
-/// many USB peripherals treat the control pipe endpoints differently (different registers,
-/// different procedures), usually to accelerate processing in hardware somehow. A separate
-/// trait allows the driver to handle it specially.
-///
-/// The driver is responsible for handling the status stage. The stack DOES NOT do zero-length
-/// calls to `data_in_transfer` or `data_out_transfer` for the status zero-length packet. The status stage should
-/// be triggered by either `accept()`, or following `data_in_transfer`.
-///
-/// Note that the host can abandon a control request and send a new SETUP packet any time. If
-/// a SETUP packet arrives at any time during `data_out_transfer`, `data_in_transfer`, `accept` or `reject`,
-/// the driver must immediately return (with [`EndpointDisabledError`] from `data_in_transfer` and
-/// [`EndpointError::Disabled`] from `data_out_transfer`)
-/// to let the stack call `setup()` again to start handling the new control request. Not doing
-/// so will cause things to get stuck, because the host will never read/send the packet we're
-/// waiting for.
-pub trait ControlPipe {
-    /// Maximum packet size for the control pipe
-    fn max_packet_size(&self) -> usize;
-
-    /// Read a single setup packet from the endpoint.
-    async fn setup(&mut self) -> [u8; 8];
-
-    /// Read a DATA OUT transfer into `buf` in response to a control write request.
-    ///
-    /// Must be called after `setup()` for requests with `direction` of `Out`
-    /// and request length greater than zero.
-    ///
-    /// `buf` must be **at most** as large as the request length.
-    ///
-    /// # Errors
-    ///
-    /// * [`EndpointError::Disabled`] - The control transfer was aborted by a bus reset or a new
-    ///   SETUP packet.
-    /// * [`EndpointError::BufferOverflow`] - A received packet is larger than the remaining space
-    ///   in `buf`.
-    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
-
-    /// Send a DATA IN transfer with `data` in response to a control read request.
-    ///
-    /// If `needs_zlp` is true and `data.len()` is an exact non-zero multiple of `max_packet_size`,
-    /// a zero-length packet must be transmitted.
-    /// The driver is responsible for handling the status stage following the transfer.
-    ///
-    /// # Errors
-    ///
-    /// * [`EndpointDisabledError`] - The control transfer was aborted by a bus reset or a new
-    ///   SETUP packet.
-    async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError>;
-
-    /// Accept a control request.
-    ///
-    /// Causes the STATUS packet for the current request to be ACKed.
-    async fn accept(&mut self);
-
-    /// Reject a control request.
-    ///
-    /// Sets a STALL condition on the pipe to indicate an error.
-    async fn reject(&mut self);
-
-    /// Accept SET_ADDRESS control and change bus address.
-    ///
-    /// For most drivers this function should firstly call `accept()` and then change the bus address.
-    /// However, there are peripherals (Synopsys USB OTG) that have reverse order.
-    async fn accept_set_address(&mut self, addr: u8);
-}
-
 /// IN Endpoint trait.
 pub trait EndpointIn: Endpoint {
     /// Write all the data from `buf` to the endpoint as a transfer.
@@ -493,6 +517,11 @@ pub enum Event {
 
     /// The USB power has been removed. Not supported by all devices.
     PowerRemoved,
+
+    /// A SETUP packet has been received on the control pipe, which starts a control request.
+    ///
+    /// A new SETUP packet abandons the control request in progress, if any.
+    Setup([u8; 8]),
 }
 
 /// Allocating an endpoint failed.
@@ -508,7 +537,7 @@ pub struct EndpointAllocError;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Unsupported;
 
-/// The endpoint is disabled, or a control transfer was aborted by a bus reset or new SETUP packet.
+/// The endpoint is disabled, or a control transfer was aborted by a bus event or new SETUP packet.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct EndpointDisabledError;
@@ -520,7 +549,7 @@ impl core::fmt::Display for EndpointDisabledError {
 }
 impl core::error::Error for EndpointDisabledError {}
 
-/// Errors returned by [`EndpointOut::read_transfer`] and [`ControlPipe::data_out_transfer`].
+/// Errors returned by [`EndpointOut::read_transfer`] and [`Bus::control_data_out`].
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EndpointError {

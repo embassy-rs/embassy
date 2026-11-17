@@ -8,10 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- **Breaking:** Merge `ControlPipe` into `Bus`. `Driver::start()` returns just the `Bus`, which has `control_max_packet_size()`, `control_data_out()`, `control_data_in()`, `control_accept()`, `control_reject()` and `control_accept_set_address()`, and `Bus::poll()` returns the new `Event::Setup` for a SETUP packet instead of `ControlPipe::setup()`. The control methods must return immediately when the transfer can no longer complete (reset, suspend, power removed, new SETUP) without consuming the event, so `poll()` still returns it.
 - **Breaking:** `Driver::alloc_endpoint_in()` and `Driver::alloc_endpoint_out()` take an `EndpointConfig`, which has the endpoint's address, type, max packet size and interval, the number of packet buffers, and the SuperSpeed fields.
+- **Breaking:** Add `EndpointInterval`, the polling period of an endpoint, and use it for `EndpointInfo::interval` and `EndpointConfig::interval` instead of a `u8` `bInterval` whose unit depended on the speed and transfer type. It is kept in microframes, so equal periods are equal values, and converts to and from the descriptor `bInterval` with `b_interval()` and `from_b_interval()`. `EndpointInfo::new()` and `EndpointConfig::new()` take an `EndpointInterval`; use `EndpointInterval::NONE` for bulk and control endpoints.
 - **Breaking:** Add `EndpointInfo::max_burst`, the SuperSpeed burst size the endpoint was allocated with.
 - Fixed: `EndpointOut::read_transfer()` now returns when the buffer is full.
-- Add `ControlPipe::data_out_transfer()` and `ControlPipe::data_in_transfer()` provided methods.
 - Add `UsbHostAllocator::device_removed()` trait method with default.
 - **Breaking:** Add required `Endpoint::set_stall()` and `Endpoint::is_stalled()` methods, so a class can stall an endpoint without access to the `Bus`.
 

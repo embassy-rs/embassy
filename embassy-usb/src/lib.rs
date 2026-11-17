@@ -48,10 +48,10 @@ mod config {
 }
 
 #[cfg(feature = "device")]
-pub use descriptor::EndpointInterval;
-#[cfg(feature = "device")]
 pub use device::{
     Builder, CONFIGURATION_NONE, CONFIGURATION_VALUE, Config, EndpointOptions, FunctionBuilder, Handler, HandlerFull,
     InterfaceAltBuilder, InterfaceBuilder, InterfaceHandler, RemoteWakeupError, UsbBufferReport, UsbDevice,
     UsbDeviceSpeed, UsbDeviceState, UsbVersion, msos,
 };
+#[cfg(feature = "device")]
+pub use driver::EndpointInterval;

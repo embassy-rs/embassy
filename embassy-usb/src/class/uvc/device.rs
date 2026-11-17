@@ -13,6 +13,7 @@ use core::cell::Cell;
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
+use embassy_usb_driver::EndpointInterval;
 use heapless::Vec;
 
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
@@ -635,7 +636,7 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
             EndpointType::Isochronous,
             None,
             max_packet_size,
-            0,
+            EndpointInterval::NONE,
             EndpointOptions::new(),
         );
         let endpoint_address = endpoint.info().addr.into();
@@ -963,7 +964,6 @@ mod tests {
         impl<'a> Driver<'a> for MockDriver {
             type EndpointOut = Unused;
             type EndpointIn = MockEndpoint;
-            type ControlPipe = Unused;
             type Bus = Unused;
 
             fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Unused, EndpointAllocError> {
@@ -985,8 +985,8 @@ mod tests {
                 Ok(MockEndpoint(info, self.0.clone()))
             }
 
-            fn start(self, _: u16) -> (Unused, Unused) {
-                (Unused, Unused)
+            fn start(self, _: u16) -> Unused {
+                Unused
             }
         }
 
@@ -1041,6 +1041,24 @@ mod tests {
         }
 
         impl Bus for Unused {
+            fn control_max_packet_size(&self) -> usize {
+                unreachable!()
+            }
+            async fn control_data_out(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
+                unreachable!()
+            }
+            async fn control_data_in(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
+                unreachable!()
+            }
+            async fn control_accept(&mut self) {
+                unreachable!()
+            }
+            async fn control_reject(&mut self) {
+                unreachable!()
+            }
+            async fn control_accept_set_address(&mut self, _: u8) {
+                unreachable!()
+            }
             async fn enable(&mut self) {
                 unreachable!()
             }
@@ -1063,30 +1081,6 @@ mod tests {
                 unreachable!()
             }
             async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-                unreachable!()
-            }
-        }
-
-        impl ControlPipe for Unused {
-            fn max_packet_size(&self) -> usize {
-                unreachable!()
-            }
-            async fn setup(&mut self) -> [u8; 8] {
-                unreachable!()
-            }
-            async fn data_out_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
-                unreachable!()
-            }
-            async fn data_in_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
-                unreachable!()
-            }
-            async fn accept(&mut self) {
-                unreachable!()
-            }
-            async fn reject(&mut self) {
-                unreachable!()
-            }
-            async fn accept_set_address(&mut self, _: u8) {
                 unreachable!()
             }
         }

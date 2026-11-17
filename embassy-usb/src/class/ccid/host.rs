@@ -4,7 +4,7 @@
 //! `PC_to_RDR_GetSlotStatus` exchange over its bulk endpoints.
 
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType};
 
 use super::types::*;
 pub use super::types::{CardState, SlotStatus};
@@ -150,7 +150,7 @@ impl<'d, A: UsbHostAllocator<'d>> CcidHost<'d, A> {
                 EndpointAddress::from_parts((ep & 0x0f) as usize, direction),
                 EndpointType::Bulk,
                 max_packet_size,
-                0,
+                EndpointInterval::NONE,
             )
         };
 

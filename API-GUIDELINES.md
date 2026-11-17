@@ -897,7 +897,7 @@ The trait crates we commonly implement:
 | `embedded-can` | CAN frames and IDs (`Frame`, `Id`, `StandardId`, `ExtendedId`), and `blocking::Can` on the driver |
 | `rand_core` 0.10 (as `rand-core-10`) | RNG/TRNG (`TryRng`, `TryCryptoRng`) |
 | `embassy-embedded-hal` | `SetConfig`, so drivers work with `SpiDeviceWithConfig`/`I2cDeviceWithConfig` and friends |
-| `embassy-usb-driver` | USB device (`Driver`, `Bus`, `ControlPipe`, `EndpointIn`, `EndpointOut`) and host controllers |
+| `embassy-usb-driver` | USB device (`Driver`, `Bus`, `EndpointIn`, `EndpointOut`) and host controllers |
 | `embassy-time-driver` | The time driver backing `embassy-time` |
 | `xarxa-driver` | Driver for network interfaces, backing `embassy-net` and `xarxa` |
 

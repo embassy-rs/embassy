@@ -67,6 +67,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
+use embassy_usb_driver::EndpointInterval;
 use heapless::Vec;
 #[cfg(not(target_has_atomic = "32"))]
 use portable_atomic::AtomicU32;
@@ -487,7 +488,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
             EndpointType::Isochronous,
             None,
             line_out_max_packet_size,
-            0,
+            EndpointInterval::NONE,
             EndpointOptions::new(),
         );
         // Allocated before the feedback endpoint, so that drivers allocating in order don't
@@ -496,7 +497,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
             EndpointType::Isochronous,
             None,
             line_in_max_packet_size,
-            0,
+            EndpointInterval::NONE,
             EndpointOptions::new(),
         );
 
@@ -512,7 +513,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
             EndpointType::Isochronous,
             None,
             feedback_len(speed) as u16,
-            1,
+            EndpointInterval::from_ms(1),
             EndpointOptions::new(),
         );
         out_alt.endpoint_descriptor(

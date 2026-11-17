@@ -39,7 +39,7 @@ use core::ops::Range;
 use embassy_sync::blocking_mutex::raw::{NoopRawMutex, RawMutex};
 use embassy_sync::mutex::Mutex;
 use embassy_usb_driver::host::{PipeError, SplitInfo, UsbHostAllocator, pipe};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType};
 
 use super::bot::CBW_FLAG_IN;
 use super::scsi::*;
@@ -379,21 +379,21 @@ where
             EndpointAddress::from_parts(0, UsbDirection::In),
             EndpointType::Control,
             enum_info.device_desc.max_packet_size0 as u16,
-            0,
+            EndpointInterval::NONE,
         );
 
         let in_ep_info = EndpointInfo::new(
             EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
             EndpointType::Bulk,
             info.bulk_in_mps,
-            0,
+            EndpointInterval::NONE,
         );
 
         let out_ep_info = EndpointInfo::new(
             EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
             EndpointType::Bulk,
             info.bulk_out_mps,
-            0,
+            EndpointInterval::NONE,
         );
 
         let device_address = enum_info.device_address;

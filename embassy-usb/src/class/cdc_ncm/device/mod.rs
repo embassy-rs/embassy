@@ -617,11 +617,12 @@ mod tests {
     use core::cell::RefCell;
 
     use embassy_futures::block_on;
+    use embassy_usb_driver::EndpointInterval;
 
     use super::*;
     use crate::driver::{
-        Bus, ControlPipe, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError,
-        EndpointIn, EndpointInfo, EndpointOut, Event, Unsupported,
+        Bus, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointIn,
+        EndpointInfo, EndpointOut, Event, Unsupported,
     };
 
     /// An enabled interrupt endpoint that keeps what the class writes to it.
@@ -633,7 +634,7 @@ mod tests {
                 EndpointAddress::from_parts(1, crate::driver::Direction::In),
                 crate::driver::EndpointType::Interrupt,
                 16,
-                10,
+                EndpointInterval::from_ms(10),
             )
         }
 
@@ -693,7 +694,6 @@ mod tests {
     impl<'a> Driver<'a> for TestDriver {
         type EndpointOut = Enabled;
         type EndpointIn = Notifications<'a>;
-        type ControlPipe = Unused;
         type Bus = Unused;
 
         fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
@@ -704,7 +704,7 @@ mod tests {
             unreachable!()
         }
 
-        fn start(self, _: u16) -> (Self::Bus, Self::ControlPipe) {
+        fn start(self, _: u16) -> Self::Bus {
             unreachable!()
         }
     }
@@ -769,7 +769,6 @@ mod tests {
     impl<'a, const N: usize> Driver<'a> for NtbDriver<N> {
         type EndpointOut = Transfers<N>;
         type EndpointIn = Unused;
-        type ControlPipe = Unused;
         type Bus = Unused;
 
         fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
@@ -780,7 +779,7 @@ mod tests {
             unreachable!()
         }
 
-        fn start(self, _: u16) -> (Self::Bus, Self::ControlPipe) {
+        fn start(self, _: u16) -> Self::Bus {
             unreachable!()
         }
     }
@@ -815,37 +814,25 @@ mod tests {
         }
     }
 
-    impl ControlPipe for Unused {
-        fn max_packet_size(&self) -> usize {
-            unreachable!()
-        }
-
-        async fn setup(&mut self) -> [u8; 8] {
-            unreachable!()
-        }
-
-        async fn data_out_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
-            unreachable!()
-        }
-
-        async fn data_in_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
-            unreachable!()
-        }
-
-        async fn accept(&mut self) {
-            unreachable!()
-        }
-
-        async fn reject(&mut self) {
-            unreachable!()
-        }
-
-        async fn accept_set_address(&mut self, _: u8) {
-            unreachable!()
-        }
-    }
-
     impl Bus for Unused {
+        fn control_max_packet_size(&self) -> usize {
+            unreachable!()
+        }
+        async fn control_data_out(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
+            unreachable!()
+        }
+        async fn control_data_in(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
+            unreachable!()
+        }
+        async fn control_accept(&mut self) {
+            unreachable!()
+        }
+        async fn control_reject(&mut self) {
+            unreachable!()
+        }
+        async fn control_accept_set_address(&mut self, _: u8) {
+            unreachable!()
+        }
         async fn enable(&mut self) {
             unreachable!()
         }

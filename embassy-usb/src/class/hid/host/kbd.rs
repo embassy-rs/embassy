@@ -6,7 +6,7 @@ use core::ops::Deref;
 
 use bitflags::bitflags;
 use embassy_usb_driver::host::{HostError, UsbHostAllocator, UsbPipe, pipe};
-use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
+use embassy_usb_driver::{Direction, EndpointInfo, EndpointInterval, EndpointType};
 
 use crate::class::hid::{
     HID_DESC_TYPE_HID, HID_REQ_SET_IDLE, HID_REQ_SET_PROTOCOL, HID_REQ_SET_REPORT, HidProtocolMode, ReportId,
@@ -59,7 +59,7 @@ impl<'d, A: UsbHostAllocator<'d>> KbdHandler<'d, A> {
                 0.into(),
                 EndpointType::Control,
                 (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed().max_packet_size()),
-                0,
+                EndpointInterval::NONE,
             ),
             enum_info.split(),
         )?;
@@ -95,7 +95,7 @@ impl<'d, A: UsbHostAllocator<'d>> KbdHandler<'d, A> {
 
         let interrupt_channel = alloc.alloc_pipe::<pipe::Interrupt, pipe::In>(
             enum_info.device_address,
-            &interrupt_ep.into(),
+            &interrupt_ep.endpoint_info(enum_info.speed()),
             enum_info.split(),
         )?;
 

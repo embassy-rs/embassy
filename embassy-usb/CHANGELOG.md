@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- Fixed: a control request without a data stage, such as `SET_ADDRESS`, no longer calls the driver's `data_out_transfer()`. Drivers wait there for a packet the host never sends, so enumeration did not complete.
+- Fixed: a control request without a data stage, such as `SET_ADDRESS`, no longer calls the driver's `control_data_out()`. Drivers wait there for a packet the host never sends, so enumeration did not complete.
+- Device: `UsbDevice` handles a control request when the driver's `Bus::poll()` returns `Event::Setup`, instead of selecting between `Bus::poll()` and `ControlPipe::setup()`.
 - Device: standard Chapter 9 requests follow USB 2.0. Remote wakeup is refused unless the configuration supports it, `GET_STATUS` reports `Config::self_powered`, interface requests stall until the device is configured, device and configuration descriptors reject a non-zero index, `SET_ADDRESS(0)` returns an addressed device to the default state, and `SET_CONFIGURATION` / `SET_INTERFACE` clear endpoint halt
 - Add CDC-ECM class (device and host) for Ethernet-over-USB networking
 - `VCP`: add CH34x and FTDI host drivers
@@ -33,7 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CDC-NCM`: Serialize the NTB parameters and the NTB header field by field in little-endian, instead of copying `repr(packed)` structs; a control buffer shorter than the 28-byte NTB parameters is now refused instead of written past
 - `CDC-NCM`: `Receiver::read_packet` drops a received datagram longer than `buf`, with a warning, instead of panicking
 - Fix full-speed isochronous `bInterval` encoding to use exponential format ($2^{bInterval-1}$ frames) per USB 2.0 §9.6.6 instead of linear milliseconds.
-- Add `EndpointInterval` enum (`Milliseconds`, `Microframes`, `Raw`) and corresponding builder methods on `InterfaceAltBuilder` (`endpoint_in_interval`, `endpoint_out_interval`, `endpoint_interrupt_in_interval`, `endpoint_interrupt_out_interval`, `endpoint_isochronous_in_interval`, `endpoint_isochronous_out_interval`, `endpoint_descriptor_with_interval`, `endpoint_descriptor_raw`). This allows specifying sub-millisecond polling periods for high-speed endpoints and preserving manually specified `bInterval` values without being overwritten.
+- Add builder methods on `InterfaceAltBuilder` that take an `EndpointInterval` (`endpoint_in_interval`, `endpoint_out_interval`, `endpoint_interrupt_in_interval`, `endpoint_interrupt_out_interval`, `endpoint_isochronous_in_interval`, `endpoint_isochronous_out_interval`, `endpoint_descriptor_with_interval`), which allows sub-millisecond polling periods for high-speed endpoints. `EndpointInterval` is defined in `embassy-usb-driver` and re-exported. `endpoint_descriptor_raw` writes a `bInterval` byte as is, without rewriting it for other speeds.
+- **Breaking:** `InterfaceAltBuilder::alloc_endpoint_in()` and `alloc_endpoint_out()` take an `EndpointInterval` instead of a `u8` of milliseconds.
+- **Breaking:** `EndpointDescriptor` (host) no longer converts `Into<EndpointInfo>`, because its `bInterval` cannot be decoded without the bus speed. Use `EndpointDescriptor::endpoint_info(speed)`.
 - Add `Builder::other_speed_config_descriptor()`, allowing high-speed devices to generate and respond to `GET_DESCRIPTOR` for `OTHER_SPEED_CONFIGURATION` descriptors.
 - `HID`: Add `GamepadReport`, `ConsumerReport`, and composite multi-report presets (`COMPOSITE_DESCRIPTOR`, `IdKeyboardReport`, `IdMouseReport`, `IdConsumerReport`, `IdGamepadReport`) at `class::hid`
 - Add `class::ccid::device`, implementing USB Chip/Smart Card Interface Device (CCID) with 54-byte functional descriptor, APDU transfer chunking, and reader/writer split

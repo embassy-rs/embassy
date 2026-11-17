@@ -5,6 +5,7 @@
 
 use core::marker::PhantomData;
 
+use embassy_usb_driver::EndpointInterval;
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use heapless::Vec;
 
@@ -1120,7 +1121,7 @@ impl<'d, A: UsbHostAllocator<'d>> Midi2Host<'d, A> {
                         0.into(),
                         embassy_usb_driver::EndpointType::Control,
                         (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed().max_packet_size()),
-                        0,
+                        EndpointInterval::NONE,
                     ),
                     enum_info.split(),
                 )
@@ -1639,7 +1640,7 @@ mod tests {
         let state = MockState::new();
         state.set_gtb_descriptors(MIDI2_GTB);
         let host = MockHost::new(&state);
-        let control_ep = EndpointInfo::new(0.into(), EndpointType::Control, 64, 0);
+        let control_ep = EndpointInfo::new(0.into(), EndpointType::Control, 64, EndpointInterval::NONE);
         let mut control = host
             .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &control_ep, enum_info.split())
             .unwrap();
@@ -1714,7 +1715,7 @@ mod tests {
         // No blocks to read: activation fails and puts the device back on alternate setting 0.
         let state = MockState::new();
         let host = MockHost::new(&state);
-        let control_ep = EndpointInfo::new(0.into(), EndpointType::Control, 64, 0);
+        let control_ep = EndpointInfo::new(0.into(), EndpointType::Control, 64, EndpointInterval::NONE);
         let mut control = host
             .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &control_ep, enum_info.split())
             .unwrap();
@@ -1824,7 +1825,7 @@ mod tests {
         let state = MockState::new();
         state.set_string("Main \u{e9}");
         let host = MockHost::new(&state);
-        let control_ep = EndpointInfo::new(0.into(), EndpointType::Control, 64, 0);
+        let control_ep = EndpointInfo::new(0.into(), EndpointType::Control, 64, EndpointInterval::NONE);
         let mut control = host
             .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &control_ep, enum_info.split())
             .unwrap();

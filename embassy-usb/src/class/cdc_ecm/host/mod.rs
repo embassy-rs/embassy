@@ -5,7 +5,9 @@
 //! and received directly over USB bulk endpoints.
 
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
-use embassy_usb_driver::{Direction, Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
+use embassy_usb_driver::{
+    Direction, Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType,
+};
 
 use crate::control::Request;
 use crate::host::class::ClassMatch;
@@ -242,7 +244,7 @@ impl<'d, A: UsbHostAllocator<'d>> EcmHost<'d, A> {
             EndpointAddress::from_parts(0, UsbDirection::In),
             EndpointType::Control,
             enum_info.device_desc.max_packet_size0 as u16,
-            0,
+            EndpointInterval::NONE,
         );
         let ctrl = alloc
             .alloc_pipe::<pipe::Control, pipe::InOut>(enum_info.device_address, &ctrl_ep_info, enum_info.split())
@@ -252,7 +254,7 @@ impl<'d, A: UsbHostAllocator<'d>> EcmHost<'d, A> {
             EndpointAddress::from(info.notif_ep),
             EndpointType::Interrupt,
             info.notif_mps,
-            info.notif_interval,
+            EndpointInterval::from_b_interval(enum_info.speed(), EndpointType::Interrupt, info.notif_interval),
         );
         let notif = alloc
             .alloc_pipe::<pipe::Interrupt, pipe::In>(enum_info.device_address, &notif_ep_info, enum_info.split())
@@ -262,7 +264,7 @@ impl<'d, A: UsbHostAllocator<'d>> EcmHost<'d, A> {
             EndpointAddress::from(info.bulk_in_ep),
             EndpointType::Bulk,
             info.bulk_in_mps,
-            0,
+            EndpointInterval::NONE,
         );
         let in_ch = alloc
             .alloc_pipe::<pipe::Bulk, pipe::In>(enum_info.device_address, &in_ep_info, enum_info.split())
@@ -272,7 +274,7 @@ impl<'d, A: UsbHostAllocator<'d>> EcmHost<'d, A> {
             EndpointAddress::from(info.bulk_out_ep),
             EndpointType::Bulk,
             info.bulk_out_mps,
-            0,
+            EndpointInterval::NONE,
         );
         let out_ch = alloc
             .alloc_pipe::<pipe::Bulk, pipe::Out>(enum_info.device_address, &out_ep_info, enum_info.split())

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 - PAC types no longer implement `Debug` by default.
 - Add `pac-defmt` and `pac-debug` Cargo features, which implement `defmt::Format` and `Debug` for PAC types.
+- USB device: a control transfer stage now ends when the bus is suspended, so the suspend is not missed.
 - All drivers now use the shared `embassy_rp::mode::{Mode, Blocking, Async}` instead of per-module copies.
 - Add `embassy_rp::time::Hertz`.
 - GPIO: rename `get_level` to `level` and `get_output_level` to `output_level`.

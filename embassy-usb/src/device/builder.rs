@@ -5,8 +5,8 @@ use super::{
     STRING_INDEX_CUSTOM_START, UsbDevice, UsbDeviceState,
 };
 use crate::config::MAX_HANDLER_COUNT;
-use crate::descriptor::{self, BosWriter, DescriptorWriter, EndpointInterval, SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointInfo, EndpointType};
+use crate::descriptor::{self, BosWriter, DescriptorWriter, SynchronizationType, UsageType};
+use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType};
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
 use crate::types::{InterfaceNumber, StringIndex};
 
@@ -426,15 +426,14 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
 
         // Start the USB bus.
         // This prevent further allocation by consuming the driver.
-        let (bus, control) = driver.start(descriptor::control_max_packet_size(&config));
+        let bus = driver.start(descriptor::control_max_packet_size(&config));
         let device_descriptor = descriptor::device_descriptor(&config);
         let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
 
         UsbDevice {
             control_buf,
-            control,
+            bus,
             inner: Inner {
-                bus,
                 config,
                 device_descriptor,
                 device_qualifier_descriptor,
@@ -760,7 +759,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ) {
         self.endpoint_descriptor_with_interval(
             endpoint,
-            EndpointInterval::Milliseconds(endpoint.interval),
+            endpoint.interval,
             synchronization_type,
             usage_type,
             extra_fields,
@@ -778,10 +777,10 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ) {
         let max_speed = self.builder.config.max_speed;
         let b_interval = match max_speed {
-            UsbDeviceSpeed::Full => interval.to_full_speed_b_interval(endpoint.ep_type),
+            UsbDeviceSpeed::Full => interval.full_speed_b_interval(endpoint.ep_type),
             // SuperSpeed periodic endpoints use the high-speed `bInterval` encoding, in 125 us bus intervals.
             UsbDeviceSpeed::High | UsbDeviceSpeed::Super | UsbDeviceSpeed::SuperPlus => {
-                interval.to_high_speed_b_interval(endpoint.ep_type)
+                interval.high_speed_b_interval(endpoint.ep_type)
             }
         };
 
@@ -796,7 +795,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         );
 
         if max_speed == UsbDeviceSpeed::High {
-            let fs_interval = interval.to_full_speed_b_interval(endpoint.ep_type);
+            let fs_interval = interval.full_speed_b_interval(endpoint.ep_type);
             if fs_interval != b_interval {
                 let _ = self.builder.other_speed_patches.push(OtherSpeedPatch {
                     offset: interval_offset,
@@ -835,7 +834,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval: u8,
+        interval: EndpointInterval,
         options: EndpointOptions,
     ) -> D::EndpointIn {
         options.check();
@@ -865,12 +864,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         extra_fields: &[u8],
         options: EndpointOptions,
     ) -> D::EndpointIn {
-        let interval_val = match interval {
-            EndpointInterval::Milliseconds(ms) => ms,
-            EndpointInterval::Microframes(uframes) => ((uframes + 7) / 8).min(255) as u8,
-            EndpointInterval::Raw(val) => val,
-        };
-        let ep = self.alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_val, options);
+        let ep = self.alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval, options);
         self.endpoint_descriptor_with_interval(&ep.info(), interval, synchronization_type, usage_type, extra_fields);
 
         ep
@@ -896,7 +890,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             ep_type,
             ep_addr,
             max_packet_size,
-            EndpointInterval::Milliseconds(interval_ms),
+            EndpointInterval::from_ms(interval_ms),
             synchronization_type,
             usage_type,
             extra_fields,
@@ -912,7 +906,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval: u8,
+        interval: EndpointInterval,
         options: EndpointOptions,
     ) -> D::EndpointOut {
         options.check();
@@ -942,12 +936,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         extra_fields: &[u8],
         options: EndpointOptions,
     ) -> D::EndpointOut {
-        let interval_val = match interval {
-            EndpointInterval::Milliseconds(ms) => ms,
-            EndpointInterval::Microframes(uframes) => ((uframes + 7) / 8).min(255) as u8,
-            EndpointInterval::Raw(val) => val,
-        };
-        let ep = self.alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_val, options);
+        let ep = self.alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval, options);
         self.endpoint_descriptor_with_interval(&ep.info(), interval, synchronization_type, usage_type, extra_fields);
 
         ep
@@ -973,7 +962,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             ep_type,
             ep_addr,
             max_packet_size,
-            EndpointInterval::Milliseconds(interval_ms),
+            EndpointInterval::from_ms(interval_ms),
             synchronization_type,
             usage_type,
             extra_fields,
@@ -1053,7 +1042,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> D::EndpointIn {
-        self.endpoint_interrupt_in_interval(ep_addr, max_packet_size, EndpointInterval::Milliseconds(interval_ms))
+        self.endpoint_interrupt_in_interval(ep_addr, max_packet_size, EndpointInterval::from_ms(interval_ms))
     }
 
     /// Allocate an INTERRUPT OUT endpoint and write its descriptor with a specific [`EndpointInterval`].
@@ -1088,7 +1077,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> D::EndpointOut {
-        self.endpoint_interrupt_out_interval(ep_addr, max_packet_size, EndpointInterval::Milliseconds(interval_ms))
+        self.endpoint_interrupt_out_interval(ep_addr, max_packet_size, EndpointInterval::from_ms(interval_ms))
     }
 
     /// Allocate an ISOCHRONOUS IN endpoint and write its descriptor with a specific [`EndpointInterval`].
@@ -1136,7 +1125,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         self.endpoint_isochronous_in_interval(
             ep_addr,
             max_packet_size,
-            EndpointInterval::Milliseconds(interval_ms),
+            EndpointInterval::from_ms(interval_ms),
             synchronization_type,
             usage_type,
             extra_fields,
@@ -1189,7 +1178,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         self.endpoint_isochronous_out_interval(
             ep_addr,
             max_packet_size,
-            EndpointInterval::Milliseconds(interval_ms),
+            EndpointInterval::from_ms(interval_ms),
             synchronization_type,
             usage_type,
             extra_fields,

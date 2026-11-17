@@ -40,6 +40,7 @@ VREFBUF:
 - feat: stm32/vrefbuf g0x1: enable the VREFBUF clock. On G0x1, including G0B1, it is `SYSCFGEN` in `RCC_APBENR2`, shared with SYSCFG and COMP (RM0444 5.4.16). Without it `VoltageReferenceBuffer::new` never sees `VRR` and waits forever.
 
 USB:
+- change: stm32/usb: a control transfer stage now ends when the bus is suspended, or VBUS is removed (`exti`), so the event is not missed. The control pipe is part of `Bus`.
 - feat: stm32/usb: add optional VBUS detection for the non-OTG USB peripheral. `Driver::new_with_vbus` takes an `ExtiInput`; when VBUS goes low `Bus::poll` reports `Event::PowerRemoved`, disables the endpoints so pending transfers return `EndpointError::Disabled`, and drops the D+ pull-up where the peripheral exposes it. `Event::PowerDetected` is reported when VBUS returns. Requires the `exti` feature.
 
 RCC:

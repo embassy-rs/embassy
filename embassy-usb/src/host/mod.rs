@@ -24,7 +24,9 @@ use embassy_usb_driver::host::{
     AddressSet, DeviceEvent, HostError, PipeError, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
 };
 pub use embassy_usb_driver::host::{SplitInfo, SplitSpeed};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
+use embassy_usb_driver::{
+    Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType, Speed,
+};
 
 use crate::host::control::{ControlPipeExt, SetupPacket};
 use crate::host::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
@@ -412,7 +414,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
             EndpointAddress::from_parts(0, UsbDirection::In),
             EndpointType::Control,
             DEFAULT_MAX_PACKET_SIZE,
-            0,
+            EndpointInterval::NONE,
         );
 
         let mut ch = self
@@ -462,7 +464,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
             EndpointAddress::from_parts(0, UsbDirection::In),
             EndpointType::Control,
             max_packet_size0 as u16,
-            0,
+            EndpointInterval::NONE,
         );
 
         let mut ch = self

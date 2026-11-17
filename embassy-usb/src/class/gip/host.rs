@@ -67,7 +67,7 @@
 //! [MS-GIPUSB]: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gipusb/
 
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType};
 
 use crate::host::class::{ClassError, HostClass};
 use crate::host::descriptor::{ClassCode, ClassMatch, ConfigurationDescriptorChain, InterfaceDescriptor};
@@ -529,14 +529,14 @@ impl<'d, A: UsbHostAllocator<'d>, DEV: GipDevice> GipHost<'d, A, DEV> {
             EndpointAddress::from_parts((info.interrupt_in_ep & 0x0F) as usize, UsbDirection::In),
             EndpointType::Interrupt,
             info.interrupt_in_mps,
-            info.interrupt_in_interval,
+            EndpointInterval::from_b_interval(enum_info.speed(), EndpointType::Interrupt, info.interrupt_in_interval),
         );
 
         let out_ep_info = EndpointInfo::new(
             EndpointAddress::from_parts((info.interrupt_out_ep & 0x0F) as usize, UsbDirection::Out),
             EndpointType::Interrupt,
             info.interrupt_out_mps,
-            info.interrupt_out_interval,
+            EndpointInterval::from_b_interval(enum_info.speed(), EndpointType::Interrupt, info.interrupt_out_interval),
         );
 
         let device_address = enum_info.device_address;

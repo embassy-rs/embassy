@@ -2,6 +2,8 @@
 //!
 //! Configured through [`Config`]; built and used like [`super::speaker::Speaker`].
 
+use embassy_usb_driver::EndpointInterval;
+
 pub use super::Volume;
 use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, State};
@@ -114,7 +116,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
                     EndpointType::Isochronous,
                     None,
                     max_packet_size,
-                    1,
+                    EndpointInterval::from_ms(1),
                     EndpointOptions::new(),
                 )
             });
