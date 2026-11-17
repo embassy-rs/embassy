@@ -261,7 +261,7 @@ mod platform {
             let sr = crate::pac::PWR.sr().read();
             if sr.stopf() {
                 let lpms = crate::pac::PWR.cr1().read().lpms();
-                debug!("low power: U5/U3 woke from STOP (LPMS={:?})", lpms);
+                debug!("low power: U5/U3 woke from STOP (LPMS={})", lpms.to_bits());
 
                 // HSE and all PLLs stop in any STOP mode on U5/U3.
                 // Full RCC restore from saved config on every STOP exit.
