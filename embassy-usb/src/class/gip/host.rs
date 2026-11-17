@@ -271,10 +271,13 @@ pub fn find_gip(config_desc: &[u8]) -> Option<GipInterfaceInfo> {
 
         for ep in iface.iter_endpoints() {
             if ep.transfer_type() == TRANSFER_TYPE_INTERRUPT {
+                if ep.additional_transactions() != 0 {
+                    return None;
+                }
                 if ep.is_in() {
-                    in_ep = Some((ep.endpoint_address, ep.max_packet_size, ep.interval));
+                    in_ep = Some((ep.endpoint_address, ep.packet_size(), ep.interval));
                 } else {
-                    out_ep = Some((ep.endpoint_address, ep.max_packet_size, ep.interval));
+                    out_ep = Some((ep.endpoint_address, ep.packet_size(), ep.interval));
                 }
             }
         }
@@ -522,21 +525,19 @@ impl<'d, A: UsbHostAllocator<'d>, DEV: GipDevice> GipHost<'d, A, DEV> {
 
         let info = find_gip(config_desc).ok_or(GipError::NoInterface)?;
 
-        let in_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.interrupt_in_ep & 0x0F) as usize, UsbDirection::In),
-            ep_type: EndpointType::Interrupt,
-            max_packet_size: info.interrupt_in_mps,
-            interval_ms: info.interrupt_in_interval,
-            max_burst: 0,
-        };
+        let in_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.interrupt_in_ep & 0x0F) as usize, UsbDirection::In),
+            EndpointType::Interrupt,
+            info.interrupt_in_mps,
+            info.interrupt_in_interval,
+        );
 
-        let out_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.interrupt_out_ep & 0x0F) as usize, UsbDirection::Out),
-            ep_type: EndpointType::Interrupt,
-            max_packet_size: info.interrupt_out_mps,
-            interval_ms: info.interrupt_out_interval,
-            max_burst: 0,
-        };
+        let out_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.interrupt_out_ep & 0x0F) as usize, UsbDirection::Out),
+            EndpointType::Interrupt,
+            info.interrupt_out_mps,
+            info.interrupt_out_interval,
+        );
 
         let device_address = enum_info.device_address;
         let split = enum_info.split();

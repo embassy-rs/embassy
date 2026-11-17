@@ -86,11 +86,14 @@ pub fn find_hid(config_desc: &[u8]) -> Option<HidInfo> {
         let ep = iface
             .iter_endpoints()
             .find(|ep| ep.transfer_type() == TRANSFER_INTERRUPT && ep.is_in())?;
+        if ep.additional_transactions() != 0 {
+            return None;
+        }
 
         return Some(HidInfo {
             interface_number: iface.interface_number,
             interrupt_in_ep: ep.endpoint_address,
-            interrupt_in_mps: ep.max_packet_size,
+            interrupt_in_mps: ep.packet_size(),
             interrupt_in_interval: ep.interval,
             report_descriptor_len: report_desc_len,
         });
@@ -152,21 +155,19 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
 
     /// Allocate pipes from an already-probed [`HidInfo`].
     pub fn new_with_info(alloc: &A, info: HidInfo, enum_info: &EnumerationInfo) -> Result<Self, HidError> {
-        let ctrl_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let ctrl_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts(0, UsbDirection::In),
+            EndpointType::Control,
+            enum_info.device_desc.max_packet_size0 as u16,
+            0,
+        );
 
-        let in_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.interrupt_in_ep & 0x0F) as usize, UsbDirection::In),
-            ep_type: EndpointType::Interrupt,
-            max_packet_size: info.interrupt_in_mps,
-            interval_ms: info.interrupt_in_interval,
-            max_burst: 0,
-        };
+        let in_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.interrupt_in_ep & 0x0F) as usize, UsbDirection::In),
+            EndpointType::Interrupt,
+            info.interrupt_in_mps,
+            info.interrupt_in_interval,
+        );
 
         let device_address = enum_info.device_address;
         let split = enum_info.split();

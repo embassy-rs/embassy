@@ -7,8 +7,8 @@ use core::task::Poll;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
-    Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointError, EndpointInfo, EndpointType, Event,
-    Unsupported,
+    Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
+    EndpointType, Event, Speed, Unsupported,
 };
 
 use super::{Dir, In, Instance, Out};
@@ -133,13 +133,13 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval_ms: u8,
+        interval: u8,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
         trace!(
-            "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
+            "allocating type={:?} mps={:?} interval={}, dir={:?}",
             ep_type,
             max_packet_size,
-            interval_ms,
+            interval,
             D::dir()
         );
 
@@ -225,13 +225,12 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         Ok(Endpoint {
             _phantom: PhantomData,
-            info: EndpointInfo {
-                addr: EndpointAddress::from_parts(index, D::dir()),
+            info: EndpointInfo::new(
+                EndpointAddress::from_parts(index, D::dir()),
                 ep_type,
                 max_packet_size,
-                interval_ms,
-                max_burst: 0,
-            },
+                interval,
+            ),
             buf,
         })
     }
@@ -290,11 +289,11 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     type Bus = Bus<'d, T>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval_ms)
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -372,6 +371,7 @@ fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, max_packet_size: 
                 w.set_pid(0, false);
                 w.set_length(0, max_packet_size);
             });
+            // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
             cortex_m::asm::delay(12);
             ctrl.write(|w| {
                 w.set_pid(0, false);
@@ -447,7 +447,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 for w in &EP_OUT_WAKERS {
                     w.wake()
                 }
-                return Poll::Ready(Event::Reset);
+                return Poll::Ready(Event::Reset(Speed::Full));
             }
 
             if siestatus.suspended() && intrstatus.dev_suspend() {
@@ -466,7 +466,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         .await
     }
 
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
         set_endpoint_stalled::<T>(ep_addr, self.ep_out[ep_addr.index()].max_packet_size, stalled);
     }
 
@@ -474,7 +474,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         is_endpoint_stalled::<T>(ep_addr)
     }
 
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         trace!("set_enabled {:?} {}", ep_addr, enabled);
         if ep_addr.index() == 0 {
             return;
@@ -496,6 +496,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                     w.set_pid(0, false);
                     w.set_length(0, self.ep_out[n].max_packet_size);
                 });
+                // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
                 cortex_m::asm::delay(12);
                 T::dpram().ep_out_buffer_control(ep_addr.index()).write(|w| {
                     w.set_pid(0, false);
@@ -504,6 +505,17 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 });
                 EP_OUT_WAKERS[n].wake();
             }
+        }
+    }
+
+    fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool {
+        let n = ep_addr.index();
+        if n == 0 {
+            return true;
+        }
+        match ep_addr.direction() {
+            Direction::In => T::dpram().ep_in_control(n - 1).read().enable(),
+            Direction::Out => T::dpram().ep_out_control(n - 1).read().enable(),
         }
     }
 
@@ -538,8 +550,8 @@ pub struct Endpoint<'d, T: Instance, D> {
 }
 
 impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
-    fn info(&self) -> &EndpointInfo {
-        &self.info
+    fn info(&self) -> EndpointInfo {
+        self.info
     }
 
     async fn wait_enabled(&mut self) {
@@ -554,7 +566,15 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         trace!("wait_enabled IN OK");
     }
 
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    fn is_enabled(&self) -> bool {
+        let index = self.info.addr.index();
+        if index == 0 {
+            return true;
+        }
+        T::dpram().ep_in_control(index - 1).read().enable()
+    }
+
+    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled::<T>(self.info.addr, self.info.max_packet_size, stalled);
         Ok(())
     }
@@ -565,8 +585,8 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
 }
 
 impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
-    fn info(&self) -> &EndpointInfo {
-        &self.info
+    fn info(&self) -> EndpointInfo {
+        self.info
     }
 
     async fn wait_enabled(&mut self) {
@@ -581,7 +601,15 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         trace!("wait_enabled OUT OK");
     }
 
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    fn is_enabled(&self) -> bool {
+        let index = self.info.addr.index();
+        if index == 0 {
+            return true;
+        }
+        T::dpram().ep_out_control(index - 1).read().enable()
+    }
+
+    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
         set_endpoint_stalled::<T>(self.info.addr, self.info.max_packet_size, stalled);
         Ok(())
     }
@@ -591,8 +619,8 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
     }
 }
 
-impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+impl<'d, T: Instance> Endpoint<'d, T, Out> {
+    async fn read_packet_internal(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         trace!("READ WAITING, buf.len() = {}", buf.len());
         let index = self.info.addr.index();
         let val = poll_fn(|cx| {
@@ -620,6 +648,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
             w.set_pid(0, pid);
             w.set_length(0, self.info.max_packet_size);
         });
+        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
         cortex_m::asm::delay(12);
         T::dpram().ep_out_buffer_control(index).write(|w| {
             w.set_pid(0, pid);
@@ -631,11 +660,28 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     }
 }
 
-impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
-        if buf.len() > self.info.max_packet_size as usize {
-            return Err(EndpointError::BufferOverflow);
+impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let max_packet_size = self.info.max_packet_size as usize;
+        let mut total = 0;
+        loop {
+            let chunk_len = (buf.len() - total).min(max_packet_size);
+            if chunk_len == 0 && total > 0 {
+                break;
+            }
+            let n = self.read_packet_internal(&mut buf[total..total + chunk_len]).await?;
+            total += n;
+            if n < max_packet_size || total == buf.len() {
+                break;
+            }
         }
+        Ok(total)
+    }
+}
+
+impl<'d, T: Instance> Endpoint<'d, T, In> {
+    async fn write_packet_internal(&mut self, buf: &[u8]) -> Result<(), EndpointDisabledError> {
+        debug_assert!(buf.len() <= self.info.max_packet_size as usize);
 
         trace!("WRITE WAITING");
 
@@ -660,6 +706,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             w.set_length(0, buf.len() as _);
             w.set_full(0, true);
         });
+        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
         cortex_m::asm::delay(12);
         T::dpram().ep_in_buffer_control(index).write(|w| {
             w.set_pid(0, pid);
@@ -674,10 +721,66 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
     }
 }
 
+impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        let max_packet_size = self.info.max_packet_size as usize;
+        if buf.is_empty() {
+            return self.write_packet_internal(&[]).await;
+        }
+        for chunk in buf.chunks(max_packet_size) {
+            self.write_packet_internal(chunk).await?;
+        }
+        if needs_zlp && (buf.len() % max_packet_size == 0) {
+            self.write_packet_internal(&[]).await?;
+        }
+        Ok(())
+    }
+}
+
 /// Control pipe for RP USB driver.
 pub struct ControlPipe<'d, T: Instance> {
     _phantom: PhantomData<&'d mut T>,
     max_packet_size: u16,
+}
+
+impl<'d, T: Instance> ControlPipe<'d, T> {
+    async fn send_data_in_packet(&mut self, chunk: &[u8]) -> Result<(), EndpointDisabledError> {
+        debug_assert!(chunk.len() <= 64);
+        EndpointBuffer::<T>::new(0x100, 64).write(chunk);
+
+        let bufcontrol = T::dpram().ep_in_buffer_control(0);
+        let pid = !bufcontrol.read().pid(0);
+        bufcontrol.write(|w| {
+            w.set_length(0, chunk.len() as _);
+            w.set_pid(0, pid);
+            w.set_full(0, true);
+        });
+        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
+        cortex_m::asm::delay(12);
+        bufcontrol.write(|w| {
+            w.set_length(0, chunk.len() as _);
+            w.set_pid(0, pid);
+            w.set_full(0, true);
+            w.set_available(0, true);
+        });
+
+        poll_fn(|cx| {
+            register_ep0_wakers(cx);
+            if control_aborted::<T>() {
+                trace!("control: data_in aborted");
+                return Poll::Ready(Err(EndpointDisabledError));
+            }
+            let bufcontrol = T::dpram().ep_in_buffer_control(0);
+            if bufcontrol.read().available(0) {
+                Poll::Pending
+            } else {
+                Poll::Ready(Ok(()))
+            }
+        })
+        .await?;
+        trace!("control: data_in chunk DONE");
+        Ok(())
+    }
 }
 
 /// Tells if the transfer in progress can no longer complete, because the host abandoned it with a
@@ -733,100 +836,89 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         buf
     }
 
-    async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError> {
-        let bufcontrol = T::dpram().ep_out_buffer_control(0);
-        let pid = !bufcontrol.read().pid(0);
-        bufcontrol.write(|w| {
-            w.set_length(0, self.max_packet_size);
-            w.set_pid(0, pid);
-        });
-        cortex_m::asm::delay(12);
-        bufcontrol.write(|w| {
-            w.set_length(0, self.max_packet_size);
-            w.set_pid(0, pid);
-            w.set_available(0, true);
-        });
-
-        trace!("control: data_out len={} first={} last={}", buf.len(), first, last);
-        let val = poll_fn(|cx| {
-            register_ep0_wakers(cx);
-            if control_aborted::<T>() {
-                trace!("control: data_out aborted");
-                return Poll::Ready(Err(EndpointError::Disabled));
+    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let mut total = 0;
+        loop {
+            let chunk_len = (buf.len() - total).min(self.max_packet_size as usize);
+            if chunk_len == 0 && total > 0 {
+                break;
             }
-            let val = T::dpram().ep_out_buffer_control(0).read();
-            if val.available(0) {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(val))
-            }
-        })
-        .await?;
 
-        let rx_len = val.length(0) as _;
-        trace!("control data_out DONE, rx_len = {}", rx_len);
-
-        if rx_len > buf.len() {
-            return Err(EndpointError::BufferOverflow);
-        }
-        EndpointBuffer::<T>::new(0x100, 64).read(&mut buf[..rx_len]);
-
-        Ok(rx_len)
-    }
-
-    async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError> {
-        trace!("control: data_in len={} first={} last={}", data.len(), first, last);
-
-        if data.len() > 64 {
-            return Err(EndpointError::BufferOverflow);
-        }
-        EndpointBuffer::<T>::new(0x100, 64).write(data);
-
-        let bufcontrol = T::dpram().ep_in_buffer_control(0);
-        let pid = !bufcontrol.read().pid(0);
-        bufcontrol.write(|w| {
-            w.set_length(0, data.len() as _);
-            w.set_pid(0, pid);
-            w.set_full(0, true);
-        });
-        cortex_m::asm::delay(12);
-        bufcontrol.write(|w| {
-            w.set_length(0, data.len() as _);
-            w.set_pid(0, pid);
-            w.set_full(0, true);
-            w.set_available(0, true);
-        });
-
-        poll_fn(|cx| {
-            register_ep0_wakers(cx);
-            if control_aborted::<T>() {
-                trace!("control: data_in aborted");
-                return Poll::Ready(Err(EndpointError::Disabled));
-            }
-            let bufcontrol = T::dpram().ep_in_buffer_control(0);
-            if bufcontrol.read().available(0) {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(()))
-            }
-        })
-        .await?;
-        trace!("control: data_in DONE");
-
-        if last {
-            // prepare status phase right away.
             let bufcontrol = T::dpram().ep_out_buffer_control(0);
+            let pid = !bufcontrol.read().pid(0);
             bufcontrol.write(|w| {
-                w.set_length(0, 0);
-                w.set_pid(0, true);
+                w.set_length(0, self.max_packet_size);
+                w.set_pid(0, pid);
             });
+            // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
             cortex_m::asm::delay(12);
             bufcontrol.write(|w| {
-                w.set_length(0, 0);
-                w.set_pid(0, true);
+                w.set_length(0, self.max_packet_size);
+                w.set_pid(0, pid);
                 w.set_available(0, true);
             });
+
+            trace!("control: data_out chunk len={}", chunk_len);
+            let val = poll_fn(|cx| {
+                register_ep0_wakers(cx);
+                if control_aborted::<T>() {
+                    trace!("control: data_out aborted");
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                let val = T::dpram().ep_out_buffer_control(0).read();
+                if val.available(0) {
+                    Poll::Pending
+                } else {
+                    Poll::Ready(Ok(val))
+                }
+            })
+            .await?;
+
+            let rx_len = val.length(0) as usize;
+            trace!("control data_out DONE, rx_len = {}", rx_len);
+
+            if rx_len > chunk_len {
+                return Err(EndpointError::BufferOverflow);
+            }
+            EndpointBuffer::<T>::new(0x100, 64).read(&mut buf[total..total + rx_len]);
+            total += rx_len;
+
+            if rx_len < self.max_packet_size as usize || total == buf.len() {
+                break;
+            }
         }
+
+        Ok(total)
+    }
+
+    async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        trace!("control: data_in_transfer len={} zlp={}", data.len(), needs_zlp);
+
+        let max_packet_size = self.max_packet_size as usize;
+        if data.is_empty() {
+            self.send_data_in_packet(&[]).await?;
+        } else {
+            for chunk in data.chunks(max_packet_size) {
+                self.send_data_in_packet(chunk).await?;
+            }
+            if needs_zlp && (data.len() % max_packet_size == 0) {
+                self.send_data_in_packet(&[]).await?;
+            }
+        }
+
+        // prepare status phase right away.
+        let bufcontrol = T::dpram().ep_out_buffer_control(0);
+        bufcontrol.write(|w| {
+            w.set_length(0, 0);
+            w.set_pid(0, true);
+        });
+        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
+        cortex_m::asm::delay(12);
+        bufcontrol.write(|w| {
+            w.set_length(0, 0);
+            w.set_pid(0, true);
+            w.set_available(0, true);
+        });
 
         Ok(())
     }
@@ -840,6 +932,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             w.set_pid(0, true);
             w.set_full(0, true);
         });
+        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
         cortex_m::asm::delay(12);
         bufcontrol.write(|w| {
             w.set_length(0, 0);

@@ -10,7 +10,7 @@ use core::mem::MaybeUninit;
 
 use crate::control::{InResponse, Recipient, Request, RequestType};
 use crate::descriptor::capability_type;
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
+use crate::driver::{Driver, Endpoint, EndpointDisabledError, EndpointError, EndpointIn, EndpointOut};
 use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Builder, EndpointOptions, Handler, InterfaceHandler, msos};
 
@@ -319,16 +319,16 @@ impl<'d, D: Driver<'d>> VendorClass<'d, D> {
 
     /// Writes a single packet into the IN endpoint.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.write_ep.write(data).await
+        crate::class::write_packet(&mut self.write_ep, data).await
     }
 
     /// Reads a single packet from the OUT endpoint.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        self.read_ep.read(data).await
+        crate::class::read_packet(&mut self.read_ep, data).await
     }
 
     /// Writes a multi-packet transfer into the IN endpoint.
-    pub async fn write_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
+    pub async fn write_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
         self.write_ep.write_transfer(data, needs_zlp).await
     }
 
@@ -370,13 +370,13 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
 
     /// Writes a single packet into the IN endpoint.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.write_ep.write(data).await?;
+        crate::class::write_packet(&mut self.write_ep, data).await?;
         self.needs_zlp = data.len() == self.max_packet_size() as usize;
         Ok(())
     }
 
     /// Writes a multi-packet transfer into the IN endpoint.
-    pub async fn write_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
+    pub async fn write_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
         self.write_ep.write_transfer(data, needs_zlp).await
     }
 
@@ -394,20 +394,22 @@ impl<'d, D: Driver<'d>> embedded_io_async::ErrorType for Sender<'d, D> {
 #[cfg(feature = "embedded-io")]
 impl<'d, D: Driver<'d>> embedded_io_async::Write for Sender<'d, D> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let len = core::cmp::min(buf.len(), self.max_packet_size() as usize);
-        match self.write_packet(&buf[..len]).await {
-            Ok(()) => Ok(len),
-            Err(EndpointError::BufferOverflow) => unreachable!(),
-            Err(EndpointError::Disabled) => Err(VendorError::NotConnected),
+        let max_packet_size = self.max_packet_size() as usize;
+        match self.write_transfer(buf, false).await {
+            Ok(()) => {
+                self.needs_zlp = !buf.is_empty() && (buf.len() % max_packet_size == 0);
+                Ok(buf.len())
+            }
+            Err(EndpointDisabledError) => Err(VendorError::NotConnected),
         }
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
         if self.needs_zlp {
-            self.write_packet(&[]).await.map_err(|e| match e {
-                EndpointError::BufferOverflow => unreachable!(),
-                EndpointError::Disabled => VendorError::NotConnected,
-            })?;
+            self.write_transfer(&[], false)
+                .await
+                .map_err(|EndpointDisabledError| VendorError::NotConnected)?;
+            self.needs_zlp = false;
         }
         Ok(())
     }
@@ -428,7 +430,7 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
 
     /// Reads a single packet from the OUT endpoint.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        self.read_ep.read(data).await
+        crate::class::read_packet(&mut self.read_ep, data).await
     }
 
     /// Reads a multi-packet transfer from the OUT endpoint until a short packet is received.
@@ -496,8 +498,10 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
             return Ok(self.read_from_buffer(buf));
         }
 
-        if buf.len() > self.receiver.max_packet_size() as usize {
-            return match self.receiver.read_packet(buf).await {
+        let max_packet_size = self.receiver.max_packet_size() as usize;
+        if buf.len() >= max_packet_size {
+            let aligned = buf.len() - (buf.len() % max_packet_size);
+            return match self.receiver.read_transfer(&mut buf[..aligned]).await {
                 Ok(n) => Ok(n),
                 Err(EndpointError::BufferOverflow) => unreachable!(),
                 Err(EndpointError::Disabled) => Err(VendorError::NotConnected),

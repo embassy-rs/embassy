@@ -456,9 +456,9 @@ pub fn find_cp210x(config_desc: &[u8], interface_idx: u8) -> Option<Cp210xInfo> 
                 continue;
             }
             if ep.is_in() {
-                in_ep = Some((ep.endpoint_address, ep.max_packet_size));
+                in_ep = Some((ep.endpoint_address, ep.packet_size()));
             } else {
-                out_ep = Some((ep.endpoint_address, ep.max_packet_size));
+                out_ep = Some((ep.endpoint_address, ep.packet_size()));
             }
         }
 
@@ -544,13 +544,12 @@ where
     ///
     /// Performs no I/O.
     pub fn new_with_raw_mutex(alloc: &A, enum_info: &EnumerationInfo) -> Result<Self, Cp210xError> {
-        let ctrl_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let ctrl_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts(0, UsbDirection::In),
+            EndpointType::Control,
+            enum_info.device_desc.max_packet_size0 as u16,
+            0,
+        );
 
         let device_address = enum_info.device_address;
         let split = enum_info.split();
@@ -591,21 +590,19 @@ where
     ) -> Result<Cp210xPort<'dev, 'd, A, M>, Cp210xError> {
         let info = find_cp210x(config_desc, interface_idx).ok_or(Cp210xError::NoInterface)?;
 
-        let in_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
-            ep_type: EndpointType::Bulk,
-            max_packet_size: info.bulk_in_mps,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let in_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
+            EndpointType::Bulk,
+            info.bulk_in_mps,
+            0,
+        );
 
-        let out_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
-            ep_type: EndpointType::Bulk,
-            max_packet_size: info.bulk_out_mps,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let out_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
+            EndpointType::Bulk,
+            info.bulk_out_mps,
+            0,
+        );
 
         let in_ch = self
             .alloc

@@ -30,22 +30,23 @@ fn polling_interval_ms(speed: Speed, b_interval: u8) -> u8 {
         Speed::High => 1u32
             .checked_shl(u32::from(b_interval).saturating_sub(4))
             .map_or(u8::MAX, |ms| ms.min(255) as u8),
+        _ => b_interval,
     }
 }
 
 fn endpoint_info(endpoint: &MidiEndpointDescriptor, speed: Speed) -> EndpointInfo {
-    EndpointInfo {
-        addr: EndpointAddress::from(endpoint.address),
-        ep_type: endpoint.ep_type,
-        max_packet_size: endpoint.max_packet_size,
-        // Bulk has no polling interval (§5.3.1).
-        interval_ms: if endpoint.ep_type == EndpointType::Interrupt {
-            polling_interval_ms(speed, endpoint.interval)
-        } else {
-            0
-        },
-        max_burst: 0,
-    }
+    // Bulk has no polling interval (§5.3.1).
+    let interval = if endpoint.ep_type == EndpointType::Interrupt {
+        polling_interval_ms(speed, endpoint.interval)
+    } else {
+        0
+    };
+    EndpointInfo::new(
+        EndpointAddress::from(endpoint.address),
+        endpoint.ep_type,
+        endpoint.max_packet_size,
+        interval,
+    )
 }
 
 enum DataIn<'d, A: UsbHostAllocator<'d>> {

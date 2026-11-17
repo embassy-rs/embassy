@@ -1,6 +1,6 @@
 //! USB Test & Measurement Class (USBTMC) and USB488 types, headers, and constants.
 
-use crate::driver::EndpointError;
+use crate::driver::{EndpointDisabledError, EndpointError};
 
 /// USB class code for Application Specific Class (used by USBTMC).
 pub const USB_CLASS_APPL_SPEC: u8 = 0xFE;
@@ -103,6 +103,12 @@ pub enum UsbtmcError {
 impl From<EndpointError> for UsbtmcError {
     fn from(e: EndpointError) -> Self {
         Self::Endpoint(e)
+    }
+}
+
+impl From<EndpointDisabledError> for UsbtmcError {
+    fn from(e: EndpointDisabledError) -> Self {
+        Self::Endpoint(e.into())
     }
 }
 

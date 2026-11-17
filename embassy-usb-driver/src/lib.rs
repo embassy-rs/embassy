@@ -9,6 +9,7 @@ pub mod host;
 /// Speed of a device or port
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum Speed {
     /// 1.5 Mbit/s
     Low,
@@ -16,6 +17,10 @@ pub enum Speed {
     Full,
     /// 480 Mbit/s
     High,
+    /// 5 Gbit/s
+    Super,
+    /// 10 Gbit/s
+    SuperPlus,
 }
 
 impl Speed {
@@ -25,6 +30,7 @@ impl Speed {
             Speed::Low => 8,
             Speed::Full => 64,
             Speed::High => 64, // USB 2.0 spec requires 64 for high-speed control EP0
+            Speed::Super | Speed::SuperPlus => 512, // USB 3.0 spec requires 512 for SuperSpeed control EP0
         }
     }
 }
@@ -125,24 +131,42 @@ impl EndpointAddress {
 /// Information for an endpoint.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub struct EndpointInfo {
     /// Endpoint's address.
     pub addr: EndpointAddress,
     /// Endpoint's type.
     pub ep_type: EndpointType,
-    /// Max packet size, in bytes.
+    /// Max packet size per transaction, in bytes (0..=1024).
     pub max_packet_size: u16,
-    /// Polling interval, in milliseconds.
-    pub interval_ms: u8,
+    /// Polling interval (`bInterval`).
+    pub interval: u8,
     /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets. 0 below
     /// SuperSpeed.
     pub max_burst: u8,
+    /// High-speed additional transaction opportunities per microframe (`wMaxPacketSize` bits
+    /// 12..11, `0..=2`) for isochronous and interrupt endpoints. 0 otherwise.
+    pub additional_transactions: u8,
+}
+
+impl EndpointInfo {
+    /// An endpoint with `max_burst` and `additional_transactions` 0.
+    pub const fn new(addr: EndpointAddress, ep_type: EndpointType, max_packet_size: u16, interval: u8) -> Self {
+        Self {
+            addr,
+            ep_type,
+            max_packet_size,
+            interval,
+            max_burst: 0,
+            additional_transactions: 0,
+        }
+    }
 }
 
 /// Configuration to allocate an endpoint with.
 ///
 /// The driver must allocate an endpoint with exactly the given `addr` (if any), `ep_type`,
-/// `max_packet_size` and `interval_ms`, or fail. The docs of the other fields say whether the
+/// `max_packet_size` and `interval`, or fail. The docs of the other fields say whether the
 /// driver may deviate from them.
 ///
 /// The SuperSpeed fields are those of the endpoint's SuperSpeed Endpoint Companion descriptor, and 0
@@ -155,10 +179,10 @@ pub struct EndpointConfig {
     pub addr: Option<EndpointAddress>,
     /// Endpoint's type.
     pub ep_type: EndpointType,
-    /// Max packet size, in bytes.
+    /// Max packet size per transaction, in bytes (0..=1024).
     pub max_packet_size: u16,
-    /// Polling interval, in milliseconds.
-    pub interval_ms: u8,
+    /// Polling interval (`bInterval`).
+    pub interval: u8,
     /// Number of packets the hardware may buffer for the endpoint.
     ///
     /// More buffers let the hardware move the next packet while software is still busy with the
@@ -179,26 +203,29 @@ pub struct EndpointConfig {
     /// SuperSpeed periodic `wBytesPerInterval`, or the `dwBytesPerInterval` of a SuperSpeedPlus
     /// isochronous endpoint: the bytes the endpoint moves per service interval.
     pub bytes_per_interval: u32,
+    /// High-speed additional transaction opportunities per microframe (`wMaxPacketSize` bits
+    /// 12..11, `0..=2`) for isochronous and interrupt endpoints.
+    ///
+    /// Drivers that do not support multi-transaction periodic endpoints may fail with
+    /// [`EndpointAllocError`] or use 0, and report the allocated value in
+    /// [`EndpointInfo::additional_transactions`].
+    pub additional_transactions: u8,
 }
 
 impl EndpointConfig {
-    /// An endpoint with one buffer and all SuperSpeed fields 0.
-    pub const fn new(
-        addr: Option<EndpointAddress>,
-        ep_type: EndpointType,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Self {
+    /// An endpoint with one buffer and all SuperSpeed/high-bandwidth fields 0.
+    pub const fn new(addr: Option<EndpointAddress>, ep_type: EndpointType, max_packet_size: u16, interval: u8) -> Self {
         Self {
             addr,
             ep_type,
             max_packet_size,
-            interval_ms,
+            interval,
             buffers: 1,
             max_burst: 0,
             max_streams: 0,
             mult: 0,
             bytes_per_interval: 0,
+            additional_transactions: 0,
         }
     }
 }
@@ -257,12 +284,21 @@ pub trait Bus {
     async fn poll(&mut self) -> Event;
 
     /// Enable or disable an endpoint.
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool);
+    ///
+    /// All non-control endpoints are initially disabled after [`Driver::start`], and a USB bus
+    /// reset ([`Event::Reset`]) disables all non-control endpoints without the stack calling this
+    /// method. Enabling an endpoint clears any STALL condition on it, unblocks
+    /// [`Endpoint::wait_enabled`], and sets [`Endpoint::is_enabled`] to `true`. Disabling an
+    /// endpoint must abort or prevent pending transfers with [`EndpointError::Disabled`].
+    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool);
+
+    /// Get whether an endpoint is enabled.
+    fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool;
 
     /// Set or clear the STALL condition for an endpoint.
     ///
     /// If the endpoint is an OUT endpoint, it should be prepared to receive data again.
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool);
+    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool);
 
     /// Get whether the STALL condition is set for an endpoint.
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool;
@@ -276,11 +312,14 @@ pub trait Bus {
     ///
     /// * [`Unsupported`] - This UsbBus implementation doesn't support
     ///   simulating a disconnect or it has not been enabled at creation time.
-    fn force_reset(&mut self) -> Result<(), Unsupported> {
+    async fn force_reset(&mut self) -> Result<(), Unsupported> {
         Err(Unsupported)
     }
 
     /// Initiate a remote wakeup of the host by the device.
+    ///
+    /// Whether this waits for the remote wakeup signaling to complete or only initiates it is
+    /// implementation-defined.
     ///
     /// # Errors
     ///
@@ -293,11 +332,17 @@ pub trait Bus {
 /// Endpoint is a buffer on a device that stores rx/tx data.
 /// Endpoint can be thought of as one end of a pipe/channel.
 pub trait Endpoint {
-    /// Get the endpoint address
-    fn info(&self) -> &EndpointInfo;
+    /// Get the endpoint address and attributes.
+    fn info(&self) -> EndpointInfo;
 
     /// Wait for the endpoint to be enabled.
+    ///
+    /// Resolves once the endpoint has been enabled via [`Bus::endpoint_set_enabled`] (and has not
+    /// been disabled again, e.g. by a bus reset).
     async fn wait_enabled(&mut self);
+
+    /// Get whether the endpoint is enabled.
+    fn is_enabled(&self) -> bool;
 
     /// Set or clear the STALL handshake on this endpoint.
     ///
@@ -310,7 +355,7 @@ pub trait Endpoint {
     /// # Errors
     ///
     /// * [`Unsupported`] - This driver cannot halt endpoints.
-    fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported>;
+    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported>;
 
     /// Get whether the STALL handshake is set on this endpoint.
     ///
@@ -324,27 +369,19 @@ pub trait Endpoint {
 
 /// OUT Endpoint trait.
 pub trait EndpointOut: Endpoint {
-    /// Read a single packet of data from the endpoint, and return the actual length of
-    /// the packet.
-    ///
-    /// This should also clear any NAK flags and prepare the endpoint to receive the next packet.
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
-
     /// Read until the buffer is full or we receive a short packet from the USB host returning the
     /// actual length of the entire data block.
     ///
     /// This should also clear any NAK flags and prepare the endpoint to receive the next packet or
     /// data block.
-    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        let mut n = 0;
-        loop {
-            let i = self.read(&mut buf[n..]).await?;
-            n += i;
-            if i < self.info().max_packet_size as usize || n == buf.len() {
-                return Ok(n);
-            }
-        }
-    }
+    ///
+    /// # Errors
+    ///
+    /// * [`EndpointError::Disabled`] - The endpoint is disabled.
+    /// * [`EndpointError::BufferOverflow`] - A received packet is larger than the remaining space
+    ///   in `buf` (for example if `buf.len()` is smaller than `max_packet_size` or not a multiple
+    ///   of `max_packet_size`).
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
 }
 
 /// USB control pipe trait.
@@ -357,65 +394,14 @@ pub trait EndpointOut: Endpoint {
 /// different procedures), usually to accelerate processing in hardware somehow. A separate
 /// trait allows the driver to handle it specially.
 ///
-/// The call sequences made by the USB stack to the ControlPipe are the following:
-///
-/// - control in/out with len=0:
-///
-/// ```not_rust
-/// setup()
-/// (...processing...)
-/// accept() or reject()
-/// ```
-///
-/// - control out for setting the device address:
-///
-/// ```not_rust
-/// setup()
-/// (...processing...)
-/// accept_set_address(addr) or reject()
-/// ```
-///
-/// - control out with len != 0:
-///
-/// ```not_rust
-/// setup()
-/// data_out(first=true, last=false)
-/// data_out(first=false, last=false)
-/// ...
-/// data_out(first=false, last=false)
-/// data_out(first=false, last=true)
-/// (...processing...)
-/// accept() or reject()
-/// ```
-///
-/// - control in with len != 0, accepted:
-///
-/// ```not_rust
-/// setup()
-/// (...processing...)
-/// data_in(first=true, last=false)
-/// data_in(first=false, last=false)
-/// ...
-/// data_in(first=false, last=false)
-/// data_in(first=false, last=true)
-/// (NO `accept()`!!! This is because calling `data_in` already implies acceptance.)
-/// ```
-///
-/// - control in with len != 0, rejected:
-///
-/// ```not_rust
-/// setup()
-/// (...processing...)
-/// reject()
-/// ```
-///
 /// The driver is responsible for handling the status stage. The stack DOES NOT do zero-length
-/// calls to `data_in` or `data_out` for the status zero-length packet. The status stage should
-/// be triggered by either `accept()`, or `data_in` with `last = true`.
+/// calls to `data_in_transfer` or `data_out_transfer` for the status zero-length packet. The status stage should
+/// be triggered by either `accept()`, or following `data_in_transfer`.
 ///
 /// Note that the host can abandon a control request and send a new SETUP packet any time. If
-/// a SETUP packet arrives at any time during `data_out`, `data_in`, `accept` or `reject`,
-/// the driver must immediately return (with `EndpointError::Disabled` from `data_in`, `data_out`)
+/// a SETUP packet arrives at any time during `data_out_transfer`, `data_in_transfer`, `accept` or `reject`,
+/// the driver must immediately return (with [`EndpointDisabledError`] from `data_in_transfer` and
+/// [`EndpointError::Disabled`] from `data_out_transfer`)
 /// to let the stack call `setup()` again to start handling the new control request. Not doing
 /// so will cause things to get stuck, because the host will never read/send the packet we're
 /// waiting for.
@@ -426,52 +412,32 @@ pub trait ControlPipe {
     /// Read a single setup packet from the endpoint.
     async fn setup(&mut self) -> [u8; 8];
 
-    /// Read a DATA OUT packet into `buf` in response to a control write request.
-    ///
-    /// Must be called after `setup()` for requests with `direction` of `Out`
-    /// and `length` greater than zero.
-    async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError>;
-
-    /// Read a DATA OUT packet into `buf` in response to a control write request.
+    /// Read a DATA OUT transfer into `buf` in response to a control write request.
     ///
     /// Must be called after `setup()` for requests with `direction` of `Out`
     /// and request length greater than zero.
     ///
     /// `buf` must be **at most** as large as the request length.
-    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        let mut total = 0;
-
-        let req_len = buf.len();
-
-        let chunks = buf.chunks_mut(self.max_packet_size());
-        for (first, last, chunk) in first_last(chunks) {
-            let size = self.data_out(chunk, first, last).await?;
-            total += size;
-            if size < self.max_packet_size() || total == req_len {
-                break;
-            }
-        }
-
-        Ok(total)
-    }
-
-    /// Send a DATA IN packet with `data` in response to a control read request.
     ///
-    /// If `last` is true, the STATUS packet will be ACKed following the transfer of `data`.
-    async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError>;
+    /// # Errors
+    ///
+    /// * [`EndpointError::Disabled`] - The control transfer was aborted by a bus reset or a new
+    ///   SETUP packet.
+    /// * [`EndpointError::BufferOverflow`] - A received packet is larger than the remaining space
+    ///   in `buf`.
+    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
 
-    /// Send a number of DATA IN packets with `data` in response to a control read request.
-    async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
-        let chunks = data
-            .chunks(self.max_packet_size())
-            .chain(needs_zlp.then(|| -> &[u8] { &[] }));
-
-        for (first, last, chunk) in first_last(chunks) {
-            self.data_in(chunk, first, last).await?;
-        }
-
-        Ok(())
-    }
+    /// Send a DATA IN transfer with `data` in response to a control read request.
+    ///
+    /// If `needs_zlp` is true and `data.len()` is an exact non-zero multiple of `max_packet_size`,
+    /// a zero-length packet must be transmitted.
+    /// The driver is responsible for handling the status stage following the transfer.
+    ///
+    /// # Errors
+    ///
+    /// * [`EndpointDisabledError`] - The control transfer was aborted by a bus reset or a new
+    ///   SETUP packet.
+    async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError>;
 
     /// Accept a control request.
     ///
@@ -490,44 +456,29 @@ pub trait ControlPipe {
     async fn accept_set_address(&mut self, addr: u8);
 }
 
-fn first_last<T: Iterator>(iter: T) -> impl Iterator<Item = (bool, bool, T::Item)> {
-    let mut iter = iter.peekable();
-    let mut first = true;
-    core::iter::from_fn(move || {
-        let val = iter.next()?;
-        let is_first = first;
-        first = false;
-        let is_last = iter.peek().is_none();
-        Some((is_first, is_last, val))
-    })
-}
-
 /// IN Endpoint trait.
 pub trait EndpointIn: Endpoint {
-    /// Write a single packet of data to the endpoint.
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
-
-    /// Write all the data from buf to the endpoint one wMaxPacketSize chunk at a time.
+    /// Write all the data from `buf` to the endpoint as a transfer.
     ///
-    /// If the buffer size is evenly divisible by wMaxPacketSize, this will also ensure the
-    /// terminating zero-length-packet is transmitted.
-    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
-        for chunk in buf.chunks(self.info().max_packet_size as usize) {
-            self.write(chunk).await?;
-        }
-        if needs_zlp && buf.len() % self.info().max_packet_size as usize == 0 {
-            self.write(&[]).await?;
-        }
-        Ok(())
-    }
+    /// The driver is responsible for splitting large transfers into packets, sending them,
+    /// and optionally sending a zero-length packet (ZLP) if `needs_zlp` is true and `buf.len()`
+    /// is an exact non-zero multiple of `max_packet_size`. If `buf` is empty, a single zero-length
+    /// packet is sent.
+    ///
+    /// Drivers are allowed to buffer packets/transfers and return before the host acknowledges them.
+    ///
+    /// # Errors
+    ///
+    /// * [`EndpointDisabledError`] - The endpoint is disabled.
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError>;
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Event returned by [`Bus::poll`].
 pub enum Event {
-    /// The USB reset condition has been detected.
-    Reset,
+    /// The USB reset condition has been detected, negotiating the given bus [`Speed`].
+    Reset(Speed),
 
     /// A USB suspend request has been detected or, in the case of self-powered devices, the device
     /// has been disconnected from the USB bus.
@@ -557,33 +508,32 @@ pub struct EndpointAllocError;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Unsupported;
 
-/// Errors returned by [`EndpointIn::write`] and [`EndpointOut::read`]
+/// The endpoint is disabled, or a control transfer was aborted by a bus reset or new SETUP packet.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct EndpointDisabledError;
+
+impl core::fmt::Display for EndpointDisabledError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Endpoint disabled")
+    }
+}
+impl core::error::Error for EndpointDisabledError {}
+
+/// Errors returned by [`EndpointOut::read_transfer`] and [`ControlPipe::data_out_transfer`].
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EndpointError {
-    /// Either the packet to be written is too long to fit in the transmission
-    /// buffer or the received packet is too long to fit in `buf`.
+    /// The received packet is too long to fit in `buf`.
     BufferOverflow,
 
     /// The endpoint is disabled.
     Disabled,
 }
 
-// TODO: remove before releasing embassy-usb-driver v0.3
-impl embedded_io_async_06::Error for EndpointError {
-    fn kind(&self) -> embedded_io_async_06::ErrorKind {
-        match self {
-            Self::BufferOverflow => embedded_io_async_06::ErrorKind::OutOfMemory,
-            Self::Disabled => embedded_io_async_06::ErrorKind::NotConnected,
-        }
-    }
-}
-impl embedded_io_async_07::Error for EndpointError {
-    fn kind(&self) -> embedded_io_async_07::ErrorKind {
-        match self {
-            Self::BufferOverflow => embedded_io_async_07::ErrorKind::OutOfMemory,
-            Self::Disabled => embedded_io_async_07::ErrorKind::NotConnected,
-        }
+impl From<EndpointDisabledError> for EndpointError {
+    fn from(_: EndpointDisabledError) -> Self {
+        Self::Disabled
     }
 }
 

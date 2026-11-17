@@ -1066,6 +1066,18 @@ impl EndpointDescriptor {
     pub fn transfer_type(&self) -> u8 {
         self.attributes & 0x03
     }
+
+    /// Maximum packet size per transaction in bytes (bits 10..0 of `wMaxPacketSize`).
+    pub const fn packet_size(&self) -> u16 {
+        self.max_packet_size & 0x07ff
+    }
+
+    /// Additional transaction opportunities per microframe (bits 12..11 of `wMaxPacketSize`).
+    ///
+    /// Only meaningful for high-speed isochronous and interrupt endpoints (`0..=2`); 0 otherwise.
+    pub const fn additional_transactions(&self) -> u8 {
+        ((self.max_packet_size >> 11) & 0x03) as u8
+    }
 }
 
 impl ExtendableDescriptor for EndpointDescriptor {
@@ -1101,13 +1113,20 @@ impl WritableDescriptor for EndpointDescriptor {
 
 impl From<EndpointDescriptor> for EndpointInfo {
     fn from(value: EndpointDescriptor) -> Self {
-        EndpointInfo {
-            addr: value.endpoint_address.into(),
-            ep_type: value.ep_type(),
-            max_packet_size: value.max_packet_size,
-            interval_ms: value.interval,
-            max_burst: 0,
-        }
+        let additional_transactions = if matches!(value.ep_type(), EndpointType::Isochronous | EndpointType::Interrupt)
+        {
+            value.additional_transactions()
+        } else {
+            0
+        };
+        let mut info = EndpointInfo::new(
+            value.endpoint_address.into(),
+            value.ep_type(),
+            value.packet_size(),
+            value.interval,
+        );
+        info.additional_transactions = additional_transactions;
+        info
     }
 }
 
@@ -1603,6 +1622,33 @@ mod test {
             Ok(EndpointDescriptor::MIN_LEN as usize)
         );
         assert_eq!(EndpointDescriptor::try_from_bytes(&bytes), Ok(descriptor));
+    }
+
+    #[test]
+    fn endpoint_descriptor_splits_high_speed_additional_transactions() {
+        // Isochronous IN with 1024-byte packet and 2 additional transactions (wMaxPacketSize = 0x1400).
+        let iso = EndpointDescriptor {
+            endpoint_address: 0x81,
+            attributes: 0x05,
+            max_packet_size: (2 << 11) | 1024,
+            interval: 1,
+        };
+        assert_eq!(iso.packet_size(), 1024);
+        assert_eq!(iso.additional_transactions(), 2);
+        let iso_info = EndpointInfo::from(iso);
+        assert_eq!(iso_info.max_packet_size, 1024);
+        assert_eq!(iso_info.additional_transactions, 2);
+
+        // Bulk endpoints always clear additional_transactions in EndpointInfo.
+        let bulk = EndpointDescriptor {
+            endpoint_address: 0x02,
+            attributes: 0x02,
+            max_packet_size: (1 << 11) | 512,
+            interval: 0,
+        };
+        let bulk_info = EndpointInfo::from(bulk);
+        assert_eq!(bulk_info.max_packet_size, 512);
+        assert_eq!(bulk_info.additional_transactions, 0);
     }
 
     #[test]

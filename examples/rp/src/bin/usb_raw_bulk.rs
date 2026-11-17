@@ -114,11 +114,11 @@ async fn main(_spawner: Spawner) {
             info!("Connected");
             loop {
                 let mut data = [0; 64];
-                match read_ep.read(&mut data).await {
+                match read_ep.read_transfer(&mut data).await {
                     Ok(n) => {
                         info!("Got bulk: {:a}", data[..n]);
                         // Echo back to the host:
-                        write_ep.write(&data[..n]).await.ok();
+                        write_ep.write_transfer(&data[..n], false).await.ok();
                     }
                     Err(_) => break,
                 }

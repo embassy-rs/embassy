@@ -212,9 +212,9 @@ fn find_interface(desc_bytes: &[u8], interface_idx: u8) -> Option<FtdiInfo> {
                 continue;
             }
             if ep.is_in() {
-                in_ep = Some((ep.endpoint_address, ep.max_packet_size));
+                in_ep = Some((ep.endpoint_address, ep.packet_size()));
             } else {
-                out_ep = Some((ep.endpoint_address, ep.max_packet_size));
+                out_ep = Some((ep.endpoint_address, ep.packet_size()));
             }
         }
 
@@ -317,13 +317,12 @@ where
 {
     /// Allocate the device-level control pipe with a custom [`RawMutex`].
     pub fn new_with_raw_mutex(alloc: &A, enum_info: &EnumerationInfo) -> Result<Self, FtdiError> {
-        let ctrl_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let ctrl_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts(0, UsbDirection::In),
+            EndpointType::Control,
+            enum_info.device_desc.max_packet_size0 as u16,
+            0,
+        );
 
         let device_address = enum_info.device_address;
         let split = enum_info.split();
@@ -349,25 +348,23 @@ where
     ) -> Result<FtdiPort<'dev, 'd, A, M>, FtdiError> {
         let info = find_interface(config_desc, interface_idx).ok_or(FtdiError::NoInterface)?;
 
-        let in_ep_info = EndpointInfo {
-            addr: EndpointAddress::from(info.bulk_in_ep),
-            ep_type: EndpointType::Bulk,
-            max_packet_size: info.bulk_in_mps,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let in_ep_info = EndpointInfo::new(
+            EndpointAddress::from(info.bulk_in_ep),
+            EndpointType::Bulk,
+            info.bulk_in_mps,
+            0,
+        );
         let in_ch = self
             .alloc
             .alloc_pipe::<pipe::Bulk, pipe::In>(self.device_address, &in_ep_info, self.split)
             .map_err(|_| FtdiError::NoPipe)?;
 
-        let out_ep_info = EndpointInfo {
-            addr: EndpointAddress::from(info.bulk_out_ep),
-            ep_type: EndpointType::Bulk,
-            max_packet_size: info.bulk_out_mps,
-            interval_ms: 0,
-            max_burst: 0,
-        };
+        let out_ep_info = EndpointInfo::new(
+            EndpointAddress::from(info.bulk_out_ep),
+            EndpointType::Bulk,
+            info.bulk_out_mps,
+            0,
+        );
         let out_ch = self
             .alloc
             .alloc_pipe::<pipe::Bulk, pipe::Out>(self.device_address, &out_ep_info, self.split)
