@@ -200,7 +200,7 @@ pub mod dlyb;
 pub mod dma2d;
 #[cfg(dsihost)]
 pub mod dsihost;
-#[cfg(dts)]
+#[cfg(all(dts, not(stm32g5)))]
 pub mod dts;
 #[cfg(eth)]
 pub mod eth;
@@ -897,9 +897,9 @@ fn init_hw(config: Config) -> Peripherals {
         #[cfg(any(stm32h7rs))]
         // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
         rcc::enable_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5)))]
+        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5, stm32g5)))]
         rcc::enable_and_reset_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5)))]
+        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5, stm32g5)))]
         rcc::enable_and_reset_with_cs_no_refcount::<peripherals::PWR>(cs);
         #[cfg(all(
             flash,
