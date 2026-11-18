@@ -44,11 +44,12 @@
 // fails here until it is implemented deliberately. See `docs/low-power/00-hardware-survey.md`
 // §6.1 for the full analysis.
 #[cfg(not(any(
-    stm32f4, stm32g4, stm32l0, stm32l4, stm32l5, stm32u0, stm32u3, stm32u5, stm32h5, stm32wb, stm32wba, stm32wl
+    stm32f3, stm32f4, stm32f7, stm32g0, stm32g4, stm32l0, stm32l1, stm32l4, stm32l5, stm32u0, stm32u3, stm32u5,
+    stm32h5, stm32wb, stm32wba, stm32wl
 )))]
 compile_error!(
     "the `low-power` feature is not implemented for this STM32 family. \
-     Implemented families: f4, g4, l0, l4, l5, u0, u3, u5, h5, wb, wba, wl. \
+     Implemented families: f3, f4, f7, g0, g4, l0, l1, l4, l5, u0, u3, u5, h5, wb, wba, wl. \
      See embassy-stm32/src/low_power.rs and docs/low-power/00-hardware-survey.md."
 );
 
@@ -64,19 +65,9 @@ pub use crate::rcc::StopMode;
 use crate::rcc::get_stop_mode;
 use crate::time_driver::{LPTimeDriver, get_driver};
 
-#[cfg(all(feature = "rt", not(any(stm32u0, feature = "_lp-time-driver"))))]
+#[cfg(all(feature = "rt", not(feature = "_lp-time-driver")))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
-        #[interrupt]
-        #[allow(non_snake_case)]
-        unsafe fn $irq() {
-        }
-    };
-}
-
-#[cfg(all(feature = "rt", stm32u0, not(feature = "_lp-time-driver")))]
-foreach_interrupt! {
-    (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
         #[interrupt]
         #[allow(non_snake_case)]
         unsafe fn $irq() {
@@ -168,11 +159,28 @@ mod platform {
             });
         }
 
-        #[cfg(stm32f4)]
+        #[cfg(stm32l1)]
+        crate::pac::PWR.cr().modify(|w| {
+            w.set_pdds(crate::pac::pwr::vals::Pdds::StopMode);
+            w.set_lpsdsr(true);
+        });
+
+        #[cfg(any(stm32f4, stm32f7))]
         crate::pac::PWR.cr1().modify(|w| {
             w.set_pdds(crate::pac::pwr::vals::Pdds::StopMode);
             w.set_lpds(true);
         });
+
+        #[cfg(stm32f3)]
+        crate::pac::PWR.cr().modify(|w| {
+            w.set_pdds(crate::pac::pwr::vals::Pdds::StopMode);
+            w.set_lpds(true);
+        });
+
+        // Stop 0 and Stop 1 have the same peripherals and wake-up sources (RM0444 4.3), Stop 1
+        // only turns the main regulator off.
+        #[cfg(stm32g0)]
+        crate::pac::PWR.cr1().modify(|w| w.set_lpms(0b001));
 
         #[cfg(stm32g4)]
         {
@@ -222,6 +230,17 @@ mod platform {
             w.set_cwuf(true);
             w.set_lpsdsr(crate::pac::pwr::vals::Mode::MainMode);
         });
+
+        // L1 doesn't enter Stop with WUF set (RM0038 5.3.7), and LPSDSR makes Sleep Low-power
+        // sleep, which needs the system clock at or below MSI range 1 (RM0038 5.3.6).
+        #[cfg(stm32l1)]
+        crate::pac::PWR.cr().modify(|w| {
+            w.set_cwuf(true);
+            w.set_lpsdsr(false);
+        });
+
+        #[cfg(stm32f3)]
+        crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
 
         #[cfg(stm32g4)]
         // G4 keeps its wake-up flags (WUF1..WUF5) in PWR_SR1 and the standby flag (SBF) there
@@ -339,7 +358,7 @@ mod platform {
             }
         }
 
-        #[cfg(any(stm32l0, stm32l4, stm32l5, stm32u0, stm32f4, stm32g4))]
+        #[cfg(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32u0, stm32f3, stm32f4, stm32g4))]
         clear_flags();
     }
 }

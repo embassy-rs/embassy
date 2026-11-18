@@ -131,10 +131,17 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "stm32c552rc", "time", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "stm32g070rb", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "stm32h755zi-cm4", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "low-power", "stm32f303ze", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "low-power", "stm32f373cc", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "low-power", "stm32f722ze", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "low-power", "single-bank", "stm32f767zi", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "low-power", "stm32g071rb", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "low-power", "stm32g0b1re", "time", "time-driver-any"]},
+    {target = "thumbv7m-none-eabi", features = ["defmt", "low-power", "stm32l152re", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "stm32c531cb", "time", "time-driver-lptim1"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "low-power", "stm32f410c8", "time", "time-driver-lptim1"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "stm32f767zi", "time", "time-driver-lptim1"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "stm32g071rb", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "low-power", "stm32f767zi", "time", "time-driver-lptim1"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "low-power", "stm32g071rb", "time", "time-driver-lptim1"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "low-power", "stm32g474re", "time", "time-driver-lptim1"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "low-power", "stm32h503rb", "time", "time-driver-lptim1"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "low-power", "stm32h563zi", "time", "time-driver-lptim1"]},
@@ -170,22 +177,22 @@ flavors = [
     { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32f2.*", target = "thumbv7m-none-eabi" },
-    { regex_feature = "stm32f3.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32f3.*", target = "thumbv7em-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32f4[2367]..[ig]", target = "thumbv7em-none-eabi", features = ["low-power", "dual-bank"] },
     { regex_feature = "stm32f4.*", target = "thumbv7em-none-eabi", features = ["low-power", "single-bank"] },
-    { regex_feature = "stm32f7[67]..[ig]", target = "thumbv7em-none-eabi", features = ["dual-bank"] },
-    { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32f7[67]..[ig]", target = "thumbv7em-none-eabi", features = ["low-power", "dual-bank"] },
+    { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32c0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32c5.*", target = "thumbv8m.main-none-eabihf", features = ["dual-bank"] },
-    { regex_feature = "stm32g0[bc]..[ce]", target = "thumbv6m-none-eabi", features = ["dual-bank"] },
-    { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32g0[bc]..[ce]", target = "thumbv6m-none-eabi", features = ["low-power", "dual-bank"] },
+    { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32g4[78].*", target = "thumbv7em-none-eabi", features = ["low-power", "dual-bank"] },
     { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32g5.*", target = "thumbv8m.main-none-eabihf", features = ["dual-bank"] },
     { regex_feature = "stm32h5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
     { regex_feature = "stm32h7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi", features = ["low-power"] },
-    { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
+    { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32l4[7-9apqrs].*", target = "thumbv7em-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32l4.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power", "dual-bank"] },
@@ -254,11 +261,11 @@ aligned = "0.4.3"
 heapless = "0.9.3"
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-e40ce1ac84f821f603823d620f31cc05ded52e84" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-0c86a9ba2c844ea6c83e97a35587b0e294b7cf33" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-e40ce1ac84f821f603823d620f31cc05ded52e84", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-0c86a9ba2c844ea6c83e97a35587b0e294b7cf33", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"

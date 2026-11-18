@@ -582,10 +582,10 @@ const fn flash_latency(hz: u32) -> FlashLatency {
 /// The clocks to bring back after Stop.
 ///
 /// Stop turns off HSE, the PLLs, HSI48 and whichever of MSI and HSI16 isn't the wake-up clock,
-/// and the chip wakes up on MSI (at its current range) or HSI16, as chosen by STOPWUCK. The
-/// configuration registers, the voltage range and the flash latency are kept (RM0351 6.3, RM0438
-/// 9.4, RM0503 5.3, RM0434 6.3, RM0453 7.3, RM0377 6.3.9). WB and WL5x also reset C2HPRE when
-/// waking up on HSI16.
+/// and the chip wakes up on MSI (at its current range) or HSI16, as chosen by STOPWUCK. L1 has no
+/// STOPWUCK and always wakes up on MSI. The configuration registers, the voltage range and the
+/// flash latency are kept (RM0351 6.3, RM0438 9.4, RM0503 5.3, RM0434 6.3, RM0453 7.3, RM0377
+/// 6.3.9, RM0038 5.1.8). WB and WL5x also reset C2HPRE when waking up on HSI16.
 #[cfg(feature = "low-power")]
 #[derive(Clone, Copy)]
 pub(crate) struct StopRestore {
@@ -610,7 +610,7 @@ impl StopRestore {
 
         #[cfg(any(stm32wb, stm32wl, stm32u0))]
         let wake_on_hsi = cfgr.stopwuck();
-        #[cfg(not(any(stm32wb, stm32wl, stm32u0)))]
+        #[cfg(not(any(stm32wb, stm32wl, stm32u0, stm32l1)))]
         let wake_on_hsi = cfgr.stopwuck() == crate::pac::rcc::vals::Stopwuck::Hsi;
 
         #[cfg(stm32l0)]
@@ -619,7 +619,9 @@ impl StopRestore {
             (true, true) => HSI_FREQ.0 / 4,
             (false, _) => msirange_to_hertz(RCC.icscr().read().msirange()).0,
         };
-        #[cfg(not(stm32l0))]
+        #[cfg(stm32l1)]
+        let wake_hz = msirange_to_hertz(RCC.icscr().read().msirange()).0;
+        #[cfg(not(any(stm32l0, stm32l1)))]
         let wake_hz = if wake_on_hsi {
             HSI_FREQ.0
         } else {
@@ -634,7 +636,7 @@ impl StopRestore {
             hz
         };
 
-        #[cfg(stm32l0)]
+        #[cfg(any(stm32l0, stm32l1))]
         let wake_latency = flash_latency(crate::pac::PWR.cr().read().vos(), wake_hz);
         #[cfg(stm32wl)]
         let wake_latency = flash_latency(

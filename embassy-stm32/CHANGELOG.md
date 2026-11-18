@@ -125,8 +125,10 @@ Flash:
 - fix: async operations prevent the low-power executor from entering Stop mode.
 
 Low power:
-- fix: stm32/low-power: fail to compile on chip families with no low-power implementation, instead of building a `sleep()` that set `SLEEPDEEP` and entered whatever `PWR` happened to default to, without clearing the wake-up flags or restoring the system clock on wake-up. Implemented families are F4, G4, L0, L4, L5, U0, U3, U5, H5, WB, WBA and WL.
+- fix: stm32/low-power: fail to compile on chip families with no low-power implementation, instead of building a `sleep()` that set `SLEEPDEEP` and entered whatever `PWR` happened to default to, without clearing the wake-up flags or restoring the system clock on wake-up. Implemented families are F3, F4, F7, G0, G4, L0, L1, L4, L5, U0, U3, U5, H5, WB, WBA and WL.
 - add: stm32/low-power: Stop mode support for STM32G4, entering the low-power-regulator stop (`PWR_CR1.LPMS = 0b001`).
+- add: stm32/low-power: Stop mode support for STM32F3, F7, G0 and L1.
+- fix: stm32: enable the DBGMCU clock on C0, F0, G0 and L0, so `enable_debug_during_sleep` and `freeze_iwdg_when_halted` take effect without a debugger enabling it.
 - fix: stm32/low-power: build on L412/L422 and L4P5/L4Q5, on U3 with a TIM time driver, and on U0 with an LPTIM time driver
 - fix: stm32/low-power: restore the clocks after Stop on L0, L4, L5, U0, WB and H5 (including the voltage scale and flash latency on H5), which kept running on the wake-up clock.
 - change: stm32/low-power: after Stop, turn back on only the oscillators, PLLs and voltage settings that Stop turned off, instead of re-running the RCC init (U3, U5, WL, WBA, F4, G4).

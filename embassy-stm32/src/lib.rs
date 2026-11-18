@@ -831,6 +831,11 @@ fn init_hw(config: Config) -> Peripherals {
             crate::pac::DBGMCU.cr().read();
         }
 
+        // The DBGMCU registers are on APB and need their bus clock (RM0091 6.4.7, RM0490 6.4.14,
+        // RM0444 5.4.15, RM0377 7.3.13).
+        #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_l0))]
+        rcc::enable_with_cs_no_refcount::<peripherals::DBGMCU>(cs);
+
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
             #[cfg(any(dbgmcu_h5, dbgmcu_c5))]

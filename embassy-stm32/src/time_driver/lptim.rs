@@ -27,6 +27,10 @@ use crate::lptim::{SealedInstance, vals};
 use crate::rcc;
 use crate::rcc::SealedRccPeripheral;
 
+/// The EXTI line of the LPTIM1 event on F4 and F7.
+#[cfg(all(feature = "low-power", any(stm32f4, stm32f7)))]
+const F4_F7_EXTI_LINE: usize = 23;
+
 type T = crate::_generated::TimeDriverPeripheral;
 
 fn regs_lptim() -> Lptim {
@@ -265,6 +269,14 @@ impl RtcDriver {
                 }
             }
 
+            // F4/F7: the LPTIM1 event is the configurable EXTI line 23 (RM0401 9.2.5, RM0410
+            // 11.8). Its pending bit is cleared in `on_interrupt`: Stop isn't entered while it's set.
+            #[cfg(any(stm32f4, stm32f7))]
+            {
+                crate::pac::EXTI.rtsr(0).modify(|w| w.set_line(F4_F7_EXTI_LINE, true));
+                crate::pac::EXTI.imr(0).modify(|w| w.set_line(F4_F7_EXTI_LINE, true));
+            }
+
             // U5/U3: the LP timer used as time driver must remain functional in
             // STOP mode so it can wake the CPU. Two RCC bits are required:
             //  - SRDAMR.*amen: autonomous mode enable, so the peripheral can
@@ -337,6 +349,9 @@ impl RtcDriver {
 
     pub(crate) fn on_interrupt(&self) {
         let r = regs_lptim();
+
+        #[cfg(all(feature = "low-power", any(stm32f4, stm32f7)))]
+        crate::pac::EXTI.pr(0).write(|w| w.set_line(F4_F7_EXTI_LINE, true));
 
         critical_section::with(|cs| {
             let sr = r.isr().read();
