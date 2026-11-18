@@ -79,6 +79,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             // U083 (Cortex-M0+): while the core stalls on a flash fetch during an erase, the
             // debugger can't access the bus and teleprobe loses the target.
             || (ecc_reset && name == "flash" && !cfg!(feature = "stm32u083rc"))
+            // Stop is checked on every low-power board when running from flash, like an application.
+            || name == "stop"
         {
             "link.x"
         } else {

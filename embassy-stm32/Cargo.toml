@@ -382,7 +382,6 @@ embassy-crypto-p384-ecdsa = ["dep:crypto-bigint"]
 ## constructors and [`RingBufferedSpiRx`](crate::spi::RingBufferedSpiRx).
 exti = []
 low-power = [ "time" ]
-low-power-debug-with-sleep = [ "low-power" ]
 low-power-defmt-flush = [ "defmt" ]
 
 _executor = [ "dep:embassy-executor", "low-power" ]

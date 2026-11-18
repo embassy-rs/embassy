@@ -66,11 +66,12 @@ pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 /// May be read without a critical section
 pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
 
+/// The clocks to bring back after Stop, captured by `init_rcc`.
 #[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
-pub(crate) static mut RCC_CONFIG: Option<Config> = None;
+static mut STOP_RESTORE: Option<StopRestore> = None;
 
 #[cfg(all(feature = "low-power", feature = "_dual-core"))]
-static RCC_CONFIG_PTR: core::sync::atomic::AtomicPtr<MaybeUninit<Option<Config>>> =
+static STOP_RESTORE_PTR: core::sync::atomic::AtomicPtr<MaybeUninit<Option<StopRestore>>> =
     core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 #[cfg(backup_sram)]
@@ -92,8 +93,8 @@ pub(crate) fn set_freqs_ptr(freqs: *mut MaybeUninit<Clocks>) {
 }
 
 #[cfg(all(feature = "low-power", feature = "_dual-core"))]
-pub(crate) fn set_rcc_config_ptr(config: *mut MaybeUninit<Option<Config>>) {
-    RCC_CONFIG_PTR.store(config, core::sync::atomic::Ordering::SeqCst);
+pub(crate) fn set_stop_restore_ptr(ptr: *mut MaybeUninit<Option<StopRestore>>) {
+    STOP_RESTORE_PTR.store(ptr, core::sync::atomic::Ordering::SeqCst);
 }
 
 #[cfg(all(not(feature = "_dual-core")))]
@@ -130,28 +131,52 @@ pub(crate) unsafe fn get_freqs() -> &'static Clocks {
 
 #[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
 /// Safety: Reads a mutable global.
-pub(crate) unsafe fn get_rcc_config() -> Option<Config> {
-    RCC_CONFIG
+unsafe fn get_stop_restore() -> Option<StopRestore> {
+    STOP_RESTORE
 }
 
 #[cfg(all(feature = "low-power", feature = "_dual-core"))]
 /// Safety: Reads a mutable global.
-pub(crate) unsafe fn get_rcc_config() -> Option<Config> {
-    unwrap!(RCC_CONFIG_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init()
+unsafe fn get_stop_restore() -> Option<StopRestore> {
+    unwrap!(STOP_RESTORE_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init()
 }
 
 #[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
 /// Safety: Sets a mutable global.
-unsafe fn set_rcc_config(config: Option<Config>) {
-    RCC_CONFIG = config;
+unsafe fn set_stop_restore(restore: Option<StopRestore>) {
+    STOP_RESTORE = restore;
 }
 
 #[cfg(all(feature = "low-power", feature = "_dual-core"))]
 /// Safety: Sets a mutable global.
-unsafe fn set_rcc_config(config: Option<Config>) {
-    RCC_CONFIG_PTR
+unsafe fn set_stop_restore(restore: Option<StopRestore>) {
+    STOP_RESTORE_PTR
         .load(core::sync::atomic::Ordering::SeqCst)
-        .write(MaybeUninit::new(config));
+        .write(MaybeUninit::new(restore));
+}
+
+/// Prepare the clocks for Stop. Call right before entering Stop.
+///
+/// Stop turns off the PLLs and the high-speed oscillators except the wake-up one, and the chip
+/// resumes on the wake-up clock. This makes the flash latency valid for the wake-up clock at the
+/// voltage scale the chip wakes up in.
+#[cfg(feature = "low-power")]
+pub(crate) fn stop_enter(_cs: CriticalSection) {
+    if let Some(restore) = unsafe { get_stop_restore() } {
+        restore.enter();
+    }
+}
+
+/// Bring the clocks back to what `init` configured, after a Stop or a `WFI` that didn't stop.
+///
+/// Only turns on and switches what Stop turned off, so it is cheap when nothing changed. The
+/// configuration registers (PLL setup, bus prescalers, kernel clock muxes) survive Stop. After
+/// this the hardware matches what `clocks()` reports again.
+#[cfg(feature = "low-power")]
+pub(crate) fn stop_exit(_cs: CriticalSection) {
+    if let Some(restore) = unsafe { get_stop_restore() } {
+        restore.exit();
+    }
 }
 
 /// Get the current clock configuration of the chip.
@@ -166,8 +191,8 @@ pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clo
 #[cfg(feature = "low-power")]
 /// Get the current stop mode
 pub fn get_stop_mode(_cs: CriticalSection) -> Option<StopMode> {
-    // If rcc config is not set, then we're not ready to stop
-    unsafe { get_rcc_config()? };
+    // If rcc is not initialized, then we're not ready to stop
+    unsafe { get_stop_restore()? };
 
     // We cannot enter standby because we will lose program state.
     if unsafe { REFCOUNT_STOP2 == 0 && REFCOUNT_STOP1 == 0 } {
@@ -674,19 +699,12 @@ pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::
     })
 }
 
-#[cfg(feature = "low-power")]
-#[allow(dead_code)]
-/// Re-initialize the `embassy-stm32` clock configuration with the saved configuration.
-pub(crate) fn reinit_saved(_cs: CriticalSection) {
-    unsafe { init(get_rcc_config().unwrap()) };
-}
-
 pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
     unsafe {
         init(config);
 
         #[cfg(feature = "low-power")]
-        set_rcc_config(Some(config));
+        set_stop_restore(Some(StopRestore::capture()));
     }
 }
 

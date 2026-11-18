@@ -183,6 +183,134 @@ impl Default for Config {
     }
 }
 
+/// Flash wait states for a system clock of `hz` in voltage range `vos` (RM0487 Table 43, LPM=0).
+const fn flash_latency(vos: VoltageScale, hz: u32) -> u8 {
+    match vos {
+        // VOS 1 range VCORE 1.26V - 1.40V
+        VoltageScale::RANGE1 => match hz {
+            ..=32_000_000 => 0,
+            ..=64_000_000 => 1,
+            ..=96_000_000 => 2,
+            _ => 3,
+        },
+        // VOS 2 range VCORE 1.15V - 1.26V
+        VoltageScale::RANGE2 => match hz {
+            ..=16_000_000 => 0,
+            ..=32_000_000 => 1,
+            ..=48_000_000 => 2,
+            _ => 3,
+        },
+    }
+}
+
+/// The clocks to bring back after Stop.
+///
+/// U3 wakes up on MSIS (capped at 48 MHz) or HSI16, as chosen by STOPWUCK, in voltage range 2
+/// except after Stop 0, with HSE, HSI48 and the other oscillators off. The other configuration
+/// registers and the flash latency are kept (RM0487 9.3.3, 10.3). So the latency must cover the
+/// wake-up clock in range 2 before Stop.
+#[cfg(feature = "low-power")]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    sw: Sysclk,
+    range1: bool,
+    boost: bool,
+    latency: u8,
+    /// The flash latency the wake-up clock needs in range 2, if higher than `latency`.
+    wake_latency: Option<u8>,
+}
+
+#[cfg(feature = "low-power")]
+impl StopRestore {
+    pub(crate) fn capture() -> Self {
+        let cfgr1 = RCC.cfgr1().read();
+        let wake_hz = match cfgr1.stopwuck() {
+            crate::pac::rcc::vals::Stopwuck::Hsi16 => HSI_FREQ.0,
+            crate::pac::rcc::vals::Stopwuck::Msis => {
+                let icscr1 = RCC.icscr1().read();
+                let base: u32 = match icscr1.msissel() {
+                    Msissel::Msirc096mhz => 96_000_000,
+                    Msissel::Msirc124mhz => 24_000_000,
+                };
+                (base >> icscr1.msisdiv().to_bits()).min(48_000_000)
+            }
+        };
+        let latency = FLASH.acr().read().latency();
+        let wake_latency = flash_latency(VoltageScale::RANGE2, wake_hz);
+        let vosr = PWR.vosr().read();
+        Self {
+            cr: RCC.cr().read(),
+            sw: Sysclk::from_bits(cfgr1.sws().to_bits()),
+            range1: vosr.r1en(),
+            boost: vosr.boosten(),
+            latency,
+            wake_latency: (wake_latency > latency).then_some(wake_latency),
+        }
+    }
+
+    pub(crate) fn enter(&self) {
+        if let Some(latency) = self.wake_latency {
+            FLASH.acr().modify(|w| w.set_latency(latency));
+            while FLASH.acr().read().latency() != latency {}
+        }
+    }
+
+    pub(crate) fn exit(&self) {
+        let s = self.cr;
+        RCC.cr().modify(|w| {
+            w.set_hseon(w.hseon() | s.hseon());
+            w.set_hsion(w.hsion() | s.hsion());
+            w.set_msison(w.msison() | s.msison());
+            w.set_msikon(w.msikon() | s.msikon());
+            w.set_hsi48on(w.hsi48on() | s.hsi48on());
+        });
+        loop {
+            let cr = RCC.cr().read();
+            if (cr.hserdy() | !s.hseon())
+                && (cr.hsirdy() | !s.hsion())
+                && (cr.msisrdy() | !s.msison())
+                && (cr.msikrdy() | !s.msikon())
+                && (cr.hsi48rdy() | !s.hsi48on())
+            {
+                break;
+            }
+        }
+
+        // RM0487 9.3.3: the range enable bits can only change when the current range is ready.
+        if self.range1 && !PWR.vosr().read().r1en() {
+            while !PWR.vosr().read().r2rdy() {}
+            PWR.vosr().modify(|w| {
+                w.set_r1en(true);
+                w.set_r2en(false);
+            });
+            while !PWR.vosr().read().r1rdy() {}
+        }
+        if self.boost && !PWR.vosr().read().boosten() {
+            PWR.vosr().modify(|w| w.set_boosten(true));
+            while !PWR.vosr().read().boostrdy() {}
+        }
+
+        if RCC.cfgr1().read().sws().to_bits() != self.sw.to_bits() {
+            RCC.cfgr1().modify(|w| w.set_sw(self.sw));
+            while RCC.cfgr1().read().sws().to_bits() != self.sw.to_bits() {}
+        }
+
+        if self.wake_latency.is_some() {
+            FLASH.acr().modify(|w| w.set_latency(self.latency));
+            while FLASH.acr().read().latency() != self.latency {}
+        }
+
+        if !s.hsion() || !s.msison() || !s.msikon() {
+            RCC.cr().modify(|w| {
+                w.set_hsion(w.hsion() & s.hsion());
+                w.set_msison(w.msison() & s.msison());
+                w.set_msikon(w.msikon() & s.msikon());
+            });
+        }
+    }
+}
+
 pub(crate) unsafe fn init(config: Config) {
     // Set the requested power mode
     // Voltage range enable bits must be at opposite values and can
@@ -421,22 +549,7 @@ pub(crate) unsafe fn init(config: Config) {
     // The clock source is ready
     // Calculate and set the flash wait states
     // TODO: add wait states for low power modes
-    let wait_states = match config.voltage_range {
-        // VOS 1 range VCORE 1.26V - 1.40V
-        VoltageScale::RANGE1 => match sys_clk.0 {
-            ..=32_000_000 => 0,
-            ..=64_000_000 => 1,
-            ..=96_000_000 => 2,
-            _ => 3,
-        },
-        // VOS 2 range VCORE 1.15V - 1.26V
-        VoltageScale::RANGE2 => match sys_clk.0 {
-            ..=16_000_000 => 0,
-            ..=32_000_000 => 1,
-            ..=48_000_000 => 2,
-            _ => 3,
-        },
-    };
+    let wait_states = flash_latency(config.voltage_range, sys_clk.0);
     FLASH.acr().modify(|w| {
         w.set_latency(wait_states);
     });

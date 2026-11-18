@@ -32,11 +32,7 @@ teleprobe_meta::target!(b"nucleo-stm32wba65ri");
 teleprobe_meta::target!(b"nucleo-stm32wl55jc");
 teleprobe_meta::timeout!(60);
 
-#[cfg_attr(
-    feature = "lp",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "lp"), embassy_executor::main(entry = "cortex_m_rt::entry"))]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.ls = LsConfig::default_lse();

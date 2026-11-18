@@ -664,7 +664,7 @@ mod dual_core {
         clocks: UnsafeCell<MaybeUninit<Clocks>>,
         config: UnsafeCell<MaybeUninit<SharedConfig>>,
         #[cfg(feature = "low-power")]
-        rcc_config: UnsafeCell<MaybeUninit<Option<rcc::Config>>>,
+        stop_restore: UnsafeCell<MaybeUninit<Option<rcc::StopRestore>>>,
     }
 
     unsafe impl Sync for SharedData {}
@@ -699,7 +699,7 @@ mod dual_core {
 
         rcc::set_freqs_ptr(shared_data.clocks.get());
         #[cfg(feature = "low-power")]
-        rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
+        rcc::set_stop_restore_ptr(shared_data.stop_restore.get());
         let p = init_hw(config);
 
         hsem::get_hsem(1).blocking_notify();
@@ -748,7 +748,7 @@ mod dual_core {
     fn init_secondary_hw(shared_data: &'static SharedData) -> Peripherals {
         rcc::set_freqs_ptr(shared_data.clocks.get());
         #[cfg(feature = "low-power")]
-        rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
+        rcc::set_stop_restore_ptr(shared_data.stop_restore.get());
 
         let config = unsafe { (*shared_data.config.get()).assume_init() };
 
