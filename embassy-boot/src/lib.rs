@@ -28,8 +28,8 @@ pub(crate) const STATE_ERASE_VALUE: u8 = 0x00;
 pub use boot_loader::{BootError, BootLoader, BootLoaderConfig};
 pub use direct_xip::{BlockingDirectXipState, DirectXipConfigError, DirectXipError, DirectXipState, Slot};
 pub use firmware_updater::{
-    BlockingFirmwareState, BlockingFirmwareUpdater, FirmwareState, FirmwareUpdater, FirmwareUpdaterConfig,
-    FirmwareUpdaterError,
+    BlockingFirmwareState, BlockingFirmwareUpdater, BlockingFirmwareUpdaterState, DirectXipUpdate, FirmwareState,
+    FirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError, FirmwareUpdaterState,
 };
 pub use verification::{Digest, VerifyingKey};
 

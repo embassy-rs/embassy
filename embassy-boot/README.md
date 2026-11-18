@@ -42,4 +42,6 @@ Use `DirectXipState` for async flash or `BlockingDirectXipState` for blocking fl
 
 Each record needs 16 bytes, padded to the flash driver's read and write sizes. Use the state type's `BUFFER_SIZE` constant for the scratch buffer length.
 
+Use `FirmwareUpdater::new_direct_xip` or `BlockingFirmwareUpdater::new_direct_xip` to write updates. Pass the inactive slot's flash partition, a direct-XIP state object, and the running slot.
+
 Use separate instances and state partitions to mix modes, such as a swapped network-core image and a direct-XIP application. The application coordinates version compatibility between images.

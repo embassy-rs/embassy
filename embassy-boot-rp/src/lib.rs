@@ -5,9 +5,10 @@
 mod fmt;
 
 pub use embassy_boot::{
-    AlignedBuffer, BlockingDirectXipState, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig,
-    DirectXipConfigError, DirectXipError, DirectXipState, FirmwareState, FirmwareUpdater, FirmwareUpdaterConfig,
-    FirmwareUpdaterError, Slot, State,
+    AlignedBuffer, BlockingDirectXipState, BlockingFirmwareState, BlockingFirmwareUpdater,
+    BlockingFirmwareUpdaterState, BootError, BootLoaderConfig, DirectXipConfigError, DirectXipError, DirectXipState,
+    DirectXipUpdate, FirmwareState, FirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError, FirmwareUpdaterState,
+    Slot, State,
 };
 use embassy_rp::Peri;
 use embassy_rp::flash::{ERASE_SIZE, Flash};

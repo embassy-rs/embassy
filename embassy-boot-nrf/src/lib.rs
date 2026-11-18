@@ -5,9 +5,10 @@
 mod fmt;
 
 pub use embassy_boot::{
-    AlignedBuffer, BlockingDirectXipState, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig,
-    DirectXipConfigError, DirectXipError, DirectXipState, FirmwareState, FirmwareUpdater, FirmwareUpdaterConfig,
-    FirmwareUpdaterError, Slot,
+    AlignedBuffer, BlockingDirectXipState, BlockingFirmwareState, BlockingFirmwareUpdater,
+    BlockingFirmwareUpdaterState, BootError, BootLoaderConfig, DirectXipConfigError, DirectXipError, DirectXipState,
+    DirectXipUpdate, FirmwareState, FirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError, FirmwareUpdaterState,
+    Slot,
 };
 use embassy_nrf::nvmc::PAGE_SIZE;
 use embassy_nrf::{Peri, wdt};

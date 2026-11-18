@@ -4,17 +4,33 @@ use embassy_embedded_hal::flash::partition::BlockingPartition;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage::nor_flash::NorFlash;
 
-use super::FirmwareUpdaterConfig;
+use super::{DirectXipUpdate, FirmwareUpdaterConfig};
 use crate::verification::blocking::{hash, verify};
 use crate::verification::{Digest, VerifyingKey};
-use crate::{BOOT_MAGIC, DFU_DETACH_MAGIC, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, State};
+use crate::{
+    BOOT_MAGIC, BlockingDirectXipState, DFU_DETACH_MAGIC, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, Slot,
+    State,
+};
+
+pub(crate) trait SealedBlockingFirmwareUpdaterState {
+    fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError>;
+    fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError>;
+    fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError>;
+}
+
+/// Boot state supported by a blocking firmware updater.
+#[allow(private_bounds)]
+pub trait BlockingFirmwareUpdaterState: SealedBlockingFirmwareUpdaterState {}
 
 /// Blocking FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
-pub struct BlockingFirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash> {
+///
+/// The default boot state uses swap. Use [`Self::new_direct_xip`] for A/B slots.
+pub struct BlockingFirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash, BOOT = BlockingFirmwareState<'d, STATE>> {
     dfu: DFU,
-    state: BlockingFirmwareState<'d, STATE>,
+    state: BOOT,
     last_erased_dfu_sector_index: Option<usize>,
+    _state: core::marker::PhantomData<&'d mut STATE>,
 }
 
 #[cfg(target_os = "none")]
@@ -94,6 +110,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
             dfu: config.dfu,
             state: BlockingFirmwareState::new(config.state, aligned),
             last_erased_dfu_sector_index: None,
+            _state: core::marker::PhantomData,
         }
     }
 
@@ -106,11 +123,47 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
         self.state.get_state()
     }
 
+    /// Mark to trigger USB DFU device on next boot.
+    pub fn mark_dfu(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted()?;
+        self.state.mark_dfu()
+    }
+}
+
+impl<'d, DFU: NorFlash, STATE: NorFlash>
+    BlockingFirmwareUpdater<'d, DFU, STATE, DirectXipUpdate<BlockingDirectXipState<'d, STATE>>>
+{
+    /// Write updates to the slot opposite `running`.
+    ///
+    /// `dfu` must cover that slot, not the running image. Pass the slot this
+    /// application is running from; flash partitions do not expose their addresses.
+    /// Each image must be linked for its slot unless flash is remapped.
+    pub fn new_direct_xip(dfu: DFU, state: BlockingDirectXipState<'d, STATE>, running: Slot) -> Self {
+        Self {
+            dfu,
+            state: DirectXipUpdate { state, running },
+            last_erased_dfu_sector_index: None,
+            _state: core::marker::PhantomData,
+        }
+    }
+
+    /// Whether the running image is marked as booted.
+    ///
+    /// `false` means it's on trial. Run its startup checks, then call
+    /// [`Self::mark_booted`].
+    pub fn is_booted(&mut self) -> Result<bool, FirmwareUpdaterError> {
+        Ok(self.state.state.is_booted(self.state.running)?)
+    }
+}
+
+impl<'d, DFU: NorFlash, STATE: NorFlash, BOOT: BlockingFirmwareUpdaterState>
+    BlockingFirmwareUpdater<'d, DFU, STATE, BOOT>
+{
     /// Verify the DFU given a public key. If there is an error then DO NOT
     /// proceed with updating the firmware as it must be signed with a
     /// corresponding private key (otherwise it could be malicious firmware).
     ///
-    /// Mark to trigger firmware swap on next boot if verify succeeds.
+    /// Boot the update on the next reset if verification succeeds.
     ///
     /// The signature is expected to have been generated
     /// from the firmware bytes using a digest of the provided type.
@@ -195,17 +248,11 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
         Ok(())
     }
 
-    /// Mark to trigger firmware swap on next boot.
+    /// Boot the update on the next reset.
     ///
     /// With signature support enabled, verify first or use a verifying bootloader.
     pub fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.state.mark_updated()
-    }
-
-    /// Mark to trigger USB DFU device on next boot.
-    pub fn mark_dfu(&mut self) -> Result<(), FirmwareUpdaterError> {
-        self.state.verify_booted()?;
-        self.state.mark_dfu()
     }
 
     /// Mark firmware boot successful and stop rollback on reset.
@@ -387,6 +434,44 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
             self.aligned.fill(magic);
             self.state.write(0, &self.aligned)?;
         }
+        Ok(())
+    }
+}
+
+impl<STATE: NorFlash> BlockingFirmwareUpdaterState for BlockingFirmwareState<'_, STATE> {}
+
+impl<STATE: NorFlash> SealedBlockingFirmwareUpdaterState for BlockingFirmwareState<'_, STATE> {
+    fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
+        BlockingFirmwareState::verify_booted(self)
+    }
+
+    fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
+        BlockingFirmwareState::mark_updated(self)
+    }
+
+    fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
+        BlockingFirmwareState::mark_booted(self)
+    }
+}
+
+impl<STATE: NorFlash> BlockingFirmwareUpdaterState for DirectXipUpdate<BlockingDirectXipState<'_, STATE>> {}
+
+impl<STATE: NorFlash> SealedBlockingFirmwareUpdaterState for DirectXipUpdate<BlockingDirectXipState<'_, STATE>> {
+    fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
+        if self.state.update_slot()? == self.running.other() {
+            Ok(())
+        } else {
+            Err(FirmwareUpdaterError::BadState)
+        }
+    }
+
+    fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.mark_updated(self.running.other())?;
+        Ok(())
+    }
+
+    fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.mark_booted(self.running)?;
         Ok(())
     }
 }

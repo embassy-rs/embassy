@@ -1,11 +1,23 @@
 mod asynch;
 mod blocking;
+#[cfg(test)]
+mod direct_xip_tests;
 
-pub use asynch::{FirmwareState, FirmwareUpdater};
-pub use blocking::{BlockingFirmwareState, BlockingFirmwareUpdater};
+pub use asynch::{FirmwareState, FirmwareUpdater, FirmwareUpdaterState};
+pub use blocking::{BlockingFirmwareState, BlockingFirmwareUpdater, BlockingFirmwareUpdaterState};
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
 use crate::verification::VerificationError;
+use crate::{DirectXipError, Slot};
+
+/// Direct-XIP state and running slot used by a firmware updater.
+///
+/// Created by [`FirmwareUpdater::new_direct_xip`] or
+/// [`BlockingFirmwareUpdater::new_direct_xip`].
+pub struct DirectXipUpdate<S> {
+    pub(super) state: S,
+    pub(super) running: Slot,
+}
 
 /// Firmware updater flash configuration holding the two flashes used by the updater
 ///
@@ -55,6 +67,15 @@ impl From<VerificationError> for FirmwareUpdaterError {
         match error {
             VerificationError::Flash(e) => FirmwareUpdaterError::Flash(e),
             VerificationError::Signature(e) => FirmwareUpdaterError::Signature(e),
+        }
+    }
+}
+
+impl From<DirectXipError> for FirmwareUpdaterError {
+    fn from(error: DirectXipError) -> Self {
+        match error {
+            DirectXipError::Flash(error) => Self::Flash(error),
+            DirectXipError::BadState | DirectXipError::NoValidImage => Self::BadState,
         }
     }
 }
