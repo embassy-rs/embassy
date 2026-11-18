@@ -5,9 +5,9 @@
 
 use core::mem::MaybeUninit;
 
-#[cfg(not(any(stm32c5, stm32g5)))]
+#[cfg(not(stm32c5))]
 mod bd;
-#[cfg(not(any(stm32c5, stm32g5)))]
+#[cfg(not(stm32c5))]
 pub use bd::*;
 
 #[cfg(any(stm32f0, stm32f1, stm32f3))]
