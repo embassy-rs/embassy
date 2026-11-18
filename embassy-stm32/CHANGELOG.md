@@ -310,7 +310,6 @@ RTC:
 - change: stm32/rtc: `RtcTimeProvider::now` is renamed to `read_raw`, and `Rtc::set_datetime` and `AnyRtc::set_datetime` to `set_raw`. They work with `RawDateTime` and do not return a `Result`. `RtcError` is removed.
 - feat: stm32/rtc: add the `jiff` feature, with `RtcTimeProvider::read`, `Rtc::set` and `AnyRtc::set` taking and returning `jiff::civil::DateTime`.
 - change: stm32/rtc: remove the `chrono` feature.
-- fix: stm32/rtc: `DateTime::from` returns `Error::InvalidDay` for a day the month does not have, such as February 30, or February 29 outside a leap year. It accepted any day up to 31, so `RtcTimeProvider::now` on a corrupted calendar returned such a date and converting it to a `chrono::NaiveDateTime` panicked. `now` now returns `RtcError::InvalidDateTime` instead, so code that unwraps it panics on such a calendar instead of receiving the impossible date. This includes the low-power driver with a TIM time driver, which already panicked in `embassy_stm32::init` on an invalid month or hour.
 - fix: stm32/rtc: `Rtc::new` no longer enters init mode when the RTC already has the requested prescalers and the 24-hour format. Leaving init mode restarts the prescaler counters, so `Rtc::new` on a running RTC (e.g. after a reset with the backup domain kept) lost the elapsed fraction of the current second: always on RTC v2 (F0, F2, F3, F4, F7, H7, L0, L1, L4, WB), and on RTC v3 as long as the calendar had not been set to a year other than 2000.
 
 SDMMC:
