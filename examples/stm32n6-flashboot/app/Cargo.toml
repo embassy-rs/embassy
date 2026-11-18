@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 embassy-executor = { version = "0.10.0", path = "../../../embassy-executor", features = ["platform-cortex-m", "executor-thread"] }
-embassy-stm32 = { version = "0.6.0", path = "../../../embassy-stm32", features = ["defmt", "stm32n657x0", "time", "time-driver-any", "exti"] }
+embassy-stm32 = { version = "0.6.0", path = "../../../embassy-stm32", features = ["defmt", "stm32n657x0", "time", "time-driver-any"] }
 embassy-time = { version = "0.5.1", path = "../../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 defmt = "1.0.1"
 defmt-rtt = "1.1.0"

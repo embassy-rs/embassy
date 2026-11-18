@@ -10,7 +10,6 @@ publish = false
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [
   "stm32wl55jc-cm0p",
   "time-driver-lptim1",
-  "exti",
   "unstable-pac",
   "low-power",
   "executor-thread"

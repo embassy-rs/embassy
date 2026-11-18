@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Change stm32l072cz to your chip name, if necessary.
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32l073rz", "unstable-pac", "time-driver-any", "exti", "memory-x", "low-power", "executor-thread"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32l073rz", "unstable-pac", "time-driver-any", "memory-x", "low-power", "executor-thread"]  }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt"] }

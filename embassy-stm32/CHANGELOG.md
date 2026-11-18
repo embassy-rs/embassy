@@ -41,7 +41,7 @@ VREFBUF:
 
 USB:
 - change: stm32/usb: a control transfer stage now ends when the bus is suspended, or VBUS is removed (`exti`), so the event is not missed. The control pipe is part of `Bus`.
-- feat: stm32/usb: add optional VBUS detection for the non-OTG USB peripheral. `Driver::new_with_vbus` takes an `ExtiInput`; when VBUS goes low `Bus::poll` reports `Event::PowerRemoved`, disables the endpoints so pending transfers return `EndpointError::Disabled`, and drops the D+ pull-up where the peripheral exposes it. `Event::PowerDetected` is reported when VBUS returns. Requires the `exti` feature.
+- feat: stm32/usb: add optional VBUS detection for the non-OTG USB peripheral. `Driver::new_with_vbus` takes an `ExtiInput`; when VBUS goes low `Bus::poll` reports `Event::PowerRemoved`, disables the endpoints so pending transfers return `EndpointError::Disabled`, and drops the D+ pull-up where the peripheral exposes it. `Event::PowerDetected` is reported when VBUS returns.
 
 RCC:
 - fix: stm32/rcc g0: enable the flash prefetch after setting the latency; with 2 wait states at 64 MHz and prefetch off code ran 8-16% slower.
@@ -343,6 +343,7 @@ EXTI:
 - fix: stm32/exti: the EXTI interrupt handler only services its own line. It used to mask and clear every pending line 0-15, including lines handled by user code with `ExtiInput<Blocking>`.
 - change: stm32/exti: wakers are only allocated for channels whose `InterruptHandler` is bound, instead of 16 for every program.
 - change: stm32/exti: `embassy_stm32::init` no longer enables the EXTI interrupt vectors in the NVIC. `ExtiInput<Async>` constructors enable their channel's vector. With `ExtiInput<Blocking>` and your own interrupt handler, enable the vector yourself.
+- change: stm32/exti: remove the `exti` Cargo feature. The `exti` module, `ExtiInput`, the async SPI slave constructors, `RingBufferedSpiRx` and USB VBUS detection are always available.
 
 ## 0.6.0 - 2026-03-10
 

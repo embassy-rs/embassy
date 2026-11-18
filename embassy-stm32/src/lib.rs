@@ -204,7 +204,6 @@ pub mod dsihost;
 pub mod dts;
 #[cfg(eth)]
 pub mod eth;
-#[cfg(feature = "exti")]
 pub mod exti;
 #[cfg(flash)]
 pub mod flash;
