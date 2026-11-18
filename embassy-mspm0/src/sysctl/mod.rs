@@ -23,7 +23,6 @@ mod inner;
 
 pub use inner::ClkOutSource;
 
-
 /// Reset cause values from SYSCTL.RSTCAUSE register.
 /// Based on MSPM0 L-series Technical Reference Manual Table 2-9 and
 /// MSPM0 G-series Technical Reference Manual Table 2-12.
