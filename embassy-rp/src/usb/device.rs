@@ -1,4 +1,4 @@
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
@@ -6,7 +6,7 @@ use core::slice;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
-use critical_section::Mutex;
+use critical_section::{CriticalSection, Mutex};
 use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
@@ -97,6 +97,160 @@ fn update_dev_sof_irq<T: Instance>(cs: critical_section::CriticalSection<'_>) {
     }
 }
 
+// One bit per endpoint. Buffer 0 uses DATA0; buffer 1 uses DATA1.
+static EP_IN_NEXT_BUF: Mutex<Cell<u16>> = Mutex::new(Cell::new(0));
+static EP_OUT_NEXT_BUF: Mutex<Cell<u16>> = Mutex::new(Cell::new(0));
+
+fn ep_control<T: Instance>(
+    ep_addr: EndpointAddress,
+) -> pac::common::Reg<pac::usb_dpram::regs::EpControl, pac::common::RW> {
+    match ep_addr.direction() {
+        Direction::In => T::dpram().ep_in_control(ep_addr.index() - 1),
+        Direction::Out => T::dpram().ep_out_control(ep_addr.index() - 1),
+    }
+}
+
+fn is_double_buffered<T: Instance>(ep_addr: EndpointAddress) -> bool {
+    ep_addr.index() != 0 && ep_control::<T>(ep_addr).read().double_buffered()
+}
+
+/// Stop the endpoint before changing its buffers. Call inside a critical section.
+fn with_aborted_double_buffer<T: Instance>(ep_addr: EndpointAddress, f: impl FnOnce()) {
+    let regs = T::regs();
+    let mask = 1u32 << (2 * ep_addr.index() + usize::from(ep_addr.direction() == Direction::Out));
+
+    // RP2040-E2: EP_ABORT_DONE is unreliable before revision B2.
+    #[cfg(feature = "rp2040")]
+    let can_abort = pac::SYSINFO.chip_id().read().revision() >= 2;
+    #[cfg(not(feature = "rp2040"))]
+    let can_abort = true;
+
+    let was_enabled = if !can_abort {
+        let control = ep_control::<T>(ep_addr);
+        let enabled = control.read().enable();
+        control.modify(|w| w.set_enable(false));
+        cortex_m::asm::delay(12);
+        enabled
+    } else {
+        false
+    };
+
+    if can_abort {
+        regs.ep_abort_done().write_clear(|w| w.0 = mask);
+        regs.ep_abort().write_set(|w| w.0 = mask);
+        while regs.ep_abort_done().read().0 & mask == 0 {}
+    }
+
+    f();
+
+    // Both buffers can assert the same status bit.
+    while regs.buff_status().read().0 & mask != 0 {
+        regs.buff_status().write(|w| w.0 = mask);
+    }
+    if can_abort {
+        regs.ep_abort_done().write_clear(|w| w.0 = mask);
+        regs.ep_abort().write_clear(|w| w.0 = mask);
+    } else if was_enabled {
+        ep_control::<T>(ep_addr).modify(|w| w.set_enable(true));
+    }
+}
+
+fn abort_active_transfer(cs: CriticalSection, ep_addr: EndpointAddress) {
+    let index = ep_addr.index();
+    match ep_addr.direction() {
+        Direction::In => {
+            if let Some(xfer) = EP_IN_XFERS.borrow(cs).borrow_mut()[index].as_mut()
+                && !xfer.done
+                && xfer.error.is_none()
+            {
+                xfer.error = Some(EndpointDisabledError);
+            }
+        }
+        Direction::Out => {
+            if let Some(xfer) = EP_OUT_XFERS.borrow(cs).borrow_mut()[index].as_mut()
+                && xfer.result.is_none()
+            {
+                xfer.result = Some(Err(EndpointError::Disabled));
+            }
+        }
+    }
+}
+
+/// Write one half without clobbering the controller's update to the other.
+fn update_buffer_half<T: Instance>(
+    direction: Direction,
+    endpoint: usize,
+    buffer: usize,
+    f: impl FnOnce(&mut pac::usb_dpram::regs::EpBufferControl),
+) {
+    let reg = match direction {
+        Direction::In => T::dpram().ep_in_buffer_control(endpoint),
+        Direction::Out => T::dpram().ep_out_buffer_control(endpoint),
+    };
+    let ptr = reg.as_ptr() as *mut u16;
+    // SAFETY: `buffer` is 0 or 1, and the register has two aligned 16-bit halves.
+    let half: pac::common::Reg<u16, pac::common::RW> = unsafe { pac::common::Reg::from_ptr(ptr.add(buffer)) };
+    half.modify(|w| {
+        let mut value = pac::usb_dpram::regs::EpBufferControl(*w as u32);
+        f(&mut value);
+        *w = value.0 as u16;
+    });
+}
+
+fn reset_double_buffered_in<T: Instance>(cs: CriticalSection, index: usize) {
+    update_buffer_half::<T>(Direction::In, index, 0, |w| {
+        w.0 = 0;
+        w.set_reset(true);
+    });
+    update_buffer_half::<T>(Direction::In, index, 1, |w| w.0 = 0);
+    let next = EP_IN_NEXT_BUF.borrow(cs);
+    next.set(next.get() & !(1 << index));
+}
+
+fn reset_double_buffered_out<T: Instance>(cs: CriticalSection, index: usize, max_packet_size: u16, armed: bool) {
+    for buffer in 0..2 {
+        update_buffer_half::<T>(Direction::Out, index, buffer, |w| {
+            w.0 = 0;
+            w.set_reset(buffer == 0);
+            w.set_pid(0, buffer == 1);
+            w.set_length(0, max_packet_size);
+        });
+    }
+    if armed {
+        cortex_m::asm::delay(12);
+        for buffer in 0..2 {
+            update_buffer_half::<T>(Direction::Out, index, buffer, |w| w.set_available(0, true));
+        }
+    }
+    let next = EP_OUT_NEXT_BUF.borrow(cs);
+    next.set(next.get() & !(1 << index));
+}
+
+fn next_buf(cs: CriticalSection, next: &Mutex<Cell<u16>>, index: usize) -> usize {
+    (next.borrow(cs).get() >> index) as usize & 1
+}
+
+fn toggle_next_buf(cs: CriticalSection, next: &Mutex<Cell<u16>>, index: usize) {
+    let next = next.borrow(cs);
+    next.set(next.get() ^ (1 << index));
+}
+
+fn arm_buffer_half<T: Instance>(direction: Direction, index: usize, buffer: usize, len: u16) {
+    let is_in = direction == Direction::In;
+    let fill = |w: &mut pac::usb_dpram::regs::EpBufferControl| {
+        w.0 = 0;
+        w.set_pid(0, buffer == 1);
+        w.set_length(0, len);
+        w.set_full(0, is_in);
+    };
+    update_buffer_half::<T>(direction, index, buffer, fill);
+    cortex_m::asm::delay(12);
+    update_buffer_half::<T>(direction, index, buffer, |w| {
+        fill(w);
+        w.set_available(0, true);
+    });
+}
+
 struct OutXfer {
     buf_ptr: *mut u8,
     buf_len: usize,
@@ -105,6 +259,7 @@ struct OutXfer {
     dpram_addr: u16,
     dpram_len: u16,
     rearm_always: bool,
+    double: bool,
     result: Option<Result<usize, EndpointError>>,
 }
 
@@ -113,7 +268,14 @@ struct OutXfer {
 unsafe impl Send for OutXfer {}
 
 impl OutXfer {
-    fn new(buf: &mut [u8], max_packet_size: u16, dpram_addr: u16, dpram_len: u16, rearm_always: bool) -> Self {
+    fn new(
+        buf: &mut [u8],
+        max_packet_size: u16,
+        dpram_addr: u16,
+        dpram_len: u16,
+        rearm_always: bool,
+        double: bool,
+    ) -> Self {
         Self {
             buf_ptr: buf.as_mut_ptr(),
             buf_len: buf.len(),
@@ -122,15 +284,41 @@ impl OutXfer {
             dpram_addr,
             dpram_len,
             rearm_always,
+            double,
             result: None,
         }
     }
 
-    fn on_packet<T: Instance>(&mut self, index: usize, val: pac::usb_dpram::regs::EpBufferControl) -> bool {
-        if self.result.is_some() {
-            return false;
+    fn service<T: Instance>(&mut self, cs: CriticalSection, index: usize) -> bool {
+        while self.result.is_none() {
+            let val = T::dpram().ep_out_buffer_control(index).read();
+            let buffer = if self.double {
+                next_buf(cs, &EP_OUT_NEXT_BUF, index)
+            } else {
+                0
+            };
+            // stay parked while stalled, otherwise the re-arm would clear the stall.
+            if val.stall() || val.available(buffer) || (self.double && !val.full(buffer)) {
+                return false;
+            }
+            if self.on_packet::<T>(cs, index, val, buffer) {
+                return true;
+            }
+            if !self.double {
+                return false;
+            }
         }
-        let rx_len = val.length(0) as usize;
+        false
+    }
+
+    fn on_packet<T: Instance>(
+        &mut self,
+        cs: CriticalSection,
+        index: usize,
+        val: pac::usb_dpram::regs::EpBufferControl,
+        buffer: usize,
+    ) -> bool {
+        let rx_len = val.length(buffer) as usize;
         let chunk_len = (self.buf_len - self.total).min(self.max_packet_size as usize);
         if rx_len > chunk_len {
             self.result = Some(Err(EndpointError::BufferOverflow));
@@ -140,11 +328,14 @@ impl OutXfer {
         // SAFETY: `self.buf_ptr..self.buf_ptr + self.buf_len` is borrowed for the lifetime
         // of the active transfer future, and `self.total + rx_len <= self.buf_len`.
         let dst = unsafe { slice::from_raw_parts_mut(self.buf_ptr.add(self.total), rx_len) };
-        EndpointBuffer::<T>::new(self.dpram_addr, self.dpram_len).read(dst);
+        EndpointBuffer::<T>::new(self.dpram_addr + 64 * buffer as u16, self.dpram_len).read(dst);
         self.total += rx_len;
 
         let ended = rx_len < self.max_packet_size as usize || self.total == self.buf_len;
-        if self.rearm_always || !ended {
+        if self.double {
+            arm_buffer_half::<T>(Direction::Out, index, buffer, self.max_packet_size);
+            toggle_next_buf(cs, &EP_OUT_NEXT_BUF, index);
+        } else if self.rearm_always || !ended {
             arm_ep_out_buffer::<T>(index, !val.pid(0), self.max_packet_size);
         }
 
@@ -176,6 +367,7 @@ struct InXfer {
     dpram_addr: u16,
     dpram_len: u16,
     wait_last_complete: bool,
+    double: bool,
     done: bool,
     error: Option<EndpointDisabledError>,
 }
@@ -187,6 +379,36 @@ unsafe impl Send for InXfer {}
 impl InXfer {
     fn has_more(&self) -> bool {
         self.offset < self.buf_len || self.send_zlp
+    }
+
+    fn service<T: Instance>(&mut self, cs: CriticalSection, index: usize) -> bool {
+        if self.done || self.error.is_some() {
+            return false;
+        }
+        if !self.double {
+            let val = T::dpram().ep_in_buffer_control(index).read();
+            // stay parked while stalled, otherwise the re-arm would clear the stall.
+            return !val.available(0) && !val.stall() && self.on_packet::<T>(index, val);
+        }
+        // Done once the last packet is queued.
+        while self.has_more() {
+            let val = T::dpram().ep_in_buffer_control(index).read();
+            let buffer = next_buf(cs, &EP_IN_NEXT_BUF, index);
+            if val.stall() || val.available(buffer) {
+                return false;
+            }
+            let chunk_len = (self.buf_len - self.offset).min(self.max_packet_size as usize);
+            // SAFETY: `self.buf_ptr..self.buf_ptr + self.buf_len` is borrowed for the lifetime
+            // of the active transfer future.
+            let chunk = unsafe { slice::from_raw_parts(self.buf_ptr.add(self.offset), chunk_len) };
+            EndpointBuffer::<T>::new(self.dpram_addr + 64 * buffer as u16, self.dpram_len).write(chunk);
+            arm_buffer_half::<T>(Direction::In, index, buffer, chunk_len as u16);
+            toggle_next_buf(cs, &EP_IN_NEXT_BUF, index);
+            self.offset += chunk_len;
+            self.send_zlp &= chunk_len != 0;
+        }
+        self.done = true;
+        true
     }
 
     fn on_packet<T: Instance>(&mut self, index: usize, val: pac::usb_dpram::regs::EpBufferControl) -> bool {
@@ -385,6 +607,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval: EndpointInterval,
+        buffers: u8,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
         trace!(
             "allocating type={:?} mps={:?} interval={:?}, dir={:?}",
@@ -429,16 +652,21 @@ impl<'d, T: Instance> Driver<'d, T> {
             return Err(EndpointAllocError);
         }
 
+        // `buffers` is a hint: only bulk endpoints of a valid FS size get the second buffer.
+        let double_buffered =
+            buffers >= 2 && ep_type == EndpointType::Bulk && matches!(max_packet_size, 8 | 16 | 32 | 64);
+
         // ep mem addrs must be 64-byte aligned, so there's no point in trying
         // to allocate smaller chunks to save memory.
         let len = max_packet_size.div_ceil(64) * 64;
+        let total_len = if double_buffered { 2 * len } else { len };
 
         let addr = self.ep_mem_free;
-        if addr + len > EP_MEMORY_SIZE as u16 {
+        if addr + total_len > EP_MEMORY_SIZE as u16 {
             warn!("Endpoint memory full");
             return Err(EndpointAllocError);
         }
-        self.ep_mem_free += len;
+        self.ep_mem_free += total_len;
 
         let buf = EndpointBuffer {
             addr,
@@ -464,12 +692,14 @@ impl<'d, T: Instance> Driver<'d, T> {
                 w.set_enable(false);
                 w.set_buffer_address(addr);
                 w.set_interrupt_per_buff(true);
+                w.set_double_buffered(double_buffered);
                 w.set_endpoint_type(ep_type_reg);
             }),
             Direction::In => T::dpram().ep_in_control(index - 1).write(|w| {
                 w.set_enable(false);
                 w.set_buffer_address(addr);
                 w.set_interrupt_per_buff(true);
+                w.set_double_buffered(double_buffered);
                 w.set_endpoint_type(ep_type_reg);
             }),
         }
@@ -572,11 +802,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                             if i > 0 && !T::dpram().ep_in_control(i - 1).read().enable() {
                                 xfer.error = Some(EndpointDisabledError);
                                 EP_IN_WAKERS[i].wake();
-                            } else {
-                                let val = T::dpram().ep_in_buffer_control(i).read();
-                                if !val.available(0) && !val.stall() && xfer.on_packet::<T>(i, val) {
-                                    EP_IN_WAKERS[i].wake();
-                                }
+                            } else if xfer.service::<T>(cs, i) {
+                                EP_IN_WAKERS[i].wake();
                             }
                         } else {
                             let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
@@ -604,11 +831,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                             if i > 0 && !T::dpram().ep_out_control(i - 1).read().enable() {
                                 xfer.result = Some(Err(EndpointError::Disabled));
                                 EP_OUT_WAKERS[i].wake();
-                            } else {
-                                let val = T::dpram().ep_out_buffer_control(i).read();
-                                if !val.available(0) && !val.stall() && xfer.on_packet::<T>(i, val) {
-                                    EP_OUT_WAKERS[i].wake();
-                                }
+                            } else if xfer.service::<T>(cs, i) {
+                                EP_OUT_WAKERS[i].wake();
                             }
                         } else {
                             EP_OUT_WAKERS[i].wake();
@@ -654,11 +878,23 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     type Bus = Bus<'d, T>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+        self.alloc_endpoint(
+            config.ep_type,
+            config.addr,
+            config.max_packet_size,
+            config.interval,
+            config.buffers,
+        )
     }
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+        self.alloc_endpoint(
+            config.ep_type,
+            config.addr,
+            config.max_packet_size,
+            config.interval,
+            config.buffers,
+        )
     }
 
     fn start(self, control_max_packet_size: u16) -> Self::Bus {
@@ -725,6 +961,30 @@ fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, max_packet_size: 
         T::dpram().ep_out_buffer_control(n)
     };
 
+    if n != 0 && is_double_buffered::<T>(ep_addr) {
+        critical_section::with(|cs| {
+            with_aborted_double_buffer::<T>(ep_addr, || {
+                if stalled {
+                    // Flush both halves before exposing STALL to the controller.
+                    update_buffer_half::<T>(ep_addr.direction(), n, 0, |w| {
+                        w.0 = 0;
+                        w.set_stall(true);
+                    });
+                    update_buffer_half::<T>(ep_addr.direction(), n, 1, |w| w.0 = 0);
+                } else {
+                    match ep_addr.direction() {
+                        Direction::In => reset_double_buffered_in::<T>(cs, n),
+                        Direction::Out => reset_double_buffered_out::<T>(cs, n, max_packet_size, true),
+                    }
+                }
+            });
+            abort_active_transfer(cs, ep_addr);
+        });
+        let wakers = if ep_addr.is_in() { &EP_IN_WAKERS } else { &EP_OUT_WAKERS };
+        wakers[n].wake();
+        return;
+    }
+
     match (stalled, ep_addr.direction()) {
         // write, not modify: clears AVAILABLE so an in-flight packet can't complete instead of stalling.
         (true, _) => ctrl.write(|w| w.set_stall(true)),
@@ -732,7 +992,7 @@ fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, max_packet_size: 
         // the control pipe resets EP0's toggle on every SETUP, so only drop the stall.
         (false, _) if n == 0 => ctrl.modify(|w| w.set_stall(false)),
 
-        // clearing a halt resets the toggle to DATA0 (USB 2.0 §9.4.5), but PID is flipped before use.
+        // clearing a halt resets the toggle to DATA0, but PID is flipped before use.
         (false, Direction::In) => ctrl.write(|w| w.set_pid(0, true)),
 
         // same, plus re-arm the buffer that stalling un-armed.
@@ -870,18 +1130,20 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         }
 
         let n = ep_addr.index();
+        let double_buffered = is_double_buffered::<T>(ep_addr);
         match ep_addr.direction() {
             Direction::In => {
                 critical_section::with(|cs| {
-                    T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(enabled));
-                    T::dpram().ep_in_buffer_control(n).write(|w| {
-                        w.set_pid(0, true); // first packet is DATA0, but PID is flipped before
-                    });
-                    if let Some(xfer) = EP_IN_XFERS.borrow(cs).borrow_mut()[n].as_mut() {
-                        if !xfer.done && xfer.error.is_none() {
-                            xfer.error = Some(EndpointDisabledError);
-                        }
+                    if double_buffered {
+                        with_aborted_double_buffer::<T>(ep_addr, || reset_double_buffered_in::<T>(cs, n));
+                        T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(enabled));
+                    } else {
+                        T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(enabled));
+                        T::dpram().ep_in_buffer_control(n).write(|w| {
+                            w.set_pid(0, true); // first packet is DATA0, but PID is flipped before
+                        });
                     }
+                    abort_active_transfer(cs, ep_addr);
                     let is_iso = T::dpram().ep_in_control(n - 1).read().endpoint_type()
                         == pac::usb_dpram::vals::EpControlEndpointType::Isochronous;
                     {
@@ -895,13 +1157,16 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             }
             Direction::Out => {
                 critical_section::with(|cs| {
-                    T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(enabled));
-                    arm_ep_out_buffer::<T>(n, false, self.ep_out[n].max_packet_size);
-                    if let Some(xfer) = EP_OUT_XFERS.borrow(cs).borrow_mut()[n].as_mut() {
-                        if xfer.result.is_none() {
-                            xfer.result = Some(Err(EndpointError::Disabled));
-                        }
+                    if double_buffered {
+                        with_aborted_double_buffer::<T>(ep_addr, || {
+                            reset_double_buffered_out::<T>(cs, n, self.ep_out[n].max_packet_size, enabled)
+                        });
+                        T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(enabled));
+                    } else {
+                        T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(enabled));
+                        arm_ep_out_buffer::<T>(n, false, self.ep_out[n].max_packet_size);
                     }
+                    abort_active_transfer(cs, ep_addr);
                 });
                 EP_OUT_WAKERS[n].wake();
             }
@@ -955,7 +1220,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             }
             let pid = !T::dpram().ep_out_buffer_control(0).read().pid(0);
             arm_ep_out_buffer::<T>(0, pid, max_packet_size);
-            EP_OUT_XFERS.borrow(cs).borrow_mut()[0] = Some(OutXfer::new(buf, max_packet_size, 0x100, 64, false));
+            EP_OUT_XFERS.borrow(cs).borrow_mut()[0] = Some(OutXfer::new(buf, max_packet_size, 0x100, 64, false, false));
             None
         });
         if let Some(res) = immediate {
@@ -1007,6 +1272,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 dpram_addr: 0x100,
                 dpram_len: 64,
                 wait_last_complete: true,
+                double: false,
                 done: false,
                 error: None,
             });
@@ -1176,14 +1442,17 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
             if !T::dpram().ep_out_control(index - 1).read().enable() {
                 return Some(Err(EndpointError::Disabled));
             }
-            let mut xfer = OutXfer::new(buf, self.info.max_packet_size, self.buf.addr, self.buf.len, true);
-            let val = T::dpram().ep_out_buffer_control(index).read();
-            // stay parked while stalled, otherwise the re-arm would clear the stall.
-            if !val.available(0) && !val.stall() {
-                xfer.on_packet::<T>(index, val);
-                if let Some(res) = xfer.result {
-                    return Some(res);
-                }
+            let double = is_double_buffered::<T>(self.info.addr);
+            let mut xfer = OutXfer::new(
+                buf,
+                self.info.max_packet_size,
+                self.buf.addr,
+                self.buf.len,
+                true,
+                double,
+            );
+            if xfer.service::<T>(cs, index) {
+                return xfer.result;
             }
             EP_OUT_XFERS.borrow(cs).borrow_mut()[index] = Some(xfer);
             None
@@ -1218,12 +1487,34 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         trace!("WRITE WAITING, buf.len() = {}, zlp = {}", buf.len(), needs_zlp);
         let index = self.info.addr.index();
         let max_packet_size = self.info.max_packet_size as usize;
+        let double = is_double_buffered::<T>(self.info.addr);
 
         let needs_wait = poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             critical_section::with(|cs| {
                 if !T::dpram().ep_in_control(index - 1).read().enable() {
                     return Poll::Ready(Err(EndpointDisabledError));
+                }
+                if double {
+                    // Queues into whichever buffers are free; the interrupt handler fills the rest.
+                    let mut xfer = InXfer {
+                        buf_ptr: buf.as_ptr(),
+                        buf_len: buf.len(),
+                        offset: 0,
+                        send_zlp: buf.is_empty() || (needs_zlp && buf.len().is_multiple_of(max_packet_size)),
+                        max_packet_size: self.info.max_packet_size,
+                        dpram_addr: self.buf.addr,
+                        dpram_len: self.buf.len,
+                        wait_last_complete: false,
+                        double: true,
+                        done: false,
+                        error: None,
+                    };
+                    if xfer.service::<T>(cs, index) {
+                        return Poll::Ready(Ok(false));
+                    }
+                    EP_IN_XFERS.borrow(cs).borrow_mut()[index] = Some(xfer);
+                    return Poll::Ready(Ok(true));
                 }
                 let val = T::dpram().ep_in_buffer_control(index).read();
                 // stay parked while stalled, otherwise the write below would clear the stall.
@@ -1249,6 +1540,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
                     dpram_addr: self.buf.addr,
                     dpram_len: self.buf.len,
                     wait_last_complete: false,
+                    double: false,
                     done: false,
                     error: None,
                 });
@@ -1281,8 +1573,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
                     trace!("WRITE OK");
                     return Poll::Ready(Ok(()));
                 }
-                let val = T::dpram().ep_in_buffer_control(index).read();
-                if !val.available(0) && !val.stall() && xfer.on_packet::<T>(index, val) {
+                if xfer.service::<T>(cs, index) {
                     xfers[index] = None;
                     trace!("WRITE OK");
                     return Poll::Ready(Ok(()));
