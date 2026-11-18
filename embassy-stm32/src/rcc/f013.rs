@@ -504,7 +504,7 @@ pub(crate) unsafe fn init(config: Config) {
         pclk1_tim: Some(pclk1_tim),
         pclk2_tim: Some(pclk2_tim),
         hclk1: Some(hclk),
-        #[cfg(all(stm32f3, not(rcc_f37)))]
+        #[cfg(any(stm32f1, all(stm32f3, not(rcc_f37))))]
         adc: Some(adc),
         #[cfg(all(stm32f3, not(rcc_f37), any(peri_adc3_common, peri_adc34_common)))]
         adc34: Some(adc34),

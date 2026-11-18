@@ -1062,6 +1062,9 @@ fn main() {
             };
 
             let clock_frequency = match &rcc.kernel_clock {
+                _ if chip_name.starts_with("stm32f1") && p.registers.as_ref().is_some_and(|r| r.kind == "adc") => {
+                    clock_gen.gen_clock(p.name, "ADC")
+                }
                 PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
                 PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
                 PeripheralRccKernelClock::PrescaledMux(mux) => clock_gen.gen_prescaled_mux(p.name, mux),

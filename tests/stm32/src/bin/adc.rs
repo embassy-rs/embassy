@@ -79,6 +79,8 @@ fn set_level(driver: &mut Driver<'_>, method: PinMethod, high: bool) {
 #[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
+    #[cfg(feature = "stm32f103c8")]
+    assert!(embassy_stm32::rcc::frequency::<embassy_stm32::peripherals::ADC1>().0 == 12_000_000);
 
     let mut pin = peri!(p, ADC_PIN);
 
