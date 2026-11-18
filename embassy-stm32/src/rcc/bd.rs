@@ -451,6 +451,13 @@ impl LsConfig {
             }
         }
 
+        // The F1 RTC prescaler is in the backup domain too. Writing it restarts the current second, so it is
+        // only set here, together with the RTC clock.
+        #[cfg(rtc_v1)]
+        if let Some(clk) = rtc_clk {
+            crate::rtc::set_prescaler(clk);
+        }
+
         trace!("BDCR configured: {:08x}", bdcr().read().0);
 
         compiler_fence(Ordering::SeqCst);

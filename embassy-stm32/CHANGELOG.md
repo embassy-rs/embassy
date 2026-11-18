@@ -327,6 +327,7 @@ RTC:
 - change: stm32/rtc: `DateTime` is renamed to `RawDateTime`. It has public fields that hold the calendar register values as stored (the year is within the century, the day of week is a `u8`, the subsecond is the raw `RTC_SSR` counter instead of microseconds), with no validation. `DayOfWeek` and `DateTimeError` are removed.
 - change: stm32/rtc: `RtcTimeProvider::now` is renamed to `read_raw`, and `Rtc::set_datetime` and `AnyRtc::set_datetime` to `set_raw`. They work with `RawDateTime` and do not return a `Result`. `RtcError` is removed.
 - feat: stm32/rtc: add the `jiff` feature, with `RtcTimeProvider::read`, `Rtc::set` and `AnyRtc::set` taking and returning `jiff::civil::DateTime`.
+- feat: stm32/rtc f1: add an RTC driver. The F1 RTC has no calendar: `Rtc` exposes its 32-bit counter, which increments once per second, with `Rtc::counter` and `Rtc::set_counter`.
 - change: stm32/rtc: remove the `chrono` feature.
 - fix: stm32/rtc: `Rtc::new` no longer enters init mode when the RTC already has the requested prescalers and the 24-hour format. Leaving init mode restarts the prescaler counters, so `Rtc::new` on a running RTC (e.g. after a reset with the backup domain kept) lost the elapsed fraction of the current second: always on RTC v2 (F0, F2, F3, F4, F7, H7, L0, L1, L4, WB), and on RTC v3 as long as the calendar had not been set to a year other than 2000.
 

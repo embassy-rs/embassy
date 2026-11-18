@@ -23,7 +23,6 @@ use crate::pac::rtc::regs::{Dr, Tr};
 use crate::time::Hertz;
 
 /// refer to AN4759 to compare features of RTC2 and RTC3
-#[cfg_attr(rtc_v1, path = "v1.rs")]
 #[cfg_attr(rtc_v2, path = "v2.rs")]
 #[cfg_attr(rtc_v3, path = "v3.rs")]
 mod _version;

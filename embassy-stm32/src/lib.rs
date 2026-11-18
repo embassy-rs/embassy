@@ -273,7 +273,8 @@ pub mod ramcfg;
 pub mod rif;
 #[cfg(rng)]
 pub mod rng;
-#[cfg(all(rtc, not(rtc_v1)))]
+#[cfg(rtc)]
+#[cfg_attr(rtc_v1, path = "rtc/v1.rs")]
 pub mod rtc;
 #[cfg(saes)]
 pub mod saes;
