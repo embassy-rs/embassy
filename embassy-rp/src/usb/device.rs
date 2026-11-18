@@ -1,9 +1,11 @@
+use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
+use critical_section::Mutex;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
@@ -22,6 +24,175 @@ const EP_MEMORY: *mut u8 = pac::USB_DPRAM.as_ptr() as *mut u8;
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
+static EP_IN_XFERS: Mutex<RefCell<[Option<InXfer>; EP_COUNT]>> = Mutex::new(RefCell::new([const { None }; EP_COUNT]));
+static EP_OUT_XFERS: Mutex<RefCell<[Option<OutXfer>; EP_COUNT]>> = Mutex::new(RefCell::new([const { None }; EP_COUNT]));
+
+struct OutXfer {
+    buf_ptr: *mut u8,
+    buf_len: usize,
+    total: usize,
+    max_packet_size: u16,
+    dpram_addr: u16,
+    dpram_len: u16,
+    rearm_always: bool,
+    result: Option<Result<usize, EndpointError>>,
+}
+
+// SAFETY: `OutXfer` is only kept active while the owning future holds `&mut [u8]`
+// and is cleared by `OutXferGuard` on drop inside a critical section.
+unsafe impl Send for OutXfer {}
+
+impl OutXfer {
+    fn new(buf: &mut [u8], max_packet_size: u16, dpram_addr: u16, dpram_len: u16, rearm_always: bool) -> Self {
+        Self {
+            buf_ptr: buf.as_mut_ptr(),
+            buf_len: buf.len(),
+            total: 0,
+            max_packet_size,
+            dpram_addr,
+            dpram_len,
+            rearm_always,
+            result: None,
+        }
+    }
+
+    fn on_packet<T: Instance>(&mut self, index: usize, val: pac::usb_dpram::regs::EpBufferControl) -> bool {
+        if self.result.is_some() {
+            return false;
+        }
+        let rx_len = val.length(0) as usize;
+        let chunk_len = (self.buf_len - self.total).min(self.max_packet_size as usize);
+        if rx_len > chunk_len {
+            self.result = Some(Err(EndpointError::BufferOverflow));
+            return true;
+        }
+
+        // SAFETY: `self.buf_ptr..self.buf_ptr + self.buf_len` is borrowed for the lifetime
+        // of the active transfer future, and `self.total + rx_len <= self.buf_len`.
+        let dst = unsafe { slice::from_raw_parts_mut(self.buf_ptr.add(self.total), rx_len) };
+        EndpointBuffer::<T>::new(self.dpram_addr, self.dpram_len).read(dst);
+        self.total += rx_len;
+
+        let ended = rx_len < self.max_packet_size as usize || self.total == self.buf_len;
+        if self.rearm_always || !ended {
+            arm_ep_out_buffer::<T>(index, !val.pid(0), self.max_packet_size);
+        }
+
+        if ended {
+            self.result = Some(Ok(self.total));
+            true
+        } else {
+            false
+        }
+    }
+}
+
+struct OutXferGuard(usize);
+
+impl Drop for OutXferGuard {
+    fn drop(&mut self) {
+        critical_section::with(|cs| {
+            EP_OUT_XFERS.borrow(cs).borrow_mut()[self.0] = None;
+        });
+    }
+}
+
+struct InXfer {
+    buf_ptr: *const u8,
+    buf_len: usize,
+    offset: usize,
+    send_zlp: bool,
+    max_packet_size: u16,
+    dpram_addr: u16,
+    dpram_len: u16,
+    wait_last_complete: bool,
+    done: bool,
+    error: Option<EndpointDisabledError>,
+}
+
+// SAFETY: `InXfer` is only kept active while the owning future holds `&[u8]`
+// and is cleared by `InXferGuard` on drop inside a critical section.
+unsafe impl Send for InXfer {}
+
+impl InXfer {
+    fn has_more(&self) -> bool {
+        self.offset < self.buf_len || self.send_zlp
+    }
+
+    fn on_packet<T: Instance>(&mut self, index: usize, val: pac::usb_dpram::regs::EpBufferControl) -> bool {
+        if self.done || self.error.is_some() {
+            return false;
+        }
+
+        if self.offset < self.buf_len {
+            let chunk_len = (self.buf_len - self.offset).min(self.max_packet_size as usize);
+            // SAFETY: `self.buf_ptr..self.buf_ptr + self.buf_len` is borrowed for the lifetime
+            // of the active transfer future.
+            let chunk = unsafe { slice::from_raw_parts(self.buf_ptr.add(self.offset), chunk_len) };
+            EndpointBuffer::<T>::new(self.dpram_addr, self.dpram_len).write(chunk);
+            self.offset += chunk_len;
+            arm_ep_in_buffer::<T>(index, !val.pid(0), chunk_len as u16);
+
+            if !self.wait_last_complete && !self.has_more() {
+                self.done = true;
+                return true;
+            }
+            false
+        } else if self.send_zlp {
+            self.send_zlp = false;
+            arm_ep_in_buffer::<T>(index, !val.pid(0), 0);
+
+            if !self.wait_last_complete {
+                self.done = true;
+                return true;
+            }
+            false
+        } else {
+            self.done = true;
+            true
+        }
+    }
+}
+
+struct InXferGuard(usize);
+
+impl Drop for InXferGuard {
+    fn drop(&mut self) {
+        critical_section::with(|cs| {
+            EP_IN_XFERS.borrow(cs).borrow_mut()[self.0] = None;
+        });
+    }
+}
+
+fn arm_ep_out_buffer<T: Instance>(index: usize, pid: bool, len: u16) {
+    let bufcontrol = T::dpram().ep_out_buffer_control(index);
+    bufcontrol.write(|w| {
+        w.set_length(0, len);
+        w.set_pid(0, pid);
+    });
+    cortex_m::asm::delay(12);
+    bufcontrol.write(|w| {
+        w.set_length(0, len);
+        w.set_pid(0, pid);
+        w.set_available(0, true);
+    });
+}
+
+fn arm_ep_in_buffer<T: Instance>(index: usize, pid: bool, len: u16) {
+    let bufcontrol = T::dpram().ep_in_buffer_control(index);
+    bufcontrol.write(|w| {
+        w.set_length(0, len);
+        w.set_pid(0, pid);
+        w.set_full(0, true);
+    });
+    cortex_m::asm::delay(12);
+    bufcontrol.write(|w| {
+        w.set_length(0, len);
+        w.set_pid(0, pid);
+        w.set_full(0, true);
+        w.set_available(0, true);
+    });
+}
 
 struct EndpointBuffer<T: Instance> {
     addr: u16,
@@ -251,6 +422,26 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
         if ints.bus_reset() {
             regs.inte().write_clear(|w| w.set_bus_reset(true));
+            critical_section::with(|cs| {
+                let mut in_xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                for (i, slot) in in_xfers.iter_mut().enumerate() {
+                    if let Some(xfer) = slot.as_mut() {
+                        if !xfer.done && xfer.error.is_none() {
+                            xfer.error = Some(EndpointDisabledError);
+                        }
+                        EP_IN_WAKERS[i].wake();
+                    }
+                }
+                let mut out_xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+                for (i, slot) in out_xfers.iter_mut().enumerate() {
+                    if let Some(xfer) = slot.as_mut() {
+                        if xfer.result.is_none() {
+                            xfer.result = Some(Err(EndpointError::Disabled));
+                        }
+                        EP_OUT_WAKERS[i].wake();
+                    }
+                }
+            });
             BUS_WAKER.wake();
         }
         if ints.dev_resume_from_host() {
@@ -270,14 +461,61 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             let s = regs.buff_status().read();
             regs.buff_status().write_value(s);
 
-            for i in 0..EP_COUNT {
-                if s.ep_in(i) {
-                    EP_IN_WAKERS[i].wake();
+            let sie_status = regs.sie_status().read();
+            let ep0_aborted = sie_status.setup_rec() || sie_status.bus_reset();
+
+            critical_section::with(|cs| {
+                let mut in_xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                let mut out_xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+
+                for i in 0..EP_COUNT {
+                    if s.ep_in(i) {
+                        if i == 0 && ep0_aborted {
+                            if let Some(xfer) = in_xfers[0].as_mut() {
+                                if !xfer.done && xfer.error.is_none() {
+                                    xfer.error = Some(EndpointDisabledError);
+                                }
+                            }
+                            EP_IN_WAKERS[0].wake();
+                        } else if let Some(xfer) = in_xfers[i].as_mut() {
+                            if i > 0 && !T::dpram().ep_in_control(i - 1).read().enable() {
+                                xfer.error = Some(EndpointDisabledError);
+                                EP_IN_WAKERS[i].wake();
+                            } else {
+                                let val = T::dpram().ep_in_buffer_control(i).read();
+                                if !val.available(0) && !val.stall() && xfer.on_packet::<T>(i, val) {
+                                    EP_IN_WAKERS[i].wake();
+                                }
+                            }
+                        } else {
+                            EP_IN_WAKERS[i].wake();
+                        }
+                    }
+
+                    if s.ep_out(i) {
+                        if i == 0 && ep0_aborted {
+                            if let Some(xfer) = out_xfers[0].as_mut() {
+                                if xfer.result.is_none() {
+                                    xfer.result = Some(Err(EndpointError::Disabled));
+                                }
+                            }
+                            EP_OUT_WAKERS[0].wake();
+                        } else if let Some(xfer) = out_xfers[i].as_mut() {
+                            if i > 0 && !T::dpram().ep_out_control(i - 1).read().enable() {
+                                xfer.result = Some(Err(EndpointError::Disabled));
+                                EP_OUT_WAKERS[i].wake();
+                            } else {
+                                let val = T::dpram().ep_out_buffer_control(i).read();
+                                if !val.available(0) && !val.stall() && xfer.on_packet::<T>(i, val) {
+                                    EP_OUT_WAKERS[i].wake();
+                                }
+                            }
+                        } else {
+                            EP_OUT_WAKERS[i].wake();
+                        }
+                    }
                 }
-                if s.ep_out(i) {
-                    EP_OUT_WAKERS[i].wake();
-                }
-            }
+            });
         }
     }
 }
@@ -370,19 +608,7 @@ fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, max_packet_size: 
         (false, Direction::In) => ctrl.write(|w| w.set_pid(0, true)),
 
         // same, plus re-arm the buffer that stalling un-armed.
-        (false, Direction::Out) => {
-            ctrl.write(|w| {
-                w.set_pid(0, false);
-                w.set_length(0, max_packet_size);
-            });
-            // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
-            cortex_m::asm::delay(12);
-            ctrl.write(|w| {
-                w.set_pid(0, false);
-                w.set_length(0, max_packet_size);
-                w.set_available(0, true);
-            });
-        }
+        (false, Direction::Out) => arm_ep_out_buffer::<T>(n, false, max_packet_size),
     }
 
     let wakers = if ep_addr.is_in() { &EP_IN_WAKERS } else { &EP_OUT_WAKERS };
@@ -447,6 +673,21 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                     T::dpram().ep_out_control(i - 1).modify(|w| w.set_enable(false));
                 }
 
+                critical_section::with(|cs| {
+                    let mut in_xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                    for xfer in in_xfers.iter_mut().skip(1).flatten() {
+                        if !xfer.done && xfer.error.is_none() {
+                            xfer.error = Some(EndpointDisabledError);
+                        }
+                    }
+                    let mut out_xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+                    for xfer in out_xfers.iter_mut().skip(1).flatten() {
+                        if xfer.result.is_none() {
+                            xfer.result = Some(Err(EndpointError::Disabled));
+                        }
+                    }
+                });
+
                 for w in &EP_IN_WAKERS {
                     w.wake()
                 }
@@ -503,25 +744,28 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         let n = ep_addr.index();
         match ep_addr.direction() {
             Direction::In => {
-                T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(enabled));
-                T::dpram().ep_in_buffer_control(ep_addr.index()).write(|w| {
-                    w.set_pid(0, true); // first packet is DATA0, but PID is flipped before
+                critical_section::with(|cs| {
+                    T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(enabled));
+                    T::dpram().ep_in_buffer_control(n).write(|w| {
+                        w.set_pid(0, true); // first packet is DATA0, but PID is flipped before
+                    });
+                    if let Some(xfer) = EP_IN_XFERS.borrow(cs).borrow_mut()[n].as_mut() {
+                        if !xfer.done && xfer.error.is_none() {
+                            xfer.error = Some(EndpointDisabledError);
+                        }
+                    }
                 });
                 EP_IN_WAKERS[n].wake();
             }
             Direction::Out => {
-                T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(enabled));
-
-                T::dpram().ep_out_buffer_control(ep_addr.index()).write(|w| {
-                    w.set_pid(0, false);
-                    w.set_length(0, self.ep_out[n].max_packet_size);
-                });
-                // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
-                cortex_m::asm::delay(12);
-                T::dpram().ep_out_buffer_control(ep_addr.index()).write(|w| {
-                    w.set_pid(0, false);
-                    w.set_length(0, self.ep_out[n].max_packet_size);
-                    w.set_available(0, true);
+                critical_section::with(|cs| {
+                    T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(enabled));
+                    arm_ep_out_buffer::<T>(n, false, self.ep_out[n].max_packet_size);
+                    if let Some(xfer) = EP_OUT_XFERS.borrow(cs).borrow_mut()[n].as_mut() {
+                        if xfer.result.is_none() {
+                            xfer.result = Some(Err(EndpointError::Disabled));
+                        }
+                    }
                 });
                 EP_OUT_WAKERS[n].wake();
             }
@@ -566,88 +810,103 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        let mut total = 0;
-        loop {
-            let chunk_len = (buf.len() - total).min(self.control_max_packet_size as usize);
-            if chunk_len == 0 && total > 0 {
-                break;
+        trace!("control: data_out len={}", buf.len());
+        let max_packet_size = self.control_max_packet_size.min(64);
+        let immediate = critical_section::with(|cs| {
+            if control_aborted::<T>() {
+                trace!("control: data_out aborted");
+                return Some(Err(EndpointError::Disabled));
             }
-
-            let bufcontrol = T::dpram().ep_out_buffer_control(0);
-            let pid = !bufcontrol.read().pid(0);
-            bufcontrol.write(|w| {
-                w.set_length(0, self.control_max_packet_size);
-                w.set_pid(0, pid);
-            });
-            // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
-            cortex_m::asm::delay(12);
-            bufcontrol.write(|w| {
-                w.set_length(0, self.control_max_packet_size);
-                w.set_pid(0, pid);
-                w.set_available(0, true);
-            });
-
-            trace!("control: data_out chunk len={}", chunk_len);
-            let val = poll_fn(|cx| {
-                register_ep0_wakers(cx);
-                if control_aborted::<T>() {
-                    trace!("control: data_out aborted");
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                let val = T::dpram().ep_out_buffer_control(0).read();
-                if val.available(0) {
-                    Poll::Pending
-                } else {
-                    Poll::Ready(Ok(val))
-                }
-            })
-            .await?;
-
-            let rx_len = val.length(0) as usize;
-            trace!("control data_out DONE, rx_len = {}", rx_len);
-
-            if rx_len > chunk_len {
-                return Err(EndpointError::BufferOverflow);
-            }
-            EndpointBuffer::<T>::new(0x100, 64).read(&mut buf[total..total + rx_len]);
-            total += rx_len;
-
-            if rx_len < self.control_max_packet_size as usize || total == buf.len() {
-                break;
-            }
+            let pid = !T::dpram().ep_out_buffer_control(0).read().pid(0);
+            arm_ep_out_buffer::<T>(0, pid, max_packet_size);
+            EP_OUT_XFERS.borrow(cs).borrow_mut()[0] = Some(OutXfer::new(buf, max_packet_size, 0x100, 64, false));
+            None
+        });
+        if let Some(res) = immediate {
+            return res;
         }
 
-        Ok(total)
+        let _guard = OutXferGuard(0);
+        poll_fn(|cx| {
+            register_ep0_wakers(cx);
+            if control_aborted::<T>() {
+                trace!("control: data_out aborted");
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
+            critical_section::with(|cs| {
+                let mut xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+                let xfer = xfers[0].as_mut().unwrap();
+                if let Some(res) = xfer.result {
+                    xfers[0] = None;
+                    return Poll::Ready(res);
+                }
+                Poll::Pending
+            })
+        })
+        .await
     }
 
     async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-        trace!("control: data_in_transfer len={} zlp={}", data.len(), needs_zlp);
+        trace!("control: data_in len={} zlp={}", data.len(), needs_zlp);
 
-        let max_packet_size = self.control_max_packet_size as usize;
-        if data.is_empty() {
-            self.send_data_in_packet(&[]).await?;
-        } else {
-            for chunk in data.chunks(max_packet_size) {
-                self.send_data_in_packet(chunk).await?;
+        let max_packet_size = (self.control_max_packet_size as usize).min(64);
+        let first_len = data.len().min(max_packet_size);
+        let send_zlp = needs_zlp && !data.is_empty() && data.len().is_multiple_of(max_packet_size);
+
+        let aborted = critical_section::with(|cs| {
+            if control_aborted::<T>() {
+                trace!("control: data_in aborted");
+                return true;
             }
-            if needs_zlp && (data.len() % max_packet_size == 0) {
-                self.send_data_in_packet(&[]).await?;
-            }
+            EndpointBuffer::<T>::new(0x100, 64).write(&data[..first_len]);
+            let pid = !T::dpram().ep_in_buffer_control(0).read().pid(0);
+            arm_ep_in_buffer::<T>(0, pid, first_len as u16);
+
+            EP_IN_XFERS.borrow(cs).borrow_mut()[0] = Some(InXfer {
+                buf_ptr: data.as_ptr(),
+                buf_len: data.len(),
+                offset: first_len,
+                send_zlp,
+                max_packet_size: max_packet_size as u16,
+                dpram_addr: 0x100,
+                dpram_len: 64,
+                wait_last_complete: true,
+                done: false,
+                error: None,
+            });
+            false
+        });
+        if aborted {
+            return Err(EndpointDisabledError);
+        }
+
+        {
+            let _guard = InXferGuard(0);
+            poll_fn(|cx| {
+                register_ep0_wakers(cx);
+                if control_aborted::<T>() {
+                    trace!("control: data_in aborted");
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                critical_section::with(|cs| {
+                    let mut xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                    let xfer = xfers[0].as_mut().unwrap();
+                    if let Some(err) = xfer.error {
+                        xfers[0] = None;
+                        return Poll::Ready(Err(err));
+                    }
+                    if xfer.done {
+                        xfers[0] = None;
+                        return Poll::Ready(Ok(()));
+                    }
+                    Poll::Pending
+                })
+            })
+            .await?;
         }
 
         // prepare status phase right away.
-        let bufcontrol = T::dpram().ep_out_buffer_control(0);
-        bufcontrol.write(|w| {
-            w.set_length(0, 0);
-            w.set_pid(0, true);
-        });
-        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
-        cortex_m::asm::delay(12);
-        bufcontrol.write(|w| {
-            w.set_length(0, 0);
-            w.set_pid(0, true);
-            w.set_available(0, true);
-        });
+        arm_ep_out_buffer::<T>(0, true, 0);
 
         Ok(())
     }
@@ -655,20 +914,8 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     async fn control_accept(&mut self) {
         trace!("control: accept");
 
+        arm_ep_in_buffer::<T>(0, true, 0);
         let bufcontrol = T::dpram().ep_in_buffer_control(0);
-        bufcontrol.write(|w| {
-            w.set_length(0, 0);
-            w.set_pid(0, true);
-            w.set_full(0, true);
-        });
-        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
-        cortex_m::asm::delay(12);
-        bufcontrol.write(|w| {
-            w.set_length(0, 0);
-            w.set_pid(0, true);
-            w.set_full(0, true);
-            w.set_available(0, true);
-        });
 
         // wait for completion before returning, needed so
         // set_address() doesn't happen early.
@@ -786,161 +1033,129 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
     }
 }
 
-impl<'d, T: Instance> Endpoint<'d, T, Out> {
-    async fn read_packet_internal(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        trace!("READ WAITING, buf.len() = {}", buf.len());
-        let index = self.info.addr.index();
-        let val = poll_fn(|cx| {
-            EP_OUT_WAKERS[index].register(cx.waker());
-            let val = T::dpram().ep_out_buffer_control(index).read();
-            // stay parked while stalled, otherwise the re-arm below would clear the stall.
-            if val.available(0) || val.stall() {
-                Poll::Pending
-            } else {
-                Poll::Ready(val)
-            }
-        })
-        .await;
-
-        let rx_len = val.length(0) as usize;
-        if rx_len > buf.len() {
-            return Err(EndpointError::BufferOverflow);
-        }
-        self.buf.read(&mut buf[..rx_len]);
-
-        trace!("READ OK, rx_len = {}", rx_len);
-
-        let pid = !val.pid(0);
-        T::dpram().ep_out_buffer_control(index).write(|w| {
-            w.set_pid(0, pid);
-            w.set_length(0, self.info.max_packet_size);
-        });
-        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
-        cortex_m::asm::delay(12);
-        T::dpram().ep_out_buffer_control(index).write(|w| {
-            w.set_pid(0, pid);
-            w.set_length(0, self.info.max_packet_size);
-            w.set_available(0, true);
-        });
-
-        Ok(rx_len)
-    }
-}
-
 impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        let max_packet_size = self.info.max_packet_size as usize;
-        let mut total = 0;
-        loop {
-            let chunk_len = (buf.len() - total).min(max_packet_size);
-            if chunk_len == 0 && total > 0 {
-                break;
-            }
-            let n = self.read_packet_internal(&mut buf[total..total + chunk_len]).await?;
-            total += n;
-            if n < max_packet_size || total == buf.len() {
-                break;
-            }
-        }
-        Ok(total)
-    }
-}
-
-impl<'d, T: Instance> Endpoint<'d, T, In> {
-    async fn write_packet_internal(&mut self, buf: &[u8]) -> Result<(), EndpointDisabledError> {
-        debug_assert!(buf.len() <= self.info.max_packet_size as usize);
-
-        trace!("WRITE WAITING");
-
+        trace!("READ WAITING, buf.len() = {}", buf.len());
         let index = self.info.addr.index();
-        let val = poll_fn(|cx| {
-            EP_IN_WAKERS[index].register(cx.waker());
-            let val = T::dpram().ep_in_buffer_control(index).read();
-            // stay parked while stalled, otherwise the write below would clear the stall.
-            if val.available(0) || val.stall() {
-                Poll::Pending
-            } else {
-                Poll::Ready(val)
+        let immediate = critical_section::with(|cs| {
+            if !T::dpram().ep_out_control(index - 1).read().enable() {
+                return Some(Err(EndpointError::Disabled));
             }
+            let mut xfer = OutXfer::new(buf, self.info.max_packet_size, self.buf.addr, self.buf.len, true);
+            let val = T::dpram().ep_out_buffer_control(index).read();
+            // stay parked while stalled, otherwise the re-arm would clear the stall.
+            if !val.available(0) && !val.stall() {
+                xfer.on_packet::<T>(index, val);
+                if let Some(res) = xfer.result {
+                    return Some(res);
+                }
+            }
+            EP_OUT_XFERS.borrow(cs).borrow_mut()[index] = Some(xfer);
+            None
+        });
+        if let Some(res) = immediate {
+            return res;
+        }
+
+        let _guard = OutXferGuard(index);
+        poll_fn(|cx| {
+            EP_OUT_WAKERS[index].register(cx.waker());
+            critical_section::with(|cs| {
+                let mut xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+                let xfer = xfers[index].as_mut().unwrap();
+                if let Some(res) = xfer.result {
+                    xfers[index] = None;
+                    return Poll::Ready(res);
+                }
+                if !T::dpram().ep_out_control(index - 1).read().enable() {
+                    xfers[index] = None;
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                Poll::Pending
+            })
         })
-        .await;
-
-        self.buf.write(buf);
-
-        let pid = !val.pid(0);
-        T::dpram().ep_in_buffer_control(index).write(|w| {
-            w.set_pid(0, pid);
-            w.set_length(0, buf.len() as _);
-            w.set_full(0, true);
-        });
-        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
-        cortex_m::asm::delay(12);
-        T::dpram().ep_in_buffer_control(index).write(|w| {
-            w.set_pid(0, pid);
-            w.set_length(0, buf.len() as _);
-            w.set_full(0, true);
-            w.set_available(0, true);
-        });
-
-        trace!("WRITE OK");
-
-        Ok(())
+        .await
     }
 }
 
 impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
     async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        trace!("WRITE WAITING, buf.len() = {}, zlp = {}", buf.len(), needs_zlp);
+        let index = self.info.addr.index();
         let max_packet_size = self.info.max_packet_size as usize;
-        if buf.is_empty() {
-            return self.write_packet_internal(&[]).await;
-        }
-        for chunk in buf.chunks(max_packet_size) {
-            self.write_packet_internal(chunk).await?;
-        }
-        if needs_zlp && (buf.len() % max_packet_size == 0) {
-            self.write_packet_internal(&[]).await?;
-        }
-        Ok(())
-    }
-}
 
-impl<'d, T: Instance> Bus<'d, T> {
-    async fn send_data_in_packet(&mut self, chunk: &[u8]) -> Result<(), EndpointDisabledError> {
-        debug_assert!(chunk.len() <= 64);
-        EndpointBuffer::<T>::new(0x100, 64).write(chunk);
+        let needs_wait = poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            critical_section::with(|cs| {
+                if !T::dpram().ep_in_control(index - 1).read().enable() {
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                let val = T::dpram().ep_in_buffer_control(index).read();
+                // stay parked while stalled, otherwise the write below would clear the stall.
+                if val.available(0) || val.stall() {
+                    return Poll::Pending;
+                }
 
-        let bufcontrol = T::dpram().ep_in_buffer_control(0);
-        let pid = !bufcontrol.read().pid(0);
-        bufcontrol.write(|w| {
-            w.set_length(0, chunk.len() as _);
-            w.set_pid(0, pid);
-            w.set_full(0, true);
-        });
-        // Wait >=1 clk_usb (48 MHz) cycle before setting `available` so DPRAM fields settle.
-        cortex_m::asm::delay(12);
-        bufcontrol.write(|w| {
-            w.set_length(0, chunk.len() as _);
-            w.set_pid(0, pid);
-            w.set_full(0, true);
-            w.set_available(0, true);
-        });
+                let first_len = buf.len().min(max_packet_size);
+                self.buf.write(&buf[..first_len]);
+                arm_ep_in_buffer::<T>(index, !val.pid(0), first_len as u16);
 
-        poll_fn(|cx| {
-            register_ep0_wakers(cx);
-            if control_aborted::<T>() {
-                trace!("control: data_in aborted");
-                return Poll::Ready(Err(EndpointDisabledError));
-            }
-            let bufcontrol = T::dpram().ep_in_buffer_control(0);
-            if bufcontrol.read().available(0) {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(()))
-            }
+                let send_zlp = needs_zlp && !buf.is_empty() && buf.len().is_multiple_of(max_packet_size);
+                if first_len == buf.len() && !send_zlp {
+                    return Poll::Ready(Ok(false));
+                }
+
+                EP_IN_XFERS.borrow(cs).borrow_mut()[index] = Some(InXfer {
+                    buf_ptr: buf.as_ptr(),
+                    buf_len: buf.len(),
+                    offset: first_len,
+                    send_zlp,
+                    max_packet_size: self.info.max_packet_size,
+                    dpram_addr: self.buf.addr,
+                    dpram_len: self.buf.len,
+                    wait_last_complete: false,
+                    done: false,
+                    error: None,
+                });
+                Poll::Ready(Ok(true))
+            })
         })
         .await?;
-        trace!("control: data_in chunk DONE");
-        Ok(())
+
+        if !needs_wait {
+            trace!("WRITE OK");
+            return Ok(());
+        }
+
+        let _guard = InXferGuard(index);
+        poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            critical_section::with(|cs| {
+                let mut xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                let xfer = xfers[index].as_mut().unwrap();
+                if let Some(err) = xfer.error {
+                    xfers[index] = None;
+                    return Poll::Ready(Err(err));
+                }
+                if !T::dpram().ep_in_control(index - 1).read().enable() {
+                    xfers[index] = None;
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                if xfer.done {
+                    xfers[index] = None;
+                    trace!("WRITE OK");
+                    return Poll::Ready(Ok(()));
+                }
+                let val = T::dpram().ep_in_buffer_control(index).read();
+                if !val.available(0) && !val.stall() && xfer.on_packet::<T>(index, val) {
+                    xfers[index] = None;
+                    trace!("WRITE OK");
+                    return Poll::Ready(Ok(()));
+                }
+                Poll::Pending
+            })
+        })
+        .await
     }
 }
 
