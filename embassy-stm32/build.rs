@@ -1064,7 +1064,7 @@ fn main() {
             let clock_frequency = match &rcc.kernel_clock {
                 PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
                 PeripheralRccKernelClock::Clock(clock) => {
-                    // STM32F3 SPI2/SPI3 are dual-purpose. If I2SMOD is set, the audio clock 
+                    // STM32F3 SPI2/SPI3 are dual-purpose. If I2SMOD is set, the audio clock
                     // comes from SYSCLK (or I2S_CKIN). If not, it's standard PCLK.
                     //
                     // Below code is implement a runtime check against I2SCFGR.I2SMOD that returns
@@ -1080,11 +1080,11 @@ fn main() {
                         let default_clock = clock_gen.gen_clock(p.name, clock);
                         let pname = format_ident!("{}", p.name);
                         quote! {
-                            if unsafe { crate::pac::#pname.i2scfgr().read().i2smod() } {
+                            if crate::pac::#pname.i2scfgr().read().i2smod() {
                                 // I2S mode: I2SxCLK source is selected by RCC_CFGR.I2SSRC
-                                let i2ssrc_ckin = unsafe {
-                                    crate::pac::RCC.cfgr().read().i2ssrc() != crate::pac::rcc::vals::Issrc::Sys
-                                };
+                                let i2ssrc_ckin =
+                                    crate::pac::RCC.cfgr().read().i2ssrc() != crate::pac::rcc::vals::Issrc::Sys;
+
                                 if i2ssrc_ckin {
                                     panic!(
                                         "I2S on {} is configured to use external I2S_CKIN, which is not \
