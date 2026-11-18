@@ -310,6 +310,7 @@ RTC:
 - change: stm32/rtc: `RtcTimeProvider::now` is renamed to `read_raw`, and `Rtc::set_datetime` and `AnyRtc::set_datetime` to `set_raw`. They work with `RawDateTime` and do not return a `Result`. `RtcError` is removed.
 - feat: stm32/rtc: add the `jiff` feature, with `RtcTimeProvider::read`, `Rtc::set` and `AnyRtc::set` taking and returning `jiff::civil::DateTime`.
 - change: stm32/rtc: remove the `chrono` feature.
+- fix: stm32/rtc: `Rtc::new` no longer enters init mode when the RTC already has the requested prescalers and the 24-hour format. Leaving init mode restarts the prescaler counters, so `Rtc::new` on a running RTC (e.g. after a reset with the backup domain kept) lost the elapsed fraction of the current second: always on RTC v2 (F0, F2, F3, F4, F7, H7, L0, L1, L4, WB), and on RTC v3 as long as the calendar had not been set to a year other than 2000.
 
 SDMMC:
 - fix: stm32/sdmmc v1: a divisor of 258 was accepted and written as CLKDIV 256, which the 8-bit field stores as 0, so the card clock ran at half the kernel clock instead of 1/258 of it. 257 is now the largest divisor.

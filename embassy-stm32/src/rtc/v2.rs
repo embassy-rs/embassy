@@ -6,20 +6,39 @@ use crate::peripherals::RTC;
 
 #[allow(dead_code)]
 impl super::Rtc {
-    /// Applies the RTC config
-    /// It this changes the RTC clock source the time will be reset
+    /// Applies the RTC config.
+    ///
+    /// The date and time are kept. If the hour format or the prescalers have to change, the RTC
+    /// enters init mode to write them, which restarts the current second: the fraction of it
+    /// that already elapsed is lost. If they already hold the requested values, the calendar
+    /// keeps running undisturbed.
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
-        self.write(true, |rtc| {
+        // These bits can be written while the calendar is running.
+        self.write(false, |rtc| {
             rtc.cr().modify(|w| {
                 #[cfg(not(rtc_v2_f2))]
                 w.set_bypshad(true);
-                #[cfg(rtc_v2_f2)]
-                w.set_fmt(false);
-                #[cfg(not(rtc_v2_f2))]
-                w.set_fmt(stm32_metapac::rtc::vals::Fmt::TwentyFourHour);
                 w.set_osel(Osel::Disabled);
                 w.set_pol(Pol::High);
             });
+        });
+
+        #[cfg(rtc_v2_f2)]
+        let fmt_24h = false;
+        #[cfg(not(rtc_v2_f2))]
+        let fmt_24h = stm32_metapac::rtc::vals::Fmt::TwentyFourHour;
+
+        // The hour format and the prescalers can only be written in init mode. Leaving init mode
+        // restarts the prescaler counters, which loses the elapsed fraction of the current second,
+        // so only enter it if these values have to change. This does not depend on INITS: a
+        // calendar that was never set (year 0) is running too.
+        let prer = RTC::regs().prer().read();
+        if prer.prediv_s() == sync_psc && prer.prediv_a() == async_psc && RTC::regs().cr().read().fmt() == fmt_24h {
+            return;
+        }
+
+        self.write(true, |rtc| {
+            rtc.cr().modify(|w| w.set_fmt(fmt_24h));
 
             rtc.prer().modify(|w| {
                 w.set_prediv_s(sync_psc);
