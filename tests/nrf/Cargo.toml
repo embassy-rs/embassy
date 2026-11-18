@@ -147,6 +147,11 @@ path = "src/bin/buffered_uart_halves.rs"
 required-features = [ "two-uarts",]
 
 [[bin]]
+name = "buffered_uart_irq_stall"
+path = "src/bin/buffered_uart_irq_stall.rs"
+required-features = [ "easydma",]
+
+[[bin]]
 name = "buffered_uart_spam"
 path = "src/bin/buffered_uart_spam.rs"
 required-features = [ "two-uarts",]
