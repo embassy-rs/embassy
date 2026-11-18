@@ -9,8 +9,8 @@
 //!   data bus faults while it runs at priority -1, and the flash error flag is checked
 //!   afterwards.
 //! - All other chips with ECC: the read raises an NMI. embassy-stm32 defines the NMI handler.
-//!   During a read through the driver it clears the flags and records the error. Any other NMI
-//!   panics.
+//!   During a read through the driver it clears the flags and records the error. During a
+//!   program operation it clears the flags (see [`set_programming`]). Any other NMI panics.
 //!
 //! On H5 and C5, the EDATA area and the OTP area have 16-bit words with their own ECC. They
 //! can only be read with 16- or 32-bit accesses. A word that was never programmed since it was
@@ -130,6 +130,23 @@ static READING: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool:
 /// Set by the NMI handler when it handled a double ECC error during a read.
 #[cfg(flash_ecc_nmi)]
 static ECC_ERROR: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+/// Set while the driver runs a program operation.
+#[cfg(flash_ecc_nmi)]
+static PROGRAMMING: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Marks the start or end of a program operation. Programming a word with an uncorrectable ECC
+/// error raises the NMI, which the handler then clears; the status flags report the result.
+pub(super) fn set_programming(programming: bool) {
+    #[cfg(flash_ecc_nmi)]
+    {
+        use core::sync::atomic::{Ordering, compiler_fence};
+        compiler_fence(Ordering::SeqCst);
+        PROGRAMMING.store(programming, Ordering::Relaxed);
+        compiler_fence(Ordering::SeqCst);
+    }
+    #[cfg(not(flash_ecc_nmi))]
+    let _ = programming;
+}
 
 /// Reads a chunk, with the NMI handler armed. Returns `false` on a double ECC error.
 #[cfg(flash_ecc_nmi)]
@@ -236,7 +253,7 @@ pub(super) fn half_word_reads<R>(f: impl FnOnce() -> R) -> R {
 }
 
 /// NMI handler. A double ECC error raised by a flash read of the driver makes the read return
-/// [`Error::Ecc`]. Any other NMI panics.
+/// [`Error::Ecc`]. One raised during a program operation is cleared. Any other NMI panics.
 #[cfg(all(feature = "rt", flash_ecc_nmi))]
 #[allow(non_snake_case)]
 #[unsafe(no_mangle)]
@@ -246,6 +263,8 @@ unsafe extern "C" fn NonMaskableInt() {
     if READING.load(Relaxed) && family::ecc_double_error() {
         family::ecc_clear();
         ECC_ERROR.store(true, Relaxed);
+    } else if PROGRAMMING.load(Relaxed) && family::ecc_double_error() {
+        family::ecc_clear();
     } else {
         panic!("NMI");
     }

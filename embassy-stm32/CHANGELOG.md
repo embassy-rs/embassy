@@ -115,6 +115,7 @@ Flash:
 - fix: G0 with swapped banks erases the requested bank.
 - fix: the caches are flushed after program and erase operations: the `FLASH_ACR` caches (F2/F4, L4, G0/G4, C0, U0, WB, WL), the F7 ART, the ICACHE (L5, U5, U3, WBA, H5, C5) and the Cortex-M7 caches (F7, H7). The `FLASH_ACR` data cache, the F7 ART and the ICACHE are also disabled while the operation runs.
 - fix: async operations prevent the low-power executor from entering Stop mode.
+- fix: programming zeros over a word with an uncorrectable ECC error, as left behind by an interrupted program or erase, no longer panics in the NMI handler on chips that report ECC errors with an NMI.
 
 Low power:
 - fix: stm32/low-power: fail to compile on chip families with no low-power implementation, instead of building a `sleep()` that set `SLEEPDEEP` and entered whatever `PWR` happened to default to, without clearing the wake-up flags or restoring the system clock on wake-up. Implemented families are F4, G4, L0, L4, L5, U0, U3, U5, H5, WB, WBA and WL.
