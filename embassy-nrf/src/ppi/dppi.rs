@@ -11,6 +11,16 @@ pub(crate) fn regs() -> crate::pac::dppic::Dppic {
     crate::pac::DPPIC
 }
 
+/// Power domain of a peripheral register, from its address.
+///
+/// On nRF54L, address bits [23:18] are the APB bus number, which is the power domain. DPPI
+/// channels are local to a power domain: a channel can only connect events and tasks of
+/// peripherals in the same domain as its DPPIC. Use [`ppib`](crate::ppib) to connect domains.
+#[cfg(feature = "_nrf54l")]
+fn domain(addr: *const ()) -> u32 {
+    (addr as u32 >> 18) & 0x3F
+}
+
 impl<'d> Ppi<'d, 1, 1> {
     /// Configure PPI channel to trigger `task` on `event`.
     pub fn new_one_to_one(ch: Peri<'d, impl ConfigurableChannel>, event: Event<'d>, task: Task<'d>) -> Self {
@@ -53,6 +63,23 @@ impl<'d, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'d, EVENT_COUNT,
         events: [Event<'d>; EVENT_COUNT],
         tasks: [Task<'d>; TASK_COUNT],
     ) -> Self {
+        #[cfg(feature = "_nrf54l")]
+        {
+            let d = domain(ch.regs().as_ptr() as _);
+            for task in &tasks {
+                assert!(
+                    domain(task.0.as_ptr() as _) == d,
+                    "PPI task is not in the channel's power domain. Use a channel from the task's domain, or connect the domains with a ppib::Ppib."
+                );
+            }
+            for event in &events {
+                assert!(
+                    domain(event.0.as_ptr() as _) == d,
+                    "PPI event is not in the channel's power domain. Use a channel from the event's domain, or connect the domains with a ppib::Ppib."
+                );
+            }
+        }
+
         let val = DPPI_ENABLE_BIT | (ch.number() as u32 & DPPI_CHANNEL_MASK);
         for task in tasks {
             if unsafe { task.subscribe_reg().read_volatile() } != 0 {
@@ -123,6 +150,11 @@ impl<'d> PpiGroup<'d> {
         let r = self.g.regs();
         let ng = self.g.number();
         let nc = ch.ch.number();
+        #[cfg(feature = "_nrf54l")]
+        assert!(
+            r.as_ptr() == ch.ch.regs().as_ptr(),
+            "PPI group and channel are in different power domains"
+        );
 
         let en = r.subscribe_chg(ng).en().read();
         let dis = r.subscribe_chg(ng).dis().read();
@@ -145,6 +177,11 @@ impl<'d> PpiGroup<'d> {
         let r = self.g.regs();
         let ng = self.g.number();
         let nc = ch.ch.number();
+        #[cfg(feature = "_nrf54l")]
+        assert!(
+            r.as_ptr() == ch.ch.regs().as_ptr(),
+            "PPI group and channel are in different power domains"
+        );
 
         let en = r.subscribe_chg(ng).en().read();
         let dis = r.subscribe_chg(ng).dis().read();

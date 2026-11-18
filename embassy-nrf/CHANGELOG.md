@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - changed: PAC types no longer implement `Debug` by default.
 - added: `pac-defmt` and `pac-debug` Cargo features, which implement `defmt::Format` and `Debug` for PAC types.
 - changed: usb: the control pipe is part of `Bus`, and a control transfer stage now ends when the bus is suspended, so the suspend is not missed.
+- added: on nRF54L, `ppi::Ppi` constructors panic if an event or task is not in the channel's power domain, and `PpiGroup::add_channel`/`remove_channel` panic if the group and channel are in different power domains.
 - removed: `gpio::AnyPin` is no longer public. Pass type-erased pins around as `gpio::Flex`, `gpio::Input` or `gpio::Output`.
 - changed: `gpio` `persist()` no longer requires a `'static` pin.
 - changed: drivers take per-signal pin traits instead of `gpio::Pin`: `spim::{SckPin, MosiPin, MisoPin}`, `spis::{SckPin, MosiPin, MisoPin, CsPin}`, `uarte::{TxPin, RxPin, CtsPin, RtsPin}` (also used by `buffered_uarte`), `twim::{SclPin, SdaPin}`, `twis::{SclPin, SdaPin}`, `pwm::OutPin`, `pdm::{ClkPin, DinPin}`, `i2s::{MckPin, SckPin, LrckPin}`, `qdec::{APin, BPin, LedPin}`, `qspi::{SckPin, CsPin, Io0Pin, Io1Pin, Io2Pin, Io3Pin}` and `sqspi::{SckPin, CsPin, Io0Pin, Io1Pin, Io2Pin, Io3Pin}`. They're implemented for all pins, except on nRF54L.
