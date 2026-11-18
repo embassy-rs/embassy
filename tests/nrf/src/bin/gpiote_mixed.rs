@@ -1,3 +1,4 @@
+// required-features: easydma
 //! HAL GPIO/GPIOTE interrupt handlers and a user handler bound on the same GPIOTE interrupt.
 //!
 //! PIN_A is an async `Input`, then an async `InputChannel`. PIN_B drives the wire, and its own

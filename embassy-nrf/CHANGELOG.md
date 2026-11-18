@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- fixed: `buffered_uarte`: RX no longer hangs if interrupts are delayed while both halves of the RX buffer fill up (nRF52, nRF53, nRF91).
 - changed: PAC types no longer implement `Debug` by default.
 - added: `pac-defmt` and `pac-debug` Cargo features, which implement `defmt::Format` and `Debug` for PAC types.
 - changed: usb: the control pipe is part of `Bus`, and a control transfer stage now ends when the bus is suspended, so the suspend is not missed.
