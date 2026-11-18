@@ -1063,7 +1063,51 @@ fn main() {
 
             let clock_frequency = match &rcc.kernel_clock {
                 PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
-                PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
+                PeripheralRccKernelClock::Clock(clock) => {
+                    // STM32F3 SPI2/SPI3 are dual-purpose. If I2SMOD is set, the audio clock
+                    // comes from SYSCLK (or I2S_CKIN). If not, it's standard PCLK.
+                    //
+                    // Below code is implement a runtime check against I2SCFGR.I2SMOD that returns
+                    // the SPI clock in SPI mode and the I2S clock in I2S mode.
+                    let is_f3_i2s_capable = chip_name.starts_with("stm32f3")
+                        && p.name.starts_with("SPI")
+                        && p.name
+                            .strip_prefix("SPI")
+                            .map(|n| peripheral_map.contains_key(format!("I2S{}", n).as_str()))
+                            .unwrap_or(false);
+
+                    if is_f3_i2s_capable {
+                        let default_clock = clock_gen.gen_clock(p.name, clock);
+                        let pname = format_ident!("{}", p.name);
+                        quote! {
+                            if crate::pac::#pname.i2scfgr().read().i2smod() {
+                                // I2S mode: I2SxCLK source is selected by RCC_CFGR.I2SSRC
+                                let i2ssrc_ckin =
+                                    crate::pac::RCC.cfgr().read().i2ssrc() != crate::pac::rcc::vals::Issrc::Sys;
+
+                                if i2ssrc_ckin {
+                                    panic!(
+                                        "I2S on {} is configured to use external I2S_CKIN, which is not \
+                                         supported by this driver. Clear RCC_CFGR.I2SSRC to use SYSCLK.",
+                                        stringify!(#pname)
+                                    );
+                                }
+                                unsafe { crate::rcc::get_freqs() }
+                                    .sys
+                                    .to_hertz()
+                                    .unwrap_or_else(|| panic!(
+                                        "I2S on {} requires SYSCLK to be running, but it is not configured",
+                                        stringify!(#pname)
+                                    ))
+                            } else {
+                                // SPI mode: PCLK1 as before
+                                #default_clock
+                            }
+                        }
+                    } else {
+                        clock_gen.gen_clock(p.name, clock)
+                    }
+                }
                 PeripheralRccKernelClock::PrescaledMux(mux) => clock_gen.gen_prescaled_mux(p.name, mux),
             };
 
