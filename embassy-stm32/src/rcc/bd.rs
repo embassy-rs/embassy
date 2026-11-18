@@ -175,7 +175,7 @@ impl LsConfig {
         // Disable backup domain write protection
         unlock();
 
-        if self.lsi {
+        let enable_lsi = || {
             #[cfg(any(stm32u5, stm32h5, stm32wba))]
             let csr = crate::pac::RCC.bdcr();
             #[cfg(stm32n6)]
@@ -199,6 +199,9 @@ impl LsConfig {
 
             #[cfg(any(rcc_wb, rcc_wba))]
             while !csr.read().lsi1rdy() {}
+        };
+        if self.lsi {
+            enable_lsi();
         }
 
         // Enable backup regulator for persistent battery backed sram
@@ -332,6 +335,12 @@ impl LsConfig {
         {
             bdcr().modify(|w| w.set_bdrst(true));
             bdcr().modify(|w| w.set_bdrst(false));
+        }
+        // The reset turns the LSI off on WBA, although RM0493 says it doesn't reset LSI1ON
+        // (checked on an STM32WBA52).
+        #[cfg(stm32wba)]
+        if self.lsi {
+            enable_lsi();
         }
         // H5 has a terrible, terrible errata: 'SRAM2 is erased when the backup domain is reset'
         // pending a more sane sane way to handle this, just don't reset BD for now.
