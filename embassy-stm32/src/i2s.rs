@@ -658,8 +658,26 @@ impl<'d, W: Word> I2S<'d, W> {
 
         #[cfg(any(all(rcc_f4, not(stm32f410)), rcc_f2, rcc_f7))]
         let pclk = unsafe { crate::rcc::get_freqs() }.plli2s1_r.to_hertz().unwrap();
-        #[cfg(not(any(all(rcc_f4, not(stm32f410)), rcc_f2, rcc_f7)))]
+        #[cfg(not(any(all(rcc_f4, not(stm32f410)), rcc_f2, rcc_f7, stm32f3)))]
         let pclk = T::frequency();
+        #[cfg(stm32f3)]
+        let pclk = {
+            // On STM32F3, I2SxCLK is either SYSCLK or the external I2S_CKIN pin.
+            // It is NOT PCLK1 (that is only the SPI kernel clock).
+            let cfgr = crate::pac::RCC.cfgr().read();
+            match cfgr.i2ssrc() {
+                crate::pac::rcc::vals::Issrc::Sys => {
+                    // SAFETY: RCC must have been initialised before I2S construction.
+                    unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap()
+                }
+                crate::pac::rcc::vals::Issrc::Ckin => {
+                    panic!(
+                        "I2S on STM32F3 is configured to use I2S_CKIN; \
+                    either switch I2SSRC to SYSCLK or provide the CKIN frequency"
+                    )
+                }
+            }
+        };
 
         let (odd, div) = compute_baud_rate(pclk, config.frequency, config.master_clock, config.format);
 
