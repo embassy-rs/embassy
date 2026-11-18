@@ -506,6 +506,14 @@ impl WakeGuard {
             stop_mode,
         }
     }
+
+    /// Keeps the chip out of every Stop mode.
+    pub(crate) fn no_stop() -> Self {
+        Self::new(
+            #[cfg(feature = "low-power")]
+            StopMode::Stop1,
+        )
+    }
 }
 
 impl Drop for WakeGuard {

@@ -126,7 +126,7 @@ impl<'d> UartRx<'d, Async> {
         let rx = unsafe { self.rx.as_ref().map(|x| x.clone_unchecked()) };
         let rts = unsafe { self.rts.as_ref().map(|x| x.clone_unchecked()) };
 
-        let wake_guard = self.info.rcc.wake_guard();
+        let wake_guard = WakeGuard::no_stop();
 
         // Don't disable the clock
         mem::forget(self);
