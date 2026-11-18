@@ -5,7 +5,6 @@
 #[path = "../common.rs"]
 mod common;
 use common::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_net::iface::Iface;
@@ -19,7 +18,6 @@ use embassy_stm32::rcc::{StopMode, WakeGuard};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng};
 use embassy_time::{Duration, with_timeout};
-use panic_probe as _;
 use static_cell::StaticCell;
 
 teleprobe_meta::timeout!(120);
@@ -49,11 +47,7 @@ const SERVER_ADDRESS: Ipv4Addr = Ipv4Addr::new(192, 168, 2, 2);
 const DOWNLOAD_PORT: u16 = 4321;
 const DOWNLOAD_BYTES: usize = 256 * 1024;
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let mut p = init();
     info!("Hello World!");

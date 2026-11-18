@@ -15,7 +15,6 @@ use embassy_stm32::flash::{
 };
 use embassy_stm32::mode::Mode;
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
-use panic_probe as _;
 
 teleprobe_meta::timeout!(120);
 
@@ -67,20 +66,20 @@ struct Sector {
     erase_value: u8,
 }
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     // This image stays in flash after the test. teleprobe power-cycles the board before every
     // run, so it boots again while teleprobe attaches for the next test. Resetting in the middle
-    // of erases during the attach makes it time out. A power cycle clears C_DEBUGEN, the test's
-    // own resets don't, so park until the debugger takes over.
+    // of erases during the attach makes it time out, and so does resetting while teleprobe resets
+    // and halts the core (the test clears VC_CORERESET). teleprobe starts the test with the
+    // debugger attached. A power cycle clears C_DEBUGEN, the test's own resets don't. So without
+    // a debugger at boot, this is the leftover image: park for good, teleprobe takes over.
     // Cortex-M0+ (G0, U0) software can't read DHCSR.
     #[cfg(all(ecc_reset, not(any(feature = "stm32g071rb", feature = "stm32u083rc"))))]
-    while !cortex_m::peripheral::DCB::is_debugger_attached() {
-        core::hint::spin_loop();
+    if !cortex_m::peripheral::DCB::is_debugger_attached() {
+        loop {
+            core::hint::spin_loop();
+        }
     }
 
     let mut p = init();

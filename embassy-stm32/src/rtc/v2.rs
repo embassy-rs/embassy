@@ -147,16 +147,16 @@ impl super::Rtc {
 impl SealedInstance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 20;
 
-    #[cfg(all(feature = "low-power", stm32f4))]
+    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver"), stm32f4))]
     const EXTI_WAKEUP_LINE: usize = 22;
 
-    #[cfg(all(feature = "low-power", stm32l4))]
+    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver"), stm32l4))]
     const EXTI_WAKEUP_LINE: usize = 20;
 
-    #[cfg(all(feature = "low-power", stm32l0))]
+    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver"), stm32l0))]
     const EXTI_WAKEUP_LINE: usize = 20;
 
-    #[cfg(all(feature = "low-power", stm32wb))]
+    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver"), stm32wb))]
     const EXTI_WAKEUP_LINE: usize = 19;
 
     #[cfg(all(feature = "low-power", any(stm32f4, stm32l4, stm32wb)))]

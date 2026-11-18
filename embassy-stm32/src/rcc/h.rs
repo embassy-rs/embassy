@@ -13,6 +13,7 @@ pub use crate::pac::rcc::vals::{
 };
 use crate::pac::rcc::vals::{Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::LSI_FREQ;
 #[cfg(dsihost)]
 use crate::rcc::dsi;
 #[cfg(dsihost)]
@@ -882,8 +883,8 @@ pub(crate) unsafe fn init(config: Config) {
         csi: csi,
         hse: hse,
 
-        lse: None,
-        lsi: None,
+        lse: config.ls.lse.map(|l| l.frequency),
+        lsi: config.ls.lsi.then_some(LSI_FREQ),
 
         pll1_q: pll1.q,
         pll2_p: pll2.p,
@@ -1091,7 +1092,139 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
     }
 }
 
+/// The clocks to bring back after Stop.
+///
+/// H5 wakes up on HSI (at its HSIDIV frequency) or CSI, as chosen by STOPWUCK, in voltage scale 3,
+/// with HSE, the PLLs and HSI48 off. The configuration registers and the flash latency are kept
+/// (RM0481 10.7.1, 10.8.5, 11.4.9). So the latency must cover the wake-up clock at VOS3 before
+/// Stop, e.g. 3 wait states for HSI at 64 MHz.
+#[cfg(all(feature = "low-power", stm32h5))]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    sw: Sysclk,
+    vos: crate::pac::pwr::vals::Vos,
+    /// Flash latency and WRHIGHFREQ.
+    latency: (u8, u8),
+    /// The flash latency the wake-up clock needs at VOS3, if higher than `latency`.
+    wake_latency: Option<(u8, u8)>,
+}
+
+#[cfg(all(feature = "low-power", stm32h5))]
+impl StopRestore {
+    #[cfg(rcc_h50)]
+    const PLLS: usize = 2;
+    #[cfg(not(rcc_h50))]
+    const PLLS: usize = 3;
+
+    pub(crate) fn capture() -> Self {
+        let cr = RCC.cr().read();
+        let cfgr = RCC.cfgr().read();
+        let acr = FLASH.acr().read();
+        let latency = (acr.latency(), acr.wrhighfreq());
+
+        let wake_clk = if cfgr.stopwuck() == crate::pac::rcc::vals::Stopwuck::Csi {
+            CSI_FREQ
+        } else {
+            HSI_FREQ / cr.hsidiv()
+        };
+        let wake_latency = flash_latency(wake_clk / cfgr2_hpre(), VoltageScale::Scale3);
+
+        Self {
+            cr,
+            sw: cfgr.sws(),
+            vos: PWR.voscr().read().vos(),
+            latency,
+            wake_latency: (wake_latency.0 > latency.0).then_some(wake_latency),
+        }
+    }
+
+    pub(crate) fn enter(&self) {
+        if let Some(latency) = self.wake_latency {
+            set_latency(latency);
+        }
+    }
+
+    pub(crate) fn exit(&self) {
+        // The voltage first: the clocks may need more than VOS3.
+        if PWR.voscr().read().vos() != self.vos {
+            PWR.voscr().modify(|w| w.set_vos(self.vos));
+            while !PWR.vossr().read().vosrdy() {}
+        }
+
+        let s = self.cr;
+        RCC.cr().modify(|w| {
+            w.set_hseon(w.hseon() | s.hseon());
+            w.set_csion(w.csion() | s.csion());
+            w.set_hsion(w.hsion() | s.hsion());
+            w.set_hsi48on(w.hsi48on() | s.hsi48on());
+        });
+        loop {
+            let cr = RCC.cr().read();
+            if (cr.hserdy() | !s.hseon())
+                && (cr.csirdy() | !s.csion())
+                && (cr.hsirdy() | !s.hsion())
+                && (cr.hsi48rdy() | !s.hsi48on())
+            {
+                break;
+            }
+        }
+
+        RCC.cr().modify(|w| {
+            for n in 0..Self::PLLS {
+                w.set_pllon(n, w.pllon(n) | s.pllon(n));
+            }
+        });
+        for n in 0..Self::PLLS {
+            while s.pllon(n) && !RCC.cr().read().pllrdy(n) {}
+        }
+
+        if RCC.cfgr().read().sws() != self.sw {
+            RCC.cfgr().modify(|w| w.set_sw(self.sw));
+            while RCC.cfgr().read().sws() != self.sw {}
+        }
+
+        if self.wake_latency.is_some() {
+            set_latency(self.latency);
+        }
+
+        if !s.hsion() || !s.csion() {
+            RCC.cr().modify(|w| {
+                w.set_hsion(w.hsion() & s.hsion());
+                w.set_csion(w.csion() & s.csion());
+            });
+        }
+    }
+}
+
+#[cfg(all(feature = "low-power", stm32h5))]
+fn cfgr2_hpre() -> AHBPrescaler {
+    RCC.cfgr2().read().hpre()
+}
+
+#[cfg(all(feature = "low-power", stm32h5))]
+fn set_latency((latency, wrhighfreq): (u8, u8)) {
+    FLASH.acr().modify(|w| {
+        w.set_latency(latency);
+        w.set_wrhighfreq(wrhighfreq);
+    });
+    while FLASH.acr().read().latency() != latency {}
+}
+
 fn flash_setup(clk: Hertz, vos: VoltageScale) {
+    let (latency, wrhighfreq) = flash_latency(clk, vos);
+
+    debug!("flash: latency={} wrhighfreq={}", latency, wrhighfreq);
+
+    FLASH.acr().write(|w| {
+        w.set_wrhighfreq(wrhighfreq);
+        w.set_latency(latency);
+    });
+    while FLASH.acr().read().latency() != latency {}
+}
+
+/// Flash wait states and programming delay for an AXI/AHB clock of `clk` at voltage scale `vos`.
+fn flash_latency(clk: Hertz, vos: VoltageScale) -> (u8, u8) {
     // RM0481 Rev 1, table 37
     // LATENCY  WRHIGHFREQ  VOS3           VOS2            VOS1            VOS0
     //      0           0   0 to 20 MHz    0 to 30 MHz     0 to 34 MHz     0 to 42 MHz
@@ -1237,13 +1370,7 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
         _ => unreachable!(),
     };
 
-    debug!("flash: latency={} wrhighfreq={}", latency, wrhighfreq);
-
-    FLASH.acr().write(|w| {
-        w.set_wrhighfreq(wrhighfreq);
-        w.set_latency(latency);
-    });
-    while FLASH.acr().read().latency() != latency {}
+    (latency, wrhighfreq)
 }
 
 /// Compensation cell calibration values. The N-MOS and P-MOS transistors slew

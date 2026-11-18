@@ -1,0 +1,64 @@
+[package]
+edition = "2024"
+name = "embassy-stm32-lptim-tests"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# The LPTIM time driver can't be tested in `tests/stm32`, which uses `time-driver-any`.
+
+[features]
+stm32g491re = ["embassy-stm32/stm32g491re"]
+stm32h563zi = ["embassy-stm32/stm32h563zi"]
+stm32l073rz = ["embassy-stm32/stm32l073rz"]
+stm32l496zg = ["embassy-stm32/stm32l496zg"]
+stm32l4a6zg = ["embassy-stm32/stm32l4a6zg"]
+stm32l4r5zi = ["embassy-stm32/stm32l4r5zi", "embassy-stm32/dual-bank"]
+stm32u083rc = ["embassy-stm32/stm32u083rc"]
+stm32u585ai = ["embassy-stm32/stm32u585ai"]
+stm32wba65ri = ["embassy-stm32/stm32wba65ri"]
+stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4"]
+
+[dependencies]
+teleprobe-meta = "1"
+
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["defmt"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "tick-hz-32_768"] }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "unstable-pac", "memory-x", "time-driver-lptim1", "low-power", "executor-thread"] }
+
+defmt = "1.1.1"
+defmt-rtt = "1.3.0"
+
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.5"
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+
+[profile.dev]
+debug = 2
+debug-assertions = true
+opt-level = 's'
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
+opt-level = 's'
+overflow-checks = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", features = ["stm32g491re"], artifact-dir = "out/tests/stm32g491re" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32h563zi"], artifact-dir = "out/tests/stm32h563zi" },
+  { target = "thumbv6m-none-eabi", features = ["stm32l073rz"], artifact-dir = "out/tests/stm32l073rz" },
+  { target = "thumbv7em-none-eabi", features = ["stm32l496zg"], artifact-dir = "out/tests/stm32l496zg" },
+  { target = "thumbv7em-none-eabi", features = ["stm32l4a6zg"], artifact-dir = "out/tests/stm32l4a6zg" },
+  { target = "thumbv7em-none-eabi", features = ["stm32l4r5zi"], artifact-dir = "out/tests/stm32l4r5zi" },
+  { target = "thumbv6m-none-eabi", features = ["stm32u083rc"], artifact-dir = "out/tests/stm32u083rc" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32u585ai"], artifact-dir = "out/tests/stm32u585ai" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32wba65ri"], artifact-dir = "out/tests/stm32wba65ri" },
+  { target = "thumbv7em-none-eabi", features = ["stm32wl55jc"], artifact-dir = "out/tests/stm32wl55jc" },
+]
+

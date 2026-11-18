@@ -27,7 +27,7 @@ use crate::pac::usart::Lpuart as Regs;
 #[cfg(any(usart_v1, usart_v2))]
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
-use crate::rcc::{RccInfo, SealedRccPeripheral};
+use crate::rcc::{RccInfo, SealedRccPeripheral, WakeGuard};
 use crate::time::Hertz;
 
 /// Interrupt handler.
@@ -624,7 +624,9 @@ impl<'d> UartTx<'d, Async> {
     }
 
     async fn write_helper<W: UsartWord>(&mut self, buffer: &[W]) -> Result<(), Error> {
-        let _scoped_wake_guard = self.info.rcc.wake_guard();
+        // Some instances work in Stop, but only with UESM set and a kernel clock that runs in
+        // Stop. The driver sets up neither, so a transfer keeps the chip out of Stop.
+        let _scoped_wake_guard = WakeGuard::no_stop();
 
         let r = self.info.regs;
         let half_duplex = r.cr3().read().hdsel();
@@ -683,7 +685,7 @@ impl<'d> UartTx<'d, Async> {
 
     /// Wait until transmission complete
     pub async fn flush(&mut self) -> Result<(), Error> {
-        let _scoped_wake_guard = self.info.rcc.wake_guard();
+        let _scoped_wake_guard = WakeGuard::no_stop();
 
         flush(self.info, self.state).await
     }
@@ -1046,7 +1048,7 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous UART read
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        let _scoped_wake_guard = self.info.rcc.wake_guard();
+        let _scoped_wake_guard = WakeGuard::no_stop();
 
         self.inner_read(buffer, false).await?;
 
@@ -1058,7 +1060,7 @@ impl<'d> UartRx<'d, Async> {
     /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
     /// bits of each received word are zero.
     pub async fn read_u16(&mut self, buffer: &mut [u16]) -> Result<(), Error> {
-        let _scoped_wake_guard = self.info.rcc.wake_guard();
+        let _scoped_wake_guard = WakeGuard::no_stop();
 
         self.inner_read(buffer, false).await?;
 
@@ -1070,7 +1072,7 @@ impl<'d> UartRx<'d, Async> {
     /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
     /// as if you had called [`read(buffer)`](Self::read) instead!
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        let _scoped_wake_guard = self.info.rcc.wake_guard();
+        let _scoped_wake_guard = WakeGuard::no_stop();
 
         self.inner_read(buffer, true).await
     }
@@ -1085,7 +1087,7 @@ impl<'d> UartRx<'d, Async> {
     /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
     /// bits of each received word are zero.
     pub async fn read_until_idle_u16(&mut self, buffer: &mut [u16]) -> Result<usize, Error> {
-        let _scoped_wake_guard = self.info.rcc.wake_guard();
+        let _scoped_wake_guard = WakeGuard::no_stop();
 
         self.inner_read(buffer, true).await
     }

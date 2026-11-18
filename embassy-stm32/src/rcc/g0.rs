@@ -369,10 +369,8 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(crs)]
         hsi48: hsi48,
         rtc: rtc,
-
-        // TODO
-        lsi: None,
-        lse: None,
+        lsi: config.ls.lsi.then_some(LSI_FREQ),
+        lse: config.ls.lse.map(|l| l.frequency),
     );
 }
 

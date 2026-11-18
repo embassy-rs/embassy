@@ -1189,6 +1189,74 @@ fn main() {
         }
     });
 
+    // The kernel clock selected for an LPTIM time driver, so the driver can check that it can run
+    // and whether it keeps running in Stop mode.
+    if let Some(p) = METADATA.peripherals.iter().find(|p| p.name == time_driver_singleton)
+        && p.registers.as_ref().is_some_and(|r| r.kind == "lptim")
+        && let Some(rcc) = &p.rcc
+        && let PeripheralRccKernelClock::Mux(mux) = &rcc.kernel_clock
+    {
+        let ir = &clock_gen.rcc_registers.ir;
+        let fieldset_name = mux.register.to_ascii_lowercase();
+        let fieldset = ir
+            .fieldsets
+            .iter()
+            .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
+            .unwrap();
+        let field_name = mux.field.to_ascii_lowercase();
+        let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
+        let enum_name = field.enumm.unwrap();
+        let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
+
+        let mut name_arms = TokenStream::new();
+        for v in enumm.variants {
+            let variant = format_ident!("{}", v.name);
+            let name = pascal_to_upper_snake(v.name);
+            name_arms.extend(quote!(Sel::#variant => #name,));
+        }
+        let has = |name: &str| enumm.variants.iter().any(|v| v.name == name);
+        let is_lsi = if has("Lsi") {
+            quote!(sel() == Sel::Lsi)
+        } else {
+            quote!(false)
+        };
+        let is_lse = if has("Lse") {
+            quote!(sel() == Sel::Lse)
+        } else {
+            quote!(false)
+        };
+
+        let fieldset_name = format_ident!("{}", fieldset_name);
+        let field_name = format_ident!("{}", field_name);
+        let enum_name = format_ident!("{}", enum_name);
+        g.extend(quote! {
+            pub(crate) mod time_driver_clock {
+                use crate::pac::rcc::vals::#enum_name as Sel;
+
+                fn sel() -> Sel {
+                    crate::pac::RCC.#fieldset_name().read().#field_name()
+                }
+
+                /// Name of the selected clock.
+                pub(crate) fn name() -> &'static str {
+                    #[allow(unreachable_patterns)]
+                    match sel() {
+                        #name_arms
+                        _ => "?",
+                    }
+                }
+
+                pub(crate) fn is_lsi() -> bool {
+                    #is_lsi
+                }
+
+                pub(crate) fn is_lse() -> bool {
+                    #is_lse
+                }
+            }
+        });
+    }
+
     // Generate RCC
     clock_gen.clock_names.insert("sys".to_string());
     clock_gen.clock_names.insert("rtc".to_string());

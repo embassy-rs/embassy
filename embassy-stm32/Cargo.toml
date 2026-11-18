@@ -134,6 +134,34 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "stm32c552rc", "time", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32g070rb", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h755zi-cm4", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "stm32c531cb", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32f410c8", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "exti", "stm32f767zi", "time", "time-driver-lptim1"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32g071rb", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "exti", "low-power", "stm32g474re", "time", "time-driver-lptim1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32h503rb", "time", "time-driver-lptim1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32h563zi", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h723zg", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h753zi", "time", "time-driver-lptim3"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h755zi-cm7", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h7a3zi", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h7s3l8", "time", "time-driver-lptim1"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "low-power", "stm32l073rz", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32l412kb", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32l412kb", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32l476rg", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "exti", "low-power", "stm32l4p5ae", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "exti", "low-power", "stm32l4r5zi", "time", "time-driver-lptim2"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "low-power", "stm32l552ze", "time", "time-driver-lptim1"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "low-power", "stm32u083rc", "time", "time-driver-lptim1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32u385rg", "time", "time-driver-lptim1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32u385rg", "time", "time-driver-lptim3"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32u385rg", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32u585ai", "time", "time-driver-lptim3"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32wb55rg", "time", "time-driver-lptim1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32wba65ri", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32wl55jc-cm4", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32wle5jc", "time", "time-driver-lptim1"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -229,11 +257,11 @@ aligned = "0.4.3"
 heapless = "0.9.3"
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-82e648dd53815704702719594a12c87e95dd48d8" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-af2c47a6ac9618b5e4cb3a490b2429fcdcd8bb91" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-82e648dd53815704702719594a12c87e95dd48d8", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-af2c47a6ac9618b5e4cb3a490b2429fcdcd8bb91", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
@@ -354,7 +382,6 @@ embassy-crypto-p384-ecdsa = ["dep:crypto-bigint"]
 ## constructors and [`RingBufferedSpiRx`](crate::spi::RingBufferedSpiRx).
 exti = []
 low-power = [ "time" ]
-low-power-debug-with-sleep = [ "low-power" ]
 low-power-defmt-flush = [ "defmt" ]
 
 _executor = [ "dep:embassy-executor", "low-power" ]

@@ -93,3 +93,32 @@ pub(crate) fn disable_hsi48() {
         w.set_enref_hsi48(false);
     });
 }
+
+macro_rules! hsi48_reg {
+    () => {{
+        #[cfg(not(any(stm32u5, stm32u3, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32wba, stm32f0, stm32c071)))]
+        let r = RCC.crrcr();
+        #[cfg(any(stm32u5, stm32u3, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32wba, stm32c071))]
+        let r = RCC.cr();
+        #[cfg(any(stm32f0))]
+        let r = RCC.cr2();
+        r
+    }};
+}
+
+/// Whether HSI48 is on.
+#[cfg(feature = "low-power")]
+pub(crate) fn hsi48_enabled() -> bool {
+    hsi48_reg!().read().hsi48on()
+}
+
+/// Turn HSI48 back on after Stop, without waiting for it. Its configuration is kept.
+#[cfg(feature = "low-power")]
+pub(crate) fn hsi48_enable() {
+    hsi48_reg!().modify(|w| w.set_hsi48on(true));
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn hsi48_wait_ready() {
+    while !hsi48_reg!().read().hsi48rdy() {}
+}

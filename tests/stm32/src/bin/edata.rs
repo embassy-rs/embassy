@@ -20,7 +20,6 @@ use embassy_stm32::icache::Icache;
 use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::{bind_interrupts, pac};
 use embassy_time::Instant;
-use panic_probe as _;
 
 teleprobe_meta::timeout!(120);
 
@@ -34,11 +33,7 @@ const SECTOR: u32 = EDATA_ERASE_SIZE as u32;
 /// Sectors per bank that can be EDATA.
 const MAX_SECTORS: u32 = 8;
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let mut p = init();
 

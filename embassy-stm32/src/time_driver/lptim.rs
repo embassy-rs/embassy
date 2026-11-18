@@ -13,8 +13,15 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::{Driver, TICK_HZ};
 use embassy_time_queue_utils::Queue;
 use stm32_metapac::lptim::Lptim;
+#[cfg(lptim_v2b)]
+use stm32_metapac::lptim::regs::Dier;
+#[cfg(not(lptim_v2a))]
+use stm32_metapac::lptim::regs::Icr;
+#[cfg(lptim_v2a)]
+use stm32_metapac::lptim::regs::{DierAdv as Dier, IcrAdv as Icr};
 
 use super::AlarmState;
+use crate::_generated::time_driver_clock;
 use crate::interrupt::typelevel::Interrupt;
 use crate::lptim::{SealedInstance, vals};
 use crate::rcc;
@@ -26,43 +33,57 @@ fn regs_lptim() -> Lptim {
     T::regs()
 }
 
-// LPTIM v2a/v2b (STM32WBA, STM32U5, STM32U3, etc.) renames the interrupt
+// LPTIM v2a/v2b (STM32WBA, STM32U5, STM32U3, STM32H5, STM32U0, STM32C5) renames the interrupt
 // enable register from IER to DIER and uses IcrAdv/DierAdv register types
 // instead of Icr/Ier. The compare register also changes from a single `cmp()`
 // to an indexed `ccr(n)`.
 
 /// Check if the compare-capture interrupt is enabled for channel `n`.
 fn ier_ccie(r: Lptim, n: usize) -> bool {
-    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
+    #[cfg(not(any(lptim_v2a, lptim_v2b)))]
     {
         r.ier().read().ccie(n)
     }
-    #[cfg(any(stm32wba, stm32u5, stm32u3))]
+    #[cfg(any(lptim_v2a, lptim_v2b))]
     {
         r.dier().read().ccie(n)
     }
 }
 
-/// Modify the interrupt enable register.
-fn ier_set_ueie(r: Lptim, val: bool) {
-    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
+/// Whether the counter overflowed. LPTIM v1, v1a and v1b have no update event; their ARRM
+/// (autoreload match) flag is set as the counter wraps from ARR to 0.
+macro_rules! overflowed {
+    ($isr:expr) => {{
+        #[cfg(any(lptim_v1, lptim_v1a, lptim_v1b))]
+        let overflowed = $isr.arrm();
+        #[cfg(not(any(lptim_v1, lptim_v1a, lptim_v1b)))]
+        let overflowed = $isr.ue();
+        overflowed
+    }};
+}
+
+/// Enable or disable the counter overflow interrupt.
+fn ier_set_overflow_ie(r: Lptim, val: bool) {
+    #[cfg(any(lptim_v1, lptim_v1a, lptim_v1b))]
+    r.ier().modify(|w| w.set_arrmie(val));
+    #[cfg(lptim_v1c)]
     r.ier().modify(|w| w.set_ueie(val));
-    #[cfg(any(stm32wba, stm32u5, stm32u3))]
+    #[cfg(any(lptim_v2a, lptim_v2b))]
     dier_modify(r, |w| w.set_ueie(val));
 }
 
 fn ier_set_ccie(r: Lptim, n: usize, val: bool) {
-    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
+    #[cfg(not(any(lptim_v2a, lptim_v2b)))]
     r.ier().modify(|w| w.set_ccie(n, val));
-    #[cfg(any(stm32wba, stm32u5, stm32u3))]
+    #[cfg(any(lptim_v2a, lptim_v2b))]
     dier_modify(r, |w| w.set_ccie(n, val));
 }
 
 /// Modify DIER and wait for `DIEROK`. RM0456: "Any successive write before the DIEROK flag is
 /// set, leads to unpredictable results." A write still in flight when the chip enters Stop can
 /// also lose the compare wakeup. A write that changes nothing is skipped, so it costs no wait.
-#[cfg(any(stm32wba, stm32u5, stm32u3))]
-fn dier_modify(r: Lptim, f: impl FnOnce(&mut stm32_metapac::lptim::regs::DierAdv)) {
+#[cfg(any(lptim_v2a, lptim_v2b))]
+fn dier_modify(r: Lptim, f: impl FnOnce(&mut Dier)) {
     let old = r.dier().read();
     let mut new = old;
     f(&mut new);
@@ -79,12 +100,12 @@ fn dier_modify(r: Lptim, f: impl FnOnce(&mut stm32_metapac::lptim::regs::DierAdv
 
 /// Counter clock cycles to wait for `DIEROK` or `CMPOK`, which follow the counter clock, not the
 /// kernel clock.
-#[cfg(any(stm32wba, stm32u5, stm32u3))]
+#[cfg(any(lptim_v2a, lptim_v2b))]
 const ACK_TIMEOUT_TICKS: u32 = 64;
 
 /// Poll `ok` until it returns true, giving up after `ACK_TIMEOUT_TICKS` so a lost acknowledgement
 /// cannot hang the critical section it runs in.
-#[cfg(any(stm32wba, stm32u5, stm32u3))]
+#[cfg(any(lptim_v2a, lptim_v2b))]
 fn wait_for(ok: impl Fn() -> bool) {
     let sys = unwrap!(unsafe { crate::rcc::get_freqs() }.sys.to_hertz()).0;
     let polls = (sys / TICK_HZ as u32 + 1) * ACK_TIMEOUT_TICKS;
@@ -97,15 +118,12 @@ fn wait_for(ok: impl Fn() -> bool) {
 
 /// Write a raw value to the ICR (interrupt clear register).
 fn icr_write_raw(r: Lptim, val: u32) {
-    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
-    r.icr().write_value(stm32_metapac::lptim::regs::Icr(val));
-    #[cfg(any(stm32wba, stm32u5, stm32u3))]
-    r.icr().write_value(stm32_metapac::lptim::regs::IcrAdv(val));
+    r.icr().write_value(Icr(val));
 }
 
 /// Write the compare value and wait for the write to be acknowledged.
 fn write_compare(r: Lptim, val: u16) {
-    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
+    #[cfg(not(any(lptim_v2a, lptim_v2b)))]
     {
         // On STM32WL, CMPOK remains set after a compare update. Clear the stale
         // acknowledgement so the loop waits for the current CMP write.
@@ -115,7 +133,7 @@ fn write_compare(r: Lptim, val: u16) {
         r.cmp().write(|w| w.set_cmp(val));
         while !r.isr().read().cmpok(0) {}
     }
-    #[cfg(any(stm32wba, stm32u5, stm32u3))]
+    #[cfg(any(lptim_v2a, lptim_v2b))]
     {
         // As on STM32WL, clear the stale CMPOK.
         r.icr().write(|w| w.set_cmpokcf(0, true));
@@ -134,6 +152,9 @@ pub(crate) struct RtcDriver {
     alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     #[cfg(feature = "low-power")]
     is_stopped: AtomicBool,
+    /// Whether the driver prevents Stop mode because its clock does not run in Stop.
+    #[cfg(feature = "low-power")]
+    stop_blocked: AtomicBool,
     #[cfg(feature = "low-power")]
     /// The minimum pause time beyond which the executor will enter a low-power state.
     min_stop_pause: Mutex<CriticalSectionRawMutex, Cell<embassy_time::Duration>>,
@@ -145,6 +166,8 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     alarm: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
     #[cfg(feature = "low-power")]
     is_stopped: AtomicBool::new(false),
+    #[cfg(feature = "low-power")]
+    stop_blocked: AtomicBool::new(false),
     #[cfg(feature = "low-power")]
     min_stop_pause: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(embassy_time::Duration::from_millis(0))),
     queue: Mutex::new(RefCell::new(Queue::new())),
@@ -163,8 +186,8 @@ impl RtcDriver {
 
         r.cnt().write(|w| w.set_cnt(0));
 
-        // let psc = timer_freq.0 / TICK_HZ as u32 - 1;
-        let div = timer_freq.0 / TICK_HZ as u32;
+        let freq = timer_freq.0 as u64;
+        let div = if freq % TICK_HZ == 0 { freq / TICK_HZ } else { 0 };
         let psc = match div {
             128 => vals::Presc::Div128,
             64 => vals::Presc::Div64,
@@ -174,8 +197,14 @@ impl RtcDriver {
             4 => vals::Presc::Div4,
             2 => vals::Presc::Div2,
             1 => vals::Presc::Div1,
-            // TODO: we could compute the valid TICK_HZ for the valid prescalers to include in the panic message
-            _ => panic!("Invalid prescaler: {} for timer frequency: {}Hz", div, timer_freq.0),
+            _ => panic!(
+                "time driver: the LPTIM clock ({}, {} Hz) can't be divided down to the embassy-time tick rate \
+                ({} Hz): the ratio must be 1, 2, 4, 8, 16, 32, 64 or 128. Select another clock in \
+                `config.rcc.mux` or another embassy-time `tick-hz-*` feature.",
+                time_driver_clock::name(),
+                freq,
+                TICK_HZ
+            ),
         };
 
         trace!(
@@ -191,7 +220,7 @@ impl RtcDriver {
         r.arr().write(|w| w.set_arr(u16::MAX));
 
         // Enable overflow interrupts
-        ier_set_ueie(T::regs(), true);
+        ier_set_overflow_ie(T::regs(), true);
 
         <T as crate::lptim::SealedBasicInstance>::GlobalInterrupt::unpend();
         unsafe {
@@ -244,7 +273,7 @@ impl RtcDriver {
             //    the NVIC interrupt reaches the CPU.
             // Without these, the LPTIM keeps its registers but its interrupt
             // cannot wake the core from STOP, hanging the executor.
-            #[cfg(any(stm32u5, stm32u3))]
+            #[cfg(stm32u5)]
             {
                 #[cfg(time_driver_lptim1)]
                 {
@@ -257,12 +286,53 @@ impl RtcDriver {
                     crate::pac::RCC.apb3smenr().modify(|w| w.set_lptim3smen(true));
                 }
             }
+            // U3 has no autonomous mode register; APB3STPENR keeps the clock in STOP.
+            #[cfg(stm32u3)]
+            {
+                #[cfg(time_driver_lptim1)]
+                crate::pac::RCC.apb3stpenr().modify(|w| w.set_lptim1stpen(true));
+                #[cfg(time_driver_lptim3)]
+                crate::pac::RCC.apb3stpenr().modify(|w| w.set_lptim3stpen(true));
+            }
         }
     }
 
     fn init(&'static self, cs: CriticalSection) {
+        self.check_clock(cs);
         self.init_timer(cs);
         regs_lptim().cr().modify(|w| w.set_cntstrt(true));
+    }
+
+    /// Check the LPTIM kernel clock selected in `config.rcc.mux`. Panics if the driver can't run
+    /// from it. With `low-power`, prevents Stop mode if the clock stops in Stop.
+    fn check_clock(&self, _cs: CriticalSection) {
+        // A clock that isn't running makes `T::frequency()` panic in `init_timer`.
+
+        #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+        if time_driver_clock::is_lse() && !crate::pac::RCC.bdcr().read().lsesysen() {
+            panic!(
+                "time driver: the LPTIM is clocked from LSE, but LSE doesn't reach peripherals. \
+                Set `peripherals_clocked: true` in `config.rcc.ls.lse`."
+            );
+        }
+
+        #[cfg(feature = "low-power")]
+        {
+            let runs_in_stop = time_driver_clock::is_lsi() || time_driver_clock::is_lse();
+            let blocked = self.stop_blocked.load(Ordering::Relaxed);
+            if !runs_in_stop && !blocked {
+                warn!(
+                    "time driver: the LPTIM clock ({}) stops in Stop mode, so Stop mode is disabled. \
+                    Select LSI or LSE for the LPTIM in `config.rcc.mux` to allow Stop.",
+                    time_driver_clock::name()
+                );
+                rcc::increment_stop_refcount(_cs, rcc::StopMode::Stop1);
+                self.stop_blocked.store(true, Ordering::Relaxed);
+            } else if runs_in_stop && blocked {
+                rcc::decrement_stop_refcount(_cs, rcc::StopMode::Stop1);
+                self.stop_blocked.store(false, Ordering::Relaxed);
+            }
+        }
     }
 
     pub(crate) fn on_interrupt(&self) {
@@ -277,7 +347,7 @@ impl RtcDriver {
             icr_write_raw(r, sr.0);
 
             // Overflow
-            if sr.ue() {
+            if overflowed!(sr) {
                 self.next_period();
             }
 
@@ -426,7 +496,7 @@ impl Driver for RtcDriver {
                 // The CS masks the interrupt but not the flag: the counter can still wrap between
                 // reading LPTIM_CNT and LPTIM_ISR, pairing 0xFFFF with a pending update event, a
                 // whole period in the future. Sample the flag on both sides and retry if it changed.
-                let pending = r.isr().read().ue();
+                let pending = overflowed!(r.isr().read());
 
                 // RM0456 says: "When the LPTIM is running, reading the LPTIM_CNT register may return
                 // unreliable values. In this case it is necessary to perform consecutive reads until
@@ -440,7 +510,7 @@ impl Driver for RtcDriver {
                     counter = again;
                 }
 
-                if r.isr().read().ue() == pending {
+                if overflowed!(r.isr().read()) == pending {
                     let period = self.period.load(Ordering::Relaxed) + pending as u32;
                     break ((period as u64) << 16) + counter as u64;
                 }

@@ -99,13 +99,7 @@ pub struct LsConfig {
 impl LsConfig {
     /// Creates an [`LsConfig`] using the LSI when possible.
     pub const fn new() -> Self {
-        // on L5, just the fact that LSI is enabled makes things crash.
-        // TODO: investigate.
-
-        #[cfg(not(stm32l5))]
-        return Self::default_lsi();
-        #[cfg(stm32l5)]
-        return Self::off();
+        Self::default_lsi()
     }
 
     pub const fn default_lse() -> Self {
@@ -169,7 +163,7 @@ impl LsConfig {
             },
             None => (false, false, None),
         };
-        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+        #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
         let lse_sysen = if let Some(lse) = self.lse {
             Some(lse.peripherals_clocked)
         } else {
@@ -181,7 +175,7 @@ impl LsConfig {
         // Disable backup domain write protection
         unlock();
 
-        if self.lsi {
+        let enable_lsi = || {
             #[cfg(any(stm32u5, stm32h5, stm32wba))]
             let csr = crate::pac::RCC.bdcr();
             #[cfg(stm32n6)]
@@ -205,6 +199,9 @@ impl LsConfig {
 
             #[cfg(any(rcc_wb, rcc_wba))]
             while !csr.read().lsi1rdy() {}
+        };
+        if self.lsi {
+            enable_lsi();
         }
 
         // Enable backup regulator for persistent battery backed sram
@@ -298,7 +295,7 @@ impl LsConfig {
         {
             ok &= lsecfgr.lsebyp() == lse_byp;
         }
-        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+        #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
         if let Some(lse_sysen) = lse_sysen
             && !lse_sysen
         {
@@ -315,7 +312,7 @@ impl LsConfig {
 
         // After a power-on reset LSESYSEN will be set to 0
         // even if VBAT was present and kept the RTC running
-        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+        #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
         if ok
             && let Some(lse_sysen) = lse_sysen
             && lse_sysen
@@ -334,10 +331,16 @@ impl LsConfig {
         }
 
         // If not OK, reset backup domain and configure it.
-        #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32h7rs, stm32c0, stm32n6, stm32u5)))]
+        #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32h7rs, stm32c0, stm32n6, stm32u5, stm32l5)))]
         {
             bdcr().modify(|w| w.set_bdrst(true));
             bdcr().modify(|w| w.set_bdrst(false));
+        }
+        // The reset turns the LSI off on WBA, although RM0493 says it doesn't reset LSI1ON
+        // (checked on an STM32WBA52).
+        #[cfg(stm32wba)]
+        if self.lsi {
+            enable_lsi();
         }
         // H5 has a terrible, terrible errata: 'SRAM2 is erased when the backup domain is reset'
         // pending a more sane sane way to handle this, just don't reset BD for now.
@@ -348,7 +351,8 @@ impl LsConfig {
         // STM32H562xx/563xx/573xx device errata - 2.2.14 SRAM2 is erased when the backup domain is reset
         // The U5 does the same: SRAM2 is one of the "device secrets" a backup domain reset wipes
         // (RM0456, tamper and backup registers), observed on an STM32U585 where the erase zeroed
-        // the 64 kB of SRAM2 during `init`.
+        // the 64 kB of SRAM2 during `init`. L5 too: "The SRAM2 is also erased by a Backup domain
+        // reset" (RM0438, memory and bus architecture).
         //#[cfg(any(stm32h5, stm32h7rs))]
         #[cfg(any(stm32h7rs, stm32n6))]
         {
@@ -388,7 +392,7 @@ impl LsConfig {
                 while !crate::pac::RCC.sr().read().lserdy() {}
             }
 
-            #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+            #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
             if let Some(lse_sysen) = lse_sysen {
                 bdcr().modify(|w| {
                     w.set_lsesysen(lse_sysen);

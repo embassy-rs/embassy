@@ -22,11 +22,7 @@ const MAX_READ_RETRIES: u32 = 5;
 /// declaring the test a failure.
 const MAX_NOISE_ERRORS: usize = 50;
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = init();
     info!("Hello World!");

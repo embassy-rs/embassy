@@ -74,7 +74,7 @@ foreach_interrupt! {
     };
 }
 
-#[cfg(all(feature = "rt", stm32u0))]
+#[cfg(all(feature = "rt", stm32u0, not(feature = "_lp-time-driver")))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
         #[interrupt]
@@ -110,7 +110,6 @@ mod platform {
         #[cfg(stm32wb)]
         let mutex = {
             use crate::hsem::get_hsem;
-            use crate::pac::rcc::vals::{Smps, Sw};
             use crate::pac::{PWR, RCC};
 
             trace!("low power: trying to get sem3");
@@ -126,27 +125,7 @@ mod platform {
 
             if !(sem4_mutex.is_some() && !PWR.extscr().read().c2ds()) {
                 sem4_mutex.take();
-
-                // Set HSION
-                RCC.cr().modify(|w| {
-                    w.set_hsion(true);
-                });
-
-                // Wait for HSIRDY
-                while !RCC.cr().read().hsirdy() {}
-
-                // Set SW to HSI
-                RCC.cfgr().modify(|w| {
-                    w.set_sw(Sw::Hsi);
-                });
-
-                // Wait for SWS to report HSI
-                while !RCC.cfgr().read().sws().eq(&Sw::Hsi) {}
-
-                // Set SMPSSEL to HSI
-                RCC.smpscr().modify(|w| {
-                    w.set_smpssel(Smps::Hsi);
-                });
+                crate::rcc::stop_switch_to_hsi();
             }
 
             // on PWR
@@ -236,8 +215,13 @@ mod platform {
         // Clear WKUP1..WKUP8 pending flags (CWUFx) before stop entry.
         crate::pac::PWR.wuscr().write(|w| w.0 = 0xff);
 
+        // LPSDSR also puts the regulator in low-power mode in Sleep, which needs the system clock
+        // at or below MSI range 1 (RM0377 6.3.8), so it's only set for Stop.
         #[cfg(stm32l0)]
-        crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
+        crate::pac::PWR.cr().modify(|w| {
+            w.set_cwuf(true);
+            w.set_lpsdsr(crate::pac::pwr::vals::Mode::MainMode);
+        });
 
         #[cfg(stm32g4)]
         // G4 keeps its wake-up flags (WUF1..WUF5) in PWR_SR1 and the standby flag (SBF) there
@@ -254,18 +238,23 @@ mod platform {
         });
     }
 
-    /// Exit stop mode, reinitializing timer and rcc if required
+    /// Exit stop mode: restore the clocks, clear the flags and reinitialize the timer if required.
     pub fn exit_stop(_cs: CriticalSection) {
+        // Both cores share the clocks, so they restore them one at a time.
+        #[cfg(any(stm32wb, stm32wl5x))]
+        let lock = crate::hsem::get_hsem(3).blocking_lock(0);
+
+        crate::rcc::stop_exit(_cs);
+
+        #[cfg(any(stm32wb, stm32wl5x))]
+        drop(lock);
+
         #[cfg(any(stm32u5, stm32u3))]
         {
             let sr = crate::pac::PWR.sr().read();
             if sr.stopf() {
                 let lpms = crate::pac::PWR.cr1().read().lpms();
                 debug!("low power: U5/U3 woke from STOP (LPMS={})", lpms.to_bits());
-
-                // HSE and all PLLs stop in any STOP mode on U5/U3.
-                // Full RCC restore from saved config on every STOP exit.
-                crate::rcc::reinit_saved(_cs);
 
                 // GPTIM timer state is lost in Stop2/Stop3, needs re-init.
                 // LPTIM (_lp-time-driver) survives all STOP modes autonomously.
@@ -280,44 +269,16 @@ mod platform {
             crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
         }
 
-        #[cfg(any(stm32wl, stm32wb, stm32wba, stm32f4, stm32g4))]
-        {
-            // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
-            #[cfg(stm32wl5x)]
-            let lock = crate::hsem::get_hsem(3).blocking_lock(0);
+        #[cfg(stm32h5)]
+        crate::pac::PWR.pmcr().modify(|w| w.set_cssf(true));
 
+        #[cfg(any(stm32wl, stm32wb, stm32wba))]
+        {
             #[cfg(any(stm32wl, stm32wb))]
             let es = crate::pac::PWR.extscr().read();
 
             #[cfg(stm32wba)]
             let es = crate::pac::PWR.sr().read();
-
-            // we need to re-initialize RCC if *BOTH* cores have been in some STOP mode!
-            #[cfg(any(stm32wl, stm32wba, stm32f4, stm32g4))]
-            let re_initialize_rcc = {
-                #[cfg(stm32wl5x)]
-                {
-                    // core 1 in any STOP mode AND core 2 in any STOP mode
-                    (es.c1stopf() || es.c1stop2f()) && (es.c2stopf() || es.c2stop2f())
-                }
-                #[cfg(stm32wlex)]
-                {
-                    es.c1stop2f() || es.c1stopf()
-                }
-                #[cfg(stm32wba)]
-                {
-                    es.stopf()
-                }
-                // F4 and G4 always need it: neither has STOPWUCK (RM0440 Table 40 lists HSI16 as
-                // the only wake-up system clock for Stop 0/1), so exiting Stop always lands us on
-                // HSI16 rather than the configured PLL. `reinit_saved` re-runs the full clock
-                // init, which also re-inits the time driver so the timer's prescaler matches the
-                // restored clock.
-                #[cfg(any(stm32f4, stm32g4))]
-                {
-                    true
-                }
-            };
 
             #[cfg(any(stm32wl, stm32wba))]
             let re_initialize_timer = {
@@ -334,12 +295,6 @@ mod platform {
                     es.stopf()
                 }
             };
-
-            #[cfg(any(stm32wl, stm32wba, stm32f4, stm32g4))]
-            if re_initialize_rcc {
-                // when we wake from any stop mode we need to re-initialize the rcc
-                crate::rcc::reinit_saved(_cs);
-            }
 
             #[cfg(stm32wba)]
             match (es.stopf(), es.stop2f()) {
@@ -375,9 +330,6 @@ mod platform {
 
             clear_flags();
 
-            #[cfg(stm32wl5x)]
-            drop(lock);
-
             #[cfg(any(stm32wl, stm32wba))]
             if re_initialize_timer {
                 trace!("low power: re-initializing timer");
@@ -386,6 +338,9 @@ mod platform {
                 super::get_driver().init_timer(_cs);
             }
         }
+
+        #[cfg(any(stm32l0, stm32l4, stm32l5, stm32u0, stm32f4, stm32g4))]
+        clear_flags();
     }
 }
 
@@ -417,16 +372,29 @@ fn configure_pwr(cs: CriticalSection) -> bool {
 
         false
     } else {
+        crate::rcc::stop_enter(cs);
+
         #[cfg(any(stm32l0, stm32f4))]
         trace!("low power: enter stop");
         #[cfg(not(any(stm32l0, stm32f4)))]
         trace!("low power: enter stop: {:?}", stop_mode);
 
-        #[cfg(not(feature = "low-power-debug-with-sleep"))]
         scb.set_sleepdeep();
 
         true
     }
+}
+
+/// `WFI` and `ISB`, executed from RAM.
+///
+/// U0: with DBG_STOP set (`enable_debug_during_sleep`), the first instruction fetches from flash
+/// after a wake-up from Stop with interrupts masked can fault. ST reproduced it on a NUCLEO-U083;
+/// there's no erratum yet. Fetching the instructions right after the wake-up from RAM avoids it.
+#[cfg(stm32u0)]
+#[unsafe(link_section = ".data.embassy_stm32_wfi_from_ram")]
+#[inline(never)]
+fn wfi_from_ram() {
+    unsafe { core::arch::asm!("wfi", "isb", options(nostack, preserves_flags)) };
 }
 
 /// Sleep with WFI, attempting to enter the deepest STOP mode possible.
@@ -451,7 +419,10 @@ pub unsafe fn sleep(cs: CriticalSection) {
     }
 
     cortex_m::asm::dsb();
+    #[cfg(not(stm32u0))]
     cortex_m::asm::wfi();
+    #[cfg(stm32u0)]
+    wfi_from_ram();
 
     cortex_m::asm::isb();
     cortex_m::asm::dsb();
