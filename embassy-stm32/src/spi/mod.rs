@@ -1,7 +1,6 @@
 //! Serial Peripheral Interface (SPI)
 #![macro_use]
 
-#[cfg(feature = "exti")]
 mod ringbuffered;
 #[cfg(all(any(spi_v4, spi_v5, spi_v6), any(gpdma, lpdma)))]
 pub mod triggered;
@@ -14,16 +13,12 @@ use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 use embassy_futures::select::{Either, select};
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
-#[cfg(feature = "exti")]
 pub use ringbuffered::RingBufferedSpiRx;
 
 use crate::Peri;
 use crate::dma::{ChannelAndRequest, word};
-#[cfg(feature = "exti")]
 use crate::exti::{self, ExtiInput};
-#[cfg(feature = "exti")]
-use crate::gpio::ExtiPin;
-use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
+use crate::gpio::{AfType, ExtiPin, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{Spi as Regs, regs, vals};
 use crate::time::Hertz;
@@ -309,13 +304,11 @@ use mode::{CommunicationMode, Master, Slave};
 enum CsPinType<'d> {
     #[allow(dead_code)]
     Flex(Flex<'d>),
-    #[cfg(feature = "exti")]
     Exti(ExtiInput<'d, Async>),
     None,
 }
 
 impl<'d> CsPinType<'d> {
-    #[cfg(feature = "exti")]
     pub fn new_with_exti<
         T: Instance,
         #[cfg(not(afio))] C: CsPin<T> + ExtiPin,
@@ -341,7 +334,6 @@ impl<'d> CsPinType<'d> {
 
     pub async fn wait_for_edge(&mut self, _polarity: SlaveSelectPolarity) {
         match self {
-            #[cfg(feature = "exti")]
             Self::Exti(exti) => match _polarity {
                 #[cfg(any(spi_v4, spi_v5, spi_v6))]
                 SlaveSelectPolarity::ActiveHigh => exti.wait_for_falling_edge().await,
@@ -354,7 +346,6 @@ impl<'d> CsPinType<'d> {
     /// Returns true if the NSS pin is currently at its active (selected) level.
     pub fn is_active(&self, polarity: SlaveSelectPolarity) -> bool {
         let high = match self {
-            #[cfg(feature = "exti")]
             Self::Exti(exti) => exti.is_high(),
             Self::Flex(flex) => flex.is_high(),
             Self::None => false,
@@ -373,13 +364,11 @@ impl<'d> CsPinType<'d> {
     /// Whether [`Self::wait_for_edge`] can see the deselect. Without EXTI it never completes.
     pub const fn tracks_deselect(&self) -> bool {
         match self {
-            #[cfg(feature = "exti")]
             Self::Exti(_) => true,
             Self::Flex(_) | Self::None => false,
         }
     }
 
-    #[cfg(feature = "exti")]
     pub const unsafe fn clone_unchecked(&self) -> Self {
         match self {
             Self::Exti(exti) => Self::Exti(exti.clone_unchecked()),
@@ -1125,7 +1114,6 @@ impl<'d> Spi<'d, Blocking, Master> {
     }
 }
 
-#[cfg(feature = "exti")]
 impl<'d> Spi<'d, Async, Slave> {
     /// Create a new SPI slave driver.
     pub fn new_slave<

@@ -27,9 +27,7 @@ use embassy_usb_driver::{
 #[cfg(usb_v4)]
 pub use usb_host::*;
 
-#[cfg(feature = "exti")]
 use crate::exti::ExtiInput;
-#[cfg(feature = "exti")]
 use crate::mode::Async;
 use crate::pac::USBRAM;
 use crate::pac::usb::regs;
@@ -593,7 +591,6 @@ pub struct Driver<'d, T: Instance> {
     #[cfg(any(usb_v1, usb_v3, usb_v4))]
     double_buffered: u16,
     ep_mem_free: u16, // first free address in EP mem, in bytes.
-    #[cfg(feature = "exti")]
     vbus: Option<ExtiInput<'d, Async>>,
 }
 
@@ -616,7 +613,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     }
 
     /// Create a new USB driver with start-of-frame (SOF) output and VBUS detection.
-    #[cfg(all(feature = "exti", not(stm32l1)))]
+    #[cfg(not(stm32l1))]
     pub fn new_with_sof_and_vbus(
         _usb: Peri<'d, T>,
         dp: Peri<'d, impl DpPin<T>>,
@@ -652,7 +649,6 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// When `vbus` goes low, `Bus::poll` reports `Event::PowerRemoved` and the endpoints are
     /// disabled, so pending reads and writes return `EndpointError::Disabled`. When it goes high
     /// again, `Event::PowerDetected` is reported and the USB stack re-enumerates.
-    #[cfg(feature = "exti")]
     pub fn new_with_vbus(
         _usb: Peri<'d, T>,
         dp: Peri<'d, impl DpPin<T>>,
@@ -708,7 +704,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             #[cfg(any(usb_v1, usb_v3, usb_v4))]
             double_buffered: 0,
             ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
-            #[cfg(feature = "exti")]
             vbus: None,
         }
     }
@@ -977,17 +972,11 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             w.set_ctrm(true);
         });
 
-        #[cfg(all(any(usb_v3, usb_v4), not(feature = "exti")))]
-        regs.bcdr().write(|w| w.set_dppu(true));
-
-        #[cfg(all(any(usb_v3, usb_v4), feature = "exti"))]
+        #[cfg(any(usb_v3, usb_v4))]
         regs.bcdr()
             .write(|w| w.set_dppu(self.vbus.as_ref().map_or(true, |v| v.is_high())));
 
-        #[cfg(all(stm32l1, not(feature = "exti")))]
-        crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(true));
-
-        #[cfg(all(stm32l1, feature = "exti"))]
+        #[cfg(stm32l1)]
         crate::pac::SYSCFG
             .pmc()
             .modify(|w| w.set_usb_pu(self.vbus.as_ref().map_or(true, |v| v.is_high())));
@@ -1005,9 +994,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             #[cfg(any(usb_v1, usb_v3, usb_v4))]
             double_buffered: self.double_buffered,
             inited: false,
-            #[cfg(feature = "exti")]
             vbus: self.vbus,
-            #[cfg(feature = "exti")]
             power_present: false,
             control: ControlPipe {
                 _marker: PhantomData,
@@ -1027,9 +1014,7 @@ pub struct Bus<'d, T: Instance> {
     double_buffered: u16,
     inited: bool,
     control: ControlPipe<'d, T>,
-    #[cfg(feature = "exti")]
     vbus: Option<ExtiInput<'d, Async>>,
-    #[cfg(feature = "exti")]
     power_present: bool,
 }
 
@@ -1115,57 +1100,54 @@ impl<'d, T: Instance> Bus<'d, T> {
     fn poll_bus(&mut self, cx: &mut Context<'_>) -> Poll<Event> {
         BUS_WAKER.register(cx.waker());
 
-        #[cfg(feature = "exti")]
-        {
-            let mut removed = false;
-            if let Some(vbus) = &mut self.vbus {
-                if !self.power_present {
-                    // Wait for VBUS before reporting power, so a self-powered device does not
-                    // present itself to a host that isn't driving VBUS.
+        let mut removed = false;
+        if let Some(vbus) = &mut self.vbus {
+            if !self.power_present {
+                // Wait for VBUS before reporting power, so a self-powered device does not
+                // present itself to a host that isn't driving VBUS.
+                if vbus.is_low() {
+                    vbus.poll_for_rising_edge(cx);
                     if vbus.is_low() {
-                        vbus.poll_for_rising_edge(cx);
-                        if vbus.is_low() {
-                            return Poll::Pending;
-                        }
+                        return Poll::Pending;
                     }
-                    self.power_present = true;
-                    self.inited = true;
-                    trace!("VBUS detected");
-                    return Poll::Ready(Event::PowerDetected);
                 }
+                self.power_present = true;
+                self.inited = true;
+                trace!("VBUS detected");
+                return Poll::Ready(Event::PowerDetected);
+            }
 
-                // Powered: report removal as soon as VBUS drops. Checking the level after
-                // arming the edge covers a transition that happened while this future was not
-                // polled.
+            // Powered: report removal as soon as VBUS drops. Checking the level after
+            // arming the edge covers a transition that happened while this future was not
+            // polled.
+            if vbus.is_low() {
+                self.power_present = false;
+                removed = true;
+            } else {
+                vbus.poll_for_any_edge(cx);
                 if vbus.is_low() {
                     self.power_present = false;
                     removed = true;
-                } else {
-                    vbus.poll_for_any_edge(cx);
-                    if vbus.is_low() {
-                        self.power_present = false;
-                        removed = true;
-                    }
                 }
             }
+        }
 
-            if removed {
-                // Wake pending transfers so they return EndpointError::Disabled.
-                for i in 0..EP_COUNT {
-                    self.set_endpoint_enabled_internal(EndpointAddress::from_parts(i, Direction::In), false);
-                    self.set_endpoint_enabled_internal(EndpointAddress::from_parts(i, Direction::Out), false);
-                }
-
-                // Clear DPPU to signal a disconnect to the host (RM0444 37.6.6,
-                // USB_BCDR.DPPU_DPD).
-                #[cfg(any(usb_v3, usb_v4))]
-                T::regs().bcdr().modify(|w| w.set_dppu(false));
-                #[cfg(stm32l1)]
-                crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(false));
-
-                trace!("VBUS removed");
-                return Poll::Ready(Event::PowerRemoved);
+        if removed {
+            // Wake pending transfers so they return EndpointError::Disabled.
+            for i in 0..EP_COUNT {
+                self.set_endpoint_enabled_internal(EndpointAddress::from_parts(i, Direction::In), false);
+                self.set_endpoint_enabled_internal(EndpointAddress::from_parts(i, Direction::Out), false);
             }
+
+            // Clear DPPU to signal a disconnect to the host (RM0444 37.6.6,
+            // USB_BCDR.DPPU_DPD).
+            #[cfg(any(usb_v3, usb_v4))]
+            T::regs().bcdr().modify(|w| w.set_dppu(false));
+            #[cfg(stm32l1)]
+            crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(false));
+
+            trace!("VBUS removed");
+            return Poll::Ready(Event::PowerRemoved);
         }
 
         if !self.inited {
@@ -1268,26 +1250,17 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let stage = self.control.data_out_transfer(buf);
-        #[cfg(feature = "exti")]
-        return abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointError::Disabled)).await;
-        #[cfg(not(feature = "exti"))]
-        stage.await
+        abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointError::Disabled)).await
     }
 
     async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
         let stage = self.control.data_in_transfer(data, needs_zlp);
-        #[cfg(feature = "exti")]
-        return abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointDisabledError)).await;
-        #[cfg(not(feature = "exti"))]
-        stage.await
+        abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointDisabledError)).await
     }
 
     async fn control_accept(&mut self) {
         let stage = self.control.accept();
-        #[cfg(feature = "exti")]
-        return abort_on_vbus_removed(&mut self.vbus, stage, ()).await;
-        #[cfg(not(feature = "exti"))]
-        stage.await
+        abort_on_vbus_removed(&mut self.vbus, stage, ()).await
     }
 
     async fn control_reject(&mut self) {
@@ -1296,10 +1269,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     async fn control_accept_set_address(&mut self, addr: u8) {
         let stage = self.control.accept_set_address(addr);
-        #[cfg(feature = "exti")]
-        return abort_on_vbus_removed(&mut self.vbus, stage, ()).await;
-        #[cfg(not(feature = "exti"))]
-        stage.await
+        abort_on_vbus_removed(&mut self.vbus, stage, ()).await
     }
 
     async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
@@ -1323,7 +1293,6 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     async fn enable(&mut self) {
-        #[cfg(feature = "exti")]
         if self.vbus.is_some() {
             #[cfg(any(usb_v3, usb_v4))]
             T::regs().bcdr().modify(|w| w.set_dppu(true));
@@ -1812,7 +1781,6 @@ fn control_restarted() -> bool {
 
 /// Runs a control stage until it completes, or until VBUS is removed, which gives `aborted`.
 /// Leaves the level of VBUS alone, so that `Bus::poll` reports the removal.
-#[cfg(feature = "exti")]
 async fn abort_on_vbus_removed<R>(
     vbus: &mut Option<ExtiInput<'_, Async>>,
     stage: impl core::future::Future<Output = R>,
