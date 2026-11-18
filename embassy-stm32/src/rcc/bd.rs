@@ -29,8 +29,9 @@ pub struct LseConfig {
 #[allow(dead_code)]
 #[derive(Default, Clone, Copy)]
 pub enum LseDrive {
-    #[cfg(not(stm32h5))] // ES0565: LSE Low drive mode is not functional
+    #[cfg(not(any(stm32h5, stm32g5)))] // ES0565: LSE Low drive mode is not functional
     Low = 0,
+    #[cfg(not(stm32g5))] // G5 only has medium-high and high drive.
     MediumLow = 0x01,
     #[default]
     MediumHigh = 0x02,
@@ -44,8 +45,9 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
         use crate::pac::rcc::vals::Lsedrv;
 
         match value {
-            #[cfg(not(stm32h5))] // ES0565: LSE Low drive mode is not functional
+            #[cfg(not(any(stm32h5, stm32g5)))]
             LseDrive::Low => Lsedrv::Low,
+            #[cfg(not(stm32g5))]
             LseDrive::MediumLow => Lsedrv::MediumLow,
             LseDrive::MediumHigh => Lsedrv::MediumHigh,
             LseDrive::High => Lsedrv::High,
@@ -53,17 +55,26 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
     }
 }
 
-#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0)))]
+#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0, stm32g5)))]
 type Bdcr = crate::pac::rcc::regs::Bdcr;
 #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
 type Bdcr = crate::pac::rcc::regs::Csr;
 #[cfg(any(stm32c0))]
 type Bdcr = crate::pac::rcc::regs::Csr1;
+// G5 calls the backup domain the "RTC domain": RCC_RTCCR instead of RCC_BDCR.
+#[cfg(any(stm32g5))]
+type Bdcr = crate::pac::rcc::regs::Rtccr;
 
 #[cfg(any(stm32c0))]
 fn unlock() {}
 
-#[cfg(not(any(stm32c0)))]
+#[cfg(stm32g5)]
+fn unlock() {
+    crate::pac::PWR.rtccr().modify(|w| w.set_drtcp(true));
+    while !crate::pac::PWR.rtccr().read().drtcp() {}
+}
+
+#[cfg(not(any(stm32c0, stm32g5)))]
 fn unlock() {
     #[cfg(any(stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1))]
     let cr = crate::pac::PWR.cr();
@@ -81,10 +92,12 @@ fn unlock() {
 fn bdcr() -> Reg<Bdcr, RW> {
     #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
     return crate::pac::RCC.csr();
-    #[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0)))]
+    #[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0, stm32g5)))]
     return crate::pac::RCC.bdcr();
     #[cfg(any(stm32c0))]
     return crate::pac::RCC.csr1();
+    #[cfg(any(stm32g5))]
+    return crate::pac::RCC.rtccr();
 }
 
 #[derive(Clone, Copy)]
@@ -180,7 +193,9 @@ impl LsConfig {
             let csr = crate::pac::RCC.bdcr();
             #[cfg(stm32n6)]
             let csr = crate::pac::RCC.sr();
-            #[cfg(not(any(stm32u5, stm32h5, stm32wba, stm32c0, stm32n6)))]
+            #[cfg(stm32g5)]
+            let csr = crate::pac::RCC.rtccr();
+            #[cfg(not(any(stm32u5, stm32h5, stm32wba, stm32c0, stm32n6, stm32g5)))]
             let csr = crate::pac::RCC.csr();
             #[cfg(stm32c0)]
             let csr = crate::pac::RCC.csr2();
@@ -331,7 +346,9 @@ impl LsConfig {
         }
 
         // If not OK, reset backup domain and configure it.
-        #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32h7rs, stm32c0, stm32n6, stm32u5, stm32l5)))]
+        #[cfg(not(any(
+            rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32h7rs, stm32c0, stm32n6, stm32u5, stm32l5, stm32g5
+        )))]
         {
             bdcr().modify(|w| w.set_bdrst(true));
             bdcr().modify(|w| w.set_bdrst(false));
@@ -352,7 +369,8 @@ impl LsConfig {
         // The U5 does the same: SRAM2 is one of the "device secrets" a backup domain reset wipes
         // (RM0456, tamper and backup registers), observed on an STM32U585 where the erase zeroed
         // the 64 kB of SRAM2 during `init`. L5 too: "The SRAM2 is also erased by a Backup domain
-        // reset" (RM0438, memory and bus architecture).
+        // reset" (RM0438, memory and bus architecture). G5 is assumed to behave like its C5 sibling:
+        // "SRAM2 is erased by hardware in case of a backup domain reset" (RM0522, RAMCFG).
         //#[cfg(any(stm32h5, stm32h7rs))]
         #[cfg(any(stm32h7rs, stm32n6))]
         {

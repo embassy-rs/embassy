@@ -72,6 +72,8 @@ pub struct Config {
 
     pub voltage_scale: VoltageScale,
 
+    pub ls: super::LsConfig,
+
     /// Per-peripheral kernel clock selection muxes
     pub mux: super::mux::ClockMux,
 }
@@ -91,6 +93,7 @@ impl Config {
             apb3_pre: APBPrescaler::Div2,
 
             voltage_scale: VoltageScale::Scale0,
+            ls: crate::rcc::LsConfig::new(),
             mux: super::mux::ClockMux::default(),
         }
     }
@@ -183,6 +186,8 @@ pub(crate) unsafe fn init(config: Config) {
 
     flash_setup(hclk, config.voltage_scale);
 
+    let rtc = config.ls.init();
+
     {
         // Set hpre
         RCC.cfgr2().modify(|w| w.set_hpre(config.ahb_pre));
@@ -228,10 +233,10 @@ pub(crate) unsafe fn init(config: Config) {
         ic1: None,
         ic2: None,
 
-        rtc: None,
+        rtc: rtc,
 
-        lse: None,
-        lsi: None,
+        lse: config.ls.lse.map(|l| l.frequency),
+        lsi: config.ls.lsi.then_some(super::LSI_FREQ),
 
         pll1_q: pll1.q,
         pll2_p: pll2.p,
