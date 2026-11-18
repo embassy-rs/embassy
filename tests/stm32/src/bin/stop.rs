@@ -60,7 +60,7 @@ async fn task_2(time_provider: RtcTimeProvider, start_rtc: DateTime, start: Inst
     cortex_m::asm::bkpt();
 }
 
-#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let mut config = config();
     config.rcc.ls = LsConfig::default_lse();

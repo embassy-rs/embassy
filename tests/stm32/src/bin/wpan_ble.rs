@@ -8,7 +8,6 @@ mod common;
 use bt_hci::cmd::controller_baseband::Reset;
 use bt_hci::controller::{Controller, ControllerCmdSync};
 use common::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::bind_interrupts;
@@ -18,7 +17,6 @@ use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
 use embassy_stm32_wpan::sub::ble::ControllerAdapter;
 use embassy_stm32_wpan::sub::mm;
-use panic_probe as _;
 use stm32wb_hci::aci::durations::{AdvInterval, PreferredConnInterval};
 use stm32wb_hci::aci::flags::Role;
 use stm32wb_hci::aci::gap::{GapDeleteAdType, GapInit, GapSetDiscoverable, GapUpdateAdvData};
@@ -41,11 +39,7 @@ async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
     memory_manager.run_queue().await;
 }
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let mut config = config();
     config.rcc = RccConfig::new_wpan();

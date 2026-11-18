@@ -15,7 +15,6 @@ use embassy_stm32::flash::{
 };
 use embassy_stm32::mode::Mode;
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
-use panic_probe as _;
 
 teleprobe_meta::timeout!(120);
 
@@ -67,11 +66,7 @@ struct Sector {
     erase_value: u8,
 }
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     // This image stays in flash after the test. teleprobe power-cycles the board before every
     // run, so it boots again while teleprobe attaches for the next test. Resetting in the middle

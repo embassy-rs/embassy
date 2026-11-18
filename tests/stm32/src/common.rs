@@ -2,7 +2,11 @@
 
 pub use defmt::*;
 use defmt_rtt as _;
+#[cfg(not(feature = "stop"))]
+pub use embassy_executor::Executor;
 use embassy_stm32::Config;
+#[cfg(feature = "stop")]
+pub use embassy_stm32::executor::Executor;
 #[allow(unused)]
 use embassy_stm32::rcc::*;
 #[allow(unused)]

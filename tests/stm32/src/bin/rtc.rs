@@ -17,11 +17,7 @@ use embassy_stm32::rtc::{RawDateTime, Rtc};
 use embassy_time::Timer;
 use jiff::civil::date;
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let mut config = config();
     config.rcc.ls = LsConfig::default_lse();
