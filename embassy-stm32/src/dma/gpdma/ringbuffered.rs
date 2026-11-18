@@ -2,12 +2,13 @@
 //!
 //! FIXME: Stop the DMA, if a user does not queue new transfers (chain of linked-list items ends automatically).
 use core::future::poll_fn;
+use core::mem::MaybeUninit;
 use core::sync::atomic::{Ordering, fence};
 use core::task::Waker;
 
 use super::{Channel, STATE, TransferOptions};
 use crate::_generated::ringbuffer_table;
-use crate::dma::gpdma::linked_list::{LinearItem, RunMode, Table};
+use crate::dma::gpdma::linked_list::{LinearItem, LinkedListItem, RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
 use crate::dma::{Dir, Request, RingBufferError};
@@ -135,6 +136,76 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         }
     }
 
+    /// Create a ring buffer whose linked-list table is written into `table` storage, split into
+    /// `blocks` equal circular items.
+    ///
+    /// Each item raises a transfer-complete interrupt, so the consumer's waker fires once per
+    /// `buffer.len() / blocks` words instead of once per half buffer: the wake granularity is
+    /// the block size, not the buffer size. The items must be equal-sized (the position
+    /// tracking assumes uniform items); at most `K` blocks, each at most 65535 bytes.
+    ///
+    /// You must call [`start`](Self::start) after creating ring buffer for it to work.
+    ///
+    /// # Safety
+    ///
+    /// Like [`new`](Self::new), plus `table` must stay valid and unaliased for as long as the
+    /// ring buffer runs (the channel fetches its linked list from it).
+    pub unsafe fn new_blocked<PW: Word, const K: usize>(
+        table: *mut MaybeUninit<Table<LinearItem, K>>,
+        blocks: usize,
+        mut channel: Channel<'a>,
+        request: Request,
+        peri_addr: *mut PW,
+        buffer: &'a mut [W],
+        mut options: TransferOptions,
+    ) -> Self {
+        assert!(blocks > 0 && blocks <= K);
+        assert!(!buffer.is_empty() && buffer.len() % blocks == 0);
+
+        options.half_transfer_ir = false;
+        options.complete_transfer_ir = true;
+
+        let block = buffer.len() / blocks;
+        let table = (*table).write(Table::new(core::array::from_fn(|i| {
+            if i < blocks {
+                LinearItem::new_read::<W, PW>(
+                    request,
+                    peri_addr,
+                    &mut buffer[i * block..(i + 1) * block],
+                    Default::default(),
+                )
+            } else {
+                LinearItem::default()
+            }
+        })));
+
+        // Link only the used prefix, circularly. The unused items stay unlinked and empty,
+        // so `transfer_count` still sums the whole ring.
+        for i in 0..blocks - 1 {
+            table.link_indices(i, i + 1);
+        }
+        table.link_indices(blocks - 1, 0);
+        // "Preceding reads and writes cannot be moved past subsequent writes."
+        fence(Ordering::SeqCst);
+
+        channel.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            blocks,
+            table.transfer_count(),
+            options,
+            false,
+        );
+
+        DmaCtrlImpl::new(channel.reborrow()).reset_complete_count();
+
+        Self {
+            _wake_guard: channel.info().wake_guard(),
+            channel,
+            ringbuf: ReadableDmaRingBuffer::new(buffer),
+        }
+    }
+
     /// Start the ring buffer operation.
     ///
     /// You must call this after creating ring buffer for it to work.
@@ -161,6 +232,24 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Error is returned if the portion to be read was overwritten by the DMA controller.
     pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), RingBufferError> {
         Ok(self.ringbuf.read(&mut DmaCtrlImpl::new(self.channel.reborrow()), buf)?)
+    }
+
+    /// The read position, in elements from the buffer's start (wrapping).
+    ///
+    /// For consumers that keep their own place in the stream, e.g. the frame slots of the CRC
+    /// validity marks.
+    pub fn read_pos(&self) -> usize {
+        self.ringbuf.read_pos()
+    }
+
+    /// Snapshot the write position, in words from the buffer's start.
+    ///
+    /// Reads the channel's destination address register directly, without synchronizing with
+    /// the ring: for interrupt handlers that record where the DMA was when a peripheral flagged
+    /// an error.
+    pub fn write_head(&self) -> usize {
+        let dar = unsafe { self.channel.destination_register().read_volatile() } as usize;
+        (dar.wrapping_sub(self.ringbuf.buf_addr()) / W::size().bytes()) % self.ringbuf.cap()
     }
 
     /// Read an exact number of elements from the ringbuffer.
