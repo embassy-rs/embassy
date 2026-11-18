@@ -59,9 +59,10 @@ const EPX_MAX_PIPES: usize = 16;
 /// NAK retry interval, stretched so a NAKing transfer cannot retry within the frame.
 #[cfg(feature = "rp2040")]
 const NAK_POLL_DELAY_YIELD: u16 = 300;
-/// NAK retry interval outside a yield.
-#[cfg(feature = "rp2040")]
-const NAK_POLL_DELAY_NORMAL: u16 = 16;
+/// Full-speed NAK retry interval outside a yield, in microseconds. Exceeds a NAKed retry (~6 us).
+const NAK_POLL_DELAY_FS: u16 = 8;
+/// Low-speed NAK retry interval outside a yield, in microseconds.
+const NAK_POLL_DELAY_LS: u16 = 16;
 
 /// Consecutive attempts of one EPX transaction that the device leaves without any
 /// answer before the transfer fails with [`PipeError::Timeout`]: the error count of
@@ -477,6 +478,10 @@ impl<'d, T: SealedHostInstance> Driver<'d, T> {
             #[cfg(feature = "_rp235x")]
             w.set_phy_iso(false);
         });
+        regs.nak_poll().write(|w| {
+            w.set_delay_fs(NAK_POLL_DELAY_FS);
+            w.set_delay_ls(NAK_POLL_DELAY_LS);
+        });
         regs.sie_ctrl().modify(|w| {
             w.set_sof_en(true);
             w.set_keep_alive_en(true);
@@ -644,10 +649,12 @@ fn disarm_epx_yield<T: SealedHostInstance>() {
     {
         T::host_state().with_arbiter(|a| a.switch_requested = false);
         T::regs().inte().modify(|w| w.set_host_sof(false));
-        T::regs().nak_poll().write(|w| {
-            w.set_delay_fs(NAK_POLL_DELAY_NORMAL);
-            w.set_delay_ls(NAK_POLL_DELAY_NORMAL);
-        });
+        if T::regs().nak_poll().read().delay_fs() == NAK_POLL_DELAY_YIELD {
+            T::regs().nak_poll().write(|w| {
+                w.set_delay_fs(NAK_POLL_DELAY_FS);
+                w.set_delay_ls(NAK_POLL_DELAY_LS);
+            });
+        }
     }
 }
 
