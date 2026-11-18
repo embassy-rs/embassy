@@ -656,13 +656,6 @@ impl<'d, W: Word> I2S<'d, W> {
 
         let regs = T::info().regs;
 
-        #[cfg(any(all(rcc_f4, not(stm32f410)), rcc_f2, rcc_f7))]
-        let pclk = unsafe { crate::rcc::get_freqs() }.plli2s1_r.to_hertz().unwrap();
-        #[cfg(not(any(all(rcc_f4, not(stm32f410)), rcc_f2, rcc_f7)))]
-        let pclk = T::frequency();
-
-        let (odd, div) = compute_baud_rate(pclk, config.frequency, config.master_clock, config.format);
-
         #[cfg(any(spi_v4, spi_v5))]
         {
             regs.cr1().modify(|w| w.set_spe(false));
@@ -704,16 +697,6 @@ impl<'d, W: Word> I2S<'d, W> {
             }
         };
 
-        clk_reg.modify(|w| {
-            w.set_i2sdiv(div);
-            w.set_odd(match odd {
-                true => Odd::Odd,
-                false => Odd::Even,
-            });
-
-            w.set_mckoe(config.master_clock);
-        });
-
         regs.i2scfgr().modify(|w| {
             w.set_ckpol(config.clock_polarity.ckpol());
 
@@ -735,6 +718,22 @@ impl<'d, W: Word> I2S<'d, W> {
                 #[cfg(any(spi_v4, spi_v5))]
                 (Mode::Slave, Function::FullDuplex) => I2scfg::SlaveFullDuplex,
             });
+        });
+
+        #[cfg(any(all(rcc_f4, not(stm32f410)), rcc_f2, rcc_f7))]
+        let pclk = unsafe { crate::rcc::get_freqs() }.plli2s1_r.to_hertz().unwrap();
+        #[cfg(not(any(all(rcc_f4, not(stm32f410)), rcc_f2, rcc_f7)))]
+        let pclk = T::frequency();
+
+        let (odd, div) = compute_baud_rate(pclk, config.frequency, config.master_clock, config.format);
+        clk_reg.modify(|w| {
+            w.set_i2sdiv(div);
+            w.set_odd(match odd {
+                true => Odd::Odd,
+                false => Odd::Even,
+            });
+
+            w.set_mckoe(config.master_clock);
         });
 
         #[cfg(spi_v2_i2s)]
