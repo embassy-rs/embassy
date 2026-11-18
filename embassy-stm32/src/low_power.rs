@@ -53,6 +53,12 @@ compile_error!(
      See embassy-stm32/src/low_power.rs and docs/low-power/00-hardware-survey.md."
 );
 
+// The time spent in Stop is measured with the RTC subsecond counter, which Cat.1 devices lack (RM0038 20.6.11).
+#[cfg(rtc_v2_l1_cat1)]
+compile_error!(
+    "the `low-power` feature is not supported on STM32L1 Cat.1 devices: their RTC has no subsecond counter."
+);
+
 use core::mem;
 use core::sync::atomic::{Ordering, compiler_fence};
 

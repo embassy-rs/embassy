@@ -425,7 +425,18 @@ impl LsConfig {
         if self.rtc != RtcClockSource::Disable {
             #[cfg(not(rcc_n6))]
             bdcr().modify(|w| {
-                #[cfg(any(rtc_v2_h7, rtc_v2_l4, rtc_v2_wb, rtc_v3_base, rtc_v3_u5))]
+                #[cfg(any(
+                    rtc_v2_h7,
+                    rtc_v2_l4,
+                    rtc_v2_wb,
+                    rtc_v3_base,
+                    rtc_v3_g0,
+                    rtc_v3_u0,
+                    rtc_v3_u5,
+                    rtc_v3_h5,
+                    rtc_v3_h503,
+                    rtc_v3_wba
+                ))]
                 assert!(!w.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
                 #[cfg(not(rcc_wba))]

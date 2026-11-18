@@ -55,11 +55,11 @@ impl RtcTimeProvider {
     /// February 30.
     #[cfg(feature = "jiff")]
     pub fn read(&self) -> Result<jiff::civil::DateTime, InvalidDateTimeError> {
-        // F2 has no subsecond counter: `subsecond` is 0, so `prediv_s` must be 0 too for the
+        // F2 and L1 Cat.1 have no subsecond counter: `subsecond` is 0, so `prediv_s` must be 0 too for the
         // second to read as just started.
-        #[cfg(not(rtc_v2_f2))]
+        #[cfg(not(any(rtc_v2_f2, rtc_v2_l1_cat1)))]
         let prediv_s = RTC::regs().prer().read().prediv_s();
-        #[cfg(rtc_v2_f2)]
+        #[cfg(any(rtc_v2_f2, rtc_v2_l1_cat1))]
         let prediv_s = 0;
 
         datetime::to_jiff(self.read_raw(), prediv_s)
@@ -85,9 +85,9 @@ impl RtcTimeProvider {
     fn read_regs<R>(&self, f: impl FnOnce(Dr, Tr, u16) -> R) -> R {
         let r = RTC::regs();
 
-        #[cfg(not(rtc_v2_f2))]
+        #[cfg(not(any(rtc_v2_f2, rtc_v2_l1_cat1)))]
         let read_ss = || r.ssr().read().ss();
-        #[cfg(rtc_v2_f2)]
+        #[cfg(any(rtc_v2_f2, rtc_v2_l1_cat1))]
         let read_ss = || 0;
 
         let mut ss = read_ss();
@@ -235,7 +235,7 @@ impl Rtc {
         this.configure(async_psc, sync_psc);
 
         // Wait for the clock to update after initialization
-        #[cfg(not(rtc_v2_f2))]
+        #[cfg(not(any(rtc_v2_f2, rtc_v2_l1_cat1)))]
         {
             let now = RtcTimeProvider::new().read_regs(|_, _, ss| ss);
             while now == RtcTimeProvider::new().read_regs(|_, _, ss| ss) {}
@@ -312,7 +312,7 @@ impl Rtc {
     /// Synchronize to a remote clock with a high degree of precision.
     ///
     /// `shift` should be adjusted from -1 to 1 second.
-    #[cfg(not(rtc_v2_f2))]
+    #[cfg(not(any(rtc_v2_f2, rtc_v2_l1_cat1)))]
     pub fn synchronize(&mut self, shift: f32) {
         let prediv_s = RTC::regs().prer().read().prediv_s() as f32;
         let (add1s, subfs) = if shift > 0. {
@@ -476,7 +476,7 @@ trait SealedInstance {
     }
 
     /// Shift operation pending
-    #[cfg(not(rtc_v2_f2))]
+    #[cfg(not(any(rtc_v2_f2, rtc_v2_l1_cat1)))]
     fn shpf() -> bool;
 
     /// Read content of the backup register.
