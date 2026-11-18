@@ -14,6 +14,11 @@
 //! The DPPI for nRF53 and nRF91 devices works in a different way. Every channel can support infinitely
 //! many tasks and events, but any single task or event can only be coupled with one channel.
 //!
+//! On nRF54L, DPPI channels are local to a power domain: a channel can only connect events and tasks
+//! of peripherals in its own domain (e.g. `PPI20_CHn` connects peripherals in the peripheral domain,
+//! like `TIMER20` or `GPIOTE20`). [`Ppi`] constructors and [`PpiGroup::add_channel`] panic if that's
+//! not the case. Use [`ppib`](crate::ppib) to connect channels in different domains.
+//!
 
 use core::marker::PhantomData;
 use core::ptr::NonNull;
