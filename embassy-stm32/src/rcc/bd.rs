@@ -99,13 +99,7 @@ pub struct LsConfig {
 impl LsConfig {
     /// Creates an [`LsConfig`] using the LSI when possible.
     pub const fn new() -> Self {
-        // on L5, just the fact that LSI is enabled makes things crash.
-        // TODO: investigate.
-
-        #[cfg(not(stm32l5))]
-        return Self::default_lsi();
-        #[cfg(stm32l5)]
-        return Self::off();
+        Self::default_lsi()
     }
 
     pub const fn default_lse() -> Self {
@@ -334,7 +328,7 @@ impl LsConfig {
         }
 
         // If not OK, reset backup domain and configure it.
-        #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32h7rs, stm32c0, stm32n6, stm32u5)))]
+        #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32h7rs, stm32c0, stm32n6, stm32u5, stm32l5)))]
         {
             bdcr().modify(|w| w.set_bdrst(true));
             bdcr().modify(|w| w.set_bdrst(false));
@@ -348,7 +342,8 @@ impl LsConfig {
         // STM32H562xx/563xx/573xx device errata - 2.2.14 SRAM2 is erased when the backup domain is reset
         // The U5 does the same: SRAM2 is one of the "device secrets" a backup domain reset wipes
         // (RM0456, tamper and backup registers), observed on an STM32U585 where the erase zeroed
-        // the 64 kB of SRAM2 during `init`.
+        // the 64 kB of SRAM2 during `init`. L5 too: "The SRAM2 is also erased by a Backup domain
+        // reset" (RM0438, memory and bus architecture).
         //#[cfg(any(stm32h5, stm32h7rs))]
         #[cfg(any(stm32h7rs, stm32n6))]
         {
