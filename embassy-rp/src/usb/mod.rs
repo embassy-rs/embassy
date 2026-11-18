@@ -71,17 +71,25 @@ impl<T: Instance> EndpointBuffer<T> {
     }
 
     fn read(&mut self, buf: &mut [u8]) {
-        assert!(buf.len() <= self.len as usize);
+        self.read_at(0, buf);
+    }
+
+    fn read_at(&mut self, offset: usize, buf: &mut [u8]) {
+        assert!(offset + buf.len() <= self.len as usize);
         compiler_fence(Ordering::SeqCst);
-        let mem = unsafe { slice::from_raw_parts(EP_MEMORY.add(self.addr as _), buf.len()) };
+        let mem = unsafe { slice::from_raw_parts(EP_MEMORY.add(self.addr as usize + offset), buf.len()) };
         buf.copy_from_slice(mem);
         compiler_fence(Ordering::SeqCst);
     }
 
     fn write(&mut self, buf: &[u8]) {
-        assert!(buf.len() <= self.len as usize);
+        self.write_at(0, buf);
+    }
+
+    fn write_at(&mut self, offset: usize, buf: &[u8]) {
+        assert!(offset + buf.len() <= self.len as usize);
         compiler_fence(Ordering::SeqCst);
-        let mem = unsafe { slice::from_raw_parts_mut(EP_MEMORY.add(self.addr as _), buf.len()) };
+        let mem = unsafe { slice::from_raw_parts_mut(EP_MEMORY.add(self.addr as usize + offset), buf.len()) };
         mem.copy_from_slice(buf);
         compiler_fence(Ordering::SeqCst);
     }
