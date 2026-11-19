@@ -750,6 +750,62 @@ fn configuration_and_alt_setting_clear_halt() {
     });
 }
 
+struct AltSettingHandler<'a>(&'a Cell<Option<(u8, u8)>>);
+
+impl Handler for AltSettingHandler<'_> {
+    fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
+        self.0.set(Some((iface.0, alternate_setting)));
+    }
+}
+
+#[test]
+fn set_configuration_resets_alt_settings() {
+    let seen = Cell::new(None);
+    let mut handler = AltSettingHandler(&seen);
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut function = builder.function(0xff, 0, 0);
+    let mut interface = function.interface();
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+    alt.endpoint_bulk_out(Some(0x01.into()), EndpointOptions::new());
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+    alt.endpoint_interrupt_in(Some(0x83.into()), 64, 1);
+    drop(function);
+    builder.handler(&mut handler);
+    let usb = &mut builder.build();
+
+    configure(usb);
+    assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(1));
+    assert_eq!(seen.get(), Some((0, 1)));
+
+    // USB 2.0 §9.1.1.5: a (re)configured device is in alternate setting zero,
+    // even if the host selects the configuration that is already active.
+    assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
+    assert_eq!(seen.get(), Some((0, 0)));
+    assert!(usb.bus.enabled[TestBus::slot(0x01.into())]);
+    assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+
+    // Deconfiguring and configuring again also starts from alternate setting zero.
+    assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 0, 0, 0), Response::Accepted);
+    assert_eq!(seen.get(), Some((0, 0)));
+    assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
+    assert!(usb.bus.enabled[TestBus::slot(0x01.into())]);
+    assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+}
+
 #[cfg(all(feature = "device", feature = "host", feature = "class-ccid"))]
 #[test]
 fn test_ccid_device_and_host_interop() {

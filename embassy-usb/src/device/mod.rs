@@ -749,6 +749,24 @@ impl<'d> Inner<'d> {
         }
     }
 
+    /// Return every interface to alternate setting zero and tell the handlers about the ones that changed.
+    ///
+    /// USB 2.0 §9.1.1.5: the default setting when a device is configured is alternate
+    /// setting zero. This holds for SET_CONFIGURATION even when the host selects the
+    /// configuration that is already active.
+    fn reset_alt_settings(&mut self) {
+        for (i, iface) in self.interfaces.iter_mut().enumerate() {
+            if iface.current_alt_setting == 0 {
+                continue;
+            }
+            iface.current_alt_setting = 0;
+
+            for h in &mut self.handlers {
+                h.set_alternate_setting(InterfaceNumber::new(i as _), 0);
+            }
+        }
+    }
+
     async fn handle_bus_event(&mut self, bus: &mut impl Bus, evt: Event) {
         match evt {
             Event::Reset(speed) => {
@@ -864,6 +882,7 @@ impl<'d> Inner<'d> {
                 (Request::SET_CONFIGURATION, CONFIGURATION_VALUE_U16) => {
                     debug!("SET_CONFIGURATION: configured");
                     self.device_state = UsbDeviceState::Configured;
+                    self.reset_alt_settings();
 
                     // Enable the endpoints belonging to each interface's selected
                     // alternate setting. An endpoint shared by several alternate
@@ -903,6 +922,7 @@ impl<'d> Inner<'d> {
                     if self.device_state != UsbDeviceState::Default {
                         debug!("SET_CONFIGURATION: unconfigured");
                         self.device_state = UsbDeviceState::Addressed;
+                        self.reset_alt_settings();
 
                         // Disable all endpoints.
                         let mut eps_to_disable = heapless::Vec::<EndpointAddress, 32>::new();

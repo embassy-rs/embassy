@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed: a control request without a data stage, such as `SET_ADDRESS`, no longer calls the driver's `control_data_out()`. Drivers wait there for a packet the host never sends, so enumeration did not complete.
 - Device: `UsbDevice` handles a control request when the driver's `Bus::poll()` returns `Event::Setup`, instead of selecting between `Bus::poll()` and `ControlPipe::setup()`.
 - Device: standard Chapter 9 requests follow USB 2.0. Remote wakeup is refused unless the configuration supports it, `GET_STATUS` reports `Config::self_powered`, interface requests stall until the device is configured, device and configuration descriptors reject a non-zero index, `SET_ADDRESS(0)` returns an addressed device to the default state, and `SET_CONFIGURATION` / `SET_INTERFACE` clear endpoint halt
+- Fixed: `SET_CONFIGURATION` returns every interface to alternate setting 0 and calls `Handler::set_alternate_setting()` for the ones that changed. Before, an interface kept the alternate setting the host had selected until the next bus reset, so a class could keep streaming after the host re-selected the configuration.
 - Add CDC-ECM class (device and host) for Ethernet-over-USB networking
 - `VCP`: add CH34x and FTDI host drivers
 - Add USB Printer class (device and host) supporting IEEE 1284 device IDs and bidirectional raw print streams
