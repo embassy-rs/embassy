@@ -1,10 +1,12 @@
 use stm32_metapac::FLASH;
-use stm32_metapac::rcc::vals::{Adcdacpre, Hseext};
+use stm32_metapac::rcc::vals::{Adcdacpre, Hseext, Hsikdiv, Psiref, Psirefsrc};
 
 use crate::pac::RCC;
-pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler, Sw as Sysclk};
+pub use crate::pac::rcc::vals::{
+    Hpre as AHBPrescaler, Ppre as APBPrescaler, Psifreq as PsiFrequency, Psikdiv as PsiKernelDivider, Sw as Sysclk,
+};
+use crate::rcc::{LSI_FREQ, LsConfig};
 use crate::time::Hertz;
-
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(144_000_000);
 
@@ -26,6 +28,38 @@ pub struct Hse {
     pub mode: HseMode,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct HsiKernel {
+    pub div: Hsikdiv,
+}
+
+/// Reference clock for the PSI oscillator.
+///
+/// LSE references are not supported yet.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum PsiSource {
+    /// HSI divided by 18 (8 MHz). Requires `Config::hsi` to be enabled.
+    Hsi,
+    /// HSE. Requires `Config::hse` at 8, 16, 24, 25, 32, 48, or 50 MHz.
+    /// 25 and 50 MHz references only support a 100 MHz PSI output.
+    Hse,
+}
+
+/// Configuration of the PSI oscillator and its independent outputs.
+#[derive(Clone, Copy)]
+pub struct Psi {
+    /// Reference clock source, enabled separately in `Config`.
+    pub source: PsiSource,
+    /// Oscillator frequency. 160 MHz is only usable through a divided output.
+    pub frequency: PsiFrequency,
+    /// Enable the undivided PSIS output for SYSCLK or peripherals (at most 144 MHz).
+    pub sys: bool,
+    /// Enable the PSI / 3 output. USB requires a 144 MHz PSI oscillator.
+    pub div3: bool,
+    /// Enable PSIK with this divider, or disable it with `None`.
+    pub kernel_div: Option<PsiKernelDivider>,
+}
+
 /// Configuration of the core clocks
 #[non_exhaustive]
 #[derive(Clone, Copy)]
@@ -36,7 +70,17 @@ pub struct Config {
     /// Enable HSI Div 3 tap (48MHz)
     pub hsi_div3: bool,
 
+    pub hsik: Option<HsiKernel>,
+
     pub hse: Option<Hse>,
+
+    /// Low-speed clocks and RTC clock source.
+    /// The RTC domain is not reset during initialization, as this would erase SRAM2.
+    /// Changing a previously selected RTC clock source requires a power cycle.
+    pub ls: LsConfig,
+
+    /// PSI oscillator configuration. `None` disables all PSI outputs.
+    pub psi: Option<Psi>,
 
     /// System Clock Configuration
     pub sys: Sysclk,
@@ -58,7 +102,10 @@ impl Config {
         Self {
             hsi: false,
             hsi_div3: true,
+            hsik: None,
             hse: None,
+            ls: LsConfig::new(),
+            psi: None,
             sys: Sysclk::Hsidiv3,
             ahb_pre: AHBPrescaler::Div1,
             apb1_pre: APBPrescaler::Div1,
@@ -97,6 +144,19 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsidiv3));
     while RCC.cfgr().read().sws() != Sysclk::Hsidiv3 {}
 
+    // Stop every PSI output before changing its reference source or frequency.
+    // This also releases HSE if a bootloader used it as the PSI reference.
+    RCC.cr().modify(|w| {
+        w.set_psion(false);
+        w.set_psidiv3on(false);
+        w.set_psikon(false);
+        w.set_psikeron(false);
+    });
+    while {
+        let cr = RCC.cr().read();
+        cr.psirdy() || cr.psidiv3rdy() || cr.psikrdy()
+    } {}
+
     // Configure HSI
     let hsi = config.hsi.then_some(HSI_FREQ);
     let hsi_div3 = config.hsi_div3.then_some(Hertz(HSI_FREQ.0 / 3));
@@ -108,6 +168,35 @@ pub(crate) unsafe fn init(config: Config) {
     if config.hsi_div3 {
         while !RCC.cr().read().hsidiv3rdy() {}
     }
+
+    // Configure HSIK
+    let hsik = match config.hsik {
+        Some(hsik) => {
+            RCC.cr2().modify(|w| w.set_hsikdiv(hsik.div));
+            RCC.cr().modify(|w| w.set_hsikon(true));
+            while !RCC.cr().read().hsikrdy() {}
+            let div_x2: u32 = match hsik.div {
+                Hsikdiv::Div1 => 2,
+                Hsikdiv::Div15 => 3,
+                Hsikdiv::Div2 => 4,
+                Hsikdiv::Div25 => 5,
+                Hsikdiv::Div3 => 6,
+                Hsikdiv::Div35 => 7,
+                Hsikdiv::Div4 => 8,
+                Hsikdiv::Div45 => 9,
+                Hsikdiv::Div5 => 10,
+                Hsikdiv::Div55 => 11,
+                Hsikdiv::Div6 => 12,
+                Hsikdiv::Div65 => 13,
+                Hsikdiv::Div7 => 14,
+                Hsikdiv::Div75 => 15,
+                Hsikdiv::Div8 => 16,
+                _ => panic!("invalid HSIK divider"),
+            };
+            Some(Hertz(HSI_FREQ.0 * 2 / div_x2))
+        }
+        None => None,
+    };
 
     // Configure HSE
     let hse = match config.hse {
@@ -143,12 +232,62 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    let (psi, psidiv3, psik) = match config.psi {
+        Some(psi) => {
+            let (source, reference) = match psi.source {
+                PsiSource::Hsi => {
+                    assert!(hsi.is_some(), "PSI HSI reference requires config.rcc.hsi");
+                    (Psirefsrc::Hsi, Psiref::F8mHz)
+                }
+                PsiSource::Hse => (
+                    Psirefsrc::Hse,
+                    psi_hse_reference(unwrap!(hse, "PSI HSE reference requires config.rcc.hse"), psi.frequency),
+                ),
+            };
+            let frequency = psi_frequency(psi.frequency);
+            let sys = psi.sys.then_some(frequency);
+            if let Some(sys) = sys {
+                assert!(max::SYSCLK.contains(&sys), "PSIS must not exceed 144 MHz");
+            }
+            let div3 = psi.div3.then_some(frequency / 3u32);
+            let kernel = psi.kernel_div.map(|div| psi_kernel_frequency(frequency, div));
+            if let Some(kernel) = kernel {
+                assert!(max::HCLK.contains(&kernel), "PSIK must not exceed 144 MHz");
+            }
+
+            RCC.cr2().modify(|w| {
+                w.set_psirefsrc(source);
+                w.set_psiref(reference);
+                w.set_psifreq(psi.frequency);
+                if let Some(div) = psi.kernel_div {
+                    w.set_psikdiv(div);
+                }
+            });
+            RCC.cr().modify(|w| {
+                w.set_psion(psi.sys);
+                w.set_psidiv3on(psi.div3);
+                w.set_psikon(psi.kernel_div.is_some());
+            });
+            if psi.sys {
+                while !RCC.cr().read().psirdy() {}
+            }
+            if psi.div3 {
+                while !RCC.cr().read().psidiv3rdy() {}
+            }
+            if psi.kernel_div.is_some() {
+                while !RCC.cr().read().psikrdy() {}
+            }
+            (sys, div3, kernel)
+        }
+        None => (None, None, None),
+    };
+
     // Configure sysclk
     let sys = match config.sys {
         Sysclk::Hsidiv3 => unwrap!(hsi_div3),
         Sysclk::Hsi => unwrap!(hsi),
         Sysclk::Hse => unwrap!(hse),
-        Sysclk::Psi => unimplemented!(),
+        Sysclk::Psi => unwrap!(psi, "PSI system clock requires config.rcc.psi.sys"),
     };
     assert!(max::SYSCLK.contains(&sys));
 
@@ -166,14 +305,14 @@ pub(crate) unsafe fn init(config: Config) {
 
     let adc_dac = match config.mux.adcdacsel {
         stm32_metapac::rcc::vals::Adcdacsel::Hclk1 => hclk,
-        stm32_metapac::rcc::vals::Adcdacsel::Psi => unimplemented!(),
-        stm32_metapac::rcc::vals::Adcdacsel::Psik => unimplemented!(),
-        stm32_metapac::rcc::vals::Adcdacsel::Hsik => unimplemented!(),
+        stm32_metapac::rcc::vals::Adcdacsel::Psi => unwrap!(psi, "ADC/DAC requires PSIS"),
+        stm32_metapac::rcc::vals::Adcdacsel::Psik => unwrap!(psik, "ADC/DAC requires PSIK"),
+        stm32_metapac::rcc::vals::Adcdacsel::Hsik => unwrap!(hsik, "ADC/DAC requires HSIK"),
     };
     let adc_dac = adc_dac / config.adcdac_pre;
     assert!(max::ADC_DAC.contains(&adc_dac));
 
-    //let rtc = config.ls.init();
+    let rtc = config.ls.init();
 
     RCC.cfgr2().modify(|w| w.set_hpre(config.ahb_pre));
     while RCC.cfgr2().read().hpre() != config.ahb_pre {}
@@ -222,20 +361,64 @@ pub(crate) unsafe fn init(config: Config) {
 
         hsi: hsi,
         hsidiv3: hsi_div3,
-        hsik: None,
+        hsik: hsik,
         hse: hse,
-        psi: None,
-        psidiv3: None,
-        psik: None,
+        psi: psi,
+        psidiv3: psidiv3,
+        psik: psik,
 
-        // TODO
-        lsi: None,
-        lse: None,
-
-        rtc: None,
+        lsi: config.ls.lsi.then_some(LSI_FREQ),
+        lse: config.ls.lse.map(|lse| lse.frequency),
+        rtc: rtc,
 
         audioclk: None,
     );
+}
+
+fn psi_frequency(frequency: PsiFrequency) -> Hertz {
+    match frequency {
+        PsiFrequency::F100mHz => Hertz(100_000_000),
+        PsiFrequency::F144mHz => Hertz(144_000_000),
+        PsiFrequency::F160mHz => Hertz(160_000_000),
+        _ => panic!("invalid PSI frequency"),
+    }
+}
+
+fn psi_hse_reference(hse: Hertz, frequency: PsiFrequency) -> Psiref {
+    // RM0522, table 66: 25/50 MHz references only support 100 MHz PSI.
+    match hse.0 {
+        8_000_000 => Psiref::F8mHz,
+        16_000_000 => Psiref::F16mHz,
+        24_000_000 => Psiref::F24mHz,
+        25_000_000 if frequency == PsiFrequency::F100mHz => Psiref::F25mHz,
+        32_000_000 => Psiref::F32mHz,
+        48_000_000 => Psiref::F48mHz,
+        50_000_000 if frequency == PsiFrequency::F100mHz => Psiref::F50mHz,
+        _ => panic!("unsupported HSE frequency for the selected PSI frequency"),
+    }
+}
+
+fn psi_kernel_frequency(frequency: Hertz, div: PsiKernelDivider) -> Hertz {
+    // PAC names such as Div15 mean 1.5, not 15. Keep the calculation integral.
+    let div_x2: u32 = match div {
+        PsiKernelDivider::Div1 => 2,
+        PsiKernelDivider::Div15 => 3,
+        PsiKernelDivider::Div2 => 4,
+        PsiKernelDivider::Div25 => 5,
+        PsiKernelDivider::Div3 => 6,
+        PsiKernelDivider::Div35 => 7,
+        PsiKernelDivider::Div4 => 8,
+        PsiKernelDivider::Div45 => 9,
+        PsiKernelDivider::Div5 => 10,
+        PsiKernelDivider::Div55 => 11,
+        PsiKernelDivider::Div6 => 12,
+        PsiKernelDivider::Div65 => 13,
+        PsiKernelDivider::Div7 => 14,
+        PsiKernelDivider::Div75 => 15,
+        PsiKernelDivider::Div8 => 16,
+        _ => panic!("invalid PSIK divider"),
+    };
+    frequency * 2u32 / div_x2
 }
 
 fn flash_setup(hclk: Hertz) {
@@ -270,4 +453,78 @@ mod max {
     pub(crate) const PCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(144_000_000);
     pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(144_000_000);
     pub(crate) const ADC_DAC: RangeInclusive<Hertz> = Hertz(8_000_000)..=Hertz(36_000_000);
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use super::*;
+
+    #[test]
+    fn psi_output_frequencies() {
+        assert_eq!(psi_frequency(PsiFrequency::F100mHz), Hertz(100_000_000));
+        assert_eq!(psi_frequency(PsiFrequency::F144mHz), Hertz(144_000_000));
+        assert_eq!(psi_frequency(PsiFrequency::F160mHz), Hertz(160_000_000));
+    }
+
+    #[test]
+    fn psi_hse_reference_combinations() {
+        for frequency in [PsiFrequency::F100mHz, PsiFrequency::F144mHz, PsiFrequency::F160mHz] {
+            for (hz, reference) in [
+                (8_000_000, Psiref::F8mHz),
+                (16_000_000, Psiref::F16mHz),
+                (24_000_000, Psiref::F24mHz),
+                (32_000_000, Psiref::F32mHz),
+                (48_000_000, Psiref::F48mHz),
+            ] {
+                assert!(psi_hse_reference(Hertz(hz), frequency) == reference);
+            }
+        }
+        assert!(psi_hse_reference(Hertz(25_000_000), PsiFrequency::F100mHz) == Psiref::F25mHz);
+        assert!(psi_hse_reference(Hertz(50_000_000), PsiFrequency::F100mHz) == Psiref::F50mHz);
+    }
+
+    #[test]
+    fn psi_rejects_invalid_hse_references() {
+        for frequency in [PsiFrequency::F144mHz, PsiFrequency::F160mHz] {
+            for hz in [25_000_000, 50_000_000] {
+                assert!(std::panic::catch_unwind(|| psi_hse_reference(Hertz(hz), frequency)).is_err());
+            }
+        }
+        for hz in [0, 4_000_000, 12_000_000, 47_999_999] {
+            assert!(std::panic::catch_unwind(|| psi_hse_reference(Hertz(hz), PsiFrequency::F100mHz)).is_err());
+        }
+    }
+
+    #[test]
+    fn psik_fractional_dividers() {
+        for (divider, expected) in [
+            (PsiKernelDivider::Div1, 144_000_000),
+            (PsiKernelDivider::Div15, 96_000_000),
+            (PsiKernelDivider::Div2, 72_000_000),
+            (PsiKernelDivider::Div25, 57_600_000),
+            (PsiKernelDivider::Div3, 48_000_000),
+            (PsiKernelDivider::Div35, 41_142_857),
+            (PsiKernelDivider::Div4, 36_000_000),
+            (PsiKernelDivider::Div45, 32_000_000),
+            (PsiKernelDivider::Div5, 28_800_000),
+            (PsiKernelDivider::Div55, 26_181_818),
+            (PsiKernelDivider::Div6, 24_000_000),
+            (PsiKernelDivider::Div65, 22_153_846),
+            (PsiKernelDivider::Div7, 20_571_428),
+            (PsiKernelDivider::Div75, 19_200_000),
+            (PsiKernelDivider::Div8, 18_000_000),
+        ] {
+            assert_eq!(psi_kernel_frequency(Hertz(144_000_000), divider), Hertz(expected));
+        }
+        assert_eq!(
+            psi_kernel_frequency(Hertz(160_000_000), PsiKernelDivider::Div25),
+            Hertz(64_000_000)
+        );
+        assert_eq!(
+            psi_kernel_frequency(Hertz(100_000_000), PsiKernelDivider::Div8),
+            Hertz(12_500_000)
+        );
+    }
 }
