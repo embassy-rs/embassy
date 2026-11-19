@@ -750,6 +750,59 @@ fn configuration_and_alt_setting_clear_halt() {
     });
 }
 
+/// The manufacturer string descriptor the device returns for `manufacturer`.
+fn manufacturer_string_descriptor(manufacturer: &str) -> std::vec::Vec<u8> {
+    let mut config = Config::new(0x1234, 0x5678);
+    config.manufacturer = Some(manufacturer);
+    let mut config_descriptor = [0; 64];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 512];
+    let builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut usb = builder.build();
+
+    let req = Request::parse(&[
+        0x80,
+        Request::GET_DESCRIPTOR,
+        1,
+        descriptor_type::STRING,
+        0x09,
+        0x04,
+        0xff,
+        0,
+    ]);
+    let mut buf = [0; 512];
+    match usb.inner.handle_get_descriptor(req, &mut buf) {
+        InResponse::Accepted(data) => data.to_vec(),
+        InResponse::Rejected => panic!("manufacturer string should be accepted"),
+    }
+}
+
+#[test]
+fn long_string_descriptor_is_truncated_to_fit_blength() {
+    // bLength is one byte, so a string descriptor holds at most 126 UTF-16 code units.
+    let data = manufacturer_string_descriptor(&"a".repeat(200));
+    assert_eq!(data.len(), 254);
+    assert_eq!(data[0], 254);
+    assert_eq!(data[1], descriptor_type::STRING);
+    assert!(data[2..].chunks(2).all(|c| c == [b'a', 0]));
+
+    // A string that fits is not changed.
+    let data = manufacturer_string_descriptor(&"a".repeat(126));
+    assert_eq!(data.len(), 254);
+
+    // A character outside the BMP is two code units. It is dropped, not split, when only one fits.
+    let data = manufacturer_string_descriptor(&("a".repeat(125) + "\u{1F600}"));
+    assert_eq!(data.len(), 252);
+    assert_eq!(data[0], 252);
+}
+
 struct AltSettingHandler<'a>(&'a Cell<Option<(u8, u8)>>);
 
 impl Handler for AltSettingHandler<'_> {

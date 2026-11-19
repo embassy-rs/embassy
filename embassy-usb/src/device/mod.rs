@@ -69,6 +69,8 @@ const STRING_INDEX_MANUFACTURER: u8 = 1;
 const STRING_INDEX_PRODUCT: u8 = 2;
 const STRING_INDEX_SERIAL_NUMBER: u8 = 3;
 const STRING_INDEX_CUSTOM_START: u8 = 4;
+/// The most bytes a string descriptor can hold: `bLength` is one byte, and UTF-16 code units take two.
+const MAX_STRING_DESCRIPTOR_LEN: usize = 254;
 
 /// Handler for device events and control requests.
 ///
@@ -1197,11 +1199,22 @@ impl<'d> Inner<'d> {
 
                         buf[1] = descriptor_type::STRING;
                         let mut pos = 2;
-                        for c in s.encode_utf16() {
-                            assert!(pos + 2 < buf.len(), "control buffer too small");
+                        for ch in s.chars() {
+                            // bLength is one byte, so the descriptor holds 126 UTF-16 code units at most.
+                            // Cut the string there instead of letting the length wrap.
+                            // A character outside the BMP takes two code units, and is never split.
+                            if pos + 2 * ch.len_utf16() > MAX_STRING_DESCRIPTOR_LEN {
+                                warn!("string descriptor too long, truncating");
+                                break;
+                            }
 
-                            buf[pos..pos + 2].copy_from_slice(&c.to_le_bytes());
-                            pos += 2;
+                            let mut units = [0; 2];
+                            for c in ch.encode_utf16(&mut units) {
+                                assert!(pos + 2 < buf.len(), "control buffer too small");
+
+                                buf[pos..pos + 2].copy_from_slice(&c.to_le_bytes());
+                                pos += 2;
+                            }
                         }
 
                         buf[0] = pos as u8;
