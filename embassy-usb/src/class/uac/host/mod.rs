@@ -275,7 +275,10 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         // Get the sampling frequency
         let mut num_retries = 3;
         let sampling_freq = loop {
-            let sampling_freq = self.get_sampling_freq(self.input_terminal().clock_source_id()).await;
+            let sampling_freq = match self.clock_source_id().await {
+                Ok(clock_source_id) => self.get_sampling_freq(clock_source_id).await,
+                Err(e) => Err(e),
+            };
             if let Err(e) = sampling_freq {
                 num_retries -= 1;
                 if num_retries == 0 {
@@ -320,15 +323,51 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         &self.interface_collection.audio_streaming_interfaces[self.output_interface_idx]
     }
 
-    /// Retrieves the current sampling frequency from the specified terminal entity.
+    /// The Clock Source that drives the output terminal's clock.
+    ///
+    /// The terminal points at a clock, and that can be a Clock Selector, which has no sampling
+    /// frequency of its own. This follows the selected input of each selector down to the source.
+    pub async fn clock_source_id(&mut self) -> Result<u8, RequestError> {
+        let mut clock_id = self.input_terminal().clock_source_id();
+        // Selectors can feed selectors, but a path has no more steps than there are clocks.
+        for _ in 0..=self.interface_collection.control_interface.clock_descriptors.len() {
+            let interface = self.interface_collection.control_interface.interface_number();
+            match self.interface_collection.control_interface.clock_step(clock_id) {
+                descriptors::ClockStep::Source | descriptors::ClockStep::Other => return Ok(clock_id),
+                descriptors::ClockStep::Selector(source_ids) => {
+                    // A selector with one input has nothing to select, and may not have the control.
+                    let pin = if let [_] = source_ids[..] {
+                        1
+                    } else {
+                        self.get_curr_entity1(
+                            uac2_codes::control_selector::clock_selector::CLOCK_SELECTOR_CONTROL,
+                            0,
+                            clock_id,
+                            interface,
+                        )
+                        .await?
+                    };
+                    clock_id = usize::from(pin)
+                        .checked_sub(1)
+                        .and_then(|i| source_ids.get(i))
+                        .copied()
+                        .ok_or(RequestError::InvalidResponse)?;
+                }
+            }
+        }
+        Err(RequestError::InvalidResponse)
+    }
+
+    /// Retrieves the current sampling frequency from the specified Clock Source.
     ///
     /// Returns the sampling frequency in Hz, or an error if the request fails.
-    pub async fn get_sampling_freq(&mut self, terminal_id: u8) -> Result<u32, RequestError> {
+    pub async fn get_sampling_freq(&mut self, clock_source_id: u8) -> Result<u32, RequestError> {
+        let interface = self.interface_collection.control_interface.interface_number();
         self.get_curr_entity3(
             uac2_codes::control_selector::clock_source::SAMPLING_FREQ_CONTROL,
             0,
-            terminal_id,
-            0,
+            clock_source_id,
+            interface,
         )
         .await
     }

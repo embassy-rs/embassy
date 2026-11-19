@@ -361,6 +361,18 @@ impl defmt::Format for AudioControlInterface {
     }
 }
 
+/// One step along a clock path, see [`AudioControlInterface::clock_step`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ClockStep {
+    /// The clock is a Clock Source. It holds the sampling frequency.
+    Source,
+    /// The clock is a Clock Selector with these input clocks. Input pin `n` is entry `n - 1`.
+    Selector(Vec<u8, MAX_CLOCK_DESCRIPTORS>),
+    /// A Clock Multiplier, or a clock the function does not describe.
+    Other,
+}
+
 impl AudioControlInterface {
     fn new(interfaces: Vec<InterfaceDescriptor, MAX_ALTERNATE_SETTINGS>, header: AudioControlHeaderDescriptor) -> Self {
         Self {
@@ -370,6 +382,22 @@ impl AudioControlInterface {
             clock_descriptors: FnvIndexMap::new(),
             unit_descriptors: FnvIndexMap::new(),
             terminal_descriptors: FnvIndexMap::new(),
+        }
+    }
+
+    /// Interface number of the AudioControl interface.
+    ///
+    /// Requests to the entities of the function (clocks, terminals, units) are addressed to it.
+    pub fn interface_number(&self) -> u8 {
+        self.interface_descriptors.first().map_or(0, |i| i.interface_number)
+    }
+
+    /// Where the clock path continues after the clock `clock_id`, on the way to the Clock Source.
+    pub fn clock_step(&self, clock_id: u8) -> ClockStep {
+        match self.clock_descriptors.get(&clock_id) {
+            Some(ClockDescriptor::Source(_)) => ClockStep::Source,
+            Some(ClockDescriptor::Selector(selector)) => ClockStep::Selector(selector.source_ids.clone()),
+            Some(ClockDescriptor::Multiplier(_)) | None => ClockStep::Other,
         }
     }
 
@@ -1329,6 +1357,82 @@ mod test {
 
     use super::*;
     use crate::host::descriptor::ConfigurationDescriptor;
+
+    fn control_interface_with_clocks() -> AudioControlInterface {
+        let mut interfaces = Vec::new();
+        interfaces
+            .push(InterfaceDescriptor {
+                interface_number: 2,
+                alternate_setting: 0,
+                num_endpoints: 0,
+                interface_class: 1,
+                interface_subclass: 1,
+                interface_protocol: 0x20,
+                interface_name: 0,
+            })
+            .unwrap();
+        let mut control = AudioControlInterface::new(
+            interfaces,
+            AudioControlHeaderDescriptor {
+                audio_device_class: (2, 0),
+                category: 1,
+                controls_bitmap: 0,
+            },
+        );
+        let source = |clock_id| {
+            ClockDescriptor::Source(ClockSourceDescriptor {
+                clock_id,
+                attributes_bitmap: 1,
+                controls_bitmap: 7,
+                associated_terminal: 0,
+                clock_name: 0,
+            })
+        };
+        let selector = |clock_id, source_ids: &[u8]| {
+            ClockDescriptor::Selector(ClockSelectorDescriptor {
+                clock_id,
+                source_ids: Vec::from_slice(source_ids).unwrap(),
+                controls_bitmap: 3,
+                clock_name: 0,
+            })
+        };
+        for clock in [
+            source(1),
+            selector(2, &[1]),
+            source(4),
+            selector(3, &[1, 4]),
+            ClockDescriptor::Multiplier(ClockMultiplierDescriptor {
+                clock_id: 5,
+                source_id: 1,
+                controls_bitmap: 0,
+                clock_name: 0,
+            }),
+        ] {
+            control.clock_descriptors.insert(clock.clock_id(), clock).unwrap();
+        }
+        control
+    }
+
+    #[test]
+    fn clock_step_follows_the_clock_path() {
+        let control = control_interface_with_clocks();
+        assert_eq!(control.clock_step(1), ClockStep::Source);
+        assert_eq!(
+            control.clock_step(2),
+            ClockStep::Selector(Vec::from_slice(&[1]).unwrap())
+        );
+        assert_eq!(
+            control.clock_step(3),
+            ClockStep::Selector(Vec::from_slice(&[1, 4]).unwrap())
+        );
+        assert_eq!(control.clock_step(5), ClockStep::Other);
+        assert_eq!(control.clock_step(9), ClockStep::Other);
+    }
+
+    #[test]
+    fn control_interface_number_is_the_audio_control_interface() {
+        assert_eq!(control_interface_with_clocks().interface_number(), 2);
+    }
 
     #[test]
     fn test_parse() {
