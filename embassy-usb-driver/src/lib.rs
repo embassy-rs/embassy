@@ -61,7 +61,7 @@ pub enum EndpointType {
     /// Control endpoint. Used for device management. Only the host can initiate requests. Usually
     /// used only endpoint 0.
     Control = 0b00,
-    /// Isochronous endpoint. Used for time-critical unreliable data. Not implemented yet.
+    /// Isochronous endpoint. Used for time-critical unreliable data.
     Isochronous = 0b01,
     /// Bulk endpoint. Used for large amounts of best-effort reliable data.
     Bulk = 0b10,
