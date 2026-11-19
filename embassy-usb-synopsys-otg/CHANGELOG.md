@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
-- Fixed: the host waits for a connection to be stable for 100 ms before it resets the port (USB 2.0 §7.1.7.3). Before, it reset on the first connect event, so a device that bounced while plugged in could be reset mid-bounce.
+- Fixed: the host waits for a connection to be stable for 100 ms before it resets the port (USB 2.0 §7.1.7.3). Before, it reset on the first connect event, so a device that bounced while plugged in could be reset mid-bounce. A device that goes away during that 100 ms is reported as disconnected, so transfers in flight are woken.
 - Fixed: control transfers longer than 127 bytes. The size registers of EP0 are only 7 bits wide, so a 128 byte IN data stage was sent as 0 bytes, and a longer OUT data stage did not complete. EP0 now does one packet per transfer.
 - **Breaking:** `ControlPipe` is no longer public, the control pipe is part of `Bus`, and `Driver::start()` returns just the `Bus`. A control transfer stage now also ends when the bus is suspended, or VBUS is removed with VBUS detection enabled.
 - **Breaking:** Add `tx_fifo_count` to `OtgInstance`. This is the number of TX FIFOs. If there is no free TX FIFO, allocation of an IN endpoint fails. The TX FIFO number is not the endpoint number.

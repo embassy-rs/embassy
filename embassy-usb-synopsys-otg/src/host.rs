@@ -468,14 +468,26 @@ where
                 .fields
                 .port_event
                 .fetch_and(!(PORT_EVENT_CONNECTED | PORT_EVENT_DISCONNECTED), Ordering::AcqRel);
-            if events & (PORT_EVENT_CONNECTED | PORT_EVENT_DISCONNECTED) == 0 {
-                return self.instance.regs.hprt().read().pcsts();
+            let settled = events & (PORT_EVENT_CONNECTED | PORT_EVENT_DISCONNECTED) == 0;
+
+            if self.instance.regs.hprt().read().pcsts() {
+                if settled {
+                    return true;
+                }
+                // The line changed, so the 100 ms starts over.
+                continue;
             }
-            // The line changed, so the 100 ms starts over. If it went down for good, the end of
-            // the next wait tells.
-            if !self.instance.regs.hprt().read().pcsts() {
-                return false;
-            }
+
+            // The device is gone. This function consumed the port event above, so hand the
+            // disconnect back: `wait_for_device_event` is what wakes the channels with
+            // `EV_DISCONNECT`, and it has to see this to wake a transfer that was in flight.
+            // Swallowing it here would leave that transfer waiting for some later disconnect.
+            state
+                .fields
+                .port_event
+                .fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
+            state.fields.port_waker.wake();
+            return false;
         }
     }
 
