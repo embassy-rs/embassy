@@ -488,9 +488,10 @@ pub trait EndpointIn: Endpoint {
     async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError>;
 }
 
+/// Event returned by [`Bus::poll`].
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Event returned by [`Bus::poll`].
+#[non_exhaustive]
 pub enum Event {
     /// The USB reset condition has been detected, negotiating the given bus [`Speed`].
     Reset(Speed),
@@ -543,6 +544,7 @@ impl core::error::Error for EndpointDisabledError {}
 /// Errors returned by [`EndpointOut::read_transfer`] and [`Bus::control_data_out`].
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum EndpointError {
     /// The received packet is too long to fit in `buf`.
     BufferOverflow,

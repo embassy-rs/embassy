@@ -146,12 +146,12 @@ async fn main(_spawner: Spawner) {
                                 false
                             }
                         }
-                        Err(EndpointError::Disabled) => {
-                            info!("USB disconnected");
-                            true
-                        }
                         Err(EndpointError::BufferOverflow) => {
                             warn!("Buffer overflow on read");
+                            true
+                        }
+                        Err(_) => {
+                            info!("USB disconnected");
                             true
                         }
                     }
@@ -169,12 +169,12 @@ async fn main(_spawner: Spawner) {
                                 false
                             }
                         }
-                        Err(EndpointError::Disabled) => {
-                            info!("USB disconnected");
-                            true
-                        }
                         Err(EndpointError::BufferOverflow) => {
                             warn!("Buffer overflow on read");
+                            true
+                        }
+                        Err(_) => {
+                            info!("USB disconnected");
                             true
                         }
                     }

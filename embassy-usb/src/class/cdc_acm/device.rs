@@ -639,7 +639,7 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
             return match self.receiver.read_transfer(&mut buf[..aligned]).await {
                 Ok(n) => Ok(n),
                 Err(EndpointError::BufferOverflow) => unreachable!(),
-                Err(EndpointError::Disabled) => Err(CdcAcmError::NotConnected),
+                Err(_) => Err(CdcAcmError::NotConnected),
             };
         }
 
@@ -650,7 +650,7 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
         match self.receiver.read_packet(self.buffer).await {
             Ok(n) => self.end = n,
             Err(EndpointError::BufferOverflow) => unreachable!(),
-            Err(EndpointError::Disabled) => return Err(CdcAcmError::NotConnected),
+            Err(_) => return Err(CdcAcmError::NotConnected),
         }
         self.start = 0;
         Ok(self.read_from_buffer(buf))

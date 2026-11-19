@@ -205,10 +205,9 @@ pub enum ReadError {
 
 impl From<EndpointError> for ReadError {
     fn from(val: EndpointError) -> Self {
-        use EndpointError::{BufferOverflow, Disabled};
         match val {
-            BufferOverflow => ReadError::BufferOverflow,
-            Disabled => ReadError::Disabled,
+            EndpointError::BufferOverflow => ReadError::BufferOverflow,
+            _ => ReadError::Disabled,
         }
     }
 }

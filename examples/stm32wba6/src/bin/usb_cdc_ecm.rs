@@ -107,12 +107,12 @@ async fn main(_spawner: Spawner) {
                     Ok(n) => {
                         info!("Received Ethernet frame ({} bytes)", n);
                     }
-                    Err(EndpointError::Disabled) => {
-                        info!("CDC-ECM disconnected");
-                        break;
-                    }
                     Err(EndpointError::BufferOverflow) => {
                         warn!("CDC-ECM buffer overflow");
+                        break;
+                    }
+                    Err(_) => {
+                        info!("CDC-ECM disconnected");
                         break;
                     }
                 }

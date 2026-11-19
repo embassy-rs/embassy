@@ -109,8 +109,8 @@ async fn main(_spawner: Spawner) {
             loop {
                 let n = match line_out.read_packet(&mut packet).await {
                     Ok(n) => n,
-                    Err(EndpointError::Disabled) => break,
                     Err(EndpointError::BufferOverflow) => panic!("line out packet too long"),
+                    Err(_) => break,
                 };
                 fifo.lock(|f| {
                     let mut f = f.borrow_mut();
