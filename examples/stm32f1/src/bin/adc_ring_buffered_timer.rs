@@ -51,9 +51,9 @@ async fn main(_spawner: Spawner) {
 
     // The temperature sensor and VrefInt need a long sample time (>17.1 us on F1).
     let sequence = [
-        (vrefint.reborrow_adc(), SampleTime::Cycles715),
-        (temperature.reborrow_adc(), SampleTime::Cycles715),
-        (p.PA0.reborrow_adc(), SampleTime::Cycles135),
+        (vrefint.reborrow_adc(), SampleTime::Cycles71_5),
+        (temperature.reborrow_adc(), SampleTime::Cycles71_5),
+        (p.PA0.reborrow_adc(), SampleTime::Cycles13_5),
     ]
     .into_iter();
 

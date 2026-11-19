@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
     let mut adc = Adc::new_blocking(p.ADC1, config);
 
     loop {
-        let measured = adc.blocking_read(p.PA0.reborrow_adc(), SampleTime::Cycles65);
+        let measured = adc.blocking_read(p.PA0.reborrow_adc(), SampleTime::Cycles6_5);
         info!("data: 0x{:X}", measured); //max 0xFFF0 -> 65520
         Timer::after_millis(500).await;
     }

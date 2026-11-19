@@ -267,9 +267,9 @@ impl AdcRegs for Regs {
                 // A single bit, the low bit of the field, required above 20 MHz.
                 Boost::from_bits((clock > Hertz::mhz(20)) as u8)
             } else if clock <= Hertz::khz(6_250) {
-                Boost::Lt625
+                Boost::Lt6_25
             } else if clock <= Hertz::khz(12_500) {
-                Boost::Lt125
+                Boost::Lt12_5
             } else if clock <= Hertz::mhz(25) {
                 Boost::Lt25
             } else {

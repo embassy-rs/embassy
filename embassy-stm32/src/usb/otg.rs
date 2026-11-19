@@ -485,7 +485,7 @@ pub(super) fn fsel_from_freq(freq: crate::time::Hertz) -> crate::pac::usbphyc::v
     use crate::pac::usbphyc::vals::Fsel;
 
     match freq.0 {
-        19_200_000 => Fsel::Mhz192,
+        19_200_000 => Fsel::Mhz19_2,
         20_000_000 => Fsel::Mhz20,
         24_000_000 => Fsel::Mhz24,
         _ => panic!(

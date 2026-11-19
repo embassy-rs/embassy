@@ -82,9 +82,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
         unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) },
         Irqs,
         [
-            (vrefint.reborrow_adc(), SampleTime::Cycles795), // Channel 0 - VREFINT
-            (vcore.reborrow_adc(), SampleTime::Cycles795),   // Channel 12 - VCORE
-            (temperature.reborrow_adc(), SampleTime::Cycles795), // Channel 13 - Temperature
+            (vrefint.reborrow_adc(), SampleTime::Cycles79_5), // Channel 0 - VREFINT
+            (vcore.reborrow_adc(), SampleTime::Cycles79_5),   // Channel 12 - VCORE
+            (temperature.reborrow_adc(), SampleTime::Cycles79_5), // Channel 13 - Temperature
         ]
         .into_iter(),
         None,

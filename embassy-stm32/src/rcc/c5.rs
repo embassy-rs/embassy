@@ -175,25 +175,7 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.cr2().modify(|w| w.set_hsikdiv(hsik.div));
             RCC.cr().modify(|w| w.set_hsikon(true));
             while !RCC.cr().read().hsikrdy() {}
-            let div_x2: u32 = match hsik.div {
-                Hsikdiv::Div1 => 2,
-                Hsikdiv::Div15 => 3,
-                Hsikdiv::Div2 => 4,
-                Hsikdiv::Div25 => 5,
-                Hsikdiv::Div3 => 6,
-                Hsikdiv::Div35 => 7,
-                Hsikdiv::Div4 => 8,
-                Hsikdiv::Div45 => 9,
-                Hsikdiv::Div5 => 10,
-                Hsikdiv::Div55 => 11,
-                Hsikdiv::Div6 => 12,
-                Hsikdiv::Div65 => 13,
-                Hsikdiv::Div7 => 14,
-                Hsikdiv::Div75 => 15,
-                Hsikdiv::Div8 => 16,
-                _ => panic!("invalid HSIK divider"),
-            };
-            Some(Hertz(HSI_FREQ.0 * 2 / div_x2))
+            Some(HSI_FREQ / hsik.div)
         }
         None => None,
     };
@@ -250,7 +232,7 @@ pub(crate) unsafe fn init(config: Config) {
                 assert!(max::SYSCLK.contains(&sys), "PSIS must not exceed 144 MHz");
             }
             let div3 = psi.div3.then_some(frequency / 3u32);
-            let kernel = psi.kernel_div.map(|div| psi_kernel_frequency(frequency, div));
+            let kernel = psi.kernel_div.map(|div| frequency / div);
             if let Some(kernel) = kernel {
                 assert!(max::HCLK.contains(&kernel), "PSIK must not exceed 144 MHz");
             }
@@ -398,29 +380,6 @@ fn psi_hse_reference(hse: Hertz, frequency: PsiFrequency) -> Psiref {
     }
 }
 
-fn psi_kernel_frequency(frequency: Hertz, div: PsiKernelDivider) -> Hertz {
-    // PAC names such as Div15 mean 1.5, not 15. Keep the calculation integral.
-    let div_x2: u32 = match div {
-        PsiKernelDivider::Div1 => 2,
-        PsiKernelDivider::Div15 => 3,
-        PsiKernelDivider::Div2 => 4,
-        PsiKernelDivider::Div25 => 5,
-        PsiKernelDivider::Div3 => 6,
-        PsiKernelDivider::Div35 => 7,
-        PsiKernelDivider::Div4 => 8,
-        PsiKernelDivider::Div45 => 9,
-        PsiKernelDivider::Div5 => 10,
-        PsiKernelDivider::Div55 => 11,
-        PsiKernelDivider::Div6 => 12,
-        PsiKernelDivider::Div65 => 13,
-        PsiKernelDivider::Div7 => 14,
-        PsiKernelDivider::Div75 => 15,
-        PsiKernelDivider::Div8 => 16,
-        _ => panic!("invalid PSIK divider"),
-    };
-    frequency * 2u32 / div_x2
-}
-
 fn flash_setup(hclk: Hertz) {
     let (latency, wrhighfreq) = match hclk.0 {
         ..=34_000_000 => (0, 0b00),
@@ -495,36 +454,5 @@ mod tests {
         for hz in [0, 4_000_000, 12_000_000, 47_999_999] {
             assert!(std::panic::catch_unwind(|| psi_hse_reference(Hertz(hz), PsiFrequency::F100mHz)).is_err());
         }
-    }
-
-    #[test]
-    fn psik_fractional_dividers() {
-        for (divider, expected) in [
-            (PsiKernelDivider::Div1, 144_000_000),
-            (PsiKernelDivider::Div15, 96_000_000),
-            (PsiKernelDivider::Div2, 72_000_000),
-            (PsiKernelDivider::Div25, 57_600_000),
-            (PsiKernelDivider::Div3, 48_000_000),
-            (PsiKernelDivider::Div35, 41_142_857),
-            (PsiKernelDivider::Div4, 36_000_000),
-            (PsiKernelDivider::Div45, 32_000_000),
-            (PsiKernelDivider::Div5, 28_800_000),
-            (PsiKernelDivider::Div55, 26_181_818),
-            (PsiKernelDivider::Div6, 24_000_000),
-            (PsiKernelDivider::Div65, 22_153_846),
-            (PsiKernelDivider::Div7, 20_571_428),
-            (PsiKernelDivider::Div75, 19_200_000),
-            (PsiKernelDivider::Div8, 18_000_000),
-        ] {
-            assert_eq!(psi_kernel_frequency(Hertz(144_000_000), divider), Hertz(expected));
-        }
-        assert_eq!(
-            psi_kernel_frequency(Hertz(160_000_000), PsiKernelDivider::Div25),
-            Hertz(64_000_000)
-        );
-        assert_eq!(
-            psi_kernel_frequency(Hertz(100_000_000), PsiKernelDivider::Div8),
-            Hertz(12_500_000)
-        );
     }
 }

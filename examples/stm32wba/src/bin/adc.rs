@@ -28,11 +28,11 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let max4 = adc4.resolution().max_count();
 
     // **** ADC4 blocking read ****
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin1, SampleTime::Cycles15);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin1, SampleTime::Cycles1_5);
     let volt: f32 = 3.0 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 1 {}", volt);
 
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin2, SampleTime::Cycles15);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin2, SampleTime::Cycles1_5);
     let volt: f32 = 3.3 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 2 {}", volt);
 
@@ -44,8 +44,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
         p.GPDMA1_CH1.reborrow(),
         Irqs,
         [
-            (adc4_pin1.reborrow_adc(), SampleTime::Cycles125),
-            (adc4_pin2.reborrow_adc(), SampleTime::Cycles125),
+            (adc4_pin1.reborrow_adc(), SampleTime::Cycles12_5),
+            (adc4_pin2.reborrow_adc(), SampleTime::Cycles12_5),
         ]
         .into_iter(),
         None,

@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner) {
         frequency: PsiFrequency::F144mHz,
         sys: true,
         div3: true,
-        kernel_div: Some(PsiKernelDivider::Div15),
+        kernel_div: Some(PsiKernelDivider::Div1_5),
     });
     config.rcc.sys = Sysclk::Psi;
     config.rcc.mux.clk48sel = mux::Clksel::Psidiv3;

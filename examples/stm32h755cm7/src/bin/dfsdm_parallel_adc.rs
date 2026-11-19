@@ -105,7 +105,7 @@ async fn main(_spawner: Spawner) {
 
     // Start the ADC converting continuously, routed to the DFSDM; each EOC
     // feeds one DFSDM sample.
-    adc.start_dfsdm(&mut vrefint, SampleTime::Cycles3875, None);
+    adc.start_dfsdm(&mut vrefint, SampleTime::Cycles387_5, None);
 
     flt0.regular.start_conversion();
 

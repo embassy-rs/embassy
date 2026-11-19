@@ -230,8 +230,8 @@ impl StopRestore {
             crate::pac::rcc::vals::Stopwuck::Msis => {
                 let icscr1 = RCC.icscr1().read();
                 let base: u32 = match icscr1.msissel() {
-                    Msissel::Msirc096mhz => 96_000_000,
-                    Msissel::Msirc124mhz => 24_000_000,
+                    Msissel::Msirc0 => 96_000_000,
+                    Msissel::Msirc1 => 24_000_000,
                 };
                 (base >> icscr1.msisdiv().to_bits()).min(48_000_000)
             }
@@ -392,9 +392,9 @@ pub(crate) unsafe fn init(config: Config) {
 
         // Use MSIRC0 or MSIRC1 depending on requested range.
         let msissel = if msirange_to_hertz(range).0 <= 24_000_000 {
-            Msissel::Msirc124mhz
+            Msissel::Msirc1
         } else {
-            Msissel::Msirc096mhz
+            Msissel::Msirc0
         };
         RCC.icscr1().modify(|w| {
             w.set_msissel(msissel);
@@ -412,7 +412,7 @@ pub(crate) unsafe fn init(config: Config) {
             (lse_calibration_freq, config.auto_calibration.base_mode())
         {
             // Enable the MSIS auto-calibration feature
-            if msissel == Msissel::Msirc096mhz {
+            if msissel == Msissel::Msirc0 {
                 RCC.icscr1().modify(|w| w.set_msipll0sel(Msipllsel::Lse));
                 RCC.cr().modify(|w| w.set_msipll0en(true));
             } else {

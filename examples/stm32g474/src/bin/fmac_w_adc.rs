@@ -71,7 +71,7 @@ async fn main(_spawner: Spawner) {
     let mut from_adc = fmac::FromAdc::new(
         &mut fmac,
         &mut adc,
-        [(temperature.reborrow_adc(), SampleTime::Cycles6405)].into_iter(),
+        [(temperature.reborrow_adc(), SampleTime::Cycles640_5)].into_iter(),
         trigger,
         p.DMA1_CH1,
         Irqs,

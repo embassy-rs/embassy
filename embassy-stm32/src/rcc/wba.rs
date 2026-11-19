@@ -498,7 +498,7 @@ pub(crate) unsafe fn init(config: Config) {
     let usb_refck_sel = match usb_refck {
         Some(clk_val) => match clk_val {
             Hertz(16_000_000) => Usbrefcksel::Mhz16,
-            Hertz(19_200_000) => Usbrefcksel::Mhz192,
+            Hertz(19_200_000) => Usbrefcksel::Mhz19_2,
             Hertz(20_000_000) => Usbrefcksel::Mhz20,
             Hertz(24_000_000) => Usbrefcksel::Mhz24,
             Hertz(26_000_000) => Usbrefcksel::Mhz26,

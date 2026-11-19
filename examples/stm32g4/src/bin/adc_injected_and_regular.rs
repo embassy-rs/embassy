@@ -92,13 +92,17 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     let vrefint_channel = VREFINT.init(vrefint).reborrow_adc();
     let pc1 = PC1.init(p.PC1).reborrow_adc();
-    let regular_sequence = [(vrefint_channel, SampleTime::Cycles2475), (pc1, SampleTime::Cycles2475)].into_iter();
+    let regular_sequence = [
+        (vrefint_channel, SampleTime::Cycles247_5),
+        (pc1, SampleTime::Cycles247_5),
+    ]
+    .into_iter();
 
     // Configurations of Injected ADC measurements
     static PA2: StaticCell<Peri<'static, peripherals::PA2>> = StaticCell::new();
 
     let pa2 = PA2.init(p.PA2).reborrow_adc();
-    let injected_sequence = [(pa2, SampleTime::Cycles2475)];
+    let injected_sequence = [(pa2, SampleTime::Cycles247_5)];
 
     // Configure DMA for retrieving regular ADC measurements
     let dma1_ch1 = p.DMA1_CH1;

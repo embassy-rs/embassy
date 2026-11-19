@@ -1031,8 +1031,8 @@ enum Duty {
 impl Duty {
     fn duty(&self) -> i2c::vals::Duty {
         match self {
-            Duty::Duty2_1 => i2c::vals::Duty::Duty21,
-            Duty::Duty16_9 => i2c::vals::Duty::Duty169,
+            Duty::Duty2_1 => i2c::vals::Duty::Duty2_1,
+            Duty::Duty16_9 => i2c::vals::Duty::Duty16_9,
         }
     }
 }
