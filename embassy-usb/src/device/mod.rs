@@ -1200,18 +1200,18 @@ impl<'d> Inner<'d> {
                         buf[1] = descriptor_type::STRING;
                         let mut pos = 2;
                         for ch in s.chars() {
-                            // bLength is one byte, so the descriptor holds 126 UTF-16 code units at most.
-                            // Cut the string there instead of letting the length wrap.
+                            // `bLength` is one byte, so the descriptor holds 126 UTF-16 code units at
+                            // most. The control buffer can be smaller than that, so stop at whichever
+                            // limit comes first instead of letting the length wrap or the write overrun.
                             // A character outside the BMP takes two code units, and is never split.
-                            if pos + 2 * ch.len_utf16() > MAX_STRING_DESCRIPTOR_LEN {
+                            let need = 2 * ch.len_utf16();
+                            if pos + need > MAX_STRING_DESCRIPTOR_LEN || pos + need >= buf.len() {
                                 warn!("string descriptor too long, truncating");
                                 break;
                             }
 
                             let mut units = [0; 2];
                             for c in ch.encode_utf16(&mut units) {
-                                assert!(pos + 2 < buf.len(), "control buffer too small");
-
                                 buf[pos..pos + 2].copy_from_slice(&c.to_le_bytes());
                                 pos += 2;
                             }

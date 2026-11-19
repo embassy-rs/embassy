@@ -752,18 +752,26 @@ fn configuration_and_alt_setting_clear_halt() {
 
 /// The manufacturer string descriptor the device returns for `manufacturer`.
 fn manufacturer_string_descriptor(manufacturer: &str) -> std::vec::Vec<u8> {
+    let mut control_buf = [0; 512];
+    manufacturer_string_descriptor_with_control_buf(manufacturer, &mut control_buf)
+}
+
+/// The manufacturer string descriptor the device returns when its control buffer is `control_buf` bytes.
+fn manufacturer_string_descriptor_with_control_buf(manufacturer: &str, control_buf: &mut [u8]) -> std::vec::Vec<u8> {
+    // The real driver hands its control buffer to the descriptor code as the scratch buffer, so
+    // size the scratch buffer the same way.
+    let control_buf_len = control_buf.len();
     let mut config = Config::new(0x1234, 0x5678);
     config.manufacturer = Some(manufacturer);
     let mut config_descriptor = [0; 64];
     let mut bos_descriptor = [0; 64];
-    let mut control_buf = [0; 512];
     let builder = Builder::new(
         TestDriver::default(),
         config,
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut [],
-        &mut control_buf,
+        control_buf,
     );
     let mut usb = builder.build();
 
@@ -777,7 +785,7 @@ fn manufacturer_string_descriptor(manufacturer: &str) -> std::vec::Vec<u8> {
         0xff,
         0,
     ]);
-    let mut buf = [0; 512];
+    let mut buf = std::vec![0; control_buf_len];
     match usb.inner.handle_get_descriptor(req, &mut buf) {
         InResponse::Accepted(data) => data.to_vec(),
         InResponse::Rejected => panic!("manufacturer string should be accepted"),
@@ -801,6 +809,25 @@ fn long_string_descriptor_is_truncated_to_fit_blength() {
     let data = manufacturer_string_descriptor(&("a".repeat(125) + "\u{1F600}"));
     assert_eq!(data.len(), 252);
     assert_eq!(data[0], 252);
+}
+
+#[test]
+fn long_string_descriptor_is_truncated_to_fit_a_small_control_buffer() {
+    // A control buffer below 255 bytes cannot hold a full-length descriptor. The string is cut to
+    // the buffer instead of overrunning it, so a short control buffer does not panic.
+    let mut control_buf = [0; 64];
+    let data = manufacturer_string_descriptor_with_control_buf(&"a".repeat(200), &mut control_buf);
+    assert_eq!(data.len(), 62);
+    assert_eq!(data[0], 62);
+    assert_eq!(data[1], descriptor_type::STRING);
+    assert!(data[2..].chunks(2).all(|c| c == [b'a', 0]));
+
+    // The same holds for the 7-byte control buffers the examples use.
+    let mut control_buf = [0; 7];
+    let data = manufacturer_string_descriptor_with_control_buf(&"a".repeat(200), &mut control_buf);
+    assert_eq!(data.len(), 6);
+    assert_eq!(data[0], 6);
+    assert!(data[2..].chunks(2).all(|c| c == [b'a', 0]));
 }
 
 struct AltSettingHandler<'a>(&'a Cell<Option<(u8, u8)>>);

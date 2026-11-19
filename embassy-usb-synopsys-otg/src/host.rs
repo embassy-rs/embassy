@@ -452,6 +452,45 @@ where
         }
     }
 
+    /// Waits until a connection has been stable for 100 ms (USB 2.0 §7.1.7.3, TATTDB).
+    ///
+    /// A device can bounce on the contacts as it is plugged in, and the host must not reset the port
+    /// before that settles. Any connect or disconnect event during the 100 ms restarts the wait.
+    ///
+    /// Returns `false` if the device is gone at the end of it.
+    async fn wait_connection_stable(&mut self) -> bool {
+        const T_ATTDB_MS: u64 = 100;
+        let state = self.instance.state;
+        loop {
+            embassy_time::Timer::after_millis(T_ATTDB_MS).await;
+
+            let events = state
+                .fields
+                .port_event
+                .fetch_and(!(PORT_EVENT_CONNECTED | PORT_EVENT_DISCONNECTED), Ordering::AcqRel);
+            let settled = events & (PORT_EVENT_CONNECTED | PORT_EVENT_DISCONNECTED) == 0;
+
+            if self.instance.regs.hprt().read().pcsts() {
+                if settled {
+                    return true;
+                }
+                // The line changed, so the 100 ms starts over.
+                continue;
+            }
+
+            // The device is gone. This function consumed the port event above, so hand the
+            // disconnect back: `wait_for_device_event` is what wakes the channels with
+            // `EV_DISCONNECT`, and it has to see this to wake a transfer that was in flight.
+            // Swallowing it here would leave that transfer waiting for some later disconnect.
+            state
+                .fields
+                .port_event
+                .fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
+            state.fields.port_waker.wake();
+            return false;
+        }
+    }
+
     async fn configure_as_host(&self) {
         let r = self.instance.regs;
         let phy_type = self.instance.phy_type;
@@ -737,7 +776,10 @@ where
                 return DeviceEvent::Disconnected;
             }
 
-            // Connected: perform bus reset.
+            // Connected: let the connection settle, then perform bus reset.
+            if !self.wait_connection_stable().await {
+                continue;
+            }
             self.bus_reset().await;
 
             // Now wait for ENABLED or DISCONNECTED.
