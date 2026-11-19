@@ -24,6 +24,7 @@ macro_rules! updater_tests {
                     {
                         let state = $state::new(&mut state_flash, &mut aligned).unwrap();
                         let mut updater = $updater::new_direct_xip(&mut slot_b, state, Slot::A);
+                        assert_eq!(updater.update_slot() $(.$await)?.unwrap(), Slot::B);
                         updater.write_firmware(0, &[0xa5; 24]) $(.$await)?.unwrap();
                         updater.write_firmware(24, &[0x5a; 32]) $(.$await)?.unwrap();
                         let mut expected = [0xff; 64];
@@ -35,15 +36,18 @@ macro_rules! updater_tests {
                         let digest = updater.hash::<Sha512>(56, &mut [0; 16]) $(.$await)?.unwrap();
                         assert_eq!(digest.as_ref(), Sha512::digest(&expected[..56]).as_ref());
                         updater.mark_updated() $(.$await)?.unwrap();
+                        assert!(matches!(updater.update_slot() $(.$await)?, Err(FirmwareUpdaterError::BadState)));
                     }
                     {
                         let mut state = $state::new(&mut state_flash, &mut aligned).unwrap();
                         assert_eq!(state.prepare_boot([true, true]) $(.$await)?, Ok(Slot::B));
                         let mut updater = $updater::new_direct_xip(&mut slot_a, state, Slot::B);
+                        assert!(matches!(updater.update_slot() $(.$await)?, Err(FirmwareUpdaterError::BadState)));
                         assert!(matches!(updater.prepare_update() $(.$await)?, Err(FirmwareUpdaterError::BadState)));
                         assert!(!updater.is_booted() $(.$await)?.unwrap());
                         updater.mark_booted() $(.$await)?.unwrap();
                         assert!(updater.is_booted() $(.$await)?.unwrap());
+                        assert_eq!(updater.update_slot() $(.$await)?.unwrap(), Slot::A);
                         updater.prepare_update() $(.$await)?.unwrap();
                     }
                     assert_eq!(slot_a.mem, [0xff; 64]);
@@ -84,7 +88,10 @@ macro_rules! updater_tests {
                                 state.mark_updated(Slot::B) $(.$await)?.unwrap();
                             }
                             let mut updater = $updater::new_direct_xip(&mut image, state, running);
+                            assert!(matches!(updater.update_slot() $(.$await)?, Err(FirmwareUpdaterError::BadState)));
                             assert!(matches!(updater.write_firmware(0, &[0; 4]) $(.$await)?, Err(FirmwareUpdaterError::BadState)));
+                            assert!(matches!(updater.erase_dfu(0, 32) $(.$await)?, Err(FirmwareUpdaterError::BadState)));
+                            assert!(matches!(updater.write_dfu(0, &[0; 4]) $(.$await)?, Err(FirmwareUpdaterError::BadState)));
                             assert!(matches!(updater.prepare_update() $(.$await)?, Err(FirmwareUpdaterError::BadState)));
                             // Marking the pending slot again is fine; marking the confirmed one isn't.
                             assert_eq!(updater.mark_updated() $(.$await)?.is_ok(), pending);
@@ -139,6 +146,10 @@ macro_rules! updater_tests {
                     {
                         let state = $state::new(&mut state_flash, &mut aligned).unwrap();
                         let mut updater = $updater::new_direct_xip(&mut image, state, Slot::A);
+                        assert!(matches!(
+                            updater.update_slot() $(.$await)?,
+                            Err(FirmwareUpdaterError::Flash(NorFlashErrorKind::Other))
+                        ));
                         assert!(matches!(
                             updater.write_firmware(0, &[0; 4]) $(.$await)?,
                             Err(FirmwareUpdaterError::Flash(NorFlashErrorKind::Other))

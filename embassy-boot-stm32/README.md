@@ -11,6 +11,4 @@ An adaptation of `embassy-boot` for STM32.
 
 ## Direct-XIP
 
-Pass a `BlockingDirectXipState` and your slot validation results to `BootLoader::try_prepare_direct_xip`. Pass the selected slot's start address to `BootLoader::load`.
-
-Use `BlockingDirectXipState::<STATE>::BUFFER_SIZE` to size the state object's scratch buffer. See `embassy-boot` for the flash layout and update flow.
+See [embassy-boot](../embassy-boot/README.md#direct-xip) for the state layout, boot preparation and update flow.

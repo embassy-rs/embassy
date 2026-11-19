@@ -147,6 +147,15 @@ impl<'d, DFU: NorFlash, STATE: NorFlash>
         }
     }
 
+    /// Slot this updater can write next.
+    ///
+    /// Returns [`FirmwareUpdaterError::BadState`] while an update is pending or
+    /// on trial, or if `running` is not the confirmed slot. Flash errors propagate.
+    pub fn update_slot(&mut self) -> Result<Slot, FirmwareUpdaterError> {
+        self.state.verify_booted()?;
+        Ok(self.state.running.other())
+    }
+
     /// Whether the running image is marked as booted.
     ///
     /// `false` means it's on trial. Run its startup checks, then call
@@ -231,8 +240,10 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, BOOT: BlockingFirmwareUpdaterState>
     ///
     /// # Errors
     ///
-    /// Returns an error if the arguments are not aligned or out of bounds.
+    /// Returns an error if the arguments are not aligned or out of bounds, or
+    /// [`FirmwareUpdaterError::BadState`] while an update is pending or on trial.
     pub fn erase_dfu(&mut self, from: u32, to: u32) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted()?;
         self.dfu.erase(from, to)?;
         Ok(())
     }
@@ -242,8 +253,10 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, BOOT: BlockingFirmwareUpdaterState>
     ///
     /// # Errors
     ///
-    /// Returns an error if the arguments are not aligned or out of bounds.
+    /// Returns an error if the arguments are not aligned or out of bounds, or
+    /// [`FirmwareUpdaterError::BadState`] while an update is pending or on trial.
     pub fn write_dfu(&mut self, offset: u32, buf: &[u8]) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted()?;
         self.dfu.write(offset, buf)?;
         Ok(())
     }
@@ -507,6 +520,31 @@ mod tests {
         let hash = updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf).unwrap();
 
         assert_eq!(Sha1::digest(&update).as_slice(), hash.as_ref());
+    }
+
+    #[test]
+    fn pending_swap_rejects_raw_dfu_writes() {
+        let flash = Mutex::<NoopRawMutex, _>::new(RefCell::new(MemFlash::<131072, 4096, 8>::default()));
+        let state = BlockingPartition::new(&flash, 0, 4096);
+        let dfu = BlockingPartition::new(&flash, 65536, 65536);
+        let mut aligned = [0; 8];
+
+        let mut updater = BlockingFirmwareUpdater::new(FirmwareUpdaterConfig { dfu, state }, &mut aligned);
+        updater.erase_dfu(0, 4096).unwrap();
+        updater.write_dfu(0, &[0xaa; 8]).unwrap();
+        updater.mark_updated().unwrap();
+
+        assert!(matches!(
+            updater.erase_dfu(0, 4096),
+            Err(FirmwareUpdaterError::BadState)
+        ));
+        assert!(matches!(
+            updater.write_dfu(8, &[0; 8]),
+            Err(FirmwareUpdaterError::BadState)
+        ));
+        let mut written = [0; 8];
+        updater.read_dfu(0, &mut written).unwrap();
+        assert_eq!(written, [0xaa; 8]);
     }
 
     #[test]

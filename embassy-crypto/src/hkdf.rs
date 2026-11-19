@@ -91,9 +91,11 @@ macro_rules! impl_hkdf {
 
 impl_hkdf!(
     /// HKDF-SHA-256 (RFC 5869).
-    HkdfSha256, HmacSha256
+    HkdfSha256,
+    HmacSha256
 );
 impl_hkdf!(
     /// HKDF-SHA-384 (RFC 5869).
-    HkdfSha384, HmacSha384
+    HkdfSha384,
+    HmacSha384
 );
