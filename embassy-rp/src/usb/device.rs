@@ -576,7 +576,7 @@ fn rearm_bus_irqs<T: Instance>() {
 /// `max_packet_size` is the max packet size of the endpoint, used to re-arm the buffer
 /// of an OUT endpoint when the stall is cleared. It is ignored for IN endpoints.
 ///
-/// Shared by `Bus::endpoint_set_stalled` and `Endpoint::set_stall`, so that a class
+/// Shared by `Bus::endpoint_set_stalled` and `Endpoint::set_stalled`, so that a class
 /// driver can halt its own endpoint without access to the bus.
 fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, max_packet_size: u16, stalled: bool) {
     let n = ep_addr.index();
@@ -988,13 +988,12 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         T::dpram().ep_in_control(index - 1).read().enable()
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled::<T>(self.info.addr, self.info.max_packet_size, stalled);
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled::<T>(self.info.addr))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled::<T>(self.info.addr)
     }
 }
 
@@ -1023,13 +1022,12 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         T::dpram().ep_out_control(index - 1).read().enable()
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled::<T>(self.info.addr, self.info.max_packet_size, stalled);
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled::<T>(self.info.addr))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled::<T>(self.info.addr)
     }
 }
 

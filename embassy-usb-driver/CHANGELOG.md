@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** Add `EndpointInfo::max_burst`, the SuperSpeed burst size the endpoint was allocated with.
 - Fixed: `EndpointOut::read_transfer()` now returns when the buffer is full.
 - Add `UsbHostAllocator::device_removed()` trait method with default.
-- **Breaking:** Add required `Endpoint::set_stall()` and `Endpoint::is_stalled()` methods, so a class can stall an endpoint without access to the `Bus`.
+- **Breaking:** Add required `Endpoint::set_stalled()` and `Endpoint::is_stalled()` methods, so a class can stall an endpoint without access to the `Bus`.
 - **Breaking:** Remove the `embedded_io_async::Error` implementations for `EndpointError`, and the `embedded-io-async` dependency.
 
 ## 0.2.2 - 2026-05-28

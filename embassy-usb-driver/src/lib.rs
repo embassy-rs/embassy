@@ -446,20 +446,12 @@ pub trait Endpoint {
     /// the data toggle to DATA0, whether or not the endpoint was stalled.
     /// Enabling the endpoint clears a stall; stalling before the endpoint is
     /// enabled may not take effect.
-    ///
-    /// # Errors
-    ///
-    /// * [`Unsupported`] - This driver cannot halt endpoints.
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported>;
+    async fn set_stalled(&mut self, stalled: bool);
 
     /// Get whether the STALL handshake is set on this endpoint.
     ///
-    /// Returns `Ok(false)` for endpoints that do not have the halt feature.
-    ///
-    /// # Errors
-    ///
-    /// * [`Unsupported`] - This driver cannot halt endpoints.
-    fn is_stalled(&self) -> Result<bool, Unsupported>;
+    /// Returns `false` for endpoints that do not have the halt feature.
+    fn is_stalled(&self) -> bool;
 }
 
 /// OUT Endpoint trait.

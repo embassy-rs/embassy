@@ -963,7 +963,7 @@ impl EpState {
 
 /// Set or clear the STALL handshake of an endpoint.
 ///
-/// Shared by [`Bus::endpoint_set_stalled`] and [`Endpoint::set_stall`], so that a class
+/// Shared by [`Bus::endpoint_set_stalled`] and [`Endpoint::set_stalled`], so that a class
 /// driver can halt its own endpoint without access to the bus.
 fn set_endpoint_stalled<M: RawMutex + Copy>(
     regs: Otg,
@@ -1849,7 +1849,7 @@ where
         self.state.in_enabled.load(Ordering::Acquire)
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled(
             self.regs,
             self.mutex,
@@ -1858,11 +1858,10 @@ where
             Direction::In,
             stalled,
         );
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::In))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::In)
     }
 }
 
@@ -1891,7 +1890,7 @@ where
         self.state.out_enabled.load(Ordering::Acquire)
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled(
             self.regs,
             self.mutex,
@@ -1900,11 +1899,10 @@ where
             Direction::Out,
             stalled,
         );
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::Out))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::Out)
     }
 }
 
