@@ -69,6 +69,8 @@ const STRING_INDEX_MANUFACTURER: u8 = 1;
 const STRING_INDEX_PRODUCT: u8 = 2;
 const STRING_INDEX_SERIAL_NUMBER: u8 = 3;
 const STRING_INDEX_CUSTOM_START: u8 = 4;
+/// The most bytes a string descriptor can hold: `bLength` is one byte, and UTF-16 code units take two.
+const MAX_STRING_DESCRIPTOR_LEN: usize = 254;
 
 /// Handler for device events and control requests.
 ///
@@ -749,6 +751,24 @@ impl<'d> Inner<'d> {
         }
     }
 
+    /// Return every interface to alternate setting zero and tell the handlers about the ones that changed.
+    ///
+    /// USB 2.0 §9.1.1.5: the default setting when a device is configured is alternate
+    /// setting zero. This holds for SET_CONFIGURATION even when the host selects the
+    /// configuration that is already active.
+    fn reset_alt_settings(&mut self) {
+        for (i, iface) in self.interfaces.iter_mut().enumerate() {
+            if iface.current_alt_setting == 0 {
+                continue;
+            }
+            iface.current_alt_setting = 0;
+
+            for h in &mut self.handlers {
+                h.set_alternate_setting(InterfaceNumber::new(i as _), 0);
+            }
+        }
+    }
+
     async fn handle_bus_event(&mut self, bus: &mut impl Bus, evt: Event) {
         match evt {
             Event::Reset(speed) => {
@@ -864,6 +884,7 @@ impl<'d> Inner<'d> {
                 (Request::SET_CONFIGURATION, CONFIGURATION_VALUE_U16) => {
                     debug!("SET_CONFIGURATION: configured");
                     self.device_state = UsbDeviceState::Configured;
+                    self.reset_alt_settings();
 
                     // Enable the endpoints belonging to each interface's selected
                     // alternate setting. An endpoint shared by several alternate
@@ -903,6 +924,7 @@ impl<'d> Inner<'d> {
                     if self.device_state != UsbDeviceState::Default {
                         debug!("SET_CONFIGURATION: unconfigured");
                         self.device_state = UsbDeviceState::Addressed;
+                        self.reset_alt_settings();
 
                         // Disable all endpoints.
                         let mut eps_to_disable = heapless::Vec::<EndpointAddress, 32>::new();
@@ -1177,11 +1199,22 @@ impl<'d> Inner<'d> {
 
                         buf[1] = descriptor_type::STRING;
                         let mut pos = 2;
-                        for c in s.encode_utf16() {
-                            assert!(pos + 2 < buf.len(), "control buffer too small");
+                        for ch in s.chars() {
+                            // bLength is one byte, so the descriptor holds 126 UTF-16 code units at most.
+                            // Cut the string there instead of letting the length wrap.
+                            // A character outside the BMP takes two code units, and is never split.
+                            if pos + 2 * ch.len_utf16() > MAX_STRING_DESCRIPTOR_LEN {
+                                warn!("string descriptor too long, truncating");
+                                break;
+                            }
 
-                            buf[pos..pos + 2].copy_from_slice(&c.to_le_bytes());
-                            pos += 2;
+                            let mut units = [0; 2];
+                            for c in ch.encode_utf16(&mut units) {
+                                assert!(pos + 2 < buf.len(), "control buffer too small");
+
+                                buf[pos..pos + 2].copy_from_slice(&c.to_le_bytes());
+                                pos += 2;
+                            }
                         }
 
                         buf[0] = pos as u8;

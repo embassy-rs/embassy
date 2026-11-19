@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed: the UAC host reads the sampling frequency from the Clock Source behind the output terminal's clock, following Clock Selectors, and addresses the request to the AudioControl interface instead of interface 0. Before, a device with a Clock Selector failed in `UacHandler::output()`.
 - Fixed: the UAC host descriptor parser no longer rejects a whole device for a streaming interface with an unknown format type, or for more clocks, terminals or units than its tables hold. It leaves those out and logs a warning.
 - Fixed: the UAC host `get_curr_entity*` and `get_range_entity*` put the channel number in the high byte of `wValue` and the control selector in the low byte, the wrong way around. Requests for a channel other than 0, such as the volume or mute of one channel, did not reach the right control.
+- Fixed: `SET_CONFIGURATION` returns every interface to alternate setting 0 and calls `Handler::set_alternate_setting()` for the ones that changed. Before, an interface kept the alternate setting the host had selected until the next bus reset, so a class could keep streaming after the host re-selected the configuration.
+- Fixed: a string descriptor longer than 126 UTF-16 code units no longer gets a wrapped `bLength`. It is cut at 254 bytes, without splitting a surrogate pair.
+- Fixed: `MidiClass::write_ump_bytes()` ends a transfer that exactly fills its last packet with a zero-length packet, as `write_ump()` already did. Before, the host kept waiting for more data.
+- `MIDI`: `MidiClass::new()` and `new_with_names()` panic if `MidiClassConfig::max_packet_size` is not valid for `Config::max_speed` (8, 16, 32 or 64 at full speed, 512 at high speed). Before, the class accepted any value, so a high-speed device with the default of 64 sent a bulk endpoint descriptor that USB 2.0 forbids.
 - Add CDC-ECM class (device and host) for Ethernet-over-USB networking
 - `VCP`: add CH34x and FTDI host drivers
 - Add USB Printer class (device and host) supporting IEEE 1284 device IDs and bidirectional raw print streams

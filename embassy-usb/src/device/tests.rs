@@ -750,6 +750,115 @@ fn configuration_and_alt_setting_clear_halt() {
     });
 }
 
+/// The manufacturer string descriptor the device returns for `manufacturer`.
+fn manufacturer_string_descriptor(manufacturer: &str) -> std::vec::Vec<u8> {
+    let mut config = Config::new(0x1234, 0x5678);
+    config.manufacturer = Some(manufacturer);
+    let mut config_descriptor = [0; 64];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 512];
+    let builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut usb = builder.build();
+
+    let req = Request::parse(&[
+        0x80,
+        Request::GET_DESCRIPTOR,
+        1,
+        descriptor_type::STRING,
+        0x09,
+        0x04,
+        0xff,
+        0,
+    ]);
+    let mut buf = [0; 512];
+    match usb.inner.handle_get_descriptor(req, &mut buf) {
+        InResponse::Accepted(data) => data.to_vec(),
+        InResponse::Rejected => panic!("manufacturer string should be accepted"),
+    }
+}
+
+#[test]
+fn long_string_descriptor_is_truncated_to_fit_blength() {
+    // bLength is one byte, so a string descriptor holds at most 126 UTF-16 code units.
+    let data = manufacturer_string_descriptor(&"a".repeat(200));
+    assert_eq!(data.len(), 254);
+    assert_eq!(data[0], 254);
+    assert_eq!(data[1], descriptor_type::STRING);
+    assert!(data[2..].chunks(2).all(|c| c == [b'a', 0]));
+
+    // A string that fits is not changed.
+    let data = manufacturer_string_descriptor(&"a".repeat(126));
+    assert_eq!(data.len(), 254);
+
+    // A character outside the BMP is two code units. It is dropped, not split, when only one fits.
+    let data = manufacturer_string_descriptor(&("a".repeat(125) + "\u{1F600}"));
+    assert_eq!(data.len(), 252);
+    assert_eq!(data[0], 252);
+}
+
+struct AltSettingHandler<'a>(&'a Cell<Option<(u8, u8)>>);
+
+impl Handler for AltSettingHandler<'_> {
+    fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
+        self.0.set(Some((iface.0, alternate_setting)));
+    }
+}
+
+#[test]
+fn set_configuration_resets_alt_settings() {
+    let seen = Cell::new(None);
+    let mut handler = AltSettingHandler(&seen);
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut function = builder.function(0xff, 0, 0);
+    let mut interface = function.interface();
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+    alt.endpoint_bulk_out(Some(0x01.into()), EndpointOptions::new());
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+    alt.endpoint_interrupt_in(Some(0x83.into()), 64, 1);
+    drop(function);
+    builder.handler(&mut handler);
+    let usb = &mut builder.build();
+
+    configure(usb);
+    assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(1));
+    assert_eq!(seen.get(), Some((0, 1)));
+
+    // USB 2.0 §9.1.1.5: a (re)configured device is in alternate setting zero,
+    // even if the host selects the configuration that is already active.
+    assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
+    assert_eq!(seen.get(), Some((0, 0)));
+    assert!(usb.bus.enabled[TestBus::slot(0x01.into())]);
+    assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+
+    // Deconfiguring and configuring again also starts from alternate setting zero.
+    assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 0, 0, 0), Response::Accepted);
+    assert_eq!(seen.get(), Some((0, 0)));
+    assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
+    assert!(usb.bus.enabled[TestBus::slot(0x01.into())]);
+    assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+}
+
 #[cfg(all(feature = "device", feature = "host", feature = "class-ccid"))]
 #[test]
 fn test_ccid_device_and_host_interop() {
@@ -1917,6 +2026,49 @@ fn shared_endpoints_stay_enabled_across_alternate_settings() {
 }
 
 #[cfg(feature = "class-midi")]
+/// Builds a MIDI 1.0 class with the given bulk packet size at `max_speed`.
+fn build_midi_with_packet_size(max_speed: UsbDeviceSpeed, max_packet_size: u16) {
+    use crate::class::midi::device::{MidiClass, MidiClassConfig};
+
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut config = Config::new(0x1234, 0x5678);
+    config.max_speed = max_speed;
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let midi_config = MidiClassConfig {
+        max_packet_size,
+        ..MidiClassConfig::default()
+    };
+    let _midi = MidiClass::new(&mut builder, midi_config);
+}
+
+#[test]
+fn midi_bulk_packet_size_follows_the_device_speed() {
+    build_midi_with_packet_size(UsbDeviceSpeed::Full, 64);
+    build_midi_with_packet_size(UsbDeviceSpeed::Full, 8);
+    build_midi_with_packet_size(UsbDeviceSpeed::High, 512);
+}
+
+#[test]
+#[should_panic(expected = "bulk endpoints require a max_packet_size of 512")]
+fn midi_default_packet_size_is_refused_at_high_speed() {
+    build_midi_with_packet_size(UsbDeviceSpeed::High, 64);
+}
+
+#[test]
+#[should_panic(expected = "full-speed bulk endpoints require a max_packet_size of 8, 16, 32 or 64")]
+fn midi_odd_packet_size_is_refused_at_full_speed() {
+    build_midi_with_packet_size(UsbDeviceSpeed::Full, 100);
+}
+
 #[test]
 fn test_midi2_device_enumeration_and_control() {
     use crate::class::midi::device::{Midi2Config, MidiClass, MidiClassConfig, MidiClassState};
