@@ -325,8 +325,12 @@ CORDIC:
 RTC:
 - fix: stm32/rtc: compute the prescalers so the calendar advances once per second. PREDIV_A is 7 bits, but the asynchronous divider was taken as clock / `RtcConfig::frequency` without a limit, so with the default 256 Hz and a 40 kHz LSI (F0, F3) 155 was written as 27 and the RTC ran about 5.6 times too fast. A requested frequency the clock cannot produce exactly is now rounded to the nearest lower divider that divides the clock evenly.
 - change: stm32/rtc: `DateTime` is renamed to `RawDateTime`. It has public fields that hold the calendar register values as stored (the year is within the century, the day of week is a `u8`, the subsecond is the raw `RTC_SSR` counter instead of microseconds), with no validation. `DayOfWeek` and `DateTimeError` are removed.
-- change: stm32/rtc: `RtcTimeProvider::now` is renamed to `read_raw`, and `Rtc::set_datetime` and `AnyRtc::set_datetime` to `set_raw`. They work with `RawDateTime` and do not return a `Result`. `RtcError` is removed.
-- feat: stm32/rtc: add the `jiff` feature, with `RtcTimeProvider::read`, `Rtc::set` and `AnyRtc::set` taking and returning `jiff::civil::DateTime`.
+- change: stm32/rtc: `RtcTimeProvider` is renamed to `RtcReader` and its `now` method to `read_raw`, and `Rtc::set_datetime` is renamed to `set_raw`. They work with `RawDateTime` and do not return a `Result`. `RtcError` is removed.
+- feat: stm32/rtc: add the `jiff` feature, with `RtcReader::read` and `Rtc::set` taking and returning `jiff::civil::DateTime`.
+- change: stm32/rtc: `Rtc::new` returns only the `Rtc`, which has `read` and `read_raw` methods. Get an `RtcReader` to read the time from other tasks with `Rtc::reader`.
+- change: stm32/rtc: `Rtc` and `RtcReader` have a `'d` lifetime, and `Rtc::new` takes a `Peri<'d, RTC>` instead of a `Peri<'static, RTC>`.
+- change: stm32/rtc: with the `low-power` feature, `Rtc::new` takes an `RtcConfig` and returns an `Rtc`, the same as without it. `RtcContainer`, `RtcBorrow` and `AnyRtc` are removed.
+- feat: stm32/rtc f1: add an RTC driver. The F1 RTC has no calendar: `Rtc` exposes its 32-bit counter, which increments once per second, with `Rtc::counter` and `Rtc::set_counter`.
 - change: stm32/rtc: remove the `chrono` feature.
 - fix: stm32/rtc: `Rtc::new` no longer enters init mode when the RTC already has the requested prescalers and the 24-hour format. Leaving init mode restarts the prescaler counters, so `Rtc::new` on a running RTC (e.g. after a reset with the backup domain kept) lost the elapsed fraction of the current second: always on RTC v2 (F0, F2, F3, F4, F7, H7, L0, L1, L4, WB), and on RTC v3 as long as the calendar had not been set to a year other than 2000.
 

@@ -75,6 +75,7 @@ build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "stm32l051k8", "time", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "low-power", "stm32l073cz", "time", "time-driver-any"]},
     {target = "thumbv7m-none-eabi", features = ["defmt", "stm32l151cb-a", "time", "time-driver-any"]},
+    {target = "thumbv7m-none-eabi", features = ["defmt", "jiff", "stm32l151cb", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "stm32f303c8", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "stm32f398ve", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "stm32f378cc", "time", "time-driver-any"]},
@@ -192,6 +193,7 @@ flavors = [
     { regex_feature = "stm32h5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
     { regex_feature = "stm32h7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi", features = ["low-power"] },
+    { regex_feature = "stm32l1(00|5[12]).[68b]", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32l4[7-9apqrs].*", target = "thumbv7em-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32l4.*", target = "thumbv7em-none-eabi" },
@@ -261,11 +263,11 @@ aligned = "0.4.3"
 heapless = "0.9.3"
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-0c86a9ba2c844ea6c83e97a35587b0e294b7cf33" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-ab2df8eff1ef62abeb1df8805b100a51ae2e0ea1" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-0c86a9ba2c844ea6c83e97a35587b0e294b7cf33", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-ab2df8eff1ef62abeb1df8805b100a51ae2e0ea1", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"

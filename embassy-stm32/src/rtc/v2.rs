@@ -5,7 +5,7 @@ use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 
 #[allow(dead_code)]
-impl super::Rtc {
+impl super::Rtc<'_> {
     /// Applies the RTC config.
     ///
     /// The date and time are kept. If the hour format or the prescalers have to change, the RTC
@@ -16,7 +16,7 @@ impl super::Rtc {
         // These bits can be written while the calendar is running.
         self.write(false, |rtc| {
             rtc.cr().modify(|w| {
-                #[cfg(not(rtc_v2_f2))]
+                #[cfg(not(any(rtc_v2_f2, rtc_v2_l1_cat1)))]
                 w.set_bypshad(true);
                 w.set_osel(Osel::Disabled);
                 w.set_pol(Pol::High);
@@ -55,7 +55,7 @@ impl super::Rtc {
     ///
     /// To perform a calibration when `async_prescaler` is less then 3, `sync_prescaler`
     /// has to be reduced accordingly (see RM0351 Rev 9, sec 38.3.12).
-    #[cfg(not(rtc_v2_f2))]
+    #[cfg(not(any(rtc_v2_f2, rtc_v2_l1_cat1)))]
     pub fn calibrate(&mut self, mut clock_drift: f32, period: super::RtcCalibrationCyclePeriod) {
         const RTC_CALR_MIN_PPM: f32 = -487.1;
         const RTC_CALR_MAX_PPM: f32 = 488.5;
@@ -145,6 +145,10 @@ impl super::Rtc {
 }
 
 impl SealedInstance for crate::peripherals::RTC {
+    // RM0360: the STM32F030/F070 RTC has no backup registers.
+    #[cfg(rtc_v2_f0_x0)]
+    const BACKUP_REGISTER_COUNT: usize = 0;
+    #[cfg(not(rtc_v2_f0_x0))]
     const BACKUP_REGISTER_COUNT: usize = 20;
 
     #[cfg(feature = "low-power")]
@@ -173,11 +177,12 @@ impl SealedInstance for crate::peripherals::RTC {
         _ => {}
     }
 
-    #[cfg(not(rtc_v2_f2))]
+    #[cfg(not(any(rtc_v2_f2, rtc_v2_l1_cat1)))]
     fn shpf() -> bool {
         Self::regs().isr().read().shpf()
     }
 
+    #[cfg(not(rtc_v2_f0_x0))]
     fn read_backup_register(rtc: Rtc, register: usize) -> Option<u32> {
         if register < Self::BACKUP_REGISTER_COUNT {
             Some(rtc.bkpr(register).read().bkp())
@@ -186,9 +191,18 @@ impl SealedInstance for crate::peripherals::RTC {
         }
     }
 
+    #[cfg(not(rtc_v2_f0_x0))]
     fn write_backup_register(rtc: Rtc, register: usize, value: u32) {
         if register < Self::BACKUP_REGISTER_COUNT {
             rtc.bkpr(register).write(|w| w.set_bkp(value));
         }
     }
+
+    #[cfg(rtc_v2_f0_x0)]
+    fn read_backup_register(_rtc: Rtc, _register: usize) -> Option<u32> {
+        None
+    }
+
+    #[cfg(rtc_v2_f0_x0)]
+    fn write_backup_register(_rtc: Rtc, _register: usize, _value: u32) {}
 }
