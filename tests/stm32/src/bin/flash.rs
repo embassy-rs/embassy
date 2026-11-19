@@ -521,6 +521,9 @@ mod ecc {
             cp.SCB.disable_dcache(&mut cp.CPUID);
         }
 
+        #[cfg(ecc_reset)]
+        zero_errors(p.reborrow(), &planted).await;
+
         let mut f = Flash::new_blocking(p, Config::default());
         unwrap!(f.blocking_erase(s.offset, s.offset + s.size));
         verify(&mut f, &s, None);
@@ -901,6 +904,30 @@ mod ecc {
                 "bne 1b",
                 inout("r0") iters => _,
             )
+        }
+    }
+
+    /// Zeros can be programmed over any word, also one with an ECC error that the flash's check
+    /// that the word is erased hits. Even words are zeroed blocking, odd ones async.
+    #[cfg(ecc_reset)]
+    async fn zero_errors(mut p: Peri<'_, peripherals::FLASH>, planted: &Planted) {
+        let zeros = [0u8; WRITE_SIZE];
+        let words = || (planted.offset..planted.offset + planted.size).step_by(WRITE_SIZE);
+        {
+            let mut f = Flash::new_blocking(p.reborrow(), Config::default());
+            for offset in words().step_by(2) {
+                unwrap!(f.blocking_write(offset, &zeros));
+            }
+        }
+        let mut f = Flash::new(p, Irqs, Config::default());
+        for offset in words().skip(1).step_by(2) {
+            unwrap!(f.write(offset, &zeros).await);
+        }
+
+        let mut buf = [0u8; WRITE_SIZE];
+        for offset in words() {
+            unwrap!(f.blocking_read(offset, &mut buf));
+            defmt::assert_eq!(buf, zeros);
         }
     }
 
