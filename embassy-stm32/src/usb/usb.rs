@@ -298,7 +298,7 @@ fn reset_bulk_out<T: Instance>(index: usize, stat: Stat, queue: &mut RxQueue) {
 }
 
 // Set or clear the STALL handshake of an endpoint. Shared by `Bus::endpoint_set_stalled`
-// and `Endpoint::set_stall`, so a class driver can halt its own endpoint.
+// and `Endpoint::set_stalled`, so a class driver can halt its own endpoint.
 fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, double_buffered: bool, stalled: bool) {
     #[cfg(any(usb_v1, usb_v3, usb_v4))]
     {
@@ -1495,13 +1495,12 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         trace!("wait_enabled IN OK");
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled::<T>(self.info.addr, self.double_buffered_flag(), stalled);
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled(T::regs(), self.info.addr))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled(T::regs(), self.info.addr)
     }
 
     fn is_enabled(&self) -> bool {
@@ -1530,13 +1529,12 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         trace!("wait_enabled OUT OK");
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled::<T>(self.info.addr, self.double_buffered_flag(), stalled);
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled(T::regs(), self.info.addr))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled(T::regs(), self.info.addr)
     }
 
     fn is_enabled(&self) -> bool {

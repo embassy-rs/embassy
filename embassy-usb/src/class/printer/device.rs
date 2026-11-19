@@ -292,7 +292,7 @@ impl From<EndpointError> for PrinterError {
     fn from(val: EndpointError) -> Self {
         match val {
             EndpointError::BufferOverflow => PrinterError::BufferOverflow,
-            EndpointError::Disabled => PrinterError::NotConnected,
+            _ => PrinterError::NotConnected,
         }
     }
 }

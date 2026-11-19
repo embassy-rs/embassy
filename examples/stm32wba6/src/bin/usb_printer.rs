@@ -109,12 +109,12 @@ async fn main(_spawner: Spawner) {
                         info!("Print raw bytes: {=[u8]:x}", &buf[..n]);
                     }
                 }
-                Err(EndpointError::Disabled) => {
-                    // USB disconnected or reset
-                    embassy_time::Timer::after_millis(100).await;
-                }
                 Err(EndpointError::BufferOverflow) => {
                     warn!("Printer buffer overflow");
+                }
+                Err(_) => {
+                    // USB disconnected or reset
+                    embassy_time::Timer::after_millis(100).await;
                 }
             }
         }

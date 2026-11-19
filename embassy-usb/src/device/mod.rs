@@ -829,6 +829,7 @@ impl<'d> Inner<'d> {
                     h.enabled(false);
                 }
             }
+            _ => {}
         }
     }
 

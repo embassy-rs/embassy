@@ -48,8 +48,8 @@ impl<'d, D: Driver<'d>> BulkReaderWriter<'d, D> {
 
     fn map_err(e: EndpointError) -> UsbIoError {
         match e {
-            EndpointError::BufferOverflow => UsbIoError::Other,
             EndpointError::Disabled => UsbIoError::Disconnected,
+            _ => UsbIoError::Other,
         }
     }
 }

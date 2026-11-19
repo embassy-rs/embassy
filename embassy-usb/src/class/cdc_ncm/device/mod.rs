@@ -644,12 +644,10 @@ mod tests {
             true
         }
 
-        async fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
-            Err(Unsupported)
-        }
+        async fn set_stalled(&mut self, _: bool) {}
 
-        fn is_stalled(&self) -> Result<bool, Unsupported> {
-            Err(Unsupported)
+        fn is_stalled(&self) -> bool {
+            false
         }
     }
 
@@ -674,12 +672,10 @@ mod tests {
             true
         }
 
-        async fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
-            Err(Unsupported)
-        }
+        async fn set_stalled(&mut self, _: bool) {}
 
-        fn is_stalled(&self) -> Result<bool, Unsupported> {
-            Err(Unsupported)
+        fn is_stalled(&self) -> bool {
+            false
         }
     }
 
@@ -746,12 +742,10 @@ mod tests {
             true
         }
 
-        async fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
-            Err(Unsupported)
-        }
+        async fn set_stalled(&mut self, _: bool) {}
 
-        fn is_stalled(&self) -> Result<bool, Unsupported> {
-            Err(Unsupported)
+        fn is_stalled(&self) -> bool {
+            false
         }
     }
 
@@ -799,11 +793,11 @@ mod tests {
             unreachable!()
         }
 
-        async fn set_stall(&mut self, _: bool) -> Result<(), Unsupported> {
+        async fn set_stalled(&mut self, _: bool) {
             unreachable!()
         }
 
-        fn is_stalled(&self) -> Result<bool, Unsupported> {
+        fn is_stalled(&self) -> bool {
             unreachable!()
         }
     }

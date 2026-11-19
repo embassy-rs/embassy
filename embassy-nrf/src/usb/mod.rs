@@ -392,7 +392,7 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
 
 /// Set or clear the STALL handshake of an endpoint.
 ///
-/// Shared by `Bus::endpoint_set_stalled` and `Endpoint::set_stall`, so that a class
+/// Shared by `Bus::endpoint_set_stalled` and `Endpoint::set_stalled`, so that a class
 /// driver can halt its own endpoint without access to the bus.
 fn set_endpoint_stalled(regs: pac::usbd::Usbd, ep_addr: EndpointAddress, stalled: bool) {
     if ep_addr.index() == 0 {
@@ -927,13 +927,12 @@ impl<'d, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, Dir> {
         Dir::is_enabled(self.regs, i)
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled(self.regs, self.info.addr, stalled);
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled(self.regs, self.info.addr))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled(self.regs, self.info.addr)
     }
 }
 

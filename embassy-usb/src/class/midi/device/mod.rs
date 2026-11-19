@@ -866,7 +866,7 @@ mod tests {
     }
 
     use embassy_usb_driver::{
-        Endpoint, EndpointAddress, EndpointDisabledError, EndpointIn, EndpointInfo, EndpointType, Unsupported,
+        Endpoint, EndpointAddress, EndpointDisabledError, EndpointIn, EndpointInfo, EndpointType,
     };
 
     /// An IN endpoint that records each transfer and whether it asked for a ZLP.
@@ -884,11 +884,9 @@ mod tests {
         fn is_enabled(&self) -> bool {
             true
         }
-        async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
-            Err(Unsupported)
-        }
-        fn is_stalled(&self) -> Result<bool, Unsupported> {
-            Err(Unsupported)
+        async fn set_stalled(&mut self, _stalled: bool) {}
+        fn is_stalled(&self) -> bool {
+            false
         }
     }
 
@@ -959,7 +957,7 @@ mod tests {
     #[test]
     fn wait_connection_ends_when_only_one_of_the_endpoints_is_enabled() {
         use embassy_futures::block_on;
-        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointInfo, EndpointType, Unsupported};
+        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointInfo, EndpointType};
 
         // `Never` is the OUT endpoint after switching to an IN-only setting.
         struct Never(EndpointInfo);
@@ -974,11 +972,9 @@ mod tests {
             fn is_enabled(&self) -> bool {
                 false
             }
-            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
-                Err(Unsupported)
-            }
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
-                Err(Unsupported)
+            async fn set_stalled(&mut self, _stalled: bool) {}
+            fn is_stalled(&self) -> bool {
+                false
             }
         }
         impl Endpoint for Enabled {
@@ -989,11 +985,9 @@ mod tests {
             fn is_enabled(&self) -> bool {
                 true
             }
-            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
-                Err(Unsupported)
-            }
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
-                Err(Unsupported)
+            async fn set_stalled(&mut self, _stalled: bool) {}
+            fn is_stalled(&self) -> bool {
+                false
             }
         }
         let info = EndpointInfo::new(

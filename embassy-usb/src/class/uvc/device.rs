@@ -1000,12 +1000,10 @@ mod tests {
                 true
             }
 
-            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
-                Ok(())
-            }
+            async fn set_stalled(&mut self, _stalled: bool) {}
 
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
-                Ok(false)
+            fn is_stalled(&self) -> bool {
+                false
             }
         }
 
@@ -1026,10 +1024,10 @@ mod tests {
             fn is_enabled(&self) -> bool {
                 unreachable!()
             }
-            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
+            async fn set_stalled(&mut self, _stalled: bool) {
                 unreachable!()
             }
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
+            fn is_stalled(&self) -> bool {
                 unreachable!()
             }
         }

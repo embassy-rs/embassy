@@ -67,13 +67,12 @@ impl Endpoint for TestEndpoint {
         true
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         self.stalled.set(stalled);
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(self.stalled.get())
+    fn is_stalled(&self) -> bool {
+        self.stalled.get()
     }
 }
 
@@ -939,11 +938,11 @@ fn test_endpoint_stall_from_class() {
     let mut usb = builder.build();
 
     configure(&mut usb);
-    assert!(!ep_out.is_stalled().unwrap());
+    assert!(!ep_out.is_stalled());
 
     // A class driver can reject traffic on its own endpoint, and the host sees the halt.
-    block_on(ep_out.set_stall(true)).unwrap();
-    assert!(ep_out.is_stalled().unwrap());
+    block_on(ep_out.set_stalled(true));
+    assert!(ep_out.is_stalled());
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(1));
 
     // The host clearing the halt recovers the endpoint, without the class doing anything.
@@ -951,13 +950,13 @@ fn test_endpoint_stall_from_class() {
         endpoint_request(&mut usb, Request::CLEAR_FEATURE, 1),
         Response::Accepted
     );
-    assert!(!ep_out.is_stalled().unwrap());
+    assert!(!ep_out.is_stalled());
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(0));
 
     // The class can also clear its own stall.
-    block_on(ep_out.set_stall(true)).unwrap();
+    block_on(ep_out.set_stalled(true));
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(1));
-    block_on(ep_out.set_stall(false)).unwrap();
+    block_on(ep_out.set_stalled(false));
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(0));
 }
 
