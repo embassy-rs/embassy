@@ -65,7 +65,10 @@ pub struct MidiClassConfig<'d> {
     ///
     /// The same bulk endpoints are used by the MIDI 1.0 and MIDI 2.0 alternate
     /// settings, so this single value applies to both.
-    /// For full-speed devices, the value has to be one of 8, 16, 32 or 64.
+    /// At full speed, the value has to be one of 8, 16, 32 or 64. At high speed it has to be 512,
+    /// and at SuperSpeed 1024. [`MidiClass::new`] and [`MidiClass::new_with_names`] panic otherwise.
+    ///
+    /// The default is 64, so a high-speed device has to set it.
     pub max_packet_size: u16,
 
     /// Name of the MIDIStreaming interface.
@@ -393,6 +396,12 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             "n_out_jacks is larger than {}",
             MAX_MIDI_JACKS,
         );
+
+        // The bulk endpoints are allocated below with `alloc_endpoint_*`, which does not check the
+        // packet size. Run the check `endpoint_bulk_in()` and `endpoint_bulk_out()` do.
+        let mut options = EndpointOptions::new();
+        options.max_packet_size = Some(max_packet_size);
+        let max_packet_size = builder.bulk_max_packet_size(options);
 
         let mut func = builder.function(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE);
 

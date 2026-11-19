@@ -2026,6 +2026,49 @@ fn shared_endpoints_stay_enabled_across_alternate_settings() {
 }
 
 #[cfg(feature = "class-midi")]
+/// Builds a MIDI 1.0 class with the given bulk packet size at `max_speed`.
+fn build_midi_with_packet_size(max_speed: UsbDeviceSpeed, max_packet_size: u16) {
+    use crate::class::midi::device::{MidiClass, MidiClassConfig};
+
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut config = Config::new(0x1234, 0x5678);
+    config.max_speed = max_speed;
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let midi_config = MidiClassConfig {
+        max_packet_size,
+        ..MidiClassConfig::default()
+    };
+    let _midi = MidiClass::new(&mut builder, midi_config);
+}
+
+#[test]
+fn midi_bulk_packet_size_follows_the_device_speed() {
+    build_midi_with_packet_size(UsbDeviceSpeed::Full, 64);
+    build_midi_with_packet_size(UsbDeviceSpeed::Full, 8);
+    build_midi_with_packet_size(UsbDeviceSpeed::High, 512);
+}
+
+#[test]
+#[should_panic(expected = "bulk endpoints require a max_packet_size of 512")]
+fn midi_default_packet_size_is_refused_at_high_speed() {
+    build_midi_with_packet_size(UsbDeviceSpeed::High, 64);
+}
+
+#[test]
+#[should_panic(expected = "full-speed bulk endpoints require a max_packet_size of 8, 16, 32 or 64")]
+fn midi_odd_packet_size_is_refused_at_full_speed() {
+    build_midi_with_packet_size(UsbDeviceSpeed::Full, 100);
+}
+
 #[test]
 fn test_midi2_device_enumeration_and_control() {
     use crate::class::midi::device::{Midi2Config, MidiClass, MidiClassConfig, MidiClassState};
