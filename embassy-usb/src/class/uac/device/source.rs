@@ -2,6 +2,8 @@
 //!
 //! Configured through [`Config`]; built and used like [`super::speaker::Speaker`].
 
+use core::num::NonZeroU32;
+
 use embassy_usb_driver::EndpointInterval;
 
 pub use super::Volume;
@@ -9,7 +11,7 @@ use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, State};
 use super::{Channel, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
 use crate::class::uac::terminal_type::TerminalType;
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointType};
+use crate::driver::{Driver, Endpoint, EndpointDisabledError, EndpointType, IsoEndpointIn, IsoWriteError};
 use crate::{Builder, EndpointOptions};
 
 /// Everything the audio source advertises to the host.
@@ -134,9 +136,28 @@ pub struct Stream<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> Stream<'d, D> {
-    /// Writes a single packet into the IN endpoint
-    pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        crate::class::write_packet(&mut self.streaming_endpoint, data).await
+    /// Wait until the next packet can be queued, returning a reserved slot.
+    ///
+    /// [`IsoInSlot::skipped`](crate::driver::IsoInSlot::skipped) reports how many intervals this
+    /// writer left empty before this slot.
+    pub async fn ready(&mut self) -> Result<<D::EndpointIn as IsoEndpointIn>::Slot<'_>, EndpointDisabledError>
+    where
+        D::EndpointIn: IsoEndpointIn,
+    {
+        self.streaming_endpoint.ready().await
+    }
+
+    /// Writes one packet for the next service interval.
+    ///
+    /// Returns how many intervals were skipped before this packet, if any. When the packet
+    /// contents depend on timing or skipped intervals, call [`ready`](Self::ready) first, build
+    /// the packet, and submit it with [`IsoInSlot::write`](crate::driver::IsoInSlot::write).
+    /// A packet the host does not poll for is dropped rather than sent late.
+    pub async fn write_packet(&mut self, data: &[u8]) -> Result<Option<NonZeroU32>, IsoWriteError>
+    where
+        D::EndpointIn: IsoEndpointIn,
+    {
+        crate::class::write_iso_packet(&mut self.streaming_endpoint, data).await
     }
 
     /// Waits for the USB host to enable this interface: it is listening.
