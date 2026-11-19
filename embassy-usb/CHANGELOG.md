@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed: the hub descriptor bitmaps have a bit per port plus the reserved bit 0, so a hub with 8, 16 or 24 ports was rejected as an invalid descriptor.
 - Fixed: the UAC host reads the sampling frequency from the Clock Source behind the output terminal's clock, following Clock Selectors, and addresses the request to the AudioControl interface instead of interface 0. Before, a device with a Clock Selector failed in `UacHandler::output()`.
 - Fixed: the UAC host descriptor parser no longer rejects a whole device for a streaming interface with an unknown format type, or for more clocks, terminals or units than its tables hold. It leaves those out and logs a warning.
+- Fixed: the UAC host `get_curr_entity*` and `get_range_entity*` put the channel number in the high byte of `wValue` and the control selector in the low byte, the wrong way around. Requests for a channel other than 0, such as the volume or mute of one channel, did not reach the right control.
 - Add CDC-ECM class (device and host) for Ethernet-over-USB networking
 - `VCP`: add CH34x and FTDI host drivers
 - Add USB Printer class (device and host) supporting IEEE 1284 device IDs and bidirectional raw print streams
