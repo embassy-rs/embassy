@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- fix: stm32/hsem: clear the HSEM interrupt flags in the interrupt handler. `listen()` left the interrupt line asserted, so the listening core re-entered the handler forever (seen on STM32H755 dual-core).
+
 PAC:
 - change: stm32: the `defmt` feature no longer enables `defmt` in `stm32-metapac`. PAC types, including the ones re-exported by the HAL (e.g. `rcc::AHBPrescaler`), no longer implement `defmt::Format` by default.
 - change: stm32: PAC types no longer implement `Debug` by default.
