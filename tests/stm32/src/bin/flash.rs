@@ -907,28 +907,66 @@ mod ecc {
         }
     }
 
+    /// Erratum "Overwriting with all zeros a flash memory location previously programmed with all
+    /// ones fails" (G071: ES0418, WB55: ES0394 2.2.10, WL55: ES0500): programming zeros over a word
+    /// programmed with all ones sets PROGERR. A word left with all its data bits erased but not
+    /// its ECC bits looks like one.
+    #[cfg(ecc_reset)]
+    const ZEROS_OVER_ONES_FAIL: bool = cfg!(any(
+        feature = "stm32g071rb",
+        feature = "stm32wb55rg",
+        feature = "stm32wl55jc"
+    ));
+
     /// Zeros can be programmed over any word, also one with an ECC error that the flash's check
     /// that the word is erased hits. Even words are zeroed blocking, odd ones async.
+    ///
+    /// With [`ZEROS_OVER_ONES_FAIL`], only the words with ECC errors are written, and
+    /// `NotErased` is accepted.
     #[cfg(ecc_reset)]
     async fn zero_errors(mut p: Peri<'_, peripherals::FLASH>, planted: &Planted) {
         let zeros = [0u8; WRITE_SIZE];
         let words = || (planted.offset..planted.offset + planted.size).step_by(WRITE_SIZE);
+        let mut zeroed = 0;
         {
             let mut f = Flash::new_blocking(p.reborrow(), Config::default());
             for offset in words().step_by(2) {
-                unwrap!(f.blocking_write(offset, &zeros));
+                if zero_target(&mut f, offset) {
+                    let res = f.blocking_write(offset, &zeros);
+                    zeroed += zero_result(&mut f, offset, res) as u32;
+                }
             }
         }
         let mut f = Flash::new(p, Irqs, Config::default());
         for offset in words().skip(1).step_by(2) {
-            unwrap!(f.write(offset, &zeros).await);
+            if zero_target(&mut f, offset) {
+                let res = f.write(offset, &zeros).await;
+                zeroed += zero_result(&mut f, offset, res) as u32;
+            }
         }
+        info!("ecc: {} words zeroed", zeroed);
+        defmt::assert!(zeroed > 0);
+    }
 
+    /// Whether [`zero_errors`] writes zeros over the word at `offset`.
+    #[cfg(ecc_reset)]
+    fn zero_target<M: embassy_stm32::mode::Mode>(f: &mut Flash<'_, M>, offset: u32) -> bool {
         let mut buf = [0u8; WRITE_SIZE];
-        for offset in words() {
-            unwrap!(f.blocking_read(offset, &mut buf));
-            defmt::assert_eq!(buf, zeros);
+        !ZEROS_OVER_ONES_FAIL || f.blocking_read(offset, &mut buf) == Err(Error::Ecc)
+    }
+
+    /// Checks the result of writing zeros over the word at `offset`. Returns whether the word was
+    /// zeroed.
+    #[cfg(ecc_reset)]
+    fn zero_result<M: embassy_stm32::mode::Mode>(f: &mut Flash<'_, M>, offset: u32, res: Result<(), Error>) -> bool {
+        if ZEROS_OVER_ONES_FAIL && res == Err(Error::NotErased) {
+            return false;
         }
+        unwrap!(res);
+        let mut buf = [0u8; WRITE_SIZE];
+        unwrap!(f.blocking_read(offset, &mut buf));
+        defmt::assert_eq!(buf, [0u8; WRITE_SIZE]);
+        true
     }
 
     #[cfg(ecc_reset)]
