@@ -64,6 +64,8 @@ struct AudioCollectionBuilder {
     interfaces: Vec<InterfaceDescriptor, MAX_ALTERNATE_SETTINGS>,
     control: Option<AudioControlInterface>,
     streaming: Vec<AudioStreamingInterface, MAX_AUDIO_STREAMING_INTERFACES>,
+    // The streaming interface being parsed was dropped, so its descriptors are ignored until the next interface.
+    skipping: bool,
     error: Option<AudioInterfaceError>,
 }
 
@@ -74,6 +76,7 @@ impl AudioCollectionBuilder {
             interfaces: Vec::new(),
             control: None,
             streaming: Vec::new(),
+            skipping: false,
             error: None,
         }
     }
@@ -101,6 +104,8 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
         if iface.interface_number >= iad.first_interface + iad.num_interfaces {
             return false; // stop iteration
         }
+
+        self.skipping = false;
 
         if iface.interface_class != interface::AUDIO {
             return true; // ignore
@@ -157,6 +162,9 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
     }
 
     fn on_endpoint(&mut self, iface: &InterfaceDescriptorChain, ep: &EndpointDescriptor) -> bool {
+        if self.skipping {
+            return true;
+        }
         match iface.interface_subclass {
             interface::subclass::AUDIOSTREAMING => {
                 if let Some(si) = self.streaming.last_mut() {
@@ -190,6 +198,7 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
                     self.iad = Some(iad);
                 }
             }
+            CS_INTERFACE | CS_ENDPOINT if self.skipping => {}
             CS_INTERFACE => {
                 if !self.interfaces.is_empty() {
                     match self.interfaces[0].interface_subclass {
@@ -215,6 +224,14 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
                                     })?;
                                 return Ok(true);
                             }
+                            if raw.get(2) == Some(&as_descriptor::GENERAL) {
+                                // For example a format type this parser does not know. The device can
+                                // still have other streams, so leave this one out instead of failing.
+                                warn!("Ignoring audio streaming interface with an unsupported AS_GENERAL descriptor");
+                                self.interfaces.clear();
+                                self.skipping = true;
+                                return Ok(true);
+                            }
                         }
                         _ => {}
                     }
@@ -225,7 +242,7 @@ impl<'a> DescriptorVisitor<'a> for AudioCollectionBuilder {
                         si.format_type_descriptor = Some(format_type);
                     }
                 } else if let Some(ac) = &mut self.control {
-                    ac.add_cs_interface(raw)?;
+                    ac.add_cs_interface(raw);
                 }
             }
             CS_ENDPOINT => {
@@ -401,27 +418,33 @@ impl AudioControlInterface {
         }
     }
 
-    fn add_cs_interface(&mut self, raw: &[u8]) -> Result<(), AudioInterfaceError> {
+    /// Records an entity of the function.
+    ///
+    /// One that does not fit the fixed size tables is ignored with a warning. The device is still
+    /// usable if the entities that matter to the host are among the ones that fit.
+    fn add_cs_interface(&mut self, raw: &[u8]) {
         match ClockDescriptor::try_from_bytes(raw) {
             Ok(clock) => {
-                self.clock_descriptors
-                    .insert(clock.clock_id(), clock)
-                    .map_err(|_| AudioInterfaceError::BufferFull("Too many clock descriptors"))?;
+                if self.clock_descriptors.insert(clock.clock_id(), clock).is_err() {
+                    warn!("Too many clock descriptors, ignoring one");
+                }
             }
-            Err(AudioInterfaceError::InvalidDescriptor) => {}
-            Err(e) => return Err(e),
+            Err(AudioInterfaceError::BufferFull(why)) => warn!("Ignoring clock descriptor: {}", why),
+            Err(_) => {}
         }
-        if let Ok(terminal) = TerminalDescriptor::try_from_bytes(raw) {
-            self.terminal_descriptors
+        if let Ok(terminal) = TerminalDescriptor::try_from_bytes(raw)
+            && self
+                .terminal_descriptors
                 .insert(terminal.terminal_id(), terminal)
-                .map_err(|_| AudioInterfaceError::BufferFull("Too many terminal descriptors"))?;
+                .is_err()
+        {
+            warn!("Too many terminal descriptors, ignoring one");
         }
-        if let Ok(unit) = UnitDescriptor::try_from_bytes(raw) {
-            self.unit_descriptors
-                .insert(unit.unit_id(), unit)
-                .map_err(|_| AudioInterfaceError::BufferFull("Too many unit descriptors"))?;
+        if let Ok(unit) = UnitDescriptor::try_from_bytes(raw)
+            && self.unit_descriptors.insert(unit.unit_id(), unit).is_err()
+        {
+            warn!("Too many unit descriptors, ignoring one");
         }
-        Ok(())
     }
 }
 
@@ -1427,6 +1450,118 @@ mod test {
         );
         assert_eq!(control.clock_step(5), ClockStep::Other);
         assert_eq!(control.clock_step(9), ClockStep::Other);
+    }
+
+    /// A function with a control interface and two streaming interfaces, from the golden descriptors of `test_parse`.
+    /// `format_type` is the bFormatType of each stream's AS_GENERAL descriptor.
+    fn function_with_two_streams(format_type: [u8; 2]) -> [u8; 512] {
+        function_with_clocks(format_type, 0)
+    }
+
+    /// Like [`function_with_two_streams`], with `extra_clocks` more Clock Sources after the first one.
+    fn function_with_clocks(format_type: [u8; 2], extra_clocks: u8) -> [u8; 512] {
+        let mut buffer = [0u8; 512];
+        #[rustfmt::skip]
+        let descriptors = [
+            8, 11, 0, 3, 1, 0, 32, 0, // Interface Association Descriptor
+            9, 4, 0, 0, 0, 1, 1, 32, 7, // Audio Control Interface
+            9, 36, 1, 0, 2, 8, 223, 0, 0, // Audio Control Header Descriptor
+            8, 36, 10, 40, 1, 7, 0, 16, // Clock Source Descriptor
+        ];
+        #[rustfmt::skip]
+        let tail = [
+            17, 36, 2, 2, 1, 1, 0, 40, 16, 0, 0, 0, 0, 18, 0, 0, 2, // Input Terminal Descriptor
+            12, 36, 3, 20, 1, 3, 0, 10, 40, 0, 0, 5, // Output Terminal Descriptor
+            9, 4, 1, 0, 0, 1, 2, 32, 8, // Audio Streaming Interface Descriptor (Alt Setting 0)
+            9, 4, 1, 1, 2, 1, 2, 32, 9, // Audio Streaming Interface Descriptor (Alt Setting 1)
+            16, 36, 1, 2, 0, format_type[0], 1, 0, 0, 0, 16, 0, 0, 0, 0, 18, // AS Interface Descriptor (General)
+            6, 36, 2, 1, 4, 24, // Format Type Descriptor
+            7, 5, 1, 5, 0, 2, 1, // Endpoint Descriptor
+            8, 37, 1, 0, 0, 2, 8, 0, // AS Endpoint Descriptor
+            7, 5, 129, 17, 4, 0, 4, // Endpoint Descriptor (Feedback)
+            9, 4, 2, 0, 0, 1, 2, 32, 10, // Audio Streaming Interface Descriptor (Alt Setting 0)
+            9, 4, 2, 1, 1, 1, 2, 32, 11, // Audio Streaming Interface Descriptor (Alt Setting 1)
+            16, 36, 1, 20, 0, format_type[1], 1, 0, 0, 0, 16, 0, 0, 0, 0, 50, // AS Interface Descriptor (General)
+            6, 36, 2, 1, 4, 24, // Format Type Descriptor
+            7, 5, 130, 5, 0, 2, 1, // Endpoint Descriptor
+            8, 37, 1, 0, 0, 2, 8, 0, // AS Endpoint Descriptor
+        ];
+        let mut bytes = Vec::<u8, 512>::new();
+        bytes.extend_from_slice(&descriptors).unwrap();
+        for i in 0..extra_clocks {
+            bytes.extend_from_slice(&[8, 36, 10, 41 + i, 1, 7, 0, 16]).unwrap(); // Clock Source Descriptor
+        }
+        bytes.extend_from_slice(&tail).unwrap();
+        buffer[..bytes.len()].copy_from_slice(&bytes);
+        buffer
+    }
+
+    fn parse_function(buffer: &[u8; 512]) -> Result<AudioInterfaceCollection, AudioInterfaceError> {
+        AudioInterfaceCollection::try_from_configuration(&ConfigurationDescriptorChain {
+            descriptor: ConfigurationDescriptor {
+                total_len: 0,
+                num_interfaces: 0,
+                configuration_value: 1,
+                configuration_name: 0,
+                attributes: 0,
+                max_power: 0,
+            },
+            buffer,
+        })
+    }
+
+    #[test]
+    fn a_stream_with_an_unknown_format_is_left_out() {
+        let collection = parse_function(&function_with_two_streams([1, 1])).unwrap();
+        assert_eq!(collection.audio_streaming_interfaces.len(), 2);
+
+        // Format type 0xee is not one of the types this parser knows. It costs that stream, not the device.
+        // The endpoints of the dropped stream must not be given to the stream next to it.
+        let collection = parse_function(&function_with_two_streams([0xee, 1])).unwrap();
+        assert_eq!(collection.audio_streaming_interfaces.len(), 1);
+        let stream = &collection.audio_streaming_interfaces[0];
+        assert_eq!(stream.interface_descriptors[0].interface_number, 2);
+        assert_eq!(stream.endpoint_descriptor.unwrap().endpoint_address, 130);
+        assert_eq!(stream.feedback_endpoint_descriptor, None);
+
+        let collection = parse_function(&function_with_two_streams([1, 0xee])).unwrap();
+        assert_eq!(collection.audio_streaming_interfaces.len(), 1);
+        let stream = &collection.audio_streaming_interfaces[0];
+        assert_eq!(stream.interface_descriptors[0].interface_number, 1);
+        assert_eq!(stream.endpoint_descriptor.unwrap().endpoint_address, 1);
+        assert_eq!(stream.feedback_endpoint_descriptor.unwrap().endpoint_address, 129);
+    }
+
+    #[test]
+    fn entities_beyond_the_table_sizes_are_ignored() {
+        // A function with more clocks than the table holds still parses, with the clocks that fit.
+        let extra_clocks = MAX_CLOCK_DESCRIPTORS as u8;
+        let collection = parse_function(&function_with_clocks([1, 1], extra_clocks)).unwrap();
+        assert_eq!(
+            collection.control_interface.clock_descriptors.len(),
+            MAX_CLOCK_DESCRIPTORS
+        );
+        assert_eq!(collection.audio_streaming_interfaces.len(), 2);
+
+        let mut control = control_interface_with_clocks();
+        control.clock_descriptors.clear();
+        for clock_id in 1..=MAX_CLOCK_DESCRIPTORS as u8 + 1 {
+            control.add_cs_interface(&[8, 36, 10, clock_id, 1, 7, 0, 0]);
+        }
+        assert_eq!(control.clock_descriptors.len(), MAX_CLOCK_DESCRIPTORS);
+
+        // A selector with more inputs than the table holds is ignored too.
+        let mut selector = [0u8; 7 + MAX_CLOCK_DESCRIPTORS + 1];
+        selector[0] = selector.len() as u8;
+        selector[1..5].copy_from_slice(&[36, 11, 100, MAX_CLOCK_DESCRIPTORS as u8 + 1]);
+        control.clock_descriptors.clear();
+        control.add_cs_interface(&selector);
+        assert!(control.clock_descriptors.is_empty());
+
+        for terminal_id in 1..=MAX_TERMINAL_DESCRIPTORS as u8 + 1 {
+            control.add_cs_interface(&[12, 36, 3, terminal_id, 1, 3, 0, 10, 40, 0, 0, 5]);
+        }
+        assert_eq!(control.terminal_descriptors.len(), MAX_TERMINAL_DESCRIPTORS);
     }
 
     #[test]
