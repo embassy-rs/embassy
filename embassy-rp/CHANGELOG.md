@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 
 ## Unreleased - ReleaseDate
+- USB device: implement `IsoEndpointIn` with service-interval scheduling, phase locking for intervals > 1, and SOF-driven dropping of uncollected packets.
 - PAC types no longer implement `Debug` by default.
 - Add `pac-defmt` and `pac-debug` Cargo features, which implement `defmt::Format` and `Debug` for PAC types.
 - USB device: a control transfer stage now ends when the bus is suspended, so the suspend is not missed.

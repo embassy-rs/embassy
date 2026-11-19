@@ -26,7 +26,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_usb::class::uac::device::SampleWidth;
 use embassy_usb::class::uac::device::uac2::io_box::{self, Channels, FeatureUnitControls, IoBox, State};
-use embassy_usb::driver::EndpointError;
+use embassy_usb::driver::{EndpointError, IsoWriteError};
 use embassy_usb::{Builder, UsbDeviceSpeed};
 use heapless::Deque;
 use panic_probe as _;
@@ -162,8 +162,9 @@ async fn main(_spawner: Spawner) {
                         *b = if primed { f.pop_front().unwrap_or(0) } else { 0 };
                     }
                 });
-                if line_in.write_packet(&packet[..len]).await.is_err() {
-                    break;
+                match line_in.write_packet(&packet[..len]).await {
+                    Ok(_) | Err(IsoWriteError::TooLate) => {}
+                    Err(_) => break,
                 }
             }
             info!("line in: stopped");
@@ -177,8 +178,9 @@ async fn main(_spawner: Spawner) {
             loop {
                 let rate = control_monitor.sample_rate_hz();
                 let value = ((rate as u64) << 16) / PACKET_RATE as u64;
-                if feedback.write_packet(value as u32).await.is_err() {
-                    break;
+                match feedback.write_packet(value as u32).await {
+                    Ok(_) | Err(IsoWriteError::TooLate) => {}
+                    Err(_) => break,
                 }
             }
         }

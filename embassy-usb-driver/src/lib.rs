@@ -5,8 +5,10 @@
 
 pub mod host;
 mod interval;
+pub mod iso;
 
 pub use interval::EndpointInterval;
+pub use iso::{IsoEndpointIn, IsoInSlot, IsoWriteError};
 
 /// Speed of a device or port
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -481,6 +483,8 @@ pub trait EndpointIn: Endpoint {
     /// packet is sent.
     ///
     /// Drivers are allowed to buffer packets/transfers and return before the host acknowledges them.
+    ///
+    /// For isochronous endpoints, use [`IsoEndpointIn`] instead of this.
     ///
     /// # Errors
     ///

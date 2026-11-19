@@ -8,7 +8,8 @@ use core::cell::RefCell;
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
+use core::num::NonZeroU32;
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering, compiler_fence};
 use core::task::Poll;
 
 use cortex_m::peripheral::NVIC;
@@ -16,9 +17,10 @@ use critical_section::{CriticalSection, Mutex};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
+use embassy_usb_driver::iso::{IsoSchedule, forward};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo, EndpointType,
-    Event, Speed, Unsupported,
+    Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed, Unsupported,
 };
 
 use self::vbus_detect::VbusDetect;
@@ -36,7 +38,11 @@ static READY_ENDPOINTS: AtomicU32 = AtomicU32::new(0);
 // nRF uses dedicated Endpoint 8 for ISO, not the EPIN/EPOUT arrays.
 const ISO_EP: usize = 8;
 const ISO_MAX_PACKET_SIZE: usize = 1023;
+const ISO_FRAME_SPAN: u32 = 1 << 11;
 const BULK_EP_COUNT: usize = 7;
+
+static ISO_SOF_SEEN: AtomicBool = AtomicBool::new(false);
+static ISO_IN_RESET: AtomicBool = AtomicBool::new(true);
 
 static EP_IN_XFERS: Mutex<RefCell<[Option<InXfer>; BULK_EP_COUNT]>> =
     Mutex::new(RefCell::new([const { None }; BULK_EP_COUNT]));
@@ -266,6 +272,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         // ISO IN uses SOF instead of EPDATASTATUS to pace writes.
         if regs.intenset().read().sof() && regs.events_sof().read() != 0 {
             regs.events_sof().write_value(0);
+            ISO_SOF_SEEN.store(true, Ordering::Release);
             if regs.epinen().read().isoin() {
                 READY_ENDPOINTS.fetch_or(In::mask(ISO_EP), Ordering::AcqRel);
                 In::waker(ISO_EP).wake();
@@ -458,6 +465,8 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
         errata::post_enable();
 
         if self.enable_sof {
+            ISO_SOF_SEEN.store(false, Ordering::Release);
+            ISO_IN_RESET.store(true, Ordering::Release);
             regs.isoinconfig().write(|w| w.set_response(vals::Response::ZeroData));
             regs.events_sof().write_value(0);
         }
@@ -501,6 +510,8 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
                     regs.epinen().write(|w| w.0 = 0x01);
                     regs.epouten().write(|w| w.0 = 0x01);
                     READY_ENDPOINTS.store(In::mask(0), Ordering::Release);
+                    ISO_SOF_SEEN.store(false, Ordering::Release);
+                    ISO_IN_RESET.store(true, Ordering::Release);
                     for xfer in EP_IN_XFERS.borrow(cs).borrow_mut().iter_mut().flatten() {
                         if !xfer.done && xfer.error.is_none() {
                             xfer.error = Some(EndpointDisabledError);
@@ -611,8 +622,14 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
                         if !was_enabled {
                             READY_ENDPOINTS.fetch_or(ready_mask, Ordering::AcqRel);
                         }
+                        if i == ISO_EP {
+                            ISO_IN_RESET.store(true, Ordering::Release);
+                        }
                     } else {
                         READY_ENDPOINTS.fetch_and(!ready_mask, Ordering::AcqRel);
+                        if i == ISO_EP {
+                            ISO_IN_RESET.store(true, Ordering::Release);
+                        }
                         if (1..=BULK_EP_COUNT).contains(&i) {
                             if let Some(xfer) = EP_IN_XFERS.borrow(cs).borrow_mut()[i - 1].as_mut() {
                                 if !xfer.done && xfer.error.is_none() {
@@ -900,6 +917,8 @@ impl EndpointDir for Out {
 pub struct Endpoint<'d, Dir> {
     regs: pac::usbd::Usbd,
     info: EndpointInfo,
+    schedule: IsoSchedule,
+    iso_written_frame: Option<u32>,
     _phantom: PhantomData<(&'d (), Dir)>,
 }
 
@@ -908,6 +927,8 @@ impl<'d, Dir> Endpoint<'d, Dir> {
         Self {
             regs,
             info,
+            schedule: IsoSchedule::new(),
+            iso_written_frame: None,
             _phantom: PhantomData,
         }
     }
@@ -1243,6 +1264,145 @@ impl<'d> driver::EndpointIn for Endpoint<'d, In> {
             })
         })
         .await
+    }
+}
+
+/// Reserved isochronous IN slot returned by [`IsoEndpointIn::ready`].
+pub struct IsoSlot<'a, 'd> {
+    ep: &'a mut Endpoint<'d, In>,
+    frame: u32,
+    skipped: Option<NonZeroU32>,
+}
+
+impl IsoInSlot for IsoSlot<'_, '_> {
+    fn skipped(&self) -> Option<NonZeroU32> {
+        self.skipped
+    }
+
+    fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+        if data.len() > usize::from(self.ep.info.max_packet_size) {
+            return Err(IsoWriteError::BufferOverflow);
+        }
+
+        let regs = self.ep.regs;
+        let written_frame = critical_section::with(|cs| {
+            if !In::is_enabled(regs, ISO_EP) {
+                return Err(IsoWriteError::Disabled);
+            }
+            if !ISO_SOF_SEEN.load(Ordering::Acquire) {
+                return Err(IsoWriteError::TooLate);
+            }
+            let now = u32::from(regs.framecntr().read().framecntr());
+            if forward(now, self.frame, ISO_FRAME_SPAN) != 1 {
+                return Err(IsoWriteError::TooLate);
+            }
+            // Copies `data` into the peripheral's ISOIN buffer via EasyDMA. Hardware latches it
+            // at the next SOF and automatically responds with a ZLP if uncollected on later frames.
+            unsafe { write_dma_in_cs(cs, regs, ISO_EP, data) };
+            Ok(now)
+        })?;
+
+        self.ep.iso_written_frame = Some(written_frame);
+        self.ep.schedule.accept();
+        Ok(())
+    }
+}
+
+impl<'d> IsoEndpointIn for Endpoint<'d, In> {
+    type Slot<'a>
+        = IsoSlot<'a, 'd>
+    where
+        Self: 'a;
+
+    fn queue_depth(&self) -> u8 {
+        if self.info.addr.index() == ISO_EP && self.info.ep_type == EndpointType::Isochronous {
+            1
+        } else {
+            0
+        }
+    }
+
+    async fn ready(&mut self) -> Result<Self::Slot<'_>, EndpointDisabledError> {
+        assert_eq!(
+            self.info.ep_type,
+            EndpointType::Isochronous,
+            "IsoEndpointIn requires an isochronous endpoint"
+        );
+        assert_eq!(self.info.addr.index(), ISO_EP);
+
+        if !In::is_enabled(self.regs, ISO_EP) {
+            return Err(EndpointDisabledError);
+        }
+        let reset = critical_section::with(|_| {
+            let r = ISO_IN_RESET.load(Ordering::Acquire);
+            if r {
+                ISO_IN_RESET.store(false, Ordering::Release);
+            }
+            r
+        });
+        if reset {
+            self.schedule.reset();
+            self.iso_written_frame = None;
+        }
+
+        let interval = self.info.interval.frames().clamp(1, ISO_FRAME_SPAN / 2);
+
+        // Wait until SOF is live and has advanced past the frame of any previous EasyDMA load
+        // so the hardware has latched that packet and freed the EasyDMA staging buffer.
+        let now = poll_fn(|cx| {
+            In::waker(ISO_EP).register(cx.waker());
+            if !In::is_enabled(self.regs, ISO_EP) {
+                return Poll::Ready(Err(EndpointDisabledError));
+            }
+            if !ISO_SOF_SEEN.load(Ordering::Acquire) {
+                return Poll::Pending;
+            }
+            let now = u32::from(self.regs.framecntr().read().framecntr());
+            if self.iso_written_frame == Some(now) {
+                Poll::Pending
+            } else {
+                Poll::Ready(Ok(now))
+            }
+        })
+        .await?;
+
+        let mut total_skipped: u32 = 0;
+        let mut current = now;
+        loop {
+            let offer = self.schedule.offer(current, interval, ISO_FRAME_SPAN);
+            total_skipped = total_skipped.saturating_add(offer.skipped.map_or(0, NonZeroU32::get));
+            let frame = offer.frame;
+
+            let ready = poll_fn(|cx| {
+                In::waker(ISO_EP).register(cx.waker());
+                if !In::is_enabled(self.regs, ISO_EP) {
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                if !ISO_SOF_SEEN.load(Ordering::Acquire) {
+                    return Poll::Pending;
+                }
+                let now = u32::from(self.regs.framecntr().read().framecntr());
+                let ahead = forward(now, frame, ISO_FRAME_SPAN);
+                if ahead == 1 {
+                    Poll::Ready(Ok(true))
+                } else if ahead == 0 || ahead > interval {
+                    Poll::Ready(Ok(false))
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await?;
+
+            if ready {
+                return Ok(IsoSlot {
+                    ep: self,
+                    frame,
+                    skipped: NonZeroU32::new(total_skipped),
+                });
+            }
+
+            current = u32::from(self.regs.framecntr().read().framecntr());
+        }
     }
 }
 

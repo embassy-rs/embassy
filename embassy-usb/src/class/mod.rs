@@ -122,3 +122,162 @@ pub(crate) async fn write_packet<E: crate::driver::EndpointIn>(
     ep.write_transfer(buf, false).await?;
     Ok(())
 }
+
+/// Writes one isochronous packet for the next service interval.
+///
+/// Reserves a slot via [`IsoEndpointIn::ready`](crate::driver::IsoEndpointIn::ready) and queues
+/// `buf` synchronously via [`IsoInSlot::write`](crate::driver::IsoInSlot::write). Returns how
+/// many service intervals were skipped before this slot, if any.
+#[cfg(feature = "device")]
+#[allow(dead_code)]
+pub(crate) async fn write_iso_packet<E: crate::driver::IsoEndpointIn>(
+    ep: &mut E,
+    buf: &[u8],
+) -> Result<Option<core::num::NonZeroU32>, crate::driver::IsoWriteError> {
+    use crate::driver::IsoInSlot;
+
+    if buf.len() > ep.info().max_packet_size as usize {
+        return Err(crate::driver::IsoWriteError::BufferOverflow);
+    }
+    let slot = ep.ready().await?;
+    let skipped = slot.skipped();
+    slot.write(buf)?;
+    Ok(skipped)
+}
+
+#[cfg(all(test, feature = "device"))]
+mod tests {
+    use core::num::NonZeroU32;
+
+    use embassy_futures::block_on;
+
+    use super::write_iso_packet;
+    use crate::driver::{
+        Endpoint, EndpointAddress, EndpointDisabledError, EndpointInfo, EndpointInterval, EndpointType, IsoEndpointIn,
+        IsoInSlot, IsoWriteError,
+    };
+
+    struct IsoEndpoint {
+        disabled: bool,
+        too_late: bool,
+        skipped: Option<NonZeroU32>,
+        written: Option<usize>,
+    }
+
+    struct MockSlot<'a> {
+        ep: &'a mut IsoEndpoint,
+        skipped: Option<NonZeroU32>,
+    }
+
+    impl IsoInSlot for MockSlot<'_> {
+        fn skipped(&self) -> Option<NonZeroU32> {
+            self.skipped
+        }
+
+        fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+            if data.len() > usize::from(self.ep.info().max_packet_size) {
+                return Err(IsoWriteError::BufferOverflow);
+            }
+            if self.ep.disabled {
+                return Err(IsoWriteError::Disabled);
+            }
+            if self.ep.too_late {
+                return Err(IsoWriteError::TooLate);
+            }
+            self.ep.written = Some(data.len());
+            Ok(())
+        }
+    }
+
+    impl Endpoint for IsoEndpoint {
+        fn info(&self) -> EndpointInfo {
+            EndpointInfo::new(
+                EndpointAddress::from(0x81),
+                EndpointType::Isochronous,
+                8,
+                EndpointInterval::from_ms(1),
+            )
+        }
+        async fn wait_enabled(&mut self) {}
+        fn is_enabled(&self) -> bool {
+            !self.disabled
+        }
+        async fn set_stalled(&mut self, _: bool) {}
+        fn is_stalled(&self) -> bool {
+            false
+        }
+    }
+
+    impl IsoEndpointIn for IsoEndpoint {
+        type Slot<'a>
+            = MockSlot<'a>
+        where
+            Self: 'a;
+
+        fn queue_depth(&self) -> u8 {
+            1
+        }
+
+        async fn ready(&mut self) -> Result<Self::Slot<'_>, EndpointDisabledError> {
+            if self.disabled {
+                return Err(EndpointDisabledError);
+            }
+            let skipped = self.skipped;
+            Ok(MockSlot { ep: self, skipped })
+        }
+    }
+
+    #[test]
+    fn iso_packet_queues_one_packet_and_reports_skipped_intervals() {
+        let mut ep = IsoEndpoint {
+            disabled: false,
+            too_late: false,
+            skipped: NonZeroU32::new(2),
+            written: None,
+        };
+        assert_eq!(block_on(write_iso_packet(&mut ep, &[0; 8])), Ok(NonZeroU32::new(2)));
+        assert_eq!(ep.written, Some(8));
+        // An empty packet is still a packet.
+        ep.skipped = None;
+        assert_eq!(block_on(write_iso_packet(&mut ep, &[])), Ok(None));
+        assert_eq!(ep.written, Some(0));
+    }
+
+    #[test]
+    fn iso_packet_larger_than_the_endpoint_is_refused_before_ready() {
+        let mut ep = IsoEndpoint {
+            disabled: false,
+            too_late: false,
+            skipped: None,
+            written: None,
+        };
+        assert_eq!(
+            block_on(write_iso_packet(&mut ep, &[0; 9])),
+            Err(IsoWriteError::BufferOverflow)
+        );
+        assert_eq!(ep.written, None);
+    }
+
+    #[test]
+    fn iso_packet_on_a_disabled_endpoint_returns_disabled() {
+        let mut ep = IsoEndpoint {
+            disabled: true,
+            too_late: false,
+            skipped: None,
+            written: None,
+        };
+        assert_eq!(block_on(write_iso_packet(&mut ep, &[1])), Err(IsoWriteError::Disabled));
+    }
+
+    #[test]
+    fn iso_packet_too_late_propagates_without_disabling() {
+        let mut ep = IsoEndpoint {
+            disabled: false,
+            too_late: true,
+            skipped: None,
+            written: None,
+        };
+        assert_eq!(block_on(write_iso_packet(&mut ep, &[1])), Err(IsoWriteError::TooLate));
+        assert_eq!(ep.written, None);
+    }
+}

@@ -2,6 +2,7 @@
 //! frequency control handler, and the feedback endpoint. Only the stream direction differs.
 
 use core::cell::Cell;
+use core::num::NonZeroU32;
 use core::ops::RangeInclusive;
 #[cfg(target_has_atomic = "32")]
 use core::sync::atomic::AtomicU32;
@@ -22,7 +23,9 @@ use crate::class::uac::terminal_type::TerminalType;
 use crate::class::uac::uac1_codes::*;
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointInfo, EndpointType};
+use crate::driver::{
+    Driver, Endpoint, EndpointDisabledError, EndpointInfo, EndpointType, IsoEndpointIn, IsoWriteError,
+};
 use crate::types::InterfaceNumber;
 use crate::{Builder, EndpointOptions, Handler, InterfaceAltBuilder};
 
@@ -858,9 +861,23 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
         );
     }
 
-    /// Writes a single packet into the IN endpoint.
-    pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        crate::class::write_packet(&mut self.feedback_endpoint, data).await
+    /// Wait until the next feedback packet can be queued, returning a reserved slot.
+    pub async fn ready(&mut self) -> Result<<D::EndpointIn as IsoEndpointIn>::Slot<'_>, EndpointDisabledError>
+    where
+        D::EndpointIn: IsoEndpointIn,
+    {
+        self.feedback_endpoint.ready().await
+    }
+
+    /// Writes one feedback packet for the next service interval.
+    ///
+    /// Returns how many intervals were skipped before this packet, if any. A packet the host
+    /// does not poll for is dropped rather than sent late.
+    pub async fn write_packet(&mut self, data: &[u8]) -> Result<Option<NonZeroU32>, IsoWriteError>
+    where
+        D::EndpointIn: IsoEndpointIn,
+    {
+        crate::class::write_iso_packet(&mut self.feedback_endpoint, data).await
     }
 
     /// Waits for the USB host to enable this interface.

@@ -60,6 +60,7 @@
 //! ```
 
 use core::cell::{Cell, RefCell};
+use core::num::NonZeroU32;
 #[cfg(target_has_atomic = "32")]
 use core::sync::atomic::AtomicU32;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -83,7 +84,9 @@ use crate::class::uac::uac2_codes::{
 };
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
+use crate::driver::{
+    Driver, Endpoint, EndpointDisabledError, EndpointError, EndpointIn, EndpointType, IsoEndpointIn, IsoWriteError,
+};
 use crate::types::InterfaceNumber;
 use crate::{Builder, EndpointOptions, Handler, UsbDeviceSpeed};
 
@@ -730,9 +733,29 @@ pub struct LineInStream<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> LineInStream<'d, D> {
-    /// Writes one audio packet to the host: the frames captured since the last one.
-    pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        crate::class::write_packet(&mut self.ep, data).await
+    /// Wait until the next audio packet can be queued, returning a reserved slot.
+    ///
+    /// [`IsoInSlot::skipped`](crate::driver::IsoInSlot::skipped) reports how many intervals this
+    /// writer left empty, so a late task can advance its stream instead of building a packet per
+    /// missed interval.
+    pub async fn ready(&mut self) -> Result<<D::EndpointIn as IsoEndpointIn>::Slot<'_>, EndpointDisabledError>
+    where
+        D::EndpointIn: IsoEndpointIn,
+    {
+        self.ep.ready().await
+    }
+
+    /// Writes one audio packet for the next service interval.
+    ///
+    /// Returns how many intervals were skipped before this packet, if any. When the samples
+    /// depend on timing or skipped intervals, call [`ready`](Self::ready) first, build them, and
+    /// submit with [`IsoInSlot::write`](crate::driver::IsoInSlot::write). A packet the host does
+    /// not poll for is dropped rather than sent late.
+    pub async fn write_packet(&mut self, data: &[u8]) -> Result<Option<NonZeroU32>, IsoWriteError>
+    where
+        D::EndpointIn: IsoEndpointIn,
+    {
+        crate::class::write_iso_packet(&mut self.ep, data).await
     }
 
     /// Waits for the host to select the streaming alternate setting.
@@ -758,11 +781,25 @@ pub struct Feedback<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> Feedback<'d, D> {
-    /// Writes one feedback value: 16.16 samples per packet, at either speed. At full speed it is
-    /// sent as 10.14.
-    pub async fn write_packet(&mut self, value: u32) -> Result<(), EndpointError> {
+    /// Wait until the next feedback packet can be queued, returning a reserved slot.
+    pub async fn ready(&mut self) -> Result<<D::EndpointIn as IsoEndpointIn>::Slot<'_>, EndpointDisabledError>
+    where
+        D::EndpointIn: IsoEndpointIn,
+    {
+        self.ep.ready().await
+    }
+
+    /// Writes one feedback value for the next service interval: 16.16 samples per packet, at
+    /// either speed. At full speed it is sent as 10.14.
+    ///
+    /// Returns how many intervals were skipped before this packet, if any. A packet the host
+    /// does not poll for is dropped rather than sent late.
+    pub async fn write_packet(&mut self, value: u32) -> Result<Option<NonZeroU32>, IsoWriteError>
+    where
+        D::EndpointIn: IsoEndpointIn,
+    {
         let value = if self.len == 3 { value >> 2 } else { value };
-        crate::class::write_packet(&mut self.ep, &value.to_le_bytes()[..self.len]).await
+        crate::class::write_iso_packet(&mut self.ep, &value.to_le_bytes()[..self.len]).await
     }
 
     /// Waits for the host to select line out's streaming alternate setting.
