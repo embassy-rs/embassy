@@ -10,6 +10,10 @@ use embassy_stm32::rcc::LsConfig;
 use embassy_time::{Duration, Instant, Timer};
 use panic_probe as _;
 
+#[cfg(feature = "stm32f767zi")]
+teleprobe_meta::target!(b"nucleo-stm32f767zi");
+#[cfg(feature = "stm32g071rb")]
+teleprobe_meta::target!(b"nucleo-stm32g071rb");
 #[cfg(feature = "stm32g491re")]
 teleprobe_meta::target!(b"nucleo-stm32g491re");
 #[cfg(feature = "stm32h563zi")]
@@ -97,6 +101,7 @@ fn lptim1_on_lse(config: &mut Config) {
         lse.peripherals_clocked = true;
     }
     #[cfg(any(
+        feature = "stm32g071rb",
         feature = "stm32l496zg",
         feature = "stm32l4a6zg",
         feature = "stm32l4r5zi",
@@ -107,6 +112,7 @@ fn lptim1_on_lse(config: &mut Config) {
         config.rcc.mux.lptim1sel = mux::Lptim1sel::Lse;
     }
     #[cfg(not(any(
+        feature = "stm32g071rb",
         feature = "stm32l496zg",
         feature = "stm32l4a6zg",
         feature = "stm32l4r5zi",

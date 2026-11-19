@@ -8,6 +8,8 @@ publish = false
 # The LPTIM time driver can't be tested in `tests/stm32`, which uses `time-driver-any`.
 
 [features]
+stm32f767zi = ["embassy-stm32/stm32f767zi", "embassy-stm32/single-bank"]
+stm32g071rb = ["embassy-stm32/stm32g071rb"]
 stm32g491re = ["embassy-stm32/stm32g491re"]
 stm32h563zi = ["embassy-stm32/stm32h563zi"]
 stm32l073rz = ["embassy-stm32/stm32l073rz"]
@@ -50,6 +52,8 @@ overflow-checks = false
 
 [package.metadata.embassy]
 build = [
+  { target = "thumbv7em-none-eabi", features = ["stm32f767zi"], artifact-dir = "out/tests/stm32f767zi" },
+  { target = "thumbv6m-none-eabi", features = ["stm32g071rb"], artifact-dir = "out/tests/stm32g071rb" },
   { target = "thumbv7em-none-eabi", features = ["stm32g491re"], artifact-dir = "out/tests/stm32g491re" },
   { target = "thumbv8m.main-none-eabihf", features = ["stm32h563zi"], artifact-dir = "out/tests/stm32h563zi" },
   { target = "thumbv6m-none-eabi", features = ["stm32l073rz"], artifact-dir = "out/tests/stm32l073rz" },

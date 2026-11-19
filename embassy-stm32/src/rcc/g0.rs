@@ -164,6 +164,105 @@ pub struct PllFreq {
     pub pll_r: Option<Hertz>,
 }
 
+/// Flash wait states for an HCLK of `hz` (RM0444 3.3.4).
+fn flash_latency(vos: VoltageRange, hz: u32) -> Latency {
+    match (vos, hz) {
+        (VoltageRange::Range1, ..=24_000_000) => Latency::Ws0,
+        (VoltageRange::Range1, ..=48_000_000) => Latency::Ws1,
+        (VoltageRange::Range1, _) => Latency::Ws2,
+        (VoltageRange::Range2, ..=8_000_000) => Latency::Ws0,
+        (VoltageRange::Range2, ..=16_000_000) => Latency::Ws1,
+        (VoltageRange::Range2, _) => Latency::Ws2,
+        _ => unreachable!(),
+    }
+}
+
+/// The clocks to bring back after Stop.
+///
+/// G0 wakes up on HSISYS (HSI16 divided by HSIDIV) with HSE, the PLL and HSI48 off. The
+/// configuration registers, the voltage range and the flash latency are kept (RM0444 4.3.6,
+/// 5.2.7). In range 2, HSISYS can need more wait states than the configured clocks.
+#[cfg(feature = "low-power")]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    #[cfg(crs)]
+    hsi48: bool,
+    sw: Sysclk,
+    latency: Latency,
+    /// The flash latency the wake-up clock needs, if higher than `latency`.
+    wake_latency: Option<Latency>,
+}
+
+#[cfg(feature = "low-power")]
+impl StopRestore {
+    pub(crate) fn capture() -> Self {
+        let cr = RCC.cr().read();
+        let cfgr = RCC.cfgr().read();
+        let wake_hclk = HSI_FREQ / cr.hsidiv() / cfgr.hpre();
+        // Low-power run continues after Stop, so the wake-up clock must be within its limit
+        // (RM0444 4.3.6).
+        assert!(
+            !PWR.cr1().read().lpr() || wake_hclk <= Hertz(2_000_000),
+            "low-power run with low-power: HSISYS must be at most 2 MHz"
+        );
+        let wake_latency = flash_latency(PWR.cr1().read().vos(), wake_hclk.0);
+        let latency = FLASH.acr().read().latency();
+
+        Self {
+            cr,
+            #[cfg(crs)]
+            hsi48: super::hsi48_enabled(),
+            sw: cfgr.sws(),
+            latency,
+            wake_latency: (wake_latency.to_bits() > latency.to_bits()).then_some(wake_latency),
+        }
+    }
+
+    pub(crate) fn enter(&self) {
+        if let Some(latency) = self.wake_latency {
+            FLASH.acr().modify(|w| w.set_latency(latency));
+            while FLASH.acr().read().latency() != latency {}
+        }
+    }
+
+    pub(crate) fn exit(&self) {
+        let s = self.cr;
+        RCC.cr().modify(|w| {
+            w.set_hseon(w.hseon() | s.hseon());
+            w.set_hsion(w.hsion() | s.hsion());
+        });
+        #[cfg(crs)]
+        if self.hsi48 {
+            super::hsi48_enable();
+        }
+        while (s.hseon() && !RCC.cr().read().hserdy()) || (s.hsion() && !RCC.cr().read().hsirdy()) {}
+
+        if s.pllon() {
+            RCC.cr().modify(|w| w.set_pllon(true));
+            while !RCC.cr().read().pllrdy() {}
+        }
+        #[cfg(crs)]
+        if self.hsi48 {
+            super::hsi48_wait_ready();
+        }
+
+        if RCC.cfgr().read().sws() != self.sw {
+            RCC.cfgr().modify(|w| w.set_sw(self.sw));
+            while RCC.cfgr().read().sws() != self.sw {}
+        }
+
+        if self.wake_latency.is_some() {
+            FLASH.acr().modify(|w| w.set_latency(self.latency));
+            while FLASH.acr().read().latency() != self.latency {}
+        }
+
+        if !s.hsion() {
+            RCC.cr().modify(|w| w.set_hsion(false));
+        }
+    }
+}
+
 pub(crate) unsafe fn init(config: Config) {
     // Turn on the HSI
     RCC.cr().modify(|w| {
@@ -296,15 +395,7 @@ pub(crate) unsafe fn init(config: Config) {
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
     rcc_assert!(max::PCLK.contains(&pclk1));
 
-    let latency = match (config.voltage_range, hclk.0) {
-        (VoltageRange::Range1, ..=24_000_000) => Latency::Ws0,
-        (VoltageRange::Range1, ..=48_000_000) => Latency::Ws1,
-        (VoltageRange::Range1, _) => Latency::Ws2,
-        (VoltageRange::Range2, ..=8_000_000) => Latency::Ws0,
-        (VoltageRange::Range2, ..=16_000_000) => Latency::Ws1,
-        (VoltageRange::Range2, _) => Latency::Ws2,
-        _ => unreachable!(),
-    };
+    let latency = flash_latency(config.voltage_range, hclk.0);
 
     // Configure flash read access latency based on voltage scale and frequency (RM0444 3.3.4)
     FLASH.acr().modify(|w| {

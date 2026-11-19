@@ -60,8 +60,37 @@ async fn task_2(time_provider: RtcTimeProvider, start_rtc: DateTime, start: Inst
     cortex_m::asm::bkpt();
 }
 
+/// Whether a debugger attached since power-on.
+fn debugger_attached() -> bool {
+    cfg_select! {
+        // Cortex-M0+ software can't read DHCSR. probe-rs turns on the DBGMCU clock and sets
+        // DBG_STOP when it attaches, and only a power-on reset clears DBGMCU_CR (RM0444 40.10.2,
+        // RM0367 33.9.3).
+        feature = "stm32g071rb" => {
+            embassy_stm32::pac::RCC.apbenr1().modify(|w| w.set_dbgen(true));
+            embassy_stm32::pac::DBGMCU.cr().read().dbg_stop()
+        }
+        feature = "stm32l073rz" => {
+            embassy_stm32::pac::RCC.apb2enr().modify(|w| w.set_dbgen(true));
+            embassy_stm32::pac::DBGMCU.cr().read().dbg_stop()
+        }
+        // probe-rs doesn't set up DBGMCU on U0.
+        feature = "stm32u083rc" => true,
+        _ => cortex_m::peripheral::DCB::is_debugger_attached(),
+    }
+}
+
 #[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
+    // This test stays in flash, so it also runs when the farm power-cycles the board to load the
+    // next test, and loading it sometimes fails while the chip goes in and out of Stop. Without a
+    // debugger at boot, this is that leftover image: park for good, teleprobe takes over.
+    if !debugger_attached() {
+        loop {
+            core::hint::spin_loop();
+        }
+    }
+
     let mut config = config();
     config.rcc.ls = LsConfig::default_lse();
 

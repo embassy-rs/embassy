@@ -174,6 +174,48 @@ impl Default for Config {
     }
 }
 
+/// The clocks to bring back after Stop.
+///
+/// F3 wakes up on HSI at 8 MHz with HSE and the PLL off (RM0316 7.3.4), which runs at 0 wait
+/// states, so the flash latency never needs raising before Stop.
+#[cfg(feature = "low-power")]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    sw: Sysclk,
+}
+
+#[cfg(feature = "low-power")]
+impl StopRestore {
+    pub(crate) fn capture() -> Self {
+        Self {
+            cr: RCC.cr().read(),
+            sw: RCC.cfgr().read().sws(),
+        }
+    }
+
+    pub(crate) fn enter(&self) {}
+
+    pub(crate) fn exit(&self) {
+        let s = self.cr;
+        RCC.cr().modify(|w| w.set_hseon(w.hseon() | s.hseon()));
+        while s.hseon() && !RCC.cr().read().hserdy() {}
+
+        if s.pllon() {
+            RCC.cr().modify(|w| w.set_pllon(true));
+            while !RCC.cr().read().pllrdy() {}
+        }
+
+        if RCC.cfgr().read().sws() != self.sw {
+            RCC.cfgr().modify(|w| w.set_sw(self.sw));
+            while RCC.cfgr().read().sws() != self.sw {}
+        }
+        if !s.hsion() {
+            RCC.cr().modify(|w| w.set_hsion(false));
+        }
+    }
+}
+
 /// Initialize and Set the clock frequencies
 pub(crate) unsafe fn init(config: Config) {
     // Turn on the HSI

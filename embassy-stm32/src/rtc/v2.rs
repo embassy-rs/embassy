@@ -147,23 +147,31 @@ impl super::Rtc {
 impl SealedInstance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 20;
 
-    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver"), stm32f4))]
-    const EXTI_WAKEUP_LINE: usize = 22;
+    #[cfg(feature = "low-power")]
+    #[cfg(not(feature = "_lp-time-driver"))]
+    cfg_select! {
+        any(stm32f4, stm32f7) => {
+            const EXTI_WAKEUP_LINE: usize = 22;
+        }
+        any(stm32f3, stm32l0, stm32l1, stm32l4) => {
+            const EXTI_WAKEUP_LINE: usize = 20;
+        }
+        stm32wb => {
+            const EXTI_WAKEUP_LINE: usize = 19;
+        }
+        _ => {}
+    }
 
-    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver"), stm32l4))]
-    const EXTI_WAKEUP_LINE: usize = 20;
-
-    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver"), stm32l0))]
-    const EXTI_WAKEUP_LINE: usize = 20;
-
-    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver"), stm32wb))]
-    const EXTI_WAKEUP_LINE: usize = 19;
-
-    #[cfg(all(feature = "low-power", any(stm32f4, stm32l4, stm32wb)))]
-    type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
-
-    #[cfg(all(feature = "low-power", stm32l0))]
-    type WakeupInterrupt = crate::interrupt::typelevel::RTC;
+    #[cfg(feature = "low-power")]
+    cfg_select! {
+        any(stm32f3, stm32f4, stm32f7, stm32l1, stm32l4, stm32wb) => {
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+        }
+        stm32l0 => {
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC;
+        }
+        _ => {}
+    }
 
     #[cfg(not(rtc_v2_f2))]
     fn shpf() -> bool {

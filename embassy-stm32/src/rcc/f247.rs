@@ -381,16 +381,16 @@ pub(crate) unsafe fn init(config: Config) {
 
 /// The clocks to bring back after Stop.
 ///
-/// F4 wakes up on HSI at 16 MHz with HSE and the PLLs off (RM0090 5.3.4, 6.3.1), which runs at
-/// 0 wait states at any supply voltage, so the flash latency never needs raising before Stop. The
-/// chips with over-drive also lose it and drop to voltage scale 3 until the PLL is on (RM0090
-/// 5.1.4).
+/// F4 and F7 wake up on HSI at 16 MHz with HSE and the PLLs off (RM0090 5.3.4, 6.3.1; RM0410
+/// 4.3.5), which runs at 0 wait states at any supply voltage, so the flash latency never needs
+/// raising before Stop. The chips with over-drive also lose it and drop to voltage scale 3 until
+/// the PLL is on (RM0090 5.1.4, RM0410 4.1.6).
 #[cfg(feature = "low-power")]
 #[derive(Clone, Copy)]
 pub(crate) struct StopRestore {
     cr: crate::pac::rcc::regs::Cr,
     sw: Sysclk,
-    #[cfg(any(stm32f446, stm32f4x9, stm32f427, stm32f437))]
+    #[cfg(any(stm32f446, stm32f4x9, stm32f427, stm32f437, stm32f7))]
     overdrive: bool,
 }
 
@@ -400,7 +400,7 @@ impl StopRestore {
         Self {
             cr: RCC.cr().read(),
             sw: RCC.cfgr().read().sws(),
-            #[cfg(any(stm32f446, stm32f4x9, stm32f427, stm32f437))]
+            #[cfg(any(stm32f446, stm32f4x9, stm32f427, stm32f437, stm32f7))]
             overdrive: PWR.cr1().read().odswen(),
         }
     }
@@ -416,12 +416,13 @@ impl StopRestore {
             w.set_pllon(w.pllon() | s.pllon());
             #[cfg(not(stm32f410))]
             w.set_plli2son(w.plli2son() | s.plli2son());
-            #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9))]
+            #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
             w.set_pllsaion(w.pllsaion() | s.pllsaion());
         });
 
-        // Over-drive goes back on once the PLL is on, while still running on HSI (RM0090 5.1.4).
-        #[cfg(any(stm32f446, stm32f4x9, stm32f427, stm32f437))]
+        // Over-drive goes back on once the PLL is on, while still running on HSI (RM0090 5.1.4,
+        // RM0410 4.1.6).
+        #[cfg(any(stm32f446, stm32f4x9, stm32f427, stm32f437, stm32f7))]
         if self.overdrive && !PWR.cr1().read().odswen() {
             PWR.cr1().modify(|w| w.set_oden(true));
             while !PWR.csr1().read().odrdy() {}
@@ -437,7 +438,7 @@ impl StopRestore {
             {
                 ready &= cr.plli2srdy() | !s.plli2son();
             }
-            #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9))]
+            #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
             {
                 ready &= cr.pllsairdy() | !s.pllsaion();
             }

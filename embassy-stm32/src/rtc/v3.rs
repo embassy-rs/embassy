@@ -155,9 +155,6 @@ impl SealedInstance for crate::peripherals::RTC {
         any(stm32g4, stm32wl, stm32l4) => {
             const EXTI_WAKEUP_LINE: usize = 20;
         }
-        stm32g0 => {
-            const EXTI_WAKEUP_LINE: usize = 19;
-        }
         any(stm32l5, stm32h5) => {
             const EXTI_WAKEUP_LINE: usize = 17;
         }
