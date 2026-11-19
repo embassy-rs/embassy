@@ -35,8 +35,8 @@ async fn main(_spawner: Spawner) {
         adc_data,
         Irqs,
         [
-            (p.PA0.reborrow_adc(), SampleTime::Cycles135),
-            (p.PA1.reborrow_adc(), SampleTime::Cycles135),
+            (p.PA0.reborrow_adc(), SampleTime::Cycles13_5),
+            (p.PA1.reborrow_adc(), SampleTime::Cycles13_5),
         ]
         .into_iter(),
         None,

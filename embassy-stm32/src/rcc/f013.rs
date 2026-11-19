@@ -345,7 +345,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(any(rcc_f1, rcc_f1cl, stm32f3, stm32f105, stm32f107))]
     let usb = match pll {
-        Some(Hertz(72_000_000)) => Some(crate::pac::rcc::vals::Usbpre::Div15),
+        Some(Hertz(72_000_000)) => Some(crate::pac::rcc::vals::Usbpre::Div1_5),
         Some(Hertz(48_000_000)) => Some(crate::pac::rcc::vals::Usbpre::Div1),
         _ => None,
     }

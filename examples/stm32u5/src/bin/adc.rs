@@ -66,11 +66,11 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("Read adc2 pin 2 {}", volt);
 
     // **** ADC4 blocking read ****
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin1, Adc4SampleTime::Cycles15);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin1, Adc4SampleTime::Cycles1_5);
     let volt: f32 = 3.3 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 1 {}", volt);
 
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin2, Adc4SampleTime::Cycles15);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin2, Adc4SampleTime::Cycles1_5);
     let volt: f32 = 3.3 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 2 {}", volt);
 
@@ -105,8 +105,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
         p.GPDMA1_CH1.reborrow(),
         Irqs,
         [
-            (adc4_pin1.reborrow_adc(), Adc4SampleTime::Cycles15),
-            (adc4_pin2.reborrow_adc(), Adc4SampleTime::Cycles15),
+            (adc4_pin1.reborrow_adc(), Adc4SampleTime::Cycles1_5),
+            (adc4_pin2.reborrow_adc(), Adc4SampleTime::Cycles1_5),
         ]
         .into_iter(),
         None,

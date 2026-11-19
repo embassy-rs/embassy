@@ -44,11 +44,11 @@ impl<'d, T: Instance> Sma<'d, T> {
         // Set the MDC clock frequency in the range 1MHz - 2.5MHz
         let clock_range = match hclk_mhz {
             0..=24 => panic!("Invalid HCLK frequency - should be at least 25 MHz."),
-            25..=34 => Cr::Cr2035,     // Divide by 16
-            35..=59 => Cr::Cr3560,     // Divide by 26
-            60..=99 => Cr::Cr60100,    // Divide by 42
-            100..=149 => Cr::Cr100150, // Divide by 62
-            150..=216 => Cr::Cr150168, // Divide by 102
+            25..=34 => Cr::Div16,
+            35..=59 => Cr::Div26,
+            60..=99 => Cr::Div42,
+            100..=149 => Cr::Div62,
+            150..=216 => Cr::Div102,
             _ => {
                 panic!("HCLK results in MDC clock > 2.5MHz even for the highest CSR clock divider")
             }

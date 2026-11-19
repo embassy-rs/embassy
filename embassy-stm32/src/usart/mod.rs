@@ -2651,9 +2651,9 @@ fn configure(
 
     r.cr2().write(|w| {
         w.set_stop(match config.stop_bits {
-            StopBits::STOP0P5 => vals::Stop::Stop0p5,
+            StopBits::STOP0P5 => vals::Stop::Stop0_5,
             StopBits::STOP1 => vals::Stop::Stop1,
-            StopBits::STOP1P5 => vals::Stop::Stop1p5,
+            StopBits::STOP1P5 => vals::Stop::Stop1_5,
             StopBits::STOP2 => vals::Stop::Stop2,
         });
 
