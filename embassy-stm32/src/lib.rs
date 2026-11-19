@@ -428,7 +428,10 @@ pub struct Config {
     pub rcc: rcc::Config,
 
     #[cfg(feature = "low-power")]
-    /// RTC config
+    /// RTC config.
+    ///
+    /// Unless a low-power timer is the time driver, the RTC measures the time spent in Stop mode,
+    /// and `init` configures it with this. Pass the same config to [`rtc::Rtc::new`].
     pub rtc: rtc::RtcConfig,
 
     #[cfg(feature = "low-power")]
@@ -1124,8 +1127,8 @@ fn init_hw(config: Config) -> Peripherals {
 
             // must be after time-driver init
             #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-            rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
-            #[cfg(all(feature = "low-power", feature = "_lp-time-driver"))]
+            rtc::init_low_power(cs, config.rtc);
+            #[cfg(feature = "low-power")]
             crate::time_driver::LPTimeDriver::set_min_stop_pause(
                 crate::time_driver::get_driver(),
                 cs,

@@ -7,7 +7,7 @@
 ///
 /// It is meant for code that cares about the last few hundred bytes of flash, or that needs the
 /// hardware day of week. For anything else, enable the `jiff` feature and use
-/// `RtcTimeProvider::read` and `Rtc::set`, which work with validated `jiff::civil::DateTime`
+/// `RtcReader::read` and `Rtc::set`, which work with validated `jiff::civil::DateTime`
 /// values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

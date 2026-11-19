@@ -5,7 +5,7 @@ use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::SealedInstance;
 
-impl super::Rtc {
+impl super::Rtc<'_> {
     /// Applies the RTC config.
     ///
     /// The date and time are kept. If the hour format or the prescalers have to change, the RTC

@@ -13,7 +13,7 @@ use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{LsConfig, StopMode, get_stop_mode};
-use embassy_stm32::rtc::{Rtc, RtcTimeProvider};
+use embassy_stm32::rtc::{Rtc, RtcConfig, RtcReader};
 use embassy_time::{Duration, Instant, Timer, block_for};
 use jiff::civil::{DateTime, date};
 
@@ -42,7 +42,7 @@ async fn task_1() {
 }
 
 #[embassy_executor::task]
-async fn task_2(time_provider: RtcTimeProvider, start_rtc: DateTime, start: Instant) {
+async fn task_2(reader: RtcReader<'static>, start_rtc: DateTime, start: Instant) {
     for _ in 0..5 {
         info!("task 2: waiting for 1000ms...");
         assert!(stop_ready(StopMode::Stop2));
@@ -51,7 +51,7 @@ async fn task_2(time_provider: RtcTimeProvider, start_rtc: DateTime, start: Inst
     }
 
     // The time spent in stop mode is measured with the RTC, so embassy-time must track it.
-    let rtc_elapsed = time_provider.read().unwrap().duration_since(start_rtc).as_micros() as i64;
+    let rtc_elapsed = reader.read().unwrap().duration_since(start_rtc).as_micros() as i64;
     let elapsed = start.elapsed().as_micros() as i64;
     info!("elapsed: rtc {} us, embassy-time {} us", rtc_elapsed, elapsed);
     assert!((rtc_elapsed - elapsed).abs() < 20_000);
@@ -127,17 +127,16 @@ async fn main(spawner: Spawner) {
 
     let now = date(2020, 5, 15).at(10, 30, 15, 0);
 
-    let (rtc, time_provider) = Rtc::new(p.RTC);
+    let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
+    let reader = rtc.reader();
 
     info!("set datetime");
-    critical_section::with(|cs| {
-        rtc.borrow_mut(cs).set(now).unwrap();
-    });
+    rtc.set(now).unwrap();
 
-    let start_rtc = time_provider.read().unwrap();
+    let start_rtc = reader.read().unwrap();
     let start = Instant::now();
 
     info!("spawn");
     spawner.spawn(task_1().unwrap());
-    spawner.spawn(task_2(time_provider, start_rtc, start).unwrap());
+    spawner.spawn(task_2(reader, start_rtc, start).unwrap());
 }

@@ -28,12 +28,12 @@ async fn main(_spawner: Spawner) {
         subsecond: 0,
     };
 
-    let (mut rtc, time_provider) = Rtc::new(p.RTC, RtcConfig::default());
+    let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
 
     rtc.set_raw(now);
 
     loop {
-        let now = time_provider.read_raw();
+        let now = rtc.read_raw();
 
         info!("{}:{}:{}", now.hour, now.minute, now.second);
 

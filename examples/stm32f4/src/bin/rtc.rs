@@ -19,12 +19,12 @@ async fn main(_spawner: Spawner) {
 
     let now = date(2020, 5, 15).at(10, 30, 15, 0);
 
-    let (mut rtc, time_provider) = Rtc::new(p.RTC, RtcConfig::default());
+    let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
 
     rtc.set(now).unwrap();
 
     loop {
-        let now = time_provider.read().unwrap();
+        let now = rtc.read().unwrap();
         print_datetime(now);
 
         Timer::after_millis(1000).await;
