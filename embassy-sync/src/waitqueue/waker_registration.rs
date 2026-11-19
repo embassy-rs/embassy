@@ -11,6 +11,14 @@ pub struct WakerRegistration {
     waker: Option<Waker>,
 }
 
+// TODO: replace with derive (https://github.com/knurling-rs/defmt/pull/1128)
+#[cfg(feature = "defmt")]
+impl defmt::Format for WakerRegistration {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "WakerRegistration")
+    }
+}
+
 impl WakerRegistration {
     /// Create a new `WakerRegistration`.
     pub const fn new() -> Self {
