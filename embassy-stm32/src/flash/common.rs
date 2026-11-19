@@ -219,7 +219,7 @@ impl OpGuard {
             // Clear flags left over by a previous operation, they would block this one.
             let _ = family::finish();
             match op {
-                Op::Write(address, data) => family::start_write(address, data, interrupt),
+                Op::Write(address, data) => ecc::program(|| family::start_write(address, data, interrupt)),
                 #[cfg(flash_edata)]
                 Op::WriteEdata(address, data) => family::start_write_edata(address, data, interrupt),
                 Op::Erase(sector, config) => family::start_erase(sector, config, interrupt),

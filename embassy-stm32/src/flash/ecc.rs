@@ -9,8 +9,8 @@
 //!   data bus faults while it runs at priority -1, and the flash error flag is checked
 //!   afterwards.
 //! - All other chips with ECC: the read raises an NMI. embassy-stm32 defines the NMI handler.
-//!   During a read through the driver it clears the flags and records the error. Any other NMI
-//!   panics.
+//!   During a read through the driver it clears the flags and records the error, and while the
+//!   driver writes the data of a program operation it clears the flags. Any other NMI panics.
 //!
 //! On H5 and C5, the EDATA area and the OTP area have 16-bit words with their own ECC. They
 //! can only be read with 16- or 32-bit accesses. A word that was never programmed since it was
@@ -124,16 +124,32 @@ fn read_chunk(address: u32, bytes: &mut [u8]) -> bool {
     }
 }
 
-/// Set while the driver reads flash.
+/// Set while the driver reads flash or writes the data of a program operation.
 #[cfg(flash_ecc_nmi)]
-static READING: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-/// Set by the NMI handler when it handled a double ECC error during a read.
+static ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+/// Set by the NMI handler when it handled a double ECC error while armed.
 #[cfg(flash_ecc_nmi)]
 static ECC_ERROR: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 /// Reads a chunk, with the NMI handler armed. Returns `false` on a double ECC error.
 #[cfg(flash_ecc_nmi)]
 fn read_chunk(address: u32, bytes: &mut [u8]) -> bool {
+    !armed(|| copy(address, bytes))
+}
+
+/// Runs `start`, which writes the data of a program operation. On chips that check that the target
+/// word is erased, that check raises the NMI if the word has a double ECC error.
+pub(super) fn program(start: impl FnOnce()) {
+    #[cfg(flash_ecc_nmi)]
+    armed(start);
+    #[cfg(not(flash_ecc_nmi))]
+    start();
+}
+
+/// Runs `f` in a critical section, with the NMI handler armed. Returns whether a flash access of
+/// `f` gave a double ECC error.
+#[cfg(flash_ecc_nmi)]
+fn armed(f: impl FnOnce()) -> bool {
     use core::sync::atomic::Ordering::Relaxed;
     use core::sync::atomic::{Ordering, compiler_fence};
 
@@ -143,12 +159,12 @@ fn read_chunk(address: u32, bytes: &mut [u8]) -> bool {
         // The hardware doesn't flag a double error while a previous error is still flagged.
         family::ecc_clear();
         ECC_ERROR.store(false, Relaxed);
-        READING.store(true, Relaxed);
+        ARMED.store(true, Relaxed);
         compiler_fence(Ordering::SeqCst);
         dsb();
 
-        copy(address, bytes);
-        // Reading a flash register waits for the reads to complete. If one of them raised the
+        f();
+        // Reading a flash register waits for the accesses to complete. If one of them raised the
         // NMI, wait for the handler to run.
         dsb();
         let flagged = family::ecc_double_error();
@@ -170,8 +186,8 @@ fn read_chunk(address: u32, bytes: &mut [u8]) -> bool {
         }
 
         compiler_fence(Ordering::SeqCst);
-        READING.store(false, Relaxed);
-        !error
+        ARMED.store(false, Relaxed);
+        error
     })
 }
 
@@ -236,14 +252,15 @@ pub(super) fn half_word_reads<R>(f: impl FnOnce() -> R) -> R {
 }
 
 /// NMI handler. A double ECC error raised by a flash read of the driver makes the read return
-/// [`Error::Ecc`]. Any other NMI panics.
+/// [`Error::Ecc`]; one raised while it writes a program operation's data is cleared. Any other
+/// NMI panics.
 #[cfg(all(feature = "rt", flash_ecc_nmi))]
 #[allow(non_snake_case)]
 #[unsafe(no_mangle)]
 unsafe extern "C" fn NonMaskableInt() {
     use core::sync::atomic::Ordering::Relaxed;
 
-    if READING.load(Relaxed) && family::ecc_double_error() {
+    if ARMED.load(Relaxed) && family::ecc_double_error() {
         family::ecc_clear();
         ECC_ERROR.store(true, Relaxed);
     } else {
