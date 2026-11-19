@@ -944,23 +944,23 @@ fn main() {
             }
         }
 
-        fn gen_prescaled_mux(&mut self, peripheral: &str, mux: &PeripheralRccMux) -> TokenStream {
-            let mux_expr = self.gen_mux(
-                peripheral,
-                &PeripheralRccRegister {
-                    register: mux.register,
-                    field: mux.field,
-                },
-            );
-
+        /// Wrap a kernel clock expression in a runtime read of its prescaler field,
+        /// dividing/multiplying accordingly (e.g. F1 `CFGR/ADCPRE`, C5
+        /// `CCIPR2/ADCDACPRE`).
+        fn wrap_prescaler(
+            &mut self,
+            peripheral: &str,
+            freq: TokenStream,
+            prescaler: &PeripheralRccRegister,
+        ) -> TokenStream {
             let ir = &self.rcc_registers.ir;
-            let fieldset_name = mux.prescaler.register.to_ascii_lowercase();
+            let fieldset_name = prescaler.register.to_ascii_lowercase();
             let fieldset = ir
                 .fieldsets
                 .iter()
                 .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
                 .unwrap();
-            let field_name = mux.prescaler.field.to_ascii_lowercase();
+            let field_name = prescaler.field.to_ascii_lowercase();
             let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
             let enum_name = field.enumm.unwrap();
             let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
@@ -987,7 +987,7 @@ fn main() {
 
             quote! {
                 {
-                    let freq = #mux_expr;
+                    let freq = #freq;
                     match crate::pac::RCC.#fieldset_name().read().#field_name() {
                         #match_arms
                         #[allow(unreachable_patterns)]
@@ -998,6 +998,25 @@ fn main() {
                         )
                     }
                 }
+            }
+        }
+
+        /// Kernel clock from the consolidated metapac `PeripheralRccMux`: a mux, a
+        /// parent clock (no mux), or either of those behind a prescaler.
+        fn gen_kernel(&mut self, peripheral: &str, mux: &PeripheralRccMux) -> TokenStream {
+            let base = if let (Some(register), Some(field)) = (mux.register, mux.field) {
+                self.gen_mux(peripheral, &PeripheralRccRegister { register, field })
+            } else if let Some(clock) = mux.clock {
+                self.gen_clock(peripheral, clock)
+            } else {
+                panic!(
+                    "peripheral '{}' has a kernel clock with neither a mux field nor a parent clock",
+                    peripheral
+                )
+            };
+            match &mux.prescaler {
+                Some(prescaler) => self.wrap_prescaler(peripheral, base, prescaler),
+                None => base,
             }
         }
     }
@@ -1062,9 +1081,8 @@ fn main() {
             };
 
             let clock_frequency = match &rcc.kernel_clock {
-                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
                 PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
-                PeripheralRccKernelClock::PrescaledMux(mux) => clock_gen.gen_prescaled_mux(p.name, mux),
+                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_kernel(p.name, mux),
             };
 
             let bus_clock_frequency = clock_gen.gen_clock(p.name, rcc.bus_clock);
@@ -1195,15 +1213,16 @@ fn main() {
         && p.registers.as_ref().is_some_and(|r| r.kind == "lptim")
         && let Some(rcc) = &p.rcc
         && let PeripheralRccKernelClock::Mux(mux) = &rcc.kernel_clock
+        && let (Some(register), Some(field)) = (mux.register, mux.field)
     {
         let ir = &clock_gen.rcc_registers.ir;
-        let fieldset_name = mux.register.to_ascii_lowercase();
+        let fieldset_name = register.to_ascii_lowercase();
         let fieldset = ir
             .fieldsets
             .iter()
             .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
             .unwrap();
-        let field_name = mux.field.to_ascii_lowercase();
+        let field_name = field.to_ascii_lowercase();
         let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
         let enum_name = field.enumm.unwrap();
         let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
