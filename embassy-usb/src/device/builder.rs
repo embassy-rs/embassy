@@ -471,7 +471,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     }
 
     /// The max packet size of a bulk endpoint with `options` at [`Config::max_speed`].
-    fn bulk_max_packet_size(&self, options: EndpointOptions) -> u16 {
+    pub(crate) fn bulk_max_packet_size(&self, options: EndpointOptions) -> u16 {
         let max = match self.config.max_speed {
             UsbDeviceSpeed::Full => 64,
             UsbDeviceSpeed::High => 512,
