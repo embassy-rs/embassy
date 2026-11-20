@@ -4,17 +4,32 @@ use embassy_embedded_hal::flash::partition::Partition;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage_async::nor_flash::NorFlash;
 
-use super::FirmwareUpdaterConfig;
+use super::{DirectXipUpdate, FirmwareUpdaterConfig};
 use crate::verification::asynch::{hash, verify};
 use crate::verification::{Digest, VerifyingKey};
-use crate::{BOOT_MAGIC, DFU_DETACH_MAGIC, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, State};
+use crate::{
+    BOOT_MAGIC, DFU_DETACH_MAGIC, DirectXipState, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, Slot, State,
+};
+
+pub(crate) trait SealedFirmwareUpdaterState {
+    async fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError>;
+    async fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError>;
+    async fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError>;
+}
+
+/// Boot state supported by an async firmware updater.
+#[allow(private_bounds)]
+pub trait FirmwareUpdaterState: SealedFirmwareUpdaterState {}
 
 /// FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
-pub struct FirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash> {
+///
+/// The default boot state uses swap. Use [`Self::new_direct_xip`] for A/B slots.
+pub struct FirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash, BOOT = FirmwareState<'d, STATE>> {
     dfu: DFU,
-    state: FirmwareState<'d, STATE>,
+    state: BOOT,
     last_erased_dfu_sector_index: Option<usize>,
+    _state: core::marker::PhantomData<&'d mut STATE>,
 }
 
 #[cfg(target_os = "none")]
@@ -52,13 +67,14 @@ impl<'a, DFU: NorFlash, STATE: NorFlash>
     }
 }
 
-impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
+impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE, FirmwareState<'d, STATE>> {
     /// Create a firmware updater instance with partition ranges for the update and state partitions.
     pub fn new(config: FirmwareUpdaterConfig<DFU, STATE>, aligned: &'d mut [u8]) -> Self {
         Self {
             dfu: config.dfu,
             state: FirmwareState::new(config.state, aligned),
             last_erased_dfu_sector_index: None,
+            _state: core::marker::PhantomData,
         }
     }
 
@@ -71,11 +87,52 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
         self.state.get_state().await
     }
 
+    /// Mark to trigger USB DFU on next boot.
+    pub async fn mark_dfu(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted().await?;
+        self.state.mark_dfu().await
+    }
+}
+
+impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE, DirectXipUpdate<DirectXipState<'d, STATE>>> {
+    /// Write updates to the slot opposite `running`.
+    ///
+    /// `dfu` must cover that slot, not the running image. Pass the slot this
+    /// application is running from; flash partitions do not expose their addresses.
+    /// Each image must be linked for its slot unless flash is remapped.
+    pub fn new_direct_xip(dfu: DFU, state: DirectXipState<'d, STATE>, running: Slot) -> Self {
+        Self {
+            dfu,
+            state: DirectXipUpdate { state, running },
+            last_erased_dfu_sector_index: None,
+            _state: core::marker::PhantomData,
+        }
+    }
+
+    /// Slot this updater can write next.
+    ///
+    /// Returns [`FirmwareUpdaterError::BadState`] while an update is pending or
+    /// on trial, or if `running` is not the confirmed slot. Flash errors propagate.
+    pub async fn update_slot(&mut self) -> Result<Slot, FirmwareUpdaterError> {
+        self.state.verify_booted().await?;
+        Ok(self.state.running.other())
+    }
+
+    /// Whether the running image is marked as booted.
+    ///
+    /// `false` means it's on trial. Run its startup checks, then call
+    /// [`Self::mark_booted`].
+    pub async fn is_booted(&mut self) -> Result<bool, FirmwareUpdaterError> {
+        Ok(self.state.state.is_booted(self.state.running).await?)
+    }
+}
+
+impl<'d, DFU: NorFlash, STATE: NorFlash, BOOT: FirmwareUpdaterState> FirmwareUpdater<'d, DFU, STATE, BOOT> {
     /// Verify the DFU given a public key. If there is an error then DO NOT
     /// proceed with updating the firmware as it must be signed with a
     /// corresponding private key (otherwise it could be malicious firmware).
     ///
-    /// Mark to trigger firmware swap on next boot if verify succeeds.
+    /// Boot the update on the next reset if verification succeeds.
     ///
     /// The signature is expected to have been generated
     /// from the firmware bytes using a digest of the provided type.
@@ -125,8 +182,10 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the arguments are not aligned or out of bounds.
+    /// Returns an error if the arguments are not aligned or out of bounds, or
+    /// [`FirmwareUpdaterError::BadState`] while an update is pending or on trial.
     pub async fn erase_dfu(&mut self, from: u32, to: u32) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted().await?;
         self.dfu.erase(from, to).await?;
         Ok(())
     }
@@ -136,23 +195,19 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the arguments are not aligned or out of bounds.
+    /// Returns an error if the arguments are not aligned or out of bounds, or
+    /// [`FirmwareUpdaterError::BadState`] while an update is pending or on trial.
     pub async fn write_dfu(&mut self, offset: u32, buf: &[u8]) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted().await?;
         self.dfu.write(offset, buf).await?;
         Ok(())
     }
 
-    /// Mark to trigger firmware swap on next boot.
+    /// Boot the update on the next reset.
     ///
     /// With signature support enabled, verify first or use a verifying bootloader.
     pub async fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.state.mark_updated().await
-    }
-
-    /// Mark to trigger USB DFU on next boot.
-    pub async fn mark_dfu(&mut self) -> Result<(), FirmwareUpdaterError> {
-        self.state.verify_booted().await?;
-        self.state.mark_dfu().await
     }
 
     /// Mark firmware boot successful and stop rollback on reset.
@@ -357,6 +412,44 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
     }
 }
 
+impl<STATE: NorFlash> FirmwareUpdaterState for FirmwareState<'_, STATE> {}
+
+impl<STATE: NorFlash> SealedFirmwareUpdaterState for FirmwareState<'_, STATE> {
+    async fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
+        FirmwareState::verify_booted(self).await
+    }
+
+    async fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
+        FirmwareState::mark_updated(self).await
+    }
+
+    async fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
+        FirmwareState::mark_booted(self).await
+    }
+}
+
+impl<STATE: NorFlash> FirmwareUpdaterState for DirectXipUpdate<DirectXipState<'_, STATE>> {}
+
+impl<STATE: NorFlash> SealedFirmwareUpdaterState for DirectXipUpdate<DirectXipState<'_, STATE>> {
+    async fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
+        if self.state.update_slot().await? == self.running.other() {
+            Ok(())
+        } else {
+            Err(FirmwareUpdaterError::BadState)
+        }
+    }
+
+    async fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.mark_updated(self.running.other()).await?;
+        Ok(())
+    }
+
+    async fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.mark_booted(self.running).await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use embassy_crypto::Sha1;
@@ -387,6 +480,31 @@ mod tests {
         let hash = block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf)).unwrap();
 
         assert_eq!(Sha1::digest(&update).as_slice(), hash.as_ref());
+    }
+
+    #[test]
+    fn pending_swap_rejects_raw_dfu_writes() {
+        let flash = Mutex::<NoopRawMutex, _>::new(MemFlash::<131072, 4096, 8>::default());
+        let state = Partition::new(&flash, 0, 4096);
+        let dfu = Partition::new(&flash, 65536, 65536);
+        let mut aligned = [0; 8];
+
+        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig { dfu, state }, &mut aligned);
+        block_on(updater.erase_dfu(0, 4096)).unwrap();
+        block_on(updater.write_dfu(0, &[0xaa; 8])).unwrap();
+        block_on(updater.mark_updated()).unwrap();
+
+        assert!(matches!(
+            block_on(updater.erase_dfu(0, 4096)),
+            Err(FirmwareUpdaterError::BadState)
+        ));
+        assert!(matches!(
+            block_on(updater.write_dfu(8, &[0; 8])),
+            Err(FirmwareUpdaterError::BadState)
+        ));
+        let mut written = [0; 8];
+        block_on(updater.read_dfu(0, &mut written)).unwrap();
+        assert_eq!(written, [0xaa; 8]);
     }
 
     #[test]

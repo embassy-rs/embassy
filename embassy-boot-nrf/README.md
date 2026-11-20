@@ -10,6 +10,12 @@ An adaptation of `embassy-boot` for nRF.
 - Configure bootloader partitions based on linker script.
 - Using watchdog timer to detect application failure.
 
+## Direct-XIP
+
+See [embassy-boot](../embassy-boot/README.md#direct-xip) for the state layout, boot preparation and update flow.
+
+The SoftDevice uses a fixed application address, so Direct-XIP boot preparation is unavailable with `softdevice`.
+
 ## Working with a SoftDevice
 
 When a SoftDevice is present, it handles starting the bootloader and the application as needed.
